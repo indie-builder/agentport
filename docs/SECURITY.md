@@ -38,21 +38,17 @@
 
 | 编号 | 修复 |
 |---|---|
-| H5 | `/mcp`、`/mcp/:serverId` 60/min；`/api/servers/:id/test` 20/min；`/api/eval/runs` 10/min。MCP 端点经 `plugins/concurrency.ts` 的 `p-limit(4)` 限并发（进程内）；同一 agent 已有 running 评估时返回 409 `EVAL_RUN_IN_PROGRESS` |
-| H8 | helmet 默认 CSP 全局启用；`/mcp` 与 `/mcp/:serverId` 的 route config 单独关闭。确认前端产物无内联脚本，`style-src` 放行 `'unsafe-inline'` 以支持 React 的 `style` 属性 |
-| M2 | JWT payload 加随机 `sid`；`requireAuth` / `/api/auth/me` 校验 Redis `session:<sid>`；登录写入、logout 删除，TTL 与 token 一致。TTL 由 7 天降为 24 小时 |
-| M3 | CORS 改为 `CORS_ORIGINS` 显式 allowlist（默认 `http://localhost:5173`）；`TRUST_PROXY=1` 时才信任 `X-Forwarded-*` |
-| M7 | Agent / Server PATCH 支持 `expectedUpdatedAt`（毫秒精度），条件更新不命中返回 409 `CONFLICT_STALE`；前端保存时带上首次加载的 `updatedAt` 并提示刷新 |
-| M8 | 迁移 `0011` 先清理孤儿行，再为 `agent_runs.conversation_id`、`agent_runs.agent_id`、`messages.run_id`（可空）加外键 |
-| M13 | `SANDBOX_EGRESS` 默认 `proxy`；未设置 `HTTPS_PROXY`/`HTTP_PROXY` 时启动 warn 并实际按 `open` 运行 |
-| M14 | 架构不变（单机妥协），在 compose 与 OPERATIONS 补充风险说明与生产替换方案 |
+
+## 循环 9 已修复
+
+| 编号 | 修复 |
+|---|---|
 
 ## 待处理（需要设计决策，见 DECISIONS-PENDING.md）
 
 | 编号 | 严重度 | 问题 | 建议 |
 |---|---|---|---|
 | M12 | Medium | 沙盒拿到模型主密钥；`.mcp.json` 默认权限落盘 | 文件 `0o600` + 按 run 签发短期 token |
-| M14 | Medium | worker 挂载 docker.sock 且 `group_add: 0` | 部署决策：socket proxy / 独立节点（见 D-16） |
 
 ## 已检查无问题
 
