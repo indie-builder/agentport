@@ -15,7 +15,7 @@ export const servers = pgTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    kind: text('kind', { enum: ['stdio', 'http'] }).notNull(),
+    kind: text('kind', { enum: ['stdio', 'http', 'generated'] }).notNull(),
     description: text('description').notNull().default(''),
     // command / args / url / headers 等非敏感字段
     config: jsonb('config').$type<Record<string, unknown>>().notNull(),
@@ -37,9 +37,9 @@ export const apiTools = pgTable(
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     method: text('method').notNull(),
-    urlTemplate: text('url_template').notNull(),
+    pathTemplate: text('path_template').notNull(),
     inputSchema: jsonb('input_schema').$type<Record<string, unknown>>().notNull(),
-    authRef: text('auth_ref'),
+    paramsIn: text('params_in', { enum: ['query', 'body'] }).notNull().default('query'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('api_tools_server_name_idx').on(t.serverId, t.name)],
