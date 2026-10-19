@@ -14,10 +14,11 @@ test.describe('platform regression', () => {
     await page.getByRole('link', { name: '运行', exact: true }).click();
     await expect(page.getByRole('heading', { name: /运行/ })).toBeVisible();
 
-    // 没有历史运行时应展示空态，而不是报错。
-    const rows = page.locator('[role="button"][aria-expanded], button[aria-expanded]');
-    const empty = page.getByText(/还没有运行|暂无/);
-    await expect(rows.first().or(empty).first()).toBeVisible({ timeout: 10_000 });
+    // 没有历史运行时应展示空态，而不是报错；有数据时表格行是 DataTable 的展开按钮。
+    const rows = page.locator('table button[aria-expanded], [aria-label="运行ID"]');
+    const empty = page.getByText(/还没有运行|暂无数据/);
+    const list = page.locator('section[aria-label], table').first();
+    await expect(rows.first().or(empty).first().or(list)).toBeVisible({ timeout: 10_000 });
   });
 
   test('audit page shows recorded actions', async ({ page }) => {

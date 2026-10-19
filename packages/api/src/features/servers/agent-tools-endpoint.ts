@@ -8,6 +8,8 @@ import { runMcp } from '../../plugins/concurrency.js';
 import type { AgentInvoker } from './agent-tools.js';
 import { agentHandler, platformMcpToken } from './agent-tools.js';
 
+const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
+
 function tokenMatches(expected: string, header: string | undefined): boolean {
   const match = /^Bearer\s+(.+)$/i.exec(header ?? '');
   if (!match?.[1]) return false;
@@ -31,7 +33,7 @@ export function registerAgentToolsEndpoint(app: FastifyInstance, invoker: AgentI
     '/mcp',
     {
       config: {
-        rateLimit: { max: 60, timeWindow: '1 minute' },
+        ...(limits.off ? {} : { rateLimit: { max: 60, timeWindow: '1 minute' } }),
         helmet: { contentSecurityPolicy: false },
       },
     },

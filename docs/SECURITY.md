@@ -47,6 +47,12 @@
 | M13 | `SANDBOX_EGRESS` 默认 `proxy`，无代理时降级为 `open` 并告警 |
 | M14 | 文档记录 docker.sock 风险与替换方案；记入 D-16 |
 
+## 循环 10 已修复
+
+| 编号 | 修复 |
+|---|---|
+| — | `POST`/`PATCH /api/servers` 对 http 的 `url` 与 generated 的 `baseUrl` 调用 `assertSafeUrl`：生产拒绝私网/回环/link-local，开发放行 localhost；失败统一 400 `INVALID_URL`。共享 schema 只接受 http/https（`ftp:`/`file:`/`javascript:` 在 schema 层拒绝）；导入路径沿用同一错误码 |
+
 ## 待处理
 
 | 编号 | 严重度 | 问题 | 建议 |

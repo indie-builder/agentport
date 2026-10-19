@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, ne, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -222,6 +222,48 @@ export async function listApprovalRequests(
     .leftJoin(servers, eq(servers.id, approvalRequests.serverId))
     .where(eq(approvalRequests.runId, runId))
     .orderBy(asc(approvalRequests.createdAt), asc(approvalRequests.id));
+}
+
+/**
+ * 新 run 继承同一会话上一次 run 已批准的工具：批准原本绑定单次 run，
+ * 用户重发消息会新建 run，不继承则批准立刻失效。跨会话不继承。
+ * run id 是 uuidv7，按 id 倒序即按创建时间倒序；排除刚创建的本 run。
+ */
+export async function inheritApprovals(
+  db: Database,
+  input: { conversationId: string; runId: string },
+): Promise<string[]> {
+  const [previous] = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.conversationId, input.conversationId), ne(agentRuns.id, input.runId)))
+    .orderBy(desc(agentRuns.id))
+    .limit(1);
+  if (!previous) return [];
+
+  const approved = await db
+    .select({
+      serverId: approvalRequests.serverId,
+      toolName: approvalRequests.toolName,
+      approvedAt: approvalRequests.approvedAt,
+    })
+    .from(approvalRequests)
+    .where(and(eq(approvalRequests.runId, previous.id), isNotNull(approvalRequests.approvedAt)));
+  if (approved.length === 0) return [];
+
+  await db
+    .insert(approvalRequests)
+    .values(
+      approved.map((row) => ({
+        id: newId('approval'),
+        runId: input.runId,
+        serverId: row.serverId,
+        toolName: row.toolName,
+        approvedAt: row.approvedAt,
+      })),
+    )
+    .onConflictDoNothing();
+  return approved.map((row) => row.toolName);
 }
 
 /** 只批准已存在的请求；不存在的三元组返回 null，调用方据此拒绝。 */

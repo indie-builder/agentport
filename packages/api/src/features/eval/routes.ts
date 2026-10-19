@@ -5,6 +5,8 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { getQueue } from '../../queue/producer.js';
 
+const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
+
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
 
@@ -220,7 +222,7 @@ export function registerEvalRoutes(app: FastifyInstance): void {
 
   app.post(
     '/api/eval/runs',
-    { ...auth, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    { ...auth, config: limits.off ? {} : { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const parsed = z.object({ agentId: z.string().min(1) }).safeParse(request.body);
       if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');

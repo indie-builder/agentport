@@ -4,7 +4,8 @@ export { expect } from '@playwright/test';
 
 // E2E 不读 .env：CI 里用环境变量覆盖管理员口令。
 export const ADMIN_USER = process.env.E2E_ADMIN_USER ?? 'admin';
-export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'admin-change-me';
+// 与服务端 .env 的 ADMIN_PASSWORD 保持一致；CI 里用 E2E_ADMIN_PASSWORD 覆盖。
+export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'admin-local-dev-2026';
 
 export const test = base.extend<{ unique: (prefix: string) => string }>({
   // biome-ignore lint/correctness/noEmptyPattern: Playwright 要求 fixture 参数使用解构写法

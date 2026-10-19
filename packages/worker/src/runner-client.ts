@@ -59,6 +59,16 @@ export interface SandboxRunOutcome {
 /** SIGTERM 后留一点时间让 runner 收尾，否则强杀。 */
 const KILL_GRACE_MS = 5_000;
 
+interface Killable {
+  kill(signal: NodeJS.Signals): unknown;
+}
+
+/** 先 SIGTERM，宽限期后仍活着就 SIGKILL；超时与取消共用。 */
+export function escalateKill(child: Killable, delayMs: number = KILL_GRACE_MS): void {
+  child.kill('SIGTERM');
+  setTimeout(() => child.kill('SIGKILL'), delayMs).unref();
+}
+
 /** 单行 NDJSON 上限；超过即丢弃，避免一行把内存吃穿。 */
 const MAX_LINE_BYTES = 1024 * 1024;
 /** 单 run 收集上限：超出后只保留终态，不再转发事件。 */
@@ -188,7 +198,8 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
   const unsubscribe = await subscribeCancel(runId, logger, () => {
     cancelled = true;
     logger.info({ runId }, 'cancel requested');
-    child.kill('SIGTERM');
+    // 只发 SIGTERM 的话，忽略信号的 runner 会让 run 一直卡在 running。
+    escalateKill(child);
   }).catch((err: unknown) => {
     logger.warn({ err, runId }, 'cancel subscription failed');
     return async (): Promise<void> => {};
@@ -197,8 +208,7 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
   const killTimer = setTimeout(() => {
     timedOut = true;
     logger.warn({ runId, timeoutMs: input.timeoutMs }, 'sandbox timed out');
-    child.kill('SIGTERM');
-    setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS).unref();
+    escalateKill(child);
   }, input.timeoutMs);
 
   child.stderr.setEncoding('utf8');

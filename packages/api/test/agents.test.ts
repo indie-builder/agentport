@@ -98,6 +98,17 @@ describe.skipIf(!ready)('agents', () => {
     expect(slugChange.statusCode).toBe(400);
   });
 
+  it('rejects a permissionMode the platform has not implemented', async () => {
+    const res = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: auth(),
+      payload: { slug: unique('perms'), name: 'Perms', permissionMode: 'default' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: 'INVALID_INPUT' });
+  });
+
   it('PATCH rejects a stale expectedUpdatedAt with 409', async () => {
     const agent = (await createAgent(unique('stale-agent'))).json<Agent>();
 

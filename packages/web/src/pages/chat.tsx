@@ -638,8 +638,8 @@ function MessagePane({
         {!loading && !error && items.length > 0 ? (
           <div className="mx-auto max-w-3xl space-y-4">
             {items.map((item, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 消息是只追加的流式日志，顺序即身份
-              <ItemView key={index} item={item} />
+              // 消息是只追加的流式日志：索引 + 种类足够稳定，且能区分同 id 的 tool/text。
+              <ItemView key={`${index}-${item.kind}`} item={item} />
             ))}
           </div>
         ) : null}

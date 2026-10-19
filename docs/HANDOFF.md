@@ -40,14 +40,16 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 
 1. **会话上下文**靠注入最近 20 条消息，不是 SDK 原生 session resume；长对话会截断。
 2. **子智能体**只支持单层，且共享主智能体的 MCP 绑定；子智能体自己的 server 绑定不参与渲染。
-3. **工具审批**不是持久化暂停：未批准时工具返回错误，批准后需要用户重新发送消息（或模型重试同一调用）。
+3. **工具审批**不是持久化暂停：未批准时工具返回错误，批准后需要用户重新发送消息。批准会继承到**同一会话的下一次 run**（复制 `approval_requests`，审计记 `agent.run.approvals_inherited`）；跨会话不继承，仍未实现自动恢复。
 4. **评估跑批**在 API 进程内异步执行，API 重启会让进行中的跑批停在 `running`。
 5. **SSE 事件**存在 Redis Stream，TTL 1 小时、最多 1000 条；过期后只能从 `messages` 还原主线。
 6. **沙盒**用 Docker 共享内核；worker 挂载 `docker.sock`，等价宿主 root（D-16）。
 7. **密钥落盘**：每次 run 把解密后的 MCP env/headers 写入 `data/workspaces/<slug>/.mcp.json`，文件权限未收紧（M12，见 SECURITY.md）。
 8. **分支 UI** 只能从最新消息分支；API 支持指定 `fromMessageId`，UI 未暴露。
 9. **导入**不携带子智能体与工具审批标记（当前导入格式没有这两个字段）。
-10. **读接口**没有限流（`global: false`）；高并发下 Postgres 连接池是第一个瓶颈（见 OPERATIONS §8）。
+10. **权限模式**仅 `dontAsk`（未预批准即拒绝）与 `plan`（只规划不执行）可用；`default` / `acceptEdits` / `auto` 依赖宿主审批通道，当前平台未实现，保存时返回 400。
+11. **Server 地址校验**在登记/修改时做一次 DNS 解析（生产拒绝私网）；运行时会再校验一次，但解析与连接之间的 DNS 重绑定仍靠网络层 allowlist 兜底。
+12. **读接口**没有限流（`global: false`）；高并发下 Postgres 连接池是第一个瓶颈（见 OPERATIONS §8）。
 
 ## 建议的下一步
 

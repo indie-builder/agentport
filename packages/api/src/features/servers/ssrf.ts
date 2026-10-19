@@ -110,12 +110,12 @@ export async function assertSafeUrl(
   try {
     url = new URL(raw);
   } catch {
-    throw Object.assign(new Error('invalid url'), { statusCode: 400, code: 'INVALID_INPUT' });
+    throw Object.assign(new Error('地址格式不合法'), { statusCode: 400, code: 'INVALID_URL' });
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw Object.assign(new Error('only http/https urls are allowed'), {
+    throw Object.assign(new Error('仅支持 http/https 地址'), {
       statusCode: 400,
-      code: 'INVALID_INPUT',
+      code: 'INVALID_URL',
     });
   }
   const host = url.hostname.replace(/^\[|\]$/g, '');
@@ -128,16 +128,16 @@ export async function assertSafeUrl(
     try {
       addresses = (await lookup(host, { all: true })).map((a) => a.address);
     } catch {
-      throw Object.assign(new Error(`cannot resolve host ${host}`), {
+      throw Object.assign(new Error(`无法解析地址 ${host}`), {
         statusCode: 400,
-        code: 'INVALID_INPUT',
+        code: 'INVALID_URL',
       });
     }
   }
   if (addresses.length === 0 || addresses.some(isPrivateAddress)) {
-    throw Object.assign(new Error('url resolves to a private address'), {
+    throw Object.assign(new Error('该地址解析到内网，生产环境不允许'), {
       statusCode: 400,
-      code: 'SSRF_BLOCKED',
+      code: 'INVALID_URL',
     });
   }
 }

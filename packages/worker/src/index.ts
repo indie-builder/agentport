@@ -9,6 +9,7 @@ import { and, asc, eq, ne } from 'drizzle-orm';
 import pino from 'pino';
 import { loadConfig } from './config.js';
 import { startMaintenanceWorker } from './maintenance.js';
+import { startReconciler } from './reconcile.js';
 import { redactSecrets } from './redact.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
@@ -479,6 +480,12 @@ const maintenanceWorker = await startMaintenanceWorker({
   },
 });
 
+const stopReconciler = startReconciler({
+  db,
+  logger,
+  agentTimeoutMs: config.AGENT_TIMEOUT_MS,
+});
+
 logger.info('worker started');
 
 const SHUTDOWN_WAIT_MS = 10_000;
@@ -502,6 +509,7 @@ const shutdown = async (): Promise<void> => {
   const closing = worker.close();
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
+  stopReconciler();
   await provider.destroyAll();
   await Promise.race([closing.catch(() => undefined), sleep(POOL_WAIT_MS)]);
 

@@ -6,6 +6,8 @@ import { Redis } from 'ioredis';
 import { writeAudit } from '../../plugins/audit.js';
 import { AUTH_COOKIE, AUTH_MAX_AGE_SECONDS } from './types.js';
 
+const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
+
 const SCRYPT_KEYLEN = 32;
 
 function sessionKey(sid: string): string {
@@ -99,7 +101,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/api/auth/login',
-    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    { config: limits.off ? {} : { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const body = request.body as unknown;
       if (typeof body !== 'object' || body === null) {

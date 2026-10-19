@@ -14,6 +14,15 @@ const versionParams = z.object({
 });
 const rollbackBody = z.object({ version: z.number().int().positive() });
 
+/** `default` / `acceptEdits` / `auto` 依赖宿主审批通道，当前平台没有实现；保存时直接拒绝。 */
+const unsupportedPermissionModes = new Set(['default', 'acceptEdits', 'auto']);
+
+function unsupportedPermissionMode(mode: string | undefined): string | undefined {
+  return mode !== undefined && unsupportedPermissionModes.has(mode)
+    ? `permissionMode "${mode}" 当前平台未实现该模式，仅支持 dontAsk 与 plan`
+    : undefined;
+}
+
 // 字段与 agentInputSchema 保持一致；PATCH 用显式可选字段，才能区分「没传」与「传了默认值」。
 const patchSchema = z.object({
   slug: z
@@ -180,6 +189,8 @@ export function registerAgentRoutes(app: FastifyInstance): void {
   app.post('/api/agents', auth, async (request, reply) => {
     const parsed = agentInputSchema.safeParse(request.body);
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');
+    const modeError = unsupportedPermissionMode(parsed.data.permissionMode);
+    if (modeError) return invalid(reply, modeError);
     const { serverIds, skillIds, subAgentIds, ...rest } = parsed.data;
     const subAgentError = await validateSubAgents(app, null, subAgentIds);
     if (subAgentError) return invalid(reply, subAgentError);
@@ -217,6 +228,8 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     if (!params.success) return invalid(reply, 'invalid id');
     const body = patchSchema.safeParse(request.body);
     if (!body.success) return invalid(reply, body.error.issues[0]?.message ?? 'invalid body');
+    const modeError = unsupportedPermissionMode(body.data.permissionMode);
+    if (modeError) return invalid(reply, modeError);
 
     const current = await repo.getAgent(app.db, params.data.id);
     if (!current) return notFound(reply);

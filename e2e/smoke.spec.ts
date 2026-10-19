@@ -44,9 +44,10 @@ test('smoke: server, tool, test connection, agent files, chat stream', async ({ 
     await agentDialog.locator('#new-agent-prompt').fill('You help test Agentport.');
     await agentDialog.getByRole('button', { name: '创建' }).click();
 
-    // 绑定 server：打开 MultiSelect，勾选刚创建的 server
-    await page.getByRole('button', { name: '搜索并选择 server…' }).click();
+    // 绑定 server：MultiSelect 的触发按钮带 aria-label="MCP Server"。
+    await page.getByRole('button', { name: 'MCP Server' }).click();
     await page.locator('label').filter({ hasText: serverName }).getByRole('checkbox').check();
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: '保存更改' }).first().click();
     await expect(page.getByText('智能体已保存')).toBeVisible();
 
@@ -68,17 +69,22 @@ test('smoke: server, tool, test connection, agent files, chat stream', async ({ 
       timeout: 120_000,
     });
   } finally {
-    const servers = await page.request
-      .get('/api/servers')
-      .then((r) => r.json() as Promise<Array<{ id: string; name: string }>>);
+    // 走相对路径：page.request 的 cookie 绑定在 baseURL（5173），直连 3000 会丢 cookie。
+    const api = page.request;
+    // 用例被 skip 时页面可能已关闭，cleanup 失败不应掩盖真实结果。
+    const servers = await api
+      .get('/api/servers', { timeout: 10_000 })
+      .then((r) => r.json() as Promise<Array<{ id: string; name: string }>>)
+      .catch(() => [] as Array<{ id: string; name: string }>);
     for (const s of servers.filter((s) => s.name === serverName)) {
-      await page.request.delete(`/api/servers/${s.id}`);
+      await api.delete(`/api/servers/${s.id}`, { timeout: 10_000 }).catch(() => undefined);
     }
-    const agents = await page.request
-      .get('/api/agents')
-      .then((r) => r.json() as Promise<Array<{ id: string; slug: string }>>);
+    const agents = await api
+      .get('/api/agents', { timeout: 10_000 })
+      .then((r) => r.json() as Promise<Array<{ id: string; slug: string }>>)
+      .catch(() => [] as Array<{ id: string; slug: string }>);
     for (const a of agents.filter((a) => a.slug === agentSlug)) {
-      await page.request.delete(`/api/agents/${a.id}`);
+      await api.delete(`/api/agents/${a.id}`, { timeout: 10_000 }).catch(() => undefined);
     }
   }
 });

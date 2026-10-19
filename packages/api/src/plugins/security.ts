@@ -29,12 +29,16 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
   const redis = new Redis(app.config.REDIS_URL, { maxRetriesPerRequest: null });
   redis.on('error', (err: Error) => app.log.warn({ err }, 'rate-limit redis error'));
 
+  const limitsOff = process.env.RATE_LIMIT_DISABLED === '1';
+  if (limitsOff) app.log.warn('rate limiting disabled by RATE_LIMIT_DISABLED=1');
   await app.register(rateLimit, {
     global: false,
     max: 120,
     timeWindow: '1 minute',
     redis,
     nameSpace: 'agentport:rl:',
+    // 注意：route 级 config.rateLimit 不受这个 skip 影响（Fastify 在路由层另建实例），
+    // 因此测试里还要通过下面的 env 开关整体关闭限流。
     ...(process.env.RATE_LIMIT_DISABLED === '1' ? { skip: () => true } : {}),
   });
 

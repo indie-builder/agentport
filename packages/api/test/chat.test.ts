@@ -10,6 +10,7 @@ describe.skipIf(!ready)('chat', () => {
   let cookie: string;
   const createdAgents: string[] = [];
   const runIds: string[] = [];
+  const createdServers: string[] = [];
 
   beforeAll(async () => {
     app = await startApp();
@@ -17,7 +18,7 @@ describe.skipIf(!ready)('chat', () => {
   });
 
   afterAll(async () => {
-    await cleanup(app, { agentSlugs: createdAgents, runIds });
+    await cleanup(app, { agentSlugs: createdAgents, runIds, serverNames: createdServers });
     await app.close();
   });
 
@@ -163,6 +164,61 @@ describe.skipIf(!ready)('chat', () => {
     });
     const copied = branchDetail.json<{ messages: Array<{ role: string }> }>().messages;
     expect(copied.map((message) => message.role)).toEqual(['user']);
+  });
+
+  it('inherits approvals from the previous run in the same conversation', async () => {
+    const agent = await createAgent();
+    const first = await inject(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: { agentId: agent.id, message: 'call the tool' },
+    });
+    const firstBody = first.json<{ runId: string; conversationId: string }>();
+    runIds.push(firstBody.runId);
+
+    const serverName = unique('inherit-srv');
+    createdServers.push(serverName);
+    const server = await inject(app, {
+      method: 'POST',
+      url: '/api/servers',
+      headers: auth(),
+      payload: { name: serverName, kind: 'generated', baseUrl: 'https://example.com' },
+    });
+    const serverId = server.json<{ id: string }>().id;
+    await app.pool.query(
+      'insert into approval_requests (id, run_id, server_id, tool_name, approved_at) values ($1, $2, $3, $4, now())',
+      [unique('apr'), firstBody.runId, serverId, 'approved-tool'],
+    );
+
+    const second = await inject(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: {
+        agentId: agent.id,
+        conversationId: firstBody.conversationId,
+        message: 'try again',
+      },
+    });
+    expect(second.statusCode).toBe(202);
+    const secondBody = second.json<{ runId: string }>();
+    runIds.push(secondBody.runId);
+
+    const approvals = await inject(app, {
+      method: 'GET',
+      url: `/api/runs/${secondBody.runId}/approvals`,
+      headers: auth(),
+    });
+    expect(approvals.json()).toMatchObject({
+      items: [{ toolName: 'approved-tool', approvedAt: expect.any(String) }],
+    });
+
+    const audit = await app.pool.query<{ action: string }>(
+      "select action from audit_log where action = 'agent.run.approvals_inherited' and target = $1",
+      [secondBody.runId],
+    );
+    expect(audit.rows).toHaveLength(1);
   });
 
   it('POST /api/conversations/:id/branch rejects an unknown branch point', async () => {

@@ -1,7 +1,16 @@
 import type { Server } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cleanup, infraReady, inject, loginCookie, startApp, unique } from './helpers.js';
+import { buildApp } from '../src/app.js';
+import {
+  cleanup,
+  infraReady,
+  inject,
+  loginCookie,
+  startApp,
+  testConfig,
+  unique,
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -95,6 +104,64 @@ describe.skipIf(!ready)('servers', () => {
       });
       expect(res.statusCode, JSON.stringify(payload)).toBe(400);
     }
+  });
+
+  it('rejects non-http protocols with 400', async () => {
+    for (const url of ['ftp://example.com/mcp', 'file:///etc/passwd', 'javascript:alert(1)']) {
+      const res = await post(unique('proto'), { kind: 'http', url, headers: {} });
+      expect(res.statusCode, url).toBe(400);
+      expect(res.json()).toMatchObject({ message: '仅支持 http/https 地址' });
+    }
+  });
+
+  it('rejects a private address in production and allows public addresses', async () => {
+    // 只换 NODE_ENV，其余配置沿用测试环境；app.inject 直接带 cookie，Secure 不影响。
+    const prodApp = await buildApp({ ...testConfig(), NODE_ENV: 'production' });
+    await prodApp.ready();
+    try {
+      const res = await inject(prodApp, {
+        method: 'POST',
+        url: '/api/servers',
+        headers: auth(),
+        payload: { name: unique('prod-private'), kind: 'http', url: 'http://10.0.0.1/mcp' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'INVALID_URL' });
+      expect(res.json().message).toContain('内网');
+
+      const publicName = unique('prod-public');
+      created.push(publicName);
+      const ok = await inject(prodApp, {
+        method: 'POST',
+        url: '/api/servers',
+        headers: auth(),
+        payload: { name: publicName, kind: 'http', url: 'https://example.com/mcp' },
+      });
+      expect(ok.statusCode).toBe(201);
+
+      // PATCH 同样按库里的 kind 复查新地址。
+      const patched = await inject(prodApp, {
+        method: 'PATCH',
+        url: `/api/servers/${ok.json<Server>().id}`,
+        headers: auth(),
+        payload: { url: 'http://192.168.1.10/mcp' },
+      });
+      expect(patched.statusCode).toBe(400);
+      expect(patched.json()).toMatchObject({ code: 'INVALID_URL' });
+    } finally {
+      await prodApp.close();
+    }
+  });
+
+  it('allows localhost in development', async () => {
+    const name = unique('dev-local');
+    created.push(name);
+    const res = await post(name, {
+      kind: 'http',
+      url: 'http://127.0.0.1:3999/mcp',
+      headers: {},
+    });
+    expect(res.statusCode).toBe(201);
   });
 
   // 已知缺陷（不在本测试文件的修改范围）：servers/routes.ts 的 rethrowConflict 只看顶层

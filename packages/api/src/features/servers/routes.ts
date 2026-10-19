@@ -1,10 +1,18 @@
-import { apiToolInputSchema, serverInputSchema, serverTestResultSchema } from '@agentport/shared';
+import {
+  apiToolInputSchema,
+  httpUrlSchema,
+  serverInputSchema,
+  serverTestResultSchema,
+} from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
+import { assertSafeUrl } from './ssrf.js';
 import { testConnection } from './test-connection.js';
+
+const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
 
 const idParams = z.object({ id: z.string().min(1) });
 const toolParams = idParams.extend({ toolId: z.string().min(1) });
@@ -17,8 +25,8 @@ const serverPatchSchema = z.object({
   command: z.string().min(1).optional(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
-  url: z.url().optional(),
-  baseUrl: z.url().optional(),
+  url: httpUrlSchema.optional(),
+  baseUrl: httpUrlSchema.optional(),
   headers: z.record(z.string(), z.string()).optional(),
   /** 乐观锁：首次加载时的 updatedAt。 */
   expectedUpdatedAt: z.coerce.date().optional(),
@@ -61,6 +69,12 @@ export function registerServerRoutes(app: FastifyInstance): void {
     const parsed = serverInputSchema.safeParse(request.body);
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');
     try {
+      // 登记与导入走同一个 SSRF 检查；失败由统一错误处理返回 400 INVALID_URL。
+      if (parsed.data.kind === 'http') {
+        await assertSafeUrl(parsed.data.url, app.config.NODE_ENV);
+      } else if (parsed.data.kind === 'generated') {
+        await assertSafeUrl(parsed.data.baseUrl, app.config.NODE_ENV);
+      }
       const created = await repo.createServer(app.db, parsed.data, key());
       await writeAudit(app.db, request.log, {
         actor: 'admin',
@@ -89,6 +103,14 @@ export function registerServerRoutes(app: FastifyInstance): void {
     const body = serverPatchSchema.safeParse(request.body);
     if (!body.success) return invalid(reply, body.error.issues[0]?.message ?? 'invalid body');
     try {
+      const row = await repo.getServerRow(app.db, params.data.id);
+      if (!row) return notFound(reply, 'server');
+      // 地址按库里实际的 kind 校验；只改描述不会复查既有地址。
+      if (row.kind === 'http' && body.data.url !== undefined) {
+        await assertSafeUrl(body.data.url, app.config.NODE_ENV);
+      } else if (row.kind === 'generated' && body.data.baseUrl !== undefined) {
+        await assertSafeUrl(body.data.baseUrl, app.config.NODE_ENV);
+      }
       const updated = await repo.updateServer(
         app.db,
         params.data.id,
@@ -128,7 +150,7 @@ export function registerServerRoutes(app: FastifyInstance): void {
 
   app.post(
     '/api/servers/:id/test',
-    { ...auth, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    { ...auth, config: limits.off ? {} : { rateLimit: { max: 20, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const parsed = idParams.safeParse(request.params);
       if (!parsed.success) return invalid(reply, 'invalid id');

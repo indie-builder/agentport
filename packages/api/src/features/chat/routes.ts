@@ -6,7 +6,10 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { closeProducer, getQueue, publishRun, subscribeRun } from '../../queue/producer.js';
 
+const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
+
 const chatRepo = repo.chat;
+const runsRepo = repo.runs;
 
 const branchBodySchema = z.object({ fromMessageId: z.string().min(1).optional() });
 
@@ -40,7 +43,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
     '/api/chat',
     {
       preHandler: [app.requireAuth],
-      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      config: limits.off ? {} : { rateLimit: { max: 20, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
       const parsed = chatRequestSchema.safeParse(request.body);
@@ -88,6 +91,11 @@ export function registerChatRoutes(app: FastifyInstance): void {
         conversationId,
         agentId,
       });
+      // 批准原先绑定单次 run；重发消息会新建 run，这里把上一 run 的已批准工具带过来。
+      const inherited = await runsRepo.inheritApprovals(app.db, {
+        conversationId,
+        runId: run.id,
+      });
       // 沙盒每次都是新容器，SDK session 无法复用；在写入本条消息前取历史，避免重复。
       const history = await chatRepo.getHistoryForPrompt(app.db, conversationId);
       await chatRepo.appendMessage(app.db, {
@@ -125,6 +133,17 @@ export function registerChatRoutes(app: FastifyInstance): void {
         status: 'ok',
         requestId: request.id,
       });
+
+      if (inherited.length > 0) {
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.run.approvals_inherited',
+          target: run.id,
+          input: { toolNames: inherited },
+          status: 'ok',
+          requestId: request.id,
+        });
+      }
 
       return reply.status(202).send({ runId: run.id, conversationId });
     },

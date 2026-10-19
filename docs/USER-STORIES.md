@@ -83,6 +83,7 @@
 
 验收：
 - 可配置 `permissionMode`、`allowedTools`、`disallowedTools`。
+- `permissionMode` 仅支持 `dontAsk`（默认，未预批准即拒绝）与 `plan`（只规划不执行）；`default` / `acceptEdits` / `auto` 依赖宿主审批通道，当前未实现，保存时返回 400。
 - 可配置 `maxTurns`、`maxBudgetUsd`、`timeoutMs`。
 - 可配置 `effort` 与 `maxThinkingTokens`（可选）。
 - 默认关闭所有内置工具（Bash/Read/Write/Edit/WebFetch…）。

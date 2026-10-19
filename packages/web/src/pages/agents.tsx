@@ -626,11 +626,16 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                   }
                 >
                   <option value="dontAsk">dontAsk — 拒绝未预批准</option>
-                  <option value="default">default — 标准审批</option>
-                  <option value="acceptEdits">acceptEdits — 自动接受编辑</option>
                   <option value="plan">plan — 只规划不执行</option>
-                  <option value="auto">auto — 模型分类器判断</option>
+                  {form.permissionMode !== 'dontAsk' && form.permissionMode !== 'plan' ? (
+                    <option value={form.permissionMode} disabled>
+                      {form.permissionMode} — 未实现，请改选
+                    </option>
+                  ) : null}
                 </Select>
+                <p className="text-[11px] text-subtle">
+                  仅 dontAsk 与 plan 可用；default / acceptEdits / auto 依赖宿主审批通道，尚未实现。
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="agent-effort">推理强度</Label>

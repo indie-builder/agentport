@@ -21,10 +21,15 @@ export const stdioServerSchema = z.object({
   env: z.record(z.string(), z.string()).default({}),
 });
 
+/** 只允许 http/https；ftp/file/javascript 等在 schema 层就被拦下。 */
+export const httpUrlSchema = z
+  .url()
+  .refine((value) => /^https?:\/\//i.test(value), '仅支持 http/https 地址');
+
 export const httpServerSchema = z.object({
   ...baseServer,
   kind: z.literal('http'),
-  url: z.url(),
+  url: httpUrlSchema,
   headers: z.record(z.string(), z.string()).default({}),
 });
 
@@ -32,7 +37,7 @@ export const httpServerSchema = z.object({
 export const generatedServerSchema = z.object({
   ...baseServer,
   kind: z.literal('generated'),
-  baseUrl: z.url(),
+  baseUrl: httpUrlSchema,
   headers: z.record(z.string(), z.string()).default({}),
 });
 

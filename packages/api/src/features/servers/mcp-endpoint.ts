@@ -9,6 +9,8 @@ import { runMcp } from '../../plugins/concurrency.js';
 import { buildGeneratedServer } from './generated.js';
 import { getServerRow, listTools, toApiServer } from './repo.js';
 
+const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
+
 function tokenMatches(expected: unknown, header: string | undefined): boolean {
   if (typeof expected !== 'string' || expected.length === 0) return false;
   const match = /^Bearer\s+(.+)$/i.exec(header ?? '');
@@ -66,7 +68,7 @@ export function registerMcpEndpoint(app: FastifyInstance): void {
     '/mcp/:serverId',
     {
       config: {
-        rateLimit: { max: 60, timeWindow: '1 minute' },
+        ...(limits.off ? {} : { rateLimit: { max: 60, timeWindow: '1 minute' } }),
         helmet: { contentSecurityPolicy: false },
       },
     },
