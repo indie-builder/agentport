@@ -19,29 +19,34 @@
 | — | — | `generated.ts` 的 SSRF 调用未传 `nodeEnv`，与测试连接行为不一致 | 显式传入 `config.NODE_ENV` |
 | — | — | 本机代理的 `198.18.0.0/15` FakeIP 会被误判为私网 | 开发环境放行该网段，生产仍拦截 |
 
+## 循环 8 已修复
+
+| 编号 | 修复 |
+|---|---|
+| H7 | `.dockerignore` 覆盖嵌套 `.env`/`data`；删除重复 `packages/api/.env` |
+| H4 | 预览只显示 `<已配置>` 占位；generated 的 Authorization 省略并注明运行时注入 |
+| H9 + M4 | 新表 `approval_requests(run_id, server_id, tool_name)`；审批严格绑定三元组，UI 改读结构化端点，删除正则匹配 |
+| H10 | `redactSecrets` 覆盖 Bearer/sk-/ghp_/KEY=value/长 base64url；stderr 降为 debug；落库前脱敏 |
+| H12 | 沙盒单字段 256 KB 截断；worker 单行 1 MiB、单 run 2000 事件/32 MiB 上限；UI 64 KB 折叠 |
+| M9 | 重试时在同一事务内先删 `run_id` 对应的 assistant/tool 消息（保留 user） |
+| M10 | 导入调用 `assertSafeUrl`；同名不同 kind 拒绝复用；写 `agent.imported` 审计 |
+| M11 | 补 tool CRUD、eval case CRUD、logout、`/mcp` 触发 run 的审计 |
+| L1 | `APP_SECRET_KEY`/`JWT_SECRET` ≥32、`ADMIN_PASSWORD` ≥12 且拒绝占位值 |
+| M15 | `permissionMode` 透传到沙盒 runner |
+
 ## 待处理（需要设计决策，见 DECISIONS-PENDING.md）
 
 | 编号 | 严重度 | 问题 | 建议 |
 |---|---|---|---|
-| H4 | High | `/api/agents/:id/files` 预览返回明文密钥与 `mcpToken` | 预览应复用导出逻辑，密钥只显示「已配置」；需确认是否影响排障 |
 | H5 | High | `/mcp`、`/api/eval/runs`、`/api/servers/:id/test` 无限流/并发上限 | 需确定配额策略（单机 vs 多用户） |
-| H7 | High | `.dockerignore` 未覆盖嵌套 `.env` 与 `data/` | 一行修复，本轮未做以避免与部署改动冲突 |
 | H8 | High | 全局关闭 CSP，而 API 同时托管 SPA | 需评估前端内联样式，决定是否启用 `style-src 'unsafe-inline'` |
-| H9 | High | `x-agentport-run-id` 被无条件信任，审批可跨 run 复用 | 审批记录应带 `server_id`，并校验 run 绑定关系 |
-| H10 | High | 沙盒 stderr 原样写入日志、`agent_runs.error` 与页面 | 需 secret 模式过滤，避免误伤正常错误信息 |
-| H12 | High | 沙盒事件流无单行/总量上限 | 需确定截断策略与 UI 展示方式 |
 | M2 | Medium | JWT 7 天不可吊销 | 需引入 session 存储或缩短 TTL |
 | M3 | Medium | 开发 CORS 反射任意 Origin；无 `trustProxy` | 需确认部署形态（是否有反向代理） |
-| M4 | Medium | 审批 UI 靠正则匹配工具输出，可被伪造 | 改为结构化 `approval_requests` 表 |
 | M7 | Medium | Agent/Server PATCH 事务外读—事务内写，并发丢更新 | 需引入乐观锁（`updated_at` 条件更新） |
 | M8 | Medium | `agent_runs` / `messages.run_id` 无外键 | 需回填数据后加约束 |
-| M9 | Medium | BullMQ 重试会重复写入消息 | 落库前按 `run_id` 先删后写 |
-| M10 | Medium | 导入绕过 SSRF 校验与审计 | 导入时补校验与 `writeAudit` |
-| M11 | Medium | 审计覆盖缺口（工具 CRUD、评估用例、`/mcp` 触发、登出） | 逐点补 `writeAudit` |
 | M12 | Medium | 沙盒拿到模型主密钥；`.mcp.json` 默认权限落盘 | 文件 `0o600` + 按 run 签发短期 token |
 | M13 | Medium | 沙盒默认 `open` 出站 + host-gateway | 默认改 `none`/`proxy`，需确认是否影响模型调用 |
 | M14 | Medium | worker 挂载 docker.sock 且 `group_add: 0` | 需部署决策（socket proxy / 独立节点） |
-| M15 | Medium | `permissionMode` 保存并展示但 runner 硬编码 `dontAsk` | 透传或从 UI 移除 |
 
 ## 已检查无问题
 

@@ -58,9 +58,35 @@ export function registerRunRoutes(app: FastifyInstance): void {
     };
   });
 
-  /** 单机交互的最小闭环：批准后由用户重新发消息，不恢复已结束的 run。 */
+  /** 结构化审批请求：pending 由 MCP 端点写入，批准后 approvedAt 非空。 */
+  app.get<{ Params: { id: string } }>('/api/runs/:id/approvals', auth, async (request, reply) => {
+    const agentId = await runsRepo.getRunAgentId(app.db, request.params.id);
+    if (!agentId) {
+      return reply
+        .status(404)
+        .send({ code: 'RUN_NOT_FOUND', message: `run ${request.params.id} not found` });
+    }
+    const rows = await runsRepo.listApprovalRequests(app.db, request.params.id);
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        serverId: row.serverId,
+        serverName: row.serverName,
+        toolName: row.toolName,
+        createdAt: row.createdAt.toISOString(),
+        approvedAt: row.approvedAt === null ? null : row.approvedAt.toISOString(),
+      })),
+    };
+  });
+
+  /**
+   * 批准必须对应一条已存在的 (run, server, tool) 请求：
+   * 既防止 typo，也防止把别的 server 的批准挪用到本 run。
+   */
   app.post<{ Params: { id: string } }>('/api/runs/:id/approve', auth, async (request, reply) => {
-    const body = z.object({ toolName: z.string().min(1) }).safeParse(request.body);
+    const body = z
+      .object({ serverId: z.string().min(1), toolName: z.string().min(1) })
+      .safeParse(request.body);
     if (!body.success) {
       return reply
         .status(400)
@@ -72,28 +98,30 @@ export function registerRunRoutes(app: FastifyInstance): void {
         .status(404)
         .send({ code: 'RUN_NOT_FOUND', message: `run ${request.params.id} not found` });
     }
-    // 只允许批准该智能体实际绑定、启用且标记了要求的工具，避免 typo 产生无效批准。
-    const approvable = await repo.servers.listApprovableToolNames(app.db, agentId);
-    if (!approvable.includes(body.data.toolName)) {
+    const approved = await runsRepo.approveTool(
+      app.db,
+      request.params.id,
+      body.data.serverId,
+      body.data.toolName,
+    );
+    if (!approved) {
       return reply.status(404).send({
-        code: 'TOOL_NOT_FOUND',
-        message: `tool ${body.data.toolName} is not an approvable tool of this run's agent`,
+        code: 'APPROVAL_NOT_FOUND',
+        message: `no pending approval for tool ${body.data.toolName} on this server in this run`,
       });
-    }
-    const approvals = await runsRepo.approveTool(app.db, request.params.id, body.data.toolName);
-    if (!approvals) {
-      return reply
-        .status(404)
-        .send({ code: 'RUN_NOT_FOUND', message: `run ${request.params.id} not found` });
     }
     await writeAudit(app.db, request.log, {
       actor: 'admin',
       action: 'agent.run.approved',
       target: request.params.id,
-      input: { toolName: body.data.toolName },
+      input: { serverId: approved.serverId, toolName: approved.toolName },
       status: 'ok',
       requestId: request.id,
     });
-    return { approvals };
+    return {
+      serverId: approved.serverId,
+      toolName: approved.toolName,
+      approvedAt: approved.approvedAt.toISOString(),
+    };
   });
 }

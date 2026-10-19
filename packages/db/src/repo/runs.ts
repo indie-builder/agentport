@@ -1,6 +1,15 @@
-import { and, asc, desc, eq, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
-import { agentRuns, agents, conversations, messages } from '../schema.js';
+import { newId } from '../id.js';
+import {
+  agentRuns,
+  agentServers,
+  agents,
+  approvalRequests,
+  conversations,
+  messages,
+  servers,
+} from '../schema.js';
 
 export const RUN_STATUSES = [
   'queued',
@@ -32,7 +41,6 @@ export interface RunDetailRow extends RunListItem {
   conversationId: string;
   sessionId: string | null;
   sandboxId: string | null;
-  approvals: string[];
 }
 
 export type RunStep =
@@ -120,14 +128,22 @@ export function toStep(message: {
   return null;
 }
 
-/** 审批只对本 run 记名；查询不存在的 run 返回空数组。 */
-export async function getRunApprovals(db: Database, runId: string): Promise<string[]> {
+/**
+ * run 必须存在，且其智能体确实绑定了该 server。外部传入的 run header 不可信，
+ * 不满足时按「没有 run」处理，审批不会跨 agent/server 复用。
+ */
+export async function isRunBoundToServer(
+  db: Database,
+  runId: string,
+  serverId: string,
+): Promise<boolean> {
   const [row] = await db
-    .select({ approvals: agentRuns.approvals })
+    .select({ runId: agentRuns.id })
     .from(agentRuns)
-    .where(eq(agentRuns.id, runId))
+    .innerJoin(agentServers, eq(agentServers.agentId, agentRuns.agentId))
+    .where(and(eq(agentRuns.id, runId), eq(agentServers.serverId, serverId)))
     .limit(1);
-  return row?.approvals ?? [];
+  return row !== undefined;
 }
 
 export async function getRunAgentId(db: Database, runId: string): Promise<string | null> {
@@ -139,36 +155,89 @@ export async function getRunAgentId(db: Database, runId: string): Promise<string
   return row?.agentId ?? null;
 }
 
-/** 新 run 沿用同一会话最近一次 run 的批准，重新发送消息后无需再次批准。 */
-export async function getLatestApprovals(db: Database, conversationId: string): Promise<string[]> {
-  const [row] = await db
-    .select({ approvals: agentRuns.approvals })
-    .from(agentRuns)
-    .where(eq(agentRuns.conversationId, conversationId))
-    .orderBy(desc(agentRuns.id))
-    .limit(1);
-  return row?.approvals ?? [];
+export interface ApprovalRequestRow {
+  id: string;
+  runId: string;
+  serverId: string;
+  serverName: string | null;
+  toolName: string;
+  createdAt: Date;
+  approvedAt: Date | null;
 }
 
-/** 幂等追加；并发的两次批准最多丢失一次写入，单机交互场景可接受。 */
+/** 被拒绝的工具调用落一条 pending 记录；同一三元组重复调用保持幂等。 */
+export async function requestApproval(
+  db: Database,
+  input: { runId: string; serverId: string; toolName: string },
+): Promise<void> {
+  await db
+    .insert(approvalRequests)
+    .values({ id: newId('approval'), ...input })
+    .onConflictDoNothing();
+}
+
+/** MCP handler 每次调用前读取：只认该 run 在该 server 上已批准的工具。 */
+export async function getApprovedToolNames(
+  db: Database,
+  runId: string,
+  serverId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ toolName: approvalRequests.toolName })
+    .from(approvalRequests)
+    .where(
+      and(
+        eq(approvalRequests.runId, runId),
+        eq(approvalRequests.serverId, serverId),
+        isNotNull(approvalRequests.approvedAt),
+      ),
+    );
+  return rows.map((row) => row.toolName);
+}
+
+export async function listApprovalRequests(
+  db: Database,
+  runId: string,
+): Promise<ApprovalRequestRow[]> {
+  return db
+    .select({
+      id: approvalRequests.id,
+      runId: approvalRequests.runId,
+      serverId: approvalRequests.serverId,
+      serverName: servers.name,
+      toolName: approvalRequests.toolName,
+      createdAt: approvalRequests.createdAt,
+      approvedAt: approvalRequests.approvedAt,
+    })
+    .from(approvalRequests)
+    .leftJoin(servers, eq(servers.id, approvalRequests.serverId))
+    .where(eq(approvalRequests.runId, runId))
+    .orderBy(asc(approvalRequests.createdAt), asc(approvalRequests.id));
+}
+
+/** 只批准已存在的请求；不存在的三元组返回 null，调用方据此拒绝。 */
 export async function approveTool(
   db: Database,
   runId: string,
+  serverId: string,
   toolName: string,
-): Promise<string[] | null> {
-  const [existing] = await db
-    .select({ approvals: agentRuns.approvals })
-    .from(agentRuns)
-    .where(eq(agentRuns.id, runId))
-    .limit(1);
-  if (!existing) return null;
-  if (existing.approvals.includes(toolName)) return existing.approvals;
+): Promise<{ serverId: string; toolName: string; approvedAt: Date } | null> {
   const [row] = await db
-    .update(agentRuns)
-    .set({ approvals: [...existing.approvals, toolName] })
-    .where(eq(agentRuns.id, runId))
-    .returning({ approvals: agentRuns.approvals });
-  return row?.approvals ?? null;
+    .update(approvalRequests)
+    .set({ approvedAt: new Date() })
+    .where(
+      and(
+        eq(approvalRequests.runId, runId),
+        eq(approvalRequests.serverId, serverId),
+        eq(approvalRequests.toolName, toolName),
+      ),
+    )
+    .returning({
+      serverId: approvalRequests.serverId,
+      toolName: approvalRequests.toolName,
+      approvedAt: approvalRequests.approvedAt,
+    });
+  return row && row.approvedAt !== null ? { ...row, approvedAt: row.approvedAt } : null;
 }
 
 export async function getRunDetail(db: Database, runId: string): Promise<RunDetail | null> {
@@ -178,7 +247,6 @@ export async function getRunDetail(db: Database, runId: string): Promise<RunDeta
       conversationId: agentRuns.conversationId,
       sessionId: agentRuns.sessionId,
       sandboxId: agentRuns.sandboxId,
-      approvals: agentRuns.approvals,
       conversationAgentId: conversations.agentId,
       conversationTitle: conversations.title,
     })

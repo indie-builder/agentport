@@ -91,7 +91,22 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.post('/api/auth/logout', async (_request, reply) => {
+  app.post('/api/auth/logout', async (request, reply) => {
+    const token = request.cookies[AUTH_COOKIE];
+    let username = 'anonymous';
+    if (token) {
+      try {
+        username = app.jwt.verify<{ username: string }>(token).username;
+      } catch {
+        // 过期或伪造的 token 也允许登出，审计里记为 anonymous。
+      }
+    }
+    await writeAudit(app.db, request.log, {
+      actor: username,
+      action: 'auth.logout',
+      status: 'ok',
+      requestId: request.id,
+    });
     reply.clearCookie(AUTH_COOKIE, cookieOptions);
     return { ok: true };
   });

@@ -15,10 +15,10 @@
 | `PORT` | 否 | `3000` | api | HTTP 监听端口，绑定 `0.0.0.0` |
 | `DATABASE_URL` | 是 | — | api、worker、db 迁移、备份 | PostgreSQL 连接串 |
 | `REDIS_URL` | 否 | `redis://localhost:6379` | api、worker | 队列、事件流、取消、限流共用 |
-| `APP_SECRET_KEY` | 是 | — | api、worker | MCP 密钥加密主密钥，≥16 字符。**api 与 worker 必须一致**，否则 worker 无法解密 |
+| `APP_SECRET_KEY` | 是 | — | api、worker | MCP 密钥加密主密钥，≥32 字符。**api 与 worker 必须一致**，否则 worker 无法解密 |
 | `ADMIN_USER` | 否 | `admin` | api | 唯一管理员用户名 |
-| `ADMIN_PASSWORD` | 是 | — | api | 管理员密码，≥8 字符；每次登录用 scrypt 比对 |
-| `JWT_SECRET` | 是 | — | api | 会话签名密钥，≥16 字符 |
+| `ADMIN_PASSWORD` | 是 | — | api | 管理员密码，≥12 字符，且不能是 `admin-change-me` / `changeme` / `password`；每次登录用 scrypt 比对 |
+| `JWT_SECRET` | 是 | — | api | 会话签名密钥，≥32 字符 |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
 | `WEB_DIST` | 否 | 未设置 | api | 设置且目录存在时托管 SPA；compose 中为 `/app/web` |
 | `PLATFORM_MCP_TOKEN` | 否 | 未设置 | api | `/mcp` 平台端点的 Bearer token，≥16 字符；未设置则端点不注册 |
@@ -217,7 +217,7 @@ pnpm --filter @agentport/worker maintenance
 | 修改 schema 后报 `column ... does not exist` | 只改了 `schema.ts`，未生成或未应用迁移 | `pnpm db:generate && pnpm db:migrate`；迁移文件按顺序应用，不要手改已应用的迁移 |
 | 登录返回 429 | 登录限流 10 次/分钟（按 IP） | 等一分钟；只在本地/测试环境可临时 `RATE_LIMIT_DISABLED=1` 后重启 api |
 | `pnpm backup` 报 `DATABASE_URL is required` | 脚本不读取 `.env` | `set -a; . ./.env; set +a; pnpm backup` |
-| worker 退出并报 `Invalid environment` | `.env` 缺少必填项或长度不足 | 按报错里的字段名补齐；`APP_SECRET_KEY`、`JWT_SECRET` ≥16，`ADMIN_PASSWORD` ≥8 |
+| worker 退出并报 `Invalid environment` | `.env` 缺少必填项或长度不足 | 按报错里的字段名补齐；`APP_SECRET_KEY`、`JWT_SECRET` ≥32，`ADMIN_PASSWORD` ≥12 且不是常见默认口令 |
 | 运行超时 | `timeoutMs` 太小、模型慢、工具上游慢 | 运行详情看 `latencyMs` 与最后一步；调大智能体的 `timeoutMs`；检查上游 API 延迟 |
 | 评估跑批一直 `running` | 跑批在 api 进程内异步执行，api 重启会中断 | 重启后重新发起；不要在生产重启窗口跑批 |
 

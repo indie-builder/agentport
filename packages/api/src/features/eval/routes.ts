@@ -178,6 +178,14 @@ export function registerEvalRoutes(app: FastifyInstance): void {
       return reply.status(404).send({ code: 'AGENT_NOT_FOUND', message: 'agent not found' });
     }
     const row = await evalRepo.createCase(app.db, newId('evalCase'), parsed.data);
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'eval.case.created',
+      target: row.id,
+      input: { agentId: parsed.data.agentId, name: parsed.data.name },
+      status: 'ok',
+      requestId: request.id,
+    });
     return reply.status(201).send(row);
   });
 
@@ -186,12 +194,27 @@ export function registerEvalRoutes(app: FastifyInstance): void {
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');
     const row = await evalRepo.updateCase(app.db, request.params.id, parsed.data);
     if (!row) return reply.status(404).send({ code: 'NOT_FOUND', message: 'case not found' });
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'eval.case.updated',
+      target: request.params.id,
+      input: { fields: Object.keys(parsed.data) },
+      status: 'ok',
+      requestId: request.id,
+    });
     return row;
   });
 
   app.delete<{ Params: { id: string } }>('/api/eval/cases/:id', auth, async (request, reply) => {
     const deleted = await evalRepo.deleteCase(app.db, request.params.id);
     if (!deleted) return reply.status(404).send({ code: 'NOT_FOUND', message: 'case not found' });
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'eval.case.deleted',
+      target: request.params.id,
+      status: 'ok',
+      requestId: request.id,
+    });
     return reply.status(204).send();
   });
 

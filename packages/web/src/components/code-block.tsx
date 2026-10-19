@@ -46,6 +46,9 @@ export function prettyJson(value: string | unknown): string {
   }
 }
 
+/** 单块内容超过该长度时默认折叠：整块渲染会明显拖慢页面。 */
+export const LARGE_CONTENT_CHARS = 64 * 1024;
+
 export function CodeBlock({
   code,
   lineNumbers = false,
@@ -62,7 +65,24 @@ export function CodeBlock({
   json?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  // 超大内容默认不渲染，避免一次插入数万行 DOM。
+  const [expanded, setExpanded] = useState(false);
   const lines = code.split('\n');
+
+  if (code.length > LARGE_CONTENT_CHARS && !expanded) {
+    return (
+      <div className={cn('rounded-lg border border-line bg-code px-3 py-2', className)}>
+        <button
+          type="button"
+          aria-expanded={false}
+          onClick={() => setExpanded(true)}
+          className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        >
+          内容过大，点击查看
+        </button>
+      </div>
+    );
+  }
 
   const copy = async (): Promise<void> => {
     try {
@@ -122,4 +142,22 @@ export function JsonBlock({
   maxHeight?: string;
 }) {
   return <CodeBlock code={prettyJson(value)} lineNumbers={false} json maxHeight={maxHeight} />;
+}
+
+export function CollapsibleText({ text, className }: { text: string; className?: string }) {
+  const [open, setOpen] = useState(false);
+  if (text.length <= LARGE_CONTENT_CHARS) return <div className={className}>{text}</div>;
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+      >
+        {open ? '收起内容' : '内容过大，点击查看'}
+      </button>
+      {open ? <div className="mt-1">{text}</div> : null}
+    </div>
+  );
 }

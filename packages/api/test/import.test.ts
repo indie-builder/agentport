@@ -125,6 +125,39 @@ describe.skipIf(!ready)('import agents', () => {
     expect(body.agent.serverIds).toEqual([created.json<Server>().id]);
   });
 
+  it('refuses to reuse an existing server with a different kind', async () => {
+    const serverName = unique('imp-kind');
+    const slug = unique('imp-kind');
+    createdServers.push(serverName);
+    createdAgents.push(slug);
+
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/servers',
+      headers: auth(),
+      payload: { name: serverName, kind: 'stdio', command: 'node', args: [] },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const res = await importAgent(
+      exportFile(slug, {
+        servers: [{ name: serverName, kind: 'http', config: { url: 'https://example.com/mcp' } }],
+      }),
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects an http server pointing at a private address', async () => {
+    const res = await importAgent(
+      exportFile(unique('imp-ssrf'), {
+        servers: [
+          { name: unique('imp-ssrf-srv'), kind: 'http', config: { url: 'http://10.0.0.1/mcp' } },
+        ],
+      }),
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
   it('renames a conflicting slug and explains it in warnings', async () => {
     const slug = unique('imp-dup');
     createdAgents.push(slug, `${slug}-2`);

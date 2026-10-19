@@ -42,9 +42,9 @@ pnpm dev
 
 `.env` 至少填写：
 
-- `APP_SECRET_KEY`：MCP 密钥加密主密钥，至少 16 字符，建议 32 字节随机串
-- `JWT_SECRET`：会话签名密钥，至少 16 字符
-- `ADMIN_PASSWORD`：管理员密码，至少 8 字符
+- `APP_SECRET_KEY`：MCP 密钥加密主密钥，至少 32 字符，建议 32 字节随机串
+- `JWT_SECRET`：会话签名密钥，至少 32 字符
+- `ADMIN_PASSWORD`：管理员密码，至少 12 字符，且不能是常见默认口令
 - `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`：二选一，运行智能体时注入沙盒
 
 生成随机串：
@@ -101,7 +101,7 @@ docker compose up -d --build
 | `pnpm --filter @agentport/api start` | 以构建产物启动 api（需先 `pnpm build`） |
 | `pnpm --filter @agentport/web preview` | 预览 web 构建产物 |
 
-E2E 不读取 `.env`，默认管理员为 `admin` / `admin-change-me`；如与 `.env` 不同，用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。
+E2E 不读取 `.env`，默认管理员为 `admin` / `admin-change-me`（该口令不能用于服务端配置）；如与 `.env` 不同，用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。本地 `.env` 的默认口令是 `admin-local-dev-2026`。
 
 ## 目录结构
 

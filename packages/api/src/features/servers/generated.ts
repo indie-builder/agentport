@@ -17,6 +17,8 @@ export interface GeneratedServerInput {
    * 若只用构造期的 approvals，批准后同一连接内的调用仍然会被拒。
    */
   refreshApprovals?: () => Promise<string[]>;
+  /** 拒绝时持久化结构化审批请求，供 UI 读取；无 run 上下文时不传。 */
+  onApprovalRequired?: (toolName: string) => Promise<void>;
 }
 
 /** 未批准时的固定文案：前端靠这段文本识别审批请求。 */
@@ -104,6 +106,7 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
             ? await input.refreshApprovals()
             : input.approvals;
           if (!approvals.includes(tool.name)) {
+            await input.onApprovalRequired?.(tool.name);
             return {
               isError: true,
               content: [{ type: 'text', text: approvalRequiredMessage(tool.name) }],

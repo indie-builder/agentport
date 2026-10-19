@@ -7,6 +7,8 @@ import { agentInputSchema, serverInputSchema, skillInputSchema } from '@agentpor
 import { eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { writeAudit } from '../../plugins/audit.js';
+import { assertSafeUrl } from '../servers/ssrf.js';
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
@@ -110,6 +112,14 @@ export function registerImportRoutes(app: FastifyInstance): void {
       if (!serverInput) return invalid(reply, `invalid server config: ${entry.name}`);
       serverInputs.push(serverInput);
     }
+    // 导入文件同样不可信：http/generated 的地址与手动创建走同一个 SSRF 校验。
+    for (const serverInput of serverInputs) {
+      if (serverInput.kind === 'http') {
+        await assertSafeUrl(serverInput.url, app.config.NODE_ENV);
+      } else if (serverInput.kind === 'generated') {
+        await assertSafeUrl(serverInput.baseUrl, app.config.NODE_ENV);
+      }
+    }
     // 同名/同 slug 重复出现时只处理一次，避免重复绑定。
     const uniqueServers = [...new Map(serverInputs.map((s) => [s.name, s])).values()];
     const uniqueSkills = [...new Map(parsed.data.skills.map((s) => [s.slug, s])).values()];
@@ -139,8 +149,19 @@ export function registerImportRoutes(app: FastifyInstance): void {
                 ),
               );
       const serverIdsByName = new Map(existingServers.map((row) => [row.name, row.id]));
+      const serverKindByName = new Map(existingServers.map((row) => [row.name, row.kind]));
       for (const serverInput of uniqueServers) {
-        if (serverIdsByName.has(serverInput.name)) {
+        const reusedKind = serverKindByName.get(serverInput.name);
+        if (reusedKind !== undefined) {
+          // 同名不同 kind 的配置结构不同，复用会得到行为不符的 server。
+          if (reusedKind !== serverInput.kind) {
+            throw Object.assign(
+              new Error(
+                `server ${serverInput.name} already exists with kind ${reusedKind}, refusing to reuse it as ${serverInput.kind}`,
+              ),
+              { statusCode: 400, code: 'INVALID_INPUT' },
+            );
+          }
           reusedServers.push(serverInput.name);
           continue;
         }
@@ -222,6 +243,19 @@ export function registerImportRoutes(app: FastifyInstance): void {
         reusedServers,
         createdSkills,
       };
+    });
+
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'agent.imported',
+      target: result.agent.id,
+      input: {
+        slug: result.agent.slug,
+        servers: { created: result.createdServers.length, reused: result.reusedServers.length },
+        skills: result.createdSkills.length,
+      },
+      status: 'ok',
+      requestId: request.id,
     });
 
     return reply.status(201).send({ ...result, warnings });

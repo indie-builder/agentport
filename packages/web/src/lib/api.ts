@@ -93,10 +93,23 @@ export interface RunDetail {
     conversationId: string;
     sessionId: string | null;
     sandboxId: string | null;
-    approvals: string[];
   };
   steps: RunStep[];
   conversation: { id: string; agentId: string; title: string };
+}
+
+/** 结构化审批请求；approvedAt 非空表示已批准。 */
+export interface ApprovalRequest {
+  id: string;
+  serverId: string;
+  serverName: string | null;
+  toolName: string;
+  createdAt: string;
+  approvedAt: string | null;
+}
+
+export interface ApprovalRequestList {
+  items: ApprovalRequest[];
 }
 
 export interface RunList {
@@ -336,8 +349,14 @@ export const api = {
     toolId: string,
     patch: { enabled?: boolean; requiresApproval?: boolean },
   ): Promise<ApiTool> => request(`/servers/${serverId}/tools/${toolId}`, 'PATCH', patch),
-  approveRun: (runId: string, toolName: string): Promise<{ approvals: string[] }> =>
-    request(`/runs/${runId}/approve`, 'POST', { toolName }),
+  runApprovals: (runId: string): Promise<ApprovalRequestList> =>
+    request(`/runs/${runId}/approvals`),
+  approveRun: (
+    runId: string,
+    serverId: string,
+    toolName: string,
+  ): Promise<{ serverId: string; toolName: string; approvedAt: string }> =>
+    request(`/runs/${runId}/approve`, 'POST', { serverId, toolName }),
 
   agents: (): Promise<Agent[]> => request('/agents'),
   createAgent: (input: AgentInput): Promise<Agent> => request('/agents', 'POST', input),

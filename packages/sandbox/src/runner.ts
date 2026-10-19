@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { type PermissionMode, query } from '@anthropic-ai/claude-agent-sdk';
 import { composePrompt } from './prompt.js';
 
 /**
@@ -39,6 +39,8 @@ interface RunnerTask {
   model?: string;
   maxTurns?: number;
   maxBudgetUsd?: number;
+  /** 智能体配置的权限模式；缺省 dontAsk（未预批准的工具一律拒绝）。 */
+  permissionMode?: string;
   /** .mcp.json 里的 server key，用于生成精确的 allow 规则 */
   mcpServers?: string[];
   /** 智能体自定义的额外允许项（mcp__ 通配由 mcpServers 推导） */
@@ -55,6 +57,16 @@ interface RunnerTask {
 
 function log(message: string): void {
   process.stderr.write(`[runner] ${message}\n`);
+}
+
+/** 单字段上限：宿主侧还有 1MiB 单行/32MiB 总量兜底，这里先截断常见大块。 */
+const MAX_FIELD_BYTES = 256 * 1024;
+const TRUNCATED = '\n…[truncated]';
+
+/** 按字节截断但不在多字节字符中间切开；截断时追加标记。 */
+function cap(value: string): string {
+  if (Buffer.byteLength(value) <= MAX_FIELD_BYTES) return value;
+  return `${Buffer.from(value).subarray(0, MAX_FIELD_BYTES).toString('utf8').replace(/�$/, '')}${TRUNCATED}`;
 }
 
 function emit(event: RunnerEvent): void {
@@ -167,7 +179,7 @@ for await (const message of query({
   options: {
     cwd: '/workspace',
     settingSources: ['project'],
-    permissionMode: 'dontAsk',
+    permissionMode: (task.permissionMode ?? 'dontAsk') as PermissionMode,
     allowedTools,
     disallowedTools: [...new Set(disallowedTools)],
     includePartialMessages: true,
@@ -184,11 +196,11 @@ for await (const message of query({
   if (message.type === 'assistant') {
     // 完整文本块单独发一次：前端已用 text_delta 渲染，这次用于落库。
     const fullText = assistantText(message.message.content);
-    if (fullText.length > 0) emit({ type: 'assistant_text', text: fullText });
+    if (fullText.length > 0) emit({ type: 'assistant_text', text: cap(fullText) });
     for (const block of message.message.content) {
       if (block.type !== 'tool_use') continue;
       emit({ type: 'tool_start', toolUseId: block.id, name: block.name });
-      emit({ type: 'tool_input', toolUseId: block.id, json: JSON.stringify(block.input) });
+      emit({ type: 'tool_input', toolUseId: block.id, json: cap(JSON.stringify(block.input)) });
     }
     continue;
   }
@@ -201,7 +213,7 @@ for await (const message of query({
       emit({
         type: 'tool_result',
         toolUseId: block.tool_use_id,
-        content: toolResultText(block.content),
+        content: cap(toolResultText(block.content)),
       });
     }
     continue;

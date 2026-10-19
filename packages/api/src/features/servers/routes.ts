@@ -166,6 +166,14 @@ export function registerServerRoutes(app: FastifyInstance): void {
     if (!body.success) return invalid(reply, body.error.issues[0]?.message ?? 'invalid body');
     try {
       const tool = await repo.createTool(app.db, parsed.data.id, body.data);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'server.tool.created',
+        target: parsed.data.id,
+        input: { name: body.data.name, method: body.data.method },
+        status: 'ok',
+        requestId: request.id,
+      });
       return reply.status(201).send(tool);
     } catch (err) {
       rethrowConflict(err);
@@ -190,6 +198,14 @@ export function registerServerRoutes(app: FastifyInstance): void {
     };
     const tool = await repo.updateTool(app.db, parsed.data.id, parsed.data.toolId, patch);
     if (!tool) return notFound(reply, 'tool');
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'server.tool.updated',
+      target: parsed.data.id,
+      input: { toolId: parsed.data.toolId, name: tool.name, ...patch },
+      status: 'ok',
+      requestId: request.id,
+    });
     return tool;
   });
 
@@ -198,6 +214,14 @@ export function registerServerRoutes(app: FastifyInstance): void {
     if (!parsed.success) return invalid(reply, 'invalid id');
     const ok = await repo.deleteTool(app.db, parsed.data.id, parsed.data.toolId);
     if (!ok) return notFound(reply, 'tool');
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'server.tool.deleted',
+      target: parsed.data.id,
+      input: { toolId: parsed.data.toolId },
+      status: 'ok',
+      requestId: request.id,
+    });
     return reply.status(204).send();
   });
 }

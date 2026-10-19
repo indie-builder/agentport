@@ -198,7 +198,7 @@ export const agentRuns = pgTable(
     latencyMs: integer('latency_ms'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
-    /** 本 run 已批准的工具名；新 run 会沿用同一会话上一次的批准。 */
+    /** 已废弃：审批改存 approval_requests，此列不再写入，仅为兼容旧数据保留。 */
     approvals: jsonb('approvals').$type<string[]>().notNull().default([]),
   },
   (t) => [
@@ -211,6 +211,27 @@ export const agentRuns = pgTable(
       t.id.desc(),
     ),
   ],
+);
+
+/**
+ * 结构化的工具审批。行在工具被拒绝时由 MCP 端点写入（pending），用户批准后置 approved_at。
+ * (run_id, server_id, tool_name) 唯一，审批因此不会跨 server 复用。
+ */
+export const approvalRequests = pgTable(
+  'approval_requests',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    serverId: text('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    toolName: text('tool_name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+  },
+  (t) => [uniqueIndex('approval_requests_run_server_tool_idx').on(t.runId, t.serverId, t.toolName)],
 );
 
 export const evalCases = pgTable(
@@ -291,6 +312,7 @@ export const schema = {
   conversations,
   messages,
   agentRuns,
+  approvalRequests,
   evalCases,
   evalRuns,
   evalResults,

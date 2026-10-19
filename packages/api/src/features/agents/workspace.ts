@@ -1,11 +1,14 @@
-import type { WorkspaceFiles } from '@agentport/core';
-import { renderWorkspace, toMcpJsonEntry } from '@agentport/core';
+import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
+import { renderWorkspace } from '@agentport/core';
 import * as agentRepo from '@agentport/db/repo/agents.js';
-import type { ServerInput } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { decryptSecrets } from '../servers/secrets.js';
 
 type ServerRow = Awaited<ReturnType<typeof agentRepo.getBoundServers>>[number];
+
+/** 预览里密钥只保留键名；明文值只在 worker 写工作区时注入。 */
+const PREVIEW_SECRET = '<已配置>';
+const RUNTIME_AUTH_NOTE = 'Authorization 由运行时注入，不在此显示。';
 
 // 沙盒视角的 API 地址；compose 内是 http://api:3000，本机 Docker 用 host.docker.internal。
 function sandboxApiUrl(): string {
@@ -20,36 +23,40 @@ function strArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
+/** 保留键名、替换值：预览既能看到配置了哪些键，又拿不到任何密钥。 */
+function maskValues(keys: string[], omitAuthorization = false): Record<string, string> {
+  return Object.fromEntries(
+    keys
+      .filter((key) => !(omitAuthorization && key.toLowerCase() === 'authorization'))
+      .map((key) => [key, PREVIEW_SECRET]),
+  );
+}
+
 /**
- * DB 行 → 共享 ServerInput。env/headers 存在加密列里，所以这里留空、由 toMcpJsonEntry 的 secrets 参数合并。
- * generated server 在沙盒里看到的是平台自己的 /mcp/:id，而不是上游 baseUrl。
+ * DB 行 → 预览用 .mcp.json 条目。env/headers 只回键名；generated 的 Authorization
+ * 由 worker 在运行时按 run 注入，因此这里完全省略并附一条说明。
  */
-function toEntry(row: ServerRow, secrets: Record<string, string>) {
-  const common = { name: row.name, description: row.description };
+function toEntry(row: ServerRow, secretKeys: string[]): McpJsonEntry {
   const config = row.config;
 
   if (row.kind === 'stdio') {
-    const input: ServerInput = {
-      ...common,
-      kind: 'stdio',
+    return {
       command: str(config.command),
       args: strArray(config.args),
-      env: {},
+      env: maskValues(secretKeys),
     };
-    return toMcpJsonEntry(input, secrets);
   }
 
   if (row.kind === 'http') {
-    const input: ServerInput = { ...common, kind: 'http', url: str(config.url), headers: {} };
-    return toMcpJsonEntry(input, secrets);
+    return { type: 'http', url: str(config.url), headers: maskValues(secretKeys) };
   }
 
-  const token = str(config.mcpToken);
   return {
     type: 'http' as const,
     // 与 worker 写入的地址保持一致，否则同一次运行里两个进程会渲染出不同的 .mcp.json。
     url: `${sandboxApiUrl()}/mcp/${row.id}`,
-    headers: { ...secrets, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: maskValues(secretKeys, true),
+    _note: RUNTIME_AUTH_NOTE,
   };
 }
 
@@ -67,10 +74,11 @@ export async function renderAgentWorkspace(
     agentRepo.listSubAgents(app.db, agent.id),
   ]);
   const servers = rows.map((row) => {
-    const secrets = row.secretsEncrypted
-      ? decryptSecrets(row.secretsEncrypted, app.config.APP_SECRET_KEY)
-      : {};
-    return { name: row.name, entry: toEntry(row, secrets) };
+    // 只传键名，值没有离开过加密列的解密结果，更不会进 API 响应。
+    const secretKeys = row.secretsEncrypted
+      ? Object.keys(decryptSecrets(row.secretsEncrypted, app.config.APP_SECRET_KEY))
+      : [];
+    return { name: row.name, entry: toEntry(row, secretKeys) };
   });
 
   return renderWorkspace({

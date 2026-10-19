@@ -293,13 +293,19 @@ export function registerAgentRoutes(app: FastifyInstance): void {
   });
 
   // 检查配置是否可渲染的最直接方式就是真渲染一次；只预览，不落盘。
-  app.get('/api/agents/:id/files', auth, async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return invalid(reply, 'invalid id');
-    const files = await renderAgentWorkspace(app, params.data.id);
-    if (!files) return notFound(reply);
-    return files;
-  });
+  // 预览永远只含密钥键名，reveal=1 也不返回明文，仅要求浏览器不缓存。
+  app.get<{ Params: { id: string }; Querystring: { reveal?: string } }>(
+    '/api/agents/:id/files',
+    auth,
+    async (request, reply) => {
+      const params = idParams.safeParse(request.params);
+      if (!params.success) return invalid(reply, 'invalid id');
+      const files = await renderAgentWorkspace(app, params.data.id);
+      if (!files) return notFound(reply);
+      if (request.query.reveal === '1') reply.header('Cache-Control', 'no-store');
+      return files;
+    },
+  );
 
   app.get('/api/agents/:id/versions', auth, async (request, reply) => {
     const params = idParams.safeParse(request.params);

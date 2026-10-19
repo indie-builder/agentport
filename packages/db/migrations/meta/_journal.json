@@ -71,6 +71,13 @@
       "when": 1792433505294,
       "tag": "0009_premium_karnak",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792435753922,
+      "tag": "0010_fuzzy_gorilla_man",
+      "breakpoints": true
     }
   ]
 }

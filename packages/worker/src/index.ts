@@ -5,10 +5,11 @@ import { decryptSecrets, renderWorkspace } from '@agentport/core';
 import { createDb, newId, schema } from '@agentport/db';
 import { agentRunJobSchema, type ChatEvent } from '@agentport/shared';
 import { Worker } from 'bullmq';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, ne } from 'drizzle-orm';
 import pino from 'pino';
 import { loadConfig } from './config.js';
 import { startMaintenanceWorker } from './maintenance.js';
+import { redactSecrets } from './redact.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
   closeRunnerClient,
@@ -183,7 +184,10 @@ async function persistRunMessages(
 
   for (const event of input.events) {
     if (event.type === 'assistant_text' && event.text.trim().length > 0) {
-      rows.push({ role: 'assistant', content: { type: 'text', text: event.text } });
+      rows.push({
+        role: 'assistant',
+        content: { type: 'text', text: redactSecrets(event.text) },
+      });
     } else if (event.type === 'tool_start') {
       toolNames.set(event.toolUseId, event.name);
     } else if (event.type === 'tool_result') {
@@ -193,21 +197,28 @@ async function persistRunMessages(
           type: 'tool_result',
           toolUseId: event.toolUseId,
           name: toolNames.get(event.toolUseId) ?? null,
-          content: event.content,
+          content: redactSecrets(event.content),
         },
       });
     }
   }
 
-  for (const row of rows) {
-    await db.insert(schema.messages).values({
-      id: newId('message'),
-      conversationId: input.conversationId,
-      role: row.role,
-      content: row.content,
-      runId: input.runId,
-    });
-  }
+  // BullMQ 重试会重放同一 run：先删本 run 已落库的输出再写，避免重复消息。
+  // 用户消息也带 run_id，但由 API 写入，重试时不能删。
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.messages)
+      .where(and(eq(schema.messages.runId, input.runId), ne(schema.messages.role, 'user')));
+    for (const row of rows) {
+      await tx.insert(schema.messages).values({
+        id: newId('message'),
+        conversationId: input.conversationId,
+        role: row.role,
+        content: row.content,
+        runId: input.runId,
+      });
+    }
+  });
 }
 
 /** 本机代理常监听 127.0.0.1，容器内该地址指向容器自身；改写成宿主别名。 */
@@ -325,6 +336,7 @@ const worker = new Worker(
           model: agent.model,
           maxTurns: agent.maxTurns,
           maxBudgetUsd: Number(agent.maxBudgetUsd),
+          permissionMode: agent.permissionMode,
           mcpServers: rows.map(({ server }) => server.name),
           ...(agent.allowedTools.length > 0 ? { extraAllowedTools: agent.allowedTools } : {}),
           ...(agent.disallowedTools.length > 0

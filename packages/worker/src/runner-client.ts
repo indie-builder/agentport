@@ -1,7 +1,7 @@
-import { createInterface } from 'node:readline';
 import { type ChatEvent, chatEventSchema } from '@agentport/shared';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
+import { redactSecrets } from './redact.js';
 import type { SandboxProvider } from './sandbox/provider.js';
 
 export type RunStatus = 'succeeded' | 'failed' | 'cancelled' | 'timeout';
@@ -17,6 +17,8 @@ export interface SandboxRunInput {
     model: string;
     maxTurns: number;
     maxBudgetUsd: number;
+    /** SDK 权限模式；缺省由 runner 回落到 dontAsk。 */
+    permissionMode?: string;
     /** 绑定到工作区的 MCP server 名，runner 用它生成精确 allow 规则 */
     mcpServers: string[];
     extraAllowedTools?: string[];
@@ -56,6 +58,12 @@ export interface SandboxRunOutcome {
 
 /** SIGTERM 后留一点时间让 runner 收尾，否则强杀。 */
 const KILL_GRACE_MS = 5_000;
+
+/** 单行 NDJSON 上限；超过即丢弃，避免一行把内存吃穿。 */
+const MAX_LINE_BYTES = 1024 * 1024;
+/** 单 run 收集上限：超出后只保留终态，不再转发事件。 */
+const MAX_EVENTS = 2_000;
+const MAX_EVENT_BYTES = 32 * 1024 * 1024;
 
 let redisUrl = 'redis://localhost:6379';
 
@@ -115,15 +123,16 @@ export async function closeRunnerClient(): Promise<void> {
 
 /** 容器 stdout 每行一个 ChatEvent；非法行只记日志，不中断 run。 */
 function parseLine(line: string, logger: Logger): ChatEvent | null {
+  const excerpt = redactSecrets(line.slice(0, 500));
   try {
     const parsed = chatEventSchema.safeParse(JSON.parse(line));
     if (!parsed.success) {
-      logger.warn({ line }, 'sandbox emitted non-contract event');
+      logger.warn({ line: excerpt }, 'sandbox emitted non-contract event');
       return null;
     }
     return parsed.data;
   } catch {
-    logger.warn({ line }, 'sandbox emitted non-JSON line');
+    logger.warn({ line: excerpt }, 'sandbox emitted non-JSON line');
     return null;
   }
 }
@@ -166,6 +175,8 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
   let cancelled = false;
   let timedOut = false;
   let stderrTail = '';
+  let eventBytes = 0;
+  let overflowed = false;
 
   // 同一连接上的命令按序排队；不 await 也能保证事件顺序。
   const publish = (event: ChatEvent): void => {
@@ -194,7 +205,9 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
   child.stderr.on('data', (chunk: string) => {
     stderrTail = `${stderrTail}${chunk}`.slice(-2_000);
     for (const line of chunk.split('\n')) {
-      if (line.trim().length > 0) logger.info({ runId, sandbox: sandbox.id }, line);
+      if (line.trim().length > 0) {
+        logger.debug({ runId, sandbox: sandbox.id }, redactSecrets(line));
+      }
     }
   });
   child.stdin.on('error', (err) => logger.warn({ err, runId }, 'sandbox stdin closed'));
@@ -203,9 +216,7 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
     child.once('close', (code, signal) => resolve({ code, signal }));
   });
 
-  const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
-  lines.on('line', (line) => {
-    if (line.trim().length === 0) return;
+  const onEvent = (line: string): void => {
     const event = parseLine(line, logger);
     if (!event) return;
 
@@ -214,14 +225,61 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
       reportedStatus = event.status;
       reportedCost = event.costUsd;
       reportedTurns = event.turns;
-      reportedError = event.error;
+      reportedError = event.error === undefined ? undefined : redactSecrets(event.error);
       reportedSessionId = event.sessionId;
       reportedInput = event.inputTokens;
       reportedOutput = event.outputTokens;
       return;
     }
+    if (overflowed) return;
+
+    eventBytes += Buffer.byteLength(line);
+    if (events.length >= MAX_EVENTS || eventBytes > MAX_EVENT_BYTES) {
+      overflowed = true;
+      logger.warn({ runId, events: events.length, eventBytes }, 'sandbox event stream overflowed');
+      events.push({ type: 'error', message: '输出超出上限' });
+      publish({ type: 'error', message: '输出超出上限' });
+      return;
+    }
     events.push(event);
     publish(event);
+  };
+
+  // 手写行切分而不是 readline：超长行直接丢弃，不把它整行留在内存里。
+  let pending = '';
+  let discarding = false;
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => {
+    let start = 0;
+    while (start < chunk.length) {
+      const newline = chunk.indexOf('\n', start);
+      if (newline === -1) {
+        if (!discarding) {
+          pending += chunk.slice(start);
+          if (Buffer.byteLength(pending) > MAX_LINE_BYTES) {
+            discarding = true;
+            pending = '';
+            logger.warn({ runId }, 'sandbox event line exceeded 1MiB, dropped');
+          }
+        }
+        return;
+      }
+      const piece = chunk.slice(start, newline);
+      start = newline + 1;
+      if (discarding) {
+        // 丢弃行的结尾；后续行恢复正常处理。
+        discarding = false;
+        pending = '';
+        continue;
+      }
+      const line = pending + piece;
+      pending = '';
+      if (Buffer.byteLength(line) > MAX_LINE_BYTES) {
+        logger.warn({ runId }, 'sandbox event line exceeded 1MiB, dropped');
+        continue;
+      }
+      if (line.trim().length > 0) onEvent(line);
+    }
   });
 
   child.stdin.write(`${JSON.stringify(input.task)}\n`);
@@ -231,7 +289,6 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
     exit = await closed;
   } finally {
     clearTimeout(killTimer);
-    lines.close();
     await unsubscribe();
     await input.provider.destroy(sandbox).catch((err: unknown) => {
       logger.warn({ err, runId }, 'sandbox cleanup failed');
@@ -259,7 +316,7 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
     };
   }
   if (reportedStatus === undefined) {
-    const suffix = stderrTail.trim();
+    const suffix = redactSecrets(stderrTail.trim());
     const detail =
       exit.code === 0
         ? 'sandbox exited without run_finished'

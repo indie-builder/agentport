@@ -18,12 +18,12 @@ import {
   X,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { JsonBlock } from '../components/code-block.js';
+import { CollapsibleText, JsonBlock } from '../components/code-block.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { Textarea } from '../components/ui/textarea.js';
-import { api, type ChatAccepted, errorMessage } from '../lib/api.js';
+import { type ApprovalRequest, api, type ChatAccepted, errorMessage } from '../lib/api.js';
 import {
   applyEvent,
   type ChatItem,
@@ -36,7 +36,7 @@ import {
 } from '../lib/chat-state.js';
 import { cn } from '../lib/cn.js';
 import { formatRelative } from '../lib/format.js';
-import { useAgents, useConversation, useConversations } from '../lib/queries.js';
+import { useAgents, useConversation, useConversations, useRunApprovals } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 export function ChatPage() {
@@ -115,7 +115,6 @@ function ChatWorkspace({
   const [cancelling, setCancelling] = useState(false);
   // 审批针对产生错误的 run；run_finished 后 run 会被清空，所以单独保留 id。
   const [lastRunId, setLastRunId] = useState<string | null>(null);
-  const [approved, setApproved] = useState<string[]>([]);
   const [approving, setApproving] = useState<string | null>(null);
   // 服务端重连时从头回放事件流；保留发起前的消息，避免文本重复。
   const baseItemsRef = useRef<ChatItem[]>([]);
@@ -126,6 +125,8 @@ function ChatWorkspace({
 
   const conversations = useConversations(agentId);
   const detail = useConversation(conversationId);
+  // 审批只来自结构化记录，不再解析工具输出文本。
+  const runApprovals = useRunApprovals(run?.runId || lastRunId);
 
   const history = useMemo(() => {
     if (conversations.data?.supported) {
@@ -250,15 +251,15 @@ function ChatWorkspace({
   };
 
   /** 只记录批准；重试由用户重新发送消息完成，不做自动重试。 */
-  const approve = (toolName: string): void => {
+  const approve = (item: ApprovalRequest): void => {
     const runId = run?.runId || lastRunId;
     if (!runId || approving) return;
-    setApproving(toolName);
+    setApproving(item.id);
     api
-      .approveRun(runId, toolName)
-      .then(({ approvals }) => {
-        setApproved(approvals);
-        toastSuccess(`已批准 ${toolName}，重新发送消息即可继续`);
+      .approveRun(runId, item.serverId, item.toolName)
+      .then(() => {
+        toastSuccess(`已批准 ${item.toolName}，重新发送消息即可继续`);
+        void runApprovals.refetch();
       })
       .catch((error) => toastError(error))
       .finally(() => setApproving(null));
@@ -268,7 +269,6 @@ function ChatWorkspace({
     closeStream();
     setRun(null);
     setLastRunId(null);
-    setApproved([]);
     hydratedRef.current = null;
     setConversationId(id);
     setItems([]);
@@ -279,7 +279,6 @@ function ChatWorkspace({
     closeStream();
     setRun(null);
     setLastRunId(null);
-    setApproved([]);
     hydratedRef.current = null;
     setConversationId(null);
     setItems([]);
@@ -333,7 +332,6 @@ function ChatWorkspace({
     closeStream();
     setRun(null);
     setLastRunId(null);
-    setApproved([]);
     hydratedRef.current = null;
     setConversationId(null);
     setItems([]);
@@ -482,11 +480,12 @@ function ChatWorkspace({
           error={detail.isError ? detail.error : null}
           onRetry={() => void detail.refetch()}
           approvals={{
-            approved,
             pending: approving,
-            ...(run?.runId ? { runId: run.runId } : lastRunId ? { runId: lastRunId } : {}),
             onApprove: approve,
           }}
+          approvalItems={(runApprovals.data?.items ?? []).filter(
+            (item) => item.approvedAt === null,
+          )}
           welcome={
             showWelcome ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
@@ -580,6 +579,7 @@ function MessagePane({
   onRetry,
   welcome,
   approvals,
+  approvalItems,
 }: {
   items: ChatItem[];
   loading: boolean;
@@ -587,11 +587,10 @@ function MessagePane({
   onRetry: () => void;
   welcome: ReactNode;
   approvals: {
-    approved: string[];
     pending: string | null;
-    runId?: string;
-    onApprove: (toolName: string) => void;
+    onApprove: (item: ApprovalRequest) => void;
   };
+  approvalItems: ApprovalRequest[];
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
@@ -644,7 +643,7 @@ function MessagePane({
             ))}
           </div>
         ) : null}
-        <ApprovalCards items={items} approvals={approvals} />
+        <ApprovalCards items={approvalItems} approvals={approvals} />
       </div>
       {!pinned && items.length > 0 ? (
         <button
@@ -671,9 +670,10 @@ function ItemView({ item }: { item: ChatItem }) {
       );
     case 'text':
       return (
-        <div className="whitespace-pre-wrap break-words text-[13px] leading-[1.7] text-fg/90">
-          {item.text}
-        </div>
+        <CollapsibleText
+          text={item.text}
+          className="whitespace-pre-wrap break-words text-[13px] leading-[1.7] text-fg/90"
+        />
       );
     case 'tool':
       return <ToolCard item={item} />;
@@ -702,54 +702,39 @@ function ItemView({ item }: { item: ChatItem }) {
   }
 }
 
-/** 平台 MCP 端点未批准时返回的固定文案；其余错误正常显示在工具卡片里。 */
-const APPROVAL_PATTERN = /^需要批准：(.+?)。请在运行详情页批准后重试。$/;
-
-function pendingApprovals(items: ChatItem[], approved: string[]): string[] {
-  const names = new Set<string>();
-  for (const item of items) {
-    if (item.kind !== 'tool' || item.result === undefined) continue;
-    const match = APPROVAL_PATTERN.exec(item.result.trim());
-    if (match?.[1] && !approved.includes(match[1])) names.add(match[1]);
-  }
-  return [...names];
-}
-
 /** 一次 run 内同一工具只批准一次；批准后由用户重新发消息，不自动重试。 */
 function ApprovalCards({
   items,
   approvals,
 }: {
-  items: ChatItem[];
+  items: ApprovalRequest[];
   approvals: {
-    approved: string[];
     pending: string | null;
-    runId?: string;
-    onApprove: (toolName: string) => void;
+    onApprove: (item: ApprovalRequest) => void;
   };
 }) {
-  const names = pendingApprovals(items, approvals.approved);
-  if (names.length === 0 || !approvals.runId) return null;
+  if (items.length === 0) return null;
   return (
     <div className="mx-auto mt-4 max-w-3xl space-y-2">
-      {names.map((name) => {
-        const busy = approvals.pending === name;
+      {items.map((item) => {
+        const busy = approvals.pending === item.id;
         return (
           <div
-            key={name}
+            key={item.id}
             role="alert"
             className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/30 bg-warning/5 px-3.5 py-2.5"
           >
             <CircleAlert className="size-4 shrink-0 text-warning" />
             <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg/90">
-              工具 <code className="font-mono text-[11.5px] text-fg">{name}</code>{' '}
+              工具 <code className="font-mono text-[11.5px] text-fg">{item.toolName}</code>
+              {item.serverName ? <span className="text-muted"> @ {item.serverName}</span> : null}{' '}
               需要批准后才能调用。批准后请重新发送消息。
             </div>
             <Button
               size="sm"
               disabled={busy}
               aria-busy={busy}
-              onClick={() => approvals.onApprove(name)}
+              onClick={() => approvals.onApprove(item)}
             >
               {busy ? '批准中…' : '批准并重试'}
             </Button>

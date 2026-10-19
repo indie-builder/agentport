@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
-import { agentServers, apiTools, servers } from '../schema.js';
+import { apiTools, servers } from '../schema.js';
 
 export type ServerRow = typeof servers.$inferSelect;
 export type ApiToolRow = typeof apiTools.$inferSelect;
@@ -107,20 +107,4 @@ export async function deleteApiTool(
     .where(and(eq(apiTools.id, toolId), eq(apiTools.serverId, serverId)))
     .returning({ id: apiTools.id });
   return rows.length > 0;
-}
-
-/** 该智能体已绑定、且启用中、标记了 requiresApproval 的工具名。 */
-export async function listApprovableToolNames(db: Database, agentId: string): Promise<string[]> {
-  const rows = await db
-    .select({ name: apiTools.name })
-    .from(apiTools)
-    .innerJoin(agentServers, eq(agentServers.serverId, apiTools.serverId))
-    .where(
-      and(
-        eq(agentServers.agentId, agentId),
-        eq(apiTools.enabled, true),
-        eq(apiTools.requiresApproval, true),
-      ),
-    );
-  return rows.map((row) => row.name);
 }

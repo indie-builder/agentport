@@ -30,7 +30,14 @@ function handlerFor(app: FastifyInstance, serverId: string, runId: string | null
     if (server.kind !== 'generated') throw new Error('not a generated server');
     const tools = await listTools(app.db, serverId);
     // runId 由路由层从当前 HTTP 请求头读入；外部客户端没有 run，审批工具一律拒绝。
-    const approvals = runId ? await repo.runs.getRunApprovals(app.db, runId) : [];
+    // run header 来自沙盒，外部客户端也能伪造：只有 run 存在且该智能体绑定了本 server 才采信。
+    const trustedRunId =
+      runId !== null && (await repo.runs.isRunBoundToServer(app.db, runId, serverId))
+        ? runId
+        : null;
+    const approvals = trustedRunId
+      ? await repo.runs.getApprovedToolNames(app.db, trustedRunId, serverId)
+      : [];
     return buildGeneratedServer({
       name: server.name,
       baseUrl: server.baseUrl,
@@ -38,9 +45,17 @@ function handlerFor(app: FastifyInstance, serverId: string, runId: string | null
       tools,
       approvals,
       nodeEnv: app.config.NODE_ENV,
-      ...(runId === null
+      ...(trustedRunId === null
         ? {}
-        : { refreshApprovals: () => repo.runs.getRunApprovals(app.db, runId) }),
+        : {
+            refreshApprovals: () => repo.runs.getApprovedToolNames(app.db, trustedRunId, serverId),
+            onApprovalRequired: (toolName) =>
+              repo.runs.requestApproval(app.db, {
+                runId: trustedRunId,
+                serverId,
+                toolName,
+              }),
+          }),
     });
   });
 }

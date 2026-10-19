@@ -29,7 +29,7 @@ const envSchema = z.object({
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
   SANDBOX_API_URL: z.string().min(1).default('http://host.docker.internal:3000'),
   /** 与 API 相同的密钥派生源：用来解密 server 的 env/headers 并注入工作区。 */
-  APP_SECRET_KEY: z.string().min(16),
+  APP_SECRET_KEY: z.string().min(32),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_AUTH_TOKEN: z.string().optional(),
   ANTHROPIC_BASE_URL: z.string().optional(),

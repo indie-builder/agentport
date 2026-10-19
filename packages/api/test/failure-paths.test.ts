@@ -211,7 +211,7 @@ describe.skipIf(!ready)('failure paths', () => {
       method: 'POST',
       url: '/api/runs/run_missing/approve',
       headers: auth(),
-      payload: { toolName: 'anything' },
+      payload: { serverId: 'srv_missing', toolName: 'anything' },
     });
     expect(approve.statusCode).toBe(404);
     expect(approve.json()).toMatchObject({ code: 'RUN_NOT_FOUND' });
@@ -306,7 +306,7 @@ describe.skipIf(!ready)('failure paths', () => {
     expect(unknown.statusCode).toBe(404);
   });
 
-  it('rejects approving an unknown toolName and accepts an approvable one', async () => {
+  it('rejects approving a request that does not exist', async () => {
     const server = await createGeneratedServer();
     const toolName = 'needs-approval';
     const tool = await inject(app, {
@@ -335,25 +335,43 @@ describe.skipIf(!ready)('failure paths', () => {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: auth(),
-      payload: { toolName: 'not-a-real-tool' },
+      payload: { serverId: server.id, toolName: 'not-a-real-tool' },
     });
     expect(unknown.statusCode).toBe(404);
-    expect(unknown.json()).toMatchObject({ code: 'TOOL_NOT_FOUND' });
+    expect(unknown.json()).toMatchObject({ code: 'APPROVAL_NOT_FOUND' });
 
-    const unchanged = await app.pool.query<{ approvals: string[] }>(
-      'select approvals from agent_runs where id = $1',
+    const unchanged = await app.pool.query<{ count: number }>(
+      'select count(*)::int as count from approval_requests where run_id = $1',
       [runId],
     );
-    expect(unchanged.rows[0]?.approvals).toEqual([]);
+    expect(unchanged.rows[0]?.count).toBe(0);
 
+    // 伪造一条 pending 记录（模拟工具被拒后的状态），批准才会成功。
+    await app.pool.query(
+      'insert into approval_requests (id, run_id, server_id, tool_name) values ($1, $2, $3, $4)',
+      [unique('apr'), runId, server.id, toolName],
+    );
     const valid = await inject(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: auth(),
-      payload: { toolName },
+      payload: { serverId: server.id, toolName },
     });
     expect(valid.statusCode).toBe(200);
-    expect(valid.json<{ approvals: string[] }>().approvals).toEqual([toolName]);
+    expect(valid.json<{ serverId: string; toolName: string }>()).toMatchObject({
+      serverId: server.id,
+      toolName,
+    });
+
+    // 同 run 的另一 server 不能复用这次批准。
+    const otherServer = await createGeneratedServer();
+    const crossServer = await inject(app, {
+      method: 'POST',
+      url: `/api/runs/${runId}/approve`,
+      headers: auth(),
+      payload: { serverId: otherServer.id, toolName },
+    });
+    expect(crossServer.statusCode).toBe(404);
   });
 
   it('returns 409 for a duplicate skill slug instead of 500', async () => {

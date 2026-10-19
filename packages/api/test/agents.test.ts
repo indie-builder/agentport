@@ -112,12 +112,28 @@ describe.skipIf(!ready)('agents', () => {
     const body = files.json<WorkspaceFiles>();
 
     const mcp = JSON.parse(body.mcpJson) as {
-      mcpServers: Record<string, { type: string; url: string; headers: Record<string, string> }>;
+      mcpServers: Record<
+        string,
+        { type: string; url: string; headers: Record<string, string>; _note?: string }
+      >;
     };
     expect(Object.keys(mcp.mcpServers)).toEqual([server.name]);
     expect(mcp.mcpServers[server.name]?.type).toBe('http');
     expect(mcp.mcpServers[server.name]?.url).toContain(`/mcp/${server.id}`);
-    expect(mcp.mcpServers[server.name]?.headers.Authorization).toMatch(/^Bearer /);
+    // 预览不返回明文 mcpToken：Authorization 省略，并注明运行时注入。
+    expect(mcp.mcpServers[server.name]?.headers.Authorization).toBeUndefined();
+    expect(mcp.mcpServers[server.name]?._note).toContain('运行时注入');
+
+    // reveal=1 也不返回明文，只要求响应不被缓存。
+    const reveal = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${agent.id}/files?reveal=1`,
+      headers: auth(),
+    });
+    expect(reveal.statusCode).toBe(200);
+    expect(reveal.headers['cache-control']).toBe('no-store');
+    expect(reveal.body).not.toContain('Bearer ');
+    expect(reveal.body).not.toContain('mcpToken');
 
     expect(body.claudeMd).toContain('You are helpful.');
     expect(body.claudeMd).toContain(`mcp__${server.name}__`);

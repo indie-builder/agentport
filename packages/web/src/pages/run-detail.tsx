@@ -1,7 +1,7 @@
 import { Link, useParams } from '@tanstack/react-router';
 import { ArrowLeft, Bot, Check, ChevronDown, CircleAlert, Copy, User, Wrench } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
-import { CodeBlock, prettyJson } from '../components/code-block.js';
+import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
 import { PageHeader } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
@@ -9,7 +9,7 @@ import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Card, CardContent } from '../components/ui/card.js';
 import { Skeleton } from '../components/ui/skeleton.js';
-import type { RunStep } from '../lib/api.js';
+import type { ApprovalRequest, RunStep } from '../lib/api.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
@@ -19,7 +19,7 @@ import {
   formatTokens,
   runStatusLabel,
 } from '../lib/format.js';
-import { useRun } from '../lib/queries.js';
+import { useRun, useRunApprovals } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 function CopyButton({ value, label }: { value: string; label: string }) {
@@ -76,18 +76,8 @@ const stepMeta = {
   tool: { icon: Wrench, label: '工具', tone: 'text-warning' },
 } as const;
 
-/** 与平台 MCP 端点的审批错误文案保持一致。 */
-const APPROVAL_PATTERN = /^需要批准：(.+?)。请在运行详情页批准后重试。$/;
-
-function pendingApprovals(steps: RunStep[]): string[] {
-  const names = new Set<string>();
-  for (const step of steps) {
-    if (step.kind !== 'tool' || typeof step.content !== 'string') continue;
-    const match = APPROVAL_PATTERN.exec(step.content.trim());
-    if (match?.[1]) names.add(match[1]);
-  }
-  return [...names];
-}
+/** 审批面板只需要这三个字段，直接取 GET /api/runs/:id/approvals 的条目。 */
+type ApprovalItem = ApprovalRequest;
 
 function ToolStep({ step }: { step: Extract<RunStep, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false);
@@ -139,32 +129,38 @@ function StepCard({ step, start }: { step: RunStep; start: string | null }) {
         {step.kind === 'tool' ? (
           <ToolStep step={step} />
         ) : (
-          <div
+          <CollapsibleText
+            text={step.text}
             className={cn(
               'whitespace-pre-wrap break-words rounded-lg border px-3 py-2 text-[13px] leading-relaxed text-fg/90',
               step.kind === 'user' ? 'border-accent/20 bg-accent/5' : 'border-line bg-surface/60',
             )}
-          >
-            {step.text}
-          </div>
+          />
         )}
       </div>
     </li>
   );
 }
 
-/** 批准只写 run 记录；重试由用户在对话页重新发送消息完成，不做自动恢复。 */
-function ApprovalPanel({ runId, toolNames }: { runId: string; toolNames: string[] }) {
-  const run = useRun(runId);
+/** 批准只写审批记录；重试由用户在对话页重新发送消息完成，不做自动恢复。 */
+function ApprovalPanel({
+  runId,
+  items,
+  onApproved,
+}: {
+  runId: string;
+  items: ApprovalItem[];
+  onApproved: () => void;
+}) {
   const [pending, setPending] = useState<string | null>(null);
-  const approve = (toolName: string): void => {
+  const approve = (item: ApprovalItem): void => {
     if (pending) return;
-    setPending(toolName);
+    setPending(item.id);
     api
-      .approveRun(runId, toolName)
+      .approveRun(runId, item.serverId, item.toolName)
       .then(() => {
-        toastSuccess(`已批准 ${toolName}，回到对话重新发送消息即可继续`);
-        void run.refetch();
+        toastSuccess(`已批准 ${item.toolName}，回到对话重新发送消息即可继续`);
+        onApproved();
       })
       .catch((error) => toastError(error))
       .finally(() => setPending(null));
@@ -178,16 +174,17 @@ function ApprovalPanel({ runId, toolNames }: { runId: string; toolNames: string[
         <CircleAlert className="size-4 shrink-0 text-warning" />
         等待批准的工具
       </div>
-      {toolNames.map((name) => (
-        <div key={name} className="flex flex-wrap items-center gap-2 pl-6 text-xs text-muted">
-          <code className="font-mono text-[11.5px] text-fg">{name}</code>
+      {items.map((item) => (
+        <div key={item.id} className="flex flex-wrap items-center gap-2 pl-6 text-xs text-muted">
+          <code className="font-mono text-[11.5px] text-fg">{item.toolName}</code>
+          {item.serverName ? <span className="text-subtle">@ {item.serverName}</span> : null}
           <Button
             size="sm"
             disabled={pending !== null}
-            aria-busy={pending === name}
-            onClick={() => approve(name)}
+            aria-busy={pending === item.id}
+            onClick={() => approve(item)}
           >
-            {pending === name ? '批准中…' : '批准并重试'}
+            {pending === item.id ? '批准中…' : '批准并重试'}
           </Button>
         </div>
       ))}
@@ -199,6 +196,7 @@ function ApprovalPanel({ runId, toolNames }: { runId: string; toolNames: string[
 export function RunDetailPage() {
   const params = useParams({ strict: false }) as { runId: string };
   const run = useRun(params.runId);
+  const approvals = useRunApprovals(params.runId);
 
   if (run.isPending) {
     return (
@@ -230,7 +228,7 @@ export function RunDetailPage() {
   const firstStepAt = steps[0]?.at ?? null;
   const start = detail.startedAt ?? firstStepAt;
   const failed = detail.status === 'failed' || detail.status === 'timeout';
-  const pending = pendingApprovals(steps).filter((name) => !detail.approvals.includes(name));
+  const pending = (approvals.data?.items ?? []).filter((item) => item.approvedAt === null);
 
   return (
     <div>
@@ -266,7 +264,13 @@ export function RunDetailPage() {
         </div>
       ) : null}
 
-      {pending.length > 0 ? <ApprovalPanel runId={detail.id} toolNames={pending} /> : null}
+      {pending.length > 0 ? (
+        <ApprovalPanel
+          runId={detail.id}
+          items={pending}
+          onApproved={() => void approvals.refetch()}
+        />
+      ) : null}
 
       <Card className="mb-6">
         <CardContent className="grid gap-x-8 gap-y-2 p-4 sm:grid-cols-2">

@@ -21,6 +21,7 @@ import {
   type AgentFiles,
   type AgentVersionDetail,
   type AgentVersionSummary,
+  type ApprovalRequestList,
   type AuditQuery,
   api,
   type ConversationDetail,
@@ -173,6 +174,16 @@ export function useRun(runId: string) {
       query.state.data?.run.status === 'running' || query.state.data?.run.status === 'queued'
         ? 2_000
         : false,
+  });
+}
+
+/** 审批请求由 MCP 端点在工具被拒时写入；运行期间轮询，结束后停。 */
+export function useRunApprovals(runId: string | null) {
+  return useQuery<ApprovalRequestList>({
+    queryKey: ['run-approvals', runId],
+    queryFn: () => api.runApprovals(runId ?? ''),
+    enabled: runId !== null,
+    refetchInterval: 2_000,
   });
 }
 

@@ -157,16 +157,90 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     expect(denied.isError).toBe(true);
     expect(denied.content[0]?.text).toContain('需要批准：approved-user');
 
-    const approve = await inject(app, {
+    // 拒绝时 MCP 端点写入结构化审批请求，UI 不再依赖错误文本。
+    const pending = await inject(app, {
+      method: 'GET',
+      url: `/api/runs/${runId}/approvals`,
+      headers: { cookie },
+    });
+    expect(pending.statusCode).toBe(200);
+    expect(
+      pending.json<{ items: Array<{ serverId: string; toolName: string; approvedAt: string }> }>()
+        .items,
+    ).toMatchObject([{ serverId: server.id, toolName: 'approved-user', approvedAt: null }]);
+
+    // 缺少 serverId 的旧式请求不再被接受。
+    const legacy = await inject(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: { cookie },
       payload: { toolName: 'approved-user' },
     });
+    expect(legacy.statusCode).toBe(400);
+
+    const approve = await inject(app, {
+      method: 'POST',
+      url: `/api/runs/${runId}/approve`,
+      headers: { cookie },
+      payload: { serverId: server.id, toolName: 'approved-user' },
+    });
     expect(approve.statusCode).toBe(200);
-    expect(approve.json<{ approvals: string[] }>().approvals).toEqual(['approved-user']);
+    expect(approve.json<{ serverId: string; toolName: string }>()).toMatchObject({
+      serverId: server.id,
+      toolName: 'approved-user',
+    });
 
     const allowed = await call();
     expect(allowed.isError).toBeFalsy();
+  });
+
+  it('does not accept a run header whose agent is not bound to the server', async () => {
+    const agentSlug = unique('unbound-agent');
+    createdAgents.push(agentSlug);
+    const agentRes = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: { cookie },
+      payload: { slug: agentSlug, name: agentSlug },
+    });
+    expect(agentRes.statusCode).toBe(201);
+    const agentId = agentRes.json<{ id: string }>().id;
+
+    const runId = unique('unbound-run');
+    runIds.push(runId);
+    await app.pool.query(
+      'insert into agent_runs (id, conversation_id, agent_id) values ($1, $2, $3)',
+      [runId, `conv_test_${runId}`, agentId],
+    );
+
+    const client = new Client({ name: 'agentport-test', version: '0.0.0' });
+    const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp/${server.id}`), {
+      requestInit: {
+        headers: { authorization: `Bearer ${token}`, 'x-agentport-run-id': runId },
+      },
+    });
+    try {
+      await client.connect(transport);
+      // 未绑定的 run 不被采信，因此审批工具仍被拒。
+      const res = await client.callTool({ name: 'approved-user', arguments: { id: 1 } });
+      expect(res.isError).toBe(true);
+    } finally {
+      await client.close();
+    }
+
+    // 不受信的 run header 不应产生任何审批记录，也不会让审批工具通过。
+    const rows = await app.pool.query<{ count: number }>(
+      'select count(*)::int as count from approval_requests where run_id = $1',
+      [runId],
+    );
+    expect(rows.rows[0]?.count).toBe(0);
+
+    const approve = await inject(app, {
+      method: 'POST',
+      url: `/api/runs/${runId}/approve`,
+      headers: { cookie },
+      payload: { serverId: server.id, toolName: 'approved-user' },
+    });
+    expect(approve.statusCode).toBe(404);
   });
 });

@@ -87,8 +87,6 @@ export function registerChatRoutes(app: FastifyInstance): void {
         id: newId('run'),
         conversationId,
         agentId,
-        // 新 run 沿用同一会话上一次的批准：用户批准后重新发送无需再批。
-        approvals: await repo.runs.getLatestApprovals(app.db, conversationId),
       });
       // 沙盒每次都是新容器，SDK session 无法复用；在写入本条消息前取历史，避免重复。
       const history = await chatRepo.getHistoryForPrompt(app.db, conversationId);

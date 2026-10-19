@@ -1,6 +1,7 @@
 import { newId, repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { writeAudit } from '../../plugins/audit.js';
 import { getQueue } from '../../queue/producer.js';
 import type { AgentInvoker } from './agent-tools.js';
 
@@ -44,6 +45,13 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
         { runId: run.id, agentId: agent.id, conversationId: conversation.id, prompt },
         { jobId: run.id, attempts: 2, backoff: { type: 'exponential', delay: 5_000 } },
       );
+      await writeAudit(app.db, app.log, {
+        actor: 'mcp',
+        action: 'agent.run.requested',
+        target: run.id,
+        input: { slug, agentId: agent.id, promptLength: prompt.length },
+        status: 'ok',
+      });
 
       const deadline = Date.now() + Math.min(timeoutMs ?? agent.timeoutMs, 30 * 60_000);
       let status: string = 'queued';

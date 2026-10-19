@@ -766,6 +766,9 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
 
   return (
     <div className="space-y-3">
+      <p className="rounded-md border border-line bg-surface-2/50 px-3 py-2 text-[11px] leading-relaxed text-muted">
+        密钥在运行时注入，此处显示为占位符。
+      </p>
       {dirty ? (
         <p className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-warning">
           预览显示的是上次保存后的内容。保存更改后重新加载即可看到最新结果。

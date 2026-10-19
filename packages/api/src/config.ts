@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+/** 常见弱默认口令：本地开发也不允许，避免配置被原样带到部署环境。 */
+const WEAK_PASSWORDS = new Set(['admin-change-me', 'changeme', 'password']);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -8,10 +11,13 @@ const envSchema = z.object({
   SELF_URL: z.string().default('http://127.0.0.1:3000'),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
-  APP_SECRET_KEY: z.string().min(16),
+  APP_SECRET_KEY: z.string().min(32),
   ADMIN_USER: z.string().default('admin'),
-  ADMIN_PASSWORD: z.string().min(8),
-  JWT_SECRET: z.string().min(16),
+  ADMIN_PASSWORD: z
+    .string()
+    .min(12)
+    .refine((value) => !WEAK_PASSWORDS.has(value), 'must not be a well-known default password'),
+  JWT_SECRET: z.string().min(32),
   AGENT_DEFAULT_MODEL: z.string().default('claude-sonnet-5-5'),
   AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
