@@ -480,6 +480,7 @@ function ToolsPanel({ serverId }: { serverId: string }) {
     pathTemplate: '/',
     inputSchema: { type: 'object', properties: {} },
     paramsIn: 'query',
+    requiresApproval: false,
   });
   const [schemaText, setSchemaText] = useState('{\n  "type": "object",\n  "properties": {}\n}');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -541,6 +542,7 @@ function ToolsPanel({ serverId }: { serverId: string }) {
                 <TableHead>路径</TableHead>
                 <TableHead className="w-20">参数</TableHead>
                 <TableHead className="w-16">启用</TableHead>
+                <TableHead className="w-16">审批</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
@@ -548,7 +550,10 @@ function ToolsPanel({ serverId }: { serverId: string }) {
               {tools.data.map((tool) => (
                 <TableRow key={tool.id}>
                   <TableCell>
-                    <div className="font-mono text-[11px] text-fg">{tool.name}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[11px] text-fg">{tool.name}</span>
+                      {tool.requiresApproval ? <Badge variant="warn">需审批</Badge> : null}
+                    </div>
                     {tool.description ? (
                       <div className="max-w-xs truncate text-[11px] text-subtle">
                         {tool.description}
@@ -572,6 +577,21 @@ function ToolsPanel({ serverId }: { serverId: string }) {
                       onChange={(event) =>
                         setEnabled.mutate(
                           { toolId: tool.id, enabled: event.target.checked },
+                          { onError: (error) => toastError(error) },
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      className="size-3.5 accent-accent"
+                      aria-label={`批准工具 ${tool.name}`}
+                      checked={tool.requiresApproval}
+                      disabled={setEnabled.isPending}
+                      onChange={(event) =>
+                        setEnabled.mutate(
+                          { toolId: tool.id, requiresApproval: event.target.checked },
                           { onError: (error) => toastError(error) },
                         )
                       }
@@ -684,7 +704,17 @@ function ToolsPanel({ serverId }: { serverId: string }) {
           />
           <FieldError id={`tool-schema-error-${serverId}`}>{errors.inputSchema}</FieldError>
         </div>
-        <div className="flex items-start pt-5">
+        <div className="flex items-center gap-2 pt-1 sm:col-span-6">
+          <input
+            id={`tool-approval-${serverId}`}
+            type="checkbox"
+            className="size-3.5 accent-accent"
+            checked={form.requiresApproval}
+            onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked })}
+          />
+          <Label htmlFor={`tool-approval-${serverId}`}>调用前需要人工批准</Label>
+        </div>
+        <div className="flex items-start pt-2">
           <Button type="submit" size="sm" disabled={create.isPending || !form.name}>
             {create.isPending ? (
               '添加中…'

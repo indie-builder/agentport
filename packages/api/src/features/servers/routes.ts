@@ -175,14 +175,20 @@ export function registerServerRoutes(app: FastifyInstance): void {
   app.patch('/api/servers/:id/tools/:toolId', auth, async (request, reply) => {
     const parsed = toolParams.safeParse(request.params);
     if (!parsed.success) return invalid(reply, 'invalid id');
-    const body = z.object({ enabled: z.boolean() }).safeParse(request.body);
-    if (!body.success) return invalid(reply, 'enabled must be a boolean');
-    const tool = await repo.setToolEnabled(
-      app.db,
-      parsed.data.id,
-      parsed.data.toolId,
-      body.data.enabled,
-    );
+    const body = z
+      .object({ enabled: z.boolean().optional(), requiresApproval: z.boolean().optional() })
+      .refine((value) => value.enabled !== undefined || value.requiresApproval !== undefined, {
+        message: 'enabled or requiresApproval is required',
+      })
+      .safeParse(request.body);
+    if (!body.success) return invalid(reply, body.error.issues[0]?.message ?? 'invalid body');
+    const patch = {
+      ...(body.data.enabled === undefined ? {} : { enabled: body.data.enabled }),
+      ...(body.data.requiresApproval === undefined
+        ? {}
+        : { requiresApproval: body.data.requiresApproval }),
+    };
+    const tool = await repo.updateTool(app.db, parsed.data.id, parsed.data.toolId, patch);
     if (!tool) return notFound(reply, 'tool');
     return tool;
   });

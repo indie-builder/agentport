@@ -57,6 +57,13 @@ export function registerChatRoutes(app: FastifyInstance): void {
           .status(404)
           .send({ code: 'AGENT_NOT_FOUND', message: `agent ${agentId} not found` });
       }
+      // 停用的智能体不应能发起新运行；错误信息要说明下一步。
+      if (!(await chatRepo.agentEnabled(app.db, agentId))) {
+        return reply.status(409).send({
+          code: 'AGENT_DISABLED',
+          message: `agent ${agentId} is disabled; enable it on the agents page first`,
+        });
+      }
 
       let conversationId = parsed.data.conversationId;
       if (conversationId !== undefined) {
@@ -76,7 +83,13 @@ export function registerChatRoutes(app: FastifyInstance): void {
         conversationId = conversation.id;
       }
 
-      const run = await chatRepo.createRun(app.db, { id: newId('run'), conversationId, agentId });
+      const run = await chatRepo.createRun(app.db, {
+        id: newId('run'),
+        conversationId,
+        agentId,
+        // 新 run 沿用同一会话上一次的批准：用户批准后重新发送无需再批。
+        approvals: await repo.runs.getLatestApprovals(app.db, conversationId),
+      });
       // 沙盒每次都是新容器，SDK session 无法复用；在写入本条消息前取历史，避免重复。
       const history = await chatRepo.getHistoryForPrompt(app.db, conversationId);
       await chatRepo.appendMessage(app.db, {

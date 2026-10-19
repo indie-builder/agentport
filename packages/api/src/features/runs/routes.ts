@@ -1,5 +1,7 @@
 import { repo, type schema } from '@agentport/db';
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { writeAudit } from '../../plugins/audit.js';
 
 const runsRepo = repo.runs;
 
@@ -54,5 +56,30 @@ export function registerRunRoutes(app: FastifyInstance): void {
       steps: detail.steps,
       conversation: detail.conversation,
     };
+  });
+
+  /** 单机交互的最小闭环：批准后由用户重新发消息，不恢复已结束的 run。 */
+  app.post<{ Params: { id: string } }>('/api/runs/:id/approve', auth, async (request, reply) => {
+    const body = z.object({ toolName: z.string().min(1) }).safeParse(request.body);
+    if (!body.success) {
+      return reply
+        .status(400)
+        .send({ code: 'INVALID_INPUT', message: body.error.issues[0]?.message ?? 'invalid body' });
+    }
+    const approvals = await runsRepo.approveTool(app.db, request.params.id, body.data.toolName);
+    if (!approvals) {
+      return reply
+        .status(404)
+        .send({ code: 'RUN_NOT_FOUND', message: `run ${request.params.id} not found` });
+    }
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'agent.run.approved',
+      target: request.params.id,
+      input: { toolName: body.data.toolName },
+      status: 'ok',
+      requestId: request.id,
+    });
+    return { approvals };
   });
 }

@@ -115,6 +115,17 @@
 | 响应式 | ✅ | 1280/1024/768/390 四宽度实测无横向溢出；每页唯一 h1 |
 | 文案质量 | ✅ | 错误按状态码给「发生了什么 + 下一步」；空态补主行动 |
 
+### 循环 6 已补齐
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 部署可移植 | ✅ | compose 去掉 `${PWD}`，改用命名卷 + `HOST_WORKSPACES_DIR`；在 `/tmp` 下 `--project-directory` 验证通过 |
+| 部署自检 | ✅ | `pnpm smoke` 覆盖健康、登录、三类列表、MCP 鉴权；实测输出 `SMOKE OK` |
+| 工具审批（最小） | ✅ | `api_tools.requires_approval` + `agent_runs.approvals`；未批准返回明确文案；`POST /api/runs/:id/approve`；20 个相关测试 |
+| 文档收口 | ✅ | README（154 行）、ARCHITECTURE（182 行）、OPERATIONS（250 行，16 条排障） |
+| 文档与代码一致性 | ✅ | 修正 15 处偏差（`SANDBOX_NETWORK`→`SANDBOX_EGRESS`、`pnpm -r typecheck` 写法、迁移非自动、`PLATFORM_MCP_TOKEN` 未文档化等） |
+| 禁用智能体拦截 | ✅ | `POST /api/chat` 返回 409 并给下一步 |
+
 ### 下一轮优先级（按对「生产可用」的影响排序）
 
 | 优先级 | 能力 | 理由 |

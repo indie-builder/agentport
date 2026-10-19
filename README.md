@@ -1,108 +1,154 @@
 # PACE
 
-智能体平台：把 HTTP API 或 MCP 服务接进来，用文件定义智能体，在隔离沙盒里运行，并观测每一次调用。
+PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：把 HTTP API 或 MCP Server 接进来，用文件定义智能体，在隔离沙盒里运行，并观测每一次调用。
 
-- 产品名 **PACE**；仓库与包名使用 `agentport`。
-- 单机优先，生产可用；技术栈全部为当前稳定版本。
+产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。
 
 ## 能力
 
 | 领域 | 能力 |
 |---|---|
-| MCP Server | stdio / 远程 HTTP / HTTP API 转 MCP 三种来源；连接测试；密钥加密与脱敏 |
-| HTTP → MCP | 运行时挂载 `/mcp/:serverId`，标准端点，带 Bearer token，不生成代码 |
-| 智能体定义 | `.mcp.json`、`CLAUDE.md`、`.claude/agents/*.md`、`.claude/skills/*/SKILL.md` |
-| 配置项 | 提示词、模型、技能、MCP 绑定、权限模式、工具白名单/黑名单、effort、思考预算、轮次、预算、超时 |
-| 运行 | BullMQ 队列 → Docker 沙盒 → Agent SDK → SSE 流式事件 |
-| 对话 | 会话历史、持久化消息、取消、成本与轮次统计 |
-| 治理 | JWT 登录、审计日志、Redis 限流、健康检查 |
-
-## 架构
-
-```
-浏览器 ──HTTP/SSE──▶ api (Fastify)
-                       ├─▶ PostgreSQL  配置 / 会话 / 消息 / 运行 / 审计
-                       ├─▶ Redis       BullMQ + 事件流 + 限流
-                       └─▶ /mcp/:id    动态 MCP 端点
-
-worker ──队列──▶ 沙盒容器（Node + Agent SDK）
-                    └─▶ 只读挂载 workspaces/<slug>/
-                          ├─ .mcp.json
-                          ├─ CLAUDE.md
-                          └─ .claude/{agents,skills}/
-```
-
-分层：`shared` → `core` → `db` → `api` / `worker`；`web` 只依赖 `shared`。API 与 worker 不互相 import，只经 PostgreSQL / Redis 通信。
+| MCP 接入 | stdio 命令、远程 HTTP、HTTP API 转 MCP（generated）三种来源；连接测试；密钥加密入库、接口脱敏 |
+| HTTP → MCP | 运行时挂载 `/mcp/:serverId`，按数据库中的工具定义动态构造标准 MCP 端点，不生成代码 |
+| 平台 → MCP | `POST /mcp` 把已启用的智能体暴露为 `run_<slug>` 工具，供其他 Host 调用 |
+| 智能体定义 | `.mcp.json`、`CLAUDE.md`、`.claude/agents/*.md`、`.claude/skills/*/SKILL.md`；文件预览；版本历史与回滚；导入导出 |
+| 运行时配置 | 提示词、模型、技能、MCP 绑定、子智能体、工具白名单/黑名单、effort、思考预算、轮次、预算、超时 |
+| 运行 | BullMQ 队列 → Docker 沙盒 → Claude Agent SDK → SSE 流式事件；取消、超时、预算与轮次限制 |
+| 对话 | 会话历史、分支、工具调用落库、上下文注入（最近 20 条消息） |
+| 观测 | 运行列表与 trace 详情、成本/轮次/token/延迟、审计日志、`/health/*`、队列与进程指标 |
+| 评估 | 用例管理、异步回归跑批、通过率与结果详情 |
+| 治理 | 单管理员 JWT 登录、Redis 限流、数据保留任务、数据库备份 |
 
 ## 快速开始
 
+### 前置条件
+
+- Node.js >= 24
+- pnpm 12.14.0（`packageManager` 已固定）
+- Docker Engine 与 Docker Compose
+- 备份需要本机有 `pg_dump`（PostgreSQL 客户端）
+
+### 本地开发
+
 ```bash
 pnpm install
-cp .env.example .env          # 必填 APP_SECRET_KEY / JWT_SECRET / ADMIN_PASSWORD
+pnpm build                      # 生成各包 dist；db:migrate 与沙盒镜像依赖它
+cp .env.example .env            # 填写下方必填项
 docker compose up -d postgres redis
 pnpm db:migrate
-pnpm dev                      # api + worker + web
+pnpm --filter @agentport/sandbox image
+pnpm dev
 ```
 
-打开 http://localhost:5173，用 `.env` 里的 `ADMIN_USER` / `ADMIN_PASSWORD` 登录。
+`.env` 至少填写：
 
-首次运行还需要构建沙盒镜像：
+- `APP_SECRET_KEY`：MCP 密钥加密主密钥，至少 16 字符，建议 32 字节随机串
+- `JWT_SECRET`：会话签名密钥，至少 16 字符
+- `ADMIN_PASSWORD`：管理员密码，至少 8 字符
+- `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`：二选一，运行智能体时注入沙盒
+
+生成随机串：
 
 ```bash
-pnpm --filter @agentport/sandbox image
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 ```
 
-## 环境变量
+打开 http://localhost:5173，用 `ADMIN_USER` / `ADMIN_PASSWORD` 登录。
 
-| 变量 | 必填 | 说明 |
-|---|---|---|
-| `DATABASE_URL` | 是 | PostgreSQL 连接串 |
-| `REDIS_URL` | 是 | Redis 连接串 |
-| `APP_SECRET_KEY` | 是 | 密钥加密主密钥（≥16 字节） |
-| `JWT_SECRET` | 是 | 会话签名密钥 |
-| `ADMIN_USER` / `ADMIN_PASSWORD` | 是 | 唯一管理员账号 |
-| `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | 二选一 | 模型凭证，注入沙盒容器 |
-| `ANTHROPIC_BASE_URL` | 否 | 自建网关；容器内会自动把 loopback 改写为 `host.docker.internal` |
-| `SANDBOX_IMAGE` | 否 | 沙盒镜像，默认 `agentport/sandbox:dev` |
-| `SANDBOX_NETWORK` | 否 | `open`（默认）/ `none` / `proxy` |
-| `WORKSPACES_DIR` | 否 | 工作区根目录，默认 `./data/workspaces` |
-| `SELF_URL` | 否 | 平台自身地址，用于 generated server 自测 |
-| `AGENT_MAX_CONCURRENT` | 否 | worker 并发（默认 2） |
+`pnpm dev` 并行启动 api、worker、web，以及 shared/core/db 的 TypeScript watch。web 的 Vite 开发服务器把 `/api`、`/health` 代理到 `localhost:3000`。
 
-## 脚本
+### Docker
+
+```bash
+pnpm install
+pnpm build
+cp .env.example .env            # 填写 APP_SECRET_KEY / JWT_SECRET / ADMIN_PASSWORD / 模型凭证
+docker compose up -d postgres redis
+pnpm db:migrate                 # 迁移不会自动执行
+pnpm --filter @agentport/sandbox image
+docker compose up -d --build
+```
+
+打开 http://localhost:3000。生产中 web 由 api 静态托管（`WEB_DIST=/app/web`），没有独立 web 容器。
+
+注意：
+
+- 沙盒镜像必须在宿主机构建，compose 不会构建它；worker 通过宿主 Docker daemon 启动沙盒。
+- worker 挂载 `/var/run/docker.sock`，等价于宿主 root 权限，仅适合单机自用。
+- 生产模式下登录 Cookie 带 `Secure`；请通过 `http://localhost` 访问。用局域网 IP 走 HTTP 会无法保持登录。
+
+## 常用命令
 
 | 命令 | 作用 |
 |---|---|
-| `pnpm dev` | 并行启动 api / worker / web |
-| `pnpm -r typecheck` | 全量类型检查 |
-| `pnpm -r build` | 全量构建 |
-| `pnpm test` | Vitest 集成测试 |
-| `pnpm test:e2e` | Playwright（设 `E2E_FULL=1` 跑完整对话链路） |
-| `pnpm db:generate` / `pnpm db:migrate` | 生成 / 应用迁移 |
-| `pnpm infra:up` / `infra:down` | 启停 postgres + redis |
+| `pnpm dev` | 并行启动所有包的开发进程（api / worker / web / watch） |
+| `pnpm build` | 全量构建（`pnpm -r build`） |
+| `pnpm typecheck` | 全量类型检查（`pnpm -r typecheck`） |
 | `pnpm lint` | Biome 检查 |
+| `pnpm lint:fix` | Biome 检查并写入修复 |
+| `pnpm test` | Vitest 集成测试（需要 PostgreSQL 与 Redis；不可用时集成用例自动跳过） |
+| `pnpm test:watch` | Vitest watch |
+| `pnpm test:e2e` | Playwright 端到端测试；`E2E_FULL=1` 才跑真实对话链路 |
+| `pnpm db:generate` | 修改 Drizzle schema 后生成迁移 |
+| `pnpm db:migrate` | 应用迁移 |
+| `pnpm backup` | `pg_dump` → `backups/<timestamp>.sql.gz`，保留最近 7 份 |
+| `pnpm infra:up` | 启动 compose 中的 postgres 与 redis |
+| `pnpm infra:down` | `docker compose down`，会停止整套 compose 服务 |
+| `pnpm clean` | 删除各包 `dist` 与所有 `node_modules` |
+| `pnpm --filter @agentport/sandbox build` | 构建 runner 产物（镜像构建前置） |
+| `pnpm --filter @agentport/sandbox image` | 构建 `agentport/sandbox:dev` 镜像 |
+| `pnpm --filter @agentport/worker maintenance` | 手动执行一次数据保留任务 |
+| `pnpm --filter @agentport/api start` | 以构建产物启动 api（需先 `pnpm build`） |
+| `pnpm --filter @agentport/web preview` | 预览 web 构建产物 |
 
-## 备份
+E2E 不读取 `.env`，默认管理员为 `admin` / `admin-change-me`；如与 `.env` 不同，用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。
 
-`pnpm backup` 用 `pg_dump` 把 `DATABASE_URL` 指向的库导出到 `backups/<timestamp>.sql.gz`，只保留最近 7 份。
-建议用 cron 定时执行，并把 `backups/` 同步到另一台机器。
-单智能体可导出为 JSON：在「智能体」页选中后点「导出」，或在 `GET /api/export/agents/:id`（需登录）下载；导出不含任何密钥明文。
+## 目录结构
 
-## 文档
+```
+agentport/
+├─ packages/
+│  ├─ shared/      纯类型与 zod schema，无运行时依赖（zod 除外）
+│  ├─ core/        领域逻辑：工作区渲染、密钥加解密、MCP 条目
+│  ├─ db/          Drizzle schema、repo、迁移
+│  ├─ api/         Fastify：HTTP、鉴权、MCP 端点、SSE、队列生产
+│  ├─ worker/      BullMQ 消费者、沙盒生命周期、维护任务
+│  ├─ sandbox/     容器内 runner 与沙盒镜像（Claude Agent SDK）
+│  └─ web/         React 19 + Vite SPA
+├─ docs/           产品、架构、运维与实施文档
+├─ e2e/            Playwright 用例
+├─ scripts/        backup.sh 等运维脚本
+├─ data/           运行期工作区（gitignore）
+├─ backups/        pg_dump 输出（gitignore）
+├─ Dockerfile      api / worker 共用镜像
+├─ docker-compose.yml
+└─ .env.example
+```
 
-- [用户故事](docs/USER-STORIES.md) — 验收依据
-- [项目简报](docs/PROJECT-BRIEF.md) — 需求、选型、架构、决策记录
-- [设计系统](docs/DESIGN-SYSTEM.md) — PACE 品牌、token、组件规范
-- [实施契约](docs/IMPL-CONTRACTS.md) — 并行开发时的接口边界
-- [能力差距](docs/CAPABILITY-GAP.md) — 对标行业基线后的已补齐项与剩余优先级
-- [待决策](docs/DECISIONS-PENDING.md) — 需要产品/运维拍板的 15 个点
+## 文档索引
 
-## 安全
+| 文档 | 内容 |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、运行时拓扑、数据流、两个 MCP 方向、工作区文件模型、设计决策 |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | 环境变量、部署、备份恢复、维护任务、故障排查、观测入口 |
+| [docs/USER-STORIES.md](docs/USER-STORIES.md) | 用户故事与验收条件 |
+| [PRODUCT.md](PRODUCT.md) | 产品定位、用户、原则与约束 |
+| [docs/PROJECT-BRIEF.md](docs/PROJECT-BRIEF.md) | 需求、选型与实现记录；部分早期结论已被后续实现取代 |
+| [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) | PACE 品牌、token 与组件规范 |
+| [docs/IMPL-CONTRACTS.md](docs/IMPL-CONTRACTS.md) | 并行开发时的接口契约（历史文档） |
+| [docs/CAPABILITY-GAP.md](docs/CAPABILITY-GAP.md) | 对标行业基线后的能力差距与补齐记录 |
+| [docs/DECISIONS-PENDING.md](docs/DECISIONS-PENDING.md) | 待决策事项与已执行状态回填 |
+| [docs/HANDOFF.md](docs/HANDOFF.md) | 某次交接时的状态快照（历史文档） |
 
-- 密钥 AES-256-GCM 加密入库，接口返回脱敏为 `••••`。
-- SSRF 防护：生产拒绝私网地址，开发放行 localhost。
-- 沙盒：只读根文件系统、`--cap-drop ALL`、`no-new-privileges`、内存/CPU/PID 限制、只读工作区挂载。
-- 内置工具默认禁用，只放行绑定 MCP Server 的工具。
-- 日志对 authorization / cookie / token 等字段脱敏。
+## 安全说明
 
-> 单机部署中 worker 挂载宿主 Docker socket 等价于宿主 root 权限；生产环境应改为独立沙盒节点或 microVM 运行时。
+- **认证**：单管理员账号，scrypt 校验（常量时间比较），JWT 存在 httpOnly、SameSite=Lax 的 Cookie 中，有效期 7 天；Redis 限流默认关闭（`global: false`），仅登录 10 次/分钟、发起对话 20 次/分钟，按 IP 计数。
+- **密钥**：MCP 的 env/headers 使用 AES-256-GCM 加密入库，API 返回时脱敏为 `••••`；日志对 authorization、cookie、token、secret 等字段脱敏。
+- **工作区密钥**：每次运行会把解密后的 MCP env/headers 写入 `data/workspaces/<slug>/.mcp.json`，供沙盒内进程使用。该目录含明文密钥，必须限制宿主访问权限，且不要提交或打包。
+- **SSRF**：只允许 http/https；连接测试与工具运行时都会解析 DNS 并拒绝私网、回环、link-local 地址；开发模式放行 localhost。DNS 重绑定无法在应用层彻底消除，出站仍建议配合网络 allowlist。
+- **沙盒**：只读根文件系统、只读工作区挂载、`--cap-drop ALL`、`no-new-privileges`、非 root 用户、内存/CPU/PID 限制；内置工具（Bash/Read/Write/Edit/WebFetch 等）从上下文移除，只放行绑定的 MCP 工具；有子智能体时才放行 `Agent`。
+- **工具审批**：当前没有「暂停等待批准」的 HITL；`dontAsk` 下未预批准的工具直接拒绝。
+- **出站**：`SANDBOX_EGRESS=open` 为默认；`none` 断网，`proxy` 让容器使用宿主代理。需要硬隔离时用 `none` 或独立出站网关。
+- **平台端点**：`/mcp` 只校验单个 `PLATFORM_MCP_TOKEN`；`/mcp/:serverId` 使用每个 generated server 的 Bearer token。`/health/*`（含 `/health/metrics`）无鉴权，不要直接暴露到公网。
+- **宿主权限**：worker 挂载 Docker socket，可控制宿主 Docker，等同于宿主 root。生产环境应改为独立沙盒节点或 microVM 运行时（`SandboxProvider` 接口已预留）。
+- **生产 Cookie**：`NODE_ENV=production` 时 Cookie 带 `Secure`，通过 HTTP + 非 localhost 访问会登录失败。

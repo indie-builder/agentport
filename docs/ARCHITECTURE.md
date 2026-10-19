@@ -1,0 +1,182 @@
+# 架构
+
+> 本文描述当前代码的实际结构。需求背景与选型理由见 [PROJECT-BRIEF.md](PROJECT-BRIEF.md)；部署与排障见 [OPERATIONS.md](OPERATIONS.md)。
+
+## 1. 分层
+
+代码按依赖方向分层，进程按部署单元拆分。层只能向下依赖。
+
+```
+                 ┌──────────────┐
+                 │    shared    │  zod schema、共享类型、事件契约
+                 └──────┬───────┘
+                        │
+                 ┌──────▼───────┐
+                 │     core     │  工作区渲染、密钥加解密、MCP 条目
+                 └──────┬───────┘
+                        │
+                 ┌──────▼───────┐
+                 │      db      │  Drizzle schema、repo、迁移
+                 └───┬──────┬───┘
+                     │      │
+              ┌──────▼─┐  ┌─▼──────┐
+              │  api   │  │ worker │      两者互不 import
+              └────────┘  └────────┘
+
+  web ──▶ shared（仅此一层）
+  sandbox ── 独立产物：镜像内自包含，不参与 workspace 依赖
+```
+
+| 包 | 职责 | 不做什么 |
+|---|---|---|
+| `shared` | `agentInputSchema`、`serverInputSchema`、`chatEventSchema`、`agentRunJobSchema` 等 | 不 import 其他包（zod 除外） |
+| `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`toMcpJsonEntry()` | 不碰数据库、不碰文件系统 |
+| `db` | 表定义、repo、TypeID 生成、迁移 | 不含 HTTP 或业务编排 |
+| `api` | 路由、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不写工作区 |
+| `worker` | 消费队列、渲染并写入工作区、管理沙盒、回传事件、维护任务 | 不暴露 HTTP |
+| `sandbox` | 容器内 runner：读一行任务 JSON，逐行输出 NDJSON 事件 | 不含业务代码与智能体定义 |
+| `web` | SPA；生产由 api 托管静态产物 | 不 import core/db/api/worker |
+
+进程之间只通过 PostgreSQL、Redis、HTTP 通信，不共享内存对象。
+
+## 2. 运行时拓扑
+
+```
+┌──────────┐   HTTP / SSE    ┌──────────────────────────────┐
+│ 浏览器    │ ───────────────▶│ api (Fastify, :3000)         │
+│ (SPA)    │◀─────────────── │  /api/*  /mcp  /mcp/:id      │
+└──────────┘                 │  /health/*  静态托管 web       │
+                             └───┬───────────┬───────────┬──┘
+                                 │           │           │
+                    ┌────────────▼──┐  ┌─────▼─────┐  ┌──▼─────────────┐
+                    │ PostgreSQL 18 │  │ Redis 8   │  │ /mcp/:serverId │
+                    │ 配置/会话/运行 │  │ 队列/事件  │  │ 上游 HTTP API   │
+                    │ 审计/评估     │  │ 限流      │  └──▲─────────────┘
+                    └───────▲───────┘  └─────▲─────┘     │
+                            │                │           │
+                    ┌───────┴────────────────┴───────────┴──┐
+                    │ worker (同一镜像，不同入口)             │
+                    │  BullMQ 消费 + 工作区渲染 + 沙盒生命周期 │
+                    └───────────────────┬────────────────────┘
+                                        │ docker run（宿主 daemon）
+                                        ▼
+                    ┌───────────────────────────────────────┐
+                    │ sandbox 容器                          │
+                    │ 只读 /workspace + 只读根 + tmpfs 配置目录│
+                    │ runner → Claude Agent SDK → 模型 API   │
+                    │        └─ MCP 工具 ──▶ api /mcp/:id    │
+                    └───────────────────────────────────────┘
+```
+
+要点：
+
+- **api 与 worker 共用镜像**（根 `Dockerfile`），默认入口 `api/dist/index.js`；compose 用 `command` 覆盖为 `worker/dist/index.js`。
+- **web 没有独立生产容器**：`WEB_DIST=/app/web`，由 api 静态托管；SPA 路由回退到 `index.html`，`/api`、`/mcp`、`/health` 未命中仍返回 JSON 404。
+- **沙盒由宿主 Docker daemon 启动**：worker 挂载 `/var/run/docker.sock`，容器内外使用同一工作区绝对路径。
+- **沙盒网络模式**：`open` / `proxy` 使用 `bridge`，并加 `--add-host host.docker.internal:host-gateway`；`none` 使用 `--network none`。
+- **Redis 承担四件事**：BullMQ 队列、运行事件流、取消通知、限流计数。
+
+## 3. 一次对话的数据流
+
+```
+浏览器                api                    Redis               worker              sandbox
+  │                    │                      │                    │                    │
+  │ POST /api/chat     │                      │                    │                    │
+  ├───────────────────▶│ 校验 + 建会话/run     │                    │                    │
+  │                    ├─────────────────────▶│ XADD agent-runs    │                    │
+  │◀─ 202 {runId} ─────┤                      │                    │                    │
+  │                    │                      │  消费 job           │                    │
+  │                    │                      ├───────────────────▶│ 读 agent/servers    │
+  │                    │                      │                    │ 渲染工作区到宿主     │
+  │ GET /events        │                      │                    │ docker run          │
+  ├───────────────────▶│ XRANGE 回放 + 订阅    │                    ├───────────────────▶│
+  │                    │◀─────────────────────┤ XADD run:*:events  │◀─ NDJSON stdout ───┤
+  │◀─ SSE data ────────┤                      │                    │                    │
+  │                    │                      │                    │ Agent SDK 调工具     │
+  │                    │◀──── /mcp/:serverId ─┼────────────────────┼────────────────────┤
+  │                    │                      │                    │ 写终态 + 消息落库    │
+  │◀─ run_finished ────┤◀─────────────────────┤                    │                    │
+```
+
+分步说明：
+
+1. `POST /api/chat` 校验 agent 是否存在，创建或复用 conversation，写 user 消息，创建 `agent_runs` 行（`queued`），取最近 20 条历史，投递 `agent-runs` 队列（`jobId = runId`，`attempts: 2`，指数退避 5s），写审计，返回 202。
+2. `GET /api/chat/:runId/events` 先订阅 Redis Stream，从 `0` 开始回放，因此 POST 与建连之间的事件不会丢；已结束的 run 直接补发终态。
+3. worker 消费 job：若 run 已被取消则跳过；置为 `running` 并发布 `run_started`。
+4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，调用 `renderWorkspace()` 生成文件并写入 `WORKSPACES_DIR/<slug>/`。
+5. worker 通过 `DockerSandboxProvider` 执行 `docker run`，把任务 JSON 写入容器 stdin。
+6. 容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`text_delta`、`tool_start`、`tool_input`、`tool_result`、`assistant_text`、`run_finished`），日志写 stderr。
+7. worker 逐行解析并转发到 Redis Stream；工具调用经 `.mcp.json` 中的地址访问 api。
+8. 取消：api 写 `run:<runId>:cancel` 键并 publish；worker 订阅后向容器发 SIGTERM；超时由 worker 计时；两者最终都 `docker rm -f`。
+9. 结束后 worker 把 `assistant_text` 与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。
+10. 只有基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会抛出以触发 BullMQ 重试；业务失败不重试，避免重复计费。
+
+## 4. HTTP → MCP 与平台 → MCP
+
+两个方向共用 MCP 协议与同一个 Node 适配器，但目的不同。
+
+| 维度 | HTTP → MCP（`/mcp/:serverId`） | 平台 → MCP（`/mcp`） |
+|---|---|---|
+| 解决什么 | 把已有 HTTP API 变成 MCP 工具 | 把平台内的智能体变成 MCP 工具 |
+| 工具来源 | `api_tools` 表，每个 generated server 一组 | 所有 `enabled = true` 的智能体，工具名 `run_<slug>` |
+| 鉴权 | 每个 server 一个 `mcpToken`，存 `servers.config` | 单个 `PLATFORM_MCP_TOKEN`；未设置则不注册该端点 |
+| 调用发生什么 | 按 method / path 模板 / `paramsIn` 转发上游 HTTP | 创建 conversation 与 run，入队，轮询 DB 直到终态，返回最终 assistant 文本 |
+| 执行位置 | api 进程内 `fetch` | worker + 沙盒（与浏览器发起的对话同一条链路） |
+| 工具定义变更 | 下一次请求重建 handler，立即生效 | 下一次请求重建 handler，立即生效 |
+| 超时 | 上游 HTTP 超时由 fetch/运行环境决定 | 默认取 agent `timeoutMs`，上限 30 分钟 |
+| 主要代码 | `features/servers/mcp-endpoint.ts`、`generated.ts` | `features/servers/agent-tools-endpoint.ts`、`agent-tools.ts`、`agent-invoker.ts` |
+
+共同点：
+
+- 都使用 `createMcpHandler()` + `toNodeHandler()`，由适配器直接读写原始 req/res，Fastify 不再参与响应。
+- 都按请求重建实例，避免跨调用复用。
+- 都使用常量时间比较 Bearer token。
+
+## 5. 工作区文件模型
+
+数据库是真相源；文件是每次运行前重新渲染的只读快照。
+
+```
+data/workspaces/<agent-slug>/
+├─ .mcp.json
+├─ CLAUDE.md
+└─ .claude/
+   ├─ agents/
+   │  ├─ <agent-slug>.md         主智能体
+   │  └─ <child-slug>.md         子智能体（仅单层）
+   └─ skills/
+      └─ <skill-slug>/SKILL.md
+```
+
+| 文件 | 内容来源 | 说明 |
+|---|---|---|
+| `.mcp.json` | `agent_servers` + `servers` | `mcpServers` 映射；stdio 写 command/args/env，http 写 url/headers，generated 写 `${SANDBOX_API_URL}/mcp/<id>` + Bearer token |
+| `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 可用技能 + 可用子智能体 |
+| `.claude/agents/<slug>.md` | 智能体配置 | YAML frontmatter：`name`、`description`、`model`、`tools`、`disallowedTools`、`maxTurns`，可选 `skills`、`effort` |
+| `.claude/skills/<slug>/SKILL.md` | `skills` 表 | frontmatter：`name`、`description`，正文为技能步骤 |
+
+运行时约定：
+
+- 每次 run 先删除并重建 `.claude/agents/` 与 `.claude/skills/`，解绑后的旧文件不会残留。不要手工往这两个目录放东西。
+- 工作区以只读方式挂载到容器 `/workspace`；agent 不能修改自己的定义。
+- 内置工具默认全部从上下文移除；`allowedTools` 只负责自动批准。MCP 工具的允许规则按 server name 逐个生成 `mcp__<name>__*`，`mcp__*` 通配无效。
+- 有子智能体时才放行 `Agent` / `TaskStop`；子智能体自身不再获得委派能力。
+- 平台内的「文件预览」与运行时使用同一个 `renderWorkspace()`，但不落盘；写文件只发生在 worker。
+
+## 6. 关键设计决策
+
+| 决策 | 理由 | 代价 / 边界 |
+|---|---|---|
+| 运行时挂载 MCP，不生成代码 | 改工具定义立即生效；测试与调用走同一端点；其他 Host 也能连 | 每次请求重建 handler；工具执行在 api 进程内 |
+| DB 为真相源，文件为快照 | 页面字段与文件一一对应；同一智能体可被其他 Host 直接使用 | 每次 run 都有渲染与写盘开销 |
+| 宿主目录 bind mount，不打进镜像 | 一个镜像服务所有智能体；改配置不需重建 | 只支持单机，workspace 必须与 worker 同机 |
+| 整个 runner 在容器内 | Agent SDK 自带的 sandbox 只隔离 shell，不能隔离 stdio MCP | 镜像体积更大；每次 run 启动容器 |
+| 内置工具默认禁用 | 用户可配置任意 stdio server，必须收紧默认权限 | 需要显式绑定 MCP 才能做事 |
+| SSE 走 Redis Stream + pub/sub 唤醒 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库 |
+| api / worker 分进程 | 长任务不占 HTTP；队列消费可独立扩容 | 多一层队列与状态同步 |
+| 单机优先，不抽象多机 | 少一层存储与服务发现 | 不能横向扩容 worker |
+| TypeID（`srv_`、`agt_`、`run_`…） | 可排序、日志与 URL 自解释 | 依赖 `typeid-js` |
+| 智能体版本快照 + 回滚 | 配置变更可追溯，回滚生成新版本 | 需维护保留策略 |
+| 评估跑批在 api 进程内 | 实现简单，复用队列与沙盒 | api 重启会让进行中的跑批停在 running |
+
+更细的选择理由（为什么 PostgreSQL、为什么 v2 MCP 包线、为什么不用 microsandbox 起步）见 `PROJECT-BRIEF.md` 与 `DECISIONS-PENDING.md`。

@@ -46,6 +46,7 @@ export const apiTools = pgTable(
       .notNull()
       .default('query'),
     enabled: boolean('enabled').notNull().default(true),
+    requiresApproval: boolean('requires_approval').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('api_tools_server_name_idx').on(t.serverId, t.name)],
@@ -193,6 +194,8 @@ export const agentRuns = pgTable(
     latencyMs: integer('latency_ms'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    /** 本 run 已批准的工具名；新 run 会沿用同一会话上一次的批准。 */
+    approvals: jsonb('approvals').$type<string[]>().notNull().default([]),
   },
   (t) => [index('agent_runs_conversation_idx').on(t.conversationId)],
 );

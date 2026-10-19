@@ -22,6 +22,12 @@ export interface ApiToolWrite {
   pathTemplate: string;
   inputSchema: Record<string, unknown>;
   paramsIn: 'query' | 'body';
+  requiresApproval: boolean;
+}
+
+export interface ApiToolPatch {
+  enabled?: boolean;
+  requiresApproval?: boolean;
 }
 
 export async function listServers(db: Database): Promise<ServerRow[]> {
@@ -77,15 +83,15 @@ export async function createApiTool(db: Database, input: ApiToolWrite): Promise<
   return row;
 }
 
-export async function setApiToolEnabled(
+export async function updateApiTool(
   db: Database,
   serverId: string,
   toolId: string,
-  enabled: boolean,
+  patch: ApiToolPatch,
 ): Promise<ApiToolRow | null> {
   const [row] = await db
     .update(apiTools)
-    .set({ enabled })
+    .set(patch)
     .where(and(eq(apiTools.id, toolId), eq(apiTools.serverId, serverId)))
     .returning();
   return row ?? null;

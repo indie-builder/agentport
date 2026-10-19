@@ -1,5 +1,5 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import type { McpJsonEntry } from '@agentport/core';
 import { decryptSecrets, renderWorkspace } from '@agentport/core';
 import { createDb, newId, schema } from '@agentport/db';
@@ -26,6 +26,13 @@ const logger = pino({ level: config.LOG_LEVEL });
 configureRunnerClient(config.REDIS_URL);
 
 const workspacesDir = resolve(config.WORKSPACES_DIR);
+// 沙盒挂载的源路径按宿主 daemon 解析；容器里写文件仍用 workspacesDir。
+const hostWorkspacesDir = resolve(config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR);
+
+/** 容器内工作区路径 → 宿主路径，供 docker -v 使用。 */
+function toHostWorkspacePath(dir: string): string {
+  return join(hostWorkspacesDir, relative(workspacesDir, dir));
+}
 // 沙盒在 bridge 网络里访问宿主 API；compose 部署时用服务名或宿主网关覆盖。
 const sandboxApiUrl = config.SANDBOX_API_URL;
 
@@ -74,7 +81,12 @@ function strRecord(value: unknown): Record<string, string> {
  * generated server 的 URL 指向平台自身，必须换成本次运行可达的沙盒视角地址；
  * stdio/env 与 headers 里的密钥仅以加密列存在，运行时解密后注入。
  */
-function toEntry(server: ServerRow, apiUrl: string, secretKey: string): McpJsonEntry {
+function toEntry(
+  server: ServerRow,
+  apiUrl: string,
+  secretKey: string,
+  runId: string,
+): McpJsonEntry {
   // 密钥只存在加密列里；运行时必须在这里解密注入，否则 .mcp.json 会丢 env/headers。
   const secrets = server.secretsEncrypted ? decryptSecrets(server.secretsEncrypted, secretKey) : {};
   const serverConfig = server.config;
@@ -96,7 +108,11 @@ function toEntry(server: ServerRow, apiUrl: string, secretKey: string): McpJsonE
   return {
     type: 'http',
     url: `${apiUrl}/mcp/${server.id}`,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    // 平台 MCP 端点靠这个 header 识别 run，才能查到该 run 的工具审批。
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      'x-agentport-run-id': runId,
+    },
   };
 }
 
@@ -292,7 +308,7 @@ const worker = new Worker(
         agent,
         rows.map(({ server }) => ({
           name: server.name,
-          entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY),
+          entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId),
         })),
         skillRows,
         subAgentRows,
@@ -320,7 +336,7 @@ const worker = new Worker(
             : { maxThinkingTokens: agent.maxThinkingTokens }),
           ...(subAgentRows.length > 0 ? { allowSubAgents: true } : {}),
         },
-        workspaceDir,
+        workspaceDir: toHostWorkspacePath(workspaceDir),
         image: config.SANDBOX_IMAGE,
         env: sandboxEnv(sandboxApiUrl),
         provider,

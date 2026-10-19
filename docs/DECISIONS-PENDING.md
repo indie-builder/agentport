@@ -228,3 +228,29 @@
 ```
 - D-1 ✅ 选择 B，理由：…
 ```
+
+---
+
+## 已按建议执行的项（2026-10-20 回填）
+
+> 以下为对当前代码的核对结果，仅追加状态，不改动上文原有内容。表中「建议」指各条目的建议方案。
+
+| 编号 | 建议 | 当前状态 | 代码落点 | 说明 |
+|---|---|---|---|---|
+| D-1 | A（单机单 token） | ✅ 按 A 执行 | `packages/api/src/features/servers/agent-tools-endpoint.ts` | 仅校验 `PLATFORM_MCP_TOKEN`，无来源限制；未设置 token 时 `/mcp` 不注册 |
+| D-2 | A（字符串包含） | ✅ 按 A 执行 | `packages/api/src/features/eval/routes.ts` 的 `judge()` | `expectation` 非空时大小写不敏感包含；为空时要求有文本 |
+| D-3 | A 或先做 C | ❌ 未实现 | — | 仍是 `dontAsk` + 预批准；未预批准的工具直接拒绝，没有暂停/审批/恢复路径，只能取消整个 run |
+| D-4 | A（二值状态） | 🟡 部分 | `packages/api/src/features/servers/agent-tools-endpoint.ts`、`agent-invoker.ts` | 仅影响 `/mcp` 暴露与外部调用；`POST /api/chat` 只校验 agent 存在，**不校验 `enabled`**，停用智能体仍可从页面发起对话 |
+| D-5 | B（每 agent 50 个版本） | ✅ 按 B 执行 | `packages/worker/src/maintenance.ts`、`packages/db/src/repo/maintenance.ts` | 每日任务按 `RETAIN_AGENT_VERSIONS`（默认 50）裁剪 |
+| D-6 | B（运行 90 天、消息 30 天） | ✅ 按 B 执行 | 同上 | 终态 run 连同其消息按 90 天清理；无 `run_id` 的孤立消息按 30 天清理；`audit_log`、`eval_results` 不清理 |
+| D-7 | B（宿主机 cron） | ✅ 按 B 执行 | `scripts/backup.sh` | 应用内无定时备份；保留最近 7 份，脚本不读取 `.env` |
+| D-8 | B（单层委派） | ✅ 按 B 执行 | `packages/api/src/features/agents/routes.ts`、`packages/core/src/workspace.ts`、`packages/sandbox/src/runner.ts` | `parent_id` 单层限制；有子智能体时才放行 `Agent`/`TaskStop` |
+| D-9 | A（不做 RAG） | ✅ 按 A 执行 | — | 只有 `SKILL.md`，无文档检索 |
+| D-10 | A（单管理员） | ✅ 按 A 执行 | `packages/api/src/features/auth/routes.ts` | 单账号 + JWT Cookie；审计表保留 `actor` 字段 |
+| D-11 | A（Redis 单实例） | ✅ 按 A 执行 | `docker-compose.yml` | 队列、事件流、限流共用同一 Redis |
+| D-12 | A（Docker 起步） | ✅ 按 A 执行 | `packages/worker/src/sandbox/provider.ts`、`docker.ts` | 只有 `DockerSandboxProvider`；接口已留出替换点，未引入 microsandbox 依赖 |
+| D-13 | A（事件流不落库） | ✅ 按 A 执行 | `packages/api/src/queue/producer.ts`、`packages/worker/src/runner-client.ts` | Redis Stream 保留 1 小时、最多 1000 条；trace 由 `messages` 重建 |
+| D-14 | A（不做浅色主题） | ✅ 按 A 执行 | `packages/web/src/styles.css` | 只有深色 token，无主题切换 |
+| D-15 | A（不接队列面板） | ✅ 按 A 执行 | — | 未安装 `@bull-board/*`；队列状态通过 `/health/metrics` 与 `/api/runs` 观察 |
+
+需要用户确认的偏差只有 D-4：如果「停用」应当阻止页面发起对话，`POST /api/chat` 需要补一次 `enabled` 校验（当前代码没有）。

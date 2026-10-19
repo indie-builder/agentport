@@ -4,6 +4,7 @@ import {
   ArrowDown,
   Bot,
   ChevronDown,
+  CircleAlert,
   CircleStop,
   GitBranch,
   LoaderCircle,
@@ -35,7 +36,7 @@ import {
 import { cn } from '../lib/cn.js';
 import { formatRelative } from '../lib/format.js';
 import { useAgents, useConversation, useConversations } from '../lib/queries.js';
-import { toastError } from '../lib/toast.js';
+import { toastError, toastSuccess } from '../lib/toast.js';
 
 export function ChatPage() {
   const agents = useAgents();
@@ -111,6 +112,10 @@ function ChatWorkspace({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [branching, setBranching] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  // 审批针对产生错误的 run；run_finished 后 run 会被清空，所以单独保留 id。
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
+  const [approved, setApproved] = useState<string[]>([]);
+  const [approving, setApproving] = useState<string | null>(null);
   // 服务端重连时从头回放事件流；保留发起前的消息，避免文本重复。
   const baseItemsRef = useRef<ChatItem[]>([]);
   const sourceRef = useRef<EventSource | null>(null);
@@ -212,6 +217,7 @@ function ChatWorkspace({
         ...(conversationId ? { conversationId } : {}),
       });
       setConversationId(accepted.conversationId);
+      setLastRunId(accepted.runId);
       hydratedRef.current = accepted.conversationId;
       setRun({ ...accepted, status: 'streaming' });
       upsertLocalConversation({
@@ -242,9 +248,26 @@ function ChatWorkspace({
       .finally(() => setCancelling(false));
   };
 
+  /** 只记录批准；重试由用户重新发送消息完成，不做自动重试。 */
+  const approve = (toolName: string): void => {
+    const runId = run?.runId || lastRunId;
+    if (!runId || approving) return;
+    setApproving(toolName);
+    api
+      .approveRun(runId, toolName)
+      .then(({ approvals }) => {
+        setApproved(approvals);
+        toastSuccess(`已批准 ${toolName}，重新发送消息即可继续`);
+      })
+      .catch((error) => toastError(error))
+      .finally(() => setApproving(null));
+  };
+
   const openConversation = (id: string): void => {
     closeStream();
     setRun(null);
+    setLastRunId(null);
+    setApproved([]);
     hydratedRef.current = null;
     setConversationId(id);
     setItems([]);
@@ -254,6 +277,8 @@ function ChatWorkspace({
   const newConversation = (): void => {
     closeStream();
     setRun(null);
+    setLastRunId(null);
+    setApproved([]);
     hydratedRef.current = null;
     setConversationId(null);
     setItems([]);
@@ -306,6 +331,8 @@ function ChatWorkspace({
   const switchAgent = (id: string): void => {
     closeStream();
     setRun(null);
+    setLastRunId(null);
+    setApproved([]);
     hydratedRef.current = null;
     setConversationId(null);
     setItems([]);
@@ -453,6 +480,12 @@ function ChatWorkspace({
           loading={detail.isPending && conversationId !== null}
           error={detail.isError ? detail.error : null}
           onRetry={() => void detail.refetch()}
+          approvals={{
+            approved,
+            pending: approving,
+            ...(run?.runId ? { runId: run.runId } : lastRunId ? { runId: lastRunId } : {}),
+            onApprove: approve,
+          }}
           welcome={
             showWelcome ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
@@ -537,12 +570,19 @@ function MessagePane({
   error,
   onRetry,
   welcome,
+  approvals,
 }: {
   items: ChatItem[];
   loading: boolean;
   error: unknown;
   onRetry: () => void;
   welcome: ReactNode;
+  approvals: {
+    approved: string[];
+    pending: string | null;
+    runId?: string;
+    onApprove: (toolName: string) => void;
+  };
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
@@ -595,6 +635,7 @@ function MessagePane({
             ))}
           </div>
         ) : null}
+        <ApprovalCards items={items} approvals={approvals} />
       </div>
       {!pinned && items.length > 0 ? (
         <button
@@ -650,6 +691,64 @@ function ItemView({ item }: { item: ChatItem }) {
         </div>
       );
   }
+}
+
+/** 平台 MCP 端点未批准时返回的固定文案；其余错误正常显示在工具卡片里。 */
+const APPROVAL_PATTERN = /^需要批准：(.+?)。请在运行详情页批准后重试。$/;
+
+function pendingApprovals(items: ChatItem[], approved: string[]): string[] {
+  const names = new Set<string>();
+  for (const item of items) {
+    if (item.kind !== 'tool' || item.result === undefined) continue;
+    const match = APPROVAL_PATTERN.exec(item.result.trim());
+    if (match?.[1] && !approved.includes(match[1])) names.add(match[1]);
+  }
+  return [...names];
+}
+
+/** 一次 run 内同一工具只批准一次；批准后由用户重新发消息，不自动重试。 */
+function ApprovalCards({
+  items,
+  approvals,
+}: {
+  items: ChatItem[];
+  approvals: {
+    approved: string[];
+    pending: string | null;
+    runId?: string;
+    onApprove: (toolName: string) => void;
+  };
+}) {
+  const names = pendingApprovals(items, approvals.approved);
+  if (names.length === 0 || !approvals.runId) return null;
+  return (
+    <div className="mx-auto mt-4 max-w-3xl space-y-2">
+      {names.map((name) => {
+        const busy = approvals.pending === name;
+        return (
+          <div
+            key={name}
+            role="alert"
+            className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/30 bg-warning/5 px-3.5 py-2.5"
+          >
+            <CircleAlert className="size-4 shrink-0 text-warning" />
+            <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg/90">
+              工具 <code className="font-mono text-[11.5px] text-fg">{name}</code>{' '}
+              需要批准后才能调用。批准后请重新发送消息。
+            </div>
+            <Button
+              size="sm"
+              disabled={busy}
+              aria-busy={busy}
+              onClick={() => approvals.onApprove(name)}
+            >
+              {busy ? '批准中…' : '批准并重试'}
+            </Button>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {

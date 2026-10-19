@@ -273,8 +273,11 @@ export function useCreateTool(serverId: string) {
 export function useSetToolEnabled(serverId: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { toolId: string; enabled: boolean }) =>
-      api.setToolEnabled(serverId, vars.toolId, vars.enabled),
+    mutationFn: (vars: { toolId: string; enabled?: boolean; requiresApproval?: boolean }) =>
+      api.updateTool(serverId, vars.toolId, {
+        ...(vars.enabled === undefined ? {} : { enabled: vars.enabled }),
+        ...(vars.requiresApproval === undefined ? {} : { requiresApproval: vars.requiresApproval }),
+      }),
     onSuccess: (tool) => {
       client.setQueryData<ApiTool[]>(['tools', serverId], (old) =>
         old?.map((item) => (item.id === tool.id ? tool : item)),

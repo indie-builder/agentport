@@ -229,7 +229,7 @@ export async function appendMessage(
 
 export async function createRun(
   db: Database,
-  input: { id: string; conversationId: string; agentId: string },
+  input: { id: string; conversationId: string; agentId: string; approvals?: string[] },
 ): Promise<AgentRun> {
   const [row] = await db
     .insert(agentRuns)
@@ -238,6 +238,7 @@ export async function createRun(
       conversationId: input.conversationId,
       agentId: input.agentId,
       status: 'queued',
+      ...(input.approvals === undefined ? {} : { approvals: input.approvals }),
     })
     .returning();
   if (!row) throw new Error('agent run insert returned no row');

@@ -93,6 +93,7 @@ export interface RunDetail {
     conversationId: string;
     sessionId: string | null;
     sandboxId: string | null;
+    approvals: string[];
   };
   steps: RunStep[];
   conversation: { id: string; agentId: string; title: string };
@@ -330,8 +331,13 @@ export const api = {
     request(`/servers/${serverId}/tools`, 'POST', input),
   deleteTool: (serverId: string, toolId: string): Promise<void> =>
     request(`/servers/${serverId}/tools/${toolId}`, 'DELETE'),
-  setToolEnabled: (serverId: string, toolId: string, enabled: boolean): Promise<ApiTool> =>
-    request(`/servers/${serverId}/tools/${toolId}`, 'PATCH', { enabled }),
+  updateTool: (
+    serverId: string,
+    toolId: string,
+    patch: { enabled?: boolean; requiresApproval?: boolean },
+  ): Promise<ApiTool> => request(`/servers/${serverId}/tools/${toolId}`, 'PATCH', patch),
+  approveRun: (runId: string, toolName: string): Promise<{ approvals: string[] }> =>
+    request(`/runs/${runId}/approve`, 'POST', { toolName }),
 
   agents: (): Promise<Agent[]> => request('/agents'),
   createAgent: (input: AgentInput): Promise<Agent> => request('/agents', 'POST', input),

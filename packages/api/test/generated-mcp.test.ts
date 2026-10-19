@@ -14,6 +14,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   let server: Server;
   let token: string;
   const createdServers: string[] = [];
+  const runIds: string[] = [];
 
   beforeAll(async () => {
     app = await startApp();
@@ -57,7 +58,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   });
 
   afterAll(async () => {
-    await cleanup(app, { serverNames: createdServers });
+    await cleanup(app, { serverNames: createdServers, runIds });
     await app.close();
   });
 
@@ -94,5 +95,65 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     } finally {
       await client.close();
     }
+  });
+
+  it('rejects a tool requiring approval until the run approves it', async () => {
+    const res = await inject(app, {
+      method: 'POST',
+      url: `/api/servers/${server.id}/tools`,
+      headers: { cookie },
+      payload: {
+        name: 'approved-user',
+        method: 'GET',
+        pathTemplate: '/users/{id}',
+        inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
+        paramsIn: 'query',
+        requiresApproval: true,
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const tool = res.json<{ id: string; requiresApproval: boolean }>();
+    expect(tool.requiresApproval).toBe(true);
+
+    const runId = unique('run');
+    runIds.push(runId);
+    await app.pool.query(
+      "insert into agent_runs (id, conversation_id, agent_id) values ($1, 'conv_test', 'agent_test')",
+      [runId],
+    );
+
+    const call = async (): Promise<{ isError?: boolean; content: Array<{ text?: string }> }> => {
+      const client = new Client({ name: 'agentport-test', version: '0.0.0' });
+      const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp/${server.id}`), {
+        requestInit: {
+          headers: { authorization: `Bearer ${token}`, 'x-agentport-run-id': runId },
+        },
+      });
+      try {
+        await client.connect(transport);
+        return await client.callTool({
+          name: 'approved-user',
+          arguments: { id: 1 },
+        });
+      } finally {
+        await client.close();
+      }
+    };
+
+    const denied = await call();
+    expect(denied.isError).toBe(true);
+    expect(denied.content[0]?.text).toContain('需要批准：approved-user');
+
+    const approve = await inject(app, {
+      method: 'POST',
+      url: `/api/runs/${runId}/approve`,
+      headers: { cookie },
+      payload: { toolName: 'approved-user' },
+    });
+    expect(approve.statusCode).toBe(200);
+    expect(approve.json<{ approvals: string[] }>().approvals).toEqual(['approved-user']);
+
+    const allowed = await call();
+    expect(allowed.isError).toBeFalsy();
   });
 });

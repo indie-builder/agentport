@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { repo } from '@agentport/db';
 import type { NodeIncomingMessageLike, NodeServerResponseLike } from '@modelcontextprotocol/node';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
@@ -21,18 +22,22 @@ function tokenMatches(expected: unknown, header: string | undefined): boolean {
  * createMcpHandler 的实例同时服务 2025/2026 两个协议时代。
  */
 function handlerFor(app: FastifyInstance, serverId: string): McpHttpHandler {
-  return createMcpHandler(async () => {
+  return createMcpHandler(async (ctx) => {
     const row = await getServerRow(app.db, serverId);
     // 鉴权已在路由层完成；这里再查一次是为了拿到最新工具定义。
     if (!row) throw new Error('server disappeared');
     const server = toApiServer(row, app.config.APP_SECRET_KEY);
     if (server.kind !== 'generated') throw new Error('not a generated server');
     const tools = await listTools(app.db, serverId);
+    // worker 在每个 run 的 .mcp.json 里写入该 header；外部客户端没有 run，审批工具会被拒绝。
+    const runId = ctx.requestInfo?.headers.get('x-agentport-run-id') ?? null;
+    const approvals = runId ? await repo.runs.getRunApprovals(app.db, runId) : [];
     return buildGeneratedServer({
       name: server.name,
       baseUrl: server.baseUrl,
       headers: server.headers,
       tools,
+      approvals,
     });
   });
 }

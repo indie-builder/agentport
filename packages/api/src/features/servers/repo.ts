@@ -205,6 +205,7 @@ export function toApiTool(row: serverRepo.ApiToolRow): ApiTool {
     inputSchema: row.inputSchema,
     paramsIn: row.paramsIn,
     enabled: row.enabled,
+    requiresApproval: row.requiresApproval,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -223,17 +224,18 @@ export async function createTool(db: Db, serverId: string, input: ApiToolInput):
     pathTemplate: input.pathTemplate,
     inputSchema: input.inputSchema,
     paramsIn: input.paramsIn,
+    requiresApproval: input.requiresApproval,
   });
   return toApiTool(row);
 }
 
-export async function setToolEnabled(
+export async function updateTool(
   db: Db,
   serverId: string,
   toolId: string,
-  enabled: boolean,
+  patch: { enabled?: boolean; requiresApproval?: boolean },
 ): Promise<ApiTool | null> {
-  const row = await serverRepo.setApiToolEnabled(db, serverId, toolId, enabled);
+  const row = await serverRepo.updateApiTool(db, serverId, toolId, patch);
   return row ? toApiTool(row) : null;
 }
 

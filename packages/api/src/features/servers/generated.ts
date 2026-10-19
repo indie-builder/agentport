@@ -8,6 +8,13 @@ export interface GeneratedServerInput {
   baseUrl: string;
   headers: Record<string, string>;
   tools: ApiTool[];
+  /** 当前 run 已批准的工具名；没有 run 上下文时为空，审批工具一律拒绝。 */
+  approvals: string[];
+}
+
+/** 未批准时的固定文案：前端靠这段文本识别审批请求。 */
+export function approvalRequiredMessage(toolName: string): string {
+  return `需要批准：${toolName}。请在运行详情页批准后重试。`;
 }
 
 /** 路径模板里的 {param} 已用掉后，剩余参数才进 query/body。 */
@@ -72,7 +79,15 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
         description: tool.description || `${tool.method} ${tool.pathTemplate}`,
         inputSchema,
       },
-      (args) => callUpstream(tool, input.baseUrl, input.headers, args),
+      (args) => {
+        if (tool.requiresApproval && !input.approvals.includes(tool.name)) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: approvalRequiredMessage(tool.name) }],
+          };
+        }
+        return callUpstream(tool, input.baseUrl, input.headers, args);
+      },
     );
   }
   return server;

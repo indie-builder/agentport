@@ -10,6 +10,7 @@ import { Button } from '../components/ui/button.js';
 import { Card, CardContent } from '../components/ui/card.js';
 import { Skeleton } from '../components/ui/skeleton.js';
 import type { RunStep } from '../lib/api.js';
+import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
   formatCost,
@@ -19,6 +20,7 @@ import {
   runStatusLabel,
 } from '../lib/format.js';
 import { useRun } from '../lib/queries.js';
+import { toastError, toastSuccess } from '../lib/toast.js';
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -73,6 +75,19 @@ const stepMeta = {
   assistant: { icon: Bot, label: '助手', tone: 'text-success' },
   tool: { icon: Wrench, label: '工具', tone: 'text-warning' },
 } as const;
+
+/** 与平台 MCP 端点的审批错误文案保持一致。 */
+const APPROVAL_PATTERN = /^需要批准：(.+?)。请在运行详情页批准后重试。$/;
+
+function pendingApprovals(steps: RunStep[]): string[] {
+  const names = new Set<string>();
+  for (const step of steps) {
+    if (step.kind !== 'tool' || typeof step.content !== 'string') continue;
+    const match = APPROVAL_PATTERN.exec(step.content.trim());
+    if (match?.[1]) names.add(match[1]);
+  }
+  return [...names];
+}
 
 function ToolStep({ step }: { step: Extract<RunStep, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false);
@@ -138,6 +153,49 @@ function StepCard({ step, start }: { step: RunStep; start: string | null }) {
   );
 }
 
+/** 批准只写 run 记录；重试由用户在对话页重新发送消息完成，不做自动恢复。 */
+function ApprovalPanel({ runId, toolNames }: { runId: string; toolNames: string[] }) {
+  const run = useRun(runId);
+  const [pending, setPending] = useState<string | null>(null);
+  const approve = (toolName: string): void => {
+    if (pending) return;
+    setPending(toolName);
+    api
+      .approveRun(runId, toolName)
+      .then(() => {
+        toastSuccess(`已批准 ${toolName}，回到对话重新发送消息即可继续`);
+        void run.refetch();
+      })
+      .catch((error) => toastError(error))
+      .finally(() => setPending(null));
+  };
+  return (
+    <div
+      role="alert"
+      className="mb-4 space-y-2 rounded-lg border border-warning/30 bg-warning/5 p-3.5"
+    >
+      <div className="flex items-center gap-2 text-sm font-medium text-fg">
+        <CircleAlert className="size-4 shrink-0 text-warning" />
+        等待批准的工具
+      </div>
+      {toolNames.map((name) => (
+        <div key={name} className="flex flex-wrap items-center gap-2 pl-6 text-xs text-muted">
+          <code className="font-mono text-[11.5px] text-fg">{name}</code>
+          <Button
+            size="sm"
+            disabled={pending !== null}
+            aria-busy={pending === name}
+            onClick={() => approve(name)}
+          >
+            {pending === name ? '批准中…' : '批准并重试'}
+          </Button>
+        </div>
+      ))}
+      <p className="pl-6 text-[11px] text-subtle">批准后回到对话页重新发送上一条消息。</p>
+    </div>
+  );
+}
+
 export function RunDetailPage() {
   const params = useParams({ strict: false }) as { runId: string };
   const run = useRun(params.runId);
@@ -172,6 +230,7 @@ export function RunDetailPage() {
   const firstStepAt = steps[0]?.at ?? null;
   const start = detail.startedAt ?? firstStepAt;
   const failed = detail.status === 'failed' || detail.status === 'timeout';
+  const pending = pendingApprovals(steps).filter((name) => !detail.approvals.includes(name));
 
   return (
     <div>
@@ -206,6 +265,8 @@ export function RunDetailPage() {
           <CopyButton value={detail.error} label="复制错误" />
         </div>
       ) : null}
+
+      {pending.length > 0 ? <ApprovalPanel runId={detail.id} toolNames={pending} /> : null}
 
       <Card className="mb-6">
         <CardContent className="grid gap-x-8 gap-y-2 p-4 sm:grid-cols-2">

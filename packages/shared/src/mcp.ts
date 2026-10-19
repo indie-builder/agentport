@@ -69,6 +69,8 @@ export const apiToolInputSchema = z.object({
   inputSchema: z.record(z.string(), z.unknown()).default({ type: 'object', properties: {} }),
   /** 参数放在 query 还是 body */
   paramsIn: z.enum(['query', 'body']).default('query'),
+  /** 调用前需要在运行页批准；未批准时平台 MCP 端点直接返回错误。 */
+  requiresApproval: z.boolean().default(false),
 });
 
 export type ApiToolInput = z.infer<typeof apiToolInputSchema>;

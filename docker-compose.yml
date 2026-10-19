@@ -48,6 +48,10 @@ services:
       REDIS_URL: redis://redis:6379
       # web 构建产物在镜像里的位置（根 Dockerfile 复制 packages/web/dist 到 /app/web）
       WEB_DIST: /app/web
+      # 与 worker 共用工作区卷；api 只负责渲染，不落盘，路径保持一致便于排查。
+      WORKSPACES_DIR: /workspaces
+    volumes:
+      - workspaces:/workspaces
     ports:
       - '3000:3000'
     depends_on:
@@ -66,9 +70,12 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgres://agentport:agentport@postgres:5432/agentport
       REDIS_URL: redis://redis:6379
-      # 沙盒由宿主 daemon 启动，bind 挂载的路径必须宿主侧存在；
-      # 所以容器内外用同一个绝对路径（${PWD} 由 compose 在解析时展开）。
-      WORKSPACES_DIR: ${PWD}/data/workspaces
+      # 固定容器内路径，与执行 compose 的目录无关。
+      WORKSPACES_DIR: /workspaces
+      # 沙盒由宿主 daemon 启动，-v 的源路径按宿主文件系统解析，不能直接用容器内路径。
+      # 命名卷在标准 rootful Docker 上的宿主目录如下（项目名固定为 agentport）；
+      # rootless / 自定义 data-root 时用 HOST_WORKSPACES_DIR 覆盖。
+      HOST_WORKSPACES_DIR: ${HOST_WORKSPACES_DIR:-/var/lib/docker/volumes/agentport_workspaces/_data}
       SANDBOX_IMAGE: agentport/sandbox:dev
       # 沙盒在默认 bridge 上，通过 host.docker.internal 回到宿主发布的 3000 端口。
       SANDBOX_API_URL: http://host.docker.internal:3000
@@ -76,8 +83,7 @@ services:
       # 单机妥协：worker 直接控制宿主 Docker。等价于宿主 root 权限，
       # 容器逃逸/恶意镜像会危及整台机器；生产应换成独立沙盒节点或 microVM 运行时。
       - /var/run/docker.sock:/var/run/docker.sock
-      # 同一绝对路径两侧挂载，见上面的 WORKSPACES_DIR 说明。
-      - ${PWD}/data/workspaces:${PWD}/data/workspaces
+      - workspaces:/workspaces
     # socket 属于宿主 root:docker；容器内 node 用户不在该组，补上 GID 0
     # （Docker Desktop 默认 socket 为 root:root）。Linux 上若 docker 组 GID 不同，
     # 用 DOCKER_GID 覆盖。
@@ -92,3 +98,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  workspaces:

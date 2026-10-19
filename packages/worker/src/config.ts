@@ -7,6 +7,11 @@ const envSchema = z.object({
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
   /** 与宿主机同一路径：worker 把该目录挂进沙盒，路径必须对宿主 daemon 有效。 */
   WORKSPACES_DIR: z.string().min(1).default('./data/workspaces'),
+  /**
+   * 宿主视角的 WORKSPACES_DIR。容器部署时 WORKSPACES_DIR 是命名卷挂载点（如 /workspaces），
+   * 而 docker -v 的源路径由宿主 daemon 解析，必须换成该卷的宿主目录。默认与 WORKSPACES_DIR 相同。
+   */
+  HOST_WORKSPACES_DIR: z.string().min(1).optional(),
   SANDBOX_IMAGE: z.string().min(1).default('agentport/sandbox:dev'),
   /** open=bridge；none=断网；proxy=仍用 bridge，由 HTTPS_PROXY 指向宿主代理。 */
   SANDBOX_EGRESS: z.enum(['open', 'none', 'proxy']).default('open'),

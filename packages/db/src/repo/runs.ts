@@ -32,6 +32,7 @@ export interface RunDetailRow extends RunListItem {
   conversationId: string;
   sessionId: string | null;
   sandboxId: string | null;
+  approvals: string[];
 }
 
 export type RunStep =
@@ -119,6 +120,48 @@ export function toStep(message: {
   return null;
 }
 
+/** 审批只对本 run 记名；查询不存在的 run 返回空数组。 */
+export async function getRunApprovals(db: Database, runId: string): Promise<string[]> {
+  const [row] = await db
+    .select({ approvals: agentRuns.approvals })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  return row?.approvals ?? [];
+}
+
+/** 新 run 沿用同一会话最近一次 run 的批准，重新发送消息后无需再次批准。 */
+export async function getLatestApprovals(db: Database, conversationId: string): Promise<string[]> {
+  const [row] = await db
+    .select({ approvals: agentRuns.approvals })
+    .from(agentRuns)
+    .where(eq(agentRuns.conversationId, conversationId))
+    .orderBy(desc(agentRuns.id))
+    .limit(1);
+  return row?.approvals ?? [];
+}
+
+/** 幂等追加；并发的两次批准最多丢失一次写入，单机交互场景可接受。 */
+export async function approveTool(
+  db: Database,
+  runId: string,
+  toolName: string,
+): Promise<string[] | null> {
+  const [existing] = await db
+    .select({ approvals: agentRuns.approvals })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  if (!existing) return null;
+  if (existing.approvals.includes(toolName)) return existing.approvals;
+  const [row] = await db
+    .update(agentRuns)
+    .set({ approvals: [...existing.approvals, toolName] })
+    .where(eq(agentRuns.id, runId))
+    .returning({ approvals: agentRuns.approvals });
+  return row?.approvals ?? null;
+}
+
 export async function getRunDetail(db: Database, runId: string): Promise<RunDetail | null> {
   const [row] = await db
     .select({
@@ -126,6 +169,7 @@ export async function getRunDetail(db: Database, runId: string): Promise<RunDeta
       conversationId: agentRuns.conversationId,
       sessionId: agentRuns.sessionId,
       sandboxId: agentRuns.sandboxId,
+      approvals: agentRuns.approvals,
       conversationAgentId: conversations.agentId,
       conversationTitle: conversations.title,
     })
