@@ -628,7 +628,7 @@ interface SandboxProvider {
 
 | 阶段 | 交付 | 验收 |
 |---|---|---|
-| M0 | 仓库骨架、compose、DB/Redis、日志、健康检查、CI | `docker compose up` 后 `/health/ready` 返回 ok |
+| M0 | 仓库骨架、compose、DB/Redis、日志、健康检查、CI | ✅ 已完成：`/health/ready` 返回 ok，worker 已连通 Redis，DB 迁移已应用 |
 | M1 | MCP Server CRUD + 测试连接 | 页面上新增 stdio / http server，点测试能看到工具列表 |
 | M2 | HTTP→MCP 动态挂载 | 手动建一个工具，`/mcp/:serverId` 能被 MCP client 调用成功 |
 | M3 | 智能体文件定义 + 单机运行 | 生成 `.mcp.json` 与 `.claude/agents/*.md`，本地 `query()` 调通工具 |
@@ -697,6 +697,45 @@ cd ~/Documents/myself/agentport
 
 5. Claude Code 的长期记忆按**项目路径**存储，目录改名后旧路径下的记忆不会被自动读取。新路径下需要重新记录一次关键上下文（文档本身已覆盖主要内容，所以影响有限）。
 
+
+---
+
+## 15. M0 落地记录（2026-10-20）
+
+以下是在实际搭建中**验证过的事实**与**踩到的坑**，后续开发以此为准。
+
+### 15.1 已验证可用
+
+- `docker compose up -d postgres redis` → 两个容器均 healthy。
+- `pnpm -r typecheck` / `pnpm -r build` / `biome ci` 全部通过。
+- `GET /health/live` → `{"status":"ok"}`；`GET /health/ready` → `{"status":"ok","db":"ok"}`。
+- Worker 启动后成功连接 Redis 并注册 `agent-runs` 队列。
+- Drizzle 生成了 8 张表的首个迁移并成功应用。
+
+### 15.2 必须记住的修正
+
+| 问题 | 实际行为 | 处理 |
+|---|---|---|
+| PostgreSQL 18 镜像的数据目录 | 挂载 `/var/lib/postgresql/data` 会导致容器无限重启；18+ 要求挂载 `/var/lib/postgresql` | compose 已改为后者 |
+| `redis:8-alpine` | 实际可用（`docker pull` 成功，容器 healthy）；此前 `docker manifest inspect` 因网络超时误判 | 维持该标签 |
+| npm 官方源 | 本机经代理访问 registry.npmjs.org 极慢（15s+），导致 `pnpm install` 长时间无输出 | 根目录 `.npmrc` 固定 `registry=https://registry.npmmirror.com` |
+| pnpm 12 的 build script 审批 | `ignoredBuiltDependencies` 不会放行，必须 `onlyBuiltDependencies` 或 `pnpm approve-builds --all` | 已用 `approve-builds --all`，配置写入 workspace yaml |
+| BullMQ 6 在 ESM 下 | 不自动加载 ioredis，报 "could not load the optional 'ioredis' package" | worker 包显式依赖 `ioredis@6.0.0` |
+| TypeScript `-b --noEmit` | 与 project references 冲突（TS6310） | 各包 typecheck 统一为 `tsc -b`，无 `--noEmit` |
+| tsx 与 env | `--env-file-if-exists` 在 tsx 下不生效 | 该参数交给 tsx 传参即可；migrate 脚本用 Node 原生 `--env-file-if-exists` |
+| Biome 2.5 | `linter.rules.recommended` 已废弃 | 改用 `preset: "recommended"`（已 `biome migrate`） |
+
+### 15.3 起步命令
+
+```bash
+pnpm install
+docker compose up -d postgres redis
+cp .env.example .env   # 填写 APP_SECRET_KEY / JWT_SECRET / ADMIN_PASSWORD
+pnpm db:migrate
+pnpm dev
+```
+
+> `.env` 中的 `ANTHROPIC_API_KEY` 与 `ANTHROPIC_AUTH_TOKEN` 二选一；本机当前使用 `ANTHROPIC_AUTH_TOKEN`，Agent SDK 会作为 Bearer token 发送。
 
 ---
 
