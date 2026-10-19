@@ -43,6 +43,13 @@
       "when": 1792430334354,
       "tag": "0005_fuzzy_grim_reaper",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792430901262,
+      "tag": "0006_dapper_fallen_one",
+      "breakpoints": true
     }
   ]
 }

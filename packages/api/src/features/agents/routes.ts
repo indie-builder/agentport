@@ -28,6 +28,7 @@ const patchSchema = z.object({
   systemPrompt: z.string().optional(),
   serverIds: z.array(z.string()).optional(),
   skillIds: z.array(z.string()).optional(),
+  subAgentIds: z.array(z.string()).optional(),
   allowedTools: z.array(z.string()).optional(),
   disallowedTools: z.array(z.string()).optional(),
   permissionMode: permissionModeSchema.optional(),
@@ -76,7 +77,9 @@ function rethrowConflict(err: unknown): never {
   throw err;
 }
 
-function toWrite(input: Omit<AgentInput, 'serverIds' | 'skillIds'>): repo.AgentWrite {
+function toWrite(
+  input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds'>,
+): repo.AgentWrite {
   return {
     slug: input.slug,
     name: input.name,
@@ -98,6 +101,37 @@ function toWrite(input: Omit<AgentInput, 'serverIds' | 'skillIds'>): repo.AgentW
 // slug 是工作区目录名，改了旧目录会变孤儿，只能显式拒绝。
 function assertSlugUnchanged(current: string, next: string | undefined): string | undefined {
   return next !== undefined && next !== current ? 'slug cannot change' : undefined;
+}
+
+/**
+ * 单层委派校验：自己不能当子智能体，候选只能是「没有 parent」的顶层 agent。
+ * 返回错误文案；合法时返回 undefined。
+ */
+async function validateSubAgents(
+  app: FastifyInstance,
+  selfId: string | null,
+  subAgentIds: string[],
+): Promise<string | undefined> {
+  if (new Set(subAgentIds).size !== subAgentIds.length) return 'duplicate sub-agent';
+  if (selfId !== null && subAgentIds.includes(selfId)) return 'an agent cannot delegate to itself';
+  const rows = await repo.getAgentsByIds(app.db, subAgentIds);
+  if (rows.length !== subAgentIds.length) return 'referenced sub-agent does not exist';
+  for (const row of rows) {
+    if (row.parentId !== null && row.parentId !== selfId) {
+      return `agent ${row.slug} already has a parent (single-level delegation only)`;
+    }
+  }
+  // 候选自己不能再有子智能体，否则会拼出两层。
+  const nested = await repo.listAgentSubAgentIds(
+    app.db,
+    rows.map((row) => row.id),
+  );
+  for (const row of rows) {
+    if ((nested.get(row.id) ?? []).length > 0) {
+      return `agent ${row.slug} already has sub-agents (single-level delegation only)`;
+    }
+  }
+  return undefined;
 }
 
 /** 快照是共享 Agent（camelCase）；回滚时先转回 DB 写入形状，slug 保持不变。 */
@@ -126,19 +160,29 @@ export function registerAgentRoutes(app: FastifyInstance): void {
   app.get('/api/agents', auth, async () => {
     const rows = await repo.listAgents(app.db);
     const ids = rows.map((row) => row.id);
-    const servers = await repo.listAgentServerIds(app.db, ids);
-    const skills = await repo.listAgentSkillIds(app.db, ids);
+    const [servers, skills, subAgents] = await Promise.all([
+      repo.listAgentServerIds(app.db, ids),
+      repo.listAgentSkillIds(app.db, ids),
+      repo.listAgentSubAgentIds(app.db, ids),
+    ]);
     return rows.map((row) =>
-      repo.toAgent(row, servers.get(row.id) ?? [], skills.get(row.id) ?? []),
+      repo.toAgent(
+        row,
+        servers.get(row.id) ?? [],
+        skills.get(row.id) ?? [],
+        subAgents.get(row.id) ?? [],
+      ),
     );
   });
 
   app.post('/api/agents', auth, async (request, reply) => {
     const parsed = agentInputSchema.safeParse(request.body);
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');
-    const { serverIds, skillIds, ...rest } = parsed.data;
+    const { serverIds, skillIds, subAgentIds, ...rest } = parsed.data;
+    const subAgentError = await validateSubAgents(app, null, subAgentIds);
+    if (subAgentError) return invalid(reply, subAgentError);
     try {
-      const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds);
+      const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds, subAgentIds);
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'agent.created',
@@ -147,7 +191,7 @@ export function registerAgentRoutes(app: FastifyInstance): void {
         status: 'ok',
         requestId: request.id,
       });
-      return reply.status(201).send(repo.toAgent(row, serverIds, skillIds));
+      return reply.status(201).send(repo.toAgent(row, serverIds, skillIds, subAgentIds));
     } catch (err) {
       rethrowConflict(err);
     }
@@ -158,11 +202,12 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     if (!params.success) return invalid(reply, 'invalid id');
     const row = await repo.getAgent(app.db, params.data.id);
     if (!row) return notFound(reply);
-    const [serverIds, skillIds] = await Promise.all([
+    const [serverIds, skillIds, subAgentIds] = await Promise.all([
       repo.getAgentServerIds(app.db, row.id),
       repo.getAgentSkillIds(app.db, row.id),
+      repo.getAgentSubAgentIds(app.db, row.id),
     ]);
-    return repo.toAgent(row, serverIds, skillIds);
+    return repo.toAgent(row, serverIds, skillIds, subAgentIds);
   });
 
   app.patch('/api/agents/:id', auth, async (request, reply) => {
@@ -175,6 +220,14 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     if (!current) return notFound(reply);
     const slugError = assertSlugUnchanged(current.slug, body.data.slug);
     if (slugError) return invalid(reply, slugError);
+    if (body.data.subAgentIds !== undefined) {
+      // 自己已经是子智能体时不能再有子智能体，否则就是两层。
+      if (current.parentId !== null && body.data.subAgentIds.length > 0) {
+        return invalid(reply, 'a sub-agent cannot have its own sub-agents');
+      }
+      const subAgentError = await validateSubAgents(app, current.id, body.data.subAgentIds);
+      if (subAgentError) return invalid(reply, subAgentError);
+    }
 
     const input = body.data;
     const patch: Partial<repo.AgentWrite> = {
@@ -201,6 +254,8 @@ export function registerAgentRoutes(app: FastifyInstance): void {
         patch,
         input.serverIds,
         input.skillIds,
+        null,
+        input.subAgentIds,
       );
       if (!row) return notFound(reply);
       await writeAudit(app.db, request.log, {
@@ -211,11 +266,12 @@ export function registerAgentRoutes(app: FastifyInstance): void {
         status: 'ok',
         requestId: request.id,
       });
-      const [serverIds, skillIds] = await Promise.all([
+      const [serverIds, skillIds, subAgentIds] = await Promise.all([
         input.serverIds ?? repo.getAgentServerIds(app.db, current.id),
         input.skillIds ?? repo.getAgentSkillIds(app.db, current.id),
+        input.subAgentIds ?? repo.getAgentSubAgentIds(app.db, current.id),
       ]);
-      return repo.toAgent(row, serverIds, skillIds);
+      return repo.toAgent(row, serverIds, skillIds, subAgentIds);
     } catch (err) {
       rethrowConflict(err);
     }
@@ -287,6 +343,15 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     }
 
     const snapshot = target.snapshot;
+    // 旧快照没有 subAgentIds 字段；缺失时保持现有关系不动。
+    const snapshotSubAgentIds = snapshot.subAgentIds as string[] | undefined;
+    if (snapshotSubAgentIds !== undefined) {
+      if (current.parentId !== null && snapshotSubAgentIds.length > 0) {
+        return invalid(reply, 'a sub-agent cannot have its own sub-agents');
+      }
+      const subAgentError = await validateSubAgents(app, current.id, snapshotSubAgentIds);
+      if (subAgentError) return invalid(reply, subAgentError);
+    }
     try {
       const row = await repo.updateAgent(
         app.db,
@@ -295,6 +360,7 @@ export function registerAgentRoutes(app: FastifyInstance): void {
         snapshot.serverIds,
         snapshot.skillIds,
         `rollback to v${target.version}`,
+        snapshotSubAgentIds,
       );
       if (!row) return notFound(reply);
       await writeAudit(app.db, request.log, {
@@ -305,7 +371,7 @@ export function registerAgentRoutes(app: FastifyInstance): void {
         status: 'ok',
         requestId: request.id,
       });
-      return repo.toAgent(row, snapshot.serverIds, snapshot.skillIds);
+      return repo.toAgent(row, snapshot.serverIds, snapshot.skillIds, snapshotSubAgentIds ?? []);
     } catch (err) {
       rethrowConflict(err);
     }

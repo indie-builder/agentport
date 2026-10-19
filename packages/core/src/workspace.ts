@@ -5,6 +5,7 @@ export interface WorkspaceFiles {
   claudeMd: string;
   agentMd: string;
   skills: Array<{ slug: string; content: string }>;
+  subAgents: Array<{ slug: string; content: string }>;
 }
 
 export interface WorkspaceAgent {
@@ -31,6 +32,8 @@ export interface WorkspaceInput {
   agent: WorkspaceAgent;
   servers: Array<{ name: string; entry: McpJsonEntry }>;
   skills?: WorkspaceSkill[];
+  /** 单层委派：这些子智能体渲染到 .claude/agents/，主智能体获得 Agent 工具。 */
+  subAgents?: WorkspaceAgent[];
   toolsAllow?: string[];
   toolsDeny?: string[];
 }
@@ -98,6 +101,19 @@ function renderClaudeMd(input: WorkspaceInput): string {
           '需要时读取 `.claude/skills/<slug>/SKILL.md` 按步骤执行。',
         ];
 
+  const subAgents = input.subAgents ?? [];
+  const subAgentLines =
+    subAgents.length === 0
+      ? []
+      : [
+          '',
+          '## 可用子智能体',
+          '',
+          '你可以用 `Agent` 工具把任务委派给以下子智能体（它们不能再向下委派）：',
+          '',
+          ...subAgents.map((s) => `- \`${s.slug}\`：${s.description || s.name}`),
+        ];
+
   return [
     `# ${agent.name}`,
     '',
@@ -106,24 +122,36 @@ function renderClaudeMd(input: WorkspaceInput): string {
     '## 工具使用',
     '',
     ...toolLines,
+    ...(subAgents.length > 0
+      ? ['', '内置的 `Agent` 工具已启用，仅用于委派给上面的子智能体。']
+      : []),
     '',
     '只使用 `mcp__*` MCP 工具；内置的 shell、文件与网络工具已被禁用。',
     '如需更多能力，请让管理员在平台中为智能体绑定对应的 MCP Server。',
     ...skillLines,
+    ...subAgentLines,
     '',
   ].join('\n');
 }
 
-function renderAgentMd(input: WorkspaceInput): string {
+/** standalone：子智能体文件没有自己的 CLAUDE.md，正文直接放系统提示。 */
+function renderAgentMd(input: WorkspaceInput, standalone = false): string {
   const { agent, servers, skills = [] } = input;
   const tools =
     input.toolsAllow && input.toolsAllow.length > 0
       ? input.toolsAllow
       : servers.map((s) => `mcp__${s.name}__*`);
-  const disallowed =
-    input.toolsDeny && input.toolsDeny.length > 0
-      ? [...new Set([...DEFAULT_DISALLOWED_TOOLS, ...input.toolsDeny])]
-      : DEFAULT_DISALLOWED_TOOLS;
+  const hasSubAgents = (input.subAgents ?? []).length > 0;
+  // 单层委派：有子智能体时放行 Agent/TaskStop，与 runner 的 options 保持一致；
+  // 子智能体本身不传 subAgents，因此仍被禁用，无法继续向下委派。
+  const disallowed = [
+    ...new Set([
+      ...DEFAULT_DISALLOWED_TOOLS.filter(
+        (tool) => !(hasSubAgents && (tool === 'Agent' || tool === 'TaskStop')),
+      ),
+      ...(input.toolsDeny ?? []),
+    ]),
+  ];
   const description =
     agent.description?.trim() || summarize(agent.systemPrompt, `${agent.name} 智能体`);
 
@@ -132,7 +160,7 @@ function renderAgentMd(input: WorkspaceInput): string {
     `name: ${yamlString(agent.slug)}`,
     `description: ${yamlString(description)}`,
     `model: ${yamlString(agent.model)}`,
-    `tools: ${yamlList(tools)}`,
+    `tools: ${yamlList(hasSubAgents ? [...tools, 'Agent'] : tools)}`,
     `disallowedTools: ${yamlList(disallowed)}`,
     `maxTurns: ${agent.maxTurns}`,
     ...(skills.length > 0 ? [`skills: ${yamlList(skills.map((s) => s.slug))}`] : []),
@@ -147,8 +175,14 @@ function renderAgentMd(input: WorkspaceInput): string {
     '',
     description,
     '',
-    '完整系统提示见 `CLAUDE.md`。',
-    '',
+    ...(standalone
+      ? [agent.systemPrompt.trim(), '']
+      : [
+          hasSubAgents
+            ? '完整系统提示见 `CLAUDE.md`；需要时用 `Agent` 工具委派给 `CLAUDE.md` 中列出的子智能体。'
+            : '完整系统提示见 `CLAUDE.md`。',
+          '',
+        ]),
   ].join('\n');
 }
 
@@ -180,6 +214,22 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
     skills: (input.skills ?? []).map((skill) => ({
       slug: skill.slug,
       content: renderSkillMd(skill),
+    })),
+    subAgents: (input.subAgents ?? []).map((subAgent) => ({
+      slug: subAgent.slug,
+      content: renderAgentMd(
+        {
+          agent: subAgent,
+          servers: input.servers,
+          ...(subAgent.allowedTools && subAgent.allowedTools.length > 0
+            ? { toolsAllow: subAgent.allowedTools }
+            : {}),
+          ...(subAgent.disallowedTools && subAgent.disallowedTools.length > 0
+            ? { toolsDeny: subAgent.disallowedTools }
+            : {}),
+        },
+        true,
+      ),
     })),
   };
 }

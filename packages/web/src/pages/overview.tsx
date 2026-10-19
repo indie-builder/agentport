@@ -12,6 +12,7 @@ import { Skeleton } from '../components/ui/skeleton.js';
 import type { OverviewAgentRow, RecentRun } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
+  formatBytes,
   formatCost,
   formatDateTime,
   formatDuration,
@@ -20,7 +21,7 @@ import {
   formatTokens,
   shortId,
 } from '../lib/format.js';
-import { agentsQuery, serversQuery, useOverview } from '../lib/queries.js';
+import { agentsQuery, healthMetricsQuery, serversQuery, useOverview } from '../lib/queries.js';
 
 const links = [
   {
@@ -260,6 +261,38 @@ const runColumns: DataColumn<RecentRun>[] = [
   },
 ];
 
+/** 平台健康：队列堆积与进程内存，每 30 秒刷新；读取失败只显示「不可用」。 */
+function PlatformHealth() {
+  const { data } = useQuery(healthMetricsQuery);
+  const queue = data?.queue ?? null;
+  const rows: Array<[string, string]> = [
+    ['队列等待', queue ? String(queue.waiting) : '不可用'],
+    ['队列运行中', queue ? String(queue.active) : '不可用'],
+    ['队列失败', queue ? String(queue.failed) : '不可用'],
+    ['Redis 延迟', data?.redis ? `${data.redis.pingMs} ms` : '不可用'],
+    ['内存 RSS', data ? formatBytes(data.process.memoryRssBytes) : '不可用'],
+  ];
+
+  return (
+    <Card className="mt-3">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] uppercase tracking-wider text-subtle">平台健康</div>
+          <span className="text-[11px] text-subtle">每 30 秒刷新</span>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-5">
+          {rows.map(([label, value]) => (
+            <div key={label}>
+              <div className="text-[11px] text-subtle">{label}</div>
+              <div className="mt-0.5 text-[13px] font-medium tabular-nums text-fg">{value}</div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function OverviewPage() {
   const overview = useOverview();
   const servers = useQuery(serversQuery);
@@ -340,6 +373,8 @@ export function OverviewPage() {
               loading={loading}
             />
           </div>
+
+          <PlatformHealth />
 
           <div className="mt-8">
             <SectionHeader

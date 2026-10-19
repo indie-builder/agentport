@@ -1,5 +1,5 @@
 import type { Agent, AgentInput } from '@agentport/shared';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentServers, agentSkills, agents, servers, skills } from '../schema.js';
@@ -23,10 +23,16 @@ export interface AgentWrite {
   /** numeric 列以字符串写入，避免浮点误差。 */
   maxBudgetUsd: string;
   timeoutMs: number;
+  parentId?: string | null;
 }
 
 /** DB 行 → 共享 Agent；所有字段映射只在这里做一次。 */
-export function toAgent(row: AgentRow, serverIds: string[], skillIds: string[]): Agent {
+export function toAgent(
+  row: AgentRow,
+  serverIds: string[],
+  skillIds: string[],
+  subAgentIds: string[] = [],
+): Agent {
   return {
     id: row.id,
     slug: row.slug,
@@ -36,6 +42,8 @@ export function toAgent(row: AgentRow, serverIds: string[], skillIds: string[]):
     systemPrompt: row.systemPromptMd,
     serverIds,
     skillIds,
+    subAgentIds,
+    parentId: row.parentId,
     allowedTools: row.allowedTools,
     disallowedTools: row.disallowedTools,
     permissionMode: row.permissionMode as AgentInput['permissionMode'],
@@ -64,6 +72,7 @@ export async function createAgent(
   input: AgentWrite,
   serverIds: string[],
   skillIds: string[],
+  subAgentIds: string[] = [],
 ): Promise<AgentRow> {
   const id = newId('agent');
   const [row] = await retryOnVersionConflict(() =>
@@ -72,6 +81,9 @@ export async function createAgent(
         .insert(agents)
         .values({ id, ...input })
         .returning();
+      if (subAgentIds.length > 0) {
+        await tx.update(agents).set({ parentId: id }).where(inArray(agents.id, subAgentIds));
+      }
       if (serverIds.length > 0) {
         await tx
           .insert(agentServers)
@@ -82,7 +94,7 @@ export async function createAgent(
       }
       const created = inserted[0];
       if (!created) throw new Error('agent insert returned no row');
-      await insertAgentVersion(tx, id, toAgent(created, serverIds, skillIds));
+      await insertAgentVersion(tx, id, toAgent(created, serverIds, skillIds, subAgentIds));
       return inserted;
     }),
   );
@@ -97,6 +109,7 @@ export async function updateAgent(
   serverIds?: string[],
   skillIds?: string[],
   note: string | null = null,
+  subAgentIds?: string[],
 ): Promise<AgentRow | null> {
   return retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
@@ -106,6 +119,15 @@ export async function updateAgent(
         .where(eq(agents.id, id))
         .returning();
       if (!row) return null;
+      if (subAgentIds !== undefined) {
+        await tx
+          .update(agents)
+          .set({ parentId: null })
+          .where(and(eq(agents.parentId, id), ne(agents.id, id)));
+        if (subAgentIds.length > 0) {
+          await tx.update(agents).set({ parentId: id }).where(inArray(agents.id, subAgentIds));
+        }
+      }
       if (serverIds !== undefined) {
         await tx.delete(agentServers).where(eq(agentServers.agentId, id));
         if (serverIds.length > 0) {
@@ -122,11 +144,17 @@ export async function updateAgent(
             .values(skillIds.map((skillId) => ({ agentId: id, skillId })));
         }
       }
-      const [nextServerIds, nextSkillIds] = await Promise.all([
+      const [nextServerIds, nextSkillIds, nextSubAgentIds] = await Promise.all([
         serverIds === undefined ? getAgentServerIds(tx, id) : Promise.resolve(serverIds),
         skillIds === undefined ? getAgentSkillIds(tx, id) : Promise.resolve(skillIds),
+        subAgentIds === undefined ? getAgentSubAgentIds(tx, id) : Promise.resolve(subAgentIds),
       ]);
-      await insertAgentVersion(tx, id, toAgent(row, nextServerIds, nextSkillIds), note);
+      await insertAgentVersion(
+        tx,
+        id,
+        toAgent(row, nextServerIds, nextSkillIds, nextSubAgentIds),
+        note,
+      );
       return row;
     }),
   );
@@ -192,6 +220,59 @@ export async function listAgentSkillIds(
     else out.set(row.agentId, [row.skillId]);
   }
   return out;
+}
+
+/** 某 agent 的直接子智能体（含已停用的，供预览/管理）。 */
+export async function listSubAgents(db: Database, agentId: string): Promise<AgentRow[]> {
+  return db.select().from(agents).where(eq(agents.parentId, agentId)).orderBy(asc(agents.id));
+}
+
+/** 某 agent 的子智能体 id（parent_id 指向它）。 */
+export async function getAgentSubAgentIds(db: Database | Tx, agentId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(eq(agents.parentId, agentId))
+    .orderBy(asc(agents.id));
+  return rows.map((row) => row.id);
+}
+
+export async function listAgentSubAgentIds(
+  db: Database,
+  agentIds: string[],
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (agentIds.length === 0) return out;
+  const rows = await db
+    .select({ id: agents.id, parentId: agents.parentId })
+    .from(agents)
+    .where(inArray(agents.parentId, agentIds))
+    .orderBy(asc(agents.id));
+  for (const row of rows) {
+    if (!row.parentId) continue;
+    const list = out.get(row.parentId);
+    if (list) list.push(row.id);
+    else out.set(row.parentId, [row.id]);
+  }
+  return out;
+}
+
+/** 可以作为子智能体的候选：还没有 parent 的 agent，排除自己。 */
+export async function listSubAgentCandidates(
+  db: Database,
+  excludeId?: string,
+): Promise<AgentRow[]> {
+  const rows = await db
+    .select()
+    .from(agents)
+    .where(isNull(agents.parentId))
+    .orderBy(asc(agents.createdAt), asc(agents.id));
+  return excludeId === undefined ? rows : rows.filter((row) => row.id !== excludeId);
+}
+
+export async function getAgentsByIds(db: Database, ids: string[]): Promise<AgentRow[]> {
+  if (ids.length === 0) return [];
+  return db.select().from(agents).where(inArray(agents.id, ids));
 }
 
 export async function getBoundServers(

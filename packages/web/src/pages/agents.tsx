@@ -57,6 +57,7 @@ const emptyInput: AgentInput = {
   systemPrompt: '',
   serverIds: [],
   skillIds: [],
+  subAgentIds: [],
   allowedTools: [],
   disallowedTools: [],
   permissionMode: 'dontAsk',
@@ -75,6 +76,7 @@ function toInput(agent: Agent): AgentInput {
     systemPrompt: agent.systemPrompt,
     serverIds: agent.serverIds,
     skillIds: agent.skillIds,
+    subAgentIds: agent.subAgentIds,
     allowedTools: agent.allowedTools,
     disallowedTools: agent.disallowedTools,
     permissionMode: agent.permissionMode,
@@ -249,6 +251,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
   const update = useUpdateAgent();
   const servers = useServers();
   const skills = useSkills();
+  const agents = useAgents();
   const [form, setForm] = useState<AgentInput>(() => toInput(agent));
   const [tab, setTab] = useState<'config' | 'files' | 'versions'>('config');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -311,6 +314,11 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
     hint: server.kind,
     tag: server.kind,
   }));
+
+  // 候选只能是还没有 parent 的顶层 agent，排除自己；已是子智能体时不能再委派。
+  const subAgentOptions = (agents.data ?? [])
+    .filter((item) => item.id !== agent.id && item.parentId === null)
+    .map((item) => ({ id: item.id, label: item.name, hint: item.slug }));
 
   return (
     <div className="space-y-4">
@@ -514,6 +522,40 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                 emptyText="没有匹配的技能"
               />
             ) : null}
+          </section>
+
+          <section className="rounded-[10px] border border-line bg-surface p-5">
+            <div className="mb-3 flex items-baseline justify-between gap-2">
+              <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+                <Bot className="size-3.5 text-subtle" /> 子智能体
+              </h2>
+              <span className="text-[11px] text-subtle">
+                已选择 {form.subAgentIds.length} / {subAgentOptions.length}
+              </span>
+            </div>
+            {agent.parentId !== null ? (
+              <p className="text-xs text-muted">
+                它本身已经是子智能体，不能再委派。子智能体只支持一层。
+              </p>
+            ) : subAgentOptions.length === 0 ? (
+              <p className="text-xs text-muted">
+                没有可选的主智能体。只有「没有父级」的智能体才能被委派。
+              </p>
+            ) : (
+              <MultiSelect
+                label="子智能体"
+                options={subAgentOptions}
+                value={form.subAgentIds}
+                onChange={(next) => set('subAgentIds', next)}
+                placeholder="搜索并选择子智能体…"
+                emptyText="没有匹配的智能体"
+              />
+            )}
+            <p className="mt-2 text-[11px] text-subtle">
+              选中后，主智能体获得 <code className="font-mono text-muted">Agent</code>{' '}
+              工具，子智能体定义会渲染到{' '}
+              <code className="font-mono text-muted">.claude/agents/&lt;slug&gt;.md</code>。
+            </p>
           </section>
 
           <section className="rounded-[10px] border border-line bg-surface p-5">

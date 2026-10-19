@@ -9,6 +9,7 @@ interface WorkspaceFiles {
   mcpJson: string;
   claudeMd: string;
   agentMd: string;
+  subAgents: Array<{ slug: string; content: string }>;
 }
 
 describe.skipIf(!ready)('agents', () => {
@@ -169,5 +170,84 @@ describe.skipIf(!ready)('agents', () => {
       headers: auth(),
     });
     expect(get.statusCode).toBe(404);
+  });
+
+  it('delegates to sub-agents and renders them as agent files', async () => {
+    const parentSlug = unique('parent');
+    const childSlug = unique('child');
+    const child = (await createAgent(childSlug)).json<Agent>();
+    const res = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: auth(),
+      payload: {
+        slug: parentSlug,
+        name: `Agent ${parentSlug}`,
+        systemPrompt: 'You are the lead.',
+        subAgentIds: [child.id],
+      },
+    });
+    createdAgents.push(parentSlug);
+    expect(res.statusCode).toBe(201);
+    const parent = res.json<Agent>();
+    expect(parent.subAgentIds).toEqual([child.id]);
+
+    const childGet = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${child.id}`,
+      headers: auth(),
+    });
+    expect(childGet.json<Agent>().parentId).toBe(parent.id);
+
+    const files = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${parent.id}/files`,
+      headers: auth(),
+    });
+    const body = files.json<WorkspaceFiles>();
+    expect(body.subAgents.map((sub) => sub.slug)).toEqual([childSlug]);
+    expect(body.claudeMd).toContain(childSlug);
+    expect(body.agentMd).toContain('Agent');
+    // 子智能体文件不再放行 Agent，保证只有一层。
+    expect(body.subAgents[0]?.content).toContain('"Agent"');
+  });
+
+  it('rejects self-delegation and two-level delegation', async () => {
+    const a = (await createAgent(unique('cycle-a'))).json<Agent>();
+    const b = (await createAgent(unique('cycle-b'))).json<Agent>();
+
+    const self = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${a.id}`,
+      headers: auth(),
+      payload: { subAgentIds: [a.id] },
+    });
+    expect(self.statusCode).toBe(400);
+
+    const first = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${a.id}`,
+      headers: auth(),
+      payload: { subAgentIds: [b.id] },
+    });
+    expect(first.statusCode).toBe(200);
+
+    // b 已经是 a 的子智能体，不能再被 c 委派，也不能自己再委派。
+    const c = (await createAgent(unique('cycle-c'))).json<Agent>();
+    const second = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${c.id}`,
+      headers: auth(),
+      payload: { subAgentIds: [b.id] },
+    });
+    expect(second.statusCode).toBe(400);
+
+    const nested = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${b.id}`,
+      headers: auth(),
+      payload: { subAgentIds: [c.id] },
+    });
+    expect(nested.statusCode).toBe(400);
   });
 });

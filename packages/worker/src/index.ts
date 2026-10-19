@@ -5,9 +5,10 @@ import { decryptSecrets, renderWorkspace } from '@agentport/core';
 import { createDb, newId, schema } from '@agentport/db';
 import { agentRunJobSchema, type ChatEvent } from '@agentport/shared';
 import { Worker } from 'bullmq';
-import { eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import pino from 'pino';
 import { loadConfig } from './config.js';
+import { startMaintenanceWorker } from './maintenance.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
   closeRunnerClient,
@@ -104,6 +105,7 @@ async function writeWorkspace(
   agent: AgentRow,
   servers: Array<{ name: string; entry: McpJsonEntry }>,
   skills: Array<{ slug: string; name: string; description: string; body: string }>,
+  subAgents: AgentRow[],
 ): Promise<string> {
   const files = renderWorkspace({
     agent: {
@@ -119,13 +121,30 @@ async function writeWorkspace(
     },
     servers,
     skills,
+    subAgents: subAgents.map((child) => ({
+      slug: child.slug,
+      name: child.name,
+      description: child.description,
+      model: child.model,
+      systemPrompt: child.systemPromptMd,
+      maxTurns: child.maxTurns,
+      ...(child.effort === null ? {} : { effort: child.effort }),
+      allowedTools: child.allowedTools,
+      disallowedTools: child.disallowedTools,
+    })),
   });
 
   const dir = join(workspacesDir, agent.slug);
-  await mkdir(join(dir, '.claude', 'agents'), { recursive: true });
+  const agentsDir = join(dir, '.claude', 'agents');
+  // 子智能体每次重建：解绑后旧文件不能残留，否则 SDK 仍会发现它。
+  await rm(agentsDir, { recursive: true, force: true });
+  await mkdir(agentsDir, { recursive: true });
   await writeFile(join(dir, '.mcp.json'), files.mcpJson, 'utf8');
   await writeFile(join(dir, 'CLAUDE.md'), files.claudeMd, 'utf8');
-  await writeFile(join(dir, '.claude', 'agents', `${agent.slug}.md`), files.agentMd, 'utf8');
+  await writeFile(join(agentsDir, `${agent.slug}.md`), files.agentMd, 'utf8');
+  for (const subAgent of files.subAgents) {
+    await writeFile(join(agentsDir, `${subAgent.slug}.md`), subAgent.content, 'utf8');
+  }
 
   // 技能每次重建：先清掉旧目录，避免已解绑的技能残留。
   const skillsDir = join(dir, '.claude', 'skills');
@@ -262,6 +281,13 @@ const worker = new Worker(
         .innerJoin(schema.skills, eq(schema.agentSkills.skillId, schema.skills.id))
         .where(eq(schema.agentSkills.agentId, agentId));
 
+      // 单层委派：只取直接子智能体，且忽略已停用的。
+      const subAgentRows = await db
+        .select()
+        .from(schema.agents)
+        .where(and(eq(schema.agents.parentId, agentId), eq(schema.agents.enabled, true)))
+        .orderBy(asc(schema.agents.id));
+
       const workspaceDir = await writeWorkspace(
         agent,
         rows.map(({ server }) => ({
@@ -269,6 +295,7 @@ const worker = new Worker(
           entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY),
         })),
         skillRows,
+        subAgentRows,
       );
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');
 
@@ -290,6 +317,7 @@ const worker = new Worker(
           ...(agent.maxThinkingTokens === null
             ? {}
             : { maxThinkingTokens: agent.maxThinkingTokens }),
+          ...(subAgentRows.length > 0 ? { allowSubAgents: true } : {}),
         },
         workspaceDir,
         image: config.SANDBOX_IMAGE,
@@ -353,7 +381,10 @@ const worker = new Worker(
       })
       .onConflictDoNothing();
 
-    logger.info({ runId, status: outcome.status, costUsd: outcome.costUsd }, 'agent run finished');
+    logger.info(
+      { runId, status: outcome.status, costUsd: outcome.costUsd, latencyMs: runLatencyMs },
+      'agent run finished',
+    );
 
     // 瞬时基础设施故障交给 BullMQ 重试；业务失败直接结束，避免重复计费。
     if (isRetryable(outcome)) {
@@ -365,6 +396,17 @@ const worker = new Worker(
 
 worker.on('failed', (job, err) => {
   logger.error({ jobId: job?.id, err }, 'job failed');
+});
+
+const maintenanceWorker = await startMaintenanceWorker({
+  db,
+  logger,
+  redisUrl: config.REDIS_URL,
+  retain: {
+    runDays: config.RETAIN_RUN_DAYS,
+    messageDays: config.RETAIN_MESSAGE_DAYS,
+    agentVersions: config.RETAIN_AGENT_VERSIONS,
+  },
 });
 
 logger.info('worker started');
@@ -389,6 +431,7 @@ const shutdown = async (): Promise<void> => {
 
   const closing = worker.close();
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
+  await maintenanceWorker.close();
   await provider.destroyAll();
   await Promise.race([closing.catch(() => undefined), sleep(POOL_WAIT_MS)]);
 

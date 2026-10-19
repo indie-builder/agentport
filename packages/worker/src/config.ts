@@ -17,6 +17,10 @@ const envSchema = z.object({
   SANDBOX_CPUS: z.coerce.number().positive().default(1),
   SANDBOX_PIDS: z.coerce.number().int().positive().default(128),
   AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
+  /** 维护任务的保留天数；0 不合法，要保留更久就调大。 */
+  RETAIN_RUN_DAYS: z.coerce.number().int().positive().default(90),
+  RETAIN_MESSAGE_DAYS: z.coerce.number().int().positive().default(30),
+  RETAIN_AGENT_VERSIONS: z.coerce.number().int().positive().default(50),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
   SANDBOX_API_URL: z.string().min(1).default('http://host.docker.internal:3000'),
   /** 与 API 相同的密钥派生源：用来解密 server 的 env/headers 并注入工作区。 */

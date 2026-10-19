@@ -1,12 +1,15 @@
 import { createDb } from '@agentport/db';
-import Fastify from 'fastify';
+import Fastify, { LogController } from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { Config } from './config.js';
+import { registerMetrics } from './plugins/metrics.js';
 import { registerSecurityPlugins } from './plugins/security.js';
 import { registerRoutes } from './routes/index.js';
 
 export async function buildApp(config: Config) {
   const app = Fastify({
+    // 请求日志由 plugins/metrics.ts 统一输出：按路由模板而非原始 URL。
+    logController: new LogController({ disableRequestLogging: true }),
     logger: {
       level: config.LOG_LEVEL,
       redact: {
@@ -38,6 +41,7 @@ export async function buildApp(config: Config) {
     await pool.end();
   });
 
+  registerMetrics(app);
   await registerSecurityPlugins(app);
   registerRoutes(app);
 

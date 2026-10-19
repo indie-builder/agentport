@@ -26,4 +26,15 @@ describe.skipIf(!ready)('health', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ status: 'ok', db: 'ok' });
   });
+
+  it('GET /health/metrics returns process, queue, db and redis metrics', async () => {
+    const res = await inject(app, { method: 'GET', url: '/health/metrics' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      process: { uptimeSeconds: expect.any(Number), memoryRssBytes: expect.any(Number) },
+      queue: { waiting: expect.any(Number), active: expect.any(Number) },
+      db: { total: expect.any(Number), idle: expect.any(Number), waiting: expect.any(Number) },
+      redis: { pingMs: expect.any(Number) },
+    });
+  });
 });

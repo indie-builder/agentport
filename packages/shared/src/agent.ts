@@ -33,6 +33,8 @@ export const agentInputSchema = z.object({
   systemPrompt: z.string().default(''),
   serverIds: z.array(z.string()).default([]),
   skillIds: z.array(z.string()).default([]),
+  /** 可委派的子智能体（最多一层，子智能体不能再委派）。 */
+  subAgentIds: z.array(z.string()).default([]),
   /** 允许的 MCP 工具模式；留空表示「所有已绑定 server 的全部工具」。 */
   allowedTools: z.array(z.string()).default([]),
   /** 额外禁用的工具；内置工具默认全部禁用，这里是补充项。 */
@@ -52,6 +54,8 @@ export type AgentInput = z.infer<typeof agentInputSchema>;
 export const agentSchema = agentInputSchema.and(
   z.object({
     id: z.string(),
+    /** 单层委派：非空表示自己是某个主智能体的子智能体。 */
+    parentId: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   }),
@@ -89,6 +93,7 @@ export const workspaceFilesSchema = z.object({
   claudeMd: z.string(),
   agentMd: z.string(),
   skills: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  subAgents: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
 });
 
 export type WorkspaceFiles = z.infer<typeof workspaceFilesSchema>;

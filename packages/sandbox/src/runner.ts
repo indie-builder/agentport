@@ -46,6 +46,8 @@ interface RunnerTask {
   effort?: string;
   /** 思考预算 token 上限 */
   maxThinkingTokens?: number;
+  /** 有子智能体时放行 Agent/TaskStop；子智能体定义由 .claude/agents/*.md 自动发现。 */
+  allowSubAgents?: boolean;
 }
 
 function log(message: string): void {
@@ -128,9 +130,31 @@ const task = await readTask();
 const allowedTools = [
   ...(task.mcpServers ?? []).map((name) => `mcp__${name}__*`),
   ...(task.extraAllowedTools ?? []),
+  // dontAsk 下未预批准的工具会被拒绝；委派时需显式放行 Agent。
+  ...(task.allowSubAgents ? ['Agent'] : []),
 ];
 const abortController = new AbortController();
 process.once('SIGTERM', () => abortController.abort());
+
+// 单层委派：仅当工作区里有子智能体时放行；子智能体文件自身仍禁用 Agent。
+const agentTools = new Set(['Agent', 'TaskStop']);
+const baseDisallowed = [
+  'Bash',
+  'Read',
+  'Write',
+  'Edit',
+  'Glob',
+  'Grep',
+  'NotebookEdit',
+  'WebFetch',
+  'WebSearch',
+  'Agent',
+  'TaskStop',
+  ...(task.extraDisallowedTools ?? []),
+];
+const disallowedTools = task.allowSubAgents
+  ? baseDisallowed.filter((tool) => !agentTools.has(tool))
+  : baseDisallowed;
 
 log(`starting query (model=${task.model ?? 'default'})`);
 
@@ -141,22 +165,7 @@ for await (const message of query({
     settingSources: ['project'],
     permissionMode: 'dontAsk',
     allowedTools,
-    disallowedTools: [
-      ...new Set([
-        'Bash',
-        'Read',
-        'Write',
-        'Edit',
-        'Glob',
-        'Grep',
-        'NotebookEdit',
-        'WebFetch',
-        'WebSearch',
-        'Agent',
-        'TaskStop',
-        ...(task.extraDisallowedTools ?? []),
-      ]),
-    ],
+    disallowedTools: [...new Set(disallowedTools)],
     includePartialMessages: true,
     maxTurns: task.maxTurns ?? 20,
     maxBudgetUsd: task.maxBudgetUsd ?? 2,

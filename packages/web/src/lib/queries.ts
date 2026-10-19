@@ -29,6 +29,7 @@ import {
   type EvalCaseInput,
   type EvalRun,
   type EvalRunDetail,
+  type HealthMetrics,
   type Me,
   type Overview,
   type RunDetail,
@@ -84,6 +85,13 @@ export function useAgents() {
 export function useOverview() {
   return useQuery(overviewQuery);
 }
+
+export const healthMetricsQuery = queryOptions<HealthMetrics | null>({
+  queryKey: ['health-metrics'],
+  queryFn: api.healthMetrics,
+  refetchInterval: 30_000,
+  staleTime: 0,
+});
 
 export function useTools(serverId: string | null) {
   return useQuery({

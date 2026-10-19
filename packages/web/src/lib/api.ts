@@ -208,6 +208,19 @@ export interface EvalRunDetail {
   results: EvalResult[];
 }
 
+export interface HealthMetrics {
+  process: { uptimeSeconds: number; memoryRssBytes: number; nodeVersion: string };
+  queue: {
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+    delayed: number;
+  } | null;
+  db: { total: number; idle: number; waiting: number };
+  redis: { pingMs: number } | null;
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -257,6 +270,15 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
 
 export const api = {
   me: (): Promise<Me> => request<Me>('/auth/me'),
+  /** 指标端点不在 /api 下；不可用时返回 null，页面显示「不可用」。 */
+  healthMetrics: async (): Promise<HealthMetrics | null> => {
+    try {
+      const res = await fetch('/health/metrics', { credentials: 'include' });
+      return res.ok ? ((await res.json()) as HealthMetrics) : null;
+    } catch {
+      return null;
+    }
+  },
   login: (username: string, password: string): Promise<{ ok: boolean }> =>
     request('/auth/login', 'POST', { username, password }),
   logout: (): Promise<{ ok: boolean }> => request('/auth/logout', 'POST'),

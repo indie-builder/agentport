@@ -61,9 +61,10 @@ export async function renderAgentWorkspace(
   const agent = await agentRepo.getAgent(app.db, agentId);
   if (!agent) return null;
 
-  const [rows, skills] = await Promise.all([
+  const [rows, skills, subAgentRows] = await Promise.all([
     agentRepo.getBoundServers(app.db, agent.id),
     agentRepo.getBoundSkills(app.db, agent.id),
+    agentRepo.listSubAgents(app.db, agent.id),
   ]);
   const servers = rows.map((row) => {
     const secrets = row.secretsEncrypted
@@ -87,6 +88,18 @@ export async function renderAgentWorkspace(
     },
     servers,
     skills,
+    subAgents: subAgentRows.map((child) => ({
+      slug: child.slug,
+      name: child.name,
+      description: child.description,
+      model: child.model,
+      systemPrompt: child.systemPromptMd,
+      maxTurns: child.maxTurns,
+      permissionMode: child.permissionMode,
+      effort: child.effort,
+      allowedTools: child.allowedTools,
+      disallowedTools: child.disallowedTools,
+    })),
     ...(agent.allowedTools.length > 0 ? { toolsAllow: agent.allowedTools } : {}),
     ...(agent.disallowedTools.length > 0 ? { toolsDeny: agent.disallowedTools } : {}),
   });

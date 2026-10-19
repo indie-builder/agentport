@@ -1,6 +1,7 @@
 import type { Agent } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   boolean,
   index,
   integer,
@@ -68,10 +69,14 @@ export const agents = pgTable(
     maxTurns: integer('max_turns').notNull().default(20),
     maxBudgetUsd: numeric('max_budget_usd', { precision: 10, scale: 4 }).notNull().default('2'),
     timeoutMs: integer('timeout_ms').notNull().default(600_000),
+    /** 单层委派：非空表示自己是某个主智能体的子智能体。 */
+    parentId: text('parent_id').references((): AnyPgColumn => agents.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('agents_slug_idx').on(t.slug)],
+  (t) => [uniqueIndex('agents_slug_idx').on(t.slug), index('agents_parent_idx').on(t.parentId)],
 );
 
 export const skills = pgTable(

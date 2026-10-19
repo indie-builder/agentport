@@ -58,11 +58,12 @@ export function registerExportRoutes(app: FastifyInstance): void {
     const row = await agentRepo.getAgent(app.db, params.data.id);
     if (!row) return reply.status(404).send({ code: 'NOT_FOUND', message: 'agent not found' });
 
-    const [serverRows, skillRows, serverIds, skillIds] = await Promise.all([
+    const [serverRows, skillRows, serverIds, skillIds, subAgentIds] = await Promise.all([
       agentRepo.getBoundServers(app.db, row.id),
       agentRepo.getBoundSkills(app.db, row.id),
       agentRepo.getAgentServerIds(app.db, row.id),
       agentRepo.getAgentSkillIds(app.db, row.id),
+      agentRepo.getAgentSubAgentIds(app.db, row.id),
     ]);
 
     const {
@@ -70,7 +71,7 @@ export function registerExportRoutes(app: FastifyInstance): void {
       createdAt: _createdAt,
       updatedAt: _updatedAt,
       ...agent
-    } = agentRepo.toAgent(row, serverIds, skillIds);
+    } = agentRepo.toAgent(row, serverIds, skillIds, subAgentIds);
     const skills = skillRows.map(toWorkspaceSkill);
 
     const payload = {
