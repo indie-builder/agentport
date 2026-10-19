@@ -8,6 +8,8 @@
   },
   "scripts": {
     "dev": "pnpm --parallel --filter './packages/*' dev",
+    "up": "bash scripts/up.sh",
+    "down": "bash scripts/down.sh",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",

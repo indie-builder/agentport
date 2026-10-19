@@ -9,6 +9,7 @@ import {
   ChevronDown,
   CircleAlert,
   CircleCheck,
+  KeyRound,
   Pencil,
   Plug,
   Plus,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
@@ -47,7 +49,9 @@ import {
   useCreateTool,
   useDeleteServer,
   useDeleteTool,
+  useRotateServerToken,
   useServers,
+  useServerToken,
   useSetToolEnabled,
   useTestServer,
   useTools,
@@ -101,6 +105,7 @@ export function ServersPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Server | null>(null);
   const [deleting, setDeleting] = useState<Server | null>(null);
+  const [connection, setConnection] = useState<Server | null>(null);
   const [tested, setTested] = useState<Record<string, ServerTestResult>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const remove = useDeleteServer();
@@ -253,6 +258,7 @@ export function ServersPage() {
                   toolsOpen={expanded === server.id}
                   onToggleTools={() => setExpanded(expanded === server.id ? null : server.id)}
                   onTest={() => runTest(server)}
+                  onConnection={() => setConnection(server)}
                   onEdit={() => openEdit(server)}
                   onDelete={() => setDeleting(server)}
                 />
@@ -283,6 +289,10 @@ export function ServersPage() {
         />
       ) : null}
 
+      {connection ? (
+        <ConnectionDialog server={connection} onClose={() => setConnection(null)} />
+      ) : null}
+
       <ConfirmDialog
         open={deleting !== null}
         onClose={() => setDeleting(null)}
@@ -310,6 +320,7 @@ function ServerCard({
   toolsOpen,
   onToggleTools,
   onTest,
+  onConnection,
   onEdit,
   onDelete,
 }: {
@@ -319,6 +330,7 @@ function ServerCard({
   toolsOpen: boolean;
   onToggleTools: () => void;
   onTest: () => void;
+  onConnection: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -366,6 +378,11 @@ function ServerCard({
             )}
             {testing ? '测试中' : '测试'}
           </Button>
+          {generated ? (
+            <Button variant="outline" size="sm" onClick={onConnection}>
+              <KeyRound className="size-3.5" /> 连接信息
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -406,6 +423,59 @@ function ServerCard({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => void }) {
+  const token = useServerToken(server.id);
+  const rotate = useRotateServerToken(server.id);
+  // 轮换后只在这里保留明文；关闭对话框即丢弃。
+  const [revealed, setRevealed] = useState<{ token: string; endpoint: string } | null>(null);
+  const data = revealed ?? token.data;
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`连接「${server.name}」`}
+      description="外部 Host 用这个端点与 Bearer token 访问；token 只在这里轮换时才显示明文。"
+    >
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <span className="text-xs font-medium text-muted">Endpoint</span>
+          <CodeBlock code={data?.endpoint ?? '加载中…'} copyLabel="复制 Endpoint" />
+        </div>
+        <div className="space-y-1">
+          <span className="text-xs font-medium text-muted">Token</span>
+          {data ? (
+            <CodeBlock code={data.token} copyLabel="复制 Token" />
+          ) : (
+            <p className="text-xs text-subtle">{token.isError ? '读取失败' : '加载中…'}</p>
+          )}
+          {revealed ? (
+            <p role="status" className="text-[11px] leading-relaxed text-warning">
+              只显示这一次，请立即保存；旧 token 已失效。
+            </p>
+          ) : null}
+        </div>
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={rotate.isPending}
+            aria-busy={rotate.isPending}
+            onClick={() =>
+              rotate.mutate(undefined, {
+                onSuccess: (result) => setRevealed(result),
+                onError: (error) => toastError(error),
+              })
+            }
+          >
+            <KeyRound className="size-3.5" /> {rotate.isPending ? '轮换中' : '轮换'}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 

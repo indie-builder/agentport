@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { McpJsonEntry } from '@agentport/core';
-import { decryptSecrets, renderWorkspace } from '@agentport/core';
+import { decryptSecrets, renderWorkspace, toWorkspaceInput } from '@agentport/core';
 import { createDb, newId, schema } from '@agentport/db';
 import { agentRunJobSchema, type ChatEvent } from '@agentport/shared';
 import { Worker } from 'bullmq';
@@ -131,33 +131,8 @@ async function writeWorkspace(
   servers: Array<{ name: string; entry: McpJsonEntry }>,
   skills: Array<{ slug: string; name: string; description: string; body: string }>,
   subAgents: AgentRow[],
-): Promise<string> {
-  const files = renderWorkspace({
-    agent: {
-      slug: agent.slug,
-      name: agent.name,
-      description: agent.description,
-      model: agent.model,
-      systemPrompt: agent.systemPromptMd,
-      maxTurns: agent.maxTurns,
-      ...(agent.effort === null ? {} : { effort: agent.effort }),
-      allowedTools: agent.allowedTools,
-      disallowedTools: agent.disallowedTools,
-    },
-    servers,
-    skills,
-    subAgents: subAgents.map((child) => ({
-      slug: child.slug,
-      name: child.name,
-      description: child.description,
-      model: child.model,
-      systemPrompt: child.systemPromptMd,
-      maxTurns: child.maxTurns,
-      ...(child.effort === null ? {} : { effort: child.effort }),
-      allowedTools: child.allowedTools,
-      disallowedTools: child.disallowedTools,
-    })),
-  });
+): Promise<{ dir: string; hasSubAgents: boolean }> {
+  const files = renderWorkspace(toWorkspaceInput({ agent, servers, skills, subAgents }));
 
   // 按 run 隔离：同一智能体并发运行时不能互相覆盖 .mcp.json / 技能 / 子智能体。
   const dir = join(workspacesDir, agent.slug, runId);
@@ -180,7 +155,7 @@ async function writeWorkspace(
     await mkdir(target, { recursive: true });
     await writeFile(join(target, 'SKILL.md'), skill.content, 'utf8');
   }
-  return dir;
+  return { dir, hasSubAgents: files.subAgents.length > 0 };
 }
 
 /** 事件流 → 消息行：assistant 文本按块存，工具调用存成 tool 消息。 */
@@ -341,14 +316,14 @@ const worker = new Worker(
         .innerJoin(schema.skills, eq(schema.agentSkills.skillId, schema.skills.id))
         .where(eq(schema.agentSkills.agentId, agentId));
 
-      // 单层委派：只取直接子智能体，且忽略已停用的。
+      // 单层委派：只取直接子智能体；enabled 过滤在 toWorkspaceInput 里统一做。
       const subAgentRows = await db
         .select()
         .from(schema.agents)
-        .where(and(eq(schema.agents.parentId, agentId), eq(schema.agents.enabled, true)))
+        .where(eq(schema.agents.parentId, agentId))
         .orderBy(asc(schema.agents.id));
 
-      const workspaceDir = await writeWorkspace(
+      const { dir: workspaceDir, hasSubAgents } = await writeWorkspace(
         agent,
         runId,
         rows.map(({ server }) => ({
@@ -381,7 +356,7 @@ const worker = new Worker(
           ...(agent.maxThinkingTokens === null
             ? {}
             : { maxThinkingTokens: agent.maxThinkingTokens }),
-          ...(subAgentRows.length > 0 ? { allowSubAgents: true } : {}),
+          ...(hasSubAgents ? { allowSubAgents: true } : {}),
         },
         workspaceDir: toHostWorkspacePath(workspaceDir),
         image: config.SANDBOX_IMAGE,

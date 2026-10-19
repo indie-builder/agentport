@@ -346,6 +346,11 @@ export const api = {
     }),
   deleteServer: (id: string): Promise<void> => request(`/servers/${id}`, 'DELETE'),
   testServer: (id: string): Promise<ServerTestResult> => request(`/servers/${id}/test`, 'POST'),
+  /** 只有 rotate 返回明文；其余接口一律掩码。 */
+  serverToken: (id: string): Promise<{ token: string; endpoint: string }> =>
+    request(`/servers/${id}/token`),
+  rotateServerToken: (id: string): Promise<{ token: string; endpoint: string }> =>
+    request(`/servers/${id}/rotate-token`, 'POST'),
   tools: (serverId: string): Promise<ApiTool[]> => request(`/servers/${serverId}/tools`),
   createTool: (serverId: string, input: ApiToolInput): Promise<ApiTool> =>
     request(`/servers/${serverId}/tools`, 'POST', input),

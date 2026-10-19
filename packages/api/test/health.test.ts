@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { infraReady, inject, startApp } from './helpers.js';
+import { buildApp } from '../src/app.js';
+import { infraReady, inject, startApp, testConfig } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -19,6 +20,20 @@ describe.skipIf(!ready)('health', () => {
     const res = await inject(app, { method: 'GET', url: '/health/live' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: 'ok' });
+  });
+
+  // 放在其他 ready 测试之前：metrics 的 Redis 客户端是模块级单例，只在 app 关闭时清空。
+  it('GET /health/ready returns 503 when Redis is unreachable', async () => {
+    // 端口 1 上不会有 Redis；探测有 1.5s 超时，比默认 testTimeout 短。
+    const broken = await buildApp({ ...testConfig(), REDIS_URL: 'redis://127.0.0.1:1' });
+    await broken.ready();
+    try {
+      const res = await inject(broken, { method: 'GET', url: '/health/ready' });
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toMatchObject({ status: 'degraded', db: 'ok', redis: 'error' });
+    } finally {
+      await broken.close();
+    }
   });
 
   it('GET /health/ready pings the database', async () => {

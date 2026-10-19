@@ -59,7 +59,27 @@ async function probeInfra(config: Config): Promise<boolean> {
   }
 }
 
+/**
+ * 队列里有活跃消费者会让集成测试的 run 被真实 worker 跑掉，导致状态断言失败。
+ * 这里检测 agent-runs 是否有 active/waiting 的 worker，有则提示。
+ */
+async function probeQueueIdle(redisUrl: string): Promise<boolean> {
+  const redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
+  try {
+    await redis.connect();
+    const clients = await redis.client('LIST');
+    // BullMQ worker 会以阻塞连接消费队列；存在阻塞客户端即视为有消费者。
+    return !/cmd=(blpop|brpop)/i.test(clients);
+  } catch {
+    return true;
+  } finally {
+    await redis.quit().catch(() => undefined);
+  }
+}
+
 export const infraReady: Promise<boolean> = probeInfra(testConfig());
+
+export const queueIdle: Promise<boolean> = probeQueueIdle(testConfig().REDIS_URL);
 
 export async function startApp(): Promise<FastifyInstance> {
   const app = await buildApp(testConfig());

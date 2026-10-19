@@ -273,6 +273,25 @@ export function useTestServer() {
   return useMutation({ mutationFn: (id: string): Promise<ServerTestResult> => api.testServer(id) });
 }
 
+export function useServerToken(serverId: string) {
+  return useQuery({
+    queryKey: ['server-token', serverId],
+    queryFn: () => api.serverToken(serverId),
+    staleTime: 0,
+  });
+}
+
+export function useRotateServerToken(serverId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.rotateServerToken(serverId),
+    onSuccess: (data) => {
+      client.setQueryData(['server-token', serverId], data);
+      void client.invalidateQueries({ queryKey: ['servers'] });
+    },
+  });
+}
+
 export function useCreateTool(serverId: string) {
   const invalidate = useInvalidate();
   return useMutation({

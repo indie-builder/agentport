@@ -88,6 +88,54 @@ describe.skipIf(!ready)('servers', () => {
     expect(JSON.stringify(body)).not.toContain('mcpToken');
   });
 
+  it('masks the generated token and rotates it once, invalidating the old one', async () => {
+    const name = unique('token');
+    created.push(name);
+    const server = (
+      await post(name, { kind: 'generated', baseUrl: 'https://jsonplaceholder.typicode.com' })
+    ).json<Server>();
+
+    const shown = await inject(app, {
+      method: 'GET',
+      url: `/api/servers/${server.id}/token`,
+      headers: auth(),
+    });
+    expect(shown.statusCode).toBe(200);
+    expect(shown.json()).toEqual({
+      token: expect.stringMatching(/^.{4}••••$/),
+      endpoint: expect.stringContaining(`/mcp/${server.id}`),
+    });
+
+    // 轮换接口是唯一返回明文的地方；再轮换一次，前一个 token 应失效。
+    const rotate = () =>
+      inject(app, {
+        method: 'POST',
+        url: `/api/servers/${server.id}/rotate-token`,
+        headers: auth(),
+      });
+    const first = await rotate();
+    expect(first.statusCode).toBe(200);
+    const oldToken = first.json<{ token: string }>().token;
+    const second = await rotate();
+    expect(second.statusCode).toBe(200);
+    const newToken = second.json<{ token: string }>().token;
+    expect(newToken).not.toBe(oldToken);
+
+    const list = await inject(app, { method: 'GET', url: '/api/servers', headers: auth() });
+    expect(list.body).not.toContain(newToken);
+
+    // 旧 token 失效，新 token 通过鉴权。
+    const probe = (token: string) =>
+      inject(app, {
+        method: 'POST',
+        url: `/mcp/${server.id}`,
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+        payload: {},
+      });
+    expect((await probe(oldToken)).statusCode).toBe(401);
+    expect((await probe(newToken)).statusCode).not.toBe(401);
+  });
+
   it('rejects invalid input with 400', async () => {
     const cases = [
       { kind: 'stdio', name: unique('bad'), command: '', args: [], env: {} },

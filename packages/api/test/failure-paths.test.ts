@@ -10,14 +10,16 @@ import {
   infraReady,
   inject,
   loginCookie,
+  queueIdle,
   startApp,
   testConfig,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
+const idle = await queueIdle;
 
-describe.skipIf(!ready)('failure paths', () => {
+describe.skipIf(!(ready && idle))('failure paths', () => {
   let app: FastifyInstance;
   let cookie: string;
   let baseUrl: string;
@@ -186,7 +188,12 @@ describe.skipIf(!ready)('failure paths', () => {
     await delay(300);
 
     await publishRun(runId, { type: 'text_delta', text: 'still-here' });
-    expect(await second.next()).toContain('still-here');
+    // SSE 可能分多个 chunk 到达；读到目标文本或超时为止。
+    let received = '';
+    for (let i = 0; i < 6 && !received.includes('still-here'); i += 1) {
+      received += await second.next();
+    }
+    expect(received).toContain('still-here');
     await second.abort();
   });
 

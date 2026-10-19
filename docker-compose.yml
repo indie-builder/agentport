@@ -1,6 +1,6 @@
 name: agentport
 
-# 本地全栈：postgres + redis + api + worker。
+# 本地全栈：postgres + redis + migrate（一次性）+ api + worker。
 # web 生产由 api 静态托管（WEB_DIST），所以没有独立 web 服务；
 # 前端开发仍用 packages/web 的 Vite dev server（pnpm dev）。
 
@@ -39,6 +39,19 @@ services:
       timeout: 3s
       retries: 10
 
+  migrate:
+    build: .
+    image: agentport/api:dev
+    # 一次性迁移：使用镜像内已 deploy 的 db 包（含 dist、migrations、scripts）。
+    command: ['node', 'api/node_modules/@agentport/db/scripts/migrate.js']
+    restart: 'no'
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://agentport:agentport@postgres:5432/agentport
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build: .
     image: agentport/api:dev
@@ -58,6 +71,8 @@ services:
     ports:
       - '3000:3000'
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -98,6 +113,8 @@ services:
     group_add:
       - '${DOCKER_GID:-0}'
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

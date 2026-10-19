@@ -170,8 +170,9 @@ export async function subscribeRun(
     }
   };
 
-  // 后台唤醒失败只记日志；否则一次 Redis 抖动会变成未处理的 rejection。
-  const handler = (): void => {
+  // 共享 subscriber：必须按频道过滤，否则 N 个观众会各自触发 N 次 XRANGE。
+  const handler = (incoming: string): void => {
+    if (incoming !== wakeChannel) return;
     void drain().catch((err: unknown) => {
       logRedisError(err instanceof Error ? err : new Error(String(err)));
     });

@@ -1,9 +1,18 @@
 import type { Agent } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cleanup, infraReady, inject, loginCookie, startApp, unique } from './helpers.js';
+import {
+  cleanup,
+  infraReady,
+  inject,
+  loginCookie,
+  queueIdle,
+  startApp,
+  unique,
+} from './helpers.js';
 
-const ready = await infraReady;
+// 队列有活跃 worker 时会消费测试创建的 run，导致状态断言失败。
+const ready = (await infraReady) && (await queueIdle);
 
 describe.skipIf(!ready)('chat', () => {
   let app: FastifyInstance;

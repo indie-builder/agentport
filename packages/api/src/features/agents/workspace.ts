@@ -1,5 +1,5 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
-import { renderWorkspace } from '@agentport/core';
+import { renderWorkspace, toWorkspaceInput } from '@agentport/core';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import type { FastifyInstance } from 'fastify';
 import { decryptSecrets } from '../servers/secrets.js';
@@ -81,34 +81,12 @@ export async function renderAgentWorkspace(
     return { name: row.name, entry: toEntry(row, secretKeys) };
   });
 
-  return renderWorkspace({
-    agent: {
-      slug: agent.slug,
-      name: agent.name,
-      description: agent.description,
-      model: agent.model,
-      systemPrompt: agent.systemPromptMd,
-      maxTurns: agent.maxTurns,
-      permissionMode: agent.permissionMode,
-      effort: agent.effort,
-      allowedTools: agent.allowedTools,
-      disallowedTools: agent.disallowedTools,
-    },
-    servers,
-    skills,
-    subAgents: subAgentRows.map((child) => ({
-      slug: child.slug,
-      name: child.name,
-      description: child.description,
-      model: child.model,
-      systemPrompt: child.systemPromptMd,
-      maxTurns: child.maxTurns,
-      permissionMode: child.permissionMode,
-      effort: child.effort,
-      allowedTools: child.allowedTools,
-      disallowedTools: child.disallowedTools,
-    })),
-    ...(agent.allowedTools.length > 0 ? { toolsAllow: agent.allowedTools } : {}),
-    ...(agent.disallowedTools.length > 0 ? { toolsDeny: agent.disallowedTools } : {}),
-  });
+  return renderWorkspace(
+    toWorkspaceInput({
+      agent,
+      servers,
+      skills,
+      subAgents: subAgentRows,
+    }),
+  );
 }

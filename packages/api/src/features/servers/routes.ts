@@ -97,6 +97,42 @@ export function registerServerRoutes(app: FastifyInstance): void {
     return server ?? notFound(reply, 'server');
   });
 
+  /** 只返回掩码与端点；明文只由 rotate 返回一次。 */
+  app.get('/api/servers/:id/token', auth, async (request, reply) => {
+    const parsed = idParams.safeParse(request.params);
+    if (!parsed.success) return invalid(reply, 'invalid id');
+    const row = await repo.getServerRow(app.db, parsed.data.id);
+    if (!row) return notFound(reply, 'server');
+    if (row.kind !== 'generated') {
+      return invalid(reply, 'token is only available for generated servers');
+    }
+    const token = await getMcpToken(app.db, row.id);
+    return {
+      token: token ? `${token.slice(0, 4)}••••` : '',
+      endpoint: `${app.config.SELF_URL}/mcp/${row.id}`,
+    };
+  });
+
+  app.post('/api/servers/:id/rotate-token', auth, async (request, reply) => {
+    const parsed = idParams.safeParse(request.params);
+    if (!parsed.success) return invalid(reply, 'invalid id');
+    const row = await repo.getServerRow(app.db, parsed.data.id);
+    if (!row) return notFound(reply, 'server');
+    if (row.kind !== 'generated') {
+      return invalid(reply, 'token is only available for generated servers');
+    }
+    const token = await repo.rotateMcpToken(app.db, row.id);
+    if (!token) return notFound(reply, 'server');
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'server.token.rotated',
+      target: row.id,
+      status: 'ok',
+      requestId: request.id,
+    });
+    return { token, endpoint: `${app.config.SELF_URL}/mcp/${row.id}` };
+  });
+
   app.patch('/api/servers/:id', auth, async (request, reply) => {
     const params = idParams.safeParse(request.params);
     if (!params.success) return invalid(reply, 'invalid id');

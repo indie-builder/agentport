@@ -4,3 +4,5 @@
 **/*.log
 **/node_modules
 **/dist
+# tsc -b 的增量状态指向宿主路径；复制进镜像会让构建跳过实际编译。
+**/*.tsbuildinfo

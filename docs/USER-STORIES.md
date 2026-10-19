@@ -164,7 +164,7 @@
 ### US-4.5 部署
 **作为** 运维，**我想** 用一条命令在本机或服务器跑起来。
 
-验收：`docker compose up -d --build` 后 api/worker/web 可用；迁移是明确的手动步骤（`pnpm db:migrate`），启动时不自动执行。
+验收：`pnpm run up` 一条命令完成依赖启动、沙盒镜像构建、迁移、api/worker 启动与冒烟，结束后 api/worker/web 可用；迁移由 compose 的 `migrate` 服务在 api 启动前自动执行（直接操作宿主机时仍可手动 `pnpm db:migrate`）。
 
 ---
 

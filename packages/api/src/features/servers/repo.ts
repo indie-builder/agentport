@@ -266,3 +266,14 @@ export async function getMcpToken(db: Db, id: string): Promise<string | null> {
   const token = row?.config.mcpToken;
   return typeof token === 'string' ? token : null;
 }
+
+/** 重新生成 mcpToken 并返回明文（仅此一次）；旧 token 立即失效。 */
+export async function rotateMcpToken(db: Db, id: string): Promise<string | null> {
+  const row = await serverRepo.getServer(db, id);
+  if (row?.kind !== 'generated') return null;
+  const token = randomToken();
+  const updated = await serverRepo.updateServer(db, id, {
+    config: { ...row.config, mcpToken: token },
+  });
+  return updated ? token : null;
+}

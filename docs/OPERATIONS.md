@@ -85,13 +85,19 @@
 
 ```bash
 pnpm install
-pnpm build                          # 迁移脚本引用 packages/db/dist
-cp .env.example .env                # 填必填项；compose 要求 .env 存在
-docker compose up -d postgres redis # 等两个容器 healthy
-pnpm db:migrate                     # 迁移是单独步骤，不会自动执行
-pnpm --filter @agentport/sandbox image
-docker compose up -d --build        # 构建并启动 api 与 worker
+pnpm run up
 ```
+
+`pnpm run up`（`scripts/up.sh`）依次执行：
+
+1. `.env` 不存在时从 `.env.example` 复制，随机生成 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN`、`ADMIN_PASSWORD`（同时改写 `REDIS_URL`），并打印管理员密码；运行智能体仍需自行填写模型凭证。
+2. `docker compose up -d --build postgres redis`，轮询 `docker compose ps` 直到两者 healthy。
+3. 构建沙盒镜像 `agentport/sandbox:dev`（已存在则跳过；`pnpm run up --rebuild` 强制重建）。构建前先执行 `pnpm --filter @agentport/sandbox build` 生成 `dist/`。
+4. `docker compose up -d --build api worker`。compose 会先运行一次性服务 `migrate`（`node api/node_modules/@agentport/db/scripts/migrate.js`，`restart: no`），成功后 api 才启动（`depends_on: service_completed_successfully`）。
+5. 轮询 `/health/ready`，最多 90 秒。
+6. 执行 `bash scripts/smoke.sh`。
+
+任一步失败会打印相关容器状态或日志，并以非零退出。停止服务用 `pnpm run down`（`docker compose down`，保留卷）；`pnpm run down --clean` 使用 `down -v` 删除数据卷。
 
 检查：
 
@@ -105,13 +111,12 @@ curl -s http://localhost:3000/health/ready
 
 说明：
 
-- `docker compose up -d --build` 会在镜像内执行 `pnpm -r build`，不依赖宿主 `dist`；但 `pnpm db:migrate` 在宿主机执行，需要 `packages/db/dist`。
-- **迁移不会自动执行**，升级后必须手动运行 `pnpm db:migrate`。
-- `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。
-- 沙盒镜像不由 compose 构建。`packages/sandbox/image` 脚本会 `docker build`，其 Dockerfile 复制 `dist/`，所以先 `pnpm --filter @agentport/sandbox build`。
+- compose 的 `api`/`worker` 镜像内执行 `pnpm -r build`，不依赖宿主 `dist`；沙盒镜像例外，其 Dockerfile 复制 `packages/sandbox/dist`，由 `pnpm run up` 先构建。
+- 迁移由 compose 的 `migrate` 服务自动执行；直接在宿主机操作时仍可用 `pnpm db:migrate`（需要 `packages/db/dist`，先 `pnpm build`）。
+- `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。`pnpm run up` 生成 `.env` 时会同时写入匹配的 `REDIS_PASSWORD` 与 `REDIS_URL`。
 - compose 会占用 3000、5432、6379；如冲突，先停掉本机对应服务或改端口。
 - worker 容器内是 `node` 用户，通过 `group_add: ${DOCKER_GID:-0}` 访问 socket。Linux 上若 docker 组 GID 不是 0，部署前 `export DOCKER_GID=$(getent group docker | cut -d: -f3)`。
-- Redis 健康检查（compose 里的 `healthcheck.test`）直接使用宿主 shell 的 `REDIS_PASSWORD`：未在宿主环境导出该变量时，容器内实际密码是 `agentport-dev`，而健康检查传入空串，会一直 `starting` 并阻塞 api/worker 启动（已实测复现）。部署前 `export REDIS_PASSWORD=agentport-dev`（或改用 `docker compose exec` 检查）。
+- Redis 健康检查（compose 里的 `healthcheck.test`）在容器内使用 redis 服务自身的 `REDIS_PASSWORD`；若宿主另行导出 `REDIS_PASSWORD`，compose 会用它重建 redis，与 `.env` 的 `REDIS_URL` 不一致时 api/worker 连不上。`pnpm run up` 不读取宿主导出的该变量，直接使用 `.env`。
 - 生产通过 `http://localhost:3000` 访问；Cookie 带 `Secure`，局域网 IP + HTTP 会无法保持登录。
 - 反向代理之后部署时，设置 `TRUST_PROXY=1`（否则限流按代理 IP 计数），并把 `CORS_ORIGINS` 改成浏览器实际访问的 Origin。
 
@@ -143,17 +148,17 @@ pnpm dev
 - web: http://localhost:5173（Vite 代理 `/api`、`/health`）
 - worker 与 api 同机；沙盒通过 `host.docker.internal:3000` 访问 api，因此 api 必须监听 3000。
 
+也可以先 `pnpm run up` 完成部署，再停掉 compose 的 api/worker（`docker compose stop api worker`）后 `pnpm dev`；依赖保持运行。
+
 ### 2.4 升级
 
 ```bash
 git pull
 pnpm install
-pnpm build
-pnpm db:migrate
-docker compose up -d --build
+pnpm run up --rebuild
 ```
 
-修改了 `packages/sandbox` 时再执行 `pnpm --filter @agentport/sandbox image`。worker 升级会中断进行中的 run（容器随 `docker rm -f` 清理）；建议在空闲时操作。
+`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run（容器随 `docker rm -f` 清理）；建议在空闲时操作。
 
 ## 3. 备份与恢复
 
@@ -231,7 +236,7 @@ pnpm --filter @agentport/worker maintenance
 | 症状 | 可能原因 | 检查命令 / 处理 |
 |---|---|---|
 | `/health/ready` 返回 503，`db` 或 `redis` 为 `error` | 依赖未启动、连接串错误、容器不健康 | `docker compose ps`；`docker compose logs postgres redis`；`curl -s localhost:3000/health/ready`；确认 `.env` 的 `DATABASE_URL` / `REDIS_URL` 与实际端口一致 |
-| `docker compose ps` 中 redis 一直 `health: starting`，api/worker 不启动 | compose 健康检查的 `REDIS_PASSWORD` 未在宿主导出，与容器实际密码不一致 | `export REDIS_PASSWORD=agentport-dev` 后 `docker compose up -d --force-recreate redis api worker`；或用 `docker compose exec redis redis-cli -a agentport-dev ping` 确认 |
+| `docker compose ps` 中 redis 一直 `health: starting`，api/worker 不启动 | 宿主导出了与 `.env` 不同的 `REDIS_PASSWORD`，compose 用它重建了 redis，而 `.env` 的 `REDIS_URL` 仍是旧密码 | `unset REDIS_PASSWORD` 后 `docker compose up -d --force-recreate redis api worker`；或让 `.env` 的 `REDIS_PASSWORD`/`REDIS_URL` 与导出的值一致；确认用 `docker compose exec redis redis-cli -a "$REDIS_PASSWORD" ping` |
 | 日志报 `Could not find a working container runtime strategy` 或 `Cannot connect to the Docker daemon` | worker 无法访问宿主 Docker socket | 在 worker 容器内 `docker ps`；检查 `/var/run/docker.sock` 挂载与 `DOCKER_GID`（`ls -l /var/run/docker.sock`，`getent group docker`） |
 | run 失败，错误含 `no such image` / `pull access denied` | 沙盒镜像未构建或名字不对 | `docker images agentport/sandbox`；`pnpm --filter @agentport/sandbox build && pnpm --filter @agentport/sandbox image`；核对 `SANDBOX_IMAGE` |
 | 模型调用 401 / 403 | 凭证缺失、失效，或 `ANTHROPIC_BASE_URL` 在容器内不可达 | `docker compose logs worker` 看容器 stderr；确认 `.env` 只填了 `ANTHROPIC_API_KEY` 与 `ANTHROPIC_AUTH_TOKEN` 之一；`ANTHROPIC_BASE_URL` 不要写 `127.0.0.1`（worker 会改写为 `host.docker.internal`，Linux 需 Docker 支持该别名） |
@@ -372,3 +377,15 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 - 测试使用真实模型调用并产生费用；不要在生产实例上运行。
 - 清理仅按 `loadtest-` slug 前缀进行，不会触碰用户已有数据；如中断，重新运行脚本会在开始阶段清理上一轮残留。
 
+
+## 9. 运行测试的前提
+
+`pnpm test` 的集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。如果此时有 **worker 在消费 `agent-runs` 队列**（本地 `pnpm dev` 或 `docker compose` 的 worker 服务），它会立刻把这些 run 跑掉，导致测试失败。
+
+```bash
+docker compose stop worker api   # 或在本地 pnpm dev 里停掉 worker
+pnpm test
+docker compose start api worker  # 测完恢复
+```
+
+E2E（`pnpm test:e2e`）相反：它需要 api + web，但不需要 worker（除非 `E2E_FULL=1`）。
