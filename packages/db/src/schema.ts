@@ -170,7 +170,11 @@ export const messages = pgTable(
     runId: text('run_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('messages_conversation_idx').on(t.conversationId)],
+  (t) => [
+    // 会话消息按 (created_at, id) 排序，复合索引让 listMessages 免排序。
+    index('messages_conversation_idx').on(t.conversationId, t.createdAt, t.id),
+    index('messages_run_idx').on(t.runId),
+  ],
 );
 
 export const agentRuns = pgTable(
@@ -197,7 +201,16 @@ export const agentRuns = pgTable(
     /** 本 run 已批准的工具名；新 run 会沿用同一会话上一次的批准。 */
     approvals: jsonb('approvals').$type<string[]>().notNull().default([]),
   },
-  (t) => [index('agent_runs_conversation_idx').on(t.conversationId)],
+  (t) => [
+    index('agent_runs_conversation_idx').on(t.conversationId),
+    // 列表与概览都按 started_at desc nulls last 排序；agentId 过滤时走复合索引。
+    index('agent_runs_started_idx').on(t.startedAt.desc().nullsLast(), t.id.desc()),
+    index('agent_runs_agent_started_idx').on(
+      t.agentId,
+      t.startedAt.desc().nullsLast(),
+      t.id.desc(),
+    ),
+  ],
 );
 
 export const evalCases = pgTable(

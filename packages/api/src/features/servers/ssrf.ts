@@ -24,7 +24,11 @@ function isPrivateIpv4(ip: string): boolean {
     inRange('172.16.0.0', 12) ||
     inRange('192.168.0.0', 16) ||
     inRange('100.64.0.0', 10) ||
-    inRange('224.0.0.0', 4)
+    inRange('192.0.0.0', 24) ||
+    inRange('192.88.99.0', 24) ||
+    inRange('224.0.0.0', 4) ||
+    inRange('240.0.0.0', 4) ||
+    ip === '255.255.255.255'
   );
 }
 
@@ -51,6 +55,20 @@ function ipv6Bytes(ip: string): number[] | null {
   return bytes;
 }
 
+function embeddedIpv4(bytes: number[]): string | null {
+  // IPv4-mapped ::ffff:a.b.c.d（含十六进制写法）与 NAT64 64:ff9b::/96。
+  const isMapped =
+    bytes.slice(0, 10).every((b) => b === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
+  const isNat64 =
+    bytes[0] === 0x00 &&
+    bytes[1] === 0x64 &&
+    bytes[2] === 0xff &&
+    bytes[3] === 0x9b &&
+    bytes.slice(4, 12).every((b) => b === 0);
+  if (!isMapped && !isNat64) return null;
+  return `${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
+}
+
 function isPrivateIpv6(ip: string): boolean {
   const lower = ip.toLowerCase();
   // IPv4-mapped 地址按内嵌 IPv4 判断，否则 ::ffff:127.0.0.1 会绕过检查。
@@ -58,6 +76,9 @@ function isPrivateIpv6(ip: string): boolean {
   if (mapped?.[1]) return isPrivateIpv4(mapped[1]);
   const bytes = ipv6Bytes(lower);
   if (!bytes) return true;
+  // 十六进制写法 [::ffff:7f00:1] 与 NAT64 都要拆出内嵌 IPv4 再判断。
+  const embedded = embeddedIpv4(bytes);
+  if (embedded !== null) return isPrivateIpv4(embedded);
   const loopback = bytes.slice(0, 15).every((b) => b === 0) && bytes[15] === 1;
   const unspecified = bytes.every((b) => b === 0);
   const uniqueLocal = ((bytes[0] ?? 0) & 0xfe) === 0xfc;

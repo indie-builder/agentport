@@ -66,6 +66,20 @@ export function registerRunRoutes(app: FastifyInstance): void {
         .status(400)
         .send({ code: 'INVALID_INPUT', message: body.error.issues[0]?.message ?? 'invalid body' });
     }
+    const agentId = await runsRepo.getRunAgentId(app.db, request.params.id);
+    if (!agentId) {
+      return reply
+        .status(404)
+        .send({ code: 'RUN_NOT_FOUND', message: `run ${request.params.id} not found` });
+    }
+    // 只允许批准该智能体实际绑定、启用且标记了要求的工具，避免 typo 产生无效批准。
+    const approvable = await repo.servers.listApprovableToolNames(app.db, agentId);
+    if (!approvable.includes(body.data.toolName)) {
+      return reply.status(404).send({
+        code: 'TOOL_NOT_FOUND',
+        message: `tool ${body.data.toolName} is not an approvable tool of this run's agent`,
+      });
+    }
     const approvals = await runsRepo.approveTool(app.db, request.params.id, body.data.toolName);
     if (!approvals) {
       return reply

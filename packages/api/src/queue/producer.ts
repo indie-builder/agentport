@@ -119,6 +119,29 @@ export interface RunSubscription {
 }
 
 /**
+ * 所有 SSE 客户端共用一条订阅连接，因此按频道计数：
+ * 只有最后一个订阅者 close 时才真正 unsubscribe，否则先断开的人会静默掐掉其他人。
+ */
+const channelRefs = new Map<string, number>();
+
+async function addChannelRef(channel: string): Promise<void> {
+  const refs = channelRefs.get(channel) ?? 0;
+  channelRefs.set(channel, refs + 1);
+  if (refs > 0) return;
+  await getSubscriber().subscribe(channel);
+}
+
+function removeChannelRef(channel: string): void {
+  const refs = (channelRefs.get(channel) ?? 1) - 1;
+  if (refs > 0) {
+    channelRefs.set(channel, refs);
+    return;
+  }
+  channelRefs.delete(channel);
+  void getSubscriber().unsubscribe(channel).catch(logRedisError);
+}
+
+/**
  * 从流头回放并持续跟进。lastId 从 '0' 开始，因此订阅前的 run_started 不会丢。
  * 客户端断开时只需 close()，不删除流（其他客户端还能回放）。
  */
@@ -131,12 +154,6 @@ export async function subscribeRun(
   const key = streamKey(runId);
   let closed = false;
   let lastId = '0-0';
-
-  const handler = (): void => {
-    void drain();
-  };
-  redis.on('message', handler);
-  await redis.subscribe(wakeChannel);
 
   const drain = async (): Promise<void> => {
     if (closed) return;
@@ -153,19 +170,40 @@ export async function subscribeRun(
     }
   };
 
-  await drain();
+  // 后台唤醒失败只记日志；否则一次 Redis 抖动会变成未处理的 rejection。
+  const handler = (): void => {
+    void drain().catch((err: unknown) => {
+      logRedisError(err instanceof Error ? err : new Error(String(err)));
+    });
+  };
+
+  const release = (): void => {
+    redis.off('message', handler);
+    removeChannelRef(wakeChannel);
+  };
+
+  // 先订阅再挂 handler：唤醒只是提示，drain 从流头回放，订阅前的消息不会丢。
+  // 反过来则客户端在 await 期间断开时，close() 的 unsubscribe 会被随后的 subscribe 覆盖。
+  await addChannelRef(wakeChannel);
+  redis.on('message', handler);
+  try {
+    await drain();
+  } catch (err) {
+    release();
+    throw err;
+  }
 
   return {
     close: () => {
       if (closed) return;
       closed = true;
-      redis.off('message', handler);
-      void redis.unsubscribe(wakeChannel).catch(logRedisError);
+      release();
     },
   };
 }
 
 export async function closeProducer(): Promise<void> {
+  channelRefs.clear();
   const closing = [queue, client, subscriber] as const;
   queue = undefined;
   client = undefined;

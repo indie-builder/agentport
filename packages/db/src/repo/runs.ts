@@ -130,6 +130,15 @@ export async function getRunApprovals(db: Database, runId: string): Promise<stri
   return row?.approvals ?? [];
 }
 
+export async function getRunAgentId(db: Database, runId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ agentId: agentRuns.agentId })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  return row?.agentId ?? null;
+}
+
 /** 新 run 沿用同一会话最近一次 run 的批准，重新发送消息后无需再次批准。 */
 export async function getLatestApprovals(db: Database, conversationId: string): Promise<string[]> {
   const [row] = await db

@@ -17,13 +17,9 @@ export async function registerHealthRoutes(app: FastifyInstance) {
       checks.db = 'error';
     }
     try {
-      const redis = new (await import('ioredis')).Redis(app.config.REDIS_URL, {
-        maxRetriesPerRequest: 1,
-        lazyConnect: true,
-      });
-      await redis.connect();
-      await redis.ping();
-      await redis.quit();
+      // 复用 metrics 的共享客户端：每个请求新建连接会造成连接风暴。
+      const { pingRedis } = await import('../plugins/metrics.js');
+      await pingRedis(app);
     } catch (err) {
       app.log.error({ err }, 'readiness: redis check failed');
       checks.redis = 'error';

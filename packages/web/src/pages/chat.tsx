@@ -1,6 +1,7 @@
 import { chatEventSchema } from '@agentport/shared';
 import { Link } from '@tanstack/react-router';
 import {
+  Activity,
   ArrowDown,
   Bot,
   ChevronDown,
@@ -20,7 +21,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { JsonBlock } from '../components/code-block.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { api, type ChatAccepted, errorMessage } from '../lib/api.js';
 import {
@@ -546,6 +547,14 @@ function ChatWorkspace({
               >
                 <CircleStop className="size-4" /> {cancelling ? '停止中…' : '停止'}
               </Button>
+            ) : lastRunId ? (
+              <Link
+                to="/runs/$runId"
+                params={{ runId: lastRunId }}
+                className={cn(buttonVariants({ variant: 'outline', size: 'default' }), 'h-[44px]')}
+              >
+                <Activity className="size-4" /> 查看本次运行
+              </Link>
             ) : (
               <Button
                 type="submit"

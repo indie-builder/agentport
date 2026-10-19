@@ -54,12 +54,15 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       if (typeof body !== 'object' || body === null) {
         return reply.status(400).send({ code: 'INVALID_INPUT', message: 'body must be an object' });
       }
-      const { username, password } = body as Record<string, unknown>;
-      if (typeof username !== 'string' || typeof password !== 'string') {
+      const raw = body as Record<string, unknown>;
+      if (typeof raw.username !== 'string' || typeof raw.password !== 'string') {
         return reply
           .status(400)
           .send({ code: 'INVALID_INPUT', message: 'username and password are required' });
       }
+      // 未认证端点：超长用户名会被永久写入审计表，截断后再使用。
+      const username = raw.username.slice(0, 128);
+      const password = raw.password;
 
       const userOk = username === app.config.ADMIN_USER;
       // 用户名错也照样算一次 scrypt，避免响应时间泄露「用户名对不对」。

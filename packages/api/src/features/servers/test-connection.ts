@@ -27,7 +27,13 @@ function transportFor(server: Server, self?: SelfMcp): Transport {
     return new StdioClientTransport({
       command: server.command,
       args: server.args,
-      env: { ...(process.env as Record<string, string>), ...server.env },
+      // 不继承 API 进程环境：否则被测命令能读到 APP_SECRET_KEY / JWT_SECRET / 模型凭证。
+      env: {
+        PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+        HOME: process.env.HOME ?? '/tmp',
+        LANG: process.env.LANG ?? 'en_US.UTF-8',
+        ...server.env,
+      },
       stderr: 'pipe',
     });
   }

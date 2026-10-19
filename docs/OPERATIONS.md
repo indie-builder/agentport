@@ -248,3 +248,11 @@ docker ps --filter name=agentport-
 | worker 日志 | 结构化 JSON；每步带 `runId`，容器 stderr 以 `sandbox` 字段转发 | stdout |
 
 审计动作包括：`auth.login.succeeded`、`auth.login.failed`、`server.created/updated/deleted`、`mcp.server.tested`、`agent.created/updated/deleted/rolled_back`、`skill.created/updated/deleted`、`agent.run.requested/cancelled/finished`、`conversation.branched`、`eval.run.requested`、`maintenance.pruned`。审计只存输入摘要（SHA-256 前 32 位），不存原文。
+
+## 7. 性能备注
+
+- **索引**（0009 迁移）：`agent_runs(started_at DESC NULLS LAST, id DESC)` 与 `agent_runs(agent_id, started_at DESC NULLS LAST, id DESC)` 服务 `/api/runs` 与概览的「最近运行」排序；`messages(run_id)` 服务 run trace 查询；`messages(conversation_id, created_at, id)` 让会话消息免排序。改动见 `packages/db/src/schema.ts`，重新生成用 `pnpm db:generate`。
+- **会话列表**：`/api/conversations` 的 `lastMessage` 只返回截断到 280 字的 `text`，不再回传整块 jsonb。
+- **概览页**：`/api/overview` 已含 servers/agents 计数，前端不再额外请求 `/api/servers`、`/api/agents`；`/api/overview` 返回 404 时才回退到列表接口。
+- **本机基线**（20 次 curl，改前 → 改后，p50/p95）：`/api/overview` 8.0/9.7 → 6.9/8.8 ms；`/api/runs` 3.1/4.9 → 3.1/4.0 ms；`/api/conversations` 3.4/5.3 → 3.0/5.1 ms（响应 8009 → 6820 B）。数据量很小时数据库耗时不占主导，收益主要来自索引在数据增长后避免全表扫描 + 排序。
+- **未做**：`/api/agents`、`/api/skills`、`/api/eval/*` 列表仍无分页；当前单机数据量下影响可忽略，智能体/技能数量上来后再加 `limit`。MCP 端点每次请求重查 server + tools，属于配置即时生效的取舍，不在本次范围。

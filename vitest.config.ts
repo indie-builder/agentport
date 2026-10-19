@@ -12,7 +12,8 @@ export default defineConfig({
     testTimeout: 20_000,
     hookTimeout: 20_000,
     env: {
-      NODE_ENV: 'test',
+      // 测试用本地假上游（127.0.0.1），走与开发一致的安全策略。
+      NODE_ENV: 'development',
       LOG_LEVEL: 'error',
       DATABASE_URL: databaseUrl,
       REDIS_URL: redisUrl,

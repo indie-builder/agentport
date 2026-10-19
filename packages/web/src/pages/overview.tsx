@@ -300,10 +300,11 @@ function PlatformHealth() {
 
 export function OverviewPage() {
   const overview = useOverview();
-  const servers = useQuery(serversQuery);
-  const agents = useQuery(agentsQuery);
-
+  // overview 已带 servers/agents 计数，列表只作为旧后端（返回 null）的兜底，正常不请求。
   const fallback = overview.data === null;
+  const servers = useQuery({ ...serversQuery, enabled: fallback });
+  const agents = useQuery({ ...agentsQuery, enabled: fallback });
+
   const counts = overview.data?.counts ?? {
     servers: servers.data?.length ?? 0,
     agents: agents.data?.length ?? 0,

@@ -20,7 +20,7 @@ export function registerOverviewRoutes(app: FastifyInstance): void {
   const auth = { preHandler: [app.requireAuth] };
 
   app.get<{ Querystring: { days?: string } }>('/api/overview', auth, async (request) => {
-    const days = Number(request.query.days ?? 7);
+    const days = Math.min(Math.max(Number(request.query.days ?? 7), 1), 3650);
     const since = daysAgo(Number.isFinite(days) && days > 0 ? days : 7);
 
     const [serverCount] = await app.db

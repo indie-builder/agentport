@@ -13,7 +13,7 @@ services:
       POSTGRES_PASSWORD: agentport
       POSTGRES_DB: agentport
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -25,13 +25,13 @@ services:
   redis:
     image: redis:8-alpine
     restart: unless-stopped
-    command: ['redis-server', '--appendonly', 'yes']
+    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD:-agentport-dev}']
     ports:
-      - '6379:6379'
+      - '127.0.0.1:6379:6379'
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test: ['CMD-SHELL', 'redis-cli -a \"$${REDIS_PASSWORD:-agentport-dev}\" ping | grep -q PONG']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -45,7 +45,7 @@ services:
       NODE_ENV: production
       PORT: '3000'
       DATABASE_URL: postgres://agentport:agentport@postgres:5432/agentport
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:-agentport-dev}@redis:6379
       # web 构建产物在镜像里的位置（根 Dockerfile 复制 packages/web/dist 到 /app/web）
       WEB_DIST: /app/web
       # 与 worker 共用工作区卷；api 只负责渲染，不落盘，路径保持一致便于排查。
@@ -69,7 +69,7 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://agentport:agentport@postgres:5432/agentport
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:-agentport-dev}@redis:6379
       # 固定容器内路径，与执行 compose 的目录无关。
       WORKSPACES_DIR: /workspaces
       # 沙盒由宿主 daemon 启动，-v 的源路径按宿主文件系统解析，不能直接用容器内路径。

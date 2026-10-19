@@ -166,7 +166,7 @@ export interface ConversationSummary {
   title: string;
   createdAt: Date;
   updatedAt: Date;
-  lastMessage: { role: string; content: unknown; createdAt: Date } | null;
+  lastMessage: { role: string; text: string; createdAt: Date } | null;
 }
 
 /** 会话列表：updatedAt 取最后一条消息时间，无消息时退回创建时间。 */
@@ -175,7 +175,12 @@ export async function listConversations(
   options: { agentId?: string; limit?: number } = {},
 ): Promise<ConversationSummary[]> {
   const last = db
-    .select({ role: messages.role, content: messages.content, createdAt: messages.createdAt })
+    .select({
+      role: messages.role,
+      // 列表不需要完整消息体；只取文本并截断，避免把大 jsonb 带进列表响应。
+      text: sql<string | null>`left(${messages.content}->>'text', 280)`.as('text'),
+      createdAt: messages.createdAt,
+    })
     .from(messages)
     .where(eq(messages.conversationId, conversations.id))
     .orderBy(desc(messages.createdAt), desc(messages.id))
@@ -190,7 +195,7 @@ export async function listConversations(
       title: conversations.title,
       createdAt: conversations.createdAt,
       lastRole: last.role,
-      lastContent: last.content,
+      lastText: last.text,
       lastCreatedAt: last.createdAt,
     })
     .from(conversations)
@@ -199,13 +204,13 @@ export async function listConversations(
     .orderBy(desc(updatedAt), desc(conversations.id))
     .limit(options.limit ?? 50);
 
-  return rows.map(({ lastRole, lastContent, lastCreatedAt, ...row }) => ({
+  return rows.map(({ lastRole, lastText, lastCreatedAt, ...row }) => ({
     ...row,
     updatedAt: lastCreatedAt ?? row.createdAt,
     lastMessage:
       lastCreatedAt === null || lastRole === null
         ? null
-        : { role: lastRole, content: lastContent, createdAt: lastCreatedAt },
+        : { role: lastRole, text: lastText ?? '', createdAt: lastCreatedAt },
   }));
 }
 

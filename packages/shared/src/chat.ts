@@ -3,7 +3,11 @@ import { z } from 'zod';
 export const chatRequestSchema = z.object({
   agentId: z.string(),
   conversationId: z.string().optional(),
-  message: z.string().min(1),
+  // 沙盒把 prompt 走 stdin，超大输入会拖垮 worker；在入口统一限制为 64KB。
+  message: z
+    .string()
+    .min(1)
+    .max(64 * 1024, 'message exceeds 64KB'),
 });
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;

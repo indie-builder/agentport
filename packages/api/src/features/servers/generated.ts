@@ -4,12 +4,19 @@ import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { assertSafeUrl } from './ssrf.js';
 
 export interface GeneratedServerInput {
+  /** 决定 SSRF 是否放行 localhost；与 test-connection 保持同一来源。 */
+  nodeEnv?: string | undefined;
   name: string;
   baseUrl: string;
   headers: Record<string, string>;
   tools: ApiTool[];
   /** 当前 run 已批准的工具名；没有 run 上下文时为空，审批工具一律拒绝。 */
   approvals: string[];
+  /**
+   * 调用时重新读取审批状态。MCP handler 的工厂只在连接建立时执行一次，
+   * 若只用构造期的 approvals，批准后同一连接内的调用仍然会被拒。
+   */
+  refreshApprovals?: () => Promise<string[]>;
 }
 
 /** 未批准时的固定文案：前端靠这段文本识别审批请求。 */
@@ -40,10 +47,12 @@ async function callUpstream(
   baseUrl: string,
   headers: Record<string, string>,
   args: Record<string, unknown>,
+  nodeEnv: string | undefined,
 ): Promise<CallToolResult> {
   const { path, rest } = fillPath(tool.pathTemplate, args);
   const url = new URL(baseUrl.replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
-  await assertSafeUrl(url.toString());
+  // 与 test-connection 一致：nodeEnv 决定是否放行 localhost，避免「测得通但跑不通」。
+  await assertSafeUrl(url.toString(), nodeEnv);
 
   const init: RequestInit = { method: tool.method, headers: { ...headers } };
   if (tool.paramsIn === 'query') {
@@ -56,8 +65,18 @@ async function callUpstream(
     init.headers = { ...init.headers, 'content-type': 'application/json' };
   }
 
-  const res = await fetch(url, init);
-  const text = await res.text();
+  // 不跟随重定向（SSRF 只校验第一跳）；限制超时与响应体，避免上游拖死进程。
+  const res = await fetch(url, {
+    ...init,
+    redirect: 'error',
+    signal: AbortSignal.timeout(30_000),
+  });
+  const raw = await res.text();
+  const MAX_BODY = 1_048_576;
+  const text =
+    raw.length > MAX_BODY
+      ? `${raw.slice(0, MAX_BODY)}\n…[truncated ${raw.length - MAX_BODY} chars]`
+      : raw;
   if (!res.ok) {
     return { isError: true, content: [{ type: 'text', text: `upstream ${res.status}: ${text}` }] };
   }
@@ -79,14 +98,19 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
         description: tool.description || `${tool.method} ${tool.pathTemplate}`,
         inputSchema,
       },
-      (args) => {
-        if (tool.requiresApproval && !input.approvals.includes(tool.name)) {
-          return {
-            isError: true,
-            content: [{ type: 'text', text: approvalRequiredMessage(tool.name) }],
-          };
+      async (args) => {
+        if (tool.requiresApproval) {
+          const approvals = input.refreshApprovals
+            ? await input.refreshApprovals()
+            : input.approvals;
+          if (!approvals.includes(tool.name)) {
+            return {
+              isError: true,
+              content: [{ type: 'text', text: approvalRequiredMessage(tool.name) }],
+            };
+          }
         }
-        return callUpstream(tool, input.baseUrl, input.headers, args);
+        return callUpstream(tool, input.baseUrl, input.headers, args, input.nodeEnv);
       },
     );
   }

@@ -64,6 +64,13 @@
       "when": 1792432915066,
       "tag": "0008_famous_prodigy",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792433505294,
+      "tag": "0009_premium_karnak",
+      "breakpoints": true
     }
   ]
 }

@@ -105,3 +105,12 @@ export async function collectMetrics(app: FastifyInstance): Promise<HealthMetric
     redis: redisPing,
   };
 }
+
+/** 共享 Redis 客户端的 ping；health/ready 与 metrics 共用，避免每请求建连。 */
+export async function pingRedis(app: FastifyInstance): Promise<number> {
+  const client = metricsRedis(app);
+  if (client.status === 'wait') await client.connect();
+  const started = Date.now();
+  await client.ping();
+  return Date.now() - started;
+}

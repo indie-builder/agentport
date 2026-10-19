@@ -126,6 +126,17 @@
 | 文档与代码一致性 | ✅ | 修正 15 处偏差（`SANDBOX_NETWORK`→`SANDBOX_EGRESS`、`pnpm -r typecheck` 写法、迁移非自动、`PLATFORM_MCP_TOKEN` 未文档化等） |
 | 禁用智能体拦截 | ✅ | `POST /api/chat` 返回 409 并给下一步 |
 
+### 循环 7 已补齐
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 失败路径测试 | ✅ | 9 条：SSE 提前断开、重复投递、非法 JSON、超长输入、审批边界、约束冲突 |
+| 修复的真实缺陷 | ✅ | SSE 引用计数泄漏（两个标签页互相影响）、批准不存在工具被静默接受、prompt 无上限 |
+| 性能索引 | ✅ | `messages.run_id`、`agent_runs(started_at)`、`(conversation_id, created_at, id)`；执行计划由 Seq Scan 转 Index Scan |
+| 会话列表瘦身 | ✅ | `lastMessage` 只取 280 字符，响应体 8009 → 6820 B |
+| 安全审查 | ✅ | `docs/SECURITY.md`：1 Critical + 11 High，已修 7 项，10 项待决策 |
+| 测试总数 | ✅ | 62 个 vitest + 5 个 E2E |
+
 ### 下一轮优先级（按对「生产可用」的影响排序）
 
 | 优先级 | 能力 | 理由 |

@@ -294,7 +294,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
     const limit = Number(query.limit ?? 50);
     const rows = await chatRepo.listConversations(app.db, {
       ...(query.agentId ? { agentId: query.agentId } : {}),
-      limit: Number.isInteger(limit) && limit > 0 ? limit : 50,
+      limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 200) : 50,
     });
     return rows.map((row) => ({
       ...row,

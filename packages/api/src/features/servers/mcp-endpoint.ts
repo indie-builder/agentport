@@ -21,7 +21,7 @@ function tokenMatches(expected: unknown, header: string | undefined): boolean {
  * 每个请求按 serverId 重建 handler：工具定义改动无需重启，也避免跨 server 复用实例。
  * createMcpHandler 的实例同时服务 2025/2026 两个协议时代。
  */
-function handlerFor(app: FastifyInstance, serverId: string): McpHttpHandler {
+function handlerFor(app: FastifyInstance, serverId: string, runId: string | null): McpHttpHandler {
   return createMcpHandler(async (ctx) => {
     const row = await getServerRow(app.db, serverId);
     // 鉴权已在路由层完成；这里再查一次是为了拿到最新工具定义。
@@ -29,8 +29,7 @@ function handlerFor(app: FastifyInstance, serverId: string): McpHttpHandler {
     const server = toApiServer(row, app.config.APP_SECRET_KEY);
     if (server.kind !== 'generated') throw new Error('not a generated server');
     const tools = await listTools(app.db, serverId);
-    // worker 在每个 run 的 .mcp.json 里写入该 header；外部客户端没有 run，审批工具会被拒绝。
-    const runId = ctx.requestInfo?.headers.get('x-agentport-run-id') ?? null;
+    // runId 由路由层从当前 HTTP 请求头读入；外部客户端没有 run，审批工具一律拒绝。
     const approvals = runId ? await repo.runs.getRunApprovals(app.db, runId) : [];
     return buildGeneratedServer({
       name: server.name,
@@ -38,6 +37,10 @@ function handlerFor(app: FastifyInstance, serverId: string): McpHttpHandler {
       headers: server.headers,
       tools,
       approvals,
+      nodeEnv: app.config.NODE_ENV,
+      ...(runId === null
+        ? {}
+        : { refreshApprovals: () => repo.runs.getRunApprovals(app.db, runId) }),
     });
   });
 }
@@ -59,9 +62,14 @@ export function registerMcpEndpoint(app: FastifyInstance): void {
 
     // 交给 MCP 适配器自己读写原始 req/res，Fastify 不再参与响应。
     reply.hijack();
-    const nodeHandler = toNodeHandler(handlerFor(app, serverId), {
-      onerror: (err) => app.log.error({ err, serverId }, 'mcp endpoint error'),
-    });
+    // 每个 HTTP 请求重建 handler，header 在请求边界读取一次，不依赖工厂回调时机。
+    const runId = request.headers['x-agentport-run-id'];
+    const nodeHandler = toNodeHandler(
+      handlerFor(app, serverId, typeof runId === 'string' ? runId : null),
+      {
+        onerror: (err) => app.log.error({ err, serverId }, 'mcp endpoint error'),
+      },
+    );
     await nodeHandler(
       // Node 的 IncomingMessage.method 类型是 string | undefined，适配器按可选字段声明。
       request.raw as unknown as NodeIncomingMessageLike,

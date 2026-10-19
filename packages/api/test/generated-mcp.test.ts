@@ -14,6 +14,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   let server: Server;
   let token: string;
   const createdServers: string[] = [];
+  const createdAgents: string[] = [];
   const runIds: string[] = [];
 
   beforeAll(async () => {
@@ -58,7 +59,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   });
 
   afterAll(async () => {
-    await cleanup(app, { serverNames: createdServers, runIds });
+    await cleanup(app, { serverNames: createdServers, agentSlugs: createdAgents, runIds });
     await app.close();
   });
 
@@ -115,11 +116,23 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     const tool = res.json<{ id: string; requiresApproval: boolean }>();
     expect(tool.requiresApproval).toBe(true);
 
+    // 审批只接受该 run 所属智能体实际绑定、且要求批准的工具，因此落一个真实 agent。
+    const agentSlug = unique('approval-agent');
+    createdAgents.push(agentSlug);
+    const agentRes = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: { cookie },
+      payload: { slug: agentSlug, name: agentSlug, serverIds: [server.id] },
+    });
+    expect(agentRes.statusCode).toBe(201);
+    const agentId = agentRes.json<{ id: string }>().id;
+
     const runId = unique('run');
     runIds.push(runId);
     await app.pool.query(
-      "insert into agent_runs (id, conversation_id, agent_id) values ($1, 'conv_test', 'agent_test')",
-      [runId],
+      'insert into agent_runs (id, conversation_id, agent_id) values ($1, $2, $3)',
+      [runId, `conv_test_${runId}`, agentId],
     );
 
     const call = async (): Promise<{ isError?: boolean; content: Array<{ text?: string }> }> => {
