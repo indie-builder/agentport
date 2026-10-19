@@ -1,5 +1,5 @@
 {
-  "id": "0db35e48-4c72-4d56-ad17-6e62b2555453",
+  "id": "b13e1773-a2f1-4b60-beae-031e29f7389b",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -296,8 +296,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "url_template": {
-          "name": "url_template",
+        "path_template": {
+          "name": "path_template",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -308,11 +308,12 @@
           "primaryKey": false,
           "notNull": true
         },
-        "auth_ref": {
-          "name": "auth_ref",
+        "params_in": {
+          "name": "params_in",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'query'"
         },
         "created_at": {
           "name": "created_at",

@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { registerErrorHandler } from './plugins/errors.js';
-import { registerAuth } from './features/auth/routes.js';
-import { registerChatRoutes } from './features/chat/routes.js';
-import { registerAgentRoutes } from './features/agents/routes.js';
-import { registerServerRoutes } from './features/servers/routes.js';
-import { registerMcpEndpoint } from './features/servers/mcp-endpoint.js';
-import { registerHealthRoutes } from './routes/health.js';
+import { registerAgentRoutes } from '../features/agents/routes.js';
+import { registerAuth } from '../features/auth/routes.js';
+import { registerChatRoutes } from '../features/chat/routes.js';
+import { registerMcpEndpoint } from '../features/servers/mcp-endpoint.js';
+import { registerServerRoutes } from '../features/servers/routes.js';
+import { registerErrorHandler } from '../plugins/errors.js';
+import { registerHealthRoutes } from './health.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   registerErrorHandler(app);

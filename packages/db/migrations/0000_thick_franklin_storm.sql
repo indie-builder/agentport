@@ -36,9 +36,9 @@ CREATE TABLE "api_tools" (
 	"name" text NOT NULL,
 	"description" text DEFAULT '' NOT NULL,
 	"method" text NOT NULL,
-	"url_template" text NOT NULL,
+	"path_template" text NOT NULL,
 	"input_schema" jsonb NOT NULL,
-	"auth_ref" text,
+	"params_in" text DEFAULT 'query' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint

@@ -7,6 +7,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./repo/servers.js": {
+      "types": "./dist/repo/servers.d.ts",
+      "default": "./dist/repo/servers.js"
+    },
+    "./repo/agents.js": {
+      "types": "./dist/repo/agents.d.ts",
+      "default": "./dist/repo/agents.js"
+    },
+    "./repo/chat.js": {
+      "types": "./dist/repo/chat.d.ts",
+      "default": "./dist/repo/chat.js"
     }
   },
   "scripts": {
@@ -20,7 +32,8 @@
     "@agentport/core": "workspace:*",
     "@agentport/shared": "workspace:*",
     "drizzle-orm": "0.45.4",
-    "pg": "8.23.1"
+    "pg": "8.23.1",
+    "typeid-js": "1.2.0"
   },
   "devDependencies": {
     "@types/pg": "8.15.6",

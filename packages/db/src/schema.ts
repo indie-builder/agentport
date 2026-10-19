@@ -39,7 +39,9 @@ export const apiTools = pgTable(
     method: text('method').notNull(),
     pathTemplate: text('path_template').notNull(),
     inputSchema: jsonb('input_schema').$type<Record<string, unknown>>().notNull(),
-    paramsIn: text('params_in', { enum: ['query', 'body'] }).notNull().default('query'),
+    paramsIn: text('params_in', { enum: ['query', 'body'] })
+      .notNull()
+      .default('query'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('api_tools_server_name_idx').on(t.serverId, t.name)],

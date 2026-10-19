@@ -1,0 +1,67 @@
+import { timingSafeEqual } from 'node:crypto';
+import type { NodeIncomingMessageLike, NodeServerResponseLike } from '@modelcontextprotocol/node';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import type { McpHttpHandler } from '@modelcontextprotocol/server';
+import { createMcpHandler } from '@modelcontextprotocol/server';
+import type { FastifyInstance } from 'fastify';
+import { buildGeneratedServer } from './generated.js';
+import { getServerRow, listTools, toApiServer } from './repo.js';
+
+function tokenMatches(expected: unknown, header: string | undefined): boolean {
+  if (typeof expected !== 'string' || expected.length === 0) return false;
+  const match = /^Bearer\s+(.+)$/i.exec(header ?? '');
+  if (!match?.[1]) return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(match[1]);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * 每个请求按 serverId 重建 handler：工具定义改动无需重启，也避免跨 server 复用实例。
+ * createMcpHandler 的实例同时服务 2025/2026 两个协议时代。
+ */
+function handlerFor(app: FastifyInstance, serverId: string): McpHttpHandler {
+  return createMcpHandler(async () => {
+    const row = await getServerRow(app.db, serverId);
+    // 鉴权已在路由层完成；这里再查一次是为了拿到最新工具定义。
+    if (!row) throw new Error('server disappeared');
+    const server = toApiServer(row, app.config.APP_SECRET_KEY);
+    if (server.kind !== 'generated') throw new Error('not a generated server');
+    const tools = await listTools(app.db, serverId);
+    return buildGeneratedServer({
+      name: server.name,
+      baseUrl: server.baseUrl,
+      headers: server.headers,
+      tools,
+    });
+  });
+}
+
+export function registerMcpEndpoint(app: FastifyInstance): void {
+  app.all('/mcp/:serverId', async (request, reply) => {
+    const { serverId } = request.params as { serverId: string };
+    const row = await getServerRow(app.db, serverId);
+    if (row?.kind !== 'generated') {
+      return reply.status(404).send({ code: 'NOT_FOUND', message: 'generated server not found' });
+    }
+    const expected = row.config.mcpToken;
+    if (!tokenMatches(expected, request.headers.authorization)) {
+      return reply
+        .status(401)
+        .header('WWW-Authenticate', 'Bearer realm="agentport-mcp"')
+        .send({ code: 'UNAUTHORIZED', message: 'invalid bearer token' });
+    }
+
+    // 交给 MCP 适配器自己读写原始 req/res，Fastify 不再参与响应。
+    reply.hijack();
+    const nodeHandler = toNodeHandler(handlerFor(app, serverId), {
+      onerror: (err) => app.log.error({ err, serverId }, 'mcp endpoint error'),
+    });
+    await nodeHandler(
+      // Node 的 IncomingMessage.method 类型是 string | undefined，适配器按可选字段声明。
+      request.raw as unknown as NodeIncomingMessageLike,
+      reply.raw as unknown as NodeServerResponseLike,
+      request.body,
+    );
+  });
+}

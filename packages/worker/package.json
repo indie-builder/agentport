@@ -14,9 +14,10 @@
     "@agentport/db": "workspace:*",
     "@agentport/shared": "workspace:*",
     "bullmq": "6.3.17",
+    "drizzle-orm": "0.45.4",
+    "ioredis": "6.0.0",
     "pino": "10.4.0",
-    "pino-pretty": "13.2.0",
-    "ioredis": "6.0.0"
+    "pino-pretty": "13.2.0"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

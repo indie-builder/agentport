@@ -4,6 +4,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   PORT: z.coerce.number().int().positive().default(3000),
+  /** 平台自身可达地址，用于 generated server 的 MCP 端点自测 */
+  SELF_URL: z.string().default('http://127.0.0.1:3000'),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
   APP_SECRET_KEY: z.string().min(16),

@@ -1,1 +1,19 @@
 @import "tailwindcss";
+
+@layer base {
+  html {
+    background-color: var(--color-zinc-950);
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: var(--color-emerald-500);
+    color: var(--color-zinc-950);
+  }
+}

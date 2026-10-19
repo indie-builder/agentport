@@ -23,9 +23,12 @@ export function toMcpJsonEntry(server: ServerInput, secrets: Record<string, stri
       env: { ...server.env, ...secrets },
     };
   }
+  // generated server 对外表现为平台自己的 MCP HTTP 端点 /mcp/:id；
+  // 该端点地址由调用方（worker）按运行环境改写，这里先给出上游基址占位。
+  const url = server.kind === 'generated' ? server.baseUrl : server.url;
   return {
     type: 'http',
-    url: server.url,
+    url,
     headers: { ...server.headers, ...secrets },
   };
 }
