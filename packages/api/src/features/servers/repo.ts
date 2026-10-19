@@ -204,6 +204,7 @@ export function toApiTool(row: serverRepo.ApiToolRow): ApiTool {
     pathTemplate: row.pathTemplate,
     inputSchema: row.inputSchema,
     paramsIn: row.paramsIn,
+    enabled: row.enabled,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -224,6 +225,16 @@ export async function createTool(db: Db, serverId: string, input: ApiToolInput):
     paramsIn: input.paramsIn,
   });
   return toApiTool(row);
+}
+
+export async function setToolEnabled(
+  db: Db,
+  serverId: string,
+  toolId: string,
+  enabled: boolean,
+): Promise<ApiTool | null> {
+  const row = await serverRepo.setApiToolEnabled(db, serverId, toolId, enabled);
+  return row ? toApiTool(row) : null;
 }
 
 export async function deleteTool(db: Db, serverId: string, toolId: string): Promise<boolean> {

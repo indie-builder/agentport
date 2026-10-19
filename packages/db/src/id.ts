@@ -14,6 +14,9 @@ export const idPrefixes = {
   message: 'msg',
   run: 'run',
   audit: 'aud',
+  evalCase: 'ec',
+  evalRun: 'er',
+  evalResult: 'evr',
 } as const;
 
 type Entity = keyof typeof idPrefixes;

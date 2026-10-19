@@ -4,6 +4,7 @@ import {
   Activity,
   Bot,
   ChevronRight,
+  FlaskConical,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -30,6 +31,7 @@ const nav = [
   { to: '/skills', label: '技能', icon: Sparkles, title: '技能' },
   { to: '/chat', label: '对话', icon: MessagesSquare, title: '对话' },
   { to: '/runs', label: '运行', icon: Activity, title: '运行' },
+  { to: '/eval', label: '评估', icon: FlaskConical, title: '评估' },
   { to: '/audit', label: '审计', icon: ScrollText, title: '审计' },
 ] as const;
 

@@ -89,7 +89,11 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 /** messages 行 → trace 步骤。无法识别的行直接跳过，避免脏数据打断回放。 */
-function toStep(message: { role: string; content: unknown; createdAt: Date }): RunStep | null {
+export function toStep(message: {
+  role: string;
+  content: unknown;
+  createdAt: Date;
+}): RunStep | null {
   const content = asRecord(message.content);
   const at = message.createdAt.toISOString();
 

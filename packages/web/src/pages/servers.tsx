@@ -46,6 +46,7 @@ import {
   useDeleteServer,
   useDeleteTool,
   useServers,
+  useSetToolEnabled,
   useTestServer,
   useTools,
   useUpdateServer,
@@ -472,6 +473,7 @@ function ToolsPanel({ serverId }: { serverId: string }) {
   const tools = useTools(serverId);
   const create = useCreateTool(serverId);
   const remove = useDeleteTool(serverId);
+  const setEnabled = useSetToolEnabled(serverId);
   const [form, setForm] = useState<ApiToolInput>({
     name: '',
     description: '',
@@ -538,6 +540,7 @@ function ToolsPanel({ serverId }: { serverId: string }) {
                 <TableHead className="w-20">方法</TableHead>
                 <TableHead>路径</TableHead>
                 <TableHead className="w-20">参数</TableHead>
+                <TableHead className="w-16">启用</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
@@ -559,6 +562,21 @@ function ToolsPanel({ serverId }: { serverId: string }) {
                     {tool.pathTemplate}
                   </TableCell>
                   <TableCell className="text-[11px] text-muted">{tool.paramsIn}</TableCell>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      className="size-3.5 accent-accent"
+                      aria-label={`启用工具 ${tool.name}`}
+                      checked={tool.enabled}
+                      disabled={setEnabled.isPending}
+                      onChange={(event) =>
+                        setEnabled.mutate(
+                          { toolId: tool.id, enabled: event.target.checked },
+                          { onError: (error) => toastError(error) },
+                        )
+                      }
+                    />
+                  </TableCell>
                   <TableCell>
                     <Button
                       variant="ghost"

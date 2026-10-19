@@ -82,6 +82,17 @@
 | 错误分类与重试 | ✅ | BullMQ `attempts:2` + 指数退避；`isRetryable` 只重试基础设施错误 |
 | 工具调用消息落库 | ✅ | `tool_result` 与 `assistant_text` 写入 `messages` |
 
+### 循环 3 已补齐
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 工具级启用/禁用 | ✅ | `api_tools.enabled`；`PATCH /api/servers/:id/tools/:toolId`；`buildGeneratedServer` 跳过禁用项。实测禁用后测试连接工具消失、评估跑批失败；恢复后 2/2 通过 |
+| 评估集 + 回归跑批 | ✅ | `eval_cases` / `eval_runs` / `eval_results`；`POST /api/eval/runs` 异步串行执行；实测 2 个用例全部判对 |
+| 资产导出 | ✅ | `GET /api/export/agents/:id`，`agentport/agent@1` 格式，密钥只导出键名 |
+| 数据库备份 | ✅ | `pnpm backup` → `pg_dump | gzip`，保留 7 份 |
+| 运行完成审计 | ✅ | worker 写 `agent.run.finished` |
+| run 步骤映射单测 | ✅ | `packages/db/test/steps.test.ts`，5 个用例 |
+
 ### 下一轮优先级（按对「生产可用」的影响排序）
 
 | 优先级 | 能力 | 理由 |
@@ -91,10 +102,10 @@
 | ~~P0~~ ✅ | 审计页 + 配置变更审计 | 已完成 |
 | ~~P0~~ ✅ | 平台自身暴露为 MCP Server | 已完成 |
 | ~~P0~~ ✅ | 错误分类与重试 | 已完成 |
-| P1 | 工具级启用/禁用 | 当前只能整 server 绑定 |
+| ~~P1~~ ✅ | 工具级启用/禁用 | 已完成 |
 | P1 | 持久化 HITL（暂停 → 落盘 → 恢复） | 审批常跨小时；内存态暂停不可用 |
 | P1 | 资产导出/备份（智能体定义 + 会话 + 配置） | 单机无冗余，备份即灾备 |
-| P2 | 评估集（手工用例 + 回归） | 有真实价值，但依赖 trace 先落地 |
+| ~~P2~~ ✅ | 评估集（手工用例 + 回归） | 已完成 |
 | P2 | 子智能体 / 多智能体编排 | SDK 支持，但需权限模型先稳定 |
 | P3 | RAG / 知识库 | 技能可覆盖多数场景 |
 

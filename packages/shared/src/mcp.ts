@@ -77,6 +77,7 @@ export const apiToolSchema = apiToolInputSchema.and(
   z.object({
     id: z.string(),
     serverId: z.string(),
+    enabled: z.boolean(),
     createdAt: z.string(),
   }),
 );

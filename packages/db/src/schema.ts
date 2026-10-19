@@ -44,6 +44,7 @@ export const apiTools = pgTable(
     paramsIn: text('params_in', { enum: ['query', 'body'] })
       .notNull()
       .default('query'),
+    enabled: boolean('enabled').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('api_tools_server_name_idx').on(t.serverId, t.name)],
@@ -182,6 +183,57 @@ export const agentRuns = pgTable(
   (t) => [index('agent_runs_conversation_idx').on(t.conversationId)],
 );
 
+export const evalCases = pgTable(
+  'eval_cases',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    prompt: text('prompt').notNull(),
+    expectation: text('expectation').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('eval_cases_agent_idx').on(t.agentId)],
+);
+
+export const evalRuns = pgTable(
+  'eval_runs',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    status: text('status', { enum: ['running', 'succeeded', 'failed'] })
+      .notNull()
+      .default('running'),
+    total: integer('total').notNull().default(0),
+    passed: integer('passed').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (t) => [index('eval_runs_agent_idx').on(t.agentId)],
+);
+
+export const evalResults = pgTable(
+  'eval_results',
+  {
+    id: text('id').primaryKey(),
+    evalRunId: text('eval_run_id')
+      .notNull()
+      .references(() => evalRuns.id, { onDelete: 'cascade' }),
+    caseId: text('case_id')
+      .notNull()
+      .references(() => evalCases.id, { onDelete: 'cascade' }),
+    runId: text('run_id').notNull(),
+    passed: boolean('passed').notNull(),
+    output: text('output').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('eval_results_run_idx').on(t.evalRunId)],
+);
+
 export const auditLog = pgTable(
   'audit_log',
   {
@@ -209,6 +261,9 @@ export const schema = {
   conversations,
   messages,
   agentRuns,
+  evalCases,
+  evalRuns,
+  evalResults,
   auditLog,
 };
 

@@ -338,6 +338,21 @@ const worker = new Worker(
       },
       logger,
     );
+    // 运行结果进审计表：日志会滚动，审计长期保留。
+    await db
+      .insert(schema.auditLog)
+      .values({
+        id: `aud_${runId.slice(4)}`,
+        actor: 'worker',
+        action: 'agent.run.finished',
+        target: runId,
+        status: outcome.status === 'succeeded' ? 'ok' : 'error',
+        durationMs: runLatencyMs,
+        inputDigest: null,
+        requestId: null,
+      })
+      .onConflictDoNothing();
+
     logger.info({ runId, status: outcome.status, costUsd: outcome.costUsd }, 'agent run finished');
 
     // 瞬时基础设施故障交给 BullMQ 重试；业务失败直接结束，避免重复计费。

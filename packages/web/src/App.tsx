@@ -12,6 +12,7 @@ import { queryClient } from './lib/queries.js';
 import { AgentsPage } from './pages/agents.js';
 import { AuditPage } from './pages/audit.js';
 import { ChatPage } from './pages/chat.js';
+import { EvalPage } from './pages/eval.js';
 import { LoginPage } from './pages/login.js';
 import { NotFoundPage } from './pages/not-found.js';
 import { OverviewPage } from './pages/overview.js';
@@ -76,6 +77,12 @@ const runDetailRoute = createRoute({
   component: RunDetailPage,
 });
 
+const evalRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/eval',
+  component: EvalPage,
+});
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
@@ -98,6 +105,7 @@ const routeTree = rootRoute.addChildren([
     auditRoute,
     runsRoute,
     runDetailRoute,
+    evalRoute,
     notFoundRoute,
   ]),
   loginRoute,

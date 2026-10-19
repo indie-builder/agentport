@@ -82,12 +82,20 @@ pnpm --filter @agentport/sandbox image
 | `pnpm infra:up` / `infra:down` | 启停 postgres + redis |
 | `pnpm lint` | Biome 检查 |
 
+## 备份
+
+`pnpm backup` 用 `pg_dump` 把 `DATABASE_URL` 指向的库导出到 `backups/<timestamp>.sql.gz`，只保留最近 7 份。
+建议用 cron 定时执行，并把 `backups/` 同步到另一台机器。
+单智能体可导出为 JSON：在「智能体」页选中后点「导出」，或在 `GET /api/export/agents/:id`（需登录）下载；导出不含任何密钥明文。
+
 ## 文档
 
 - [用户故事](docs/USER-STORIES.md) — 验收依据
 - [项目简报](docs/PROJECT-BRIEF.md) — 需求、选型、架构、决策记录
 - [设计系统](docs/DESIGN-SYSTEM.md) — PACE 品牌、token、组件规范
 - [实施契约](docs/IMPL-CONTRACTS.md) — 并行开发时的接口边界
+- [能力差距](docs/CAPABILITY-GAP.md) — 对标行业基线后的已补齐项与剩余优先级
+- [待决策](docs/DECISIONS-PENDING.md) — 需要产品/运维拍板的 15 个点
 
 ## 安全
 

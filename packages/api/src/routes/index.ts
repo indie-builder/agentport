@@ -3,6 +3,8 @@ import { registerAgentRoutes } from '../features/agents/routes.js';
 import { registerAuditRoutes } from '../features/audit/routes.js';
 import { registerAuth } from '../features/auth/routes.js';
 import { registerChatRoutes } from '../features/chat/routes.js';
+import { registerEvalRoutes } from '../features/eval/routes.js';
+import { registerExportRoutes } from '../features/export/routes.js';
 import { registerOverviewRoutes } from '../features/overview/routes.js';
 import { registerRunRoutes } from '../features/runs/routes.js';
 import { createInvoker } from '../features/servers/agent-invoker.js';
@@ -22,8 +24,10 @@ export async function registerRoutes(app: FastifyInstance) {
   registerAgentToolsEndpoint(app, createInvoker(app));
   await registerAgentRoutes(app);
   await registerSkillRoutes(app);
+  registerExportRoutes(app);
   await registerAuditRoutes(app);
   await registerChatRoutes(app);
+  registerEvalRoutes(app);
   registerOverviewRoutes(app);
   registerRunRoutes(app);
 }

@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Download,
   FileCode,
   FileText,
   History,
@@ -29,6 +30,7 @@ import { Select } from '../components/ui/select.js';
 import { Tabs } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { AgentVersionSummary } from '../lib/api.js';
+import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { formatDateTime } from '../lib/format.js';
 import {
@@ -43,7 +45,7 @@ import {
   useSkills,
   useUpdateAgent,
 } from '../lib/queries.js';
-import { toastSuccess } from '../lib/toast.js';
+import { toastError, toastSuccess } from '../lib/toast.js';
 
 const models = ['claude-sonnet-5-5', 'claude-opus-5', 'claude-haiku-4-5'];
 
@@ -250,6 +252,28 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
   const [form, setForm] = useState<AgentInput>(() => toInput(agent));
   const [tab, setTab] = useState<'config' | 'files' | 'versions'>('config');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [exporting, setExporting] = useState(false);
+
+  const download = async (): Promise<void> => {
+    setExporting(true);
+    try {
+      const data = await api.exportAgent(agent.id);
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${agent.slug}.agent.json`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const initial = useMemo(() => toInput(agent), [agent]);
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initial), [form, initial]);
@@ -308,6 +332,15 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
               有未保存的更改
             </span>
           ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={exporting}
+            aria-busy={exporting}
+            onClick={() => void download()}
+          >
+            <Download className="size-3.5" /> 导出
+          </Button>
           <Button variant="ghost" size="sm" onClick={onDelete} className="hover:text-danger">
             <Trash2 className="size-3.5" /> 删除
           </Button>

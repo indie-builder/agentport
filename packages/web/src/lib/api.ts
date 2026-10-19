@@ -16,6 +16,16 @@ import type {
 
 export type AgentFiles = WorkspaceFiles;
 
+/** 导出文件的前端视图；页面只取 agent.slug 生成文件名，其余原样写盘。 */
+export interface AgentExport {
+  format: string;
+  exportedAt: string;
+  agent: Omit<Agent, 'id' | 'createdAt' | 'updatedAt'>;
+  servers: Array<Record<string, unknown>>;
+  skills: Skill[];
+  workspace: AgentFiles;
+}
+
 export interface Me {
   authenticated: boolean;
   username?: string;
@@ -155,6 +165,49 @@ export interface ConversationList {
   supported: boolean;
 }
 
+export type EvalRunStatus = 'running' | 'succeeded' | 'failed';
+
+export interface EvalCase {
+  id: string;
+  agentId: string;
+  name: string;
+  prompt: string;
+  expectation: string;
+  createdAt: string;
+}
+
+export interface EvalCaseInput {
+  agentId: string;
+  name: string;
+  prompt: string;
+  expectation: string;
+}
+
+export interface EvalRun {
+  id: string;
+  agentId: string;
+  status: EvalRunStatus;
+  total: number;
+  passed: number;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface EvalResult {
+  caseId: string;
+  name: string;
+  prompt: string;
+  expectation: string;
+  passed: boolean;
+  output: string;
+  runId: string;
+}
+
+export interface EvalRunDetail {
+  evalRun: EvalRun;
+  results: EvalResult[];
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -229,6 +282,8 @@ export const api = {
     request(`/servers/${serverId}/tools`, 'POST', input),
   deleteTool: (serverId: string, toolId: string): Promise<void> =>
     request(`/servers/${serverId}/tools/${toolId}`, 'DELETE'),
+  setToolEnabled: (serverId: string, toolId: string, enabled: boolean): Promise<ApiTool> =>
+    request(`/servers/${serverId}/tools/${toolId}`, 'PATCH', { enabled }),
 
   agents: (): Promise<Agent[]> => request('/agents'),
   createAgent: (input: AgentInput): Promise<Agent> => request('/agents', 'POST', input),
@@ -241,6 +296,7 @@ export const api = {
     request(`/agents/${id}/versions/${version}`),
   rollbackAgent: (id: string, version: number): Promise<Agent> =>
     request(`/agents/${id}/rollback`, 'POST', { version }),
+  exportAgent: (id: string): Promise<AgentExport> => request(`/export/agents/${id}`),
 
   skills: (): Promise<Skill[]> => request('/skills'),
   createSkill: (input: SkillInput): Promise<Skill> => request('/skills', 'POST', input),
@@ -283,4 +339,22 @@ export const api = {
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return request<AuditList>(`/audit${search}`);
   },
+
+  evalCases: (agentId?: string): Promise<EvalCase[]> => {
+    const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
+    return request<EvalCase[]>(`/eval/cases${query}`);
+  },
+  createEvalCase: (input: EvalCaseInput): Promise<EvalCase> =>
+    request('/eval/cases', 'POST', input),
+  updateEvalCase: (id: string, input: Partial<Omit<EvalCaseInput, 'agentId'>>): Promise<EvalCase> =>
+    request(`/eval/cases/${id}`, 'PATCH', input),
+  deleteEvalCase: (id: string): Promise<void> => request(`/eval/cases/${id}`, 'DELETE'),
+
+  evalRuns: (agentId?: string): Promise<EvalRun[]> => {
+    const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
+    return request<EvalRun[]>(`/eval/runs${query}`);
+  },
+  startEvalRun: (agentId: string): Promise<{ evalRunId: string }> =>
+    request('/eval/runs', 'POST', { agentId }),
+  evalRun: (id: string): Promise<EvalRunDetail> => request(`/eval/runs/${id}`),
 };

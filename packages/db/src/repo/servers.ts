@@ -77,6 +77,20 @@ export async function createApiTool(db: Database, input: ApiToolWrite): Promise<
   return row;
 }
 
+export async function setApiToolEnabled(
+  db: Database,
+  serverId: string,
+  toolId: string,
+  enabled: boolean,
+): Promise<ApiToolRow | null> {
+  const [row] = await db
+    .update(apiTools)
+    .set({ enabled })
+    .where(and(eq(apiTools.id, toolId), eq(apiTools.serverId, serverId)))
+    .returning();
+  return row ?? null;
+}
+
 export async function deleteApiTool(
   db: Database,
   serverId: string,

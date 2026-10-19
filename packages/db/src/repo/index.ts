@@ -2,6 +2,7 @@ export * as agentVersions from './agent-versions.js';
 export * as agents from './agents.js';
 export * as audit from './audit.js';
 export * as chat from './chat.js';
+export * as evalRepo from './eval.js';
 export * as runs from './runs.js';
 export * as servers from './servers.js';
 export * as skills from './skills.js';

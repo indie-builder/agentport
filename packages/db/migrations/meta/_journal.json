@@ -29,6 +29,20 @@
       "when": 1792429789267,
       "tag": "0003_lonely_doctor_faustus",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792430270077,
+      "tag": "0004_neat_scorpion",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792430334354,
+      "tag": "0005_fuzzy_grim_reaper",
+      "breakpoints": true
     }
   ]
 }

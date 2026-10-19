@@ -25,6 +25,10 @@ import {
   api,
   type ConversationDetail,
   type ConversationList,
+  type EvalCase,
+  type EvalCaseInput,
+  type EvalRun,
+  type EvalRunDetail,
   type Me,
   type Overview,
   type RunDetail,
@@ -165,7 +169,6 @@ export function useRun(runId: string) {
 }
 
 const AUDIT_PAGE_SIZE = 100;
-
 export function useAudit(query: Omit<AuditQuery, 'before' | 'limit'>) {
   return useInfiniteQuery({
     queryKey: ['audit', query],
@@ -256,6 +259,20 @@ export function useCreateTool(serverId: string) {
   return useMutation({
     mutationFn: (input: ApiToolInput) => api.createTool(serverId, input),
     onSuccess: () => invalidate('tools'),
+  });
+}
+
+export function useSetToolEnabled(serverId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { toolId: string; enabled: boolean }) =>
+      api.setToolEnabled(serverId, vars.toolId, vars.enabled),
+    onSuccess: (tool) => {
+      client.setQueryData<ApiTool[]>(['tools', serverId], (old) =>
+        old?.map((item) => (item.id === tool.id ? tool : item)),
+      );
+      void client.invalidateQueries({ queryKey: ['tools', serverId] });
+    },
   });
 }
 
@@ -363,5 +380,67 @@ export function useDeleteSkill() {
       void client.invalidateQueries({ queryKey: ['skills'] });
       void client.invalidateQueries({ queryKey: ['agents'] });
     },
+  });
+}
+
+export function useEvalCases(agentId: string | null) {
+  return useQuery<EvalCase[]>({
+    queryKey: ['eval-cases', agentId],
+    queryFn: () => api.evalCases(agentId ?? undefined),
+    enabled: agentId !== null,
+    staleTime: 0,
+  });
+}
+
+export function useCreateEvalCase() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: EvalCaseInput) => api.createEvalCase(input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-cases'] }),
+  });
+}
+
+export function useUpdateEvalCase() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; input: Partial<Omit<EvalCaseInput, 'agentId'>> }) =>
+      api.updateEvalCase(vars.id, vars.input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-cases'] }),
+  });
+}
+
+export function useDeleteEvalCase() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteEvalCase(id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-cases'] }),
+  });
+}
+
+export function useEvalRuns(agentId: string | null) {
+  return useQuery<EvalRun[]>({
+    queryKey: ['eval-runs', agentId],
+    queryFn: () => api.evalRuns(agentId ?? undefined),
+    enabled: agentId !== null,
+    // 跑批在后台进行，列表里有 running 时轮询。
+    refetchInterval: (query) =>
+      query.state.data?.some((run) => run.status === 'running') ? 3_000 : false,
+  });
+}
+
+export function useStartEvalRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (agentId: string) => api.startEvalRun(agentId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-runs'] }),
+  });
+}
+
+export function useEvalRun(id: string | null) {
+  return useQuery<EvalRunDetail>({
+    queryKey: ['eval-run', id],
+    queryFn: () => api.evalRun(id ?? ''),
+    enabled: id !== null,
+    refetchInterval: (query) => (query.state.data?.evalRun.status === 'running' ? 2_000 : false),
   });
 }

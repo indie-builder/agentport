@@ -172,6 +172,21 @@ export function registerServerRoutes(app: FastifyInstance): void {
     }
   });
 
+  app.patch('/api/servers/:id/tools/:toolId', auth, async (request, reply) => {
+    const parsed = toolParams.safeParse(request.params);
+    if (!parsed.success) return invalid(reply, 'invalid id');
+    const body = z.object({ enabled: z.boolean() }).safeParse(request.body);
+    if (!body.success) return invalid(reply, 'enabled must be a boolean');
+    const tool = await repo.setToolEnabled(
+      app.db,
+      parsed.data.id,
+      parsed.data.toolId,
+      body.data.enabled,
+    );
+    if (!tool) return notFound(reply, 'tool');
+    return tool;
+  });
+
   app.delete('/api/servers/:id/tools/:toolId', auth, async (request, reply) => {
     const parsed = toolParams.safeParse(request.params);
     if (!parsed.success) return invalid(reply, 'invalid id');

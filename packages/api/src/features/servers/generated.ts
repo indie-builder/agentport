@@ -61,6 +61,7 @@ async function callUpstream(
 export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
   const server = new McpServer({ name: input.name, version: '1.0.0' });
   for (const tool of input.tools) {
+    if (!tool.enabled) continue;
     // JSON Schema 原样透传，避免从 zod 反向生成时丢字段。
     const inputSchema = fromJsonSchema<Record<string, unknown>>(
       tool.inputSchema as Parameters<typeof fromJsonSchema>[0],
