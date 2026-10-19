@@ -38,11 +38,14 @@
 
 | 编号 | 修复 |
 |---|---|
-
-## 循环 9 已修复
-
-| 编号 | 修复 |
-|---|---|
+| H5 | `/mcp` 60/min + 进程内并发 4；`/api/servers/:id/test` 20/min；`/api/eval/runs` 10/min + 同 agent 只允许一个 running |
+| H8 | 全局启用 CSP；仅 MCP 路由关闭；`style-src` 放行内联样式 |
+| M2 | JWT 增加 `sid`，Redis 存会话，logout 立即失效；TTL 24 小时；鉴权查询 5 秒本地缓存 |
+| M3 | CORS 显式 allowlist（`CORS_ORIGINS`）；`TRUST_PROXY` 支持 |
+| M7 | Agent/Server PATCH 乐观锁，冲突返回 409 `CONFLICT_STALE`；前端提示刷新 |
+| M8 | `agent_runs` / `messages.run_id` 外键（迁移先清理孤儿行） |
+| M13 | `SANDBOX_EGRESS` 默认 `proxy`，无代理时降级为 `open` 并告警 |
+| M14 | 文档记录 docker.sock 风险与替换方案；记入 D-16 |
 
 ## 待处理（需要设计决策，见 DECISIONS-PENDING.md）
 
