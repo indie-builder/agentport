@@ -326,6 +326,10 @@ describe.skipIf(!ready)('failure paths', () => {
     const agent = await createAgent([server.id]);
     const runId = unique('fail-run');
     runIds.push(runId);
+    await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
+      'conv_failure_test',
+      agent.id,
+    ]);
     await app.pool.query(
       "insert into agent_runs (id, conversation_id, agent_id) values ($1, 'conv_failure_test', $2)",
       [runId, agent.id],

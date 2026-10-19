@@ -4,6 +4,7 @@ import type { NodeIncomingMessageLike, NodeServerResponseLike } from '@modelcont
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { runMcp } from '../../plugins/concurrency.js';
 import type { AgentInvoker } from './agent-tools.js';
 import { agentHandler, platformMcpToken } from './agent-tools.js';
 
@@ -26,32 +27,43 @@ export function registerAgentToolsEndpoint(app: FastifyInstance, invoker: AgentI
     return;
   }
 
-  app.all('/mcp', async (request, reply) => {
-    if (!tokenMatches(expected, request.headers.authorization)) {
-      return reply
-        .status(401)
-        .header('WWW-Authenticate', 'Bearer realm="agentport-platform"')
-        .send({ code: 'UNAUTHORIZED', message: 'invalid bearer token' });
-    }
+  app.all(
+    '/mcp',
+    {
+      config: {
+        rateLimit: { max: 60, timeWindow: '1 minute' },
+        helmet: { contentSecurityPolicy: false },
+      },
+    },
+    async (request, reply) => {
+      if (!tokenMatches(expected, request.headers.authorization)) {
+        return reply
+          .status(401)
+          .header('WWW-Authenticate', 'Bearer realm="agentport-platform"')
+          .send({ code: 'UNAUTHORIZED', message: 'invalid bearer token' });
+      }
 
-    const rows = await app.db
-      .select({
-        slug: schema.agents.slug,
-        name: schema.agents.name,
-        description: schema.agents.description,
-      })
-      .from(schema.agents)
-      .where(eq(schema.agents.enabled, true));
-    void repo;
+      const rows = await app.db
+        .select({
+          slug: schema.agents.slug,
+          name: schema.agents.name,
+          description: schema.agents.description,
+        })
+        .from(schema.agents)
+        .where(eq(schema.agents.enabled, true));
+      void repo;
 
-    reply.hijack();
-    const handler = toNodeHandler(agentHandler(invoker, rows), {
-      onerror: (err) => app.log.error({ err }, 'platform mcp endpoint error'),
-    });
-    await handler(
-      request.raw as unknown as NodeIncomingMessageLike,
-      reply.raw as unknown as NodeServerResponseLike,
-      request.body,
-    );
-  });
+      reply.hijack();
+      const handler = toNodeHandler(agentHandler(invoker, rows), {
+        onerror: (err) => app.log.error({ err }, 'platform mcp endpoint error'),
+      });
+      await runMcp(() =>
+        handler(
+          request.raw as unknown as NodeIncomingMessageLike,
+          reply.raw as unknown as NodeServerResponseLike,
+          request.body,
+        ),
+      );
+    },
+  );
 }

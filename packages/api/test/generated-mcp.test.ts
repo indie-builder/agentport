@@ -130,6 +130,11 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
 
     const runId = unique('run');
     runIds.push(runId);
+    // agent_runs 现在有外键，先落一个真实会话。
+    await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
+      `conv_test_${runId}`,
+      agentId,
+    ]);
     await app.pool.query(
       'insert into agent_runs (id, conversation_id, agent_id) values ($1, $2, $3)',
       [runId, `conv_test_${runId}`, agentId],
@@ -208,6 +213,10 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
 
     const runId = unique('unbound-run');
     runIds.push(runId);
+    await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
+      `conv_test_${runId}`,
+      agentId,
+    ]);
     await app.pool.query(
       'insert into agent_runs (id, conversation_id, agent_id) values ($1, $2, $3)',
       [runId, `conv_test_${runId}`, agentId],

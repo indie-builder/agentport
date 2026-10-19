@@ -93,6 +93,16 @@ export async function listRuns(db: Database, agentId?: string): Promise<EvalRun[
     .orderBy(desc(evalRuns.createdAt), desc(evalRuns.id));
 }
 
+/** 同一智能体只允许一个在跑的评估；API 层据此返回 409。 */
+export async function hasRunningRun(db: Database, agentId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: evalRuns.id })
+    .from(evalRuns)
+    .where(and(eq(evalRuns.agentId, agentId), eq(evalRuns.status, 'running')))
+    .limit(1);
+  return row !== undefined;
+}
+
 export interface EvalResultRow {
   caseId: string;
   name: string;

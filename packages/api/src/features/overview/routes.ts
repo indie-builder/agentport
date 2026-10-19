@@ -23,77 +23,75 @@ export function registerOverviewRoutes(app: FastifyInstance): void {
     const days = Math.min(Math.max(Number(request.query.days ?? 7), 1), 3650);
     const since = daysAgo(Number.isFinite(days) && days > 0 ? days : 7);
 
-    const [serverCount] = await app.db
-      .select({ value: sql<number>`count(*)::int` })
-      .from(schema.servers);
-    const [agentCount] = await app.db
-      .select({ value: sql<number>`count(*)::int` })
-      .from(schema.agents);
-
-    // 每个智能体的聚合指标。FILTER 子句让「失败率」与「延迟」一次扫描完成。
-    const agentRows = await app.db
-      .select({
-        agentId: schema.agents.id,
-        name: schema.agents.name,
-        slug: schema.agents.slug,
-        createdAt: schema.agents.createdAt,
-        enabled: schema.agents.enabled,
-        lastRunStartTime: sql<Date | null>`max(${schema.agentRuns.startedAt})`,
-        runCount: sql<number>`count(${schema.agentRuns.id})::int`,
-        totalCost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}), 0)::float`,
-        errorRate: sql<number>`coalesce(
+    // 三个互不依赖的查询并行：串行会把连接池占用时间乘以 3。
+    const [[serverCount], [agentCount], agentRows] = await Promise.all([
+      app.db.select({ value: sql<number>`count(*)::int` }).from(schema.servers),
+      app.db.select({ value: sql<number>`count(*)::int` }).from(schema.agents),
+      // 每个智能体的聚合指标。FILTER 子句让「失败率」与「延迟」一次扫描完成。
+      app.db
+        .select({
+          agentId: schema.agents.id,
+          name: schema.agents.name,
+          slug: schema.agents.slug,
+          createdAt: schema.agents.createdAt,
+          enabled: schema.agents.enabled,
+          lastRunStartTime: sql<Date | null>`max(${schema.agentRuns.startedAt})`,
+          runCount: sql<number>`count(${schema.agentRuns.id})::int`,
+          totalCost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}), 0)::float`,
+          errorRate: sql<number>`coalesce(
           count(*) filter (where ${schema.agentRuns.status} in ('failed','timeout'))::float
           / nullif(count(${schema.agentRuns.id}), 0), 0)::float`,
-        latencyP50: sql<
-          number | null
-        >`percentile_cont(0.5) within group (order by ${schema.agentRuns.latencyMs})`,
-        latencyP99: sql<
-          number | null
-        >`percentile_cont(0.99) within group (order by ${schema.agentRuns.latencyMs})`,
-        totalTokens: sql<number>`coalesce(sum(coalesce(${schema.agentRuns.inputTokens},0) + coalesce(${schema.agentRuns.outputTokens},0)), 0)::int`,
-      })
-      .from(schema.agents)
-      .leftJoin(
-        schema.agentRuns,
-        and(
-          eq(schema.agentRuns.agentId, schema.agents.id),
-          sql`${schema.agentRuns.startedAt} >= ${since}`,
-        ),
-      )
-      .groupBy(schema.agents.id)
-      .orderBy(desc(sql`max(${schema.agentRuns.startedAt})`));
+          latencyP50: sql<
+            number | null
+          >`percentile_cont(0.5) within group (order by ${schema.agentRuns.latencyMs})`,
+          latencyP99: sql<
+            number | null
+          >`percentile_cont(0.99) within group (order by ${schema.agentRuns.latencyMs})`,
+          totalTokens: sql<number>`coalesce(sum(coalesce(${schema.agentRuns.inputTokens},0) + coalesce(${schema.agentRuns.outputTokens},0)), 0)::int`,
+        })
+        .from(schema.agents)
+        .leftJoin(
+          schema.agentRuns,
+          and(
+            eq(schema.agentRuns.agentId, schema.agents.id),
+            sql`${schema.agentRuns.startedAt} >= ${since}`,
+          ),
+        )
+        .groupBy(schema.agents.id)
+        .orderBy(desc(sql`max(${schema.agentRuns.startedAt})`)),
+    ]);
 
-    const [runningCount] = await app.db
-      .select({ value: sql<number>`count(*)::int` })
-      .from(schema.agentRuns)
-      .where(eq(schema.agentRuns.status, 'running'));
-
-    const [runAgg] = await app.db
-      .select({
-        total: count(),
-        cost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}), 0)::float`,
-        avgLatency: avg(schema.agentRuns.latencyMs),
-      })
-      .from(schema.agentRuns)
-      .where(sql`${schema.agentRuns.startedAt} >= ${since}`);
-
-    const recent = await app.db
-      .select({
-        id: schema.agentRuns.id,
-        agentId: schema.agentRuns.agentId,
-        agentName: schema.agents.name,
-        status: schema.agentRuns.status,
-        startedAt: schema.agentRuns.startedAt,
-        endedAt: schema.agentRuns.endedAt,
-        costUsd: schema.agentRuns.costUsd,
-        turns: schema.agentRuns.turns,
-        latencyMs: schema.agentRuns.latencyMs,
-        error: schema.agentRuns.error,
-      })
-      .from(schema.agentRuns)
-      .leftJoin(schema.agents, eq(schema.agents.id, schema.agentRuns.agentId))
-      .orderBy(desc(schema.agentRuns.startedAt))
-      .limit(20);
+    const [[runningCount], [runAgg], recent] = await Promise.all([
+      app.db
+        .select({ value: sql<number>`count(*)::int` })
+        .from(schema.agentRuns)
+        .where(eq(schema.agentRuns.status, 'running')),
+      app.db
+        .select({
+          total: count(),
+          cost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}), 0)::float`,
+          avgLatency: avg(schema.agentRuns.latencyMs),
+        })
+        .from(schema.agentRuns)
+        .where(sql`${schema.agentRuns.startedAt} >= ${since}`),
+      app.db
+        .select({
+          id: schema.agentRuns.id,
+          agentId: schema.agentRuns.agentId,
+          agentName: schema.agents.name,
+          status: schema.agentRuns.status,
+          startedAt: schema.agentRuns.startedAt,
+          endedAt: schema.agentRuns.endedAt,
+          costUsd: schema.agentRuns.costUsd,
+          turns: schema.agentRuns.turns,
+          latencyMs: schema.agentRuns.latencyMs,
+          error: schema.agentRuns.error,
+        })
+        .from(schema.agentRuns)
+        .leftJoin(schema.agents, eq(schema.agents.id, schema.agentRuns.agentId))
+        .orderBy(desc(schema.agentRuns.startedAt))
+        .limit(20),
+    ]);
 
     return {
       window: { days, since: since.toISOString() },

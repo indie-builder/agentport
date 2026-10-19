@@ -215,8 +215,8 @@ function useInvalidate() {
 export function useUpdateServer() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { id: string; input: Partial<ServerInput> }) =>
-      api.updateServer(vars.id, vars.input),
+    mutationFn: (vars: { id: string; input: Partial<ServerInput>; expectedUpdatedAt?: string }) =>
+      api.updateServer(vars.id, vars.input, vars.expectedUpdatedAt),
     onMutate: async ({ id, input }) => {
       await client.cancelQueries({ queryKey: ['servers'] });
       const previous = client.getQueryData<Server[]>(['servers']);
@@ -333,8 +333,8 @@ export function useCreateAgent() {
 export function useUpdateAgent() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { id: string; input: Partial<AgentInput> }) =>
-      api.updateAgent(vars.id, vars.input),
+    mutationFn: (vars: { id: string; input: Partial<AgentInput>; expectedUpdatedAt?: string }) =>
+      api.updateAgent(vars.id, vars.input, vars.expectedUpdatedAt),
     onMutate: async ({ id, input }) => {
       await client.cancelQueries({ queryKey: ['agents'] });
       const previous = client.getQueryData<Agent[]>(['agents']);

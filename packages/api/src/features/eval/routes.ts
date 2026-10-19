@@ -218,48 +218,58 @@ export function registerEvalRoutes(app: FastifyInstance): void {
     return reply.status(204).send();
   });
 
-  app.post('/api/eval/runs', auth, async (request, reply) => {
-    const parsed = z.object({ agentId: z.string().min(1) }).safeParse(request.body);
-    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');
-    const { agentId } = parsed.data;
+  app.post(
+    '/api/eval/runs',
+    { ...auth, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const parsed = z.object({ agentId: z.string().min(1) }).safeParse(request.body);
+      if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');
+      const { agentId } = parsed.data;
 
-    const [agent] = await app.db
-      .select({ id: schema.agents.id, timeoutMs: schema.agents.timeoutMs })
-      .from(schema.agents)
-      .where(eq(schema.agents.id, agentId))
-      .limit(1);
-    if (!agent) {
-      return reply.status(404).send({ code: 'AGENT_NOT_FOUND', message: 'agent not found' });
-    }
+      const [agent] = await app.db
+        .select({ id: schema.agents.id, timeoutMs: schema.agents.timeoutMs })
+        .from(schema.agents)
+        .where(eq(schema.agents.id, agentId))
+        .limit(1);
+      if (!agent) {
+        return reply.status(404).send({ code: 'AGENT_NOT_FOUND', message: 'agent not found' });
+      }
 
-    const cases = await evalRepo.listCases(app.db, agentId);
-    if (cases.length === 0) return invalid(reply, '该智能体还没有用例');
+      if (await evalRepo.hasRunningRun(app.db, agentId)) {
+        return reply
+          .status(409)
+          .send({ code: 'EVAL_RUN_IN_PROGRESS', message: '该智能体已有正在运行的评估' });
+      }
 
-    const evalRun = await evalRepo.createEvalRun(app.db, {
-      id: newId('evalRun'),
-      agentId,
-      total: cases.length,
-    });
+      const cases = await evalRepo.listCases(app.db, agentId);
+      if (cases.length === 0) return invalid(reply, '该智能体还没有用例');
 
-    // 不 await：请求立即返回 202，跑批在进程内串行继续。
-    void executeEvalRun(app, {
-      evalRunId: evalRun.id,
-      agentId,
-      timeoutMs: agent.timeoutMs,
-      cases,
-    });
+      const evalRun = await evalRepo.createEvalRun(app.db, {
+        id: newId('evalRun'),
+        agentId,
+        total: cases.length,
+      });
 
-    await writeAudit(app.db, request.log, {
-      actor: 'admin',
-      action: 'eval.run.requested',
-      target: evalRun.id,
-      input: { agentId, total: cases.length },
-      status: 'ok',
-      requestId: request.id,
-    });
+      // 不 await：请求立即返回 202，跑批在进程内串行继续。
+      void executeEvalRun(app, {
+        evalRunId: evalRun.id,
+        agentId,
+        timeoutMs: agent.timeoutMs,
+        cases,
+      });
 
-    return reply.status(202).send({ evalRunId: evalRun.id });
-  });
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'eval.run.requested',
+        target: evalRun.id,
+        input: { agentId, total: cases.length },
+        status: 'ok',
+        requestId: request.id,
+      });
+
+      return reply.status(202).send({ evalRunId: evalRun.id });
+    },
+  );
 
   app.get<{ Querystring: { agentId?: string } }>('/api/eval/runs', auth, async (request) =>
     evalRepo.listRuns(app.db, request.query.agentId),

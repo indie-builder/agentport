@@ -38,6 +38,7 @@ import {
 } from '../components/ui/table.js';
 import { Tabs } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { ApiError } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
 import { formatDateTime, formatDuration } from '../lib/format.js';
@@ -838,13 +839,20 @@ function ServerFormDialog({
     setErrors({});
     if (server) {
       update.mutate(
-        { id: server.id, input: parsed.data },
+        { id: server.id, input: parsed.data, expectedUpdatedAt: server.updatedAt },
         {
           onSuccess: (saved) => {
             toastSuccess('Server 已更新');
             onSaved(saved);
           },
-          onError: (error) => toastError(error),
+          onError: (error) => {
+            if (error instanceof ApiError && error.status === 409) {
+              toast.error('配置已被修改，请刷新');
+              onClose();
+              return;
+            }
+            toastError(error);
+          },
         },
       );
     } else {

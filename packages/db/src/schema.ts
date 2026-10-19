@@ -167,7 +167,8 @@ export const messages = pgTable(
       .references(() => conversations.id, { onDelete: 'cascade' }),
     role: text('role').notNull(),
     content: jsonb('content').$type<unknown>().notNull(),
-    runId: text('run_id'),
+    /** 可空：没有 run 的 user 消息；孤儿值由迁移清理。 */
+    runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -181,8 +182,12 @@ export const agentRuns = pgTable(
   'agent_runs',
   {
     id: text('id').primaryKey(),
-    conversationId: text('conversation_id').notNull(),
-    agentId: text('agent_id').notNull(),
+    conversationId: text('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
     status: text('status', {
       enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'],
     })

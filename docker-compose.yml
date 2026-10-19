@@ -87,6 +87,11 @@ services:
     # socket 属于宿主 root:docker；容器内 node 用户不在该组，补上 GID 0
     # （Docker Desktop 默认 socket 为 root:root）。Linux 上若 docker 组 GID 不同，
     # 用 DOCKER_GID 覆盖。
+    #
+    # 风险（SECURITY.md M14）：能访问该 socket 的进程可以启动特权容器，
+    # 因此 worker 容器本身就是宿主 root 的等价物。只在单机自用、只运行自己配置的
+    # 智能体时使用；对外提供服务前，替换为 socket proxy（只放行 container 相关 API）
+    # 或独立沙盒节点。详见 docs/OPERATIONS.md「Docker socket 风险」。
     group_add:
       - '${DOCKER_GID:-0}'
     depends_on:

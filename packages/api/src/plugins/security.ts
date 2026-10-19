@@ -12,11 +12,16 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
   const { Redis } = await import('ioredis');
 
   await app.register(helmet, {
-    // MCP 端点会被非浏览器客户端访问，CSP 只对页面有意义，这里放宽。
-    contentSecurityPolicy: false,
+    // 前端构建产物无内联脚本；内联样式来自 React 的 style 属性，需要放行。
+    // MCP 端点会被非浏览器客户端访问，在各自 route config 里单独关闭 CSP。
+    contentSecurityPolicy: {
+      directives: { styleSrc: ["'self'", "'unsafe-inline'"] },
+    },
   });
   await app.register(cors, {
-    origin: app.config.NODE_ENV !== 'production',
+    origin: app.config.CORS_ORIGINS.split(',')
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0),
     credentials: true,
   });
   await app.register(compress, { global: true });
@@ -45,4 +50,16 @@ export const authRateLimit = {
 
 export const chatRateLimit = {
   config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+} as const;
+
+export const mcpRateLimit = {
+  config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+} as const;
+
+export const serverTestRateLimit = {
+  config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+} as const;
+
+export const evalRunRateLimit = {
+  config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
 } as const;

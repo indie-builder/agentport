@@ -122,14 +122,26 @@ export interface ServerPatch {
 }
 
 /** PATCH 语义：kind 不可变；env/headers 整体替换，值为 '••••' 的键沿用旧值。 */
+function stale(): Error {
+  return Object.assign(new Error('配置已被修改，请刷新'), {
+    statusCode: 409,
+    code: 'CONFLICT_STALE',
+  });
+}
+
 export async function updateServer(
   db: Db,
   id: string,
   patch: ServerPatch,
   key: string,
+  expectedUpdatedAt?: Date,
 ): Promise<Server | null> {
   const row = await serverRepo.getServer(db, id);
   if (!row) return null;
+  // 并发编辑：调用方带上首次加载的 updatedAt，不匹配就不写。
+  if (expectedUpdatedAt !== undefined && row.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+    throw stale();
+  }
   const current = toApiServer(row, key);
   if (patch.kind !== undefined && patch.kind !== current.kind) {
     throw Object.assign(new Error('server kind cannot change'), {
@@ -181,12 +193,17 @@ export async function updateServer(
     key,
     typeof row.config.mcpToken === 'string' ? row.config.mcpToken : undefined,
   );
-  const updated = await serverRepo.updateServer(db, id, {
-    name: next.name,
-    description: next.description,
-    config: { ...row.config, ...split.config },
-    secretsEncrypted: split.secretsEncrypted,
-  });
+  const updated = await serverRepo.updateServer(
+    db,
+    id,
+    {
+      name: next.name,
+      description: next.description,
+      config: { ...row.config, ...split.config },
+      secretsEncrypted: split.secretsEncrypted,
+    },
+    expectedUpdatedAt,
+  );
   return updated ? maskServer(toApiServer(updated, key)) : null;
 }
 

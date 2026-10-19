@@ -206,6 +206,31 @@ describe.skipIf(!ready)('servers', () => {
     expect(missing.statusCode).toBe(404);
   });
 
+  it('PATCH rejects a stale expectedUpdatedAt with 409', async () => {
+    const name = unique('stale');
+    created.push(name);
+    const server = (
+      await post(name, { kind: 'stdio', command: 'echo', args: [], env: {} })
+    ).json<Server>();
+
+    const ok = await inject(app, {
+      method: 'PATCH',
+      url: `/api/servers/${server.id}`,
+      headers: auth(),
+      payload: { description: 'first', expectedUpdatedAt: server.updatedAt },
+    });
+    expect(ok.statusCode).toBe(200);
+
+    const stale = await inject(app, {
+      method: 'PATCH',
+      url: `/api/servers/${server.id}`,
+      headers: auth(),
+      payload: { description: 'second', expectedUpdatedAt: server.updatedAt },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ code: 'CONFLICT_STALE' });
+  });
+
   it('DELETE removes the server and returns 404 afterwards', async () => {
     const name = unique('del');
     const server = (

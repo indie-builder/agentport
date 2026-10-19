@@ -18,6 +18,8 @@ const envSchema = z.object({
     .min(12)
     .refine((value) => !WEAK_PASSWORDS.has(value), 'must not be a well-known default password'),
   JWT_SECRET: z.string().min(32),
+  /** 逗号分隔的浏览器 Origin allowlist；开发默认 Vite dev server。 */
+  CORS_ORIGINS: z.string().default('http://localhost:5173'),
   AGENT_DEFAULT_MODEL: z.string().default('claude-sonnet-5-5'),
   AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),

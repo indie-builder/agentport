@@ -142,13 +142,13 @@ agentport/
 
 ## 安全说明
 
-- **认证**：单管理员账号，scrypt 校验（常量时间比较），JWT 存在 httpOnly、SameSite=Lax 的 Cookie 中，有效期 7 天；Redis 限流默认关闭（`global: false`），仅登录 10 次/分钟、发起对话 20 次/分钟，按 IP 计数。
+- **认证**：单管理员账号，scrypt 校验（常量时间比较），JWT 存在 httpOnly、SameSite=Lax 的 Cookie 中，有效期 24 小时；JWT 带随机 `sid`，服务端在 Redis 校验 `session:<sid>`，logout 立即吊销。CORS 使用 `CORS_ORIGINS` allowlist；限流按 IP 计数（登录 10/min、对话 20/min、`/mcp` 60/min、连接测试 20/min、评估发起 10/min）。
 - **密钥**：MCP 的 env/headers 使用 AES-256-GCM 加密入库，API 返回时脱敏为 `••••`；日志对 authorization、cookie、token、secret 等字段脱敏。
 - **工作区密钥**：每次运行会把解密后的 MCP env/headers 写入 `data/workspaces/<slug>/.mcp.json`，供沙盒内进程使用。该目录含明文密钥，必须限制宿主访问权限，且不要提交或打包。
 - **SSRF**：只允许 http/https；连接测试与工具运行时都会解析 DNS 并拒绝私网、回环、link-local 地址；开发模式放行 localhost。DNS 重绑定无法在应用层彻底消除，出站仍建议配合网络 allowlist。
 - **沙盒**：只读根文件系统、只读工作区挂载、`--cap-drop ALL`、`no-new-privileges`、非 root 用户、内存/CPU/PID 限制；内置工具（Bash/Read/Write/Edit/WebFetch 等）从上下文移除，只放行绑定的 MCP 工具；有子智能体时才放行 `Agent`。
 - **工具审批**：当前没有「暂停等待批准」的 HITL；`dontAsk` 下未预批准的工具直接拒绝。
-- **出站**：`SANDBOX_EGRESS=open` 为默认；`none` 断网，`proxy` 让容器使用宿主代理。需要硬隔离时用 `none` 或独立出站网关。
+- **出站**：`SANDBOX_EGRESS` 默认 `proxy`，容器通过 `HTTPS_PROXY` 出站；未设置代理地址时启动 warn 并回退到 `open`（bridge 直连）。`none` 完全断网（此时模型与 MCP 不可用）。需要硬隔离时用 `none` 或独立出站网关。
 - **平台端点**：`/mcp` 只校验单个 `PLATFORM_MCP_TOKEN`；`/mcp/:serverId` 使用每个 generated server 的 Bearer token。`/health/*`（含 `/health/metrics`）无鉴权，不要直接暴露到公网。
 - **宿主权限**：worker 挂载 Docker socket，可控制宿主 Docker，等同于宿主 root。生产环境应改为独立沙盒节点或 microVM 运行时（`SandboxProvider` 接口已预留）。
 - **生产 Cookie**：`NODE_ENV=production` 时 Cookie 带 `Secure`，通过 HTTP + 非 localhost 访问会登录失败。

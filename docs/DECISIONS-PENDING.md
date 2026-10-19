@@ -221,6 +221,24 @@
 
 ---
 
+## D-16 ⏳ worker 的 Docker socket 权限
+
+**问题**：worker 挂载 `/var/run/docker.sock` 且 `group_add: ${DOCKER_GID:-0}`，可控制宿主 Docker，等价宿主 root。
+
+**当前做法**：保持单机架构（D-12 的 Docker provider 需要它）。未改代码，只在 `docker-compose.yml` 与 `docs/OPERATIONS.md` 标注风险。
+
+**备选**：
+- A. 保持（单机自用，仅自己运行受信智能体）
+- B. 宿主前置 socket proxy（如 tecnativa/docker-socket-proxy），只放行 container 相关 API
+- C. 独立沙盒节点：worker 通过远程 Docker（`DOCKER_HOST`）或 microVM 运行时连另一台机器
+- D. 放弃 Docker，换 microsandbox/gVisor（见 D-12）
+
+**建议**：自用保持 A；只要运行不受信输入/多用户，必须 B 或 C；长期走 D。
+
+**影响面**：`docker-compose.yml`、`packages/worker/src/sandbox/docker.ts`、部署文档。需要部署形态才能落地。
+
+---
+
 ## 决策记录格式
 
 决策后请在此处标注：

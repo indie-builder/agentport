@@ -38,6 +38,8 @@ const patchSchema = z.object({
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
   maxThinkingTokens: z.number().int().positive().optional(),
   enabled: z.boolean().optional(),
+  /** 乐观锁：首次加载时的 updatedAt。 */
+  expectedUpdatedAt: z.coerce.date().optional(),
 });
 
 function invalid(reply: FastifyReply, message: string) {
@@ -256,7 +258,9 @@ export function registerAgentRoutes(app: FastifyInstance): void {
         input.skillIds,
         null,
         input.subAgentIds,
+        input.expectedUpdatedAt,
       );
+      // 版本不匹配时仓储抛 409，走到这里只剩「行不存在」。
       if (!row) return notFound(reply);
       await writeAudit(app.db, request.log, {
         actor: 'admin',

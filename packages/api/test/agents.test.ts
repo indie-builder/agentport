@@ -98,6 +98,27 @@ describe.skipIf(!ready)('agents', () => {
     expect(slugChange.statusCode).toBe(400);
   });
 
+  it('PATCH rejects a stale expectedUpdatedAt with 409', async () => {
+    const agent = (await createAgent(unique('stale-agent'))).json<Agent>();
+
+    const ok = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { name: 'First', expectedUpdatedAt: agent.updatedAt },
+    });
+    expect(ok.statusCode).toBe(200);
+
+    const stale = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { name: 'Second', expectedUpdatedAt: agent.updatedAt },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ code: 'CONFLICT_STALE' });
+  });
+
   it('renders three workspace files with mcp tool wildcards', async () => {
     const server = await createServer(unique('files-srv'));
     const res = await createAgent(unique('files'), [server.id]);

@@ -335,8 +335,15 @@ export const api = {
 
   servers: (): Promise<Server[]> => request('/servers'),
   createServer: (input: ServerInput): Promise<Server> => request('/servers', 'POST', input),
-  updateServer: (id: string, input: Partial<ServerInput>): Promise<Server> =>
-    request(`/servers/${id}`, 'PATCH', input),
+  updateServer: (
+    id: string,
+    input: Partial<ServerInput>,
+    expectedUpdatedAt?: string,
+  ): Promise<Server> =>
+    request(`/servers/${id}`, 'PATCH', {
+      ...input,
+      ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
+    }),
   deleteServer: (id: string): Promise<void> => request(`/servers/${id}`, 'DELETE'),
   testServer: (id: string): Promise<ServerTestResult> => request(`/servers/${id}/test`, 'POST'),
   tools: (serverId: string): Promise<ApiTool[]> => request(`/servers/${serverId}/tools`),
@@ -360,8 +367,15 @@ export const api = {
 
   agents: (): Promise<Agent[]> => request('/agents'),
   createAgent: (input: AgentInput): Promise<Agent> => request('/agents', 'POST', input),
-  updateAgent: (id: string, input: Partial<AgentInput>): Promise<Agent> =>
-    request(`/agents/${id}`, 'PATCH', input),
+  updateAgent: (
+    id: string,
+    input: Partial<AgentInput>,
+    expectedUpdatedAt?: string,
+  ): Promise<Agent> =>
+    request(`/agents/${id}`, 'PATCH', {
+      ...input,
+      ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
+    }),
   deleteAgent: (id: string): Promise<void> => request(`/agents/${id}`, 'DELETE'),
   agentFiles: (id: string): Promise<AgentFiles> => request(`/agents/${id}/files`),
   agentVersions: (id: string): Promise<AgentVersionSummary[]> => request(`/agents/${id}/versions`),

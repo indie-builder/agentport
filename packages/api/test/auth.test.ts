@@ -76,4 +76,39 @@ describe.skipIf(!ready)('auth', () => {
     const cookie = res.cookies.find((c) => c.name === AUTH_COOKIE);
     expect(cookie?.value).toBe('');
   });
+
+  it('revokes the token on logout: the old cookie stops working', async () => {
+    // 登录限流按 IP 分桶，本文件其它用例也用 inject；这里用独立 IP 避免互相消耗额度。
+    const ip = '127.0.0.200';
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      remoteAddress: ip,
+      payload: { username: config.ADMIN_USER, password: config.ADMIN_PASSWORD },
+    });
+    const token = loginRes.cookies.find((c) => c.name === AUTH_COOKIE)?.value ?? '';
+
+    const before = await app.inject({
+      method: 'GET',
+      url: '/api/servers',
+      remoteAddress: ip,
+      cookies: { [AUTH_COOKIE]: token },
+    });
+    expect(before.statusCode).toBe(200);
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+      remoteAddress: ip,
+      cookies: { [AUTH_COOKIE]: token },
+    });
+
+    const after = await app.inject({
+      method: 'GET',
+      url: '/api/servers',
+      remoteAddress: ip,
+      cookies: { [AUTH_COOKIE]: token },
+    });
+    expect(after.statusCode).toBe(401);
+  });
 });

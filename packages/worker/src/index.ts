@@ -49,12 +49,18 @@ if (config.SANDBOX_EGRESS === 'none') {
   logger.warn('SANDBOX_EGRESS=proxy but HTTPS_PROXY/HTTP_PROXY is unset: egress stays open');
 }
 
+/** proxy 模式没配代理时实际按 open 跑：别让日志声称在走代理。 */
+const sandboxEgress =
+  config.SANDBOX_EGRESS === 'proxy' && !process.env.HTTPS_PROXY && !process.env.HTTP_PROXY
+    ? 'open'
+    : config.SANDBOX_EGRESS;
+
 const { db, pool } = createDb(config.DATABASE_URL);
 const provider = new DockerSandboxProvider({
   memory: config.SANDBOX_MEMORY,
   cpus: config.SANDBOX_CPUS,
   pids: config.SANDBOX_PIDS,
-  egress: config.SANDBOX_EGRESS,
+  egress: sandboxEgress,
 });
 
 type ServerRow = typeof schema.servers.$inferSelect;
@@ -244,7 +250,7 @@ function sandboxEnv(apiUrl: string): Record<string, string> {
   if (config.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = toHostUrl(config.ANTHROPIC_BASE_URL);
 
   // proxy 模式：把宿主上的代理地址传给沙盒，仍由容器自行出站。
-  if (config.SANDBOX_EGRESS === 'proxy') {
+  if (sandboxEgress === 'proxy') {
     for (const key of ['HTTPS_PROXY', 'HTTP_PROXY'] as const) {
       const value = process.env[key];
       if (value) env[key] = toHostUrl(value);

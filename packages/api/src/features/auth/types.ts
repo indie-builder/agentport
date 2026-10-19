@@ -10,11 +10,11 @@ declare module 'fastify' {
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { username: string };
-    user: { username: string };
+    payload: { username: string; sid: string };
+    user: { username: string; sid: string };
   }
 }
 
 export const AUTH_COOKIE = 'agentport_token';
-/** 与 JWT 有效期、cookie maxAge 共用同一个值，避免三者漂移。 */
-export const AUTH_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+/** 与 JWT 有效期、cookie maxAge、Redis 会话 TTL 共用同一个值，避免四处漂移。 */
+export const AUTH_MAX_AGE_SECONDS = 60 * 60 * 24;

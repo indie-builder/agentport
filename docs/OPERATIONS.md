@@ -10,7 +10,7 @@
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
-| `NODE_ENV` | 否 | `development` | api、worker | `development` / `test` / `production`；影响日志格式、CORS、SSRF 本地放行、Cookie `Secure` |
+| `NODE_ENV` | 否 | `development` | api、worker | `development` / `test` / `production`；影响日志格式、SSRF 本地放行、Cookie `Secure` |
 | `LOG_LEVEL` | 否 | `info` | api、worker | `fatal` / `error` / `warn` / `info` / `debug` / `trace` |
 | `PORT` | 否 | `3000` | api | HTTP 监听端口，绑定 `0.0.0.0` |
 | `DATABASE_URL` | 是 | — | api、worker、db 迁移、备份 | PostgreSQL 连接串 |
@@ -23,6 +23,8 @@
 | `WEB_DIST` | 否 | 未设置 | api | 设置且目录存在时托管 SPA；compose 中为 `/app/web` |
 | `PLATFORM_MCP_TOKEN` | 否 | 未设置 | api | `/mcp` 平台端点的 Bearer token，≥16 字符；未设置则端点不注册 |
 | `RATE_LIMIT_DISABLED` | 否 | 未设置 | api | 值为 `1` 时关闭限流；仅用于测试/排障 |
+| `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问地址（如 `https://agentport.example.com`），不要用 `*` |
+| `TRUST_PROXY` | 否 | 未设置 | api | 值为 `1` 时信任 `X-Forwarded-For`/`X-Forwarded-Proto`（反向代理之后必须开启，否则限流按代理 IP 计数） |
 
 ### 1.2 智能体与模型
 
@@ -42,7 +44,7 @@
 |---|---|---|---|---|
 | `SANDBOX_IMAGE` | 否 | `agentport/sandbox:dev` | worker | 每次 run 启动的镜像 |
 | `SANDBOX_API_URL` | 否 | `http://host.docker.internal:3000` | worker、api（预览） | 沙盒视角的平台地址，写入 generated server 的 `.mcp.json` |
-| `SANDBOX_EGRESS` | 否 | `open` | worker | `open` = bridge；`none` = `--network none`；`proxy` = bridge + 容器内 `HTTPS_PROXY` |
+| `SANDBOX_EGRESS` | 否 | `proxy` | worker | `proxy` = bridge + 容器内 `HTTPS_PROXY`；`none` = `--network none`；`open` = bridge 直连。默认 `proxy` 但未设置 `HTTPS_PROXY`/`HTTP_PROXY` 时，启动 warn 并**按 `open` 运行**（不阻塞本地开发） |
 | `SANDBOX_MEMORY` | 否 | `1g` | worker | 容器内存上限（Docker 格式，如 `1g`、`512m`） |
 | `SANDBOX_CPUS` | 否 | `1` | worker | CPU 核数上限 |
 | `SANDBOX_PIDS` | 否 | `128` | worker | PID 上限 |
@@ -100,6 +102,19 @@ curl -s http://localhost:3000/health/ready
 - compose 会占用 3000、5432、6379；如冲突，先停掉本机对应服务或改端口。
 - worker 容器内是 `node` 用户，通过 `group_add: ${DOCKER_GID:-0}` 访问 socket。Linux 上若 docker 组 GID 不是 0，部署前 `export DOCKER_GID=$(getent group docker | cut -d: -f3)`。
 - 生产通过 `http://localhost:3000` 访问；Cookie 带 `Secure`，局域网 IP + HTTP 会无法保持登录。
+- 反向代理之后部署时，设置 `TRUST_PROXY=1`（否则限流按代理 IP 计数），并把 `CORS_ORIGINS` 改成浏览器实际访问的 Origin。
+
+#### Docker socket 风险
+
+worker 挂载 `/var/run/docker.sock`，**等价于把宿主 root 权限交给 worker 容器**：任何能控制 worker 的漏洞或恶意智能体镜像都可以启动特权容器、挂载宿主目录。当前实现只适合单机自用、只运行自己配置的智能体。
+
+生产替换方案（按投入从低到高）：
+
+1. **socket proxy**：在宿主前置 `tecnativa/docker-socket-proxy` 之类只放行 container 相关 API 的代理，worker 通过 `DOCKER_HOST` 连接它，不再直接挂 socket。
+2. **独立沙盒节点**：worker 通过远程 Docker（`DOCKER_HOST` + TLS）或 microVM 运行时连到隔离主机，平台主机不暴露 socket。
+3. **换运行时**：microsandbox / gVisor 等不依赖宿主 Docker 的实现（`SandboxProvider` 接口已预留，见 D-12）。
+
+选择取决于部署形态，记录在 [DECISIONS-PENDING.md](DECISIONS-PENDING.md) D-16。
 
 ### 2.3 本地开发
 
@@ -256,3 +271,88 @@ docker ps --filter name=agentport-
 - **概览页**：`/api/overview` 已含 servers/agents 计数，前端不再额外请求 `/api/servers`、`/api/agents`；`/api/overview` 返回 404 时才回退到列表接口。
 - **本机基线**（20 次 curl，改前 → 改后，p50/p95）：`/api/overview` 8.0/9.7 → 6.9/8.8 ms；`/api/runs` 3.1/4.9 → 3.1/4.0 ms；`/api/conversations` 3.4/5.3 → 3.0/5.1 ms（响应 8009 → 6820 B）。数据量很小时数据库耗时不占主导，收益主要来自索引在数据增长后避免全表扫描 + 排序。
 - **未做**：`/api/agents`、`/api/skills`、`/api/eval/*` 列表仍无分页；当前单机数据量下影响可忽略，智能体/技能数量上来后再加 `limit`。MCP 端点每次请求重查 server + tools，属于配置即时生效的取舍，不在本次范围。
+
+## 8. 压力测试结果
+
+### 8.1 方法与环境
+
+脚本 `scripts/loadtest.mjs`（纯 Node，无依赖）：
+
+```bash
+ADMIN_PASSWORD='...' node scripts/loadtest.mjs
+# 可选：BASE_URL / ADMIN_USER / PLATFORM_MCP_TOKEN / DATABASE_URL
+# 脚本会自动读取仓库根目录的 .env；API 未启动时打印提示并 exit 1。
+```
+
+只创建 slug 以 `loadtest-` 开头的智能体/技能；开始与结束各清理一次（DB 行、工作区目录、审计记录）。每次运行会产生约 12 次真实模型调用（单次约 $0.005），并留下几条 `auth.login.succeeded` 审计和 Redis 中最近 100 条完成的 BullMQ job，这两项无法按前缀安全清理。
+
+测试环境（2026-10-20，单机）：
+
+| 项 | 值 |
+|---|---|
+| 宿主 | macOS，12 逻辑核，API / worker / Postgres / Redis / 压测客户端同机 |
+| API | Node v24.22.0，tsx dev，Fastify；pg 连接池 `max: 10`（`packages/db/src/client.ts`） |
+| 数据库 | Postgres 18-alpine，`max_connections=100`，`shared_buffers=128MB`；测试时 3 agents / 2 skills / 1 server / 14 runs / 43 messages |
+| worker | `AGENT_MAX_CONCURRENT=2`，`SANDBOX_MEMORY=1g`，模型 `claude-sonnet-5-5` |
+| 读接口 | 50 并发 × 20 轮（每接口 1000 样本）；另做 100 / 200 并发 × 10 轮找拐点 |
+| 指标 | 每 100ms 采样 `/health/metrics`，记录 RSS、`pool.waitingCount`、队列深度；`docker stats` 采样 CPU |
+
+### 8.2 结果
+
+读接口（错误率均为 0；RSS 为 API 进程采样峰值）：
+
+| 场景 | 样本 | p50 | p95 | p99 | 吞吐 req/s | 峰值 RSS | 池等待峰值 |
+|---|---|---|---|---|---|---|---|
+| `GET /api/overview` ×50 | 1000 | 23.4 ms | 28.0 ms | 73.0 ms | 1717 | 393 MB | 40 |
+| `GET /api/runs` ×50 | 1000 | 7.9 ms | 10.6 ms | 14.1 ms | 4542 | 393 MB | 3 |
+| `GET /api/agents` ×50 | 1000 | 14.3 ms | 17.2 ms | 17.6 ms | 2806 | 393 MB | 136 |
+| `GET /api/overview` ×100 | 1000 | 44.1 ms | 51.1 ms | 65.7 ms | 1917 | 393 MB | 90 |
+| `GET /api/agents` ×100 | 1000 | 27.8 ms | 33.5 ms | 34.5 ms | 2863 | 393 MB | 260 |
+| `GET /api/overview` ×200 | 2000 | 87.2 ms | 99.1 ms | 114 ms | 1961 | 399 MB | 115 |
+| `GET /api/agents` ×200 | 2000 | 55.2 ms | 66.2 ms | 67.4 ms | 2882 | 401 MB | 498 |
+| `GET /api/runs` ×200 | 2000 | 29.7 ms | 39.6 ms | 40.6 ms | 4706 | 402 MB | 159 |
+| `GET /health/live` ×200（对照） | 2000 | 3.5 ms | 5.1 ms | 7.3 ms | 28534 | - | - |
+
+池等待峰值 = 采样到的 `db.waiting` 最大值；`db.total` 始终为 10，即连接池打满后请求在进程内排队。
+
+写接口、SSE、MCP：
+
+| 场景 | 结果 |
+|---|---|
+| `POST /api/skills` 并发 20 | 20/20 成功（201），p50 5.2 / p95 5.5 / p99 5.6 ms，错误率 0；20 条随后删除成功 |
+| SSE 20 个客户端订阅同一 run | 20/20 建立连接（全部拿到 ≥37 个事件），连接 p50 3.7 / p95 3.8 ms；API RSS 402.3 → 402.3 MB（+0.05 MB），无错误 |
+| `POST /mcp` `tools/list` 并发 20 | 20/20 成功，p50 19.1 / p95 27.5 / p99 28.2 ms（其他轮次 p50 低至 9 ms） |
+| 队列：并发投递 10 个 chat run | 10/10 返回 202（提交 p95 44 ms）；全部 succeeded；排队 p50 5.0 s / p95 10.5 s / max 10.9 s；队列峰值 waiting 8 / active 2；worker RSS 峰值 123 MB，沙盒容器峰值 2 个 |
+
+CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%（12 核宿主）。宿主机整体远未打满。
+
+### 8.3 第一个瓶颈
+
+**API 的 Postgres 连接池（硬编码 `max: 10`）与读接口的串行查询次数，是系统在压力下先撞到的墙；不是 HTTP 层，也不是宿主机 CPU。**
+
+依据：
+
+1. **HTTP 层有大量余量**：同一客户端、同样 200 并发，`/health/live` 达到 28534 req/s（p50 3.5 ms），而 `/api/overview` 只有 1961 req/s。差距来自请求进入业务后的数据库访问。
+2. **吞吐在 100 并发后不再增长，延迟随并发线性上升**：`/api/overview` 50→100→200 并发时吞吐 1717→1917→1961 req/s，p50 23.4→44.1→87.2 ms。这是固定服务能力被打满的典型形态（Little's law）。
+3. **连接池确实在排队**：每个 `/api/overview` 请求串行执行 6 条独立查询，池只有 10 条连接；200 并发时 `db.waiting` 峰值 115，`/api/agents`（4 条查询）峰值 498。`/api/runs` 只有 1 条查询，同样并发下仍有 4706 req/s、p50 29.7 ms，说明瓶颈是“查询条数 × 池大小”，而不是数据量或索引。
+4. **数据库与 CPU 尚未打满**：测试数据集很小（14 runs），Postgres CPU 峰值约 1.1 核，Redis 约 2%，宿主机 12 核。提高池上限或减少查询条数可以直接换取吞吐，不需要先扩容机器。
+
+第二个瓶颈是 **worker 并发 `AGENT_MAX_CONCURRENT=2`**：单次 run 固定成本约 2.5–3.3 s（主要是拉容器和启动 SDK，简单 prompt 也一样），因此 run 吞吐约 0.7 个/秒。10 个 run 同时投递时 p95 排队 10.5 s、峰值 waiting 8，与理论 FIFO 完全吻合，队列本身没有额外异常，只是并发上限低。
+
+未发现 SSE、MCP、写接口在本次并发量下有问题：SSE 内存不增长（同一 run 的多个订阅者共用一条 Redis 订阅），MCP 每个请求重建 handler 的取舍在 20 并发下仍是 10–20 ms。
+
+### 8.4 建议参数
+
+1. **先改读接口的查询形态**（收益最大、无配置风险）：`/api/overview` 的 counts（servers/agents/running/runs）合并成一条 SQL，其余两条重查询与它并行；`packages/api/src/features/agents/routes.ts` 的 4 条查询已是 1+3 并行，可只把首条列表查询与关联查询合并。预期 200 并发下 p95 从约 100 ms 降到 40–50 ms，吞吐约翻倍。
+2. **连接池改为可配置**：`packages/db/src/client.ts` 的 `max: 10` 建议改成 `DB_POOL_MAX`（默认 10）。单 API 实例、Postgres `max_connections=100` 时，20–30 安全；但若不同时做第 1 条，翻倍池只是把压力更早推给 Postgres。worker 另有独立 10 连接池，扩容时一并计入。
+3. **读接口补限流**：当前 `global: false` 使未单独配置的路由完全不计流（压测中 2000 次读请求无 429），只有登录 10 次/分、chat 20 次/分受限。若要暴露到 localhost 之外，建议读接口加 600 次/分/IP；单管理员场景下 chat 的 20 次/分偏低（两次突发落在同一分钟就会 429，本次压测已复现 2/10 被拒），可提到 60 次/分或按登录用户计数。
+4. **worker 并发按内存定**：每个沙盒上限 `SANDBOX_MEMORY=1g`，把 `AGENT_MAX_CONCURRENT` 从 2 提到 4 可把 10 个 run 的 p95 排队从约 10.5 s 降到约 5 s，代价是 4 GB 沙盒内存与更多宿主 CPU；若 run 量继续增长，优先做容器预热池来消掉每次 2.5–3.3 s 的固定启动成本。
+5. **观测告警线**：`/health/metrics` 的 `db.waiting > 5` 持续 10 s，或队列 `waiting > 10`，即可认为已进入本次测出的瓶颈区。
+
+### 8.5 复现注意
+
+- 脚本会等待 chat 限流窗口重置（上一次测试的请求可能仍在 60 s 窗口内），因此整体耗时约 2 分钟。
+- 需要 api 与 worker 都在运行；只跑 api 时队列测试会一直排队到超时后取消。
+- 测试使用真实模型调用并产生费用；不要在生产实例上运行。
+- 清理仅按 `loadtest-` slug 前缀进行，不会触碰用户已有数据；如中断，重新运行脚本会在开始阶段清理上一轮残留。
+

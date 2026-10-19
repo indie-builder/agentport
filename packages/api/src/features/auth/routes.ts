@@ -1,11 +1,47 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { Redis } from 'ioredis';
 import { writeAudit } from '../../plugins/audit.js';
 import { AUTH_COOKIE, AUTH_MAX_AGE_SECONDS } from './types.js';
 
 const SCRYPT_KEYLEN = 32;
+
+function sessionKey(sid: string): string {
+  return `session:${sid}`;
+}
+
+/**
+ * 登录时在 Redis 写 sid，logout 删除；JWT 本身不能撤销，靠这个键让 token 立即失效。
+ * Redis 不可用时拒绝请求，而不是当成「没有会话」放行或拦截所有请求。
+ */
+/**
+ * 短期本地缓存：每个请求都打一次 Redis 会把吞吐压在约 1.6k rps。
+ * 缓存 5 秒，撤销的生效延迟有界；logout 会主动清掉本进程的缓存。
+ */
+const SESSION_TTL_MS = 5_000;
+const sessionCache = new Map<string, { alive: boolean; expiresAt: number }>();
+
+function forgetSession(sid: string): void {
+  sessionCache.delete(sid);
+}
+
+async function sessionAlive(redis: Redis, sid: unknown): Promise<boolean> {
+  if (typeof sid !== 'string' || sid.length === 0) return false;
+  const now = Date.now();
+  const cached = sessionCache.get(sid);
+  if (cached && cached.expiresAt > now) return cached.alive;
+  try {
+    const alive = (await redis.exists(sessionKey(sid))) === 1;
+    // 只缓存在量有界，避免被随机 sid 撑爆。
+    if (sessionCache.size > 1000) sessionCache.clear();
+    sessionCache.set(sid, { alive, expiresAt: now + SESSION_TTL_MS });
+    return alive;
+  } catch {
+    return false;
+  }
+}
 
 function scryptAsync(password: string, salt: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -26,6 +62,12 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
   void app.register(cookie);
   void app.register(jwt, { secret: app.config.JWT_SECRET });
 
+  const redis = new Redis(app.config.REDIS_URL, { maxRetriesPerRequest: 2 });
+  redis.on('error', (err: Error) => app.log.warn({ err }, 'auth session redis error'));
+  app.addHook('onClose', async () => {
+    await redis.quit();
+  });
+
   const cookieOptions = {
     httpOnly: true,
     sameSite: 'lax',
@@ -33,16 +75,25 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     secure: app.config.NODE_ENV === 'production',
   } as const;
 
-  app.decorate('requireAuth', async (request, reply) => {
+  const unauthorized = (reply: FastifyReply, message: string): void => {
+    reply.status(401).send({ code: 'UNAUTHORIZED', message });
+  };
+
+  app.decorate('requireAuth', async (request: FastifyRequest, reply: FastifyReply) => {
     const token = request.cookies[AUTH_COOKIE];
     if (!token) {
-      reply.status(401).send({ code: 'UNAUTHORIZED', message: 'not logged in' });
+      unauthorized(reply, 'not logged in');
       return;
     }
+    let payload: { sid?: unknown };
     try {
-      app.jwt.verify(token);
+      payload = app.jwt.verify<{ sid?: unknown }>(token);
     } catch {
-      reply.status(401).send({ code: 'UNAUTHORIZED', message: 'invalid or expired token' });
+      unauthorized(reply, 'invalid or expired token');
+      return;
+    }
+    if (!(await sessionAlive(redis, payload.sid))) {
+      unauthorized(reply, 'session expired or revoked');
     }
   });
 
@@ -85,7 +136,9 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
         status: 'ok',
         requestId: request.id,
       });
-      const token = await reply.jwtSign({ username }, { expiresIn: AUTH_MAX_AGE_SECONDS });
+      const sid = randomBytes(16).toString('base64url');
+      const token = await reply.jwtSign({ username, sid }, { expiresIn: AUTH_MAX_AGE_SECONDS });
+      await redis.set(sessionKey(sid), username, 'EX', AUTH_MAX_AGE_SECONDS);
       reply.setCookie(AUTH_COOKIE, token, { ...cookieOptions, maxAge: AUTH_MAX_AGE_SECONDS });
       return { ok: true };
     },
@@ -96,7 +149,13 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     let username = 'anonymous';
     if (token) {
       try {
-        username = app.jwt.verify<{ username: string }>(token).username;
+        const payload = app.jwt.verify<{ username: string; sid?: unknown }>(token);
+        username = payload.username;
+        // 伪造/过期 token 里可能没有 sid；有才删，删除本身幂等。
+        if (typeof payload.sid === 'string') {
+          await redis.del(sessionKey(payload.sid));
+          forgetSession(payload.sid);
+        }
       } catch {
         // 过期或伪造的 token 也允许登出，审计里记为 anonymous。
       }
@@ -115,7 +174,8 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     const token = request.cookies[AUTH_COOKIE];
     if (!token) return { authenticated: false };
     try {
-      const payload = app.jwt.verify<{ username: string }>(token);
+      const payload = app.jwt.verify<{ username: string; sid?: unknown }>(token);
+      if (!(await sessionAlive(redis, payload.sid))) return { authenticated: false };
       return { authenticated: true, username: payload.username };
     } catch {
       return { authenticated: false };

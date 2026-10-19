@@ -20,6 +20,8 @@ const serverPatchSchema = z.object({
   url: z.url().optional(),
   baseUrl: z.url().optional(),
   headers: z.record(z.string(), z.string()).optional(),
+  /** 乐观锁：首次加载时的 updatedAt。 */
+  expectedUpdatedAt: z.coerce.date().optional(),
 });
 
 function invalid(reply: FastifyReply, message: string) {
@@ -87,7 +89,13 @@ export function registerServerRoutes(app: FastifyInstance): void {
     const body = serverPatchSchema.safeParse(request.body);
     if (!body.success) return invalid(reply, body.error.issues[0]?.message ?? 'invalid body');
     try {
-      const updated = await repo.updateServer(app.db, params.data.id, body.data, key());
+      const updated = await repo.updateServer(
+        app.db,
+        params.data.id,
+        body.data,
+        key(),
+        body.data.expectedUpdatedAt,
+      );
       if (!updated) return notFound(reply, 'server');
       await writeAudit(app.db, request.log, {
         actor: 'admin',
@@ -118,33 +126,37 @@ export function registerServerRoutes(app: FastifyInstance): void {
     return reply.status(204).send();
   });
 
-  app.post('/api/servers/:id/test', auth, async (request, reply) => {
-    const parsed = idParams.safeParse(request.params);
-    if (!parsed.success) return invalid(reply, 'invalid id');
-    const server = await getServerWithSecrets(app.db, parsed.data.id, key());
-    if (!server) return notFound(reply, 'server');
-    const startedAt = Date.now();
-    const result = await testConnection(
-      server,
-      app.config.NODE_ENV,
-      server.kind === 'generated'
-        ? {
-            baseUrl: app.config.SELF_URL,
-            token: (await getMcpToken(app.db, server.id)) ?? '',
-          }
-        : undefined,
-    );
-    await writeAudit(app.db, request.log, {
-      actor: 'admin',
-      action: 'mcp.server.tested',
-      target: server.id,
-      input: { kind: server.kind, name: server.name },
-      status: result.ok ? 'ok' : 'error',
-      durationMs: Date.now() - startedAt,
-      requestId: request.id,
-    });
-    return serverTestResultSchema.parse(result);
-  });
+  app.post(
+    '/api/servers/:id/test',
+    { ...auth, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const parsed = idParams.safeParse(request.params);
+      if (!parsed.success) return invalid(reply, 'invalid id');
+      const server = await getServerWithSecrets(app.db, parsed.data.id, key());
+      if (!server) return notFound(reply, 'server');
+      const startedAt = Date.now();
+      const result = await testConnection(
+        server,
+        app.config.NODE_ENV,
+        server.kind === 'generated'
+          ? {
+              baseUrl: app.config.SELF_URL,
+              token: (await getMcpToken(app.db, server.id)) ?? '',
+            }
+          : undefined,
+      );
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'mcp.server.tested',
+        target: server.id,
+        input: { kind: server.kind, name: server.name },
+        status: result.ok ? 'ok' : 'error',
+        durationMs: Date.now() - startedAt,
+        requestId: request.id,
+      });
+      return serverTestResultSchema.parse(result);
+    },
+  );
 
   app.get('/api/servers/:id/tools', auth, async (request, reply) => {
     const parsed = idParams.safeParse(request.params);

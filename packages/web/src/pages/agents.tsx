@@ -18,6 +18,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { PageHeader } from '../components/page.js';
@@ -31,7 +32,7 @@ import { Select } from '../components/ui/select.js';
 import { Tabs } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { AgentVersionSummary } from '../lib/api.js';
-import { api } from '../lib/api.js';
+import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
 import { formatDateTime } from '../lib/format.js';
@@ -339,11 +340,18 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
       return;
     }
     update.mutate(
-      { id: agent.id, input: parsed.data },
+      { id: agent.id, input: parsed.data, expectedUpdatedAt: agent.updatedAt },
       {
         onSuccess: () => {
           setErrors({});
           toastSuccess('智能体已保存');
+        },
+        onError: (error) => {
+          if (error instanceof ApiError && error.status === 409) {
+            toast.error('配置已被修改，请刷新');
+            return;
+          }
+          toastError(error);
         },
       },
     );

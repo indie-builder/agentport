@@ -1,5 +1,5 @@
 import type { Agent, AgentInput } from '@agentport/shared';
-import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentServers, agentSkills, agents, servers, skills } from '../schema.js';
@@ -62,7 +62,7 @@ export async function listAgents(db: Database): Promise<AgentRow[]> {
   return db.select().from(agents).orderBy(asc(agents.createdAt), asc(agents.id));
 }
 
-export async function getAgent(db: Database, id: string): Promise<AgentRow | null> {
+export async function getAgent(db: Database | Tx, id: string): Promise<AgentRow | null> {
   const [row] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
   return row ?? null;
 }
@@ -110,15 +110,32 @@ export async function updateAgent(
   skillIds?: string[],
   note: string | null = null,
   subAgentIds?: string[],
+  expectedUpdatedAt?: Date,
 ): Promise<AgentRow | null> {
   return retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
+      const where =
+        expectedUpdatedAt === undefined
+          ? eq(agents.id, id)
+          : and(
+              eq(agents.id, id),
+              sql`date_trunc('milliseconds', ${agents.updatedAt}) = date_trunc('milliseconds', ${expectedUpdatedAt}::timestamptz)`,
+            );
       const [row] = await tx
         .update(agents)
         .set({ ...patch, updatedAt: new Date() })
-        .where(eq(agents.id, id))
+        .where(where)
         .returning();
-      if (!row) return null;
+      if (!row) {
+        // 条件更新落空：行还在就是并发修改，行没了交给路由返回 404。
+        if (expectedUpdatedAt !== undefined && (await getAgent(tx, id))) {
+          throw Object.assign(new Error('配置已被修改，请刷新'), {
+            statusCode: 409,
+            code: 'CONFLICT_STALE',
+          });
+        }
+        return null;
+      }
       if (subAgentIds !== undefined) {
         await tx
           .update(agents)
