@@ -1,7 +1,7 @@
 # Agentport · 智能体平台 · 项目简报
 
-> 状态：需求与选型阶段（尚未开始编码）
-> 最后更新：2026-10-19
+> 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [HANDOFF.md](HANDOFF.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
+> 最后更新：2026-10-20
 > 项目名：**Agentport**（展示名 AgentPort，中文「智能体港」）
 > 包前缀：`@agentport/*`
 > 本文是该项目的唯一需求基线。项目改名后，本文继续有效；改名只影响仓库名与包名，不影响任何结论。
@@ -124,10 +124,10 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 构建 | Vite | 8.3.4 |
 | 框架 | React | 19.3.1 |
 | 样式 | Tailwind CSS | 4.3.3（`@tailwindcss/vite`，无需 config 文件） |
-| 组件 | shadcn/ui CLI | 4.22.1（代码复制进 `components/ui`） |
+| 组件 | shadcn/ui 结构（自建组件，未装 CLI） | —（代码手写在 `components/ui`） |
 | 路由 | TanStack Router | 1.170.45 |
 | 服务端状态 | TanStack Query | 5.104.4 |
-| 表单 | react-hook-form + @hookform/resolvers | 7.90.0 / 6.0.0 |
+| 表单 | 原生受控组件 + zod 校验 | —（未装 react-hook-form） |
 | 校验 | zod（与后端共享） | 4.6.7 |
 | 提示 | sonner | 2.0.8 |
 | 图标 | lucide-react | 1.59.0 |
@@ -146,22 +146,22 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 连接池 | pg 内置 Pool | — |
 | 日志 | pino | 10.4.0 |
 | 日志美化（dev） | pino-pretty | 13.2.0 |
-| 日志滚动（文件） | pino-roll | 4.0.0 |
+| 日志落文件 | 未引入（stdout + 容器日志） | — |
 | 安全头 | @fastify/helmet | 13.2.0 |
 | CORS | @fastify/cors | 11.3.1 |
 | 限流 | @fastify/rate-limit | 11.2.1 |
-| 分布式限流存储 | rate-limit-redis | 6.0.1 |
+| 限流存储 | `@fastify/rate-limit` 内置 Redis store（ioredis） | —（未装 rate-limit-redis） |
 | 压缩 | @fastify/compress | 9.2.2 |
 | 静态托管 | @fastify/static | 10.1.6 |
 | 鉴权 | @fastify/jwt + @fastify/cookie | 10.2.5 / 11.1.3 |
-| API 文档 | @fastify/swagger + Scalar | 9.9.2 / 1.75.0 |
-| 过载保护 | @fastify/under-pressure | 9.2.1 |
+| API 文档 | 未接入（路由即契约） | — |
+| 过载保护 | 未注册（依赖已安装但未使用） | 9.2.1 |
 | Redis 客户端 | ioredis | 6.0.0 |
 | 队列 | BullMQ | 6.3.17 |
-| 队列面板 | @bull-board/fastify | 9.10.4 |
-| 队列遥测 | bullmq-otel | 2.0.1 |
+| 队列面板 | 不接（见 D-15） | — |
+| 队列遥测 | 不接 | — |
 | 并发控制 | p-limit | 7.3.3 |
-| ID | ulid | 3.0.2 |
+| ID | typeid-js | 1.2.0 |
 
 **为什么从 SQLite 改为 PostgreSQL**：上一轮建议 SQLite 是按「单机学习项目」判断的。引入 BullMQ worker 后，API 进程与 worker 进程会并发写同一份数据，SQLite 的单写者限制会成为真实瓶颈，而且队列本身又要求 Redis，基础设施复杂度已经上去了。PostgreSQL 18 与 Redis 8 都通过 compose 起，运维成本相当。Drizzle 的 schema 写法在两者间基本一致，但迁移文件不通用，越早切换成本越低。
 
@@ -183,8 +183,8 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 用途 | 选型 | 版本 | 说明 |
 |---|---|---|---|
 | 起步方案 | Docker Engine + Docker Compose | 29.8.0 / Compose 5.5.1 | 本机已安装 |
-| 容器控制 | dockerode | 5.0.1 | 需要 API 侧动态创建容器时使用 |
-| 强隔离方案 | microsandbox | 0.7.8 | Apache-2.0，libkrun microVM，提供 TS SDK |
+| 容器控制 | 宿主 `docker` CLI（`spawn` argv） | — |
+| 强隔离方案（未接入） | microsandbox | 0.7.8（仅评估） | Apache-2.0，libkrun microVM，提供 TS SDK |
 | Agent SDK 内置沙箱 | `options.sandbox` | SDK 自带 | **不能**替代容器（见 §6.4） |
 
 ### 3.6 测试与交付
@@ -194,7 +194,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 单元/集成测试 | Vitest | 5.0.5 |
 | 覆盖率 | @vitest/coverage-v8 | 5.0.5 |
 | E2E | @playwright/test | 1.64.1 |
-| 集成测试容器 | testcontainers | 12.2.1（可选） |
+| 集成测试 | 本地/CI service containers（未用 testcontainers） | — |
 | 容器化 | Dockerfile（多阶段）+ docker-compose.yml | — |
 | CI | GitHub Actions | — |
 
@@ -281,7 +281,7 @@ worker ──消费 agent-runs──▶ Sandbox (容器/microVM)
 5. 在 `.mcp.json` 里，这个 server 就是一个普通条目：
 
 ```json
-{ "type": "http", "url": "http://api:3000/mcp/<serverId>" }
+{ "type": "http", "url": "http://host.docker.internal:3000/mcp/<serverId>" }
 ```
 
 优点：
@@ -297,12 +297,12 @@ worker ──消费 agent-runs──▶ Sandbox (容器/microVM)
   "mcpServers": {
     "stdio-demo": { "command": "npx", "args": ["-y", "some-server"], "env": { "TOKEN": "…" } },
     "remote-api": { "type": "http", "url": "https://api.example.com/mcp", "headers": { "Authorization": "Bearer …" } },
-    "crm-api":    { "type": "http", "url": "http://api:3000/mcp/<serverId>" }
+    "crm-api":    { "type": "http", "url": "http://host.docker.internal:3000/mcp/<serverId>" }
   }
 }
 ```
 
-> 沙盒内访问宿主服务时，`api` 是 compose 服务名；microsandbox 场景需改用宿主可达地址（见 §6.5）。
+> 沙盒内访问平台用 `SANDBOX_API_URL`（默认 `http://host.docker.internal:3000`）；compose 已把它显式设为该值（见 §6.5）。
 
 ---
 
@@ -310,7 +310,7 @@ worker ──消费 agent-runs──▶ Sandbox (容器/microVM)
 
 ```sql
 servers(
-  id ulid pk,
+  id text pk                 -- TypeID，如 srv_/agt_/run_,
   name text unique,
   kind text check (kind in ('stdio','http')),
   config jsonb,              -- command/args/url/headers 等非敏感字段
@@ -320,8 +320,8 @@ servers(
 )
 
 api_tools(
-  id ulid pk,
-  server_id ulid fk,
+  id text pk                 -- TypeID，如 srv_/agt_/run_,
+  server_id text fk          -- TypeID,
   name text,
   description text,
   method text,
@@ -332,7 +332,7 @@ api_tools(
 )
 
 agents(
-  id ulid pk,
+  id text pk                 -- TypeID，如 srv_/agt_/run_,
   slug text unique,          -- 目录名，用于 workspaces/<slug>/
   name text,
   model text,
@@ -346,23 +346,23 @@ agents(
   updated_at timestamptz
 )
 
-agent_servers(agent_id ulid, server_id ulid, primary key (agent_id, server_id))
+agent_servers(agent_id text, server_id text, primary key (agent_id, server_id))
 
-conversations(id ulid pk, agent_id ulid fk, title text, created_at timestamptz)
+conversations(id text pk                 -- TypeID，如 srv_/agt_/run_, agent_id text fk           -- TypeID, title text, created_at timestamptz)
 
 messages(
-  id ulid pk,
-  conversation_id ulid fk,
+  id text pk                 -- TypeID，如 srv_/agt_/run_,
+  conversation_id text fk    -- TypeID,
   role text,
   content jsonb,             -- 原始 assistant/user 消息块
-  run_id ulid,               -- 关联同一次 agent run
+  run_id text,               -- 关联同一次 agent run
   created_at timestamptz
 )
 
 agent_runs(
-  id ulid pk,
-  conversation_id ulid,
-  agent_id ulid,
+  id text pk                 -- TypeID，如 srv_/agt_/run_,
+  conversation_id text,
+  agent_id text,
   status text,               -- queued|running|succeeded|failed|cancelled|timeout
   session_id text,           -- Agent SDK session id
   sandbox_id text,
@@ -374,7 +374,7 @@ agent_runs(
 )
 
 audit_log(
-  id ulid pk,
+  id text pk                 -- TypeID，如 srv_/agt_/run_,
   actor text,
   action text,               -- mcp.test | mcp.call | agent.run | config.update
   target text,
@@ -504,7 +504,7 @@ interface SandboxProvider {
 
 ### 6.5 沙盒内的网络与凭证
 
-- 沙盒访问 API：compose 内用 `http://api:3000`；microsandbox 用宿主可达地址（`host.docker.internal` 或宿主 LAN IP，取决于网络模式）。
+- 沙盒访问 API：用 `SANDBOX_API_URL`，默认 `http://host.docker.internal:3000`，由 worker 的 `--add-host` 解析；其他网络模式改用宿主可达地址。
 - **不要把 model API key 写进挂载文件**。用 `env` 注入 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY`；更高要求时用宿主侧代理注入，使沙盒内进程永远看不到明文密钥。
 - 出站默认拒绝，按需放行：模型 API 域名 + 用户配置的 MCP HTTP server 域名 + 平台自身域名。
 - 挂载一律只读；需要写的工作区单独给一个可写子目录。
@@ -516,7 +516,7 @@ interface SandboxProvider {
 ### 7.1 为什么需要
 
 - **运行隔离**：agent run 可能持续数分钟，不能占着 HTTP 请求。
-- **并发控制**：限制同时运行的沙盒数量（`SAMDBOX_MAX_CONCURRENT`）。
+- **并发控制**：限制同时运行的沙盒数量（`AGENT_MAX_CONCURRENT`）。
 - **重试与可观测**：失败重试、进度查询、取消。
 - **定时任务**：将来的定时触发、清理过期沙盒。
 
@@ -524,9 +524,10 @@ interface SandboxProvider {
 
 | 队列 | 用途 | 并发 | 重试 |
 |---|---|---|---|
-| `agent-runs` | 一次对话运行 | 2–4（受内存约束） | 不自动重试（会产生重复计费）；仅对基础设施错误重试 1 次 |
-| `mcp-tests` | 页面上的「测试连接」 | 4 | 2 次，指数退避 |
-| `maintenance` | 清理过期沙盒、归档 transcript | 1 | 3 次 |
+| `agent-runs` | 一次对话运行 | `AGENT_MAX_CONCURRENT`（默认 2） | `attempts: 2` + 指数退避；业务失败不重试 |
+| `maintenance` | 版本/运行/孤立消息清理 | 1 | 每日 repeatable job |
+
+「测试连接」在 API 进程内直接执行（5 秒超时），不走队列。
 
 要点：
 
@@ -539,7 +540,7 @@ interface SandboxProvider {
 
 - BullMQ 6.x 要求 Redis ≥ 5；Redis 8 已开源（AGPLv3）。
 - 本环境 `docker manifest inspect` 对 `redis:8` 系列超时，未能确认标签；`postgres:18-alpine` 已验证存在。
-- **待办**：本机拉取一次 `redis:8-alpine`（或 `redis:8.x-alpine`）确认可用；若镜像源受限，可换 `valkey/valkey:9-alpine`（协议兼容，BullMQ 可用）。这一项在第一次 `docker compose up` 时确认并回填本文。
+- 已验证：`redis:8-alpine` 可正常拉取并启动（见 §15.2）；如镜像源受限可换 `valkey/valkey:9-alpine`（协议兼容，BullMQ 可用）。
 
 ---
 
@@ -619,14 +620,14 @@ interface SandboxProvider {
 | `api` | 本仓库 Dockerfile | 3000 | Fastify，含 `/mcp/:serverId` |
 | `worker` | 同一镜像，入口不同 | — | BullMQ 消费者 + 沙盒管理 |
 | `postgres` | `postgres:18-alpine` | 5432 | 持久卷 |
-| `redis` | `redis:8-alpine`（待确认标签） | 6379 | AOF 持久化 |
+| `redis` | `redis:8-alpine` | 6379（仅绑定 127.0.0.1） | AOF 持久化 + 密码 |
 | `web` | 开发时 Vite dev server | 5173 | 生产由 `api` 静态托管 |
 
 ### 10.2 本地开发
 
 - `pnpm dev`：并发启动 api（tsx watch）、worker、web（Vite）。
 - 数据库与 Redis 用 `docker compose up -d postgres redis`。
-- 迁移：`pnpm db:generate && pnpm db:migrate`，启动时自动执行迁移。
+- 迁移：改 schema 后 `pnpm db:generate`；应用迁移用 `pnpm db:migrate`，**启动时不会自动执行**。
 
 ### 10.3 镜像构建注意
 
@@ -645,8 +646,8 @@ interface SandboxProvider {
 | M2 | HTTP→MCP 动态挂载 | ✅ 已完成：`/mcp/:serverId` + Bearer token；工具真实转发上游 HTTP |
 | M3 | 智能体文件定义 + 单机运行 | ✅ 已完成：DB → `.mcp.json` / `CLAUDE.md` / `.claude/agents/*.md`，页面可预览 |
 | M4 | 队列 + 沙盒 | ✅ 已完成：BullMQ → Docker 容器 → Agent SDK → SSE 回传 text/tool 事件 |
-| M5 | 生产化 | 🟡 密钥加密、SSRF、JWT、限流、优雅关闭已落地；审计写入、E2E 测试、CI 仍缺 |
-| M6 | 强隔离（可选） | ⬜ 未开始（`SandboxProvider` 接口已就位，可直接加 `MicrosandboxProvider`） |
+| M5 | 生产化 | ✅ 审计、E2E、CI、限流、CSP、会话吊销、乐观锁、外键均已落地（缺少持久化 HITL 与 M12） |
+| M6 | 强隔离（可选） | ⬜ 未开始（`SandboxProvider` 接口已就位；D-12 决定暂不接入） |
 
 ---
 
@@ -659,7 +660,7 @@ interface SandboxProvider {
 2. **登录方式**：当前默认单管理员 JWT（httpOnly cookie）。是否需要多用户 / RBAC？
 3. **HTTP→MCP 的输入方式**：当前先做手动建工具，表结构按可导入 OpenAPI 设计。是否要 OpenAPI 导入？
 4. **智能体是否允许非 MCP 工具**：当前默认禁止。
-5. **Redis 镜像标签**：`redis:8-alpine` 未经 manifest 验证，待首次 compose 确认。
+5. ~~**Redis 镜像标签**~~ 已确认：`redis:8-alpine` 可用（§15.2）。
 6. **沙盒默认后端**：Docker（起步）→ microsandbox（升级）。是否接受先 Docker？
 7. ~~**多机部署**~~ 已决定：**只做单机，暂不做多机设计**。见 §6.3。
 
@@ -688,9 +689,9 @@ interface SandboxProvider {
 项目改名为 **Agentport** 后如何继续：
 
 1. 本文档随仓库移动，位置保持在 `<repo>/docs/PROJECT-BRIEF.md`。
-2. 新会话开始时，先读本文档，再读 `docs/DECISIONS.md`（如果已创建）。
+2. 新会话开始时，先读本文档，再读 [CAPABILITY-GAP.md](CAPABILITY-GAP.md)、[DECISIONS-PENDING.md](DECISIONS-PENDING.md)、[SECURITY.md](SECURITY.md)。
 3. 如果 Claude Code 的会话上下文丢失，本文档 + 仓库代码即为唯一真相源。
-4. 改名操作清单（按顺序执行）：
+4. 改名记录（已完成，保留作历史）：
 
 ```bash
 # 1. 仓库目录改名（关闭本会话后执行，或在新路径重新打开）
@@ -702,8 +703,8 @@ cd ~/Documents/myself/agentport
 # 3. 同步修改
 #    - package.json: name → @agentport/api | web | worker | shared | core | db
 #    - pnpm-workspace.yaml: 无需改（使用 packages/*）
-#    - docker-compose.yml: name: agentport；服务名 agentport-api / agentport-worker
-#    - Dockerfile: 镜像 tag agentport/api:<version>、agentport/sandbox:<version>
+#    - docker-compose.yml: name: agentport；服务名 postgres / redis / api / worker
+#    - Dockerfile: 镜像 tag agentport/api:dev；沙盒镜像 agentport/sandbox:dev
 #    - docs/PROJECT-BRIEF.md: 已更新
 ```
 
@@ -797,15 +798,15 @@ pnpm dev
 | 对话 ID 前缀写错 | conversation 用成了 `msg_` | 修成 `conv_`；`newId()` 的实体参数现在受类型约束 |
 | `biome check` 在并行 lane 之后失败 | 格式不一致 | 统一跑 `biome check --write .` 一次 |
 
-### 16.4 仍需完成
+### 16.4 当时未完成、后续循环已补齐
 
-1. **审计写入**：`audit_log` 表已建，但还没有写入点。应在 MCP 工具调用、agent run 起止、配置变更处写入。
-2. **Redis 限流**：`rate-limit-redis` 未接入。
-3. **测试**：Vitest 集成测试与 Playwright E2E 尚未编写。
-4. **CI**：`.github/workflows/ci.yml` 尚未创建。
-5. **前端缺口**：server 编辑（PATCH 端点已就绪，UI 无入口）。
-6. **沙盒网络**：当前 `bridge` + `host.docker.internal`；生产建议改为受控出站代理。
-7. **SSE 丢事件**：pub/sub 无回放，POST 到建连之间的 `run_started` 可能丢失。需要严格不丢时改用 Redis Streams。
+1. ~~审计写入~~：已覆盖登录、server/agent/skill/tool、运行起止与审批、评估、维护（见 OPERATIONS §6）。
+2. ~~Redis 限流~~：`@fastify/rate-limit` 使用 ioredis Redis store，无 `rate-limit-redis` 依赖。
+3. ~~测试~~：14 个 vitest 文件、82 个用例；Playwright E2E 在 `e2e/`。
+4. ~~CI~~：`.github/workflows/ci.yml` 已创建。
+5. ~~server 编辑 UI~~：servers 页已支持编辑（PATCH + 乐观锁）。
+6. **沙盒网络**：仍为 `bridge` + `host.docker.internal`，默认 `SANDBOX_EGRESS=proxy`（无代理时降级 open）；生产建议接受控出站代理。
+7. ~~SSE 丢事件~~：已改为 Redis Stream 从 0 回放。
 
 ---
 

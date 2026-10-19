@@ -26,11 +26,13 @@ jobs:
       redis:
         image: redis:8-alpine
         ports: ['6379:6379']
+        # service container 不支持覆盖 command，这里用无密码 Redis 并让测试连它。
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
     env:
       DATABASE_URL: postgres://agentport:agentport@localhost:5432/agentport
+      # CI 的 service container 无法带 --requirepass，因此用无密码实例。
       REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4

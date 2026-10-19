@@ -126,6 +126,7 @@ function toEntry(
 /** 每次 run 重写工作区：文件是 DB 的只读快照，prompt 只走 stdin。 */
 async function writeWorkspace(
   agent: AgentRow,
+  runId: string,
   servers: Array<{ name: string; entry: McpJsonEntry }>,
   skills: Array<{ slug: string; name: string; description: string; body: string }>,
   subAgents: AgentRow[],
@@ -157,7 +158,8 @@ async function writeWorkspace(
     })),
   });
 
-  const dir = join(workspacesDir, agent.slug);
+  // 按 run 隔离：同一智能体并发运行时不能互相覆盖 .mcp.json / 技能 / 子智能体。
+  const dir = join(workspacesDir, agent.slug, runId);
   const agentsDir = join(dir, '.claude', 'agents');
   // 子智能体每次重建：解绑后旧文件不能残留，否则 SDK 仍会发现它。
   await rm(agentsDir, { recursive: true, force: true });
@@ -181,12 +183,23 @@ async function writeWorkspace(
 }
 
 /** 事件流 → 消息行：assistant 文本按块存，工具调用存成 tool 消息。 */
+/** 工具入参在事件里是 JSON 字符串；落库时还原成对象，前端与 trace 都按对象渲染。 */
+function parseToolInput(raw: string | undefined): unknown {
+  if (raw === undefined) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { raw };
+  }
+}
+
 async function persistRunMessages(
   db: ReturnType<typeof createDb>['db'],
   input: { conversationId: string; runId: string; events: ChatEvent[] },
 ): Promise<void> {
   const rows: Array<{ role: string; content: unknown }> = [];
   const toolNames = new Map<string, string>();
+  const toolInputs = new Map<string, string>();
 
   for (const event of input.events) {
     if (event.type === 'assistant_text' && event.text.trim().length > 0) {
@@ -196,7 +209,19 @@ async function persistRunMessages(
       });
     } else if (event.type === 'tool_start') {
       toolNames.set(event.toolUseId, event.name);
+    } else if (event.type === 'tool_input') {
+      toolInputs.set(event.toolUseId, redactSecrets(event.json));
     } else if (event.type === 'tool_result') {
+      // tool_use 也要落库：否则刷新后前端无法重建工具卡片（只有 result 没有卡片）。
+      rows.push({
+        role: 'tool',
+        content: {
+          type: 'tool_use',
+          id: event.toolUseId,
+          name: toolNames.get(event.toolUseId) ?? null,
+          input: parseToolInput(toolInputs.get(event.toolUseId)),
+        },
+      });
       rows.push({
         role: 'tool',
         content: {
@@ -289,6 +314,7 @@ const worker = new Worker(
     let outcome: SandboxRunOutcome;
     let runStartedAt = 0;
     let runLatencyMs: number | null = null;
+    let workspaceDirForRun: string | null = null;
     try {
       const [agent] = await db
         .select()
@@ -323,6 +349,7 @@ const worker = new Worker(
 
       const workspaceDir = await writeWorkspace(
         agent,
+        runId,
         rows.map(({ server }) => ({
           name: server.name,
           entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId),
@@ -330,6 +357,7 @@ const worker = new Worker(
         skillRows,
         subAgentRows,
       );
+      workspaceDirForRun = workspaceDir;
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');
 
       runStartedAt = Date.now();
@@ -420,6 +448,13 @@ const worker = new Worker(
       { runId, status: outcome.status, costUsd: outcome.costUsd, latencyMs: runLatencyMs },
       'agent run finished',
     );
+
+    // 重试会复用同一 run 的工作区，因此只在最终结束（不再重试）后清理。
+    if (!isRetryable(outcome) && workspaceDirForRun) {
+      await rm(workspaceDirForRun, { recursive: true, force: true }).catch((err: unknown) => {
+        logger.warn({ err, runId }, 'workspace cleanup failed');
+      });
+    }
 
     // 瞬时基础设施故障交给 BullMQ 重试；业务失败直接结束，避免重复计费。
     if (isRetryable(outcome)) {

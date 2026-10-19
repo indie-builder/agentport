@@ -1,7 +1,7 @@
-# 实施契约（并行开发的唯一接口约定）
+# 实施契约（历史文档）
 
-> 所有并行的 agent 必须严格按此文件实现。**只允许修改自己负责的文件**，不得改共享文件（除非本文件明确授权）。
-> 不要运行 `pnpm install`、不要运行 `biome --write .`（会改动他人文件）、不要提交 git。
+> 这是 M1–M4 并行开发时使用的接口约定，**已不再约束当前代码**；当前结构见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+> 下文保留当时的分工与文件路径，部分名称已被后续实现取代（例如 ID 已从 `ulid` 改为 TypeID、配置字段以 `packages/api/src/config.ts` 为准）。
 
 ## 0. 已存在的基础设施
 
@@ -35,7 +35,7 @@
   export * as chat from './chat.js';
   ```
 
-ID 使用 `ulid()`（`ulid` 包）。
+ID 使用 `newId()`（`typeid-js`；当时约定的是 `ulid`，后改为 TypeID）。
 
 ## 2. 鉴权约定
 

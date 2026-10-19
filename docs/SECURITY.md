@@ -6,7 +6,7 @@
 
 | 编号 | 严重度 | 问题 | 修复 |
 |---|---|---|---|
-| C1 | Critical | compose 把 Postgres/Redis 发布到 0.0.0.0，Redis 无密码 | 端口绑 `127.0.0.1`；Redis 加 `--requirepass`；连接串带密码 |
+| C1 | Critical | compose 把 Postgres/Redis 发布到 0.0.0.0，Redis 无密码 | 端口绑 `127.0.0.1`；Redis 加 `--requirepass`；连接串带密码。compose 文件已修；已存在的容器需要 `docker compose up -d --force-recreate postgres redis` 才会生效 |
 | H1 | High | `assertSafeUrl` 可被 `[::ffff:7f00:1]`（十六进制 IPv4-mapped）与 NAT64 绕过 | 提取内嵌 IPv4 再判断；补 `240/4`、`255.255.255.255`、`192.0.0.0/24`、`192.88.99/24` |
 | H2 | High | `fetch` 默认跟随重定向，只在第一跳做 SSRF 校验 | `redirect:'error'` + 30s 超时 + 1 MiB 响应体上限 |
 | H3 | High | stdio「测试连接」在 API 主机 spawn 用户命令并继承全部 `process.env` | 只传 `PATH`/`HOME`/`LANG` + 用户配置的 env |
@@ -47,11 +47,13 @@
 | M13 | `SANDBOX_EGRESS` 默认 `proxy`，无代理时降级为 `open` 并告警 |
 | M14 | 文档记录 docker.sock 风险与替换方案；记入 D-16 |
 
-## 待处理（需要设计决策，见 DECISIONS-PENDING.md）
+## 待处理
 
 | 编号 | 严重度 | 问题 | 建议 |
 |---|---|---|---|
-| M12 | Medium | 沙盒拿到模型主密钥；`.mcp.json` 默认权限落盘 | 文件 `0o600` + 按 run 签发短期 token |
+| M12 | Medium | 沙盒拿到模型主密钥；`.mcp.json` 以默认权限落盘（worker 写入时未 `chmod 0600`） | 文件 `0o600` + 按 run 签发短期 token |
+
+除 M12 外，循环 7–9 审查出的 Critical/High/Medium 均已修复。本次文档复核只跑了 `pnpm test`（82 个用例）；E2E 与真实部署下的限流、CSP、会话吊销未复测，状态为「未验证」。
 
 ## 已检查无问题
 

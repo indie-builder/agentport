@@ -25,13 +25,16 @@ services:
   redis:
     image: redis:8-alpine
     restart: unless-stopped
-    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD:-agentport-dev}']
+    # 密码由 compose 在启动时注入；healthcheck 里用同一个变量名，避免两处不一致。
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-agentport-dev}
+    command: ['sh', '-c', 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
     ports:
       - '127.0.0.1:6379:6379'
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ['CMD-SHELL', 'redis-cli -a \"$${REDIS_PASSWORD:-agentport-dev}\" ping | grep -q PONG']
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
       interval: 5s
       timeout: 3s
       retries: 10

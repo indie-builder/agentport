@@ -34,6 +34,22 @@ describe('toStep', () => {
     });
   });
 
+  it('maps a tool_use row to a tool step', () => {
+    expect(
+      toStep({
+        role: 'tool',
+        content: { type: 'tool_use', id: 't1', name: 'get_user', input: { id: '1' } },
+        createdAt: at,
+      }),
+    ).toEqual({
+      kind: 'tool',
+      at: at.toISOString(),
+      name: 'get_user',
+      toolUseId: 't1',
+      content: { id: '1' },
+    });
+  });
+
   it('tolerates missing tool name and id', () => {
     const step = toStep({ role: 'tool', content: { type: 'tool_result' }, createdAt: at });
     expect(step).toMatchObject({ kind: 'tool', name: null, toolUseId: null });

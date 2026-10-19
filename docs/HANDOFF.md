@@ -1,89 +1,70 @@
-# 交接摘要（2026-10-20 凌晨）
+# 交接摘要（2026-10-20）
 
-> 用户休息期间持续执行。本文记录当前状态、已完成的循环、明早需要决策的事项。
-
----
+> 当前状态快照。能力清单见 [CHANGELOG.md](CHANGELOG.md)，待决策见 [DECISIONS-PENDING.md](DECISIONS-PENDING.md)，安全状态见 [SECURITY.md](SECURITY.md)。
 
 ## 一句话现状
 
-PACE（仓库名 Agentport）已从零构建为一个可本地运行的智能体平台：MCP 接入、文件定义智能体、沙盒执行、流式对话、运行观测、评估回归、审计与备份均已落地并有测试。
+PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 三源接入、文件定义智能体、Docker 沙盒执行、SSE 流式对话、运行 trace、评估回归、审计、限流与备份均已落地，并有自动化测试与压测基线。
 
-## 质量基线
+## 质量基线（2026-10-20 复核）
 
-| 项 | 状态 |
-|---|---|
-| `pnpm -r typecheck` | ✅ 全通过 |
-| `pnpm -r build` | ✅ 全通过 |
-| `biome check` | ✅ 0 错误 |
-| `pnpm test` | ✅ 77 通过 |
-| `pnpm test:e2e` | ✅ 5 条通过（1 条按设计跳过） |
-| `pnpm smoke` | ✅ SMOKE OK |
-| 真实链路 | ✅ 浏览器 → API → 队列 → 沙盒 → 模型 → MCP 工具 → 上游 API → SSE |
-| 外部 MCP 调用 | ✅ 另一个 MCP 客户端可调用平台智能体 |
-| 响应式 | ✅ 1280/1024/768/390 无横向溢出 |
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型检查 | `pnpm typecheck` | ✅ 7 个包全部通过 |
+| 构建 | `pnpm build` | ✅ 全部通过；web 有 >500 kB chunk 警告 |
+| Lint | `pnpm lint` | ✅ 0 错误，1 条 warning（`mcp-endpoint.ts` 未使用参数 `ctx`） |
+| 单测/集成 | `pnpm test` | ✅ 14 个文件、82 个用例通过（需要 Postgres 与 Redis；vitest 不读 `.env`，compose 的 Redis 需显式 `REDIS_URL=redis://:agentport-dev@localhost:6379`） |
+| E2E | `pnpm test:e2e` | 未在本次复核中运行（需 5173+3000；`E2E_FULL=1` 才跑真实对话） |
+| 部署自检 | `pnpm smoke` | 本次未运行（需要已登录的部署实例） |
+| 基础设施 | `docker compose ps` | ✅ postgres/redis healthy；`REDIS_PASSWORD` 未导出时 redis 健康检查会失败（已记录在 OPERATIONS 排障表） |
+| CI | `.github/workflows/ci.yml` | biome ci → typecheck → build → migrate → test |
 
-## 已完成的能力循环
+真实链路（浏览器 → API → 队列 → 沙盒 → 模型 → MCP 工具 → 上游 API → SSE）与外部 MCP 客户端调用平台智能体，均在循环 6 之前实测通过。压测数据见 [OPERATIONS.md §8](OPERATIONS.md#8-压力测试结果)。
+
+## 循环 0–9 摘要
 
 | 循环 | 内容 |
 |---|---|
-| 0 | 项目骨架、Postgres/Redis、日志、健康检查 |
-| 1 | MCP 三源接入、HTTP→MCP、鉴权、智能体文件定义、沙盒运行、SSE |
-| 2 | 技能、权限与工具策略、完整历史落库、token/延迟、版本回滚、审计页、平台→MCP、重试 |
-| 3 | 工具级启停、评估集与回归、导出、备份、运行审计 |
-| 4 | 子智能体单层委派、数据保留、指标端点、E2E 回归 |
-| 5 | 会话上下文与分支、智能体导入、可访问性与响应式收口 |
-| 6 | 部署可移植性、工具审批最小闭环、文档收口 |
-| 7 | 安全审查（1 Critical + 11 High）、失败路径测试、性能索引 |
-| 8 | 安全修复第二轮：预览脱敏、结构化审批、日志脱敏、输出上限 |
-| 9 | 安全剩余项（限流/CSP/JWT 吊销/乐观锁/外键）、并发压测（进行中） |
+| 0 | 仓库骨架、Postgres/Redis、日志、健康检查、首个迁移 |
+| 1 | MCP 三源接入、HTTP→MCP、鉴权、文件定义智能体、Docker 沙盒、SSE |
+| 2 | 技能、权限与工具策略、完整历史落库、token/延迟、版本回滚、审计页、平台→MCP、队列重试 |
+| 3 | 工具级启停、评估集与回归、智能体导出、备份、运行完成审计 |
+| 4 | 子智能体单层委派、数据保留、指标端点、E2E 回归、请求日志规范化 |
+| 5 | 会话上下文注入与分支、智能体导入、可访问性与响应式收口 |
+| 6 | 部署可移植（命名卷 + `HOST_WORKSPACES_DIR`）、`pnpm smoke`、工具审批最小闭环、文档收口 |
+| 7 | 对抗性安全审查（1 Critical + 11 High）、失败路径测试、性能索引、会话列表瘦身 |
+| 8 | 安全修复第二轮：预览脱敏、结构化审批表、日志脱敏、输出与事件上限 |
+| 9 | 安全剩余项：限流、CSP、可吊销会话、乐观锁、外键；并发压测与瓶颈结论 |
 
-## 明早需要你决策的事项
+## 当前已知限制
 
-全部在 `docs/DECISIONS-PENDING.md`，共 15 项。**我已按建议的保守方案执行**，你只需确认或推翻：
-
-| 编号 | 事项 | 我采用的默认 |
-|---|---|---|
-| D-1 | `/mcp` 访问控制 | 单 token，无来源限制（你已确认） |
-| D-2 | 评估判定 | 字符串包含，不做 LLM judge |
-| D-3 | 工具审批 | 最小闭环：标记工具 → 拒绝 → 批准 → 用户重发 |
-| D-4 | 启用状态 | 二值，无草稿态 |
-| D-5 | 版本保留 | 每 agent 50 个 |
-| D-6 | 运行/消息保留 | 运行 90 天、孤立消息 30 天 |
-| D-7 | 备份方式 | 手动/宿主机 cron，不做应用内定时 |
-| D-8 | 多智能体 | 只做单层委派 |
-| D-9 | RAG | 不做 |
-| D-10 | 多用户 | 不做 |
-| D-11 | Redis 高可用 | 单实例 |
-| D-12 | 沙盒演进 | Docker；接口已留 microVM |
-| D-13 | 事件流持久化 | 1 小时 TTL，靠 messages 还原 |
-| D-14 | 浅色主题 | 不做 |
-| D-15 | 队列面板 | 不接 |
-
-## 已知限制（诚实列出）
-
-1. **会话上下文**靠注入最近 20 条消息，不是 SDK 原生 session resume。长对话会截断。
-2. **子智能体**共享主智能体的 MCP 绑定；子智能体自己的 server 绑定不参与渲染。
-3. **工具审批**不是持久化暂停：批准后需用户重新发送消息。
-4. **评估跑批**在 API 进程内异步执行，API 重启会让进行中的跑批停在 running。
-5. **SSE 首事件**依赖 Redis Stream 回放，流保留 1 小时。
-6. **沙盒**用 Docker 共享内核；单机 worker 挂载 docker.sock 等价宿主 root。
-7. **分支 UI** 只能从最新消息分支，API 支持指定消息但 UI 未暴露。
-8. **导入**不携带子智能体与 tool 审批标记。
+1. **会话上下文**靠注入最近 20 条消息，不是 SDK 原生 session resume；长对话会截断。
+2. **子智能体**只支持单层，且共享主智能体的 MCP 绑定；子智能体自己的 server 绑定不参与渲染。
+3. **工具审批**不是持久化暂停：未批准时工具返回错误，批准后需要用户重新发送消息（或模型重试同一调用）。
+4. **评估跑批**在 API 进程内异步执行，API 重启会让进行中的跑批停在 `running`。
+5. **SSE 事件**存在 Redis Stream，TTL 1 小时、最多 1000 条；过期后只能从 `messages` 还原主线。
+6. **沙盒**用 Docker 共享内核；worker 挂载 `docker.sock`，等价宿主 root（D-16）。
+7. **密钥落盘**：每次 run 把解密后的 MCP env/headers 写入 `data/workspaces/<slug>/.mcp.json`，文件权限未收紧（M12，见 SECURITY.md）。
+8. **分支 UI** 只能从最新消息分支；API 支持指定 `fromMessageId`，UI 未暴露。
+9. **导入**不携带子智能体与工具审批标记（当前导入格式没有这两个字段）。
+10. **读接口**没有限流（`global: false`）；高并发下 Postgres 连接池是第一个瓶颈（见 OPERATIONS §8）。
 
 ## 建议的下一步
 
-1. 用真实业务场景跑一次完整流程（建 server → 建 agent → 评估 → 观察运行详情）。
-2. 决定 D-9/D-10 是否要提前做（影响数据模型）。
-3. 如果要对外提供服务：先做 D-1 的按 agent 发 token，再考虑 D-12 的 microVM。
+1. 用真实业务场景跑一次完整流程（建 server → 建 agent → 评估 → 运行详情）。
+2. 处理 SECURITY.md 中唯一未修复的 M12（工作区文件权限 / 短期 token）。
+3. 若要对外提供服务：先做 D-1 的按 agent 发 token 与读接口限流，再考虑 D-12 的 microVM。
+4. 补跑 `pnpm test:e2e` 与 `pnpm smoke`，把结果回填本表。
 
 ## 如何继续
 
 ```bash
 cd ~/Documents/myself/agentport
 docker compose up -d postgres redis
+pnpm build
 pnpm db:migrate
 pnpm dev            # api + worker + web
-pnpm smoke          # 部署自检
+pnpm smoke          # 需要 API 已启动且已设置 ADMIN_PASSWORD
 ```
 
-新会话开始时读：`docs/PROJECT-BRIEF.md` → `docs/CAPABILITY-GAP.md` → `docs/DECISIONS-PENDING.md`。
+新会话开始时读：`docs/PROJECT-BRIEF.md` → `docs/CAPABILITY-GAP.md` → `docs/DECISIONS-PENDING.md` → `docs/SECURITY.md`。

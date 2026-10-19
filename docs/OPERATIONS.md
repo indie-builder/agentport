@@ -4,9 +4,9 @@
 
 ## 1. 环境变量
 
-所有变量从进程环境读取；本地开发由 `--env-file-if-exists=../../.env` 或 compose 的 `env_file` 注入。下表的「必填」指进程启动时校验失败会直接退出。
+所有变量从进程环境读取；本地开发由 `--env-file-if-exists=../../.env` 或 compose 的 `env_file` 注入。下表的「必填」指进程启动时校验失败会直接退出。启动时校验的 schema 只有两个：`packages/api/src/config.ts`（api）与 `packages/worker/src/config.ts`（worker）；表里「读取方」列为「未被 schema 读取」的变量由代码直接读 `process.env` 或只由 compose/脚本使用。
 
-### 1.1 通用
+### 1.1 通用（api schema）
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
@@ -14,44 +14,53 @@
 | `LOG_LEVEL` | 否 | `info` | api、worker | `fatal` / `error` / `warn` / `info` / `debug` / `trace` |
 | `PORT` | 否 | `3000` | api | HTTP 监听端口，绑定 `0.0.0.0` |
 | `DATABASE_URL` | 是 | — | api、worker、db 迁移、备份 | PostgreSQL 连接串 |
-| `REDIS_URL` | 否 | `redis://localhost:6379` | api、worker | 队列、事件流、取消、限流共用 |
+| `REDIS_URL` | 否 | `redis://localhost:6379` | api、worker | 队列、事件流、取消、限流共用；用 compose 的 Redis 时连接串需带 `REDIS_PASSWORD` |
 | `APP_SECRET_KEY` | 是 | — | api、worker | MCP 密钥加密主密钥，≥32 字符。**api 与 worker 必须一致**，否则 worker 无法解密 |
 | `ADMIN_USER` | 否 | `admin` | api | 唯一管理员用户名 |
 | `ADMIN_PASSWORD` | 是 | — | api | 管理员密码，≥12 字符，且不能是 `admin-change-me` / `changeme` / `password`；每次登录用 scrypt 比对 |
 | `JWT_SECRET` | 是 | — | api | 会话签名密钥，≥32 字符 |
-| `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
-| `WEB_DIST` | 否 | 未设置 | api | 设置且目录存在时托管 SPA；compose 中为 `/app/web` |
-| `PLATFORM_MCP_TOKEN` | 否 | 未设置 | api | `/mcp` 平台端点的 Bearer token，≥16 字符；未设置则端点不注册 |
-| `RATE_LIMIT_DISABLED` | 否 | 未设置 | api | 值为 `1` 时关闭限流；仅用于测试/排障 |
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问地址（如 `https://agentport.example.com`），不要用 `*` |
-| `TRUST_PROXY` | 否 | 未设置 | api | 值为 `1` 时信任 `X-Forwarded-For`/`X-Forwarded-Proto`（反向代理之后必须开启，否则限流按代理 IP 计数） |
+| `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
+| `AGENT_DEFAULT_MODEL` | 否 | `claude-sonnet-5-5` | api（仅校验，未使用） | 当前代码不使用；模型由每个 agent 的 `model` 字段决定 |
+| `AGENT_MAX_CONCURRENT` | 否 | `2` | api、worker 均解析；worker 使用 | `agent-runs` 队列并发数（api 解析但不读） |
+| `AGENT_TIMEOUT_MS` | 否 | `600000` | api、worker | 单个 run 的默认超时；agent 自身 `timeoutMs` 优先 |
+| `AGENT_MAX_BUDGET_USD` | 否 | `2` | api（仅校验，未使用） | 当前代码不使用；预算由每个 agent 的 `maxBudgetUsd` 决定 |
 
-### 1.2 智能体与模型
+以下变量不在 schema 中，由代码直接读 `process.env` 或只由 compose 使用：
+
+| 变量 | 默认 | 读取方 | 说明 |
+|---|---|---|---|
+| `WEB_DIST` | 未设置 | api | 设置且目录存在时托管 SPA；compose 中为 `/app/web` |
+| `PLATFORM_MCP_TOKEN` | 未设置 | api | `/mcp` 平台端点的 Bearer token，≥16 字符；未设置则端点不注册 |
+| `RATE_LIMIT_DISABLED` | 未设置 | api | 值为 `1` 时关闭限流；仅用于测试/排障 |
+| `TRUST_PROXY` | 未设置 | api | 值为 `1` 时信任 `X-Forwarded-For`/`X-Forwarded-Proto`（反向代理之后必须开启，否则限流按代理 IP 计数） |
+| `DB_POOL_MAX` | `10` | api、worker | 每个进程的 pg 连接池上限 |
+| `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | 未设置 | worker | 仅 `SANDBOX_EGRESS=proxy` 时透传给沙盒，loopback 自动改写 |
+| `REDIS_PASSWORD` | `agentport-dev` | compose | redis 服务密码，同时拼进 api/worker 的 `REDIS_URL`；不是应用变量 |
+| `DOCKER_GID` | `0` | compose | worker 容器加入的组 GID，用于访问宿主 Docker socket |
+
+### 1.2 智能体与模型（worker schema）
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
 | `ANTHROPIC_API_KEY` | 二选一 | — | worker → 沙盒 | 模型 API key；注入容器，不落工作区 |
 | `ANTHROPIC_AUTH_TOKEN` | 二选一 | — | worker → 沙盒 | 以 Bearer token 发送；与上一项二选一 |
 | `ANTHROPIC_BASE_URL` | 否 | — | worker → 沙盒 | 自建网关地址；loopback 会自动改写为 `host.docker.internal` |
+| `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 单个 run 的默认超时（api 也解析，见 §1.1） |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 队列并发数 |
-| `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 单个 run 的默认超时；agent 自身 `timeoutMs` 优先 |
-| `AGENT_DEFAULT_MODEL` | 否 | `claude-sonnet-5-5` | api（已解析） | 当前代码未使用；模型由每个 agent 的 `model` 字段决定 |
-| `AGENT_MAX_BUDGET_USD` | 否 | `2` | api（已解析） | 当前代码未使用；预算由每个 agent 的 `maxBudgetUsd` 决定 |
 
-### 1.3 沙盒
+### 1.3 沙盒（worker schema）
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
 | `SANDBOX_IMAGE` | 否 | `agentport/sandbox:dev` | worker | 每次 run 启动的镜像 |
+| `WORKSPACES_DIR` | 否 | `./data/workspaces` | worker | 工作区根目录。compose 下为 `/workspaces`，必须与 api 同路径 |
+| `HOST_WORKSPACES_DIR` | 否 | 同 `WORKSPACES_DIR` | worker | 宿主视角的工作区路径，`docker -v` 的源路径；compose 默认 `/var/lib/docker/volumes/agentport_workspaces/_data` |
 | `SANDBOX_API_URL` | 否 | `http://host.docker.internal:3000` | worker、api（预览） | 沙盒视角的平台地址，写入 generated server 的 `.mcp.json` |
 | `SANDBOX_EGRESS` | 否 | `proxy` | worker | `proxy` = bridge + 容器内 `HTTPS_PROXY`；`none` = `--network none`；`open` = bridge 直连。默认 `proxy` 但未设置 `HTTPS_PROXY`/`HTTP_PROXY` 时，启动 warn 并**按 `open` 运行**（不阻塞本地开发） |
 | `SANDBOX_MEMORY` | 否 | `1g` | worker | 容器内存上限（Docker 格式，如 `1g`、`512m`） |
 | `SANDBOX_CPUS` | 否 | `1` | worker | CPU 核数上限 |
 | `SANDBOX_PIDS` | 否 | `128` | worker | PID 上限 |
-| `WORKSPACES_DIR` | 否 | `./data/workspaces` | worker | 工作区根目录。compose 下必须与宿主机同路径 |
-| `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | 否 | — | worker → 沙盒 | 仅 `SANDBOX_EGRESS=proxy` 时透传，loopback 自动改写 |
-| `SANDBOX_PROVIDER` | 否 | `docker` | 无人读取 | `.env.example` 中的历史项；当前只有 Docker 实现 |
-| `DOCKER_GID` | 否 | `0` | compose | worker 容器加入的组 GID，用于访问宿主 Docker socket |
 
 ### 1.4 数据保留
 
@@ -61,7 +70,7 @@
 | `RETAIN_MESSAGE_DAYS` | 否 | `30` | worker | 无 `run_id` 的孤立消息保留天数 |
 | `RETAIN_AGENT_VERSIONS` | 否 | `50` | worker | 每个智能体保留的版本数 |
 
-> `.env.example` 未列出 `PLATFORM_MCP_TOKEN`、`SANDBOX_EGRESS`、`SANDBOX_MEMORY`、`SANDBOX_CPUS`、`SANDBOX_PIDS`、`RATE_LIMIT_DISABLED`。需要时直接追加到 `.env`。
+`.env.example` 与本表一致；schema 之外可用的变量（`PLATFORM_MCP_TOKEN`、`RATE_LIMIT_DISABLED` 等）已在上方「不在 schema 中」表中列出。
 
 ## 2. 部署
 
@@ -98,9 +107,11 @@ curl -s http://localhost:3000/health/ready
 
 - `docker compose up -d --build` 会在镜像内执行 `pnpm -r build`，不依赖宿主 `dist`；但 `pnpm db:migrate` 在宿主机执行，需要 `packages/db/dist`。
 - **迁移不会自动执行**，升级后必须手动运行 `pnpm db:migrate`。
+- `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。
 - 沙盒镜像不由 compose 构建。`packages/sandbox/image` 脚本会 `docker build`，其 Dockerfile 复制 `dist/`，所以先 `pnpm --filter @agentport/sandbox build`。
 - compose 会占用 3000、5432、6379；如冲突，先停掉本机对应服务或改端口。
 - worker 容器内是 `node` 用户，通过 `group_add: ${DOCKER_GID:-0}` 访问 socket。Linux 上若 docker 组 GID 不是 0，部署前 `export DOCKER_GID=$(getent group docker | cut -d: -f3)`。
+- Redis 健康检查（compose 里的 `healthcheck.test`）直接使用宿主 shell 的 `REDIS_PASSWORD`：未在宿主环境导出该变量时，容器内实际密码是 `agentport-dev`，而健康检查传入空串，会一直 `starting` 并阻塞 api/worker 启动（已实测复现）。部署前 `export REDIS_PASSWORD=agentport-dev`（或改用 `docker compose exec` 检查）。
 - 生产通过 `http://localhost:3000` 访问；Cookie 带 `Secure`，局域网 IP + HTTP 会无法保持登录。
 - 反向代理之后部署时，设置 `TRUST_PROXY=1`（否则限流按代理 IP 计数），并把 `CORS_ORIGINS` 改成浏览器实际访问的 Origin。
 
@@ -211,8 +222,8 @@ pnpm --filter @agentport/worker maintenance
 
 ### 4.3 会话与运行
 
-- `/api/runs` 与 `/api/runs/:id` 不清理；运行详情由 `messages` 重建步骤。
 - 事件流在 Redis 中保留 1 小时（`run:<runId>:events`，最多 1000 条），过期后不能回放，但 `messages` 仍可还原主线。
+- 终态 run 及其消息会被每日维护任务按 `RETAIN_RUN_DAYS` 清理；`/api/runs` 只展示仍保留的数据。
 - 取消一个 queued 的 run 只会标记终态，worker 消费时会跳过；取消 running 的 run 会向容器发 SIGTERM。
 
 ## 5. 故障排查
@@ -220,6 +231,7 @@ pnpm --filter @agentport/worker maintenance
 | 症状 | 可能原因 | 检查命令 / 处理 |
 |---|---|---|
 | `/health/ready` 返回 503，`db` 或 `redis` 为 `error` | 依赖未启动、连接串错误、容器不健康 | `docker compose ps`；`docker compose logs postgres redis`；`curl -s localhost:3000/health/ready`；确认 `.env` 的 `DATABASE_URL` / `REDIS_URL` 与实际端口一致 |
+| `docker compose ps` 中 redis 一直 `health: starting`，api/worker 不启动 | compose 健康检查的 `REDIS_PASSWORD` 未在宿主导出，与容器实际密码不一致 | `export REDIS_PASSWORD=agentport-dev` 后 `docker compose up -d --force-recreate redis api worker`；或用 `docker compose exec redis redis-cli -a agentport-dev ping` 确认 |
 | 日志报 `Could not find a working container runtime strategy` 或 `Cannot connect to the Docker daemon` | worker 无法访问宿主 Docker socket | 在 worker 容器内 `docker ps`；检查 `/var/run/docker.sock` 挂载与 `DOCKER_GID`（`ls -l /var/run/docker.sock`，`getent group docker`） |
 | run 失败，错误含 `no such image` / `pull access denied` | 沙盒镜像未构建或名字不对 | `docker images agentport/sandbox`；`pnpm --filter @agentport/sandbox build && pnpm --filter @agentport/sandbox image`；核对 `SANDBOX_IMAGE` |
 | 模型调用 401 / 403 | 凭证缺失、失效，或 `ANTHROPIC_BASE_URL` 在容器内不可达 | `docker compose logs worker` 看容器 stderr；确认 `.env` 只填了 `ANTHROPIC_API_KEY` 与 `ANTHROPIC_AUTH_TOKEN` 之一；`ANTHROPIC_BASE_URL` 不要写 `127.0.0.1`（worker 会改写为 `host.docker.internal`，Linux 需 Docker 支持该别名） |
@@ -230,7 +242,7 @@ pnpm --filter @agentport/worker maintenance
 | generated server 在沙盒内 401 | `.mcp.json` 里的 `mcpToken` 与数据库不一致，或平台地址不可达 | 重新保存 server（PATCH 会沿用旧 token，不会轮换）；确认 `SANDBOX_API_URL` 从容器可达（`docker run --rm curlimages/curl -s $SANDBOX_API_URL/health/live`） |
 | 页面登录成功但刷新后退出 | 生产 Cookie 带 `Secure`，却用 HTTP + 非 localhost 访问 | 用 `http://localhost:3000`，或在明确可信的内网终止 TLS 后访问；不要把 `NODE_ENV` 改成 development 来绕过 |
 | 修改 schema 后报 `column ... does not exist` | 只改了 `schema.ts`，未生成或未应用迁移 | `pnpm db:generate && pnpm db:migrate`；迁移文件按顺序应用，不要手改已应用的迁移 |
-| 登录返回 429 | 登录限流 10 次/分钟（按 IP） | 等一分钟；只在本地/测试环境可临时 `RATE_LIMIT_DISABLED=1` 后重启 api |
+| 登录返回 429 | 登录限流 10 次/分钟（按 IP）；反向代理后未设 `TRUST_PROXY=1` 时所有请求共用代理 IP | 等一分钟；确认 `TRUST_PROXY=1`；只在本地/测试环境可临时 `RATE_LIMIT_DISABLED=1` 后重启 api |
 | `pnpm backup` 报 `DATABASE_URL is required` | 脚本不读取 `.env` | `set -a; . ./.env; set +a; pnpm backup` |
 | worker 退出并报 `Invalid environment` | `.env` 缺少必填项或长度不足 | 按报错里的字段名补齐；`APP_SECRET_KEY`、`JWT_SECRET` ≥32，`ADMIN_PASSWORD` ≥12 且不是常见默认口令 |
 | 运行超时 | `timeoutMs` 太小、模型慢、工具上游慢 | 运行详情看 `latencyMs` 与最后一步；调大智能体的 `timeoutMs`；检查上游 API 延迟 |
@@ -242,10 +254,13 @@ pnpm --filter @agentport/worker maintenance
 docker compose logs -f api worker
 docker compose ps
 curl -s localhost:3000/health/metrics
+set -a; . ./.env; set +a
 redis-cli -u "$REDIS_URL" llen bull:agent-runs:wait
 redis-cli -u "$REDIS_URL" xlen run:<runId>:events
 docker ps --filter name=agentport-
 ```
+
+`redis-cli` 不是项目依赖；本机没装时用 `docker compose exec redis redis-cli -a "$REDIS_PASSWORD" ...`。
 
 ## 6. 观测入口
 
@@ -254,7 +269,7 @@ docker ps --filter name=agentport-
 | `GET /health/live` | 进程存活 | 无 |
 | `GET /health/ready` | DB 查询 + Redis ping；任一失败返回 503 与 `status: degraded` | 无 |
 | `GET /health/metrics` | 进程（uptime、RSS、Node 版本）、队列计数、连接池、Redis ping 延迟；单项失败返回 `null`，整体仍 200 | 无 |
-| `/api/overview` | 统计卡、智能体聚合（运行数、成本、错误率、P50/P99、tokens）、最近 20 条运行 | 登录 |
+| `/api/overview` | 统计卡、智能体聚合（运行数、成本、错误率、P50/P99、tokens）、最近 20 条运行；`days` 限制 1–3650 | 登录 |
 | `/api/runs`、`/api/runs/:id` | 运行列表与 trace 步骤 | 登录 |
 | `/api/audit` | 审计事件，可按 action / status / 时间过滤 | 登录 |
 | 页面「审计」 | 同上，按时间倒序 | 登录 |
@@ -262,12 +277,13 @@ docker ps --filter name=agentport-
 | api 日志 | pino JSON（生产）/ pino-pretty（开发）；按路由模板记录，>2s 记 `slow request`，SSE 不打慢请求 | stdout |
 | worker 日志 | 结构化 JSON；每步带 `runId`，容器 stderr 以 `sandbox` 字段转发 | stdout |
 
-审计动作包括：`auth.login.succeeded`、`auth.login.failed`、`server.created/updated/deleted`、`mcp.server.tested`、`agent.created/updated/deleted/rolled_back`、`skill.created/updated/deleted`、`agent.run.requested/cancelled/finished`、`conversation.branched`、`eval.run.requested`、`maintenance.pruned`。审计只存输入摘要（SHA-256 前 32 位），不存原文。
+审计动作包括：`auth.login.succeeded`、`auth.login.failed`、`auth.logout`、`server.created/updated/deleted`、`mcp.server.tested`、`server.tool.created/updated/deleted`、`agent.created/updated/deleted/rolled_back/imported`、`skill.created/updated/deleted`、`agent.run.requested/approved/cancelled/finished`、`conversation.branched`、`eval.case.created/updated/deleted`、`eval.run.requested`、`maintenance.pruned`。审计只存输入摘要（SHA-256 前 32 位），不存原文。
 
 ## 7. 性能备注
 
 - **索引**（0009 迁移）：`agent_runs(started_at DESC NULLS LAST, id DESC)` 与 `agent_runs(agent_id, started_at DESC NULLS LAST, id DESC)` 服务 `/api/runs` 与概览的「最近运行」排序；`messages(run_id)` 服务 run trace 查询；`messages(conversation_id, created_at, id)` 让会话消息免排序。改动见 `packages/db/src/schema.ts`，重新生成用 `pnpm db:generate`。
-- **会话列表**：`/api/conversations` 的 `lastMessage` 只返回截断到 280 字的 `text`，不再回传整块 jsonb。
+- **连接池可配**：`packages/db/src/client.ts` 读 `DB_POOL_MAX`（默认 10），api 与 worker 各自独立一个池。`/api/overview` 的 servers/agents 计数已并行，running/runs 聚合与最近运行也并行；单个请求仍会执行多条 SQL。
+- **会话列表**：`/api/conversations` 的 `lastMessage` 只返回截断到 280 字的 `text`，不再回传整块 jsonb；`limit` 上限 200。
 - **概览页**：`/api/overview` 已含 servers/agents 计数，前端不再额外请求 `/api/servers`、`/api/agents`；`/api/overview` 返回 404 时才回退到列表接口。
 - **本机基线**（20 次 curl，改前 → 改后，p50/p95）：`/api/overview` 8.0/9.7 → 6.9/8.8 ms；`/api/runs` 3.1/4.9 → 3.1/4.0 ms；`/api/conversations` 3.4/5.3 → 3.0/5.1 ms（响应 8009 → 6820 B）。数据量很小时数据库耗时不占主导，收益主要来自索引在数据增长后避免全表扫描 + 排序。
 - **未做**：`/api/agents`、`/api/skills`、`/api/eval/*` 列表仍无分页；当前单机数据量下影响可忽略，智能体/技能数量上来后再加 `limit`。MCP 端点每次请求重查 server + tools，属于配置即时生效的取舍，不在本次范围。
@@ -291,7 +307,7 @@ ADMIN_PASSWORD='...' node scripts/loadtest.mjs
 | 项 | 值 |
 |---|---|
 | 宿主 | macOS，12 逻辑核，API / worker / Postgres / Redis / 压测客户端同机 |
-| API | Node v24.22.0，tsx dev，Fastify；pg 连接池 `max: 10`（`packages/db/src/client.ts`） |
+| API | Node v24.22.0，tsx dev，Fastify；pg 连接池 `max: 10`（当时硬编码；现由 `DB_POOL_MAX` 配置，默认仍为 10） |
 | 数据库 | Postgres 18-alpine，`max_connections=100`，`shared_buffers=128MB`；测试时 3 agents / 2 skills / 1 server / 14 runs / 43 messages |
 | worker | `AGENT_MAX_CONCURRENT=2`，`SANDBOX_MEMORY=1g`，模型 `claude-sonnet-5-5` |
 | 读接口 | 50 并发 × 20 轮（每接口 1000 样本）；另做 100 / 200 并发 × 10 轮找拐点 |
@@ -328,13 +344,13 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 
 ### 8.3 第一个瓶颈
 
-**API 的 Postgres 连接池（硬编码 `max: 10`）与读接口的串行查询次数，是系统在压力下先撞到的墙；不是 HTTP 层，也不是宿主机 CPU。**
+**API 的 Postgres 连接池（当时硬编码 `max: 10`，现为 `DB_POOL_MAX`）与读接口的查询条数，是系统在压力下先撞到的墙；不是 HTTP 层，也不是宿主机 CPU。**
 
 依据：
 
 1. **HTTP 层有大量余量**：同一客户端、同样 200 并发，`/health/live` 达到 28534 req/s（p50 3.5 ms），而 `/api/overview` 只有 1961 req/s。差距来自请求进入业务后的数据库访问。
 2. **吞吐在 100 并发后不再增长，延迟随并发线性上升**：`/api/overview` 50→100→200 并发时吞吐 1717→1917→1961 req/s，p50 23.4→44.1→87.2 ms。这是固定服务能力被打满的典型形态（Little's law）。
-3. **连接池确实在排队**：每个 `/api/overview` 请求串行执行 6 条独立查询，池只有 10 条连接；200 并发时 `db.waiting` 峰值 115，`/api/agents`（4 条查询）峰值 498。`/api/runs` 只有 1 条查询，同样并发下仍有 4706 req/s、p50 29.7 ms，说明瓶颈是“查询条数 × 池大小”，而不是数据量或索引。
+3. **连接池确实在排队**：每个 `/api/overview` 请求执行 6 条 SQL（部分并行），池只有 10 条连接；200 并发时 `db.waiting` 峰值 115，`/api/agents`（4 条查询）峰值 498。`/api/runs` 只有 1 条查询，同样并发下仍有 4706 req/s、p50 29.7 ms，说明瓶颈是“查询条数 × 池大小”，而不是数据量或索引。
 4. **数据库与 CPU 尚未打满**：测试数据集很小（14 runs），Postgres CPU 峰值约 1.1 核，Redis 约 2%，宿主机 12 核。提高池上限或减少查询条数可以直接换取吞吐，不需要先扩容机器。
 
 第二个瓶颈是 **worker 并发 `AGENT_MAX_CONCURRENT=2`**：单次 run 固定成本约 2.5–3.3 s（主要是拉容器和启动 SDK，简单 prompt 也一样），因此 run 吞吐约 0.7 个/秒。10 个 run 同时投递时 p95 排队 10.5 s、峰值 waiting 8，与理论 FIFO 完全吻合，队列本身没有额外异常，只是并发上限低。
@@ -344,8 +360,8 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 ### 8.4 建议参数
 
 1. **先改读接口的查询形态**（收益最大、无配置风险）：`/api/overview` 的 counts（servers/agents/running/runs）合并成一条 SQL，其余两条重查询与它并行；`packages/api/src/features/agents/routes.ts` 的 4 条查询已是 1+3 并行，可只把首条列表查询与关联查询合并。预期 200 并发下 p95 从约 100 ms 降到 40–50 ms，吞吐约翻倍。
-2. **连接池改为可配置**：`packages/db/src/client.ts` 的 `max: 10` 建议改成 `DB_POOL_MAX`（默认 10）。单 API 实例、Postgres `max_connections=100` 时，20–30 安全；但若不同时做第 1 条，翻倍池只是把压力更早推给 Postgres。worker 另有独立 10 连接池，扩容时一并计入。
-3. **读接口补限流**：当前 `global: false` 使未单独配置的路由完全不计流（压测中 2000 次读请求无 429），只有登录 10 次/分、chat 20 次/分受限。若要暴露到 localhost 之外，建议读接口加 600 次/分/IP；单管理员场景下 chat 的 20 次/分偏低（两次突发落在同一分钟就会 429，本次压测已复现 2/10 被拒），可提到 60 次/分或按登录用户计数。
+2. **连接池可配置（已实现）**：`packages/db/src/client.ts` 读取 `DB_POOL_MAX`（默认 10）。单 API 实例、Postgres `max_connections=100` 时，20–30 安全；但若不同时做第 1 条，翻倍池只是把压力更早推给 Postgres。worker 另有独立连接池，扩容时一并计入。
+3. **读接口补限流**：当前 `global: false`，只有显式配置的路由计数（登录 10/min、chat 20/min、`/mcp` 与 `/mcp/:serverId` 各 60/min、连接测试 20/min、评估发起 10/min），读接口完全不计流（压测中 2000 次读请求无 429）。若要暴露到 localhost 之外，建议读接口加 600 次/分/IP；单管理员场景下 chat 的 20 次/分偏低（两次突发落在同一分钟就会 429，本次压测已复现 2/10 被拒），可提到 60 次/分或按登录用户计数。
 4. **worker 并发按内存定**：每个沙盒上限 `SANDBOX_MEMORY=1g`，把 `AGENT_MAX_CONCURRENT` 从 2 提到 4 可把 10 个 run 的 p95 排队从约 10.5 s 降到约 5 s，代价是 4 GB 沙盒内存与更多宿主 CPU；若 run 量继续增长，优先做容器预热池来消掉每次 2.5–3.3 s 的固定启动成本。
 5. **观测告警线**：`/health/metrics` 的 `db.waiting > 5` 持续 10 s，或队列 `waiting > 10`，即可认为已进入本次测出的瓶颈区。
 

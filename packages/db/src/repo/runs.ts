@@ -116,6 +116,15 @@ export function toStep(message: {
   ) {
     return { kind: 'assistant', at, text: content.text };
   }
+  if (message.role === 'tool' && content?.type === 'tool_use') {
+    return {
+      kind: 'tool',
+      at,
+      name: typeof content.name === 'string' ? content.name : null,
+      toolUseId: typeof content.id === 'string' ? content.id : null,
+      content: content.input,
+    };
+  }
   if (message.role === 'tool' && content?.type === 'tool_result') {
     return {
       kind: 'tool',

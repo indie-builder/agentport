@@ -3,7 +3,8 @@ import { defineConfig } from 'vitest/config';
 // 测试专用配置：不读取 .env，缺省指向本地 compose；限制条件在 helpers 里探测。
 const databaseUrl =
   process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport';
-const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
+// 与 docker-compose 的默认密码保持一致；CI 里用服务容器的同名变量覆盖。
+const redisUrl = process.env.REDIS_URL ?? 'redis://:agentport-dev@localhost:6379';
 
 export default defineConfig({
   test: {

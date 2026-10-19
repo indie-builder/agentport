@@ -26,6 +26,8 @@
 
 状态：✅ 已实现 ／ 🟡 部分 ／ ❌ 未实现
 
+> 说明：此矩阵是**循环 1 结束时**的快照，「本轮」指循环 1；后续循环的补齐记录见下方各节与 [CHANGELOG.md](CHANGELOG.md)。「下一轮」是当时的计划，不代表当前状态。
+
 | 领域 | 能力 | 循环前 | 本轮 | 说明 |
 |---|---|---|---|---|
 | 沙盒 | 隔离执行、资源限制、只读根 | ✅ | ✅ | cap-drop、no-new-privileges、memory/cpu/pids |
@@ -122,7 +124,7 @@
 | 部署可移植 | ✅ | compose 去掉 `${PWD}`，改用命名卷 + `HOST_WORKSPACES_DIR`；在 `/tmp` 下 `--project-directory` 验证通过 |
 | 部署自检 | ✅ | `pnpm smoke` 覆盖健康、登录、三类列表、MCP 鉴权；实测输出 `SMOKE OK` |
 | 工具审批（最小） | ✅ | `api_tools.requires_approval` + `agent_runs.approvals`；未批准返回明确文案；`POST /api/runs/:id/approve`；20 个相关测试 |
-| 文档收口 | ✅ | README（154 行）、ARCHITECTURE（182 行）、OPERATIONS（250 行，16 条排障） |
+| 文档收口 | ✅ | README（概览 + 命令 + 安全要点）、ARCHITECTURE、OPERATIONS（环境变量、部署、排障、压测） |
 | 文档与代码一致性 | ✅ | 修正 15 处偏差（`SANDBOX_NETWORK`→`SANDBOX_EGRESS`、`pnpm -r typecheck` 写法、迁移非自动、`PLATFORM_MCP_TOKEN` 未文档化等） |
 | 禁用智能体拦截 | ✅ | `POST /api/chat` 返回 409 并给下一步 |
 
@@ -134,24 +136,50 @@
 | 修复的真实缺陷 | ✅ | SSE 引用计数泄漏（两个标签页互相影响）、批准不存在工具被静默接受、prompt 无上限 |
 | 性能索引 | ✅ | `messages.run_id`、`agent_runs(started_at)`、`(conversation_id, created_at, id)`；执行计划由 Seq Scan 转 Index Scan |
 | 会话列表瘦身 | ✅ | `lastMessage` 只取 280 字符，响应体 8009 → 6820 B |
-| 安全审查 | ✅ | `docs/SECURITY.md`：1 Critical + 11 High，已修 7 项，10 项待决策 |
-| 测试总数 | ✅ | 62 个 vitest + 5 个 E2E |
+| 安全审查 | ✅ | `docs/SECURITY.md`：1 Critical + 11 High；循环 8、9 已修复全部 High 与 Medium，仅剩 M12 |
+| 测试总数 | ✅ | 82 个 vitest 用例（当前实测）+ E2E |
+
+### 循环 8 已补齐
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 预览脱敏 | ✅ | 密钥值显示 `<已配置>`；generated 的 Authorization 运行时注入 |
+| 结构化工具审批 | ✅ | `approval_requests(run_id, server_id, tool_name)`；`POST /api/runs/:id/approve`；UI 改读 `/api/runs/:id/approvals` |
+| 日志/落库脱敏 | ✅ | `redactSecrets` 覆盖 Bearer/sk-/ghp_/`KEY=value`/长 base64url；stderr 降为 debug |
+| 输出上限 | ✅ | 沙盒单字段 256 KB；worker 单行 1 MiB、单 run 2000 事件/32 MiB；UI 64 KB 折叠 |
+| 导入安全 | ✅ | 导入调用 `assertSafeUrl`；同名不同 kind 拒绝复用；写 `agent.imported` 审计 |
+| 审计补齐 | ✅ | tool CRUD、eval case CRUD、logout、`/mcp` 触发 run 均有审计 |
+| 环境校验 | ✅ | `APP_SECRET_KEY`/`JWT_SECRET` ≥32、`ADMIN_PASSWORD` ≥12 且拒绝占位值 |
+
+### 循环 9 已补齐
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 限流 | ✅ | 登录 10/min、chat 20/min、`/mcp` 与 `/mcp/:serverId` 60/min、连接测试 20/min、评估发起 10/min；`/mcp` 另有进程内并发 4 |
+| CSP | ✅ | 全局启用；仅 MCP 路由关闭；`style-src` 放行内联样式 |
+| 可吊销会话 | ✅ | JWT 带 `sid`，Redis `session:<sid>`，logout 立即失效；鉴权结果本地缓存 5 秒 |
+| CORS / 代理 | ✅ | `CORS_ORIGINS` allowlist；`TRUST_PROXY=1` 信任转发头 |
+| 乐观锁 | ✅ | Agent/Server PATCH 带 `expectedUpdatedAt`，冲突返回 409 `CONFLICT_STALE` |
+| 外键 | ✅ | `agent_runs`、`messages.run_id` 外键（迁移 0011 先清理孤儿行） |
+| 沙盒出站 | ✅ | `SANDBOX_EGRESS` 默认 `proxy`，无代理时降级为 `open` 并告警 |
+| 压测基线 | ✅ | 读/写/SSE/MCP/队列数据与第一瓶颈见 [OPERATIONS.md §8](OPERATIONS.md#8-压力测试结果) |
 
 ### 下一轮优先级（按对「生产可用」的影响排序）
 
-| 优先级 | 能力 | 理由 |
+| 优先级 | 能力 | 状态 / 理由 |
 |---|---|---|
-| ~~P0~~ ✅ | run 详情页 + trace 树 | 已完成 |
-| ~~P0~~ ✅ | 智能体配置版本历史 + 回滚 | 已完成 |
-| ~~P0~~ ✅ | 审计页 + 配置变更审计 | 已完成 |
-| ~~P0~~ ✅ | 平台自身暴露为 MCP Server | 已完成 |
-| ~~P0~~ ✅ | 错误分类与重试 | 已完成 |
-| ~~P1~~ ✅ | 工具级启用/禁用 | 已完成 |
-| P1 | 持久化 HITL（暂停 → 落盘 → 恢复） | 审批常跨小时；内存态暂停不可用 |
-| P1 | 资产导出/备份（智能体定义 + 会话 + 配置） | 单机无冗余，备份即灾备 |
-| ~~P2~~ ✅ | 评估集（手工用例 + 回归） | 已完成 |
-| ~~P2~~ ✅ | 子智能体（单层委派） | 已完成 |
-| P3 | RAG / 知识库 | 技能可覆盖多数场景 |
+| ~~P0~~ | run 详情页 + trace 树 | ✅ |
+| ~~P0~~ | 智能体配置版本历史 + 回滚 | ✅ |
+| ~~P0~~ | 审计页 + 配置变更审计 | ✅ |
+| ~~P0~~ | 平台自身暴露为 MCP Server | ✅ |
+| ~~P0~~ | 错误分类与重试 | ✅ |
+| ~~P1~~ | 工具级启用/禁用 | ✅ |
+| ~~P1~~ | 资产导出/备份 | ✅ |
+| ~~P2~~ | 评估集（手工用例 + 回归） | ✅ |
+| ~~P2~~ | 子智能体（单层委派） | ✅ |
+| P1 | 持久化 HITL（暂停 → 落盘 → 恢复） | 未做；当前是最小审批闭环（D-3） |
+| P1 | 工作区密钥文件权限（M12） | 未做；见 [SECURITY.md](SECURITY.md) |
+| P3 | RAG / 知识库 | 未做；技能可覆盖多数场景（D-9） |
 
 ---
 
