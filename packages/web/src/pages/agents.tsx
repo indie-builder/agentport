@@ -1,18 +1,29 @@
-import type { Agent, AgentInput } from '@agentport/shared';
-import { Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
-import { toast } from 'sonner';
+import { type Agent, type AgentInput, agentInputSchema, BUILTIN_TOOLS } from '@agentport/shared';
+import {
+  Bot,
+  Check,
+  FileCode,
+  FileText,
+  Plus,
+  Search,
+  Shield,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+import { useMemo, useState } from 'react';
+import type { z } from 'zod';
+import { CodeBlock } from '../components/code-block.js';
+import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
-import { Input } from '../components/ui/input.js';
-import { Label } from '../components/ui/label.js';
+import { FieldError, FieldHint, Input } from '../components/ui/input.js';
+import { Label, RequiredMark } from '../components/ui/label.js';
+import { MultiSelect } from '../components/ui/multi-select.js';
 import { Select } from '../components/ui/select.js';
-import { Skeleton } from '../components/ui/skeleton.js';
+import { Tabs } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
-import { errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
   useAgentFiles,
@@ -20,452 +31,742 @@ import {
   useCreateAgent,
   useDeleteAgent,
   useServers,
+  useSkills,
   useUpdateAgent,
 } from '../lib/queries.js';
+import { toastSuccess } from '../lib/toast.js';
 
 const models = ['claude-sonnet-5-5', 'claude-opus-5', 'claude-haiku-4-5'];
 
 const emptyInput: AgentInput = {
   slug: '',
   name: '',
+  description: '',
   model: 'claude-sonnet-5-5',
   systemPrompt: '',
   serverIds: [],
+  skillIds: [],
+  allowedTools: [],
+  disallowedTools: [],
+  permissionMode: 'dontAsk',
   maxTurns: 20,
   maxBudgetUsd: 2,
   timeoutMs: 600_000,
+  enabled: true,
 };
 
 function toInput(agent: Agent): AgentInput {
   return {
     slug: agent.slug,
     name: agent.name,
+    description: agent.description,
     model: agent.model,
     systemPrompt: agent.systemPrompt,
     serverIds: agent.serverIds,
+    skillIds: agent.skillIds,
+    allowedTools: agent.allowedTools,
+    disallowedTools: agent.disallowedTools,
+    permissionMode: agent.permissionMode,
     maxTurns: agent.maxTurns,
     maxBudgetUsd: agent.maxBudgetUsd,
     timeoutMs: agent.timeoutMs,
+    enabled: agent.enabled,
+    ...(agent.effort === undefined ? {} : { effort: agent.effort }),
+    ...(agent.maxThinkingTokens === undefined
+      ? {}
+      : { maxThinkingTokens: agent.maxThinkingTokens }),
   };
+}
+
+function fieldErrors(issues: z.ZodIssue[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const issue of issues) {
+    const key = issue.path.map(String).join('.') || 'form';
+    out[key] ??= issue.message;
+  }
+  return out;
 }
 
 export function AgentsPage() {
   const agents = useAgents();
-  const remove = useDeleteAgent();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState('');
+  const [deleting, setDeleting] = useState<Agent | null>(null);
+  const remove = useDeleteAgent();
 
-  const selected = agents.data?.find((a) => a.id === selectedId) ?? null;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const list = agents.data ?? [];
+    if (!needle) return list;
+    return list.filter((agent) =>
+      [agent.name, agent.slug, agent.description].join(' ').toLowerCase().includes(needle),
+    );
+  }, [agents.data, query]);
+
+  // 选中项被删除或首次进入时，落到第一个 agent，避免右侧空白。
+  const selected = filtered.find((agent) => agent.id === selectedId) ?? filtered[0] ?? null;
 
   return (
     <div>
       <PageHeader
-        title="Agents"
-        description="每个 agent 会渲染成 .mcp.json / CLAUDE.md / agent md"
+        title="智能体"
+        description="文件式定义：每个智能体渲染为 .mcp.json、CLAUDE.md 与 agent md，由沙盒在运行时装配。"
         actions={
           <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="size-3.5" /> 新建
+            <Plus className="size-3.5" /> 新建智能体
           </Button>
         }
       />
-      <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <div className="space-y-1">
+
+      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <div className="relative mb-2">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
+            <Input
+              type="search"
+              aria-label="搜索智能体"
+              placeholder="搜索名称或 slug…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="pl-8"
+            />
+          </div>
+
           {agents.isPending ? <LoadingState rows={4} /> : null}
           {agents.isError ? (
             <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
           ) : null}
           {agents.data && agents.data.length === 0 ? (
             <EmptyState
-              title="还没有 agent"
-              description="先创建 MCP Server，再来绑定。"
+              icon={<Bot className="size-5" />}
+              title="还没有智能体"
+              description="创建后绑定 MCP Server，即可在对话中使用它的工具。"
               action={
                 <Button size="sm" onClick={() => setCreating(true)}>
-                  新建
+                  新建智能体
                 </Button>
               }
             />
           ) : null}
-          {agents.data?.map((agent) => (
-            <div
-              key={agent.id}
-              className={cn(
-                'group flex items-center gap-1 rounded-md border px-2 py-1.5',
-                agent.id === selectedId
-                  ? 'border-zinc-700 bg-zinc-900'
-                  : 'border-transparent hover:border-zinc-800 hover:bg-zinc-900/50',
-              )}
-            >
-              <button
-                type="button"
-                className="min-w-0 flex-1 text-left"
-                onClick={() => setSelectedId(agent.id)}
-              >
-                <div className="truncate text-sm text-zinc-200">{agent.name}</div>
-                <div className="truncate text-xs text-zinc-500">{agent.slug}</div>
-              </button>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`删除 ${agent.name}`}
-                className="opacity-0 group-hover:opacity-100"
-                onClick={() => {
-                  if (!window.confirm(`删除 agent「${agent.name}」？`)) return;
-                  remove.mutate(agent.id, {
-                    onError: (error) => toast.error(errorMessage(error)),
-                    onSuccess: () => {
-                      if (selectedId === agent.id) setSelectedId(null);
-                    },
-                  });
-                }}
-              >
-                <Trash2 className="size-4 text-zinc-500" />
-              </Button>
-            </div>
-          ))}
+          {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
+            <p className="px-1 py-6 text-center text-xs text-subtle">没有匹配的智能体。</p>
+          ) : null}
+
+          <ul className="space-y-0.5" aria-label="智能体列表">
+            {filtered.map((agent) => {
+              const active = selected?.id === agent.id;
+              return (
+                <li key={agent.id}>
+                  <button
+                    type="button"
+                    aria-current={active ? 'true' : undefined}
+                    onClick={() => setSelectedId(agent.id)}
+                    className={cn(
+                      'group flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+                      active
+                        ? 'bg-accent-soft text-fg'
+                        : 'text-muted hover:bg-surface-2/60 hover:text-fg',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'size-1.5 shrink-0 rounded-full',
+                        agent.enabled ? 'bg-success' : 'bg-subtle',
+                      )}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium">{agent.name}</span>
+                      <span className="block truncate font-mono text-[10px] text-subtle">
+                        {agent.slug}
+                      </span>
+                    </span>
+                    <span className="text-[10px] tabular-nums text-subtle">
+                      {agent.serverIds.length}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
 
         <div className="min-w-0">
           {selected ? (
-            <AgentEditor key={selected.id} agent={selected} onDeleted={() => setSelectedId(null)} />
+            <AgentEditor
+              key={selected.id}
+              agent={selected}
+              onDelete={() => setDeleting(selected)}
+            />
+          ) : agents.data && agents.data.length > 0 ? (
+            <EmptyState title="选择一个智能体" description="从左侧列表选择以查看和编辑配置。" />
           ) : (
-            <div className="rounded-lg border border-dashed border-zinc-800 px-6 py-16 text-center text-sm text-zinc-500">
-              从左侧选择一个 agent 进行编辑，或新建一个。
+            <div className="rounded-lg border border-dashed border-line-strong/70 px-6 py-16 text-center text-sm text-muted">
+              新建智能体后在这里编辑。
             </div>
           )}
         </div>
       </div>
 
-      <CreateAgentDialog
-        open={creating}
-        onClose={() => setCreating(false)}
-        onCreated={(agent) => setSelectedId(agent.id)}
+      {creating ? (
+        <CreateAgentDialog
+          onClose={() => setCreating(false)}
+          onCreated={(agent) => {
+            setSelectedId(agent.id);
+            setCreating(false);
+          }}
+        />
+      ) : null}
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title={`删除智能体「${deleting?.name ?? ''}」`}
+        description="它的会话、消息与绑定关系会一并删除，正在运行的任务不会被自动停止。此操作不可撤销。"
+        onConfirm={async () => {
+          if (!deleting) return;
+          await remove.mutateAsync(deleting.id);
+          if (selectedId === deleting.id) setSelectedId(null);
+        }}
       />
     </div>
   );
 }
 
-function AgentEditor({ agent, onDeleted }: { agent: Agent; onDeleted: () => void }) {
+function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }) {
   const update = useUpdateAgent();
-  const remove = useDeleteAgent();
   const servers = useServers();
+  const skills = useSkills();
   const [form, setForm] = useState<AgentInput>(() => toInput(agent));
-  const [tab, setTab] = useState<'edit' | 'files'>('edit');
+  const [tab, setTab] = useState<'config' | 'files'>('config');
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const dirty =
-    form.slug !== agent.slug ||
-    form.name !== agent.name ||
-    form.model !== agent.model ||
-    form.systemPrompt !== agent.systemPrompt ||
-    form.serverIds.join() !== agent.serverIds.join() ||
-    form.maxTurns !== agent.maxTurns ||
-    form.maxBudgetUsd !== agent.maxBudgetUsd;
+  const initial = useMemo(() => toInput(agent), [agent]);
+  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initial), [form, initial]);
 
-  const save = () => {
+  const set = <K extends keyof AgentInput>(key: K, value: AgentInput[K]): void => {
+    setForm((current) => ({ ...current, [key]: value }));
+    setErrors((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key as string];
+      return next;
+    });
+  };
+
+  const save = (): void => {
+    const parsed = agentInputSchema.safeParse(form);
+    if (!parsed.success) {
+      setErrors(fieldErrors(parsed.error.issues));
+      return;
+    }
     update.mutate(
-      { id: agent.id, input: form },
+      { id: agent.id, input: parsed.data },
       {
-        onSuccess: () => toast.success('已保存'),
-        onError: (error) => toast.error(errorMessage(error)),
+        onSuccess: () => {
+          setErrors({});
+          toastSuccess('智能体已保存');
+        },
       },
     );
   };
 
-  const toggleServer = (id: string) => {
-    setForm((f) => ({
-      ...f,
-      serverIds: f.serverIds.includes(id)
-        ? f.serverIds.filter((s) => s !== id)
-        : [...f.serverIds, id],
-    }));
-  };
+  const serverOptions = (servers.data ?? []).map((server) => ({
+    id: server.id,
+    label: server.name,
+    hint: server.kind,
+    tag: server.kind,
+  }));
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex gap-1 rounded-md border border-zinc-800 p-0.5">
-          {(
-            [
-              ['edit', '编辑'],
-              ['files', '文件预览'],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={cn(
-                'rounded px-2.5 py-1 text-xs',
-                tab === value ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200',
-              )}
-              onClick={() => setTab(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              if (!window.confirm(`删除 agent「${agent.name}」？`)) return;
-              remove.mutate(agent.id, {
-                onSuccess: onDeleted,
-                onError: (error) => toast.error(errorMessage(error)),
-              });
-            }}
-          >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Tabs
+          label="智能体编辑视图"
+          value={tab}
+          onChange={setTab}
+          items={[
+            { value: 'config', label: '配置' },
+            { value: 'files', label: '文件预览' },
+          ]}
+        />
+        <div className="flex items-center gap-2">
+          {dirty ? (
+            <span className="inline-flex items-center gap-1 text-[11px] text-warning">
+              <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+              有未保存的更改
+            </span>
+          ) : null}
+          <Button variant="ghost" size="sm" onClick={onDelete} className="hover:text-danger">
             <Trash2 className="size-3.5" /> 删除
           </Button>
-          {tab === 'edit' ? (
-            <Button size="sm" disabled={!dirty || update.isPending} onClick={save}>
-              {update.isPending ? '保存中…' : '保存'}
-            </Button>
-          ) : null}
+          <Button
+            size="sm"
+            disabled={!dirty || update.isPending}
+            aria-busy={update.isPending}
+            onClick={save}
+          >
+            {update.isPending ? (
+              '保存中…'
+            ) : dirty ? (
+              '保存更改'
+            ) : (
+              <>
+                <Check className="size-3.5" /> 已保存
+              </>
+            )}
+          </Button>
         </div>
       </div>
 
-      {tab === 'edit' ? (
+      {tab === 'config' ? (
         <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (dirty) save();
+          className="space-y-5"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (dirty && !update.isPending) save();
           }}
         >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="agent-slug">Slug</Label>
-              <Input
-                id="agent-slug"
-                value={form.slug}
-                onChange={(e) => setForm({ ...form, slug: e.target.value })}
-              />
+          <section className="rounded-[10px] border border-line bg-surface p-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-name">
+                  名称
+                  <RequiredMark />
+                </Label>
+                <Input
+                  id="agent-name"
+                  value={form.name}
+                  aria-invalid={Boolean(errors.name)}
+                  onChange={(event) => set('name', event.target.value)}
+                />
+                <FieldError>{errors.name}</FieldError>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-slug">Slug</Label>
+                <Input
+                  id="agent-slug"
+                  value={form.slug}
+                  className="font-mono"
+                  readOnly
+                  aria-describedby="agent-slug-hint"
+                />
+                <FieldHint id="agent-slug-hint">创建后不可修改；它是工作区目录名。</FieldHint>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="agent-desc">描述</Label>
+                <Input
+                  id="agent-desc"
+                  value={form.description}
+                  placeholder="一句话说明它擅长什么"
+                  onChange={(event) => set('description', event.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-model">模型</Label>
+                <Input
+                  id="agent-model"
+                  list="agent-models"
+                  value={form.model}
+                  className="font-mono"
+                  onChange={(event) => set('model', event.target.value)}
+                />
+                <datalist id="agent-models">
+                  {models.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-enabled">状态</Label>
+                <Select
+                  id="agent-enabled"
+                  value={form.enabled ? 'on' : 'off'}
+                  onChange={(event) => set('enabled', event.target.value === 'on')}
+                >
+                  <option value="on">启用</option>
+                  <option value="off">停用</option>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="agent-name">名称</Label>
-              <Input
-                id="agent-name"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
+          </section>
+
+          <section className="rounded-[10px] border border-line bg-surface p-5">
+            <h2 className="mb-3 text-[13px] font-semibold text-fg">系统提示词</h2>
+            <Textarea
+              aria-label="系统提示词"
+              rows={10}
+              value={form.systemPrompt}
+              className="font-mono text-xs leading-relaxed"
+              placeholder="描述角色、边界与工作方式；会写入 CLAUDE.md。"
+              onChange={(event) => set('systemPrompt', event.target.value)}
+            />
+          </section>
+
+          <section className="rounded-[10px] border border-line bg-surface p-5">
+            <div className="mb-3 flex items-baseline justify-between gap-2">
+              <h2 className="text-[13px] font-semibold text-fg">MCP Servers</h2>
+              <span className="text-[11px] text-subtle">
+                已绑定 {form.serverIds.length} / {(servers.data ?? []).length}
+              </span>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="agent-model">模型</Label>
-              <Input
-                id="agent-model"
-                list="agent-models"
-                value={form.model}
-                onChange={(e) => setForm({ ...form, model: e.target.value })}
+            {servers.isPending ? <LoadingState rows={1} /> : null}
+            {servers.isError ? (
+              <ErrorState error={servers.error} onRetry={() => void servers.refetch()} />
+            ) : null}
+            {servers.data && servers.data.length === 0 ? (
+              <p className="text-xs text-muted">
+                还没有可绑定的 server，先去 MCP Servers 页面创建。
+              </p>
+            ) : null}
+            {servers.data && servers.data.length > 0 ? (
+              <MultiSelect
+                label="MCP Server"
+                options={serverOptions}
+                value={form.serverIds}
+                onChange={(next) => set('serverIds', next)}
+                placeholder="搜索并选择 server…"
+                emptyText="没有匹配的 server"
               />
-              <datalist id="agent-models">
-                {models.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
+            ) : null}
+            <p className="mt-2 text-[11px] text-subtle">
+              绑定后，工作区的 .mcp.json 会包含这些 server，智能体可使用
+              <code className="mx-1 font-mono text-muted">mcp__&lt;server&gt;__*</code>
+              工具。
+            </p>
+          </section>
+
+          <section className="rounded-[10px] border border-line bg-surface p-5">
+            <div className="mb-3 flex items-baseline justify-between gap-2">
+              <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+                <Sparkles className="size-3.5 text-subtle" /> 技能
+              </h2>
+              <span className="text-[11px] text-subtle">
+                已绑定 {form.skillIds.length} / {(skills.data ?? []).length}
+              </span>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="agent-turns">maxTurns</Label>
+            {skills.isPending ? <LoadingState rows={1} /> : null}
+            {skills.data && skills.data.length === 0 ? (
+              <p className="text-xs text-muted">
+                还没有技能。技能是可复用的操作流程，会渲染为
+                <code className="mx-1 font-mono text-muted">
+                  .claude/skills/&lt;slug&gt;/SKILL.md
+                </code>
+                供智能体按需读取。
+              </p>
+            ) : null}
+            {skills.data && skills.data.length > 0 ? (
+              <MultiSelect
+                label="技能"
+                options={(skills.data ?? []).map((skill) => ({
+                  id: skill.id,
+                  label: skill.name,
+                  hint: skill.description,
+                }))}
+                value={form.skillIds}
+                onChange={(next) => set('skillIds', next)}
+                placeholder="搜索并选择技能…"
+                emptyText="没有匹配的技能"
+              />
+            ) : null}
+          </section>
+
+          <section className="rounded-[10px] border border-line bg-surface p-5">
+            <h2 className="mb-1 flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+              <Shield className="size-3.5 text-subtle" /> 权限与工具
+            </h2>
+            <p className="mb-3 text-[11px] text-subtle">
+              内置工具默认禁用；MCP 工具由绑定的 server 自动放行。
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-perm">权限模式</Label>
+                <Select
+                  id="agent-perm"
+                  value={form.permissionMode}
+                  onChange={(event) =>
+                    set('permissionMode', event.target.value as AgentInput['permissionMode'])
+                  }
+                >
+                  <option value="dontAsk">dontAsk — 拒绝未预批准</option>
+                  <option value="default">default — 标准审批</option>
+                  <option value="acceptEdits">acceptEdits — 自动接受编辑</option>
+                  <option value="plan">plan — 只规划不执行</option>
+                  <option value="auto">auto — 模型分类器判断</option>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-effort">推理强度</Label>
+                <Select
+                  id="agent-effort"
+                  value={form.effort ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    set('effort', value === '' ? undefined : (value as AgentInput['effort']));
+                  }}
+                >
+                  <option value="">默认</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="xhigh">xhigh</option>
+                  <option value="max">max</option>
+                </Select>
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-subtle">
+                内置工具
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {BUILTIN_TOOLS.map((tool) => {
+                  const allowed = !form.disallowedTools.includes(tool);
+                  return (
+                    <button
+                      key={tool}
+                      type="button"
+                      aria-pressed={allowed}
+                      onClick={() =>
+                        set(
+                          'disallowedTools',
+                          allowed
+                            ? [...form.disallowedTools, tool]
+                            : form.disallowedTools.filter((t) => t !== tool),
+                        )
+                      }
+                      className={cn(
+                        'rounded-md border px-2 py-1 font-mono text-[11px] transition-colors',
+                        allowed
+                          ? 'border-warning/40 bg-warning/10 text-warning'
+                          : 'border-line bg-surface-2 text-subtle hover:text-muted',
+                      )}
+                      title={allowed ? '已允许（不推荐）' : '已禁用'}
+                    >
+                      {tool}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[10px] border border-line bg-surface p-5">
+            <h2 className="mb-3 text-[13px] font-semibold text-fg">运行时限制</h2>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-turns">最大轮次</Label>
                 <Input
                   id="agent-turns"
                   type="number"
                   min={1}
+                  inputMode="numeric"
                   value={form.maxTurns}
-                  onChange={(e) => setForm({ ...form, maxTurns: Number(e.target.value) })}
+                  aria-invalid={Boolean(errors.maxTurns)}
+                  onChange={(event) => set('maxTurns', Number(event.target.value))}
                 />
+                <FieldError>{errors.maxTurns}</FieldError>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="agent-budget">maxBudgetUsd</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-budget">预算上限 (USD)</Label>
                 <Input
                   id="agent-budget"
                   type="number"
                   min={0.01}
                   step={0.01}
+                  inputMode="decimal"
                   value={form.maxBudgetUsd}
-                  onChange={(e) => setForm({ ...form, maxBudgetUsd: Number(e.target.value) })}
+                  aria-invalid={Boolean(errors.maxBudgetUsd)}
+                  onChange={(event) => set('maxBudgetUsd', Number(event.target.value))}
                 />
+                <FieldError>{errors.maxBudgetUsd}</FieldError>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-timeout">超时 (毫秒)</Label>
+                <Input
+                  id="agent-timeout"
+                  type="number"
+                  min={1000}
+                  step={1000}
+                  inputMode="numeric"
+                  value={form.timeoutMs}
+                  aria-invalid={Boolean(errors.timeoutMs)}
+                  onChange={(event) => set('timeoutMs', Number(event.target.value))}
+                />
+                <FieldError>{errors.timeoutMs}</FieldError>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className="space-y-1">
-            <Label htmlFor="agent-prompt">System prompt</Label>
-            <Textarea
-              id="agent-prompt"
-              rows={8}
-              value={form.systemPrompt}
-              className="font-mono text-xs"
-              onChange={(e) => setForm({ ...form, systemPrompt: e.target.value })}
-            />
-          </div>
-
-          <fieldset className="space-y-1.5">
-            <legend className="mb-1.5 text-xs font-medium text-zinc-400">绑定的 MCP Servers</legend>
-            {servers.isPending ? <Skeleton className="h-16 w-full" /> : null}
-            {servers.isError ? (
-              <ErrorState error={servers.error} onRetry={() => void servers.refetch()} />
-            ) : null}
-            {servers.data && servers.data.length === 0 ? (
-              <p className="text-xs text-zinc-500">
-                还没有可绑定的 server，先去 MCP Servers 页面创建。
-              </p>
-            ) : null}
-            <div className="grid gap-1 sm:grid-cols-2">
-              {servers.data?.map((server) => (
-                <label
-                  key={server.id}
-                  className="flex cursor-pointer items-center gap-2 rounded border border-zinc-800 px-2 py-1.5 text-sm hover:bg-zinc-900"
-                >
-                  <input
-                    type="checkbox"
-                    className="accent-emerald-500"
-                    checked={form.serverIds.includes(server.id)}
-                    onChange={() => toggleServer(server.id)}
-                  />
-                  <span className="min-w-0 flex-1 truncate text-zinc-200">{server.name}</span>
-                  <Badge variant={server.kind === 'generated' ? 'accent' : 'default'}>
-                    {server.kind}
-                  </Badge>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
             <Button type="submit" size="sm" disabled={!dirty || update.isPending}>
-              保存
+              {update.isPending ? '保存中…' : '保存更改'}
             </Button>
           </div>
         </form>
       ) : (
-        <FilesPreview agentId={agent.id} />
+        <FilesPreview agentId={agent.id} dirty={dirty} />
       )}
     </div>
   );
 }
 
 const fileTabs = [
-  ['mcpJson', '.mcp.json'],
-  ['claudeMd', 'CLAUDE.md'],
-  ['agentMd', 'agent md'],
+  ['mcpJson', '.mcp.json', FileCode],
+  ['claudeMd', 'CLAUDE.md', FileText],
+  ['agentMd', 'agent md', FileText],
 ] as const;
 
-function FilesPreview({ agentId }: { agentId: string }) {
+function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
   const files = useAgentFiles(agentId);
   const [which, setWhich] = useState<(typeof fileTabs)[number][0]>('mcpJson');
 
-  if (files.isPending) return <LoadingState rows={6} />;
-  if (files.isError) return <ErrorState error={files.error} onRetry={() => void files.refetch()} />;
-  if (!files.data) return null;
-
-  const content = files.data[which];
+  const disabled = files.isPending || files.isError || !files.data;
+  const active = fileTabs.find(([key]) => key === which) ?? fileTabs[0];
+  const content = files.data?.[active[0]] ?? '';
 
   return (
-    <div className="space-y-2">
-      <div className="flex gap-1">
-        {fileTabs.map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            className={cn(
-              'rounded px-2 py-1 text-xs',
-              which === key
-                ? 'bg-zinc-800 text-zinc-100'
-                : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200',
-            )}
-            onClick={() => setWhich(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {content ? (
-        <pre className="max-h-[65vh] overflow-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-300">
-          {content}
-        </pre>
-      ) : (
-        <p className="text-xs text-zinc-500">该文件为空。</p>
-      )}
+    <div className="space-y-3">
+      {dirty ? (
+        <p className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-warning">
+          预览显示的是上次保存后的内容。保存更改后重新加载即可看到最新结果。
+        </p>
+      ) : null}
+      <Tabs
+        label="工作区文件"
+        value={which}
+        onChange={setWhich}
+        items={fileTabs.map(([value, label, Icon]) => ({
+          value,
+          label,
+          icon: <Icon className="size-3.5" />,
+        }))}
+      />
+      {files.isPending ? <LoadingState rows={6} /> : null}
+      {files.isError ? (
+        <ErrorState error={files.error} onRetry={() => void files.refetch()} />
+      ) : null}
+      {!disabled && content ? (
+        <CodeBlock key={active[0]} code={content} lineNumbers maxHeight="calc(100vh - 22rem)" />
+      ) : null}
+      {!disabled && !content ? (
+        <p className="rounded-lg border border-dashed border-line px-4 py-8 text-center text-xs text-subtle">
+          该文件为空。
+        </p>
+      ) : null}
+      {!disabled ? (
+        <p className="text-[11px] text-subtle">
+          内容由当前保存的配置渲染；路径{' '}
+          <code className="font-mono">data/workspaces/{'{slug}'}/</code>
+        </p>
+      ) : null}
     </div>
   );
 }
 
 function CreateAgentDialog({
-  open,
   onClose,
   onCreated,
 }: {
-  open: boolean;
   onClose: () => void;
   onCreated: (agent: Agent) => void;
 }) {
   const create = useCreateAgent();
   const [form, setForm] = useState<AgentInput>(emptyInput);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const submit = (): void => {
+    const parsed = agentInputSchema.safeParse({
+      ...form,
+      name: form.name.trim() || form.slug,
+    });
+    if (!parsed.success) {
+      setErrors(fieldErrors(parsed.error.issues));
+      return;
+    }
+    create.mutate(parsed.data, {
+      onSuccess: (agent) => {
+        toastSuccess('智能体已创建');
+        onCreated(agent);
+      },
+    });
+  };
 
   return (
-    <Dialog open={open} onClose={onClose} title="新建 Agent">
+    <Dialog
+      open
+      onClose={onClose}
+      title="新建智能体"
+      description="创建后可继续配置提示词、绑定 server 与运行时限制。"
+    >
       <form
         className="space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          create.mutate(form, {
-            onSuccess: (agent) => {
-              setForm(emptyInput);
-              onCreated(agent);
-              onClose();
-            },
-            onError: (error) => toast.error(errorMessage(error)),
-          });
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
         }}
       >
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <Label htmlFor="new-agent-slug">Slug</Label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="new-agent-slug">
+              Slug
+              <RequiredMark />
+            </Label>
             <Input
               id="new-agent-slug"
               value={form.slug}
               placeholder="support-bot"
-              onChange={(e) => setForm({ ...form, slug: e.target.value })}
+              className="font-mono"
+              aria-invalid={Boolean(errors.slug)}
+              onChange={(event) => setForm({ ...form, slug: event.target.value })}
             />
+            {errors.slug ? (
+              <FieldError>{errors.slug}</FieldError>
+            ) : (
+              <FieldHint>小写字母、数字、- 和 _；创建后不可修改。</FieldHint>
+            )}
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <Label htmlFor="new-agent-name">名称</Label>
             <Input
               id="new-agent-name"
               value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="客服助手"
+              onChange={(event) => setForm({ ...form, name: event.target.value })}
             />
           </div>
         </div>
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <Label htmlFor="new-agent-model">模型</Label>
           <Select
             id="new-agent-model"
             value={form.model}
-            onChange={(e) => setForm({ ...form, model: e.target.value })}
+            onChange={(event) => setForm({ ...form, model: event.target.value })}
           >
-            {models.map((m) => (
-              <option key={m} value={m}>
-                {m}
+            {models.map((model) => (
+              <option key={model} value={model}>
+                {model}
               </option>
             ))}
           </Select>
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="new-agent-prompt">System prompt</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="new-agent-prompt">系统提示词</Label>
           <Textarea
             id="new-agent-prompt"
-            rows={4}
+            rows={5}
             className="font-mono text-xs"
             value={form.systemPrompt}
-            onChange={(e) => setForm({ ...form, systemPrompt: e.target.value })}
+            onChange={(event) => setForm({ ...form, systemPrompt: event.target.value })}
           />
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-800 pt-3">
+        <div className="flex justify-end gap-2 border-t border-line pt-3">
           <Button variant="ghost" size="sm" onClick={onClose}>
             取消
           </Button>
-          <Button type="submit" size="sm" disabled={create.isPending || !form.slug || !form.name}>
+          <Button type="submit" size="sm" disabled={create.isPending} aria-busy={create.isPending}>
             {create.isPending ? '创建中…' : '创建'}
           </Button>
         </div>

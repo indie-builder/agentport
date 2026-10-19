@@ -1,159 +1,198 @@
-import { type ChatEvent, chatEventSchema } from '@agentport/shared';
-import { Bot, ChevronDown, CircleStop, Send } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import { toast } from 'sonner';
-import { PageHeader } from '../components/page.js';
+import { chatEventSchema } from '@agentport/shared';
+import {
+  ArrowDown,
+  Bot,
+  ChevronDown,
+  CircleStop,
+  LoaderCircle,
+  MessageSquare,
+  MessagesSquare,
+  Plus,
+  RefreshCw,
+  Send,
+  Wrench,
+  X,
+} from 'lucide-react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { JsonBlock } from '../components/code-block.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
-import { Select } from '../components/ui/select.js';
 import { Textarea } from '../components/ui/textarea.js';
-import { api, errorMessage } from '../lib/api.js';
+import { api, type ChatAccepted, errorMessage } from '../lib/api.js';
+import {
+  applyEvent,
+  type ChatItem,
+  historyToItems,
+  type LocalConversation,
+  loadLocalConversations,
+  localConversation,
+  titleFromDetail,
+  upsertLocalConversation,
+} from '../lib/chat-state.js';
 import { cn } from '../lib/cn.js';
-import { useAgents } from '../lib/queries.js';
-
-type ToolItem = {
-  kind: 'tool';
-  toolUseId: string;
-  name: string;
-  input?: string;
-  result?: string;
-};
-
-type Item =
-  | { kind: 'user'; text: string }
-  | { kind: 'text'; text: string }
-  | ToolItem
-  | { kind: 'notice'; text: string; tone: 'ok' | 'error' | 'muted' };
-
-function applyEvent(items: Item[], event: ChatEvent): Item[] {
-  switch (event.type) {
-    case 'text_delta': {
-      const last = items[items.length - 1];
-      if (last?.kind === 'text') {
-        return [...items.slice(0, -1), { kind: 'text', text: last.text + event.text }];
-      }
-      return [...items, { kind: 'text', text: event.text }];
-    }
-    case 'tool_start':
-      return [...items, { kind: 'tool', toolUseId: event.toolUseId, name: event.name }];
-    case 'tool_input':
-      return items.map((item) =>
-        item.kind === 'tool' && item.toolUseId === event.toolUseId
-          ? { ...item, input: event.json }
-          : item,
-      );
-    case 'tool_result':
-      return items.map((item) =>
-        item.kind === 'tool' && item.toolUseId === event.toolUseId
-          ? { ...item, result: event.content }
-          : item,
-      );
-    case 'run_finished': {
-      const parts: string[] = [event.status];
-      if (event.turns !== undefined) parts.push(`${event.turns} turns`);
-      if (event.costUsd !== undefined) parts.push(`$${event.costUsd.toFixed(4)}`);
-      if (event.error) parts.push(event.error);
-      return [
-        ...items,
-        {
-          kind: 'notice',
-          tone:
-            event.status === 'succeeded' ? 'ok' : event.status === 'cancelled' ? 'muted' : 'error',
-          text: parts.join(' · '),
-        },
-      ];
-    }
-    case 'error':
-      return [...items, { kind: 'notice', tone: 'error', text: event.message }];
-    case 'run_started':
-      return items;
-  }
-}
-
-function pretty(json: string): string {
-  try {
-    return JSON.stringify(JSON.parse(json), null, 2);
-  } catch {
-    return json;
-  }
-}
+import { formatRelative } from '../lib/format.js';
+import { useAgents, useConversation, useConversations } from '../lib/queries.js';
+import { toastError } from '../lib/toast.js';
 
 export function ChatPage() {
   const agents = useAgents();
-  const [agentId, setAgentId] = useState('');
-  const [items, setItems] = useState<Item[]>([]);
-  const [input, setInput] = useState('');
-  const [runId, setRunId] = useState<string | null>(null);
+  const [agentId, setAgentId] = useState<string | null>(null);
+  const activeAgentId = agentId ?? agents.data?.[0]?.id ?? null;
+
+  if (agents.isPending) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <LoadingState rows={3} />
+      </div>
+    );
+  }
+
+  if (agents.isError) {
+    return <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />;
+  }
+
+  if (agents.data && agents.data.length === 0) {
+    return (
+      <EmptyState
+        icon={<Bot className="size-5" />}
+        title="还没有智能体"
+        description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
+        action={
+          <a href="/agents" className="text-xs text-accent hover:underline">
+            前往创建
+          </a>
+        }
+      />
+    );
+  }
+
+  return (
+    <ChatWorkspace
+      agents={agents.data ?? []}
+      agentId={activeAgentId}
+      onAgentChange={(id) => setAgentId(id)}
+    />
+  );
+}
+
+interface RunState {
+  runId: string;
+  conversationId: string;
+  status: 'queued' | 'streaming' | 'reconnecting';
+}
+
+function ChatWorkspace({
+  agents,
+  agentId,
+  onAgentChange,
+}: {
+  agents: NonNullable<ReturnType<typeof useAgents>['data']>;
+  agentId: string | null;
+  onAgentChange: (id: string) => void;
+}) {
+  const agent = agents.find((item) => item.id === agentId) ?? null;
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
+  const [items, setItems] = useState<ChatItem[]>([]);
+  const [input, setInput] = useState('');
+  const [run, setRun] = useState<RunState | null>(null);
+  const [local, setLocal] = useState<LocalConversation[]>(() => loadLocalConversations());
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  // 服务端重连时从头回放事件流；保留发起前的消息，避免文本重复。
+  const baseItemsRef = useRef<ChatItem[]>([]);
   const sourceRef = useRef<EventSource | null>(null);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const retryRef = useRef<number | null>(null);
+  // 切换会话时才从服务端回填历史；否则流式结束瞬间的重新查询会覆盖刚收到的回答。
+  const hydratedRef = useRef<string | null>(null);
 
-  const agent = agents.data?.find((a) => a.id === agentId) ?? null;
+  const conversations = useConversations(agentId);
+  const detail = useConversation(conversationId);
 
-  // 卸载时断开流；切换 agent 由 switchAgent 负责，避免把旧事件写进新会话。
-  useEffect(() => {
-    return () => {
-      sourceRef.current?.close();
-      sourceRef.current = null;
-    };
-  }, []);
+  const history = useMemo(() => {
+    if (conversations.data?.supported) {
+      return conversations.data.items.map((conversation) => ({
+        id: conversation.id,
+        agentId: conversation.agentId,
+        title: conversation.title || '未命名会话',
+        updatedAt: conversation.updatedAt || conversation.createdAt,
+      }));
+    }
+    // 后端没有列表接口：用本地索引，只保留当前 agent 的会话。
+    return local.filter((conversation) => conversation.agentId === agentId);
+  }, [conversations.data, local, agentId]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' });
-  });
-
-  const switchAgent = (id: string) => {
+  const closeStream = useCallback((): void => {
+    if (retryRef.current !== null) {
+      window.clearTimeout(retryRef.current);
+      retryRef.current = null;
+    }
     sourceRef.current?.close();
     sourceRef.current = null;
-    setAgentId(id);
-    setItems([]);
-    setRunId(null);
-    setConversationId(null);
-  };
+  }, []);
 
-  const openStream = (newRunId: string) => {
-    sourceRef.current?.close();
-    const source = new EventSource(`/api/chat/${newRunId}/events`);
-    sourceRef.current = source;
-    let finished = false;
+  useEffect(() => closeStream, [closeStream]);
 
-    source.onmessage = (message) => {
-      let raw: unknown;
-      try {
-        raw = JSON.parse(message.data);
-      } catch {
-        return;
-      }
-      const parsed = chatEventSchema.safeParse(raw);
-      if (!parsed.success) return;
-      const event = parsed.data;
-      if (event.type === 'run_started') setConversationId(event.conversationId);
-      setItems((prev) => applyEvent(prev, event));
-      if (event.type === 'run_finished' || event.type === 'error') {
-        finished = true;
+  const openStream = useCallback(
+    (accepted: ChatAccepted, attempt = 0): void => {
+      closeStream();
+      if (attempt > 0) setItems(baseItemsRef.current);
+      const source = new EventSource(`/api/chat/${accepted.runId}/events`);
+      sourceRef.current = source;
+      let finished = false;
+
+      source.onopen = () => {
+        if (sourceRef.current !== source) return;
+        setRun((current) =>
+          current?.runId === accepted.runId ? { ...current, status: 'streaming' } : current,
+        );
+      };
+
+      source.onmessage = (message) => {
+        let raw: unknown;
+        try {
+          raw = JSON.parse(message.data);
+        } catch {
+          return;
+        }
+        const parsed = chatEventSchema.safeParse(raw);
+        if (!parsed.success) return;
+        const event = parsed.data;
+        setItems((previous) => applyEvent(previous, event));
+        if (event.type === 'run_finished' || event.type === 'error') {
+          finished = true;
+          closeStream();
+          setRun(null);
+        }
+      };
+
+      source.onerror = () => {
+        // 服务端在 run_finished 后主动结束流；此后重连没有意义。
+        if (finished || sourceRef.current !== source) return;
         source.close();
         sourceRef.current = null;
-        setRunId(null);
-      }
-    };
-    source.onerror = () => {
-      // 服务端在 run_finished 后主动结束流；此后任何重连都是无意义的。
-      if (finished || sourceRef.current !== source) return;
-      source.close();
-      sourceRef.current = null;
-      setRunId(null);
-      setItems((prev) => [...prev, { kind: 'notice', tone: 'error', text: '事件流已断开' }]);
-    };
-  };
+        if (attempt < 3) {
+          setRun({ ...accepted, status: 'reconnecting' });
+          retryRef.current = window.setTimeout(() => openStream(accepted, attempt + 1), 1500);
+          return;
+        }
+        setRun(null);
+        setItems((previous) => [
+          ...previous,
+          { kind: 'notice', tone: 'error', text: '事件流多次中断，已停止重连。' },
+        ]);
+      };
+    },
+    [closeStream],
+  );
 
-  const send = async () => {
+  const send = async (): Promise<void> => {
     const text = input.trim();
-    if (!text || !agent || sending) return;
-    setSending(true);
-    setItems((prev) => [...prev, { kind: 'user', text }]);
+    if (!text || !agent || run) return;
     setInput('');
+    baseItemsRef.current = items;
+    setItems((previous) => [...previous, { kind: 'user', text }]);
+    setRun({ runId: '', conversationId: conversationId ?? '', status: 'queued' });
     try {
       const accepted = await api.sendChat({
         agentId: agent.id,
@@ -161,183 +200,459 @@ export function ChatPage() {
         ...(conversationId ? { conversationId } : {}),
       });
       setConversationId(accepted.conversationId);
-      setRunId(accepted.runId);
-      openStream(accepted.runId);
+      hydratedRef.current = accepted.conversationId;
+      setRun({ ...accepted, status: 'streaming' });
+      upsertLocalConversation({
+        id: accepted.conversationId,
+        agentId: agent.id,
+        title: text.slice(0, 80),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      setLocal(loadLocalConversations());
+      openStream(accepted);
     } catch (error) {
-      toast.error(errorMessage(error));
-      setItems((prev) => [...prev, { kind: 'notice', tone: 'error', text: errorMessage(error) }]);
-    } finally {
-      setSending(false);
+      setRun(null);
+      toastError(error);
+      setItems((previous) => [
+        ...previous,
+        { kind: 'notice', tone: 'error', text: errorMessage(error) },
+      ]);
     }
   };
 
-  const cancel = () => {
-    if (!runId) return;
-    api.cancelRun(runId).catch((error) => toast.error(errorMessage(error)));
+  const cancel = (): void => {
+    if (!run?.runId || cancelling) return;
+    setCancelling(true);
+    api
+      .cancelRun(run.runId)
+      .catch((error) => toastError(error))
+      .finally(() => setCancelling(false));
   };
 
+  const openConversation = (id: string): void => {
+    closeStream();
+    setRun(null);
+    hydratedRef.current = null;
+    setConversationId(id);
+    setItems([]);
+    setHistoryOpen(false);
+  };
+
+  const newConversation = (): void => {
+    closeStream();
+    setRun(null);
+    hydratedRef.current = null;
+    setConversationId(null);
+    setItems([]);
+    setHistoryOpen(false);
+  };
+
+  // 载入历史：每个会话只回填一次，之后由流式事件维护。
+  useEffect(() => {
+    const data = detail.data;
+    if (!data || run) return;
+    if (hydratedRef.current === data.conversation.id) return;
+    hydratedRef.current = data.conversation.id;
+    setItems(historyToItems(data.messages));
+  }, [detail.data, run]);
+
+  useEffect(() => {
+    if (!detail.data) return;
+    const existing = loadLocalConversations().find(
+      (conversation) => conversation.id === detail.data?.conversation.id,
+    );
+    if (existing) return;
+    const next = localConversation(
+      {
+        id: detail.data.conversation.id,
+        agentId: detail.data.conversation.agentId,
+        title: detail.data.conversation.title,
+        createdAt: detail.data.conversation.createdAt,
+      },
+      titleFromDetail(detail.data),
+    );
+    upsertLocalConversation(next);
+    setLocal(loadLocalConversations());
+  }, [detail.data]);
+
+  const switchAgent = (id: string): void => {
+    closeStream();
+    setRun(null);
+    hydratedRef.current = null;
+    setConversationId(null);
+    setItems([]);
+    onAgentChange(id);
+  };
+
+  const showWelcome = items.length === 0 && !detail.isPending && !run;
+
   return (
-    <div className="flex h-[calc(100vh-3rem)] flex-col">
-      <PageHeader
-        title="Chat"
-        description="选择 agent，消息与工具调用会实时流式返回"
-        actions={
-          <div className="w-56">
-            <Select
-              aria-label="选择 agent"
-              value={agentId}
-              onChange={(e) => switchAgent(e.target.value)}
+    <div className="flex h-full min-h-0 gap-4">
+      <aside
+        className={cn(
+          'flex w-64 shrink-0 flex-col overflow-hidden rounded-[10px] border border-line bg-surface',
+          historyOpen ? 'absolute inset-y-4 left-4 z-20 shadow-2xl' : 'hidden lg:flex',
+        )}
+        aria-label="会话历史"
+      >
+        <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
+          <span className="text-[13px] font-semibold text-fg">会话</span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="新建会话"
+            className="ml-auto"
+            onClick={newConversation}
+          >
+            <Plus className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="关闭会话列表"
+            className="lg:hidden"
+            onClick={() => setHistoryOpen(false)}
+          >
+            <X className="size-3.5" />
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+          {conversations.isPending ? <LoadingState rows={4} /> : null}
+          {conversations.isError ? (
+            <ErrorState error={conversations.error} onRetry={() => void conversations.refetch()} />
+          ) : null}
+          {history.length === 0 && !conversations.isPending ? (
+            <p className="px-2 py-6 text-center text-[11px] leading-relaxed text-subtle">
+              还没有会话。
+              <br />
+              发送第一条消息即可开始。
+            </p>
+          ) : null}
+          <ul className="space-y-0.5">
+            {history.map((conversation) => (
+              <li key={conversation.id}>
+                <button
+                  type="button"
+                  aria-current={conversation.id === conversationId ? 'true' : undefined}
+                  onClick={() => openConversation(conversation.id)}
+                  className={cn(
+                    'w-full rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+                    conversation.id === conversationId
+                      ? 'bg-accent-soft text-fg'
+                      : 'text-muted hover:bg-surface-2/60 hover:text-fg',
+                  )}
+                >
+                  <span className="block truncate text-xs">{conversation.title}</span>
+                  <span className="mt-0.5 block text-[10px] text-subtle">
+                    {formatRelative(conversation.updatedAt)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+        {!conversations.data?.supported && history.length > 0 ? (
+          <p className="border-t border-line px-3 py-2 text-[10px] leading-relaxed text-subtle">
+            历史列表来自本浏览器；服务端列表接口上线后会自动切换。
+          </p>
+        ) : null}
+      </aside>
+
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-line bg-surface">
+        <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="打开会话列表"
+            className="lg:hidden"
+            onClick={() => setHistoryOpen(true)}
+          >
+            <MessageSquare className="size-4" />
+          </Button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-[13px] font-medium text-fg">
+                {agent?.name ?? '选择智能体'}
+              </span>
+              {run ? (
+                <Badge variant="warn">
+                  <LoaderCircle className="size-2.5 animate-spin" />
+                  {run.status === 'reconnecting' ? '重连中' : '运行中'}
+                </Badge>
+              ) : null}
+            </div>
+            {agent?.description ? (
+              <p className="truncate text-[11px] text-subtle">{agent.description}</p>
+            ) : null}
+          </div>
+          <div className="ml-auto flex items-center gap-1.5">
+            <label className="sr-only" htmlFor="chat-agent">
+              选择智能体
+            </label>
+            <select
+              id="chat-agent"
+              value={agentId ?? ''}
+              onChange={(event) => switchAgent(event.target.value)}
+              className="h-7 max-w-40 cursor-pointer rounded-md border border-line bg-surface-2 px-2 text-xs text-fg focus-visible:border-accent focus-visible:outline-none"
             >
-              <option value="">选择 agent…</option>
-              {agents.data?.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
+              {agents.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
                 </option>
               ))}
-            </Select>
+            </select>
           </div>
-        }
-      />
+        </header>
 
-      {agents.isPending ? <LoadingState rows={3} /> : null}
-      {agents.isError ? (
-        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-      ) : null}
-      {agents.data && agents.data.length === 0 ? (
-        <EmptyState
-          title="还没有 agent"
-          description="先在 Agents 页面创建一个 agent，并给它绑定 MCP Server。"
-        />
-      ) : null}
-
-      {agents.data && agents.data.length > 0 ? (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
-            {!agent ? (
-              <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-                先选择一个 agent。
-              </div>
-            ) : items.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-                <Bot className="size-6 text-zinc-600" />
-                <div className="text-sm text-zinc-300">{agent.name}</div>
-                <div className="max-w-sm text-xs text-zinc-500">
-                  {agent.systemPrompt || '该 agent 没有 system prompt。'}
+        <MessagePane
+          items={items}
+          loading={detail.isPending && conversationId !== null}
+          error={detail.isError ? detail.error : null}
+          onRetry={() => void detail.refetch()}
+          welcome={
+            showWelcome ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+                <div className="flex size-10 items-center justify-center rounded-full bg-surface-2 text-subtle">
+                  <MessagesSquare className="size-5" />
                 </div>
+                <div className="text-sm font-medium text-fg">{agent?.name}</div>
+                <p className="max-w-md text-xs leading-relaxed text-subtle">
+                  {agent?.systemPrompt
+                    ? agent.systemPrompt.slice(0, 240)
+                    : '该智能体没有系统提示词。发送一条消息开始。'}
+                </p>
               </div>
-            ) : (
-              <div className="mx-auto max-w-3xl space-y-3">
-                {items.map((item, i) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 消息是只追加的流式日志，顺序即身份
-                  <ItemView key={i} item={item} />
-                ))}
-                <div ref={bottomRef} />
-              </div>
-            )}
-          </div>
+            ) : null
+          }
+        />
 
-          <form
-            className="mt-3 flex items-end gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void send();
-            }}
+        {run?.status === 'reconnecting' ? (
+          <div
+            role="status"
+            className="flex items-center gap-2 border-t border-warning/30 bg-warning/5 px-3 py-1.5 text-[11px] text-warning"
           >
+            <RefreshCw className="size-3 animate-spin" />
+            事件流断开，正在重连…已收到的内容不会丢失。
+          </div>
+        ) : null}
+
+        <form
+          className="shrink-0 border-t border-line p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send();
+          }}
+        >
+          <div className="flex items-end gap-2">
             <Textarea
               aria-label="消息"
               rows={2}
-              placeholder={agent ? 'Enter 发送，Shift+Enter 换行' : '先选择 agent'}
+              placeholder={run ? '运行中，可继续输入，完成后发送' : 'Enter 发送，Shift+Enter 换行'}
               disabled={!agent}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void send();
+              className="min-h-[44px] flex-1 resize-none py-2.5 text-[13px]"
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  if (!run) void send();
                 }
               }}
             />
-            {runId ? (
-              <Button variant="outline" onClick={cancel}>
-                <CircleStop className="size-4" /> 停止
+            {run ? (
+              <Button
+                variant="outline"
+                onClick={cancel}
+                aria-label="停止运行"
+                disabled={cancelling}
+                aria-busy={cancelling}
+              >
+                <CircleStop className="size-4" /> {cancelling ? '停止中…' : '停止'}
               </Button>
             ) : (
-              <Button type="submit" disabled={!agent || !input.trim() || sending}>
-                <Send className="size-4" /> 发送
+              <Button
+                type="submit"
+                disabled={!agent || !input.trim()}
+                aria-label="发送消息"
+                className="h-[44px]"
+              >
+                <Send className="size-4" />
+                发送
               </Button>
             )}
-          </form>
-        </>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function MessagePane({
+  items,
+  loading,
+  error,
+  onRetry,
+  welcome,
+}: {
+  items: ChatItem[];
+  loading: boolean;
+  error: unknown;
+  onRetry: () => void;
+  welcome: ReactNode;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [pinned, setPinned] = useState(true);
+
+  // 用户上滚后暂停自动滚动；只有贴底时才跟随新内容。
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const onScroll = (): void => {
+      const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+      setPinned(distance < 80);
+    };
+    element.addEventListener('scroll', onScroll, { passive: true });
+    return () => element.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!pinned) return;
+    const element = scrollRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [pinned]);
+
+  const scrollToBottom = (): void => {
+    const element = scrollRef.current;
+    if (!element) return;
+    element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
+    setPinned(true);
+  };
+
+  return (
+    <div className="relative min-h-0 flex-1">
+      <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-4" aria-live="polite">
+        {loading ? (
+          <div className="mx-auto max-w-3xl">
+            <LoadingState rows={4} />
+          </div>
+        ) : null}
+        {error ? (
+          <div className="mx-auto max-w-3xl">
+            <ErrorState error={error} onRetry={onRetry} />
+          </div>
+        ) : null}
+        {!loading && !error && items.length === 0 ? welcome : null}
+        {!loading && !error && items.length > 0 ? (
+          <div className="mx-auto max-w-3xl space-y-4">
+            {items.map((item, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 消息是只追加的流式日志，顺序即身份
+              <ItemView key={index} item={item} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+      {!pinned && items.length > 0 ? (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3 py-1.5 text-[11px] text-muted shadow-lg transition-colors hover:text-fg"
+        >
+          <ArrowDown className="size-3" /> 回到底部
+        </button>
       ) : null}
     </div>
   );
 }
 
-function ItemView({ item }: { item: Item }) {
+function ItemView({ item }: { item: ChatItem }) {
   switch (item.kind) {
     case 'user':
       return (
         <div className="flex justify-end">
-          <div className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-100">
+          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-sm bg-accent/15 px-3.5 py-2 text-[13px] leading-relaxed text-fg">
             {item.text}
           </div>
         </div>
       );
     case 'text':
       return (
-        <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{item.text}</div>
+        <div className="whitespace-pre-wrap break-words text-[13px] leading-[1.7] text-fg/90">
+          {item.text}
+        </div>
       );
     case 'tool':
-      return <ToolView item={item} />;
+      return <ToolCard item={item} />;
     case 'notice':
       return (
         <div
           className={cn(
-            'text-xs',
+            'flex items-center gap-1.5 text-[11px]',
             item.tone === 'ok'
-              ? 'text-emerald-400'
+              ? 'text-success'
               : item.tone === 'error'
-                ? 'text-red-400'
-                : 'text-zinc-500',
+                ? 'text-danger'
+                : 'text-subtle',
           )}
         >
+          <span
+            className={cn(
+              'size-1 rounded-full',
+              item.tone === 'ok' ? 'bg-success' : item.tone === 'error' ? 'bg-danger' : 'bg-subtle',
+            )}
+            aria-hidden="true"
+          />
           {item.text}
         </div>
       );
   }
 }
 
-function ToolView({ item }: { item: ToolItem }) {
+function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
+  const [open, setOpen] = useState(false);
+  const done = item.result !== undefined;
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900/40 text-xs">
-      <div className="flex items-center gap-2 px-2.5 py-1.5">
-        <Badge variant="accent">tool</Badge>
-        <code className="text-zinc-200">{item.name}</code>
-        {item.result !== undefined ? (
-          <span className="ml-auto text-[11px] text-emerald-500/80">done</span>
-        ) : (
-          <span className="ml-auto text-[11px] text-amber-500/80">running</span>
-        )}
-      </div>
-      {item.input !== undefined ? (
-        <details className="border-t border-zinc-800">
-          <summary className="flex cursor-pointer list-none items-center gap-1 px-2.5 py-1.5 text-zinc-500 hover:text-zinc-300">
-            <ChevronDown className="size-3" /> 输入
-          </summary>
-          <pre className="max-h-64 overflow-auto border-t border-zinc-800/70 bg-zinc-950 p-2 font-mono text-[11px] text-zinc-300">
-            {pretty(item.input)}
-          </pre>
-        </details>
-      ) : null}
-      {item.result !== undefined ? (
-        <details className="border-t border-zinc-800">
-          <summary className="flex cursor-pointer list-none items-center gap-1 px-2.5 py-1.5 text-zinc-500 hover:text-zinc-300">
-            <ChevronDown className="size-3" /> 结果
-          </summary>
-          <pre className="max-h-64 overflow-auto border-t border-zinc-800/70 bg-zinc-950 p-2 font-mono text-[11px] text-zinc-300">
-            {pretty(item.result)}
-          </pre>
-        </details>
+    <div className="overflow-hidden rounded-lg border border-line bg-canvas/60">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+      >
+        <Wrench className={cn('size-3.5', done ? 'text-muted' : 'text-warning')} />
+        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg">{item.name}</code>
+        <Badge variant={done ? 'default' : 'warn'}>
+          {done ? (
+            '完成'
+          ) : (
+            <>
+              <LoaderCircle className="size-2.5 animate-spin" /> 运行中
+            </>
+          )}
+        </Badge>
+        <ChevronDown
+          className={cn('size-3.5 text-subtle transition-transform', open && 'rotate-180')}
+        />
+      </button>
+      {open ? (
+        <div className="space-y-2 border-t border-line p-2">
+          <div>
+            <div className="mb-1 px-1 text-[10px] uppercase tracking-wider text-subtle">参数</div>
+            {item.input !== undefined ? (
+              <JsonBlock value={item.input} maxHeight="16rem" />
+            ) : (
+              <p className="px-1 text-[11px] text-subtle">等待参数…</p>
+            )}
+          </div>
+          <div>
+            <div className="mb-1 px-1 text-[10px] uppercase tracking-wider text-subtle">结果</div>
+            {item.result !== undefined ? (
+              <JsonBlock value={item.result} maxHeight="20rem" />
+            ) : (
+              <p className="px-1 text-[11px] text-subtle">等待结果…</p>
+            )}
+          </div>
+        </div>
       ) : null}
     </div>
   );

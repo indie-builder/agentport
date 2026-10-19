@@ -1,28 +1,51 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { McpJsonEntry } from '@agentport/core';
-import { renderWorkspace } from '@agentport/core';
-import { createDb, schema } from '@agentport/db';
-import { agentRunJobSchema } from '@agentport/shared';
+import { decryptSecrets, renderWorkspace } from '@agentport/core';
+import { createDb, newId, schema } from '@agentport/db';
+import { agentRunJobSchema, type ChatEvent } from '@agentport/shared';
 import { Worker } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
+import { loadConfig } from './config.js';
 import type { SandboxRunOutcome } from './runner-client.js';
-import { closeRunnerClient, publishRun, runInSandbox } from './runner-client.js';
+import {
+  closeRunnerClient,
+  configureRunnerClient,
+  publishRun,
+  runInSandbox,
+} from './runner-client.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
 
-const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' });
-const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error('DATABASE_URL is required');
+const config = loadConfig();
+const logger = pino({ level: config.LOG_LEVEL });
 
-const workspacesDir = resolve(process.env.WORKSPACES_DIR ?? './data/workspaces');
-const sandboxImage = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
-// 沙盒在 bridge 网络里访问宿主 API；compose 部署时用服务名覆盖。
-const sandboxApiUrl = process.env.SANDBOX_API_URL ?? 'http://host.docker.internal:3000';
+// 缺关键配置时 loadConfig 已抛错，进程直接退出。
+configureRunnerClient(config.REDIS_URL);
 
-const { db, pool } = createDb(databaseUrl);
-const provider = new DockerSandboxProvider();
+const workspacesDir = resolve(config.WORKSPACES_DIR);
+// 沙盒在 bridge 网络里访问宿主 API；compose 部署时用服务名或宿主网关覆盖。
+const sandboxApiUrl = config.SANDBOX_API_URL;
+
+if (config.SANDBOX_EGRESS === 'none') {
+  logger.warn(
+    'SANDBOX_EGRESS=none: 沙盒无网络，HTTP MCP server、平台 /mcp 端点与模型 API 都将不可用',
+  );
+} else if (
+  config.SANDBOX_EGRESS === 'proxy' &&
+  !process.env.HTTPS_PROXY &&
+  !process.env.HTTP_PROXY
+) {
+  logger.warn('SANDBOX_EGRESS=proxy but HTTPS_PROXY/HTTP_PROXY is unset: egress stays open');
+}
+
+const { db, pool } = createDb(config.DATABASE_URL);
+const provider = new DockerSandboxProvider({
+  memory: config.SANDBOX_MEMORY,
+  cpus: config.SANDBOX_CPUS,
+  pids: config.SANDBOX_PIDS,
+  egress: config.SANDBOX_EGRESS,
+});
 
 type ServerRow = typeof schema.servers.$inferSelect;
 type AgentRow = typeof schema.agents.$inferSelect;
@@ -47,21 +70,27 @@ function strRecord(value: unknown): Record<string, string> {
 /**
  * 把 DB 中的 server 渲染成 `.mcp.json` 条目。
  * generated server 的 URL 指向平台自身，必须换成本次运行可达的沙盒视角地址；
- * stdio/env 与 headers 里的密钥仅 API 侧能解密，这里不带密钥。
+ * stdio/env 与 headers 里的密钥仅以加密列存在，运行时解密后注入。
  */
-function toEntry(server: ServerRow, apiUrl: string): McpJsonEntry {
-  const config = server.config;
+function toEntry(server: ServerRow, apiUrl: string, secretKey: string): McpJsonEntry {
+  // 密钥只存在加密列里；运行时必须在这里解密注入，否则 .mcp.json 会丢 env/headers。
+  const secrets = server.secretsEncrypted ? decryptSecrets(server.secretsEncrypted, secretKey) : {};
+  const serverConfig = server.config;
   if (server.kind === 'stdio') {
     return {
-      command: str(config.command) ?? '',
-      args: strArray(config.args),
-      env: strRecord(config.env),
+      command: str(serverConfig.command) ?? '',
+      args: strArray(serverConfig.args),
+      env: { ...strRecord(serverConfig.env), ...secrets },
     };
   }
   if (server.kind === 'http') {
-    return { type: 'http', url: str(config.url) ?? '', headers: strRecord(config.headers) };
+    return {
+      type: 'http',
+      url: str(serverConfig.url) ?? '',
+      headers: { ...strRecord(serverConfig.headers), ...secrets },
+    };
   }
-  const token = str(config.mcpToken);
+  const token = str(serverConfig.mcpToken);
   return {
     type: 'http',
     url: `${apiUrl}/mcp/${server.id}`,
@@ -73,16 +102,22 @@ function toEntry(server: ServerRow, apiUrl: string): McpJsonEntry {
 async function writeWorkspace(
   agent: AgentRow,
   servers: Array<{ name: string; entry: McpJsonEntry }>,
+  skills: Array<{ slug: string; name: string; description: string; body: string }>,
 ): Promise<string> {
   const files = renderWorkspace({
     agent: {
       slug: agent.slug,
       name: agent.name,
+      description: agent.description,
       model: agent.model,
       systemPrompt: agent.systemPromptMd,
       maxTurns: agent.maxTurns,
+      ...(agent.effort === null ? {} : { effort: agent.effort }),
+      allowedTools: agent.allowedTools,
+      disallowedTools: agent.disallowedTools,
     },
     servers,
+    skills,
   });
 
   const dir = join(workspacesDir, agent.slug);
@@ -90,25 +125,85 @@ async function writeWorkspace(
   await writeFile(join(dir, '.mcp.json'), files.mcpJson, 'utf8');
   await writeFile(join(dir, 'CLAUDE.md'), files.claudeMd, 'utf8');
   await writeFile(join(dir, '.claude', 'agents', `${agent.slug}.md`), files.agentMd, 'utf8');
+
+  // 技能每次重建：先清掉旧目录，避免已解绑的技能残留。
+  const skillsDir = join(dir, '.claude', 'skills');
+  await rm(skillsDir, { recursive: true, force: true });
+  for (const skill of files.skills) {
+    const target = join(skillsDir, skill.slug);
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, 'SKILL.md'), skill.content, 'utf8');
+  }
   return dir;
+}
+
+/** 事件流 → 消息行：assistant 文本按块存，工具调用存成 tool 消息。 */
+async function persistRunMessages(
+  db: ReturnType<typeof createDb>['db'],
+  input: { conversationId: string; runId: string; events: ChatEvent[] },
+): Promise<void> {
+  const rows: Array<{ role: string; content: unknown }> = [];
+  const toolNames = new Map<string, string>();
+
+  for (const event of input.events) {
+    if (event.type === 'assistant_text' && event.text.trim().length > 0) {
+      rows.push({ role: 'assistant', content: { type: 'text', text: event.text } });
+    } else if (event.type === 'tool_start') {
+      toolNames.set(event.toolUseId, event.name);
+    } else if (event.type === 'tool_result') {
+      rows.push({
+        role: 'tool',
+        content: {
+          type: 'tool_result',
+          toolUseId: event.toolUseId,
+          name: toolNames.get(event.toolUseId) ?? null,
+          content: event.content,
+        },
+      });
+    }
+  }
+
+  for (const row of rows) {
+    await db.insert(schema.messages).values({
+      id: newId('message'),
+      conversationId: input.conversationId,
+      role: row.role,
+      content: row.content,
+      runId: input.runId,
+    });
+  }
+}
+
+/** 本机代理常监听 127.0.0.1，容器内该地址指向容器自身；改写成宿主别名。 */
+function toHostUrl(value: string): string {
+  return value.replace(
+    /\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)(?=[:/]|$)/,
+    '//host.docker.internal',
+  );
 }
 
 /** 容器只拿凭证与 API 地址；密钥不落盘。 */
 function sandboxEnv(apiUrl: string): Record<string, string> {
-  const env: Record<string, string> = { SANDBOX_API_URL: apiUrl };
-  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'] as const) {
-    const value = process.env[key];
+  const env: Record<string, string> = {
+    SANDBOX_API_URL: apiUrl,
+    // 根文件系统只读；SDK 写会话缓存的目录是 tmpfs（见 docker.ts）。
+    CLAUDE_CONFIG_DIR: '/home/node/.claude',
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+  };
+  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const) {
+    const value = config[key];
     if (value) env[key] = value;
   }
+  if (config.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = toHostUrl(config.ANTHROPIC_BASE_URL);
 
-  // 本机代理常监听 127.0.0.1，容器内该地址指向容器自身。
-  // 改写为宿主别名，容器才能访问宿主上的模型代理。
-  const baseUrl = env.ANTHROPIC_BASE_URL;
-  if (baseUrl) {
-    env.ANTHROPIC_BASE_URL = baseUrl.replace(
-      /\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)(?=[:/]|$)/,
-      '//host.docker.internal',
-    );
+  // proxy 模式：把宿主上的代理地址传给沙盒，仍由容器自行出站。
+  if (config.SANDBOX_EGRESS === 'proxy') {
+    for (const key of ['HTTPS_PROXY', 'HTTP_PROXY'] as const) {
+      const value = process.env[key];
+      if (value) env[key] = toHostUrl(value);
+    }
+    const noProxy = process.env.NO_PROXY ?? process.env.no_proxy;
+    if (noProxy) env.NO_PROXY = noProxy;
   }
   return env;
 }
@@ -139,6 +234,8 @@ const worker = new Worker(
     await publishRun(runId, { type: 'run_started', runId, conversationId }, logger);
 
     let outcome: SandboxRunOutcome;
+    let runStartedAt = 0;
+    let runLatencyMs: number | null = null;
     try {
       const [agent] = await db
         .select()
@@ -153,42 +250,78 @@ const worker = new Worker(
         .innerJoin(schema.servers, eq(schema.agentServers.serverId, schema.servers.id))
         .where(eq(schema.agentServers.agentId, agentId));
 
+      const skillRows = await db
+        .select({
+          slug: schema.skills.slug,
+          name: schema.skills.name,
+          description: schema.skills.description,
+          body: schema.skills.body,
+        })
+        .from(schema.agentSkills)
+        .innerJoin(schema.skills, eq(schema.agentSkills.skillId, schema.skills.id))
+        .where(eq(schema.agentSkills.agentId, agentId));
+
       const workspaceDir = await writeWorkspace(
         agent,
-        rows.map(({ server }) => ({ name: server.name, entry: toEntry(server, sandboxApiUrl) })),
+        rows.map(({ server }) => ({
+          name: server.name,
+          entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY),
+        })),
+        skillRows,
       );
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');
 
+      runStartedAt = Date.now();
       outcome = await runInSandbox({
         runId,
-        timeoutMs: agent.timeoutMs || Number(process.env.AGENT_TIMEOUT_MS ?? 600_000),
+        timeoutMs: agent.timeoutMs || config.AGENT_TIMEOUT_MS,
         task: {
           prompt,
           model: agent.model,
           maxTurns: agent.maxTurns,
           maxBudgetUsd: Number(agent.maxBudgetUsd),
           mcpServers: rows.map(({ server }) => server.name),
+          ...(agent.allowedTools.length > 0 ? { extraAllowedTools: agent.allowedTools } : {}),
+          ...(agent.disallowedTools.length > 0
+            ? { extraDisallowedTools: agent.disallowedTools }
+            : {}),
+          ...(agent.effort === null ? {} : { effort: agent.effort }),
+          ...(agent.maxThinkingTokens === null
+            ? {}
+            : { maxThinkingTokens: agent.maxThinkingTokens }),
         },
         workspaceDir,
-        image: sandboxImage,
+        image: config.SANDBOX_IMAGE,
         env: sandboxEnv(sandboxApiUrl),
         provider,
         logger: logger.child({ runId }),
       });
+      runLatencyMs = Date.now() - runStartedAt;
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       logger.error({ err, runId }, 'agent run crashed');
-      outcome = { status: 'failed', sandboxId: '', error };
+      outcome = { status: 'failed', sandboxId: '', error, events: [] };
     }
+
+    // 把本次 run 的 assistant 文本与工具调用写入会话，刷新后历史才完整。
+    await persistRunMessages(db, {
+      conversationId,
+      runId,
+      events: outcome.events,
+    });
 
     await db
       .update(schema.agentRuns)
       .set({
         status: outcome.status,
+        latencyMs: runLatencyMs ?? null,
         ...(outcome.sandboxId ? { sandboxId: outcome.sandboxId } : {}),
         endedAt: new Date(),
         costUsd: outcome.costUsd === undefined ? null : String(outcome.costUsd),
         turns: outcome.turns ?? null,
+        sessionId: outcome.sessionId ?? null,
+        inputTokens: outcome.inputTokens ?? null,
+        outputTokens: outcome.outputTokens ?? null,
         error: outcome.error ?? null,
       })
       .where(eq(schema.agentRuns.id, runId));
@@ -206,7 +339,7 @@ const worker = new Worker(
     );
     logger.info({ runId, status: outcome.status, costUsd: outcome.costUsd }, 'agent run finished');
   },
-  { connection: { url: redisUrl }, concurrency: Number(process.env.AGENT_MAX_CONCURRENT ?? 2) },
+  { connection: { url: config.REDIS_URL }, concurrency: config.AGENT_MAX_CONCURRENT },
 );
 
 worker.on('failed', (job, err) => {
@@ -215,10 +348,31 @@ worker.on('failed', (job, err) => {
 
 logger.info('worker started');
 
+const SHUTDOWN_WAIT_MS = 10_000;
+const POOL_WAIT_MS = 2_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms).unref());
+}
+
+let shuttingDown = false;
+
+/**
+ * SIGTERM：先让 BullMQ 排空在跑的任务（最多 10s），仍未结束的沙盒由
+ * docker rm -f 兜底；容器退出会推动任务收尾，再关闭 Redis / PG。
+ */
 const shutdown = async (): Promise<void> => {
-  await worker.close();
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info('shutting down');
+
+  const closing = worker.close();
+  await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
+  await provider.destroyAll();
+  await Promise.race([closing.catch(() => undefined), sleep(POOL_WAIT_MS)]);
+
   await closeRunnerClient();
-  await pool.end();
+  await Promise.race([pool.end(), sleep(POOL_WAIT_MS)]);
   process.exit(0);
 };
 

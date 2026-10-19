@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -54,7 +55,14 @@ export const agents = pgTable(
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     model: text('model').notNull(),
+    description: text('description').notNull().default(''),
     systemPromptMd: text('system_prompt_md').notNull().default(''),
+    allowedTools: jsonb('allowed_tools').$type<string[]>().notNull().default([]),
+    disallowedTools: jsonb('disallowed_tools').$type<string[]>().notNull().default([]),
+    permissionMode: text('permission_mode').notNull().default('dontAsk'),
+    effort: text('effort'),
+    maxThinkingTokens: integer('max_thinking_tokens'),
+    enabled: boolean('enabled').notNull().default(true),
     maxTurns: integer('max_turns').notNull().default(20),
     maxBudgetUsd: numeric('max_budget_usd', { precision: 10, scale: 4 }).notNull().default('2'),
     timeoutMs: integer('timeout_ms').notNull().default(600_000),
@@ -62,6 +70,33 @@ export const agents = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('agents_slug_idx').on(t.slug)],
+);
+
+export const skills = pgTable(
+  'skills',
+  {
+    id: text('id').primaryKey(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    body: text('body').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('skills_slug_idx').on(t.slug)],
+);
+
+export const agentSkills = pgTable(
+  'agent_skills',
+  {
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    skillId: text('skill_id')
+      .notNull()
+      .references(() => skills.id, { onDelete: 'cascade' }),
+  },
+  (t) => [uniqueIndex('agent_skills_pk').on(t.agentId, t.skillId)],
 );
 
 export const agentServers = pgTable(
@@ -123,6 +158,9 @@ export const agentRuns = pgTable(
     error: text('error'),
     costUsd: numeric('cost_usd', { precision: 10, scale: 4 }),
     turns: integer('turns'),
+    latencyMs: integer('latency_ms'),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
   },
   (t) => [index('agent_runs_conversation_idx').on(t.conversationId)],
 );
@@ -147,6 +185,8 @@ export const schema = {
   servers,
   apiTools,
   agents,
+  skills,
+  agentSkills,
   agentServers,
   conversations,
   messages,

@@ -2,6 +2,7 @@ import { newId, repo } from '@agentport/db';
 import type { ChatEvent } from '@agentport/shared';
 import { chatRequestSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { writeAudit } from '../../plugins/audit.js';
 import { closeProducer, getQueue, publishRun, subscribeRun } from '../../queue/producer.js';
 
 const chatRepo = repo.chat;
@@ -32,57 +33,73 @@ function writeEvent(reply: FastifyReply, event: ChatEvent): boolean {
 }
 
 export function registerChatRoutes(app: FastifyInstance): void {
-  app.post('/api/chat', { preHandler: [app.requireAuth] }, async (request, reply) => {
-    const parsed = chatRequestSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.status(400).send({
-        code: 'INVALID_INPUT',
-        message: parsed.error.issues[0]?.message ?? 'invalid body',
-      });
-    }
-    const { agentId, message } = parsed.data;
-
-    if (!(await chatRepo.agentExists(app.db, agentId))) {
-      return reply
-        .status(404)
-        .send({ code: 'AGENT_NOT_FOUND', message: `agent ${agentId} not found` });
-    }
-
-    let conversationId = parsed.data.conversationId;
-    if (conversationId !== undefined) {
-      const conversation = await chatRepo.getConversation(app.db, conversationId);
-      if (!conversation || conversation.agentId !== agentId) {
-        return reply.status(404).send({
-          code: 'CONVERSATION_NOT_FOUND',
-          message: `conversation ${conversationId} not found`,
+  app.post(
+    '/api/chat',
+    {
+      preHandler: [app.requireAuth],
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const parsed = chatRequestSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          code: 'INVALID_INPUT',
+          message: parsed.error.issues[0]?.message ?? 'invalid body',
         });
       }
-    } else {
-      const conversation = await chatRepo.createConversation(app.db, {
-        id: newId('conversation'),
-        agentId,
-        title: message.slice(0, 80),
+      const { agentId, message } = parsed.data;
+
+      if (!(await chatRepo.agentExists(app.db, agentId))) {
+        return reply
+          .status(404)
+          .send({ code: 'AGENT_NOT_FOUND', message: `agent ${agentId} not found` });
+      }
+
+      let conversationId = parsed.data.conversationId;
+      if (conversationId !== undefined) {
+        const conversation = await chatRepo.getConversation(app.db, conversationId);
+        if (!conversation || conversation.agentId !== agentId) {
+          return reply.status(404).send({
+            code: 'CONVERSATION_NOT_FOUND',
+            message: `conversation ${conversationId} not found`,
+          });
+        }
+      } else {
+        const conversation = await chatRepo.createConversation(app.db, {
+          id: newId('conversation'),
+          agentId,
+          title: message.slice(0, 80),
+        });
+        conversationId = conversation.id;
+      }
+
+      const run = await chatRepo.createRun(app.db, { id: newId('run'), conversationId, agentId });
+      await chatRepo.appendMessage(app.db, {
+        id: newId('message'),
+        conversationId,
+        role: 'user',
+        content: { type: 'text', text: message },
+        runId: run.id,
       });
-      conversationId = conversation.id;
-    }
+      // jobId = runId，重复投递天然幂等。
+      await getQueue().add(
+        'run',
+        { runId: run.id, agentId, conversationId, prompt: message },
+        { jobId: run.id },
+      );
 
-    const run = await chatRepo.createRun(app.db, { id: newId('run'), conversationId, agentId });
-    await chatRepo.appendMessage(app.db, {
-      id: newId('message'),
-      conversationId,
-      role: 'user',
-      content: { type: 'text', text: message },
-      runId: run.id,
-    });
-    // jobId = runId，重复投递天然幂等。
-    await getQueue().add(
-      'run',
-      { runId: run.id, agentId, conversationId, prompt: message },
-      { jobId: run.id },
-    );
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.run.requested',
+        target: run.id,
+        input: { agentId, prompt: message },
+        status: 'ok',
+        requestId: request.id,
+      });
 
-    return reply.status(202).send({ runId: run.id, conversationId });
-  });
+      return reply.status(202).send({ runId: run.id, conversationId });
+    },
+  );
 
   app.get<{ Params: { runId: string } }>(
     '/api/chat/:runId/events',
@@ -104,11 +121,11 @@ export function registerChatRoutes(app: FastifyInstance): void {
       reply.raw.write('retry: 3000\n\n');
 
       let closed = false;
-      let unsubscribe: (() => void) | undefined;
+      let subscription: { close: () => void } | undefined;
       const cleanup = (): void => {
         if (closed) return;
         closed = true;
-        unsubscribe?.();
+        subscription?.close();
       };
       const finish = (): void => {
         cleanup();
@@ -119,7 +136,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
       request.raw.on('close', onClose);
 
       try {
-        unsubscribe = await subscribeRun(runId, (event) => {
+        subscription = await subscribeRun(runId, (event) => {
           if (closed) return;
           try {
             writeEvent(reply, event);
@@ -146,7 +163,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
 
       // 客户端在订阅完成前就断开了。
       if (closed) {
-        unsubscribe();
+        subscription.close();
         request.raw.off('close', onClose);
         return;
       }
@@ -193,10 +210,35 @@ export function registerChatRoutes(app: FastifyInstance): void {
       if (terminalEvent(run) === null) {
         await publishRun(runId, { type: 'cancel' });
         await chatRepo.cancelRun(app.db, runId);
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.run.cancelled',
+          target: runId,
+          status: 'ok',
+          requestId: request.id,
+        });
       }
       return reply.status(202).send({ ok: true });
     },
   );
+
+  app.get('/api/conversations', { preHandler: [app.requireAuth] }, async (request) => {
+    const query = request.query as { agentId?: string; limit?: string };
+    const limit = Number(query.limit ?? 50);
+    const rows = await chatRepo.listConversations(app.db, {
+      ...(query.agentId ? { agentId: query.agentId } : {}),
+      limit: Number.isInteger(limit) && limit > 0 ? limit : 50,
+    });
+    return rows.map((row) => ({
+      ...row,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      lastMessage: row.lastMessage && {
+        ...row.lastMessage,
+        createdAt: row.lastMessage.createdAt.toISOString(),
+      },
+    }));
+  });
 
   app.addHook('onClose', async () => {
     await closeProducer();

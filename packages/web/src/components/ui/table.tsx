@@ -1,28 +1,46 @@
 import type { ComponentProps } from 'react';
 import { cn } from '../../lib/cn.js';
 
+/** 表格容器：窄屏横向滚动，避免挤压列。 */
+export function TableWrap({ className, ...props }: ComponentProps<'div'>) {
+  return <div className={cn('overflow-x-auto', className)} {...props} />;
+}
+
 export function Table({ className, ...props }: ComponentProps<'table'>) {
   return <table className={cn('w-full border-collapse text-sm', className)} {...props} />;
 }
 
 export function TableHeader({ className, ...props }: ComponentProps<'thead'>) {
-  return <thead className={cn('text-left text-xs text-zinc-500', className)} {...props} />;
+  return (
+    <thead
+      className={cn(
+        'bg-surface-2/40 text-left text-[11px] uppercase tracking-wider text-subtle',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export function TableBody({ className, ...props }: ComponentProps<'tbody'>) {
-  return <tbody className={cn('divide-y divide-zinc-800', className)} {...props} />;
+  return <tbody className={cn('divide-y divide-line/70', className)} {...props} />;
 }
 
 export function TableRow({ className, ...props }: ComponentProps<'tr'>) {
-  return <tr className={cn('hover:bg-zinc-800/30', className)} {...props} />;
+  return (
+    <tr className={cn('group/row transition-colors hover:bg-surface-2/40', className)} {...props} />
+  );
 }
 
 export function TableHead({ className, ...props }: ComponentProps<'th'>) {
   return (
-    <th className={cn('border-b border-zinc-800 px-3 py-2 font-medium', className)} {...props} />
+    <th
+      className={cn('whitespace-nowrap border-b border-line px-3 py-2 font-medium', className)}
+      {...props}
+    />
   );
 }
 
 export function TableCell({ className, ...props }: ComponentProps<'td'>) {
-  return <td className={cn('px-3 py-2 align-middle', className)} {...props} />;
+  return <td className={cn('px-3 py-2.5 align-middle', className)} {...props} />;
 }

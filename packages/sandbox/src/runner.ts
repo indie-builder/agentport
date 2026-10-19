@@ -10,7 +10,13 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
  * 所以此处只保留结构类型；宿主侧仍会用 chatEventSchema 做一次校验。
  */
 interface RunnerEvent {
-  type: 'text_delta' | 'tool_start' | 'tool_input' | 'tool_result' | 'run_finished';
+  type:
+    | 'text_delta'
+    | 'assistant_text'
+    | 'tool_start'
+    | 'tool_input'
+    | 'tool_result'
+    | 'run_finished';
   text?: string;
   toolUseId?: string;
   name?: string;
@@ -19,6 +25,9 @@ interface RunnerEvent {
   status?: 'succeeded' | 'failed' | 'cancelled' | 'timeout';
   costUsd?: number;
   turns?: number;
+  sessionId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
   error?: string;
 }
 
@@ -29,6 +38,14 @@ interface RunnerTask {
   maxBudgetUsd?: number;
   /** .mcp.json 里的 server key，用于生成精确的 allow 规则 */
   mcpServers?: string[];
+  /** 智能体自定义的额外允许项（mcp__ 通配由 mcpServers 推导） */
+  extraAllowedTools?: string[];
+  /** 智能体自定义的额外禁用项，与默认禁用列表合并 */
+  extraDisallowedTools?: string[];
+  /** 推理强度，透传给 SDK */
+  effort?: string;
+  /** 思考预算 token 上限 */
+  maxThinkingTokens?: number;
 }
 
 function log(message: string): void {
@@ -54,6 +71,41 @@ async function readTask(): Promise<RunnerTask> {
   throw new Error('stdin closed before task JSON arrived');
 }
 
+/** 取 assistant 消息里的纯文本块，供落库使用。 */
+/** 汇总所有模型的 token 用量；modelUsage 是权威口径。 */
+function tokenUsage(
+  modelUsage: Record<string, { inputTokens?: number; outputTokens?: number }> | undefined,
+): { inputTokens?: number; outputTokens?: number } {
+  if (!modelUsage) return {};
+  let input = 0;
+  let output = 0;
+  let seen = false;
+  for (const usage of Object.values(modelUsage)) {
+    if (typeof usage.inputTokens === 'number') {
+      input += usage.inputTokens;
+      seen = true;
+    }
+    if (typeof usage.outputTokens === 'number') {
+      output += usage.outputTokens;
+      seen = true;
+    }
+  }
+  return seen ? { inputTokens: input, outputTokens: output } : {};
+}
+
+function assistantText(content: unknown): string {
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((block: unknown) => {
+      if (typeof block !== 'object' || block === null) return '';
+      if (!('type' in block) || block.type !== 'text') return '';
+      if (!('text' in block) || typeof block.text !== 'string') return '';
+      return block.text;
+    })
+    .filter((text) => text.length > 0)
+    .join('\n');
+}
+
 function toolResultText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -73,7 +125,10 @@ function toolResultText(content: unknown): string {
 const task = await readTask();
 // allow 规则只支持 `mcp__<server>__` 之后通配；`mcp__*` 不匹配任何工具。
 // server 名来自挂载的 .mcp.json，逐个生成精确规则。
-const allowedTools = (task.mcpServers ?? []).map((name) => `mcp__${name}__*`);
+const allowedTools = [
+  ...(task.mcpServers ?? []).map((name) => `mcp__${name}__*`),
+  ...(task.extraAllowedTools ?? []),
+];
 const abortController = new AbortController();
 process.once('SIGTERM', () => abortController.abort());
 
@@ -87,26 +142,36 @@ for await (const message of query({
     permissionMode: 'dontAsk',
     allowedTools,
     disallowedTools: [
-      'Bash',
-      'Read',
-      'Write',
-      'Edit',
-      'Glob',
-      'Grep',
-      'NotebookEdit',
-      'WebFetch',
-      'WebSearch',
-      'Agent',
-      'TaskStop',
+      ...new Set([
+        'Bash',
+        'Read',
+        'Write',
+        'Edit',
+        'Glob',
+        'Grep',
+        'NotebookEdit',
+        'WebFetch',
+        'WebSearch',
+        'Agent',
+        'TaskStop',
+        ...(task.extraDisallowedTools ?? []),
+      ]),
     ],
     includePartialMessages: true,
     maxTurns: task.maxTurns ?? 20,
     maxBudgetUsd: task.maxBudgetUsd ?? 2,
+    ...(task.effort === undefined
+      ? {}
+      : { effort: task.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' }),
+    ...(task.maxThinkingTokens === undefined ? {} : { maxThinkingTokens: task.maxThinkingTokens }),
     abortController,
     ...(task.model === undefined ? {} : { model: task.model }),
   },
 })) {
   if (message.type === 'assistant') {
+    // 完整文本块单独发一次：前端已用 text_delta 渲染，这次用于落库。
+    const fullText = assistantText(message.message.content);
+    if (fullText.length > 0) emit({ type: 'assistant_text', text: fullText });
     for (const block of message.message.content) {
       if (block.type !== 'tool_use') continue;
       emit({ type: 'tool_start', toolUseId: block.id, name: block.name });
@@ -144,6 +209,8 @@ for await (const message of query({
       status: succeeded ? 'succeeded' : 'failed',
       costUsd: message.total_cost_usd,
       turns: message.num_turns,
+      sessionId: message.session_id,
+      ...tokenUsage(message.modelUsage),
       ...(succeeded
         ? {}
         : {

@@ -2,6 +2,7 @@ import { createDb } from '@agentport/db';
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { Config } from './config.js';
+import { registerSecurityPlugins } from './plugins/security.js';
 import { registerRoutes } from './routes/index.js';
 
 export async function buildApp(config: Config) {
@@ -37,6 +38,7 @@ export async function buildApp(config: Config) {
     await pool.end();
   });
 
+  await registerSecurityPlugins(app);
   registerRoutes(app);
 
   return app;

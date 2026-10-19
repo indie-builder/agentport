@@ -1,5 +1,3 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
 import type { WorkspaceFiles } from '@agentport/core';
 import { renderWorkspace, toMcpJsonEntry } from '@agentport/core';
 import * as agentRepo from '@agentport/db/repo/agents.js';
@@ -12,11 +10,6 @@ type ServerRow = Awaited<ReturnType<typeof agentRepo.getBoundServers>>[number];
 // 沙盒视角的 API 地址；compose 内是 http://api:3000，本机 Docker 用 host.docker.internal。
 function sandboxApiUrl(): string {
   return process.env.SANDBOX_API_URL ?? 'http://host.docker.internal:3000';
-}
-
-// 与 worker 共用同一个环境变量；相对路径按进程 cwd 解析。
-function workspacesDir(): string {
-  return resolve(process.env.WORKSPACES_DIR ?? './data/workspaces');
 }
 
 function str(value: unknown): string {
@@ -60,22 +53,18 @@ function toEntry(row: ServerRow, secrets: Record<string, string>) {
   };
 }
 
-/** 渲染并落盘工作区；返回内容供文件预览接口直接回显。 */
-export async function writeAgentWorkspace(
+/** 只渲染、不落盘：写工作区是 worker 的职责。 */
+export async function renderAgentWorkspace(
   app: FastifyInstance,
   agentId: string,
 ): Promise<WorkspaceFiles | null> {
   const agent = await agentRepo.getAgent(app.db, agentId);
   if (!agent) return null;
-  // slug 来自 DB，但它是路径的一部分；越界值绝不能拼进文件系统。
-  if (!/^[a-z0-9][a-z0-9-_]*$/.test(agent.slug)) {
-    throw Object.assign(new Error(`invalid agent slug: ${agent.slug}`), {
-      statusCode: 500,
-      code: 'INVALID_SLUG',
-    });
-  }
 
-  const rows = await agentRepo.getBoundServers(app.db, agent.id);
+  const [rows, skills] = await Promise.all([
+    agentRepo.getBoundServers(app.db, agent.id),
+    agentRepo.getBoundSkills(app.db, agent.id),
+  ]);
   const servers = rows.map((row) => {
     const secrets = row.secretsEncrypted
       ? decryptSecrets(row.secretsEncrypted, app.config.APP_SECRET_KEY)
@@ -83,22 +72,22 @@ export async function writeAgentWorkspace(
     return { name: row.name, entry: toEntry(row, secrets) };
   });
 
-  const files = renderWorkspace({
+  return renderWorkspace({
     agent: {
       slug: agent.slug,
       name: agent.name,
+      description: agent.description,
       model: agent.model,
       systemPrompt: agent.systemPromptMd,
       maxTurns: agent.maxTurns,
+      permissionMode: agent.permissionMode,
+      effort: agent.effort,
+      allowedTools: agent.allowedTools,
+      disallowedTools: agent.disallowedTools,
     },
     servers,
+    skills,
+    ...(agent.allowedTools.length > 0 ? { toolsAllow: agent.allowedTools } : {}),
+    ...(agent.disallowedTools.length > 0 ? { toolsDeny: agent.disallowedTools } : {}),
   });
-
-  const dir = join(workspacesDir(), agent.slug);
-  await mkdir(join(dir, '.claude', 'agents'), { recursive: true });
-  await writeFile(join(dir, '.mcp.json'), files.mcpJson, 'utf8');
-  await writeFile(join(dir, 'CLAUDE.md'), files.claudeMd, 'utf8');
-  await writeFile(join(dir, '.claude', 'agents', `${agent.slug}.md`), files.agentMd, 'utf8');
-
-  return files;
 }

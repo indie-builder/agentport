@@ -16,5 +16,8 @@
   },
   "dependencies": {
     "@agentport/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1"
   }
 }

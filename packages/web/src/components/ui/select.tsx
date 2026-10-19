@@ -5,7 +5,7 @@ export function Select({ className, ...props }: ComponentProps<'select'>) {
   return (
     <select
       className={cn(
-        'h-8 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100 focus-visible:border-emerald-500 focus-visible:outline-none disabled:opacity-50',
+        'h-8 w-full cursor-pointer rounded-md border border-line bg-surface-2 px-2 text-sm text-fg transition-colors hover:border-line-strong focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25 disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}

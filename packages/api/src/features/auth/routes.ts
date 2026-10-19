@@ -45,30 +45,34 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post('/api/auth/login', async (request, reply) => {
-    const body = request.body as unknown;
-    if (typeof body !== 'object' || body === null) {
-      return reply.status(400).send({ code: 'INVALID_INPUT', message: 'body must be an object' });
-    }
-    const { username, password } = body as Record<string, unknown>;
-    if (typeof username !== 'string' || typeof password !== 'string') {
-      return reply
-        .status(400)
-        .send({ code: 'INVALID_INPUT', message: 'username and password are required' });
-    }
+  app.post(
+    '/api/auth/login',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const body = request.body as unknown;
+      if (typeof body !== 'object' || body === null) {
+        return reply.status(400).send({ code: 'INVALID_INPUT', message: 'body must be an object' });
+      }
+      const { username, password } = body as Record<string, unknown>;
+      if (typeof username !== 'string' || typeof password !== 'string') {
+        return reply
+          .status(400)
+          .send({ code: 'INVALID_INPUT', message: 'username and password are required' });
+      }
 
-    const userOk = username === app.config.ADMIN_USER;
-    // 用户名错也照样算一次 scrypt，避免响应时间泄露「用户名对不对」。
-    const passOk = await passwordMatches(password, app.config.ADMIN_PASSWORD);
-    if (!userOk || !passOk) {
-      request.log.warn({ username }, 'login failed');
-      return reply.status(401).send({ code: 'UNAUTHORIZED', message: 'invalid credentials' });
-    }
+      const userOk = username === app.config.ADMIN_USER;
+      // 用户名错也照样算一次 scrypt，避免响应时间泄露「用户名对不对」。
+      const passOk = await passwordMatches(password, app.config.ADMIN_PASSWORD);
+      if (!userOk || !passOk) {
+        request.log.warn({ username }, 'login failed');
+        return reply.status(401).send({ code: 'UNAUTHORIZED', message: 'invalid credentials' });
+      }
 
-    const token = await reply.jwtSign({ username }, { expiresIn: AUTH_MAX_AGE_SECONDS });
-    reply.setCookie(AUTH_COOKIE, token, { ...cookieOptions, maxAge: AUTH_MAX_AGE_SECONDS });
-    return { ok: true };
-  });
+      const token = await reply.jwtSign({ username }, { expiresIn: AUTH_MAX_AGE_SECONDS });
+      reply.setCookie(AUTH_COOKIE, token, { ...cookieOptions, maxAge: AUTH_MAX_AGE_SECONDS });
+      return { ok: true };
+    },
+  );
 
   app.post('/api/auth/logout', async (_request, reply) => {
     reply.clearCookie(AUTH_COOKIE, cookieOptions);

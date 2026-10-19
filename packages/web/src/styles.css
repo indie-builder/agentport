@@ -1,19 +1,86 @@
 @import "tailwindcss";
 
+/*
+ * 设计令牌来自 docs/DESIGN-SYSTEM.md。组件只引用语义色名，
+ * 换主题时只改这里，不用全局搜颜色。
+ */
+@theme {
+  --color-canvas: #0b0d10;
+  --color-surface: #12161b;
+  --color-surface-2: #171c23;
+  --color-line: #232a33;
+  --color-line-strong: #323b47;
+  --color-fg: #e6eaf0;
+  --color-muted: #9aa5b4;
+  --color-subtle: #6b7686;
+  --color-accent: #5b8def;
+  --color-accent-hover: #6f9bf2;
+  --color-accent-soft: rgba(91, 141, 239, 0.12);
+  --color-success: #3fb950;
+  --color-warning: #d29922;
+  --color-danger: #f85149;
+  --color-code: #0e1116;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 @layer base {
   html {
-    background-color: var(--color-zinc-950);
+    background-color: var(--color-canvas);
     color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
     margin: 0;
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* 焦点始终可见：键盘用户靠它定位。 */
+  :focus-visible {
+    outline: none;
   }
 
   ::selection {
-    background-color: var(--color-emerald-500);
-    color: var(--color-zinc-950);
+    background-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
+    color: var(--color-fg);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-color: var(--color-line-strong);
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-subtle);
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms;
+      animation-iteration-count: 1;
+      transition-duration: 0.01ms;
+      scroll-behavior: auto;
+    }
   }
 }

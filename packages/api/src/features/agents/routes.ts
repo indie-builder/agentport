@@ -1,11 +1,9 @@
 import * as repo from '@agentport/db/repo/agents.js';
-import type { Agent } from '@agentport/shared';
-import { agentInputSchema } from '@agentport/shared';
+import type { AgentInput } from '@agentport/shared';
+import { agentInputSchema, permissionModeSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { writeAgentWorkspace } from './workspace.js';
-
-type AgentRow = Awaited<ReturnType<typeof repo.getAgent>>;
+import { renderAgentWorkspace } from './workspace.js';
 
 const idParams = z.object({ id: z.string().min(1) });
 
@@ -18,12 +16,20 @@ const patchSchema = z.object({
     .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _')
     .optional(),
   name: z.string().min(1).max(128).optional(),
+  description: z.string().max(300).optional(),
   model: z.string().min(1).optional(),
   systemPrompt: z.string().optional(),
   serverIds: z.array(z.string()).optional(),
+  skillIds: z.array(z.string()).optional(),
+  allowedTools: z.array(z.string()).optional(),
+  disallowedTools: z.array(z.string()).optional(),
+  permissionMode: permissionModeSchema.optional(),
   maxTurns: z.number().int().positive().optional(),
   maxBudgetUsd: z.number().positive().optional(),
   timeoutMs: z.number().int().positive().optional(),
+  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+  maxThinkingTokens: z.number().int().positive().optional(),
+  enabled: z.boolean().optional(),
 });
 
 function invalid(reply: FastifyReply, message: string) {
@@ -35,37 +41,54 @@ function notFound(reply: FastifyReply) {
 }
 
 /** slug 上有唯一索引，冲突转 409。drizzle 把 pg 错误包在 cause 里，得顺着链找。 */
-function rethrowConflict(err: unknown): never {
+/** 外键失败意味着引用了不存在的 server/skill，属于客户端错误。 */
+/** drizzle 把 pg 错误包在 cause 链里，需要逐层查找。 */
+function pgCode(err: unknown): string | undefined {
   let cause: unknown = err;
-  while (typeof cause === 'object' && cause !== null) {
-    if ('code' in cause && cause.code === '23505') {
-      throw Object.assign(new Error('agent slug already exists'), {
-        statusCode: 409,
-        code: 'CONFLICT',
-      });
-    }
+  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
+    if ('code' in cause && typeof cause.code === 'string') return cause.code;
     cause = 'cause' in cause ? cause.cause : undefined;
+  }
+  return undefined;
+}
+
+function rethrowConflict(err: unknown): never {
+  const code = pgCode(err);
+  if (code === '23505') {
+    throw Object.assign(new Error('agent slug already exists'), {
+      statusCode: 409,
+      code: 'CONFLICT',
+    });
+  }
+  if (code === '23503') {
+    throw Object.assign(new Error('referenced server or skill does not exist'), {
+      statusCode: 400,
+      code: 'INVALID_REFERENCE',
+    });
   }
   throw err;
 }
 
-function toApi(row: NonNullable<AgentRow>, serverIds: string[]): Agent {
+function toWrite(input: Omit<AgentInput, 'serverIds' | 'skillIds'>): repo.AgentWrite {
   return {
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    model: row.model,
-    systemPrompt: row.systemPromptMd,
-    serverIds,
-    maxTurns: row.maxTurns,
-    maxBudgetUsd: Number(row.maxBudgetUsd),
-    timeoutMs: row.timeoutMs,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    slug: input.slug,
+    name: input.name,
+    description: input.description,
+    model: input.model,
+    systemPromptMd: input.systemPrompt,
+    allowedTools: input.allowedTools,
+    disallowedTools: input.disallowedTools,
+    permissionMode: input.permissionMode,
+    effort: input.effort ?? null,
+    maxThinkingTokens: input.maxThinkingTokens ?? null,
+    enabled: input.enabled,
+    maxTurns: input.maxTurns,
+    maxBudgetUsd: String(input.maxBudgetUsd),
+    timeoutMs: input.timeoutMs,
   };
 }
 
-/** slug 是工作区目录名，改了就得把旧目录留成孤儿；明确禁止比静默改名安全。 */
+// slug 是工作区目录名，改了旧目录会变孤儿，只能显式拒绝。
 function assertSlugUnchanged(current: string, next: string | undefined): string | undefined {
   return next !== undefined && next !== current ? 'slug cannot change' : undefined;
 }
@@ -75,32 +98,21 @@ export function registerAgentRoutes(app: FastifyInstance): void {
 
   app.get('/api/agents', auth, async () => {
     const rows = await repo.listAgents(app.db);
-    const bound = await repo.listAgentServerIds(
-      app.db,
-      rows.map((row) => row.id),
+    const ids = rows.map((row) => row.id);
+    const servers = await repo.listAgentServerIds(app.db, ids);
+    const skills = await repo.listAgentSkillIds(app.db, ids);
+    return rows.map((row) =>
+      repo.toAgent(row, servers.get(row.id) ?? [], skills.get(row.id) ?? []),
     );
-    return rows.map((row) => toApi(row, bound.get(row.id) ?? []));
   });
 
   app.post('/api/agents', auth, async (request, reply) => {
     const parsed = agentInputSchema.safeParse(request.body);
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');
-    const { serverIds, ...input } = parsed.data;
+    const { serverIds, skillIds, ...rest } = parsed.data;
     try {
-      const row = await repo.createAgent(
-        app.db,
-        {
-          slug: input.slug,
-          name: input.name,
-          model: input.model,
-          systemPromptMd: input.systemPrompt,
-          maxTurns: input.maxTurns,
-          maxBudgetUsd: String(input.maxBudgetUsd),
-          timeoutMs: input.timeoutMs,
-        },
-        serverIds,
-      );
-      return reply.status(201).send(toApi(row, serverIds));
+      const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds);
+      return reply.status(201).send(repo.toAgent(row, serverIds, skillIds));
     } catch (err) {
       rethrowConflict(err);
     }
@@ -111,7 +123,11 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     if (!params.success) return invalid(reply, 'invalid id');
     const row = await repo.getAgent(app.db, params.data.id);
     if (!row) return notFound(reply);
-    return toApi(row, await repo.getAgentServerIds(app.db, row.id));
+    const [serverIds, skillIds] = await Promise.all([
+      repo.getAgentServerIds(app.db, row.id),
+      repo.getAgentSkillIds(app.db, row.id),
+    ]);
+    return repo.toAgent(row, serverIds, skillIds);
   });
 
   app.patch('/api/agents/:id', auth, async (request, reply) => {
@@ -125,22 +141,38 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     const slugError = assertSlugUnchanged(current.slug, body.data.slug);
     if (slugError) return invalid(reply, slugError);
 
-    const { slug, name, model, systemPrompt, serverIds, maxTurns, maxBudgetUsd, timeoutMs } =
-      body.data;
-    const patch: repo.AgentWrite = {
-      slug: slug ?? current.slug,
-      name: name ?? current.name,
-      model: model ?? current.model,
-      systemPromptMd: systemPrompt ?? current.systemPromptMd,
-      maxTurns: maxTurns ?? current.maxTurns,
-      maxBudgetUsd: maxBudgetUsd === undefined ? current.maxBudgetUsd : String(maxBudgetUsd),
-      timeoutMs: timeoutMs ?? current.timeoutMs,
+    const input = body.data;
+    const patch: Partial<repo.AgentWrite> = {
+      name: input.name ?? current.name,
+      description: input.description ?? current.description,
+      model: input.model ?? current.model,
+      systemPromptMd: input.systemPrompt ?? current.systemPromptMd,
+      allowedTools: input.allowedTools ?? current.allowedTools,
+      disallowedTools: input.disallowedTools ?? current.disallowedTools,
+      permissionMode: input.permissionMode ?? current.permissionMode,
+      effort: input.effort ?? current.effort,
+      maxThinkingTokens: input.maxThinkingTokens ?? current.maxThinkingTokens,
+      enabled: input.enabled ?? current.enabled,
+      maxTurns: input.maxTurns ?? current.maxTurns,
+      maxBudgetUsd:
+        input.maxBudgetUsd === undefined ? current.maxBudgetUsd : String(input.maxBudgetUsd),
+      timeoutMs: input.timeoutMs ?? current.timeoutMs,
     };
 
     try {
-      const row = await repo.updateAgent(app.db, current.id, patch, serverIds);
+      const row = await repo.updateAgent(
+        app.db,
+        current.id,
+        patch,
+        input.serverIds,
+        input.skillIds,
+      );
       if (!row) return notFound(reply);
-      return toApi(row, serverIds ?? (await repo.getAgentServerIds(app.db, current.id)));
+      const [serverIds, skillIds] = await Promise.all([
+        input.serverIds ?? repo.getAgentServerIds(app.db, current.id),
+        input.skillIds ?? repo.getAgentSkillIds(app.db, current.id),
+      ]);
+      return repo.toAgent(row, serverIds, skillIds);
     } catch (err) {
       rethrowConflict(err);
     }
@@ -154,11 +186,11 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     return reply.status(204).send();
   });
 
-  // 检查配置是否可渲染的最直接方式就是真渲染一次；顺带把文件写到工作区供预览。
+  // 检查配置是否可渲染的最直接方式就是真渲染一次；只预览，不落盘。
   app.get('/api/agents/:id/files', auth, async (request, reply) => {
     const params = idParams.safeParse(request.params);
     if (!params.success) return invalid(reply, 'invalid id');
-    const files = await writeAgentWorkspace(app, params.data.id);
+    const files = await renderAgentWorkspace(app, params.data.id);
     if (!files) return notFound(reply);
     return files;
   });

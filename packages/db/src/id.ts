@@ -8,6 +8,7 @@ export const idPrefixes = {
   server: 'srv',
   tool: 'tool',
   agent: 'agt',
+  skill: 'skl',
   conversation: 'conv',
   message: 'msg',
   run: 'run',

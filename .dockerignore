@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+data
+.env
+.env.*
+.loopx
+.git
+.github
+docs
+e2e
+coverage
+*.log
+.DS_Store

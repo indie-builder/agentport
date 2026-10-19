@@ -1,19 +1,52 @@
+import type { Agent, AgentInput } from '@agentport/shared';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
-import { agentServers, agents, servers } from '../schema.js';
+import { agentServers, agentSkills, agents, servers, skills } from '../schema.js';
 
 export type AgentRow = typeof agents.$inferSelect;
 
 export interface AgentWrite {
   slug: string;
   name: string;
+  description: string;
   model: string;
   systemPromptMd: string;
+  allowedTools: string[];
+  disallowedTools: string[];
+  permissionMode: string;
+  effort: string | null;
+  maxThinkingTokens: number | null;
+  enabled: boolean;
   maxTurns: number;
   /** numeric 列以字符串写入，避免浮点误差。 */
   maxBudgetUsd: string;
   timeoutMs: number;
+}
+
+/** DB 行 → 共享 Agent；所有字段映射只在这里做一次。 */
+export function toAgent(row: AgentRow, serverIds: string[], skillIds: string[]): Agent {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    model: row.model,
+    systemPrompt: row.systemPromptMd,
+    serverIds,
+    skillIds,
+    allowedTools: row.allowedTools,
+    disallowedTools: row.disallowedTools,
+    permissionMode: row.permissionMode as AgentInput['permissionMode'],
+    maxTurns: row.maxTurns,
+    maxBudgetUsd: Number(row.maxBudgetUsd),
+    timeoutMs: row.timeoutMs,
+    ...(row.effort === null ? {} : { effort: row.effort as NonNullable<AgentInput['effort']> }),
+    ...(row.maxThinkingTokens === null ? {} : { maxThinkingTokens: row.maxThinkingTokens }),
+    enabled: row.enabled,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
 
 export async function listAgents(db: Database): Promise<AgentRow[]> {
@@ -29,6 +62,7 @@ export async function createAgent(
   db: Database,
   input: AgentWrite,
   serverIds: string[],
+  skillIds: string[],
 ): Promise<AgentRow> {
   const id = newId('agent');
   const [row] = await db.transaction(async (tx) => {
@@ -41,6 +75,9 @@ export async function createAgent(
         .insert(agentServers)
         .values(serverIds.map((serverId) => ({ agentId: id, serverId })));
     }
+    if (skillIds.length > 0) {
+      await tx.insert(agentSkills).values(skillIds.map((skillId) => ({ agentId: id, skillId })));
+    }
     return inserted;
   });
   if (!row) throw new Error('agent insert returned no row');
@@ -52,6 +89,7 @@ export async function updateAgent(
   id: string,
   patch: Partial<AgentWrite>,
   serverIds?: string[],
+  skillIds?: string[],
 ): Promise<AgentRow | null> {
   return db.transaction(async (tx) => {
     const [row] = await tx
@@ -66,6 +104,12 @@ export async function updateAgent(
         await tx
           .insert(agentServers)
           .values(serverIds.map((serverId) => ({ agentId: id, serverId })));
+      }
+    }
+    if (skillIds !== undefined) {
+      await tx.delete(agentSkills).where(eq(agentSkills.agentId, id));
+      if (skillIds.length > 0) {
+        await tx.insert(agentSkills).values(skillIds.map((skillId) => ({ agentId: id, skillId })));
       }
     }
     return row;
@@ -106,6 +150,34 @@ export async function listAgentServerIds(
   return out;
 }
 
+export async function getAgentSkillIds(db: Database, agentId: string): Promise<string[]> {
+  const rows = await db
+    .select({ skillId: agentSkills.skillId })
+    .from(agentSkills)
+    .where(eq(agentSkills.agentId, agentId))
+    .orderBy(asc(agentSkills.skillId));
+  return rows.map((row) => row.skillId);
+}
+
+export async function listAgentSkillIds(
+  db: Database,
+  agentIds: string[],
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (agentIds.length === 0) return out;
+  const rows = await db
+    .select({ agentId: agentSkills.agentId, skillId: agentSkills.skillId })
+    .from(agentSkills)
+    .where(inArray(agentSkills.agentId, agentIds))
+    .orderBy(asc(agentSkills.agentId), asc(agentSkills.skillId));
+  for (const row of rows) {
+    const list = out.get(row.agentId);
+    if (list) list.push(row.skillId);
+    else out.set(row.agentId, [row.skillId]);
+  }
+  return out;
+}
+
 export async function getBoundServers(
   db: Database,
   agentId: string,
@@ -117,4 +189,17 @@ export async function getBoundServers(
     .where(eq(agentServers.agentId, agentId))
     .orderBy(asc(agentServers.serverId));
   return rows.map(({ server }) => server);
+}
+
+export async function getBoundSkills(
+  db: Database,
+  agentId: string,
+): Promise<Array<typeof skills.$inferSelect>> {
+  const rows = await db
+    .select({ skill: skills })
+    .from(agentSkills)
+    .innerJoin(skills, eq(agentSkills.skillId, skills.id))
+    .where(eq(agentSkills.agentId, agentId))
+    .orderBy(asc(skills.slug));
+  return rows.map(({ skill }) => skill);
 }

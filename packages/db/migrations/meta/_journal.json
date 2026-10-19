@@ -8,6 +8,20 @@
       "when": 1792427122105,
       "tag": "0000_thick_franklin_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792428294652,
+      "tag": "0001_gray_madame_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792428561171,
+      "tag": "0002_broad_bishop",
+      "breakpoints": true
     }
   ]
 }

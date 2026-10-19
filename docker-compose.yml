@@ -1,5 +1,9 @@
 name: agentport
 
+# 本地全栈：postgres + redis + api + worker。
+# web 生产由 api 静态托管（WEB_DIST），所以没有独立 web 服务；
+# 前端开发仍用 packages/web 的 Vite dev server（pnpm dev）。
+
 services:
   postgres:
     image: postgres:18-alpine
@@ -31,6 +35,59 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  api:
+    build: .
+    image: agentport/api:dev
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      DATABASE_URL: postgres://agentport:agentport@postgres:5432/agentport
+      REDIS_URL: redis://redis:6379
+      # web 构建产物在镜像里的位置（根 Dockerfile 复制 packages/web/dist 到 /app/web）
+      WEB_DIST: /app/web
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    image: agentport/api:dev
+    restart: unless-stopped
+    command: ['node', 'worker/dist/index.js']
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://agentport:agentport@postgres:5432/agentport
+      REDIS_URL: redis://redis:6379
+      # 沙盒由宿主 daemon 启动，bind 挂载的路径必须宿主侧存在；
+      # 所以容器内外用同一个绝对路径（${PWD} 由 compose 在解析时展开）。
+      WORKSPACES_DIR: ${PWD}/data/workspaces
+      SANDBOX_IMAGE: agentport/sandbox:dev
+      # 沙盒在默认 bridge 上，通过 host.docker.internal 回到宿主发布的 3000 端口。
+      SANDBOX_API_URL: http://host.docker.internal:3000
+    volumes:
+      # 单机妥协：worker 直接控制宿主 Docker。等价于宿主 root 权限，
+      # 容器逃逸/恶意镜像会危及整台机器；生产应换成独立沙盒节点或 microVM 运行时。
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 同一绝对路径两侧挂载，见上面的 WORKSPACES_DIR 说明。
+      - ${PWD}/data/workspaces:${PWD}/data/workspaces
+    # socket 属于宿主 root:docker；容器内 node 用户不在该组，补上 GID 0
+    # （Docker Desktop 默认 socket 为 root:root）。Linux 上若 docker 组 GID 不同，
+    # 用 DOCKER_GID 覆盖。
+    group_add:
+      - '${DOCKER_GID:-0}'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   pgdata:

@@ -1,6 +1,7 @@
 import { apiToolInputSchema, serverInputSchema, serverTestResultSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { writeAudit } from '../../plugins/audit.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
 import { testConnection } from './test-connection.js';
@@ -30,12 +31,20 @@ function notFound(reply: FastifyReply, what: string) {
 }
 
 /** 名称唯一索引冲突转成 409，其余交给统一错误处理。 */
+/**
+ * drizzle 0.45 把 pg 的 23505 包进 DrizzleQueryError.cause，
+ * 顶层没有 code；必须沿 cause 链查找。
+ */
 function rethrowConflict(err: unknown): never {
-  if (typeof err === 'object' && err !== null && 'code' in err && err.code === '23505') {
-    throw Object.assign(new Error('server name already exists'), {
-      statusCode: 409,
-      code: 'CONFLICT',
-    });
+  let cause: unknown = err;
+  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
+    if ('code' in cause && cause.code === '23505') {
+      throw Object.assign(new Error('server name already exists'), {
+        statusCode: 409,
+        code: 'CONFLICT',
+      });
+    }
+    cause = 'cause' in cause ? cause.cause : undefined;
   }
   throw err;
 }
@@ -90,6 +99,7 @@ export function registerServerRoutes(app: FastifyInstance): void {
     if (!parsed.success) return invalid(reply, 'invalid id');
     const server = await getServerWithSecrets(app.db, parsed.data.id, key());
     if (!server) return notFound(reply, 'server');
+    const startedAt = Date.now();
     const result = await testConnection(
       server,
       app.config.NODE_ENV,
@@ -100,6 +110,15 @@ export function registerServerRoutes(app: FastifyInstance): void {
           }
         : undefined,
     );
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'mcp.server.tested',
+      target: server.id,
+      input: { kind: server.kind, name: server.name },
+      status: result.ok ? 'ok' : 'error',
+      durationMs: Date.now() - startedAt,
+      requestId: request.id,
+    });
     return serverTestResultSchema.parse(result);
   });
 

@@ -12,8 +12,10 @@ import { queryClient } from './lib/queries.js';
 import { AgentsPage } from './pages/agents.js';
 import { ChatPage } from './pages/chat.js';
 import { LoginPage } from './pages/login.js';
+import { NotFoundPage } from './pages/not-found.js';
 import { OverviewPage } from './pages/overview.js';
 import { ServersPage } from './pages/servers.js';
+import { SkillsPage } from './pages/skills.js';
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -41,6 +43,12 @@ const agentsRoute = createRoute({
   component: AgentsPage,
 });
 
+const skillsRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/skills',
+  component: SkillsPage,
+});
+
 const chatRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/chat',
@@ -53,12 +61,18 @@ const loginRoute = createRoute({
   component: LoginPage,
 });
 
+const notFoundRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '$',
+  component: NotFoundPage,
+});
+
 const routeTree = rootRoute.addChildren([
-  shellRoute.addChildren([indexRoute, serversRoute, agentsRoute, chatRoute]),
+  shellRoute.addChildren([indexRoute, serversRoute, agentsRoute, chatRoute, notFoundRoute]),
   loginRoute,
 ]);
 
-const router = createRouter({ routeTree });
+const router = createRouter({ routeTree, defaultPreload: 'intent' });
 
 declare module '@tanstack/react-router' {
   interface Register {
@@ -70,7 +84,20 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
-      <Toaster theme="dark" position="bottom-right" />
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        closeButton
+        toastOptions={{
+          duration: 4000,
+          classNames: {
+            toast: 'border border-line bg-surface text-fg',
+            description: 'text-muted',
+            actionButton: 'bg-accent text-white',
+            closeButton: 'bg-surface border-line text-muted hover:text-fg',
+          },
+        }}
+      />
     </QueryClientProvider>
   );
 }

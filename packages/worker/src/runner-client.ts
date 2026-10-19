@@ -17,6 +17,10 @@ export interface SandboxRunInput {
     maxBudgetUsd: number;
     /** 绑定到工作区的 MCP server 名，runner 用它生成精确 allow 规则 */
     mcpServers: string[];
+    extraAllowedTools?: string[];
+    extraDisallowedTools?: string[];
+    effort?: string;
+    maxThinkingTokens?: number;
   };
   workspaceDir: string;
   image: string;
@@ -31,18 +35,32 @@ export interface SandboxRunOutcome {
   sandboxId: string;
   costUsd?: number;
   turns?: number;
+  sessionId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
   error?: string;
+  /** 本次 run 产生的完整事件，供调用方落库。 */
+  events: ChatEvent[];
 }
 
 /** SIGTERM 后留一点时间让 runner 收尾，否则强杀。 */
 const KILL_GRACE_MS = 5_000;
 
-function redisUrl(): string {
-  return process.env.REDIS_URL ?? 'redis://localhost:6379';
+let redisUrl = 'redis://localhost:6379';
+
+/** 由 worker 入口在启动时注入校验过的 REDIS_URL。 */
+export function configureRunnerClient(url: string): void {
+  redisUrl = url;
 }
 
+/** 事件流键；与 API 的 producer 保持一致。 */
+function streamKey(runId: string): string {
+  return `run:${runId}:events`;
+}
+
+/** 取消信号通道；与 API 的 producer 保持一致。 */
 function channelFor(runId: string): string {
-  return `run:${runId}`;
+  return `run:${runId}:cancel`;
 }
 
 let publisher: Redis | undefined;
@@ -50,23 +68,31 @@ let cancelSubscriber: Redis | undefined;
 
 function getPublisher(logger: Logger): Redis {
   if (!publisher) {
-    publisher = new Redis(redisUrl(), { maxRetriesPerRequest: null });
+    publisher = new Redis(redisUrl, { maxRetriesPerRequest: null });
     publisher.on('error', (err) => logger.warn({ err }, 'redis error'));
   }
   return publisher;
 }
 
-/** 与 API 的订阅共用同一频道；这里只关心 {type:'cancel'}。 */
+/** 与 API 的订阅共用同一频道；这里只关心 cancel 消息。 */
 function getCancelSubscriber(logger: Logger): Redis {
   if (!cancelSubscriber) {
-    cancelSubscriber = new Redis(redisUrl(), { maxRetriesPerRequest: null });
+    cancelSubscriber = new Redis(redisUrl, { maxRetriesPerRequest: null });
     cancelSubscriber.on('error', (err) => logger.warn({ err }, 'redis error'));
   }
   return cancelSubscriber;
 }
 
+/**
+ * 事件写 Redis Stream（与 API 的订阅端一致），可从流头回放；
+ * 写完后用 pub/sub 唤醒正在 XRANGE 等待的订阅者。
+ */
 export async function publishRun(runId: string, event: ChatEvent, logger: Logger): Promise<void> {
-  await getPublisher(logger).publish(channelFor(runId), JSON.stringify(event));
+  const redis = getPublisher(logger);
+  const key = streamKey(runId);
+  await redis.xadd(key, 'MAXLEN', '~', 1000, '*', 'payload', JSON.stringify(event));
+  await redis.expire(key, 3600);
+  await redis.publish(`${key}:wake`, '1');
 }
 
 export async function closeRunnerClient(): Promise<void> {
@@ -101,25 +127,31 @@ function toError(err: unknown): string {
  */
 export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOutcome> {
   const { logger, runId } = input;
+  // 每次 run 都有 job，取消时按这个容器名清理。
+  const containerName = `agentport-${runId.toLowerCase()}`;
   let sandbox: Awaited<ReturnType<SandboxProvider['create']>>;
   try {
     sandbox = await input.provider.create({
       image: input.image,
       workspaceDir: input.workspaceDir,
       env: input.env,
-      name: `agentport-${runId.toLowerCase()}`,
+      name: containerName,
     });
   } catch (err) {
     const error = `sandbox create failed: ${toError(err)}`;
     logger.error({ err, runId }, error);
-    return { status: 'failed', sandboxId: '', error };
+    return { status: 'failed', sandboxId: '', error, events: [] };
   }
   const child = sandbox.child;
 
+  const events: ChatEvent[] = [];
   let reportedStatus: RunStatus | undefined;
   let reportedCost: number | undefined;
   let reportedTurns: number | undefined;
   let reportedError: string | undefined;
+  let reportedSessionId: string | undefined;
+  let reportedInput: number | undefined;
+  let reportedOutput: number | undefined;
   let cancelled = false;
   let timedOut = false;
   let stderrTail = '';
@@ -172,8 +204,12 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
       reportedCost = event.costUsd;
       reportedTurns = event.turns;
       reportedError = event.error;
+      reportedSessionId = event.sessionId;
+      reportedInput = event.inputTokens;
+      reportedOutput = event.outputTokens;
       return;
     }
+    events.push(event);
     publish(event);
   });
 
@@ -194,16 +230,20 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
   const budget = {
     ...(reportedCost === undefined ? {} : { costUsd: reportedCost }),
     ...(reportedTurns === undefined ? {} : { turns: reportedTurns }),
+    ...(reportedSessionId === undefined ? {} : { sessionId: reportedSessionId }),
+    ...(reportedInput === undefined ? {} : { inputTokens: reportedInput }),
+    ...(reportedOutput === undefined ? {} : { outputTokens: reportedOutput }),
   };
 
   if (cancelled) {
-    return { status: 'cancelled', sandboxId: sandbox.id, ...budget };
+    return { status: 'cancelled', sandboxId: sandbox.id, events, ...budget };
   }
   if (timedOut) {
     return {
       status: 'timeout',
       sandboxId: sandbox.id,
       error: `sandbox timed out after ${input.timeoutMs}ms`,
+      events,
       ...budget,
     };
   }
@@ -217,11 +257,13 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
       status: 'failed',
       sandboxId: sandbox.id,
       error: suffix ? `${detail}: ${suffix}` : detail,
+      events,
     };
   }
   return {
     status: reportedStatus,
     sandboxId: sandbox.id,
+    events,
     ...budget,
     ...(reportedError === undefined ? {} : { error: reportedError }),
   };
@@ -234,22 +276,12 @@ async function subscribeCancel(
 ): Promise<() => Promise<void>> {
   const redis = getCancelSubscriber(logger);
   const channel = channelFor(runId);
-  const handler = (received: string, payload: string): void => {
-    if (received !== channel) return;
-    try {
-      const parsed: unknown = JSON.parse(payload);
-      if (
-        typeof parsed === 'object' &&
-        parsed !== null &&
-        'type' in parsed &&
-        parsed.type === 'cancel'
-      ) {
-        onCancel();
-      }
-    } catch {
-      // 非 JSON 消息与本 worker 无关。
-    }
+  // API 的 publishRun 在 cancel 频道上只发 '1'；订阅成立后先查一次键，
+  // 避免 worker 在 API 发布之后才订阅而漏掉取消。
+  const handler = (received: string): void => {
+    if (received === channel) onCancel();
   };
+  if ((await redis.exists(channel)) === 1) onCancel();
   redis.on('message', handler);
   await redis.subscribe(channel);
   return async () => {

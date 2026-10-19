@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { agentRuns, agents, conversations, messages } from '../schema.js';
 
@@ -27,6 +27,15 @@ export async function agentExists(db: Database, agentId: string): Promise<boolea
     .where(eq(agents.id, agentId))
     .limit(1);
   return rows.length > 0;
+}
+
+export async function agentEnabled(db: Database, agentId: string): Promise<boolean> {
+  const rows = await db
+    .select({ enabled: agents.enabled })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1);
+  return rows[0]?.enabled ?? false;
 }
 
 export async function createConversation(
@@ -59,6 +68,55 @@ export async function listMessages(db: Database, conversationId: string): Promis
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt), asc(messages.id));
+}
+
+export interface ConversationSummary {
+  id: string;
+  agentId: string;
+  title: string;
+  createdAt: Date;
+  updatedAt: Date;
+  lastMessage: { role: string; content: unknown; createdAt: Date } | null;
+}
+
+/** 会话列表：updatedAt 取最后一条消息时间，无消息时退回创建时间。 */
+export async function listConversations(
+  db: Database,
+  options: { agentId?: string; limit?: number } = {},
+): Promise<ConversationSummary[]> {
+  const last = db
+    .select({ role: messages.role, content: messages.content, createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.conversationId, conversations.id))
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(1)
+    .as('last_message');
+
+  const updatedAt = sql`coalesce(${last.createdAt}, ${conversations.createdAt})`;
+  const rows = await db
+    .select({
+      id: conversations.id,
+      agentId: conversations.agentId,
+      title: conversations.title,
+      createdAt: conversations.createdAt,
+      lastRole: last.role,
+      lastContent: last.content,
+      lastCreatedAt: last.createdAt,
+    })
+    .from(conversations)
+    .leftJoinLateral(last, sql`true`)
+    .where(options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId))
+    .orderBy(desc(updatedAt), desc(conversations.id))
+    .limit(options.limit ?? 50);
+
+  return rows.map(({ lastRole, lastContent, lastCreatedAt, ...row }) => ({
+    ...row,
+    updatedAt: lastCreatedAt ?? row.createdAt,
+    lastMessage:
+      lastCreatedAt === null || lastRole === null
+        ? null
+        : { role: lastRole, content: lastContent, createdAt: lastCreatedAt },
+  }));
 }
 
 export async function appendMessage(

@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useId, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../../lib/cn.js';
 
 interface DialogProps {
@@ -11,51 +12,118 @@ interface DialogProps {
   className?: string;
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * 原生实现的模态对话框：焦点陷阱、Esc 关闭、关闭后归还焦点。
+ * 不引入 radix，所以这些行为必须自己做，否则键盘用户会被困在页面其他区域。
+ */
 export function Dialog({ open, onClose, title, description, children, className }: DialogProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  // onClose 每次渲染都可能是新函数；放进 ref，避免 effect 因它重跑而重置焦点。
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const visibleFocusables = (): HTMLElement[] => {
+      const panel = panelRef.current;
+      if (!panel) return [];
+      return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) => el.offsetParent !== null,
+      );
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+
+    const first = visibleFocusables()[0];
+    (first ?? panelRef.current)?.focus();
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusables = visibleFocusables();
+      if (focusables.length === 0) {
+        event.preventDefault();
+        panelRef.current?.focus();
+        return;
+      }
+      const firstEl = focusables[0];
+      const lastEl = focusables[focusables.length - 1];
+      if (!firstEl || !lastEl) return;
+      if (event.shiftKey && document.activeElement === firstEl) {
+        event.preventDefault();
+        lastEl.focus();
+      } else if (!event.shiftKey && document.activeElement === lastEl) {
+        event.preventDefault();
+        firstEl.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = overflow;
+      previous?.focus();
+    };
+  }, [open]);
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-6 pt-[10vh]">
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-[8vh] sm:p-6 sm:pt-[10vh]">
       <button
         type="button"
-        aria-label="关闭"
-        className="absolute inset-0 cursor-default"
+        aria-hidden="true"
+        tabIndex={-1}
+        className="fixed inset-0 cursor-default bg-black/60"
         onClick={onClose}
       />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
+        {...(description ? { 'aria-describedby': descriptionId } : {})}
+        tabIndex={-1}
         className={cn(
-          'relative w-full max-w-lg rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl',
+          'relative w-full max-w-[560px] rounded-xl border border-line bg-surface shadow-2xl shadow-black/50 outline-none',
           className,
         )}
       >
-        <div className="flex items-start justify-between border-b border-zinc-800 px-4 py-3">
-          <div>
-            <h2 className="text-sm font-medium text-zinc-100">{title}</h2>
-            {description ? <p className="mt-0.5 text-xs text-zinc-500">{description}</p> : null}
+        <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-3.5">
+          <div className="min-w-0">
+            <h2 id={titleId} className="text-[15px] font-semibold text-fg">
+              {title}
+            </h2>
+            {description ? (
+              <p id={descriptionId} className="mt-1 text-xs leading-relaxed text-muted">
+                {description}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="关闭"
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+            className="-mr-1 rounded-md p-1.5 text-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
           >
             <X className="size-4" />
           </button>
         </div>
-        <div className="p-4">{children}</div>
+        <div className="px-5 py-4">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

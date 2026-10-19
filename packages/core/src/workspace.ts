@@ -4,25 +4,42 @@ export interface WorkspaceFiles {
   mcpJson: string;
   claudeMd: string;
   agentMd: string;
+  skills: Array<{ slug: string; content: string }>;
 }
 
 export interface WorkspaceAgent {
   slug: string;
   name: string;
+  description?: string;
   model: string;
   systemPrompt: string;
   maxTurns: number;
+  permissionMode?: string;
+  effort?: string | null;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+}
+
+export interface WorkspaceSkill {
+  slug: string;
+  name: string;
+  description: string;
+  body: string;
 }
 
 export interface WorkspaceInput {
   agent: WorkspaceAgent;
   servers: Array<{ name: string; entry: McpJsonEntry }>;
+  skills?: WorkspaceSkill[];
   toolsAllow?: string[];
   toolsDeny?: string[];
 }
 
-/** 内置工具一律禁用；限制靠裸工具名从上下文移除，而不是 allowedTools。 */
-const DEFAULT_DISALLOWED_TOOLS = [
+/**
+ * 内置工具默认全部禁用。限制靠裸工具名从上下文移除；
+ * allowedTools 只负责自动批准，不负责限制。
+ */
+export const DEFAULT_DISALLOWED_TOOLS = [
   'Bash',
   'Read',
   'Write',
@@ -59,7 +76,7 @@ function yamlList(values: string[]): string {
 }
 
 function renderClaudeMd(input: WorkspaceInput): string {
-  const { agent, servers } = input;
+  const { agent, servers, skills = [] } = input;
   const toolLines =
     servers.length === 0
       ? ['当前没有绑定 MCP Server，你没有可调用的工具。']
@@ -67,6 +84,18 @@ function renderClaudeMd(input: WorkspaceInput): string {
           '本工作区通过 `.mcp.json` 绑定以下 MCP Server：',
           '',
           ...servers.map((s) => `- \`${s.name}\` → 工具名形如 \`mcp__${s.name}__<tool>\``),
+        ];
+
+  const skillLines =
+    skills.length === 0
+      ? []
+      : [
+          '',
+          '## 可用技能',
+          '',
+          ...skills.map((s) => `- \`${s.slug}\`：${s.description}`),
+          '',
+          '需要时读取 `.claude/skills/<slug>/SKILL.md` 按步骤执行。',
         ];
 
   return [
@@ -80,15 +109,23 @@ function renderClaudeMd(input: WorkspaceInput): string {
     '',
     '只使用 `mcp__*` MCP 工具；内置的 shell、文件与网络工具已被禁用。',
     '如需更多能力，请让管理员在平台中为智能体绑定对应的 MCP Server。',
+    ...skillLines,
     '',
   ].join('\n');
 }
 
 function renderAgentMd(input: WorkspaceInput): string {
-  const { agent, servers } = input;
-  const tools = input.toolsAllow ?? servers.map((s) => `mcp__${s.name}__*`);
-  const disallowed = input.toolsDeny ?? DEFAULT_DISALLOWED_TOOLS;
-  const description = summarize(agent.systemPrompt, `${agent.name} 智能体`);
+  const { agent, servers, skills = [] } = input;
+  const tools =
+    input.toolsAllow && input.toolsAllow.length > 0
+      ? input.toolsAllow
+      : servers.map((s) => `mcp__${s.name}__*`);
+  const disallowed =
+    input.toolsDeny && input.toolsDeny.length > 0
+      ? [...new Set([...DEFAULT_DISALLOWED_TOOLS, ...input.toolsDeny])]
+      : DEFAULT_DISALLOWED_TOOLS;
+  const description =
+    agent.description?.trim() || summarize(agent.systemPrompt, `${agent.name} 智能体`);
 
   const frontmatter = [
     '---',
@@ -98,6 +135,8 @@ function renderAgentMd(input: WorkspaceInput): string {
     `tools: ${yamlList(tools)}`,
     `disallowedTools: ${yamlList(disallowed)}`,
     `maxTurns: ${agent.maxTurns}`,
+    ...(skills.length > 0 ? [`skills: ${yamlList(skills.map((s) => s.slug))}`] : []),
+    ...(agent.effort ? [`effort: ${yamlString(agent.effort)}`] : []),
     '---',
   ];
 
@@ -113,7 +152,21 @@ function renderAgentMd(input: WorkspaceInput): string {
   ].join('\n');
 }
 
-/** 把 DB 中的智能体定义渲染成三个落盘文件的内容；纯函数，不碰文件系统。 */
+function renderSkillMd(skill: WorkspaceSkill): string {
+  return [
+    '---',
+    `name: ${yamlString(skill.slug)}`,
+    `description: ${yamlString(skill.description)}`,
+    '---',
+    '',
+    `# ${skill.name}`,
+    '',
+    skill.body.trim(),
+    '',
+  ].join('\n');
+}
+
+/** 把 DB 中的智能体定义渲染成落盘文件的内容；纯函数，不碰文件系统。 */
 export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
   const mcpServers: Record<string, McpJsonEntry> = {};
   for (const server of input.servers) {
@@ -124,5 +177,9 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
     mcpJson: `${JSON.stringify({ mcpServers }, null, 2)}\n`,
     claudeMd: renderClaudeMd(input),
     agentMd: renderAgentMd(input),
+    skills: (input.skills ?? []).map((skill) => ({
+      slug: skill.slug,
+      content: renderSkillMd(skill),
+    })),
   };
 }

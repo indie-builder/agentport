@@ -13,6 +13,8 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "db:generate": "pnpm --filter @agentport/db generate",
     "db:migrate": "pnpm --filter @agentport/db migrate",
     "infra:up": "docker compose up -d postgres redis",
@@ -21,8 +23,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
+    "@playwright/test": "1.64.1",
+    "@vitest/coverage-v8": "5.0.5",
     "typescript": "7.0.2",
-    "vitest": "5.0.5",
-    "@vitest/coverage-v8": "5.0.5"
+    "vitest": "5.0.5"
   }
 }
