@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { hashMcpToken } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { NodeIncomingMessageLike, NodeServerResponseLike } from '@modelcontextprotocol/node';
 import { toNodeHandler } from '@modelcontextprotocol/node';
@@ -11,12 +12,16 @@ import { getServerRow, listTools, toApiServer } from './repo.js';
 
 const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
 
-function tokenMatches(expected: unknown, header: string | undefined): boolean {
+function tokenMatches(
+  expected: unknown,
+  header: string | undefined,
+  actual: (token: string) => string = (token) => token,
+): boolean {
   if (typeof expected !== 'string' || expected.length === 0) return false;
   const match = /^Bearer\s+(.+)$/i.exec(header ?? '');
   if (!match?.[1]) return false;
   const a = Buffer.from(expected);
-  const b = Buffer.from(match[1]);
+  const b = Buffer.from(actual(match[1]));
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
@@ -79,7 +84,17 @@ export function registerMcpEndpoint(app: FastifyInstance): void {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'generated server not found' });
       }
       const expected = row.config.mcpToken;
-      if (!tokenMatches(expected, request.headers.authorization)) {
+      // 先认 run 的短期 token（沙盒内嵌在 .mcp.json），失败再回退长期 token（外部客户端）。
+      const headerRunId = request.headers['x-agentport-run-id'];
+      const runId = typeof headerRunId === 'string' ? headerRunId : null;
+      const runToken = runId === null ? null : await repo.runs.getRunToken(app.db, runId, serverId);
+      const runTokenOk =
+        runToken !== null &&
+        runToken.hash !== null &&
+        runToken.expiresAt !== null &&
+        runToken.expiresAt.getTime() > Date.now() &&
+        tokenMatches(runToken.hash, request.headers.authorization, hashMcpToken);
+      if (!runTokenOk && !tokenMatches(expected, request.headers.authorization)) {
         return reply
           .status(401)
           .header('WWW-Authenticate', 'Bearer realm="agentport-mcp"')
@@ -89,13 +104,9 @@ export function registerMcpEndpoint(app: FastifyInstance): void {
       // 交给 MCP 适配器自己读写原始 req/res，Fastify 不再参与响应。
       reply.hijack();
       // 每个 HTTP 请求重建 handler，header 在请求边界读取一次，不依赖工厂回调时机。
-      const runId = request.headers['x-agentport-run-id'];
-      const nodeHandler = toNodeHandler(
-        handlerFor(app, serverId, typeof runId === 'string' ? runId : null),
-        {
-          onerror: (err) => app.log.error({ err, serverId }, 'mcp endpoint error'),
-        },
-      );
+      const nodeHandler = toNodeHandler(handlerFor(app, serverId, runId), {
+        onerror: (err) => app.log.error({ err, serverId }, 'mcp endpoint error'),
+      });
       await runMcp(() =>
         nodeHandler(
           // Node 的 IncomingMessage.method 类型是 string | undefined，适配器按可选字段声明。

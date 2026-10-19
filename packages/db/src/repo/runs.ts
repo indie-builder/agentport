@@ -164,6 +164,45 @@ export async function getRunAgentId(db: Database, runId: string): Promise<string
   return row?.agentId ?? null;
 }
 
+/** 写入本次 run 的短期 MCP token hash 与过期时间（明文只进工作区文件）。 */
+export async function setRunMcpToken(
+  db: Database,
+  runId: string,
+  tokenHash: string,
+  expiresAt: Date,
+): Promise<void> {
+  await db
+    .update(agentRuns)
+    .set({ mcpTokenHash: tokenHash, mcpTokenExpiresAt: expiresAt })
+    .where(eq(agentRuns.id, runId));
+}
+
+/** 清空后该 run 的 token 立即失效；重复调用无副作用。 */
+export async function clearRunMcpToken(db: Database, runId: string): Promise<void> {
+  await db
+    .update(agentRuns)
+    .set({ mcpTokenHash: null, mcpTokenExpiresAt: null })
+    .where(eq(agentRuns.id, runId));
+}
+
+/**
+ * run 仍持有的短期 token（只在其智能体绑定了该 server 时返回）。
+ * 行存在但 hash 为空表示 run 已结束，token 立即失效。
+ */
+export async function getRunToken(
+  db: Database,
+  runId: string,
+  serverId: string,
+): Promise<{ hash: string | null; expiresAt: Date | null } | null> {
+  const [row] = await db
+    .select({ hash: agentRuns.mcpTokenHash, expiresAt: agentRuns.mcpTokenExpiresAt })
+    .from(agentRuns)
+    .innerJoin(agentServers, eq(agentServers.agentId, agentRuns.agentId))
+    .where(and(eq(agentRuns.id, runId), eq(agentServers.serverId, serverId)))
+    .limit(1);
+  return row ?? null;
+}
+
 export interface ApprovalRequestRow {
   id: string;
   runId: string;

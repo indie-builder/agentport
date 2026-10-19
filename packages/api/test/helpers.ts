@@ -69,7 +69,8 @@ async function probeQueueIdle(redisUrl: string): Promise<boolean> {
     await redis.connect();
     const clients = await redis.client('LIST');
     // BullMQ worker 会以阻塞连接消费队列；存在阻塞客户端即视为有消费者。
-    return !/cmd=(blpop|brpop)/i.test(clients);
+    // BullMQ 6 用 BZPOPMIN 拉取延迟任务，不再用 BRPOP。
+    return !/cmd=(blpop|brpop|bzpopmin)/i.test(clients);
   } catch {
     return true;
   } finally {

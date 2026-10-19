@@ -48,6 +48,19 @@ export const agentRunJobSchema = z.object({
 
 export type AgentRunJob = z.infer<typeof agentRunJobSchema>;
 
+/** 评估跑批队列：只传 id，worker 自己读用例，避免 API 重启丢失进程内状态。 */
+export const EVAL_RUNS_QUEUE = 'eval-runs';
+
+export const evalRunJobSchema = z.object({ evalRunId: z.string() });
+
+export type EvalRunJob = z.infer<typeof evalRunJobSchema>;
+
+/** 最小判定：expectation 非空则大小写不敏感包含；为空则只要求有文本。 */
+export function judge(output: string, expectation: string): boolean {
+  if (expectation.trim().length === 0) return output.trim().length > 0;
+  return output.toLowerCase().includes(expectation.trim().toLowerCase());
+}
+
 /** 会话列表项：按 agent 过滤，按最近消息倒序。 */
 export const conversationSummarySchema = z.object({
   id: z.string(),

@@ -1,5 +1,5 @@
-import type { AgentRunJob, ChatEvent } from '@agentport/shared';
-import { chatEventSchema } from '@agentport/shared';
+import type { AgentRunJob, ChatEvent, EvalRunJob } from '@agentport/shared';
+import { chatEventSchema, EVAL_RUNS_QUEUE } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 
@@ -31,6 +31,7 @@ function logRedisError(err: Error): void {
 }
 
 let queue: Queue<AgentRunJob> | undefined;
+let evalQueue: Queue<EvalRunJob> | undefined;
 let client: Redis | undefined;
 let subscriber: Redis | undefined;
 
@@ -40,6 +41,14 @@ export function getQueue(): Queue<AgentRunJob> {
     queue.on('error', logRedisError);
   }
   return queue;
+}
+
+export function getEvalQueue(): Queue<EvalRunJob> {
+  if (!evalQueue) {
+    evalQueue = new Queue<EvalRunJob>(EVAL_RUNS_QUEUE, { connection: { url: REDIS_URL } });
+    evalQueue.on('error', logRedisError);
+  }
+  return evalQueue;
 }
 
 function getClient(): Redis {
@@ -118,29 +127,8 @@ export interface RunSubscription {
   close: () => void;
 }
 
-/**
- * 所有 SSE 客户端共用一条订阅连接，因此按频道计数：
- * 只有最后一个订阅者 close 时才真正 unsubscribe，否则先断开的人会静默掐掉其他人。
- */
-const channelRefs = new Map<string, number>();
-
-async function addChannelRef(channel: string): Promise<void> {
-  const refs = channelRefs.get(channel) ?? 0;
-  channelRefs.set(channel, refs + 1);
-  if (refs > 0) return;
-  await getSubscriber().subscribe(channel);
-}
-
-function removeChannelRef(channel: string): void {
-  const refs = (channelRefs.get(channel) ?? 1) - 1;
-  if (process.env.DEBUG_SSE === '1') process.stderr.write(`[sse] ref- ${channel} -> ${refs}\n`);
-  if (refs > 0) {
-    channelRefs.set(channel, refs);
-    return;
-  }
-  channelRefs.delete(channel);
-  void getSubscriber().unsubscribe(channel).catch(logRedisError);
-}
+/** 每个订阅独占连接；close() 时 quit，避免一条连接的退订影响其他观众。 */
+const subscriptions = new Set<Redis>();
 
 /**
  * 从流头回放并持续跟进。lastId 从 '0' 开始，因此订阅前的 run_started 不会丢。
@@ -150,7 +138,9 @@ export async function subscribeRun(
   runId: string,
   cb: (event: ChatEvent) => void,
 ): Promise<RunSubscription> {
-  const redis = getSubscriber();
+  const redis = getSubscriber().duplicate();
+  redis.on('error', logRedisError);
+  subscriptions.add(redis);
   const wakeChannel = `${streamKey(runId)}:wake`;
   const key = streamKey(runId);
   let closed = false;
@@ -171,10 +161,11 @@ export async function subscribeRun(
     }
   };
 
-  // 共享 subscriber：必须按频道过滤，否则 N 个观众会各自触发 N 次 XRANGE。
   const handler = (incoming: string): void => {
     if (incoming !== wakeChannel) return;
     void drain().catch((err: unknown) => {
+      // close() 时 quit 会让在途的 XRANGE 失败，属于预期。
+      if (closed) return;
       logRedisError(err instanceof Error ? err : new Error(String(err)));
     });
   };
@@ -184,14 +175,14 @@ export async function subscribeRun(
     if (released) return;
     released = true;
     redis.off('message', handler);
-    removeChannelRef(wakeChannel);
+    subscriptions.delete(redis);
+    if (redis.status !== 'end') void redis.quit().catch(logRedisError);
   };
 
   // 先订阅再挂 handler：唤醒只是提示，drain 从流头回放，订阅前的消息不会丢。
-  // 反过来则客户端在 await 期间断开时，close() 的 unsubscribe 会被随后的 subscribe 覆盖。
-  await addChannelRef(wakeChannel);
-  redis.on('message', handler);
   try {
+    await redis.subscribe(wakeChannel);
+    redis.on('message', handler);
     await drain();
   } catch (err) {
     release();
@@ -208,10 +199,17 @@ export async function subscribeRun(
 }
 
 export async function closeProducer(): Promise<void> {
-  channelRefs.clear();
-  const closing = [queue, client, subscriber] as const;
+  const closing = [queue, evalQueue, client, subscriber] as const;
   queue = undefined;
+  evalQueue = undefined;
   client = undefined;
   subscriber = undefined;
-  await Promise.allSettled([closing[0]?.close(), closing[1]?.quit(), closing[2]?.quit()]);
+  await Promise.allSettled([
+    closing[0]?.close(),
+    closing[1]?.close(),
+    closing[2]?.quit(),
+    closing[3]?.quit(),
+    ...[...subscriptions].map((redis) => redis.quit()),
+  ]);
+  subscriptions.clear();
 }

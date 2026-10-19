@@ -1,13 +1,27 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { McpJsonEntry } from '@agentport/core';
-import { decryptSecrets, renderWorkspace, toWorkspaceInput } from '@agentport/core';
-import { createDb, newId, schema } from '@agentport/db';
-import { agentRunJobSchema, type ChatEvent } from '@agentport/shared';
+import {
+  decryptSecrets,
+  hashMcpToken,
+  renderWorkspace,
+  toWorkspaceInput,
+  WORKSPACE_DIR_MODE,
+  WORKSPACE_FILE_MODE,
+} from '@agentport/core';
+import { createDb, newId, repo, schema } from '@agentport/db';
+import {
+  agentRunJobSchema,
+  type ChatEvent,
+  EVAL_RUNS_QUEUE,
+  evalRunJobSchema,
+} from '@agentport/shared';
 import { Worker } from 'bullmq';
 import { and, asc, eq, ne } from 'drizzle-orm';
 import pino from 'pino';
 import { loadConfig } from './config.js';
+import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
 import { startMaintenanceWorker } from './maintenance.js';
 import { startReconciler } from './reconcile.js';
 import { redactSecrets } from './redact.js';
@@ -94,6 +108,7 @@ function toEntry(
   apiUrl: string,
   secretKey: string,
   runId: string,
+  runToken: string,
 ): McpJsonEntry {
   // 密钥只存在加密列里；运行时必须在这里解密注入，否则 .mcp.json 会丢 env/headers。
   const secrets = server.secretsEncrypted ? decryptSecrets(server.secretsEncrypted, secretKey) : {};
@@ -112,13 +127,13 @@ function toEntry(
       headers: { ...strRecord(serverConfig.headers), ...secrets },
     };
   }
-  const token = str(serverConfig.mcpToken);
   return {
     type: 'http',
     url: `${apiUrl}/mcp/${server.id}`,
     // 平台 MCP 端点靠这个 header 识别 run，才能查到该 run 的工具审批。
     headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      // 短期 token：只在本 run 有效，run 结束即被清空；长期 token 不落工作区。
+      Authorization: `Bearer ${runToken}`,
       'x-agentport-run-id': runId,
     },
   };
@@ -137,24 +152,44 @@ async function writeWorkspace(
   // 按 run 隔离：同一智能体并发运行时不能互相覆盖 .mcp.json / 技能 / 子智能体。
   const dir = join(workspacesDir, agent.slug, runId);
   const agentsDir = join(dir, '.claude', 'agents');
+  const skillsDir = join(dir, '.claude', 'skills');
   // 子智能体每次重建：解绑后旧文件不能残留，否则 SDK 仍会发现它。
   await rm(agentsDir, { recursive: true, force: true });
-  await mkdir(agentsDir, { recursive: true });
-  await writeFile(join(dir, '.mcp.json'), files.mcpJson, 'utf8');
+  await mkdir(agentsDir, { mode: WORKSPACE_DIR_MODE, recursive: true });
+  await writeFile(join(dir, '.mcp.json'), files.mcpJson, {
+    encoding: 'utf8',
+    mode: WORKSPACE_FILE_MODE,
+  });
   await writeFile(join(dir, 'CLAUDE.md'), files.claudeMd, 'utf8');
-  await writeFile(join(agentsDir, `${agent.slug}.md`), files.agentMd, 'utf8');
+  await writeFile(join(agentsDir, `${agent.slug}.md`), files.agentMd, {
+    encoding: 'utf8',
+    mode: WORKSPACE_FILE_MODE,
+  });
   for (const subAgent of files.subAgents) {
-    await writeFile(join(agentsDir, `${subAgent.slug}.md`), subAgent.content, 'utf8');
+    await writeFile(join(agentsDir, `${subAgent.slug}.md`), subAgent.content, {
+      encoding: 'utf8',
+      mode: WORKSPACE_FILE_MODE,
+    });
   }
 
   // 技能每次重建：先清掉旧目录，避免已解绑的技能残留。
-  const skillsDir = join(dir, '.claude', 'skills');
   await rm(skillsDir, { recursive: true, force: true });
   for (const skill of files.skills) {
     const target = join(skillsDir, skill.slug);
-    await mkdir(target, { recursive: true });
-    await writeFile(join(target, 'SKILL.md'), skill.content, 'utf8');
+    await mkdir(target, { mode: WORKSPACE_DIR_MODE, recursive: true });
+    await writeFile(join(target, 'SKILL.md'), skill.content, {
+      encoding: 'utf8',
+      mode: WORKSPACE_FILE_MODE,
+    });
   }
+  // mode 只在创建时生效；已存在的工作区（BullMQ 重试复用）要再 chmod 一次。
+  await chmod(dir, WORKSPACE_DIR_MODE);
+  await chmod(join(dir, '.claude'), WORKSPACE_DIR_MODE);
+  await chmod(join(dir, '.mcp.json'), WORKSPACE_FILE_MODE);
+  logger.debug(
+    { runId, dir, mode: WORKSPACE_FILE_MODE.toString(8) },
+    'workspace permissions applied',
+  );
   return { dir, hasSubAgents: files.subAgents.length > 0 };
 }
 
@@ -299,6 +334,17 @@ const worker = new Worker(
         .limit(1);
       if (!agent) throw new Error(`agent ${agentId} not found`);
 
+      const timeoutMs = agent.timeoutMs || config.AGENT_TIMEOUT_MS;
+      // 按 run 签发短期 token：DB 只存 hash，明文只在本工作区的 .mcp.json 里。
+      // 过期时间比 run 超时多 5 分钟，避免收尾阶段请求被截断。
+      const runToken = randomBytes(32).toString('base64url');
+      await repo.runs.setRunMcpToken(
+        db,
+        runId,
+        hashMcpToken(runToken),
+        new Date(Date.now() + timeoutMs + 5 * 60_000),
+      );
+
       const rows = await db
         .select({ server: schema.servers })
         .from(schema.agentServers)
@@ -328,7 +374,7 @@ const worker = new Worker(
         runId,
         rows.map(({ server }) => ({
           name: server.name,
-          entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId),
+          entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId, runToken),
         })),
         skillRows,
         subAgentRows,
@@ -339,7 +385,7 @@ const worker = new Worker(
       runStartedAt = Date.now();
       outcome = await runInSandbox({
         runId,
-        timeoutMs: agent.timeoutMs || config.AGENT_TIMEOUT_MS,
+        timeoutMs,
         task: {
           prompt,
           ...(history === undefined ? {} : { history }),
@@ -370,6 +416,11 @@ const worker = new Worker(
       logger.error({ err, runId }, 'agent run crashed');
       outcome = { status: 'failed', sandboxId: '', error, events: [] };
     }
+
+    // run 结束（含崩溃）就吊销短期 token；reconcile 对卡死 run 也走同样的收尾。
+    await repo.runs.clearRunMcpToken(db, runId).catch((err: unknown) => {
+      logger.warn({ err, runId }, 'failed to clear run mcp token');
+    });
 
     // 把本次 run 的 assistant 文本与工具调用写入会话，刷新后历史才完整。
     await persistRunMessages(db, {
@@ -444,6 +495,28 @@ worker.on('failed', (job, err) => {
   logger.error({ jobId: job?.id, err }, 'job failed');
 });
 
+// 评估本身串行：并发固定 1。
+const evalWorker = new Worker(
+  EVAL_RUNS_QUEUE,
+  async (job) => {
+    const parsed = evalRunJobSchema.safeParse(job.data);
+    if (!parsed.success) {
+      throw new Error(`invalid eval job payload: ${parsed.error.message}`);
+    }
+    await executeEvalRun({
+      db,
+      logger,
+      redisUrl: config.REDIS_URL,
+      evalRunId: parsed.data.evalRunId,
+    });
+  },
+  { connection: { url: config.REDIS_URL }, concurrency: 1 },
+);
+
+evalWorker.on('failed', (job, err) => {
+  logger.error({ jobId: job?.id, err }, 'eval job failed');
+});
+
 const maintenanceWorker = await startMaintenanceWorker({
   db,
   logger,
@@ -481,12 +554,13 @@ const shutdown = async (): Promise<void> => {
   shuttingDown = true;
   logger.info('shutting down');
 
-  const closing = worker.close();
+  const closing = Promise.all([worker.close(), evalWorker.close()]);
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
   stopReconciler();
   await provider.destroyAll();
   await Promise.race([closing.catch(() => undefined), sleep(POOL_WAIT_MS)]);
+  await closeEvalRunQueue();
 
   await closeRunnerClient();
   await Promise.race([pool.end(), sleep(POOL_WAIT_MS)]);

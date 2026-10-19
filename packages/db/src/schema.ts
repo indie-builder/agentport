@@ -203,6 +203,9 @@ export const agentRuns = pgTable(
     latencyMs: integer('latency_ms'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    /** 本次 run 的短期 MCP token（sha256，不存明文）；run 结束即清空。 */
+    mcpTokenHash: text('mcp_token_hash'),
+    mcpTokenExpiresAt: timestamp('mcp_token_expires_at', { withTimezone: true }),
     /** 已废弃：审批改存 approval_requests，此列不再写入，仅为兼容旧数据保留。 */
     approvals: jsonb('approvals').$type<string[]>().notNull().default([]),
   },
@@ -266,6 +269,7 @@ export const evalRuns = pgTable(
       .default('running'),
     total: integer('total').notNull().default(0),
     passed: integer('passed').notNull().default(0),
+    error: text('error'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
   },

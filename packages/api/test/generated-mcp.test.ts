@@ -1,4 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
+import { hashMcpToken } from '@agentport/core';
 import type { Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { FastifyInstance } from 'fastify';
@@ -197,6 +199,77 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
 
     const allowed = await call();
     expect(allowed.isError).toBeFalsy();
+  });
+
+  it('accepts a per-run token until it expires or the run ends', async () => {
+    const agentSlug = unique('run-token-agent');
+    createdAgents.push(agentSlug);
+    const agentRes = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: { cookie },
+      payload: { slug: agentSlug, name: agentSlug, serverIds: [server.id] },
+    });
+    expect(agentRes.statusCode).toBe(201);
+    const agentId = agentRes.json<{ id: string }>().id;
+
+    const runId = unique('run-token');
+    runIds.push(runId);
+    await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
+      `conv_test_${runId}`,
+      agentId,
+    ]);
+    const runToken = randomBytes(32).toString('base64url');
+    const tokenHash = hashMcpToken(runToken);
+    await app.pool.query(
+      `insert into agent_runs (id, conversation_id, agent_id, mcp_token_hash, mcp_token_expires_at)
+       values ($1, $2, $3, $4, now() + interval '5 minutes')`,
+      [runId, `conv_test_${runId}`, agentId, tokenHash],
+    );
+
+    const call = async (bearer: string): Promise<Response> =>
+      fetch(`${baseUrl}/mcp/${server.id}`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${bearer}`,
+          'x-agentport-run-id': runId,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+      });
+
+    // 有效期内可用；长期 token 若随请求带来也不能替代已过期的 run token 以外的路径。
+    expect((await call(runToken)).status).toBe(200);
+
+    // 过期即拒绝。
+    await app.pool.query(
+      "update agent_runs set mcp_token_expires_at = now() - interval '1 second' where id = $1",
+      [runId],
+    );
+    expect((await call(runToken)).status).toBe(401);
+
+    // run 结束后 worker 清空 hash，token 立即失效。
+    await app.pool.query(
+      'update agent_runs set mcp_token_hash = null, mcp_token_expires_at = null where id = $1',
+      [runId],
+    );
+    expect((await call(runToken)).status).toBe(401);
+
+    // 长期 token 仍对没有 run token 的外部客户端可用。
+    expect(
+      (
+        await fetch(`${baseUrl}/mcp/${server.id}`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+          },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+        })
+      ).status,
+    ).toBe(200);
   });
 
   it('does not accept a run header whose agent is not bound to the server', async () => {

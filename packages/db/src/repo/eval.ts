@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, lt, type SQL } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { evalCases, evalResults, evalRuns } from '../schema.js';
 
@@ -74,15 +74,38 @@ export async function createEvalRun(
   return row;
 }
 
+export async function getEvalRun(db: Database, id: string): Promise<EvalRun | null> {
+  const [row] = await db.select().from(evalRuns).where(eq(evalRuns.id, id)).limit(1);
+  return row ?? null;
+}
+
 export async function finishEvalRun(
   db: Database,
   id: string,
-  result: { status: Exclude<EvalStatus, 'running'>; passed: number },
+  result: { status: Exclude<EvalStatus, 'running'>; passed: number; error?: string | null },
 ): Promise<void> {
   await db
     .update(evalRuns)
     .set({ ...result, finishedAt: new Date() })
     .where(eq(evalRuns.id, id));
+}
+
+/** worker 重启后把超时仍停在 running 的跑批收敛为 failed，避免永久卡住。 */
+export async function failStaleEvalRuns(
+  db: Database,
+  error: string,
+  olderThan: Date,
+): Promise<number> {
+  const rows = await db
+    .update(evalRuns)
+    .set({ status: 'failed', error, finishedAt: new Date() })
+    .where(and(eq(evalRuns.status, 'running'), lt(evalRuns.createdAt, olderThan)))
+    .returning({ id: evalRuns.id });
+  return rows.length;
+}
+
+export async function updateProgress(db: Database, id: string, passed: number): Promise<void> {
+  await db.update(evalRuns).set({ passed }).where(eq(evalRuns.id, id));
 }
 
 export async function listRuns(db: Database, agentId?: string): Promise<EvalRun[]> {

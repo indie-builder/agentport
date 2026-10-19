@@ -1,4 +1,4 @@
-import { type createDb, newId, schema } from '@agentport/db';
+import { type createDb, newId, repo, schema } from '@agentport/db';
 import { and, eq, lt } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { publishRun } from './runner-client.js';
@@ -7,6 +7,26 @@ const RECONCILE_EVERY_MS = 5 * 60 * 1000;
 const GRACE_MS = 5 * 60 * 1000;
 
 export const LOST_RUN_ERROR = 'worker lost track of this run';
+
+const EVAL_LOST_ERROR = 'eval run lost';
+const EVAL_STALE_MS = 60 * 60 * 1000;
+
+/**
+ * 评估跑批已移到 worker，但 API/worker 重启仍可能让 job 丢失：
+ * 把超过 1 小时还停在 running 的 eval run 置为 failed。
+ */
+export async function reconcileOrphanedEvalRuns(
+  db: ReturnType<typeof createDb>['db'],
+  logger: Logger,
+): Promise<number> {
+  const count = await repo.evalRepo.failStaleEvalRuns(
+    db,
+    EVAL_LOST_ERROR,
+    new Date(Date.now() - EVAL_STALE_MS),
+  );
+  if (count > 0) logger.warn({ count }, 'reconciled orphaned running eval runs');
+  return count;
+}
 
 /**
  * worker 崩溃/重启后，DB 里会残留 running 的 run：把已超过超时上限的收敛成 failed，
@@ -57,7 +77,10 @@ export function startReconciler(input: {
   const tick = (): void => {
     if (busy) return;
     busy = true;
-    void reconcileOrphanedRuns(input.db, input.logger, input.agentTimeoutMs)
+    void Promise.all([
+      reconcileOrphanedRuns(input.db, input.logger, input.agentTimeoutMs),
+      reconcileOrphanedEvalRuns(input.db, input.logger),
+    ])
       .catch((err: unknown) => {
         input.logger.error({ err }, 'reconcile failed');
       })

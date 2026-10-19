@@ -3,15 +3,12 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { getQueue } from '../../queue/producer.js';
+import { getEvalQueue } from '../../queue/producer.js';
 
 const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
 
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
-
-const POLL_MS = 500;
-const TERMINAL = ['succeeded', 'failed', 'cancelled', 'timeout'];
 
 const createCaseSchema = z.object({
   agentId: z.string().min(1),
@@ -28,142 +25,6 @@ const patchCaseSchema = z.object({
 
 function invalid(reply: FastifyReply, message: string) {
   return reply.status(400).send({ code: 'INVALID_INPUT', message });
-}
-
-/** 最小判定：expectation 非空则大小写不敏感包含；为空则只要求有文本。 */
-export function judge(output: string, expectation: string): boolean {
-  if (expectation.trim().length === 0) return output.trim().length > 0;
-  return output.toLowerCase().includes(expectation.trim().toLowerCase());
-}
-
-function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages>>): string {
-  return messages
-    .filter((message) => message.role === 'assistant')
-    .map((message) => {
-      const content = message.content;
-      if (typeof content === 'object' && content !== null && 'text' in content) {
-        return typeof content.text === 'string' ? content.text : '';
-      }
-      return '';
-    })
-    .filter((part) => part.length > 0)
-    .join('\n\n');
-}
-
-/** 发起一次普通 agent run 并等到终态，返回最终 assistant 文本；失败抛错。 */
-async function runOneCase(
-  app: FastifyInstance,
-  input: { agentId: string; prompt: string; timeoutMs: number; title: string },
-): Promise<{ runId: string; output: string }> {
-  const conversation = await chatRepo.createConversation(app.db, {
-    id: newId('conversation'),
-    agentId: input.agentId,
-    title: input.title,
-  });
-  const run = await chatRepo.createRun(app.db, {
-    id: newId('run'),
-    conversationId: conversation.id,
-    agentId: input.agentId,
-  });
-  await chatRepo.appendMessage(app.db, {
-    id: newId('message'),
-    conversationId: conversation.id,
-    role: 'user',
-    content: { type: 'text', text: input.prompt },
-    runId: run.id,
-  });
-  await getQueue().add(
-    'run',
-    {
-      runId: run.id,
-      agentId: input.agentId,
-      conversationId: conversation.id,
-      prompt: input.prompt,
-    },
-    { jobId: run.id, attempts: 2, backoff: { type: 'exponential', delay: 5_000 } },
-  );
-
-  const deadline = Date.now() + Math.min(input.timeoutMs, 30 * 60_000);
-  for (;;) {
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-    const current = await chatRepo.getRun(app.db, run.id);
-    if (!current) throw new Error('run disappeared');
-    if (TERMINAL.includes(current.status)) {
-      if (current.status !== 'succeeded') {
-        throw new Error(
-          `run ended with ${current.status}${current.error ? `: ${current.error}` : ''}`,
-        );
-      }
-      break;
-    }
-    if (Date.now() >= deadline) throw new Error('run timed out');
-  }
-
-  const messages = await chatRepo.listMessages(app.db, conversation.id);
-  return { runId: run.id, output: assistantText(messages) };
-}
-
-/** 后台串行跑批：单个 case 出错只记录该条失败，不中断后续 case。 */
-async function executeEvalRun(
-  app: FastifyInstance,
-  input: {
-    evalRunId: string;
-    agentId: string;
-    timeoutMs: number;
-    cases: Awaited<ReturnType<typeof evalRepo.listCases>>;
-  },
-): Promise<void> {
-  let passed = 0;
-  let crashed: string | null = null;
-
-  try {
-    for (const testCase of input.cases) {
-      let output = '';
-      let runId = '';
-      let ok = false;
-      try {
-        const result = await runOneCase(app, {
-          agentId: input.agentId,
-          prompt: testCase.prompt,
-          timeoutMs: input.timeoutMs,
-          title: `eval: ${testCase.name}`.slice(0, 80),
-        });
-        runId = result.runId;
-        output = result.output;
-        ok = judge(output, testCase.expectation);
-      } catch (err) {
-        output = err instanceof Error ? err.message : String(err);
-      }
-      if (ok) passed += 1;
-      try {
-        await evalRepo.addResult(app.db, {
-          id: newId('evalResult'),
-          evalRunId: input.evalRunId,
-          caseId: testCase.id,
-          runId,
-          passed: ok,
-          output,
-        });
-      } catch (err) {
-        app.log.error(
-          { err, evalRunId: input.evalRunId, caseId: testCase.id },
-          'eval result write failed',
-        );
-      }
-    }
-  } catch (err) {
-    crashed = err instanceof Error ? err.message : String(err);
-    app.log.error({ err, evalRunId: input.evalRunId }, 'eval run crashed');
-  }
-
-  try {
-    await evalRepo.finishEvalRun(app.db, input.evalRunId, {
-      status: crashed === null && passed === input.cases.length ? 'succeeded' : 'failed',
-      passed,
-    });
-  } catch (err) {
-    app.log.error({ err, evalRunId: input.evalRunId }, 'eval run finalize failed');
-  }
 }
 
 export function registerEvalRoutes(app: FastifyInstance): void {
@@ -252,13 +113,8 @@ export function registerEvalRoutes(app: FastifyInstance): void {
         total: cases.length,
       });
 
-      // 不 await：请求立即返回 202，跑批在进程内串行继续。
-      void executeEvalRun(app, {
-        evalRunId: evalRun.id,
-        agentId,
-        timeoutMs: agent.timeoutMs,
-        cases,
-      });
+      // 执行搬到 worker：API 重启不再让跑批停在 running。
+      await getEvalQueue().add('eval-run', { evalRunId: evalRun.id }, { jobId: evalRun.id });
 
       await writeAudit(app.db, request.log, {
         actor: 'admin',

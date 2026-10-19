@@ -178,7 +178,7 @@ GET    /api/conversations/:id    -> {conversation, messages}
 POST   /api/chat/:runId/cancel   -> 202
 ```
 - `POST /api/chat`：创建/复用 conversation，写 user message，创建 `agentRuns` 行（status `queued`），投递 `agent-runs` 队列（BullMQ，`Queue` + `connection: { url: REDIS_URL }`），返回。
-- `GET .../events`：订阅 Redis pub/sub 频道 `run:<runId>`，把 JSON 事件以 `data: <json>\n\n` 写出；收到 `run_finished` 后结束。实现方式：用一个共享的 `ioredis` subscriber（`producer.ts` 导出 `subscribeRun(runId, cb)` / `publishRun(runId, event)`；worker 用同一 Redis 但通过 **publish** 发送，API 用 subscribe）。
+- `GET .../events`：订阅 Redis pub/sub 频道 `run:<runId>`，把 JSON 事件以 `data: <json>\n\n` 写出；收到 `run_finished` 后结束。实现方式：每个订阅用独立 `ioredis` 连接（`producer.ts` 导出 `subscribeRun(runId, cb)` / `publishRun(runId, event)`；worker 用同一 Redis 但通过 **publish** 发送，API 用 subscribe）；`close()` 时 `quit()` 该连接，因此多标签页互不影响。
 - `POST .../cancel`：往频道发 `{type:'cancel'}`，并把 run 标记为 `cancelled`。
 - SSE 需 `reply.hijack()` 自己写 header，或使用 `reply.raw`；注意不能被 Fastify 的序列化拦截。
 
