@@ -1,0 +1,714 @@
+# Agentport · 智能体平台 · 项目简报
+
+> 状态：需求与选型阶段（尚未开始编码）
+> 最后更新：2026-10-19
+> 项目名：**Agentport**（展示名 AgentPort，中文「智能体港」）
+> 包前缀：`@agentport/*`
+> 本文是该项目的唯一需求基线。项目改名后，本文继续有效；改名只影响仓库名与包名，不影响任何结论。
+
+---
+
+## 1. 原始诉求（逐条记录）
+
+以下是用户在不同轮次中提出的原始要求，按提出顺序记录，不做删减。
+
+### 1.1 项目定位
+
+- 项目最初叫 `mcp-learn`，目的是学习 MCP 的完整链路。
+- **后续修正**：不再定位为学习项目，而是**生产可用的智能体平台**。项目名待改。
+
+### 1.2 MCP 相关
+
+- 需要一个可以**把 HTTP 接口转成 MCP Server** 的能力。
+- 也需要支持**来自配置的 MCP Server**（即用户填写已有的 stdio 命令或远程 URL）。
+- 配置好之后，智能体页面可以使用这些 MCP Server。
+- 需要**自建 MCP Client**，并把它引进智能体里。
+- 智能体绑定 MCP Server 之后，可以直接调用其工具。
+- MCP 相关配置最终**都以 `.mcp.json` 的形式落地**，适配 Claude Code 的规范。
+
+### 1.3 三端划分
+
+1. **前端**：Shadcn + Tailwind CSS，全部使用最新版本。
+2. **后端**：Fastify + Zod。
+3. **智能体**：Claude Agent SDK（Anthropic 官方）。
+4. **数据层**：需要 ORM，要求轻量、当前热门。
+5. **完整度**：技术栈要补齐，包括日志等，不能是临时项目。
+
+### 1.4 页面
+
+- 至少有一个**页面用来配置 MCP Server**。
+- 用户不确定「该配 MCP Server 还是还要配 MCP Client」，需要项目给出明确答案。
+
+### 1.5 智能体定义方式
+
+- 使用 Claude Code 那种**文件定义**的方式：放在项目目录下的 `.claude` 相关配置中。
+- 智能体定义需要支持**多个智能体**。
+- `.mcp.json` 是智能体与 MCP Server 绑定的落盘形式。
+
+### 1.6 沙盒
+
+- 智能体运行需要 **Sandbox**。
+- 每个 session 过来时，智能体在一个沙盒里跑。
+- 需要确认 **microsandbox** 是否适合集成。
+- 疑问：智能体定义和 Claude Agent SDK 是否需要放进沙盒里跑？是否需要打镜像？
+- 疑问：多个智能体共用同一个镜像时，智能体定义文件如何**动态传导**进沙盒？
+
+### 1.7 基础设施
+
+- 平台会涉及 **Redis**、**BullMQ**。
+- 本地要能跑起来，因此涉及 **Docker / Docker Compose**。
+
+### 1.8 版本约束
+
+- **严禁使用过时的老版本**。必须使用当前的新稳定版本（stable，不含 beta/rc）。
+
+### 1.9 本轮的元需求
+
+- 把以上全部原始诉求整理成文档放入项目，以免项目改名后丢失上下文。
+
+---
+
+## 2. MCP 概念澄清（回答 §1.4 的疑问）
+
+MCP 生态只有三个角色，**用户只需要配置其中两个**：
+
+| 角色 | 是什么 | 是否需要用户配置 |
+|---|---|---|
+| **MCP Server** | 提供 tools / resources / prompts 的进程或端点 | ✅ 需要 |
+| **MCP Client** | 与某一个 server 建立的一条连接 | ❌ 不需要，是运行时对象 |
+| **Host**（智能体） | 决定模型能看到哪些 server 的工具，并负责调用 | ✅ 需要（绑定关系） |
+
+因此：
+
+- 前端**只需**有 MCP Server 配置页 + 智能体绑定页。
+- 但后端**必须**有一个自建 MCP Client，用途是：
+  1. 「测试连接」：连接用户配置的 server，执行 `listTools()`，可选做一次 `callTool()`。
+  2. 校验：把结果回显到页面，让用户立即知道配置是否正确。
+- 没有这一步，用户无从判断自己填的命令/URL 是否正确，这在生产环境是不可接受的。
+
+**结论：配置页面配 Server，不配 Client；Client 是后端的一个能力。**
+
+---
+
+## 3. 技术栈
+
+所有版本均在 2026-10-19 通过 npm registry / docker manifest 实际核对，只取 stable 标签。
+
+### 3.1 语言与工程
+
+| 用途 | 选型 | 版本 | 备注 |
+|---|---|---|---|
+| 语言 | TypeScript | 7.0.2 | 当前 stable |
+| 运行时 | Node.js | 24 LTS | 本机 v24.22.0 |
+| 包管理 | pnpm workspace | 12.14.0 | |
+| Lint + 格式化 | Biome | 2.5.15 | 替代 ESLint + Prettier |
+| 开发运行 | tsx | 4.23.15 | watch 模式 |
+| 生产构建 | tsc | 7.0.2 | Node 直接运行 `dist`，不引入打包器 |
+
+### 3.2 前端
+
+| 用途 | 选型 | 版本 |
+|---|---|---|
+| 构建 | Vite | 8.3.4 |
+| 框架 | React | 19.3.1 |
+| 样式 | Tailwind CSS | 4.3.3（`@tailwindcss/vite`，无需 config 文件） |
+| 组件 | shadcn/ui CLI | 4.22.1（代码复制进 `components/ui`） |
+| 路由 | TanStack Router | 1.170.45 |
+| 服务端状态 | TanStack Query | 5.104.4 |
+| 表单 | react-hook-form + @hookform/resolvers | 7.90.0 / 6.0.0 |
+| 校验 | zod（与后端共享） | 4.6.7 |
+| 提示 | sonner | 2.0.8 |
+| 图标 | lucide-react | 1.59.0 |
+| 流式 | 原生 `EventSource` | 无需额外库 |
+
+### 3.3 后端
+
+| 用途 | 选型 | 版本 |
+|---|---|---|
+| HTTP 框架 | Fastify | 5.12.7（6.x 仍为 alpha，不用） |
+| Schema 校验 + 类型推导 | zod 4 + fastify-type-provider-zod | 4.6.7 / 7.0.0 |
+| ORM | Drizzle ORM | 0.45.4 |
+| 迁移工具 | drizzle-kit | 0.31.11 |
+| 数据库 | PostgreSQL | 镜像 `postgres:18-alpine`（已验证存在） |
+| PG 驱动 | pg | 8.23.1 |
+| 连接池 | pg 内置 Pool | — |
+| 日志 | pino | 10.4.0 |
+| 日志美化（dev） | pino-pretty | 13.2.0 |
+| 日志滚动（文件） | pino-roll | 4.0.0 |
+| 安全头 | @fastify/helmet | 13.2.0 |
+| CORS | @fastify/cors | 11.3.1 |
+| 限流 | @fastify/rate-limit | 11.2.1 |
+| 分布式限流存储 | rate-limit-redis | 6.0.1 |
+| 压缩 | @fastify/compress | 9.2.2 |
+| 静态托管 | @fastify/static | 10.1.6 |
+| 鉴权 | @fastify/jwt + @fastify/cookie | 10.2.5 / 11.1.3 |
+| API 文档 | @fastify/swagger + Scalar | 9.9.2 / 1.75.0 |
+| 过载保护 | @fastify/under-pressure | 9.2.1 |
+| Redis 客户端 | ioredis | 6.0.0 |
+| 队列 | BullMQ | 6.3.17 |
+| 队列面板 | @bull-board/fastify | 9.10.4 |
+| 队列遥测 | bullmq-otel | 2.0.1 |
+| 并发控制 | p-limit | 7.3.3 |
+| ID | ulid | 3.0.2 |
+
+**为什么从 SQLite 改为 PostgreSQL**：上一轮建议 SQLite 是按「单机学习项目」判断的。引入 BullMQ worker 后，API 进程与 worker 进程会并发写同一份数据，SQLite 的单写者限制会成为真实瓶颈，而且队列本身又要求 Redis，基础设施复杂度已经上去了。PostgreSQL 18 与 Redis 8 都通过 compose 起，运维成本相当。Drizzle 的 schema 写法在两者间基本一致，但迁移文件不通用，越早切换成本越低。
+
+**Drizzle 版本说明**：`0.45.4` 是 npm `latest` 标签对应的稳定版；`1.0.0` 目前只有 `rc` / `beta`，按「严禁过时、但只用 stable」的约束，取 0.45.4。
+
+### 3.4 智能体与 MCP
+
+| 用途 | 选型 | 版本 |
+|---|---|---|
+| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.303 |
+| MCP Server 实现 | @modelcontextprotocol/server | 2.3.1 |
+| MCP Node 适配 | @modelcontextprotocol/node | 2.1.1 |
+| MCP Client | @modelcontextprotocol/client | 2.3.1 |
+
+> **包线警告**：MCP TS SDK 已经分化为 v2 包线（`@modelcontextprotocol/server` / `client`，实现 2026-07-28 规范）与旧的 v1 单包 `@modelcontextprotocol/sdk`（1.32.1）。Agent SDK 内部 peer-depend 的是 v1。**两套不要混用**，项目里统一使用 v2；Agent SDK 与我们的 server 之间通过 stdio 进程边界通信，不存在类型冲突。
+
+### 3.5 沙盒
+
+| 用途 | 选型 | 版本 | 说明 |
+|---|---|---|---|
+| 起步方案 | Docker Engine + Docker Compose | 29.8.0 / Compose 5.5.1 | 本机已安装 |
+| 容器控制 | dockerode | 5.0.1 | 需要 API 侧动态创建容器时使用 |
+| 强隔离方案 | microsandbox | 0.7.8 | Apache-2.0，libkrun microVM，提供 TS SDK |
+| Agent SDK 内置沙箱 | `options.sandbox` | SDK 自带 | **不能**替代容器（见 §6.4） |
+
+### 3.6 测试与交付
+
+| 用途 | 选型 | 版本 |
+|---|---|---|
+| 单元/集成测试 | Vitest | 5.0.5 |
+| 覆盖率 | @vitest/coverage-v8 | 5.0.5 |
+| E2E | @playwright/test | 1.64.1 |
+| 集成测试容器 | testcontainers | 12.2.1（可选） |
+| 容器化 | Dockerfile（多阶段）+ docker-compose.yml | — |
+| CI | GitHub Actions | — |
+
+---
+
+## 4. 架构
+
+### 4.1 仓库布局
+
+**包管理：pnpm workspace（已确认）。** 分层原则：**代码按依赖方向分层，进程按部署单元拆分**。层只能向下依赖，不能反向；进程之间只通过 PostgreSQL / Redis / HTTP 通信，不共享内存对象。
+
+```
+<repo>/
+├─ package.json  pnpm-workspace.yaml  biome.json  tsconfig.base.json
+├─ .env.example  Dockerfile  docker-compose.yml
+├─ docs/PROJECT-BRIEF.md           # 本文件
+├─ data/                            # gitignore
+└─ packages/
+   ├─ shared/     @agentport/shared      # L0 纯类型与 zod schema，无运行时依赖
+   ├─ core/       @agentport/core        # L1 领域逻辑：渲染工作区、MCP 定义、任务模型
+   ├─ db/         @agentport/db          # L2 Drizzle schema + 迁移 + repo
+   ├─ web/        @agentport/web         # L3 React SPA
+   ├─ api/        @agentport/api         # L3 Fastify 主进程
+   ├─ worker/     @agentport/worker      # L3 BullMQ 消费者 + 沙盒生命周期
+   └─ sandbox/    @agentport/sandbox     # L3 沙盒镜像构建上下文 + 容器内 runner
+```
+
+**依赖方向（强制）**：
+
+```
+shared  ◀── core ◀── db ◀── api
+                     ◀── worker
+shared  ◀── web
+```
+
+- `shared` 不能 import 任何东西（zod 除外）。
+- `core` 只能 import `shared`。
+- `db` 可以 import `core`、`shared`。
+- `api` / `worker` / `web` 可以 import 下层，**彼此不 import**。
+- `sandbox` 是独立产物，不参与 workspace 依赖（镜像内自包含）。
+
+**为什么单独抽 `core` 和 `db`**：API 和 Worker 都要读 agent 配置、渲染工作区、写 run 状态。如果不抽出来，两边会各写一份，最后行为不一致。这两层是「多进程共享逻辑」的唯一入口。
+
+**进程与层的对应关系**：
+
+| 部署单元 | 对应包 | 职责 | 是否常驻 |
+|---|---|---|---|
+| `api` | `api` + `core` + `db` | HTTP、SSE、MCP 端点、配置 CRUD、入队 | 是 |
+| `worker` | `worker` + `core` + `db` | 消费队列、创建/销毁沙盒、转发事件 | 是 |
+| `web` | `web` | SPA，构建产物由 api 托管 | 否（静态） |
+| `sandbox runner` | `sandbox` | 容器内执行 Agent SDK，一次性 | 否（每次 run） |
+
+**MQ 的层定位**：BullMQ 是 `worker` 与 `api` 之间的**传输层**，不是业务层。业务层只定义「任务是什么」（`core` 里的 `AgentRunJob` 类型），`api` 负责生产、`worker` 负责消费。两边共享的只有 `shared` 里的 job schema，避免 producer/consumer 字段漂移。
+
+**不引入的东西（明确记录）**：
+- 不引入 monorepo 构建编排工具（Turborepo / Nx）。包只有 7 个，依赖方向是线性的，`pnpm -r` 足够。等构建时间成为问题时再评估。
+- 不做独立的消息总线抽象层。BullMQ 直接用在 worker 里，换队列实现是极小概率事件。
+
+
+### 4.2 运行时拓扑
+
+```
+浏览器 ──HTTP/SSE──▶ api (Fastify)
+                       │
+                       ├─▶ PostgreSQL      配置、会话、消息、审计
+                       ├─▶ Redis           BullMQ 队列、限流、缓存
+                       └─▶ /mcp/:serverId  动态 MCP 端点（HTTP→MCP 的产物）
+
+worker ──消费 agent-runs──▶ Sandbox (容器/microVM)
+   │                              │
+   └─▶ 渲染工作区到宿主机卷 ──────┘ 挂载进沙盒
+                                  └─▶ 容器内 runner → Agent SDK → claude CLI
+                                        └─▶ MCP 工具调用 ──▶ api /mcp/:serverId
+```
+
+### 4.3 「HTTP 接口转 MCP Server」的实现方式
+
+**不做代码生成，做运行时挂载。**
+
+1. 用户在页面定义工具：`name`、`description`、HTTP method、URL 模板、参数 schema、鉴权方式。
+2. 存进 `api_tools` 表。
+3. API 侧用 `createMcpHandler(factory)` 暴露 `/mcp/:serverId`，factory 每次按 DB 定义构造 `McpServer` 实例并注册工具。
+4. 工具执行时，`mcp/proxy.ts` 发出真实 HTTP 请求，把响应转成 `CallToolResult`。
+5. 在 `.mcp.json` 里，这个 server 就是一个普通条目：
+
+```json
+{ "type": "http", "url": "http://api:3000/mcp/<serverId>" }
+```
+
+优点：
+
+- 改工具定义立即生效，无需重新生成、无需重启子进程。
+- 「测试连接」和智能体调用走**完全相同**的端点，因此测通即调通。
+- 生成的是标准 MCP 端点，其他 host（Claude Code、其他客户端）也能直接连。
+
+### 4.4 三类 MCP Server 在 `.mcp.json` 中的统一表达
+
+```jsonc
+{
+  "mcpServers": {
+    "stdio-demo": { "command": "npx", "args": ["-y", "some-server"], "env": { "TOKEN": "…" } },
+    "remote-api": { "type": "http", "url": "https://api.example.com/mcp", "headers": { "Authorization": "Bearer …" } },
+    "crm-api":    { "type": "http", "url": "http://api:3000/mcp/<serverId>" }
+  }
+}
+```
+
+> 沙盒内访问宿主服务时，`api` 是 compose 服务名；microsandbox 场景需改用宿主可达地址（见 §6.5）。
+
+---
+
+## 5. 数据模型
+
+```sql
+servers(
+  id ulid pk,
+  name text unique,
+  kind text check (kind in ('stdio','http')),
+  config jsonb,              -- command/args/url/headers 等非敏感字段
+  secrets_encrypted bytea,   -- AES-256-GCM：env、Authorization 等
+  created_at timestamptz,
+  updated_at timestamptz
+)
+
+api_tools(
+  id ulid pk,
+  server_id ulid fk,
+  name text,
+  description text,
+  method text,
+  url_template text,
+  input_schema jsonb,        -- JSON Schema（由 zod 生成）
+  auth_ref text,             -- 指向 servers.secrets_encrypted 中的键
+  unique (server_id, name)
+)
+
+agents(
+  id ulid pk,
+  slug text unique,          -- 目录名，用于 workspaces/<slug>/
+  name text,
+  model text,
+  system_prompt_md text,     -- 渲染为 CLAUDE.md
+  tools_allow jsonb,         -- 例如 ["mcp__crm-api__*"]
+  tools_deny jsonb,          -- 默认包含 Bash/Read/Write/Edit/WebFetch…
+  max_turns int,
+  max_budget_usd numeric,
+  timeout_ms int,
+  created_at timestamptz,
+  updated_at timestamptz
+)
+
+agent_servers(agent_id ulid, server_id ulid, primary key (agent_id, server_id))
+
+conversations(id ulid pk, agent_id ulid fk, title text, created_at timestamptz)
+
+messages(
+  id ulid pk,
+  conversation_id ulid fk,
+  role text,
+  content jsonb,             -- 原始 assistant/user 消息块
+  run_id ulid,               -- 关联同一次 agent run
+  created_at timestamptz
+)
+
+agent_runs(
+  id ulid pk,
+  conversation_id ulid,
+  agent_id ulid,
+  status text,               -- queued|running|succeeded|failed|cancelled|timeout
+  session_id text,           -- Agent SDK session id
+  sandbox_id text,
+  started_at timestamptz,
+  ended_at timestamptz,
+  error text,
+  cost_usd numeric,
+  turns int
+)
+
+audit_log(
+  id ulid pk,
+  actor text,
+  action text,               -- mcp.test | mcp.call | agent.run | config.update
+  target text,
+  input_digest text,         -- 只存摘要，不存原文
+  status text,
+  duration_ms int,
+  request_id text,
+  created_at timestamptz
+)
+```
+
+---
+
+## 6. 智能体、文件定义与沙盒
+
+### 6.1 文件定义方式
+
+每个智能体在宿主机有一个工作区：
+
+```
+workspaces/<agent-slug>/
+├─ .mcp.json                    # 绑定关系 + server 配置
+├─ CLAUDE.md                    # 由 agents.system_prompt_md 渲染
+└─ .claude/
+   ├─ agents/<agent-slug>.md    # YAML frontmatter: name/description/tools/model
+   └─ settings.json             # 可选：项目级权限
+```
+
+渲染流程：DB 是真相源 → 每次运行前由 `domain/workspace.ts` 重新渲染 → 文件是给 Agent SDK 看的快照。
+
+调用方式：
+
+```ts
+query({
+  prompt,
+  options: {
+    cwd: workspaceDir,
+    settingSources: ['project'],           // 必须含 project，.mcp.json 才会被加载
+    // strictMcpConfig 保持默认 false：设为 true 会忽略 .mcp.json
+    env: { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' },
+    abortController,
+    maxTurns,
+    maxBudgetUsd,
+    permissionMode: 'dontAsk',
+    disallowedTools: ['Bash','Read','Write','Edit','Glob','Grep','NotebookEdit','WebFetch','WebSearch','Agent','TaskStop'],
+    allowedTools: ['mcp__*'],
+    includePartialMessages: true,
+  },
+})
+```
+
+**权限要点**：
+- `allowedTools` 只是「自动批准」，不限制。
+- 真正的限制来自 `disallowedTools` 里的裸工具名，它会把这些工具从上下文里移除。
+- `permissionMode: 'dontAsk'` 下 `canUseTool` 不会被调用；要逐次拦截必须用 `PreToolUse` hook。
+
+### 6.2 是否把 Agent SDK 放进沙盒
+
+**是。整个 runner（含 Agent SDK 与内置 claude CLI）都在沙盒内运行。**
+
+原因：
+
+1. Agent SDK 的 `options.sandbox` **只隔离 shell 命令**，MCP server、文件工具、hook 都在沙箱外运行。对「用户可配置任意 stdio server」的平台来说，这个边界不够。
+2. 若只把 shell 放进沙盒而 SDK 在宿主，那么 MCP server 仍在宿主拥有完整权限，等于没有隔离。
+
+### 6.3 镜像策略：一个镜像，定义动态挂载
+
+**镜像只包含运行时，不包含任何智能体定义。**
+
+镜像内容（`packages/sandbox/Dockerfile`）：
+
+- Node 24 基础镜像（`node:24-alpine` 或 debian slim，取决于原生模块）
+- `runner` 构建产物（含 `@anthropic-ai/claude-agent-sdk` 及其平台原生 binary、MCP client）
+- 固定的非 root 用户（uid 1000）
+
+**不**包含：任何 `.mcp.json`、`CLAUDE.md`、`.claude/agents/*.md`、任何 API key。
+
+运行时传导方式：**宿主目录绑定挂载**（已确认，单机方案）。
+
+| 维度 | 决定 |
+|---|---|
+| 工作区来源 | 宿主 `workspaces/<slug>/` |
+| 挂载方式 | 只读挂载到容器 `/workspace` |
+| 多机部署 | **暂不支持，也不做抽象** |
+| 对象存储 | 不引入 |
+
+> **每次运行都重新渲染并挂载**，因此「改配置 → 下次对话生效」成立，不需要重建镜像。多个智能体共用同一个镜像，各自挂各自的目录。
+>
+> 单机意味着 workspace 目录与 worker 必须同机。这是当前明确的取舍：少一层存储抽象，代码更少。将来要多机时，把 `SandboxProvider.create()` 的 `workspaceDir` 参数换成「准备一个工作区」的异步函数即可，改动集中在一个方法内。
+
+### 6.4 沙盒选型评估
+
+| 方案 | 隔离级别 | 是否沙箱 MCP | 成熟度 | 结论 |
+|---|---|---|---|---|
+| Agent SDK `options.sandbox` | 共享内核（Seatbelt / bwrap） | ❌ | 稳定 | 可作为**纵深防御的一层**，不能作为主边界 |
+| Docker 容器 | 共享内核 + namespace | ✅（整个进程都在容器内） | 非常成熟 | **起步方案** |
+| microsandbox | 独立内核（libkrun microVM） | ✅ | 0.7.x，pre-1.0，Apache-2.0 | **推荐作为强隔离升级路径** |
+| gVisor / Firecracker | 独立内核 / syscall 拦截 | ✅ | 运维复杂 | 规模化后再考虑 |
+
+**microsandbox 是否适合集成：适合，但不要第一天就上。**
+
+已核实的事实：
+
+- npm 包 `microsandbox@0.7.8`，`engines.node >= 22`，Apache-2.0。
+- 提供 TypeScript SDK，按平台分发 optionalDependencies：darwin-arm64、linux-x64/arm64-gnu、win32-x64/arm64-msvc。
+- 兼容 OCI/Docker 镜像，本地模式无需 root、无需 daemon。
+- 支持 macOS / Linux / Windows。
+- 启动约 200–320ms（官方宣称，未实测）。
+
+风险：
+
+- 仍是 0.7.x，API 可能变动；云服务仍在私有 beta。
+- 依赖各平台原生二进制，CI 矩阵要覆盖。
+- 本机 macOS 是 arm64，容器镜像架构要匹配。
+
+**因此设计一个 `SandboxProvider` 接口**：
+
+```ts
+interface SandboxProvider {
+  create(opts: { image: string; workspaceDir: string; env: Record<string,string>; mounts?: Mount[] }): Promise<Sandbox>;
+  exec(sb: Sandbox, cmd: string, args: string[]): AsyncIterable<Event>;
+  destroy(sb: Sandbox): Promise<void>;
+}
+```
+
+先实现 `DockerSandboxProvider`，接口稳定后再加 `MicrosandboxProvider`。业务代码只依赖接口。
+
+### 6.5 沙盒内的网络与凭证
+
+- 沙盒访问 API：compose 内用 `http://api:3000`；microsandbox 用宿主可达地址（`host.docker.internal` 或宿主 LAN IP，取决于网络模式）。
+- **不要把 model API key 写进挂载文件**。用 `env` 注入 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY`；更高要求时用宿主侧代理注入，使沙盒内进程永远看不到明文密钥。
+- 出站默认拒绝，按需放行：模型 API 域名 + 用户配置的 MCP HTTP server 域名 + 平台自身域名。
+- 挂载一律只读；需要写的工作区单独给一个可写子目录。
+
+---
+
+## 7. Redis 与 BullMQ
+
+### 7.1 为什么需要
+
+- **运行隔离**：agent run 可能持续数分钟，不能占着 HTTP 请求。
+- **并发控制**：限制同时运行的沙盒数量（`SAMDBOX_MAX_CONCURRENT`）。
+- **重试与可观测**：失败重试、进度查询、取消。
+- **定时任务**：将来的定时触发、清理过期沙盒。
+
+### 7.2 队列设计
+
+| 队列 | 用途 | 并发 | 重试 |
+|---|---|---|---|
+| `agent-runs` | 一次对话运行 | 2–4（受内存约束） | 不自动重试（会产生重复计费）；仅对基础设施错误重试 1 次 |
+| `mcp-tests` | 页面上的「测试连接」 | 4 | 2 次，指数退避 |
+| `maintenance` | 清理过期沙盒、归档 transcript | 1 | 3 次 |
+
+要点：
+
+- Job id 使用 `runId`，天然幂等。
+- 每个 job 带 `agentId / conversationId / runId`，日志与审计统一按 `runId` 关联。
+- `agent-runs` 的 worker 与 API 分开部署（同一镜像、不同入口），可以独立扩缩容。
+- 取消用 `job.remove()` + 通过 Redis pub/sub 通知 worker 终止子进程（SDK 的 `abortController`）。
+
+### 7.3 关于 Redis 与 Valkey
+
+- BullMQ 6.x 要求 Redis ≥ 5；Redis 8 已开源（AGPLv3）。
+- 本环境 `docker manifest inspect` 对 `redis:8` 系列超时，未能确认标签；`postgres:18-alpine` 已验证存在。
+- **待办**：本机拉取一次 `redis:8-alpine`（或 `redis:8.x-alpine`）确认可用；若镜像源受限，可换 `valkey/valkey:9-alpine`（协议兼容，BullMQ 可用）。这一项在第一次 `docker compose up` 时确认并回填本文。
+
+---
+
+## 8. 安全基线
+
+| 风险 | 措施 |
+|---|---|
+| stdio server = 任意代码执行 | 命令白名单；或仅管理员可配置；沙盒内运行 |
+| HTTP server URL = SSRF | 仅允许 http/https；禁止重定向；默认拒绝私有网段与 link-local |
+| 密钥泄露 | AES-256-GCM 加密入库（主密钥 `APP_SECRET_KEY`）；接口返回脱敏为 `••••`；日志 `redact` |
+| 工具输出注入 | 不放任文本直接进 system prompt；限制 `MAX_MCP_OUTPUT_TOKENS`；出站 allowlist |
+| Agent 越权 | 禁内置工具；`maxTurns` / `maxBudgetUsd` / 自建超时；沙盒只读挂载 |
+| 沙盒逃逸 | Docker 起步；需要更强隔离时切换 microsandbox |
+| 依赖供应链 | pnpm lockfile + CI 内 `pnpm audit`；镜像固定 digest |
+
+---
+
+## 9. 日志与可观测性
+
+### 9.1 pino 配置要点
+
+```ts
+{
+  level: config.LOG_LEVEL,
+  redact: {
+    paths: [
+      'req.headers.authorization', 'req.headers.cookie',
+      '*.apiKey', '*.token', '*.secret',
+      '*.env.*', '*.headers.authorization',
+    ],
+    censor: '[REDACTED]',
+  },
+  serializers: { err: pino.stdSerializers.err },
+}
+```
+
+- 生产：纯 JSON 到 stdout（容器标准）。
+- 开发：`pino-pretty` transport。
+- 需要落文件时用 `pino-roll` 按大小/时间滚动。
+
+### 9.2 关联字段
+
+- 每个请求：`reqId`（Fastify 自动生成），日志中带 `reqId`。
+- 每次 agent 运行：`runId`、`sessionId`、`agentId`、`turn`、`toolName`、`durationMs`。
+- 追溯一轮对话：按 `runId` 过滤即可。
+
+### 9.3 审计
+
+`audit_log` 表独立于日志：日志会滚动删除，审计长期保留。写入时机：
+
+- MCP server 配置变更
+- MCP 连接测试
+- 每一次 MCP tool 调用（含 digest，不存原文）
+- 每次 agent run（状态、耗时、成本）
+- 登录与鉴权失败
+
+### 9.4 健康与保护
+
+- `GET /health/live`：进程存活。
+- `GET /health/ready`：DB 可读 + 迁移已应用 + Redis ping。
+- `@fastify/under-pressure`：事件循环/内存超阈值时返回 503。
+- BullMQ 面板：`@bull-board/fastify` 挂在管理员路由下。
+
+### 9.5 OpenTelemetry
+
+- 现在不接 OTEL collector。`bullmq-otel` 的版本已记录，将来需要跨服务链路时再启用。
+- 前提是 `CLAUDE_CODE_ENABLE_TELEMETRY=1` 与 OTEL 环境变量，属于后续阶段。
+
+---
+
+## 10. 部署与本地运行
+
+### 10.1 docker-compose 服务
+
+| 服务 | 镜像 | 端口 | 说明 |
+|---|---|---|---|
+| `api` | 本仓库 Dockerfile | 3000 | Fastify，含 `/mcp/:serverId` |
+| `worker` | 同一镜像，入口不同 | — | BullMQ 消费者 + 沙盒管理 |
+| `postgres` | `postgres:18-alpine` | 5432 | 持久卷 |
+| `redis` | `redis:8-alpine`（待确认标签） | 6379 | AOF 持久化 |
+| `web` | 开发时 Vite dev server | 5173 | 生产由 `api` 静态托管 |
+
+### 10.2 本地开发
+
+- `pnpm dev`：并发启动 api（tsx watch）、worker、web（Vite）。
+- 数据库与 Redis 用 `docker compose up -d postgres redis`。
+- 迁移：`pnpm db:generate && pnpm db:migrate`，启动时自动执行迁移。
+
+### 10.3 镜像构建注意
+
+- Agent SDK 通过 optionalDependencies 分发平台原生 CLI。Docker 构建时**不能** `--omit=optional`，否则运行时报 `Native CLI binary for <platform> not found`。
+- 多平台构建（arm64 / amd64）要在对应架构上分别安装依赖，或在 CI 用 buildx + 目标平台执行 `pnpm install`。
+- 沙盒镜像与主应用镜像**分别构建**：主应用镜像不含沙盒运行时，沙盒镜像不含业务代码。
+
+---
+
+## 11. 里程碑
+
+| 阶段 | 交付 | 验收 |
+|---|---|---|
+| M0 | 仓库骨架、compose、DB/Redis、日志、健康检查、CI | `docker compose up` 后 `/health/ready` 返回 ok |
+| M1 | MCP Server CRUD + 测试连接 | 页面上新增 stdio / http server，点测试能看到工具列表 |
+| M2 | HTTP→MCP 动态挂载 | 手动建一个工具，`/mcp/:serverId` 能被 MCP client 调用成功 |
+| M3 | 智能体文件定义 + 单机运行 | 生成 `.mcp.json` 与 `.claude/agents/*.md`，本地 `query()` 调通工具 |
+| M4 | 队列 + 沙盒 | agent run 进队列，在 Docker 沙盒内执行，SSE 回传工具调用事件 |
+| M5 | 生产化 | 密钥加密、审计、限流、优雅关闭、E2E 测试、镜像发布 |
+| M6 | 强隔离（可选） | `MicrosandboxProvider` 落地，按配置切换 |
+
+---
+
+## 12. 待确认项
+
+1. ~~**项目名称**~~ 已定：**Agentport**（包前缀 `@agentport/*`）。重名检查结果：npm `agentport` 已被占用（0.1.1，非知名项目），GitHub 有 `yakkomajuri/agentport`（30 stars）。因此：
+   - **npm 使用 scope**：`@agentport/api`、`@agentport/web`、`@agentport/shared`、`@agentport/worker`（scope 需在 npm 注册，若不用公开 npm 则直接使用）。
+   - **Docker 镜像名**：`agentport/api`、`agentport/worker`、`agentport/sandbox`。
+   - **展示名**：AgentPort。
+2. **登录方式**：当前默认单管理员 JWT（httpOnly cookie）。是否需要多用户 / RBAC？
+3. **HTTP→MCP 的输入方式**：当前先做手动建工具，表结构按可导入 OpenAPI 设计。是否要 OpenAPI 导入？
+4. **智能体是否允许非 MCP 工具**：当前默认禁止。
+5. **Redis 镜像标签**：`redis:8-alpine` 未经 manifest 验证，待首次 compose 确认。
+6. **沙盒默认后端**：Docker（起步）→ microsandbox（升级）。是否接受先 Docker？
+7. ~~**多机部署**~~ 已决定：**只做单机，暂不做多机设计**。见 §6.3。
+
+---
+
+## 13. 已核实事实与修正记录
+
+这一节记录探索过程中**被推翻或修正**的结论，避免以后重复犯错。
+
+| 主题 | 曾经的错误结论 | 正确结论 | 依据 |
+|---|---|---|---|
+| `strictMcpConfig` | 设为 `true` 以隔离外部 MCP | `true` 会**忽略**项目 `.mcp.json`；要使用文件配置必须保持 `false`，并让 `settingSources` 含 `project` | Claude Code MCP 文档 |
+| `allowedTools` | 可以限制工具 | 只是「自动批准」；限制需 `disallowedTools` 裸名或 `tools` | Agent SDK 权限文档 |
+| MCP TS SDK | 只有 `@modelcontextprotocol/sdk` | 已分 v1 / v2 两条包线，v2 为 `@modelcontextprotocol/server` + `client` | npm 实际包与类型定义 |
+| Agent SDK 与 CLI | 依赖本机 `claude` | SDK 自带平台原生 CLI 二进制（optionalDependencies） | npm 包元数据 |
+| Agent SDK 沙盒 | 可以隔离整个 agent | 只隔离 shell；MCP server、文件工具在沙箱外 | sandboxing 文档 |
+| `.mcp.json` 加载位置 | 相对 `process.cwd()` | 相对 `options.cwd`，且 `project` 源不回退父目录 | Agent SDK 配置文档 |
+| `ANTHROPIC_AUTH_TOKEN` | 不确定是否支持 | 支持，作为 `Authorization: Bearer` 发送 | 环境变量文档 |
+| 数据库 | SQLite 足够 | 引入 worker 后改 PostgreSQL | 并发写入模型 |
+| Drizzle 版本 | 直接用 latest 标签 | `latest = 0.45.4` 是 stable；1.0 仍是 rc | npm dist-tags |
+
+---
+
+## 14. 会话连续性
+
+项目改名为 **Agentport** 后如何继续：
+
+1. 本文档随仓库移动，位置保持在 `<repo>/docs/PROJECT-BRIEF.md`。
+2. 新会话开始时，先读本文档，再读 `docs/DECISIONS.md`（如果已创建）。
+3. 如果 Claude Code 的会话上下文丢失，本文档 + 仓库代码即为唯一真相源。
+4. 改名操作清单（按顺序执行）：
+
+```bash
+# 1. 仓库目录改名（关闭本会话后执行，或在新路径重新打开）
+mv ~/Documents/myself/mcp-learn ~/Documents/myself/agentport
+
+# 2. 进入新目录
+cd ~/Documents/myself/agentport
+
+# 3. 同步修改
+#    - package.json: name → @agentport/api | web | worker | shared | core | db
+#    - pnpm-workspace.yaml: 无需改（使用 packages/*）
+#    - docker-compose.yml: name: agentport；服务名 agentport-api / agentport-worker
+#    - Dockerfile: 镜像 tag agentport/api:<version>、agentport/sandbox:<version>
+#    - docs/PROJECT-BRIEF.md: 已更新
+```
+
+5. Claude Code 的长期记忆按**项目路径**存储，目录改名后旧路径下的记忆不会被自动读取。新路径下需要重新记录一次关键上下文（文档本身已覆盖主要内容，所以影响有限）。
+
+
+---
+
+## 附：参考链接
+
+- Agent SDK 总览：https://code.claude.com/docs/en/agent-sdk/overview
+- Agent SDK TypeScript 参考：https://code.claude.com/docs/en/agent-sdk/typescript
+- Agent SDK MCP：https://code.claude.com/docs/en/agent-sdk/mcp
+- Agent SDK 自托管：https://code.claude.com/docs/en/agent-sdk/hosting
+- Agent SDK 安全部署：https://code.claude.com/docs/en/agent-sdk/secure-deployment
+- Claude Code 沙箱：https://code.claude.com/docs/en/sandboxing
+- MCP TypeScript SDK v2：https://ts.sdk.modelcontextprotocol.io/v2/
+- microsandbox：https://microsandbox.dev
+- Drizzle ORM：https://orm.drizzle.team
+- BullMQ：https://docs.bullmq.io
