@@ -17,7 +17,7 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { meQuery, queryClient } from '../lib/queries.js';
@@ -113,6 +113,7 @@ function UserMenu({ username }: { username: string }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -127,11 +128,32 @@ function UserMenu({ username }: { username: string }) {
     };
     document.addEventListener('mousedown', onPointer);
     document.addEventListener('keydown', onKey);
+    // 打开后把焦点交给菜单项；返回时随卸载回到触发器。
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     return () => {
       document.removeEventListener('mousedown', onPointer);
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [],
+    );
+    if (items.length === 0) return;
+    event.preventDefault();
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? items.length - 1
+          : event.key === 'ArrowDown'
+            ? (index + 1) % items.length
+            : (index - 1 + items.length) % items.length;
+    items[next]?.focus();
+  };
 
   const logout = async (): Promise<void> => {
     setOpen(false);
@@ -157,8 +179,10 @@ function UserMenu({ username }: { username: string }) {
       </button>
       {open ? (
         <div
+          ref={menuRef}
           role="menu"
           aria-label="用户菜单"
+          onKeyDown={onMenuKeyDown}
           className="absolute right-0 top-10 z-40 w-48 rounded-lg border border-line bg-surface p-1 shadow-xl shadow-black/40"
         >
           <div className="border-b border-line px-2.5 py-2">
@@ -196,10 +220,36 @@ export function AppShell() {
     setMobileOpen(false);
   }, []);
 
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+  // 抽屉是模态的：焦点进入、Tab 循环、Esc 关闭并归还到触发按钮。
   useEffect(() => {
     if (!mobileOpen) return;
+    drawerRef.current?.querySelector<HTMLElement>('a, button')?.focus();
     const onKey = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') setMobileOpen(false);
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMobileOpen(false);
+        menuButtonRef.current?.focus();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = Array.from(
+        drawerRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((element) => element.offsetParent !== null);
+      const first = items[0];
+      const last = items.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -281,7 +331,7 @@ export function AppShell() {
           aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
           aria-pressed={collapsed}
           className={cn(
-            'hidden h-8 items-center gap-2 rounded-md text-xs text-subtle transition-colors hover:bg-surface-2/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:flex',
+            'hidden h-8 items-center gap-2 rounded-md text-xs text-subtle transition-colors hover:bg-surface-2/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 lg:flex',
             collapsed ? 'w-full justify-center' : 'w-full px-2',
           )}
         >
@@ -300,17 +350,23 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen bg-canvas text-fg">
-      <div className="sticky top-0 hidden h-screen shrink-0 md:block">{sidebar(false)}</div>
+      <a href="#main-content" className="skip-link">
+        跳到主要内容
+      </a>
+
+      <div className="sticky top-0 hidden h-screen shrink-0 lg:block">{sidebar(false)}</div>
 
       {mobileOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden">
           <button
             type="button"
             aria-label="关闭导航"
+            tabIndex={-1}
             className="absolute inset-0 bg-black/60"
             onClick={() => setMobileOpen(false)}
           />
           <div
+            ref={drawerRef}
             role="dialog"
             aria-modal="true"
             aria-label="导航"
@@ -319,8 +375,11 @@ export function AppShell() {
             <button
               type="button"
               aria-label="关闭导航"
-              onClick={() => setMobileOpen(false)}
-              className="absolute right-3 top-4 z-10 rounded-md p-1 text-subtle hover:bg-surface-2 hover:text-fg"
+              onClick={() => {
+                setMobileOpen(false);
+                menuButtonRef.current?.focus();
+              }}
+              className="absolute right-3 top-4 z-10 rounded-md p-1 text-subtle hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
             >
               <X className="size-4" />
             </button>
@@ -332,9 +391,11 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-[52px] shrink-0 items-center gap-3 border-b border-line bg-canvas/95 px-4 backdrop-blur sm:px-8">
           <button
+            ref={menuButtonRef}
             type="button"
             aria-label="打开导航"
-            className="-ml-1 rounded-md p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden"
+            aria-expanded={mobileOpen}
+            className="-ml-1 rounded-md p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 lg:hidden"
             onClick={() => setMobileOpen(true)}
           >
             <Menu className="size-5" />
@@ -345,7 +406,11 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="min-h-0 flex-1">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className={cn('min-h-0 flex-1', pathname.startsWith('/chat') && 'overflow-hidden')}
+        >
           <div
             className={cn(
               'mx-auto w-full max-w-[1200px] px-4 sm:px-8',

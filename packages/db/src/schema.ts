@@ -143,9 +143,18 @@ export const conversations = pgTable(
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
     title: text('title').notNull().default(''),
+    /** 分支来源会话；原会话删除后分支仍独立存在。 */
+    parentId: text('parent_id').references((): AnyPgColumn => conversations.id, {
+      onDelete: 'set null',
+    }),
+    /** 分支点消息：新会话复制到这条消息（含）为止。 */
+    branchOfMessageId: text('branch_of_message_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('conversations_agent_idx').on(t.agentId)],
+  (t) => [
+    index('conversations_agent_idx').on(t.agentId),
+    index('conversations_parent_idx').on(t.parentId),
+  ],
 );
 
 export const messages = pgTable(

@@ -10,6 +10,8 @@ interface DialogProps {
   description?: string;
   children: ReactNode;
   className?: string;
+  /** 关闭后把焦点还给触发元素；默认是打开时记录的元素。 */
+  returnFocusRef?: { current: HTMLElement | null };
 }
 
 const FOCUSABLE =
@@ -19,7 +21,15 @@ const FOCUSABLE =
  * 原生实现的模态对话框：焦点陷阱、Esc 关闭、关闭后归还焦点。
  * 不引入 radix，所以这些行为必须自己做，否则键盘用户会被困在页面其他区域。
  */
-export function Dialog({ open, onClose, title, description, children, className }: DialogProps) {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  className,
+  returnFocusRef,
+}: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -27,6 +37,8 @@ export function Dialog({ open, onClose, title, description, children, className 
   // onClose 每次渲染都可能是新函数；放进 ref，避免 effect 因它重跑而重置焦点。
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const returnRef = useRef(returnFocusRef);
+  returnRef.current = returnFocusRef;
 
   useEffect(() => {
     if (!open) return;
@@ -61,6 +73,12 @@ export function Dialog({ open, onClose, title, description, children, className 
       const firstEl = focusables[0];
       const lastEl = focusables[focusables.length - 1];
       if (!firstEl || !lastEl) return;
+      // 初始焦点落在面板本身时，Tab 进入第一个控件，Shift+Tab 从末尾绕回。
+      if (document.activeElement === panelRef.current) {
+        event.preventDefault();
+        (event.shiftKey ? lastEl : firstEl).focus();
+        return;
+      }
       if (event.shiftKey && document.activeElement === firstEl) {
         event.preventDefault();
         lastEl.focus();
@@ -74,7 +92,7 @@ export function Dialog({ open, onClose, title, description, children, className 
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = overflow;
-      previous?.focus();
+      (returnRef.current?.current ?? previous)?.focus();
     };
   }, [open]);
 

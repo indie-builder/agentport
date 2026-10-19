@@ -19,7 +19,7 @@ export function LoadingState({ rows = 3 }: { rows?: number }) {
 export function ErrorState({
   error,
   onRetry,
-  title = '加载失败',
+  title = '内容没有加载出来',
 }: {
   error: unknown;
   onRetry?: () => void;
@@ -35,11 +35,12 @@ export function ErrorState({
         <div className="font-medium text-fg">{title}</div>
         <div className="mt-0.5 break-words text-xs leading-relaxed text-muted">
           {errorMessage(error)}
+          {onRetry ? ' 可以点右侧「重试」，或在网络恢复后再试一次。' : null}
         </div>
       </div>
       {onRetry ? (
         <Button variant="outline" size="sm" onClick={onRetry}>
-          <RefreshCw className="size-3.5" /> 重试
+          <RefreshCw className="size-3.5" aria-hidden="true" /> 重试
         </Button>
       ) : null}
     </div>

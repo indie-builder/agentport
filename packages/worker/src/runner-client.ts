@@ -12,6 +12,8 @@ export interface SandboxRunInput {
   /** 原样发给 runner 的任务对象（prompt + 模型 + 限额）。 */
   task: {
     prompt: string;
+    /** 已格式化的历史对话；runner 拼在 prompt 之前。 */
+    history?: string;
     model: string;
     maxTurns: number;
     maxBudgetUsd: number;

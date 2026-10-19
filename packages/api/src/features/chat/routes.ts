@@ -2,10 +2,13 @@ import { newId, repo } from '@agentport/db';
 import type { ChatEvent } from '@agentport/shared';
 import { chatRequestSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { closeProducer, getQueue, publishRun, subscribeRun } from '../../queue/producer.js';
 
 const chatRepo = repo.chat;
+
+const branchBodySchema = z.object({ fromMessageId: z.string().min(1).optional() });
 
 type RunRow = NonNullable<Awaited<ReturnType<typeof chatRepo.getRun>>>;
 
@@ -74,6 +77,8 @@ export function registerChatRoutes(app: FastifyInstance): void {
       }
 
       const run = await chatRepo.createRun(app.db, { id: newId('run'), conversationId, agentId });
+      // 沙盒每次都是新容器，SDK session 无法复用；在写入本条消息前取历史，避免重复。
+      const history = await chatRepo.getHistoryForPrompt(app.db, conversationId);
       await chatRepo.appendMessage(app.db, {
         id: newId('message'),
         conversationId,
@@ -84,7 +89,13 @@ export function registerChatRoutes(app: FastifyInstance): void {
       // jobId = runId，重复投递天然幂等。
       await getQueue().add(
         'run',
-        { runId: run.id, agentId, conversationId, prompt: message },
+        {
+          runId: run.id,
+          agentId,
+          conversationId,
+          prompt: message,
+          ...(history === null ? {} : { history }),
+        },
         {
           jobId: run.id,
           // 只对基础设施类失败重试；业务失败（模型拒绝、工具报错）重试会重复计费。
@@ -226,6 +237,42 @@ export function registerChatRoutes(app: FastifyInstance): void {
         });
       }
       return reply.status(202).send({ ok: true });
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/api/conversations/:id/branch',
+    { preHandler: [app.requireAuth] },
+    async (request, reply) => {
+      const parsed = branchBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.status(400).send({
+          code: 'INVALID_INPUT',
+          message: parsed.error.issues[0]?.message ?? 'invalid body',
+        });
+      }
+      const result = await chatRepo.branchConversation(app.db, {
+        id: newId('conversation'),
+        conversationId: request.params.id,
+        ...(parsed.data.fromMessageId === undefined
+          ? {}
+          : { fromMessageId: parsed.data.fromMessageId }),
+      });
+      if (!result) {
+        return reply.status(404).send({
+          code: 'CONVERSATION_NOT_FOUND',
+          message: `conversation ${request.params.id} or branch point not found`,
+        });
+      }
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'conversation.branched',
+        target: result.conversation.id,
+        input: { source: request.params.id, fromMessageId: parsed.data.fromMessageId ?? null },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(201).send(result.conversation);
     },
   );
 

@@ -1,7 +1,6 @@
 import { type Skill, type SkillInput, skillInputSchema } from '@agentport/shared';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
-import { useState } from 'react';
-import type { z } from 'zod';
+import { useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
@@ -11,25 +10,18 @@ import { FieldError, FieldHint, Input } from '../components/ui/input.js';
 import { Label, RequiredMark } from '../components/ui/label.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { cn } from '../lib/cn.js';
+import { fieldErrors } from '../lib/form.js';
 import { useCreateSkill, useDeleteSkill, useSkills, useUpdateSkill } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 const emptySkill: SkillInput = { slug: '', name: '', description: '', body: '' };
-
-function fieldErrors(issues: z.ZodIssue[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const issue of issues) {
-    const key = issue.path.map(String).join('.') || 'form';
-    out[key] ??= issue.message;
-  }
-  return out;
-}
 
 export function SkillsPage() {
   const skills = useSkills();
   const [editing, setEditing] = useState<Skill | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Skill | null>(null);
+  const createButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div>
@@ -37,7 +29,7 @@ export function SkillsPage() {
         title="技能"
         description="可复用的操作流程，渲染为 .claude/skills/<slug>/SKILL.md，供智能体按需读取。"
         actions={
-          <Button size="sm" onClick={() => setCreating(true)}>
+          <Button ref={createButtonRef} size="sm" onClick={() => setCreating(true)}>
             <Plus className="size-3.5" /> 新建技能
           </Button>
         }
@@ -101,14 +93,24 @@ export function SkillsPage() {
         </div>
       ) : null}
 
-      {creating ? <SkillDialog onClose={() => setCreating(false)} /> : null}
+      {creating ? (
+        <SkillDialog returnFocusRef={createButtonRef} onClose={() => setCreating(false)} />
+      ) : null}
       {editing ? <SkillDialog skill={editing} onClose={() => setEditing(null)} /> : null}
       {deleting ? <DeleteSkillDialog skill={deleting} onClose={() => setDeleting(null)} /> : null}
     </div>
   );
 }
 
-function SkillDialog({ skill, onClose }: { skill?: Skill; onClose: () => void }) {
+function SkillDialog({
+  skill,
+  onClose,
+  returnFocusRef,
+}: {
+  skill?: Skill;
+  onClose: () => void;
+  returnFocusRef?: { current: HTMLElement | null };
+}) {
   const create = useCreateSkill();
   const update = useUpdateSkill();
   const [form, setForm] = useState<SkillInput>(
@@ -168,6 +170,7 @@ function SkillDialog({ skill, onClose }: { skill?: Skill; onClose: () => void })
       onClose={onClose}
       title={skill ? '编辑技能' : '新建技能'}
       description="技能内容会写入 SKILL.md 的正文。"
+      {...(returnFocusRef ? { returnFocusRef } : {})}
     >
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -179,9 +182,10 @@ function SkillDialog({ skill, onClose }: { skill?: Skill; onClose: () => void })
               id="skill-name"
               value={form.name}
               aria-invalid={Boolean(errors.name)}
+              aria-describedby={errors.name ? 'skill-name-error' : undefined}
               onChange={(event) => set('name', event.target.value)}
             />
-            <FieldError>{errors.name}</FieldError>
+            <FieldError id="skill-name-error">{errors.name}</FieldError>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="skill-slug">
@@ -192,13 +196,14 @@ function SkillDialog({ skill, onClose }: { skill?: Skill; onClose: () => void })
               value={form.slug}
               disabled={Boolean(skill)}
               aria-invalid={Boolean(errors.slug)}
+              aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
               onChange={(event) => set('slug', event.target.value)}
               className="font-mono"
             />
             {skill ? (
-              <FieldHint>创建后不可修改：它对应目录名。</FieldHint>
+              <FieldHint id="skill-slug-hint">创建后不可修改：它对应目录名。</FieldHint>
             ) : (
-              <FieldError>{errors.slug}</FieldError>
+              <FieldError id="skill-slug-error">{errors.slug}</FieldError>
             )}
           </div>
         </div>
@@ -210,10 +215,11 @@ function SkillDialog({ skill, onClose }: { skill?: Skill; onClose: () => void })
             id="skill-desc"
             value={form.description}
             aria-invalid={Boolean(errors.description)}
+            aria-describedby={errors.description ? 'skill-desc-error' : undefined}
             onChange={(event) => set('description', event.target.value)}
             placeholder="一句话说明这个技能解决什么问题"
           />
-          <FieldError>{errors.description}</FieldError>
+          <FieldError id="skill-desc-error">{errors.description}</FieldError>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="skill-body">步骤</Label>

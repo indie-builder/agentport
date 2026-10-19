@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { composePrompt } from './prompt.js';
 
 /**
  * 容器内入口：在只读挂载的 /workspace 上运行 Agent SDK。
@@ -33,6 +34,8 @@ interface RunnerEvent {
 
 interface RunnerTask {
   prompt: string;
+  /** 之前的对话，由宿主格式化为「用户：/助手：」文本；拼在当前请求之前。 */
+  history?: string;
   model?: string;
   maxTurns?: number;
   maxBudgetUsd?: number;
@@ -125,6 +128,7 @@ function toolResultText(content: unknown): string {
 }
 
 const task = await readTask();
+const prompt = composePrompt(task.prompt, task.history);
 // allow 规则只支持 `mcp__<server>__` 之后通配；`mcp__*` 不匹配任何工具。
 // server 名来自挂载的 .mcp.json，逐个生成精确规则。
 const allowedTools = [
@@ -159,7 +163,7 @@ const disallowedTools = task.allowSubAgents
 log(`starting query (model=${task.model ?? 'default'})`);
 
 for await (const message of query({
-  prompt: task.prompt,
+  prompt,
   options: {
     cwd: '/workspace',
     settingSources: ['project'],

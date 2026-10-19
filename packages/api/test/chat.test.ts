@@ -81,6 +81,110 @@ describe.skipIf(!ready)('chat', () => {
     expect(res.json()).toMatchObject({ code: 'RUN_NOT_FOUND' });
   });
 
+  it('passes prior messages as history on the next run', async () => {
+    const agent = await createAgent();
+    const first = await inject(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: { agentId: agent.id, message: 'remember this' },
+    });
+    const firstBody = first.json<{ runId: string; conversationId: string }>();
+    runIds.push(firstBody.runId);
+    await app.pool.query(
+      "insert into messages (id, conversation_id, role, content) values ('msg_history_test', $1, 'assistant', $2)",
+      [firstBody.conversationId, JSON.stringify({ type: 'text', text: 'noted' })],
+    );
+
+    const second = await inject(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: {
+        agentId: agent.id,
+        conversationId: firstBody.conversationId,
+        message: 'and now?',
+      },
+    });
+    const secondBody = second.json<{ runId: string }>();
+    runIds.push(secondBody.runId);
+
+    const { getQueue } = await import('../src/queue/producer.js');
+    const job = await getQueue().getJob(secondBody.runId);
+    const history = (job?.data as { history?: string } | undefined)?.history ?? '';
+    expect(history).toContain('用户：remember this');
+    expect(history).toContain('助手：noted');
+    expect(history).not.toContain('and now?');
+  });
+
+  it('branches a conversation up to the given message', async () => {
+    const agent = await createAgent();
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: { agentId: agent.id, message: 'first' },
+    });
+    const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
+    runIds.push(runId);
+    await app.pool.query(
+      "insert into messages (id, conversation_id, role, content) values ('msg_branch_test', $1, 'assistant', $2)",
+      [conversationId, JSON.stringify({ type: 'text', text: 'answer' })],
+    );
+
+    const detail = await inject(app, {
+      method: 'GET',
+      url: `/api/conversations/${conversationId}`,
+      headers: auth(),
+    });
+    const messages = detail.json<{ messages: Array<{ id: string; role: string }> }>().messages;
+    const userMessage = messages.find((message) => message.role === 'user');
+    expect(userMessage).toBeDefined();
+
+    const res = await inject(app, {
+      method: 'POST',
+      url: `/api/conversations/${conversationId}/branch`,
+      headers: auth(),
+      payload: { fromMessageId: userMessage?.id },
+    });
+    expect(res.statusCode).toBe(201);
+    const branch = res.json<{
+      id: string;
+      parentId: string | null;
+      branchOfMessageId: string | null;
+    }>();
+    expect(branch.parentId).toBe(conversationId);
+    expect(branch.branchOfMessageId).toBe(userMessage?.id);
+
+    const branchDetail = await inject(app, {
+      method: 'GET',
+      url: `/api/conversations/${branch.id}`,
+      headers: auth(),
+    });
+    const copied = branchDetail.json<{ messages: Array<{ role: string }> }>().messages;
+    expect(copied.map((message) => message.role)).toEqual(['user']);
+  });
+
+  it('POST /api/conversations/:id/branch rejects an unknown branch point', async () => {
+    const agent = await createAgent();
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: { agentId: agent.id, message: 'first' },
+    });
+    const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
+    runIds.push(runId);
+
+    const res = await inject(app, {
+      method: 'POST',
+      url: `/api/conversations/${conversationId}/branch`,
+      headers: auth(),
+      payload: { fromMessageId: 'msg_missing' },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
   it('cancel is idempotent for an already terminal run', async () => {
     const agent = await createAgent();
     const created = await inject(app, {

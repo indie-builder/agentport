@@ -145,6 +145,7 @@ export function RunDetailPage() {
   if (run.isPending) {
     return (
       <div className="space-y-4">
+        <h1 className="sr-only">运行详情</h1>
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-32 w-full" />
         <LoadingState rows={4} />
@@ -155,9 +156,10 @@ export function RunDetailPage() {
   if (run.isError) {
     return (
       <div>
+        <h1 className="sr-only">运行详情</h1>
         <Link
           to="/runs"
-          className="mb-4 inline-flex items-center gap-1 text-xs text-muted hover:text-fg"
+          className="mb-4 inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
           <ArrowLeft className="size-3.5" /> 返回运行列表
         </Link>
@@ -193,7 +195,10 @@ export function RunDetailPage() {
         >
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-fg">运行失败</div>
+            <div className="text-sm font-medium text-fg">这次运行没有完成</div>
+            <p className="mt-0.5 text-xs text-muted">
+              原因见下方；修正配置或输入后，从对话页重新发起即可。
+            </p>
             <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11.5px] leading-relaxed text-muted">
               {detail.error}
             </pre>

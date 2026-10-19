@@ -1,4 +1,4 @@
-import { useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
 import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
@@ -6,6 +6,7 @@ import { PageHeader } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
+import { buttonVariants } from '../components/ui/button.js';
 import { Select } from '../components/ui/select.js';
 import type { RunListItem, RunStatus } from '../lib/api.js';
 import {
@@ -174,6 +175,11 @@ export function RunsPage() {
           icon={<Activity className="size-5" />}
           title="没有匹配的运行"
           description="在对话页发起一次运行，或调整上方的筛选条件。"
+          action={
+            <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+              去发起运行
+            </Link>
+          }
         />
       ) : null}
 
@@ -182,6 +188,7 @@ export function RunsPage() {
           rows={items}
           columns={columns}
           rowKey={(run) => run.id}
+          label="运行列表"
           storageKey="pace.runs.columns"
           empty="没有匹配的运行"
           // DataTable 只在提供 renderExpanded 时启用整行按钮；这里不展开，只借它跳详情。

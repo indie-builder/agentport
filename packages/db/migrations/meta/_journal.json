@@ -50,6 +50,13 @@
       "when": 1792430901262,
       "tag": "0006_dapper_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792431491924,
+      "tag": "0007_panoramic_hellcat",
+      "breakpoints": true
     }
   ]
 }

@@ -26,6 +26,14 @@ export interface AgentExport {
   workspace: AgentFiles;
 }
 
+export interface AgentImportResult {
+  agent: Agent;
+  createdServers: string[];
+  reusedServers: string[];
+  createdSkills: string[];
+  warnings: string[];
+}
+
 export interface Me {
   authenticated: boolean;
   username?: string;
@@ -231,8 +239,26 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 面向用户的错误文案：说明发生了什么，并给出下一步。
+ * 服务端返回的 message 通常已经可读；纯状态码则换成可执行建议。
+ */
 export function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : '请求失败';
+  if (!(error instanceof Error) || !error.message) {
+    return '请求没有完成，请检查网络后重试。';
+  }
+  if (error instanceof ApiError) {
+    if (error.status === 0) return '连不上 API 服务，请确认它已启动并检查网络后重试。';
+    if (error.status === 401) return '登录已失效，请重新登录后再试。';
+    if (error.status === 403) return '当前账号没有这个操作的权限，请联系管理员开通。';
+    if (error.status === 404) return '这条内容可能已被删除，请刷新列表后重试。';
+    if (error.status === 409) return '数据已被其他操作修改，请刷新后重试。';
+    if (error.status >= 500) return '服务端暂时无法完成请求，请稍后重试；持续出现时查看服务日志。';
+  }
+  if (/^HTTP \d{3}$/.test(error.message)) {
+    return '请求没有完成，请稍后重试。';
+  }
+  return error.message;
 }
 
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
@@ -246,13 +272,13 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
         : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
     });
   } catch {
-    throw new ApiError(0, '网络连接失败，请确认 API 服务已启动');
+    throw new ApiError(0, '连不上 API 服务，请确认它已启动并检查网络后重试。');
   }
 
   // EventSource 无法自定义 header，前端统一靠 cookie 会话；失效时回到登录页。
   if (res.status === 401 && !path.startsWith('/auth/') && !location.pathname.startsWith('/login')) {
     location.assign('/login');
-    throw new ApiError(401, '登录已失效');
+    throw new ApiError(401, '登录已失效，请重新登录后再试。');
   }
 
   if (!res.ok) {
@@ -319,6 +345,8 @@ export const api = {
   rollbackAgent: (id: string, version: number): Promise<Agent> =>
     request(`/agents/${id}/rollback`, 'POST', { version }),
   exportAgent: (id: string): Promise<AgentExport> => request(`/export/agents/${id}`),
+  importAgent: (data: unknown): Promise<AgentImportResult> =>
+    request('/import/agents', 'POST', data),
 
   skills: (): Promise<Skill[]> => request('/skills'),
   createSkill: (input: SkillInput): Promise<Skill> => request('/skills', 'POST', input),
@@ -338,6 +366,10 @@ export const api = {
     }
   },
   conversation: (id: string): Promise<ConversationDetail> => request(`/conversations/${id}`),
+  branchConversation: (id: string, fromMessageId?: string): Promise<{ id: string }> =>
+    request(`/conversations/${id}/branch`, 'POST', {
+      ...(fromMessageId === undefined ? {} : { fromMessageId }),
+    }),
 
   sendChat: (input: ChatRequest): Promise<ChatAccepted> => request('/chat', 'POST', input),
   cancelRun: (runId: string): Promise<void> => request(`/chat/${runId}/cancel`, 'POST'),

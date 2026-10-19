@@ -146,8 +146,9 @@ export function AuditPage() {
             rows={rows}
             columns={columns}
             rowKey={(row) => row.id}
+            label="审计事件"
             loading={audit.isPending}
-            empty="暂无审计记录"
+            empty="还没有审计记录。登录或修改配置后，这里会自动出现对应事件。"
           />
           <div className="mt-3 flex justify-center">
             {audit.hasNextPage ? (

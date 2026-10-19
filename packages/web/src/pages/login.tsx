@@ -38,7 +38,7 @@ export function LoginPage() {
               />
             ))}
           </span>
-          <span className="text-[13px] font-semibold tracking-[0.08em] text-fg">PACE</span>
+          <h1 className="text-[13px] font-semibold tracking-[0.08em] text-fg">PACE</h1>
         </div>
         <form
           className="space-y-3 rounded-xl border border-line bg-surface p-5 shadow-xl shadow-black/20"
@@ -56,6 +56,7 @@ export function LoginPage() {
               autoComplete="username"
               value={username}
               aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'login-error' : undefined}
               onChange={(event) => setUsername(event.target.value)}
             />
           </div>

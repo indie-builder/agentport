@@ -15,6 +15,7 @@ export function Input({ className, ...props }: ComponentProps<'input'>) {
 
 export function FieldError({ children, id }: { children?: string | undefined; id?: string }) {
   if (!children) return null;
+  // 没有显式 id 时无法被 aria-describedby 引用；调用方应传 id。
   return (
     <p id={id} role="alert" className="text-[11px] leading-relaxed text-danger">
       {children}

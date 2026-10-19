@@ -1,4 +1,5 @@
 import { type Agent, type AgentInput, agentInputSchema, BUILTIN_TOOLS } from '@agentport/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Bot,
   Check,
@@ -14,9 +15,9 @@ import {
   Shield,
   Sparkles,
   Trash2,
+  Upload,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import type { z } from 'zod';
+import { useMemo, useRef, useState } from 'react';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { PageHeader } from '../components/page.js';
@@ -32,6 +33,7 @@ import { Textarea } from '../components/ui/textarea.js';
 import type { AgentVersionSummary } from '../lib/api.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { fieldErrors } from '../lib/form.js';
 import { formatDateTime } from '../lib/format.js';
 import {
   useAgentFiles,
@@ -91,22 +93,38 @@ function toInput(agent: Agent): AgentInput {
   };
 }
 
-function fieldErrors(issues: z.ZodIssue[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const issue of issues) {
-    const key = issue.path.map(String).join('.') || 'form';
-    out[key] ??= issue.message;
-  }
-  return out;
-}
-
 export function AgentsPage() {
   const agents = useAgents();
+  const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState('');
   const [deleting, setDeleting] = useState<Agent | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const createButtonRef = useRef<HTMLButtonElement>(null);
   const remove = useDeleteAgent();
+
+  // 导入返回的 agent 直接选中；列表与 server/skill 缓存随后失效刷新。
+  const importFile = async (file: File): Promise<void> => {
+    setImporting(true);
+    try {
+      const data: unknown = JSON.parse(await file.text());
+      const result = await api.importAgent(data);
+      setSelectedId(result.agent.id);
+      await Promise.all(
+        ['agents', 'servers', 'skills', 'overview'].map((key) =>
+          queryClient.invalidateQueries({ queryKey: [key] }),
+        ),
+      );
+      const suffix = result.warnings.length > 0 ? `，${result.warnings.length} 条提示` : '';
+      toastSuccess(`已导入「${result.agent.name}」${suffix}`);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -126,9 +144,31 @@ export function AgentsPage() {
         title="智能体"
         description="文件式定义：每个智能体渲染为 .mcp.json、CLAUDE.md 与 agent md，由沙盒在运行时装配。"
         actions={
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="size-3.5" /> 新建智能体
-          </Button>
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void importFile(file);
+              }}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={importing}
+              aria-busy={importing}
+              onClick={() => fileInput.current?.click()}
+            >
+              <Upload className="size-3.5" /> {importing ? '导入中…' : '导入'}
+            </Button>
+            <Button ref={createButtonRef} size="sm" onClick={() => setCreating(true)}>
+              <Plus className="size-3.5" /> 新建智能体
+            </Button>
+          </div>
         }
       />
 
@@ -224,6 +264,7 @@ export function AgentsPage() {
 
       {creating ? (
         <CreateAgentDialog
+          returnFocusRef={createButtonRef}
           onClose={() => setCreating(false)}
           onCreated={(agent) => {
             setSelectedId(agent.id);
@@ -391,9 +432,10 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                   id="agent-name"
                   value={form.name}
                   aria-invalid={Boolean(errors.name)}
+                  aria-describedby={errors.name ? 'agent-name-error' : undefined}
                   onChange={(event) => set('name', event.target.value)}
                 />
-                <FieldError>{errors.name}</FieldError>
+                <FieldError id="agent-name-error">{errors.name}</FieldError>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="agent-slug">Slug</Label>
@@ -649,9 +691,10 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                   inputMode="numeric"
                   value={form.maxTurns}
                   aria-invalid={Boolean(errors.maxTurns)}
+                  aria-describedby={errors.maxTurns ? 'agent-turns-error' : undefined}
                   onChange={(event) => set('maxTurns', Number(event.target.value))}
                 />
-                <FieldError>{errors.maxTurns}</FieldError>
+                <FieldError id="agent-turns-error">{errors.maxTurns}</FieldError>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="agent-budget">预算上限 (USD)</Label>
@@ -663,9 +706,10 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                   inputMode="decimal"
                   value={form.maxBudgetUsd}
                   aria-invalid={Boolean(errors.maxBudgetUsd)}
+                  aria-describedby={errors.maxBudgetUsd ? 'agent-budget-error' : undefined}
                   onChange={(event) => set('maxBudgetUsd', Number(event.target.value))}
                 />
-                <FieldError>{errors.maxBudgetUsd}</FieldError>
+                <FieldError id="agent-budget-error">{errors.maxBudgetUsd}</FieldError>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="agent-timeout">超时 (毫秒)</Label>
@@ -677,9 +721,10 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                   inputMode="numeric"
                   value={form.timeoutMs}
                   aria-invalid={Boolean(errors.timeoutMs)}
+                  aria-describedby={errors.timeoutMs ? 'agent-timeout-error' : undefined}
                   onChange={(event) => set('timeoutMs', Number(event.target.value))}
                 />
-                <FieldError>{errors.timeoutMs}</FieldError>
+                <FieldError id="agent-timeout-error">{errors.timeoutMs}</FieldError>
               </div>
             </div>
           </section>
@@ -745,7 +790,7 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
       ) : null}
       {!disabled && !content ? (
         <p className="rounded-lg border border-dashed border-line px-4 py-8 text-center text-xs text-subtle">
-          该文件为空。
+          该文件当前为空。保存配置后会自动生成内容。
         </p>
       ) : null}
       {!disabled ? (
@@ -782,7 +827,7 @@ function VersionHistory({
       ) : null}
       {versions.data && versions.data.length === 0 ? (
         <p className="rounded-lg border border-dashed border-line px-4 py-8 text-center text-xs text-subtle">
-          还没有版本记录。
+          还没有版本记录。修改配置并保存后，这里会留下第一份快照。
         </p>
       ) : null}
       {versions.data && versions.data.length > 0 ? (
@@ -873,9 +918,11 @@ function VersionSnapshot({ agentId, version }: { agentId: string; version: numbe
 function CreateAgentDialog({
   onClose,
   onCreated,
+  returnFocusRef,
 }: {
   onClose: () => void;
   onCreated: (agent: Agent) => void;
+  returnFocusRef: { current: HTMLElement | null };
 }) {
   const create = useCreateAgent();
   const [form, setForm] = useState<AgentInput>(emptyInput);
@@ -895,6 +942,7 @@ function CreateAgentDialog({
         toastSuccess('智能体已创建');
         onCreated(agent);
       },
+      onError: (error) => toastError(error),
     });
   };
 
@@ -904,6 +952,7 @@ function CreateAgentDialog({
       onClose={onClose}
       title="新建智能体"
       description="创建后可继续配置提示词、绑定 server 与运行时限制。"
+      returnFocusRef={returnFocusRef}
     >
       <form
         className="space-y-3"
@@ -925,12 +974,15 @@ function CreateAgentDialog({
               placeholder="support-bot"
               className="font-mono"
               aria-invalid={Boolean(errors.slug)}
+              aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
               onChange={(event) => setForm({ ...form, slug: event.target.value })}
             />
             {errors.slug ? (
-              <FieldError>{errors.slug}</FieldError>
+              <FieldError id="new-agent-slug-error">{errors.slug}</FieldError>
             ) : (
-              <FieldHint>小写字母、数字、- 和 _；创建后不可修改。</FieldHint>
+              <FieldHint id="new-agent-slug-hint">
+                小写字母、数字、- 和 _；创建后不可修改。
+              </FieldHint>
             )}
           </div>
           <div className="space-y-1.5">

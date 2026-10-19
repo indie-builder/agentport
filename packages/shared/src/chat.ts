@@ -38,6 +38,8 @@ export const agentRunJobSchema = z.object({
   agentId: z.string(),
   conversationId: z.string(),
   prompt: z.string(),
+  /** 已格式化的历史对话；沙盒是新容器，只能靠它恢复上下文。 */
+  history: z.string().optional(),
 });
 
 export type AgentRunJob = z.infer<typeof agentRunJobSchema>;

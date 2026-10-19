@@ -16,9 +16,8 @@ import {
   Trash2,
   Wrench,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import type { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
@@ -35,10 +34,12 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableWrap,
 } from '../components/ui/table.js';
 import { Tabs } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { cn } from '../lib/cn.js';
+import { fieldErrors } from '../lib/form.js';
 import { formatDateTime, formatDuration } from '../lib/format.js';
 import {
   useCreateServer,
@@ -91,15 +92,6 @@ function detailOf(server: Server): string {
   }
 }
 
-function fieldErrors(issues: z.ZodIssue[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const issue of issues) {
-    const key = issue.path.map(String).join('.') || 'form';
-    out[key] ??= issue.message;
-  }
-  return out;
-}
-
 export function ServersPage() {
   const servers = useServers();
   const test = useTestServer();
@@ -111,6 +103,7 @@ export function ServersPage() {
   const [tested, setTested] = useState<Record<string, ServerTestResult>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const remove = useDeleteServer();
+  const createButtonRef = useRef<HTMLButtonElement>(null);
 
   const all = servers.data ?? [];
   const counts = useMemo(
@@ -158,7 +151,11 @@ export function ServersPage() {
     test.mutate(server.id, {
       onSuccess: (result) => {
         setTested((previous) => ({ ...previous, [server.id]: result }));
-        if (!result.ok) toast.error(`连接失败：${result.error ?? '未知错误'}`);
+        if (!result.ok) {
+          toast.error(
+            `没有连上 ${server.name}：${result.error ?? '服务没有返回原因，请检查地址与网络后重试'}`,
+          );
+        }
       },
       onError: (error) => toastError(error),
     });
@@ -170,7 +167,7 @@ export function ServersPage() {
         title="MCP Servers"
         description="接入 stdio 命令或远程 HTTP 端点；generated server 把上游 HTTP API 直接暴露成 MCP 工具。"
         actions={
-          <Button size="sm" onClick={openCreate}>
+          <Button ref={createButtonRef} size="sm" onClick={openCreate}>
             <Plus className="size-3.5" /> 新建 Server
           </Button>
         }
@@ -267,6 +264,7 @@ export function ServersPage() {
       {formOpen ? (
         <ServerFormDialog
           key={editing?.id ?? 'new'}
+          returnFocusRef={createButtonRef}
           server={editing}
           onClose={() => {
             setFormOpen(false);
@@ -333,7 +331,7 @@ function ServerCard({
             <Badge variant={kindMeta[server.kind].badge}>{kindMeta[server.kind].label}</Badge>
             {result ? (
               <Badge variant={result.ok ? 'success' : 'danger'}>
-                {result.ok ? '连接正常' : '连接失败'}
+                {result.ok ? '连接正常' : '未能连接'}
               </Badge>
             ) : null}
           </div>
@@ -425,7 +423,7 @@ function TestResultPanel({ result }: { result: ServerTestResult }) {
           </span>
         ) : (
           <span className="inline-flex items-center gap-1 font-medium text-danger">
-            <CircleAlert className="size-3.5" /> 连接失败
+            <CircleAlert className="size-3.5" /> 没有连上
           </span>
         )}
         <span className="tabular-nums text-muted">耗时 {formatDuration(result.durationMs)}</span>
@@ -442,8 +440,9 @@ function TestResultPanel({ result }: { result: ServerTestResult }) {
         </p>
       ) : null}
       {result.tools.length > 0 ? (
-        <div className="mt-2 overflow-hidden rounded-md border border-line">
+        <TableWrap label="连接测试返回的工具" className="mt-2 rounded-md border border-line">
           <Table>
+            <caption className="sr-only">连接测试返回的工具</caption>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-1/3">工具</TableHead>
@@ -461,7 +460,7 @@ function TestResultPanel({ result }: { result: ServerTestResult }) {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableWrap>
       ) : result.ok ? (
         <p className="mt-2 text-subtle">该 server 没有暴露工具。</p>
       ) : null}
@@ -489,21 +488,21 @@ function ToolsPanel({ serverId }: { serverId: string }) {
   const submit = (): void => {
     const next: Record<string, string> = {};
     if (!/^[a-z0-9][a-z0-9-_]*$/.test(form.name)) {
-      next.name = '仅允许小写字母、数字、- 和 _';
+      next.name = '名称只能用小写字母、数字、- 和 _，例如 list-users';
     }
-    if (!form.pathTemplate.trim()) next.pathTemplate = '路径不能为空';
+    if (!form.pathTemplate.trim()) next.pathTemplate = '路径不能为空，请填写例如 /users/{id}';
     let schema: unknown;
     try {
       schema = JSON.parse(schemaText);
     } catch {
-      next.inputSchema = '不是合法 JSON';
+      next.inputSchema = '这里不是合法 JSON，请先修正语法再保存';
       schema = null;
     }
     if (
       schema !== null &&
       (typeof schema !== 'object' || schema === null || Array.isArray(schema))
     ) {
-      next.inputSchema = '必须是 JSON 对象';
+      next.inputSchema = 'schema 必须是 JSON 对象，例如 {"type":"object"}';
     }
     if (Object.keys(next).length > 0) {
       setErrors(next);
@@ -529,11 +528,12 @@ function ToolsPanel({ serverId }: { serverId: string }) {
         <ErrorState error={tools.error} onRetry={() => void tools.refetch()} />
       ) : null}
       {tools.data && tools.data.length === 0 ? (
-        <InlineEmpty>还没有工具，生成的 MCP Server 暂时不提供任何能力。</InlineEmpty>
+        <InlineEmpty>还没有工具。在下方填写名称与路径，添加第一个可调用的端点。</InlineEmpty>
       ) : null}
       {tools.data && tools.data.length > 0 ? (
-        <div className="overflow-hidden rounded-md border border-line">
+        <TableWrap label="生成的工具定义" className="rounded-md border border-line">
           <Table>
+            <caption className="sr-only">生成的工具定义</caption>
             <TableHeader>
               <TableRow>
                 <TableHead>名称</TableHead>
@@ -592,7 +592,7 @@ function ToolsPanel({ serverId }: { serverId: string }) {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableWrap>
       ) : null}
 
       <form
@@ -613,9 +613,10 @@ function ToolsPanel({ serverId }: { serverId: string }) {
             value={form.name}
             placeholder="list-users"
             aria-invalid={Boolean(errors.name)}
+            aria-describedby={errors.name ? `tool-name-error-${serverId}` : undefined}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
           />
-          <FieldError>{errors.name}</FieldError>
+          <FieldError id={`tool-name-error-${serverId}`}>{errors.name}</FieldError>
         </div>
         <div className="space-y-1">
           <Label htmlFor={`tool-method-${serverId}`}>方法</Label>
@@ -643,9 +644,10 @@ function ToolsPanel({ serverId }: { serverId: string }) {
             value={form.pathTemplate}
             placeholder="/users/{id}"
             aria-invalid={Boolean(errors.pathTemplate)}
+            aria-describedby={errors.pathTemplate ? `tool-path-error-${serverId}` : undefined}
             onChange={(event) => setForm({ ...form, pathTemplate: event.target.value })}
           />
-          <FieldError>{errors.pathTemplate}</FieldError>
+          <FieldError id={`tool-path-error-${serverId}`}>{errors.pathTemplate}</FieldError>
         </div>
         <div className="space-y-1">
           <Label htmlFor={`tool-params-${serverId}`}>参数位置</Label>
@@ -677,9 +679,10 @@ function ToolsPanel({ serverId }: { serverId: string }) {
             value={schemaText}
             className="font-mono text-xs"
             aria-invalid={Boolean(errors.inputSchema)}
+            aria-describedby={errors.inputSchema ? `tool-schema-error-${serverId}` : undefined}
             onChange={(event) => setSchemaText(event.target.value)}
           />
-          <FieldError>{errors.inputSchema}</FieldError>
+          <FieldError id={`tool-schema-error-${serverId}`}>{errors.inputSchema}</FieldError>
         </div>
         <div className="flex items-start pt-5">
           <Button type="submit" size="sm" disabled={create.isPending || !form.name}>
@@ -760,10 +763,12 @@ function ServerFormDialog({
   server,
   onClose,
   onSaved,
+  returnFocusRef,
 }: {
   server: Server | null;
   onClose: () => void;
   onSaved: (server: Server) => void;
+  returnFocusRef: { current: HTMLElement | null };
 }) {
   const creating = server === null;
   const create = useCreateServer();
@@ -836,6 +841,7 @@ function ServerFormDialog({
           ? '配置保存后即可测试连接，并在智能体中绑定。'
           : '类型不可修改；密钥保持 •••• 不变即沿用原值。'
       }
+      returnFocusRef={returnFocusRef}
     >
       <form
         className="space-y-3"
@@ -846,7 +852,8 @@ function ServerFormDialog({
         }}
       >
         {creating ? (
-          <div className="grid grid-cols-3 gap-2">
+          <fieldset className="grid grid-cols-3 gap-2">
+            <legend className="sr-only">类型</legend>
             {(Object.keys(kindMeta) as Kind[]).map((value) => (
               <button
                 key={value}
@@ -866,7 +873,7 @@ function ServerFormDialog({
                 </span>
               </button>
             ))}
-          </div>
+          </fieldset>
         ) : null}
 
         <div className="space-y-1">
@@ -879,12 +886,15 @@ function ServerFormDialog({
             value={form.name}
             placeholder="filesystem"
             aria-invalid={Boolean(errors.name)}
+            aria-describedby={errors.name ? 'server-name-error' : 'server-name-hint'}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
           />
           {errors.name ? (
-            <FieldError>{errors.name}</FieldError>
+            <FieldError id="server-name-error">{errors.name}</FieldError>
           ) : (
-            <FieldHint>小写字母、数字、- 和 _；会作为 .mcp.json 的 key。</FieldHint>
+            <FieldHint id="server-name-hint">
+              小写字母、数字、- 和 _；会作为 .mcp.json 的 key。
+            </FieldHint>
           )}
         </div>
 
@@ -911,9 +921,10 @@ function ServerFormDialog({
                 placeholder="npx"
                 className="font-mono"
                 aria-invalid={Boolean(errors.command)}
+                aria-describedby={errors.command ? 'server-command-error' : undefined}
                 onChange={(event) => setForm({ ...form, command: event.target.value })}
               />
-              <FieldError>{errors.command}</FieldError>
+              <FieldError id="server-command-error">{errors.command}</FieldError>
             </div>
             <div className="space-y-1">
               <Label htmlFor="server-args">参数（每行一个）</Label>
@@ -952,9 +963,10 @@ function ServerFormDialog({
                 placeholder="https://example.com/mcp"
                 className="font-mono text-xs"
                 aria-invalid={Boolean(errors.url ?? errors.baseUrl)}
+                aria-describedby={(errors.url ?? errors.baseUrl) ? 'server-url-error' : undefined}
                 onChange={(event) => setForm({ ...form, url: event.target.value })}
               />
-              <FieldError>{errors.url ?? errors.baseUrl}</FieldError>
+              <FieldError id="server-url-error">{errors.url ?? errors.baseUrl}</FieldError>
             </div>
             <div className="space-y-1">
               <Label htmlFor="server-headers">Headers（每行 KEY=value）</Label>

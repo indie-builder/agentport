@@ -85,7 +85,7 @@ export function Tabs<T extends string>({
     <div
       role="tablist"
       aria-label={label}
-      className={cn('flex items-center gap-0.5 border-b border-line', className)}
+      className={cn('flex items-center gap-0.5 overflow-x-auto border-b border-line', className)}
       onKeyDown={onKeyDown}
     >
       {items.map((item) => {
@@ -100,7 +100,7 @@ export function Tabs<T extends string>({
             aria-controls={`${baseId}-panel-${item.value}`}
             tabIndex={active ? 0 : -1}
             className={cn(
-              '-mb-px inline-flex items-center gap-1.5 border-b-2 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-0',
+              '-mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-0',
               size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-2 text-[13px]',
               active
                 ? 'border-accent text-fg'

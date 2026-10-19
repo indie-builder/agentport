@@ -235,7 +235,7 @@ const worker = new Worker(
     if (!parsed.success) {
       throw new Error(`invalid job payload: ${parsed.error.message}`);
     }
-    const { runId, agentId, conversationId, prompt } = parsed.data;
+    const { runId, agentId, conversationId, prompt, history } = parsed.data;
 
     const [run] = await db
       .select({ status: schema.agentRuns.status })
@@ -305,6 +305,7 @@ const worker = new Worker(
         timeoutMs: agent.timeoutMs || config.AGENT_TIMEOUT_MS,
         task: {
           prompt,
+          ...(history === undefined ? {} : { history }),
           model: agent.model,
           maxTurns: agent.maxTurns,
           maxBudgetUsd: Number(agent.maxBudgetUsd),

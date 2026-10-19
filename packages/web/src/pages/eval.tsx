@@ -166,7 +166,15 @@ export function EvalPage() {
         />
 
         {effectiveAgentId === null ? (
-          <EmptyState title="还没有智能体" description="先创建一个智能体，才能为它编写评估用例。" />
+          <EmptyState
+            title="还没有智能体"
+            description="先创建一个智能体，才能为它编写评估用例。"
+            action={
+              <Link to="/agents" className="text-xs text-accent hover:underline">
+                前往创建智能体
+              </Link>
+            }
+          />
         ) : null}
         {cases.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
         {cases.isError ? (
@@ -251,6 +259,7 @@ export function EvalPage() {
             rows={runs.data}
             columns={runColumns}
             rowKey={(run) => run.id}
+            label="评估运行"
             storageKey="agentport.eval-runs.columns"
             renderExpanded={(run) => <EvalRunResults id={run.id} />}
           />
@@ -278,7 +287,9 @@ function EvalRunResults({ id }: { id: string }) {
   if (results.length === 0) {
     return (
       <p className="text-xs text-muted">
-        {detail.data.evalRun.status === 'running' ? '正在逐个执行用例…' : '没有结果记录。'}
+        {detail.data.evalRun.status === 'running'
+          ? '正在逐个执行用例…'
+          : '还没有结果记录。这条运行可能仍在排队，稍后会自动刷新。'}
       </p>
     );
   }
@@ -358,7 +369,7 @@ function CaseDialog({
   const submit = (event: React.FormEvent): void => {
     event.preventDefault();
     if (!form.name.trim() || !form.prompt.trim()) {
-      setError('名称与 Prompt 不能为空');
+      setError('名称和 Prompt 都需要填写，补全后再保存。');
       return;
     }
     const input: EvalCaseInput = { agentId: agentId ?? testCase?.agentId ?? '', ...form };
@@ -396,6 +407,8 @@ function CaseDialog({
           <Input
             id="eval-name"
             value={form.name}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? 'eval-form-error' : undefined}
             onChange={(event) => set('name', event.target.value)}
             placeholder="例如：拒绝编造不存在的工具"
           />
@@ -408,6 +421,8 @@ function CaseDialog({
             id="eval-prompt"
             rows={5}
             value={form.prompt}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? 'eval-form-error' : undefined}
             onChange={(event) => set('prompt', event.target.value)}
             placeholder="发送给智能体的完整输入"
           />
@@ -422,7 +437,7 @@ function CaseDialog({
             placeholder="输出中应出现的文本（不区分大小写）；留空则只要求有文本输出"
           />
           <FieldHint>最小判定，不做语义判断；需要更严格时写更具体的片段。</FieldHint>
-          <FieldError>{error}</FieldError>
+          <FieldError id="eval-form-error">{error}</FieldError>
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>

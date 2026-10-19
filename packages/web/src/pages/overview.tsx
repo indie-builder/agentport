@@ -277,14 +277,19 @@ function PlatformHealth() {
     <Card className="mt-3">
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
-          <div className="text-[11px] uppercase tracking-wider text-subtle">平台健康</div>
+          <h2 className="text-[11px] uppercase tracking-wider text-subtle">平台健康</h2>
           <span className="text-[11px] text-subtle">每 30 秒刷新</span>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-5">
           {rows.map(([label, value]) => (
             <div key={label}>
               <div className="text-[11px] text-subtle">{label}</div>
-              <div className="mt-0.5 text-[13px] font-medium tabular-nums text-fg">{value}</div>
+              <div
+                className="mt-0.5 text-[13px] font-medium tabular-nums text-fg"
+                title={value === '不可用' ? '这项指标暂时读不到，稍后会自动重试' : undefined}
+              >
+                {value}
+              </div>
             </div>
           ))}
         </div>
@@ -384,7 +389,9 @@ export function OverviewPage() {
             {overview.isPending ? <LoadingState rows={3} /> : null}
             {fallback ? (
               <div className="rounded-lg border border-dashed border-line px-4 py-6 text-center text-xs text-muted">
-                聚合指标需要 <code className="font-mono text-fg/80">GET /api/overview</code>。
+                聚合指标暂不可用：后端还没有提供{' '}
+                <code className="font-mono text-fg/80">GET /api/overview</code>
+                。接入后这里会自动显示；其余内容不受影响。
               </div>
             ) : null}
             {agentRows && agentRows.length === 0 ? (
@@ -404,6 +411,7 @@ export function OverviewPage() {
                 rows={agentRows}
                 columns={agentColumns}
                 rowKey={(row) => row.agentId}
+                label="智能体指标"
                 storageKey="pace.overview.agent-columns"
                 empty="还没有智能体"
               />
@@ -424,6 +432,11 @@ export function OverviewPage() {
                 icon={<Activity className="size-5" />}
                 title="还没有运行记录"
                 description="在对话页发起一次运行，这里会显示状态、耗时与成本。"
+                action={
+                  <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                    去发起运行
+                  </Link>
+                }
               />
             ) : null}
             {recent && recent.length > 0 ? (
@@ -431,6 +444,7 @@ export function OverviewPage() {
                 rows={recent}
                 columns={runColumns}
                 rowKey={(run) => run.id}
+                label="最近运行"
                 storageKey="pace.overview.run-columns"
                 empty="还没有运行记录"
               />

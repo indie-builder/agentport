@@ -43,9 +43,10 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* 焦点始终可见：键盘用户靠它定位。 */
+  /* 焦点始终可见：键盘用户靠它定位。组件若用 ring 可自行覆盖。 */
   :focus-visible {
-    outline: none;
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
   }
 
   ::selection {
@@ -73,14 +74,34 @@
     background: transparent;
   }
 
+  /* 跳过导航：默认藏起来，键盘聚焦时出现在左上角。 */
+  .skip-link {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 60;
+    transition: transform 150ms ease;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background-color: var(--color-accent);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    transform: translateY(-200%);
+  }
+
+  .skip-link:focus-visible {
+    transform: none;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
-      animation-duration: 0.01ms;
-      animation-iteration-count: 1;
-      transition-duration: 0.01ms;
-      scroll-behavior: auto;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
   }
 }

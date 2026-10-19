@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { Check, ChevronDown, Search } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { cn } from '../../lib/cn.js';
 import { Badge } from './badge.js';
@@ -46,6 +46,7 @@ export function MultiSelect({
     const onKey = (event: globalThis.KeyboardEvent): void => {
       if (event.key !== 'Escape') return;
       setOpen(false);
+      setQuery('');
       triggerRef.current?.focus();
     };
     document.addEventListener('mousedown', onPointer);
@@ -69,7 +70,7 @@ export function MultiSelect({
     onChange(value.includes(id) ? value.filter((item) => item !== id) : [...value, id]);
   };
 
-  const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+  const onListKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     const items = Array.from(
       event.currentTarget.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
@@ -86,9 +87,16 @@ export function MultiSelect({
       <button
         ref={triggerRef}
         type="button"
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
+        aria-label={label}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' && !open) {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
         onClick={() => setOpen((current) => !current)}
         className={cn(
           'flex min-h-8 w-full items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2 py-1 text-left text-sm transition-colors hover:border-line-strong focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
@@ -99,18 +107,8 @@ export function MultiSelect({
             <span className="text-subtle">{placeholder}</span>
           ) : (
             selected.map((option) => (
-              <Badge key={option.id} variant="default" className="max-w-40 gap-0.5 py-1">
+              <Badge key={option.id} variant="default" className="max-w-40 py-1">
                 <span className="truncate">{option.label}</span>
-                <span
-                  aria-hidden="true"
-                  className="rounded-full p-0.5 text-subtle hover:text-fg"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toggle(option.id);
-                  }}
-                >
-                  <X className="size-2.5" />
-                </span>
               </Badge>
             ))
           )}
@@ -131,13 +129,28 @@ export function MultiSelect({
               ref={searchRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                // 打开后焦点在搜索框，方向键应直接进入选项。
+                if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                const items =
+                  containerRef.current?.querySelectorAll<HTMLInputElement>(
+                    'input[type="checkbox"]',
+                  );
+                if (!items?.length) return;
+                event.preventDefault();
+                items[event.key === 'ArrowDown' ? 0 : items.length - 1]?.focus();
+              }}
               placeholder="搜索…"
               aria-label={`搜索${label}`}
               className="h-7 pl-7 text-xs"
             />
           </div>
           {/* 列表用 div 承载键盘导航：内部是可聚焦的 label/input，事件冒泡到这里。 */}
-          <div className="max-h-60 overflow-y-auto p-1" onKeyDown={onListKeyDown} role="listbox">
+          <fieldset
+            className="max-h-60 overflow-y-auto p-1"
+            onKeyDown={onListKeyDown}
+            aria-label={`${label}选项`}
+          >
             {filtered.length === 0 ? (
               <p className="px-2 py-4 text-center text-xs text-subtle">{emptyText}</p>
             ) : (
@@ -152,7 +165,7 @@ export function MultiSelect({
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggle(option.id)}
-                      className="size-3.5 shrink-0 accent-accent"
+                      className="size-3.5 shrink-0 accent-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px]">{option.label}</span>
@@ -168,7 +181,7 @@ export function MultiSelect({
                 );
               })
             )}
-          </div>
+          </fieldset>
         </div>
       ) : null}
     </div>

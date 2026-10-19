@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
+import { newId } from '../id.js';
 import { agentRuns, agents, conversations, messages } from '../schema.js';
 
 export type Conversation = typeof conversations.$inferSelect;
@@ -68,6 +69,95 @@ export async function listMessages(db: Database, conversationId: string): Promis
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt), asc(messages.id));
+}
+
+const HISTORY_LIMIT = 20;
+const HISTORY_TEXT_LIMIT = 2_000;
+
+function messageText(content: unknown): string | null {
+  if (typeof content !== 'object' || content === null || !('text' in content)) return null;
+  return typeof content.text === 'string' ? content.text : null;
+}
+
+/**
+ * 新 run 的上下文恢复：沙盒每次都是新容器，SDK 的 session resume 不可用，
+ * 只能把最近 N 条 user/assistant 文本拼进 prompt。tool 消息体积不可控，跳过。
+ */
+export async function getHistoryForPrompt(
+  db: Database,
+  conversationId: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ role: messages.role, content: messages.content })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        inArray(messages.role, ['user', 'assistant']),
+      ),
+    )
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(HISTORY_LIMIT);
+
+  const lines = rows
+    .reverse()
+    .map((row) => {
+      const text = messageText(row.content)?.trim();
+      if (!text) return null;
+      const clipped =
+        text.length > HISTORY_TEXT_LIMIT ? `${text.slice(0, HISTORY_TEXT_LIMIT)}…` : text;
+      return `${row.role === 'user' ? '用户' : '助手'}：${clipped}`;
+    })
+    .filter((line): line is string => line !== null);
+
+  return lines.length > 0 ? lines.join('\n\n') : null;
+}
+
+/**
+ * 从原会话复制消息到新会话。fromMessageId 为空时复制全部；
+ * 原会话或分支点消息不存在时返回 null。
+ */
+export async function branchConversation(
+  db: Database,
+  input: { id: string; conversationId: string; fromMessageId?: string; title?: string },
+): Promise<{ conversation: Conversation; copied: number } | null> {
+  const source = await getConversation(db, input.conversationId);
+  if (!source) return null;
+
+  // 按 (createdAt, id) 排序后截断，与 listMessages 一致。
+  const rows = await listMessages(db, source.id);
+  let cutoffIndex = rows.length - 1;
+  if (input.fromMessageId !== undefined) {
+    cutoffIndex = rows.findIndex((row) => row.id === input.fromMessageId);
+    if (cutoffIndex < 0) return null;
+  }
+  const copy = rows.slice(0, cutoffIndex + 1);
+
+  const [conversation] = await db
+    .insert(conversations)
+    .values({
+      id: input.id,
+      agentId: source.agentId,
+      title: input.title ?? source.title,
+      parentId: source.id,
+      branchOfMessageId: copy.at(-1)?.id ?? null,
+    })
+    .returning();
+  if (!conversation) throw new Error('conversation insert returned no row');
+
+  if (copy.length > 0) {
+    await db.insert(messages).values(
+      copy.map((row) => ({
+        id: newId('message'),
+        conversationId: conversation.id,
+        role: row.role,
+        content: row.content,
+        runId: null,
+      })),
+    );
+  }
+
+  return { conversation, copied: copy.length };
 }
 
 export interface ConversationSummary {

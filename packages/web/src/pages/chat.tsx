@@ -1,9 +1,11 @@
 import { chatEventSchema } from '@agentport/shared';
+import { Link } from '@tanstack/react-router';
 import {
   ArrowDown,
   Bot,
   ChevronDown,
   CircleStop,
+  GitBranch,
   LoaderCircle,
   MessageSquare,
   MessagesSquare,
@@ -43,27 +45,36 @@ export function ChatPage() {
   if (agents.isPending) {
     return (
       <div className="flex h-full items-center justify-center">
+        <h1 className="sr-only">对话</h1>
         <LoadingState rows={3} />
       </div>
     );
   }
 
   if (agents.isError) {
-    return <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />;
+    return (
+      <div>
+        <h1 className="sr-only">对话</h1>
+        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+      </div>
+    );
   }
 
   if (agents.data && agents.data.length === 0) {
     return (
-      <EmptyState
-        icon={<Bot className="size-5" />}
-        title="还没有智能体"
-        description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
-        action={
-          <a href="/agents" className="text-xs text-accent hover:underline">
-            前往创建
-          </a>
-        }
-      />
+      <div>
+        <h1 className="sr-only">对话</h1>
+        <EmptyState
+          icon={<Bot className="size-5" />}
+          title="还没有智能体"
+          description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
+          action={
+            <Link to="/agents" className="text-xs text-accent hover:underline">
+              前往创建
+            </Link>
+          }
+        />
+      </div>
     );
   }
 
@@ -98,6 +109,7 @@ function ChatWorkspace({
   const [run, setRun] = useState<RunState | null>(null);
   const [local, setLocal] = useState<LocalConversation[]>(() => loadLocalConversations());
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [branching, setBranching] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   // 服务端重连时从头回放事件流；保留发起前的消息，避免文本重复。
   const baseItemsRef = useRef<ChatItem[]>([]);
@@ -248,6 +260,21 @@ function ChatWorkspace({
     setHistoryOpen(false);
   };
 
+  // 分支：服务端复制消息，前端切到新会话；列表由 query 失效后刷新。
+  const branch = async (id: string): Promise<void> => {
+    if (branching) return;
+    setBranching(id);
+    try {
+      const conversation = await api.branchConversation(id);
+      await conversations.refetch();
+      openConversation(conversation.id);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setBranching(null);
+    }
+  };
+
   // 载入历史：每个会话只回填一次，之后由流式事件维护。
   useEffect(() => {
     const data = detail.data;
@@ -288,7 +315,8 @@ function ChatWorkspace({
   const showWelcome = items.length === 0 && !detail.isPending && !run;
 
   return (
-    <div className="flex h-full min-h-0 gap-4">
+    <div className="relative flex h-full min-h-0 gap-4">
+      <h1 className="sr-only">对话</h1>
       <aside
         className={cn(
           'flex w-64 shrink-0 flex-col overflow-hidden rounded-[10px] border border-line bg-surface',
@@ -331,13 +359,13 @@ function ChatWorkspace({
           ) : null}
           <ul className="space-y-0.5">
             {history.map((conversation) => (
-              <li key={conversation.id}>
+              <li key={conversation.id} className="group relative">
                 <button
                   type="button"
                   aria-current={conversation.id === conversationId ? 'true' : undefined}
                   onClick={() => openConversation(conversation.id)}
                   className={cn(
-                    'w-full rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+                    'w-full rounded-md px-2 py-1.5 pr-8 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
                     conversation.id === conversationId
                       ? 'bg-accent-soft text-fg'
                       : 'text-muted hover:bg-surface-2/60 hover:text-fg',
@@ -348,6 +376,21 @@ function ChatWorkspace({
                     {formatRelative(conversation.updatedAt)}
                   </span>
                 </button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`从「${conversation.title}」分支`}
+                  title="分支"
+                  disabled={branching !== null}
+                  className="absolute top-1 right-1 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                  onClick={() => void branch(conversation.id)}
+                >
+                  {branching === conversation.id ? (
+                    <LoaderCircle className="size-3 animate-spin" />
+                  ) : (
+                    <GitBranch className="size-3" />
+                  )}
+                </Button>
               </li>
             ))}
           </ul>
@@ -394,7 +437,7 @@ function ChatWorkspace({
               id="chat-agent"
               value={agentId ?? ''}
               onChange={(event) => switchAgent(event.target.value)}
-              className="h-7 max-w-40 cursor-pointer rounded-md border border-line bg-surface-2 px-2 text-xs text-fg focus-visible:border-accent focus-visible:outline-none"
+              className="h-7 max-w-40 cursor-pointer rounded-md border border-line bg-surface-2 px-2 text-xs text-fg focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
             >
               {agents.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -525,7 +568,8 @@ function MessagePane({
   const scrollToBottom = (): void => {
     const element = scrollRef.current;
     if (!element) return;
-    element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    element.scrollTo({ top: element.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
     setPinned(true);
   };
 
@@ -556,7 +600,7 @@ function MessagePane({
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3 py-1.5 text-[11px] text-muted shadow-lg transition-colors hover:text-fg"
+          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3 py-1.5 text-[11px] text-muted shadow-lg transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
           <ArrowDown className="size-3" /> 回到底部
         </button>

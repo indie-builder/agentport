@@ -1,9 +1,13 @@
 import type { ComponentProps } from 'react';
 import { cn } from '../../lib/cn.js';
 
-/** 表格容器：窄屏横向滚动，避免挤压列。 */
-export function TableWrap({ className, ...props }: ComponentProps<'div'>) {
-  return <div className={cn('overflow-x-auto', className)} {...props} />;
+/** 表格容器：窄屏横向滚动，避免挤压列；label 让读屏知道这是什么表格。 */
+export function TableWrap({
+  className,
+  label,
+  ...props
+}: ComponentProps<'section'> & { label: string }) {
+  return <section className={cn('overflow-x-auto', className)} aria-label={label} {...props} />;
 }
 
 export function Table({ className, ...props }: ComponentProps<'table'>) {
