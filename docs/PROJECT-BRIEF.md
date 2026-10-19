@@ -629,12 +629,12 @@ interface SandboxProvider {
 | 阶段 | 交付 | 验收 |
 |---|---|---|
 | M0 | 仓库骨架、compose、DB/Redis、日志、健康检查、CI | ✅ 已完成：`/health/ready` 返回 ok，worker 已连通 Redis，DB 迁移已应用 |
-| M1 | MCP Server CRUD + 测试连接 | 页面上新增 stdio / http server，点测试能看到工具列表 |
-| M2 | HTTP→MCP 动态挂载 | 手动建一个工具，`/mcp/:serverId` 能被 MCP client 调用成功 |
-| M3 | 智能体文件定义 + 单机运行 | 生成 `.mcp.json` 与 `.claude/agents/*.md`，本地 `query()` 调通工具 |
-| M4 | 队列 + 沙盒 | agent run 进队列，在 Docker 沙盒内执行，SSE 回传工具调用事件 |
-| M5 | 生产化 | 密钥加密、审计、限流、优雅关闭、E2E 测试、镜像发布 |
-| M6 | 强隔离（可选） | `MicrosandboxProvider` 落地，按配置切换 |
+| M1 | MCP Server CRUD + 测试连接 | ✅ 已完成：stdio / http / generated 三种；测试按钮返回真实 `listTools()` 结果 |
+| M2 | HTTP→MCP 动态挂载 | ✅ 已完成：`/mcp/:serverId` + Bearer token；工具真实转发上游 HTTP |
+| M3 | 智能体文件定义 + 单机运行 | ✅ 已完成：DB → `.mcp.json` / `CLAUDE.md` / `.claude/agents/*.md`，页面可预览 |
+| M4 | 队列 + 沙盒 | ✅ 已完成：BullMQ → Docker 容器 → Agent SDK → SSE 回传 text/tool 事件 |
+| M5 | 生产化 | 🟡 密钥加密、SSRF、JWT、限流、优雅关闭已落地；审计写入、E2E 测试、CI 仍缺 |
+| M6 | 强隔离（可选） | ⬜ 未开始（`SandboxProvider` 接口已就位，可直接加 `MicrosandboxProvider`） |
 
 ---
 
@@ -736,6 +736,64 @@ pnpm dev
 ```
 
 > `.env` 中的 `ANTHROPIC_API_KEY` 与 `ANTHROPIC_AUTH_TOKEN` 二选一；本机当前使用 `ANTHROPIC_AUTH_TOKEN`，Agent SDK 会作为 Bearer token 发送。
+
+---
+
+## 16. M1–M4 落地记录（2026-10-20）
+
+### 16.1 已真实验证的链路
+
+```
+浏览器/curl ──JWT cookie──▶ api
+                             ├─ servers CRUD（secrets AES-256-GCM 加密，返回脱敏 ••••）
+                             ├─ /api/servers/:id/test ── MCP client ──▶ 真实 MCP 端点
+                             ├─ /mcp/:serverId ── createMcpHandler ──▶ 上游 HTTP API
+                             └─ /api/chat ── BullMQ ──▶ worker
+                                                          └─ docker run ──▶ sandbox runner
+                                                                               └─ Agent SDK
+                                                                                    └─ mcp__jsonplaceholder__get_user
+                                                                                         └─ https://jsonplaceholder.typicode.com/users/1
+```
+
+实测结果：模型在容器内调用 MCP 工具，拿到真实用户数据，文本流与 `tool_start` / `tool_input` / `tool_result` 事件都经 SSE 到达客户端。
+
+### 16.2 ID 方案：TypeID
+
+所有实体 ID 使用 `typeid-js@1.2.0`，格式 `<prefix>_<uuidv7 base32>`：
+
+| 实体 | 前缀 | 示例 |
+|---|---|---|
+| server | `srv` | `srv_01m5afqxxhe4ebscs66w0d9kq8` |
+| api tool | `tool` | `tool_01m5afqxzwe4ebscs8b6cqh021` |
+| agent | `agt` | `agt_01m5afshq0exxsn0sc47th80fh` |
+| conversation | `conv` | `conv_01m5ag6528eh7bw80fjkysa3vp` |
+| message | `msg` | — |
+| run | `run` | `run_01m5ag7sq6eh7bw81dxdrhkvec` |
+| audit | `aud` | — |
+
+统一入口：`packages/db/src/id.ts` 的 `newId(entity)`。K-sortable 保证按创建时间排序，前缀让日志与 URL 自解释。
+
+### 16.3 本轮踩到的坑（重要）
+
+| 问题 | 表现 | 修复 |
+|---|---|---|
+| `.mcp.json` 里的 `mcp__*` 通配无效 | 模型调用 MCP 工具被拒：`Permission ... denied because ... don't ask mode` | allow 规则只支持 `mcp__<server>__` 之后通配。runner 从任务载荷的 `mcpServers` 逐个生成 `mcp__<name>__*` |
+| `permissionMode: 'dontAsk'` 会拒绝未预批准的一切 | 仅靠 `allowedTools` 不够 | 用精确 allow 规则 + `disallowedTools` 移除内置工具；`dontAsk` 保持，因为沙盒里没有交互审批渠道 |
+| 容器内 `127.0.0.1` 指向容器自身 | 本机代理 `ANTHROPIC_BASE_URL=http://127.0.0.1:3425` 在容器里 ECONNREFUSED | worker 把 loopback 改写成 `host.docker.internal`，并加 `--add-host host.docker.internal:host-gateway`（Linux 必需） |
+| generated server 的测试连错地址 | 测试按钮连上游 baseUrl，返回 `Error POSTing to endpoint` | 改为连平台自己的 `/mcp/:id` 并带 `mcpToken`；新增 `SELF_URL` 配置 |
+| 改了 schema 忘记重新生成迁移 | `column "path_template" does not exist` | 改 `schema.ts` 后必须 `pnpm db:generate`；SQLite/Postgres 迁移文件不通用 |
+| 对话 ID 前缀写错 | conversation 用成了 `msg_` | 修成 `conv_`；`newId()` 的实体参数现在受类型约束 |
+| `biome check` 在并行 lane 之后失败 | 格式不一致 | 统一跑 `biome check --write .` 一次 |
+
+### 16.4 仍需完成
+
+1. **审计写入**：`audit_log` 表已建，但还没有写入点。应在 MCP 工具调用、agent run 起止、配置变更处写入。
+2. **Redis 限流**：`rate-limit-redis` 未接入。
+3. **测试**：Vitest 集成测试与 Playwright E2E 尚未编写。
+4. **CI**：`.github/workflows/ci.yml` 尚未创建。
+5. **前端缺口**：server 编辑（PATCH 端点已就绪，UI 无入口）。
+6. **沙盒网络**：当前 `bridge` + `host.docker.internal`；生产建议改为受控出站代理。
+7. **SSE 丢事件**：pub/sub 无回放，POST 到建连之间的 `run_started` 可能丢失。需要严格不丢时改用 Redis Streams。
 
 ---
 
