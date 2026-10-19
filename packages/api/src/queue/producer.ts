@@ -133,6 +133,7 @@ async function addChannelRef(channel: string): Promise<void> {
 
 function removeChannelRef(channel: string): void {
   const refs = (channelRefs.get(channel) ?? 1) - 1;
+  if (process.env.DEBUG_SSE === '1') process.stderr.write(`[sse] ref- ${channel} -> ${refs}\n`);
   if (refs > 0) {
     channelRefs.set(channel, refs);
     return;
@@ -178,7 +179,10 @@ export async function subscribeRun(
     });
   };
 
+  let released = false;
   const release = (): void => {
+    if (released) return;
+    released = true;
     redis.off('message', handler);
     removeChannelRef(wakeChannel);
   };

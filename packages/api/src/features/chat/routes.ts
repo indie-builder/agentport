@@ -180,8 +180,12 @@ export function registerChatRoutes(app: FastifyInstance): void {
         reply.raw.end();
       };
 
+      // 同时监听 req 与 res：客户端 abort 时不同 Node 版本触发的对象不同。
       const onClose = (): void => cleanup();
       request.raw.on('close', onClose);
+      request.raw.on('aborted', onClose);
+      reply.raw.on('close', onClose);
+      reply.raw.on('error', onClose);
 
       try {
         subscription = await subscribeRun(runId, (event) => {
@@ -209,10 +213,9 @@ export function registerChatRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // 客户端在订阅完成前就断开了。
+      // 客户端在订阅完成前就断开了：cleanup 当时拿不到订阅，必须在这里补一次释放。
       if (closed) {
         subscription.close();
-        request.raw.off('close', onClose);
         return;
       }
 
