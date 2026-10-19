@@ -2,9 +2,13 @@ import { type Agent, type AgentInput, agentInputSchema, BUILTIN_TOOLS } from '@a
 import {
   Bot,
   Check,
+  ChevronDown,
+  ChevronRight,
   FileCode,
   FileText,
+  History,
   Plus,
+  RotateCcw,
   Search,
   Shield,
   Sparkles,
@@ -24,12 +28,17 @@ import { MultiSelect } from '../components/ui/multi-select.js';
 import { Select } from '../components/ui/select.js';
 import { Tabs } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
+import type { AgentVersionSummary } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { formatDateTime } from '../lib/format.js';
 import {
   useAgentFiles,
   useAgents,
+  useAgentVersion,
+  useAgentVersions,
   useCreateAgent,
   useDeleteAgent,
+  useRollbackAgent,
   useServers,
   useSkills,
   useUpdateAgent,
@@ -239,7 +248,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
   const servers = useServers();
   const skills = useSkills();
   const [form, setForm] = useState<AgentInput>(() => toInput(agent));
-  const [tab, setTab] = useState<'config' | 'files'>('config');
+  const [tab, setTab] = useState<'config' | 'files' | 'versions'>('config');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const initial = useMemo(() => toInput(agent), [agent]);
@@ -289,6 +298,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
           items={[
             { value: 'config', label: '配置' },
             { value: 'files', label: '文件预览' },
+            { value: 'versions', label: '版本历史', icon: <History className="size-3.5" /> },
           ]}
         />
         <div className="flex items-center gap-2">
@@ -605,8 +615,16 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             </Button>
           </div>
         </form>
-      ) : (
+      ) : tab === 'files' ? (
         <FilesPreview agentId={agent.id} dirty={dirty} />
+      ) : (
+        <VersionHistory
+          agentId={agent.id}
+          onRolledBack={(next) => {
+            setForm(toInput(next));
+            setErrors({});
+          }}
+        />
       )}
     </div>
   );
@@ -662,6 +680,118 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
         </p>
       ) : null}
     </div>
+  );
+}
+
+function VersionHistory({
+  agentId,
+  onRolledBack,
+}: {
+  agentId: string;
+  onRolledBack: (agent: Agent) => void;
+}) {
+  const versions = useAgentVersions(agentId);
+  const rollback = useRollbackAgent();
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [pending, setPending] = useState<AgentVersionSummary | null>(null);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] leading-relaxed text-subtle">
+        每次保存都会生成一个版本快照（含 server
+        与技能绑定）。回滚会把快照应用为当前配置，并生成一个新版本。
+      </p>
+      {versions.isPending ? <LoadingState rows={4} /> : null}
+      {versions.isError ? (
+        <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
+      ) : null}
+      {versions.data && versions.data.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-line px-4 py-8 text-center text-xs text-subtle">
+          还没有版本记录。
+        </p>
+      ) : null}
+      {versions.data && versions.data.length > 0 ? (
+        <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
+          {versions.data.map((item) => {
+            const open = expanded === item.version;
+            return (
+              <li key={item.id} className="px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[12.5px] font-medium text-fg">
+                        v{item.version}
+                      </span>
+                      {item.note ? (
+                        <span className="truncate rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">
+                          {item.note}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-subtle">
+                      {formatDateTime(item.createdAt)}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-expanded={open}
+                      onClick={() => setExpanded(open ? null : item.version)}
+                    >
+                      {open ? (
+                        <ChevronDown className="size-3.5" />
+                      ) : (
+                        <ChevronRight className="size-3.5" />
+                      )}
+                      {open ? '收起' : '查看'}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setPending(item)}>
+                      <RotateCcw className="size-3.5" /> 回滚到此版本
+                    </Button>
+                  </div>
+                </div>
+                {open ? (
+                  <div className="mt-3">
+                    <VersionSnapshot agentId={agentId} version={item.version} />
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      <ConfirmDialog
+        open={pending !== null}
+        onClose={() => setPending(null)}
+        title={`回滚到 v${pending?.version ?? ''}`}
+        description="当前配置会被该版本的快照覆盖，并生成一个新版本。正在运行的会话不受影响。"
+        confirmLabel="回滚"
+        onConfirm={async () => {
+          if (!pending) return;
+          const agent = await rollback.mutateAsync({ id: agentId, version: pending.version });
+          onRolledBack(agent);
+          toastSuccess(`已回滚到 v${pending.version}`);
+        }}
+      />
+    </div>
+  );
+}
+
+function VersionSnapshot({ agentId, version }: { agentId: string; version: number }) {
+  const detail = useAgentVersion(agentId, version, true);
+  if (detail.isPending) return <LoadingState rows={3} />;
+  if (detail.isError) {
+    return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
+  }
+  return (
+    <CodeBlock
+      code={JSON.stringify(detail.data.snapshot, null, 2)}
+      json
+      lineNumbers
+      maxHeight="22rem"
+    />
   );
 }
 

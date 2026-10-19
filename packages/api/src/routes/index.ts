@@ -1,8 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { registerAgentRoutes } from '../features/agents/routes.js';
+import { registerAuditRoutes } from '../features/audit/routes.js';
 import { registerAuth } from '../features/auth/routes.js';
 import { registerChatRoutes } from '../features/chat/routes.js';
 import { registerOverviewRoutes } from '../features/overview/routes.js';
+import { registerRunRoutes } from '../features/runs/routes.js';
+import { createInvoker } from '../features/servers/agent-invoker.js';
+import { registerAgentToolsEndpoint } from '../features/servers/agent-tools-endpoint.js';
 import { registerMcpEndpoint } from '../features/servers/mcp-endpoint.js';
 import { registerServerRoutes } from '../features/servers/routes.js';
 import { registerSkillRoutes } from '../features/skills/routes.js';
@@ -15,8 +19,11 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerHealthRoutes(app);
   await registerServerRoutes(app);
   await registerMcpEndpoint(app);
+  registerAgentToolsEndpoint(app, createInvoker(app));
   await registerAgentRoutes(app);
   await registerSkillRoutes(app);
+  await registerAuditRoutes(app);
   await registerChatRoutes(app);
   registerOverviewRoutes(app);
+  registerRunRoutes(app);
 }

@@ -3,6 +3,7 @@ import { asc, eq, inArray } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentServers, agentSkills, agents, servers, skills } from '../schema.js';
+import { insertAgentVersion, retryOnVersionConflict, type Tx } from './agent-versions.js';
 
 export type AgentRow = typeof agents.$inferSelect;
 
@@ -65,21 +66,26 @@ export async function createAgent(
   skillIds: string[],
 ): Promise<AgentRow> {
   const id = newId('agent');
-  const [row] = await db.transaction(async (tx) => {
-    const inserted = await tx
-      .insert(agents)
-      .values({ id, ...input })
-      .returning();
-    if (serverIds.length > 0) {
-      await tx
-        .insert(agentServers)
-        .values(serverIds.map((serverId) => ({ agentId: id, serverId })));
-    }
-    if (skillIds.length > 0) {
-      await tx.insert(agentSkills).values(skillIds.map((skillId) => ({ agentId: id, skillId })));
-    }
-    return inserted;
-  });
+  const [row] = await retryOnVersionConflict(() =>
+    db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(agents)
+        .values({ id, ...input })
+        .returning();
+      if (serverIds.length > 0) {
+        await tx
+          .insert(agentServers)
+          .values(serverIds.map((serverId) => ({ agentId: id, serverId })));
+      }
+      if (skillIds.length > 0) {
+        await tx.insert(agentSkills).values(skillIds.map((skillId) => ({ agentId: id, skillId })));
+      }
+      const created = inserted[0];
+      if (!created) throw new Error('agent insert returned no row');
+      await insertAgentVersion(tx, id, toAgent(created, serverIds, skillIds));
+      return inserted;
+    }),
+  );
   if (!row) throw new Error('agent insert returned no row');
   return row;
 }
@@ -90,30 +96,40 @@ export async function updateAgent(
   patch: Partial<AgentWrite>,
   serverIds?: string[],
   skillIds?: string[],
+  note: string | null = null,
 ): Promise<AgentRow | null> {
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(agents)
-      .set({ ...patch, updatedAt: new Date() })
-      .where(eq(agents.id, id))
-      .returning();
-    if (!row) return null;
-    if (serverIds !== undefined) {
-      await tx.delete(agentServers).where(eq(agentServers.agentId, id));
-      if (serverIds.length > 0) {
-        await tx
-          .insert(agentServers)
-          .values(serverIds.map((serverId) => ({ agentId: id, serverId })));
+  return retryOnVersionConflict(() =>
+    db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(agents)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(agents.id, id))
+        .returning();
+      if (!row) return null;
+      if (serverIds !== undefined) {
+        await tx.delete(agentServers).where(eq(agentServers.agentId, id));
+        if (serverIds.length > 0) {
+          await tx
+            .insert(agentServers)
+            .values(serverIds.map((serverId) => ({ agentId: id, serverId })));
+        }
       }
-    }
-    if (skillIds !== undefined) {
-      await tx.delete(agentSkills).where(eq(agentSkills.agentId, id));
-      if (skillIds.length > 0) {
-        await tx.insert(agentSkills).values(skillIds.map((skillId) => ({ agentId: id, skillId })));
+      if (skillIds !== undefined) {
+        await tx.delete(agentSkills).where(eq(agentSkills.agentId, id));
+        if (skillIds.length > 0) {
+          await tx
+            .insert(agentSkills)
+            .values(skillIds.map((skillId) => ({ agentId: id, skillId })));
+        }
       }
-    }
-    return row;
-  });
+      const [nextServerIds, nextSkillIds] = await Promise.all([
+        serverIds === undefined ? getAgentServerIds(tx, id) : Promise.resolve(serverIds),
+        skillIds === undefined ? getAgentSkillIds(tx, id) : Promise.resolve(skillIds),
+      ]);
+      await insertAgentVersion(tx, id, toAgent(row, nextServerIds, nextSkillIds), note);
+      return row;
+    }),
+  );
 }
 
 export async function deleteAgent(db: Database, id: string): Promise<boolean> {
@@ -121,7 +137,7 @@ export async function deleteAgent(db: Database, id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-export async function getAgentServerIds(db: Database, agentId: string): Promise<string[]> {
+export async function getAgentServerIds(db: Database | Tx, agentId: string): Promise<string[]> {
   const rows = await db
     .select({ serverId: agentServers.serverId })
     .from(agentServers)
@@ -150,7 +166,7 @@ export async function listAgentServerIds(
   return out;
 }
 
-export async function getAgentSkillIds(db: Database, agentId: string): Promise<string[]> {
+export async function getAgentSkillIds(db: Database | Tx, agentId: string): Promise<string[]> {
   const rows = await db
     .select({ skillId: agentSkills.skillId })
     .from(agentSkills)

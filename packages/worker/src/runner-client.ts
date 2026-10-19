@@ -30,6 +30,15 @@ export interface SandboxRunInput {
   logger: Logger;
 }
 
+/** 可重试 = 基础设施瞬时故障；业务失败不重试。 */
+export function isRetryable(outcome: SandboxRunOutcome): boolean {
+  if (outcome.status !== 'failed') return false;
+  const error = outcome.error ?? '';
+  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|docker: |Cannot connect to the Docker daemon|pull access denied|no such image/i.test(
+    error,
+  );
+}
+
 export interface SandboxRunOutcome {
   status: RunStatus;
   sandboxId: string;

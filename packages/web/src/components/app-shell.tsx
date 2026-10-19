@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import {
+  Activity,
   Bot,
   ChevronRight,
   LayoutDashboard,
@@ -9,6 +10,7 @@ import {
   MessagesSquare,
   PanelLeftClose,
   PanelLeftOpen,
+  ScrollText,
   Server,
   Sparkles,
   User,
@@ -27,6 +29,8 @@ const nav = [
   { to: '/agents', label: '智能体', icon: Bot, title: '智能体' },
   { to: '/skills', label: '技能', icon: Sparkles, title: '技能' },
   { to: '/chat', label: '对话', icon: MessagesSquare, title: '对话' },
+  { to: '/runs', label: '运行', icon: Activity, title: '运行' },
+  { to: '/audit', label: '审计', icon: ScrollText, title: '审计' },
 ] as const;
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';

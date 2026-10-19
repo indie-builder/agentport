@@ -1,4 +1,4 @@
-import type { RunStatus } from './api.js';
+import type { AuditStatus, RunStatus } from './api.js';
 
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
   month: '2-digit',
@@ -63,3 +63,15 @@ export const runStatusLabel: Record<RunStatus, string> = {
 export function shortId(id: string): string {
   return id.length > 14 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
 }
+
+export const auditStatusLabel: Record<AuditStatus, string> = {
+  ok: '成功',
+  error: '错误',
+  denied: '拒绝',
+};
+
+export const auditStatusVariant = {
+  ok: 'success',
+  error: 'danger',
+  denied: 'warn',
+} as const satisfies Record<AuditStatus, 'success' | 'danger' | 'warn'>;

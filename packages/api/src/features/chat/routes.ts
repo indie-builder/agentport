@@ -85,7 +85,14 @@ export function registerChatRoutes(app: FastifyInstance): void {
       await getQueue().add(
         'run',
         { runId: run.id, agentId, conversationId, prompt: message },
-        { jobId: run.id },
+        {
+          jobId: run.id,
+          // 只对基础设施类失败重试；业务失败（模型拒绝、工具报错）重试会重复计费。
+          attempts: 2,
+          backoff: { type: 'exponential', delay: 5_000 },
+          removeOnComplete: 100,
+          removeOnFail: 200,
+        },
       );
 
       await writeAudit(app.db, request.log, {

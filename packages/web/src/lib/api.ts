@@ -26,6 +26,19 @@ export interface ChatAccepted {
   conversationId: string;
 }
 
+export interface AgentVersionSummary {
+  id: string;
+  version: number;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface AgentVersionDetail {
+  version: number;
+  snapshot: Agent;
+  createdAt: string;
+}
+
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timeout';
 
 export interface RecentRun {
@@ -39,6 +52,42 @@ export interface RecentRun {
   turns: number | null;
   latencyMs: number | null;
   error: string | null;
+}
+
+export interface RunListItem extends RecentRun {
+  inputTokens: number | null;
+  outputTokens: number | null;
+}
+
+export type RunStep =
+  | { kind: 'user'; at: string; text: string }
+  | { kind: 'assistant'; at: string; text: string }
+  | {
+      kind: 'tool';
+      at: string;
+      name: string | null;
+      toolUseId: string | null;
+      content: unknown;
+    };
+
+export interface RunDetail {
+  run: RunListItem & {
+    conversationId: string;
+    sessionId: string | null;
+    sandboxId: string | null;
+  };
+  steps: RunStep[];
+  conversation: { id: string; agentId: string; title: string };
+}
+
+export interface RunList {
+  items: RunListItem[];
+}
+
+export interface RunQuery {
+  agentId?: string;
+  status?: RunStatus;
+  limit?: number;
 }
 
 export interface OverviewAgentRow {
@@ -68,6 +117,32 @@ export interface Overview {
   };
   agents?: OverviewAgentRow[];
   recent: RecentRun[];
+}
+
+export type AuditStatus = 'ok' | 'error' | 'denied';
+
+export interface AuditEntry {
+  id: string;
+  actor: string;
+  action: string;
+  target: string | null;
+  status: AuditStatus;
+  durationMs: number | null;
+  requestId: string | null;
+  /** 输入内容的 sha256 前缀，用于比对；服务端不返回原文。 */
+  inputDigest: string | null;
+  createdAt: string;
+}
+
+export interface AuditQuery {
+  action?: string;
+  status?: AuditStatus;
+  limit?: number;
+  before?: string;
+}
+
+export interface AuditList {
+  items: AuditEntry[];
 }
 
 export type Conversation = ConversationSummary;
@@ -161,6 +236,11 @@ export const api = {
     request(`/agents/${id}`, 'PATCH', input),
   deleteAgent: (id: string): Promise<void> => request(`/agents/${id}`, 'DELETE'),
   agentFiles: (id: string): Promise<AgentFiles> => request(`/agents/${id}/files`),
+  agentVersions: (id: string): Promise<AgentVersionSummary[]> => request(`/agents/${id}/versions`),
+  agentVersion: (id: string, version: number): Promise<AgentVersionDetail> =>
+    request(`/agents/${id}/versions/${version}`),
+  rollbackAgent: (id: string, version: number): Promise<Agent> =>
+    request(`/agents/${id}/rollback`, 'POST', { version }),
 
   skills: (): Promise<Skill[]> => request('/skills'),
   createSkill: (input: SkillInput): Promise<Skill> => request('/skills', 'POST', input),
@@ -183,4 +263,24 @@ export const api = {
 
   sendChat: (input: ChatRequest): Promise<ChatAccepted> => request('/chat', 'POST', input),
   cancelRun: (runId: string): Promise<void> => request(`/chat/${runId}/cancel`, 'POST'),
+
+  runs: (query: RunQuery = {}): Promise<RunList> => {
+    const params = new URLSearchParams();
+    if (query.agentId) params.set('agentId', query.agentId);
+    if (query.status) params.set('status', query.status);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request<RunList>(`/runs${search}`);
+  },
+  run: (id: string): Promise<RunDetail> => request(`/runs/${id}`),
+
+  audit: (query: AuditQuery = {}): Promise<AuditList> => {
+    const params = new URLSearchParams();
+    if (query.action) params.set('action', query.action);
+    if (query.status) params.set('status', query.status);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.before) params.set('before', query.before);
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request<AuditList>(`/audit${search}`);
+  },
 };

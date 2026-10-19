@@ -59,14 +59,41 @@
 5. **健康检查**：`/health/ready` 返回 `{db:"ok",redis:"ok"}`。
 6. **错误映射**：外键引用不存在返回 400（`INVALID_REFERENCE`）而非 500；重名返回 409。
 
+### 循环 1 补充：完整对标结论
+
+详细调研（LangSmith / LangGraph / Dify / n8n / Flowise / Vellum / OpenAI Agents / Claude Code / MCP）确认了 P0 的完整集合，并补出三个此前遗漏项：
+
+| 能力 | 状态 | 说明 |
+|---|---|---|
+| **把平台自身暴露为 MCP Server** | ❌ | 目前只做 HTTP→MCP；反向暴露（智能体即工具）缺。Dify / n8n / Flowise 都有。边际成本低、价值高。 |
+| **持久化 HITL（暂停落盘、跨重启恢复）** | ❌ | 现有「取消」只是终止，不是暂停。LangGraph 的 `interrupt` + checkpointer 是参照。 |
+| **错误分类与重试策略** | ❌ | 队列未设 attempts/backoff；模型限流、工具失败、超时未区分。 |
+
+另确认以下项**已达标**：文件定义智能体、MCP 客户端（stdio + HTTP）、HTTP→MCP、流式 SSE、会话持久化、沙盒、取消/超时/预算、凭据加密。
+
+### 循环 2 已补齐
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 运行详情页 + trace 时间线 | ✅ | `GET /api/runs`、`/api/runs/:id`；`/runs`、`/runs/$runId` 页面 |
+| 配置版本历史 + 回滚 | ✅ | `agent_versions` 表；创建/更新同事务写快照；`POST /api/agents/:id/rollback`。实测 v1→v2→rollback 生成 v3 |
+| 审计页 + 覆盖 | ✅ | `GET /api/audit`；登录成功/失败、server/agent/skill 增删改、测试连接、运行请求/取消 |
+| 平台暴露为 MCP Server | ✅ | `POST /mcp` + `PLATFORM_MCP_TOKEN`；已启用智能体成为工具。实测 `initialize` 成功 |
+| 错误分类与重试 | ✅ | BullMQ `attempts:2` + 指数退避；`isRetryable` 只重试基础设施错误 |
+| 工具调用消息落库 | ✅ | `tool_result` 与 `assistant_text` 写入 `messages` |
+
 ### 下一轮优先级（按对「生产可用」的影响排序）
 
 | 优先级 | 能力 | 理由 |
 |---|---|---|
-| P0 | run 详情页 + trace 树 | 没有它，失败无法定位；已有数据只差界面与接口 |
-| P0 | 智能体配置版本历史 + 回滚 | 改错无法恢复，是治理底线 |
-| P0 | 审计页 + 配置变更审计 | 现有审计数据不可见 |
+| ~~P0~~ ✅ | run 详情页 + trace 树 | 已完成 |
+| ~~P0~~ ✅ | 智能体配置版本历史 + 回滚 | 已完成 |
+| ~~P0~~ ✅ | 审计页 + 配置变更审计 | 已完成 |
+| ~~P0~~ ✅ | 平台自身暴露为 MCP Server | 已完成 |
+| ~~P0~~ ✅ | 错误分类与重试 | 已完成 |
 | P1 | 工具级启用/禁用 | 当前只能整 server 绑定 |
+| P1 | 持久化 HITL（暂停 → 落盘 → 恢复） | 审批常跨小时；内存态暂停不可用 |
+| P1 | 资产导出/备份（智能体定义 + 会话 + 配置） | 单机无冗余，备份即灾备 |
 | P2 | 评估集（手工用例 + 回归） | 有真实价值，但依赖 trace 先落地 |
 | P2 | 子智能体 / 多智能体编排 | SDK 支持，但需权限模型先稳定 |
 | P3 | RAG / 知识库 | 技能可覆盖多数场景 |

@@ -2,6 +2,7 @@ import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import type { FastifyInstance } from 'fastify';
+import { writeAudit } from '../../plugins/audit.js';
 import { AUTH_COOKIE, AUTH_MAX_AGE_SECONDS } from './types.js';
 
 const SCRYPT_KEYLEN = 32;
@@ -65,9 +66,22 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       const passOk = await passwordMatches(password, app.config.ADMIN_PASSWORD);
       if (!userOk || !passOk) {
         request.log.warn({ username }, 'login failed');
+        // 安全审计：失败也要落库，actor 用提交的用户名。
+        await writeAudit(app.db, request.log, {
+          actor: username,
+          action: 'auth.login.failed',
+          status: 'denied',
+          requestId: request.id,
+        });
         return reply.status(401).send({ code: 'UNAUTHORIZED', message: 'invalid credentials' });
       }
 
+      await writeAudit(app.db, request.log, {
+        actor: username,
+        action: 'auth.login.succeeded',
+        status: 'ok',
+        requestId: request.id,
+      });
       const token = await reply.jwtSign({ username }, { expiresIn: AUTH_MAX_AGE_SECONDS });
       reply.setCookie(AUTH_COOKIE, token, { ...cookieOptions, maxAge: AUTH_MAX_AGE_SECONDS });
       return { ok: true };

@@ -12,6 +12,7 @@ import type { SandboxRunOutcome } from './runner-client.js';
 import {
   closeRunnerClient,
   configureRunnerClient,
+  isRetryable,
   publishRun,
   runInSandbox,
 } from './runner-client.js';
@@ -338,6 +339,11 @@ const worker = new Worker(
       logger,
     );
     logger.info({ runId, status: outcome.status, costUsd: outcome.costUsd }, 'agent run finished');
+
+    // 瞬时基础设施故障交给 BullMQ 重试；业务失败直接结束，避免重复计费。
+    if (isRetryable(outcome)) {
+      throw new Error(`retryable sandbox failure: ${outcome.error ?? 'unknown'}`);
+    }
   },
   { connection: { url: config.REDIS_URL }, concurrency: config.AGENT_MAX_CONCURRENT },
 );

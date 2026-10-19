@@ -1,3 +1,4 @@
+import type { Agent } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -112,6 +113,22 @@ export const agentServers = pgTable(
   (t) => [uniqueIndex('agent_servers_pk').on(t.agentId, t.serverId)],
 );
 
+export const agentVersions = pgTable(
+  'agent_versions',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    /** 写入时的完整 Agent 配置，含 serverIds / skillIds。 */
+    snapshot: jsonb('snapshot').$type<Agent>().notNull(),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('agent_versions_agent_version_idx').on(t.agentId, t.version)],
+);
+
 export const conversations = pgTable(
   'conversations',
   {
@@ -188,6 +205,7 @@ export const schema = {
   skills,
   agentSkills,
   agentServers,
+  agentVersions,
   conversations,
   messages,
   agentRuns,

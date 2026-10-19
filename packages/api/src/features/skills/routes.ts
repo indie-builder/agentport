@@ -3,6 +3,7 @@ import type { Skill } from '@agentport/shared';
 import { skillInputSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { writeAudit } from '../../plugins/audit.js';
 
 const repo = skillRepo.skills;
 type SkillWrite = Parameters<typeof repo.createSkill>[1];
@@ -71,6 +72,14 @@ export function registerSkillRoutes(app: FastifyInstance): void {
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');
     try {
       const row = await repo.createSkill(app.db, parsed.data);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'skill.created',
+        target: row.id,
+        input: parsed.data,
+        status: 'ok',
+        requestId: request.id,
+      });
       return reply.status(201).send(toApi(row));
     } catch (err) {
       rethrowConflict(err);
@@ -98,7 +107,16 @@ export function registerSkillRoutes(app: FastifyInstance): void {
     };
     try {
       const row = await repo.updateSkill(app.db, params.data.id, patch);
-      return row ? toApi(row) : notFound(reply);
+      if (!row) return notFound(reply);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'skill.updated',
+        target: row.id,
+        input: patch,
+        status: 'ok',
+        requestId: request.id,
+      });
+      return toApi(row);
     } catch (err) {
       rethrowConflict(err);
     }
@@ -109,6 +127,13 @@ export function registerSkillRoutes(app: FastifyInstance): void {
     if (!params.success) return invalid(reply, 'invalid id');
     const ok = await repo.deleteSkill(app.db, params.data.id);
     if (!ok) return notFound(reply);
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'skill.deleted',
+      target: params.data.id,
+      status: 'ok',
+      requestId: request.id,
+    });
     return reply.status(204).send();
   });
 }

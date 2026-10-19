@@ -10,10 +10,13 @@ import { Toaster } from 'sonner';
 import { AppShell } from './components/app-shell.js';
 import { queryClient } from './lib/queries.js';
 import { AgentsPage } from './pages/agents.js';
+import { AuditPage } from './pages/audit.js';
 import { ChatPage } from './pages/chat.js';
 import { LoginPage } from './pages/login.js';
 import { NotFoundPage } from './pages/not-found.js';
 import { OverviewPage } from './pages/overview.js';
+import { RunDetailPage } from './pages/run-detail.js';
+import { RunsPage } from './pages/runs.js';
 import { ServersPage } from './pages/servers.js';
 import { SkillsPage } from './pages/skills.js';
 
@@ -55,6 +58,24 @@ const chatRoute = createRoute({
   component: ChatPage,
 });
 
+const auditRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/audit',
+  component: AuditPage,
+});
+
+const runsRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/runs',
+  component: RunsPage,
+});
+
+const runDetailRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/runs/$runId',
+  component: RunDetailPage,
+});
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
@@ -68,7 +89,17 @@ const notFoundRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  shellRoute.addChildren([indexRoute, serversRoute, agentsRoute, chatRoute, notFoundRoute]),
+  shellRoute.addChildren([
+    indexRoute,
+    serversRoute,
+    agentsRoute,
+    skillsRoute,
+    chatRoute,
+    auditRoute,
+    runsRoute,
+    runDetailRoute,
+    notFoundRoute,
+  ]),
   loginRoute,
 ]);
 

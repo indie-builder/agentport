@@ -60,6 +60,14 @@ export function registerServerRoutes(app: FastifyInstance): void {
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');
     try {
       const created = await repo.createServer(app.db, parsed.data, key());
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'server.created',
+        target: created.id,
+        input: parsed.data,
+        status: 'ok',
+        requestId: request.id,
+      });
       return reply.status(201).send(created);
     } catch (err) {
       rethrowConflict(err);
@@ -80,7 +88,16 @@ export function registerServerRoutes(app: FastifyInstance): void {
     if (!body.success) return invalid(reply, body.error.issues[0]?.message ?? 'invalid body');
     try {
       const updated = await repo.updateServer(app.db, params.data.id, body.data, key());
-      return updated ?? notFound(reply, 'server');
+      if (!updated) return notFound(reply, 'server');
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'server.updated',
+        target: updated.id,
+        input: body.data,
+        status: 'ok',
+        requestId: request.id,
+      });
+      return updated;
     } catch (err) {
       rethrowConflict(err);
     }
@@ -91,6 +108,13 @@ export function registerServerRoutes(app: FastifyInstance): void {
     if (!parsed.success) return invalid(reply, 'invalid id');
     const ok = await repo.deleteServer(app.db, parsed.data.id);
     if (!ok) return notFound(reply, 'server');
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'server.deleted',
+      target: parsed.data.id,
+      status: 'ok',
+      requestId: request.id,
+    });
     return reply.status(204).send();
   });
 

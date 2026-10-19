@@ -1,11 +1,18 @@
+import { repo as allRepo } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
-import type { AgentInput } from '@agentport/shared';
+import type { Agent, AgentInput } from '@agentport/shared';
 import { agentInputSchema, permissionModeSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { writeAudit } from '../../plugins/audit.js';
 import { renderAgentWorkspace } from './workspace.js';
 
 const idParams = z.object({ id: z.string().min(1) });
+const versionParams = z.object({
+  id: z.string().min(1),
+  version: z.coerce.number().int().positive(),
+});
+const rollbackBody = z.object({ version: z.number().int().positive() });
 
 // 字段与 agentInputSchema 保持一致；PATCH 用显式可选字段，才能区分「没传」与「传了默认值」。
 const patchSchema = z.object({
@@ -93,6 +100,26 @@ function assertSlugUnchanged(current: string, next: string | undefined): string 
   return next !== undefined && next !== current ? 'slug cannot change' : undefined;
 }
 
+/** 快照是共享 Agent（camelCase）；回滚时先转回 DB 写入形状，slug 保持不变。 */
+function snapshotToWrite(snapshot: Agent, slug: string): repo.AgentWrite {
+  return {
+    slug,
+    name: snapshot.name,
+    description: snapshot.description,
+    model: snapshot.model,
+    systemPromptMd: snapshot.systemPrompt,
+    allowedTools: snapshot.allowedTools,
+    disallowedTools: snapshot.disallowedTools,
+    permissionMode: snapshot.permissionMode,
+    effort: snapshot.effort ?? null,
+    maxThinkingTokens: snapshot.maxThinkingTokens ?? null,
+    enabled: snapshot.enabled,
+    maxTurns: snapshot.maxTurns,
+    maxBudgetUsd: String(snapshot.maxBudgetUsd),
+    timeoutMs: snapshot.timeoutMs,
+  };
+}
+
 export function registerAgentRoutes(app: FastifyInstance): void {
   const auth = { preHandler: [app.requireAuth] };
 
@@ -112,6 +139,14 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     const { serverIds, skillIds, ...rest } = parsed.data;
     try {
       const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.created',
+        target: row.id,
+        input: parsed.data,
+        status: 'ok',
+        requestId: request.id,
+      });
       return reply.status(201).send(repo.toAgent(row, serverIds, skillIds));
     } catch (err) {
       rethrowConflict(err);
@@ -168,6 +203,14 @@ export function registerAgentRoutes(app: FastifyInstance): void {
         input.skillIds,
       );
       if (!row) return notFound(reply);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.updated',
+        target: row.id,
+        input: body.data,
+        status: 'ok',
+        requestId: request.id,
+      });
       const [serverIds, skillIds] = await Promise.all([
         input.serverIds ?? repo.getAgentServerIds(app.db, current.id),
         input.skillIds ?? repo.getAgentSkillIds(app.db, current.id),
@@ -183,6 +226,13 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     if (!params.success) return invalid(reply, 'invalid id');
     const ok = await repo.deleteAgent(app.db, params.data.id);
     if (!ok) return notFound(reply);
+    await writeAudit(app.db, request.log, {
+      actor: 'admin',
+      action: 'agent.deleted',
+      target: params.data.id,
+      status: 'ok',
+      requestId: request.id,
+    });
     return reply.status(204).send();
   });
 
@@ -193,5 +243,71 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     const files = await renderAgentWorkspace(app, params.data.id);
     if (!files) return notFound(reply);
     return files;
+  });
+
+  app.get('/api/agents/:id/versions', auth, async (request, reply) => {
+    const params = idParams.safeParse(request.params);
+    if (!params.success) return invalid(reply, 'invalid id');
+    const current = await repo.getAgent(app.db, params.data.id);
+    if (!current) return notFound(reply);
+    return allRepo.agentVersions.listAgentVersions(app.db, current.id);
+  });
+
+  app.get('/api/agents/:id/versions/:version', auth, async (request, reply) => {
+    const params = versionParams.safeParse(request.params);
+    if (!params.success) return invalid(reply, 'invalid version');
+    const current = await repo.getAgent(app.db, params.data.id);
+    if (!current) return notFound(reply);
+    const row = await allRepo.agentVersions.getAgentVersion(
+      app.db,
+      current.id,
+      params.data.version,
+    );
+    if (!row) {
+      return reply.status(404).send({ code: 'NOT_FOUND', message: 'version not found' });
+    }
+    return { version: row.version, snapshot: row.snapshot, createdAt: row.createdAt.toISOString() };
+  });
+
+  app.post('/api/agents/:id/rollback', auth, async (request, reply) => {
+    const params = idParams.safeParse(request.params);
+    if (!params.success) return invalid(reply, 'invalid id');
+    const body = rollbackBody.safeParse(request.body);
+    if (!body.success) return invalid(reply, body.error.issues[0]?.message ?? 'invalid body');
+
+    const current = await repo.getAgent(app.db, params.data.id);
+    if (!current) return notFound(reply);
+    const target = await allRepo.agentVersions.getAgentVersion(
+      app.db,
+      current.id,
+      body.data.version,
+    );
+    if (!target) {
+      return reply.status(404).send({ code: 'NOT_FOUND', message: 'version not found' });
+    }
+
+    const snapshot = target.snapshot;
+    try {
+      const row = await repo.updateAgent(
+        app.db,
+        current.id,
+        snapshotToWrite(snapshot, current.slug),
+        snapshot.serverIds,
+        snapshot.skillIds,
+        `rollback to v${target.version}`,
+      );
+      if (!row) return notFound(reply);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.rolled_back',
+        target: row.id,
+        input: { version: target.version },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return repo.toAgent(row, snapshot.serverIds, snapshot.skillIds);
+    } catch (err) {
+      rethrowConflict(err);
+    }
   });
 }

@@ -12,17 +12,24 @@ import type {
 import {
   QueryClient,
   queryOptions,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
 import {
   type AgentFiles,
+  type AgentVersionDetail,
+  type AgentVersionSummary,
+  type AuditQuery,
   api,
   type ConversationDetail,
   type ConversationList,
   type Me,
   type Overview,
+  type RunDetail,
+  type RunList,
+  type RunQuery,
 } from './api.js';
 
 export const queryClient = new QueryClient({
@@ -91,6 +98,35 @@ export function useAgentFiles(agentId: string | null, enabled = true) {
   });
 }
 
+export function useAgentVersions(agentId: string | null, enabled = true) {
+  return useQuery<AgentVersionSummary[]>({
+    queryKey: ['agent-versions', agentId],
+    queryFn: () => api.agentVersions(agentId ?? ''),
+    enabled: agentId !== null && enabled,
+    staleTime: 0,
+  });
+}
+
+export function useAgentVersion(agentId: string, version: number, enabled: boolean) {
+  return useQuery<AgentVersionDetail>({
+    queryKey: ['agent-version', agentId, version],
+    queryFn: () => api.agentVersion(agentId, version),
+    enabled,
+  });
+}
+
+export function useRollbackAgent() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; version: number }) => api.rollbackAgent(vars.id, vars.version),
+    onSuccess: (_agent, { id }) => {
+      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: ['agent-versions', id] });
+      void client.invalidateQueries({ queryKey: ['agent-files'] });
+    },
+  });
+}
+
 export function useConversations(agentId: string | null) {
   return useQuery<ConversationList>({
     queryKey: ['conversations', agentId],
@@ -105,6 +141,47 @@ export function useConversation(conversationId: string | null) {
     queryKey: ['conversation', conversationId],
     queryFn: () => api.conversation(conversationId ?? ''),
     enabled: conversationId !== null,
+  });
+}
+
+export function useRuns(query: RunQuery = {}) {
+  return useQuery<RunList>({
+    queryKey: ['runs', query.agentId ?? null, query.status ?? null, query.limit ?? 50],
+    queryFn: () => api.runs(query),
+    staleTime: 5_000,
+  });
+}
+
+export function useRun(runId: string) {
+  return useQuery<RunDetail>({
+    queryKey: ['run', runId],
+    queryFn: () => api.run(runId),
+    // 运行中要能看到新落库的步骤。
+    refetchInterval: (query) =>
+      query.state.data?.run.status === 'running' || query.state.data?.run.status === 'queued'
+        ? 2_000
+        : false,
+  });
+}
+
+const AUDIT_PAGE_SIZE = 100;
+
+export function useAudit(query: Omit<AuditQuery, 'before' | 'limit'>) {
+  return useInfiniteQuery({
+    queryKey: ['audit', query],
+    queryFn: ({ pageParam }) =>
+      api.audit({
+        ...query,
+        limit: AUDIT_PAGE_SIZE,
+        ...(pageParam === null ? {} : { before: pageParam }),
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last, _pages, before) => {
+      if (last.items.length < AUDIT_PAGE_SIZE) return undefined;
+      const next = last.items.at(-1)?.createdAt ?? null;
+      return next === before ? undefined : next;
+    },
+    staleTime: 0,
   });
 }
 
