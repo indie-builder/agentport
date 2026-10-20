@@ -94,4 +94,21 @@ describe('toWorkspaceInput', () => {
     expect(files.subAgents[0]?.content).not.toContain('tools: [');
     expect(files.agentMd).toContain('tools: [');
   });
+
+  it('always disallows Agent/TaskStop in sub-agent files, even if the DB value omits them', () => {
+    const files = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow(),
+        servers: servers('<已配置>'),
+        skills: [],
+        subAgents: [agentRow({ slug: 'active-child', disallowedTools: [] })],
+      }),
+    );
+    const content = files.subAgents[0]?.content ?? '';
+    expect(content).toContain('disallowedTools: [');
+    expect(content).toMatch(/disallowedTools: \[[^\]]*"Agent"/);
+    expect(content).toMatch(/disallowedTools: \[[^\]]*"TaskStop"/);
+    // 主智能体有子智能体时仍可委派。
+    expect(files.agentMd).not.toMatch(/disallowedTools: \[[^\]]*"Agent"/);
+  });
 });

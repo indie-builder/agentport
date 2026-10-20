@@ -12,6 +12,7 @@ concurrency:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:18-alpine
@@ -49,3 +50,83 @@ jobs:
       - run: pnpm build
       - run: pnpm db:migrate
       - run: pnpm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: agentport
+          POSTGRES_PASSWORD: agentport
+          POSTGRES_DB: agentport
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U agentport -d agentport"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://agentport:agentport@localhost:5432/agentport
+      REDIS_URL: redis://localhost:6379
+      # 固定值即可：只服务本次 job 的一次性数据库。
+      APP_SECRET_KEY: ci-app-secret-key-0123456789abcdef
+      JWT_SECRET: ci-jwt-secret-key-0123456789abcdef
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: ci-admin-password
+      E2E_ADMIN_USER: admin
+      E2E_ADMIN_PASSWORD: ci-admin-password
+      RATE_LIMIT_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm db:migrate
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Start api + web
+        run: |
+          pnpm dev > dev.log 2>&1 &
+          for _ in $(seq 1 90); do
+            if curl -fsS http://localhost:3000/health/ready >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:3000/health/ready
+      - run: pnpm exec playwright test --reporter=github
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure
+          path: |
+            test-results/
+            dev.log
+          retention-days: 7
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # 沙盒镜像的 Dockerfile 只复制 packages/sandbox/dist，不再在镜像内编译。
+      - run: pnpm --filter @agentport/sandbox build
+      - run: docker build -t agentport/api:ci .
+      - run: docker build -t agentport/sandbox:ci packages/sandbox

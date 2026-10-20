@@ -16,11 +16,31 @@ export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export const chatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('run_started'), runId: z.string(), conversationId: z.string() }),
   z.object({ type: z.literal('text_delta'), text: z.string() }),
-  z.object({ type: z.literal('tool_start'), toolUseId: z.string(), name: z.string() }),
-  z.object({ type: z.literal('tool_input'), toolUseId: z.string(), json: z.string() }),
-  z.object({ type: z.literal('tool_result'), toolUseId: z.string(), content: z.string() }),
+  z.object({
+    type: z.literal('tool_start'),
+    toolUseId: z.string(),
+    name: z.string(),
+    parentToolUseId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('tool_input'),
+    toolUseId: z.string(),
+    json: z.string(),
+    parentToolUseId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('tool_result'),
+    toolUseId: z.string(),
+    content: z.string(),
+    parentToolUseId: z.string().optional(),
+  }),
   /** 已完成的 assistant 文本块；用于落库，前端可与 text_delta 去重。 */
-  z.object({ type: z.literal('assistant_text'), text: z.string() }),
+  z.object({
+    type: z.literal('assistant_text'),
+    text: z.string(),
+    /** 子智能体产生的文本：父侧 Agent 的 tool_use id。 */
+    parentToolUseId: z.string().optional(),
+  }),
   z.object({
     type: z.literal('run_finished'),
     status: z.enum(['succeeded', 'failed', 'cancelled', 'timeout']),

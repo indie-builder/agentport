@@ -30,7 +30,10 @@ import {
   type EvalCaseInput,
   type EvalRun,
   type EvalRunDetail,
+  type HealthLive,
   type HealthMetrics,
+  type HealthProbe,
+  type HealthReady,
   type Me,
   type Overview,
   type RunDetail,
@@ -91,6 +94,20 @@ export const healthMetricsQuery = queryOptions<HealthMetrics | null>({
   queryKey: ['health-metrics'],
   queryFn: api.healthMetrics,
   refetchInterval: 30_000,
+  staleTime: 0,
+});
+
+export const healthLiveQuery = queryOptions<HealthProbe<HealthLive>>({
+  queryKey: ['health-live'],
+  queryFn: api.healthLive,
+  refetchInterval: 10_000,
+  staleTime: 0,
+});
+
+export const healthReadyQuery = queryOptions<HealthProbe<HealthReady>>({
+  queryKey: ['health-ready'],
+  queryFn: api.healthReady,
+  refetchInterval: 10_000,
   staleTime: 0,
 });
 

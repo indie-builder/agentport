@@ -20,6 +20,8 @@ interface RunnerEvent {
     | 'run_finished';
   text?: string;
   toolUseId?: string;
+  /** 子智能体产生的消息：指向父侧 Agent 的 tool_use id；顶层消息不写。 */
+  parentToolUseId?: string;
   name?: string;
   json?: string;
   content?: string;
@@ -139,6 +141,11 @@ function toolResultText(content: unknown): string {
     .join('\n');
 }
 
+/** 顶层消息 parent_tool_use_id 为 null：事件里省略该字段，宿主侧按 undefined 处理。 */
+function parentTag(id: string | null): { parentToolUseId?: string } {
+  return id === null ? {} : { parentToolUseId: id };
+}
+
 const task = await readTask();
 const prompt = composePrompt(task.prompt, task.history);
 // allow 规则只支持 `mcp__<server>__` 之后通配；`mcp__*` 不匹配任何工具。
@@ -194,13 +201,22 @@ for await (const message of query({
   },
 })) {
   if (message.type === 'assistant') {
+    // 子智能体消息带 parent_tool_use_id（父侧 Agent 的 tool_use id）；顶层为 null。
+    const parent = parentTag(message.parent_tool_use_id);
     // 完整文本块单独发一次：前端已用 text_delta 渲染，这次用于落库。
     const fullText = assistantText(message.message.content);
-    if (fullText.length > 0) emit({ type: 'assistant_text', text: cap(fullText) });
+    if (fullText.length > 0) {
+      emit({ type: 'assistant_text', text: cap(fullText), ...parent });
+    }
     for (const block of message.message.content) {
       if (block.type !== 'tool_use') continue;
-      emit({ type: 'tool_start', toolUseId: block.id, name: block.name });
-      emit({ type: 'tool_input', toolUseId: block.id, json: cap(JSON.stringify(block.input)) });
+      emit({ type: 'tool_start', toolUseId: block.id, name: block.name, ...parent });
+      emit({
+        type: 'tool_input',
+        toolUseId: block.id,
+        json: cap(JSON.stringify(block.input)),
+        ...parent,
+      });
     }
     continue;
   }
@@ -208,12 +224,14 @@ for await (const message of query({
   if (message.type === 'user') {
     const content = message.message.content;
     if (typeof content === 'string') continue;
+    const parent = parentTag(message.parent_tool_use_id);
     for (const block of content) {
       if (block.type !== 'tool_result') continue;
       emit({
         type: 'tool_result',
         toolUseId: block.tool_use_id,
         content: cap(toolResultText(block.content)),
+        ...parent,
       });
     }
     continue;

@@ -748,8 +748,15 @@ function ApprovalCards({
 function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false);
   const done = item.result !== undefined;
+  const nested = item.parentToolUseId !== undefined;
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-canvas/60">
+    <div
+      className={cn(
+        'overflow-hidden rounded-lg border border-line bg-canvas/60',
+        // 子智能体内部的调用：缩进并加左线，视觉上归属父 Agent 卡片。
+        nested && 'ml-6 border-l-2 border-l-accent/40',
+      )}
+    >
       <button
         type="button"
         aria-expanded={open}
@@ -758,6 +765,7 @@ function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
       >
         <Wrench className={cn('size-3.5', done ? 'text-muted' : 'text-warning')} />
         <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg">{item.name}</code>
+        {nested ? <Badge variant="accent">子智能体内部调用</Badge> : null}
         <Badge variant={done ? 'default' : 'warn'}>
           {done ? (
             '完成'

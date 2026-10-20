@@ -19,7 +19,8 @@ export default defineConfig({
     command: 'pnpm dev',
     env: { RATE_LIMIT_DISABLED: '1' },
     url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
+    // CI 的 workflow 会先启动并等到 /health/ready，再跑测试；这里不再重复启动。
+    reuseExistingServer: true,
     timeout: 120_000,
   },
 });

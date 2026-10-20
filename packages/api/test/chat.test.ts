@@ -1,6 +1,8 @@
 import type { Agent } from '@agentport/shared';
+import { chatEventSchema } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { buildMessageRows } from '../../worker/src/messages.js';
 import {
   cleanup,
   infraReady,
@@ -68,6 +70,60 @@ describe.skipIf(!ready)('chat', () => {
     expect(conversation.statusCode).toBe(200);
     const detail = conversation.json<{ messages: Array<{ role: string }> }>();
     expect(detail.messages.some((m) => m.role === 'user')).toBe(true);
+  });
+
+  it('persists parentToolUseId on messages produced inside a sub-agent', async () => {
+    const agent = await createAgent();
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: { agentId: agent.id, message: 'delegate this' },
+    });
+    const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
+    runIds.push(runId);
+
+    // worker 的事件落库逻辑；这里直接写同一张表，验证 content 结构可被读回。
+    const events = chatEventSchema.array().parse([
+      { type: 'tool_start', toolUseId: 'toolu_parent', name: 'Agent' },
+      {
+        type: 'tool_start',
+        toolUseId: 'toolu_child',
+        name: 'mcp__x__get-user',
+        parentToolUseId: 'toolu_parent',
+      },
+      {
+        type: 'tool_input',
+        toolUseId: 'toolu_child',
+        json: '{"id":1}',
+        parentToolUseId: 'toolu_parent',
+      },
+      {
+        type: 'tool_result',
+        toolUseId: 'toolu_child',
+        content: '{"id":1}',
+        parentToolUseId: 'toolu_parent',
+      },
+      { type: 'tool_result', toolUseId: 'toolu_parent', content: 'done' },
+    ]);
+    for (const [index, row] of buildMessageRows(events).entries()) {
+      await app.pool.query(
+        'insert into messages (id, conversation_id, role, content, run_id) values ($1, $2, $3, $4, $5)',
+        [`msg_parent_test_${index}`, conversationId, row.role, JSON.stringify(row.content), runId],
+      );
+    }
+
+    const detail = await inject(app, {
+      method: 'GET',
+      url: `/api/conversations/${conversationId}`,
+      headers: auth(),
+    });
+    const messages = detail.json<{ messages: Array<{ content: Record<string, unknown> }> }>()
+      .messages;
+    const childUse = messages.find((message) => message.content.id === 'toolu_child');
+    const parentUse = messages.find((message) => message.content.id === 'toolu_parent');
+    expect(childUse?.content.parentToolUseId).toBe('toolu_parent');
+    expect(parentUse?.content).not.toHaveProperty('parentToolUseId');
   });
 
   it('POST /api/chat returns 404 for an unknown agent', async () => {

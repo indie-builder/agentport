@@ -4,7 +4,15 @@ import type { Conversation, ConversationDetail } from './api.js';
 export type ChatItem =
   | { kind: 'user'; text: string }
   | { kind: 'text'; text: string }
-  | { kind: 'tool'; toolUseId: string; name: string; input?: string; result?: string }
+  | {
+      kind: 'tool';
+      toolUseId: string;
+      name: string;
+      input?: string;
+      result?: string;
+      /** 子智能体内部的调用：父侧 Agent 的 tool_use id。 */
+      parentToolUseId?: string;
+    }
   | { kind: 'notice'; text: string; tone: 'ok' | 'error' | 'muted' };
 
 export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
@@ -17,7 +25,17 @@ export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
       return [...items, { kind: 'text', text: event.text }];
     }
     case 'tool_start':
-      return [...items, { kind: 'tool', toolUseId: event.toolUseId, name: event.name }];
+      return [
+        ...items,
+        {
+          kind: 'tool',
+          toolUseId: event.toolUseId,
+          name: event.name,
+          ...(event.parentToolUseId === undefined
+            ? {}
+            : { parentToolUseId: event.parentToolUseId }),
+        },
+      ];
     case 'tool_input':
       return items.map((item) =>
         item.kind === 'tool' && item.toolUseId === event.toolUseId
@@ -108,10 +126,18 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
         });
       } else if (record.type === 'tool_result') {
         const id = typeof record.tool_use_id === 'string' ? record.tool_use_id : '';
+        const result = blockText(record.content) ?? '';
+        const parent =
+          typeof record.parentToolUseId === 'string'
+            ? { parentToolUseId: record.parentToolUseId }
+            : {};
         const index = items.findIndex((item) => item.kind === 'tool' && item.toolUseId === id);
         const existing = items[index];
         if (existing?.kind === 'tool') {
-          items[index] = { ...existing, result: blockText(record.content) ?? '' };
+          items[index] = { ...existing, result, ...parent };
+        } else {
+          // 找不到 tool_use 时也保留归属：否则子智能体卡片会被当成顶层调用。
+          items.push({ kind: 'tool', toolUseId: id, name: '未知工具', result, ...parent });
         }
       }
     }

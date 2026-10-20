@@ -23,8 +23,8 @@ import pino from 'pino';
 import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
 import { startMaintenanceWorker } from './maintenance.js';
+import { buildMessageRows } from './messages.js';
 import { startReconciler } from './reconcile.js';
-import { redactSecrets } from './redact.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
   closeRunnerClient,
@@ -192,56 +192,11 @@ async function writeWorkspace(
 }
 
 /** 事件流 → 消息行：assistant 文本按块存，工具调用存成 tool 消息。 */
-/** 工具入参在事件里是 JSON 字符串；落库时还原成对象，前端与 trace 都按对象渲染。 */
-function parseToolInput(raw: string | undefined): unknown {
-  if (raw === undefined) return {};
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return { raw };
-  }
-}
-
 async function persistRunMessages(
   db: ReturnType<typeof createDb>['db'],
   input: { conversationId: string; runId: string; events: ChatEvent[] },
 ): Promise<void> {
-  const rows: Array<{ role: string; content: unknown }> = [];
-  const toolNames = new Map<string, string>();
-  const toolInputs = new Map<string, string>();
-
-  for (const event of input.events) {
-    if (event.type === 'assistant_text' && event.text.trim().length > 0) {
-      rows.push({
-        role: 'assistant',
-        content: { type: 'text', text: redactSecrets(event.text) },
-      });
-    } else if (event.type === 'tool_start') {
-      toolNames.set(event.toolUseId, event.name);
-    } else if (event.type === 'tool_input') {
-      toolInputs.set(event.toolUseId, redactSecrets(event.json));
-    } else if (event.type === 'tool_result') {
-      // tool_use 也要落库：否则刷新后前端无法重建工具卡片（只有 result 没有卡片）。
-      rows.push({
-        role: 'tool',
-        content: {
-          type: 'tool_use',
-          id: event.toolUseId,
-          name: toolNames.get(event.toolUseId) ?? null,
-          input: parseToolInput(toolInputs.get(event.toolUseId)),
-        },
-      });
-      rows.push({
-        role: 'tool',
-        content: {
-          type: 'tool_result',
-          toolUseId: event.toolUseId,
-          name: toolNames.get(event.toolUseId) ?? null,
-          content: redactSecrets(event.content),
-        },
-      });
-    }
-  }
+  const rows = buildMessageRows(input.events);
 
   // BullMQ 重试会重放同一 run：先删本 run 已落库的输出再写，避免重复消息。
   // 用户消息也带 run_id，但由 API 写入，重试时不能删。

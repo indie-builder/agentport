@@ -149,6 +149,9 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
       ...DEFAULT_DISALLOWED_TOOLS.filter(
         (tool) => !(hasSubAgents && (tool === 'Agent' || tool === 'TaskStop')),
       ),
+      // 子智能体的单层约束由这里兜底：API 只拦两层父子，
+      // 手工把文件放回 .claude/agents/ 时也必须无法再委派。
+      ...(standalone ? ['Agent', 'TaskStop'] : []),
       ...(input.toolsDeny ?? []),
     ]),
   ];

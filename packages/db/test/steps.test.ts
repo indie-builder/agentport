@@ -31,6 +31,7 @@ describe('toStep', () => {
       name: 'get_user',
       toolUseId: 't1',
       content: '{"id":1}',
+      parentToolUseId: null,
     });
   });
 
@@ -47,7 +48,23 @@ describe('toStep', () => {
       name: 'get_user',
       toolUseId: 't1',
       content: { id: '1' },
+      parentToolUseId: null,
     });
+  });
+
+  it('keeps the sub-agent attribution on tool rows', () => {
+    const step = toStep({
+      role: 'tool',
+      content: {
+        type: 'tool_use',
+        id: 't2',
+        name: 'mcp__x__get_user',
+        input: {},
+        parentToolUseId: 'toolu_parent',
+      },
+      createdAt: at,
+    });
+    expect(step).toMatchObject({ kind: 'tool', parentToolUseId: 'toolu_parent' });
   });
 
   it('tolerates missing tool name and id', () => {

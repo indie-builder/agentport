@@ -20,6 +20,7 @@ import { RunDetailPage } from './pages/run-detail.js';
 import { RunsPage } from './pages/runs.js';
 import { ServersPage } from './pages/servers.js';
 import { SkillsPage } from './pages/skills.js';
+import { StatusPage } from './pages/status.js';
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -83,6 +84,12 @@ const evalRoute = createRoute({
   component: EvalPage,
 });
 
+const statusRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/status',
+  component: StatusPage,
+});
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
@@ -106,6 +113,7 @@ const routeTree = rootRoute.addChildren([
     runsRoute,
     runDetailRoute,
     evalRoute,
+    statusRoute,
     notFoundRoute,
   ]),
   loginRoute,

@@ -52,6 +52,8 @@ export type RunStep =
       name: string | null;
       toolUseId: string | null;
       content: unknown;
+      /** 子智能体内部的调用：父侧 Agent 的 tool_use id；顶层为空。 */
+      parentToolUseId: string | null;
     };
 
 export interface RunDetail {
@@ -123,6 +125,7 @@ export function toStep(message: {
       name: typeof content.name === 'string' ? content.name : null,
       toolUseId: typeof content.id === 'string' ? content.id : null,
       content: content.input,
+      parentToolUseId: typeof content.parentToolUseId === 'string' ? content.parentToolUseId : null,
     };
   }
   if (message.role === 'tool' && content?.type === 'tool_result') {
@@ -132,6 +135,7 @@ export function toStep(message: {
       name: typeof content.name === 'string' ? content.name : null,
       toolUseId: typeof content.toolUseId === 'string' ? content.toolUseId : null,
       content: content.content,
+      parentToolUseId: typeof content.parentToolUseId === 'string' ? content.parentToolUseId : null,
     };
   }
   return null;

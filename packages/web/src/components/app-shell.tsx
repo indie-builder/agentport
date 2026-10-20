@@ -5,6 +5,7 @@ import {
   Bot,
   ChevronRight,
   FlaskConical,
+  HeartPulse,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -33,6 +34,7 @@ const nav = [
   { to: '/runs', label: '运行', icon: Activity, title: '运行' },
   { to: '/eval', label: '评估', icon: FlaskConical, title: '评估' },
   { to: '/audit', label: '审计', icon: ScrollText, title: '审计' },
+  { to: '/status', label: '系统状态', icon: HeartPulse, title: '系统状态' },
 ] as const;
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';

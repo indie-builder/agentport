@@ -2,7 +2,7 @@
 
 PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：把 HTTP API 或 MCP Server 接进来，用文件定义智能体，在隔离沙盒里运行，并观测每一次调用。
 
-产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。依赖版本以 `package.json` / `pnpm-lock.yaml` 为准：Node.js >= 24、pnpm 12.14.0、React 19.3、Vite 8.3、Fastify 5.12、PostgreSQL 18、Redis 8。项目本身没有对外版本号。
+产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。依赖版本以 `package.json` / `pnpm-lock.yaml` 为准：Node.js >= 24、pnpm 12.14.0、React 19.3、Vite 8.3、Fastify 5.12、PostgreSQL 18、Redis 8。项目版本见根 `package.json`（当前 0.1.0）。
 
 ## 能力
 
@@ -108,6 +108,12 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 E2E 不读取 `.env`，默认管理员为 `admin` / `admin-change-me`（该口令不能用于服务端配置）；如与 `.env` 不同，用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。本地 `.env` 的默认口令是 `admin-local-dev-2026`。
 
+## 版本与发布
+
+版本号在根 `package.json`，变更记录见 [CHANGELOG.md](CHANGELOG.md)（SemVer）。
+发布：更新版本号与 CHANGELOG 后推送 `v*` tag（如 `git tag v0.1.0 && git push origin v0.1.0`）。
+tag 触发 `.github/workflows/release.yml`，构建并推送 `ghcr.io/<repo>/api:<tag>` 与 `ghcr.io/<repo>/sandbox:<tag>` 到 GHCR。
+
 ## 目录结构
 
 ```
@@ -147,7 +153,7 @@ agentport/
 | [docs/DECISIONS-PENDING.md](docs/DECISIONS-PENDING.md) | 待决策事项与已执行状态回填 |
 | [docs/HANDOFF.md](docs/HANDOFF.md) | 当前状态、质量基线、已知限制、下一步 |
 | [docs/SECURITY.md](docs/SECURITY.md) | 安全审查记录与剩余项 |
-| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 按循环 0–9 的能力清单 |
+| [CHANGELOG.md](CHANGELOG.md) | 版本与变更记录 |
 
 ## 安全说明
 

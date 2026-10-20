@@ -91,8 +91,15 @@ type ApprovalItem = ApprovalRequest;
 
 function ToolStep({ step }: { step: Extract<RunStep, { kind: 'tool' }> }) {
   const [open, setOpen] = useState(false);
+  const nested = step.parentToolUseId !== null;
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-canvas/60">
+    <div
+      className={cn(
+        'overflow-hidden rounded-lg border border-line bg-canvas/60',
+        // 子智能体内部的调用：缩进并加左线，视觉上归属父 Agent 步骤。
+        nested && 'ml-6 border-l-2 border-l-accent/40',
+      )}
+    >
       <button
         type="button"
         aria-expanded={open}
@@ -103,6 +110,7 @@ function ToolStep({ step }: { step: Extract<RunStep, { kind: 'tool' }> }) {
         <code className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-fg">
           {step.name ?? '未知工具'}
         </code>
+        {nested ? <Badge variant="accent">子智能体内部调用</Badge> : null}
         {step.toolUseId ? (
           <Badge variant="mono" title={step.toolUseId}>
             {step.toolUseId}
