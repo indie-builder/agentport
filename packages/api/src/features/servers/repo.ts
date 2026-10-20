@@ -245,7 +245,7 @@ export async function updateTool(
   db: Db,
   serverId: string,
   toolId: string,
-  patch: { enabled?: boolean; requiresApproval?: boolean },
+  patch: serverRepo.ApiToolPatch,
 ): Promise<ApiTool | null> {
   const row = await serverRepo.updateApiTool(db, serverId, toolId, patch);
   return row ? toApiTool(row) : null;

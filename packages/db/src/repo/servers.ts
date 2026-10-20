@@ -25,7 +25,17 @@ export interface ApiToolWrite {
   requiresApproval: boolean;
 }
 
+/**
+ * 工具的可编辑字段。定义类字段（name/method/path/params/schema）与开关类字段
+ * 放在同一个 patch 里：编辑工具时前端只发一次 PATCH，不需要先删后建。
+ */
 export interface ApiToolPatch {
+  name?: string;
+  description?: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  pathTemplate?: string;
+  inputSchema?: Record<string, unknown>;
+  paramsIn?: 'query' | 'body';
   enabled?: boolean;
   requiresApproval?: boolean;
 }

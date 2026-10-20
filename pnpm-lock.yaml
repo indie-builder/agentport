@@ -338,6 +338,9 @@ importers:
 
   packages/web:
     dependencies:
+      '@agentport/core':
+        specifier: workspace:*
+        version: link:../core
       '@agentport/shared':
         specifier: workspace:*
         version: link:../shared

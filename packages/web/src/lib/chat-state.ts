@@ -12,8 +12,26 @@ export type ChatItem =
       result?: string;
       /** 子智能体内部的调用：父侧 Agent 的 tool_use id。 */
       parentToolUseId?: string;
+      /** 前端收到的时刻，用于显示耗时；历史消息没有。 */
+      startedAt?: number;
+      endedAt?: number;
     }
   | { kind: 'notice'; text: string; tone: 'ok' | 'error' | 'muted' };
+
+/**
+ * 事件流没有 isError 字段，沙盒只丢了文本。已知错误文案只能按前缀识别。
+ * shortcut: 工具错误靠前缀判断，后端补 isError 后改这里。
+ */
+export function toolFailed(result: string | undefined): boolean {
+  if (result === undefined) return false;
+  const text = result.trimStart();
+  return (
+    text.startsWith('需要批准：') ||
+    /^upstream \d{3}:/.test(text) ||
+    text.startsWith('Error:') ||
+    text.startsWith('error:')
+  );
+}
 
 export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
   switch (event.type) {
@@ -31,6 +49,7 @@ export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
           kind: 'tool',
           toolUseId: event.toolUseId,
           name: event.name,
+          startedAt: Date.now(),
           ...(event.parentToolUseId === undefined
             ? {}
             : { parentToolUseId: event.parentToolUseId }),
@@ -45,31 +64,14 @@ export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
     case 'tool_result':
       return items.map((item) =>
         item.kind === 'tool' && item.toolUseId === event.toolUseId
-          ? { ...item, result: event.content }
+          ? { ...item, result: event.content, endedAt: Date.now() }
           : item,
       );
-    case 'run_finished': {
-      const parts: string[] = [];
-      if (event.turns !== undefined) parts.push(`${event.turns} 轮`);
-      if (event.costUsd !== undefined) parts.push(`$${event.costUsd.toFixed(4)}`);
-      if (event.error) parts.push(event.error);
-      const text =
-        event.status === 'succeeded'
-          ? ['运行完成', ...parts].join(' · ')
-          : event.status === 'cancelled'
-            ? '已停止'
-            : [`运行${event.status === 'timeout' ? '超时' : '失败'}`, ...parts].join(' · ');
-      return [
-        ...items,
-        {
-          kind: 'notice',
-          tone:
-            event.status === 'succeeded' ? 'ok' : event.status === 'cancelled' ? 'muted' : 'error',
-          text,
-        },
-      ];
-    }
+    case 'run_finished':
+      // 终态由页面渲染成答案下方的一行读数，不再追加一条 notice。
+      return items;
     case 'error':
+      // 流可能仍然活着：只记录，不当作终态。
       return [...items, { kind: 'notice', tone: 'error', text: event.message }];
     case 'run_started':
       return items;

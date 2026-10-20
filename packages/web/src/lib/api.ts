@@ -409,10 +409,11 @@ export const api = {
     request(`/servers/${serverId}/tools`, 'POST', input),
   deleteTool: (serverId: string, toolId: string): Promise<void> =>
     request(`/servers/${serverId}/tools/${toolId}`, 'DELETE'),
+  /** 与 createTool 同字段，全部可选：编辑只提交改动的字段。 */
   updateTool: (
     serverId: string,
     toolId: string,
-    patch: { enabled?: boolean; requiresApproval?: boolean },
+    patch: Partial<ApiToolInput> & { enabled?: boolean },
   ): Promise<ApiTool> => request(`/servers/${serverId}/tools/${toolId}`, 'PATCH', patch),
   runApprovals: (runId: string): Promise<ApprovalRequestList> =>
     request(`/runs/${runId}/approvals`),

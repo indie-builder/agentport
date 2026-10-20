@@ -1,4 +1,5 @@
 import { fail } from '@agentport/core';
+import type { ApiToolPatch } from '@agentport/db/repo/servers.js';
 import {
   apiToolInputSchema,
   httpUrlSchema,
@@ -35,10 +36,29 @@ const serverPatchSchema = z.object({
   expectedUpdatedAt: z.coerce.date().optional(),
 });
 
+/**
+ * 工具的可编辑字段。与 apiToolInputSchema 同名同义，但全部可选且**不带默认值**：
+ * `.partial()` 只把字段设为可选，`default()` 仍会为空对象填上默认值，
+ * 于是「至少改一项」的校验永远不会触发。所以这里显式重写，而不是 partial()。
+ */
 const toolPatchSchema = z
-  .object({ enabled: z.boolean().optional(), requiresApproval: z.boolean().optional() })
-  .refine((value) => value.enabled !== undefined || value.requiresApproval !== undefined, {
-    message: 'enabled or requiresApproval is required',
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _')
+      .optional(),
+    description: z.string().max(1000).optional(),
+    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
+    pathTemplate: z.string().min(1).optional(),
+    inputSchema: z.record(z.string(), z.unknown()).optional(),
+    paramsIn: z.enum(['query', 'body']).optional(),
+    requiresApproval: z.boolean().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'at least one field is required',
   });
 
 function notFound(reply: FastifyReply, what: string) {
@@ -266,10 +286,16 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const { id, toolId } = request.params;
       const body = request.body;
-      const patch = {
-        ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
-        ...(body.requiresApproval === undefined ? {} : { requiresApproval: body.requiresApproval }),
-      };
+      // 去掉 undefined：exactOptionalPropertyTypes 下「没有该键」与「值为 undefined」不同。
+      const patch: ApiToolPatch = {};
+      if (body.name !== undefined) patch.name = body.name;
+      if (body.description !== undefined) patch.description = body.description;
+      if (body.method !== undefined) patch.method = body.method;
+      if (body.pathTemplate !== undefined) patch.pathTemplate = body.pathTemplate;
+      if (body.inputSchema !== undefined) patch.inputSchema = body.inputSchema;
+      if (body.paramsIn !== undefined) patch.paramsIn = body.paramsIn;
+      if (body.requiresApproval !== undefined) patch.requiresApproval = body.requiresApproval;
+      if (body.enabled !== undefined) patch.enabled = body.enabled;
       const tool = await repo.updateTool(app.db, id, toolId, patch);
       if (!tool) return notFound(reply, 'tool');
       await writeAudit(app.db, request.log, {

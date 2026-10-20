@@ -334,6 +334,21 @@ export function useSetToolEnabled(serverId: string) {
   });
 }
 
+/** 编辑工具定义（名称/方法/路径/参数/schema）；与启停分开，互不覆盖。 */
+export function useUpdateTool(serverId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { toolId: string; patch: Partial<ApiToolInput> & { enabled?: boolean } }) =>
+      api.updateTool(serverId, vars.toolId, vars.patch),
+    onSuccess: (tool) => {
+      client.setQueryData<ApiTool[]>(['tools', serverId], (old) =>
+        old?.map((item) => (item.id === tool.id ? tool : item)),
+      );
+      void client.invalidateQueries({ queryKey: ['tools', serverId] });
+    },
+  });
+}
+
 export function useDeleteTool(serverId: string) {
   const client = useQueryClient();
   return useMutation({
