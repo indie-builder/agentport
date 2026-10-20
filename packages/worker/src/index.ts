@@ -26,6 +26,7 @@ import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
 import { startMaintenanceWorker } from './maintenance.js';
 import { buildMessageRows } from './messages.js';
+import { type ModelProxy, startModelProxy } from './model-proxy.js';
 import { startReconciler } from './reconcile.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
@@ -226,19 +227,32 @@ function toHostUrl(value: string): string {
   );
 }
 
+/**
+ * 模型代理（D-17）。启用后沙盒只拿到代理地址与 run token，真实凭证留在 worker。
+ * 未启用时回退到直接注入，启动日志会警告。
+ */
+let modelProxy: ModelProxy | null = null;
+
 /** 容器只拿凭证与 API 地址；密钥不落盘。 */
-function sandboxEnv(apiUrl: string): Record<string, string> {
+function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
   const env: Record<string, string> = {
     SANDBOX_API_URL: apiUrl,
     // 根文件系统只读；SDK 写会话缓存的目录是 tmpfs（见 docker.ts）。
     CLAUDE_CONFIG_DIR: '/home/node/.claude',
     CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
   };
-  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const) {
-    const value = config[key];
-    if (value) env[key] = value;
+  if (modelProxy) {
+    env.ANTHROPIC_BASE_URL = modelProxy.url;
+    // 短期 token：run 结束即吊销；沙盒读不到真实模型密钥。
+    env.ANTHROPIC_AUTH_TOKEN = modelProxy.issueToken(runId);
+    env.ANTHROPIC_API_KEY = '';
+  } else {
+    for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const) {
+      const value = config[key];
+      if (value) env[key] = value;
+    }
+    if (config.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = toHostUrl(config.ANTHROPIC_BASE_URL);
   }
-  if (config.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = toHostUrl(config.ANTHROPIC_BASE_URL);
 
   // proxy 模式：把宿主上的代理地址传给沙盒，仍由容器自行出站。
   if (sandboxEgress === 'proxy') {
@@ -250,6 +264,29 @@ function sandboxEnv(apiUrl: string): Record<string, string> {
     if (noProxy) env.NO_PROXY = noProxy;
   }
   return env;
+}
+
+/**
+ * 模型代理必须在 worker 启动前就绪：sandboxEnv 在任务里同步读取它。
+ * 未配置凭证时返回 null，随后回退到直接注入并打印警告。
+ */
+modelProxy = await startModelProxy({
+  logger,
+  upstreamBaseUrl: config.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
+  ...(config.ANTHROPIC_API_KEY ? { apiKey: config.ANTHROPIC_API_KEY } : {}),
+  ...(config.ANTHROPIC_AUTH_TOKEN ? { authToken: config.ANTHROPIC_AUTH_TOKEN } : {}),
+  resolveRun: async (token) => {
+    // token 明文就是 runId；DB 只存 sha256，且要求 run 仍在 running。
+    const row = await repo.runs.findRunByModelToken(db, hashMcpToken(token));
+    return row;
+  },
+});
+if (modelProxy) {
+  logger.info('model credentials stay in the worker; sandbox gets a per-run proxy token');
+} else {
+  logger.warn(
+    'model proxy disabled (no credential configured); sandbox receives the real model credential',
+  );
 }
 
 const worker = new Worker(
@@ -298,6 +335,7 @@ const worker = new Worker(
         runId,
         hashMcpToken(runToken),
         new Date(Date.now() + timeoutMs + 5 * 60_000),
+        modelProxy ? hashMcpToken(runId) : null,
       );
 
       const rows = await db
@@ -361,7 +399,7 @@ const worker = new Worker(
         },
         workspaceDir: toHostWorkspacePath(workspaceDir),
         image: config.SANDBOX_IMAGE,
-        env: sandboxEnv(sandboxApiUrl),
+        env: sandboxEnv(sandboxApiUrl, runId),
         provider,
         logger: logger.child({ runId }),
       });
@@ -375,6 +413,10 @@ const worker = new Worker(
     // run 结束（含崩溃）就吊销短期 token；reconcile 对卡死 run 也走同样的收尾。
     await repo.runs.clearRunMcpToken(db, runId).catch((err: unknown) => {
       logger.warn({ err, runId }, 'failed to clear run mcp token');
+    });
+    modelProxy?.revokeToken(runId);
+    await repo.runs.clearModelToken(db, runId).catch((err: unknown) => {
+      logger.warn({ err, runId }, 'failed to clear model token');
     });
 
     // 把本次 run 的 assistant 文本与工具调用写入会话，刷新后历史才完整。
@@ -521,6 +563,7 @@ const shutdown = async (): Promise<void> => {
   await Promise.race([closing.catch(() => undefined), sleep(POOL_WAIT_MS)]);
   await closeEvalRunQueue();
 
+  await modelProxy?.close();
   await closeRunnerClient();
   await Promise.race([pool.end(), sleep(POOL_WAIT_MS)]);
   process.exit(0);

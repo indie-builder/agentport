@@ -210,6 +210,8 @@ export const agentRuns = pgTable(
     /** 本次 run 的短期 MCP token（sha256，不存明文）；run 结束即清空。 */
     mcpTokenHash: text('mcp_token_hash'),
     mcpTokenExpiresAt: timestamp('mcp_token_expires_at', { withTimezone: true }),
+    /** 模型代理 token 的 sha256（明文即 runId）；run 结束清空。 */
+    modelTokenHash: text('model_token_hash'),
     /** 已废弃：审批改存 approval_requests，此列不再写入，仅为兼容旧数据保留。 */
     approvals: jsonb('approvals').$type<string[]>().notNull().default([]),
   },

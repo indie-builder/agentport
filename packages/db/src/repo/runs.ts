@@ -174,11 +174,34 @@ export async function setRunMcpToken(
   runId: string,
   tokenHash: string,
   expiresAt: Date,
+  modelTokenHash?: string | null,
 ): Promise<void> {
   await db
     .update(agentRuns)
-    .set({ mcpTokenHash: tokenHash, mcpTokenExpiresAt: expiresAt })
+    .set({
+      mcpTokenHash: tokenHash,
+      mcpTokenExpiresAt: expiresAt,
+      ...(modelTokenHash === undefined ? {} : { modelTokenHash }),
+    })
     .where(eq(agentRuns.id, runId));
+}
+
+/** 模型代理 token 在 run 结束时单独清空：它与 MCP token 的生命周期无关。 */
+export async function clearModelToken(db: Database, runId: string): Promise<void> {
+  await db.update(agentRuns).set({ modelTokenHash: null }).where(eq(agentRuns.id, runId));
+}
+
+/** 模型代理校验：token 的 sha256 必须匹配，且 run 仍处于 running。 */
+export async function findRunByModelToken(
+  db: Database,
+  tokenHash: string,
+): Promise<{ runId: string } | null> {
+  const [row] = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.modelTokenHash, tokenHash), eq(agentRuns.status, 'running')))
+    .limit(1);
+  return row ? { runId: row.id } : null;
 }
 
 /** 清空后该 run 的 token 立即失效；重复调用无副作用。 */

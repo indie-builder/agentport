@@ -163,8 +163,8 @@ const allowedTools = [
 const abortController = new AbortController();
 process.once('SIGTERM', () => abortController.abort());
 
-// 单层委派：仅当工作区里有子智能体时放行；子智能体文件自身仍禁用 Agent。
-const agentTools = new Set(['Agent', 'TaskStop']);
+// 子智能体文件自身仍禁用 Agent；会话间工具只有显式出现在 allowedTools 里才放行（D-19）。
+const allowedByConfig = new Set(task.extraAllowedTools ?? []);
 const baseDisallowed = [
   'Bash',
   'Read',
@@ -186,9 +186,11 @@ const baseDisallowed = [
   'Monitor',
   ...(task.extraDisallowedTools ?? []),
 ];
-const disallowedTools = task.allowSubAgents
-  ? baseDisallowed.filter((tool) => !agentTools.has(tool))
-  : baseDisallowed;
+const disallowedTools = baseDisallowed.filter((tool) => {
+  if (tool === 'Agent' || tool === 'TaskStop') return !task.allowSubAgents;
+  if (tool === 'ListAgents' || tool === 'SendMessage') return !allowedByConfig.has(tool);
+  return true;
+});
 
 log(`starting query (model=${task.model ?? 'default'})`);
 

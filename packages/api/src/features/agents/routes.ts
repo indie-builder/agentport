@@ -17,12 +17,16 @@ const versionParams = z.object({
 });
 const rollbackBody = z.object({ version: z.number().int().positive() });
 
-/** `default` / `acceptEdits` / `auto` 依赖宿主审批通道，当前平台没有实现；保存时直接拒绝。 */
-const unsupportedPermissionModes = new Set(['default', 'acceptEdits', 'auto']);
+/**
+ * `auto` 依赖模型分类器，平台无法审计它的决定，暂不开放；
+ * `default` 与 `acceptEdits` 在沙盒里没有可交互的宿主，行为与 `dontAsk` 相同，
+ * 开放只会误导用户，等 D-18 的挂起式审批覆盖全部工具后再考虑。
+ */
+const unsupportedPermissionModes = new Set(['auto']);
 
 function unsupportedPermissionMode(mode: string | undefined): string | undefined {
   return mode !== undefined && unsupportedPermissionModes.has(mode)
-    ? `permissionMode "${mode}" 当前平台未实现该模式，仅支持 dontAsk 与 plan`
+    ? `permissionMode "${mode}" 依赖模型分类器，平台暂不开放；可用 dontAsk、plan、default、acceptEdits`
     : undefined;
 }
 

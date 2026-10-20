@@ -54,6 +54,8 @@ function handlerFor(app: FastifyInstance, serverId: string, runId: string | null
       tools,
       approvals,
       nodeEnv: app.config.NODE_ENV,
+      // 只有真实 run 才挂起等待：外部客户端没有页面可批准，立即拒绝更诚实。
+      ...(trustedRunId === null ? {} : { approvalWaitMs: app.config.APPROVAL_WAIT_MS }),
       ...(trustedRunId === null
         ? {}
         : {

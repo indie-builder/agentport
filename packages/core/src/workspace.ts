@@ -57,11 +57,12 @@ export const DEFAULT_DISALLOWED_TOOLS = [
   'Agent',
   'TaskStop',
   // 会话间消息工具与「同步等待」相悖：发送方不等对方返回就继续。
+  // ListAgents/SendMessage 可按智能体显式放行（D-19）；Monitor/EndConversation 永远关闭。
   'ListAgents',
   'SendMessage',
-  'SendUserMessage',
   'EndConversation',
   'Monitor',
+  'SendUserMessage',
 ];
 
 const DESCRIPTION_MAX = 200;
@@ -206,13 +207,19 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
       ? input.toolsAllow
       : servers.map((s) => `mcp__${s.name}__*`);
   const hasSubAgents = (input.subAgents ?? []).length > 0;
+  // 智能体可显式放行 ListAgents/SendMessage（D-19）；其余默认项不能通过配置解除。
+  const allowedByConfig = new Set(input.toolsAllow ?? []);
+  const mayEnable = (tool: string): boolean =>
+    tool === 'Agent' || tool === 'TaskStop'
+      ? hasSubAgents
+      : tool === 'ListAgents' || tool === 'SendMessage'
+        ? allowedByConfig.has(tool)
+        : false;
   // 单层委派：有子智能体时放行 Agent/TaskStop，与 runner 的 options 保持一致；
   // 子智能体本身不传 subAgents，因此仍被禁用，无法继续向下委派。
   const disallowed = [
     ...new Set([
-      ...DEFAULT_DISALLOWED_TOOLS.filter(
-        (tool) => !(hasSubAgents && (tool === 'Agent' || tool === 'TaskStop')),
-      ),
+      ...DEFAULT_DISALLOWED_TOOLS.filter((tool) => !mayEnable(tool)),
       // 子智能体的单层约束由这里兜底：API 只拦两层父子，
       // 手工把文件放回 .claude/agents/ 时也必须无法再委派。
       ...(standalone ? ['Agent', 'TaskStop'] : []),

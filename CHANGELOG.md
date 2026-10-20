@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0] - 2026-10-20
+
+- D-17 模型凭证代理：worker 起回环代理，沙盒只拿按 run 的短期 token；真实模型凭证不再进容器 env
+- D-18 工具审批改为挂起式暂停：未批准时调用挂起，批准后同一次调用继续并返回结果，不再要求模型重发
+- D-19 会话间工具改为按配置放行：`ListAgents` / `SendMessage` 可由智能体显式启用，`Monitor` / `EndConversation` 永久关闭
+- D-20 权限模式开放 `default` 与 `acceptEdits`；`auto` 仍拒绝
+- 新增 `agent_runs.model_token_hash`；新增 `APPROVAL_WAIT_MS`（默认 300s）
+- 真实运行验证：容器 env 无真实密钥、审批挂起 16s 后同一次调用完成
+
 ## [0.6.1] - 2026-10-20
 
 - D-16 已决定：单机自用继续直接挂载 docker.sock，不做 socket proxy

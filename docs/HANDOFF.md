@@ -47,10 +47,10 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 
 1. **单机部署**：worker 挂载 `docker.sock`，等价宿主 root；只适合单机自用（D-16）。生产需 socket proxy、独立沙盒节点或 microVM。
 2. **同一智能体的并发仍共享宿主资源**：工作区已按 `runId` 隔离，但沙盒容器共享宿主 CPU/内存，吞吐受 `AGENT_MAX_CONCURRENT` 限制。
-3. **模型凭证未代理**：沙盒仍直接拿到 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`（M12 剩余项）；只有 MCP 凭证已改为按 run 的短期 token。
+3. **模型凭证已代理（D-17）**：worker 起回环代理，沙盒只拿按 run 的短期 token；未配置凭证时才回退直接注入。代理只转发白名单路径。
 4. **工作区仍含 MCP 明文密钥**：stdio / http server 解密后的 env/headers 会写入 `.mcp.json`；文件 0600、目录 0700，run 结束删除。Linux 宿主 uid 非 1000 时容器内可能读不到 0600 的 bind mount（macOS Docker Desktop 已实测可读）。
-5. **工具审批不是持久化暂停**：未批准时工具返回错误；批准会继承到同一会话的下一次 run，批准后需重新发送消息；跨会话不继承，无自动恢复。
-6. **权限模式只有 `dontAsk` 与 `plan`**：`default` / `acceptEdits` / `auto` 未实现，保存返回 400。
+5. **工具审批是挂起式暂停（D-18）**：未批准时 MCP 调用挂起，批准后同一次调用继续并返回结果；`APPROVAL_WAIT_MS`（默认 300s）超时按拒绝处理。外部客户端没有 run 上下文时仍立即拒绝。
+6. **权限模式**：`dontAsk`、`plan`、`default`、`acceptEdits` 可保存；`auto` 依赖模型分类器，平台无法审计，返回 400（D-20）。
 7. **会话上下文靠注入最近 20 条消息**，不是 SDK 原生 session resume；长对话会截断。
 8. **子智能体只支持单层**，且继承父会话的 MCP 工具集；子智能体自己的 server 绑定不参与渲染。子智能体内部调用已带 `parentToolUseId` 并在 UI 缩进，但单层约束仍靠 API 校验 + `disallowedTools`，SDK 本身无深度限制。
 9. **评估跑批在 worker 的 `eval-runs` 队列串行（并发 1）**；worker 重启后超过 1 小时仍为 `running` 的跑批会被收敛为 `failed`（`eval run lost`）。
@@ -61,12 +61,12 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 14. **读接口无限流**（`global: false`）；高并发下 Postgres 连接池是第一个瓶颈（OPERATIONS §8）。
 15. **`/health/*` 无鉴权**，状态页依赖这三个端点；不要直接暴露到公网。
 16. **运行详情「重新运行」只重发该 run 的第一条 user 消息**，不带当时的工具审批状态。
-17. **未实现**：浅色主题、RAG/知识库、多用户/RBAC、多机部署、持久化 HITL。
+17. **未实现**：浅色主题、RAG/知识库、多用户/RBAC、多机部署。
 
 ## 建议的下一步
 
 1. 用真实业务 API 走一遍完整流程（建 server → 工具 → agent → 评估 → 运行详情 → `/status`）。
-2. 决定 M12 剩余项（模型凭证代理）是否要做；这是唯一剩余的 Medium 安全项。
+2. ~~决定 M12 剩余项（模型凭证代理）~~ 已按 D-17 实现。
 3. 若要对外：先做按 agent 发 token 与读接口限流，再考虑 D-12 的 microVM。
 4. 修复上述 2 条 lint error 后，把 `pnpm exec biome check .` 接回零错误基线。
 
