@@ -14,6 +14,8 @@ export interface WorkspaceAgentRow {
   allowedTools: string[];
   disallowedTools: string[];
   enabled: boolean;
+  /** 父智能体派生子智能体时等它多久；子智能体 md 里要写明，否则等待规则是空话。 */
+  timeoutMs: number;
 }
 
 function toAgent(row: WorkspaceAgentRow): WorkspaceAgent {
@@ -28,6 +30,7 @@ function toAgent(row: WorkspaceAgentRow): WorkspaceAgent {
     effort: row.effort,
     allowedTools: row.allowedTools,
     disallowedTools: row.disallowedTools,
+    timeoutMs: row.timeoutMs,
   };
 }
 

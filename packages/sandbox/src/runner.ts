@@ -177,6 +177,13 @@ const baseDisallowed = [
   'WebSearch',
   'Agent',
   'TaskStop',
+  // 平台只支持「同步等待返回」这一种沟通模型。会话间消息工具会让调用方
+  // 在对方返回前结束本轮，与平台约定相反，因此默认禁用。
+  'ListAgents',
+  'SendMessage',
+  'SendUserMessage',
+  'EndConversation',
+  'Monitor',
   ...(task.extraDisallowedTools ?? []),
 ];
 const disallowedTools = task.allowSubAgents

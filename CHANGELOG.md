@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0] - 2026-10-20
+
+- 工作区 Markdown 显式写出「等待规则」：平台的智能体沟通是同步调用，调用方必须等到被调用方返回
+- `CLAUDE.md` 新增子智能体表格（slug / 适用场景 / 超时），超时取自 `agents.timeout_ms`
+- 子智能体 md 写明「你是被父智能体同步调用的」与等待上限
+- `Agent` 委派改为 MD 内硬约束 `run_in_background: false`：SDK 默认后台运行，会让父智能体在结果返回前结束本轮
+- 默认禁用会话间消息工具 `ListAgents` / `SendMessage` / `SendUserMessage` / `EndConversation` / `Monitor`，与同步等待模型保持一致
+- 真实模型验证：父智能体按 MD 传入 `run_in_background: false`，等待子智能体返回后输出完整结果（2 turns）
+
 ## [0.5.0] - 2026-10-20
 
 - 新增异常管理标准：`docs/ERRORS.md`（引用 RFC 9457、NestJS Exception Filters、Spring `ErrorResponse`、Google AIP-193、BullMQ `UnrecoverableError`）

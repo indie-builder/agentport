@@ -257,3 +257,22 @@ README.md
 - 每个导出函数都要有明确的返回类型。
 - 出错时返回结构化错误，不吞异常。
 - 如果需要新增依赖：只允许 `pnpm --filter <pkg> add <name@exact-version>`，并说明原因。
+
+
+## 工作区 Markdown 的等待语义（2026-10-20）
+
+平台的智能体间沟通只有三种形式，且都是**同步等待**：
+
+| 形式 | 机制 | 调用方怎样等 |
+|---|---|---|
+| 父 → 子智能体 | `Agent` 工具 + `.claude/agents/<slug>.md` | `run_in_background: false`，SDK 本轮阻塞到子智能体返回 |
+| 外部 Host → 平台智能体 | `/mcp` 暴露的 `run_<slug>` 工具 | `AgentInvoker` 轮询 run 终态后返回文本 |
+| 智能体 → HTTP 工具 | `.mcp.json` + `/mcp/:serverId` | MCP 调用本身同步；需批准的工具先返回 `需要批准：<tool>` |
+
+因此 `renderWorkspace()` 生成的 Markdown 必须显式写出等待约定，而不是假设模型知道：
+
+- `CLAUDE.md` 在有子智能体或 MCP server 时追加「等待规则」章节，位于子智能体清单之前；
+- 子智能体清单是表格（slug / 适用场景 / 超时），超时来自 `agents.timeout_ms`；
+- 子智能体的 md 写明「你是被父智能体同步调用的」与「父最多等你 N 秒」。
+
+**为什么不依赖 SDK 默认值**：`Agent` 的 `run_in_background` 缺省为后台运行，父智能体会在子智能体返回前结束本轮，最终文本里没有结果。平台要求同步，所以把 `false` 写成 MD 里的硬约束。

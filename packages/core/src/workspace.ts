@@ -19,6 +19,8 @@ export interface WorkspaceAgent {
   effort?: string | null;
   allowedTools?: string[];
   disallowedTools?: string[];
+  /** 子智能体超时；调用方会一直等到它返回或超时。 */
+  timeoutMs?: number;
 }
 
 export interface WorkspaceSkill {
@@ -54,6 +56,12 @@ export const DEFAULT_DISALLOWED_TOOLS = [
   'WebSearch',
   'Agent',
   'TaskStop',
+  // 会话间消息工具与「同步等待」相悖：发送方不等对方返回就继续。
+  'ListAgents',
+  'SendMessage',
+  'SendUserMessage',
+  'EndConversation',
+  'Monitor',
 ];
 
 const DESCRIPTION_MAX = 200;
@@ -76,6 +84,54 @@ function yamlString(value: string): string {
 
 function yamlList(values: string[]): string {
   return `[${values.map(yamlString).join(', ')}]`;
+}
+
+/**
+ * 智能体间沟通的等待语义。
+ *
+ * 平台里只有三种形式，调用方都必须等到对方给出结果：
+ * 1. 委派给子智能体（Agent 工具）
+ * 2. 调用平台内其他智能体（/mcp 暴露的 run_<slug> 工具）
+ * 3. 调用外部 HTTP→MCP 工具（可能需要人工审批，批准前调用方挂起）
+ *
+ * SDK 的 `Agent` 默认后台运行（run_in_background 缺省 true），与「等待」相反。
+ * 这里把 run_in_background: false 写成硬约束，否则父智能体会在子智能体
+ * 返回前结束本轮，最终文本里没有结果。
+ */
+export const DELEGATION_WAIT_RULE =
+  '委派时必须传 `run_in_background: false`：平台要求你等到子智能体返回结果后再继续。' +
+  '默认的后台模式会让本轮在结果回来前结束。';
+
+export function delegationWaitSection(input: WorkspaceInput): string[] {
+  const subAgents = input.subAgents ?? [];
+  const lines: string[] = [];
+
+  if (subAgents.length > 0) {
+    lines.push(
+      '',
+      '## 等待规则',
+      '',
+      '本平台的智能体之间是**同步调用**：调用方发起后要等到被调用方返回，才能继续。',
+      '',
+      '- 委派给子智能体：调用 `Agent` 时传 `run_in_background: false`，不要用后台模式。',
+      '  如果你提前结束本轮，调用方（用户或其他智能体）拿不到结果。',
+      '- 子智能体只返回最终文本。中间的 `tool_start` / `tool_result` 由平台记录，你不需要转述。',
+      `- 子智能体受它自己的 \`maxTurns\` 与智能体超时约束；超时后本次委派失败，不会无限等待。`,
+    );
+  }
+
+  if (input.servers.length > 0) {
+    lines.push(
+      '',
+      '### 工具调用中的等待',
+      '',
+      '- MCP 工具是同步调用：返回前不要假设结果已经可用。',
+      '- 标记为「需要批准」的工具会先返回一条 `需要批准：<tool>`。',
+      '  这不是失败：把这句话原样告诉用户，等管理员在运行详情页批准后重试同一调用。',
+    );
+  }
+
+  return lines;
 }
 
 function renderClaudeMd(input: WorkspaceInput): string {
@@ -109,9 +165,16 @@ function renderClaudeMd(input: WorkspaceInput): string {
           '',
           '## 可用子智能体',
           '',
-          '你可以用 `Agent` 工具把任务委派给以下子智能体（它们不能再向下委派）：',
+          '用 `Agent` 工具把任务委派给以下子智能体。它们不能再向下委派。',
           '',
-          ...subAgents.map((s) => `- \`${s.slug}\`：${s.description || s.name}`),
+          '| slug | 适用场景 | 超时 |',
+          '|---|---|---|',
+          ...subAgents.map(
+            (s) =>
+              `| \`${s.slug}\` | ${s.description || s.name} | ${s.timeoutMs ? `${Math.round(s.timeoutMs / 1000)}s` : '默认'} |`,
+          ),
+          '',
+          '委派前先读上面的「等待规则」。',
         ];
 
   return [
@@ -129,6 +192,7 @@ function renderClaudeMd(input: WorkspaceInput): string {
     '只使用 `mcp__*` MCP 工具；内置的 shell、文件与网络工具已被禁用。',
     '如需更多能力，请让管理员在平台中为智能体绑定对应的 MCP Server。',
     ...skillLines,
+    ...delegationWaitSection(input),
     ...subAgentLines,
     '',
   ].join('\n');
@@ -182,7 +246,17 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
     description,
     '',
     ...(standalone
-      ? [agent.systemPrompt.trim(), '']
+      ? [
+          agent.systemPrompt.trim(),
+          '',
+          // 子智能体没有自己的 CLAUDE.md，等待语义只能写在它自己的 md 里。
+          '你是被父智能体同步调用的：直接执行任务并返回最终文本。',
+          '不要再委派给其他智能体（`Agent`/`TaskStop` 已禁用）。',
+          ...(agent.timeoutMs
+            ? [`父智能体最多等你 ${Math.round(agent.timeoutMs / 1000)} 秒，超时本次委派即失败。`]
+            : []),
+          '',
+        ]
       : [
           hasSubAgents
             ? '完整系统提示见 `CLAUDE.md`；需要时用 `Agent` 工具委派给 `CLAUDE.md` 中列出的子智能体。'
