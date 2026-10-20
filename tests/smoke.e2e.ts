@@ -59,3 +59,25 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   await screen.getByRole('tab', '文件预览').tap();
   await expect(screen.getByText('"mcpServers"', { exact: false }).first()).toBeVisible();
 });
+
+/**
+ * 迁移自 e2e/smoke.spec.ts 第 5 步。需要 worker + 模型凭据；
+ * 未设置 E2E_FULL=1 时跳过，与 Playwright 版行为一致。
+ */
+test(
+  'smoke: chat runs to a terminal state',
+  { session: 'admin' },
+  async ({ app, screen, agent }) => {
+    test.skip(process.env.E2E_FULL !== '1', '需要 worker 与模型凭据，设置 E2E_FULL=1 才跑');
+
+    await app.open('/chat');
+    // 原生 <select>：用 selectOption，选择第一个可用智能体。
+    const agentSelect = screen.getByLabel('选择智能体');
+    await agentSelect.selectOption({ index: 0 });
+    await screen.getByRole('textbox', '消息').fill('hello');
+    await screen.getByRole('button', '发送消息').tap();
+
+    // 等待运行进入终态；用语义等待，避免依赖具体状态文案。
+    await agent.waitFor('the chat shows a finished, failed, timed-out or stopped run');
+  },
+);

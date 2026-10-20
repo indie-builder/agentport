@@ -1,10 +1,17 @@
 # Changelog
 
+## [0.2.1] - 2026-10-20
+
+- 完成 e2e 迁移：聊天步骤改用 `agent.waitFor`，配置 `agents.default`（OpenAI-compatible 复用 Anthropic 代理）
+- 移除 `@playwright/test`、`playwright.config.ts` 与 `e2e/**` 旧套件
+- CI 只运行 e2e；失败时上传 `.e2e/results/`
+- `MIGRATION.md` 标记所有条目为 retired，迁移完成
+
 ## [0.2.0] - 2026-10-20
 
 - E2E 技术栈迁移到 `e2e`（`e2e@0.21.2` + `@e2e-dev/web@0.15.2`）
 - 新增 `e2e.config.ts`、`tests/**/*.e2e.ts`、`test.setup` 登录会话
-- `pnpm test:e2e` 指向 e2e；Playwright 保留为 `pnpm test:e2e:playwright`
+- `pnpm test:e2e` 指向 e2e；Playwright 套件已退役
 - CI 同时运行两套，失败时上传 `.e2e/results/`
 - 迁移进度记录在 `MIGRATION.md`
 

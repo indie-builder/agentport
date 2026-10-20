@@ -193,7 +193,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 |---|---|---|
 | 单元/集成测试 | Vitest | 5.0.5 |
 | 覆盖率 | @vitest/coverage-v8 | 5.0.5 |
-| E2E | @playwright/test | 1.64.1 |
+| E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.21.2 / 0.15.2 |
 | 集成测试 | 本地/CI service containers（未用 testcontainers） | — |
 | 容器化 | Dockerfile（多阶段）+ docker-compose.yml | — |
 | CI | GitHub Actions | — |

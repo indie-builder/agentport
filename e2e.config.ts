@@ -1,12 +1,18 @@
 import { web } from '@e2e-dev/web';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { E2EConfig } from 'e2e';
 
 /**
- * PACE 的 e2e 配置。与既有 Playwright 套件并存：
- * - Playwright 收集 `e2e/**\/*.spec.ts`
- * - e2e 收集 `tests/**\/*.e2e.ts`
- * 两者文件模式不重叠，可在迁移期同时跑。
+ * Agent 步骤用的模型。项目已有 Anthropic 直连配置（ANTHROPIC_BASE_URL +
+ * ANTHROPIC_AUTH_TOKEN），这里用 OpenAI-compatible 构造函数复用同一端点，
+ * 避免再要求一个 ANTHROPIC_API_KEY。
  */
+const anthropic = createOpenAICompatible({
+  name: 'anthropic-proxy',
+  baseURL: `${process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'}/v1`,
+  apiKey: process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? '',
+});
+
 export default {
   tests: 'tests/**/*.e2e.ts',
   targets: [
@@ -15,7 +21,6 @@ export default {
       engine: web({ viewport: { width: 1440, height: 900 } }),
       app: {
         url: 'http://localhost:5173',
-        // 与 Playwright 的 webServer 一致：api(3000) + web(5173)。
         command: {
           executable: 'pnpm',
           args: ['dev'],
@@ -31,6 +36,12 @@ export default {
     admin: {
       username: process.env.E2E_ADMIN_USER ?? 'admin',
       password: () => process.env.E2E_ADMIN_PASSWORD ?? 'admin-local-dev-2026',
+    },
+  },
+  agents: {
+    default: {
+      model: anthropic.chatModel(process.env.E2E_MODEL ?? 'claude-sonnet-5-5'),
+      system: 'You are a careful QA agent. Verify every outcome on screen before finishing.',
     },
   },
   reporters: ['list'],
