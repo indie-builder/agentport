@@ -1,6 +1,7 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 @import "tailwindcss";
+@import "tw-animate-css";
 
 /*
  * PACE 设计令牌。基准：https://www.openui.com/chat?form_factor=desktop
@@ -74,6 +75,28 @@
   --text-md--line-height: 1.5rem;
   --text-lg: 1.5rem;
   --text-lg--line-height: 1.875rem;
+
+  /*
+   * shadcn 原语用的语义别名，全部映射到同一套无彩度令牌。
+   * 组件保持库的原始类名，外观仍由这里决定——不要在组件里改色值。
+   */
+  --color-background: var(--color-surface);
+  --color-foreground: var(--color-fg);
+  --color-popover: var(--color-surface);
+  --color-popover-foreground: var(--color-fg);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-fg);
+  --color-primary: var(--color-ink);
+  --color-primary-foreground: #fff;
+  --color-secondary: var(--color-hover);
+  --color-secondary-foreground: var(--color-fg);
+  --color-accent: var(--color-hover);
+  --color-accent-foreground: var(--color-fg);
+  --color-muted-foreground: var(--color-muted);
+  --color-destructive: var(--color-danger);
+  --color-border: var(--color-line);
+  --color-input: var(--color-line);
+  --color-ring: var(--color-fg);
 
   /* 唯一带阴影的元素是输入框胶囊 */
   --shadow-composer: 0 0 0 0.5px rgb(15 15 15 / 0.08), 0 4px 16px 0 rgb(15 15 15 / 0.06);

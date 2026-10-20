@@ -273,7 +273,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
     <Link
       to="/runs/$runId"
       params={{ runId: item.runId }}
-      className="group flex items-center gap-3 border-b border-line py-2.5 last:border-0 hover:bg-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+      className="group flex items-center gap-3 border-b border-line py-2.5 last:border-0 hover:bg-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
     >
       <span
         aria-hidden="true"

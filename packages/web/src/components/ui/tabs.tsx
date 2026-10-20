@@ -25,13 +25,13 @@ export function SearchInput({
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-[2px] border border-line bg-surface pl-8 pr-8 text-sm text-fg transition-colors placeholder:text-subtle hover:border-line-strong focus-visible:border-signal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/30 [&::-webkit-search-cancel-button]:hidden"
+        className="h-8 w-full rounded-[7px] border border-line bg-surface pl-8 pr-8 text-sm text-fg transition-colors placeholder:text-subtle hover:border-line-strong focus-visible:border-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/30 [&::-webkit-search-cancel-button]:hidden"
       />
       {value ? (
         <button
           type="button"
           aria-label="清除搜索"
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
           onClick={() => onChange('')}
         >
           <X className="size-3.5" />
@@ -82,10 +82,10 @@ export function Tabs<T extends string>({
             key={item.value}
             value={item.value}
             className={cn(
-              '-mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal focus-visible:ring-offset-0',
+              '-mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg focus-visible:ring-offset-0',
               size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-2 text-base',
               'border-transparent text-muted hover:border-line-strong hover:text-fg',
-              'data-[state=active]:border-signal data-[state=active]:text-fg',
+              'data-[state=active]:border-fg data-[state=active]:text-fg',
             )}
           >
             {item.icon}

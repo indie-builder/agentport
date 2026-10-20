@@ -1,6 +1,5 @@
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
-import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
@@ -118,8 +117,16 @@ const columns: DataColumn<RunListItem>[] = [
 export function RunsPage() {
   const navigate = useNavigate();
   const agents = useAgents();
-  const [agentId, setAgentId] = useState('');
-  const [status, setStatus] = useState<RunStatus | ''>('');
+  // 筛选放在 URL 里：刷新、分享、前进后退都保留条件。
+  const search = useSearch({ from: '/shell/runs' });
+  const agentId = search.agent ?? '';
+  const status = search.status ?? '';
+  const setFilter = (patch: {
+    agent?: string | undefined;
+    status?: RunStatus | undefined;
+  }): void => {
+    void navigate({ to: '/runs', search: { ...search, ...patch } });
+  };
   const runs = useRuns({
     ...(agentId ? { agentId } : {}),
     ...(status ? { status } : {}),
@@ -138,7 +145,7 @@ export function RunsPage() {
           aria-label="按智能体筛选"
           className="w-48 rounded-[9px]"
           value={agentId}
-          onValueChange={setAgentId}
+          onValueChange={(next) => setFilter({ agent: next || undefined })}
           options={[
             { value: '', label: '全部智能体' },
             ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
@@ -148,7 +155,9 @@ export function RunsPage() {
           aria-label="按状态筛选"
           className="w-32 rounded-[9px]"
           value={status}
-          onValueChange={(next) => setStatus(next as RunStatus | '')}
+          onValueChange={(next) =>
+            setFilter({ status: (next || undefined) as RunStatus | undefined })
+          }
           options={[
             { value: '', label: '全部状态' },
             ...statuses.map((value) => ({ value, label: runStatusLabel[value] })),

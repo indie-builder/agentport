@@ -111,12 +111,15 @@ export const healthReadyQuery = queryOptions<HealthProbe<HealthReady>>({
   staleTime: 0,
 });
 
-export function useTools(serverId: string | null) {
-  return useQuery({
+export const toolsQuery = (serverId: string) =>
+  queryOptions({
     queryKey: ['tools', serverId],
-    queryFn: () => api.tools(serverId ?? ''),
-    enabled: serverId !== null,
+    queryFn: () => api.tools(serverId),
+    staleTime: 60_000,
   });
+
+export function useTools(serverId: string | null) {
+  return useQuery({ ...toolsQuery(serverId ?? ''), enabled: serverId !== null });
 }
 
 export function useAgentFiles(agentId: string | null, enabled = true) {

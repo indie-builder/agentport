@@ -24,7 +24,7 @@ import { type ComponentProps, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { Page } from '../components/page.js';
+import { Page, PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
@@ -200,39 +200,41 @@ export function ServersPage() {
 
   return (
     <Page>
-      <div className="flex h-14 flex-wrap items-center gap-2">
-        <h1 className="text-md font-medium text-fg">MCP Servers</h1>
-        <span className="font-mono text-xs tabular-nums text-subtle">{all.length}</span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Select
-            aria-label="按来源筛选"
-            value={kind}
-            onValueChange={(next) => setKind(next as KindFilter)}
-            options={[
-              { value: 'all', label: '全部来源' },
-              { value: 'stdio', label: kindMeta.stdio.label },
-              { value: 'http', label: kindMeta.http.label },
-              { value: 'generated', label: kindMeta.generated.label },
-            ]}
-            className="w-36 rounded-[9px] border-transparent bg-chip hover:bg-hover"
-          />
-          <SearchInput
-            label="搜索 server"
-            value={query}
-            onChange={setQuery}
-            placeholder="搜索名称、描述或地址…"
-            className="w-56 [&_input]:rounded-[9px] [&_input]:border-transparent [&_input]:bg-chip"
-          />
-          <Button
-            ref={createButtonRef}
-            size="sm"
-            className="h-8 rounded-full px-3.5"
-            onClick={openCreate}
-          >
-            <Plus className="size-4" strokeWidth={1.75} /> 新建 Server
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="MCP Servers"
+        meta={<span className="font-mono text-xs tabular-nums text-subtle">{all.length}</span>}
+        actions={
+          <>
+            <Select
+              aria-label="按来源筛选"
+              value={kind}
+              onValueChange={(next) => setKind(next as KindFilter)}
+              options={[
+                { value: 'all', label: '全部来源' },
+                { value: 'stdio', label: kindMeta.stdio.label },
+                { value: 'http', label: kindMeta.http.label },
+                { value: 'generated', label: kindMeta.generated.label },
+              ]}
+              className="w-36 rounded-[9px] border-transparent bg-chip hover:bg-hover"
+            />
+            <SearchInput
+              label="搜索 server"
+              value={query}
+              onChange={setQuery}
+              placeholder="搜索名称、描述或地址…"
+              className="w-56 [&_input]:rounded-[9px] [&_input]:border-transparent [&_input]:bg-chip"
+            />
+            <Button
+              ref={createButtonRef}
+              size="sm"
+              className="h-8 rounded-full px-3.5"
+              onClick={openCreate}
+            >
+              <Plus className="size-4" strokeWidth={1.75} /> 新建 Server
+            </Button>
+          </>
+        }
+      />
 
       {servers.isPending ? <LoadingState rows={4} /> : null}
       {servers.isError ? (

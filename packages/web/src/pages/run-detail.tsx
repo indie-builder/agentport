@@ -2,7 +2,7 @@ import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { ArrowLeft, Bot, Check, CircleAlert, Copy, RotateCcw, User, Wrench } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
-import { Page } from '../components/page.js';
+import { Page, PageHeader } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
@@ -127,7 +127,7 @@ export function RunDetailPage() {
   if (run.isPending) {
     return (
       <div className="space-y-4">
-        <h1 className="sr-only">运行详情</h1>
+        <PageHeader title="运行详情" className="sr-only" />
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-32 w-full" />
         <LoadingState rows={4} />
@@ -138,7 +138,7 @@ export function RunDetailPage() {
   if (run.isError) {
     return (
       <div>
-        <h1 className="sr-only">运行详情</h1>
+        <PageHeader title="运行详情" className="sr-only" />
         <Link
           to="/runs"
           className="mb-4 inline-flex items-center gap-1 text-xs text-muted hover:text-fg"
@@ -176,41 +176,48 @@ export function RunDetailPage() {
         >
           <ArrowLeft className="size-4" strokeWidth={1.75} />
         </Link>
-        <div className="min-w-0">
-          <h1 className="truncate text-md font-medium text-fg">运行 {shortId(detail.id)}</h1>
-        </div>
-        {conversation.title ? (
-          <span className="hidden min-w-0 max-w-56 truncate text-xs text-subtle sm:block">
-            {conversation.title}
-          </span>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          <Metric
-            label="耗时"
-            value={formatDuration(detail.latencyMs)}
-            danger={detail.status === 'timeout'}
-          />
-          <Metric label="轮次" value={detail.turns ?? '—'} />
-          <Metric label="成本" value={formatCost(detail.costUsd)} />
-          <Metric
-            label="Tokens"
-            value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
-          />
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <RunStatusBadge status={detail.status} />
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-full px-3"
-            disabled={rerunning || !hasPrompt}
-            aria-busy={rerunning}
-            onClick={() => void rerun()}
-          >
-            <RotateCcw className="size-4" strokeWidth={1.75} />
-            {rerunning ? '提交中…' : '重跑'}
-          </Button>
-        </div>
+        <PageHeader
+          title={`运行 ${shortId(detail.id)}`}
+          className="min-w-0 flex-1 gap-x-3 gap-y-2"
+          meta={
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              {conversation.title ? (
+                <span className="hidden min-w-0 max-w-56 truncate text-xs text-subtle sm:block">
+                  {conversation.title}
+                </span>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                <Metric
+                  label="耗时"
+                  value={formatDuration(detail.latencyMs)}
+                  danger={detail.status === 'timeout'}
+                />
+                <Metric label="轮次" value={detail.turns ?? '—'} />
+                <Metric label="成本" value={formatCost(detail.costUsd)} />
+                <Metric
+                  label="Tokens"
+                  value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
+                />
+              </div>
+            </div>
+          }
+          actions={
+            <>
+              <RunStatusBadge status={detail.status} />
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full px-3"
+                disabled={rerunning || !hasPrompt}
+                aria-busy={rerunning}
+                onClick={() => void rerun()}
+              >
+                <RotateCcw className="size-4" strokeWidth={1.75} />
+                {rerunning ? '提交中…' : '重跑'}
+              </Button>
+            </>
+          }
+        />
       </div>
 
       {failed && detail.error ? (

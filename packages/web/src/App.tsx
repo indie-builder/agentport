@@ -3,24 +3,29 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
+import { LucideProvider } from 'lucide-react';
 import { Toaster } from 'sonner';
+import { z } from 'zod';
 import { AppShell } from './components/app-shell.js';
 import { queryClient } from './lib/queries.js';
-import { AgentsPage } from './pages/agents.js';
-import { AuditPage } from './pages/audit.js';
-import { ChatPage } from './pages/chat.js';
-import { EvalPage } from './pages/eval.js';
-import { LoginPage } from './pages/login.js';
-import { NotFoundPage } from './pages/not-found.js';
-import { OverviewPage } from './pages/overview.js';
-import { RunDetailPage } from './pages/run-detail.js';
-import { RunsPage } from './pages/runs.js';
-import { ServersPage } from './pages/servers.js';
-import { SkillsPage } from './pages/skills.js';
-import { StatusPage } from './pages/status.js';
+
+// 按路由拆包：首屏只加载外壳与登录页，其余页面点进来再取。
+const AgentsPage = lazyRouteComponent(() => import('./pages/agents.js'), 'AgentsPage');
+const AuditPage = lazyRouteComponent(() => import('./pages/audit.js'), 'AuditPage');
+const ChatPage = lazyRouteComponent(() => import('./pages/chat.js'), 'ChatPage');
+const EvalPage = lazyRouteComponent(() => import('./pages/eval.js'), 'EvalPage');
+const LoginPage = lazyRouteComponent(() => import('./pages/login.js'), 'LoginPage');
+const NotFoundPage = lazyRouteComponent(() => import('./pages/not-found.js'), 'NotFoundPage');
+const OverviewPage = lazyRouteComponent(() => import('./pages/overview.js'), 'OverviewPage');
+const RunDetailPage = lazyRouteComponent(() => import('./pages/run-detail.js'), 'RunDetailPage');
+const RunsPage = lazyRouteComponent(() => import('./pages/runs.js'), 'RunsPage');
+const ServersPage = lazyRouteComponent(() => import('./pages/servers.js'), 'ServersPage');
+const SkillsPage = lazyRouteComponent(() => import('./pages/skills.js'), 'SkillsPage');
+const StatusPage = lazyRouteComponent(() => import('./pages/status.js'), 'StatusPage');
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -60,15 +65,30 @@ const chatRoute = createRoute({
   component: ChatPage,
 });
 
+const auditSearchSchema = z.object({
+  action: z.string().optional().catch(undefined),
+  status: z.enum(['ok', 'error', 'denied']).optional().catch(undefined),
+});
+
 const auditRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/audit',
+  validateSearch: auditSearchSchema,
   component: AuditPage,
+});
+
+const runsSearchSchema = z.object({
+  agent: z.string().optional().catch(undefined),
+  status: z
+    .enum(['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'])
+    .optional()
+    .catch(undefined),
 });
 
 const runsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/runs',
+  validateSearch: runsSearchSchema,
   component: RunsPage,
 });
 
@@ -129,22 +149,24 @@ declare module '@tanstack/react-router' {
 
 export function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-      <Toaster
-        theme="dark"
-        position="bottom-right"
-        closeButton
-        toastOptions={{
-          duration: 4000,
-          classNames: {
-            toast: 'border border-line bg-surface text-fg',
-            description: 'text-muted',
-            actionButton: 'bg-ink text-white',
-            closeButton: 'bg-surface border-line text-muted hover:text-fg',
-          },
-        }}
-      />
-    </QueryClientProvider>
+    <LucideProvider strokeWidth={1.75} size={16}>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+        <Toaster
+          theme="light"
+          position="bottom-right"
+          closeButton
+          toastOptions={{
+            duration: 4000,
+            classNames: {
+              toast: 'border border-line bg-surface text-fg',
+              description: 'text-muted',
+              actionButton: 'bg-ink text-white',
+              closeButton: 'bg-surface border-line text-muted hover:text-fg',
+            },
+          }}
+        />
+      </QueryClientProvider>
+    </LucideProvider>
   );
 }

@@ -46,7 +46,7 @@ export function Dialog({
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           className={cn(
-            'fixed left-1/2 top-[10vh] z-50 w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 rounded-[4px] border border-line bg-surface shadow-overlay',
+            'fixed left-1/2 top-[10vh] z-50 w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 rounded-[12px] border border-line bg-surface shadow-overlay',
             className,
           )}
         >
@@ -63,7 +63,7 @@ export function Dialog({
             </div>
             <DialogPrimitive.Close
               aria-label="关闭"
-              className="-mr-1 rounded-[2px] p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              className="-mr-1 rounded-[7px] p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
             >
               <X className="size-4" />
             </DialogPrimitive.Close>

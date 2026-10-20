@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { ClipboardCheck, FlaskConical, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
@@ -320,9 +321,12 @@ function EvalRunResults({ id }: { id: string }) {
           </div>
           <div className="mt-2">
             <div className="text-xs text-subtle">输出</div>
-            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-[12px] bg-chip px-3 py-2 font-mono text-xs leading-relaxed text-fg/90">
-              {result.output || '（空）'}
-            </pre>
+            <CodeBlock
+              code={result.output || '（空）'}
+              maxHeight="12rem"
+              className="mt-1"
+              copyLabel="复制输出"
+            />
           </div>
         </li>
       ))}

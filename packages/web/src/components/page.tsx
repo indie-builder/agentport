@@ -116,30 +116,3 @@ export function PageNote({
     </div>
   );
 }
-
-/** 读数行：标签 + 等宽数值，用于摘要条与检查器。 */
-export function Readout({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: ReactNode;
-  tone?: 'default' | 'danger' | 'success' | 'signal';
-}) {
-  return (
-    <div className="flex items-baseline gap-1.5">
-      <span className="text-xs text-subtle">{label}</span>
-      <span
-        className={cn(
-          'font-mono text-sm tabular-nums',
-          tone === 'danger' && 'text-danger',
-          tone === 'success' && 'text-success',
-          (!tone || tone === 'default' || tone === 'signal') && 'text-fg',
-        )}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}

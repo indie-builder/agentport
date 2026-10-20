@@ -59,6 +59,7 @@ import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
 import { formatDateTime } from '../lib/format.js';
 import {
+  toolsQuery,
   useAgentFiles,
   useAgents,
   useAgentVersion,
@@ -548,13 +549,7 @@ function AgentEditor({
   const generatedIds = boundServers
     .filter((server) => server.kind === 'generated')
     .map((server) => server.id);
-  const toolQueries = useQueries({
-    queries: generatedIds.map((id) => ({
-      queryKey: ['tools', id],
-      queryFn: () => api.tools(id),
-      staleTime: 60_000,
-    })),
-  });
+  const toolQueries = useQueries({ queries: generatedIds.map((id) => toolsQuery(id)) });
   const toolCount = toolQueries.reduce(
     (sum, query) => sum + (query.data?.filter((tool) => tool.enabled).length ?? 0),
     0,

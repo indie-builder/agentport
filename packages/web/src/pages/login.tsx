@@ -52,7 +52,7 @@ export function LoginPage() {
             {[4, 9, 13, 7].map((height, index) => (
               <span
                 key={height}
-                className={index === 2 ? 'w-[2px] bg-signal' : 'w-[2px] bg-ink'}
+                className={index === 2 ? 'w-[2px] bg-ink' : 'w-[2px] bg-ink'}
                 style={{ height }}
               />
             ))}
@@ -70,7 +70,7 @@ export function LoginPage() {
           <dl className="mt-8 space-y-5">
             {facts.map(({ icon: Icon, title, body }) => (
               <div key={title} className="flex gap-3">
-                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[2px] border border-line bg-surface text-signal-text">
+                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[7px] border border-line bg-surface text-fg">
                   <Icon className="size-3.5" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
@@ -93,7 +93,7 @@ export function LoginPage() {
               {[4, 9, 13, 7].map((height, index) => (
                 <span
                   key={height}
-                  className={index === 2 ? 'w-[2px] bg-signal' : 'w-[2px] bg-ink'}
+                  className={index === 2 ? 'w-[2px] bg-ink' : 'w-[2px] bg-ink'}
                   style={{ height }}
                 />
               ))}

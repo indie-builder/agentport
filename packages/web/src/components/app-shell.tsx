@@ -19,12 +19,20 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { meQuery, queryClient } from '../lib/queries.js';
 import { Button } from './ui/button.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu.js';
+import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
 import { Skeleton } from './ui/skeleton.js';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip.js';
 
 /**
  * 导航按「配置 → 使用 → 观测 → 运维」分组。
@@ -129,11 +137,10 @@ function SidebarLink({
 }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const active = to === '/' ? pathname === '/' : pathname.startsWith(to);
-  return (
+  const link = (
     <Link
       to={to}
       onClick={onNavigate}
-      title={collapsed ? label : undefined}
       aria-current={active ? 'page' : undefined}
       className={cn(
         'flex h-9 items-center gap-2.5 rounded-[9px] text-sm transition-colors duration-150 focus-visible:outline-none',
@@ -149,100 +156,61 @@ function SidebarLink({
       )}
     </Link>
   );
+  if (!collapsed) return link;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent
+        side="right"
+        sideOffset={8}
+        className="rounded-[7px] bg-ink px-2 py-1 text-2xs text-white"
+      >
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function UserMenu({ username }: { username: string }) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (!open) return;
-    const onPointer = (event: MouseEvent): void => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: globalThis.KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      setOpen(false);
-      triggerRef.current?.focus();
-    };
-    document.addEventListener('mousedown', onPointer);
-    document.addEventListener('keydown', onKey);
-    // 打开后把焦点交给菜单项；返回时随卸载回到触发器。
-    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    return () => {
-      document.removeEventListener('mousedown', onPointer);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    const items = Array.from(
-      menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [],
-    );
-    if (items.length === 0) return;
-    event.preventDefault();
-    const index = items.indexOf(document.activeElement as HTMLElement);
-    const next =
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? items.length - 1
-          : event.key === 'ArrowDown'
-            ? (index + 1) % items.length
-            : (index - 1 + items.length) % items.length;
-    items[next]?.focus();
-  };
-
   const logout = async (): Promise<void> => {
-    setOpen(false);
     await api.logout().catch(() => undefined);
     queryClient.clear();
     await navigate({ to: '/login' });
   };
 
   return (
-    <div ref={containerRef} className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="flex h-8 items-center gap-2 rounded-[2px] px-2 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
-      >
-        <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted">
-          <User className="size-3" />
-        </span>
-        <span className="hidden max-w-32 truncate sm:block">{username}</span>
-      </button>
-      {open ? (
-        <div
-          ref={menuRef}
-          role="menu"
-          aria-label="用户菜单"
-          onKeyDown={onMenuKeyDown}
-          className="absolute right-0 top-10 z-40 w-48 rounded-[3px] border border-line bg-surface p-1 shadow-overlay"
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex h-8 items-center gap-2 rounded-[7px] px-2 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none data-[state=open]:bg-sunken focus-visible:ring-2 focus-visible:ring-fg"
         >
-          <div className="border-b border-line px-2.5 py-2">
-            <div className="truncate text-xs text-fg">{username}</div>
-            <div className="text-2xs text-subtle">管理员</div>
-          </div>
-          <button
-            type="button"
-            role="menuitem"
-            className="mt-1 flex w-full items-center gap-2 rounded-[2px] px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
-            onClick={() => void logout()}
-          >
-            <LogOut className="size-3.5" />
-            退出登录
-          </button>
+          <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted">
+            <User className="size-3" strokeWidth={1.75} />
+          </span>
+          <span className="hidden max-w-32 truncate sm:block">{username}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={8}
+        className="w-48 rounded-[7px] border border-line bg-surface p-1 shadow-overlay"
+      >
+        <div className="border-b border-line px-2.5 py-2">
+          <div className="truncate text-xs text-fg">{username}</div>
+          <div className="text-2xs text-subtle">管理员</div>
         </div>
-      ) : null}
-    </div>
+        <DropdownMenuItem
+          className="mt-1 flex w-full items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken focus:text-fg"
+          onSelect={() => void logout()}
+        >
+          <LogOut className="size-3.5" strokeWidth={1.75} />
+          退出登录
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -256,46 +224,6 @@ export function AppShell() {
   useEffect(() => {
     if (me.data && !me.data.authenticated) void navigate({ to: '/login' });
   }, [me.data, navigate]);
-
-  // 路由变化后关闭抽屉与用户菜单，避免遮住新页面。
-  useEffect(() => {
-    setMobileOpen(false);
-  }, []);
-
-  const drawerRef = useRef<HTMLDivElement>(null);
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
-
-  // 抽屉是模态的：焦点进入、Tab 循环、Esc 关闭并归还到触发按钮。
-  useEffect(() => {
-    if (!mobileOpen) return;
-    drawerRef.current?.querySelector<HTMLElement>('a, button')?.focus();
-    const onKey = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setMobileOpen(false);
-        menuButtonRef.current?.focus();
-        return;
-      }
-      if (event.key !== 'Tab') return;
-      const items = Array.from(
-        drawerRef.current?.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ) ?? [],
-      ).filter((element) => element.offsetParent !== null);
-      const first = items[0];
-      const last = items.at(-1);
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [mobileOpen]);
 
   useEffect(() => {
     const current = allNavItems.find((item) =>
@@ -396,10 +324,10 @@ export function AppShell() {
           )}
         >
           {collapsed ? (
-            <PanelLeftOpen className="size-4" />
+            <PanelLeftOpen className="size-4" strokeWidth={1.75} />
           ) : (
             <>
-              <PanelLeftClose className="size-4" />
+              <PanelLeftClose className="size-4" strokeWidth={1.75} />
               <span>收起侧栏</span>
             </>
           )}
@@ -409,85 +337,72 @@ export function AppShell() {
   );
 
   return (
-    <div className="h-screen bg-canvas p-1 text-fg">
-      <a href="#main-content" className="skip-link">
-        跳到主要内容
-      </a>
+    <TooltipProvider delayDuration={400}>
+      <div className="h-screen bg-canvas p-1 text-fg">
+        <a href="#main-content" className="skip-link">
+          跳到主要内容
+        </a>
 
-      {/* 外壳：参考页的核心结构——16px 圆角的白色容器承载全部内容。 */}
-      <div className="flex h-full overflow-hidden rounded-[16px] bg-surface">
-        <div className="hidden shrink-0 lg:block">{sidebar(false)}</div>
+        {/* 外壳：参考页的核心结构——16px 圆角的白色容器承载全部内容。 */}
+        <div className="flex h-full overflow-hidden rounded-[16px] bg-surface">
+          <div className="hidden shrink-0 lg:block">{sidebar(false)}</div>
 
-        {mobileOpen ? (
-          <div className="fixed inset-0 z-50 lg:hidden">
-            <button
-              type="button"
-              aria-label="关闭导航"
-              tabIndex={-1}
-              className="absolute inset-0 bg-scrim"
-              onClick={() => setMobileOpen(false)}
-            />
-            <div
-              ref={drawerRef}
-              role="dialog"
-              aria-modal="true"
-              aria-label="导航"
-              className="relative h-full w-[310px] bg-surface shadow-overlay"
+          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+            <SheetContent
+              side="left"
+              showCloseButton={false}
+              aria-describedby={undefined}
+              className="w-[310px] max-w-none gap-0 border-r border-line bg-surface p-0 shadow-overlay sm:max-w-none lg:hidden"
             >
-              <button
-                type="button"
+              <SheetTitle className="sr-only">导航</SheetTitle>
+              <SheetClose
                 aria-label="关闭导航"
-                onClick={() => {
-                  setMobileOpen(false);
-                  menuButtonRef.current?.focus();
-                }}
                 className="absolute right-3 top-4 z-10 rounded-[7px] p-1.5 text-subtle hover:bg-hover hover:text-fg focus-visible:outline-none"
               >
                 <X className="size-4" strokeWidth={1.75} />
-              </button>
+              </SheetClose>
               {sidebar(true)}
-            </div>
+            </SheetContent>
+          </Sheet>
+
+          <div className="flex min-w-0 flex-1 flex-col">
+            {/* 顶部只有一行：页面名 + 用户。参考页也是如此，没有标题区与面包屑堆叠。 */}
+            <header className="flex h-14 shrink-0 items-center gap-3 px-4 sm:px-6">
+              <button
+                type="button"
+                aria-label="打开导航"
+                aria-expanded={mobileOpen}
+                className="-ml-1 rounded-[7px] p-1.5 text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none lg:hidden"
+                onClick={() => setMobileOpen(true)}
+              >
+                <Menu className="size-5" strokeWidth={1.75} />
+              </button>
+              {!pathname.startsWith('/chat') ? <Breadcrumb pathname={pathname} /> : null}
+              <div className="ml-auto flex items-center gap-1">
+                <UserMenu username={me.data.username ?? 'admin'} />
+              </div>
+            </header>
+
+            <main
+              id="main-content"
+              tabIndex={-1}
+              className={cn('min-h-0 flex-1', pathname.startsWith('/chat') && 'overflow-hidden')}
+            >
+              <div
+                className={cn(
+                  'mx-auto w-full',
+                  pathname.startsWith('/chat')
+                    ? 'h-full'
+                    : 'max-w-[1080px] px-4 pb-10 sm:px-6 lg:px-8',
+                )}
+              >
+                <Outlet />
+              </div>
+            </main>
           </div>
-        ) : null}
-
-        <div className="flex min-w-0 flex-1 flex-col">
-          {/* 顶部只有一行：页面名 + 用户。参考页也是如此，没有标题区与面包屑堆叠。 */}
-          <header className="flex h-14 shrink-0 items-center gap-3 px-4 sm:px-6">
-            <button
-              ref={menuButtonRef}
-              type="button"
-              aria-label="打开导航"
-              aria-expanded={mobileOpen}
-              className="-ml-1 rounded-[7px] p-1.5 text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none lg:hidden"
-              onClick={() => setMobileOpen(true)}
-            >
-              <Menu className="size-5" strokeWidth={1.75} />
-            </button>
-            {!pathname.startsWith('/chat') ? <Breadcrumb pathname={pathname} /> : null}
-            <div className="ml-auto flex items-center gap-1">
-              <UserMenu username={me.data.username ?? 'admin'} />
-            </div>
-          </header>
-
-          <main
-            id="main-content"
-            tabIndex={-1}
-            className={cn('min-h-0 flex-1', pathname.startsWith('/chat') && 'overflow-hidden')}
-          >
-            <div
-              className={cn(
-                'mx-auto w-full',
-                pathname.startsWith('/chat')
-                  ? 'h-full'
-                  : 'max-w-[1080px] px-4 pb-10 sm:px-6 lg:px-8',
-              )}
-            >
-              <Outlet />
-            </div>
-          </main>
         </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }
 
@@ -498,7 +413,10 @@ function Breadcrumb({ pathname }: { pathname: string }) {
   return (
     <nav aria-label="面包屑" className="flex min-w-0 items-center gap-1.5 text-xs">
       <span className="hidden text-subtle sm:inline">PACE</span>
-      <ChevronRight className="hidden size-3 shrink-0 text-line-strong sm:inline" />
+      <ChevronRight
+        className="hidden size-3 shrink-0 text-line-strong sm:inline"
+        strokeWidth={1.75}
+      />
       <span aria-current="page" className="truncate font-medium text-fg">
         {current?.title ?? '页面不存在'}
       </span>

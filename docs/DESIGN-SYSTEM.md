@@ -125,7 +125,26 @@ body #F7F7F5
 - 只有：悬停背景、展开折叠、流式光标。
 - 无入场动画、无位移、无呼吸点。
 
-## 10. 禁止
+## 10. 实现技术栈（硬性）
+
+视觉由上文的数值决定，交互与结构由下列库决定。**不得手写这些库已经提供的东西**：
+
+| 需求 | 唯一实现 | 约束 |
+|---|---|---|
+| 控件、表单、浮层 | shadcn/ui（`components/ui/`）+ Radix | 新增先 `pnpm dlx shadcn@latest add <name>`，再把外观换成 `@theme` 令牌 |
+| 图标 | lucide | `LucideProvider` 在 `App.tsx` 统一设 `strokeWidth={1.75}`、`size={16}`，组件里不要再逐个传 |
+| 动效 | Motion（`motion/react`） | 只用于 §9 允许的三类；`duration` 0.15–0.2、`easeOut`；读 `useReducedMotion` |
+| 可拖拽分栏 | react-resizable-panels v4 | `Group` / `Panel` / `Separator`；用 `useDefaultLayout` 持久化；分隔条就是 1px `border-line`，不加把手 |
+| 拖拽排序 | dnd-kit | 必须带 `KeyboardSensor`，拖拽手柄有可访问名称 |
+| 客户端状态 | Zustand | 只放**跨组件、非服务端**的状态；服务端数据一律 TanStack Query |
+| 路由与 URL 状态 | TanStack Router | 筛选、分页、选中的 tab 走 `validateSearch`，不要塞进组件 state |
+| 类名合并 | `cn`（`lib/cn.ts`） | 唯一实现，不引入 clsx / tailwind-merge 的第二份 |
+
+- 圆角一律从令牌取值：外壳 16 / 卡片 12 / 行 9 / 图标 7 / 标签 6。控件用 7，容器用 12，不要出现 2px、3px 这类体系外的值。
+- 动画类（`animate-in` / `fade-in-0` / `zoom-in-95`）由 `tw-animate-css` 提供，已在 `styles.css` 引入。
+- shadcn 原语的语义色（`bg-popover`、`text-muted-foreground`、`bg-accent` 等）已全部映射到无彩度令牌，**不要在组件里改回具体色值**。
+
+## 11. 禁止
 
 - 卡片套卡片、彩色边框、彩色左边条。
 - 渐变、玻璃、阴影堆叠（外壳无阴影，输入框是唯一带阴影的元素）。
