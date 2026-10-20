@@ -4,7 +4,6 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
   Bot,
-  ChevronRight,
   Command,
   HeartPulse,
   LayoutDashboard,
@@ -421,18 +420,20 @@ export function AppShell() {
         </Sheet>
 
         <div className="mr-1 mb-1 mt-1 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[16px] bg-surface outline outline-1 -outline-offset-1 outline-shell-line">
-          {/* 顶部只有一行：面包屑。实测内边距 12px，高 44px。 */}
-          <header className="flex h-11 shrink-0 items-center gap-3 px-3">
+          {/*
+           * 桌面端没有外壳自己的顶栏：参考页白面板里就是页面内容的第一行。
+           * 移动端才需要这一行来放抽屉入口，页面标题由各页的 PageHeader 负责。
+           */}
+          <header className="flex h-11 shrink-0 items-center gap-3 px-3 lg:hidden">
             <button
               type="button"
               aria-label="打开导航"
               aria-expanded={mobileOpen}
-              className="-ml-1 rounded-[7px] p-1.5 text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none lg:hidden"
+              className="-ml-1 rounded-[7px] p-1.5 text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
               onClick={() => setMobileOpen(true)}
             >
               <Menu className="size-5" strokeWidth={1.75} />
             </button>
-            {!pathname.startsWith('/chat') ? <Breadcrumb pathname={pathname} /> : null}
           </header>
 
           <main
@@ -440,35 +441,21 @@ export function AppShell() {
             tabIndex={-1}
             className={cn('min-h-0 flex-1', pathname.startsWith('/chat') && 'overflow-hidden')}
           >
-            <div
-              className={cn(
-                'mx-auto w-full',
-                pathname.startsWith('/chat') ? 'h-full' : 'max-w-[1080px] px-3 pb-10 pt-3',
-              )}
-            >
-              <Outlet />
-            </div>
+            {pathname.startsWith('/chat') ? (
+              <div className="h-full">
+                <Outlet />
+              </div>
+            ) : (
+              // 实测：内容区距白壳边缘 12px。顶部内边距由 PageHeader 承担。
+              <div className="w-full px-3 pb-10">
+                <div className="mx-auto w-full max-w-[960px]">
+                  <Outlet />
+                </div>
+              </div>
+            )}
           </main>
         </div>
       </div>
     </TooltipProvider>
-  );
-}
-
-function Breadcrumb({ pathname }: { pathname: string }) {
-  const current = allNavItems.find((item) =>
-    item.to === '/' ? pathname === '/' : pathname.startsWith(item.to),
-  );
-  return (
-    <nav aria-label="面包屑" className="flex min-w-0 items-center gap-1.5 text-xs">
-      <span className="hidden text-subtle sm:inline">PACE</span>
-      <ChevronRight
-        className="hidden size-3 shrink-0 text-line-strong sm:inline"
-        strokeWidth={1.75}
-      />
-      <span aria-current="page" className="truncate font-medium text-fg">
-        {current?.title ?? '页面不存在'}
-      </span>
-    </nav>
   );
 }
