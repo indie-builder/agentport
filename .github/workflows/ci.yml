@@ -95,6 +95,7 @@ jobs:
       - run: pnpm build
       - run: pnpm db:migrate
       - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec e2e-web install chromium --with-deps
       - name: Start api + web
         run: |
           pnpm dev > dev.log 2>&1 &
@@ -103,12 +104,15 @@ jobs:
             sleep 2
           done
           curl -fsS http://localhost:3000/health/ready
+      # e2e 是主套件；Playwright 仍在迁移期并行运行（MIGRATION.md）。
+      - run: pnpm exec e2e run --reporter=list,junit
       - run: pnpm exec playwright test --reporter=github
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-failure
+          name: e2e-failure
           path: |
+            .e2e/results/
             test-results/
             dev.log
           retention-days: 7

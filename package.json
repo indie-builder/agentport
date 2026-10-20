@@ -17,7 +17,7 @@
     "lint:fix": "biome check --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "e2e run",
     "db:generate": "pnpm --filter @agentport/db generate",
     "db:migrate": "pnpm --filter @agentport/db migrate",
     "backup": "bash scripts/backup.sh",
@@ -25,12 +25,15 @@
     "smoke": "bash scripts/smoke.sh",
     "infra:up": "docker compose up -d postgres redis",
     "infra:down": "docker compose down",
-    "clean": "pnpm -r exec rm -rf dist node_modules && rm -rf node_modules"
+    "clean": "pnpm -r exec rm -rf dist node_modules && rm -rf node_modules",
+    "test:e2e:playwright": "playwright test"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
+    "@e2e-dev/web": "0.15.2",
     "@playwright/test": "1.64.1",
     "@vitest/coverage-v8": "5.0.5",
+    "e2e": "0.21.2",
     "typescript": "7.0.2",
     "vitest": "5.0.5"
   }

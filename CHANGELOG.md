@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0] - 2026-10-20
+
+- E2E 技术栈迁移到 `e2e`（`e2e@0.21.2` + `@e2e-dev/web@0.15.2`）
+- 新增 `e2e.config.ts`、`tests/**/*.e2e.ts`、`test.setup` 登录会话
+- `pnpm test:e2e` 指向 e2e；Playwright 保留为 `pnpm test:e2e:playwright`
+- CI 同时运行两套，失败时上传 `.e2e/results/`
+- 迁移进度记录在 `MIGRATION.md`
+
 ## [0.1.1] - 2026-10-20
 
 - 修复：刷新后工具卡片与结果错配（worker 用 `toolUseId`，前端只认 `tool_use_id`）

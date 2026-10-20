@@ -140,6 +140,7 @@ agentport/
 
 ## 文档
 
+- [e2e 迁移进度](MIGRATION.md) — Playwright → e2e 的逐文件状态
 - [交付总结](DELIVERY.md) — 能做什么、怎么验证、还缺什么索引
 
 | 文档 | 内容 |

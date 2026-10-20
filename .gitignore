@@ -13,3 +13,5 @@ coverage/
 backups/
 test-results/
 playwright-report/
+
+.e2e/
