@@ -3,7 +3,7 @@ import { ClipboardCheck, FlaskConical, Pencil, Play, Plus, Trash2 } from 'lucide
 import { useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { PageHeader, SectionHeader } from '../components/page.js';
+import { Page, PageHeader, SectionHeader } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -117,7 +117,7 @@ export function EvalPage() {
   };
 
   return (
-    <div>
+    <Page>
       <PageHeader
         title="评估"
         description="手工用例 + 回归跑批：每个用例发起一次真实运行，按期望文本做包含判定。"
@@ -132,25 +132,20 @@ export function EvalPage() {
         }
       />
 
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Select
           aria-label="按智能体筛选"
           className="w-56"
           value={effectiveAgentId ?? ''}
-          onChange={(event) => setAgentId(event.target.value)}
-        >
-          {(agents.data ?? []).map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </Select>
+          onValueChange={setAgentId}
+          options={(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }))}
+        />
         <span className="text-[11.5px] text-subtle">
           判定：期望非空时检查输出包含该文本（不区分大小写）；为空时只要求有文本输出。
         </span>
       </div>
 
-      <section className="mb-8">
+      <section className="flex flex-col gap-3">
         <SectionHeader
           title="用例"
           actions={
@@ -271,7 +266,7 @@ export function EvalPage() {
       ) : null}
       {editing ? <CaseDialog testCase={editing} onClose={() => setEditing(null)} /> : null}
       {deleting ? <DeleteCaseDialog testCase={deleting} onClose={() => setDeleting(null)} /> : null}
-    </div>
+    </Page>
   );
 }
 

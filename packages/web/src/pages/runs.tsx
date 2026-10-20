@@ -2,7 +2,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
 import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { PageHeader } from '../components/page.js';
+import { Page, PageHeader } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
@@ -130,40 +130,34 @@ export function RunsPage() {
   const items = runs.data?.items ?? [];
 
   return (
-    <div>
+    <Page>
       <PageHeader
         title="运行"
         description="所有智能体运行的状态、成本、tokens 与错误。点击一行查看 trace。"
         actions={<Badge variant="outline">最近 100 条</Badge>}
       />
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Select
           aria-label="按智能体筛选"
           className="w-48"
           value={agentId}
-          onChange={(event) => setAgentId(event.target.value)}
-        >
-          <option value="">全部智能体</option>
-          {(agents.data ?? []).map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </Select>
+          onValueChange={setAgentId}
+          options={[
+            { value: '', label: '全部智能体' },
+            ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
+          ]}
+        />
         <Select
           aria-label="按状态筛选"
           className="w-32"
           value={status}
-          onChange={(event) => setStatus(event.target.value as RunStatus | '')}
-        >
-          <option value="">全部状态</option>
-          {statuses.map((value) => (
-            <option key={value} value={value}>
-              {runStatusLabel[value]}
-            </option>
-          ))}
-        </Select>
+          onValueChange={(next) => setStatus(next as RunStatus | '')}
+          options={[
+            { value: '', label: '全部状态' },
+            ...statuses.map((value) => ({ value, label: runStatusLabel[value] })),
+          ]}
+        />
       </div>
 
       {runs.isError ? <ErrorState error={runs.error} onRetry={() => void runs.refetch()} /> : null}
@@ -196,6 +190,6 @@ export function RunsPage() {
           onRowClick={(run) => void navigate({ to: '/runs/$runId', params: { runId: run.id } })}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }

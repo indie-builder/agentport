@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Activity, Bot, MessagesSquare, Plus, Server } from 'lucide-react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { PageHeader, SectionHeader } from '../components/page.js';
+import { Page, PageHeader, PageSection } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
@@ -286,10 +286,10 @@ function PlatformHealth() {
   ];
 
   return (
-    <Card className="mt-3">
-      <CardContent className="p-4">
+    <Card>
+      <CardContent>
         <div className="flex items-center justify-between">
-          <h2 className="text-[11px] uppercase tracking-wider text-subtle">平台健康</h2>
+          <h2 className="text-[13px] font-semibold text-fg">平台健康</h2>
           <span className="text-[11px] text-subtle">每 30 秒刷新</span>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-5">
@@ -331,7 +331,7 @@ export function OverviewPage() {
   const empty = !loading && !error && counts.servers === 0 && counts.agents === 0;
 
   return (
-    <div>
+    <Page>
       <PageHeader
         title="概览"
         description="智能体的运行次数、成本与延迟，以及最近的执行记录。"
@@ -395,11 +395,7 @@ export function OverviewPage() {
 
           <PlatformHealth />
 
-          <div className="mt-8">
-            <SectionHeader
-              title="智能体"
-              actions={<span className="text-[11px] text-subtle">最近 7 天</span>}
-            />
+          <PageSection title="智能体" description="最近 7 天">
             {overview.isPending ? <LoadingState rows={3} /> : null}
             {fallback ? (
               <div className="rounded-lg border border-dashed border-line px-4 py-6 text-center text-xs text-muted">
@@ -430,17 +426,12 @@ export function OverviewPage() {
                 empty="还没有智能体"
               />
             ) : null}
-          </div>
+          </PageSection>
 
-          <div className="mt-8">
-            <SectionHeader
-              title="最近运行"
-              actions={
-                <span className="text-[11px] text-subtle">
-                  {fallback ? '后端未提供 /api/overview' : '最近 20 条'}
-                </span>
-              }
-            />
+          <PageSection
+            title="最近运行"
+            description={fallback ? '后端未提供 /api/overview' : '最近 20 条'}
+          >
             {recent && recent.length === 0 ? (
               <EmptyState
                 icon={<Activity className="size-5" />}
@@ -463,9 +454,9 @@ export function OverviewPage() {
                 empty="还没有运行记录"
               />
             ) : null}
-          </div>
+          </PageSection>
 
-          <div className="mt-8 grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-3">
             {links.map(({ to, label, description, icon: Icon }) => (
               <Link
                 key={to}
@@ -482,6 +473,6 @@ export function OverviewPage() {
           </div>
         </>
       ) : null}
-    </div>
+    </Page>
   );
 }

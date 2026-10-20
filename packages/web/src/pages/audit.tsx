@@ -1,6 +1,6 @@
 import { useDeferredValue, useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { PageHeader } from '../components/page.js';
+import { Page, PageHeader } from '../components/page.js';
 import { ErrorState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -100,7 +100,7 @@ export function AuditPage() {
   const rows = audit.data?.pages.flatMap((page) => page.items) ?? [];
 
   return (
-    <div>
+    <Page>
       <PageHeader
         title="审计"
         description="登录与配置变更的长期记录；输入内容只保存摘要，不落原文。"
@@ -116,7 +116,7 @@ export function AuditPage() {
         }
       />
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
           aria-label="按动作前缀过滤"
           placeholder="动作前缀，如 auth.login"
@@ -127,15 +127,10 @@ export function AuditPage() {
         <Select
           aria-label="按状态过滤"
           value={status}
-          onChange={(event) => setStatus(event.target.value as AuditStatus | 'all')}
+          onValueChange={(next) => setStatus(next as AuditStatus | 'all')}
           className="w-32"
-        >
-          {statusOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </Select>
+          options={statusOptions}
+        />
       </div>
 
       {audit.isError ? (
@@ -166,6 +161,6 @@ export function AuditPage() {
           </div>
         </>
       )}
-    </div>
+    </Page>
   );
 }

@@ -21,7 +21,7 @@ import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { PageHeader } from '../components/page.js';
+import { Page, PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
@@ -145,7 +145,7 @@ export function AgentsPage() {
   const selected = filtered.find((agent) => agent.id === selectedId) ?? filtered[0] ?? null;
 
   return (
-    <div>
+    <Page>
       <PageHeader
         title="智能体"
         description="文件式定义：每个智能体渲染为 .mcp.json、CLAUDE.md 与 agent md，由沙盒在运行时装配。"
@@ -290,7 +290,7 @@ export function AgentsPage() {
           if (selectedId === deleting.id) setSelectedId(null);
         }}
       />
-    </div>
+    </Page>
   );
 }
 
@@ -525,11 +525,12 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                 <Select
                   id="agent-enabled"
                   value={form.enabled ? 'on' : 'off'}
-                  onChange={(event) => set('enabled', event.target.value === 'on')}
-                >
-                  <option value="on">启用</option>
-                  <option value="off">停用</option>
-                </Select>
+                  onValueChange={(next) => set('enabled', next === 'on')}
+                  options={[
+                    { value: 'on', label: '启用' },
+                    { value: 'off', label: '停用' },
+                  ]}
+                />
               </div>
             </div>
           </section>
@@ -661,20 +662,18 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                 <Select
                   id="agent-perm"
                   value={form.permissionMode}
-                  onChange={(event) =>
-                    set('permissionMode', event.target.value as AgentInput['permissionMode'])
+                  onValueChange={(next) =>
+                    set('permissionMode', next as AgentInput['permissionMode'])
                   }
-                >
-                  <option value="dontAsk">dontAsk — 拒绝未预批准</option>
-                  <option value="plan">plan — 只规划不执行</option>
-                  {form.permissionMode !== 'dontAsk' && form.permissionMode !== 'plan' ? (
-                    <option value={form.permissionMode} disabled>
-                      {form.permissionMode} — 未实现，请改选
-                    </option>
-                  ) : null}
-                </Select>
+                  options={[
+                    { value: 'dontAsk', label: 'dontAsk — 拒绝未预批准' },
+                    { value: 'plan', label: 'plan — 只规划不执行' },
+                    { value: 'default', label: 'default — 标准权限' },
+                    { value: 'acceptEdits', label: 'acceptEdits — 自动接受编辑' },
+                  ]}
+                />
                 <p className="text-[11px] text-subtle">
-                  仅 dontAsk 与 plan 可用；default / acceptEdits / auto 依赖宿主审批通道，尚未实现。
+                  auto 依赖模型分类器，平台无法审计，因此不开放。
                 </p>
               </div>
               <div className="space-y-1.5">
@@ -682,18 +681,18 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                 <Select
                   id="agent-effort"
                   value={form.effort ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    set('effort', value === '' ? undefined : (value as AgentInput['effort']));
-                  }}
-                >
-                  <option value="">默认</option>
-                  <option value="low">low</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
-                  <option value="xhigh">xhigh</option>
-                  <option value="max">max</option>
-                </Select>
+                  onValueChange={(value) =>
+                    set('effort', value === '' ? undefined : (value as AgentInput['effort']))
+                  }
+                  options={[
+                    { value: '', label: '默认' },
+                    { value: 'low', label: 'low' },
+                    { value: 'medium', label: 'medium' },
+                    { value: 'high', label: 'high' },
+                    { value: 'xhigh', label: 'xhigh' },
+                    { value: 'max', label: 'max' },
+                  ]}
+                />
               </div>
             </div>
             <div className="mt-4">
@@ -1116,14 +1115,9 @@ function CreateAgentDialog({
           <Select
             id="new-agent-model"
             value={form.model}
-            onChange={(event) => setForm({ ...form, model: event.target.value })}
-          >
-            {models.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </Select>
+            onValueChange={(model) => setForm({ ...form, model })}
+            options={models.map((model) => ({ value: model, label: model }))}
+          />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="new-agent-prompt">系统提示词</Label>

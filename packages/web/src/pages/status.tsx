@@ -8,7 +8,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
-import { PageHeader } from '../components/page.js';
+import { Page, PageHeader } from '../components/page.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
@@ -66,7 +66,7 @@ function Panel({
           <StatusPill state={state} />
         </div>
       </CardHeader>
-      <CardContent className="p-4">{children}</CardContent>
+      <CardContent>{children}</CardContent>
     </Card>
   );
 }
@@ -208,7 +208,7 @@ function SmokeChecklist() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="p-4">
+      <CardContent>
         {steps.length === 0 ? (
           <p className="text-xs text-muted">
             依次请求 live、ready、metrics 三个端点，只在这个浏览器里执行，不会改动服务。
@@ -294,7 +294,7 @@ export function StatusPage() {
   };
 
   return (
-    <div>
+    <Page>
       <PageHeader
         title="系统状态"
         description="API 进程、队列、数据库连接池与 Redis 的实时状态，每 10 秒自动刷新。"
@@ -427,14 +427,12 @@ export function StatusPage() {
         </Panel>
       </div>
 
-      <div className="mt-3">
-        <SmokeChecklist />
-      </div>
+      <SmokeChecklist />
 
-      <p className="mt-4 text-[11.5px] leading-relaxed text-subtle">
+      <p className="text-[11.5px] leading-relaxed text-subtle">
         处置步骤见 <code className="font-mono text-muted">docs/RUNBOOK.md</code>
         ；指标字段与观测入口见 <code className="font-mono text-muted">docs/OPERATIONS.md</code>。
       </p>
-    </div>
+    </Page>
   );
 }

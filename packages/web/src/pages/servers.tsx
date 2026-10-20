@@ -21,7 +21,7 @@ import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { PageHeader } from '../components/page.js';
+import { Page, PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -168,7 +168,7 @@ export function ServersPage() {
   };
 
   return (
-    <div>
+    <Page>
       <PageHeader
         title="MCP Servers"
         description="接入 stdio 命令或远程 HTTP 端点；generated server 把上游 HTTP API 直接暴露成 MCP 工具。"
@@ -309,7 +309,7 @@ export function ServersPage() {
           }
         }}
       />
-    </div>
+    </Page>
   );
 }
 
@@ -714,16 +714,12 @@ function ToolsPanel({ serverId }: { serverId: string }) {
           <Select
             id={`tool-method-${serverId}`}
             value={form.method}
-            onChange={(event) =>
-              setForm({ ...form, method: event.target.value as ApiToolInput['method'] })
-            }
-          >
-            {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => (
-              <option key={method} value={method}>
-                {method}
-              </option>
-            ))}
-          </Select>
+            onValueChange={(next) => setForm({ ...form, method: next as ApiToolInput['method'] })}
+            options={['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => ({
+              value: method,
+              label: method,
+            }))}
+          />
         </div>
         <div className="space-y-1 sm:col-span-2">
           <Label htmlFor={`tool-path-${serverId}`}>
@@ -745,13 +741,14 @@ function ToolsPanel({ serverId }: { serverId: string }) {
           <Select
             id={`tool-params-${serverId}`}
             value={form.paramsIn}
-            onChange={(event) =>
-              setForm({ ...form, paramsIn: event.target.value as ApiToolInput['paramsIn'] })
+            onValueChange={(next) =>
+              setForm({ ...form, paramsIn: next as ApiToolInput['paramsIn'] })
             }
-          >
-            <option value="query">query</option>
-            <option value="body">body</option>
-          </Select>
+            options={[
+              { value: 'query', label: 'query' },
+              { value: 'body', label: 'body' },
+            ]}
+          />
         </div>
         <div className="space-y-1 sm:col-span-5">
           <Label htmlFor={`tool-desc-${serverId}`}>描述</Label>

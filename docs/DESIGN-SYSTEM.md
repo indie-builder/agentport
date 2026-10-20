@@ -81,28 +81,45 @@
 
 ## 5. 组件来源（强制）
 
-**所有 UI 组件统一使用 shadcn/ui。**
+**组件库是 shadcn/ui，不是自建样式表。**
 
-- 组件从 shadcn/ui 的既有实现出发，放在 `packages/web/src/components/ui/`；不做二次封装层，不加平行组件集。
-- 外观通过本文件的 token 与 Tailwind 工具类调整；**结构与可访问性行为保持不变**（焦点陷阱、`aria-*`、键盘导航）。
-- 需要新交互时，优先组合现有组件；确实缺失时再引入对应的 shadcn 组件，而不是手写。
-- 禁止在业务组件里硬编码颜色；`styles.css` 的 `@theme` 是唯一色值来源。
+- `packages/web/components.json` 声明 shadcn 配置（new-york、stone、`src/components/ui`）。
+- 基础组件来自 shadcn/ui，交互原语是 **Radix**（`radix-ui` 单包，v1.8.1）：
+  `Dialog`、`Tabs`、`Select`、`Popover`（MultiSelect 用）。
+- 其余基础件（Button / Badge / Input / Textarea / Label / Card / Table / Skeleton）
+  沿用 shadcn 的 API 形状与 cva 变体，但样式由本项目令牌驱动。
 
-## 6. 组件规范
+**为什么之前不是**：早期为了少装依赖，手写了 Dialog/Tabs/Select。代价是焦点陷阱、
+aria 关联、portal 裁剪、空值处理都要自己维护，且已经出现过浮层被卡片裁切的问题。
+现在的规则是：**能用 Radix 的交互原语，就不自己实现。**
 
-| 组件 | 规范 |
-|---|---|
-| Button | 高 32（sm 28 / lg 36），圆角 6；`focus-visible` 2px accent 外环；主按钮纯 accent 填充，次按钮透明 + 边框，危险按钮红字 |
-| Input / Textarea | 高 32，圆角 6，背景 surface-2，聚焦边框 accent |
-| Select | 同 Input；浮层 surface-2；选中项左侧 2px accent 条 |
-| Card | 背景 surface，边框 1px line，圆角 10，内边距 20 |
-| Dialog / Drawer | Dialog 最大宽 560；Drawer 从右滑入，宽 480；遮罩 rgba(0,0,0,.6)；Esc 关闭；焦点陷阱 |
-| Table | 行高 40，表头 sticky；行悬停 surface-2；数字列右对齐；可选列可见性 |
-| Badge | 高 20，圆角 999，低饱和背景 + 同色文字 |
-| Tabs | 底部 2px accent 指示条 |
-| Toast | 右下角，圆角 8，4s 消失 |
-| Code block | 背景 code，圆角 8，等宽，可选行号，右上角复制 |
-| Skeleton | surface-2 底，1.6s 脉冲 |
+新增组件的流程：
+
+```bash
+pnpm dlx shadcn@latest add <component>   # 生成到 src/components/ui
+```
+
+生成后把颜色类换成本项目令牌（`bg-surface` / `text-fg` …），不要保留 shadcn 的
+`bg-background` / `text-foreground` 命名——那套变量本项目没有定义。
+
+## 6. 页面骨架与间距
+
+页面**不自行拼间距**，统一用 `components/page.tsx`：
+
+| 组件 | 用途 | 间距 |
+|---|---|---|
+| `Page` | 页面根容器 | 子项之间 20px |
+| `PageHeader` | 唯一 h1 + 说明 + 主操作 | 标题下 4px |
+| `PageToolbar` | 筛选、搜索、批量操作 | 子项 8px |
+| `PageSection` | 区块（标题 + 内容） | 标题与内容 12px |
+| `SectionHeader` | 兼容旧调用的小标题 | — |
+
+规则：
+
+1. **一个页面只有一个 h1**（`PageHeader`）。
+2. 页面里禁止出现 `mb-3` / `mb-5` / `mt-8` 这类页面级外边距——它们属于骨架。
+3. 卡片内部统一 `Card` + `CardContent`（`p-4`）；不要再传 `className="p-5"` 覆盖。
+4. 表格与卡片之间的间距由 `Page` 的 gap 提供，不在表格上加 margin。
 
 ## 7. 布局
 

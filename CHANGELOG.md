@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0] - 2026-10-20
+
+- 交互原语换成 shadcn/ui + Radix：`Dialog`、`Tabs`、`Select`、`Popover`（MultiSelect）
+- 新增 `components.json`，声明 shadcn 配置，后续组件用 `shadcn add` 生成
+- 新增页面骨架 `Page` / `PageHeader` / `PageToolbar` / `PageSection`，统一 20px / 32px 节奏
+- 8 个页面改用骨架，移除各自的 `mb-3` / `mb-5` / `mt-8` 硬编码外边距
+- 侧栏导航按「构建 / 运行 / 治理」分组，概览独立置顶
+- 内容容器加宽到 1360px，页头下边距 32px → 24px，提升 Dashboard 信息密度
+- 修复 MultiSelect 浮层被卡片 `overflow` 裁切（改 Radix Popover portal）
+- 修复 Radix Select 把空字符串当未选中，导致「全部状态」显示为「请选择」
+- 卡片内边距统一 `p-4`；移除各页 `CardContent` 的 padding 覆盖
+- `docs/DESIGN-SYSTEM.md` 增加组件来源与页面骨架两节；`CLAUDE.md` 同步规则
+
 ## [0.8.0] - 2026-10-20
 
 - 前端整体重做为浅色唯一主题：暖纸 + 墨 + 深青，令牌集中在 `styles.css`

@@ -24,5 +24,5 @@ export function CardTitle({ className, ...props }: ComponentProps<'div'>) {
 }
 
 export function CardContent({ className, ...props }: ComponentProps<'div'>) {
-  return <div className={cn('p-5', className)} {...props} />;
+  return <div className={cn('p-4', className)} {...props} />;
 }

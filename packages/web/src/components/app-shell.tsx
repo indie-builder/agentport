@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
+import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
   Bot,
@@ -25,17 +26,50 @@ import { meQuery, queryClient } from '../lib/queries.js';
 import { Button } from './ui/button.js';
 import { Skeleton } from './ui/skeleton.js';
 
+/**
+ * 导航按「配置 → 使用 → 观测 → 运维」分组。
+ * 平铺九项会让读者每次重新扫描；分组给出稳定的位置记忆。
+ */
 const nav = [
-  { to: '/', label: '概览', icon: LayoutDashboard, title: '概览' },
-  { to: '/servers', label: 'MCP Servers', icon: Server, title: 'MCP Servers' },
-  { to: '/agents', label: '智能体', icon: Bot, title: '智能体' },
-  { to: '/skills', label: '技能', icon: Sparkles, title: '技能' },
-  { to: '/chat', label: '对话', icon: MessagesSquare, title: '对话' },
-  { to: '/runs', label: '运行', icon: Activity, title: '运行' },
-  { to: '/eval', label: '评估', icon: FlaskConical, title: '评估' },
-  { to: '/audit', label: '审计', icon: ScrollText, title: '审计' },
-  { to: '/status', label: '系统状态', icon: HeartPulse, title: '系统状态' },
+  {
+    label: '构建',
+    items: [
+      { to: '/servers', label: 'MCP Servers', icon: Server, title: 'MCP Servers' },
+      { to: '/agents', label: '智能体', icon: Bot, title: '智能体' },
+      { to: '/skills', label: '技能', icon: Sparkles, title: '技能' },
+    ],
+  },
+  {
+    label: '运行',
+    items: [
+      { to: '/chat', label: '对话', icon: MessagesSquare, title: '对话' },
+      { to: '/runs', label: '运行记录', icon: Activity, title: '运行记录' },
+      { to: '/eval', label: '评估', icon: FlaskConical, title: '评估' },
+    ],
+  },
+  {
+    label: '治理',
+    items: [
+      { to: '/audit', label: '审计', icon: ScrollText, title: '审计' },
+      { to: '/status', label: '系统状态', icon: HeartPulse, title: '系统状态' },
+    ],
+  },
 ] as const;
+
+/** 概览单独放在最上：它是入口，不属于任何分组。 */
+const overviewNav = { to: '/', label: '概览', icon: LayoutDashboard, title: '概览' } as const;
+
+/** 扁平列表供标题查找与路由匹配使用。 */
+interface NavItem {
+  readonly to: string;
+  readonly label: string;
+  readonly icon: LucideIcon;
+  readonly title: string;
+}
+const allNavItems: readonly NavItem[] = [
+  overviewNav,
+  ...nav.flatMap((group) => group.items as readonly NavItem[]),
+];
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
 
@@ -258,7 +292,7 @@ export function AppShell() {
   }, [mobileOpen]);
 
   useEffect(() => {
-    const current = nav.find((item) =>
+    const current = allNavItems.find((item) =>
       item.to === '/' ? pathname === '/' : pathname.startsWith(item.to),
     );
     document.title = current ? `${current.title} · PACE` : 'PACE';
@@ -314,16 +348,36 @@ export function AppShell() {
       )}
     >
       <Brand collapsed={drawer ? false : collapsed} />
-      <nav aria-label="主导航" className="flex-1 space-y-0.5 overflow-y-auto p-2">
-        {nav.map((item) => (
-          <SidebarLink
-            key={item.to}
-            to={item.to}
-            label={item.label}
-            icon={item.icon}
-            collapsed={drawer ? false : collapsed}
-            onNavigate={drawer ? () => setMobileOpen(false) : undefined}
-          />
+      <nav aria-label="主导航" className="flex-1 overflow-y-auto p-2">
+        <SidebarLink
+          to={overviewNav.to}
+          label={overviewNav.label}
+          icon={overviewNav.icon}
+          collapsed={drawer ? false : collapsed}
+          onNavigate={drawer ? () => setMobileOpen(false) : undefined}
+        />
+        {nav.map((group) => (
+          <div key={group.label} className="mt-3 first:mt-3">
+            {drawer || !collapsed ? (
+              <div className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-subtle">
+                {group.label}
+              </div>
+            ) : (
+              <div className="mx-auto mb-1 h-px w-6 bg-line" aria-hidden="true" />
+            )}
+            <div className="space-y-0.5">
+              {group.items.map((item) => (
+                <SidebarLink
+                  key={item.to}
+                  to={item.to}
+                  label={item.label}
+                  icon={item.icon}
+                  collapsed={drawer ? false : collapsed}
+                  onNavigate={drawer ? () => setMobileOpen(false) : undefined}
+                />
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
       <div className="border-t border-line p-2">
@@ -415,8 +469,8 @@ export function AppShell() {
         >
           <div
             className={cn(
-              'mx-auto w-full max-w-[1200px] px-4 sm:px-8',
-              pathname.startsWith('/chat') ? 'h-[calc(100vh-52px)] py-4' : 'py-8',
+              'mx-auto w-full max-w-[1360px] px-4 sm:px-6 lg:px-8',
+              pathname.startsWith('/chat') ? 'h-[calc(100vh-52px)] py-4' : 'py-6',
             )}
           >
             <Outlet />
@@ -428,7 +482,7 @@ export function AppShell() {
 }
 
 function Breadcrumb({ pathname }: { pathname: string }) {
-  const current = nav.find((item) =>
+  const current = allNavItems.find((item) =>
     item.to === '/' ? pathname === '/' : pathname.startsWith(item.to),
   );
   return (

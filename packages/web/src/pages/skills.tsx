@@ -2,7 +2,7 @@ import { type Skill, type SkillInput, skillInputSchema } from '@agentport/shared
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { PageHeader } from '../components/page.js';
+import { Page, PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
@@ -24,7 +24,7 @@ export function SkillsPage() {
   const createButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <div>
+    <Page>
       <PageHeader
         title="技能"
         description="可复用的操作流程，渲染为 .claude/skills/<slug>/SKILL.md，供智能体按需读取。"
@@ -103,7 +103,7 @@ export function SkillsPage() {
       ) : null}
       {editing ? <SkillDialog skill={editing} onClose={() => setEditing(null)} /> : null}
       {deleting ? <DeleteSkillDialog skill={deleting} onClose={() => setDeleting(null)} /> : null}
-    </div>
+    </Page>
   );
 }
 

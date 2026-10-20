@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Search } from 'lucide-react';
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
+import * as PopoverPrimitive from 'radix-ui/popover';
+import { type KeyboardEvent, useRef, useState } from 'react';
 import { cn } from '../../lib/cn.js';
 import { Badge } from './badge.js';
 import { Input } from './input.js';
@@ -13,7 +14,9 @@ export interface MultiSelectOption {
 
 /**
  * 可搜索多选：触发器显示已选 chips，弹层内过滤 + 复选。
- * 用原生 button/checkbox，Tab 可达，Esc 关闭并把焦点还给触发器。
+ *
+ * 弹层用 Radix Popover（Portal）。之前用绝对定位挂在卡片里，
+ * 卡片一旦有 overflow 就会被裁切；Portal 让浮层脱离祖先的裁剪上下文。
  */
 export function MultiSelect({
   options,
@@ -32,30 +35,8 @@ export function MultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const containerRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const listId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    searchRef.current?.focus();
-    const onPointer = (event: MouseEvent): void => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: globalThis.KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      setOpen(false);
-      setQuery('');
-      triggerRef.current?.focus();
-    };
-    document.addEventListener('mousedown', onPointer);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onPointer);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const selected = options.filter((option) => value.includes(option.id));
   const needle = query.trim().toLowerCase();
@@ -83,21 +64,15 @@ export function MultiSelect({
   };
 
   return (
-    <div ref={containerRef} className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? listId : undefined}
+    <PopoverPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery('');
+      }}
+    >
+      <PopoverPrimitive.Trigger
         aria-label={label}
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowDown' && !open) {
-            event.preventDefault();
-            setOpen(true);
-          }
-        }}
-        onClick={() => setOpen((current) => !current)}
         className={cn(
           'flex min-h-8 w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-left text-sm transition-colors hover:border-line-strong focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
         )}
@@ -116,12 +91,22 @@ export function MultiSelect({
         <ChevronDown
           className={cn('size-3.5 shrink-0 text-subtle transition-transform', open && 'rotate-180')}
         />
-      </button>
+      </PopoverPrimitive.Trigger>
 
-      {open ? (
-        <div
-          id={listId}
-          className="absolute left-0 right-0 top-9 z-40 overflow-hidden rounded-lg border border-line bg-surface shadow-overlay"
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          ref={contentRef}
+          align="start"
+          side="bottom"
+          sideOffset={4}
+          avoidCollisions
+          collisionPadding={16}
+          aria-label={`${label}选项`}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            searchRef.current?.focus();
+          }}
+          className="z-50 max-h-80 min-w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-lg border border-line bg-surface shadow-overlay"
         >
           <div className="relative border-b border-line p-2">
             <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
@@ -133,9 +118,7 @@ export function MultiSelect({
                 // 打开后焦点在搜索框，方向键应直接进入选项。
                 if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
                 const items =
-                  containerRef.current?.querySelectorAll<HTMLInputElement>(
-                    'input[type="checkbox"]',
-                  );
+                  contentRef.current?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
                 if (!items?.length) return;
                 event.preventDefault();
                 items[event.key === 'ArrowDown' ? 0 : items.length - 1]?.focus();
@@ -182,8 +165,8 @@ export function MultiSelect({
               })
             )}
           </fieldset>
-        </div>
-      ) : null}
-    </div>
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
   );
 }
