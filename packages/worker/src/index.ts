@@ -272,7 +272,9 @@ function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
  */
 modelProxy = await startModelProxy({
   logger,
-  upstreamBaseUrl: config.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
+  port: config.MODEL_PROXY_PORT,
+  // worker 可能在容器里：127.0.0.1 指向容器自身，网关在宿主上。
+  upstreamBaseUrl: toHostUrl(config.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'),
   ...(config.ANTHROPIC_API_KEY ? { apiKey: config.ANTHROPIC_API_KEY } : {}),
   ...(config.ANTHROPIC_AUTH_TOKEN ? { authToken: config.ANTHROPIC_AUTH_TOKEN } : {}),
   resolveRun: async (token) => {

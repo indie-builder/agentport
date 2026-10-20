@@ -427,3 +427,25 @@ docker compose start api worker  # 测完恢复
 ```
 
 E2E（`pnpm test:e2e`）相反：它需要 api + web，但不需要 worker（除非 `E2E_FULL=1`）。
+
+
+## 本地模型网关
+
+worker 通过模型凭证代理访问上游，代理监听 `MODEL_PROXY_PORT`（默认 3426）并发布到宿主回环。
+沙盒在默认 bridge 网络上，通过 `host.docker.internal:3426` 访问它。
+
+配置自建网关（例如宿主机上的 `127.0.0.1:3425`）：
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:3425
+ANTHROPIC_AUTH_TOKEN=<网关的 key>
+AGENT_DEFAULT_MODEL=<网关 /v1/models 里的 id，例如 group/flash>
+```
+
+要点：
+
+- `ANTHROPIC_BASE_URL` 写 `127.0.0.1` 即可：worker 在容器里时会改写为 `host.docker.internal`。
+- 模型名必须是网关接受的名字。直连 Anthropic 的名字（`claude-sonnet-5-5`）在自建网关上通常不存在。
+- 代理只转发 `/v1/messages`、`/v1/count_tokens`、`/v1/models`；网关的其他端点不可达。
+- 改端口时同步改 compose 的 `ports` 映射，否则沙盒连不上。
+- 容器里只有 `ANTHROPIC_AUTH_TOKEN=run_...`；拿这个 token 直接访问代理以外的地址没有意义。

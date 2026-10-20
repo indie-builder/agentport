@@ -27,7 +27,10 @@ export interface ModelProxyOptions {
   /** 真实凭证；优先 apiKey，其次 authToken。 */
   apiKey?: string;
   authToken?: string;
-  /** 监听端口；0 表示随机可用端口。 */
+  /**
+   * 监听端口。必须固定：compose 把它发布到宿主，沙盒通过 host.docker.internal:<port> 访问。
+   * 0 只适合宿主机直跑的 worker（沙盒与 worker 同网络栈）。
+   */
   port?: number;
   /**
    * 回调：按 token 解析出 run，并确认该 run 仍然有效。
@@ -166,6 +169,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
   });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
+  // compose 里这个端口会发布到宿主，所以沙盒侧永远用 host.docker.internal。
   const url = `http://host.docker.internal:${port}`;
   logger.info({ url, upstream: upstream.origin }, 'model proxy listening');
 

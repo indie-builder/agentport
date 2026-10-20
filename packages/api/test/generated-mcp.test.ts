@@ -21,8 +21,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
 
   beforeAll(async () => {
     // 测试里不要让审批挂起 5 分钟；默认配置仍是 300s。
-    process.env.APPROVAL_WAIT_MS = '0';
-    app = await startApp();
+    app = await startApp({ APPROVAL_WAIT_MS: '0' });
     cookie = await loginCookie(app);
     // MCP client 走真实 HTTP，app.inject 无法承载 StreamableHTTP 会话，因此临时监听端口。
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -65,7 +64,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   afterAll(async () => {
     await cleanup(app, { serverNames: createdServers, agentSlugs: createdAgents, runIds });
     await app.close();
-    delete process.env.APPROVAL_WAIT_MS;
   });
 
   it('rejects a wrong bearer token with 401', async () => {
@@ -205,9 +203,8 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   });
 
   it('suspends the call and resumes it after approval when a wait is configured', async () => {
-    process.env.APPROVAL_WAIT_MS = '5000';
     // 配置在 startApp 时读取；这一步需要新实例。
-    const waiting = await startApp();
+    const waiting = await startApp({ APPROVAL_WAIT_MS: '5000' });
     try {
       await waiting.listen({ port: 0, host: '127.0.0.1' });
       const address = waiting.server.address() as AddressInfo;
@@ -278,7 +275,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       }
     } finally {
       await waiting.close();
-      process.env.APPROVAL_WAIT_MS = '0';
     }
   });
 

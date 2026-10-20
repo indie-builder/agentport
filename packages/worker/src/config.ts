@@ -33,6 +33,11 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_AUTH_TOKEN: z.string().optional(),
   ANTHROPIC_BASE_URL: z.string().optional(),
+  /**
+   * 模型代理监听端口。compose 需要把它发布到宿主，沙盒才能经 host.docker.internal 访问；
+   * 宿主机直跑 worker 时随意。
+   */
+  MODEL_PROXY_PORT: z.coerce.number().int().positive().default(3426),
 });
 
 export type Config = z.infer<typeof envSchema>;

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1] - 2026-10-20
+
+- 修复：模型代理绑定随机端口，沙盒（默认 bridge）无法访问；改为固定 `MODEL_PROXY_PORT`（默认 3426）并发布到宿主回环
+- 修复：worker 在容器里时 `ANTHROPIC_BASE_URL=127.0.0.1` 指向容器自身；启动时自动改写为 `host.docker.internal`
+- 支持宿主机上的自建模型网关（实测 `127.0.0.1:3425`，`group/flash`）
+- 测试隔离：`startApp()` 支持按实例覆盖配置，不再通过 `process.env` 影响并发文件
+- `.env.example` 与 `docs/OPERATIONS.md` 补充本地网关配置说明
+
 ## [0.7.0] - 2026-10-20
 
 - D-17 模型凭证代理：worker 起回环代理，沙盒只拿按 run 的短期 token；真实模型凭证不再进容器 env
