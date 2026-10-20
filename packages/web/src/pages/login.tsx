@@ -49,12 +49,10 @@ export function LoginPage() {
       <section className="hidden flex-col justify-between border-r border-line bg-panel px-10 py-10 lg:flex">
         <div className="flex items-center gap-2.5">
           <span className="flex items-end gap-[2px]" aria-hidden="true">
-            {[4, 8, 12, 8].map((height, index) => (
+            {[4, 9, 13, 7].map((height, index) => (
               <span
                 key={height}
-                className={
-                  index === 2 ? 'w-[3px] rounded-sm bg-ink' : 'w-[3px] rounded-sm bg-line-strong'
-                }
+                className={index === 2 ? 'w-[2px] bg-signal' : 'w-[2px] bg-ink'}
                 style={{ height }}
               />
             ))}
@@ -92,12 +90,10 @@ export function LoginPage() {
         <div className="w-full max-w-[340px]">
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
             <span className="flex items-end gap-[2px]" aria-hidden="true">
-              {[4, 8, 12, 8].map((height, index) => (
+              {[4, 9, 13, 7].map((height, index) => (
                 <span
                   key={height}
-                  className={
-                    index === 2 ? 'w-[3px] rounded-sm bg-ink' : 'w-[3px] rounded-sm bg-line-strong'
-                  }
+                  className={index === 2 ? 'w-[2px] bg-signal' : 'w-[2px] bg-ink'}
                   style={{ height }}
                 />
               ))}
