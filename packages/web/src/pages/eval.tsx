@@ -193,11 +193,11 @@ export function EvalPage() {
           />
         ) : null}
         {cases.data && cases.data.length > 0 ? (
-          <ul className="divide-y divide-line rounded-[10px] border border-line bg-surface">
+          <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
             {cases.data.map((testCase) => (
               <li
                 key={testCase.id}
-                className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2/40"
+                className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-sunken/70"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-medium text-fg">{testCase.name}</div>
@@ -297,7 +297,7 @@ function EvalRunResults({ id }: { id: string }) {
   return (
     <ul className="space-y-2">
       {results.map((result) => (
-        <li key={result.caseId} className="rounded-lg border border-line bg-surface/60 p-3">
+        <li key={result.caseId} className="rounded-lg border border-line bg-surface p-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={result.passed ? 'success' : 'danger'}>
               {result.passed ? '通过' : '未通过'}
@@ -327,7 +327,7 @@ function EvalRunResults({ id }: { id: string }) {
           </div>
           <div className="mt-2">
             <div className="text-[10px] uppercase tracking-wider text-subtle/70">输出</div>
-            <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-canvas/60 px-2 py-1.5 font-mono text-[11.5px] text-fg/90">
+            <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-sunken px-2 py-1.5 font-mono text-[11.5px] text-fg/90">
               {result.output || '（空）'}
             </pre>
           </div>

@@ -18,7 +18,7 @@ export function TableHeader({ className, ...props }: ComponentProps<'thead'>) {
   return (
     <thead
       className={cn(
-        'bg-surface-2/40 text-left text-[11px] uppercase tracking-wider text-subtle',
+        'bg-panel text-left text-[11px] font-medium uppercase tracking-[0.06em] text-subtle',
         className,
       )}
       {...props}
@@ -27,12 +27,12 @@ export function TableHeader({ className, ...props }: ComponentProps<'thead'>) {
 }
 
 export function TableBody({ className, ...props }: ComponentProps<'tbody'>) {
-  return <tbody className={cn('divide-y divide-line/70', className)} {...props} />;
+  return <tbody className={cn('divide-y divide-line', className)} {...props} />;
 }
 
 export function TableRow({ className, ...props }: ComponentProps<'tr'>) {
   return (
-    <tr className={cn('group/row transition-colors hover:bg-surface-2/40', className)} {...props} />
+    <tr className={cn('group/row transition-colors hover:bg-sunken/70', className)} {...props} />
   );
 }
 

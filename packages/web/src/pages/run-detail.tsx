@@ -95,16 +95,16 @@ function ToolStep({ step }: { step: Extract<RunStep, { kind: 'tool' }> }) {
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-lg border border-line bg-canvas/60',
+        'overflow-hidden rounded-lg border border-line bg-sunken',
         // 子智能体内部的调用：缩进并加左线，视觉上归属父 Agent 步骤。
-        nested && 'ml-6 border-l-2 border-l-accent/40',
+        nested && 'ml-6 border-l-2 border-l-accent-line',
       )}
     >
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-sunken/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
       >
         <Wrench className="size-3.5 text-warning" />
         <code className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-fg">
@@ -151,7 +151,7 @@ function StepCard({ step, start }: { step: RunStep; start: string | null }) {
             text={step.text}
             className={cn(
               'whitespace-pre-wrap break-words rounded-lg border px-3 py-2 text-[13px] leading-relaxed text-fg/90',
-              step.kind === 'user' ? 'border-accent/20 bg-accent/5' : 'border-line bg-surface/60',
+              step.kind === 'user' ? 'border-accent-line bg-accent-soft' : 'border-line bg-surface',
             )}
           />
         )}
@@ -186,7 +186,7 @@ function ApprovalPanel({
   return (
     <div
       role="alert"
-      className="mb-4 space-y-2 rounded-lg border border-warning/30 bg-warning/5 p-3.5"
+      className="mb-4 space-y-2 rounded-lg border border-warning-line bg-warning-soft p-3.5"
     >
       <div className="flex items-center gap-2 text-sm font-medium text-fg">
         <CircleAlert className="size-4 shrink-0 text-warning" />
@@ -259,7 +259,7 @@ export function RunDetailPage() {
         <h1 className="sr-only">运行详情</h1>
         <Link
           to="/runs"
-          className="mb-4 inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          className="mb-4 inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <ArrowLeft className="size-3.5" /> 返回运行列表
         </Link>
@@ -279,7 +279,7 @@ export function RunDetailPage() {
     <div>
       <Link
         to="/runs"
-        className="mb-4 inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        className="mb-4 inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <ArrowLeft className="size-3.5" /> 返回运行列表
       </Link>
@@ -307,7 +307,7 @@ export function RunDetailPage() {
       {failed && detail.error ? (
         <div
           role="alert"
-          className="mb-4 flex items-start gap-3 rounded-lg border border-danger/30 bg-danger/5 p-3.5"
+          className="mb-4 flex items-start gap-3 rounded-lg border border-danger-line bg-danger-soft p-3.5"
         >
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
           <div className="min-w-0 flex-1">

@@ -104,7 +104,7 @@ export function Dialog({
         type="button"
         aria-hidden="true"
         tabIndex={-1}
-        className="fixed inset-0 cursor-default bg-black/60"
+        className="fixed inset-0 cursor-default bg-scrim backdrop-blur-[2px]"
         onClick={onClose}
       />
       <div
@@ -115,7 +115,7 @@ export function Dialog({
         {...(description ? { 'aria-describedby': descriptionId } : {})}
         tabIndex={-1}
         className={cn(
-          'relative w-full max-w-[560px] rounded-xl border border-line bg-surface shadow-2xl shadow-black/50 outline-none',
+          'relative w-full max-w-[560px] rounded-xl border border-line bg-surface shadow-overlay outline-none',
           className,
         )}
       >
@@ -134,7 +134,7 @@ export function Dialog({
             type="button"
             onClick={onClose}
             aria-label="关闭"
-            className="-mr-1 rounded-md p-1.5 text-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            className="-mr-1 rounded-md p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <X className="size-4" />
           </button>

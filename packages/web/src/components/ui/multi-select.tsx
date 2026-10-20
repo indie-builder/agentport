@@ -99,7 +99,7 @@ export function MultiSelect({
         }}
         onClick={() => setOpen((current) => !current)}
         className={cn(
-          'flex min-h-8 w-full items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2 py-1 text-left text-sm transition-colors hover:border-line-strong focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
+          'flex min-h-8 w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-left text-sm transition-colors hover:border-line-strong focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
         )}
       >
         <span className="flex min-w-0 flex-1 flex-wrap gap-1">
@@ -121,7 +121,7 @@ export function MultiSelect({
       {open ? (
         <div
           id={listId}
-          className="absolute left-0 right-0 top-9 z-40 overflow-hidden rounded-lg border border-line bg-surface shadow-xl shadow-black/40"
+          className="absolute left-0 right-0 top-9 z-40 overflow-hidden rounded-lg border border-line bg-surface shadow-overlay"
         >
           <div className="relative border-b border-line p-2">
             <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
@@ -159,13 +159,13 @@ export function MultiSelect({
                 return (
                   <label
                     key={option.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg transition-colors hover:bg-surface-2/70 focus-within:bg-surface-2"
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg transition-colors hover:bg-sunken focus-within:bg-sunken"
                   >
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggle(option.id)}
-                      className="size-3.5 shrink-0 accent-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                      className="size-3.5 shrink-0 accent-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px]">{option.label}</span>

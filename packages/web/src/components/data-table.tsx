@@ -183,8 +183,8 @@ export function DataTable<T>({
   };
 
   return (
-    <div className={cn('rounded-[10px] border border-line bg-surface', className)}>
-      <div className="flex items-center justify-between border-b border-line px-4 py-2">
+    <div className={cn('rounded-lg border border-line bg-surface', className)}>
+      <div className="flex items-center justify-between border-b border-line bg-panel/60 px-4 py-2">
         <div className="text-[12px] text-subtle">{loading ? '加载中…' : `${rows.length} 行`}</div>
         <div className="relative">
           <Button
@@ -200,14 +200,14 @@ export function DataTable<T>({
           {pickerOpen && (
             <div
               ref={pickerRef}
-              className="absolute right-0 z-20 mt-1 w-52 rounded-lg border border-line bg-surface-2 p-2 shadow-lg"
+              className="absolute right-0 z-20 mt-1 w-52 rounded-lg border border-line bg-surface p-2 shadow-overlay"
             >
               {columns
                 .filter((c) => !c.locked)
                 .map((c) => (
                   <label
                     key={c.id}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[12.5px] text-muted hover:bg-surface"
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[12.5px] text-muted hover:bg-sunken"
                   >
                     <input
                       type="checkbox"
@@ -225,7 +225,7 @@ export function DataTable<T>({
       <section className="overflow-x-auto" aria-label={label}>
         <div style={{ minWidth }}>
           <div
-            className="grid items-center gap-3 border-b border-line bg-surface px-4 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-subtle"
+            className="grid items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-subtle"
             style={{ gridTemplateColumns: template }}
           >
             {visible.map((col, index) => (
@@ -240,7 +240,7 @@ export function DataTable<T>({
                     : col.header
                 }
                 className={cn(
-                  'flex items-center gap-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
+                  'flex items-center gap-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
                   col.numeric && 'justify-end',
                   col.sortValue && 'cursor-pointer hover:text-fg',
                   index === 0 && 'sticky left-0 z-10 bg-surface',
@@ -266,7 +266,7 @@ export function DataTable<T>({
               {Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
                 <div
                   key={key}
-                  className="h-10 animate-pulse border-b border-line/60 bg-surface-2/40"
+                  className="h-10 animate-pulse border-b border-line/60 bg-sunken/70"
                 />
               ))}
             </div>
@@ -294,9 +294,9 @@ export function DataTable<T>({
                       }}
                       className={cn(
                         'grid w-full items-center gap-3 px-4 py-0 text-left text-[13px] transition-colors',
-                        'min-h-10 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
+                        'min-h-10 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
                         renderExpanded ? 'cursor-pointer' : 'cursor-default',
-                        isOpen && 'bg-surface-2',
+                        isOpen && 'bg-sunken',
                       )}
                       style={{ gridTemplateColumns: template }}
                     >
@@ -306,7 +306,7 @@ export function DataTable<T>({
                           className={cn(
                             'truncate py-2',
                             col.numeric && 'text-right font-mono tabular-nums text-muted',
-                            index === 0 && 'sticky left-0 z-10 bg-surface group-hover:bg-surface-2',
+                            index === 0 && 'sticky left-0 z-10 bg-surface group-hover:bg-sunken',
                           )}
                         >
                           {col.cell
@@ -316,7 +316,7 @@ export function DataTable<T>({
                       ))}
                     </button>
                     {isOpen && (
-                      <div className="border-t border-line/60 bg-canvas/60 px-4 py-4">
+                      <div className="border-t border-line/60 bg-sunken px-4 py-4">
                         {expandedContent}
                       </div>
                     )}

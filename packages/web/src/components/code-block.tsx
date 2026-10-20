@@ -14,11 +14,12 @@ export function highlightJson(text: string): ReactNode[] {
     const start = match.index;
     if (start > last) nodes.push(text.slice(last, start));
     const [token, key, string, literal, number] = match;
+    // 浅色底上要压深：颜色只区分词法类别，不承担装饰。
     let className = 'text-fg';
-    if (key) className = 'text-sky-300';
-    else if (string) className = 'text-emerald-300';
-    else if (literal) className = literal === 'null' ? 'text-subtle' : 'text-amber-300';
-    else if (number) className = 'text-violet-300';
+    if (key) className = 'text-[#1f4fa8]';
+    else if (string) className = 'text-[#1f6b47]';
+    else if (literal) className = literal === 'null' ? 'text-subtle' : 'text-[#8a5a00]';
+    else if (number) className = 'text-[#6b3fa0]';
     nodes.push(
       <span key={index++} className={className}>
         {token}
@@ -76,7 +77,7 @@ export function CodeBlock({
           type="button"
           aria-expanded={false}
           onClick={() => setExpanded(true)}
-          className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           内容过大，点击查看
         </button>
@@ -105,7 +106,7 @@ export function CodeBlock({
         type="button"
         onClick={() => void copy()}
         aria-label={copied ? '已复制' : copyLabel}
-        className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-md border border-line bg-surface/90 px-2 text-[11px] text-muted opacity-0 backdrop-blur transition-opacity hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 group-hover:opacity-100"
+        className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-md border border-line bg-surface/90 px-2 text-[11px] text-muted opacity-0 backdrop-blur transition-opacity hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
       >
         {copied ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
         {copied ? '已复制' : copyLabel}
@@ -153,7 +154,7 @@ export function CollapsibleText({ text, className }: { text: string; className?:
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         {open ? '收起内容' : '内容过大，点击查看'}
       </button>

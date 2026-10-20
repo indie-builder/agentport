@@ -39,7 +39,7 @@ export function ConfirmDialog({
   return (
     <Dialog open={open} onClose={onClose} title={title} className="max-w-md">
       <div className="flex gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-danger/10 text-danger">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger">
           <AlertTriangle className="size-4" />
         </div>
         <p className="pt-1 text-sm leading-relaxed text-muted">{description}</p>

@@ -50,7 +50,12 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
-const models = ['claude-sonnet-5-5', 'claude-opus-5', 'claude-haiku-4-5'];
+/**
+ * 模型名由部署的网关决定，不是平台常量：直连 Anthropic 时是 claude-*，
+ * 用自建网关时是网关 /v1/models 里的 id。这里给的是当前部署的默认值，
+ * 创建后仍可手改，所以不要把它当成白名单。
+ */
+const models = ['group/flash', 'auto/deepseek-v4.1-flash', 'workbuddy/kimi-k3-2'];
 
 const emptyInput: AgentInput = {
   slug: '',
@@ -217,10 +222,10 @@ export function AgentsPage() {
                     aria-current={active ? 'true' : undefined}
                     onClick={() => setSelectedId(agent.id)}
                     className={cn(
-                      'group flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+                      'group flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                       active
                         ? 'bg-accent-soft text-fg'
-                        : 'text-muted hover:bg-surface-2/60 hover:text-fg',
+                        : 'text-muted hover:bg-sunken hover:text-fg',
                     )}
                   >
                     <span
@@ -464,7 +469,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             if (dirty && !update.isPending) save();
           }}
         >
-          <section className="rounded-[10px] border border-line bg-surface p-5">
+          <section className="rounded-lg border border-line bg-surface p-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="agent-name">
@@ -529,7 +534,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             </div>
           </section>
 
-          <section className="rounded-[10px] border border-line bg-surface p-5">
+          <section className="rounded-lg border border-line bg-surface p-5">
             <h2 className="mb-3 text-[13px] font-semibold text-fg">系统提示词</h2>
             <Textarea
               aria-label="系统提示词"
@@ -541,7 +546,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             />
           </section>
 
-          <section className="rounded-[10px] border border-line bg-surface p-5">
+          <section className="rounded-lg border border-line bg-surface p-5">
             <div className="mb-3 flex items-baseline justify-between gap-2">
               <h2 className="text-[13px] font-semibold text-fg">MCP Servers</h2>
               <span className="text-[11px] text-subtle">
@@ -574,7 +579,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             </p>
           </section>
 
-          <section className="rounded-[10px] border border-line bg-surface p-5">
+          <section className="rounded-lg border border-line bg-surface p-5">
             <div className="mb-3 flex items-baseline justify-between gap-2">
               <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
                 <Sparkles className="size-3.5 text-subtle" /> 技能
@@ -609,7 +614,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             ) : null}
           </section>
 
-          <section className="rounded-[10px] border border-line bg-surface p-5">
+          <section className="rounded-lg border border-line bg-surface p-5">
             <div className="mb-3 flex items-baseline justify-between gap-2">
               <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
                 <Bot className="size-3.5 text-subtle" /> 子智能体
@@ -643,7 +648,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             </p>
           </section>
 
-          <section className="rounded-[10px] border border-line bg-surface p-5">
+          <section className="rounded-lg border border-line bg-surface p-5">
             <h2 className="mb-1 flex items-center gap-1.5 text-[13px] font-semibold text-fg">
               <Shield className="size-3.5 text-subtle" /> 权限与工具
             </h2>
@@ -742,8 +747,8 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                       className={cn(
                         'rounded-md border px-2 py-1 font-mono text-[11px] transition-colors',
                         allowed
-                          ? 'border-warning/40 bg-warning/10 text-warning'
-                          : 'border-line bg-surface-2 text-subtle hover:text-muted',
+                          ? 'border-warning-line bg-warning-soft text-warning'
+                          : 'border-line bg-sunken text-subtle hover:text-muted',
                       )}
                       title={allowed ? '已允许（不推荐）' : '已禁用'}
                     >
@@ -755,7 +760,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             </div>
           </section>
 
-          <section className="rounded-[10px] border border-line bg-surface p-5">
+          <section className="rounded-lg border border-line bg-surface p-5">
             <h2 className="mb-3 text-[13px] font-semibold text-fg">运行时限制</h2>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1.5">
@@ -874,11 +879,11 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
 
   return (
     <div className="space-y-3">
-      <p className="rounded-md border border-line bg-surface-2/50 px-3 py-2 text-[11px] leading-relaxed text-muted">
+      <p className="rounded-md border border-line bg-sunken/50 px-3 py-2 text-[11px] leading-relaxed text-muted">
         密钥在运行时注入，此处显示为占位符。
       </p>
       {dirty ? (
-        <p className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-warning">
+        <p className="rounded-md border border-warning-line bg-warning-soft px-3 py-2 text-[11px] leading-relaxed text-warning">
           预览显示的是上次保存后的内容。保存更改后重新加载即可看到最新结果。
         </p>
       ) : null}
@@ -954,7 +959,7 @@ function VersionHistory({
                         v{item.version}
                       </span>
                       {item.note ? (
-                        <span className="truncate rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">
+                        <span className="truncate rounded bg-sunken px-1.5 py-0.5 text-[10px] text-muted">
                           {item.note}
                         </span>
                       ) : null}

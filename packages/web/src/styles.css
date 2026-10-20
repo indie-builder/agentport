@@ -1,36 +1,72 @@
 @import "tailwindcss";
 
 /*
- * 设计令牌来自 docs/DESIGN-SYSTEM.md。组件只引用语义色名，
- * 换主题时只改这里，不用全局搜颜色。
+ * PACE 视觉系统：暖纸（paper）+ 墨（ink）+ 深青（teal）。
+ *
+ * 为什么是浅色：这是一台在工作站上整天开着的运维界面，与编辑器、文档、终端
+ * 处在同一片环境光下。浅色降低长时间阅读的对比疲劳，也让等宽数据更接近纸面报表。
+ *
+ * 为什么是暖灰而不是中性灰：中性灰在浅色下偏冷、容易显脏；暖灰与纸张同族，
+ * 层级靠明度差而不是靠更重的边框。
+ *
+ * 组件只引用语义名，换视觉只改这里。
  */
 @theme {
-  --color-canvas: #0b0d10;
-  --color-surface: #12161b;
-  --color-surface-2: #171c23;
-  --color-line: #232a33;
-  --color-line-strong: #323b47;
-  --color-fg: #e6eaf0;
-  --color-muted: #9aa5b4;
-  --color-subtle: #6b7686;
-  --color-accent: #5b8def;
-  --color-accent-hover: #6f9bf2;
-  --color-accent-soft: rgba(91, 141, 239, 0.12);
-  --color-success: #3fb950;
-  --color-warning: #d29922;
-  --color-danger: #f85149;
-  --color-code: #0e1116;
+  /* 纸面层级：canvas < sunken < panel < surface（surface 最亮，承载内容） */
+  --color-canvas: #f3f0e9;
+  --color-sunken: #ebe6dc;
+  --color-panel: #efebe3;
+  --color-surface: #fffdf8;
+  /* 兼容旧名：输入框、悬停行沿用下沉底色。 */
+  --color-surface-2: #ebe6dc;
+
+  /* 墨线：line 是常规分隔，line-strong 是交互边界 */
+  --color-line: #ddd6c9;
+  --color-line-strong: #c3bbab;
+
+  /* 墨色文本：主 / 次 / 辅助，对比度逐级递减 */
+  --color-fg: #1c1a16;
+  --color-muted: #575147;
+  --color-subtle: #7a7265;
+
+  /* 主色：深青。只用于主操作、当前选中、可交互标记，不做装饰 */
+  --color-accent: #1c5f66;
+  --color-accent-hover: #154c52;
+  --color-accent-soft: #dfeeed;
+  --color-accent-line: #a9cdcb;
+
+  /* 状态色：压低饱和，配同色系的浅底与描边 */
+  --color-success: #2a6a45;
+  --color-success-soft: #e3f0e8;
+  --color-success-line: #b3d5c1;
+  --color-warning: #855200;
+  --color-warning-soft: #f9edd7;
+  --color-warning-line: #e6c894;
+  --color-danger: #a3312a;
+  --color-danger-soft: #fae7e4;
+  --color-danger-line: #e8bab4;
+
+  /* 代码与数据：比纸面略沉，让等宽文本自成一块 */
+  --color-code: #f0ece3;
+  --color-code-line: #e2dccf;
+  /* 遮罩：暖墨而非纯黑，避免整页发灰 */
+  --color-scrim: rgb(28 26 22 / 0.36);
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
-    sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    "Noto Sans SC", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* 阴影：纸面抬起靠极浅的偏移，不用彩色光晕 */
+  --shadow-panel: 0 1px 1px rgb(28 26 22 / 0.03), 0 1px 3px rgb(28 26 22 / 0.05);
+  --shadow-raised: 0 2px 4px rgb(28 26 22 / 0.04), 0 6px 16px -6px rgb(28 26 22 / 0.12);
+  --shadow-overlay: 0 4px 8px rgb(28 26 22 / 0.05), 0 20px 36px -14px rgb(28 26 22 / 0.2);
 }
 
 @layer base {
   html {
     background-color: var(--color-canvas);
-    color-scheme: dark;
+    color-scheme: light;
     -webkit-text-size-adjust: 100%;
   }
 
@@ -39,18 +75,24 @@
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.55;
+    color: var(--color-fg);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
 
-  /* 焦点始终可见：键盘用户靠它定位。组件若用 ring 可自行覆盖。 */
+  /* 所有数字列、ID、耗时都用等宽数字：滚动时不跳宽。 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
 
+  /* 浏览器自带表面也属于设计：选区、滚动条。 */
   ::selection {
-    background-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
+    background-color: var(--color-accent-soft);
     color: var(--color-fg);
   }
 
@@ -74,7 +116,6 @@
     background: transparent;
   }
 
-  /* 跳过导航：默认藏起来，键盘聚焦时出现在左上角。 */
   .skip-link {
     position: fixed;
     top: 1rem;

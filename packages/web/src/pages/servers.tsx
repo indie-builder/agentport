@@ -336,7 +336,7 @@ function ServerCard({
 }) {
   const generated = server.kind === 'generated';
   return (
-    <div className="rounded-[10px] border border-line bg-surface">
+    <div className="rounded-lg border border-line bg-surface">
       <div className="flex items-start gap-3 p-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -411,7 +411,7 @@ function ServerCard({
             type="button"
             aria-expanded={toolsOpen}
             onClick={onToggleTools}
-            className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-muted transition-colors hover:bg-surface-2/40 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+            className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-muted transition-colors hover:bg-sunken/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
           >
             <Wrench className="size-3.5" />
             工具定义
@@ -484,7 +484,7 @@ function TestResultPanel({ result }: { result: ServerTestResult }) {
     <div
       className={cn(
         'border-t px-4 py-3 text-xs',
-        result.ok ? 'border-success/20 bg-success/5' : 'border-danger/20 bg-danger/5',
+        result.ok ? 'border-success-line bg-success-soft' : 'border-danger-line bg-danger-soft',
       )}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -506,7 +506,7 @@ function TestResultPanel({ result }: { result: ServerTestResult }) {
         <span className="text-subtle">工具 {result.tools.length}</span>
       </div>
       {result.error ? (
-        <p className="mt-2 whitespace-pre-wrap break-words rounded-md border border-danger/20 bg-danger/5 p-2 font-mono text-[11px] leading-relaxed text-danger">
+        <p className="mt-2 whitespace-pre-wrap break-words rounded-md border border-danger-line bg-danger-soft p-2 font-mono text-[11px] leading-relaxed text-danger">
           {result.error}
         </p>
       ) : null}
@@ -594,7 +594,7 @@ function ToolsPanel({ serverId }: { serverId: string }) {
   };
 
   return (
-    <div className="space-y-3 border-t border-line bg-canvas/30 p-4">
+    <div className="space-y-3 border-t border-line bg-panel p-4">
       {tools.isPending ? <LoadingState rows={2} /> : null}
       {tools.isError ? (
         <ErrorState error={tools.error} onRetry={() => void tools.refetch()} />
@@ -969,10 +969,10 @@ function ServerFormDialog({
                 aria-pressed={kind === value}
                 onClick={() => setKind(value)}
                 className={cn(
-                  'rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+                  'rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                   kind === value
-                    ? 'border-accent/60 bg-accent-soft'
-                    : 'border-line hover:border-line-strong hover:bg-surface-2/50',
+                    ? 'border-accent bg-accent-soft'
+                    : 'border-line hover:border-line-strong hover:bg-sunken/50',
                 )}
               >
                 <span className="block text-xs font-medium text-fg">{kindMeta[value].label}</span>
@@ -1088,7 +1088,7 @@ function ServerFormDialog({
               />
             </div>
             {kind === 'generated' ? (
-              <p className="rounded-md border border-line bg-surface-2/40 p-2.5 text-[11px] leading-relaxed text-muted">
+              <p className="rounded-md border border-line bg-sunken/70 p-2.5 text-[11px] leading-relaxed text-muted">
                 创建后在列表中展开「工具定义」，把上游 HTTP API 的每个端点声明成一个 MCP 工具。
               </p>
             ) : null}

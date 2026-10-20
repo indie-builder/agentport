@@ -345,8 +345,8 @@ function ChatWorkspace({
       <h1 className="sr-only">对话</h1>
       <aside
         className={cn(
-          'flex w-64 shrink-0 flex-col overflow-hidden rounded-[10px] border border-line bg-surface',
-          historyOpen ? 'absolute inset-y-4 left-4 z-20 shadow-2xl' : 'hidden lg:flex',
+          'flex w-64 shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface',
+          historyOpen ? 'absolute inset-y-4 left-4 z-20 shadow-overlay' : 'hidden lg:flex',
         )}
         aria-label="会话历史"
       >
@@ -391,10 +391,10 @@ function ChatWorkspace({
                   aria-current={conversation.id === conversationId ? 'true' : undefined}
                   onClick={() => openConversation(conversation.id)}
                   className={cn(
-                    'w-full rounded-md px-2 py-1.5 pr-8 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+                    'w-full rounded-md px-2 py-1.5 pr-8 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                     conversation.id === conversationId
                       ? 'bg-accent-soft text-fg'
-                      : 'text-muted hover:bg-surface-2/60 hover:text-fg',
+                      : 'text-muted hover:bg-sunken hover:text-fg',
                   )}
                 >
                   <span className="block truncate text-xs">{conversation.title}</span>
@@ -428,7 +428,7 @@ function ChatWorkspace({
         ) : null}
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-line bg-surface">
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-surface">
         <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
           <Button
             variant="ghost"
@@ -463,7 +463,7 @@ function ChatWorkspace({
               id="chat-agent"
               value={agentId ?? ''}
               onChange={(event) => switchAgent(event.target.value)}
-              className="h-7 max-w-40 cursor-pointer rounded-md border border-line bg-surface-2 px-2 text-xs text-fg focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              className="h-7 max-w-40 cursor-pointer rounded-md border border-line bg-sunken px-2 text-xs text-fg focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               {agents.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -489,7 +489,7 @@ function ChatWorkspace({
           welcome={
             showWelcome ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-                <div className="flex size-10 items-center justify-center rounded-full bg-surface-2 text-subtle">
+                <div className="flex size-10 items-center justify-center rounded-full bg-sunken text-subtle">
                   <MessagesSquare className="size-5" />
                 </div>
                 <div className="text-sm font-medium text-fg">{agent?.name}</div>
@@ -506,7 +506,7 @@ function ChatWorkspace({
         {run?.status === 'reconnecting' ? (
           <div
             role="status"
-            className="flex items-center gap-2 border-t border-warning/30 bg-warning/5 px-3 py-1.5 text-[11px] text-warning"
+            className="flex items-center gap-2 border-t border-warning-line bg-warning-soft px-3 py-1.5 text-[11px] text-warning"
           >
             <RefreshCw className="size-3 animate-spin" />
             事件流断开，正在重连…已收到的内容不会丢失。
@@ -649,7 +649,7 @@ function MessagePane({
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3 py-1.5 text-[11px] text-muted shadow-lg transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[11px] text-muted shadow-panel transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <ArrowDown className="size-3" /> 回到底部
         </button>
@@ -663,7 +663,7 @@ function ItemView({ item }: { item: ChatItem }) {
     case 'user':
       return (
         <div className="flex justify-end">
-          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-sm bg-accent/15 px-3.5 py-2 text-[13px] leading-relaxed text-fg">
+          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-sm bg-accent-soft px-3.5 py-2 text-[13px] leading-relaxed text-fg">
             {item.text}
           </div>
         </div>
@@ -722,7 +722,7 @@ function ApprovalCards({
           <div
             key={item.id}
             role="alert"
-            className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/30 bg-warning/5 px-3.5 py-2.5"
+            className="flex flex-wrap items-center gap-3 rounded-lg border border-warning-line bg-warning-soft px-3.5 py-2.5"
           >
             <CircleAlert className="size-4 shrink-0 text-warning" />
             <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg/90">
@@ -752,16 +752,16 @@ function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-lg border border-line bg-canvas/60',
+        'overflow-hidden rounded-lg border border-line bg-sunken',
         // 子智能体内部的调用：缩进并加左线，视觉上归属父 Agent 卡片。
-        nested && 'ml-6 border-l-2 border-l-accent/40',
+        nested && 'ml-6 border-l-2 border-l-accent-line',
       )}
     >
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-sunken/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
       >
         <Wrench className={cn('size-3.5', done ? 'text-muted' : 'text-warning')} />
         <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg">{item.name}</code>

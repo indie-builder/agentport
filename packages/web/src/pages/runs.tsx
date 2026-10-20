@@ -27,7 +27,7 @@ const columns: DataColumn<RunListItem>[] = [
     id: 'id',
     header: '运行 ID',
     locked: true,
-    width: '110px',
+    width: '148px',
     sortValue: (run) => run.id,
     cell: (run) => (
       <code className="font-mono text-[11.5px] text-subtle" title={run.id}>
@@ -107,7 +107,7 @@ const columns: DataColumn<RunListItem>[] = [
     width: 'minmax(140px,1.2fr)',
     cell: (run) =>
       run.error ? (
-        <span className="truncate text-danger/90" title={run.error}>
+        <span className="truncate text-danger" title={run.error}>
           {run.error}
         </span>
       ) : (

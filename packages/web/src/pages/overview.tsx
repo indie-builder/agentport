@@ -44,31 +44,43 @@ const links = [
   },
 ] as const;
 
-function Stat({
+/**
+ * 首屏的四个数字合成一条账本，而不是四张同款指标卡。
+ * 理由：四张等宽卡片会把视线均匀摊开，读者不知道哪个数字值得先看；
+ * 一条横向账本按「规模 → 活动 → 成本」的顺序阅读，分隔线给出节奏。
+ */
+function LedgerCell({
   label,
   value,
   hint,
   loading,
+  emphasis = false,
 }: {
   label: string;
   value: number | string;
   hint: string;
   loading: boolean;
+  emphasis?: boolean;
 }) {
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="text-[11px] uppercase tracking-wider text-subtle">{label}</div>
-        {loading ? (
-          <Skeleton className="mt-2 h-7 w-12" />
-        ) : (
-          <div className="mt-1 text-2xl font-semibold leading-none tabular-nums text-fg">
-            {value}
-          </div>
-        )}
-        <div className="mt-1.5 text-[11px] text-subtle">{hint}</div>
-      </CardContent>
-    </Card>
+    <div className="min-w-0 px-4 py-3.5 first:pl-5 last:pr-5 sm:px-5">
+      <div className="text-[11px] font-medium tracking-[0.04em] text-subtle">{label}</div>
+      {loading ? (
+        <Skeleton className="mt-2 h-7 w-14" />
+      ) : (
+        <div
+          className={cn(
+            'mt-1 leading-none tabular-nums',
+            emphasis ? 'text-[26px] font-semibold text-fg' : 'text-[22px] font-medium text-fg',
+          )}
+        >
+          {value}
+        </div>
+      )}
+      <div className="mt-1.5 truncate text-[11px] text-subtle" title={hint}>
+        {hint}
+      </div>
+    </div>
   );
 }
 
@@ -358,21 +370,22 @@ export function OverviewPage() {
 
       {!empty && !error ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat
+          <div className="grid divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
+            <LedgerCell
               label="MCP Servers"
               value={counts.servers}
-              hint="已注册的 MCP Server"
+              hint="已注册的连接"
               loading={loading}
             />
-            <Stat label="智能体" value={counts.agents} hint="已定义的 agent" loading={loading} />
-            <Stat
+            <LedgerCell label="智能体" value={counts.agents} hint="已定义" loading={loading} />
+            <LedgerCell
               label="运行总数"
               value={counts.runs ?? '—'}
-              hint={fallback ? '需要 /api/overview' : '统计窗口内的运行'}
+              hint={fallback ? '需要 /api/overview' : '统计窗口内'}
               loading={loading}
+              emphasis
             />
-            <Stat
+            <LedgerCell
               label="累计成本"
               value={counts.costUsd === undefined ? '—' : formatCost(counts.costUsd)}
               hint={counts.running ? `${counts.running} 个正在运行` : '当前空闲'}
@@ -457,7 +470,7 @@ export function OverviewPage() {
               <Link
                 key={to}
                 to={to}
-                className="group rounded-[10px] border border-line bg-surface p-4 transition-colors hover:border-line-strong hover:bg-surface-2/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                className="group rounded-lg border border-line bg-surface p-4 transition-colors hover:border-line-strong hover:bg-sunken/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 <div className="flex items-center justify-between">
                   <Icon className="size-4 text-subtle transition-colors group-hover:text-accent" />

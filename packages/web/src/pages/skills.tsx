@@ -57,7 +57,7 @@ export function SkillsPage() {
           {skills.data.map((skill) => (
             <div
               key={skill.id}
-              className="group rounded-[10px] border border-line bg-surface p-4 transition-colors hover:border-line-strong"
+              className="group rounded-lg border border-line bg-surface p-4 transition-colors hover:border-line-strong"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">

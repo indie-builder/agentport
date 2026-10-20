@@ -54,7 +54,7 @@ function Brand({ collapsed }: { collapsed: boolean }) {
       to="/"
       aria-label="PACE 首页"
       className={cn(
-        'flex h-[52px] shrink-0 items-center gap-2.5 border-b border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
+        'flex h-[52px] shrink-0 items-center gap-2.5 border-b border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
         collapsed ? 'justify-center px-0' : 'px-5',
       )}
     >
@@ -96,9 +96,9 @@ function SidebarLink({
       title={collapsed ? label : undefined}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'relative flex h-8 items-center gap-2.5 rounded-md text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+        'relative flex h-8 items-center gap-2.5 rounded-md text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
         collapsed ? 'justify-center px-0' : 'px-2.5',
-        active ? 'bg-accent-soft text-fg' : 'text-muted hover:bg-surface-2/70 hover:text-fg',
+        active ? 'bg-accent-soft text-fg' : 'text-muted hover:bg-sunken hover:text-fg',
       )}
     >
       <Icon className={cn('size-4 shrink-0', active ? 'text-accent' : 'text-subtle')} />
@@ -172,9 +172,9 @@ function UserMenu({ username }: { username: string }) {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-8 items-center gap-2 rounded-md px-2 text-xs text-muted transition-colors hover:bg-surface-2/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        className="flex h-8 items-center gap-2 rounded-md px-2 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
-        <span className="flex size-5 items-center justify-center rounded-full bg-surface-2 text-muted">
+        <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted">
           <User className="size-3" />
         </span>
         <span className="hidden max-w-32 truncate sm:block">{username}</span>
@@ -185,7 +185,7 @@ function UserMenu({ username }: { username: string }) {
           role="menu"
           aria-label="用户菜单"
           onKeyDown={onMenuKeyDown}
-          className="absolute right-0 top-10 z-40 w-48 rounded-lg border border-line bg-surface p-1 shadow-xl shadow-black/40"
+          className="absolute right-0 top-10 z-40 w-48 rounded-lg border border-line bg-surface p-1 shadow-overlay"
         >
           <div className="border-b border-line px-2.5 py-2">
             <div className="truncate text-xs text-fg">{username}</div>
@@ -194,7 +194,7 @@ function UserMenu({ username }: { username: string }) {
           <button
             type="button"
             role="menuitem"
-            className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             onClick={() => void logout()}
           >
             <LogOut className="size-3.5" />
@@ -309,7 +309,7 @@ export function AppShell() {
   const sidebar = (drawer: boolean) => (
     <aside
       className={cn(
-        'flex h-full flex-col border-r border-line bg-canvas',
+        'flex h-full flex-col border-r border-line bg-panel',
         drawer ? 'w-64' : collapsed ? 'w-14' : 'w-56',
       )}
     >
@@ -333,7 +333,7 @@ export function AppShell() {
           aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
           aria-pressed={collapsed}
           className={cn(
-            'hidden h-8 items-center gap-2 rounded-md text-xs text-subtle transition-colors hover:bg-surface-2/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 lg:flex',
+            'hidden h-8 items-center gap-2 rounded-md text-xs text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:flex',
             collapsed ? 'w-full justify-center' : 'w-full px-2',
           )}
         >
@@ -364,7 +364,7 @@ export function AppShell() {
             type="button"
             aria-label="关闭导航"
             tabIndex={-1}
-            className="absolute inset-0 bg-black/60"
+            className="absolute inset-0 bg-scrim"
             onClick={() => setMobileOpen(false)}
           />
           <div
@@ -372,7 +372,7 @@ export function AppShell() {
             role="dialog"
             aria-modal="true"
             aria-label="导航"
-            className="relative h-full w-64 border-r border-line bg-canvas shadow-2xl"
+            className="relative h-full w-64 border-r border-line bg-panel shadow-overlay"
           >
             <button
               type="button"
@@ -381,7 +381,7 @@ export function AppShell() {
                 setMobileOpen(false);
                 menuButtonRef.current?.focus();
               }}
-              className="absolute right-3 top-4 z-10 rounded-md p-1 text-subtle hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              className="absolute right-3 top-4 z-10 rounded-md p-1 text-subtle hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <X className="size-4" />
             </button>
@@ -391,13 +391,13 @@ export function AppShell() {
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-[52px] shrink-0 items-center gap-3 border-b border-line bg-canvas/95 px-4 backdrop-blur sm:px-8">
+        <header className="sticky top-0 z-30 flex h-[52px] shrink-0 items-center gap-3 border-b border-line bg-panel/90 px-4 backdrop-blur-sm sm:px-8">
           <button
             ref={menuButtonRef}
             type="button"
             aria-label="打开导航"
             aria-expanded={mobileOpen}
-            className="-ml-1 rounded-md p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 lg:hidden"
+            className="-ml-1 rounded-md p-1.5 text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
             onClick={() => setMobileOpen(true)}
           >
             <Menu className="size-5" />

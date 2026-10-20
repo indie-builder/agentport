@@ -28,7 +28,7 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-lg border border-danger/30 bg-danger/5 p-3.5 text-sm"
+      className="flex items-start gap-3 rounded-lg border border-danger-line bg-danger-soft p-3.5 text-sm"
     >
       <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
       <div className="min-w-0 flex-1">
@@ -67,7 +67,7 @@ export function EmptyState({
         className,
       )}
     >
-      <div className="flex size-10 items-center justify-center rounded-full bg-surface-2 text-subtle">
+      <div className="flex size-10 items-center justify-center rounded-full bg-sunken text-subtle">
         {icon ?? <Inbox className="size-5" />}
       </div>
       <div className="mt-1 text-sm font-medium text-fg">{title}</div>

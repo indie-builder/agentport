@@ -66,8 +66,14 @@ export const runStatusLabel: Record<RunStatus, string> = {
   timeout: '超时',
 };
 
+/**
+ * TypeID 形如 run_01m5bv0faceh4v4jtw00eta1sn：后缀是时间有序的随机段。
+ * 表格里只保留后缀末 8 位——前缀每个单元格都一样，留着只占宽度。
+ */
 export function shortId(id: string): string {
-  return id.length > 14 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
+  const underscore = id.indexOf('_');
+  const body = underscore > 0 ? id.slice(underscore + 1) : id;
+  return body.length > 8 ? body.slice(-8) : body;
 }
 
 export const evalStatusLabel: Record<EvalRunStatus, string> = {

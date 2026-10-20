@@ -82,7 +82,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Reason({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-3 flex items-start gap-1.5 rounded-md bg-danger/5 px-2 py-1.5 text-[11.5px] leading-relaxed text-danger">
+    <div className="mt-3 flex items-start gap-1.5 rounded-md bg-danger-soft px-2 py-1.5 text-[11.5px] leading-relaxed text-danger">
       <CircleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
       <span>{children}</span>
     </div>

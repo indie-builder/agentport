@@ -24,29 +24,43 @@
 - 数字列右对齐、等宽、可排序；状态用低饱和标签。
 - 详情通过行内展开或右侧抽屉，不跳页。
 
-## 3. 色彩
+## 3. 色彩（浅色唯一主题）
 
-深色默认，浅色作为后续扩展（token 已按可替换方式命名）。
+2026-10-20 起只保留浅色。理由：这是一台在工作站上整天开着的运维界面，与编辑器、
+文档、终端处在同一片环境光下；浅色降低长时间阅读的对比疲劳，也让等宽数据接近纸面报表。
+
+三色族：**暖纸**（纸面层级）、**墨**（文本）、**深青**（主色）。
 
 | Token | 值 | 用途 |
 |---|---|---|
-| `--color-canvas` | `#0B0D10` | 页面背景 |
-| `--color-surface` | `#12161B` | 卡片、面板、表头 |
-| `--color-surface-2` | `#171C23` | 输入框、悬停行、浮层 |
-| `--color-line` | `#232A33` | 边框、分隔线 |
-| `--color-line-strong` | `#323B47` | 聚焦、悬停边框 |
-| `--color-fg` | `#E6EAF0` | 主文本 |
-| `--color-muted` | `#9AA5B4` | 次要文本 |
-| `--color-subtle` | `#6B7686` | 占位、辅助、表头 |
-| `--color-accent` | `#5B8DEF` | 主操作、链接、选中 |
-| `--color-accent-hover` | `#6F9BF2` | 悬停 |
-| `--color-accent-soft` | `rgba(91,141,239,.12)` | 选中背景 |
-| `--color-success` | `#3FB950` | 成功 |
-| `--color-warning` | `#D29922` | 运行中、警告 |
-| `--color-danger` | `#F85149` | 失败、删除 |
-| `--color-code` | `#0E1116` | 代码块底 |
+| `--color-canvas` | `#F3F0E9` | 页面底 |
+| `--color-panel` | `#EFEBE3` | 侧栏、页头、表头 |
+| `--color-surface` | `#FFFDF8` | 卡片、面板、输入框 |
+| `--color-sunken` | `#EBE6DC` | 悬停行、下沉块、代码底之外的浅槽 |
+| `--color-line` | `#DDD6C9` | 常规分隔线 |
+| `--color-line-strong` | `#C3BBAB` | 交互边界、悬停描边 |
+| `--color-fg` | `#1C1A16` | 主文本 |
+| `--color-muted` | `#575147` | 次要文本 |
+| `--color-subtle` | `#7A7265` | 占位、表头、辅助 |
+| `--color-accent` | `#1C5F66` | 主操作、当前选中 |
+| `--color-accent-hover` | `#154C52` | 悬停 |
+| `--color-accent-soft` | `#DFEEED` | 选中背景、选区 |
+| `--color-accent-line` | `#A9CDCB` | 选中描边、焦点外环 |
+| `--color-success` | `#2A6A45` | 成功 |
+| `--color-success-soft` / `-line` | `#E3F0E8` / `#B3D5C1` | 成功底色与描边 |
+| `--color-warning` | `#855200` | 运行中、警告 |
+| `--color-warning-soft` / `-line` | `#F9EDD7` / `#E6C894` | 警告底色与描边 |
+| `--color-danger` | `#A3312A` | 失败、删除 |
+| `--color-danger-soft` / `-line` | `#FAE7E4` / `#E8BAB4` | 失败底色与描边 |
+| `--color-code` | `#F0ECE3` | 代码块底 |
+| `--color-scrim` | `rgb(28 26 22 / .36)` | 弹层遮罩（暖墨，不是纯黑） |
 
-状态色只用于状态，不做装饰。数字永远用等宽字体 + `tabular-nums`。
+规则：
+
+1. **状态色必须成组使用**：`soft` 做底、`line` 做边、实色做文字。不要用 `bg-danger/5` 这类透明度近似。
+2. **主色只做交互标记**，不做装饰；大面积使用只允许在选中行与主按钮。
+3. **阴影只有三档**：`shadow-panel`（卡片）、`shadow-raised`（登录表单）、`shadow-overlay`（弹层）。禁止 `shadow-2xl`、`shadow-black/*`。
+4. **代码高亮**用深色文本色（`#1F4FA8` / `#1F6B47` / `#8A5A00` / `#6B3FA0`），不用 Tailwind 的 `*-300` 系列——那是深色底的值。
 
 ## 4. 字体与排版
 

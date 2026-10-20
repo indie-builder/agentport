@@ -4,10 +4,7 @@ import { cn } from '../../lib/cn.js';
 export function Card({ className, ...props }: ComponentProps<'div'>) {
   return (
     <div
-      className={cn(
-        'rounded-[10px] border border-line bg-surface shadow-sm shadow-black/20',
-        className,
-      )}
+      className={cn('rounded-lg border border-line bg-surface shadow-panel', className)}
       {...props}
     />
   );
@@ -16,7 +13,7 @@ export function Card({ className, ...props }: ComponentProps<'div'>) {
 export function CardHeader({ className, ...props }: ComponentProps<'div'>) {
   return (
     <div
-      className={cn('flex items-center gap-2 border-b border-line px-5 py-3', className)}
+      className={cn('flex items-center gap-2 border-b border-line px-5 py-3.5', className)}
       {...props}
     />
   );
