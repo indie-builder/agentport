@@ -2,7 +2,10 @@
 
 > 实现过程中需要拍板的点，先按**最保守/最小**的方案执行并记录在此。
 > 状态：✅ 已决定 = 已按表中方案实现；⏳ 待决策 = 需要用户或部署形态才能确定。
-> D-1 至 D-15 已在 2026-10-20 按建议方案落地；当前只剩 D-16（部署形态）。
+> D-1 至 D-16 均已有决定（2026-10-20）。D-16 按「先自用、后续再扩展」执行；
+> 触发升级的条件写在 D-16 末尾，届时按 B/C/D 重新评估。
+>
+> **D-17 至 D-21 已决定并开始实现**（2026-10-20，按建议方案）。
 
 ---
 
@@ -102,9 +105,12 @@
 
 ---
 
-## D-14 ✅ 前端是否需要浅色主题
+## D-14 ✅ 前端主题：只保留浅色（2026-10-20 修订）
 
-**决定（按 A）**：只做深色；token 已按可替换方式命名，将来改 `styles.css` 与 `html` 属性即可。
+**原决定**：只做深色。
+
+**修订**：用户明确要求「不要深色，只需要浅色」。前端整体重做为暖纸浅色主题，
+令牌见 `docs/DESIGN-SYSTEM.md` §3；深色主题不再维护，因此也不存在切换开关。
 
 ---
 
@@ -114,11 +120,15 @@
 
 ---
 
-## D-16 ⏳ worker 的 Docker socket 权限
+## D-16 ✅ worker 的 Docker socket 权限
+
+**决定（2026-10-20）：先按 A 保持，自用场景；扩展时再按 B/C/D 升级。**
 
 **问题**：worker 挂载 `/var/run/docker.sock` 且 `group_add: ${DOCKER_GID:-0}`，可控制宿主 Docker，等价宿主 root。
 
-**当前做法**：保持单机架构（D-12 的 Docker provider 需要它）。未改代码，只在 `docker-compose.yml` 与 `docs/OPERATIONS.md` 标注风险。
+**当前做法**：保持单机架构（D-12 的 Docker provider 需要它）。只在 `docker-compose.yml` 与 `docs/OPERATIONS.md` 标注风险，不做 socket proxy。
+
+**适用范围**：单机、单管理员、只运行自己配置的智能体；机器上不放其他有价值的数据或凭证（或已接受该风险）。
 
 **备选**：
 - A. 保持（单机自用，仅自己运行受信智能体）
@@ -126,9 +136,80 @@
 - C. 独立沙盒节点：worker 通过远程 Docker（`DOCKER_HOST`）或 microVM 运行时连另一台机器
 - D. 放弃 Docker，换 microsandbox/gVisor（见 D-12）
 
-**建议**：自用保持 A；只要运行不受信输入/多用户，必须 B 或 C；长期走 D。
+**升级触发条件**（满足任一条就重新评估，不要等到出事）：
+1. 智能体开始处理**不受信内容**：公开的 HTTP 工具、用户可编辑的提示词/技能、外部 MCP server。
+2. 引入**多用户**或对外暴露 API。
+3. worker 与**其他服务共用一台机器**，且该机器上有不属于本平台的凭证或数据。
+4. 需要运行**第三方/导入的智能体定义**（`/api/import` 已支持导入，导入了别人的定义即触发第 1 条）。
 
-**影响面**：`docker-compose.yml`、`packages/worker/src/sandbox/docker.ts`、部署文档。未做，需要部署形态才能落地。
+**升级路径**：B（socket proxy，改动最小）→ C（独立沙盒节点）→ D（microVM）。
+
+**影响面**：`docker-compose.yml`、`packages/worker/src/sandbox/docker.ts`、部署文档。
+
+---
+
+## D-17 ✅ 模型凭证代理（M12a）
+
+**问题**：worker 把 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 直接注入沙盒 env，容器内任何进程都能读取；这是安全清单里唯一剩余的 Medium 项。
+
+**决定**：宿主侧（worker）起一个仅监听回环的模型代理，沙盒只拿到**按 run 签发的短期 token** 与代理地址。真实凭证只存在于 worker 进程内，不落盘、不进容器 env。
+
+**边界**：
+- 代理只转发白名单路径（`/v1/messages`、`/v1/models`），不转发任意 URL，避免变成开放代理。
+- token 明文即 runId，DB 存它的 sha256 并要求 run 仍在 `running`；run 结束清空。
+- 未配置任何模型凭证时回退到直接注入，启动日志明确警告。
+
+**验证**：真实 run 中容器 env 只有 `ANTHROPIC_AUTH_TOKEN=run_...` 与代理地址，`ANTHROPIC_API_KEY` 为空；run 结束后 `model_token_hash` 与 `mcp_token_hash` 均为 null。
+
+**影响面**：`packages/worker/src/model-proxy.ts`（新增）、`packages/worker/src/index.ts`、`packages/api/src/config.ts`。
+
+---
+
+## D-18 ✅ 工具审批改为持久化暂停
+
+**问题**：现在是「拒绝 → 人工批准 → 模型重新发起」，不是暂停；批准后模型可能不再调用，或在别的时机调用。
+
+**决定**：用 SDK 的 `canUseTool` 回调实现真暂停。工具需要审批时，`canUseTool` 挂起等待宿主批准（轮询 DB），批准后**同一次调用直接继续**，不再要求模型重试。
+
+**边界**：
+- 等待有上限（`APPROVAL_WAIT_MS`，默认 300s）；超时按拒绝处理并说明原因。
+- 没有 run 上下文的外部客户端不挂起，立即拒绝（没有页面可以批准）。
+- 进程重启会丢失等待中的调用；`approval_requests` 记录仍在，但那次 run 需要重跑。
+- 不需要 SDK 的 `canUseTool`：挂起发生在 MCP 工具调用内部，模型看到的是"一次较慢的调用"。
+
+**验证**：真实 run 中工具调用挂起 16 秒，批准后同一次调用返回 jsonplaceholder 数据，模型没有重发；单测 `suspends the call and resumes it after approval` 覆盖同一路径。
+
+**影响面**：`packages/api/src/features/servers/generated.ts`、`mcp-endpoint.ts`、`packages/api/src/config.ts`。
+
+---
+
+## D-19 ✅ 多智能体：保持单层，重新放行可控工具
+
+**决定**：仍坚持单层委派（D-8），但把上一轮默认禁用的 `ListAgents` / `SendMessage` 改成**按配置放行**：智能体需要时才启用，默认关闭 `Monitor` / `EndConversation`。
+
+**理由**：并行协作要解决工作区冲突与结果合并，属于新能力而不是开关；在解决之前放行这些工具只会制造难以复现的问题。
+
+**影响面**：`packages/core/src/workspace.ts`、`packages/sandbox/src/runner.ts`。
+
+---
+
+## D-20 ✅ 补全权限模式
+
+**决定**：`default` 与 `acceptEdits` 直接透传（SDK 已支持）；`auto` 依赖模型分类器，平台无法审计它的决定，继续拒绝；`bypassPermissions` 永不开放。
+
+**已知边界**：`default` 在沙盒里没有可交互的宿主，实际行为接近 `dontAsk`；等挂起式审批覆盖全部工具（不只是 `requiresApproval`）后，`default` 才会有真正的交互语义。
+
+**影响面**：`packages/api/src/features/agents/routes.ts`、`packages/shared/src/agent.ts`。
+
+---
+
+## D-21 ⏳ 对外程度
+
+**问题**：单管理员、`/mcp` 单一全局 token、读接口无限流、`/health/*` 无鉴权。
+
+**决定**：**暂不对外**。保持现状，但在文档里写清四项前置条件；一旦要对外，先做按 agent 发 token 与读接口限流。
+
+**影响面**：文档为主。
 
 ---
 

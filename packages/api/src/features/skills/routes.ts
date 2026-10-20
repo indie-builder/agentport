@@ -1,9 +1,11 @@
+import { fail } from '@agentport/core';
 import { repo as skillRepo } from '@agentport/db';
 import type { Skill, SkillWithAgentCount } from '@agentport/shared';
 import { skillInputSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
+import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 
 const repo = skillRepo.skills;
@@ -24,7 +26,7 @@ const patchSchema = z.object({
 });
 
 function notFound(reply: FastifyReply) {
-  return reply.status(404).send({ code: 'NOT_FOUND', message: 'skill not found' });
+  return reject(reply, 'NOT_FOUND', 'skill not found');
 }
 
 /** skills.slug 上有唯一索引；drizzle 把 pg 错误包在 cause 里，得顺着链找。 */
@@ -32,10 +34,7 @@ function rethrowConflict(err: unknown): never {
   let cause: unknown = err;
   while (typeof cause === 'object' && cause !== null) {
     if ('code' in cause && cause.code === '23505') {
-      throw Object.assign(new Error('skill slug already exists'), {
-        statusCode: 409,
-        code: 'CONFLICT',
-      });
+      fail('CONFLICT', 'skill slug already exists');
     }
     cause = 'cause' in cause ? cause.cause : undefined;
   }

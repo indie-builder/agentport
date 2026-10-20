@@ -51,10 +51,39 @@ export type RunStep =
       at: string;
       name: string | null;
       toolUseId: string | null;
+      /** 调用参数；tool_result 合进来后仍保留 input。 */
       content: unknown;
+      /** 调用结果；与 input 分开，前端才能并排展示「传了什么/拿回什么」。 */
+      result?: unknown;
       /** 子智能体内部的调用：父侧 Agent 的 tool_use id；顶层为空。 */
       parentToolUseId: string | null;
     };
+
+/**
+ * tool_use 与 tool_result 是同一次调用的两半，按 toolUseId 合成一步。
+ * 分开返回会让界面出现两个同名步骤，读者无法判断哪个是参数、哪个是结果。
+ */
+export function mergeToolSteps(steps: RunStep[]): RunStep[] {
+  const merged: RunStep[] = [];
+  const byToolUse = new Map<string, Extract<RunStep, { kind: 'tool' }>>();
+  for (const step of steps) {
+    if (step.kind !== 'tool' || step.toolUseId === null) {
+      merged.push(step);
+      continue;
+    }
+    const existing = byToolUse.get(step.toolUseId);
+    if (!existing) {
+      const copy = { ...step };
+      byToolUse.set(step.toolUseId, copy);
+      merged.push(copy);
+      continue;
+    }
+    // 后到的 result 补进已有步骤；后到的 use 补回 input。
+    if (step.result !== undefined) existing.result = step.result;
+    if (step.content !== null && step.content !== undefined) existing.content = step.content;
+  }
+  return merged;
+}
 
 export interface RunDetail {
   run: RunDetailRow;
@@ -134,7 +163,9 @@ export function toStep(message: {
       at,
       name: typeof content.name === 'string' ? content.name : null,
       toolUseId: typeof content.toolUseId === 'string' ? content.toolUseId : null,
-      content: content.content,
+      // result 消息没有 input；content 留空，由 mergeToolSteps 补回来。
+      content: null,
+      result: content.content,
       parentToolUseId: typeof content.parentToolUseId === 'string' ? content.parentToolUseId : null,
     };
   }
@@ -174,11 +205,34 @@ export async function setRunMcpToken(
   runId: string,
   tokenHash: string,
   expiresAt: Date,
+  modelTokenHash?: string | null,
 ): Promise<void> {
   await db
     .update(agentRuns)
-    .set({ mcpTokenHash: tokenHash, mcpTokenExpiresAt: expiresAt })
+    .set({
+      mcpTokenHash: tokenHash,
+      mcpTokenExpiresAt: expiresAt,
+      ...(modelTokenHash === undefined ? {} : { modelTokenHash }),
+    })
     .where(eq(agentRuns.id, runId));
+}
+
+/** 模型代理 token 在 run 结束时单独清空：它与 MCP token 的生命周期无关。 */
+export async function clearModelToken(db: Database, runId: string): Promise<void> {
+  await db.update(agentRuns).set({ modelTokenHash: null }).where(eq(agentRuns.id, runId));
+}
+
+/** 模型代理校验：token 的 sha256 必须匹配，且 run 仍处于 running。 */
+export async function findRunByModelToken(
+  db: Database,
+  tokenHash: string,
+): Promise<{ runId: string } | null> {
+  const [row] = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.modelTokenHash, tokenHash), eq(agentRuns.status, 'running')))
+    .limit(1);
+  return row ? { runId: row.id } : null;
 }
 
 /** 清空后该 run 的 token 立即失效；重复调用无副作用。 */
@@ -363,7 +417,7 @@ export async function getRunDetail(db: Database, runId: string): Promise<RunDeta
     .where(eq(messages.runId, runId))
     .orderBy(asc(messages.createdAt), asc(messages.id));
 
-  const steps = rows.map(toStep).filter((step): step is RunStep => step !== null);
+  const steps = mergeToolSteps(rows.map(toStep).filter((step): step is RunStep => step !== null));
 
   return {
     run,

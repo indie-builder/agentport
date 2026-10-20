@@ -234,6 +234,50 @@ describe.skipIf(!ready)('servers', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it('PATCH edits a generated tool definition in place', async () => {
+    const created = await post(unique('patch-tool'), {
+      kind: 'generated',
+      baseUrl: 'https://jsonplaceholder.typicode.com',
+    });
+    const server = created.json<Server>();
+    const toolRes = await inject(app, {
+      method: 'POST',
+      url: `/api/servers/${server.id}/tools`,
+      headers: auth(),
+      payload: {
+        name: 'get-user',
+        method: 'GET',
+        pathTemplate: '/users/{id}',
+        inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
+        paramsIn: 'query',
+      },
+    });
+    expect(toolRes.statusCode).toBe(201);
+    const tool = toolRes.json<{ id: string }>();
+
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/servers/${server.id}/tools/${tool.id}`,
+      headers: auth(),
+      payload: { pathTemplate: '/users/{id}/posts', description: 'posts by user' },
+    });
+    expect(patched.statusCode).toBe(200);
+    // 同一 id：编辑不能换掉工具，否则运行中的审批与外键会断。
+    expect(patched.json<{ id: string; pathTemplate: string }>()).toMatchObject({
+      id: tool.id,
+      pathTemplate: '/users/{id}/posts',
+      description: 'posts by user',
+    });
+
+    const empty = await inject(app, {
+      method: 'PATCH',
+      url: `/api/servers/${server.id}/tools/${tool.id}`,
+      headers: auth(),
+      payload: {},
+    });
+    expect(empty.statusCode).toBe(400);
+  });
+
   it('PATCH updates fields and keeps masked secrets', async () => {
     const name = unique('patch');
     created.push(name);

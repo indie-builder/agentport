@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
+import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
   Bot,
   ChevronRight,
-  FlaskConical,
+  Command,
   HeartPulse,
   LayoutDashboard,
   LogOut,
@@ -25,17 +26,61 @@ import { meQuery, queryClient } from '../lib/queries.js';
 import { Button } from './ui/button.js';
 import { Skeleton } from './ui/skeleton.js';
 
+/**
+ * 导航按「配置 → 使用 → 观测 → 运维」分组。
+ * 平铺九项会让读者每次重新扫描；分组给出稳定的位置记忆。
+ */
+/**
+ * 导航按「使用 → 构建 → 系统」排，不按实体平铺。
+ *
+ * 依据（docs/UI-REDESIGN.md）：对话是每天多次的最高频动作，构建是低频但
+ * 要求高准确度的动作，系统只在出问题时进入。把三者放在同一层级，
+ * 等于让用户每次重新判断「我现在要做哪类事」。
+ */
 const nav = [
-  { to: '/', label: '概览', icon: LayoutDashboard, title: '概览' },
-  { to: '/servers', label: 'MCP Servers', icon: Server, title: 'MCP Servers' },
-  { to: '/agents', label: '智能体', icon: Bot, title: '智能体' },
-  { to: '/skills', label: '技能', icon: Sparkles, title: '技能' },
-  { to: '/chat', label: '对话', icon: MessagesSquare, title: '对话' },
-  { to: '/runs', label: '运行', icon: Activity, title: '运行' },
-  { to: '/eval', label: '评估', icon: FlaskConical, title: '评估' },
-  { to: '/audit', label: '审计', icon: ScrollText, title: '审计' },
-  { to: '/status', label: '系统状态', icon: HeartPulse, title: '系统状态' },
+  {
+    label: '使用',
+    items: [
+      { to: '/chat', label: '对话', icon: MessagesSquare, title: '对话' },
+      { to: '/runs', label: '运行', icon: Activity, title: '运行' },
+    ],
+  },
+  {
+    label: '构建',
+    items: [
+      { to: '/agents', label: '智能体', icon: Bot, title: '智能体' },
+      { to: '/servers', label: 'MCP Servers', icon: Server, title: 'MCP Servers' },
+      { to: '/skills', label: '技能', icon: Sparkles, title: '技能' },
+    ],
+  },
+  {
+    label: '系统',
+    items: [
+      { to: '/status', label: '健康', icon: HeartPulse, title: '健康' },
+      { to: '/audit', label: '审计', icon: ScrollText, title: '审计' },
+    ],
+  },
 ] as const;
+
+/** 工作台置顶：它是入口与待办的落点。 */
+const overviewNav = {
+  to: '/',
+  label: '工作台',
+  icon: LayoutDashboard,
+  title: '工作台',
+} as const;
+
+/** 扁平列表供标题查找与路由匹配使用。 */
+interface NavItem {
+  readonly to: string;
+  readonly label: string;
+  readonly icon: LucideIcon;
+  readonly title: string;
+}
+const allNavItems: readonly NavItem[] = [
+  overviewNav,
+  ...nav.flatMap((group) => group.items as readonly NavItem[]),
+];
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
 
@@ -48,27 +93,22 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
   return [collapsed, update];
 }
 
+/** 品牌：lucide 线框标记 + 文字，与参考页一致的图标语言。 */
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
     <Link
       to="/"
       aria-label="PACE 首页"
       className={cn(
-        'flex h-[52px] shrink-0 items-center gap-2.5 border-b border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
-        collapsed ? 'justify-center px-0' : 'px-5',
+        'flex h-14 shrink-0 items-center gap-2 focus-visible:outline-none',
+        collapsed ? 'justify-center' : 'px-3',
       )}
     >
-      <span className="flex items-end gap-[2px]" aria-hidden="true">
-        {[4, 8, 12, 8].map((height, index) => (
-          <span
-            key={height}
-            className={cn('w-[3px] rounded-sm', index === 2 ? 'bg-accent' : 'bg-line-strong')}
-            style={{ height }}
-          />
-        ))}
+      <span className="flex size-7 items-center justify-center rounded-[7px] bg-ink text-white">
+        <Command aria-hidden="true" className="size-4" strokeWidth={1.75} />
       </span>
       {collapsed ? null : (
-        <span className="text-[13px] font-semibold tracking-[0.08em] text-fg">PACE</span>
+        <span className="text-sm font-medium tracking-[0.12em] text-fg">PACE</span>
       )}
     </Link>
   );
@@ -96,12 +136,12 @@ function SidebarLink({
       title={collapsed ? label : undefined}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'relative flex h-8 items-center gap-2.5 rounded-md text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
-        collapsed ? 'justify-center px-0' : 'px-2.5',
-        active ? 'bg-accent-soft text-fg' : 'text-muted hover:bg-surface-2/70 hover:text-fg',
+        'flex h-9 items-center gap-2.5 rounded-[9px] text-sm transition-colors duration-150 focus-visible:outline-none',
+        collapsed ? 'w-9 justify-center' : 'px-2.5',
+        active ? 'bg-hover font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg',
       )}
     >
-      <Icon className={cn('size-4 shrink-0', active ? 'text-accent' : 'text-subtle')} />
+      <Icon className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
       {collapsed ? (
         <span className="sr-only">{label}</span>
       ) : (
@@ -172,9 +212,9 @@ function UserMenu({ username }: { username: string }) {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-8 items-center gap-2 rounded-md px-2 text-xs text-muted transition-colors hover:bg-surface-2/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        className="flex h-8 items-center gap-2 rounded-[2px] px-2 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
       >
-        <span className="flex size-5 items-center justify-center rounded-full bg-surface-2 text-muted">
+        <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted">
           <User className="size-3" />
         </span>
         <span className="hidden max-w-32 truncate sm:block">{username}</span>
@@ -185,16 +225,16 @@ function UserMenu({ username }: { username: string }) {
           role="menu"
           aria-label="用户菜单"
           onKeyDown={onMenuKeyDown}
-          className="absolute right-0 top-10 z-40 w-48 rounded-lg border border-line bg-surface p-1 shadow-xl shadow-black/40"
+          className="absolute right-0 top-10 z-40 w-48 rounded-[3px] border border-line bg-surface p-1 shadow-overlay"
         >
           <div className="border-b border-line px-2.5 py-2">
             <div className="truncate text-xs text-fg">{username}</div>
-            <div className="text-[11px] text-subtle">管理员</div>
+            <div className="text-2xs text-subtle">管理员</div>
           </div>
           <button
             type="button"
             role="menuitem"
-            className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            className="mt-1 flex w-full items-center gap-2 rounded-[2px] px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
             onClick={() => void logout()}
           >
             <LogOut className="size-3.5" />
@@ -258,7 +298,7 @@ export function AppShell() {
   }, [mobileOpen]);
 
   useEffect(() => {
-    const current = nav.find((item) =>
+    const current = allNavItems.find((item) =>
       item.to === '/' ? pathname === '/' : pathname.startsWith(item.to),
     );
     document.title = current ? `${current.title} · PACE` : 'PACE';
@@ -309,32 +349,50 @@ export function AppShell() {
   const sidebar = (drawer: boolean) => (
     <aside
       className={cn(
-        'flex h-full flex-col border-r border-line bg-canvas',
-        drawer ? 'w-64' : collapsed ? 'w-14' : 'w-56',
+        'flex h-full flex-col bg-surface',
+        drawer ? 'w-[310px]' : collapsed ? 'w-16' : 'w-[310px]',
       )}
     >
       <Brand collapsed={drawer ? false : collapsed} />
-      <nav aria-label="主导航" className="flex-1 space-y-0.5 overflow-y-auto p-2">
-        {nav.map((item) => (
-          <SidebarLink
-            key={item.to}
-            to={item.to}
-            label={item.label}
-            icon={item.icon}
-            collapsed={drawer ? false : collapsed}
-            onNavigate={drawer ? () => setMobileOpen(false) : undefined}
-          />
+      <nav aria-label="主导航" className="flex-1 overflow-y-auto px-3 pb-3">
+        <SidebarLink
+          to={overviewNav.to}
+          label={overviewNav.label}
+          icon={overviewNav.icon}
+          collapsed={drawer ? false : collapsed}
+          onNavigate={drawer ? () => setMobileOpen(false) : undefined}
+        />
+        {nav.map((group) => (
+          <div key={group.label} className="mt-3 first:mt-3">
+            {drawer || !collapsed ? (
+              <div className="px-2.5 pb-1.5 pt-4 text-xs text-subtle">{group.label}</div>
+            ) : (
+              <div className="mx-auto mb-1 h-px w-6 bg-line" aria-hidden="true" />
+            )}
+            <div className="space-y-0.5">
+              {group.items.map((item) => (
+                <SidebarLink
+                  key={item.to}
+                  to={item.to}
+                  label={item.label}
+                  icon={item.icon}
+                  collapsed={drawer ? false : collapsed}
+                  onNavigate={drawer ? () => setMobileOpen(false) : undefined}
+                />
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
-      <div className="border-t border-line p-2">
+      <div className="p-3">
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
           aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
           aria-pressed={collapsed}
           className={cn(
-            'hidden h-8 items-center gap-2 rounded-md text-xs text-subtle transition-colors hover:bg-surface-2/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 lg:flex',
-            collapsed ? 'w-full justify-center' : 'w-full px-2',
+            'hidden h-9 items-center gap-2 rounded-[9px] text-sm text-subtle transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none lg:flex',
+            collapsed ? 'w-9 justify-center' : 'w-full px-2.5',
           )}
         >
           {collapsed ? (
@@ -351,84 +409,90 @@ export function AppShell() {
   );
 
   return (
-    <div className="flex min-h-screen bg-canvas text-fg">
+    <div className="h-screen bg-canvas p-1 text-fg">
       <a href="#main-content" className="skip-link">
         跳到主要内容
       </a>
 
-      <div className="sticky top-0 hidden h-screen shrink-0 lg:block">{sidebar(false)}</div>
+      {/* 外壳：参考页的核心结构——16px 圆角的白色容器承载全部内容。 */}
+      <div className="flex h-full overflow-hidden rounded-[16px] bg-surface">
+        <div className="hidden shrink-0 lg:block">{sidebar(false)}</div>
 
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button
-            type="button"
-            aria-label="关闭导航"
-            tabIndex={-1}
-            className="absolute inset-0 bg-black/60"
-            onClick={() => setMobileOpen(false)}
-          />
-          <div
-            ref={drawerRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="导航"
-            className="relative h-full w-64 border-r border-line bg-canvas shadow-2xl"
-          >
+        {mobileOpen ? (
+          <div className="fixed inset-0 z-50 lg:hidden">
             <button
               type="button"
               aria-label="关闭导航"
-              onClick={() => {
-                setMobileOpen(false);
-                menuButtonRef.current?.focus();
-              }}
-              className="absolute right-3 top-4 z-10 rounded-md p-1 text-subtle hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              tabIndex={-1}
+              className="absolute inset-0 bg-scrim"
+              onClick={() => setMobileOpen(false)}
+            />
+            <div
+              ref={drawerRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label="导航"
+              className="relative h-full w-[310px] bg-surface shadow-overlay"
             >
-              <X className="size-4" />
+              <button
+                type="button"
+                aria-label="关闭导航"
+                onClick={() => {
+                  setMobileOpen(false);
+                  menuButtonRef.current?.focus();
+                }}
+                className="absolute right-3 top-4 z-10 rounded-[7px] p-1.5 text-subtle hover:bg-hover hover:text-fg focus-visible:outline-none"
+              >
+                <X className="size-4" strokeWidth={1.75} />
+              </button>
+              {sidebar(true)}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* 顶部只有一行：页面名 + 用户。参考页也是如此，没有标题区与面包屑堆叠。 */}
+          <header className="flex h-14 shrink-0 items-center gap-3 px-4 sm:px-6">
+            <button
+              ref={menuButtonRef}
+              type="button"
+              aria-label="打开导航"
+              aria-expanded={mobileOpen}
+              className="-ml-1 rounded-[7px] p-1.5 text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none lg:hidden"
+              onClick={() => setMobileOpen(true)}
+            >
+              <Menu className="size-5" strokeWidth={1.75} />
             </button>
-            {sidebar(true)}
-          </div>
+            {!pathname.startsWith('/chat') ? <Breadcrumb pathname={pathname} /> : null}
+            <div className="ml-auto flex items-center gap-1">
+              <UserMenu username={me.data.username ?? 'admin'} />
+            </div>
+          </header>
+
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className={cn('min-h-0 flex-1', pathname.startsWith('/chat') && 'overflow-hidden')}
+          >
+            <div
+              className={cn(
+                'mx-auto w-full',
+                pathname.startsWith('/chat')
+                  ? 'h-full'
+                  : 'max-w-[1080px] px-4 pb-10 sm:px-6 lg:px-8',
+              )}
+            >
+              <Outlet />
+            </div>
+          </main>
         </div>
-      ) : null}
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-[52px] shrink-0 items-center gap-3 border-b border-line bg-canvas/95 px-4 backdrop-blur sm:px-8">
-          <button
-            ref={menuButtonRef}
-            type="button"
-            aria-label="打开导航"
-            aria-expanded={mobileOpen}
-            className="-ml-1 rounded-md p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 lg:hidden"
-            onClick={() => setMobileOpen(true)}
-          >
-            <Menu className="size-5" />
-          </button>
-          <Breadcrumb pathname={pathname} />
-          <div className="ml-auto flex items-center gap-1">
-            <UserMenu username={me.data.username ?? 'admin'} />
-          </div>
-        </header>
-
-        <main
-          id="main-content"
-          tabIndex={-1}
-          className={cn('min-h-0 flex-1', pathname.startsWith('/chat') && 'overflow-hidden')}
-        >
-          <div
-            className={cn(
-              'mx-auto w-full max-w-[1200px] px-4 sm:px-8',
-              pathname.startsWith('/chat') ? 'h-[calc(100vh-52px)] py-4' : 'py-8',
-            )}
-          >
-            <Outlet />
-          </div>
-        </main>
       </div>
     </div>
   );
 }
 
 function Breadcrumb({ pathname }: { pathname: string }) {
-  const current = nav.find((item) =>
+  const current = allNavItems.find((item) =>
     item.to === '/' ? pathname === '/' : pathname.startsWith(item.to),
   );
   return (

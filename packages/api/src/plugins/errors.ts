@@ -1,54 +1,148 @@
-import type { FastifyInstance } from 'fastify';
+import { AppError, isAppError } from '@agentport/core';
+import { type ErrorCode, errorCode, type Problem } from '@agentport/shared';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
   hasZodFastifySchemaValidationErrors,
   isResponseSerializationError,
 } from 'fastify-type-provider-zod';
 
-type ErrorLike = Error & { statusCode?: number; code?: string };
+/** 边界处重新导出，feature 层不必同时 import core 与 shared。 */
+export { AppError, isAppError };
 
 /**
- * 错误响应只有一个形状：{ code, message, requestId }。
- *
- * zod 校验失败与响应序列化失败也在这一层收敛，路由里因此不再需要
- * safeParse + 手写 400；schema 声明即是唯一校验点。
+ * 把任意异常压成 AppError。分三步：
+ * 1. 已经是 AppError → 原样返回
+ * 2. 框架/插件抛出的可识别错误 → 映射成稳定 code
+ * 3. 其余 → INTERNAL_ERROR，原始信息只进日志
+ */
+export function toAppError(error: unknown): AppError {
+  if (isAppError(error)) return error;
+
+  const err = error as { statusCode?: number; code?: string; message?: string } | null;
+  const status = err?.statusCode ?? 500;
+  const original = err?.message ?? 'unknown error';
+
+  // Fastify 的 body 限制与 content-type 错误在解析阶段就发生，不属于业务输入校验。
+  if (err?.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
+    return new AppError('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试', {
+      cause: error,
+    });
+  }
+  // 请求体不是合法 JSON：客户端输入问题，不是服务端缺陷。
+  if (
+    err?.code === 'FST_ERR_CTP_INVALID_JSON_BODY' ||
+    err?.code === 'FST_ERR_CTP_EMPTY_JSON_BODY'
+  ) {
+    return new AppError('INVALID_INPUT', '请求体不是合法 JSON', { cause: error });
+  }
+  if (err?.code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE' || err?.code === 'FST_ERR_CTP_EMPTY_TYPE') {
+    return new AppError(
+      'UNSUPPORTED_MEDIA_TYPE',
+      '不支持的 Content-Type，请使用 application/json',
+      {
+        cause: error,
+      },
+    );
+  }
+  if (status === 429) {
+    return new AppError('RATE_LIMITED', '请求过于频繁，请稍后再试', {
+      cause: error,
+      retryable: true,
+    });
+  }
+  if (status === 413) {
+    return new AppError('PAYLOAD_TOO_LARGE', '请求体超出大小限制', { cause: error });
+  }
+  if (status === 415) {
+    return new AppError('UNSUPPORTED_MEDIA_TYPE', '不支持的 Content-Type', { cause: error });
+  }
+  if (status === 503) {
+    return new AppError('SERVICE_UNAVAILABLE', '服务暂时不可用，请稍后重试', { cause: error });
+  }
+
+  // 旧代码里仍有 Object.assign(new Error(...), { statusCode, code })，逐条迁完后可删。
+  if (status >= 400 && status < 500 && typeof err?.code === 'string' && err.code in errorCode) {
+    return new AppError(err.code as ErrorCode, original, { cause: error });
+  }
+
+  return new AppError('INTERNAL_ERROR', 'Internal server error', { cause: error });
+}
+
+/** 客户端可见的文案：4xx 保留具体说明，5xx 一律固定，避免泄露内部细节。 */
+function publicMessage(err: AppError): string {
+  return err.status >= 500 ? 'Internal server error' : err.message;
+}
+
+export function problem(requestId: string, err: AppError, extra?: Partial<Problem>): Problem {
+  return {
+    code: err.code,
+    message: publicMessage(err),
+    status: err.status,
+    requestId,
+    retryable: err.retryable,
+    ...(err.path === undefined ? {} : { path: err.path }),
+    ...extra,
+  };
+}
+
+/**
+ * 错误响应只有一个形状（Problem）。zod 校验失败、响应序列化失败、
+ * 框架错误都在这一层收敛，路由里因此不再需要手写 400。
  */
 export function registerErrorHandler(app: FastifyInstance) {
   app.setErrorHandler((error: unknown, request, reply) => {
     if (hasZodFastifySchemaValidationErrors(error)) {
-      const issue = error.validation[0] as { message?: string; instancePath?: string } | undefined;
-      return reply.status(400).send({
-        code: 'INVALID_INPUT',
-        message: issue?.message ?? 'invalid request',
-        requestId: request.id,
-        ...(issue?.instancePath ? { path: issue.instancePath } : {}),
-      });
+      const issues = error.validation.map((issue) => ({
+        path: (issue as { instancePath?: string }).instancePath ?? '',
+        message: (issue as { message?: string }).message ?? 'invalid value',
+      }));
+      const first = issues[0];
+      return reply.status(400).send(
+        problem(
+          request.id,
+          new AppError('INVALID_INPUT', first?.message ?? 'invalid request', {
+            ...(first?.path ? { path: first.path } : {}),
+          }),
+          { errors: issues },
+        ),
+      );
     }
 
     if (isResponseSerializationError(error)) {
-      // 响应不符合声明的 schema 是服务端缺陷，按 500 处理并保留细节给日志。
+      // 响应不符合声明的 schema 是服务端缺陷：细节只进日志。
       request.log.error({ err: error }, 'response serialization failed');
-      return reply.status(500).send({
-        code: 'RESPONSE_INVALID',
-        message: 'response did not match its schema',
-        requestId: request.id,
-      });
+      return reply
+        .status(500)
+        .send(
+          problem(
+            request.id,
+            new AppError('RESPONSE_INVALID', 'response did not match its schema'),
+          ),
+        );
     }
 
-    const err = error as ErrorLike;
-    const status = err.statusCode ?? 500;
-    if (status >= 500) request.log.error({ err }, 'unhandled error');
-    return reply.status(status).send({
-      code: err.code ?? 'INTERNAL_ERROR',
-      message: status >= 500 ? 'Internal server error' : err.message,
-      requestId: request.id,
-    });
+    const err = toAppError(error);
+    if (err.status >= 500) request.log.error({ err: error, code: err.code }, 'unhandled error');
+    else if (err.status !== 401)
+      request.log.warn({ code: err.code, err: error }, 'request rejected');
+
+    return reply.status(err.status).send(problem(request.id, err));
   });
 
   app.setNotFoundHandler((request, reply) => {
-    reply.status(404).send({
-      code: 'NOT_FOUND',
-      message: `Route ${request.method} ${request.url} not found`,
-      requestId: request.id,
-    });
+    reply
+      .status(404)
+      .send(
+        problem(
+          request.id,
+          new AppError('NOT_FOUND', `Route ${request.method} ${request.url} not found`),
+        ),
+      );
   });
+}
+
+/** 路由里主动拒绝时用：省掉 status/message/requestId 的重复拼装。 */
+export function reject(reply: FastifyReply, code: ErrorCode, message: string) {
+  const err = new AppError(code, message);
+  return reply.status(err.status).send(problem(reply.request.id, err));
 }

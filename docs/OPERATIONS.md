@@ -130,7 +130,8 @@ worker 挂载 `/var/run/docker.sock`，**等价于把宿主 root 权限交给 wo
 2. **独立沙盒节点**：worker 通过远程 Docker（`DOCKER_HOST` + TLS）或 microVM 运行时连到隔离主机，平台主机不暴露 socket。
 3. **换运行时**：microsandbox / gVisor 等不依赖宿主 Docker 的实现（`SandboxProvider` 接口已预留，见 D-12）。
 
-选择取决于部署形态，记录在 [DECISIONS-PENDING.md](DECISIONS-PENDING.md) D-16。
+**当前决定（2026-10-20）**：单机自用场景保持直接挂载 socket，不做 proxy。
+开始处理不受信内容、引入多用户、或与其他服务共用机器时，按 D-16 列出的触发条件升级到 B/C/D。
 
 ### 2.3 本地开发
 
@@ -426,3 +427,25 @@ docker compose start api worker  # 测完恢复
 ```
 
 E2E（`pnpm test:e2e`）相反：它需要 api + web，但不需要 worker（除非 `E2E_FULL=1`）。
+
+
+## 本地模型网关
+
+worker 通过模型凭证代理访问上游，代理监听 `MODEL_PROXY_PORT`（默认 3426）并发布到宿主回环。
+沙盒在默认 bridge 网络上，通过 `host.docker.internal:3426` 访问它。
+
+配置自建网关（例如宿主机上的 `127.0.0.1:3425`）：
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:3425
+ANTHROPIC_AUTH_TOKEN=<网关的 key>
+AGENT_DEFAULT_MODEL=<网关 /v1/models 里的 id，例如 group/flash>
+```
+
+要点：
+
+- `ANTHROPIC_BASE_URL` 写 `127.0.0.1` 即可：worker 在容器里时会改写为 `host.docker.internal`。
+- 模型名必须是网关接受的名字。直连 Anthropic 的名字（`claude-sonnet-5-5`）在自建网关上通常不存在。
+- 代理只转发 `/v1/messages`、`/v1/count_tokens`、`/v1/models`；网关的其他端点不可达。
+- 改端口时同步改 compose 的 `ports` 映射，否则沙盒连不上。
+- 容器里只有 `ANTHROPIC_AUTH_TOKEN=run_...`；拿这个 token 直接访问代理以外的地址没有意义。

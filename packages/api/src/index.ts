@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { installProcessGuards } from '@agentport/core';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 
 const config = loadConfig();
 const app = await buildApp(config);
+installProcessGuards(app.log);
 
 // 生产由 api 静态托管 web 构建产物；未设置 WEB_DIST 或目录不存在时保持纯 API。
 const webDist = process.env.WEB_DIST ? resolve(process.env.WEB_DIST) : undefined;

@@ -98,15 +98,26 @@ describe.skipIf(!ready)('agents', () => {
     expect(slugChange.statusCode).toBe(400);
   });
 
-  it('rejects a permissionMode the platform has not implemented', async () => {
-    const res = await inject(app, {
+  it('rejects permissionMode auto but accepts default', async () => {
+    // auto 依赖模型分类器，平台无法审计；default 可直接透传（D-20）。
+    const rejected = await inject(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
-      payload: { slug: unique('perms'), name: 'Perms', permissionMode: 'default' },
+      payload: { slug: unique('perms'), name: 'Perms', permissionMode: 'auto' },
     });
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({ code: 'INVALID_INPUT' });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toMatchObject({ code: 'INVALID_INPUT' });
+
+    const slug = unique('perms-ok');
+    const accepted = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: auth(),
+      payload: { slug, name: 'Perms OK', permissionMode: 'default' },
+    });
+    expect(accepted.statusCode).toBe(201);
+    createdAgents.push(slug);
   });
 
   it('PATCH rejects a stale expectedUpdatedAt with 409', async () => {

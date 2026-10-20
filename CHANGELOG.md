@@ -1,5 +1,123 @@
 # Changelog
 
+## [0.12.0] - 2026-10-21
+
+- 设计基准改为 https://www.openui.com/chat?form_factor=desktop，规范与实测值写入 `docs/DESIGN-SYSTEM.md`
+- 通过 ego-browser（CDP）读取参考页计算样式：外壳 16px 圆角、4px 外边距、输入胶囊 56px 高 / 28px 圆角 / 双层阴影、两行标题均 24px
+- 全站改为无彩度体系（黑白灰），移除品牌色；强调靠实底黑与透明度
+- 外壳重写为 16px 圆角白色容器；侧栏改为白底 310px，选中态为浅灰底
+- 对话页重写：24px 问候语 + 胶囊输入 + 建议卡，会话列表移入白底侧栏
+- 智能体 / Servers / 运行详情 / 运行 / 审计 / 健康 / 评估 / 技能 全部按新语言重排
+- shadcn CLI 真正接入（`components.json` + `tsconfig` 路径别名 + vite alias），新增 sheet/scroll-area/separator/tooltip/dropdown-menu
+- 字体换成 Inter + JetBrains Mono；图标统一 lucide 1.75
+- 项目规则新增设计基准与无彩度约束
+
+## [0.11.0] - 2026-10-21
+
+- 对话页按新交互模型重写：状态条、单行工具、子智能体分组、原位审批、失败后恢复路径
+- 智能体页改为分区编辑器 + 吸顶分区导航，每个字段标注落盘目标（`→ CLAUDE.md` / `仅运行时`）
+- Server 页改为表格 + 来源筛选；工具定义可原位编辑，删除前列出受影响的智能体
+- 后端：工具 PATCH 支持全字段编辑（此前只有 enabled/requiresApproval）
+- 预览与落盘共用 `@agentport/core/workspace`，删除 web 内的重复渲染实现
+- core 新增 `./workspace`、`./tools` 纯函数子路径，浏览器可直接引用
+- 修复 web 引入 core 后 `node:crypto` 导致的白屏
+- 新增 `docs/UI-REDESIGN.md`；项目规则新增多智能体并行
+
+## [0.10.0] - 2026-10-20
+
+- 第三次视觉重做：从「暖纸」换成「校准台」——冷中性、1px 分区线、2px 半径、IBM Plex
+- 信号橙 `#C2410C` 成为全屏唯一高饱和色，只表示「正在发生」
+- 工作台首屏改为「需要处理」（失败/超时运行），替代四张同款统计卡；新增 40 次运行刻度带
+- 运行详情改为主从结构：步骤树带归一化时长条，检查器把参数与结果分开
+- `tool_use` / `tool_result` 在 repo 层合并为一步（此前显示为两条同名步骤）
+- 导航按任务分组（使用 / 构建 / 系统），概览更名工作台
+- 技能、评估、健康页从卡片改为通栏分区
+- 字号与代码高亮色收进 `@theme` 令牌，移除硬编码十六进制
+- 新增 `docs/UI-REDESIGN.md` 记录诊断、架构与交互决策
+- 项目规则新增「任务执行尽量使用多智能体并行」
+
+## [0.9.0] - 2026-10-20
+
+- 交互原语换成 shadcn/ui + Radix：`Dialog`、`Tabs`、`Select`、`Popover`（MultiSelect）
+- 新增 `components.json`，声明 shadcn 配置，后续组件用 `shadcn add` 生成
+- 新增页面骨架 `Page` / `PageHeader` / `PageToolbar` / `PageSection`，统一 20px / 32px 节奏
+- 8 个页面改用骨架，移除各自的 `mb-3` / `mb-5` / `mt-8` 硬编码外边距
+- 侧栏导航按「构建 / 运行 / 治理」分组，概览独立置顶
+- 内容容器加宽到 1360px，页头下边距 32px → 24px，提升 Dashboard 信息密度
+- 修复 MultiSelect 浮层被卡片 `overflow` 裁切（改 Radix Popover portal）
+- 修复 Radix Select 把空字符串当未选中，导致「全部状态」显示为「请选择」
+- 卡片内边距统一 `p-4`；移除各页 `CardContent` 的 padding 覆盖
+- `docs/DESIGN-SYSTEM.md` 增加组件来源与页面骨架两节；`CLAUDE.md` 同步规则
+
+## [0.8.0] - 2026-10-20
+
+- 前端整体重做为浅色唯一主题：暖纸 + 墨 + 深青，令牌集中在 `styles.css`
+- 概览首屏的四张同款指标卡改为一条横向账本，按「规模 → 活动 → 成本」阅读
+- 登录页改为两栏：左侧平台事实，右侧表单；窄屏只保留表单
+- 状态色改为成组令牌（`*-soft` / `*-line`），移除 `bg-*/5` 透明度近似
+- 阴影收敛为 `shadow-panel` / `shadow-raised` / `shadow-overlay` 三档
+- 代码高亮改用浅色底可读色，替换 Tailwind `*-300` 系列
+- 输入框、标签、禁用按钮修正对比度（`text-fg` 标签，禁用态用 `bg-sunken` 而非半透明）
+- 表格 ID 只显示 TypeID 后缀 8 位，避免前缀挤占宽度
+- 智能体默认模型列表改为当前网关可用的 id（`group/flash` 等）
+- `docs/DESIGN-SYSTEM.md` §3 与 D-14 同步
+
+## [0.7.1] - 2026-10-20
+
+- 修复：模型代理绑定随机端口，沙盒（默认 bridge）无法访问；改为固定 `MODEL_PROXY_PORT`（默认 3426）并发布到宿主回环
+- 修复：worker 在容器里时 `ANTHROPIC_BASE_URL=127.0.0.1` 指向容器自身；启动时自动改写为 `host.docker.internal`
+- 支持宿主机上的自建模型网关（实测 `127.0.0.1:3425`，`group/flash`）
+- 测试隔离：`startApp()` 支持按实例覆盖配置，不再通过 `process.env` 影响并发文件
+- `.env.example` 与 `docs/OPERATIONS.md` 补充本地网关配置说明
+
+## [0.7.0] - 2026-10-20
+
+- D-17 模型凭证代理：worker 起回环代理，沙盒只拿按 run 的短期 token；真实模型凭证不再进容器 env
+- D-18 工具审批改为挂起式暂停：未批准时调用挂起，批准后同一次调用继续并返回结果，不再要求模型重发
+- D-19 会话间工具改为按配置放行：`ListAgents` / `SendMessage` 可由智能体显式启用，`Monitor` / `EndConversation` 永久关闭
+- D-20 权限模式开放 `default` 与 `acceptEdits`；`auto` 仍拒绝
+- 新增 `agent_runs.model_token_hash`；新增 `APPROVAL_WAIT_MS`（默认 300s）
+- 真实运行验证：容器 env 无真实密钥、审批挂起 16s 后同一次调用完成
+
+## [0.6.1] - 2026-10-20
+
+- D-16 已决定：单机自用继续直接挂载 docker.sock，不做 socket proxy
+- 在 `docs/DECISIONS-PENDING.md` 写明升级触发条件（不受信内容 / 多用户 / 共用机器 / 导入第三方定义）与 B→C→D 路径
+- `docker-compose.yml`、`docs/OPERATIONS.md`、`docs/SECURITY.md` 同步该决定
+
+## [0.6.0] - 2026-10-20
+
+- 工作区 Markdown 显式写出「等待规则」：平台的智能体沟通是同步调用，调用方必须等到被调用方返回
+- `CLAUDE.md` 新增子智能体表格（slug / 适用场景 / 超时），超时取自 `agents.timeout_ms`
+- 子智能体 md 写明「你是被父智能体同步调用的」与等待上限
+- `Agent` 委派改为 MD 内硬约束 `run_in_background: false`：SDK 默认后台运行，会让父智能体在结果返回前结束本轮
+- 默认禁用会话间消息工具 `ListAgents` / `SendMessage` / `SendUserMessage` / `EndConversation` / `Monitor`，与同步等待模型保持一致
+- 真实模型验证：父智能体按 MD 传入 `run_in_background: false`，等待子智能体返回后输出完整结果（2 turns）
+
+## [0.5.0] - 2026-10-20
+
+- 新增异常管理标准：`docs/ERRORS.md`（引用 RFC 9457、NestJS Exception Filters、Spring `ErrorResponse`、Google AIP-193、BullMQ `UnrecoverableError`）
+- 错误响应对齐 RFC 9457：`{ code, message, status, requestId, retryable, path?, errors? }`
+- `packages/shared/src/errors.ts`：稳定 `errorCode` 表（code → HTTP 状态），加新码是兼容变更
+- `packages/core/src/errors.ts`：`AppError` / `fail()`，业务层不再手写 `statusCode`
+- 迁移全部 25 处内联错误响应与 10 处 `Object.assign(new Error(), { statusCode, code })`
+- 框架错误统一映射：非法 JSON → 400，body 超限 → 413，媒体类型错误 → 415，限流 → 429 Problem
+- 沙盒 `run_finished` 增加 `failureKind`（agent/infra/cancelled），落库为 `agent_runs.error_kind`；
+  runner 顶层捕获未处理异常，不再「静默退出、没有终态」
+- 取消订阅失败改为 `infra` 失败并交给 BullMQ 重试，而不是启动一个停不掉的容器
+- API 与 worker 安装进程级兜底：`uncaughtException` / `unhandledRejection` 记录后退出
+- reconciler 的 stop 等待在跑的 tick 结束，避免关停时与写事件撞车
+- 前端 `ApiError` 解析 Problem，`errorMessage()` 按 `code` 分支（如 `CONFLICT_STALE` 提示刷新）
+
+## [0.4.0] - 2026-10-20
+
+- 引入 `effect@4.0.5`，新增 `packages/core/src/effect-runtime.ts`：`Clock`/`Db`/`Redis`/`Sandbox` 四个服务、`RunFailure` 分类、`runProgram`、`withTimeout`
+- `runner-client` 重写为 Effect program：容器生命周期由 Scope 保证，取消/超时/退出用 `raceAll` 统一，`isRetryable` 改看 `RunFailure.reason` 而非匹配错误文本
+- `eval-runner` 用 `Effect.forEach` + `Effect.result` 做逐条失败隔离；`reconcile` 的收敛 UPDATE 加指数退避重试
+- `test-connection` 用 `acquireRelease` 保证 MCP client 在超时路径上也关闭
+- 新增 `docs/EFFECT.md`；测试 122 项通过，真实沙盒验证成功/取消/超时三条路径
+- `biome.json` 排除 `.agents` 与 `dist`，避免第三方技能资源污染 lint
+
 ## [0.3.0] - 2026-10-20
 
 - Fastify × Zod 重构：所有路由改用 `schema` 声明校验，移除 39 处 `safeParse`

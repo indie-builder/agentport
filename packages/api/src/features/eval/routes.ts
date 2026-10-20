@@ -1,8 +1,10 @@
+import { AppError } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
+import { problem, reject } from '../../plugins/errors.js';
 import { getEvalQueue } from '../../queue/producer.js';
 import { typed } from '../../types.js';
 
@@ -25,7 +27,7 @@ const patchCaseSchema = z.object({
 });
 
 function invalid(reply: FastifyReply, message: string) {
-  return reply.status(400).send({ code: 'INVALID_INPUT', message });
+  return reject(reply, 'INVALID_INPUT', message);
 }
 
 const idParams = z.object({ id: z.string().min(1) });
@@ -46,7 +48,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const parsed = { data: request.body };
       if (!(await chatRepo.agentExists(app.db, parsed.data.agentId))) {
-        return reply.status(404).send({ code: 'AGENT_NOT_FOUND', message: 'agent not found' });
+        return reject(reply, 'AGENT_NOT_FOUND', 'agent not found');
       }
       const row = await evalRepo.createCase(app.db, newId('evalCase'), parsed.data);
       await writeAudit(app.db, request.log, {
@@ -67,7 +69,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const parsed = { data: request.body };
       const row = await evalRepo.updateCase(app.db, request.params.id, parsed.data);
-      if (!row) return reply.status(404).send({ code: 'NOT_FOUND', message: 'case not found' });
+      if (!row) return reject(reply, 'NOT_FOUND', 'case not found');
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'eval.case.updated',
@@ -85,7 +87,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
       const deleted = await evalRepo.deleteCase(app.db, request.params.id);
-      if (!deleted) return reply.status(404).send({ code: 'NOT_FOUND', message: 'case not found' });
+      if (!deleted) return reject(reply, 'NOT_FOUND', 'case not found');
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'eval.case.deleted',
@@ -113,13 +115,15 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
         .where(eq(schema.agents.id, agentId))
         .limit(1);
       if (!agent) {
-        return reply.status(404).send({ code: 'AGENT_NOT_FOUND', message: 'agent not found' });
+        return reject(reply, 'AGENT_NOT_FOUND', 'agent not found');
       }
 
       if (await evalRepo.hasRunningRun(app.db, agentId)) {
         return reply
           .status(409)
-          .send({ code: 'EVAL_RUN_IN_PROGRESS', message: '该智能体已有正在运行的评估' });
+          .send(
+            problem(request.id, new AppError('EVAL_RUN_IN_PROGRESS', '该智能体已有正在运行的评估')),
+          );
       }
 
       const cases = await evalRepo.listCases(app.db, agentId);
@@ -153,8 +157,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
 
   app.get<{ Params: { id: string } }>('/api/eval/runs/:id', auth, async (request, reply) => {
     const detail = await evalRepo.getRunDetail(app.db, request.params.id);
-    if (!detail)
-      return reply.status(404).send({ code: 'NOT_FOUND', message: 'eval run not found' });
+    if (!detail) return reject(reply, 'NOT_FOUND', 'eval run not found');
     return detail;
   });
 }

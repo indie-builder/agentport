@@ -1,3 +1,5 @@
+import { fail } from '@agentport/core';
+import type { ApiToolPatch } from '@agentport/db/repo/servers.js';
 import {
   apiToolInputSchema,
   httpUrlSchema,
@@ -7,6 +9,7 @@ import {
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
+import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
@@ -33,14 +36,33 @@ const serverPatchSchema = z.object({
   expectedUpdatedAt: z.coerce.date().optional(),
 });
 
+/**
+ * 工具的可编辑字段。与 apiToolInputSchema 同名同义，但全部可选且**不带默认值**：
+ * `.partial()` 只把字段设为可选，`default()` 仍会为空对象填上默认值，
+ * 于是「至少改一项」的校验永远不会触发。所以这里显式重写，而不是 partial()。
+ */
 const toolPatchSchema = z
-  .object({ enabled: z.boolean().optional(), requiresApproval: z.boolean().optional() })
-  .refine((value) => value.enabled !== undefined || value.requiresApproval !== undefined, {
-    message: 'enabled or requiresApproval is required',
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _')
+      .optional(),
+    description: z.string().max(1000).optional(),
+    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
+    pathTemplate: z.string().min(1).optional(),
+    inputSchema: z.record(z.string(), z.unknown()).optional(),
+    paramsIn: z.enum(['query', 'body']).optional(),
+    requiresApproval: z.boolean().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'at least one field is required',
   });
 
 function notFound(reply: FastifyReply, what: string) {
-  return reply.status(404).send({ code: 'NOT_FOUND', message: `${what} not found` });
+  return reject(reply, 'NOT_FOUND', `${what} not found`);
 }
 
 /**
@@ -51,10 +73,7 @@ function rethrowConflict(err: unknown): never {
   let cause: unknown = err;
   for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
     if ('code' in cause && cause.code === '23505') {
-      throw Object.assign(new Error('server name already exists'), {
-        statusCode: 409,
-        code: 'CONFLICT',
-      });
+      fail('CONFLICT', 'server name already exists');
     }
     cause = 'cause' in cause ? cause.cause : undefined;
   }
@@ -110,10 +129,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
       if (row.kind !== 'generated') {
-        return reply.status(400).send({
-          code: 'INVALID_INPUT',
-          message: 'token is only available for generated servers',
-        });
+        return reject(reply, 'INVALID_INPUT', 'token is only available for generated servers');
       }
       const token = await getMcpToken(app.db, row.id);
       return {
@@ -130,10 +146,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
       if (row.kind !== 'generated') {
-        return reply.status(400).send({
-          code: 'INVALID_INPUT',
-          message: 'token is only available for generated servers',
-        });
+        return reject(reply, 'INVALID_INPUT', 'token is only available for generated servers');
       }
       const token = await repo.rotateMcpToken(app.db, row.id);
       if (!token) return notFound(reply, 'server');
@@ -248,9 +261,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
       if (row.kind !== 'generated') {
-        return reply
-          .status(400)
-          .send({ code: 'INVALID_INPUT', message: 'tools can only be added to generated servers' });
+        return reject(reply, 'INVALID_INPUT', 'tools can only be added to generated servers');
       }
       try {
         const tool = await repo.createTool(app.db, request.params.id, request.body);
@@ -275,10 +286,16 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const { id, toolId } = request.params;
       const body = request.body;
-      const patch = {
-        ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
-        ...(body.requiresApproval === undefined ? {} : { requiresApproval: body.requiresApproval }),
-      };
+      // 去掉 undefined：exactOptionalPropertyTypes 下「没有该键」与「值为 undefined」不同。
+      const patch: ApiToolPatch = {};
+      if (body.name !== undefined) patch.name = body.name;
+      if (body.description !== undefined) patch.description = body.description;
+      if (body.method !== undefined) patch.method = body.method;
+      if (body.pathTemplate !== undefined) patch.pathTemplate = body.pathTemplate;
+      if (body.inputSchema !== undefined) patch.inputSchema = body.inputSchema;
+      if (body.paramsIn !== undefined) patch.paramsIn = body.paramsIn;
+      if (body.requiresApproval !== undefined) patch.requiresApproval = body.requiresApproval;
+      if (body.enabled !== undefined) patch.enabled = body.enabled;
       const tool = await repo.updateTool(app.db, id, toolId, patch);
       if (!tool) return notFound(reply, 'tool');
       await writeAudit(app.db, request.log, {

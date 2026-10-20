@@ -1,7 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["es2024", "dom", "dom.iterable"],
+    "lib": [
+      "es2024",
+      "dom",
+      "dom.iterable"
+    ],
     "jsx": "react-jsx",
     "module": "esnext",
     "moduleResolution": "bundler",
@@ -9,7 +13,17 @@
     "composite": false,
     "declaration": false,
     "declarationMap": false,
-    "types": ["vite/client"]
+    "types": [
+      "vite/client"
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": [
+    "src",
+    "vite.config.ts"
+  ]
 }

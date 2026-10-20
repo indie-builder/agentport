@@ -32,7 +32,15 @@ interface RunnerEvent {
   inputTokens?: number;
   outputTokens?: number;
   error?: string;
+  /** 失败分类；只在 status !== 'succeeded' 时出现。 */
+  failureKind?: FailureKind;
 }
+
+/**
+ * runner 内部的失败分类。宿主只能看到 stdout 上的事件，所以分类必须随 run_finished
+ * 一起过线；否则 worker 无法区分「模型报错」和「基础设施断了」。
+ */
+type FailureKind = 'agent' | 'infra' | 'cancelled';
 
 interface RunnerTask {
   prompt: string;
@@ -69,10 +77,6 @@ const TRUNCATED = '\n…[truncated]';
 function cap(value: string): string {
   if (Buffer.byteLength(value) <= MAX_FIELD_BYTES) return value;
   return `${Buffer.from(value).subarray(0, MAX_FIELD_BYTES).toString('utf8').replace(/�$/, '')}${TRUNCATED}`;
-}
-
-function emit(event: RunnerEvent): void {
-  process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 
 /** 只取第一行，不读 EOF：宿主写完任务后保持 stdin 打开。 */
@@ -159,8 +163,8 @@ const allowedTools = [
 const abortController = new AbortController();
 process.once('SIGTERM', () => abortController.abort());
 
-// 单层委派：仅当工作区里有子智能体时放行；子智能体文件自身仍禁用 Agent。
-const agentTools = new Set(['Agent', 'TaskStop']);
+// 子智能体文件自身仍禁用 Agent；会话间工具只有显式出现在 allowedTools 里才放行（D-19）。
+const allowedByConfig = new Set(task.extraAllowedTools ?? []);
 const baseDisallowed = [
   'Bash',
   'Read',
@@ -173,95 +177,131 @@ const baseDisallowed = [
   'WebSearch',
   'Agent',
   'TaskStop',
+  // 平台只支持「同步等待返回」这一种沟通模型。会话间消息工具会让调用方
+  // 在对方返回前结束本轮，与平台约定相反，因此默认禁用。
+  'ListAgents',
+  'SendMessage',
+  'SendUserMessage',
+  'EndConversation',
+  'Monitor',
   ...(task.extraDisallowedTools ?? []),
 ];
-const disallowedTools = task.allowSubAgents
-  ? baseDisallowed.filter((tool) => !agentTools.has(tool))
-  : baseDisallowed;
+const disallowedTools = baseDisallowed.filter((tool) => {
+  if (tool === 'Agent' || tool === 'TaskStop') return !task.allowSubAgents;
+  if (tool === 'ListAgents' || tool === 'SendMessage') return !allowedByConfig.has(tool);
+  return true;
+});
 
 log(`starting query (model=${task.model ?? 'default'})`);
 
-for await (const message of query({
-  prompt,
-  options: {
-    cwd: '/workspace',
-    settingSources: ['project'],
-    permissionMode: (task.permissionMode ?? 'dontAsk') as PermissionMode,
-    allowedTools,
-    disallowedTools: [...new Set(disallowedTools)],
-    includePartialMessages: true,
-    maxTurns: task.maxTurns ?? 20,
-    maxBudgetUsd: task.maxBudgetUsd ?? 2,
-    ...(task.effort === undefined
-      ? {}
-      : { effort: task.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' }),
-    ...(task.maxThinkingTokens === undefined ? {} : { maxThinkingTokens: task.maxThinkingTokens }),
-    abortController,
-    ...(task.model === undefined ? {} : { model: task.model }),
-  },
-})) {
-  if (message.type === 'assistant') {
-    // 子智能体消息带 parent_tool_use_id（父侧 Agent 的 tool_use id）；顶层为 null。
-    const parent = parentTag(message.parent_tool_use_id);
-    // 完整文本块单独发一次：前端已用 text_delta 渲染，这次用于落库。
-    const fullText = assistantText(message.message.content);
-    if (fullText.length > 0) {
-      emit({ type: 'assistant_text', text: cap(fullText), ...parent });
+let emittedTerminal = false;
+// run_finished 只能有一条：宿主按它落库并结束 SSE。
+function emit(event: RunnerEvent): void {
+  if (event.type === 'run_finished') emittedTerminal = true;
+  process.stdout.write(`${JSON.stringify(event)}\n`);
+}
+
+try {
+  for await (const message of query({
+    prompt,
+    options: {
+      cwd: '/workspace',
+      settingSources: ['project'],
+      permissionMode: (task.permissionMode ?? 'dontAsk') as PermissionMode,
+      allowedTools,
+      disallowedTools: [...new Set(disallowedTools)],
+      includePartialMessages: true,
+      maxTurns: task.maxTurns ?? 20,
+      maxBudgetUsd: task.maxBudgetUsd ?? 2,
+      ...(task.effort === undefined
+        ? {}
+        : { effort: task.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' }),
+      ...(task.maxThinkingTokens === undefined
+        ? {}
+        : { maxThinkingTokens: task.maxThinkingTokens }),
+      abortController,
+      ...(task.model === undefined ? {} : { model: task.model }),
+    },
+  })) {
+    if (message.type === 'assistant') {
+      // 子智能体消息带 parent_tool_use_id（父侧 Agent 的 tool_use id）；顶层为 null。
+      const parent = parentTag(message.parent_tool_use_id);
+      // 完整文本块单独发一次：前端已用 text_delta 渲染，这次用于落库。
+      const fullText = assistantText(message.message.content);
+      if (fullText.length > 0) {
+        emit({ type: 'assistant_text', text: cap(fullText), ...parent });
+      }
+      for (const block of message.message.content) {
+        if (block.type !== 'tool_use') continue;
+        emit({ type: 'tool_start', toolUseId: block.id, name: block.name, ...parent });
+        emit({
+          type: 'tool_input',
+          toolUseId: block.id,
+          json: cap(JSON.stringify(block.input)),
+          ...parent,
+        });
+      }
+      continue;
     }
-    for (const block of message.message.content) {
-      if (block.type !== 'tool_use') continue;
-      emit({ type: 'tool_start', toolUseId: block.id, name: block.name, ...parent });
+
+    if (message.type === 'user') {
+      const content = message.message.content;
+      if (typeof content === 'string') continue;
+      const parent = parentTag(message.parent_tool_use_id);
+      for (const block of content) {
+        if (block.type !== 'tool_result') continue;
+        emit({
+          type: 'tool_result',
+          toolUseId: block.tool_use_id,
+          content: cap(toolResultText(block.content)),
+          ...parent,
+        });
+      }
+      continue;
+    }
+
+    if (message.type === 'stream_event') {
+      const event = message.event;
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        emit({ type: 'text_delta', text: event.delta.text });
+      }
+      continue;
+    }
+
+    if (message.type === 'result') {
+      const succeeded = message.subtype === 'success' && !message.is_error;
       emit({
-        type: 'tool_input',
-        toolUseId: block.id,
-        json: cap(JSON.stringify(block.input)),
-        ...parent,
+        type: 'run_finished',
+        status: succeeded ? 'succeeded' : 'failed',
+        costUsd: message.total_cost_usd,
+        turns: message.num_turns,
+        sessionId: message.session_id,
+        ...tokenUsage(message.modelUsage),
+        ...(succeeded
+          ? {}
+          : {
+              error:
+                message.subtype === 'success'
+                  ? message.result
+                  : `${message.subtype}: ${message.errors.join('; ')}`,
+              // SDK 返回的失败都来自模型/工具层；基础设施故障走下面的 catch。
+              failureKind: 'agent' as const,
+            }),
       });
     }
-    continue;
   }
-
-  if (message.type === 'user') {
-    const content = message.message.content;
-    if (typeof content === 'string') continue;
-    const parent = parentTag(message.parent_tool_use_id);
-    for (const block of content) {
-      if (block.type !== 'tool_result') continue;
-      emit({
-        type: 'tool_result',
-        toolUseId: block.tool_use_id,
-        content: cap(toolResultText(block.content)),
-        ...parent,
-      });
-    }
-    continue;
-  }
-
-  if (message.type === 'stream_event') {
-    const event = message.event;
-    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-      emit({ type: 'text_delta', text: event.delta.text });
-    }
-    continue;
-  }
-
-  if (message.type === 'result') {
-    const succeeded = message.subtype === 'success' && !message.is_error;
+} catch (err) {
+  // 未捕获的异常会直接退出进程，宿主只能看到「没有 run_finished」。
+  // 这里统一转成终态事件：取消归 cancelled，其余归 agent/infra。
+  const message = err instanceof Error ? err.message : String(err);
+  log(`query failed: ${message}`);
+  if (!emittedTerminal) {
+    const kind: FailureKind = abortController.signal.aborted ? 'cancelled' : 'agent';
     emit({
       type: 'run_finished',
-      status: succeeded ? 'succeeded' : 'failed',
-      costUsd: message.total_cost_usd,
-      turns: message.num_turns,
-      sessionId: message.session_id,
-      ...tokenUsage(message.modelUsage),
-      ...(succeeded
-        ? {}
-        : {
-            error:
-              message.subtype === 'success'
-                ? message.result
-                : `${message.subtype}: ${message.errors.join('; ')}`,
-          }),
+      status: kind === 'cancelled' ? 'cancelled' : 'failed',
+      error: message,
+      failureKind: kind,
     });
   }
 }

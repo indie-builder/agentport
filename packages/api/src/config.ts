@@ -24,6 +24,8 @@ const envSchema = z.object({
   AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
   AGENT_MAX_BUDGET_USD: z.coerce.number().positive().default(2),
+  /** 未批准的工具调用挂起多久（D-18）；超时按拒绝处理。0 表示立即拒绝。 */
+  APPROVAL_WAIT_MS: z.coerce.number().int().nonnegative().default(300_000),
 });
 
 export type Config = z.infer<typeof envSchema>;

@@ -14,30 +14,26 @@ export function registerAuditRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   const auth = { preHandler: [rawApp.requireAuth] };
 
-  app.get(
-    '/api/audit',
-    { ...auth, schema: { querystring: querySchema } },
-    async (request) => {
-      const { action, status, limit, before } = request.query;
-      const rows = await repo.audit.listAudit(app.db, {
-        ...(action ? { action } : {}),
-        ...(status ? { status } : {}),
-        ...(limit === undefined ? {} : { limit }),
-        ...(before === undefined ? {} : { before: new Date(before) }),
-      });
-      return {
-        items: rows.map((row) => ({
-          id: row.id,
-          actor: row.actor,
-          action: row.action,
-          target: row.target,
-          status: row.status,
-          durationMs: row.durationMs,
-          requestId: row.requestId,
-          inputDigest: row.inputDigest,
-          createdAt: row.createdAt.toISOString(),
-        })),
-      };
-    },
-  );
+  app.get('/api/audit', { ...auth, schema: { querystring: querySchema } }, async (request) => {
+    const { action, status, limit, before } = request.query;
+    const rows = await repo.audit.listAudit(app.db, {
+      ...(action ? { action } : {}),
+      ...(status ? { status } : {}),
+      ...(limit === undefined ? {} : { limit }),
+      ...(before === undefined ? {} : { before: new Date(before) }),
+    });
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        actor: row.actor,
+        action: row.action,
+        target: row.target,
+        status: row.status,
+        durationMs: row.durationMs,
+        requestId: row.requestId,
+        inputDigest: row.inputDigest,
+        createdAt: row.createdAt.toISOString(),
+      })),
+    };
+  });
 }

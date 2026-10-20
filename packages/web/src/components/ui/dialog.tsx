@@ -1,8 +1,14 @@
 import { X } from 'lucide-react';
-import { type ReactNode, useEffect, useId, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import * as DialogPrimitive from 'radix-ui/dialog';
+import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn.js';
 
+/**
+ * shadcn/ui Dialog（radix 版）。
+ *
+ * 焦点陷阱、Esc、滚动锁、aria 关联全部由 Radix 提供；之前自己实现的版本
+ * 在嵌套弹层和 portal 边界上容易出错，这正是「用组件库而不是重复设计」的理由。
+ */
 interface DialogProps {
   open: boolean;
   onClose: () => void;
@@ -10,17 +16,13 @@ interface DialogProps {
   description?: string;
   children: ReactNode;
   className?: string;
-  /** 关闭后把焦点还给触发元素；默认是打开时记录的元素。 */
+  /**
+   * 关闭后把焦点还给触发元素。Radix 默认会还给它自己的 trigger；
+   * 本项目多数调用方用外部按钮打开，因此保留这个入口。
+   */
   returnFocusRef?: { current: HTMLElement | null };
 }
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-/**
- * 原生实现的模态对话框：焦点陷阱、Esc 关闭、关闭后归还焦点。
- * 不引入 radix，所以这些行为必须自己做，否则键盘用户会被困在页面其他区域。
- */
 export function Dialog({
   open,
   onClose,
@@ -30,118 +32,45 @@ export function Dialog({
   className,
   returnFocusRef,
 }: DialogProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  const titleId = useId();
-  const descriptionId = useId();
-
-  // onClose 每次渲染都可能是新函数；放进 ref，避免 effect 因它重跑而重置焦点。
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  const returnRef = useRef(returnFocusRef);
-  returnRef.current = returnFocusRef;
-
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    const visibleFocusables = (): HTMLElement[] => {
-      const panel = panelRef.current;
-      if (!panel) return [];
-      return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-        (el) => el.offsetParent !== null,
-      );
-    };
-
-    const first = visibleFocusables()[0];
-    (first ?? panelRef.current)?.focus();
-
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeRef.current();
-        return;
-      }
-      if (event.key !== 'Tab') return;
-      const focusables = visibleFocusables();
-      if (focusables.length === 0) {
-        event.preventDefault();
-        panelRef.current?.focus();
-        return;
-      }
-      const firstEl = focusables[0];
-      const lastEl = focusables[focusables.length - 1];
-      if (!firstEl || !lastEl) return;
-      // 初始焦点落在面板本身时，Tab 进入第一个控件，Shift+Tab 从末尾绕回。
-      if (document.activeElement === panelRef.current) {
-        event.preventDefault();
-        (event.shiftKey ? lastEl : firstEl).focus();
-        return;
-      }
-      if (event.shiftKey && document.activeElement === firstEl) {
-        event.preventDefault();
-        lastEl.focus();
-      } else if (!event.shiftKey && document.activeElement === lastEl) {
-        event.preventDefault();
-        firstEl.focus();
-      }
-    };
-
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = overflow;
-      (returnRef.current?.current ?? previous)?.focus();
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-[8vh] sm:p-6 sm:pt-[10vh]">
-      <button
-        type="button"
-        aria-hidden="true"
-        tabIndex={-1}
-        className="fixed inset-0 cursor-default bg-black/60"
-        onClick={onClose}
-      />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        {...(description ? { 'aria-describedby': descriptionId } : {})}
-        tabIndex={-1}
-        className={cn(
-          'relative w-full max-w-[560px] rounded-xl border border-line bg-surface shadow-2xl shadow-black/50 outline-none',
-          className,
-        )}
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-3.5">
-          <div className="min-w-0">
-            <h2 id={titleId} className="text-[15px] font-semibold text-fg">
-              {title}
-            </h2>
-            {description ? (
-              <p id={descriptionId} className="mt-1 text-xs leading-relaxed text-muted">
-                {description}
-              </p>
-            ) : null}
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          onClose();
+          returnFocusRef?.current?.focus();
+        }
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Content
+          className={cn(
+            'fixed left-1/2 top-[10vh] z-50 w-[calc(100%-2rem)] max-w-[560px] -translate-x-1/2 rounded-[4px] border border-line bg-surface shadow-overlay',
+            className,
+          )}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-3.5">
+            <div className="min-w-0">
+              <DialogPrimitive.Title className="text-[15px] font-semibold text-fg">
+                {title}
+              </DialogPrimitive.Title>
+              {description ? (
+                <DialogPrimitive.Description className="mt-1 text-xs leading-relaxed text-muted">
+                  {description}
+                </DialogPrimitive.Description>
+              ) : null}
+            </div>
+            <DialogPrimitive.Close
+              aria-label="关闭"
+              className="-mr-1 rounded-[2px] p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            >
+              <X className="size-4" />
+            </DialogPrimitive.Close>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="关闭"
-            className="-mr-1 rounded-md p-1.5 text-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-        <div className="px-5 py-4">{children}</div>
-      </div>
-    </div>,
-    document.body,
+          <div className="max-h-[calc(80vh-4rem)] overflow-y-auto px-5 py-4">{children}</div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

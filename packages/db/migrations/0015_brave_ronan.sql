@@ -1,0 +1,1 @@
+ALTER TABLE "agent_runs" ADD COLUMN "model_token_hash" text;

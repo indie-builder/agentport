@@ -1,7 +1,9 @@
+import { AppError } from '@agentport/core';
 import { repo, type schema } from '@agentport/db';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
+import { problem, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 
 const runsRepo = repo.runs;
@@ -55,7 +57,9 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
     if (!detail) {
       return reply
         .status(404)
-        .send({ code: 'RUN_NOT_FOUND', message: `run ${request.params.id} not found` });
+        .send(
+          problem(request.id, new AppError('RUN_NOT_FOUND', `run ${request.params.id} not found`)),
+        );
     }
 
     return {
@@ -75,7 +79,9 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
     if (!agentId) {
       return reply
         .status(404)
-        .send({ code: 'RUN_NOT_FOUND', message: `run ${request.params.id} not found` });
+        .send(
+          problem(request.id, new AppError('RUN_NOT_FOUND', `run ${request.params.id} not found`)),
+        );
     }
     const rows = await runsRepo.listApprovalRequests(app.db, request.params.id);
     return {
@@ -109,7 +115,12 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
       if (!agentId) {
         return reply
           .status(404)
-          .send({ code: 'RUN_NOT_FOUND', message: `run ${request.params.id} not found` });
+          .send(
+            problem(
+              request.id,
+              new AppError('RUN_NOT_FOUND', `run ${request.params.id} not found`),
+            ),
+          );
       }
       const approved = await runsRepo.approveTool(
         app.db,
@@ -118,10 +129,11 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
         body.data.toolName,
       );
       if (!approved) {
-        return reply.status(404).send({
-          code: 'APPROVAL_NOT_FOUND',
-          message: `no pending approval for tool ${body.data.toolName} on this server in this run`,
-        });
+        return reject(
+          reply,
+          'APPROVAL_NOT_FOUND',
+          `no pending approval for tool ${body.data.toolName} on this server in this run`,
+        );
       }
       await writeAudit(app.db, request.log, {
         actor: 'admin',

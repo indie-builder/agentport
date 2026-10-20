@@ -1,9 +1,11 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { AppError } from '@agentport/core';
 import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { Redis } from 'ioredis';
 import { writeAudit } from '../../plugins/audit.js';
+import { problem } from '../../plugins/errors.js';
 import { AUTH_COOKIE, AUTH_MAX_AGE_SECONDS } from './types.js';
 
 const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
@@ -78,7 +80,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
   } as const;
 
   const unauthorized = (reply: FastifyReply, message: string): void => {
-    reply.status(401).send({ code: 'UNAUTHORIZED', message });
+    reply.status(401).send(problem(reply.request.id, new AppError('UNAUTHORIZED', message)));
   };
 
   app.decorate('requireAuth', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -105,13 +107,20 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const body = request.body as unknown;
       if (typeof body !== 'object' || body === null) {
-        return reply.status(400).send({ code: 'INVALID_INPUT', message: 'body must be an object' });
+        return reply
+          .status(400)
+          .send(problem(reply.request.id, new AppError('INVALID_INPUT', 'body must be an object')));
       }
       const raw = body as Record<string, unknown>;
       if (typeof raw.username !== 'string' || typeof raw.password !== 'string') {
         return reply
           .status(400)
-          .send({ code: 'INVALID_INPUT', message: 'username and password are required' });
+          .send(
+            problem(
+              reply.request.id,
+              new AppError('INVALID_INPUT', 'username and password are required'),
+            ),
+          );
       }
       // 未认证端点：超长用户名会被永久写入审计表，截断后再使用。
       const username = raw.username.slice(0, 128);
@@ -129,7 +138,9 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
           status: 'denied',
           requestId: request.id,
         });
-        return reply.status(401).send({ code: 'UNAUTHORIZED', message: 'invalid credentials' });
+        return reply
+          .status(401)
+          .send(problem(reply.request.id, new AppError('UNAUTHORIZED', 'invalid credentials')));
       }
 
       await writeAudit(app.db, request.log, {

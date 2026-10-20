@@ -20,7 +20,8 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   const runIds: string[] = [];
 
   beforeAll(async () => {
-    app = await startApp();
+    // 测试里不要让审批挂起 5 分钟；默认配置仍是 300s。
+    app = await startApp({ APPROVAL_WAIT_MS: '0' });
     cookie = await loginCookie(app);
     // MCP client 走真实 HTTP，app.inject 无法承载 StreamableHTTP 会话，因此临时监听端口。
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -199,6 +200,82 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
 
     const allowed = await call();
     expect(allowed.isError).toBeFalsy();
+  });
+
+  it('suspends the call and resumes it after approval when a wait is configured', async () => {
+    // 配置在 startApp 时读取；这一步需要新实例。
+    const waiting = await startApp({ APPROVAL_WAIT_MS: '5000' });
+    try {
+      await waiting.listen({ port: 0, host: '127.0.0.1' });
+      const address = waiting.server.address() as AddressInfo;
+      const url = `http://127.0.0.1:${address.port}`;
+
+      const toolRes = await inject(waiting, {
+        method: 'POST',
+        url: `/api/servers/${server.id}/tools`,
+        headers: { cookie },
+        payload: {
+          name: 'suspended-user',
+          method: 'GET',
+          pathTemplate: '/users/{id}',
+          inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
+          paramsIn: 'query',
+          requiresApproval: true,
+        },
+      });
+      expect(toolRes.statusCode).toBe(201);
+
+      const agentSlug = unique('suspend-agent');
+      createdAgents.push(agentSlug);
+      const agentRes = await inject(waiting, {
+        method: 'POST',
+        url: '/api/agents',
+        headers: { cookie },
+        payload: { slug: agentSlug, name: agentSlug, serverIds: [server.id] },
+      });
+      expect(agentRes.statusCode).toBe(201);
+      const agentId = agentRes.json<{ id: string }>().id;
+
+      const runId = unique('run');
+      runIds.push(runId);
+      await waiting.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
+        `conv_test_${runId}`,
+        agentId,
+      ]);
+      await waiting.pool.query(
+        'insert into agent_runs (id, conversation_id, agent_id) values ($1, $2, $3)',
+        [runId, `conv_test_${runId}`, agentId],
+      );
+
+      const client = new Client({ name: 'agentport-test', version: '0.0.0' });
+      const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp/${server.id}`), {
+        requestInit: {
+          headers: { authorization: `Bearer ${token}`, 'x-agentport-run-id': runId },
+        },
+      });
+      await client.connect(transport);
+      try {
+        const pendingCall = client.callTool({ name: 'suspended-user', arguments: { id: 1 } });
+
+        // 调用应挂起：立刻批准，然后同一次调用返回真实结果。
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        const approve = await inject(waiting, {
+          method: 'POST',
+          url: `/api/runs/${runId}/approve`,
+          headers: { cookie },
+          payload: { serverId: server.id, toolName: 'suspended-user' },
+        });
+        expect(approve.statusCode).toBe(200);
+
+        const result = await pendingCall;
+        expect(result.isError).toBeFalsy();
+        expect(JSON.stringify(result.content)).toContain('Leanne Graham');
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await waiting.close();
+    }
   });
 
   it('accepts a per-run token until it expires or the run ends', async () => {

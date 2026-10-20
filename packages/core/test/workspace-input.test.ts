@@ -15,6 +15,7 @@ function agentRow(overrides: Partial<WorkspaceAgentRow> = {}): WorkspaceAgentRow
     allowedTools: ['Bash'],
     disallowedTools: ['WebFetch'],
     enabled: true,
+    timeoutMs: 600_000,
     ...overrides,
   };
 }
@@ -93,6 +94,48 @@ describe('toWorkspaceInput', () => {
     // SDK 会把子智能体的 tools 当名字解析，此时 MCP 工具未注册 → 直接拒绝派生。
     expect(files.subAgents[0]?.content).not.toContain('tools: [');
     expect(files.agentMd).toContain('tools: [');
+  });
+
+  it('states the synchronous wait contract for the parent', () => {
+    const files = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow({ slug: 'lead' }),
+        servers: servers('<已配置>'),
+        skills: [],
+        subAgents: [agentRow({ slug: 'researcher', description: '查资料', timeoutMs: 120_000 })],
+      }),
+    );
+    // Agent 默认后台运行；平台要求等待，MD 必须写明。
+    expect(files.claudeMd).toContain('run_in_background: false');
+    expect(files.claudeMd).toContain('| `researcher` | 查资料 | 120s |');
+    // 章节顺序：规则在前，清单在后，否则「读上面的规则」是错的。
+    expect(files.claudeMd.indexOf('## 等待规则')).toBeLessThan(
+      files.claudeMd.indexOf('## 可用子智能体'),
+    );
+    // 没有子智能体时不应出现等待章节。
+    const noSub = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow(),
+        servers: servers('<已配置>'),
+        skills: [],
+        subAgents: [],
+      }),
+    );
+    expect(noSub.claudeMd).not.toContain('等待规则');
+  });
+
+  it('tells the sub-agent it is being waited on', () => {
+    const files = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow(),
+        servers: servers('<已配置>'),
+        skills: [],
+        subAgents: [agentRow({ slug: 'researcher', timeoutMs: 120_000 })],
+      }),
+    );
+    const child = files.subAgents[0]?.content ?? '';
+    expect(child).toContain('同步调用');
+    expect(child).toContain('最多等你 120 秒');
   });
 
   it('always disallows Agent/TaskStop in sub-agent files, even if the DB value omits them', () => {

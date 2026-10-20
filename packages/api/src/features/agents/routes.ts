@@ -1,3 +1,4 @@
+import { fail } from '@agentport/core';
 import { repo as allRepo } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
@@ -5,6 +6,7 @@ import { agentInputSchema, permissionModeSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
+import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import { renderAgentWorkspace } from './workspace.js';
 
@@ -15,12 +17,16 @@ const versionParams = z.object({
 });
 const rollbackBody = z.object({ version: z.number().int().positive() });
 
-/** `default` / `acceptEdits` / `auto` 依赖宿主审批通道，当前平台没有实现；保存时直接拒绝。 */
-const unsupportedPermissionModes = new Set(['default', 'acceptEdits', 'auto']);
+/**
+ * `auto` 依赖模型分类器，平台无法审计它的决定，暂不开放；
+ * `default` 与 `acceptEdits` 在沙盒里没有可交互的宿主，行为与 `dontAsk` 相同，
+ * 开放只会误导用户，等 D-18 的挂起式审批覆盖全部工具后再考虑。
+ */
+const unsupportedPermissionModes = new Set(['auto']);
 
 function unsupportedPermissionMode(mode: string | undefined): string | undefined {
   return mode !== undefined && unsupportedPermissionModes.has(mode)
-    ? `permissionMode "${mode}" 当前平台未实现该模式，仅支持 dontAsk 与 plan`
+    ? `permissionMode "${mode}" 依赖模型分类器，平台暂不开放；可用 dontAsk、plan、default、acceptEdits`
     : undefined;
 }
 
@@ -53,11 +59,11 @@ const patchSchema = z.object({
 });
 
 function invalid(reply: FastifyReply, message: string) {
-  return reply.status(400).send({ code: 'INVALID_INPUT', message });
+  return reject(reply, 'INVALID_INPUT', message);
 }
 
 function notFound(reply: FastifyReply) {
-  return reply.status(404).send({ code: 'NOT_FOUND', message: 'agent not found' });
+  return reject(reply, 'NOT_FOUND', 'agent not found');
 }
 
 /** slug 上有唯一索引，冲突转 409。drizzle 把 pg 错误包在 cause 里，得顺着链找。 */
@@ -75,16 +81,10 @@ function pgCode(err: unknown): string | undefined {
 function rethrowConflict(err: unknown): never {
   const code = pgCode(err);
   if (code === '23505') {
-    throw Object.assign(new Error('agent slug already exists'), {
-      statusCode: 409,
-      code: 'CONFLICT',
-    });
+    fail('CONFLICT', 'agent slug already exists');
   }
   if (code === '23503') {
-    throw Object.assign(new Error('referenced server or skill does not exist'), {
-      statusCode: 400,
-      code: 'INVALID_REFERENCE',
-    });
+    fail('INVALID_REFERENCE', 'referenced server or skill does not exist');
   }
   throw err;
 }
@@ -358,7 +358,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         request.params.version,
       );
       if (!row) {
-        return reply.status(404).send({ code: 'NOT_FOUND', message: 'version not found' });
+        return reject(reply, 'NOT_FOUND', 'version not found');
       }
       return {
         version: row.version,
@@ -383,7 +383,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         body.data.version,
       );
       if (!target) {
-        return reply.status(404).send({ code: 'NOT_FOUND', message: 'version not found' });
+        return reject(reply, 'NOT_FOUND', 'version not found');
       }
 
       const snapshot = target.snapshot;

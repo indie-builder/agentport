@@ -1,5 +1,5 @@
-import { web } from '@e2e-dev/web';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { web } from '@e2e-dev/web';
 import type { E2EConfig } from 'e2e';
 
 /**

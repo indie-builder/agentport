@@ -7,6 +7,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "default": "./dist/workspace.js"
+    },
+    "./workspace-input": {
+      "types": "./dist/workspace-input.d.ts",
+      "default": "./dist/workspace-input.js"
+    },
+    "./tools": {
+      "types": "./dist/tools.d.ts",
+      "default": "./dist/tools.js"
     }
   },
   "scripts": {
@@ -15,7 +27,8 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@agentport/shared": "workspace:*"
+    "@agentport/shared": "workspace:*",
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@types/node": "24.10.1"

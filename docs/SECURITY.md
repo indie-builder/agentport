@@ -45,7 +45,7 @@
 | M7 | Agent/Server PATCH 乐观锁，冲突返回 409 `CONFLICT_STALE`；前端提示刷新 |
 | M8 | `agent_runs` / `messages.run_id` 外键（迁移先清理孤儿行） |
 | M13 | `SANDBOX_EGRESS` 默认 `proxy`，无代理时降级为 `open` 并告警 |
-| M14 | 文档记录 docker.sock 风险与替换方案；记入 D-16 |
+| M14 | 文档记录 docker.sock 风险与替换方案；记入 D-16（已决定：自用保持，升级触发条件见该节） |
 
 ## 循环 10 已修复
 
@@ -57,10 +57,10 @@
 
 | 编号 | 严重度 | 问题 | 状态 |
 |---|---|---|---|
-| M12a | Medium | 沙盒拿到模型主密钥：worker 把 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 直接注入容器 env，沙盒内的进程可以读取 | **未修复**。正确做法是模型凭证代理：沙盒只拿短期、按 run 的代理 token，由宿主侧代理注入真实凭证 |
+| M12a | Medium | 沙盒拿到模型主密钥：worker 把 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 直接注入容器 env，沙盒内的进程可以读取 | **已修复（D-17）**：worker 起回环模型代理，沙盒只拿 `ANTHROPIC_BASE_URL=<proxy>` 与按 run 的 token；真实凭证只在 worker 内存。未配置凭证时才回退直接注入，并在启动日志警告 |
 | M12b | — | 工作区 `.mcp.json` 权限、长期 MCP token 落盘 | **已修复**（循环 13）：目录 0700 / 文件 0600（`core/mcp-token.ts`），重试复用后再次 `chmod`；generated server 改用按 run 签发的短期 token（32 字节随机，DB 只存 sha256 与过期时间，run 结束清空），长期 `mcpToken` 仅作外部客户端回退；实测 macOS Docker Desktop bind mount 下容器内 uid 1000 可读 0600 文件 |
 
-**M12 现在的边界**：MCP 凭证已不再是长期明文落盘（run token 只在该次 run 有效），但 **模型凭证仍是沙盒可见的长期密钥**，这是剩余的唯一 Medium 项。stdio / http server 自己的 env/headers 仍会解密写入 `.mcp.json`（0600，run 结束删除）；Linux 宿主 uid 非 1000 时容器读取 0600 bind mount 的行为未验证。
+**M12 现在的边界**：MCP 凭证与模型凭证都不再以长期明文进入沙盒。模型代理只转发 `/v1/messages` 等白名单路径，避免变成开放代理；未启用代理时启动日志会明确警告。stdio / http server 自己的 env/headers 仍会解密写入 `.mcp.json`（0600，run 结束删除）；Linux 宿主 uid 非 1000 时容器读取 0600 bind mount 的行为未验证。
 
 本次最终文档复核实际运行了 `pnpm test`（18 个文件、104 个用例通过，需先停 worker）、`pnpm typecheck`、`pnpm build` 与 `pnpm smoke`（`SMOKE OK`）。E2E 未复跑；真实部署下的限流、CSP、会话吊销仍为「未验证」。
 

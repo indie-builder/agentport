@@ -35,8 +35,8 @@ export function unique(prefix: string): string {
 /** 工作区写到系统临时目录，避免污染仓库 data/。 */
 process.env.WORKSPACES_DIR = join(tmpdir(), 'agentport-test-workspaces');
 
-export function testConfig(): Config {
-  return loadConfig(process.env);
+export function testConfig(overrides: Partial<Record<string, string>> = {}): Config {
+  return loadConfig({ ...process.env, ...overrides });
 }
 
 /** Postgres 与 Redis 都可用才跑集成测试；否则整个 describe 跳过。 */
@@ -82,8 +82,10 @@ export const infraReady: Promise<boolean> = probeInfra(testConfig());
 
 export const queueIdle: Promise<boolean> = probeQueueIdle(testConfig().REDIS_URL);
 
-export async function startApp(): Promise<FastifyInstance> {
-  const app = await buildApp(testConfig());
+export async function startApp(
+  overrides: Partial<Record<string, string>> = {},
+): Promise<FastifyInstance> {
+  const app = await buildApp(testConfig(overrides));
   // 让 cookie/jwt 等插件在第一个 inject 前完成 boot。
   await app.ready();
   return app;

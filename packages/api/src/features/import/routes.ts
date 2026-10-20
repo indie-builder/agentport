@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { fail } from '@agentport/core';
 import type { Database } from '@agentport/db';
 import { agentServers, agentSkills, agents, newId, repo, servers, skills } from '@agentport/db';
 import * as agentRepo from '@agentport/db/repo/agents.js';
@@ -8,6 +9,7 @@ import { eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
+import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
 
@@ -37,7 +39,7 @@ const importBodySchema = z.object({
 type ImportedServer = z.infer<typeof importedServerSchema>;
 
 function invalid(reply: FastifyReply, message: string) {
-  return reply.status(400).send({ code: 'INVALID_INPUT', message });
+  return reject(reply, 'INVALID_INPUT', message);
 }
 
 /** 导出里的 config 就是 serverInputSchema 去掉密钥后的字段；不一致即视为非法导出。 */
@@ -157,11 +159,9 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
           if (reusedKind !== undefined) {
             // 同名不同 kind 的配置结构不同，复用会得到行为不符的 server。
             if (reusedKind !== serverInput.kind) {
-              throw Object.assign(
-                new Error(
-                  `server ${serverInput.name} already exists with kind ${reusedKind}, refusing to reuse it as ${serverInput.kind}`,
-                ),
-                { statusCode: 400, code: 'INVALID_INPUT' },
+              fail(
+                'INVALID_INPUT',
+                `server ${serverInput.name} already exists with kind ${reusedKind}, refusing to reuse it as ${serverInput.kind}`,
               );
             }
             reusedServers.push(serverInput.name);

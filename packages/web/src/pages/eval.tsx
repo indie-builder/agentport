@@ -3,8 +3,8 @@ import { ClipboardCheck, FlaskConical, Pencil, Play, Plus, Trash2 } from 'lucide
 import { useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { PageHeader, SectionHeader } from '../components/page.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
+import { ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
@@ -40,7 +40,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '110px',
     sortValue: (run) => run.id,
     cell: (run) => (
-      <code className="font-mono text-[11.5px] text-subtle" title={run.id}>
+      <code className="font-mono text-xs text-subtle" title={run.id}>
         {shortId(run.id)}
       </code>
     ),
@@ -52,7 +52,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '100px',
     sortValue: (run) => run.status,
     cell: (run) => (
-      <Badge variant={evalStatusVariant[run.status]}>
+      <Badge variant={evalStatusVariant[run.status]} className="rounded-[6px]">
         {run.status === 'running' ? (
           <span className="size-1.5 animate-pulse rounded-full bg-warning" aria-hidden="true" />
         ) : null}
@@ -77,7 +77,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '96px',
     sortValue: (run) => run.createdAt,
     cell: (run) => (
-      <span className="text-[12.5px] text-muted" title={formatDateTime(run.createdAt)}>
+      <span className="text-sm text-muted" title={formatDateTime(run.createdAt)}>
         {formatRelative(run.createdAt)}
       </span>
     ),
@@ -88,7 +88,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '96px',
     sortValue: (run) => run.finishedAt ?? '',
     cell: (run) => (
-      <span className="text-[12.5px] text-muted" title={formatDateTime(run.finishedAt)}>
+      <span className="text-sm text-muted" title={formatDateTime(run.finishedAt)}>
         {formatRelative(run.finishedAt)}
       </span>
     ),
@@ -116,61 +116,57 @@ export function EvalPage() {
     });
   };
 
+  const latest = runs.data?.[0];
+
   return (
-    <div>
+    <Page>
       <PageHeader
         title="评估"
-        description="手工用例 + 回归跑批：每个用例发起一次真实运行，按期望文本做包含判定。"
         actions={
           <Button
             size="sm"
+            className="rounded-full"
             onClick={startRun}
             disabled={start.isPending || !effectiveAgentId || (cases.data?.length ?? 0) === 0}
           >
-            <Play className="size-3.5" /> 运行评估
+            <Play className="size-4" strokeWidth={1.75} aria-hidden="true" /> 运行评估
           </Button>
         }
       />
 
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      <div className="-mt-3 flex flex-wrap items-center gap-3">
         <Select
           aria-label="按智能体筛选"
-          className="w-56"
+          className="w-56 rounded-[9px]"
           value={effectiveAgentId ?? ''}
-          onChange={(event) => setAgentId(event.target.value)}
-        >
-          {(agents.data ?? []).map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </Select>
-        <span className="text-[11.5px] text-subtle">
+          onValueChange={setAgentId}
+          options={(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }))}
+        />
+        <span className="text-sm text-subtle">
           判定：期望非空时检查输出包含该文本（不区分大小写）；为空时只要求有文本输出。
         </span>
       </div>
 
-      <section className="mb-8">
-        <SectionHeader
-          title="用例"
-          actions={
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!effectiveAgentId}
-              onClick={() => setCreating(true)}
-            >
-              <Plus className="size-3.5" /> 新建用例
-            </Button>
-          }
-        />
-
+      <PageSection
+        title="用例"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full"
+            disabled={!effectiveAgentId}
+            onClick={() => setCreating(true)}
+          >
+            <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建用例
+          </Button>
+        }
+      >
         {effectiveAgentId === null ? (
-          <EmptyState
+          <PageNote
             title="还没有智能体"
             description="先创建一个智能体，才能为它编写评估用例。"
             action={
-              <Link to="/agents" className="text-xs text-accent hover:underline">
+              <Link to="/agents" className="text-sm text-fg underline underline-offset-4">
                 前往创建智能体
               </Link>
             }
@@ -181,75 +177,72 @@ export function EvalPage() {
           <ErrorState error={cases.error} onRetry={() => void cases.refetch()} />
         ) : null}
         {cases.data && cases.data.length === 0 ? (
-          <EmptyState
-            icon={<FlaskConical className="size-5" />}
+          <PageNote
+            icon={<FlaskConical className="size-4" strokeWidth={1.75} aria-hidden="true" />}
             title="还没有用例"
             description="把线上出过问题的输入写成用例，下次改动前先跑一遍。"
             action={
-              <Button size="sm" onClick={() => setCreating(true)}>
-                <Plus className="size-3.5" /> 新建用例
+              <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
+                <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建用例
               </Button>
             }
           />
         ) : null}
         {cases.data && cases.data.length > 0 ? (
-          <ul className="divide-y divide-line rounded-[10px] border border-line bg-surface">
+          <ul>
             {cases.data.map((testCase) => (
               <li
                 key={testCase.id}
-                className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2/40"
+                className="group flex items-start gap-3 rounded-[9px] px-3 py-4 transition-colors duration-150 hover:bg-hover"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium text-fg">{testCase.name}</div>
-                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-[12px] leading-relaxed text-muted">
+                  <div className="truncate text-md font-medium text-fg">{testCase.name}</div>
+                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm leading-relaxed text-muted">
                     {testCase.prompt}
                   </p>
-                  <p className="mt-1 truncate text-[11px] text-subtle">
+                  <p className="mt-1 truncate text-xs text-subtle">
                     {testCase.expectation
                       ? `期望包含：${testCase.expectation}`
                       : '期望为空：只要求有文本输出'}
                   </p>
                 </div>
-                <div className="flex shrink-0 gap-1">
-                  <Button variant="ghost" size="icon-sm" onClick={() => setEditing(testCase)}>
+                <div className="flex shrink-0 gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="rounded-[7px]"
+                    onClick={() => setEditing(testCase)}
+                  >
                     <span className="sr-only">编辑 {testCase.name}</span>
-                    <Pencil className="size-3.5" />
+                    <Pencil className="size-4" strokeWidth={1.75} aria-hidden="true" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    className="hover:text-danger"
+                    className="rounded-[7px] hover:text-danger"
                     onClick={() => setDeleting(testCase)}
                   >
                     <span className="sr-only">删除 {testCase.name}</span>
-                    <Trash2 className="size-3.5" />
+                    <Trash2 className="size-4" strokeWidth={1.75} aria-hidden="true" />
                   </Button>
                 </div>
               </li>
             ))}
           </ul>
         ) : null}
-      </section>
+      </PageSection>
 
-      <section>
-        <SectionHeader
-          title="运行"
-          actions={
-            <Badge variant="outline">
-              通过率{' '}
-              {runs.data && runs.data.length > 0
-                ? `${runs.data[0]?.passed ?? 0} / ${runs.data[0]?.total ?? 0}`
-                : '—'}
-            </Badge>
-          }
-        />
+      <PageSection
+        title="运行"
+        description={latest ? `最近：${latest.passed} / ${latest.total}` : '每次回归的通过情况'}
+      >
         {runs.isError ? (
           <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
         ) : null}
         {runs.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
         {runs.data && runs.data.length === 0 ? (
-          <EmptyState
-            icon={<ClipboardCheck className="size-5" />}
+          <PageNote
+            icon={<ClipboardCheck className="size-4" strokeWidth={1.75} aria-hidden="true" />}
             title="还没有评估运行"
             description="写好用例后点「运行评估」，这里会显示每次回归的通过情况。"
           />
@@ -264,14 +257,14 @@ export function EvalPage() {
             renderExpanded={(run) => <EvalRunResults id={run.id} />}
           />
         ) : null}
-      </section>
+      </PageSection>
 
       {creating && effectiveAgentId ? (
         <CaseDialog agentId={effectiveAgentId} onClose={() => setCreating(false)} />
       ) : null}
       {editing ? <CaseDialog testCase={editing} onClose={() => setEditing(null)} /> : null}
       {deleting ? <DeleteCaseDialog testCase={deleting} onClose={() => setDeleting(null)} /> : null}
-    </div>
+    </Page>
   );
 }
 
@@ -286,7 +279,7 @@ function EvalRunResults({ id }: { id: string }) {
   const { results } = detail.data;
   if (results.length === 0) {
     return (
-      <p className="text-xs text-muted">
+      <p className="text-sm text-muted">
         {detail.data.evalRun.status === 'running'
           ? '正在逐个执行用例…'
           : '还没有结果记录。这条运行可能仍在排队，稍后会自动刷新。'}
@@ -295,39 +288,39 @@ function EvalRunResults({ id }: { id: string }) {
   }
 
   return (
-    <ul className="space-y-2">
+    <ul>
       {results.map((result) => (
-        <li key={result.caseId} className="rounded-lg border border-line bg-surface/60 p-3">
+        <li key={result.caseId} className="border-b border-line py-4 last:border-b-0 last:pb-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={result.passed ? 'success' : 'danger'}>
+            <Badge variant={result.passed ? 'success' : 'danger'} className="rounded-[6px]">
               {result.passed ? '通过' : '未通过'}
             </Badge>
-            <span className="text-[13px] font-medium text-fg">{result.name}</span>
+            <span className="text-md font-medium text-fg">{result.name}</span>
             {result.runId ? (
               <Link
                 to="/runs/$runId"
                 params={{ runId: result.runId }}
-                className="ml-auto text-[11px] text-accent hover:underline"
+                className="ml-auto text-sm text-fg underline underline-offset-4"
               >
                 查看运行
               </Link>
             ) : null}
           </div>
-          <div className="mt-2 grid gap-2 text-[11.5px] leading-relaxed text-subtle sm:grid-cols-2">
+          <div className="mt-2 grid gap-x-8 gap-y-2 text-sm leading-relaxed sm:grid-cols-2">
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-subtle/70">Prompt</div>
+              <div className="text-xs text-subtle">Prompt</div>
               <p className="mt-0.5 whitespace-pre-wrap break-words text-muted">{result.prompt}</p>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-subtle/70">期望</div>
+              <div className="text-xs text-subtle">期望</div>
               <p className="mt-0.5 whitespace-pre-wrap break-words text-muted">
                 {result.expectation || '（只要求有文本输出）'}
               </p>
             </div>
           </div>
           <div className="mt-2">
-            <div className="text-[10px] uppercase tracking-wider text-subtle/70">输出</div>
-            <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-canvas/60 px-2 py-1.5 font-mono text-[11.5px] text-fg/90">
+            <div className="text-xs text-subtle">输出</div>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-[12px] bg-chip px-3 py-2 font-mono text-xs leading-relaxed text-fg/90">
               {result.output || '（空）'}
             </pre>
           </div>
