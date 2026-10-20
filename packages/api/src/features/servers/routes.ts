@@ -1,3 +1,4 @@
+import { fail } from '@agentport/core';
 import {
   apiToolInputSchema,
   httpUrlSchema,
@@ -7,6 +8,7 @@ import {
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
+import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
@@ -40,7 +42,7 @@ const toolPatchSchema = z
   });
 
 function notFound(reply: FastifyReply, what: string) {
-  return reply.status(404).send({ code: 'NOT_FOUND', message: `${what} not found` });
+  return reject(reply, 'NOT_FOUND', `${what} not found`);
 }
 
 /**
@@ -51,10 +53,7 @@ function rethrowConflict(err: unknown): never {
   let cause: unknown = err;
   for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
     if ('code' in cause && cause.code === '23505') {
-      throw Object.assign(new Error('server name already exists'), {
-        statusCode: 409,
-        code: 'CONFLICT',
-      });
+      fail('CONFLICT', 'server name already exists');
     }
     cause = 'cause' in cause ? cause.cause : undefined;
   }
@@ -110,10 +109,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
       if (row.kind !== 'generated') {
-        return reply.status(400).send({
-          code: 'INVALID_INPUT',
-          message: 'token is only available for generated servers',
-        });
+        return reject(reply, 'INVALID_INPUT', 'token is only available for generated servers');
       }
       const token = await getMcpToken(app.db, row.id);
       return {
@@ -130,10 +126,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
       if (row.kind !== 'generated') {
-        return reply.status(400).send({
-          code: 'INVALID_INPUT',
-          message: 'token is only available for generated servers',
-        });
+        return reject(reply, 'INVALID_INPUT', 'token is only available for generated servers');
       }
       const token = await repo.rotateMcpToken(app.db, row.id);
       if (!token) return notFound(reply, 'server');
@@ -248,9 +241,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
       if (row.kind !== 'generated') {
-        return reply
-          .status(400)
-          .send({ code: 'INVALID_INPUT', message: 'tools can only be added to generated servers' });
+        return reject(reply, 'INVALID_INPUT', 'tools can only be added to generated servers');
       }
       try {
         const tool = await repo.createTool(app.db, request.params.id, request.body);

@@ -1,3 +1,4 @@
+import { AppError } from '@agentport/core';
 import type { FastifyInstance } from 'fastify';
 
 /**
@@ -37,6 +38,9 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
     timeWindow: '1 minute',
     redis,
     nameSpace: 'agentport:rl:',
+    // 插件会 throw 这个返回值，所以必须是 Error；边界再渲染成 Problem。
+    errorResponseBuilder: () =>
+      new AppError('RATE_LIMITED', '请求过于频繁，请稍后再试', { retryable: true }),
     // 注意：route 级 config.rateLimit 不受这个 skip 影响（Fastify 在路由层另建实例），
     // 因此测试里还要通过下面的 env 开关整体关闭限流。
     ...(process.env.RATE_LIMIT_DISABLED === '1' ? { skip: () => true } : {}),

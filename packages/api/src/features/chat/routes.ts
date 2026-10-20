@@ -1,9 +1,9 @@
 import { newId, repo } from '@agentport/db';
-import type { ChatEvent } from '@agentport/shared';
-import { chatRequestSchema } from '@agentport/shared';
+import { type ChatEvent, chatRequestSchema, wireFailureKind } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
+import { reject } from '../../plugins/errors.js';
 import { closeProducer, getQueue, publishRun, subscribeRun } from '../../queue/producer.js';
 import { typed } from '../../types.js';
 
@@ -29,6 +29,7 @@ function terminalEvent(run: RunRow): ChatEvent | null {
         ...(run.costUsd !== null ? { costUsd: Number(run.costUsd) } : {}),
         ...(run.turns !== null ? { turns: run.turns } : {}),
         ...(run.error !== null ? { error: run.error } : {}),
+        ...(run.errorKind === null ? {} : { failureKind: wireFailureKind(run.errorKind) }),
       };
     default:
       return null;
@@ -52,26 +53,26 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       const { agentId, message } = request.body;
 
       if (!(await chatRepo.agentExists(app.db, agentId))) {
-        return reply
-          .status(404)
-          .send({ code: 'AGENT_NOT_FOUND', message: `agent ${agentId} not found` });
+        return reject(reply, 'AGENT_NOT_FOUND', `agent ${agentId} not found`);
       }
       // 停用的智能体不应能发起新运行；错误信息要说明下一步。
       if (!(await chatRepo.agentEnabled(app.db, agentId))) {
-        return reply.status(409).send({
-          code: 'AGENT_DISABLED',
-          message: `agent ${agentId} is disabled; enable it on the agents page first`,
-        });
+        return reject(
+          reply,
+          'AGENT_DISABLED',
+          `agent ${agentId} is disabled; enable it on the agents page first`,
+        );
       }
 
       let conversationId = request.body.conversationId;
       if (conversationId !== undefined) {
         const conversation = await chatRepo.getConversation(app.db, conversationId);
         if (!conversation || conversation.agentId !== agentId) {
-          return reply.status(404).send({
-            code: 'CONVERSATION_NOT_FOUND',
-            message: `conversation ${conversationId} not found`,
-          });
+          return reject(
+            reply,
+            'CONVERSATION_NOT_FOUND',
+            `conversation ${conversationId} not found`,
+          );
         }
       } else {
         const conversation = await chatRepo.createConversation(app.db, {
@@ -152,7 +153,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       const { runId } = request.params;
       const run = await chatRepo.getRun(app.db, runId);
       if (!run) {
-        return reply.status(404).send({ code: 'RUN_NOT_FOUND', message: `run ${runId} not found` });
+        return reject(reply, 'RUN_NOT_FOUND', `run ${runId} not found`);
       }
 
       reply.hijack();
@@ -200,7 +201,8 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         try {
           writeEvent(reply, {
             type: 'error',
-            message: err instanceof Error ? err.message : 'subscription failed',
+            // 上游 Redis 报错可能含连接串，脱敏后再发给浏览器。
+            message: '事件流中断，请刷新页面或重试',
           });
         } catch {
           // 客户端已断开，没有可写的通道。
@@ -234,10 +236,11 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const conversation = await chatRepo.getConversation(app.db, request.params.id);
       if (!conversation) {
-        return reply.status(404).send({
-          code: 'CONVERSATION_NOT_FOUND',
-          message: `conversation ${request.params.id} not found`,
-        });
+        return reject(
+          reply,
+          'CONVERSATION_NOT_FOUND',
+          `conversation ${request.params.id} not found`,
+        );
       }
       const messages = await chatRepo.listMessages(app.db, conversation.id);
       return { conversation, messages };
@@ -251,7 +254,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       const { runId } = request.params;
       const run = await chatRepo.getRun(app.db, runId);
       if (!run) {
-        return reply.status(404).send({ code: 'RUN_NOT_FOUND', message: `run ${runId} not found` });
+        return reject(reply, 'RUN_NOT_FOUND', `run ${runId} not found`);
       }
       // 已结束的 run 再发 cancel 只会打扰 worker，直接返回。
       if (terminalEvent(run) === null) {
@@ -288,10 +291,11 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
           : { fromMessageId: parsed.data.fromMessageId }),
       });
       if (!result) {
-        return reply.status(404).send({
-          code: 'CONVERSATION_NOT_FOUND',
-          message: `conversation ${request.params.id} or branch point not found`,
-        });
+        return reject(
+          reply,
+          'CONVERSATION_NOT_FOUND',
+          `conversation ${request.params.id} or branch point not found`,
+        );
       }
       await writeAudit(app.db, request.log, {
         actor: 'admin',

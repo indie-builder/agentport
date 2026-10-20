@@ -198,6 +198,10 @@ export const agentRuns = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     error: text('error'),
+    /** 失败分类：决定 BullMQ 是否重试，也用于运行详情展示。 */
+    errorKind: text('error_kind', {
+      enum: ['cancelled', 'timeout', 'sandbox', 'agent', 'infra'],
+    }),
     costUsd: numeric('cost_usd', { precision: 10, scale: 4 }),
     turns: integer('turns'),
     latencyMs: integer('latency_ms'),

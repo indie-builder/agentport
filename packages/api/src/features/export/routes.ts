@@ -3,6 +3,7 @@ import { decryptSecrets, renderWorkspace } from '@agentport/core';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 
 const idParams = z.object({ id: z.string().min(1) });
@@ -57,7 +58,7 @@ export function registerExportRoutes(rawApp: FastifyInstance): void {
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
       const row = await agentRepo.getAgent(app.db, request.params.id);
-      if (!row) return reply.status(404).send({ code: 'NOT_FOUND', message: 'agent not found' });
+      if (!row) return reject(reply, 'NOT_FOUND', 'agent not found');
 
       const [serverRows, skillRows, serverIds, skillIds, subAgentIds] = await Promise.all([
         agentRepo.getBoundServers(app.db, row.id),

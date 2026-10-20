@@ -1,3 +1,4 @@
+import { AppError } from '@agentport/core';
 import type { Agent, AgentInput } from '@agentport/shared';
 import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
@@ -129,10 +130,7 @@ export async function updateAgent(
       if (!row) {
         // 条件更新落空：行还在就是并发修改，行没了交给路由返回 404。
         if (expectedUpdatedAt !== undefined && (await getAgent(tx, id))) {
-          throw Object.assign(new Error('配置已被修改，请刷新'), {
-            statusCode: 409,
-            code: 'CONFLICT_STALE',
-          });
+          throw new AppError('CONFLICT_STALE', '配置已被修改，请刷新');
         }
         return null;
       }

@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { hashMcpToken } from '@agentport/core';
+import { AppError, hashMcpToken } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { NodeIncomingMessageLike, NodeServerResponseLike } from '@modelcontextprotocol/node';
 import { toNodeHandler } from '@modelcontextprotocol/node';
@@ -7,6 +7,7 @@ import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { FastifyInstance } from 'fastify';
 import { runMcp } from '../../plugins/concurrency.js';
+import { problem, reject } from '../../plugins/errors.js';
 import { buildGeneratedServer } from './generated.js';
 import { getServerRow, listTools, toApiServer } from './repo.js';
 
@@ -81,7 +82,7 @@ export function registerMcpEndpoint(app: FastifyInstance): void {
       const { serverId } = request.params as { serverId: string };
       const row = await getServerRow(app.db, serverId);
       if (row?.kind !== 'generated') {
-        return reply.status(404).send({ code: 'NOT_FOUND', message: 'generated server not found' });
+        return reject(reply, 'NOT_FOUND', 'generated server not found');
       }
       const expected = row.config.mcpToken;
       // 先认 run 的短期 token（沙盒内嵌在 .mcp.json），失败再回退长期 token（外部客户端）。
@@ -98,7 +99,7 @@ export function registerMcpEndpoint(app: FastifyInstance): void {
         return reply
           .status(401)
           .header('WWW-Authenticate', 'Bearer realm="agentport-mcp"')
-          .send({ code: 'UNAUTHORIZED', message: 'invalid bearer token' });
+          .send(problem(request.id, new AppError('UNAUTHORIZED', 'invalid bearer token')));
       }
 
       // 交给 MCP 适配器自己读写原始 req/res，Fastify 不再参与响应。

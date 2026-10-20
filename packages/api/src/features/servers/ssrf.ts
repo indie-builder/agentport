@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { fail } from '@agentport/core';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
@@ -110,13 +111,10 @@ export async function assertSafeUrl(
   try {
     url = new URL(raw);
   } catch {
-    throw Object.assign(new Error('地址格式不合法'), { statusCode: 400, code: 'INVALID_URL' });
+    fail('INVALID_URL', '地址格式不合法');
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw Object.assign(new Error('仅支持 http/https 地址'), {
-      statusCode: 400,
-      code: 'INVALID_URL',
-    });
+    fail('INVALID_URL', '仅支持 http/https 地址');
   }
   const host = url.hostname.replace(/^\[|\]$/g, '');
   if (isDevLocal(host, nodeEnv)) return;
@@ -128,16 +126,10 @@ export async function assertSafeUrl(
     try {
       addresses = (await lookup(host, { all: true })).map((a) => a.address);
     } catch {
-      throw Object.assign(new Error(`无法解析地址 ${host}`), {
-        statusCode: 400,
-        code: 'INVALID_URL',
-      });
+      fail('INVALID_URL', `无法解析地址 ${host}`);
     }
   }
   if (addresses.length === 0 || addresses.some(isPrivateAddress)) {
-    throw Object.assign(new Error('该地址解析到内网，生产环境不允许'), {
-      statusCode: 400,
-      code: 'INVALID_URL',
-    });
+    fail('INVALID_URL', '该地址解析到内网，生产环境不允许');
   }
 }

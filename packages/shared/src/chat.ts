@@ -50,11 +50,22 @@ export const chatEventSchema = z.discriminatedUnion('type', [
     inputTokens: z.number().optional(),
     outputTokens: z.number().optional(),
     error: z.string().optional(),
+    /** 失败分类，由沙盒 runner 给出；成功时缺省。宿主据此决定是否重试。 */
+    failureKind: z.enum(['agent', 'infra', 'cancelled']).optional(),
   }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 
 export type ChatEvent = z.infer<typeof chatEventSchema>;
+
+/** 事件里的失败分类只有三档；sandbox 与 timeout 都归入不可重试的服务端失败。 */
+export function wireFailureKind(
+  reason: 'cancelled' | 'timeout' | 'sandbox' | 'agent' | 'infra',
+): 'agent' | 'infra' | 'cancelled' {
+  if (reason === 'cancelled') return 'cancelled';
+  if (reason === 'infra') return 'infra';
+  return 'agent';
+}
 
 /** BullMQ job 载荷，producer 与 consumer 共用。 */
 export const agentRunJobSchema = z.object({

@@ -173,12 +173,25 @@ interface ExitSignal {
  * 取消、超时、进程退出三者用 race 表达，谁先到谁赢；容器销毁由 Scope 保证。
  */
 export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOutcome> {
-  return Effect.runPromise(Effect.scoped(runInSandboxEffect(input)));
+  return Effect.runPromise(
+    Effect.scoped(runInSandboxEffect(input)).pipe(
+      // 订阅取消频道失败属于基础设施故障：交给 BullMQ 重试，而不是伪装成 agent 失败。
+      Effect.catch((failure) =>
+        Effect.succeed<SandboxRunOutcome>({
+          status: 'failed',
+          sandboxId: '',
+          error: failure.message,
+          failure,
+          events: [],
+        }),
+      ),
+    ),
+  );
 }
 
 function runInSandboxEffect(
   input: SandboxRunInput,
-): Effect.Effect<SandboxRunOutcome, never, Scope.Scope> {
+): Effect.Effect<SandboxRunOutcome, RunFailure, Scope.Scope> {
   return Effect.gen(function* () {
     const { logger, runId } = input;
     const events: ChatEvent[] = [];
@@ -186,6 +199,7 @@ function runInSandboxEffect(
     let reportedCost: number | undefined;
     let reportedTurns: number | undefined;
     let reportedError: string | undefined;
+    let reportedFailure: RunFailure['reason'] | undefined;
     let reportedSessionId: string | undefined;
     let reportedInput: number | undefined;
     let reportedOutput: number | undefined;
@@ -212,6 +226,7 @@ function runInSandboxEffect(
         reportedCost = event.costUsd;
         reportedTurns = event.turns;
         reportedError = event.error === undefined ? undefined : redactSecrets(event.error);
+        reportedFailure = event.failureKind;
         reportedSessionId = event.sessionId;
         reportedInput = event.inputTokens;
         reportedOutput = event.outputTokens;
@@ -436,6 +451,10 @@ function runInSandboxEffect(
       events,
       ...budget,
       ...(reportedError === undefined ? {} : { error: reportedError }),
+      // 成功时没有分类；失败时 runner 已归类，缺省按 agent 处理（不可重试）。
+      ...(reportedStatus !== 'succeeded'
+        ? { failure: new RunFailure(reportedFailure ?? 'agent', reportedError ?? 'agent failed') }
+        : {}),
     };
   });
 }
@@ -448,7 +467,7 @@ function subscribeCancel(
   runId: string,
   logger: Logger,
   onCancel: () => void,
-): Effect.Effect<() => Promise<void>> {
+): Effect.Effect<() => Promise<void>, RunFailure> {
   return Effect.callback((resume, signal) => {
     const redis = getCancelSubscriber(logger);
     const channel = channelFor(runId);
@@ -473,7 +492,12 @@ function subscribeCancel(
         redis.on('message', handler);
         await redis.subscribe(channel);
       } catch (err) {
+        // 订阅不上就无法保证取消：宁可让这次 run 失败并由 BullMQ 重试，
+        // 也不要启动一个用户停不掉的容器。
         logger.warn({ err, runId }, 'cancel subscription failed');
+        const message = err instanceof Error ? err.message : String(err);
+        if (!signal.aborted) resume(Effect.fail(new RunFailure('infra', message)));
+        return;
       }
       if (!signal.aborted) resume(Effect.succeed(release));
     })();

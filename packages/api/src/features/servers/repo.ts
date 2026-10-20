@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { AppError, fail } from '@agentport/core';
 import type { Database } from '@agentport/db';
 import type { ServerRow } from '@agentport/db/repo/servers.js';
 import * as serverRepo from '@agentport/db/repo/servers.js';
@@ -122,11 +123,8 @@ export interface ServerPatch {
 }
 
 /** PATCH 语义：kind 不可变；env/headers 整体替换，值为 '••••' 的键沿用旧值。 */
-function stale(): Error {
-  return Object.assign(new Error('配置已被修改，请刷新'), {
-    statusCode: 409,
-    code: 'CONFLICT_STALE',
-  });
+function stale(): AppError {
+  return new AppError('CONFLICT_STALE', '配置已被修改，请刷新');
 }
 
 export async function updateServer(
@@ -144,10 +142,7 @@ export async function updateServer(
   }
   const current = toApiServer(row, key);
   if (patch.kind !== undefined && patch.kind !== current.kind) {
-    throw Object.assign(new Error('server kind cannot change'), {
-      statusCode: 400,
-      code: 'INVALID_INPUT',
-    });
+    fail('INVALID_INPUT', 'server kind cannot change');
   }
 
   const mergedSecrets = (

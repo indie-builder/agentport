@@ -5,6 +5,7 @@ import type {
   ApiToolInput,
   ChatRequest,
   ConversationSummary,
+  Problem,
   Server,
   ServerInput,
   ServerTestResult,
@@ -280,17 +281,31 @@ export async function probeHealth<T>(path: string): Promise<HealthProbe<T>> {
 
 export class ApiError extends Error {
   status: number;
+  /** 服务端稳定错误码；网络层错误没有。 */
+  code?: string;
+  retryable: boolean;
+  requestId?: string;
 
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    options?: { code?: string; retryable?: boolean; requestId?: string },
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    if (options?.code !== undefined) this.code = options.code;
+    this.retryable = options?.retryable ?? status >= 500;
+    if (options?.requestId !== undefined) this.requestId = options.requestId;
   }
 }
 
 /**
  * 面向用户的错误文案：说明发生了什么，并给出下一步。
- * 服务端返回的 message 通常已经可读；纯状态码则换成可执行建议。
+ *
+ * 优先级：服务端 message（业务异常已经写好了人话）→ 按 code 的固定文案 →
+ * 按状态码的通用建议。按 code 而不是状态码分支：同样是 409，
+ * CONFLICT（已存在）和 CONFLICT_STALE（被别人改过）下一步完全不同。
  */
 export function errorMessage(error: unknown): string {
   if (!(error instanceof Error) || !error.message) {
@@ -300,8 +315,10 @@ export function errorMessage(error: unknown): string {
     if (error.status === 0) return '连不上 API 服务，请确认它已启动并检查网络后重试。';
     if (error.status === 401) return '登录已失效，请重新登录后再试。';
     if (error.status === 403) return '当前账号没有这个操作的权限，请联系管理员开通。';
-    if (error.status === 404) return '这条内容可能已被删除，请刷新列表后重试。';
-    if (error.status === 409) return '数据已被其他操作修改，请刷新后重试。';
+    if (error.code === 'CONFLICT_STALE') return '数据已被其他操作修改，请刷新后重试。';
+    if (error.code === 'RATE_LIMITED') return '操作太频繁了，请稍等片刻再试。';
+    // 4xx 的 message 是给用户看的；5xx 服务端已替换成固定文案，这里给可执行建议。
+    if (error.status < 500 && error.message) return error.message;
     if (error.status >= 500) return '服务端暂时无法完成请求，请稍后重试；持续出现时查看服务日志。';
   }
   if (/^HTTP \d{3}$/.test(error.message)) {
@@ -331,12 +348,13 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   }
 
   if (!res.ok) {
-    const data: unknown = await res.json().catch(() => null);
-    const message =
-      typeof data === 'object' && data !== null && 'message' in data
-        ? String(data.message)
-        : res.statusText;
-    throw new ApiError(res.status, message || `HTTP ${res.status}`);
+    const data = (await res.json().catch(() => null)) as Partial<Problem> | null;
+    // 服务端返回 Problem；非 Problem（代理页面、旧版本）时退回状态码文案。
+    throw new ApiError(res.status, data?.message ?? (res.statusText || `HTTP ${res.status}`), {
+      ...(data?.code === undefined ? {} : { code: data.code }),
+      ...(data?.retryable === undefined ? {} : { retryable: data.retryable }),
+      ...(data?.requestId === undefined ? {} : { requestId: data.requestId }),
+    });
   }
 
   if (res.status === 204) return undefined as T;

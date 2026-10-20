@@ -5,6 +5,7 @@ import type { McpJsonEntry } from '@agentport/core';
 import {
   decryptSecrets,
   hashMcpToken,
+  installProcessGuards,
   renderWorkspace,
   toWorkspaceInput,
   WORKSPACE_DIR_MODE,
@@ -16,6 +17,7 @@ import {
   type ChatEvent,
   EVAL_RUNS_QUEUE,
   evalRunJobSchema,
+  wireFailureKind,
 } from '@agentport/shared';
 import { Worker } from 'bullmq';
 import { and, asc, eq, ne } from 'drizzle-orm';
@@ -395,6 +397,7 @@ const worker = new Worker(
         inputTokens: outcome.inputTokens ?? null,
         outputTokens: outcome.outputTokens ?? null,
         error: outcome.error ?? null,
+        errorKind: outcome.failure?.reason ?? null,
       })
       .where(eq(schema.agentRuns.id, runId));
 
@@ -406,6 +409,7 @@ const worker = new Worker(
         ...(outcome.costUsd === undefined ? {} : { costUsd: outcome.costUsd }),
         ...(outcome.turns === undefined ? {} : { turns: outcome.turns }),
         ...(outcome.error === undefined ? {} : { error: outcome.error }),
+        ...(outcome.failure ? { failureKind: wireFailureKind(outcome.failure.reason) } : {}),
       },
       logger,
     );
@@ -487,6 +491,8 @@ const stopReconciler = startReconciler({
   agentTimeoutMs: config.AGENT_TIMEOUT_MS,
 });
 
+installProcessGuards(logger);
+
 logger.info('worker started');
 
 const SHUTDOWN_WAIT_MS = 10_000;
@@ -510,7 +516,7 @@ const shutdown = async (): Promise<void> => {
   const closing = Promise.all([worker.close(), evalWorker.close()]);
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
-  stopReconciler();
+  await stopReconciler();
   await provider.destroyAll();
   await Promise.race([closing.catch(() => undefined), sleep(POOL_WAIT_MS)]);
   await closeEvalRunQueue();

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0] - 2026-10-20
+
+- 新增异常管理标准：`docs/ERRORS.md`（引用 RFC 9457、NestJS Exception Filters、Spring `ErrorResponse`、Google AIP-193、BullMQ `UnrecoverableError`）
+- 错误响应对齐 RFC 9457：`{ code, message, status, requestId, retryable, path?, errors? }`
+- `packages/shared/src/errors.ts`：稳定 `errorCode` 表（code → HTTP 状态），加新码是兼容变更
+- `packages/core/src/errors.ts`：`AppError` / `fail()`，业务层不再手写 `statusCode`
+- 迁移全部 25 处内联错误响应与 10 处 `Object.assign(new Error(), { statusCode, code })`
+- 框架错误统一映射：非法 JSON → 400，body 超限 → 413，媒体类型错误 → 415，限流 → 429 Problem
+- 沙盒 `run_finished` 增加 `failureKind`（agent/infra/cancelled），落库为 `agent_runs.error_kind`；
+  runner 顶层捕获未处理异常，不再「静默退出、没有终态」
+- 取消订阅失败改为 `infra` 失败并交给 BullMQ 重试，而不是启动一个停不掉的容器
+- API 与 worker 安装进程级兜底：`uncaughtException` / `unhandledRejection` 记录后退出
+- reconciler 的 stop 等待在跑的 tick 结束，避免关停时与写事件撞车
+- 前端 `ApiError` 解析 Problem，`errorMessage()` 按 `code` 分支（如 `CONFLICT_STALE` 提示刷新）
+
 ## [0.4.0] - 2026-10-20
 
 - 引入 `effect@4.0.5`，新增 `packages/core/src/effect-runtime.ts`：`Clock`/`Db`/`Redis`/`Sandbox` 四个服务、`RunFailure` 分类、`runProgram`、`withTimeout`

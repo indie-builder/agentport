@@ -1,10 +1,12 @@
 import { timingSafeEqual } from 'node:crypto';
+import { AppError } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import type { NodeIncomingMessageLike, NodeServerResponseLike } from '@modelcontextprotocol/node';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { runMcp } from '../../plugins/concurrency.js';
+import { problem } from '../../plugins/errors.js';
 import type { AgentInvoker } from './agent-tools.js';
 import { agentHandler, platformMcpToken } from './agent-tools.js';
 
@@ -42,7 +44,7 @@ export function registerAgentToolsEndpoint(app: FastifyInstance, invoker: AgentI
         return reply
           .status(401)
           .header('WWW-Authenticate', 'Bearer realm="agentport-platform"')
-          .send({ code: 'UNAUTHORIZED', message: 'invalid bearer token' });
+          .send(problem(request.id, new AppError('UNAUTHORIZED', 'invalid bearer token')));
       }
 
       const rows = await app.db

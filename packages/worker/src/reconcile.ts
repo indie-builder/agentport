@@ -95,20 +95,25 @@ export async function reconcileOrphanedRuns(
   return rows.length;
 }
 
-/** 启动时先跑一次，之后每 5 分钟一次；用 setInterval 而非 BullMQ，少一个队列和 worker。 */
+/**
+ * 启动时先跑一次，之后每 5 分钟一次；用 setInterval 而非 BullMQ，少一个队列和 worker。
+ * 返回的 stop 会等在跑的 tick 结束：否则关闭进程时可能和正在写的事件撞车。
+ */
 export function startReconciler(input: {
   db: ReturnType<typeof createDb>['db'];
   logger: Logger;
   agentTimeoutMs: number;
-}): () => void {
+}): () => Promise<void> {
   let busy = false;
+  let inFlight: Promise<void> = Promise.resolve();
   const tick = (): void => {
     if (busy) return;
     busy = true;
-    void Promise.all([
+    inFlight = Promise.all([
       reconcileOrphanedRuns(input.db, input.logger, input.agentTimeoutMs),
       reconcileOrphanedEvalRuns(input.db, input.logger),
     ])
+      .then(() => undefined)
       .catch((err: unknown) => {
         input.logger.error({ err }, 'reconcile failed');
       })
@@ -119,5 +124,8 @@ export function startReconciler(input: {
   tick();
   const timer = setInterval(tick, RECONCILE_EVERY_MS);
   timer.unref();
-  return () => clearInterval(timer);
+  return async () => {
+    clearInterval(timer);
+    await inFlight;
+  };
 }

@@ -1,3 +1,4 @@
+import { AppError } from '@agentport/core';
 import type { Agent } from '@agentport/shared';
 import { desc, eq, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
@@ -60,10 +61,8 @@ export async function retryOnVersionConflict<T>(run: () => Promise<T>): Promise<
       return await run();
     } catch (retryErr) {
       if (!isVersionConflict(retryErr)) throw retryErr;
-      throw Object.assign(new Error('agent version conflict, retry later'), {
-        statusCode: 409,
-        code: 'CONFLICT',
-      });
+      // 版本冲突可重试：调用方重新读最新版本再写。
+      throw new AppError('CONFLICT', 'agent version conflict, retry later', { retryable: true });
     }
   }
 }
