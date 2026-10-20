@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.1] - 2026-10-20
+
+- D-16 已决定：单机自用继续直接挂载 docker.sock，不做 socket proxy
+- 在 `docs/DECISIONS-PENDING.md` 写明升级触发条件（不受信内容 / 多用户 / 共用机器 / 导入第三方定义）与 B→C→D 路径
+- `docker-compose.yml`、`docs/OPERATIONS.md`、`docs/SECURITY.md` 同步该决定
+
 ## [0.6.0] - 2026-10-20
 
 - 工作区 Markdown 显式写出「等待规则」：平台的智能体沟通是同步调用，调用方必须等到被调用方返回

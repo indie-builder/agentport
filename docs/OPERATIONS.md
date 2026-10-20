@@ -130,7 +130,8 @@ worker 挂载 `/var/run/docker.sock`，**等价于把宿主 root 权限交给 wo
 2. **独立沙盒节点**：worker 通过远程 Docker（`DOCKER_HOST` + TLS）或 microVM 运行时连到隔离主机，平台主机不暴露 socket。
 3. **换运行时**：microsandbox / gVisor 等不依赖宿主 Docker 的实现（`SandboxProvider` 接口已预留，见 D-12）。
 
-选择取决于部署形态，记录在 [DECISIONS-PENDING.md](DECISIONS-PENDING.md) D-16。
+**当前决定（2026-10-20）**：单机自用场景保持直接挂载 socket，不做 proxy。
+开始处理不受信内容、引入多用户、或与其他服务共用机器时，按 D-16 列出的触发条件升级到 B/C/D。
 
 ### 2.3 本地开发
 

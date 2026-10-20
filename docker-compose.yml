@@ -98,8 +98,9 @@ services:
       # 沙盒在默认 bridge 上，通过 host.docker.internal 回到宿主发布的 3000 端口。
       SANDBOX_API_URL: http://host.docker.internal:3000
     volumes:
-      # 单机妥协：worker 直接控制宿主 Docker。等价于宿主 root 权限，
-      # 容器逃逸/恶意镜像会危及整台机器；生产应换成独立沙盒节点或 microVM 运行时。
+      # 单机妥协（D-16 已决定：自用保持）：worker 直接控制宿主 Docker，等价宿主 root。
+      # 开始处理不受信内容、引入多用户、或与其他服务共用机器时，
+      # 换 socket proxy / 独立沙盒节点 / microVM。触发条件见 docs/DECISIONS-PENDING.md D-16。
       - /var/run/docker.sock:/var/run/docker.sock
       - workspaces:/workspaces
     # socket 属于宿主 root:docker；容器内 node 用户不在该组，补上 GID 0

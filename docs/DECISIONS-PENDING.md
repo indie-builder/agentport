@@ -2,7 +2,8 @@
 
 > 实现过程中需要拍板的点，先按**最保守/最小**的方案执行并记录在此。
 > 状态：✅ 已决定 = 已按表中方案实现；⏳ 待决策 = 需要用户或部署形态才能确定。
-> D-1 至 D-15 已在 2026-10-20 按建议方案落地；当前只剩 D-16（部署形态）。
+> D-1 至 D-16 均已有决定（2026-10-20）。D-16 按「先自用、后续再扩展」执行；
+> 触发升级的条件写在 D-16 末尾，届时按 B/C/D 重新评估。
 
 ---
 
@@ -114,11 +115,15 @@
 
 ---
 
-## D-16 ⏳ worker 的 Docker socket 权限
+## D-16 ✅ worker 的 Docker socket 权限
+
+**决定（2026-10-20）：先按 A 保持，自用场景；扩展时再按 B/C/D 升级。**
 
 **问题**：worker 挂载 `/var/run/docker.sock` 且 `group_add: ${DOCKER_GID:-0}`，可控制宿主 Docker，等价宿主 root。
 
-**当前做法**：保持单机架构（D-12 的 Docker provider 需要它）。未改代码，只在 `docker-compose.yml` 与 `docs/OPERATIONS.md` 标注风险。
+**当前做法**：保持单机架构（D-12 的 Docker provider 需要它）。只在 `docker-compose.yml` 与 `docs/OPERATIONS.md` 标注风险，不做 socket proxy。
+
+**适用范围**：单机、单管理员、只运行自己配置的智能体；机器上不放其他有价值的数据或凭证（或已接受该风险）。
 
 **备选**：
 - A. 保持（单机自用，仅自己运行受信智能体）
@@ -126,9 +131,15 @@
 - C. 独立沙盒节点：worker 通过远程 Docker（`DOCKER_HOST`）或 microVM 运行时连另一台机器
 - D. 放弃 Docker，换 microsandbox/gVisor（见 D-12）
 
-**建议**：自用保持 A；只要运行不受信输入/多用户，必须 B 或 C；长期走 D。
+**升级触发条件**（满足任一条就重新评估，不要等到出事）：
+1. 智能体开始处理**不受信内容**：公开的 HTTP 工具、用户可编辑的提示词/技能、外部 MCP server。
+2. 引入**多用户**或对外暴露 API。
+3. worker 与**其他服务共用一台机器**，且该机器上有不属于本平台的凭证或数据。
+4. 需要运行**第三方/导入的智能体定义**（`/api/import` 已支持导入，导入了别人的定义即触发第 1 条）。
 
-**影响面**：`docker-compose.yml`、`packages/worker/src/sandbox/docker.ts`、部署文档。未做，需要部署形态才能落地。
+**升级路径**：B（socket proxy，改动最小）→ C（独立沙盒节点）→ D（microVM）。
+
+**影响面**：`docker-compose.yml`、`packages/worker/src/sandbox/docker.ts`、部署文档。
 
 ---
 
