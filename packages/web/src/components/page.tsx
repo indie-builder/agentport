@@ -2,11 +2,12 @@ import type { ReactNode } from 'react';
 import { cn } from '../lib/cn.js';
 
 /**
- * 页面骨架（OpenUI 参考页版本）。
+ * 页面骨架（参考页实测版，2026-10-21）。
  *
  * 结构由 1px 线与留白承担，而不是卡片：
- * - 页头只有一行（≤56px）：名称 + 右侧读数/操作，描述仅在带真实信息时出现。
+ * - 页头一行 44px，与外壳顶行同高；名称 + 右侧读数/操作。
  * - 区块之间 28px 留白，顶部分隔线；标题用小字号 + 颜色分层。
+ * - 页面自身不写外边距，节奏由外壳的 12px 内边距提供。
  */
 
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
@@ -28,7 +29,7 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <div className={cn('flex min-h-14 flex-wrap items-center gap-x-4 gap-y-2', className)}>
+    <div className={cn('flex min-h-11 flex-wrap items-center gap-x-4 gap-y-2', className)}>
       <h1 className="shrink-0 text-[16px] font-medium leading-6 tracking-[-0.01em] text-fg">
         {title}
       </h1>

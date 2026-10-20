@@ -131,7 +131,7 @@ export function AuditPage() {
               search: { ...search, action: event.target.value || undefined },
             })
           }
-          className="w-56 rounded-[9px]"
+          className="w-56"
         />
         <Select
           aria-label="按状态过滤"
@@ -142,7 +142,7 @@ export function AuditPage() {
               search: { ...search, status: next === 'all' ? undefined : (next as AuditStatus) },
             })
           }
-          className="w-32 rounded-[9px]"
+          className="w-32"
           options={statusOptions}
         />
         <span className="ml-auto hidden text-xs text-subtle md:block">
@@ -163,7 +163,7 @@ export function AuditPage() {
             empty="还没有审计记录。登录或修改配置后，这里会自动出现对应事件。"
           />
           {audit.hasNextPage ? (
-            <div className="flex justify-center pt-2">
+            <div className="flex justify-center">
               <Button
                 variant="outline"
                 size="sm"
@@ -175,7 +175,7 @@ export function AuditPage() {
               </Button>
             </div>
           ) : rows.length > 0 ? (
-            <div className="pt-2 text-center text-xs text-subtle">已到末尾</div>
+            <div className="text-center text-xs text-subtle">已到末尾</div>
           ) : null}
         </>
       )}

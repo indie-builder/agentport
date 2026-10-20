@@ -15,3 +15,6 @@ test-results/
 playwright-report/
 
 .e2e/
+
+# 本地取证的临时脚本与截图
+.tmp/

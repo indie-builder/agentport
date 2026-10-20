@@ -143,7 +143,7 @@ export function RunsPage() {
       <PageToolbar>
         <Select
           aria-label="按智能体筛选"
-          className="w-48 rounded-[9px]"
+          className="w-48"
           value={agentId}
           onValueChange={(next) => setFilter({ agent: next || undefined })}
           options={[
@@ -153,7 +153,7 @@ export function RunsPage() {
         />
         <Select
           aria-label="按状态筛选"
-          className="w-32 rounded-[9px]"
+          className="w-32"
           value={status}
           onValueChange={(next) =>
             setFilter({ status: (next || undefined) as RunStatus | undefined })

@@ -24,8 +24,8 @@ import { type ComponentProps, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { Page, PageHeader } from '../components/page.js';
-import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
+import { Page, PageHeader, PageNote } from '../components/page.js';
+import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
 import { FieldError, FieldHint, Input } from '../components/ui/input.js';
@@ -242,8 +242,8 @@ export function ServersPage() {
       ) : null}
 
       {servers.data && all.length === 0 ? (
-        <EmptyState
-          icon={<ServerIcon className="size-5" />}
+        <PageNote
+          icon={<ServerIcon className="size-4" strokeWidth={1.75} aria-hidden="true" />}
           title="还没有 MCP Server"
           description="本地命令适合自建工具，远程 MCP 适合已有服务，HTTP API 转 MCP 适合把内部接口直接交给智能体。"
           action={
@@ -255,7 +255,7 @@ export function ServersPage() {
       ) : null}
 
       {servers.data && all.length > 0 && filtered.length === 0 ? (
-        <EmptyState
+        <PageNote
           title="没有匹配的 server"
           description="换个关键词，或清除来源筛选。"
           action={
@@ -274,7 +274,7 @@ export function ServersPage() {
       ) : null}
 
       {filtered.length > 0 ? (
-        <TableWrap label="MCP Server 列表" className="-mt-3">
+        <TableWrap label="MCP Server 列表">
           <Table>
             <caption className="sr-only">MCP Server 列表</caption>
             <TableHeader>
@@ -376,7 +376,7 @@ function ServerRow({
   const tools = useTools(generated ? server.id : null);
 
   return (
-    <TableRow data-slot="server-row" className="h-14 hover:bg-hover">
+    <TableRow data-slot="server-row" className="h-14 hover:bg-chip">
       <TableCell className="pl-2">
         <div className="min-w-0">
           <div className="truncate text-base text-fg">{server.name}</div>
@@ -529,7 +529,6 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
       onClose={onClose}
       title={`删除 server「${server.name}」`}
       description="删除后无法恢复；绑定它的智能体会立即失去这个工具来源。"
-      className="max-w-md rounded-[12px]"
     >
       <div className="space-y-4">
         <div className="rounded-[9px] bg-danger-soft p-3">
@@ -598,7 +597,6 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
           <Button
             variant="destructive"
             size="sm"
-            className="rounded-full px-3.5"
             aria-busy={pending}
             disabled={pending || loading || unknown || !confirmed}
             onClick={() => void confirm()}
@@ -715,7 +713,7 @@ function ToolEditorDialog({
               </TableHeader>
               <TableBody>
                 {tools.data.map((tool) => (
-                  <TableRow key={tool.id} className="h-14 hover:bg-hover">
+                  <TableRow key={tool.id} className="h-14 hover:bg-chip">
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-xs text-fg">{tool.name}</span>

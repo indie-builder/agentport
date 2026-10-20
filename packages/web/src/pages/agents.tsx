@@ -44,7 +44,8 @@ import {
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { Page, PageHeader } from '../components/page.js';
+import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
 import { FieldError, FieldHint, Input } from '../components/ui/input.js';
@@ -201,44 +202,48 @@ export function AgentsPage() {
     (agents.data ?? []).find((agent) => agent.id === selectedId) ?? filtered[0] ?? null;
 
   return (
-    <div>
-      <div className="flex h-14 items-center gap-3 border-b border-line">
-        <h1 className="min-w-0 truncate text-md font-medium text-fg">智能体</h1>
-        <span className="font-mono text-xs tabular-nums text-subtle">
-          {agents.data?.length ?? 0}
-        </span>
-        <div className="ml-auto flex items-center gap-1">
-          <input
-            ref={fileInput}
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = '';
-              if (file) void importFile(file);
-            }}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 rounded-full px-3"
-            disabled={importing}
-            aria-busy={importing}
-            onClick={() => fileInput.current?.click()}
-          >
-            <Upload className="size-4" strokeWidth={1.75} /> {importing ? '导入中…' : '导入'}
-          </Button>
-          <Button
-            ref={createButtonRef}
-            size="sm"
-            className="h-8 rounded-full px-3.5"
-            onClick={() => setCreating(true)}
-          >
-            <Plus className="size-4" strokeWidth={1.75} /> 新建智能体
-          </Button>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title="智能体"
+        meta={
+          <span className="font-mono text-xs tabular-nums text-subtle">
+            {agents.data?.length ?? 0}
+          </span>
+        }
+        actions={
+          <>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void importFile(file);
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-full px-3"
+              disabled={importing}
+              aria-busy={importing}
+              onClick={() => fileInput.current?.click()}
+            >
+              <Upload className="size-4" strokeWidth={1.75} /> {importing ? '导入中…' : '导入'}
+            </Button>
+            <Button
+              ref={createButtonRef}
+              size="sm"
+              className="h-8 rounded-full px-3.5"
+              onClick={() => setCreating(true)}
+            >
+              <Plus className="size-4" strokeWidth={1.75} /> 新建智能体
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
         <div className="min-w-0 py-3 pr-5 lg:border-r lg:border-line">
@@ -274,7 +279,7 @@ export function AgentsPage() {
             />
           ) : null}
           {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
-            <p className="px-1 py-6 text-center text-xs text-subtle">没有匹配的智能体。</p>
+            <InlineEmpty>没有匹配的智能体。</InlineEmpty>
           ) : null}
 
           <ul aria-label="智能体列表">
@@ -287,7 +292,7 @@ export function AgentsPage() {
                     aria-current={active ? 'true' : undefined}
                     onClick={() => selectAgent(agent.id)}
                     className={cn(
-                      'flex h-14 w-full items-center gap-3 rounded-[9px] px-2.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none',
+                      'flex h-14 w-full items-center gap-3 rounded-[9px] px-2.5 text-left transition-colors duration-150 hover:bg-chip focus-visible:outline-none',
                       active ? 'bg-hover' : '',
                     )}
                   >
@@ -324,9 +329,7 @@ export function AgentsPage() {
             />
           ) : agents.data && agents.data.length > 0 ? (
             <EmptyState title="选择一个智能体" description="从左侧列表选择以查看和编辑配置。" />
-          ) : (
-            <p className="py-16 text-center text-sm text-subtle">新建智能体后在这里编辑。</p>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -363,7 +366,7 @@ export function AgentsPage() {
           if (selectedId === deleting.id) setSelectedId(null);
         }}
       />
-    </div>
+    </Page>
   );
 }
 
@@ -1473,9 +1476,7 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
         <CodeBlock key={active[0]} code={content} lineNumbers maxHeight="calc(100vh - 22rem)" />
       ) : null}
       {!disabled && !content ? (
-        <p className="py-8 text-center text-xs text-subtle">
-          该文件当前为空。保存配置后会自动生成内容。
-        </p>
+        <InlineEmpty>该文件当前为空。保存配置后会自动生成内容。</InlineEmpty>
       ) : null}
       <p className="py-2 text-2xs text-subtle">
         主智能体自己的 agent md 仅供预览、不落盘；路径{' '}
@@ -1550,9 +1551,7 @@ function VersionHistory({
         <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
       ) : null}
       {versions.data && versions.data.length === 0 ? (
-        <p className="py-8 text-center text-xs text-subtle">
-          还没有版本记录。修改配置并保存后，这里会留下第一份快照。
-        </p>
+        <InlineEmpty>还没有版本记录。修改配置并保存后，这里会留下第一份快照。</InlineEmpty>
       ) : null}
       {versions.data && versions.data.length > 0 ? (
         <ul className="divide-y divide-line border-y border-line">

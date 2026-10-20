@@ -19,11 +19,11 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { CodeBlock, CollapsibleText, JsonBlock } from '../components/code-block.js';
-import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
+import { Select } from '../components/ui/select.js';
 import { Textarea } from '../components/ui/textarea.js';
-import { type ApprovalRequest, api, type RecentRun } from '../lib/api.js';
+import { type ApprovalRequest, api } from '../lib/api.js';
 import {
   type ChatItem,
   historyToItems,
@@ -41,14 +41,8 @@ import {
   useChatStore,
 } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
-import { formatBytes, formatCost, formatDuration, formatRelative } from '../lib/format.js';
-import {
-  useAgents,
-  useConversation,
-  useConversations,
-  useRunApprovals,
-  useRuns,
-} from '../lib/queries.js';
+import { formatDuration, formatRelative } from '../lib/format.js';
+import { useAgents, useConversation, useConversations, useRunApprovals } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useChatStream } from '../lib/use-chat-stream.js';
 
@@ -155,7 +149,6 @@ function ChatWorkspace({
   const conversations = useConversations(agentId);
   const detail = useConversation(conversationId);
   const runApprovals = useRunApprovals(run?.runId || lastRunId);
-  const recentRuns = useRuns({ ...(agentId ? { agentId } : {}), limit: 1 });
   const historyLayout = useDefaultLayout({ id: 'chat-history' });
 
   const stream = useChatStream({
@@ -284,8 +277,8 @@ function ChatWorkspace({
     onAgentChange(id);
   };
 
-  const showWelcome = items.length === 0 && !run && (conversationId === null || !detail.isPending);
-  const lastAgentRun = recentRuns.data?.items.find((item) => item.agentId === agentId) ?? null;
+  const showWelcome =
+    items.length === 0 && !run && !detail.isError && (conversationId === null || !detail.isPending);
 
   const historyPanel = (
     <HistoryPanel
@@ -320,7 +313,6 @@ function ChatWorkspace({
       onCancel={cancel}
       onOpenHistory={() => setHistoryOpen(true)}
       onPickSuggestion={setInput}
-      lastAgentRun={lastAgentRun}
       showWelcome={showWelcome}
       send={stream.send}
       composerRef={composerRef}
@@ -334,7 +326,7 @@ function ChatWorkspace({
       {/* 窄屏抽屉：桌面分栏常驻，不需要这层浮层。 */}
       {historyOpen && !desktop ? (
         <aside
-          className="absolute inset-y-0 left-0 z-20 flex w-[280px] shrink-0 flex-col overflow-hidden border-r border-line bg-surface shadow-overlay"
+          className="absolute inset-y-0 left-0 z-20 flex w-[272px] max-w-full shrink-0 flex-col overflow-hidden border-r border-line bg-surface"
           aria-label="会话历史"
         >
           <HistoryHeader onNew={newConversation} onClose={() => setHistoryOpen(false)} />
@@ -349,7 +341,7 @@ function ChatWorkspace({
             defaultLayout={historyLayout.defaultLayout}
             onLayoutChanged={historyLayout.onLayoutChanged}
           >
-            <Panel id="history" defaultSize={280} minSize={220} maxSize={420}>
+            <Panel id="history" defaultSize={272} minSize={220} maxSize={420}>
               <aside
                 className="flex h-full flex-col overflow-hidden bg-surface"
                 aria-label="会话历史"
@@ -358,7 +350,7 @@ function ChatWorkspace({
                 {historyPanel}
               </aside>
             </Panel>
-            <Separator className="w-px bg-line" aria-label="调整会话列表宽度" />
+            <Separator className="w-px border-r border-line" aria-label="调整会话列表宽度" />
             <Panel id="chat">{column}</Panel>
           </Group>
         </div>
@@ -372,7 +364,7 @@ function ChatWorkspace({
 
 function HistoryHeader({ onNew, onClose }: { onNew: () => void; onClose?: () => void }) {
   return (
-    <div className="flex h-14 shrink-0 items-center gap-2 px-3">
+    <div className="flex h-11 shrink-0 items-center gap-2 px-3 pt-3">
       <span className="text-sm font-medium text-fg">会话</span>
       <Button
         variant="ghost"
@@ -494,7 +486,6 @@ function ChatColumn({
   onCancel,
   onOpenHistory,
   onPickSuggestion,
-  lastAgentRun,
   showWelcome,
   send,
   composerRef,
@@ -516,15 +507,24 @@ function ChatColumn({
   onCancel: () => void;
   onOpenHistory: () => void;
   onPickSuggestion: (text: string) => void;
-  lastAgentRun: RecentRun | null;
   showWelcome: boolean;
   send: () => Promise<void>;
   composerRef: RefObject<HTMLTextAreaElement | null>;
 }) {
+  const composer = (
+    <Composer
+      agent={agent}
+      send={send}
+      textareaRef={composerRef}
+      lastRunId={lastRunId}
+      welcome={showWelcome}
+    />
+  );
+
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+    <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-shell bg-surface outline outline-1 outline-shell-line">
       {/* 顶部一行：移动端菜单 + 智能体选择器。没有标题、没有描述。 */}
-      <header className="flex h-14 shrink-0 items-center gap-2 px-4 sm:px-6">
+      <header className="flex h-11 shrink-0 items-center gap-2 px-3 pt-3">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -537,25 +537,13 @@ function ChatColumn({
         <label className="sr-only" htmlFor="chat-agent">
           选择智能体
         </label>
-        <div className="relative">
-          <select
-            id="chat-agent"
-            value={agentId ?? ''}
-            onChange={(event) => onSwitchAgent(event.target.value)}
-            className="h-8 max-w-56 cursor-pointer appearance-none rounded-full bg-hover pl-3.5 pr-9 text-sm text-fg hover:bg-chip focus-visible:outline-none"
-          >
-            {agents.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-          <ChevronDown
-            aria-hidden="true"
-            className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted"
-            strokeWidth={1.75}
-          />
-        </div>
+        <Select
+          id="chat-agent"
+          value={agentId ?? ''}
+          onValueChange={onSwitchAgent}
+          options={agents.map((item) => ({ value: item.id, label: item.name }))}
+          className="w-auto max-w-56 gap-1.5 rounded-pill border-0 bg-hover px-3 text-xs leading-3 tracking-[-0.12px] [&>span:first-child]:truncate [&_svg]:size-4"
+        />
       </header>
 
       <MessagePane
@@ -568,7 +556,9 @@ function ChatColumn({
         lastRun={lastRun}
         welcome={
           showWelcome ? (
-            <WelcomeState agent={agent} lastRun={lastAgentRun} onPick={onPickSuggestion} />
+            <WelcomeState agent={agent} onPick={onPickSuggestion}>
+              {composer}
+            </WelcomeState>
           ) : null
         }
       />
@@ -586,7 +576,7 @@ function ChatColumn({
       </div>
       <RunStatusBar run={run} items={items} cancelling={cancelling} onCancel={onCancel} />
 
-      <Composer agent={agent} send={send} textareaRef={composerRef} lastRunId={lastRunId} />
+      {showWelcome ? null : composer}
     </section>
   );
 }
@@ -597,11 +587,13 @@ function Composer({
   send,
   textareaRef,
   lastRunId,
+  welcome,
 }: {
   agent: AgentView | null;
   send: () => Promise<void>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   lastRunId: string | null;
+  welcome: boolean;
 }) {
   // 只订阅输入内容：打字不会重渲染消息列表所在的 ChatColumn。
   const input = useChatStore((state) => state.input);
@@ -609,14 +601,14 @@ function Composer({
   const run = useChatStore((state) => state.run);
   return (
     <form
-      className="shrink-0 px-4 pb-5 pt-2 sm:px-6"
+      className={cn('w-full shrink-0', !welcome && 'mx-auto max-w-[760px] px-4 pb-5 pt-2')}
       onSubmit={(event) => {
         event.preventDefault();
         void send();
       }}
     >
       <div className="mx-auto w-full max-w-[728px]">
-        <div className="flex items-end gap-2 rounded-[28px] bg-surface px-3 py-2.5 shadow-composer">
+        <div className="flex h-14 items-center gap-3 rounded-[28px] border border-transparent bg-surface py-[11px] pl-6 pr-3 shadow-composer">
           <Textarea
             ref={textareaRef}
             aria-label="消息"
@@ -631,7 +623,7 @@ function Composer({
             title={run ? '本轮流式输出结束后即可继续输入，不会丢失当前内容' : undefined}
             disabled={!agent || Boolean(run)}
             value={input}
-            className="min-h-[36px] flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-md shadow-none focus-visible:ring-0"
+            className="h-8 min-h-8 min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 py-1.5 text-md leading-5 tracking-[-0.15px] shadow-none placeholder:text-muted focus-visible:ring-0"
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -642,19 +634,19 @@ function Composer({
           />
           {run ? (
             <span
-              className="mb-0.5 flex size-8 items-center justify-center rounded-full bg-sunken text-subtle"
+              className="flex size-8 shrink-0 items-center justify-center rounded-pill bg-hover text-subtle"
               title="运行中，结束后可发送"
             >
-              <ArrowUp className="size-4" strokeWidth={2} />
+              <ArrowUp className="size-4" strokeWidth={1.75} />
             </span>
           ) : (
             <Button
               type="submit"
               disabled={!agent || !input.trim()}
               aria-label="发送消息"
-              className="mb-0.5 size-8 rounded-full bg-ink p-0 text-white hover:bg-ink-hover disabled:bg-sunken disabled:text-subtle"
+              className="size-8 shrink-0 rounded-pill bg-fg p-0 text-surface hover:bg-fg/90 disabled:bg-hover disabled:text-subtle"
             >
-              <ArrowUp className="size-4" strokeWidth={2} />
+              <ArrowUp className="size-4" strokeWidth={1.75} />
             </Button>
           )}
         </div>
@@ -890,20 +882,23 @@ function MessagePane({
 
   return (
     <div className="relative min-h-0 flex-1">
-      <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-4">
+      <div
+        ref={scrollRef}
+        className={cn('h-full overflow-y-auto', welcome ? 'flex flex-col' : 'px-4 py-4')}
+      >
         {loading ? (
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto max-w-[728px]">
             <LoadingState rows={4} />
           </div>
         ) : null}
         {error ? (
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto max-w-[728px]">
             <ErrorState error={error} onRetry={onRetry} />
           </div>
         ) : null}
         {!loading && !error && items.length === 0 ? welcome : null}
         {!loading && !error && items.length > 0 ? (
-          <div className="mx-auto max-w-3xl space-y-4">
+          <div className="mx-auto max-w-[728px] space-y-4">
             {topLevel.map((item, index) => {
               if (item.kind === 'tool') {
                 const kids = children.get(item.toolUseId) ?? [];
@@ -947,20 +942,15 @@ function MessagePane({
   );
 }
 
-/**
- * 空态：参考页的核心构图——两行 24px 问候语，输入框在中间，建议卡在下方。
- *
- * 与上一版的差别：不再把「绑定 server / 权限 / 最近运行」堆在中间，
- * 那些是配置信息，不属于发起任务的现场。
- */
+/** 空态共用 728px 轴线：两行问候语、输入胶囊、建议卡。 */
 function WelcomeState({
   agent,
-  lastRun,
   onPick,
+  children,
 }: {
   agent: AgentView | null;
-  lastRun: RecentRun | null;
   onPick: (text: string) => void;
+  children: ReactNode;
 }) {
   const suggestions = agent
     ? [
@@ -972,34 +962,27 @@ function WelcomeState({
     : [];
 
   return (
-    <div className="mx-auto flex w-full max-w-[728px] flex-1 flex-col justify-center px-4 pb-8">
-      <h2 className="text-center text-lg font-medium leading-[30px] text-fg">你好</h2>
-      <p className="mt-1 text-center text-lg font-medium leading-[26px] text-muted">
-        今天想做什么？
-      </p>
+    <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center gap-8 px-4 pb-32 pt-3">
+      <div className="flex flex-col items-center gap-1 text-center tracking-[-0.24px]">
+        <h2 className="text-lg font-normal leading-[30px] text-fg">你好</h2>
+        <p className="text-lg font-medium leading-[26.4px] text-muted">今天想做什么？</p>
+      </div>
+
+      {children}
 
       {suggestions.length > 0 ? (
-        <div className="mt-8 flex flex-wrap justify-center gap-2">
+        <div className="flex flex-wrap justify-center gap-3">
           {suggestions.map((text) => (
             <button
               key={text}
               type="button"
               onClick={() => onPick(text)}
-              className="h-[72px] w-[136px] overflow-hidden rounded-[16px] bg-chip p-4 text-left text-sm leading-[18px] text-muted transition-colors hover:bg-hover focus-visible:outline-none"
+              className="h-[72px] w-[136px] overflow-hidden rounded-card bg-chip p-4 text-left text-base leading-5 text-muted transition-[background-color] duration-150 hover:bg-hover focus-visible:ring-2 focus-visible:ring-fg"
             >
               <span className="line-clamp-2">{text}</span>
             </button>
           ))}
         </div>
-      ) : null}
-
-      {lastRun ? (
-        <p className="mt-6 text-center text-xs text-subtle">
-          上次运行 <RunStatusBadge status={lastRun.status} />{' '}
-          <span className="font-mono tabular-nums">
-            {formatDuration(lastRun.latencyMs)} · {formatCost(lastRun.costUsd)}
-          </span>
-        </p>
       ) : null}
     </div>
   );
@@ -1013,7 +996,7 @@ function ItemView({ item }: { item: ChatItem }) {
     case 'user':
       return (
         <div className="flex justify-end">
-          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[7px] border border-line bg-panel px-3 py-2 text-base leading-relaxed text-fg">
+          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-pill bg-hover px-4 py-2 text-md leading-relaxed text-fg">
             {item.text}
           </div>
         </div>
@@ -1053,7 +1036,7 @@ function AssistantText({ text }: { text: string }) {
     return (
       <CollapsibleText
         text={text}
-        className="whitespace-pre-wrap break-words text-base leading-[1.7] text-fg"
+        className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg"
       />
     );
   }
@@ -1067,7 +1050,7 @@ function AssistantText({ text }: { text: string }) {
       parts.push(
         <div
           key={index++}
-          className="whitespace-pre-wrap break-words text-base leading-[1.7] text-fg"
+          className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg"
         >
           {prose}
         </div>,
@@ -1088,10 +1071,7 @@ function AssistantText({ text }: { text: string }) {
   const tail = text.slice(last);
   if (tail) {
     parts.push(
-      <div
-        key={index++}
-        className="whitespace-pre-wrap break-words text-base leading-[1.7] text-fg"
-      >
+      <div key={index++} className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg">
         {tail}
       </div>,
     );
@@ -1163,7 +1143,7 @@ function ApprovalCard({
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={reduce ? STILL : EXPAND}
-      className="flex flex-wrap items-center gap-2 rounded-[7px] border border-warning-line bg-warning-soft px-3 py-2"
+      className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-chip px-3 py-2"
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg">
@@ -1176,31 +1156,6 @@ function ApprovalCard({
       </Button>
     </motion.div>
   );
-}
-
-function inputPreview(input: string | undefined): string {
-  if (!input) return '';
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(input);
-  } catch {
-    return oneLine(input);
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return oneLine(typeof parsed === 'string' ? parsed : (JSON.stringify(parsed) ?? ''));
-  }
-  return Object.entries(parsed)
-    .slice(0, 3)
-    .map(
-      ([key, value]) =>
-        `${key}=${oneLine(typeof value === 'string' ? value : (JSON.stringify(value) ?? ''))}`,
-    )
-    .join(' · ');
-}
-
-function oneLine(value: string): string {
-  const flat = value.replace(/\s+/g, ' ').trim();
-  return flat.length > 48 ? `${flat.slice(0, 48)}…` : flat;
 }
 
 function ToolRow({
@@ -1226,32 +1181,17 @@ function ToolRow({
     item.startedAt !== undefined && item.endedAt !== undefined
       ? item.endedAt - item.startedAt
       : undefined;
-  const size = useMemo(
-    () => (item.result === undefined ? undefined : new TextEncoder().encode(item.result).length),
-    [item.result],
-  );
-  const preview = inputPreview(item.input);
 
   return (
-    <div
-      className={cn(
-        'overflow-hidden border border-line bg-surface',
-        nested && 'border-l-2 border-l-line-strong',
-      )}
-    >
+    <div className={cn('overflow-hidden rounded-item bg-surface', nested && 'ml-4')}>
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg"
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg"
       >
-        {nested ? (
-          <span className="shrink-0 font-mono text-2xs text-subtle" aria-hidden="true">
-            ↳
-          </span>
-        ) : (
-          <Wrench className="size-3 shrink-0 text-subtle" aria-hidden="true" />
-        )}
+        <Wrench className="size-4 shrink-0 text-subtle" aria-hidden="true" />
+        <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{item.name}</code>
         <span className="sr-only">{running ? '运行中' : failed ? '失败' : '完成'}</span>
         {running ? (
           <LoaderCircle className="size-3 shrink-0 animate-spin text-fg" aria-hidden="true" />
@@ -1260,23 +1200,12 @@ function ToolRow({
         ) : (
           <Check className="size-3 shrink-0 text-success" aria-hidden="true" />
         )}
-        <code className="max-w-[38%] shrink-0 truncate font-mono text-2xs text-fg">
-          {item.name}
-        </code>
-        {childCount > 0 ? (
-          <span className="shrink-0 text-2xs text-fg">子智能体 · {childCount} 次调用</span>
-        ) : null}
-        <span className="min-w-0 flex-1 truncate font-mono text-2xs text-subtle">
-          {preview || (running ? '等待参数…' : '')}
+        <span className="shrink-0 text-xs text-muted" aria-hidden="true">
+          {running ? '运行中' : failed ? '失败' : '完成'}
         </span>
         {duration !== undefined ? (
           <span className="shrink-0 font-mono text-2xs tabular-nums text-subtle">
             {formatDuration(duration)}
-          </span>
-        ) : null}
-        {size !== undefined ? (
-          <span className="shrink-0 font-mono text-2xs tabular-nums text-subtle">
-            {formatBytes(size)}
           </span>
         ) : null}
         <ChevronDown
@@ -1294,6 +1223,9 @@ function ToolRow({
             transition={reduce ? STILL : EXPAND}
             className="overflow-hidden"
           >
+            {childCount > 0 ? (
+              <p className="px-3 pt-2 text-xs text-muted">子智能体 · {childCount} 次调用</p>
+            ) : null}
             <div className="grid gap-2 border-t border-line p-2 md:grid-cols-2">
               <div className="min-w-0">
                 <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">

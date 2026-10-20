@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
+import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -135,10 +135,10 @@ export function EvalPage() {
         }
       />
 
-      <div className="-mt-3 flex flex-wrap items-center gap-3">
+      <PageToolbar>
         <Select
           aria-label="按智能体筛选"
-          className="w-56 rounded-[9px]"
+          className="w-56"
           value={effectiveAgentId ?? ''}
           onValueChange={setAgentId}
           options={(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }))}
@@ -146,7 +146,7 @@ export function EvalPage() {
         <span className="text-sm text-subtle">
           判定：期望非空时检查输出包含该文本（不区分大小写）；为空时只要求有文本输出。
         </span>
-      </div>
+      </PageToolbar>
 
       <PageSection
         title="用例"
@@ -194,7 +194,7 @@ export function EvalPage() {
             {cases.data.map((testCase) => (
               <li
                 key={testCase.id}
-                className="group flex items-start gap-3 rounded-[9px] px-3 py-4 transition-colors duration-150 hover:bg-hover"
+                className="group flex min-h-14 items-start gap-3 border-b border-line px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-md font-medium text-fg">{testCase.name}</div>
@@ -208,19 +208,14 @@ export function EvalPage() {
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="rounded-[7px]"
-                    onClick={() => setEditing(testCase)}
-                  >
+                  <Button variant="ghost" size="icon-sm" onClick={() => setEditing(testCase)}>
                     <span className="sr-only">编辑 {testCase.name}</span>
                     <Pencil className="size-4" strokeWidth={1.75} aria-hidden="true" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    className="rounded-[7px] hover:text-danger"
+                    className="hover:text-danger"
                     onClick={() => setDeleting(testCase)}
                   >
                     <span className="sr-only">删除 {testCase.name}</span>

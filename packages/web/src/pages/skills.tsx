@@ -58,11 +58,11 @@ export function SkillsPage() {
       ) : null}
 
       {skills.data && skills.data.length > 0 ? (
-        <ul className="-mt-3">
+        <ul>
           {skills.data.map((skill) => (
             <li
               key={skill.id}
-              className="group flex items-start gap-4 border-b border-line py-4 last:border-b-0"
+              className="group flex min-h-14 items-start gap-4 border-b border-line px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -80,19 +80,14 @@ export function SkillsPage() {
                 ) : null}
               </div>
               <div className="flex shrink-0 gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="rounded-[7px]"
-                  onClick={() => setEditing(skill)}
-                >
+                <Button variant="ghost" size="icon-sm" onClick={() => setEditing(skill)}>
                   <span className="sr-only">编辑 {skill.name}</span>
                   <Pencil className="size-4" strokeWidth={1.75} aria-hidden="true" />
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="rounded-[7px] hover:text-danger"
+                  className="hover:text-danger"
                   onClick={() => setDeleting(skill)}
                 >
                   <span className="sr-only">删除 {skill.name}</span>

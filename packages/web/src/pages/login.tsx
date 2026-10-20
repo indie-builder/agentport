@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { Activity, FileCode2, ShieldCheck } from 'lucide-react';
+import { Activity, Command, FileCode2, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '../components/ui/button.js';
 import { FieldError, Input } from '../components/ui/input.js';
@@ -27,6 +27,21 @@ const facts = [
   },
 ] as const;
 
+/** 品牌标记，与侧栏 Brand 同一套：lucide 线框 + 7px 方标 + 12.5px 字标。 */
+function Brand() {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        aria-hidden="true"
+        className="flex size-7 shrink-0 items-center justify-center rounded-icon bg-ink text-white"
+      >
+        <Command className="size-4" strokeWidth={1.75} />
+      </span>
+      <span className="text-[12.5px] font-medium tracking-[0.14em] text-fg">PACE</span>
+    </div>
+  );
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState('admin');
@@ -47,18 +62,7 @@ export function LoginPage() {
     <div className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,1fr)_minmax(380px,0.9fr)]">
       {/* 左侧：品牌与平台事实。窄屏隐藏，登录本身不被说明文字挤走。 */}
       <section className="hidden flex-col justify-between border-r border-line bg-panel px-10 py-10 lg:flex">
-        <div className="flex items-center gap-2.5">
-          <span className="flex items-end gap-[2px]" aria-hidden="true">
-            {[4, 9, 13, 7].map((height, index) => (
-              <span
-                key={height}
-                className={index === 2 ? 'w-[2px] bg-ink' : 'w-[2px] bg-ink'}
-                style={{ height }}
-              />
-            ))}
-          </span>
-          <span className="text-base font-semibold tracking-[0.08em] text-fg">PACE</span>
-        </div>
+        <Brand />
 
         <div className="max-w-md">
           <h2 className="text-[28px] font-semibold leading-[1.25] tracking-tight text-fg">
@@ -70,7 +74,7 @@ export function LoginPage() {
           <dl className="mt-8 space-y-5">
             {facts.map(({ icon: Icon, title, body }) => (
               <div key={title} className="flex gap-3">
-                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[7px] border border-line bg-surface text-fg">
+                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-icon border border-line bg-surface text-fg">
                   <Icon className="size-3.5" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
@@ -88,17 +92,8 @@ export function LoginPage() {
       {/* 右侧：表单。视觉上是一张纸，不是悬浮卡片。 */}
       <section className="flex items-center justify-center border-l border-line bg-surface px-6 py-12">
         <div className="w-full max-w-[340px]">
-          <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <span className="flex items-end gap-[2px]" aria-hidden="true">
-              {[4, 9, 13, 7].map((height, index) => (
-                <span
-                  key={height}
-                  className={index === 2 ? 'w-[2px] bg-ink' : 'w-[2px] bg-ink'}
-                  style={{ height }}
-                />
-              ))}
-            </span>
-            <span className="text-base font-semibold tracking-[0.08em] text-fg">PACE</span>
+          <div className="mb-8 lg:hidden">
+            <Brand />
           </div>
 
           <h1 className="text-[20px] font-semibold tracking-tight text-fg">登录</h1>

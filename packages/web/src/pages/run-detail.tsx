@@ -6,7 +6,6 @@ import { Page, PageHeader } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
-import { Skeleton } from '../components/ui/skeleton.js';
 import type { ApprovalRequest, RunStep } from '../lib/api.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
@@ -126,27 +125,25 @@ export function RunDetailPage() {
 
   if (run.isPending) {
     return (
-      <div className="space-y-4">
+      <Page>
         <PageHeader title="运行详情" className="sr-only" />
-        <Skeleton className="h-8 w-56" />
-        <Skeleton className="h-32 w-full" />
-        <LoadingState rows={4} />
-      </div>
+        <LoadingState rows={6} />
+      </Page>
     );
   }
 
   if (run.isError) {
     return (
-      <div>
+      <Page>
         <PageHeader title="运行详情" className="sr-only" />
         <Link
           to="/runs"
-          className="mb-4 inline-flex items-center gap-1 text-xs text-muted hover:text-fg"
+          className="inline-flex items-center gap-1 self-start text-xs text-muted hover:text-fg"
         >
           <ArrowLeft className="size-3.5" /> 返回运行列表
         </Link>
         <ErrorState error={run.error} onRetry={() => void run.refetch()} />
-      </div>
+      </Page>
     );
   }
 
@@ -168,11 +165,11 @@ export function RunDetailPage() {
 
   return (
     <Page>
-      <div className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link
           to="/runs"
           aria-label="返回运行列表"
-          className="rounded-[7px] p-1.5 text-subtle transition-colors hover:bg-hover hover:text-fg"
+          className="rounded-icon p-1.5 text-subtle transition-colors hover:bg-hover hover:text-fg"
         >
           <ArrowLeft className="size-4" strokeWidth={1.75} />
         </Link>
@@ -287,7 +284,7 @@ export function RunDetailPage() {
                       onClick={() => setSelected(index)}
                       aria-current={isActive ? 'step' : undefined}
                       className={cn(
-                        'group flex h-12 w-full items-center gap-2.5 rounded-[9px] px-2 text-left transition-colors hover:bg-hover focus-visible:outline-none',
+                        'group flex h-12 w-full items-center gap-2.5 rounded-item px-2 text-left transition-colors hover:bg-hover focus-visible:outline-none',
                         isActive && 'bg-hover',
                       )}
                     >
@@ -426,13 +423,13 @@ function StepInspector({
           {start ? formatDateTime(step.at) : ''}
         </span>
         {nested ? (
-          <span className="rounded-[6px] bg-chip px-1.5 py-0.5 text-2xs text-muted">
+          <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted">
             子智能体内部调用
           </span>
         ) : null}
         {step.kind === 'tool' && step.toolUseId ? (
           <span
-            className="rounded-[6px] bg-chip px-1.5 py-0.5 font-mono text-2xs text-subtle"
+            className="rounded-tag bg-chip px-1.5 py-0.5 font-mono text-2xs text-subtle"
             title={step.toolUseId}
           >
             {shortId(step.toolUseId)}
