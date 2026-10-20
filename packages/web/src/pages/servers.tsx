@@ -336,7 +336,8 @@ function ServerCard({
 }) {
   const generated = server.kind === 'generated';
   return (
-    <div className="rounded-lg border border-line bg-surface">
+    // data-slot 供端到端测试稳定定位；不要用圆角/颜色类当选择器。
+    <div data-slot="server-card" className="rounded-lg border border-line bg-surface">
       <div className="flex items-start gap-3 p-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">

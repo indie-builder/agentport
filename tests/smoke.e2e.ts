@@ -29,7 +29,8 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   await expect(screen.getByText(serverName, { exact: false }).first()).toBeVisible();
 
   // 2. 展开工具定义并添加一个工具
-  const card = browser.locator('div.rounded-\\[10px\\]').filter({ hasText: serverName }).first();
+  // 卡片用 data-slot 定位：圆角曾是选择器的一部分，改设计就会误伤测试。
+  const card = browser.locator('[data-slot="server-card"]').filter({ hasText: serverName }).first();
   await card.getByRole('button', '工具定义').tap();
   await browser.locator('input[id^="tool-name-"]').fill('get-user');
   await browser.locator('input[id^="tool-path-"]').fill('/users/{id}');
