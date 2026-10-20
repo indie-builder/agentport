@@ -1,11 +1,10 @@
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { ArrowLeft, Bot, Check, CircleAlert, Copy, RotateCcw, User, Wrench } from 'lucide-react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
-import { Page, PageHeader, PageSection, Readout } from '../components/page.js';
+import { Page } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Skeleton } from '../components/ui/skeleton.js';
 import type { ApprovalRequest, RunStep } from '../lib/api.js';
@@ -63,7 +62,7 @@ function elapsed(at: string, start: string | null): number {
 const stepMeta = {
   user: { icon: User, label: '用户', tone: 'text-muted' },
   assistant: { icon: Bot, label: '助手', tone: 'text-success' },
-  tool: { icon: Wrench, label: '工具', tone: 'text-signal-text' },
+  tool: { icon: Wrench, label: '工具', tone: 'text-muted' },
 } as const;
 
 type ApprovalItem = ApprovalRequest;
@@ -169,40 +168,50 @@ export function RunDetailPage() {
 
   return (
     <Page>
-      <PageHeader
-        title={`运行 ${shortId(detail.id)}`}
-        description={conversation.title || '运行详情与步骤'}
-        meta={
-          <>
-            <Readout
-              label="耗时"
-              value={formatDuration(detail.latencyMs)}
-              tone={detail.status === 'timeout' ? 'danger' : 'default'}
-            />
-            <Readout label="轮次" value={detail.turns ?? '—'} />
-            <Readout label="成本" value={formatCost(detail.costUsd)} />
-            <Readout
-              label="Tokens"
-              value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
-            />
-          </>
-        }
-        actions={
-          <>
-            <RunStatusBadge status={detail.status} />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={rerunning || !hasPrompt}
-              aria-busy={rerunning}
-              onClick={() => void rerun()}
-            >
-              <RotateCcw className="size-3.5" />
-              {rerunning ? '提交中…' : '重跑'}
-            </Button>
-          </>
-        }
-      />
+      <div className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line">
+        <Link
+          to="/runs"
+          aria-label="返回运行列表"
+          className="rounded-[7px] p-1.5 text-subtle transition-colors hover:bg-hover hover:text-fg"
+        >
+          <ArrowLeft className="size-4" strokeWidth={1.75} />
+        </Link>
+        <div className="min-w-0">
+          <h1 className="truncate text-md font-medium text-fg">运行 {shortId(detail.id)}</h1>
+        </div>
+        {conversation.title ? (
+          <span className="hidden min-w-0 max-w-56 truncate text-xs text-subtle sm:block">
+            {conversation.title}
+          </span>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          <Metric
+            label="耗时"
+            value={formatDuration(detail.latencyMs)}
+            danger={detail.status === 'timeout'}
+          />
+          <Metric label="轮次" value={detail.turns ?? '—'} />
+          <Metric label="成本" value={formatCost(detail.costUsd)} />
+          <Metric
+            label="Tokens"
+            value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
+          />
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <RunStatusBadge status={detail.status} />
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full px-3"
+            disabled={rerunning || !hasPrompt}
+            aria-busy={rerunning}
+            onClick={() => void rerun()}
+          >
+            <RotateCcw className="size-4" strokeWidth={1.75} />
+            {rerunning ? '提交中…' : '重跑'}
+          </Button>
+        </div>
+      </div>
 
       {failed && detail.error ? (
         <div
@@ -240,10 +249,10 @@ export function RunDetailPage() {
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
-        <section className="flex min-w-0 flex-col gap-2" aria-label="步骤">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-[0.06em] text-fg">步骤</h2>
-            <span className="font-mono text-2xs text-subtle">{steps.length} 步</span>
+        <section className="flex min-w-0 flex-col" aria-label="步骤">
+          <div className="flex h-10 items-baseline justify-between border-b border-line">
+            <h2 className="text-xs text-subtle">步骤</h2>
+            <span className="font-mono text-2xs tabular-nums text-subtle">{steps.length} 步</span>
           </div>
           {steps.length === 0 ? (
             <EmptyState
@@ -271,22 +280,18 @@ export function RunDetailPage() {
                       onClick={() => setSelected(index)}
                       aria-current={isActive ? 'step' : undefined}
                       className={cn(
-                        'group relative flex w-full items-center gap-2.5 border-b border-line py-2 pr-2 text-left transition-colors hover:bg-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal',
-                        isActive && 'bg-sunken/60',
+                        'group flex h-12 w-full items-center gap-2.5 rounded-[9px] px-2 text-left transition-colors hover:bg-hover focus-visible:outline-none',
+                        isActive && 'bg-hover',
                       )}
                     >
-                      {/* 选中标记：左侧 2px 信号条 */}
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          'absolute left-0 top-1 h-[calc(100%-0.5rem)] w-[2px]',
-                          isActive ? 'bg-signal' : 'bg-transparent',
-                        )}
-                      />
-                      <span className="w-6 shrink-0 pl-2 text-right font-mono text-2xs tabular-nums text-subtle">
+                      <span className="w-5 shrink-0 text-right font-mono text-2xs tabular-nums text-subtle">
                         {index + 1}
                       </span>
-                      <Icon aria-hidden="true" className={cn('size-3.5 shrink-0', meta.tone)} />
+                      <Icon
+                        aria-hidden="true"
+                        className={cn('size-4 shrink-0', meta.tone)}
+                        strokeWidth={1.75}
+                      />
                       <span className="min-w-0 flex-1">
                         <span
                           className={cn(
@@ -300,10 +305,10 @@ export function RunDetailPage() {
                           <span className="block truncate text-2xs text-subtle">@ {server}</span>
                         ) : null}
                       </span>
-                      {/* 时长条：按本次最长步骤归一化，「卡在哪」一眼可见 */}
+                      {/* 时长条：2px 线，按本次最长步骤归一化，「卡在哪」一眼可见 */}
                       <span
                         aria-hidden="true"
-                        className="h-1 shrink-0 rounded-[1px] bg-line-strong/50"
+                        className="h-0.5 shrink-0 rounded-full bg-line-strong"
                         style={{ width: `${Math.round(ratio * 56)}px` }}
                       />
                       <span className="w-12 shrink-0 text-right font-mono text-2xs tabular-nums text-subtle">
@@ -317,18 +322,21 @@ export function RunDetailPage() {
           )}
         </section>
 
-        <section className="min-w-0" aria-label="步骤详情">
+        <section className="min-w-0 border-line lg:border-l lg:pl-6" aria-label="步骤详情">
           {activeStep ? (
             <StepInspector step={activeStep} index={activeIndex} start={start} />
           ) : null}
         </section>
       </div>
 
-      <PageSection
-        title="运行上下文"
-        description="这些值在运行开始时确定，之后修改智能体不影响本次运行"
-      >
-        <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2">
+      <section className="flex flex-col gap-3 border-t border-line pt-5">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <h2 className="text-xs text-subtle">运行上下文</h2>
+          <span className="text-2xs text-subtle">
+            这些值在运行开始时确定，之后修改智能体不影响本次运行
+          </span>
+        </div>
+        <div className="grid gap-x-8 sm:grid-cols-2">
           <ContextRow label="运行 ID" value={detail.id} mono copy />
           <ContextRow label="智能体" value={detail.agentName ?? detail.agentId} />
           <ContextRow label="开始" value={formatDateTime(detail.startedAt)} mono />
@@ -336,7 +344,7 @@ export function RunDetailPage() {
           <ContextRow label="Sandbox" value={detail.sandboxId ?? '—'} mono copy />
           <ContextRow label="Session" value={detail.sessionId ?? '—'} mono copy />
         </div>
-      </PageSection>
+      </section>
     </Page>
   );
 }
@@ -345,6 +353,18 @@ function failureLabel(status: string): string {
   if (status === 'timeout') return '超时';
   if (status === 'cancelled') return '已取消';
   return '失败';
+}
+
+/** 摘要读数：12px 弱标签 + 等宽数字，跟在标题后，不另起一块。 */
+function Metric({ label, value, danger }: { label: string; value: ReactNode; danger?: boolean }) {
+  return (
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="text-2xs text-subtle">{label}</span>
+      <span className={cn('font-mono tabular-nums', danger ? 'text-danger' : 'text-fg')}>
+        {value}
+      </span>
+    </span>
+  );
 }
 
 function ContextRow({
@@ -359,7 +379,7 @@ function ContextRow({
   copy?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-2 border-b border-line py-1.5 last:border-0">
+    <div className="flex h-9 items-center gap-2 border-b border-line">
       <span className="w-20 shrink-0 text-2xs text-subtle">{label}</span>
       <span
         className={cn('min-w-0 flex-1 truncate text-xs text-fg', mono && 'font-mono tabular-nums')}
@@ -391,33 +411,38 @@ function StepInspector({
   const nested = step.kind === 'tool' && step.parentToolUseId !== null;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line pb-2">
-        <span className="font-mono text-2xs text-subtle">#{index + 1}</span>
-        <span className="font-mono text-sm text-fg">{stepName(step)}</span>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line pb-3">
+        <span className="font-mono text-2xs tabular-nums text-subtle">#{index + 1}</span>
+        <span className="font-mono text-xs text-fg">{stepName(step)}</span>
         <span className="font-mono text-2xs tabular-nums text-subtle">
           {start ? formatDateTime(step.at) : ''}
         </span>
-        {nested ? <Badge variant="accent">子智能体内部调用</Badge> : null}
+        {nested ? (
+          <span className="rounded-[6px] bg-chip px-1.5 py-0.5 text-2xs text-muted">
+            子智能体内部调用
+          </span>
+        ) : null}
         {step.kind === 'tool' && step.toolUseId ? (
-          <Badge variant="mono" title={step.toolUseId}>
+          <span
+            className="rounded-[6px] bg-chip px-1.5 py-0.5 font-mono text-2xs text-subtle"
+            title={step.toolUseId}
+          >
             {shortId(step.toolUseId)}
-          </Badge>
+          </span>
         ) : null}
       </div>
 
       {step.kind === 'assistant' || step.kind === 'user' ? (
         <CollapsibleText
           text={step.text}
-          className="whitespace-pre-wrap break-words text-base leading-relaxed text-fg"
+          className="whitespace-pre-wrap break-words text-md leading-relaxed text-fg"
         />
       ) : (
         <>
           <div>
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-2xs font-medium uppercase tracking-[0.06em] text-subtle">
-                参数
-              </span>
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-xs text-subtle">参数</span>
               {input !== null ? <CopyButton value={prettyJson(input)} label="复制参数" /> : null}
             </div>
             {input !== null ? (
@@ -427,10 +452,8 @@ function StepInspector({
             )}
           </div>
           <div>
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-2xs font-medium uppercase tracking-[0.06em] text-subtle">
-                结果
-              </span>
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-xs text-subtle">结果</span>
               {output !== null ? <CopyButton value={prettyJson(output)} label="复制结果" /> : null}
             </div>
             {output !== null ? (

@@ -1,102 +1,83 @@
-@import "@fontsource-variable/ibm-plex-sans";
-@import "@fontsource/ibm-plex-mono/400.css";
-@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 @import "tailwindcss";
 
 /*
- * PACE 视觉系统：校准台（Instrument Panel）。
+ * PACE 设计令牌。基准：https://www.openui.com/chat?form_factor=desktop
+ * 数值来自 CDP 读取的计算样式（见 docs/DESIGN-SYSTEM.md）。
  *
- * 两次否决的共同原因：只换了色相，没换语法。这一版的判断是——
- * 界面的职责是显示「什么正在发生」，而不是把数据装进卡片。
- *
- * 三条硬规则：
- * 1. 冷中性。与编辑器并排不发黄；层级靠明度差与 1px 线，不靠卡片与阴影。
- * 2. 全屏只有一个高饱和色（橙 #C2410C），只表示「正在发生」。
- *    空闲时整页是灰的——这一条同时回答「这是什么」和「此刻在做什么」。
- * 3. 测量值用等宽。数字、ID、耗时、成本不是文案，是读数。
- *
- * 组件只引用语义名，换视觉只改这里。
+ * 核心判断：这是**无彩度**体系。黑白灰承担全部层级，没有品牌色。
+ * 强调靠透明度与实底黑，不靠色相。
  */
 @theme {
-  /* 冷中性层级：canvas（画布）< panel（侧栏/表头）< surface（内容/弹层） */
-  --color-canvas: #f3f5f7;
-  --color-panel: #eaedf1;
-  --color-surface: #ffffff;
-  --color-sunken: #edf0f3;
+  /* 表面：页面暖白 < 外壳近白 < 悬停浅灰 */
+  --color-canvas: #f7f7f5;
+  --color-surface: #fefefd;
+  --color-panel: #fefefd;
+  --color-sunken: #f2f2f0;
+  --color-hover: rgb(15 15 15 / 0.04);
+  --color-chip: rgb(15 15 15 / 0.02);
 
-  /* 1px 线承担全部分区：line 常规，line-strong 交互边界 */
-  --color-line: #d9e0e6;
-  --color-line-strong: #aeb9c3;
+  /* 线与文本 */
+  --color-line: rgb(15 15 15 / 0.06);
+  --color-line-strong: rgb(15 15 15 / 0.12);
+  --color-fg: #0f0f0f;
+  --color-muted: rgb(15 15 15 / 0.6);
+  --color-subtle: rgb(15 15 15 / 0.38);
 
-  /* 文本：正文 17:1，次要 7.5:1，辅助 5:1 */
-  --color-fg: #12171c;
-  --color-muted: #4a545e;
-  --color-subtle: #667079;
+  /* 实底（主按钮、发送、选中） */
+  --color-ink: #0f0f0f;
+  --color-ink-hover: #262626;
 
-  /* 主按钮：墨色实底。橙不用于按钮，只属于运行态 */
-  --color-ink: #12171c;
-  --color-ink-hover: #2a333c;
-
-  /* 信号色：唯一的高饱和色 = 正在发生 */
-  --color-signal: #c2410c;
-  --color-signal-text: #9a3412;
-  --color-signal-soft: #fdf0e9;
-  --color-signal-line: #f0c4ab;
-
-  /* 状态：成功 / 警告 / 失败，均 ≥6:1 */
-  --color-success: #1e6b45;
-  --color-success-soft: #e6f2ec;
-  --color-success-line: #b6d7c5;
+  /* 状态：只用于小面积 */
+  --color-success: #1a7f4b;
+  --color-success-soft: #eaf4ee;
+  --color-success-line: #bfdccd;
   --color-warning: #8a5600;
-  --color-warning-soft: #fbf0dc;
-  --color-warning-line: #e5c999;
-  --color-danger: #a62b22;
-  --color-danger-soft: #fbeae8;
-  --color-danger-line: #e9bcb7;
+  --color-warning-soft: #fbf3e4;
+  --color-warning-line: #e8d2a8;
+  --color-danger: #b42318;
+  --color-danger-soft: #fcebe9;
+  --color-danger-line: #f0c2bd;
 
-  /* 代码：比画布更浅的冷灰，左侧 2px 线，不是黑框 */
-  --color-code: #f6f8fa;
-  --color-code-line: #e1e7ec;
-  --color-scrim: rgb(18 23 28 / 0.32);
-
-  /* 代码高亮：四类词法着色。浅色底上必须压深，不能用 *-300 系列。 */
+  /* 代码 */
+  --color-code: #f6f6f4;
+  --color-code-line: rgb(15 15 15 / 0.07);
   --color-code-key: #1f4fa8;
   --color-code-string: #1f6b47;
   --color-code-literal: #8a5a00;
   --color-code-number: #6b3fa0;
 
-  /*
-   * 字号阶梯。产品界面用固定 rem 尺度，不用 clamp：
-   * 用户在同一 DPI 下长期使用，流式字号只会在侧栏里显得更差。
-   * 11 / 12.5 / 13 / 14 是正文与读数的主档，其余只用于标签。
-   */
+  --color-scrim: rgb(15 15 15 / 0.32);
+
+  /* 圆角：随元素尺寸递增（实测值） */
+  --radius-shell: 16px;
+  --radius-card: 12px;
+  --radius-chip: 16px;
+  --radius-item: 9px;
+  --radius-icon: 7px;
+  --radius-tag: 6px;
+
+  --font-sans: "Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Geist Mono", monospace;
+
+  /* 字号：固定 rem，不用 clamp */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
   --text-xs: 0.75rem;
-  --text-xs--line-height: 1.05rem;
+  --text-xs--line-height: 1rem;
   --text-sm: 0.8125rem;
   --text-sm--line-height: 1.25rem;
   --text-base: 0.875rem;
   --text-base--line-height: 1.5rem;
-  --text-lg: 1.3125rem;
-  --text-lg--line-height: 1.75rem;
+  --text-md: 0.9375rem;
+  --text-md--line-height: 1.5rem;
+  --text-lg: 1.5rem;
+  --text-lg--line-height: 1.875rem;
 
-  --font-sans:
-    "IBM Plex Sans Variable", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
-    "Noto Sans SC", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-
-  /* 半径压到 2px：卡片圆角是「消费级」信号，仪器是方的 */
-  --radius-xs: 2px;
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 4px;
-  --radius-xl: 6px;
-
-  /* 只有浮层拥有阴影；平面元素没有 */
-  --shadow-overlay: 0 12px 32px -12px rgb(18 23 28 / 0.18);
-  --shadow-panel: none;
-  --shadow-raised: 0 1px 2px rgb(18 23 28 / 0.06);
+  /* 唯一带阴影的元素是输入框胶囊 */
+  --shadow-composer: 0 0 0 0.5px rgb(15 15 15 / 0.08), 0 4px 16px 0 rgb(15 15 15 / 0.06);
+  --shadow-overlay: 0 8px 24px -8px rgb(15 15 15 / 0.16);
 }
 
 @layer base {
@@ -109,26 +90,25 @@
   body {
     margin: 0;
     font-family: var(--font-sans);
-    font-size: 14px;
-    line-height: 1.55;
+    font-size: 15px;
+    line-height: 1.5;
     color: var(--color-fg);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
 
-  /* 读数：所有数字列、ID、耗时、成本 */
   .tabular {
     font-variant-numeric: tabular-nums;
   }
 
-  /* 焦点环用信号色：键盘用户看到的和「正在发生」是同一个颜色 */
+  /* 焦点用实底黑环：无彩度体系里，黑就是强调 */
   :focus-visible {
-    outline: 2px solid var(--color-signal);
+    outline: 2px solid var(--color-fg);
     outline-offset: 2px;
   }
 
   ::selection {
-    background-color: var(--color-signal-soft);
+    background-color: rgb(15 15 15 / 0.12);
     color: var(--color-fg);
   }
 
@@ -140,12 +120,12 @@
   ::-webkit-scrollbar-thumb {
     border: 3px solid transparent;
     border-radius: 9999px;
-    background-color: var(--color-line-strong);
+    background-color: rgb(15 15 15 / 0.16);
     background-clip: content-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: var(--color-muted);
+    background-color: rgb(15 15 15 / 0.32);
   }
 
   ::-webkit-scrollbar-track {
@@ -159,11 +139,10 @@
     z-index: 60;
     transition: transform 150ms ease;
     padding: 0.5rem 0.75rem;
-    border-radius: 2px;
+    border-radius: var(--radius-item);
     background-color: var(--color-ink);
     color: #fff;
     font-size: 14px;
-    font-weight: 500;
     transform: translateY(-200%);
   }
 
@@ -171,19 +150,19 @@
     transform: none;
   }
 
-  /* live 点：唯一被允许的循环动效，1.6s 呼吸 */
-  @keyframes pace-live {
+  /* 流式光标：唯一的循环动效 */
+  @keyframes pace-caret {
     0%,
     100% {
       opacity: 1;
     }
     50% {
-      opacity: 0.35;
+      opacity: 0;
     }
   }
 
-  .live-dot {
-    animation: pace-live 1.6s ease-in-out infinite;
+  .streaming-caret {
+    animation: pace-caret 1s step-end infinite;
   }
 
   @media (prefers-reduced-motion: reduce) {

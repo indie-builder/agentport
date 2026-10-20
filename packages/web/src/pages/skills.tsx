@@ -1,9 +1,9 @@
 import { type Skill, type SkillInput, skillInputSchema } from '@agentport/shared';
-import { Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { Page, PageHeader } from '../components/page.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { Page, PageHeader, PageNote } from '../components/page.js';
+import { ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
 import { FieldError, FieldHint, Input } from '../components/ui/input.js';
@@ -27,10 +27,15 @@ export function SkillsPage() {
     <Page>
       <PageHeader
         title="技能"
-        description="可复用的操作流程，渲染为 .claude/skills/<slug>/SKILL.md，供智能体按需读取。"
+        description="可复用的操作流程，渲染为 .claude/skills/<slug>/SKILL.md。"
         actions={
-          <Button ref={createButtonRef} size="sm" onClick={() => setCreating(true)}>
-            <Plus className="size-3.5" /> 新建技能
+          <Button
+            ref={createButtonRef}
+            size="sm"
+            className="rounded-full"
+            onClick={() => setCreating(true)}
+          >
+            <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建技能
           </Button>
         }
       />
@@ -40,60 +45,63 @@ export function SkillsPage() {
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
       ) : null}
       {skills.data && skills.data.length === 0 ? (
-        <EmptyState
-          icon={<Sparkles className="size-5" />}
+        <PageNote
+          icon={<Sparkles className="size-4" strokeWidth={1.75} aria-hidden="true" />}
           title="还没有技能"
           description="把重复出现的步骤写成技能，多个智能体可以共享它。"
           action={
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <Plus className="size-3.5" /> 新建技能
+            <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
+              <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建技能
             </Button>
           }
         />
       ) : null}
 
       {skills.data && skills.data.length > 0 ? (
-        <div className="grid border-t border-line md:grid-cols-2">
+        <ul className="-mt-3">
           {skills.data.map((skill) => (
-            <div
+            <li
               key={skill.id}
-              className="group border-b border-line py-3 pr-4 transition-colors hover:bg-sunken/50 md:[&:nth-child(odd)]:border-r md:[&:nth-child(odd)]:pr-5 md:[&:nth-child(even)]:pl-5"
+              className="group flex items-start gap-4 border-b border-line py-4 last:border-b-0"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-base font-medium text-fg">{skill.name}</div>
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    <code className="font-mono text-2xs text-subtle">{skill.slug}</code>
-                    <span className="text-2xs text-subtle">被 {skill.agentCount} 个智能体使用</span>
-                  </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="truncate text-md font-medium text-fg">{skill.name}</span>
+                  <code className="font-mono text-xs text-subtle">{skill.slug}</code>
+                  <span className="text-xs text-subtle">被 {skill.agentCount} 个智能体使用</span>
                 </div>
-                <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                  <Button variant="ghost" size="icon-sm" onClick={() => setEditing(skill)}>
-                    <span className="sr-only">编辑 {skill.name}</span>
-                    <Sparkles className="size-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setDeleting(skill)}
-                    className="hover:text-danger"
-                  >
-                    <span className="sr-only">删除 {skill.name}</span>
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-              </div>
-              <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted">
-                {skill.description || '（无描述）'}
-              </p>
-              {skill.body ? (
-                <p className="mt-2 line-clamp-2 border-t border-line/60 pt-2 text-2xs leading-relaxed text-subtle">
-                  {skill.body}
+                <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted">
+                  {skill.description || '（无描述）'}
                 </p>
-              ) : null}
-            </div>
+                {skill.body ? (
+                  <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-subtle">
+                    {skill.body}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-[7px]"
+                  onClick={() => setEditing(skill)}
+                >
+                  <span className="sr-only">编辑 {skill.name}</span>
+                  <Pencil className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-[7px] hover:text-danger"
+                  onClick={() => setDeleting(skill)}
+                >
+                  <span className="sr-only">删除 {skill.name}</span>
+                  <Trash2 className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                </Button>
+              </div>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : null}
 
       {creating ? (

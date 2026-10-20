@@ -1,6 +1,6 @@
 import { useDeferredValue, useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { Page, PageHeader } from '../components/page.js';
+import { Page, PageHeader, PageToolbar } from '../components/page.js';
 import { ErrorState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -103,11 +103,11 @@ export function AuditPage() {
     <Page>
       <PageHeader
         title="审计"
-        description="登录与配置变更的长期记录；输入内容只保存摘要，不落原文。"
         actions={
           <Button
             variant="outline"
             size="sm"
+            className="rounded-full"
             onClick={() => void audit.refetch()}
             disabled={audit.isFetching}
           >
@@ -116,22 +116,25 @@ export function AuditPage() {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <PageToolbar>
         <Input
           aria-label="按动作前缀过滤"
           placeholder="动作前缀，如 auth.login"
           value={action}
           onChange={(event) => setAction(event.target.value)}
-          className="w-56"
+          className="w-56 rounded-[9px]"
         />
         <Select
           aria-label="按状态过滤"
           value={status}
           onValueChange={(next) => setStatus(next as AuditStatus | 'all')}
-          className="w-32"
+          className="w-32 rounded-[9px]"
           options={statusOptions}
         />
-      </div>
+        <span className="ml-auto hidden text-xs text-subtle md:block">
+          登录与配置变更的长期记录；输入只保存摘要，不落原文。
+        </span>
+      </PageToolbar>
 
       {audit.isError ? (
         <ErrorState error={audit.error} onRetry={() => void audit.refetch()} />
@@ -145,20 +148,21 @@ export function AuditPage() {
             loading={audit.isPending}
             empty="还没有审计记录。登录或修改配置后，这里会自动出现对应事件。"
           />
-          <div className="mt-3 flex justify-center">
-            {audit.hasNextPage ? (
+          {audit.hasNextPage ? (
+            <div className="flex justify-center pt-2">
               <Button
                 variant="outline"
                 size="sm"
+                className="rounded-full"
                 disabled={audit.isFetchingNextPage}
                 onClick={() => void audit.fetchNextPage()}
               >
                 {audit.isFetchingNextPage ? '加载中…' : '加载更多'}
               </Button>
-            ) : rows.length > 0 ? (
-              <span className="text-xs text-subtle">已到末尾</span>
-            ) : null}
-          </div>
+            </div>
+          ) : rows.length > 0 ? (
+            <div className="pt-2 text-center text-xs text-subtle">已到末尾</div>
+          ) : null}
         </>
       )}
     </Page>

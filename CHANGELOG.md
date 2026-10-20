@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0] - 2026-10-21
+
+- 设计基准改为 https://www.openui.com/chat?form_factor=desktop，规范与实测值写入 `docs/DESIGN-SYSTEM.md`
+- 通过 ego-browser（CDP）读取参考页计算样式：外壳 16px 圆角、4px 外边距、输入胶囊 56px 高 / 28px 圆角 / 双层阴影、两行标题均 24px
+- 全站改为无彩度体系（黑白灰），移除品牌色；强调靠实底黑与透明度
+- 外壳重写为 16px 圆角白色容器；侧栏改为白底 310px，选中态为浅灰底
+- 对话页重写：24px 问候语 + 胶囊输入 + 建议卡，会话列表移入白底侧栏
+- 智能体 / Servers / 运行详情 / 运行 / 审计 / 健康 / 评估 / 技能 全部按新语言重排
+- shadcn CLI 真正接入（`components.json` + `tsconfig` 路径别名 + vite alias），新增 sheet/scroll-area/separator/tooltip/dropdown-menu
+- 字体换成 Inter + JetBrains Mono；图标统一 lucide 1.75
+- 项目规则新增设计基准与无彩度约束
+
 ## [0.11.0] - 2026-10-21
 
 - 对话页按新交互模型重写：状态条、单行工具、子智能体分组、原位审批、失败后恢复路径

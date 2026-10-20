@@ -32,11 +32,18 @@ import {
   Upload,
 } from 'lucide-react';
 import * as DropdownMenuPrimitive from 'radix-ui/dropdown-menu';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ComponentProps,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { Page, PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
@@ -193,50 +200,59 @@ export function AgentsPage() {
     (agents.data ?? []).find((agent) => agent.id === selectedId) ?? filtered[0] ?? null;
 
   return (
-    <Page>
-      <PageHeader
-        title="智能体"
-        description="文件式定义：每个智能体渲染为 .mcp.json、CLAUDE.md 与 agent md，由沙盒在运行时装配。"
-        actions={
-          <div className="flex items-center gap-2">
-            <input
-              ref={fileInput}
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = '';
-                if (file) void importFile(file);
-              }}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={importing}
-              aria-busy={importing}
-              onClick={() => fileInput.current?.click()}
-            >
-              <Upload className="size-3.5" /> {importing ? '导入中…' : '导入'}
-            </Button>
-            <Button ref={createButtonRef} size="sm" onClick={() => setCreating(true)}>
-              <Plus className="size-3.5" /> 新建智能体
-            </Button>
-          </div>
-        }
-      />
+    <div>
+      <div className="flex h-14 items-center gap-3 border-b border-line">
+        <h1 className="min-w-0 truncate text-md font-medium text-fg">智能体</h1>
+        <span className="font-mono text-xs tabular-nums text-subtle">
+          {agents.data?.length ?? 0}
+        </span>
+        <div className="ml-auto flex items-center gap-1">
+          <input
+            ref={fileInput}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (file) void importFile(file);
+            }}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 rounded-full px-3"
+            disabled={importing}
+            aria-busy={importing}
+            onClick={() => fileInput.current?.click()}
+          >
+            <Upload className="size-4" strokeWidth={1.75} /> {importing ? '导入中…' : '导入'}
+          </Button>
+          <Button
+            ref={createButtonRef}
+            size="sm"
+            className="h-8 rounded-full px-3.5"
+            onClick={() => setCreating(true)}
+          >
+            <Plus className="size-4" strokeWidth={1.75} /> 新建智能体
+          </Button>
+        </div>
+      </div>
 
-      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <div className="min-w-0">
+      <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
+        <div className="min-w-0 py-3 pr-5 lg:border-r lg:border-line">
           <div className="relative mb-2">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
-            <Input
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle"
+              strokeWidth={1.75}
+            />
+            <LineInput
               type="search"
               aria-label="搜索智能体"
               placeholder="搜索名称或 slug…"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              className="pl-8"
+              className="h-9 rounded-[9px] pl-9"
             />
           </div>
 
@@ -260,20 +276,18 @@ export function AgentsPage() {
             <p className="px-1 py-6 text-center text-xs text-subtle">没有匹配的智能体。</p>
           ) : null}
 
-          <ul className="space-y-0.5" aria-label="智能体列表">
+          <ul aria-label="智能体列表">
             {filtered.map((agent) => {
               const active = selected?.id === agent.id;
               return (
-                <li key={agent.id}>
+                <li key={agent.id} className="border-b border-line last:border-b-0">
                   <button
                     type="button"
                     aria-current={active ? 'true' : undefined}
                     onClick={() => selectAgent(agent.id)}
                     className={cn(
-                      'group flex w-full items-center gap-2 rounded-[2px] px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal',
-                      active
-                        ? 'bg-signal-soft text-fg'
-                        : 'text-muted hover:bg-sunken hover:text-fg',
+                      'flex h-14 w-full items-center gap-3 rounded-[9px] px-2.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none',
+                      active ? 'bg-hover' : '',
                     )}
                   >
                     <span
@@ -284,12 +298,12 @@ export function AgentsPage() {
                       aria-hidden="true"
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-base font-medium">{agent.name}</span>
+                      <span className="block truncate text-base text-fg">{agent.name}</span>
                       <span className="block truncate font-mono text-2xs text-subtle">
                         {agent.slug}
                       </span>
                     </span>
-                    <span className="text-2xs tabular-nums text-subtle">
+                    <span className="font-mono text-2xs tabular-nums text-subtle">
                       {agent.serverIds.length}
                     </span>
                   </button>
@@ -299,7 +313,7 @@ export function AgentsPage() {
           </ul>
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:pl-6">
           {selected ? (
             <AgentEditor
               key={selected.id}
@@ -310,9 +324,7 @@ export function AgentsPage() {
           ) : agents.data && agents.data.length > 0 ? (
             <EmptyState title="选择一个智能体" description="从左侧列表选择以查看和编辑配置。" />
           ) : (
-            <div className="rounded-[3px] border border-dashed border-line-strong/70 px-6 py-16 text-center text-sm text-muted">
-              新建智能体后在这里编辑。
-            </div>
+            <p className="py-16 text-center text-sm text-subtle">新建智能体后在这里编辑。</p>
           )}
         </div>
       </div>
@@ -350,7 +362,7 @@ export function AgentsPage() {
           if (selectedId === deleting.id) setSelectedId(null);
         }}
       />
-    </Page>
+    </div>
   );
 }
 
@@ -386,6 +398,17 @@ const errorSections: Record<string, SectionId> = {
 /** 字段 → 落盘位置。仅运行时字段由 workspace.ts 证实在 renderWorkspace 之外。 */
 function FileTag({ children }: { children: ReactNode }) {
   return <span className="shrink-0 font-mono text-2xs text-subtle">{children}</span>;
+}
+
+/** 输入 36px / radius 9：表单密度跟着设计基准走，而不是沿用表格控件。 */
+function LineInput({ className, ...props }: ComponentProps<'input'>) {
+  return <Input className={cn('h-9 rounded-[9px] px-3', className)} {...props} />;
+}
+
+function CodeArea({ className, ...props }: ComponentProps<'textarea'>) {
+  return (
+    <Textarea className={cn('rounded-[9px] px-3 py-2 leading-relaxed', className)} {...props} />
+  );
 }
 
 function RuntimeTag() {
@@ -636,42 +659,43 @@ function AgentEditor({
   };
 
   return (
-    <div className="min-w-0 space-y-3">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line pb-3">
+    <div className="min-w-0">
+      <div className="flex h-14 items-center gap-2.5">
         <button
           type="button"
           role="switch"
           aria-checked={form.enabled}
           aria-label="启用智能体"
+          title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
           onClick={() => set('enabled', !form.enabled)}
-          className="inline-flex items-center gap-2 rounded-[2px] px-1 py-1 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          className="inline-flex items-center gap-2 rounded-[9px] p-1 text-xs text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
         >
           <span
             className={cn(
-              'inline-flex h-4 w-7 items-center rounded-full transition-colors',
+              'inline-flex h-[18px] w-8 items-center rounded-full transition-colors',
               form.enabled ? 'bg-ink' : 'bg-line-strong',
             )}
             aria-hidden="true"
           >
             <span
               className={cn(
-                'size-3 rounded-full bg-surface transition-transform',
-                form.enabled ? 'translate-x-3.5' : 'translate-x-0.5',
+                'size-3.5 rounded-full bg-surface transition-transform',
+                form.enabled ? 'translate-x-4' : 'translate-x-0.5',
               )}
             />
           </span>
           {form.enabled ? '已启用' : '已停用'}
         </button>
-        <span className="font-mono text-2xs text-subtle">{agent.slug}</span>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1.5">
           {dirty ? (
-            <span className="inline-flex items-center gap-1 text-2xs text-warning">
+            <span className="mr-1 inline-flex items-center gap-1.5 text-2xs text-warning">
               <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
-              有未保存的更改
+              未保存
             </span>
           ) : null}
           <Button
             size="sm"
+            className="h-8 rounded-full px-3.5"
             disabled={!dirty || update.isPending || allowedInvalid || thinkingInvalid}
             aria-busy={update.isPending}
             onClick={save}
@@ -682,38 +706,45 @@ function AgentEditor({
               '保存更改'
             ) : (
               <>
-                <Check className="size-3.5" /> 已保存
+                <Check className="size-3.5" strokeWidth={1.75} /> 已保存
               </>
             )}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
-            <History className="size-3.5" /> 版本历史
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="版本历史"
+            title="版本历史"
+            onClick={() => setHistoryOpen(true)}
+          >
+            <History className="size-4" strokeWidth={1.75} />
           </Button>
           <DropdownMenuPrimitive.Root>
             <DropdownMenuPrimitive.Trigger asChild>
               <Button variant="ghost" size="icon-sm" aria-label="更多操作">
-                <Ellipsis className="size-4" />
+                <Ellipsis className="size-4" strokeWidth={1.75} />
               </Button>
             </DropdownMenuPrimitive.Trigger>
             <DropdownMenuPrimitive.Portal>
               <DropdownMenuPrimitive.Content
                 align="end"
                 sideOffset={4}
-                className="z-50 min-w-36 rounded-[2px] border border-line bg-surface p-1 shadow-overlay"
+                className="z-50 min-w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
               >
                 <DropdownMenuPrimitive.Item
                   disabled={exporting}
                   onSelect={() => void download()}
                   className={menuItemClass}
                 >
-                  <Download className="size-3.5" /> {exporting ? '导出中…' : '导出 JSON'}
+                  <Download className="size-4" strokeWidth={1.75} />{' '}
+                  {exporting ? '导出中…' : '导出 JSON'}
                 </DropdownMenuPrimitive.Item>
                 <DropdownMenuPrimitive.Separator className="my-1 h-px bg-line" />
                 <DropdownMenuPrimitive.Item
                   onSelect={onDelete}
                   className={cn(menuItemClass, 'text-danger data-[highlighted]:bg-danger-soft')}
                 >
-                  <Trash2 className="size-3.5" /> 删除智能体
+                  <Trash2 className="size-4" strokeWidth={1.75} /> 删除智能体
                 </DropdownMenuPrimitive.Item>
               </DropdownMenuPrimitive.Content>
             </DropdownMenuPrimitive.Portal>
@@ -725,6 +756,7 @@ function AgentEditor({
         label="智能体编辑视图"
         value={tab}
         onChange={setTab}
+        size="sm"
         items={[
           { value: 'config', label: '配置' },
           { value: 'files', label: '完整文件' },
@@ -741,7 +773,7 @@ function AgentEditor({
         >
           <nav
             aria-label="配置分区"
-            className="sticky top-[52px] z-20 -mx-1 flex gap-1 overflow-x-auto border-b border-line bg-canvas/95 px-1 py-2 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="sticky top-0 z-20 flex gap-0.5 overflow-x-auto border-b border-line bg-surface/95 py-1.5 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             {sectionItems.map((item) => (
               <button
@@ -751,14 +783,14 @@ function AgentEditor({
                   setOpenSections((current) => ({ ...current, [item.id]: true }));
                   document.getElementById(`agent-${item.id}`)?.scrollIntoView({ block: 'start' });
                 }}
-                className="shrink-0 rounded-[2px] px-2 py-1 font-mono text-2xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                className="shrink-0 rounded-[9px] px-2.5 py-1 text-sm text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
               >
                 {item.label}
               </button>
             ))}
           </nav>
 
-          <div className="space-y-6 pt-5">
+          <div className="pt-2">
             <Section
               id="identity"
               title="身份"
@@ -777,7 +809,7 @@ function AgentEditor({
                     </Label>
                     <FileTag>→ CLAUDE.md</FileTag>
                   </div>
-                  <Input
+                  <LineInput
                     id="agent-name"
                     value={form.name}
                     aria-invalid={Boolean(errors.name)}
@@ -791,7 +823,7 @@ function AgentEditor({
                     <Label htmlFor="agent-slug">Slug</Label>
                     <FileTag>→ 工作区目录名</FileTag>
                   </div>
-                  <Input
+                  <LineInput
                     id="agent-slug"
                     value={form.slug}
                     className="font-mono"
@@ -807,7 +839,7 @@ function AgentEditor({
                     <Label htmlFor="agent-desc">描述</Label>
                     <FileTag>→ .claude/agents/&lt;slug&gt;.md · description</FileTag>
                   </div>
-                  <Input
+                  <LineInput
                     id="agent-desc"
                     value={form.description}
                     placeholder="一句话说明它擅长什么"
@@ -831,7 +863,7 @@ function AgentEditor({
                   <Label htmlFor="agent-prompt">系统提示词</Label>
                   <FileTag>→ CLAUDE.md</FileTag>
                 </div>
-                <Textarea
+                <CodeArea
                   id="agent-prompt"
                   rows={16}
                   value={form.systemPrompt}
@@ -849,7 +881,7 @@ function AgentEditor({
                     <Label htmlFor="agent-model">模型</Label>
                     <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
                   </div>
-                  <Input
+                  <LineInput
                     id="agent-model"
                     list="agent-models"
                     value={form.model}
@@ -899,8 +931,9 @@ function AgentEditor({
               <div className="divide-y divide-line border-y border-line">
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                      <Plug className="size-3.5 text-subtle" aria-hidden="true" /> MCP Servers
+                    <h3 className="flex items-center gap-1.5 text-xs text-muted">
+                      <Plug className="size-4 text-subtle" strokeWidth={1.75} aria-hidden="true" />{' '}
+                      MCP Servers
                       <FileTag>→ .mcp.json · mcpServers.&lt;name&gt;</FileTag>
                     </h3>
                     <span className="font-mono text-2xs tabular-nums text-subtle">
@@ -935,8 +968,13 @@ function AgentEditor({
 
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                      <Sparkles className="size-3.5 text-subtle" aria-hidden="true" /> 技能
+                    <h3 className="flex items-center gap-1.5 text-xs text-muted">
+                      <Sparkles
+                        className="size-4 text-subtle"
+                        strokeWidth={1.75}
+                        aria-hidden="true"
+                      />{' '}
+                      技能
                       <FileTag>→ .claude/skills/&lt;slug&gt;/SKILL.md</FileTag>
                     </h3>
                     <span className="font-mono text-2xs tabular-nums text-subtle">
@@ -975,8 +1013,9 @@ function AgentEditor({
 
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                      <Bot className="size-3.5 text-subtle" aria-hidden="true" /> 子智能体
+                    <h3 className="flex items-center gap-1.5 text-xs text-muted">
+                      <Bot className="size-4 text-subtle" strokeWidth={1.75} aria-hidden="true" />{' '}
+                      子智能体
                       <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
                     </h3>
                     <span className="font-mono text-2xs tabular-nums text-subtle">
@@ -1021,7 +1060,7 @@ function AgentEditor({
                 setOpenSections((current) => ({ ...current, permissions: !current.permissions }))
               }
             >
-              <p className="rounded-[2px] border border-warning-line bg-warning-soft px-3 py-2 text-2xs leading-relaxed text-warning">
+              <p className="rounded-[9px] bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
                 放行内置工具会扩大攻击面：Bash、文件写入和网络访问都绕过沙盒的只读约定。
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -1032,6 +1071,7 @@ function AgentEditor({
                   </div>
                   <Select
                     id="agent-perm"
+                    className="h-9 rounded-[9px]"
                     value={form.permissionMode}
                     onValueChange={(next) =>
                       set('permissionMode', next as AgentInput['permissionMode'])
@@ -1052,7 +1092,7 @@ function AgentEditor({
                     <Label htmlFor="agent-allowed-tools">自定义允许的工具</Label>
                     <FileTag>→ agent md · tools</FileTag>
                   </div>
-                  <Textarea
+                  <CodeArea
                     id="agent-allowed-tools"
                     rows={3}
                     value={allowedText}
@@ -1079,9 +1119,7 @@ function AgentEditor({
 
               <div>
                 <div className="mb-2 flex items-baseline justify-between gap-2">
-                  <span className="text-2xs font-medium uppercase tracking-wider text-subtle">
-                    内置工具
-                  </span>
+                  <span className="text-xs text-subtle">内置工具</span>
                   <FileTag>→ agent md · tools / disallowedTools</FileTag>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -1105,10 +1143,10 @@ function AgentEditor({
                               : '已禁用：点击放行'
                         }
                         className={cn(
-                          'rounded-[2px] border px-2 py-1 font-mono text-2xs transition-colors',
+                          'rounded-[6px] px-2 py-1 font-mono text-2xs transition-colors',
                           enabled
-                            ? 'border-warning-line bg-warning-soft text-warning'
-                            : 'border-line bg-sunken text-subtle hover:text-muted',
+                            ? 'bg-warning-soft text-warning'
+                            : 'bg-chip text-subtle hover:bg-hover hover:text-muted',
                           fixed && 'cursor-default opacity-80',
                         )}
                       >
@@ -1143,7 +1181,7 @@ function AgentEditor({
                     <Label htmlFor="agent-turns">最大轮次</Label>
                     <FileTag>→ agent md · maxTurns</FileTag>
                   </div>
-                  <Input
+                  <LineInput
                     id="agent-turns"
                     type="number"
                     min={1}
@@ -1160,7 +1198,7 @@ function AgentEditor({
                     <Label htmlFor="agent-budget">预算上限 (USD)</Label>
                     <RuntimeTag />
                   </div>
-                  <Input
+                  <LineInput
                     id="agent-budget"
                     type="number"
                     min={0.01}
@@ -1178,7 +1216,7 @@ function AgentEditor({
                     <Label htmlFor="agent-timeout">超时 (毫秒)</Label>
                     <RuntimeTag />
                   </div>
-                  <Input
+                  <LineInput
                     id="agent-timeout"
                     type="number"
                     min={1000}
@@ -1196,7 +1234,7 @@ function AgentEditor({
                     <Label htmlFor="agent-thinking">最大思考 tokens</Label>
                     <RuntimeTag />
                   </div>
-                  <Input
+                  <LineInput
                     id="agent-thinking"
                     type="number"
                     min={1}
@@ -1255,7 +1293,7 @@ function AgentEditor({
 }
 
 const menuItemClass =
-  'flex cursor-pointer select-none items-center gap-2 rounded-[2px] px-2 py-1.5 text-xs text-fg outline-none data-[highlighted]:bg-sunken';
+  'flex cursor-pointer select-none items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-sm text-fg outline-none data-[highlighted]:bg-hover';
 
 function Section({
   id,
@@ -1277,7 +1315,7 @@ function Section({
     <section
       id={`agent-${id}`}
       aria-labelledby={`agent-${id}-heading`}
-      className="scroll-mt-[7rem] border-t border-line pt-4 first:border-t-0 first:pt-0"
+      className="scroll-mt-24 border-t border-line py-1 first:border-t-0"
     >
       <h2>
         <button
@@ -1286,23 +1324,24 @@ function Section({
           aria-expanded={open}
           aria-controls={bodyId}
           onClick={onToggle}
-          className="flex w-full items-center gap-2 rounded-[2px] text-left text-xs font-semibold uppercase tracking-[0.06em] text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          className="flex w-full items-center gap-1.5 rounded-[7px] py-2.5 text-left text-xs text-subtle transition-colors hover:text-fg focus-visible:outline-none"
         >
           <ChevronRight
             className={cn(
               'size-3.5 shrink-0 text-subtle transition-transform',
               open && 'rotate-90',
             )}
+            strokeWidth={1.75}
             aria-hidden="true"
           />
           {title}
-          <span className="ml-auto max-w-[60%] truncate font-mono text-2xs font-normal normal-case tracking-normal text-subtle">
+          <span className="ml-auto max-w-[60%] truncate font-mono text-2xs tabular-nums text-subtle">
             {summary}
           </span>
         </button>
       </h2>
       {/* 折叠时保留 DOM（hidden）：收起分区里的校验错误仍能被 aria-describedby 找到。 */}
-      <div id={bodyId} hidden={!open} className="mt-4 space-y-4">
+      <div id={bodyId} hidden={!open} className="space-y-4 pb-5">
         {children}
       </div>
     </section>
@@ -1312,16 +1351,17 @@ function Section({
 /** 草稿预览：折叠在表单里，内容随表单实时变化。 */
 function DraftPreview({ title, code }: { title: string; code: string }) {
   return (
-    <details className="group rounded-[2px] border border-line bg-code">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-1.5 text-2xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal">
+    <details className="group rounded-[9px] border border-line">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2.5 text-xs text-muted transition-colors hover:text-fg">
         <ChevronRight
-          className="size-3 shrink-0 text-subtle transition-transform group-open:rotate-90"
+          className="size-3.5 shrink-0 text-subtle transition-transform group-open:rotate-90"
+          strokeWidth={1.75}
           aria-hidden="true"
         />
         {title}
         <span className="ml-auto font-mono text-2xs text-subtle">草稿 · 实时</span>
       </summary>
-      <div className="border-t border-code-line p-2">
+      <div className="border-t border-line p-2">
         <CodeBlock code={code} maxHeight="22rem" />
       </div>
     </details>
@@ -1416,7 +1456,7 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
 
   return (
     <div className="space-y-3">
-      <p className="rounded-[2px] border border-line bg-sunken/50 px-3 py-2 text-2xs leading-relaxed text-muted">
+      <p className="rounded-[9px] bg-chip px-3 py-2 text-xs leading-relaxed text-muted">
         密钥在运行时注入，此处显示为占位符。
         {dirty ? ' 这里是上次保存后的完整文件；编辑中的草稿请回「配置」看内联预览。' : ''}
       </p>
@@ -1427,7 +1467,7 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
         items={fileTabs.map(([value, label, Icon]) => ({
           value,
           label,
-          icon: <Icon className="size-3.5" />,
+          icon: <Icon className="size-4" strokeWidth={1.75} />,
         }))}
       />
       {files.isPending ? <LoadingState rows={6} /> : null}
@@ -1438,11 +1478,11 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
         <CodeBlock key={active[0]} code={content} lineNumbers maxHeight="calc(100vh - 22rem)" />
       ) : null}
       {!disabled && !content ? (
-        <p className="rounded-[3px] border border-dashed border-line px-4 py-8 text-center text-xs text-subtle">
+        <p className="py-8 text-center text-xs text-subtle">
           该文件当前为空。保存配置后会自动生成内容。
         </p>
       ) : null}
-      <p className="text-2xs text-subtle">
+      <p className="py-2 text-2xs text-subtle">
         主智能体自己的 agent md 仅供预览、不落盘；路径{' '}
         <code className="font-mono">data/workspaces/{'{slug}'}/</code>
       </p>
@@ -1515,7 +1555,7 @@ function VersionHistory({
         <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
       ) : null}
       {versions.data && versions.data.length === 0 ? (
-        <p className="rounded-[3px] border border-dashed border-line px-4 py-8 text-center text-xs text-subtle">
+        <p className="py-8 text-center text-xs text-subtle">
           还没有版本记录。修改配置并保存后，这里会留下第一份快照。
         </p>
       ) : null}
@@ -1582,12 +1622,14 @@ function VersionRow({
               v{item.version}
             </span>
             {item.note ? (
-              <span className="truncate rounded bg-sunken px-1.5 py-0.5 text-2xs text-muted">
+              <span className="truncate rounded-[6px] bg-chip px-1.5 py-0.5 text-2xs text-muted">
                 {item.note}
               </span>
             ) : null}
           </div>
-          <div className="mt-0.5 text-2xs text-subtle">{formatDateTime(item.createdAt)}</div>
+          <div className="mt-0.5 font-mono text-2xs tabular-nums text-subtle">
+            {formatDateTime(item.createdAt)}
+          </div>
         </div>
         <div className="flex items-center gap-1.5">
           <Button
@@ -1597,13 +1639,14 @@ function VersionRow({
             onClick={() => setOpen((value) => !value)}
           >
             <ChevronRight
-              className={cn('size-3.5 transition-transform', open && 'rotate-90')}
+              className={cn('size-4 transition-transform', open && 'rotate-90')}
+              strokeWidth={1.75}
               aria-hidden="true"
             />
             {open ? '收起差异' : '查看差异'}
           </Button>
-          <Button variant="outline" size="sm" onClick={onRollback}>
-            <RotateCcw className="size-3.5" /> 回滚
+          <Button variant="outline" size="sm" className="rounded-full" onClick={onRollback}>
+            <RotateCcw className="size-4" strokeWidth={1.75} /> 回滚
           </Button>
         </div>
       </div>
@@ -1617,7 +1660,7 @@ function VersionRow({
             <p className="text-2xs text-subtle">与当前配置一致。</p>
           ) : null}
           {diff && diff.length > 0 ? (
-            <ul className="divide-y divide-line rounded-[2px] border border-line bg-surface px-2.5">
+            <ul className="divide-y divide-line border-y border-line">
               {diff.map((entry) => (
                 <li
                   key={entry.label}
@@ -1694,7 +1737,7 @@ function CreateAgentDialog({
               Slug
               <RequiredMark />
             </Label>
-            <Input
+            <LineInput
               id="new-agent-slug"
               value={form.slug}
               placeholder="support-bot"
@@ -1713,7 +1756,7 @@ function CreateAgentDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="new-agent-name">名称</Label>
-            <Input
+            <LineInput
               id="new-agent-name"
               value={form.name}
               placeholder="客服助手"
@@ -1732,7 +1775,7 @@ function CreateAgentDialog({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="new-agent-prompt">系统提示词</Label>
-          <Textarea
+          <CodeArea
             id="new-agent-prompt"
             rows={5}
             className="font-mono text-xs"
@@ -1744,7 +1787,13 @@ function CreateAgentDialog({
           <Button variant="ghost" size="sm" onClick={onClose}>
             取消
           </Button>
-          <Button type="submit" size="sm" disabled={create.isPending} aria-busy={create.isPending}>
+          <Button
+            type="submit"
+            size="sm"
+            className="rounded-full px-3.5"
+            disabled={create.isPending}
+            aria-busy={create.isPending}
+          >
             {create.isPending ? '创建中…' : '创建'}
           </Button>
         </div>

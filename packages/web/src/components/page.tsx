@@ -2,12 +2,11 @@ import type { ReactNode } from 'react';
 import { cn } from '../lib/cn.js';
 
 /**
- * 页面骨架（校准台版本）。
+ * 页面骨架（OpenUI 参考页版本）。
  *
- * 与前两版的差别不只是间距数字：
- * - 不再把内容装进卡片；区块之间用通栏 1px 线分隔，标题贴在线上。
- * - 页头右侧可以放读数（TelemetryReadout），而不是一排按钮。
- * - 节奏固定：页头下 24px，区块之间 28px，区块标题与内容 12px。
+ * 结构由 1px 线与留白承担，而不是卡片：
+ * - 页头只有一行（≤56px）：名称 + 右侧读数/操作，描述仅在带真实信息时出现。
+ * - 区块之间 28px 留白，顶部分隔线；标题用小字号 + 颜色分层。
  */
 
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
@@ -29,32 +28,29 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <div className={cn('flex flex-wrap items-start justify-between gap-4', className)}>
-      <div className="min-w-0 flex-1">
-        <h1 className="text-lg font-semibold leading-7 tracking-[-0.01em] text-fg">{title}</h1>
-        {description ? (
-          <p className="mt-1 max-w-[72ch] text-sm leading-[18px] text-muted">{description}</p>
-        ) : null}
+    <div className={cn('flex min-h-14 flex-wrap items-center gap-x-4 gap-y-2', className)}>
+      <h1 className="shrink-0 text-[16px] font-medium leading-6 tracking-[-0.01em] text-fg">
+        {title}
+      </h1>
+      {description ? (
+        <p className="hidden min-w-0 max-w-[60ch] truncate text-sm text-muted md:block">
+          {description}
+        </p>
+      ) : null}
+      <div className="ml-auto flex items-center gap-6">
+        {meta ? <div className="flex flex-wrap items-center gap-6">{meta}</div> : null}
+        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      {meta ? <div className="flex shrink-0 items-start gap-8">{meta}</div> : null}
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
   );
 }
 
-/** 工具条：筛选、搜索、视图切换。与内容同宽，贴在下一条分隔线上。 */
+/** 工具条：筛选、搜索。与内容同宽，不画边框，靠页头下方的留白分隔。 */
 export function PageToolbar({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={cn('flex flex-wrap items-center gap-2 border-b border-line pb-3', className)}>
-      {children}
-    </div>
-  );
+  return <div className={cn('-mt-3 flex flex-wrap items-center gap-2', className)}>{children}</div>;
 }
 
-/**
- * 区块：标题贴在分隔线上方，内容不带卡片。
- * 这是校准台的核心动作——用线组织，而不是用盒子。
- */
+/** 区块：顶部分隔线 + 28px 留白；内容不带卡片。 */
 export function PageSection({
   title,
   description,
@@ -73,16 +69,14 @@ export function PageSection({
 }) {
   return (
     <section
-      className={cn('flex flex-col gap-3', divided && 'border-t border-line pt-5', className)}
+      className={cn('flex flex-col gap-4', divided && 'border-t border-line pt-7', className)}
     >
-      {title || actions ? (
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div className="min-w-0">
-            {title ? (
-              <h2 className="text-xs font-semibold uppercase tracking-[0.06em] text-fg">{title}</h2>
-            ) : null}
+      {title || actions || description ? (
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            {title ? <h2 className="text-sm font-medium text-fg">{title}</h2> : null}
             {description ? (
-              <p className="mt-1 text-xs leading-relaxed text-subtle">{description}</p>
+              <p className="min-w-0 truncate text-sm text-subtle">{description}</p>
             ) : null}
           </div>
           {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
@@ -93,37 +87,32 @@ export function PageSection({
   );
 }
 
-/** 兼容旧调用。 */
-export function SectionHeader({ title, actions }: { title: string; actions?: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.06em] text-fg">{title}</h2>
-      {actions}
-    </div>
-  );
-}
-
-/** 键值对：右栏详情与检查器里的统一排版。 */
-export function KeyValue({
-  label,
-  children,
-  mono,
+/** 行内状态：空、加载失败或说明。放在线上，不装进卡片。 */
+export function PageNote({
+  title,
+  description,
+  action,
+  icon,
+  tone = 'default',
 }: {
-  label: string;
-  children: ReactNode;
-  mono?: boolean;
+  title: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
+  icon?: ReactNode;
+  tone?: 'default' | 'danger';
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-line py-1.5 last:border-0">
-      <span className="shrink-0 text-xs text-subtle">{label}</span>
-      <span
-        className={cn(
-          'min-w-0 break-all text-right text-xs text-fg',
-          mono && 'font-mono tabular-nums',
-        )}
-      >
-        {children}
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y border-line py-6 text-sm">
+      {icon ? (
+        <span className={cn('shrink-0', tone === 'danger' ? 'text-danger' : 'text-subtle')}>
+          {icon}
+        </span>
+      ) : null}
+      <span className={cn('font-medium', tone === 'danger' ? 'text-danger' : 'text-fg')}>
+        {title}
       </span>
+      {description ? <span className="min-w-0 text-muted">{description}</span> : null}
+      {action ? <div className="ml-auto shrink-0">{action}</div> : null}
     </div>
   );
 }
@@ -140,14 +129,13 @@ export function Readout({
 }) {
   return (
     <div className="flex items-baseline gap-1.5">
-      <span className="text-2xs text-subtle">{label}</span>
+      <span className="text-xs text-subtle">{label}</span>
       <span
         className={cn(
-          'font-mono text-xs tabular-nums',
+          'font-mono text-sm tabular-nums',
           tone === 'danger' && 'text-danger',
           tone === 'success' && 'text-success',
-          tone === 'signal' && 'text-signal-text',
-          (!tone || tone === 'default') && 'text-fg',
+          (!tone || tone === 'default' || tone === 'signal') && 'text-fg',
         )}
       >
         {value}

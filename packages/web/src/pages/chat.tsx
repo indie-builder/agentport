@@ -1,8 +1,8 @@
 import { chatEventSchema } from '@agentport/shared';
 import { Link } from '@tanstack/react-router';
 import {
-  Activity,
   ArrowDown,
+  ArrowUp,
   Bot,
   Check,
   ChevronDown,
@@ -13,16 +13,14 @@ import {
   MessageSquare,
   Plus,
   RefreshCw,
-  Send,
   Wrench,
   X,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CodeBlock, CollapsibleText, JsonBlock } from '../components/code-block.js';
-import { Readout } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
+import { Button } from '../components/ui/button.js';
 import { Textarea } from '../components/ui/textarea.js';
 import {
   type ApprovalRequest,
@@ -434,17 +432,19 @@ function ChatWorkspace({
   const lastAgentRun = recentRuns.data?.items.find((item) => item.agentId === agentId) ?? null;
 
   return (
-    <div className="relative flex h-full min-h-0 gap-4">
+    <div className="flex h-full min-h-0">
       <h1 className="sr-only">对话</h1>
+
+      {/* 会话列表：参考页的侧栏形态——白底、行高 36、圆角 9、悬停浅灰。 */}
       <aside
         className={cn(
-          'flex w-64 shrink-0 flex-col overflow-hidden rounded-[2px] border border-line bg-surface',
-          historyOpen ? 'absolute inset-y-4 left-4 z-20 shadow-overlay' : 'hidden lg:flex',
+          'flex w-[280px] shrink-0 flex-col overflow-hidden border-r border-line bg-surface',
+          historyOpen ? 'absolute inset-y-0 left-0 z-20 shadow-overlay' : 'hidden lg:flex',
         )}
         aria-label="会话历史"
       >
-        <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
-          <span className="text-base font-semibold text-fg">会话</span>
+        <div className="flex h-14 items-center gap-2 px-3">
+          <span className="text-sm font-medium text-fg">会话</span>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -452,7 +452,7 @@ function ChatWorkspace({
             className="ml-auto"
             onClick={newConversation}
           >
-            <Plus className="size-3.5" />
+            <Plus className="size-4" strokeWidth={1.75} />
           </Button>
           <Button
             variant="ghost"
@@ -461,19 +461,17 @@ function ChatWorkspace({
             className="lg:hidden"
             onClick={() => setHistoryOpen(false)}
           >
-            <X className="size-3.5" />
+            <X className="size-4" strokeWidth={1.75} />
           </Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           {conversations.isPending ? <LoadingState rows={4} /> : null}
           {conversations.isError ? (
             <ErrorState error={conversations.error} onRetry={() => void conversations.refetch()} />
           ) : null}
           {history.length === 0 && !conversations.isPending ? (
-            <p className="px-2 py-6 text-center text-2xs leading-relaxed text-subtle">
-              还没有会话。
-              <br />
-              发送第一条消息即可开始。
+            <p className="px-2 py-6 text-xs leading-relaxed text-subtle">
+              还没有会话。发送第一条消息即可开始。
             </p>
           ) : null}
           <ul className="space-y-0.5">
@@ -484,14 +482,14 @@ function ChatWorkspace({
                   aria-current={conversation.id === conversationId ? 'true' : undefined}
                   onClick={() => openConversation(conversation.id)}
                   className={cn(
-                    'w-full rounded-[2px] px-2 py-1.5 pr-8 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal',
+                    'w-full rounded-[9px] px-2.5 py-2 pr-8 text-left transition-colors focus-visible:outline-none',
                     conversation.id === conversationId
-                      ? 'bg-signal-soft text-fg'
-                      : 'text-muted hover:bg-sunken hover:text-fg',
+                      ? 'bg-hover text-fg'
+                      : 'text-muted hover:bg-hover hover:text-fg',
                   )}
                 >
-                  <span className="block truncate text-xs">{conversation.title}</span>
-                  <span className="mt-0.5 block text-2xs text-subtle">
+                  <span className="block truncate text-sm">{conversation.title}</span>
+                  <span className="mt-0.5 block text-xs text-subtle">
                     {formatRelative(conversation.updatedAt)}
                   </span>
                 </button>
@@ -501,13 +499,13 @@ function ChatWorkspace({
                   aria-label={`从「${conversation.title}」分支`}
                   title="分支"
                   disabled={branching !== null}
-                  className="absolute top-1 right-1 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                  className="absolute right-1 top-2.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
                   onClick={() => void branch(conversation.id)}
                 >
                   {branching === conversation.id ? (
-                    <LoaderCircle className="size-3 animate-spin" />
+                    <LoaderCircle className="size-3.5 animate-spin" />
                   ) : (
-                    <GitBranch className="size-3" />
+                    <GitBranch className="size-3.5" strokeWidth={1.75} />
                   )}
                 </Button>
               </li>
@@ -515,14 +513,15 @@ function ChatWorkspace({
           </ul>
         </div>
         {!conversations.data?.supported && history.length > 0 ? (
-          <p className="border-t border-line px-3 py-2 text-2xs leading-relaxed text-subtle">
+          <p className="border-t border-line px-3 py-2 text-xs leading-relaxed text-subtle">
             历史列表来自本浏览器；服务端列表接口上线后会自动切换。
           </p>
         ) : null}
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[2px] border border-line bg-surface">
-        <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* 顶部一行：移动端菜单 + 智能体选择器。没有标题、没有描述。 */}
+        <header className="flex h-14 shrink-0 items-center gap-2 px-4 sm:px-6">
           <Button
             variant="ghost"
             size="icon-sm"
@@ -530,25 +529,17 @@ function ChatWorkspace({
             className="lg:hidden"
             onClick={() => setHistoryOpen(true)}
           >
-            <MessageSquare className="size-4" />
+            <MessageSquare className="size-4" strokeWidth={1.75} />
           </Button>
-          <div className="min-w-0">
-            <div className="truncate text-base font-medium text-fg">
-              {agent?.name ?? '选择智能体'}
-            </div>
-            {agent?.description ? (
-              <p className="truncate text-2xs text-subtle">{agent.description}</p>
-            ) : null}
-          </div>
-          <div className="ml-auto flex items-center gap-1.5">
-            <label className="sr-only" htmlFor="chat-agent">
-              选择智能体
-            </label>
+          <label className="sr-only" htmlFor="chat-agent">
+            选择智能体
+          </label>
+          <div className="relative">
             <select
               id="chat-agent"
               value={agentId ?? ''}
               onChange={(event) => switchAgent(event.target.value)}
-              className="h-7 max-w-40 cursor-pointer rounded-[2px] border border-line bg-sunken px-2 text-xs text-fg focus-visible:border-signal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              className="h-8 max-w-56 cursor-pointer appearance-none rounded-full bg-hover pl-3.5 pr-9 text-sm text-fg hover:bg-chip focus-visible:outline-none"
             >
               {agents.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -556,6 +547,11 @@ function ChatWorkspace({
                 </option>
               ))}
             </select>
+            <ChevronDown
+              aria-hidden="true"
+              className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted"
+              strokeWidth={1.75}
+            />
           </div>
         </header>
 
@@ -572,10 +568,17 @@ function ChatWorkspace({
             (item) => item.approvedAt === null,
           )}
           lastRun={lastRun}
-          welcome={showWelcome ? <WelcomeState agent={agent} lastRun={lastAgentRun} /> : null}
+          welcome={
+            showWelcome ? (
+              <WelcomeState
+                agent={agent}
+                lastRun={lastAgentRun}
+                onPick={(text) => setInput(text)}
+              />
+            ) : null
+          }
         />
 
-        {/* 状态条常驻输入框上方；读数用等宽，秒数不进入读屏播报。 */}
         <div aria-live="polite" role="status" className="sr-only">
           {run
             ? run.status === 'queued'
@@ -589,68 +592,69 @@ function ChatWorkspace({
         </div>
         <RunStatusBar run={run} items={items} now={now} cancelling={cancelling} onCancel={cancel} />
 
+        {/* 输入胶囊：白底、28px 圆角、唯一带阴影的元素；发送是 32px 圆形黑底。 */}
         <form
-          className="shrink-0 border-t border-line p-3"
+          className="shrink-0 px-4 pb-5 pt-2 sm:px-6"
           onSubmit={(event) => {
             event.preventDefault();
             void send();
           }}
         >
-          <div className="flex items-end gap-2">
-            <Textarea
-              ref={composerRef}
-              aria-label="消息"
-              rows={2}
-              placeholder={
-                run
-                  ? run.runId
-                    ? '运行中 · 结束后可继续输入'
-                    : '已提交，等待沙盒…'
-                  : 'Enter 发送，Shift+Enter 换行'
-              }
-              title={run ? '本轮流式输出结束后即可继续输入，不会丢失当前内容' : undefined}
-              disabled={!agent || Boolean(run)}
-              value={input}
-              className="min-h-[44px] flex-1 resize-none py-2.5 text-base"
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  if (!run) void send();
+          <div className="mx-auto w-full max-w-[728px]">
+            <div className="flex items-end gap-2 rounded-[28px] bg-surface px-3 py-2.5 shadow-composer">
+              <Textarea
+                ref={composerRef}
+                aria-label="消息"
+                rows={1}
+                placeholder={
+                  run
+                    ? run.runId
+                      ? '运行中 · 结束后可继续输入'
+                      : '已提交，等待沙盒…'
+                    : 'Ask anything…'
                 }
-              }}
-            />
-            {run ? (
-              // 停止只在状态条里出现：这里保留发送位，但运行中不可发送。
-              <Button type="submit" disabled className="h-[44px]" aria-label="运行中，结束后可发送">
-                <Send className="size-4" />
-                发送
-              </Button>
-            ) : (
-              <>
-                {lastRunId ? (
-                  <Link
-                    to="/runs/$runId"
-                    params={{ runId: lastRunId }}
-                    className={cn(
-                      buttonVariants({ variant: 'ghost', size: 'sm' }),
-                      'h-[44px] text-xs',
-                    )}
-                  >
-                    <Activity className="size-3.5" /> 本次运行
-                  </Link>
-                ) : null}
+                title={run ? '本轮流式输出结束后即可继续输入，不会丢失当前内容' : undefined}
+                disabled={!agent || Boolean(run)}
+                value={input}
+                className="min-h-[36px] flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-md shadow-none focus-visible:ring-0"
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    if (!run) void send();
+                  }
+                }}
+              />
+              {run ? (
+                <span
+                  className="mb-0.5 flex size-8 items-center justify-center rounded-full bg-sunken text-subtle"
+                  title="运行中，结束后可发送"
+                >
+                  <ArrowUp className="size-4" strokeWidth={2} />
+                </span>
+              ) : (
                 <Button
                   type="submit"
                   disabled={!agent || !input.trim()}
                   aria-label="发送消息"
-                  className="h-[44px]"
+                  className="mb-0.5 size-8 rounded-full bg-ink p-0 text-white hover:bg-ink-hover disabled:bg-sunken disabled:text-subtle"
                 >
-                  <Send className="size-4" />
-                  发送
+                  <ArrowUp className="size-4" strokeWidth={2} />
                 </Button>
-              </>
-            )}
+              )}
+            </div>
+            <div className="mt-2 flex items-center justify-center gap-3 text-xs text-subtle">
+              <span>Enter 发送 · Shift+Enter 换行</span>
+              {lastRunId ? (
+                <Link
+                  to="/runs/$runId"
+                  params={{ runId: lastRunId }}
+                  className="underline-offset-2 hover:text-fg hover:underline"
+                >
+                  查看本次运行
+                </Link>
+              ) : null}
+            </div>
           </div>
         </form>
       </section>
@@ -666,7 +670,6 @@ function currentRunItems(items: ChatItem[]): ChatItem[] {
   return items;
 }
 
-/** 当前轮次：一条助手文本算一轮，至少显示第 1 轮。 */
 function currentTurn(items: ChatItem[]): number {
   return Math.max(1, currentRunItems(items).filter((item) => item.kind === 'text').length);
 }
@@ -923,38 +926,60 @@ function MessagePane({
   );
 }
 
-function WelcomeState({ agent, lastRun }: { agent: AgentView | null; lastRun: RecentRun | null }) {
-  const toolSummary = !agent
-    ? '—'
-    : agent.allowedTools.length > 0
-      ? `限 ${agent.allowedTools.length} 项`
-      : '全部 MCP';
+/**
+ * 空态：参考页的核心构图——两行 24px 问候语，输入框在中间，建议卡在下方。
+ *
+ * 与上一版的差别：不再把「绑定 server / 权限 / 最近运行」堆在中间，
+ * 那些是配置信息，不属于发起任务的现场。
+ */
+function WelcomeState({
+  agent,
+  lastRun,
+  onPick,
+}: {
+  agent: AgentView | null;
+  lastRun: RecentRun | null;
+  onPick: (text: string) => void;
+}) {
+  const suggestions = agent
+    ? [
+        `用 ${agent.name} 总结一下最近的运行`,
+        `检查 ${agent.name} 绑定的工具是否可用`,
+        '帮我把一个 HTTP API 转成 MCP 工具',
+        '解释一次失败运行的错误',
+      ]
+    : [];
+
   return (
-    <div className="mx-auto flex h-full max-w-xl flex-col justify-center px-2">
-      <p className="font-mono text-2xs uppercase tracking-[0.06em] text-subtle">对话</p>
-      <h2 className="mt-1 text-lg font-semibold leading-7 text-fg">
-        {agent?.name ?? '选择智能体'}
-      </h2>
-      {agent?.description ? (
-        <p className="mt-1 max-w-[60ch] text-sm leading-relaxed text-muted">{agent.description}</p>
+    <div className="mx-auto flex w-full max-w-[728px] flex-1 flex-col justify-center px-4 pb-8">
+      <h2 className="text-center text-lg font-medium leading-[30px] text-fg">你好</h2>
+      <p className="mt-1 text-center text-lg font-medium leading-[26px] text-muted">
+        今天想做什么？
+      </p>
+
+      {suggestions.length > 0 ? (
+        <div className="mt-8 flex flex-wrap justify-center gap-2">
+          {suggestions.map((text) => (
+            <button
+              key={text}
+              type="button"
+              onClick={() => onPick(text)}
+              className="h-[72px] w-[136px] overflow-hidden rounded-[16px] bg-chip p-4 text-left text-sm leading-[18px] text-muted transition-colors hover:bg-hover focus-visible:outline-none"
+            >
+              <span className="line-clamp-2">{text}</span>
+            </button>
+          ))}
+        </div>
       ) : null}
-      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-3">
-        <Readout label="绑定 server" value={agent ? agent.serverIds.length : '—'} />
-        <Readout label="MCP 工具" value={toolSummary} />
-        <Readout label="权限" value={agent?.permissionMode ?? '—'} />
-      </div>
+
       {lastRun ? (
-        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-subtle">
-          <span>最近一次运行</span>
-          <RunStatusBadge status={lastRun.status} />
+        <p className="mt-6 text-center text-xs text-subtle">
+          上次运行 <RunStatusBadge status={lastRun.status} />{' '}
           <span className="font-mono tabular-nums">
             {formatDuration(lastRun.latencyMs)} · {formatCost(lastRun.costUsd)}
           </span>
-        </div>
+        </p>
       ) : null}
-      <p className="mt-6 text-2xs text-subtle">
-        发送第一条消息开始。Enter 发送，Shift+Enter 换行。
-      </p>
     </div>
   );
 }

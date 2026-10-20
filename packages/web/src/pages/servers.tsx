@@ -20,13 +20,12 @@ import {
   Wrench,
 } from 'lucide-react';
 import * as DropdownMenuPrimitive from 'radix-ui/dropdown-menu';
-import { useMemo, useRef, useState } from 'react';
+import { type ComponentProps, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { Page, PageHeader, PageToolbar, Readout } from '../components/page.js';
+import { Page } from '../components/page.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
 import { FieldError, FieldHint, Input } from '../components/ui/input.js';
@@ -67,32 +66,37 @@ import { toastError, toastSuccess } from '../lib/toast.js';
 type Kind = ServerInput['kind'];
 type KindFilter = Kind | 'all';
 
-const kindMeta: Record<
-  Kind,
-  { label: string; hint: string; badge: 'outline' | 'default'; newHint: string }
-> = {
+const kindMeta: Record<Kind, { label: string; hint: string; newHint: string }> = {
   stdio: {
     label: '本地命令',
     hint: '由沙盒启动的 stdio 进程',
-    badge: 'outline',
     newHint: '在沙盒里启动一个 MCP 进程，例如 npx 包或本地脚本。',
   },
   http: {
     label: '远程 MCP',
     hint: '已有的 MCP HTTP 端点',
-    badge: 'outline',
     newHint: '直接连接一个已经实现了 MCP 协议的 HTTP 服务。',
   },
   generated: {
     label: 'HTTP API 转 MCP',
     hint: '平台把上游 HTTP API 包装成 MCP',
-    badge: 'default',
     newHint: '逐个声明上游 HTTP 端点，平台替你生成可调用的 MCP 工具。',
   },
 };
 
 const menuItemClass =
-  'flex cursor-pointer select-none items-center gap-2 rounded-[2px] px-2 py-1.5 text-xs text-fg outline-none data-[disabled]:pointer-events-none data-[disabled]:text-subtle data-[highlighted]:bg-sunken';
+  'flex cursor-pointer select-none items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-sm text-fg outline-none data-[disabled]:pointer-events-none data-[disabled]:text-subtle data-[highlighted]:bg-hover';
+
+/** 表单控件 36px / radius 9，跟随设计基准；表格行里的控件不受影响。 */
+function LineInput({ className, ...props }: ComponentProps<'input'>) {
+  return <Input className={cn('h-9 rounded-[9px] px-3', className)} {...props} />;
+}
+
+function CodeArea({ className, ...props }: ComponentProps<'textarea'>) {
+  return (
+    <Textarea className={cn('rounded-[9px] px-3 py-2 leading-relaxed', className)} {...props} />
+  );
+}
 
 /** 最近一次连接测试；只存在页面内存里，刷新或换设备后消失（后端没有持久化字段）。 */
 interface LastTest {
@@ -196,38 +200,39 @@ export function ServersPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="MCP Servers"
-        description="一个 server 就是一种命名的工具来源：本地命令、远程 MCP 端点，或由平台把上游 HTTP API 包装成 MCP。"
-        meta={<Readout label="SERVER" value={all.length} />}
-        actions={
-          <Button ref={createButtonRef} size="sm" onClick={openCreate}>
-            <Plus className="size-3.5" /> 新建 Server
+      <div className="flex h-14 flex-wrap items-center gap-2">
+        <h1 className="text-md font-medium text-fg">MCP Servers</h1>
+        <span className="font-mono text-xs tabular-nums text-subtle">{all.length}</span>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Select
+            aria-label="按来源筛选"
+            value={kind}
+            onValueChange={(next) => setKind(next as KindFilter)}
+            options={[
+              { value: 'all', label: '全部来源' },
+              { value: 'stdio', label: kindMeta.stdio.label },
+              { value: 'http', label: kindMeta.http.label },
+              { value: 'generated', label: kindMeta.generated.label },
+            ]}
+            className="w-36 rounded-[9px] border-transparent bg-chip hover:bg-hover"
+          />
+          <SearchInput
+            label="搜索 server"
+            value={query}
+            onChange={setQuery}
+            placeholder="搜索名称、描述或地址…"
+            className="w-56 [&_input]:rounded-[9px] [&_input]:border-transparent [&_input]:bg-chip"
+          />
+          <Button
+            ref={createButtonRef}
+            size="sm"
+            className="h-8 rounded-full px-3.5"
+            onClick={openCreate}
+          >
+            <Plus className="size-4" strokeWidth={1.75} /> 新建 Server
           </Button>
-        }
-      />
-
-      <PageToolbar>
-        <Select
-          aria-label="按来源筛选"
-          value={kind}
-          onValueChange={(next) => setKind(next as KindFilter)}
-          options={[
-            { value: 'all', label: '全部来源' },
-            { value: 'stdio', label: kindMeta.stdio.label },
-            { value: 'http', label: kindMeta.http.label },
-            { value: 'generated', label: kindMeta.generated.label },
-          ]}
-          className="w-44"
-        />
-        <SearchInput
-          label="搜索 server"
-          value={query}
-          onChange={setQuery}
-          placeholder="搜索名称、描述或地址…"
-          className="sm:w-72"
-        />
-      </PageToolbar>
+        </div>
+      </div>
 
       {servers.isPending ? <LoadingState rows={4} /> : null}
       {servers.isError ? (
@@ -267,12 +272,12 @@ export function ServersPage() {
       ) : null}
 
       {filtered.length > 0 ? (
-        <TableWrap label="MCP Server 列表" className="rounded-[2px] border border-line bg-surface">
+        <TableWrap label="MCP Server 列表" className="-mt-3">
           <Table>
             <caption className="sr-only">MCP Server 列表</caption>
             <TableHeader>
-              <TableRow>
-                <TableHead>名称</TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="pl-2">名称</TableHead>
                 <TableHead className="w-36">来源</TableHead>
                 <TableHead>地址摘要</TableHead>
                 <TableHead className="w-20 text-right">工具数</TableHead>
@@ -369,17 +374,19 @@ function ServerRow({
   const tools = useTools(generated ? server.id : null);
 
   return (
-    <TableRow data-slot="server-row">
-      <TableCell>
+    <TableRow data-slot="server-row" className="h-14 hover:bg-hover">
+      <TableCell className="pl-2">
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-fg">{server.name}</div>
+          <div className="truncate text-base text-fg">{server.name}</div>
           {server.description ? (
             <div className="max-w-[280px] truncate text-2xs text-subtle">{server.description}</div>
           ) : null}
         </div>
       </TableCell>
       <TableCell>
-        <Badge variant={kindMeta[server.kind].badge}>{kindMeta[server.kind].label}</Badge>
+        <span className="rounded-[6px] bg-chip px-1.5 py-0.5 text-2xs text-muted">
+          {kindMeta[server.kind].label}
+        </span>
       </TableCell>
       <TableCell>
         <code
@@ -404,41 +411,41 @@ function ServerRow({
         <DropdownMenuPrimitive.Root>
           <DropdownMenuPrimitive.Trigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label={`操作 ${server.name}`}>
-              <MoreHorizontal className="size-4" />
+              <MoreHorizontal className="size-4" strokeWidth={1.75} />
             </Button>
           </DropdownMenuPrimitive.Trigger>
           <DropdownMenuPrimitive.Portal>
             <DropdownMenuPrimitive.Content
               align="end"
               sideOffset={4}
-              className="z-50 min-w-40 rounded-[2px] border border-line bg-surface p-1 shadow-overlay"
+              className="z-50 min-w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
             >
               <DropdownMenuPrimitive.Item
                 disabled={testing}
                 onSelect={onTest}
                 className={menuItemClass}
               >
-                <Plug className="size-3.5" /> {testing ? '测试中…' : '测试连接'}
+                <Plug className="size-4" strokeWidth={1.75} /> {testing ? '测试中…' : '测试连接'}
               </DropdownMenuPrimitive.Item>
               {generated ? (
                 <>
                   <DropdownMenuPrimitive.Item onSelect={onTools} className={menuItemClass}>
-                    <Wrench className="size-3.5" /> 工具定义
+                    <Wrench className="size-4" strokeWidth={1.75} /> 工具定义
                   </DropdownMenuPrimitive.Item>
                   <DropdownMenuPrimitive.Item onSelect={onConnection} className={menuItemClass}>
-                    <KeyRound className="size-3.5" /> 连接信息
+                    <KeyRound className="size-4" strokeWidth={1.75} /> 连接信息
                   </DropdownMenuPrimitive.Item>
                 </>
               ) : null}
               <DropdownMenuPrimitive.Separator className="my-1 h-px bg-line" />
               <DropdownMenuPrimitive.Item onSelect={onEdit} className={menuItemClass}>
-                <Pencil className="size-3.5" /> 编辑
+                <Pencil className="size-4" strokeWidth={1.75} /> 编辑
               </DropdownMenuPrimitive.Item>
               <DropdownMenuPrimitive.Item
                 onSelect={onDelete}
                 className={cn(menuItemClass, 'text-danger data-[highlighted]:bg-danger-soft')}
               >
-                <Trash2 className="size-3.5" /> 删除
+                <Trash2 className="size-4" strokeWidth={1.75} /> 删除
               </DropdownMenuPrimitive.Item>
             </DropdownMenuPrimitive.Content>
           </DropdownMenuPrimitive.Portal>
@@ -520,11 +527,11 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
       onClose={onClose}
       title={`删除 server「${server.name}」`}
       description="删除后无法恢复；绑定它的智能体会立即失去这个工具来源。"
-      className="max-w-md"
+      className="max-w-md rounded-[12px]"
     >
-      <div className="space-y-3">
-        <div className="rounded-[2px] border border-danger-line bg-danger-soft p-3">
-          <p className="text-2xs font-medium uppercase tracking-[0.06em] text-danger">影响范围</p>
+      <div className="space-y-4">
+        <div className="rounded-[9px] bg-danger-soft p-3">
+          <p className="text-xs text-danger">影响范围</p>
           {loading ? (
             <p className="mt-1 text-xs text-muted">正在读取绑定关系…</p>
           ) : unknown ? (
@@ -557,19 +564,19 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
         {bound.length > 0 ? (
           <Link
             to="/agents"
-            className="inline-block text-xs font-medium text-signal-text underline decoration-signal-line underline-offset-2 hover:text-signal"
+            className="inline-block text-xs font-medium text-fg underline decoration-line-strong underline-offset-2"
           >
             先去解绑
           </Link>
         ) : null}
 
         {risky && !loading && !unknown ? (
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <Label htmlFor="delete-server-confirm">
               输入 <span className="font-mono">{server.name}</span> 以确认
               <RequiredMark />
             </Label>
-            <Input
+            <LineInput
               id="delete-server-confirm"
               value={typed}
               autoComplete="off"
@@ -589,6 +596,7 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
           <Button
             variant="destructive"
             size="sm"
+            className="rounded-full px-3.5"
             aria-busy={pending}
             disabled={pending || loading || unknown || !confirmed}
             onClick={() => void confirm()}
@@ -676,9 +684,9 @@ function ToolEditorDialog({
       title={`工具定义「${server.name}」`}
       description="每个上游 HTTP 端点对应一个 MCP 工具。路径里的 {param} 必须在 inputSchema.properties 中有同名属性。"
       returnFocusRef={returnFocusRef}
-      className="max-w-3xl"
+      className="max-w-3xl rounded-[12px] [&>div:last-child]:px-6 [&>div:last-child]:py-6"
     >
-      <div className="space-y-4">
+      <div className="space-y-5">
         {tools.isPending ? <LoadingState rows={2} /> : null}
         {tools.isError ? (
           <ErrorState error={tools.error} onRetry={() => void tools.refetch()} />
@@ -687,11 +695,11 @@ function ToolEditorDialog({
           <InlineEmpty>还没有工具。在下方声明第一个端点，智能体才能调用它。</InlineEmpty>
         ) : null}
         {tools.data && tools.data.length > 0 ? (
-          <TableWrap label="生成的工具定义" className="rounded-[2px] border border-line">
+          <TableWrap label="生成的工具定义">
             <Table>
               <caption className="sr-only">生成的工具定义</caption>
               <TableHeader>
-                <TableRow>
+                <TableRow className="hover:bg-transparent">
                   <TableHead>名称</TableHead>
                   <TableHead className="w-20">方法</TableHead>
                   <TableHead>路径</TableHead>
@@ -705,11 +713,15 @@ function ToolEditorDialog({
               </TableHeader>
               <TableBody>
                 {tools.data.map((tool) => (
-                  <TableRow key={tool.id}>
+                  <TableRow key={tool.id} className="h-14 hover:bg-hover">
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-2xs text-fg">{tool.name}</span>
-                        {tool.requiresApproval ? <Badge variant="warn">需审批</Badge> : null}
+                        <span className="font-mono text-xs text-fg">{tool.name}</span>
+                        {tool.requiresApproval ? (
+                          <span className="rounded-[6px] bg-warning-soft px-1.5 py-0.5 text-2xs text-warning">
+                            需审批
+                          </span>
+                        ) : null}
                       </div>
                       {tool.description ? (
                         <div className="max-w-xs truncate text-2xs text-subtle">
@@ -718,7 +730,9 @@ function ToolEditorDialog({
                       ) : null}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="mono">{tool.method}</Badge>
+                      <span className="rounded-[6px] bg-chip px-1.5 py-0.5 font-mono text-2xs text-muted">
+                        {tool.method}
+                      </span>
                     </TableCell>
                     <TableCell className="font-mono text-2xs text-muted">
                       {tool.pathTemplate}
@@ -727,7 +741,7 @@ function ToolEditorDialog({
                     <TableCell>
                       <input
                         type="checkbox"
-                        className="size-3.5 accent-signal"
+                        className="size-3.5 accent-ink"
                         aria-label={`启用工具 ${tool.name}`}
                         checked={tool.enabled}
                         disabled={setEnabled.isPending}
@@ -742,7 +756,7 @@ function ToolEditorDialog({
                     <TableCell>
                       <input
                         type="checkbox"
-                        className="size-3.5 accent-signal"
+                        className="size-3.5 accent-ink"
                         aria-label={`批准工具 ${tool.name}`}
                         checked={tool.requiresApproval}
                         disabled={setEnabled.isPending}
@@ -920,7 +934,7 @@ function ToolForm({
 
   return (
     <form
-      className="grid gap-2 border-t border-line pt-3 sm:grid-cols-6"
+      className="grid gap-3 border-t border-line pt-5 sm:grid-cols-6"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -928,21 +942,19 @@ function ToolForm({
       noValidate
     >
       <div className="flex items-baseline justify-between gap-2 sm:col-span-6">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-fg">
-          {tool ? `编辑工具 ${tool.name}` : '添加工具'}
-        </h3>
+        <h3 className="text-xs text-subtle">{tool ? `编辑工具 ${tool.name}` : '添加工具'}</h3>
         {tool ? (
           <Button variant="ghost" size="xs" onClick={onDone}>
             取消编辑
           </Button>
         ) : null}
       </div>
-      <div className="space-y-1 sm:col-span-2">
+      <div className="space-y-1.5 sm:col-span-2">
         <Label htmlFor={`tool-name-${serverId}`}>
           名称
           <RequiredMark />
         </Label>
-        <Input
+        <LineInput
           id={`tool-name-${serverId}`}
           value={form.name}
           placeholder="list-users"
@@ -964,12 +976,12 @@ function ToolForm({
           }))}
         />
       </div>
-      <div className="space-y-1 sm:col-span-2">
+      <div className="space-y-1.5 sm:col-span-2">
         <Label htmlFor={`tool-path-${serverId}`}>
           路径
           <RequiredMark />
         </Label>
-        <Input
+        <LineInput
           id={`tool-path-${serverId}`}
           value={form.pathTemplate}
           placeholder="/users/{id}"
@@ -991,18 +1003,18 @@ function ToolForm({
           ]}
         />
       </div>
-      <div className="space-y-1 sm:col-span-5">
+      <div className="space-y-1.5 sm:col-span-5">
         <Label htmlFor={`tool-desc-${serverId}`}>描述</Label>
-        <Input
+        <LineInput
           id={`tool-desc-${serverId}`}
           value={form.description}
           placeholder="告诉智能体这个工具做什么、何时用"
           onChange={(event) => setForm({ ...form, description: event.target.value })}
         />
       </div>
-      <div className="space-y-1 sm:col-span-5">
+      <div className="space-y-1.5 sm:col-span-5">
         <Label htmlFor={`tool-schema-${serverId}`}>inputSchema (JSON)</Label>
-        <Textarea
+        <CodeArea
           id={`tool-schema-${serverId}`}
           rows={4}
           value={schemaText}
@@ -1017,21 +1029,26 @@ function ToolForm({
         <input
           id={`tool-approval-${serverId}`}
           type="checkbox"
-          className="size-3.5 accent-signal"
+          className="size-3.5 accent-ink"
           checked={form.requiresApproval}
           onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked })}
         />
         <Label htmlFor={`tool-approval-${serverId}`}>调用前需要人工批准</Label>
       </div>
       <div className="flex items-start pt-2">
-        <Button type="submit" size="sm" disabled={pending || !form.name}>
+        <Button
+          type="submit"
+          size="sm"
+          className="rounded-full px-3.5"
+          disabled={pending || !form.name}
+        >
           {pending ? (
             '保存中…'
           ) : tool ? (
             '保存更改'
           ) : (
             <>
-              <Plus className="size-3.5" /> 添加
+              <Plus className="size-4" strokeWidth={1.75} /> 添加
             </>
           )}
         </Button>
@@ -1189,7 +1206,7 @@ function ServerFormDialog({
       returnFocusRef={returnFocusRef}
     >
       <form
-        className="space-y-3"
+        className="space-y-4"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
@@ -1197,8 +1214,8 @@ function ServerFormDialog({
         }}
       >
         {creating ? (
-          <fieldset className="space-y-2">
-            <legend className="mb-1.5 text-xs font-medium text-fg">来源类型</legend>
+          <fieldset className="space-y-2.5">
+            <legend className="mb-1.5 text-xs text-subtle">来源类型</legend>
             <div className="grid gap-2 sm:grid-cols-3">
               {(Object.keys(kindMeta) as Kind[]).map((value) => (
                 <button
@@ -1210,13 +1227,11 @@ function ServerFormDialog({
                     setErrors({});
                   }}
                   className={cn(
-                    'rounded-[2px] border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal',
-                    kind === value
-                      ? 'border-signal bg-signal-soft'
-                      : 'border-line hover:border-line-strong hover:bg-sunken/50',
+                    'rounded-[9px] border px-3 py-2.5 text-left transition-colors focus-visible:outline-none',
+                    kind === value ? 'border-fg bg-chip' : 'border-line hover:bg-hover',
                   )}
                 >
-                  <span className="block text-xs font-medium text-fg">{kindMeta[value].label}</span>
+                  <span className="block text-sm text-fg">{kindMeta[value].label}</span>
                   <span className="mt-0.5 block text-2xs leading-snug text-subtle">
                     {kindMeta[value].newHint}
                   </span>
@@ -1235,7 +1250,7 @@ function ServerFormDialog({
                 名称
                 <RequiredMark />
               </Label>
-              <Input
+              <LineInput
                 id="server-name"
                 value={form.name}
                 placeholder="filesystem"
@@ -1254,7 +1269,7 @@ function ServerFormDialog({
 
             <div className="space-y-1">
               <Label htmlFor="server-desc">描述</Label>
-              <Input
+              <LineInput
                 id="server-desc"
                 value={form.description}
                 placeholder="一句话说明它提供什么能力"
@@ -1269,7 +1284,7 @@ function ServerFormDialog({
                     命令
                     <RequiredMark />
                   </Label>
-                  <Input
+                  <LineInput
                     id="server-command"
                     value={form.command}
                     placeholder="npx"
@@ -1282,7 +1297,7 @@ function ServerFormDialog({
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="server-args">参数（每行一个）</Label>
-                  <Textarea
+                  <CodeArea
                     id="server-args"
                     rows={2}
                     value={form.args}
@@ -1293,7 +1308,7 @@ function ServerFormDialog({
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="server-env">环境变量（每行 KEY=value）</Label>
-                  <Textarea
+                  <CodeArea
                     id="server-env"
                     rows={2}
                     value={form.pairs}
@@ -1311,7 +1326,7 @@ function ServerFormDialog({
                     {urlLabel}
                     <RequiredMark />
                   </Label>
-                  <Input
+                  <LineInput
                     id="server-url"
                     value={urlValue}
                     placeholder={
@@ -1340,7 +1355,7 @@ function ServerFormDialog({
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="server-headers">Headers（每行 KEY=value）</Label>
-                  <Textarea
+                  <CodeArea
                     id="server-headers"
                     rows={2}
                     value={form.pairs}
@@ -1350,7 +1365,7 @@ function ServerFormDialog({
                   />
                 </div>
                 {kind === 'generated' ? (
-                  <p className="rounded-[2px] border border-line bg-sunken/70 p-2.5 text-2xs leading-relaxed text-muted">
+                  <p className="rounded-[9px] bg-chip p-3 text-xs leading-relaxed text-muted">
                     保存后会直接打开工具编辑，把上游 HTTP API 的端点声明成 MCP 工具。
                   </p>
                 ) : null}
@@ -1361,11 +1376,17 @@ function ServerFormDialog({
 
         {errors.form ? <FieldError>{errors.form}</FieldError> : null}
 
-        <div className="flex justify-end gap-2 border-t border-line pt-3">
+        <div className="flex justify-end gap-2 border-t border-line pt-4">
           <Button variant="ghost" size="sm" onClick={onClose}>
             取消
           </Button>
-          <Button type="submit" size="sm" disabled={pending || kind === null} aria-busy={pending}>
+          <Button
+            type="submit"
+            size="sm"
+            className="rounded-full px-3.5"
+            disabled={pending || kind === null}
+            aria-busy={pending}
+          >
             {pending ? '保存中…' : creating ? '创建' : '保存更改'}
           </Button>
         </div>

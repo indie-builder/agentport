@@ -2,10 +2,9 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
 import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { Page, PageHeader } from '../components/page.js';
+import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
+import { ErrorState } from '../components/states.js';
 import { buttonVariants } from '../components/ui/button.js';
 import { Select } from '../components/ui/select.js';
 import type { RunListItem, RunStatus } from '../lib/api.js';
@@ -128,19 +127,16 @@ export function RunsPage() {
   });
 
   const items = runs.data?.items ?? [];
+  const empty = !runs.isPending && !runs.isError && items.length === 0;
 
   return (
     <Page>
-      <PageHeader
-        title="运行"
-        description="所有智能体运行的状态、成本、tokens 与错误。点击一行查看 trace。"
-        actions={<Badge variant="outline">最近 100 条</Badge>}
-      />
+      <PageHeader title="运行" />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <PageToolbar>
         <Select
           aria-label="按智能体筛选"
-          className="w-48"
+          className="w-48 rounded-[9px]"
           value={agentId}
           onValueChange={setAgentId}
           options={[
@@ -150,7 +146,7 @@ export function RunsPage() {
         />
         <Select
           aria-label="按状态筛选"
-          className="w-32"
+          className="w-32 rounded-[9px]"
           value={status}
           onValueChange={(next) => setStatus(next as RunStatus | '')}
           options={[
@@ -158,15 +154,16 @@ export function RunsPage() {
             ...statuses.map((value) => ({ value, label: runStatusLabel[value] })),
           ]}
         />
-      </div>
+        <span className="ml-auto text-xs text-subtle">
+          {runs.isPending ? '加载中…' : `最近 ${items.length} 条`}
+        </span>
+      </PageToolbar>
 
-      {runs.isError ? <ErrorState error={runs.error} onRetry={() => void runs.refetch()} /> : null}
-
-      {runs.isPending ? <LoadingState rows={6} /> : null}
-
-      {!runs.isPending && !runs.isError && items.length === 0 ? (
-        <EmptyState
-          icon={<Activity className="size-5" />}
+      {runs.isError ? (
+        <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
+      ) : empty ? (
+        <PageNote
+          icon={<Activity className="size-4" strokeWidth={1.75} aria-hidden="true" />}
           title="没有匹配的运行"
           description="在对话页发起一次运行，或调整上方的筛选条件。"
           action={
@@ -175,21 +172,20 @@ export function RunsPage() {
             </Link>
           }
         />
-      ) : null}
-
-      {!runs.isPending && !runs.isError && items.length > 0 ? (
+      ) : (
         <DataTable
           rows={items}
           columns={columns}
           rowKey={(run) => run.id}
           label="运行列表"
+          loading={runs.isPending}
           storageKey="pace.runs.columns"
           empty="没有匹配的运行"
           // DataTable 只在提供 renderExpanded 时启用整行按钮；这里不展开，只借它跳详情。
           renderExpanded={() => null}
           onRowClick={(run) => void navigate({ to: '/runs/$runId', params: { runId: run.id } })}
         />
-      ) : null}
+      )}
     </Page>
   );
 }
