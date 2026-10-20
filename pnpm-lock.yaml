@@ -244,6 +244,9 @@ importers:
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@opentelemetry/api@1.9.1)(@types/pg@8.15.6)(pg@8.23.1)
+      effect:
+        specifier: 4.0.5
+        version: 4.0.5
       fastify:
         specifier: 5.12.7
         version: 5.12.7
@@ -281,6 +284,9 @@ importers:
       '@agentport/shared':
         specifier: workspace:*
         version: link:../shared
+      effect:
+        specifier: 4.0.5
+        version: 4.0.5
     devDependencies:
       '@types/node':
         specifier: 24.10.1
@@ -405,6 +411,9 @@ importers:
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@opentelemetry/api@1.9.1)(@types/pg@8.15.6)(pg@8.23.1)
+      effect:
+        specifier: 4.0.5
+        version: 4.0.5
       ioredis:
         specifier: 6.0.0
         version: 6.0.0
@@ -2240,6 +2249,9 @@ packages:
 
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
+
+  effect@4.0.5:
+    resolution: {integrity: sha512-BY4/28NlpOd99yzmV741xbVGmp+1U7tks4oB7F/Png64bTa5tm5eCA6W0RiXsnuLDDoJpjfVSo4Dnq4BZb/89Q==}
 
   encodeurl@2.0.0:
     resolution: {integrity: sha512-Q0n9HRi4m6JuGIV1eFlmvJB7ZEVxu93IrMyiMsGC0lrMJMWzRgx6WGquyfQgZVb31vhGgXnfmPNNXmxnOkRBrg==}
@@ -4546,6 +4558,8 @@ snapshots:
       safe-buffer: 5.2.1
 
   ee-first@1.1.1: {}
+
+  effect@4.0.5: {}
 
   encodeurl@2.0.0: {}
 

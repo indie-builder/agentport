@@ -16,6 +16,7 @@
     "@agentport/shared": "workspace:*",
     "bullmq": "6.3.17",
     "drizzle-orm": "0.45.4",
+    "effect": "4.0.5",
     "ioredis": "6.0.0",
     "pino": "10.4.0",
     "pino-pretty": "13.2.0",

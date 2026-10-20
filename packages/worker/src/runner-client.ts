@@ -1,8 +1,10 @@
+import { RunFailure } from '@agentport/core';
 import { type ChatEvent, chatEventSchema } from '@agentport/shared';
+import { Deferred, Effect, Exit, type Scope } from 'effect';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { redactSecrets } from './redact.js';
-import type { SandboxProvider } from './sandbox/provider.js';
+import type { Sandbox, SandboxProvider } from './sandbox/provider.js';
 
 export type RunStatus = 'succeeded' | 'failed' | 'cancelled' | 'timeout';
 
@@ -34,13 +36,9 @@ export interface SandboxRunInput {
   logger: Logger;
 }
 
-/** 可重试 = 基础设施瞬时故障；业务失败不重试。 */
+/** 可重试 = 基础设施瞬时故障；业务失败不重试。分类来自 RunFailure，不再匹配错误文本。 */
 export function isRetryable(outcome: SandboxRunOutcome): boolean {
-  if (outcome.status !== 'failed') return false;
-  const error = outcome.error ?? '';
-  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|docker: |Cannot connect to the Docker daemon|pull access denied|no such image/i.test(
-    error,
-  );
+  return outcome.failure?.reason === 'infra';
 }
 
 export interface SandboxRunOutcome {
@@ -52,6 +50,8 @@ export interface SandboxRunOutcome {
   inputTokens?: number;
   outputTokens?: number;
   error?: string;
+  /** 失败分类；只有 infra 会交给 BullMQ 重试。 */
+  failure?: RunFailure;
   /** 本次 run 产生的完整事件，供调用方落库。 */
   events: ChatEvent[];
 }
@@ -151,221 +151,331 @@ function toError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** 子进程错误里只有这些是基础设施问题；其余算沙盒自身失败。 */
+const INFRA_RE =
+  /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|Cannot connect to the Docker daemon|no such image|pull access denied/i;
+
+function reasonFor(error: string): RunFailure['reason'] {
+  return INFRA_RE.test(error) ? 'infra' : 'sandbox';
+}
+
+interface ExitSignal {
+  kind: 'closed' | 'error';
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  error?: string;
+}
+
 /**
  * 启动一次沙盒 run：转发事件、处理超时与取消，返回用于落库的终态。
  * 终态 run_finished 由调用方统一发布一次，避免与 runner 输出重复。
+ *
+ * 取消、超时、进程退出三者用 race 表达，谁先到谁赢；容器销毁由 Scope 保证。
  */
 export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOutcome> {
-  const { logger, runId } = input;
-  // 每次 run 都有 job，取消时按这个容器名清理。
-  const containerName = `agentport-${runId.toLowerCase()}`;
-  let sandbox: Awaited<ReturnType<SandboxProvider['create']>>;
-  try {
-    sandbox = await input.provider.create({
-      image: input.image,
-      workspaceDir: input.workspaceDir,
-      env: input.env,
-      name: containerName,
-    });
-  } catch (err) {
-    const error = `sandbox create failed: ${toError(err)}`;
-    logger.error({ err, runId }, error);
-    return { status: 'failed', sandboxId: '', error, events: [] };
-  }
-  const child = sandbox.child;
-
-  const events: ChatEvent[] = [];
-  let reportedStatus: RunStatus | undefined;
-  let reportedCost: number | undefined;
-  let reportedTurns: number | undefined;
-  let reportedError: string | undefined;
-  let reportedSessionId: string | undefined;
-  let reportedInput: number | undefined;
-  let reportedOutput: number | undefined;
-  let cancelled = false;
-  let timedOut = false;
-  let stderrTail = '';
-  let eventBytes = 0;
-  let overflowed = false;
-
-  // 同一连接上的命令按序排队；不 await 也能保证事件顺序。
-  const publish = (event: ChatEvent): void => {
-    void publishRun(runId, event, logger).catch((err: unknown) => {
-      logger.warn({ err, runId }, 'publish failed');
-    });
-  };
-
-  const unsubscribe = await subscribeCancel(runId, logger, () => {
-    cancelled = true;
-    logger.info({ runId }, 'cancel requested');
-    // 只发 SIGTERM 的话，忽略信号的 runner 会让 run 一直卡在 running。
-    escalateKill(child);
-  }).catch((err: unknown) => {
-    logger.warn({ err, runId }, 'cancel subscription failed');
-    return async (): Promise<void> => {};
-  });
-
-  const killTimer = setTimeout(() => {
-    timedOut = true;
-    logger.warn({ runId, timeoutMs: input.timeoutMs }, 'sandbox timed out');
-    escalateKill(child);
-  }, input.timeoutMs);
-
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk: string) => {
-    stderrTail = `${stderrTail}${chunk}`.slice(-2_000);
-    for (const line of chunk.split('\n')) {
-      if (line.trim().length > 0) {
-        logger.debug({ runId, sandbox: sandbox.id }, redactSecrets(line));
-      }
-    }
-  });
-  child.stdin.on('error', (err) => logger.warn({ err, runId }, 'sandbox stdin closed'));
-
-  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    child.once('close', (code, signal) => resolve({ code, signal }));
-  });
-
-  const onEvent = (line: string): void => {
-    const event = parseLine(line, logger);
-    if (!event) return;
-
-    if (event.type === 'run_finished') {
-      // 只记下终态，由调用方统一发布，保证每个 run 恰好一条。
-      reportedStatus = event.status;
-      reportedCost = event.costUsd;
-      reportedTurns = event.turns;
-      reportedError = event.error === undefined ? undefined : redactSecrets(event.error);
-      reportedSessionId = event.sessionId;
-      reportedInput = event.inputTokens;
-      reportedOutput = event.outputTokens;
-      return;
-    }
-    if (overflowed) return;
-
-    eventBytes += Buffer.byteLength(line);
-    if (events.length >= MAX_EVENTS || eventBytes > MAX_EVENT_BYTES) {
-      overflowed = true;
-      logger.warn({ runId, events: events.length, eventBytes }, 'sandbox event stream overflowed');
-      events.push({ type: 'error', message: '输出超出上限' });
-      publish({ type: 'error', message: '输出超出上限' });
-      return;
-    }
-    events.push(event);
-    publish(event);
-  };
-
-  // 手写行切分而不是 readline：超长行直接丢弃，不把它整行留在内存里。
-  let pending = '';
-  let discarding = false;
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', (chunk: string) => {
-    let start = 0;
-    while (start < chunk.length) {
-      const newline = chunk.indexOf('\n', start);
-      if (newline === -1) {
-        if (!discarding) {
-          pending += chunk.slice(start);
-          if (Buffer.byteLength(pending) > MAX_LINE_BYTES) {
-            discarding = true;
-            pending = '';
-            logger.warn({ runId }, 'sandbox event line exceeded 1MiB, dropped');
-          }
-        }
-        return;
-      }
-      const piece = chunk.slice(start, newline);
-      start = newline + 1;
-      if (discarding) {
-        // 丢弃行的结尾；后续行恢复正常处理。
-        discarding = false;
-        pending = '';
-        continue;
-      }
-      const line = pending + piece;
-      pending = '';
-      if (Buffer.byteLength(line) > MAX_LINE_BYTES) {
-        logger.warn({ runId }, 'sandbox event line exceeded 1MiB, dropped');
-        continue;
-      }
-      if (line.trim().length > 0) onEvent(line);
-    }
-  });
-
-  child.stdin.write(`${JSON.stringify(input.task)}\n`);
-
-  let exit: { code: number | null; signal: NodeJS.Signals | null };
-  try {
-    exit = await closed;
-  } finally {
-    clearTimeout(killTimer);
-    await unsubscribe();
-    await input.provider.destroy(sandbox).catch((err: unknown) => {
-      logger.warn({ err, runId }, 'sandbox cleanup failed');
-    });
-  }
-
-  const budget = {
-    ...(reportedCost === undefined ? {} : { costUsd: reportedCost }),
-    ...(reportedTurns === undefined ? {} : { turns: reportedTurns }),
-    ...(reportedSessionId === undefined ? {} : { sessionId: reportedSessionId }),
-    ...(reportedInput === undefined ? {} : { inputTokens: reportedInput }),
-    ...(reportedOutput === undefined ? {} : { outputTokens: reportedOutput }),
-  };
-
-  if (cancelled) {
-    return { status: 'cancelled', sandboxId: sandbox.id, events, ...budget };
-  }
-  if (timedOut) {
-    return {
-      status: 'timeout',
-      sandboxId: sandbox.id,
-      error: `sandbox timed out after ${input.timeoutMs}ms`,
-      events,
-      ...budget,
-    };
-  }
-  if (reportedStatus === undefined) {
-    const suffix = redactSecrets(stderrTail.trim());
-    const detail =
-      exit.code === 0
-        ? 'sandbox exited without run_finished'
-        : `sandbox exited with code ${String(exit.code)}${exit.signal ? ` (${exit.signal})` : ''}`;
-    return {
-      status: 'failed',
-      sandboxId: sandbox.id,
-      error: suffix ? `${detail}: ${suffix}` : detail,
-      events,
-    };
-  }
-  return {
-    status: reportedStatus,
-    sandboxId: sandbox.id,
-    events,
-    ...budget,
-    ...(reportedError === undefined ? {} : { error: reportedError }),
-  };
+  return Effect.runPromise(Effect.scoped(runInSandboxEffect(input)));
 }
 
-async function subscribeCancel(
+function runInSandboxEffect(
+  input: SandboxRunInput,
+): Effect.Effect<SandboxRunOutcome, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const { logger, runId } = input;
+    const events: ChatEvent[] = [];
+    let reportedStatus: RunStatus | undefined;
+    let reportedCost: number | undefined;
+    let reportedTurns: number | undefined;
+    let reportedError: string | undefined;
+    let reportedSessionId: string | undefined;
+    let reportedInput: number | undefined;
+    let reportedOutput: number | undefined;
+    let stderrTail = '';
+    let eventBytes = 0;
+    let overflowed = false;
+    let child: Sandbox['child'] | undefined;
+    let abandoning = false;
+
+    // 同一连接上的命令按序排队；不 await 也能保证事件顺序。
+    const publish = (event: ChatEvent): void => {
+      void publishRun(runId, event, logger).catch((err: unknown) => {
+        logger.warn({ err, runId }, 'publish failed');
+      });
+    };
+
+    const onEvent = (line: string): void => {
+      const event = parseLine(line, logger);
+      if (!event) return;
+
+      if (event.type === 'run_finished') {
+        // 只记下终态，由调用方统一发布，保证每个 run 恰好一条。
+        reportedStatus = event.status;
+        reportedCost = event.costUsd;
+        reportedTurns = event.turns;
+        reportedError = event.error === undefined ? undefined : redactSecrets(event.error);
+        reportedSessionId = event.sessionId;
+        reportedInput = event.inputTokens;
+        reportedOutput = event.outputTokens;
+        return;
+      }
+      if (overflowed) return;
+
+      eventBytes += Buffer.byteLength(line);
+      if (events.length >= MAX_EVENTS || eventBytes > MAX_EVENT_BYTES) {
+        overflowed = true;
+        logger.warn(
+          { runId, events: events.length, eventBytes },
+          'sandbox event stream overflowed',
+        );
+        events.push({ type: 'error', message: '输出超出上限' });
+        publish({ type: 'error', message: '输出超出上限' });
+        return;
+      }
+      events.push(event);
+      publish(event);
+    };
+
+    const exitSignal = yield* Deferred.make<ExitSignal>();
+    const cancelled = yield* Deferred.make<void>();
+
+    // 先订阅再建容器：服务启动期间的取消不能漏。
+    const unsubscribe = yield* Effect.acquireRelease(
+      subscribeCancel(runId, logger, () => {
+        logger.info({ runId }, 'cancel requested');
+        Deferred.doneUnsafe(cancelled, Exit.succeed(undefined));
+      }),
+      (release) => Effect.promise(release),
+    );
+
+    const attach = (sandbox: Sandbox): void => {
+      if (abandoning) {
+        // 取消先到，容器才创建完成：直接扔掉，不让它泄漏。
+        void input.provider.destroy(sandbox).catch(() => undefined);
+        return;
+      }
+      const proc = sandbox.child;
+      child = proc;
+
+      proc.stderr.setEncoding('utf8');
+      proc.stderr.on('data', (chunk: string) => {
+        stderrTail = `${stderrTail}${chunk}`.slice(-2_000);
+        for (const line of chunk.split('\n')) {
+          if (line.trim().length > 0) {
+            logger.debug({ runId, sandbox: sandbox.id }, redactSecrets(line));
+          }
+        }
+      });
+      proc.stdin.on('error', (err) => logger.warn({ err, runId }, 'sandbox stdin closed'));
+
+      const done = (signal: ExitSignal): void => {
+        Deferred.doneUnsafe(exitSignal, Exit.succeed(signal));
+      };
+      proc.once('close', (code, signal) => done({ kind: 'closed', code, signal }));
+      proc.once('error', (err) =>
+        done({ kind: 'error', code: null, signal: null, error: toError(err) }),
+      );
+
+      // 手写行切分而不是 readline：超长行直接丢弃，不把它整行留在内存里。
+      let pending = '';
+      let discarding = false;
+      proc.stdout.setEncoding('utf8');
+      proc.stdout.on('data', (chunk: string) => {
+        let start = 0;
+        while (start < chunk.length) {
+          const newline = chunk.indexOf('\n', start);
+          if (newline === -1) {
+            if (!discarding) {
+              pending += chunk.slice(start);
+              if (Buffer.byteLength(pending) > MAX_LINE_BYTES) {
+                discarding = true;
+                pending = '';
+                logger.warn({ runId }, 'sandbox event line exceeded 1MiB, dropped');
+              }
+            }
+            return;
+          }
+          const piece = chunk.slice(start, newline);
+          start = newline + 1;
+          if (discarding) {
+            // 丢弃行的结尾；后续行恢复正常处理。
+            discarding = false;
+            pending = '';
+            continue;
+          }
+          const line = pending + piece;
+          pending = '';
+          if (Buffer.byteLength(line) > MAX_LINE_BYTES) {
+            logger.warn({ runId }, 'sandbox event line exceeded 1MiB, dropped');
+            continue;
+          }
+          if (line.trim().length > 0) onEvent(line);
+        }
+      });
+
+      proc.stdin.write(`${JSON.stringify(input.task)}\n`);
+    };
+
+    // 容器创建与取消竞争；创建期间收到取消也要立刻放弃。
+    const created = yield* Effect.result(
+      Effect.raceAll([
+        Effect.tryPromise({
+          try: () =>
+            input.provider.create({
+              image: input.image,
+              workspaceDir: input.workspaceDir,
+              env: input.env,
+              name: `agentport-${runId.toLowerCase()}`,
+            }),
+          catch: (err) => err,
+        }).pipe(Effect.map((sandbox) => ({ sandbox }))),
+        Deferred.await(cancelled).pipe(
+          Effect.map(() => {
+            abandoning = true;
+            return {};
+          }),
+        ),
+      ]),
+    );
+
+    if (created._tag === 'Failure') {
+      const error = `sandbox create failed: ${toError(created.failure)}`;
+      logger.error({ err: created.failure, runId }, error);
+      return {
+        status: 'failed',
+        sandboxId: '',
+        error,
+        failure: new RunFailure('infra', error),
+        events,
+      };
+    }
+    if (!('sandbox' in created.success)) {
+      return { status: 'cancelled', sandboxId: '', events };
+    }
+
+    const sandbox = created.success.sandbox;
+    yield* Effect.acquireRelease(Effect.succeed(sandbox), (s) =>
+      Effect.promise(() =>
+        input.provider.destroy(s).catch((err: unknown) => {
+          logger.warn({ err, runId }, 'sandbox cleanup failed');
+        }),
+      ),
+    );
+    attach(sandbox);
+
+    // 谁先到谁赢：正常退出 / 用户取消 / 超时。
+    const stopped = yield* Effect.raceAll([
+      Deferred.await(exitSignal).pipe(Effect.map((s) => ({ kind: s.kind, signal: s }))),
+      Deferred.await(cancelled).pipe(Effect.map(() => ({ kind: 'cancelled' as const }))),
+      Effect.sleep(input.timeoutMs).pipe(Effect.map(() => ({ kind: 'timeout' as const }))),
+    ]);
+
+    if (stopped.kind === 'cancelled') {
+      logger.info({ runId }, 'sandbox run cancelled');
+      if (child) escalateKill(child);
+      yield* Effect.promise(() => unsubscribe());
+      return {
+        status: 'cancelled',
+        sandboxId: sandbox.id,
+        events,
+        failure: new RunFailure('cancelled', 'cancelled'),
+      };
+    }
+    if (stopped.kind === 'timeout') {
+      logger.warn({ runId, timeoutMs: input.timeoutMs }, 'sandbox timed out');
+      if (child) escalateKill(child);
+      yield* Effect.promise(() => unsubscribe());
+      const error = `sandbox timed out after ${input.timeoutMs}ms`;
+      return {
+        status: 'timeout',
+        sandboxId: sandbox.id,
+        error,
+        failure: new RunFailure('timeout', error),
+        events,
+      };
+    }
+
+    yield* Effect.promise(() => unsubscribe());
+
+    const budget = {
+      ...(reportedCost === undefined ? {} : { costUsd: reportedCost }),
+      ...(reportedTurns === undefined ? {} : { turns: reportedTurns }),
+      ...(reportedSessionId === undefined ? {} : { sessionId: reportedSessionId }),
+      ...(reportedInput === undefined ? {} : { inputTokens: reportedInput }),
+      ...(reportedOutput === undefined ? {} : { outputTokens: reportedOutput }),
+    };
+
+    if (stopped.signal.kind === 'error') {
+      const error = stopped.signal.error ?? 'sandbox process error';
+      logger.error({ runId, error }, 'sandbox process error');
+      return {
+        status: 'failed',
+        sandboxId: sandbox.id,
+        error,
+        failure: new RunFailure(reasonFor(error), error),
+        events,
+      };
+    }
+
+    if (reportedStatus === undefined) {
+      const suffix = redactSecrets(stderrTail.trim());
+      const detail =
+        stopped.signal.code === 0
+          ? 'sandbox exited without run_finished'
+          : `sandbox exited with code ${String(stopped.signal.code)}${stopped.signal.signal ? ` (${stopped.signal.signal})` : ''}`;
+      const error = suffix ? `${detail}: ${suffix}` : detail;
+      return {
+        status: 'failed',
+        sandboxId: sandbox.id,
+        error,
+        failure: new RunFailure(reasonFor(error), error),
+        events,
+      };
+    }
+    return {
+      status: reportedStatus,
+      sandboxId: sandbox.id,
+      events,
+      ...budget,
+      ...(reportedError === undefined ? {} : { error: reportedError }),
+    };
+  });
+}
+
+/**
+ * 订阅取消频道。Effect.callback 的 AbortSignal 保证：即使 subscribe 还没返回就被中断，
+ * 监听器也会解绑，不会有残留的 redis 订阅。
+ */
+function subscribeCancel(
   runId: string,
   logger: Logger,
   onCancel: () => void,
-): Promise<() => Promise<void>> {
-  const redis = getCancelSubscriber(logger);
-  const channel = channelFor(runId);
-  // API 的 publishRun 在 cancel 频道上只发 '1'；订阅成立后先查一次键，
-  // 避免 worker 在 API 发布之后才订阅而漏掉取消。
-  const handler = (received: string): void => {
-    if (received === channel) onCancel();
-  };
-  if ((await redis.exists(channel)) === 1) onCancel();
-  redis.on('message', handler);
-  await redis.subscribe(channel);
-  return async () => {
-    redis.off('message', handler);
-    await redis.unsubscribe(channel).catch((err: unknown) => {
-      logger.warn({ err, runId }, 'cancel unsubscribe failed');
-    });
-  };
+): Effect.Effect<() => Promise<void>> {
+  return Effect.callback((resume, signal) => {
+    const redis = getCancelSubscriber(logger);
+    const channel = channelFor(runId);
+    // API 在 cancel 频道上只发 '1'；订阅成立后先查一次键，避免漏掉早到的取消。
+    const handler = (received: string): void => {
+      if (received === channel) onCancel();
+    };
+    let released = false;
+    const release = async (): Promise<void> => {
+      if (released) return;
+      released = true;
+      redis.off('message', handler);
+      await redis.unsubscribe(channel).catch((err: unknown) => {
+        logger.warn({ err, runId }, 'cancel unsubscribe failed');
+      });
+    };
+    signal.addEventListener('abort', () => void release());
+
+    void (async () => {
+      try {
+        if ((await redis.exists(channel)) === 1) onCancel();
+        redis.on('message', handler);
+        await redis.subscribe(channel);
+      } catch (err) {
+        logger.warn({ err, runId }, 'cancel subscription failed');
+      }
+      if (!signal.aborted) resume(Effect.succeed(release));
+    })();
+  });
 }

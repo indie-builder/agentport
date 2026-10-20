@@ -15,7 +15,8 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@agentport/shared": "workspace:*"
+    "@agentport/shared": "workspace:*",
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@types/node": "24.10.1"

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0] - 2026-10-20
+
+- 引入 `effect@4.0.5`，新增 `packages/core/src/effect-runtime.ts`：`Clock`/`Db`/`Redis`/`Sandbox` 四个服务、`RunFailure` 分类、`runProgram`、`withTimeout`
+- `runner-client` 重写为 Effect program：容器生命周期由 Scope 保证，取消/超时/退出用 `raceAll` 统一，`isRetryable` 改看 `RunFailure.reason` 而非匹配错误文本
+- `eval-runner` 用 `Effect.forEach` + `Effect.result` 做逐条失败隔离；`reconcile` 的收敛 UPDATE 加指数退避重试
+- `test-connection` 用 `acquireRelease` 保证 MCP client 在超时路径上也关闭
+- 新增 `docs/EFFECT.md`；测试 122 项通过，真实沙盒验证成功/取消/超时三条路径
+- `biome.json` 排除 `.agents` 与 `dist`，避免第三方技能资源污染 lint
+
 ## [0.3.0] - 2026-10-20
 
 - Fastify × Zod 重构：所有路由改用 `schema` 声明校验，移除 39 处 `safeParse`

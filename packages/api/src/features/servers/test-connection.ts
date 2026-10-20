@@ -2,25 +2,10 @@ import type { Server, ServerTestResult } from '@agentport/shared';
 import type { Transport } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { Effect, type Scope } from 'effect';
 import { assertSafeUrl } from './ssrf.js';
 
 const TIMEOUT_MS = 5000;
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
-    promise.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (e: unknown) => {
-        clearTimeout(timer);
-        reject(e instanceof Error ? e : new Error(String(e)));
-      },
-    );
-  });
-}
 
 function transportFor(server: Server, self?: SelfMcp): Transport {
   if (server.kind === 'stdio') {
@@ -56,6 +41,47 @@ export interface SelfMcp {
   token: string;
 }
 
+interface ConnectResult {
+  serverInfo?: { name: string; version: string };
+  tools: Array<{ name: string; description?: string }>;
+}
+
+/**
+ * 连接生命周期由 Scope 保证：无论 connect/listTools 成功、失败还是超时，
+ * close 都执行一次——这正是手写 finally 在超时路径上保证不了的部分。
+ */
+function connectAndList(
+  server: Server,
+  self?: SelfMcp,
+): Effect.Effect<ConnectResult, Error, Scope.Scope> {
+  return Effect.gen(function* () {
+    const client = new Client({ name: 'agentport', version: '0.1.0' });
+    yield* Effect.acquireRelease(
+      Effect.sync(() => client),
+      (c) => Effect.promise(() => c.close().catch(() => undefined)),
+    );
+
+    yield* Effect.tryPromise({
+      try: () => client.connect(transportFor(server, self), { timeout: TIMEOUT_MS }),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    }).pipe(Effect.timeout(TIMEOUT_MS));
+
+    const listed = yield* Effect.tryPromise({
+      try: () => client.listTools(undefined, { timeout: TIMEOUT_MS }),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    }).pipe(Effect.timeout(TIMEOUT_MS));
+
+    const version = client.getServerVersion();
+    return {
+      ...(version ? { serverInfo: { name: version.name, version: version.version } } : {}),
+      tools: listed.tools.map((t) => ({
+        name: t.name,
+        ...(t.description !== undefined ? { description: t.description } : {}),
+      })),
+    };
+  });
+}
+
 /**
  * 真连一次并 listTools，任何异常都降级为结果对象，避免按钮因网络问题 500。
  * http server 的 url、generated server 的上游 baseUrl 都要走 SSRF 检查。
@@ -66,39 +92,38 @@ export async function testConnection(
   self?: SelfMcp,
 ): Promise<ServerTestResult> {
   const startedAt = Date.now();
-  let client: Client | undefined;
-  try {
-    if (server.kind === 'http') await assertSafeUrl(server.url, nodeEnv);
-    if (server.kind === 'generated') await assertSafeUrl(server.baseUrl, nodeEnv);
 
-    client = new Client({ name: 'agentport', version: '0.1.0' });
-    await withTimeout(
-      client.connect(transportFor(server, self), { timeout: TIMEOUT_MS }),
-      TIMEOUT_MS,
-    );
-    const { tools } = await withTimeout(
-      client.listTools(undefined, { timeout: TIMEOUT_MS }),
-      TIMEOUT_MS,
-    );
-    const version = client.getServerVersion();
+  const program = Effect.gen(function* () {
+    if (server.kind === 'http') yield* Effect.promise(() => assertSafeUrl(server.url, nodeEnv));
+    if (server.kind === 'generated') {
+      yield* Effect.promise(() => assertSafeUrl(server.baseUrl, nodeEnv));
+    }
+    return yield* Effect.scoped(connectAndList(server, self));
+  });
+
+  const result = await Effect.runPromiseExit(program);
+  if (result._tag === 'Success') {
     return {
       ok: true,
-      ...(version ? { serverInfo: { name: version.name, version: version.version } } : {}),
-      tools: tools.map((t) => ({
-        name: t.name,
-        ...(t.description !== undefined ? { description: t.description } : {}),
-      })),
+      ...(result.value.serverInfo ? { serverInfo: result.value.serverInfo } : {}),
+      tools: result.value.tools,
       durationMs: Date.now() - startedAt,
     };
-  } catch (err) {
-    return {
-      ok: false,
-      tools: [],
-      error: err instanceof Error ? err.message : String(err),
-      durationMs: Date.now() - startedAt,
-    };
-  } finally {
-    // close 自身失败不能覆盖测试结果。
-    await client?.close().catch(() => {});
   }
+
+  return {
+    ok: false,
+    tools: [],
+    error: describeFailure(result.cause),
+    durationMs: Date.now() - startedAt,
+  };
+}
+
+/** Exit/Cause 不可读；转成一句能贴到 UI 的话。 */
+function describeFailure(cause: unknown): string {
+  const c = cause as { failures?: Array<{ error?: unknown }> };
+  const first = c?.failures?.[0]?.error;
+  if (first instanceof Error) return first.message;
+  if (typeof first === 'string') return first;
+  return 'connection failed';
 }

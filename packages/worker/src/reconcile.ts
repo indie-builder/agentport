@@ -1,5 +1,7 @@
+import { DbError } from '@agentport/core';
 import { type createDb, newId, repo, schema } from '@agentport/db';
 import { and, eq, lt } from 'drizzle-orm';
+import { Effect, Schedule } from 'effect';
 import type { Logger } from 'pino';
 import { publishRun } from './runner-client.js';
 
@@ -11,6 +13,16 @@ export const LOST_RUN_ERROR = 'worker lost track of this run';
 const EVAL_LOST_ERROR = 'eval run lost';
 const EVAL_STALE_MS = 60 * 60 * 1000;
 
+/** 收敛是幂等的 UPDATE；瞬时数据库故障重试三次比等下一轮五分钟划算。 */
+const DB_RETRY = Schedule.min([Schedule.exponential('200 millis'), Schedule.recurs(3)]);
+
+function withDb<A>(run: () => Promise<A>): Effect.Effect<A, DbError> {
+  return Effect.tryPromise({
+    try: run,
+    catch: (cause) => new DbError(cause instanceof Error ? cause.message : String(cause), cause),
+  }).pipe(Effect.retry(DB_RETRY));
+}
+
 /**
  * 评估跑批已移到 worker，但 API/worker 重启仍可能让 job 丢失：
  * 把超过 1 小时还停在 running 的 eval run 置为 failed。
@@ -19,10 +31,10 @@ export async function reconcileOrphanedEvalRuns(
   db: ReturnType<typeof createDb>['db'],
   logger: Logger,
 ): Promise<number> {
-  const count = await repo.evalRepo.failStaleEvalRuns(
-    db,
-    EVAL_LOST_ERROR,
-    new Date(Date.now() - EVAL_STALE_MS),
+  const count = await Effect.runPromise(
+    withDb(() =>
+      repo.evalRepo.failStaleEvalRuns(db, EVAL_LOST_ERROR, new Date(Date.now() - EVAL_STALE_MS)),
+    ),
   );
   if (count > 0) logger.warn({ count }, 'reconciled orphaned running eval runs');
   return count;
@@ -39,28 +51,44 @@ export async function reconcileOrphanedRuns(
   agentTimeoutMs: number,
 ): Promise<number> {
   const cutoff = new Date(Date.now() - agentTimeoutMs - GRACE_MS);
-  const rows = await db
-    .update(schema.agentRuns)
-    .set({ status: 'failed', error: LOST_RUN_ERROR, endedAt: new Date() })
-    .where(and(eq(schema.agentRuns.status, 'running'), lt(schema.agentRuns.startedAt, cutoff)))
-    .returning({ id: schema.agentRuns.id, conversationId: schema.agentRuns.conversationId });
+  const rows = await Effect.runPromise(
+    withDb(() =>
+      db
+        .update(schema.agentRuns)
+        .set({ status: 'failed', error: LOST_RUN_ERROR, endedAt: new Date() })
+        .where(and(eq(schema.agentRuns.status, 'running'), lt(schema.agentRuns.startedAt, cutoff)))
+        .returning({ id: schema.agentRuns.id, conversationId: schema.agentRuns.conversationId }),
+    ),
+  );
 
-  for (const row of rows) {
-    await publishRun(
-      row.id,
-      { type: 'run_finished', status: 'failed', error: LOST_RUN_ERROR },
-      logger,
-    );
-  }
+  // 先落库再补发事件：前端漏掉事件也能从 DB 看到终态。
+  await Effect.runPromise(
+    Effect.forEach(
+      rows,
+      (row) =>
+        Effect.promise(() =>
+          publishRun(
+            row.id,
+            { type: 'run_finished', status: 'failed', error: LOST_RUN_ERROR },
+            logger,
+          ),
+        ),
+      { concurrency: 4, discard: true },
+    ),
+  );
   if (rows.length > 0) {
-    await db.insert(schema.auditLog).values(
-      rows.map((row) => ({
-        id: newId('audit'),
-        actor: 'worker',
-        action: 'agent.run.reconciled',
-        target: row.id,
-        status: 'error',
-      })),
+    await Effect.runPromise(
+      withDb(() =>
+        db.insert(schema.auditLog).values(
+          rows.map((row) => ({
+            id: newId('audit'),
+            actor: 'worker',
+            action: 'agent.run.reconciled',
+            target: row.id,
+            status: 'error',
+          })),
+        ),
+      ),
     );
     logger.warn({ runs: rows.map((row) => row.id) }, 'reconciled orphaned running runs');
   }
