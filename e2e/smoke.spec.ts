@@ -63,7 +63,7 @@ test('smoke: server, tool, test connection, agent files, chat stream', async ({ 
     test.skip(process.env.E2E_FULL !== '1', 'chat 流程依赖真实模型与沙盒，设置 E2E_FULL=1 才跑');
     await page.getByRole('link', { name: '对话', exact: true }).click();
     await page.getByLabel('选择智能体').selectOption({ label: agentName });
-    await page.getByLabel('消息').fill('hello');
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill('hello');
     await page.getByRole('button', { name: '发送消息' }).click();
     await expect(page.getByText(/运行完成|运行失败|运行超时|已停止/)).toBeVisible({
       timeout: 120_000,

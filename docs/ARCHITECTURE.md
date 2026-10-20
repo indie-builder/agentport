@@ -103,7 +103,7 @@
 1. `POST /api/chat` 校验 agent 是否存在，创建或复用 conversation，写 user 消息，创建 `agent_runs` 行（`queued`），取最近 20 条历史，投递 `agent-runs` 队列（`jobId = runId`，`attempts: 2`，指数退避 5s），写审计，返回 202。
 2. `GET /api/chat/:runId/events` 先订阅 Redis Stream，从 `0` 开始回放，因此 POST 与建连之间的事件不会丢；已结束的 run 直接补发终态。
 3. worker 消费 job：若 run 已被取消则跳过；置为 `running` 并发布 `run_started`。
-4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，调用 `renderWorkspace()` 生成文件并写入 `WORKSPACES_DIR/<slug>/`。
+4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 生成文件并写入 `WORKSPACES_DIR/<slug>/<runId>/`。
 5. worker 通过 `DockerSandboxProvider` 执行 `docker run`，把任务 JSON 写入容器 stdin。
 6. 容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`text_delta`、`tool_start`、`tool_input`、`tool_result`、`assistant_text`、`run_finished`），日志写 stderr。
 7. worker 逐行解析并转发到 Redis Stream；工具调用经 `.mcp.json` 中的地址访问 api。
@@ -119,7 +119,7 @@
 |---|---|---|
 | 解决什么 | 把已有 HTTP API 变成 MCP 工具 | 把平台内的智能体变成 MCP 工具 |
 | 工具来源 | `api_tools` 表，每个 generated server 一组 | 所有 `enabled = true` 的智能体，工具名 `run_<slug>` |
-| 鉴权 | 每个 server 一个 `mcpToken`，存 `servers.config` | 单个 `PLATFORM_MCP_TOKEN`；未设置则不注册该端点 |
+| 鉴权 | 沙盒内用按 run 签发的短期 token（DB 存 sha256，run 结束清空）；外部客户端用长期 `mcpToken` | 单个 `PLATFORM_MCP_TOKEN`；未设置则不注册该端点 |
 | 调用发生什么 | 按 method / path 模板 / `paramsIn` 转发上游 HTTP | 创建 conversation 与 run，入队，轮询 DB 直到终态，返回最终 assistant 文本 |
 | 执行位置 | api 进程内 `fetch` | worker + 沙盒（与浏览器发起的对话同一条链路） |
 | 工具定义变更 | 下一次请求重建 handler，立即生效 | 下一次请求重建 handler，立即生效 |
@@ -129,15 +129,16 @@
 共同点：
 
 - 都使用 `createMcpHandler()` + `toNodeHandler()`，由适配器直接读写原始 req/res，Fastify 不再参与响应。
-- 都按请求重建实例，避免跨调用复用。
+- 每个 HTTP 请求重建实例，避免跨调用复用。
 - 都使用常量时间比较 Bearer token。
+- `/mcp/:serverId` 先校验请求头 `x-agentport-run-id` 对应 run 的短期 token（且该智能体必须绑定此 server），失败再回退长期 `mcpToken`。
 
 ## 5. 工作区文件模型
 
 数据库是真相源；文件是每次运行前重新渲染的只读快照。
 
 ```
-data/workspaces/<agent-slug>/
+data/workspaces/<agent-slug>/<run-id>/
 ├─ .mcp.json
 ├─ CLAUDE.md
 └─ .claude/
@@ -147,9 +148,11 @@ data/workspaces/<agent-slug>/
       └─ <skill-slug>/SKILL.md
 ```
 
+工作区按 run 隔离，run 结束删除；重试复用同一目录。目录 0700、文件 0600。
+
 | 文件 | 内容来源 | 说明 |
 |---|---|---|
-| `.mcp.json` | `agent_servers` + `servers` | `mcpServers` 映射；stdio 写 command/args/env，http 写 url/headers，generated 写 `${SANDBOX_API_URL}/mcp/<id>` + Bearer token |
+| `.mcp.json` | `agent_servers` + `servers` | `mcpServers` 映射；stdio 写 command/args/env，http 写 url/headers，generated 写 `${SANDBOX_API_URL}/mcp/<id>` + 按 run 的短期 Bearer token 与 `x-agentport-run-id` |
 | `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 可用技能 + 可用子智能体 |
 | `.claude/agents/<child-slug>.md` | 子智能体配置 | YAML frontmatter：`name`、`description`、`model`、`disallowedTools`、`maxTurns`；**不写 `tools`**，否则 SDK 派生时按名字解析 MCP 工具会得到空集并拒绝启动。主智能体自己的 md 只用于预览（`GET /api/agents/:id/files`），不落盘，避免被当成可委派子智能体 |
 | `.claude/skills/<slug>/SKILL.md` | `skills` 表 | frontmatter：`name`、`description`，正文为技能步骤 |
@@ -171,11 +174,11 @@ data/workspaces/<agent-slug>/
 | 宿主目录 bind mount，不打进镜像 | 一个镜像服务所有智能体；改配置不需重建 | 只支持单机，workspace 必须与 worker 同机 |
 | 整个 runner 在容器内 | Agent SDK 自带的 sandbox 只隔离 shell，不能隔离 stdio MCP | 镜像体积更大；每次 run 启动容器 |
 | 内置工具默认禁用 | 用户可配置任意 stdio server，必须收紧默认权限 | 需要显式绑定 MCP 才能做事 |
-| SSE 走 Redis Stream + pub/sub 唤醒 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库 |
+| SSE 走 Redis Stream + pub/sub 唤醒 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库；每个观众一条独立订阅连接；唤醒丢失时最多 2 秒轮询延迟 |
 | api / worker 分进程 | 长任务不占 HTTP；队列消费可独立扩容 | 多一层队列与状态同步 |
 | 单机优先，不抽象多机 | 少一层存储与服务发现 | 不能横向扩容 worker |
 | TypeID（`srv_`、`agt_`、`run_`…） | 可排序、日志与 URL 自解释 | 依赖 `typeid-js` |
 | 智能体版本快照 + 回滚 | 配置变更可追溯，回滚生成新版本 | 需维护保留策略 |
-| 评估跑批在 api 进程内 | 实现简单，复用队列与沙盒 | api 重启会让进行中的跑批停在 running |
+| 评估跑批在 worker 队列内 | API 只建行并入队，重启不丢跑批 | `eval-runs` 串行（并发 1）；超时 running 由 reconciler 收敛 |
 
 更细的选择理由（为什么 PostgreSQL、为什么 v2 MCP 包线、为什么不用 microsandbox 起步）见 `PROJECT-BRIEF.md` 与 `DECISIONS-PENDING.md`。

@@ -26,7 +26,7 @@
 
 状态：✅ 已实现 ／ 🟡 部分 ／ ❌ 未实现
 
-> 说明：此矩阵是**循环 1 结束时**的快照，「本轮」指循环 1；后续循环的补齐记录见下方各节与 [CHANGELOG.md](CHANGELOG.md)。「下一轮」是当时的计划，不代表当前状态。
+> 说明：此矩阵是**循环 1 结束时**的快照，「本轮」指循环 1；后续循环的补齐记录见下方各节与根 [CHANGELOG.md](../CHANGELOG.md)。「下一轮」是当时的计划，不代表当前状态。
 
 | 领域 | 能力 | 循环前 | 本轮 | 说明 |
 |---|---|---|---|---|
@@ -164,6 +164,50 @@
 | 沙盒出站 | ✅ | `SANDBOX_EGRESS` 默认 `proxy`，无代理时降级为 `open` 并告警 |
 | 压测基线 | ✅ | 读/写/SSE/MCP/队列数据与第一瓶颈见 [OPERATIONS.md §8](OPERATIONS.md#8-压力测试结果) |
 
+### 循环 10–12 已补齐（摘要）
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 工作区按 run 隔离 | ✅ | `WORKSPACES_DIR/<slug>/<runId>/`；run 结束删除，重试复用同一目录 |
+| 工具卡片持久化 | ✅ | worker 同时落 `tool_use` 与 `tool_result`；刷新后可重建卡片 |
+| Redis 健康检查修复 | ✅ | compose healthcheck 使用容器内 `REDIS_PASSWORD`，新部署不再卡在 unhealthy |
+| 取消与孤儿收敛 | ✅ | SIGTERM → SIGKILL 升级；5 分钟周期把超时仍 `running` 的 run 置 `failed` 并补发 `run_finished` |
+| URL 校验 | ✅ | 登记/修改时校验协议与私网；运行前再次校验 |
+| 审批跨 run 继承 | ✅ | 同一会话下一次 run 复制 `approval_requests`，审计记 `agent.run.approvals_inherited` |
+| 预览与运行时统一 | ✅ | 共用 `core/workspace-input.ts`；预览用占位密钥，运行用真实密钥 |
+| token 轮换 | ✅ | `POST /api/servers/:id/rotate-token`，旧 token 立即失效，明文只返回一次 |
+
+### 循环 13 已补齐
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 按 run 的短期 MCP token | ✅ | `agent_runs.mcp_token_hash` / `mcp_token_expires_at`（迁移 0012）；token 仅写入 `.mcp.json`，DB 存 sha256，run 结束清空；端点先认 run token 再回退长期 token |
+| 工作区文件权限 | ✅ | 目录 0700 / 文件 0600（`core/mcp-token.ts`）；重试复用后再次 `chmod`；macOS Docker Desktop 下容器内 uid 1000 可读 |
+| 评估跑批入队 | ✅ | `eval-runs` 队列（并发 1）；API 只建行并入队返回 202；`eval_runs.error`（迁移 0013）；超 1 小时 running 收敛为 `failed` |
+| SSE 每连接独立订阅 | ✅ | `subscribeRun` 每次 `duplicate()` 一条 Redis 连接；串行 drain 避免重复回调；2 秒轮询兜底 |
+| 测试 | ✅ | 新增 `generated-mcp.test.ts`（run token 生命周期、绑定校验）、`sse-subscribers.test.ts`（并发发布去重、关闭隔离）、eval 入队断言 |
+
+### 循环 14 已补齐
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 子智能体真实端到端验证 | ✅ | 真实模型 + 沙盒，`Agent` → 子智能体 MCP 调用 → `[Subagent hand-back]`；连续 3 次 run 成功。见 [SUBAGENTS-VERIFICATION.md](SUBAGENTS-VERIFICATION.md) |
+| 子智能体零工具修复 | ✅ | 子智能体 md 不写 `tools`，继承父会话工具集；避免 SDK 派生时通配符解析为空 |
+| 父智能体自我递归修复 | ✅ | 主智能体 md 不写入 `.claude/agents/`，只保留预览 |
+| SSE 事件重复修复 | ✅ | 串行化 drain，事件数等于 `XLEN` |
+| 前端缺口 | ✅ | `allowedTools` / `maxThinkingTokens` 编辑；运行详情「用同样输入重新运行」；技能列表显示使用数 |
+| 备份恢复 | ✅ | `restore.sh`：gzip 校验 → pre-restore 安全副本 → 单事务整库替换 → 补迁移；真实演练通过 |
+
+### 循环 15 已补齐
+
+| 能力 | 状态 | 证据 |
+|---|---|---|
+| 子智能体调用归属 | ✅ | 事件新增可选 `parentToolUseId`；worker 落库保留；对话页与运行详情缩进并标「子智能体内部调用」 |
+| CI 扩展 | ✅ | ci.yml 增加 e2e（Playwright）与 docker（构建 api/sandbox 镜像）job |
+| 发布流程 | ✅ | `v*` tag 触发 release.yml，推送 `ghcr.io/<repo>/api` 与 `/sandbox` |
+| 运维手册 | ✅ | [RUNBOOK.md](RUNBOOK.md)：症状 → 判断 → 处置 → 验证，含 token 泄露与审计取证 |
+| 系统状态页 | ✅ | `/status`：live / ready / metrics 三面板，10 秒刷新，浏览器内只读自检 |
+
 ### 下一轮优先级（按对「生产可用」的影响排序）
 
 | 优先级 | 能力 | 状态 / 理由 |
@@ -178,7 +222,7 @@
 | ~~P2~~ | 评估集（手工用例 + 回归） | ✅ |
 | ~~P2~~ | 子智能体（单层委派） | ✅ |
 | P1 | 持久化 HITL（暂停 → 落盘 → 恢复） | 未做；当前是最小审批闭环（D-3） |
-| P1 | 工作区密钥文件权限（M12） | 未做；见 [SECURITY.md](SECURITY.md) |
+| P1 | 模型凭证代理（M12 剩余项） | 未做；文件权限与 run token 已完成。见 [SECURITY.md](SECURITY.md) |
 | P3 | RAG / 知识库 | 未做；技能可覆盖多数场景（D-9） |
 
 ---

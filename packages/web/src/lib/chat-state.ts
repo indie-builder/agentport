@@ -117,15 +117,26 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
       }
       if (typeof block !== 'object' || block === null) continue;
       const record = block as Record<string, unknown>;
-      if (record.type === 'tool_use' && typeof record.name === 'string') {
+      if (record.type === 'tool_use' && (typeof record.name === 'string' || record.id)) {
         items.push({
           kind: 'tool',
-          toolUseId: typeof record.id === 'string' ? record.id : crypto.randomUUID(),
-          name: record.name,
+          toolUseId:
+            typeof record.id === 'string'
+              ? record.id
+              : typeof record.toolUseId === 'string'
+                ? record.toolUseId
+                : crypto.randomUUID(),
+          name: typeof record.name === 'string' ? record.name : '未知工具',
           input: JSON.stringify(record.input ?? {}, null, 2),
         });
       } else if (record.type === 'tool_result') {
-        const id = typeof record.tool_use_id === 'string' ? record.tool_use_id : '';
+        // worker 落库用 toolUseId，SDK 原始块用 tool_use_id；两种都要认。
+        const id =
+          typeof record.toolUseId === 'string'
+            ? record.toolUseId
+            : typeof record.tool_use_id === 'string'
+              ? record.tool_use_id
+              : '';
         const result = blockText(record.content) ?? '';
         const parent =
           typeof record.parentToolUseId === 'string'

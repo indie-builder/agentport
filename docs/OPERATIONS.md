@@ -278,15 +278,16 @@ pnpm --filter @agentport/worker maintenance
 | `mcp__<server>__tool` 被拒绝 | 允许规则写成了 `mcp__*`，或 server 名与绑定名不一致 | 规则由 worker 按 `.mcp.json` 的 server key 生成 `mcp__<name>__*`；不要手写 `mcp__*`；在文件预览核对 server key |
 | 队列堆积，run 一直 `queued` | worker 未启动、并发占满、Redis 不可用 | `curl -s localhost:3000/health/metrics` 看 `queue.waiting/active`；`docker compose logs worker`；确认 `AGENT_MAX_CONCURRENT`；`docker compose ps worker` |
 | SSE 无输出或立即断开 | 未登录（401 后前端跳登录）、反向代理缓冲、run 尚未开始、事件流已过期 | `curl -N -b "agentport_token=<token>" http://localhost:3000/api/chat/<runId>/events`；代理需关闭 buffering（代码已发 `X-Accel-Buffering: no`）；确认 run 状态不是 `queued`；事件流 TTL 为 1 小时 |
-| generated server 在沙盒内 401 | `.mcp.json` 里的 `mcpToken` 与数据库不一致，或平台地址不可达 | 重新保存 server（PATCH 会沿用旧 token，不会轮换）；确认 `SANDBOX_API_URL` 从容器可达（`docker run --rm curlimages/curl -s $SANDBOX_API_URL/health/live`） |
+| generated server 在沙盒内 401 | `.mcp.json` 里的 `mcpToken` 与数据库不一致，或平台地址不可达 | 短期 token 只在 run 期间有效，run 结束后 401 属预期；外部客户端用长期 `mcpToken`（页面「轮换 token」后旧值立即失效）；确认 `SANDBOX_API_URL` 从容器可达（`docker run --rm curlimages/curl -s $SANDBOX_API_URL/health/live`） |
 | 页面登录成功但刷新后退出 | 生产 Cookie 带 `Secure`，却用 HTTP + 非 localhost 访问 | 用 `http://localhost:3000`，或在明确可信的内网终止 TLS 后访问；不要把 `NODE_ENV` 改成 development 来绕过 |
 | 修改 schema 后报 `column ... does not exist` | 只改了 `schema.ts`，未生成或未应用迁移 | `pnpm db:generate && pnpm db:migrate`；迁移文件按顺序应用，不要手改已应用的迁移 |
 | 登录返回 429 | 登录限流 10 次/分钟（按 IP）；反向代理后未设 `TRUST_PROXY=1` 时所有请求共用代理 IP | 等一分钟；确认 `TRUST_PROXY=1`；只在本地/测试环境可临时 `RATE_LIMIT_DISABLED=1` 后重启 api |
 | `pnpm backup` 报 `DATABASE_URL is required` | 脚本不读取 `.env` | `set -a; . ./.env; set +a; pnpm backup` |
 | `pnpm backup` / `pnpm restore` 报 `pg_dump`、`psql` 或 `docker compose` 找不到 | 宿主既没有 PostgreSQL 客户端，也不在项目目录运行 | 在项目根目录运行；安装 `postgresql` 客户端，或保持 compose 的 postgres 容器运行 |
+| generated server 在沙盒内 401 | run 的短期 token 已过期/被清空，或 `.mcp.json` 未带上 `x-agentport-run-id` | 确认 run 仍为 `running`；不要手工改工作区文件；run 结束后短期 token 必然失效，属预期 |
 | worker 退出并报 `Invalid environment` | `.env` 缺少必填项或长度不足 | 按报错里的字段名补齐；`APP_SECRET_KEY`、`JWT_SECRET` ≥32，`ADMIN_PASSWORD` ≥12 且不是常见默认口令 |
 | 运行超时 | `timeoutMs` 太小、模型慢、工具上游慢 | 运行详情看 `latencyMs` 与最后一步；调大智能体的 `timeoutMs`；检查上游 API 延迟 |
-| 评估跑批一直 `running` | 跑批在 api 进程内异步执行，api 重启会中断 | 重启后重新发起；不要在生产重启窗口跑批 |
+| 评估跑批一直 `running` | 跑批在 worker 的 `eval-runs` 队列串行执行；worker 未运行、重启或 job 丢失会让它停在 running | 确认 worker 在运行；超过 1 小时的 running 会被 reconciler 置为 `failed`（`eval run lost`），之后重新发起跑批 |
 
 常用观察命令：
 
@@ -313,7 +314,8 @@ docker ps --filter name=agentport-
 | `/api/runs`、`/api/runs/:id` | 运行列表与 trace 步骤 | 登录 |
 | `/api/audit` | 审计事件，可按 action / status / 时间过滤 | 登录 |
 | 页面「审计」 | 同上，按时间倒序 | 登录 |
-| 页面「运行」→ 详情 | 状态、耗时、轮次、成本、token、错误、步骤时间线 | 登录 |
+| 页面「运行」→ 详情 | 状态、耗时、轮次、成本、token、错误、步骤时间线（子智能体内部调用缩进）；「用同样输入重新运行」 |
+| 页面「系统状态」`/status` | live / ready / metrics 三面板，10 秒刷新；浏览器内只读自检 | 登录（接口本身无鉴权） |
 | api 日志 | pino JSON（生产）/ pino-pretty（开发）；按路由模板记录，>2s 记 `slow request`，SSE 不打慢请求 | stdout |
 | worker 日志 | 结构化 JSON；每步带 `runId`，容器 stderr 以 `sandbox` 字段转发 | stdout |
 

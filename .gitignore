@@ -11,3 +11,5 @@ coverage/
 .impeccable/
 
 backups/
+test-results/
+playwright-report/

@@ -646,7 +646,7 @@ interface SandboxProvider {
 | M2 | HTTP→MCP 动态挂载 | ✅ 已完成：`/mcp/:serverId` + Bearer token；工具真实转发上游 HTTP |
 | M3 | 智能体文件定义 + 单机运行 | ✅ 已完成：DB → `.mcp.json` / `CLAUDE.md` / `.claude/agents/*.md`，页面可预览 |
 | M4 | 队列 + 沙盒 | ✅ 已完成：BullMQ → Docker 容器 → Agent SDK → SSE 回传 text/tool 事件 |
-| M5 | 生产化 | ✅ 审计、E2E、CI、限流、CSP、会话吊销、乐观锁、外键均已落地（缺少持久化 HITL 与 M12） |
+| M5 | 生产化 | ✅ 审计、E2E、CI、限流、CSP、会话吊销、乐观锁、外键、备份恢复、Runbook、状态页均已落地（缺少持久化 HITL 与模型凭证代理，见 [SECURITY.md](SECURITY.md) M12a） |
 | M6 | 强隔离（可选） | ⬜ 未开始（`SandboxProvider` 接口已就位；D-12 决定暂不接入） |
 
 ---

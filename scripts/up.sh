@@ -93,6 +93,12 @@ else
   echo "==> 沙盒镜像已存在，跳过构建（需要重建时加 --rebuild）"
 fi
 
+echo "==> 修正工作区卷属主"
+# docker compose down -v 之后命名卷归 root，worker 以 node(1000) 运行会 Permission denied。
+# 卷本身用一次性 alpine 容器 chown，避免依赖宿主权限。
+docker run --rm -v agentport_workspaces:/w alpine sh -c 'chown -R 1000:1000 /w' >/dev/null 2>&1 ||
+  echo "warn: 工作区卷属主修正失败，若首次运行报 EACCES 请手动 chown" >&2
+
 echo "==> 迁移并启动 api / worker"
 # 删除上次完成的一次性迁移容器，确保本次重新执行迁移。
 docker compose rm -sf migrate >/dev/null 2>&1 || true
@@ -124,3 +130,8 @@ PLATFORM_MCP_TOKEN="$(env_get PLATFORM_MCP_TOKEN)" \
   bash scripts/smoke.sh || fail "冒烟测试失败"
 
 echo "部署完成：$BASE_URL"
+if ! env_get ANTHROPIC_API_KEY >/dev/null 2>&1 && ! env_get ANTHROPIC_AUTH_TOKEN >/dev/null 2>&1; then
+  echo
+  echo "注意：未配置模型凭据（ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN）。"
+  echo "      平台本身可用，但发起对话会失败；补全 .env 后运行 pnpm run up 重启。"
+fi

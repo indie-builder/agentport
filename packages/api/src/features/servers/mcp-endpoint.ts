@@ -30,7 +30,7 @@ function tokenMatches(
  * createMcpHandler 的实例同时服务 2025/2026 两个协议时代。
  */
 function handlerFor(app: FastifyInstance, serverId: string, runId: string | null): McpHttpHandler {
-  return createMcpHandler(async (ctx) => {
+  return createMcpHandler(async () => {
     const row = await getServerRow(app.db, serverId);
     // 鉴权已在路由层完成；这里再查一次是为了拿到最新工具定义。
     if (!row) throw new Error('server disappeared');
