@@ -292,7 +292,7 @@ function EvalRunResults({ id }: { id: string }) {
   return (
     <ul className="space-y-2">
       {results.map((result) => (
-        <li key={result.caseId} className="rounded-[3px] border border-line bg-surface p-3">
+        <li key={result.caseId} className="border-b border-line py-3 last:border-0">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={result.passed ? 'success' : 'danger'}>
               {result.passed ? '通过' : '未通过'}

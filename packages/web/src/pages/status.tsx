@@ -11,7 +11,6 @@ import { type ReactNode, useState } from 'react';
 import { Page, PageHeader } from '../components/page.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
 import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
 import { formatBytes, formatDuration } from '../lib/format.js';
 import { healthLiveQuery, healthMetricsQuery, healthReadyQuery } from '../lib/queries.js';
@@ -59,15 +58,13 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-        <div className="ml-auto">
-          <StatusPill state={state} />
-        </div>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
+    <section className="flex flex-col gap-2 border-t border-line pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.06em] text-fg">{title}</h2>
+        <StatusPill state={state} />
+      </div>
+      <div>{children}</div>
+    </section>
   );
 }
 
@@ -193,10 +190,10 @@ function SmokeChecklist() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">冒烟检查</CardTitle>
-        <div className="ml-auto flex items-center gap-2">
+    <section className="flex flex-col gap-2 border-t border-line pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.06em] text-fg">冒烟检查</h2>
+        <div className="flex items-center gap-2">
           {running ? <span className="text-2xs text-subtle">正在依次检查…</span> : null}
           <Button variant="outline" size="sm" disabled={running} onClick={() => void run()}>
             {running ? (
@@ -207,8 +204,8 @@ function SmokeChecklist() {
             运行冒烟检查
           </Button>
         </div>
-      </CardHeader>
-      <CardContent>
+      </div>
+      <div>
         {steps.length === 0 ? (
           <p className="text-xs text-muted">
             依次请求 live、ready、metrics 三个端点，只在这个浏览器里执行，不会改动服务。
@@ -242,8 +239,8 @@ function SmokeChecklist() {
             ) : null}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
@@ -296,7 +293,7 @@ export function StatusPage() {
   return (
     <Page>
       <PageHeader
-        title="系统状态"
+        title="健康"
         description="API 进程、队列、数据库连接池与 Redis 的实时状态，每 10 秒自动刷新。"
         actions={
           <Button variant="outline" size="sm" onClick={refresh}>
@@ -305,7 +302,7 @@ export function StatusPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
         <Panel title="存活检查 /health/live" state={liveState}>
           <div className="text-xs text-muted">
             {live.isPending

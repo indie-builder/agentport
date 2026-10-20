@@ -53,11 +53,11 @@ export function SkillsPage() {
       ) : null}
 
       {skills.data && skills.data.length > 0 ? (
-        <div className="grid gap-2 md:grid-cols-2">
+        <div className="grid border-t border-line md:grid-cols-2">
           {skills.data.map((skill) => (
             <div
               key={skill.id}
-              className="group rounded-[3px] border border-line bg-surface p-4 transition-colors hover:border-line-strong"
+              className="group border-b border-line py-3 pr-4 transition-colors hover:bg-sunken/50 md:[&:nth-child(odd)]:border-r md:[&:nth-child(odd)]:pr-5 md:[&:nth-child(even)]:pl-5"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
