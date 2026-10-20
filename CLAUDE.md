@@ -12,7 +12,11 @@
 
 ## 后端
 
-- Fastify + zod 校验；路由 schema 即类型来源，不重复定义。
+- **Fastify × Zod：schema 即校验。** 每个路由用 `schema: { body, params, querystring }` 声明，
+  handler 直接使用 `request.body` 等（类型由 zod 推导）；**禁止在 handler 里写 `safeParse`**。
+  路由文件开头用 `const app = typed(rawApp)` 获得类型化实例。
+- 校验失败由 `plugins/errors.ts` 统一返回 `{ code:'INVALID_INPUT', message, requestId, path? }`；
+  业务规则冲突（409/404）仍在 handler 内显式返回。详见 `docs/VALIDATION.md`。
 - 所有 `/api/*` 路由除明确公开项外必须挂 `requireAuth`。
 - schema 变更后必须 `pnpm db:generate` + `pnpm db:migrate`，并同步 `docs/` 中的相关说明。
 

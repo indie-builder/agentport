@@ -3,6 +3,7 @@ import { decryptSecrets, renderWorkspace } from '@agentport/core';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { typed } from '../../types.js';
 
 const idParams = z.object({ id: z.string().min(1) });
 
@@ -47,62 +48,63 @@ function toWorkspaceSkill(row: SkillRow): WorkspaceSkill {
   return { slug: row.slug, name: row.name, description: row.description, body: row.body };
 }
 
-export function registerExportRoutes(app: FastifyInstance): void {
-  const auth = { preHandler: [app.requireAuth] };
+export function registerExportRoutes(rawApp: FastifyInstance): void {
+  const app = typed(rawApp);
+  const auth = { preHandler: [rawApp.requireAuth] };
 
-  app.get('/api/export/agents/:id', auth, async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) {
-      return reply.status(400).send({ code: 'INVALID_INPUT', message: 'invalid id' });
-    }
-    const row = await agentRepo.getAgent(app.db, params.data.id);
-    if (!row) return reply.status(404).send({ code: 'NOT_FOUND', message: 'agent not found' });
+  app.get(
+    '/api/export/agents/:id',
+    { ...auth, schema: { params: idParams } },
+    async (request, reply) => {
+      const row = await agentRepo.getAgent(app.db, request.params.id);
+      if (!row) return reply.status(404).send({ code: 'NOT_FOUND', message: 'agent not found' });
 
-    const [serverRows, skillRows, serverIds, skillIds, subAgentIds] = await Promise.all([
-      agentRepo.getBoundServers(app.db, row.id),
-      agentRepo.getBoundSkills(app.db, row.id),
-      agentRepo.getAgentServerIds(app.db, row.id),
-      agentRepo.getAgentSkillIds(app.db, row.id),
-      agentRepo.getAgentSubAgentIds(app.db, row.id),
-    ]);
+      const [serverRows, skillRows, serverIds, skillIds, subAgentIds] = await Promise.all([
+        agentRepo.getBoundServers(app.db, row.id),
+        agentRepo.getBoundSkills(app.db, row.id),
+        agentRepo.getAgentServerIds(app.db, row.id),
+        agentRepo.getAgentSkillIds(app.db, row.id),
+        agentRepo.getAgentSubAgentIds(app.db, row.id),
+      ]);
 
-    const {
-      id: _id,
-      createdAt: _createdAt,
-      updatedAt: _updatedAt,
-      ...agent
-    } = agentRepo.toAgent(row, serverIds, skillIds, subAgentIds);
-    const skills = skillRows.map(toWorkspaceSkill);
+      const {
+        id: _id,
+        createdAt: _createdAt,
+        updatedAt: _updatedAt,
+        ...agent
+      } = agentRepo.toAgent(row, serverIds, skillIds, subAgentIds);
+      const skills = skillRows.map(toWorkspaceSkill);
 
-    const payload = {
-      format: 'agentport/agent@1',
-      exportedAt: new Date().toISOString(),
-      agent,
-      servers: serverRows.map((server) => toExportedServer(server, app.config.APP_SECRET_KEY)),
-      skills,
-      workspace: renderWorkspace({
-        agent: {
-          slug: agent.slug,
-          name: agent.name,
-          description: agent.description,
-          model: agent.model,
-          systemPrompt: agent.systemPrompt,
-          maxTurns: agent.maxTurns,
-          permissionMode: agent.permissionMode,
-          ...(agent.effort === undefined ? {} : { effort: agent.effort }),
-          allowedTools: agent.allowedTools,
-          disallowedTools: agent.disallowedTools,
-        },
-        servers: serverRows.map((server) => ({ name: server.name, entry: toEntry(server) })),
+      const payload = {
+        format: 'agentport/agent@1',
+        exportedAt: new Date().toISOString(),
+        agent,
+        servers: serverRows.map((server) => toExportedServer(server, app.config.APP_SECRET_KEY)),
         skills,
-        ...(agent.allowedTools.length > 0 ? { toolsAllow: agent.allowedTools } : {}),
-        ...(agent.disallowedTools.length > 0 ? { toolsDeny: agent.disallowedTools } : {}),
-      }),
-    };
+        workspace: renderWorkspace({
+          agent: {
+            slug: agent.slug,
+            name: agent.name,
+            description: agent.description,
+            model: agent.model,
+            systemPrompt: agent.systemPrompt,
+            maxTurns: agent.maxTurns,
+            permissionMode: agent.permissionMode,
+            ...(agent.effort === undefined ? {} : { effort: agent.effort }),
+            allowedTools: agent.allowedTools,
+            disallowedTools: agent.disallowedTools,
+          },
+          servers: serverRows.map((server) => ({ name: server.name, entry: toEntry(server) })),
+          skills,
+          ...(agent.allowedTools.length > 0 ? { toolsAllow: agent.allowedTools } : {}),
+          ...(agent.disallowedTools.length > 0 ? { toolsDeny: agent.disallowedTools } : {}),
+        }),
+      };
 
-    return reply
-      .header('content-disposition', `attachment; filename="${row.slug}.agent.json"`)
-      .type('application/json')
-      .send(payload);
-  });
+      return reply
+        .header('content-disposition', `attachment; filename="${row.slug}.agent.json"`)
+        .type('application/json')
+        .send(payload);
+    },
+  );
 }

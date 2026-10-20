@@ -5,6 +5,7 @@ import { agentInputSchema, permissionModeSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
+import { typed } from '../../types.js';
 import { renderAgentWorkspace } from './workspace.js';
 
 const idParams = z.object({ id: z.string().min(1) });
@@ -165,8 +166,9 @@ function snapshotToWrite(snapshot: Agent, slug: string): repo.AgentWrite {
   };
 }
 
-export function registerAgentRoutes(app: FastifyInstance): void {
-  const auth = { preHandler: [app.requireAuth] };
+export function registerAgentRoutes(rawApp: FastifyInstance): void {
+  const app = typed(rawApp);
+  const auth = { preHandler: [rawApp.requireAuth] };
 
   app.get('/api/agents', auth, async () => {
     const rows = await repo.listAgents(app.db);
@@ -186,34 +188,35 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     );
   });
 
-  app.post('/api/agents', auth, async (request, reply) => {
-    const parsed = agentInputSchema.safeParse(request.body);
-    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid body');
-    const modeError = unsupportedPermissionMode(parsed.data.permissionMode);
-    if (modeError) return invalid(reply, modeError);
-    const { serverIds, skillIds, subAgentIds, ...rest } = parsed.data;
-    const subAgentError = await validateSubAgents(app, null, subAgentIds);
-    if (subAgentError) return invalid(reply, subAgentError);
-    try {
-      const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds, subAgentIds);
-      await writeAudit(app.db, request.log, {
-        actor: 'admin',
-        action: 'agent.created',
-        target: row.id,
-        input: parsed.data,
-        status: 'ok',
-        requestId: request.id,
-      });
-      return reply.status(201).send(repo.toAgent(row, serverIds, skillIds, subAgentIds));
-    } catch (err) {
-      rethrowConflict(err);
-    }
-  });
+  app.post(
+    '/api/agents',
+    { ...auth, schema: { body: agentInputSchema } },
+    async (request, reply) => {
+      const input = request.body;
+      const modeError = unsupportedPermissionMode(input.permissionMode);
+      if (modeError) return invalid(reply, modeError);
+      const { serverIds, skillIds, subAgentIds, ...rest } = input;
+      const subAgentError = await validateSubAgents(app, null, subAgentIds);
+      if (subAgentError) return invalid(reply, subAgentError);
+      try {
+        const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds, subAgentIds);
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.created',
+          target: row.id,
+          input,
+          status: 'ok',
+          requestId: request.id,
+        });
+        return reply.status(201).send(repo.toAgent(row, serverIds, skillIds, subAgentIds));
+      } catch (err) {
+        rethrowConflict(err);
+      }
+    },
+  );
 
-  app.get('/api/agents/:id', auth, async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return invalid(reply, 'invalid id');
-    const row = await repo.getAgent(app.db, params.data.id);
+  app.get('/api/agents/:id', { ...auth, schema: { params: idParams } }, async (request, reply) => {
+    const row = await repo.getAgent(app.db, request.params.id);
     if (!row) return notFound(reply);
     const [serverIds, skillIds, subAgentIds] = await Promise.all([
       repo.getAgentServerIds(app.db, row.id),
@@ -223,180 +226,199 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     return repo.toAgent(row, serverIds, skillIds, subAgentIds);
   });
 
-  app.patch('/api/agents/:id', auth, async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return invalid(reply, 'invalid id');
-    const body = patchSchema.safeParse(request.body);
-    if (!body.success) return invalid(reply, body.error.issues[0]?.message ?? 'invalid body');
-    const modeError = unsupportedPermissionMode(body.data.permissionMode);
-    if (modeError) return invalid(reply, modeError);
+  app.patch(
+    '/api/agents/:id',
+    { ...auth, schema: { params: idParams, body: patchSchema } },
+    async (request, reply) => {
+      const params = { data: request.params };
+      const body = { data: request.body };
+      const modeError = unsupportedPermissionMode(body.data.permissionMode);
+      if (modeError) return invalid(reply, modeError);
 
-    const current = await repo.getAgent(app.db, params.data.id);
-    if (!current) return notFound(reply);
-    const slugError = assertSlugUnchanged(current.slug, body.data.slug);
-    if (slugError) return invalid(reply, slugError);
-    if (body.data.subAgentIds !== undefined) {
-      // 自己已经是子智能体时不能再有子智能体，否则就是两层。
-      if (current.parentId !== null && body.data.subAgentIds.length > 0) {
-        return invalid(reply, 'a sub-agent cannot have its own sub-agents');
+      const current = await repo.getAgent(app.db, params.data.id);
+      if (!current) return notFound(reply);
+      const slugError = assertSlugUnchanged(current.slug, body.data.slug);
+      if (slugError) return invalid(reply, slugError);
+      if (body.data.subAgentIds !== undefined) {
+        // 自己已经是子智能体时不能再有子智能体，否则就是两层。
+        if (current.parentId !== null && body.data.subAgentIds.length > 0) {
+          return invalid(reply, 'a sub-agent cannot have its own sub-agents');
+        }
+        const subAgentError = await validateSubAgents(app, current.id, body.data.subAgentIds);
+        if (subAgentError) return invalid(reply, subAgentError);
       }
-      const subAgentError = await validateSubAgents(app, current.id, body.data.subAgentIds);
-      if (subAgentError) return invalid(reply, subAgentError);
-    }
 
-    const input = body.data;
-    const patch: Partial<repo.AgentWrite> = {
-      name: input.name ?? current.name,
-      description: input.description ?? current.description,
-      model: input.model ?? current.model,
-      systemPromptMd: input.systemPrompt ?? current.systemPromptMd,
-      allowedTools: input.allowedTools ?? current.allowedTools,
-      disallowedTools: input.disallowedTools ?? current.disallowedTools,
-      permissionMode: input.permissionMode ?? current.permissionMode,
-      effort: input.effort ?? current.effort,
-      maxThinkingTokens: input.maxThinkingTokens ?? current.maxThinkingTokens,
-      enabled: input.enabled ?? current.enabled,
-      maxTurns: input.maxTurns ?? current.maxTurns,
-      maxBudgetUsd:
-        input.maxBudgetUsd === undefined ? current.maxBudgetUsd : String(input.maxBudgetUsd),
-      timeoutMs: input.timeoutMs ?? current.timeoutMs,
-    };
+      const input = body.data;
+      const patch: Partial<repo.AgentWrite> = {
+        name: input.name ?? current.name,
+        description: input.description ?? current.description,
+        model: input.model ?? current.model,
+        systemPromptMd: input.systemPrompt ?? current.systemPromptMd,
+        allowedTools: input.allowedTools ?? current.allowedTools,
+        disallowedTools: input.disallowedTools ?? current.disallowedTools,
+        permissionMode: input.permissionMode ?? current.permissionMode,
+        effort: input.effort ?? current.effort,
+        maxThinkingTokens: input.maxThinkingTokens ?? current.maxThinkingTokens,
+        enabled: input.enabled ?? current.enabled,
+        maxTurns: input.maxTurns ?? current.maxTurns,
+        maxBudgetUsd:
+          input.maxBudgetUsd === undefined ? current.maxBudgetUsd : String(input.maxBudgetUsd),
+        timeoutMs: input.timeoutMs ?? current.timeoutMs,
+      };
 
-    try {
-      const row = await repo.updateAgent(
-        app.db,
-        current.id,
-        patch,
-        input.serverIds,
-        input.skillIds,
-        null,
-        input.subAgentIds,
-        input.expectedUpdatedAt,
-      );
-      // 版本不匹配时仓储抛 409，走到这里只剩「行不存在」。
-      if (!row) return notFound(reply);
+      try {
+        const row = await repo.updateAgent(
+          app.db,
+          current.id,
+          patch,
+          input.serverIds,
+          input.skillIds,
+          null,
+          input.subAgentIds,
+          input.expectedUpdatedAt,
+        );
+        // 版本不匹配时仓储抛 409，走到这里只剩「行不存在」。
+        if (!row) return notFound(reply);
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.updated',
+          target: row.id,
+          input: body.data,
+          status: 'ok',
+          requestId: request.id,
+        });
+        const [serverIds, skillIds, subAgentIds] = await Promise.all([
+          input.serverIds ?? repo.getAgentServerIds(app.db, current.id),
+          input.skillIds ?? repo.getAgentSkillIds(app.db, current.id),
+          input.subAgentIds ?? repo.getAgentSubAgentIds(app.db, current.id),
+        ]);
+        return repo.toAgent(row, serverIds, skillIds, subAgentIds);
+      } catch (err) {
+        rethrowConflict(err);
+      }
+    },
+  );
+
+  app.delete(
+    '/api/agents/:id',
+    { ...auth, schema: { params: idParams } },
+    async (request, reply) => {
+      const params = { data: request.params };
+      const ok = await repo.deleteAgent(app.db, params.data.id);
+      if (!ok) return notFound(reply);
       await writeAudit(app.db, request.log, {
         actor: 'admin',
-        action: 'agent.updated',
-        target: row.id,
-        input: body.data,
+        action: 'agent.deleted',
+        target: params.data.id,
         status: 'ok',
         requestId: request.id,
       });
-      const [serverIds, skillIds, subAgentIds] = await Promise.all([
-        input.serverIds ?? repo.getAgentServerIds(app.db, current.id),
-        input.skillIds ?? repo.getAgentSkillIds(app.db, current.id),
-        input.subAgentIds ?? repo.getAgentSubAgentIds(app.db, current.id),
-      ]);
-      return repo.toAgent(row, serverIds, skillIds, subAgentIds);
-    } catch (err) {
-      rethrowConflict(err);
-    }
-  });
-
-  app.delete('/api/agents/:id', auth, async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return invalid(reply, 'invalid id');
-    const ok = await repo.deleteAgent(app.db, params.data.id);
-    if (!ok) return notFound(reply);
-    await writeAudit(app.db, request.log, {
-      actor: 'admin',
-      action: 'agent.deleted',
-      target: params.data.id,
-      status: 'ok',
-      requestId: request.id,
-    });
-    return reply.status(204).send();
-  });
+      return reply.status(204).send();
+    },
+  );
 
   // 检查配置是否可渲染的最直接方式就是真渲染一次；只预览，不落盘。
   // 预览永远只含密钥键名，reveal=1 也不返回明文，仅要求浏览器不缓存。
-  app.get<{ Params: { id: string }; Querystring: { reveal?: string } }>(
+  app.get(
     '/api/agents/:id/files',
-    auth,
+    {
+      ...auth,
+      schema: {
+        params: idParams,
+        querystring: z.object({ reveal: z.string().optional() }),
+      },
+    },
     async (request, reply) => {
-      const params = idParams.safeParse(request.params);
-      if (!params.success) return invalid(reply, 'invalid id');
-      const files = await renderAgentWorkspace(app, params.data.id);
+      const files = await renderAgentWorkspace(app, request.params.id);
       if (!files) return notFound(reply);
       if (request.query.reveal === '1') reply.header('Cache-Control', 'no-store');
       return files;
     },
   );
 
-  app.get('/api/agents/:id/versions', auth, async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return invalid(reply, 'invalid id');
-    const current = await repo.getAgent(app.db, params.data.id);
-    if (!current) return notFound(reply);
-    return allRepo.agentVersions.listAgentVersions(app.db, current.id);
-  });
+  app.get(
+    '/api/agents/:id/versions',
+    { ...auth, schema: { params: idParams } },
+    async (request, reply) => {
+      const current = await repo.getAgent(app.db, request.params.id);
+      if (!current) return notFound(reply);
+      return allRepo.agentVersions.listAgentVersions(app.db, current.id);
+    },
+  );
 
-  app.get('/api/agents/:id/versions/:version', auth, async (request, reply) => {
-    const params = versionParams.safeParse(request.params);
-    if (!params.success) return invalid(reply, 'invalid version');
-    const current = await repo.getAgent(app.db, params.data.id);
-    if (!current) return notFound(reply);
-    const row = await allRepo.agentVersions.getAgentVersion(
-      app.db,
-      current.id,
-      params.data.version,
-    );
-    if (!row) {
-      return reply.status(404).send({ code: 'NOT_FOUND', message: 'version not found' });
-    }
-    return { version: row.version, snapshot: row.snapshot, createdAt: row.createdAt.toISOString() };
-  });
-
-  app.post('/api/agents/:id/rollback', auth, async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return invalid(reply, 'invalid id');
-    const body = rollbackBody.safeParse(request.body);
-    if (!body.success) return invalid(reply, body.error.issues[0]?.message ?? 'invalid body');
-
-    const current = await repo.getAgent(app.db, params.data.id);
-    if (!current) return notFound(reply);
-    const target = await allRepo.agentVersions.getAgentVersion(
-      app.db,
-      current.id,
-      body.data.version,
-    );
-    if (!target) {
-      return reply.status(404).send({ code: 'NOT_FOUND', message: 'version not found' });
-    }
-
-    const snapshot = target.snapshot;
-    // 旧快照没有 subAgentIds 字段；缺失时保持现有关系不动。
-    const snapshotSubAgentIds = snapshot.subAgentIds as string[] | undefined;
-    if (snapshotSubAgentIds !== undefined) {
-      if (current.parentId !== null && snapshotSubAgentIds.length > 0) {
-        return invalid(reply, 'a sub-agent cannot have its own sub-agents');
-      }
-      const subAgentError = await validateSubAgents(app, current.id, snapshotSubAgentIds);
-      if (subAgentError) return invalid(reply, subAgentError);
-    }
-    try {
-      const row = await repo.updateAgent(
+  app.get(
+    '/api/agents/:id/versions/:version',
+    { ...auth, schema: { params: versionParams } },
+    async (request, reply) => {
+      const current = await repo.getAgent(app.db, request.params.id);
+      if (!current) return notFound(reply);
+      const row = await allRepo.agentVersions.getAgentVersion(
         app.db,
         current.id,
-        snapshotToWrite(snapshot, current.slug),
-        snapshot.serverIds,
-        snapshot.skillIds,
-        `rollback to v${target.version}`,
-        snapshotSubAgentIds,
+        request.params.version,
       );
-      if (!row) return notFound(reply);
-      await writeAudit(app.db, request.log, {
-        actor: 'admin',
-        action: 'agent.rolled_back',
-        target: row.id,
-        input: { version: target.version },
-        status: 'ok',
-        requestId: request.id,
-      });
-      return repo.toAgent(row, snapshot.serverIds, snapshot.skillIds, snapshotSubAgentIds ?? []);
-    } catch (err) {
-      rethrowConflict(err);
-    }
-  });
+      if (!row) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'version not found' });
+      }
+      return {
+        version: row.version,
+        snapshot: row.snapshot,
+        createdAt: row.createdAt.toISOString(),
+      };
+    },
+  );
+
+  app.post(
+    '/api/agents/:id/rollback',
+    { ...auth, schema: { params: idParams, body: rollbackBody } },
+    async (request, reply) => {
+      const params = { data: request.params };
+      const body = { data: request.body };
+
+      const current = await repo.getAgent(app.db, params.data.id);
+      if (!current) return notFound(reply);
+      const target = await allRepo.agentVersions.getAgentVersion(
+        app.db,
+        current.id,
+        body.data.version,
+      );
+      if (!target) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'version not found' });
+      }
+
+      const snapshot = target.snapshot;
+      // 旧快照没有 subAgentIds 字段；缺失时保持现有关系不动。
+      const snapshotSubAgentIds = snapshot.subAgentIds as string[] | undefined;
+      if (snapshotSubAgentIds !== undefined) {
+        if (current.parentId !== null && snapshotSubAgentIds.length > 0) {
+          return invalid(reply, 'a sub-agent cannot have its own sub-agents');
+        }
+        const subAgentError = await validateSubAgents(app, current.id, snapshotSubAgentIds);
+        if (subAgentError) return invalid(reply, subAgentError);
+      }
+      try {
+        const row = await repo.updateAgent(
+          app.db,
+          current.id,
+          snapshotToWrite(snapshot, current.slug),
+          snapshot.serverIds,
+          snapshot.skillIds,
+          `rollback to v${target.version}`,
+          snapshotSubAgentIds,
+        );
+        if (!row) return notFound(reply);
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.rolled_back',
+          target: row.id,
+          input: { version: target.version },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return repo.toAgent(row, snapshot.serverIds, snapshot.skillIds, snapshotSubAgentIds ?? []);
+      } catch (err) {
+        rethrowConflict(err);
+      }
+    },
+  );
 }

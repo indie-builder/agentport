@@ -1,6 +1,7 @@
 import { repo } from '@agentport/db';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { typed } from '../../types.js';
 
 const querySchema = z.object({
   action: z.string().trim().max(100).optional(),
@@ -9,35 +10,34 @@ const querySchema = z.object({
   before: z.iso.datetime().optional(),
 });
 
-function invalid(reply: FastifyReply, message: string) {
-  return reply.status(400).send({ code: 'INVALID_INPUT', message });
-}
+export function registerAuditRoutes(rawApp: FastifyInstance): void {
+  const app = typed(rawApp);
+  const auth = { preHandler: [rawApp.requireAuth] };
 
-export function registerAuditRoutes(app: FastifyInstance): void {
-  const auth = { preHandler: [app.requireAuth] };
-
-  app.get('/api/audit', auth, async (request, reply) => {
-    const parsed = querySchema.safeParse(request.query);
-    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? 'invalid query');
-    const { action, status, limit, before } = parsed.data;
-    const rows = await repo.audit.listAudit(app.db, {
-      ...(action ? { action } : {}),
-      ...(status ? { status } : {}),
-      ...(limit === undefined ? {} : { limit }),
-      ...(before === undefined ? {} : { before: new Date(before) }),
-    });
-    return {
-      items: rows.map((row) => ({
-        id: row.id,
-        actor: row.actor,
-        action: row.action,
-        target: row.target,
-        status: row.status,
-        durationMs: row.durationMs,
-        requestId: row.requestId,
-        inputDigest: row.inputDigest,
-        createdAt: row.createdAt.toISOString(),
-      })),
-    };
-  });
+  app.get(
+    '/api/audit',
+    { ...auth, schema: { querystring: querySchema } },
+    async (request) => {
+      const { action, status, limit, before } = request.query;
+      const rows = await repo.audit.listAudit(app.db, {
+        ...(action ? { action } : {}),
+        ...(status ? { status } : {}),
+        ...(limit === undefined ? {} : { limit }),
+        ...(before === undefined ? {} : { before: new Date(before) }),
+      });
+      return {
+        items: rows.map((row) => ({
+          id: row.id,
+          actor: row.actor,
+          action: row.action,
+          target: row.target,
+          status: row.status,
+          durationMs: row.durationMs,
+          requestId: row.requestId,
+          inputDigest: row.inputDigest,
+          createdAt: row.createdAt.toISOString(),
+        })),
+      };
+    },
+  );
 }

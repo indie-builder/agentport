@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0] - 2026-10-20
+
+- Fastify × Zod 重构：所有路由改用 `schema` 声明校验，移除 39 处 `safeParse`
+- `plugins/errors.ts` 统一映射 zod 校验失败与响应序列化失败
+- 新增 `types.ts` 的 `typed(app)`，路由内获得推导后的 `request.body/params/query`
+- 新增 `docs/VALIDATION.md` 记录设计原则
+
 ## [0.2.1] - 2026-10-20
 
 - 完成 e2e 迁移：聊天步骤改用 `agent.waitFor`，配置 `agents.default`（OpenAI-compatible 复用 Anthropic 代理）

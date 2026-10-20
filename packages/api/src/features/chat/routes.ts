@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { closeProducer, getQueue, publishRun, subscribeRun } from '../../queue/producer.js';
+import { typed } from '../../types.js';
 
 const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
 
@@ -38,22 +39,17 @@ function writeEvent(reply: FastifyReply, event: ChatEvent): boolean {
   return reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
-export function registerChatRoutes(app: FastifyInstance): void {
+export function registerChatRoutes(rawApp: FastifyInstance): void {
+  const app = typed(rawApp);
   app.post(
     '/api/chat',
     {
-      preHandler: [app.requireAuth],
+      preHandler: [rawApp.requireAuth],
+      schema: { body: chatRequestSchema },
       config: limits.off ? {} : { rateLimit: { max: 20, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
-      const parsed = chatRequestSchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.status(400).send({
-          code: 'INVALID_INPUT',
-          message: parsed.error.issues[0]?.message ?? 'invalid body',
-        });
-      }
-      const { agentId, message } = parsed.data;
+      const { agentId, message } = request.body;
 
       if (!(await chatRepo.agentExists(app.db, agentId))) {
         return reply
@@ -68,7 +64,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
         });
       }
 
-      let conversationId = parsed.data.conversationId;
+      let conversationId = request.body.conversationId;
       if (conversationId !== undefined) {
         const conversation = await chatRepo.getConversation(app.db, conversationId);
         if (!conversation || conversation.agentId !== agentId) {
@@ -273,17 +269,17 @@ export function registerChatRoutes(app: FastifyInstance): void {
     },
   );
 
-  app.post<{ Params: { id: string } }>(
+  app.post(
     '/api/conversations/:id/branch',
-    { preHandler: [app.requireAuth] },
+    {
+      preHandler: [rawApp.requireAuth],
+      schema: {
+        params: z.object({ id: z.string().min(1) }),
+        body: branchBodySchema,
+      },
+    },
     async (request, reply) => {
-      const parsed = branchBodySchema.safeParse(request.body ?? {});
-      if (!parsed.success) {
-        return reply.status(400).send({
-          code: 'INVALID_INPUT',
-          message: parsed.error.issues[0]?.message ?? 'invalid body',
-        });
-      }
+      const parsed = { data: request.body };
       const result = await chatRepo.branchConversation(app.db, {
         id: newId('conversation'),
         conversationId: request.params.id,
