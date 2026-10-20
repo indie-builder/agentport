@@ -18,7 +18,7 @@ export function TableHeader({ className, ...props }: ComponentProps<'thead'>) {
   return (
     <thead
       className={cn(
-        'bg-panel text-left text-[11px] font-medium uppercase tracking-[0.06em] text-subtle',
+        'bg-panel text-left text-2xs font-medium uppercase tracking-[0.06em] text-subtle',
         className,
       )}
       {...props}

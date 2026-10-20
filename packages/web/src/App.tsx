@@ -140,7 +140,7 @@ export function App() {
           classNames: {
             toast: 'border border-line bg-surface text-fg',
             description: 'text-muted',
-            actionButton: 'bg-accent text-white',
+            actionButton: 'bg-ink text-white',
             closeButton: 'bg-surface border-line text-muted hover:text-fg',
           },
         }}

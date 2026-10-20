@@ -222,9 +222,9 @@ export function AgentsPage() {
                     aria-current={active ? 'true' : undefined}
                     onClick={() => setSelectedId(agent.id)}
                     className={cn(
-                      'group flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                      'group flex w-full items-center gap-2 rounded-[2px] px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal',
                       active
-                        ? 'bg-accent-soft text-fg'
+                        ? 'bg-signal-soft text-fg'
                         : 'text-muted hover:bg-sunken hover:text-fg',
                     )}
                   >
@@ -236,12 +236,12 @@ export function AgentsPage() {
                       aria-hidden="true"
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium">{agent.name}</span>
-                      <span className="block truncate font-mono text-[10px] text-subtle">
+                      <span className="block truncate text-base font-medium">{agent.name}</span>
+                      <span className="block truncate font-mono text-2xs text-subtle">
                         {agent.slug}
                       </span>
                     </span>
-                    <span className="text-[10px] tabular-nums text-subtle">
+                    <span className="text-2xs tabular-nums text-subtle">
                       {agent.serverIds.length}
                     </span>
                   </button>
@@ -261,7 +261,7 @@ export function AgentsPage() {
           ) : agents.data && agents.data.length > 0 ? (
             <EmptyState title="选择一个智能体" description="从左侧列表选择以查看和编辑配置。" />
           ) : (
-            <div className="rounded-lg border border-dashed border-line-strong/70 px-6 py-16 text-center text-sm text-muted">
+            <div className="rounded-[3px] border border-dashed border-line-strong/70 px-6 py-16 text-center text-sm text-muted">
               新建智能体后在这里编辑。
             </div>
           )}
@@ -424,7 +424,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
         />
         <div className="flex items-center gap-2">
           {dirty ? (
-            <span className="inline-flex items-center gap-1 text-[11px] text-warning">
+            <span className="inline-flex items-center gap-1 text-2xs text-warning">
               <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
               有未保存的更改
             </span>
@@ -469,7 +469,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             if (dirty && !update.isPending) save();
           }}
         >
-          <section className="rounded-lg border border-line bg-surface p-5">
+          <section className="rounded-[3px] border border-line bg-surface p-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="agent-name">
@@ -535,8 +535,8 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             </div>
           </section>
 
-          <section className="rounded-lg border border-line bg-surface p-5">
-            <h2 className="mb-3 text-[13px] font-semibold text-fg">系统提示词</h2>
+          <section className="rounded-[3px] border border-line bg-surface p-5">
+            <h2 className="mb-3 text-base font-semibold text-fg">系统提示词</h2>
             <Textarea
               aria-label="系统提示词"
               rows={10}
@@ -547,10 +547,10 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             />
           </section>
 
-          <section className="rounded-lg border border-line bg-surface p-5">
+          <section className="rounded-[3px] border border-line bg-surface p-5">
             <div className="mb-3 flex items-baseline justify-between gap-2">
-              <h2 className="text-[13px] font-semibold text-fg">MCP Servers</h2>
-              <span className="text-[11px] text-subtle">
+              <h2 className="text-base font-semibold text-fg">MCP Servers</h2>
+              <span className="text-2xs text-subtle">
                 已绑定 {form.serverIds.length} / {(servers.data ?? []).length}
               </span>
             </div>
@@ -573,19 +573,19 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                 emptyText="没有匹配的 server"
               />
             ) : null}
-            <p className="mt-2 text-[11px] text-subtle">
+            <p className="mt-2 text-2xs text-subtle">
               绑定后，工作区的 .mcp.json 会包含这些 server，智能体可使用
               <code className="mx-1 font-mono text-muted">mcp__&lt;server&gt;__*</code>
               工具。
             </p>
           </section>
 
-          <section className="rounded-lg border border-line bg-surface p-5">
+          <section className="rounded-[3px] border border-line bg-surface p-5">
             <div className="mb-3 flex items-baseline justify-between gap-2">
-              <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+              <h2 className="flex items-center gap-1.5 text-base font-semibold text-fg">
                 <Sparkles className="size-3.5 text-subtle" /> 技能
               </h2>
-              <span className="text-[11px] text-subtle">
+              <span className="text-2xs text-subtle">
                 已绑定 {form.skillIds.length} / {(skills.data ?? []).length}
               </span>
             </div>
@@ -615,12 +615,12 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             ) : null}
           </section>
 
-          <section className="rounded-lg border border-line bg-surface p-5">
+          <section className="rounded-[3px] border border-line bg-surface p-5">
             <div className="mb-3 flex items-baseline justify-between gap-2">
-              <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+              <h2 className="flex items-center gap-1.5 text-base font-semibold text-fg">
                 <Bot className="size-3.5 text-subtle" /> 子智能体
               </h2>
-              <span className="text-[11px] text-subtle">
+              <span className="text-2xs text-subtle">
                 已选择 {form.subAgentIds.length} / {subAgentOptions.length}
               </span>
             </div>
@@ -642,18 +642,18 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                 emptyText="没有匹配的智能体"
               />
             )}
-            <p className="mt-2 text-[11px] text-subtle">
+            <p className="mt-2 text-2xs text-subtle">
               选中后，主智能体获得 <code className="font-mono text-muted">Agent</code>{' '}
               工具，子智能体定义会渲染到{' '}
               <code className="font-mono text-muted">.claude/agents/&lt;slug&gt;.md</code>。
             </p>
           </section>
 
-          <section className="rounded-lg border border-line bg-surface p-5">
-            <h2 className="mb-1 flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+          <section className="rounded-[3px] border border-line bg-surface p-5">
+            <h2 className="mb-1 flex items-center gap-1.5 text-base font-semibold text-fg">
               <Shield className="size-3.5 text-subtle" /> 权限与工具
             </h2>
-            <p className="mb-3 text-[11px] text-subtle">
+            <p className="mb-3 text-2xs text-subtle">
               内置工具默认禁用；MCP 工具由绑定的 server 自动放行。
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -672,7 +672,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                     { value: 'acceptEdits', label: 'acceptEdits — 自动接受编辑' },
                   ]}
                 />
-                <p className="text-[11px] text-subtle">
+                <p className="text-2xs text-subtle">
                   auto 依赖模型分类器，平台无法审计，因此不开放。
                 </p>
               </div>
@@ -724,7 +724,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
               )}
             </div>
             <div className="mt-4">
-              <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-subtle">
+              <div className="mb-2 text-2xs font-medium uppercase tracking-wider text-subtle">
                 内置工具
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -744,7 +744,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                         )
                       }
                       className={cn(
-                        'rounded-md border px-2 py-1 font-mono text-[11px] transition-colors',
+                        'rounded-[2px] border px-2 py-1 font-mono text-2xs transition-colors',
                         allowed
                           ? 'border-warning-line bg-warning-soft text-warning'
                           : 'border-line bg-sunken text-subtle hover:text-muted',
@@ -759,8 +759,8 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
             </div>
           </section>
 
-          <section className="rounded-lg border border-line bg-surface p-5">
-            <h2 className="mb-3 text-[13px] font-semibold text-fg">运行时限制</h2>
+          <section className="rounded-[3px] border border-line bg-surface p-5">
+            <h2 className="mb-3 text-base font-semibold text-fg">运行时限制</h2>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="agent-turns">最大轮次</Label>
@@ -878,11 +878,11 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
 
   return (
     <div className="space-y-3">
-      <p className="rounded-md border border-line bg-sunken/50 px-3 py-2 text-[11px] leading-relaxed text-muted">
+      <p className="rounded-[2px] border border-line bg-sunken/50 px-3 py-2 text-2xs leading-relaxed text-muted">
         密钥在运行时注入，此处显示为占位符。
       </p>
       {dirty ? (
-        <p className="rounded-md border border-warning-line bg-warning-soft px-3 py-2 text-[11px] leading-relaxed text-warning">
+        <p className="rounded-[2px] border border-warning-line bg-warning-soft px-3 py-2 text-2xs leading-relaxed text-warning">
           预览显示的是上次保存后的内容。保存更改后重新加载即可看到最新结果。
         </p>
       ) : null}
@@ -904,12 +904,12 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
         <CodeBlock key={active[0]} code={content} lineNumbers maxHeight="calc(100vh - 22rem)" />
       ) : null}
       {!disabled && !content ? (
-        <p className="rounded-lg border border-dashed border-line px-4 py-8 text-center text-xs text-subtle">
+        <p className="rounded-[3px] border border-dashed border-line px-4 py-8 text-center text-xs text-subtle">
           该文件当前为空。保存配置后会自动生成内容。
         </p>
       ) : null}
       {!disabled ? (
-        <p className="text-[11px] text-subtle">
+        <p className="text-2xs text-subtle">
           内容由当前保存的配置渲染；路径{' '}
           <code className="font-mono">data/workspaces/{'{slug}'}/</code>
         </p>
@@ -932,7 +932,7 @@ function VersionHistory({
 
   return (
     <div className="space-y-3">
-      <p className="text-[11px] leading-relaxed text-subtle">
+      <p className="text-2xs leading-relaxed text-subtle">
         每次保存都会生成一个版本快照（含 server
         与技能绑定）。回滚会把快照应用为当前配置，并生成一个新版本。
       </p>
@@ -941,12 +941,12 @@ function VersionHistory({
         <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
       ) : null}
       {versions.data && versions.data.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-line px-4 py-8 text-center text-xs text-subtle">
+        <p className="rounded-[3px] border border-dashed border-line px-4 py-8 text-center text-xs text-subtle">
           还没有版本记录。修改配置并保存后，这里会留下第一份快照。
         </p>
       ) : null}
       {versions.data && versions.data.length > 0 ? (
-        <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
+        <ul className="divide-y divide-line rounded-[3px] border border-line bg-surface">
           {versions.data.map((item) => {
             const open = expanded === item.version;
             return (
@@ -954,16 +954,14 @@ function VersionHistory({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[12.5px] font-medium text-fg">
-                        v{item.version}
-                      </span>
+                      <span className="font-mono text-sm font-medium text-fg">v{item.version}</span>
                       {item.note ? (
-                        <span className="truncate rounded bg-sunken px-1.5 py-0.5 text-[10px] text-muted">
+                        <span className="truncate rounded bg-sunken px-1.5 py-0.5 text-2xs text-muted">
                           {item.note}
                         </span>
                       ) : null}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-subtle">
+                    <div className="mt-0.5 text-2xs text-subtle">
                       {formatDateTime(item.createdAt)}
                     </div>
                   </div>

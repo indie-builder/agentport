@@ -30,7 +30,7 @@ const columns: DataColumn<RunListItem>[] = [
     width: '148px',
     sortValue: (run) => run.id,
     cell: (run) => (
-      <code className="font-mono text-[11.5px] text-subtle" title={run.id}>
+      <code className="font-mono text-xs text-subtle" title={run.id}>
         {shortId(run.id)}
       </code>
     ),
@@ -60,7 +60,7 @@ const columns: DataColumn<RunListItem>[] = [
     width: '96px',
     sortValue: (run) => run.startedAt ?? '',
     cell: (run) => (
-      <span className="text-[12.5px] text-muted" title={formatDateTime(run.startedAt)}>
+      <span className="text-sm text-muted" title={formatDateTime(run.startedAt)}>
         {formatRelative(run.startedAt)}
       </span>
     ),

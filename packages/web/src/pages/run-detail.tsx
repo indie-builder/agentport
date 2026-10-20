@@ -1,23 +1,12 @@
-import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import {
-  ArrowLeft,
-  Bot,
-  Check,
-  ChevronDown,
-  CircleAlert,
-  Copy,
-  RotateCcw,
-  User,
-  Wrench,
-} from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { ArrowLeft, Bot, Check, CircleAlert, Copy, RotateCcw, User, Wrench } from 'lucide-react';
+import { useState } from 'react';
 import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
-import { PageHeader } from '../components/page.js';
+import { Page, PageHeader, PageSection, Readout } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
-import { Card, CardContent } from '../components/ui/card.js';
 import { Skeleton } from '../components/ui/skeleton.js';
 import type { ApprovalRequest, RunStep } from '../lib/api.js';
 import { api } from '../lib/api.js';
@@ -27,10 +16,18 @@ import {
   formatDateTime,
   formatDuration,
   formatTokens,
-  runStatusLabel,
+  shortId,
 } from '../lib/format.js';
 import { useRun, useRunApprovals } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+
+/**
+ * 运行详情：主从结构（左步骤树 + 右检查器）。
+ *
+ * 为什么不是纯时间线：时间线适合读故事，但长 trace 里无法并排比较参数与结果，
+ * 也看不出哪一步最慢。这里左栏给「谁花了多久」，右栏给「它到底传了什么、拿回了什么」。
+ * 选中步骤写进 URL（?step=），可分享、刷新不丢。
+ */
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -56,169 +53,44 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
-function Meta({ label, children, mono }: { label: string; children: ReactNode; mono?: boolean }) {
-  return (
-    <div className="flex items-baseline gap-3">
-      <span className="w-20 shrink-0 text-xs text-subtle">{label}</span>
-      <span
-        className={cn(
-          'flex min-w-0 items-center gap-1 break-all text-xs text-fg/90',
-          mono && 'font-mono text-[11.5px]',
-        )}
-      >
-        <span className="min-w-0 break-all">{children}</span>
-      </span>
-    </div>
-  );
-}
-
-function elapsed(at: string, start: string | null): string {
+function elapsed(at: string, start: string | null): number {
   const base = new Date(start ?? at).getTime();
   const time = new Date(at).getTime();
-  if (Number.isNaN(base) || Number.isNaN(time)) return '';
-  const ms = Math.max(0, time - base);
-  return ms < 1000 ? `+${ms}ms` : `+${(ms / 1000).toFixed(1)}s`;
+  if (Number.isNaN(base) || Number.isNaN(time)) return 0;
+  return Math.max(0, time - base);
 }
 
 const stepMeta = {
-  user: { icon: User, label: '用户', tone: 'text-accent' },
+  user: { icon: User, label: '用户', tone: 'text-muted' },
   assistant: { icon: Bot, label: '助手', tone: 'text-success' },
-  tool: { icon: Wrench, label: '工具', tone: 'text-warning' },
+  tool: { icon: Wrench, label: '工具', tone: 'text-signal-text' },
 } as const;
 
-/** 审批面板只需要这三个字段，直接取 GET /api/runs/:id/approvals 的条目。 */
 type ApprovalItem = ApprovalRequest;
 
-function ToolStep({ step }: { step: Extract<RunStep, { kind: 'tool' }> }) {
-  const [open, setOpen] = useState(false);
-  const nested = step.parentToolUseId !== null;
-  return (
-    <div
-      className={cn(
-        'overflow-hidden rounded-lg border border-line bg-sunken',
-        // 子智能体内部的调用：缩进并加左线，视觉上归属父 Agent 步骤。
-        nested && 'ml-6 border-l-2 border-l-accent-line',
-      )}
-    >
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-sunken/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-      >
-        <Wrench className="size-3.5 text-warning" />
-        <code className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-fg">
-          {step.name ?? '未知工具'}
-        </code>
-        {nested ? <Badge variant="accent">子智能体内部调用</Badge> : null}
-        {step.toolUseId ? (
-          <Badge variant="mono" title={step.toolUseId}>
-            {step.toolUseId}
-          </Badge>
-        ) : null}
-        <ChevronDown
-          className={cn('size-3.5 text-subtle transition-transform', open && 'rotate-180')}
-        />
-      </button>
-      {open ? (
-        <div className="border-t border-line p-2">
-          <CodeBlock code={prettyJson(step.content)} json maxHeight="28rem" />
-        </div>
-      ) : null}
-    </div>
-  );
+/** 每一步的显示名：工具名只保留最后一段，前缀是 server 名，表格里太占宽。 */
+function stepName(step: RunStep): string {
+  if (step.kind === 'tool') return step.name ?? '未知工具';
+  return step.kind === 'user' ? '用户消息' : '助手回复';
 }
 
-function StepCard({ step, start }: { step: RunStep; start: string | null }) {
-  const meta = stepMeta[step.kind];
-  const Icon = meta.icon;
-  return (
-    <li className="relative flex gap-3 pl-0">
-      <div className="relative z-10 flex size-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface">
-        <Icon className={cn('size-3.5', meta.tone)} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center gap-2 text-[11px] text-subtle">
-          <span>{meta.label}</span>
-          <span className="font-mono tabular-nums" title={formatDateTime(step.at)}>
-            {elapsed(step.at, start)}
-          </span>
-        </div>
-        {step.kind === 'tool' ? (
-          <ToolStep step={step} />
-        ) : (
-          <CollapsibleText
-            text={step.text}
-            className={cn(
-              'whitespace-pre-wrap break-words rounded-lg border px-3 py-2 text-[13px] leading-relaxed text-fg/90',
-              step.kind === 'user' ? 'border-accent-line bg-accent-soft' : 'border-line bg-surface',
-            )}
-          />
-        )}
-      </div>
-    </li>
-  );
-}
-
-/** 批准只写审批记录；重试由用户在对话页重新发送消息完成，不做自动恢复。 */
-function ApprovalPanel({
-  runId,
-  items,
-  onApproved,
-}: {
-  runId: string;
-  items: ApprovalItem[];
-  onApproved: () => void;
-}) {
-  const [pending, setPending] = useState<string | null>(null);
-  const approve = (item: ApprovalItem): void => {
-    if (pending) return;
-    setPending(item.id);
-    api
-      .approveRun(runId, item.serverId, item.toolName)
-      .then(() => {
-        toastSuccess(`已批准 ${item.toolName}，回到对话重新发送消息即可继续`);
-        onApproved();
-      })
-      .catch((error) => toastError(error))
-      .finally(() => setPending(null));
-  };
-  return (
-    <div
-      role="alert"
-      className="mb-4 space-y-2 rounded-lg border border-warning-line bg-warning-soft p-3.5"
-    >
-      <div className="flex items-center gap-2 text-sm font-medium text-fg">
-        <CircleAlert className="size-4 shrink-0 text-warning" />
-        等待批准的工具
-      </div>
-      {items.map((item) => (
-        <div key={item.id} className="flex flex-wrap items-center gap-2 pl-6 text-xs text-muted">
-          <code className="font-mono text-[11.5px] text-fg">{item.toolName}</code>
-          {item.serverName ? <span className="text-subtle">@ {item.serverName}</span> : null}
-          <Button
-            size="sm"
-            disabled={pending !== null}
-            aria-busy={pending === item.id}
-            onClick={() => approve(item)}
-          >
-            {pending === item.id ? '批准中…' : '批准并重试'}
-          </Button>
-        </div>
-      ))}
-      <p className="pl-6 text-[11px] text-subtle">批准后回到对话页重新发送上一条消息。</p>
-    </div>
-  );
+function stepServerName(step: RunStep): string | null {
+  if (step.kind !== 'tool' || !step.name?.startsWith('mcp__')) return null;
+  const parts = step.name.split('__');
+  return parts.length >= 3 ? (parts[1] ?? null) : null;
 }
 
 export function RunDetailPage() {
   const params = useParams({ strict: false }) as { runId: string };
+  const search = useSearch({ strict: false }) as { step?: string };
   const run = useRun(params.runId);
   const approvals = useRunApprovals(params.runId);
   const navigate = useNavigate();
   const [rerunning, setRerunning] = useState(false);
+  const [selected, setSelected] = useState<number | null>(
+    search.step === undefined ? null : Number(search.step),
+  );
 
-  // 重跑取本次 run 的第一条 user 消息；run 详情接口只返回本次 run 的消息。
   const rerun = async (): Promise<void> => {
     if (!run.data || rerunning) return;
     const { run: detail, steps } = run.data;
@@ -242,6 +114,17 @@ export function RunDetailPage() {
     }
   };
 
+  const approve = (item: ApprovalItem): void => {
+    if (!run.data) return;
+    api
+      .approveRun(run.data.run.id, item.serverId, item.toolName)
+      .then(() => {
+        toastSuccess(`已批准 ${item.toolName}`);
+        void approvals.refetch();
+      })
+      .catch((error) => toastError(error));
+  };
+
   if (run.isPending) {
     return (
       <div className="space-y-4">
@@ -259,7 +142,7 @@ export function RunDetailPage() {
         <h1 className="sr-only">运行详情</h1>
         <Link
           to="/runs"
-          className="mb-4 inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="mb-4 inline-flex items-center gap-1 text-xs text-muted hover:text-fg"
         >
           <ArrowLeft className="size-3.5" /> 返回运行列表
         </Link>
@@ -270,25 +153,42 @@ export function RunDetailPage() {
 
   const { run: detail, steps, conversation } = run.data;
   const hasPrompt = steps.some((step) => step.kind === 'user');
-  const firstStepAt = steps[0]?.at ?? null;
-  const start = detail.startedAt ?? firstStepAt;
+  const start = detail.startedAt ?? steps[0]?.at ?? null;
   const failed = detail.status === 'failed' || detail.status === 'timeout';
   const pending = (approvals.data?.items ?? []).filter((item) => item.approvedAt === null);
+  const activeIndex = selected !== null && selected < steps.length ? selected : steps.length - 1;
+  const activeStep = steps[activeIndex];
+
+  // 每步耗时：从本步到下一步的时间差；最后一步没有下一步，记为 0。
+  const durations = steps.map((step, index) => {
+    const next = steps[index + 1];
+    if (!next) return 0;
+    return Math.max(0, elapsed(next.at, step.at));
+  });
+  const slowest = Math.max(...durations, 1);
 
   return (
-    <div>
-      <Link
-        to="/runs"
-        className="mb-4 inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <ArrowLeft className="size-3.5" /> 返回运行列表
-      </Link>
-
+    <Page>
       <PageHeader
-        title={`运行 ${detail.id}`}
-        description={conversation.title || '运行详情与事件时间线'}
+        title={`运行 ${shortId(detail.id)}`}
+        description={conversation.title || '运行详情与步骤'}
+        meta={
+          <>
+            <Readout
+              label="耗时"
+              value={formatDuration(detail.latencyMs)}
+              tone={detail.status === 'timeout' ? 'danger' : 'default'}
+            />
+            <Readout label="轮次" value={detail.turns ?? '—'} />
+            <Readout label="成本" value={formatCost(detail.costUsd)} />
+            <Readout
+              label="Tokens"
+              value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
+            />
+          </>
+        }
         actions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <>
             <RunStatusBadge status={detail.status} />
             <Button
               variant="outline"
@@ -298,24 +198,21 @@ export function RunDetailPage() {
               onClick={() => void rerun()}
             >
               <RotateCcw className="size-3.5" />
-              {rerunning ? '提交中…' : '用同样输入重新运行'}
+              {rerunning ? '提交中…' : '重跑'}
             </Button>
-          </div>
+          </>
         }
       />
 
       {failed && detail.error ? (
         <div
           role="alert"
-          className="mb-4 flex items-start gap-3 rounded-lg border border-danger-line bg-danger-soft p-3.5"
+          className="flex items-start gap-3 border-y border-danger-line bg-danger-soft px-4 py-3"
         >
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-fg">这次运行没有完成</div>
-            <p className="mt-0.5 text-xs text-muted">
-              原因见下方；修正配置或输入后，从对话页重新发起即可。
-            </p>
-            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11.5px] leading-relaxed text-muted">
+            <div className="text-sm font-medium text-fg">运行{failureLabel(detail.status)}</div>
+            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted">
               {detail.error}
             </pre>
           </div>
@@ -324,77 +221,227 @@ export function RunDetailPage() {
       ) : null}
 
       {pending.length > 0 ? (
-        <ApprovalPanel
-          runId={detail.id}
-          items={pending}
-          onApproved={() => void approvals.refetch()}
-        />
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-3 border-y border-warning-line bg-warning-soft px-4 py-2.5"
+        >
+          <CircleAlert className="size-4 shrink-0 text-warning" />
+          <span className="text-xs text-fg">
+            有 {pending.length} 个工具等待批准；批准后回到对话页重发上一条消息。
+          </span>
+          <div className="ml-auto flex flex-wrap gap-2">
+            {pending.map((item) => (
+              <Button key={item.id} size="sm" onClick={() => approve(item)}>
+                批准 {item.toolName}
+              </Button>
+            ))}
+          </div>
+        </div>
       ) : null}
 
-      <Card className="mb-6">
-        <CardContent className="grid gap-x-8 gap-y-2 p-4 sm:grid-cols-2">
-          <Meta label="智能体">
-            {detail.agentName ?? detail.agentId}
-            <CopyButton value={detail.agentId} label="复制 agent ID" />
-          </Meta>
-          <Meta label="状态">
-            {runStatusLabel[detail.status]}
-            {typeof detail.turns === 'number' ? ` · ${detail.turns} 轮` : ''}
-          </Meta>
-          <Meta label="开始" mono>
-            {formatDateTime(detail.startedAt)}
-          </Meta>
-          <Meta label="结束" mono>
-            {formatDateTime(detail.endedAt)}
-          </Meta>
-          <Meta label="耗时" mono>
-            {formatDuration(detail.latencyMs)}
-          </Meta>
-          <Meta label="成本" mono>
-            {formatCost(detail.costUsd)}
-          </Meta>
-          <Meta label="Tokens" mono>
-            {formatTokens(detail.inputTokens)} 输入 / {formatTokens(detail.outputTokens)} 输出
-          </Meta>
-          <Meta label="轮次" mono>
-            {detail.turns ?? '—'}
-          </Meta>
-          <Meta label="Sandbox" mono>
-            {detail.sandboxId ?? '—'}
-            {detail.sandboxId ? (
-              <CopyButton value={detail.sandboxId} label="复制 sandbox ID" />
-            ) : null}
-          </Meta>
-          <Meta label="Session" mono>
-            {detail.sessionId ?? '—'}
-            {detail.sessionId ? (
-              <CopyButton value={detail.sessionId} label="复制 session ID" />
-            ) : null}
-          </Meta>
-        </CardContent>
-      </Card>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
+        <section className="flex min-w-0 flex-col gap-2" aria-label="步骤">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.06em] text-fg">步骤</h2>
+            <span className="font-mono text-2xs text-subtle">{steps.length} 步</span>
+          </div>
+          {steps.length === 0 ? (
+            <EmptyState
+              title="还没有事件"
+              description={
+                detail.status === 'queued' || detail.status === 'running'
+                  ? '运行尚未产生可回放的消息，稍后自动刷新。'
+                  : '该运行没有持久化任何消息。'
+              }
+            />
+          ) : (
+            <ol className="flex flex-col">
+              {steps.map((step, index) => {
+                const meta = stepMeta[step.kind];
+                const Icon = meta.icon;
+                const duration = durations[index] ?? 0;
+                const ratio = Math.max(0.02, duration / slowest);
+                const isActive = index === activeIndex;
+                const server = stepServerName(step);
+                return (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 步骤没有稳定 id，位置即身份
+                  <li key={`${index}-${step.at}`}>
+                    <button
+                      type="button"
+                      onClick={() => setSelected(index)}
+                      aria-current={isActive ? 'step' : undefined}
+                      className={cn(
+                        'group relative flex w-full items-center gap-2.5 border-b border-line py-2 pr-2 text-left transition-colors hover:bg-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal',
+                        isActive && 'bg-sunken/60',
+                      )}
+                    >
+                      {/* 选中标记：左侧 2px 信号条 */}
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'absolute left-0 top-1 h-[calc(100%-0.5rem)] w-[2px]',
+                          isActive ? 'bg-signal' : 'bg-transparent',
+                        )}
+                      />
+                      <span className="w-6 shrink-0 pl-2 text-right font-mono text-2xs tabular-nums text-subtle">
+                        {index + 1}
+                      </span>
+                      <Icon aria-hidden="true" className={cn('size-3.5 shrink-0', meta.tone)} />
+                      <span className="min-w-0 flex-1">
+                        <span
+                          className={cn(
+                            'block truncate font-mono text-xs',
+                            step.kind === 'tool' ? 'text-fg' : 'text-muted',
+                          )}
+                        >
+                          {stepName(step)}
+                        </span>
+                        {server ? (
+                          <span className="block truncate text-2xs text-subtle">@ {server}</span>
+                        ) : null}
+                      </span>
+                      {/* 时长条：按本次最长步骤归一化，「卡在哪」一眼可见 */}
+                      <span
+                        aria-hidden="true"
+                        className="h-1 shrink-0 rounded-[1px] bg-line-strong/50"
+                        style={{ width: `${Math.round(ratio * 56)}px` }}
+                      />
+                      <span className="w-12 shrink-0 text-right font-mono text-2xs tabular-nums text-subtle">
+                        {duration === 0 ? '—' : formatDuration(duration)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
 
-      <div className="mb-2.5 flex items-center justify-between">
-        <h2 className="text-[11px] font-medium uppercase tracking-wider text-subtle">Trace</h2>
-        <span className="text-[11px] text-subtle">{steps.length} 步</span>
+        <section className="min-w-0" aria-label="步骤详情">
+          {activeStep ? (
+            <StepInspector step={activeStep} index={activeIndex} start={start} />
+          ) : null}
+        </section>
       </div>
 
-      {steps.length === 0 ? (
-        <EmptyState
-          title="还没有事件"
-          description={
-            detail.status === 'queued' || detail.status === 'running'
-              ? '运行尚未产生可回放的消息，稍后自动刷新。'
-              : '该运行没有持久化任何消息。'
-          }
+      <PageSection
+        title="运行上下文"
+        description="这些值在运行开始时确定，之后修改智能体不影响本次运行"
+      >
+        <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2">
+          <ContextRow label="运行 ID" value={detail.id} mono copy />
+          <ContextRow label="智能体" value={detail.agentName ?? detail.agentId} />
+          <ContextRow label="开始" value={formatDateTime(detail.startedAt)} mono />
+          <ContextRow label="结束" value={formatDateTime(detail.endedAt)} mono />
+          <ContextRow label="Sandbox" value={detail.sandboxId ?? '—'} mono copy />
+          <ContextRow label="Session" value={detail.sessionId ?? '—'} mono copy />
+        </div>
+      </PageSection>
+    </Page>
+  );
+}
+
+function failureLabel(status: string): string {
+  if (status === 'timeout') return '超时';
+  if (status === 'cancelled') return '已取消';
+  return '失败';
+}
+
+function ContextRow({
+  label,
+  value,
+  mono,
+  copy,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  copy?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2 border-b border-line py-1.5 last:border-0">
+      <span className="w-20 shrink-0 text-2xs text-subtle">{label}</span>
+      <span
+        className={cn('min-w-0 flex-1 truncate text-xs text-fg', mono && 'font-mono tabular-nums')}
+        title={value}
+      >
+        {value}
+      </span>
+      {copy ? <CopyButton value={value} label={`复制${label}`} /> : null}
+    </div>
+  );
+}
+
+/**
+ * 检查器：参数与结果分开。
+ * 旧版把 step.content 整块塞进一个代码块，读者无法区分「它传了什么」和「它拿回了什么」——
+ * 而这正是可解释性的核心。
+ */
+function StepInspector({
+  step,
+  index,
+  start,
+}: {
+  step: RunStep;
+  index: number;
+  start: string | null;
+}) {
+  const input = step.kind === 'tool' ? (step.content ?? null) : null;
+  const output = step.kind === 'tool' ? (step.result ?? null) : null;
+  const nested = step.kind === 'tool' && step.parentToolUseId !== null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line pb-2">
+        <span className="font-mono text-2xs text-subtle">#{index + 1}</span>
+        <span className="font-mono text-sm text-fg">{stepName(step)}</span>
+        <span className="font-mono text-2xs tabular-nums text-subtle">
+          {start ? formatDateTime(step.at) : ''}
+        </span>
+        {nested ? <Badge variant="accent">子智能体内部调用</Badge> : null}
+        {step.kind === 'tool' && step.toolUseId ? (
+          <Badge variant="mono" title={step.toolUseId}>
+            {shortId(step.toolUseId)}
+          </Badge>
+        ) : null}
+      </div>
+
+      {step.kind === 'assistant' || step.kind === 'user' ? (
+        <CollapsibleText
+          text={step.text}
+          className="whitespace-pre-wrap break-words text-base leading-relaxed text-fg"
         />
       ) : (
-        <ol className="relative space-y-4 before:absolute before:bottom-4 before:left-4 before:top-4 before:w-px before:bg-line">
-          {steps.map((step, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: trace 是只追加序列，顺序即身份
-            <StepCard key={index} step={step} start={start} />
-          ))}
-        </ol>
+        <>
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-2xs font-medium uppercase tracking-[0.06em] text-subtle">
+                参数
+              </span>
+              {input !== null ? <CopyButton value={prettyJson(input)} label="复制参数" /> : null}
+            </div>
+            {input !== null ? (
+              <CodeBlock code={prettyJson(input)} json maxHeight="18rem" />
+            ) : (
+              <p className="text-xs text-subtle">这次调用没有参数。</p>
+            )}
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-2xs font-medium uppercase tracking-[0.06em] text-subtle">
+                结果
+              </span>
+              {output !== null ? <CopyButton value={prettyJson(output)} label="复制结果" /> : null}
+            </div>
+            {output !== null ? (
+              <CodeBlock code={prettyJson(output)} json maxHeight="22rem" />
+            ) : (
+              <p className="text-xs text-subtle">
+                没有结果：可能等待批准、被拒绝，或运行在返回前结束。
+              </p>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

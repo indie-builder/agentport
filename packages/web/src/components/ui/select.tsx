@@ -50,7 +50,7 @@ export function Select({
         id={id}
         aria-label={ariaLabel}
         className={cn(
-          'flex h-8 w-full items-center justify-between gap-2 rounded-md border border-line bg-surface px-2.5 text-sm text-fg transition-colors hover:border-line-strong focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25 disabled:cursor-not-allowed disabled:bg-sunken disabled:text-subtle',
+          'flex h-8 w-full items-center justify-between gap-2 rounded-[2px] border border-line bg-surface px-2.5 text-sm text-fg transition-colors hover:border-line-strong focus-visible:border-signal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/30 disabled:cursor-not-allowed disabled:bg-sunken disabled:text-subtle',
           className,
         )}
       >
@@ -63,7 +63,7 @@ export function Select({
         <SelectPrimitive.Content
           position="popper"
           sideOffset={4}
-          className="z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-line bg-surface shadow-overlay"
+          className="z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-[3px] border border-line bg-surface shadow-overlay"
         >
           <SelectPrimitive.Viewport className="p-1">
             {options.map((option) => (
@@ -71,10 +71,10 @@ export function Select({
                 key={option.value}
                 value={toRadix(option.value)}
                 disabled={option.disabled ?? false}
-                className="relative flex cursor-pointer select-none items-center rounded-md py-1.5 pl-7 pr-2 text-[13px] text-fg outline-none data-[disabled]:pointer-events-none data-[disabled]:text-subtle data-[highlighted]:bg-sunken"
+                className="relative flex cursor-pointer select-none items-center rounded-[2px] py-1.5 pl-7 pr-2 text-base text-fg outline-none data-[disabled]:pointer-events-none data-[disabled]:text-subtle data-[highlighted]:bg-sunken"
               >
                 <SelectPrimitive.ItemIndicator className="absolute left-2">
-                  <Check className="size-3.5 text-accent" />
+                  <Check className="size-3.5 text-signal-text" />
                 </SelectPrimitive.ItemIndicator>
                 <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>
               </SelectPrimitive.Item>

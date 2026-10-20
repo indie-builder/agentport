@@ -88,6 +88,8 @@ export type RunStep =
       name: string | null;
       toolUseId: string | null;
       content: unknown;
+      /** 调用结果；与 content（参数）分开。 */
+      result?: unknown;
       parentToolUseId: string | null;
     };
 

@@ -3,12 +3,12 @@ import type { ComponentProps } from 'react';
 import { cn } from '../../lib/cn.js';
 
 const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium leading-none',
+  'inline-flex items-center gap-1 rounded-[2px] border px-1.5 py-0.5 text-2xs font-medium leading-none',
   {
     variants: {
       variant: {
         default: 'border-line bg-sunken text-muted',
-        accent: 'border-accent-line bg-accent-soft text-accent',
+        accent: 'border-signal-line bg-signal-soft text-signal-text',
         success: 'border-success-line bg-success-soft text-success',
         warn: 'border-warning-line bg-warning-soft text-warning',
         danger: 'border-danger-line bg-danger-soft text-danger',

@@ -71,7 +71,7 @@ export function ChatPage() {
           title="还没有智能体"
           description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
           action={
-            <Link to="/agents" className="text-xs text-accent hover:underline">
+            <Link to="/agents" className="text-xs text-signal-text hover:underline">
               前往创建
             </Link>
           }
@@ -345,13 +345,13 @@ function ChatWorkspace({
       <h1 className="sr-only">对话</h1>
       <aside
         className={cn(
-          'flex w-64 shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface',
+          'flex w-64 shrink-0 flex-col overflow-hidden rounded-[3px] border border-line bg-surface',
           historyOpen ? 'absolute inset-y-4 left-4 z-20 shadow-overlay' : 'hidden lg:flex',
         )}
         aria-label="会话历史"
       >
         <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
-          <span className="text-[13px] font-semibold text-fg">会话</span>
+          <span className="text-base font-semibold text-fg">会话</span>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -377,7 +377,7 @@ function ChatWorkspace({
             <ErrorState error={conversations.error} onRetry={() => void conversations.refetch()} />
           ) : null}
           {history.length === 0 && !conversations.isPending ? (
-            <p className="px-2 py-6 text-center text-[11px] leading-relaxed text-subtle">
+            <p className="px-2 py-6 text-center text-2xs leading-relaxed text-subtle">
               还没有会话。
               <br />
               发送第一条消息即可开始。
@@ -391,14 +391,14 @@ function ChatWorkspace({
                   aria-current={conversation.id === conversationId ? 'true' : undefined}
                   onClick={() => openConversation(conversation.id)}
                   className={cn(
-                    'w-full rounded-md px-2 py-1.5 pr-8 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                    'w-full rounded-[2px] px-2 py-1.5 pr-8 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal',
                     conversation.id === conversationId
-                      ? 'bg-accent-soft text-fg'
+                      ? 'bg-signal-soft text-fg'
                       : 'text-muted hover:bg-sunken hover:text-fg',
                   )}
                 >
                   <span className="block truncate text-xs">{conversation.title}</span>
-                  <span className="mt-0.5 block text-[10px] text-subtle">
+                  <span className="mt-0.5 block text-2xs text-subtle">
                     {formatRelative(conversation.updatedAt)}
                   </span>
                 </button>
@@ -422,13 +422,13 @@ function ChatWorkspace({
           </ul>
         </div>
         {!conversations.data?.supported && history.length > 0 ? (
-          <p className="border-t border-line px-3 py-2 text-[10px] leading-relaxed text-subtle">
+          <p className="border-t border-line px-3 py-2 text-2xs leading-relaxed text-subtle">
             历史列表来自本浏览器；服务端列表接口上线后会自动切换。
           </p>
         ) : null}
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-surface">
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[3px] border border-line bg-surface">
         <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
           <Button
             variant="ghost"
@@ -441,7 +441,7 @@ function ChatWorkspace({
           </Button>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="truncate text-[13px] font-medium text-fg">
+              <span className="truncate text-base font-medium text-fg">
                 {agent?.name ?? '选择智能体'}
               </span>
               {run ? (
@@ -452,7 +452,7 @@ function ChatWorkspace({
               ) : null}
             </div>
             {agent?.description ? (
-              <p className="truncate text-[11px] text-subtle">{agent.description}</p>
+              <p className="truncate text-2xs text-subtle">{agent.description}</p>
             ) : null}
           </div>
           <div className="ml-auto flex items-center gap-1.5">
@@ -463,7 +463,7 @@ function ChatWorkspace({
               id="chat-agent"
               value={agentId ?? ''}
               onChange={(event) => switchAgent(event.target.value)}
-              className="h-7 max-w-40 cursor-pointer rounded-md border border-line bg-sunken px-2 text-xs text-fg focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="h-7 max-w-40 cursor-pointer rounded-[2px] border border-line bg-sunken px-2 text-xs text-fg focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
             >
               {agents.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -506,7 +506,7 @@ function ChatWorkspace({
         {run?.status === 'reconnecting' ? (
           <div
             role="status"
-            className="flex items-center gap-2 border-t border-warning-line bg-warning-soft px-3 py-1.5 text-[11px] text-warning"
+            className="flex items-center gap-2 border-t border-warning-line bg-warning-soft px-3 py-1.5 text-2xs text-warning"
           >
             <RefreshCw className="size-3 animate-spin" />
             事件流断开，正在重连…已收到的内容不会丢失。
@@ -527,7 +527,7 @@ function ChatWorkspace({
               placeholder={run ? '运行中，可继续输入，完成后发送' : 'Enter 发送，Shift+Enter 换行'}
               disabled={!agent}
               value={input}
-              className="min-h-[44px] flex-1 resize-none py-2.5 text-[13px]"
+              className="min-h-[44px] flex-1 resize-none py-2.5 text-base"
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
@@ -649,7 +649,7 @@ function MessagePane({
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[11px] text-muted shadow-panel transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-2xs text-muted shadow-panel transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
         >
           <ArrowDown className="size-3" /> 回到底部
         </button>
@@ -663,7 +663,7 @@ function ItemView({ item }: { item: ChatItem }) {
     case 'user':
       return (
         <div className="flex justify-end">
-          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-sm bg-accent-soft px-3.5 py-2 text-[13px] leading-relaxed text-fg">
+          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-sm bg-signal-soft px-3.5 py-2 text-base leading-relaxed text-fg">
             {item.text}
           </div>
         </div>
@@ -672,7 +672,7 @@ function ItemView({ item }: { item: ChatItem }) {
       return (
         <CollapsibleText
           text={item.text}
-          className="whitespace-pre-wrap break-words text-[13px] leading-[1.7] text-fg/90"
+          className="whitespace-pre-wrap break-words text-base leading-[1.7] text-fg/90"
         />
       );
     case 'tool':
@@ -681,7 +681,7 @@ function ItemView({ item }: { item: ChatItem }) {
       return (
         <div
           className={cn(
-            'flex items-center gap-1.5 text-[11px]',
+            'flex items-center gap-1.5 text-2xs',
             item.tone === 'ok'
               ? 'text-success'
               : item.tone === 'error'
@@ -722,11 +722,11 @@ function ApprovalCards({
           <div
             key={item.id}
             role="alert"
-            className="flex flex-wrap items-center gap-3 rounded-lg border border-warning-line bg-warning-soft px-3.5 py-2.5"
+            className="flex flex-wrap items-center gap-3 rounded-[3px] border border-warning-line bg-warning-soft px-3.5 py-2.5"
           >
             <CircleAlert className="size-4 shrink-0 text-warning" />
             <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg/90">
-              工具 <code className="font-mono text-[11.5px] text-fg">{item.toolName}</code>
+              工具 <code className="font-mono text-xs text-fg">{item.toolName}</code>
               {item.serverName ? <span className="text-muted"> @ {item.serverName}</span> : null}{' '}
               需要批准后才能调用。批准后请重新发送消息。
             </div>
@@ -752,7 +752,7 @@ function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-lg border border-line bg-sunken',
+        'overflow-hidden rounded-[3px] border border-line bg-sunken',
         // 子智能体内部的调用：缩进并加左线，视觉上归属父 Agent 卡片。
         nested && 'ml-6 border-l-2 border-l-accent-line',
       )}
@@ -761,10 +761,10 @@ function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-sunken/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-sunken/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal"
       >
         <Wrench className={cn('size-3.5', done ? 'text-muted' : 'text-warning')} />
-        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg">{item.name}</code>
+        <code className="min-w-0 flex-1 truncate font-mono text-2xs text-fg">{item.name}</code>
         {nested ? <Badge variant="accent">子智能体内部调用</Badge> : null}
         <Badge variant={done ? 'default' : 'warn'}>
           {done ? (
@@ -782,19 +782,19 @@ function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
       {open ? (
         <div className="space-y-2 border-t border-line p-2">
           <div>
-            <div className="mb-1 px-1 text-[10px] uppercase tracking-wider text-subtle">参数</div>
+            <div className="mb-1 px-1 text-2xs uppercase tracking-wider text-subtle">参数</div>
             {item.input !== undefined ? (
               <JsonBlock value={item.input} maxHeight="16rem" />
             ) : (
-              <p className="px-1 text-[11px] text-subtle">等待参数…</p>
+              <p className="px-1 text-2xs text-subtle">等待参数…</p>
             )}
           </div>
           <div>
-            <div className="mb-1 px-1 text-[10px] uppercase tracking-wider text-subtle">结果</div>
+            <div className="mb-1 px-1 text-2xs uppercase tracking-wider text-subtle">结果</div>
             {item.result !== undefined ? (
               <JsonBlock value={item.result} maxHeight="20rem" />
             ) : (
-              <p className="px-1 text-[11px] text-subtle">等待结果…</p>
+              <p className="px-1 text-2xs text-subtle">等待结果…</p>
             )}
           </div>
         </div>

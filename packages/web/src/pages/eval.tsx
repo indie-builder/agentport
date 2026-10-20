@@ -40,7 +40,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '110px',
     sortValue: (run) => run.id,
     cell: (run) => (
-      <code className="font-mono text-[11.5px] text-subtle" title={run.id}>
+      <code className="font-mono text-xs text-subtle" title={run.id}>
         {shortId(run.id)}
       </code>
     ),
@@ -77,7 +77,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '96px',
     sortValue: (run) => run.createdAt,
     cell: (run) => (
-      <span className="text-[12.5px] text-muted" title={formatDateTime(run.createdAt)}>
+      <span className="text-sm text-muted" title={formatDateTime(run.createdAt)}>
         {formatRelative(run.createdAt)}
       </span>
     ),
@@ -88,7 +88,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '96px',
     sortValue: (run) => run.finishedAt ?? '',
     cell: (run) => (
-      <span className="text-[12.5px] text-muted" title={formatDateTime(run.finishedAt)}>
+      <span className="text-sm text-muted" title={formatDateTime(run.finishedAt)}>
         {formatRelative(run.finishedAt)}
       </span>
     ),
@@ -140,7 +140,7 @@ export function EvalPage() {
           onValueChange={setAgentId}
           options={(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }))}
         />
-        <span className="text-[11.5px] text-subtle">
+        <span className="text-xs text-subtle">
           判定：期望非空时检查输出包含该文本（不区分大小写）；为空时只要求有文本输出。
         </span>
       </div>
@@ -165,7 +165,7 @@ export function EvalPage() {
             title="还没有智能体"
             description="先创建一个智能体，才能为它编写评估用例。"
             action={
-              <Link to="/agents" className="text-xs text-accent hover:underline">
+              <Link to="/agents" className="text-xs text-signal-text hover:underline">
                 前往创建智能体
               </Link>
             }
@@ -188,18 +188,18 @@ export function EvalPage() {
           />
         ) : null}
         {cases.data && cases.data.length > 0 ? (
-          <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
+          <ul className="divide-y divide-line rounded-[3px] border border-line bg-surface">
             {cases.data.map((testCase) => (
               <li
                 key={testCase.id}
                 className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-sunken/70"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium text-fg">{testCase.name}</div>
-                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-[12px] leading-relaxed text-muted">
+                  <div className="truncate text-base font-medium text-fg">{testCase.name}</div>
+                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs leading-relaxed text-muted">
                     {testCase.prompt}
                   </p>
-                  <p className="mt-1 truncate text-[11px] text-subtle">
+                  <p className="mt-1 truncate text-2xs text-subtle">
                     {testCase.expectation
                       ? `期望包含：${testCase.expectation}`
                       : '期望为空：只要求有文本输出'}
@@ -292,37 +292,37 @@ function EvalRunResults({ id }: { id: string }) {
   return (
     <ul className="space-y-2">
       {results.map((result) => (
-        <li key={result.caseId} className="rounded-lg border border-line bg-surface p-3">
+        <li key={result.caseId} className="rounded-[3px] border border-line bg-surface p-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={result.passed ? 'success' : 'danger'}>
               {result.passed ? '通过' : '未通过'}
             </Badge>
-            <span className="text-[13px] font-medium text-fg">{result.name}</span>
+            <span className="text-base font-medium text-fg">{result.name}</span>
             {result.runId ? (
               <Link
                 to="/runs/$runId"
                 params={{ runId: result.runId }}
-                className="ml-auto text-[11px] text-accent hover:underline"
+                className="ml-auto text-2xs text-signal-text hover:underline"
               >
                 查看运行
               </Link>
             ) : null}
           </div>
-          <div className="mt-2 grid gap-2 text-[11.5px] leading-relaxed text-subtle sm:grid-cols-2">
+          <div className="mt-2 grid gap-2 text-xs leading-relaxed text-subtle sm:grid-cols-2">
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-subtle/70">Prompt</div>
+              <div className="text-2xs uppercase tracking-wider text-subtle/70">Prompt</div>
               <p className="mt-0.5 whitespace-pre-wrap break-words text-muted">{result.prompt}</p>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-subtle/70">期望</div>
+              <div className="text-2xs uppercase tracking-wider text-subtle/70">期望</div>
               <p className="mt-0.5 whitespace-pre-wrap break-words text-muted">
                 {result.expectation || '（只要求有文本输出）'}
               </p>
             </div>
           </div>
           <div className="mt-2">
-            <div className="text-[10px] uppercase tracking-wider text-subtle/70">输出</div>
-            <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-sunken px-2 py-1.5 font-mono text-[11.5px] text-fg/90">
+            <div className="text-2xs uppercase tracking-wider text-subtle/70">输出</div>
+            <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-sunken px-2 py-1.5 font-mono text-xs text-fg/90">
               {result.output || '（空）'}
             </pre>
           </div>

@@ -61,7 +61,7 @@ function Panel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-[13px]">{title}</CardTitle>
+        <CardTitle className="text-base">{title}</CardTitle>
         <div className="ml-auto">
           <StatusPill state={state} />
         </div>
@@ -74,15 +74,15 @@ function Panel({
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[11px] text-subtle">{label}</div>
-      <div className="mt-0.5 text-[13px] font-medium tabular-nums text-fg">{value}</div>
+      <div className="text-2xs text-subtle">{label}</div>
+      <div className="mt-0.5 text-base font-medium tabular-nums text-fg">{value}</div>
     </div>
   );
 }
 
 function Reason({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-3 flex items-start gap-1.5 rounded-md bg-danger-soft px-2 py-1.5 text-[11.5px] leading-relaxed text-danger">
+    <div className="mt-3 flex items-start gap-1.5 rounded-[2px] bg-danger-soft px-2 py-1.5 text-xs leading-relaxed text-danger">
       <CircleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
       <span>{children}</span>
     </div>
@@ -195,9 +195,9 @@ function SmokeChecklist() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-[13px]">冒烟检查</CardTitle>
+        <CardTitle className="text-base">冒烟检查</CardTitle>
         <div className="ml-auto flex items-center gap-2">
-          {running ? <span className="text-[11px] text-subtle">正在依次检查…</span> : null}
+          {running ? <span className="text-2xs text-subtle">正在依次检查…</span> : null}
           <Button variant="outline" size="sm" disabled={running} onClick={() => void run()}>
             {running ? (
               <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
@@ -429,7 +429,7 @@ export function StatusPage() {
 
       <SmokeChecklist />
 
-      <p className="text-[11.5px] leading-relaxed text-subtle">
+      <p className="text-xs leading-relaxed text-subtle">
         处置步骤见 <code className="font-mono text-muted">docs/RUNBOOK.md</code>
         ；指标字段与观测入口见 <code className="font-mono text-muted">docs/OPERATIONS.md</code>。
       </p>

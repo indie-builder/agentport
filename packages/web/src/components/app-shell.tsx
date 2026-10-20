@@ -5,7 +5,6 @@ import {
   Activity,
   Bot,
   ChevronRight,
-  FlaskConical,
   HeartPulse,
   LayoutDashboard,
   LogOut,
@@ -30,34 +29,45 @@ import { Skeleton } from './ui/skeleton.js';
  * 导航按「配置 → 使用 → 观测 → 运维」分组。
  * 平铺九项会让读者每次重新扫描；分组给出稳定的位置记忆。
  */
+/**
+ * 导航按「使用 → 构建 → 系统」排，不按实体平铺。
+ *
+ * 依据（docs/UI-REDESIGN.md）：对话是每天多次的最高频动作，构建是低频但
+ * 要求高准确度的动作，系统只在出问题时进入。把三者放在同一层级，
+ * 等于让用户每次重新判断「我现在要做哪类事」。
+ */
 const nav = [
+  {
+    label: '使用',
+    items: [
+      { to: '/chat', label: '对话', icon: MessagesSquare, title: '对话' },
+      { to: '/runs', label: '运行', icon: Activity, title: '运行' },
+    ],
+  },
   {
     label: '构建',
     items: [
-      { to: '/servers', label: 'MCP Servers', icon: Server, title: 'MCP Servers' },
       { to: '/agents', label: '智能体', icon: Bot, title: '智能体' },
+      { to: '/servers', label: 'MCP Servers', icon: Server, title: 'MCP Servers' },
       { to: '/skills', label: '技能', icon: Sparkles, title: '技能' },
     ],
   },
   {
-    label: '运行',
+    label: '系统',
     items: [
-      { to: '/chat', label: '对话', icon: MessagesSquare, title: '对话' },
-      { to: '/runs', label: '运行记录', icon: Activity, title: '运行记录' },
-      { to: '/eval', label: '评估', icon: FlaskConical, title: '评估' },
-    ],
-  },
-  {
-    label: '治理',
-    items: [
+      { to: '/status', label: '健康', icon: HeartPulse, title: '健康' },
       { to: '/audit', label: '审计', icon: ScrollText, title: '审计' },
-      { to: '/status', label: '系统状态', icon: HeartPulse, title: '系统状态' },
     ],
   },
 ] as const;
 
-/** 概览单独放在最上：它是入口，不属于任何分组。 */
-const overviewNav = { to: '/', label: '概览', icon: LayoutDashboard, title: '概览' } as const;
+/** 工作台置顶：它是入口与待办的落点。 */
+const overviewNav = {
+  to: '/',
+  label: '工作台',
+  icon: LayoutDashboard,
+  title: '工作台',
+} as const;
 
 /** 扁平列表供标题查找与路由匹配使用。 */
 interface NavItem {
@@ -82,27 +92,30 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
   return [collapsed, update];
 }
 
+/** 品牌标记的四段竖条：高度固定，索引即身份。 */
+const bars = [4, 9, 13, 7] as const;
+
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
     <Link
       to="/"
       aria-label="PACE 首页"
       className={cn(
-        'flex h-[52px] shrink-0 items-center gap-2.5 border-b border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+        'flex h-12 shrink-0 items-center gap-2.5 border-b border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal',
         collapsed ? 'justify-center px-0' : 'px-5',
       )}
     >
       <span className="flex items-end gap-[2px]" aria-hidden="true">
-        {[4, 8, 12, 8].map((height, index) => (
+        {bars.map((height, index) => (
           <span
             key={height}
-            className={cn('w-[3px] rounded-sm', index === 2 ? 'bg-accent' : 'bg-line-strong')}
+            className={cn('w-[2px]', index === 2 ? 'bg-signal' : 'bg-ink')}
             style={{ height }}
           />
         ))}
       </span>
       {collapsed ? null : (
-        <span className="text-[13px] font-semibold tracking-[0.08em] text-fg">PACE</span>
+        <span className="text-sm font-semibold tracking-[0.14em] text-fg">PACE</span>
       )}
     </Link>
   );
@@ -130,12 +143,20 @@ function SidebarLink({
       title={collapsed ? label : undefined}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'relative flex h-8 items-center gap-2.5 rounded-md text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'relative flex h-8 items-center gap-2.5 rounded-[2px] text-base transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal',
         collapsed ? 'justify-center px-0' : 'px-2.5',
-        active ? 'bg-accent-soft text-fg' : 'text-muted hover:bg-sunken hover:text-fg',
+        active ? 'text-fg' : 'text-muted hover:text-fg',
       )}
     >
-      <Icon className={cn('size-4 shrink-0', active ? 'text-accent' : 'text-subtle')} />
+      {/* 选中用左侧 2px 信号条，不用整块底色：底色会把导航变成一组按钮。 */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          'absolute left-0 top-1.5 h-5 w-[2px]',
+          active ? 'bg-signal' : 'bg-transparent',
+        )}
+      />
+      <Icon className={cn('size-4 shrink-0', active ? 'text-fg' : 'text-subtle')} />
       {collapsed ? (
         <span className="sr-only">{label}</span>
       ) : (
@@ -206,7 +227,7 @@ function UserMenu({ username }: { username: string }) {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-8 items-center gap-2 rounded-md px-2 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex h-8 items-center gap-2 rounded-[2px] px-2 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
       >
         <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted">
           <User className="size-3" />
@@ -219,16 +240,16 @@ function UserMenu({ username }: { username: string }) {
           role="menu"
           aria-label="用户菜单"
           onKeyDown={onMenuKeyDown}
-          className="absolute right-0 top-10 z-40 w-48 rounded-lg border border-line bg-surface p-1 shadow-overlay"
+          className="absolute right-0 top-10 z-40 w-48 rounded-[3px] border border-line bg-surface p-1 shadow-overlay"
         >
           <div className="border-b border-line px-2.5 py-2">
             <div className="truncate text-xs text-fg">{username}</div>
-            <div className="text-[11px] text-subtle">管理员</div>
+            <div className="text-2xs text-subtle">管理员</div>
           </div>
           <button
             type="button"
             role="menuitem"
-            className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="mt-1 flex w-full items-center gap-2 rounded-[2px] px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
             onClick={() => void logout()}
           >
             <LogOut className="size-3.5" />
@@ -359,7 +380,7 @@ export function AppShell() {
         {nav.map((group) => (
           <div key={group.label} className="mt-3 first:mt-3">
             {drawer || !collapsed ? (
-              <div className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-subtle">
+              <div className="px-2.5 pb-1 text-2xs font-semibold uppercase tracking-[0.08em] text-subtle">
                 {group.label}
               </div>
             ) : (
@@ -387,7 +408,7 @@ export function AppShell() {
           aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
           aria-pressed={collapsed}
           className={cn(
-            'hidden h-8 items-center gap-2 rounded-md text-xs text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:flex',
+            'hidden h-8 items-center gap-2 rounded-[2px] text-xs text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal lg:flex',
             collapsed ? 'w-full justify-center' : 'w-full px-2',
           )}
         >
@@ -435,7 +456,7 @@ export function AppShell() {
                 setMobileOpen(false);
                 menuButtonRef.current?.focus();
               }}
-              className="absolute right-3 top-4 z-10 rounded-md p-1 text-subtle hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="absolute right-3 top-4 z-10 rounded-[2px] p-1 text-subtle hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
             >
               <X className="size-4" />
             </button>
@@ -451,7 +472,7 @@ export function AppShell() {
             type="button"
             aria-label="打开导航"
             aria-expanded={mobileOpen}
-            className="-ml-1 rounded-md p-1.5 text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
+            className="-ml-1 rounded-[2px] p-1.5 text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal lg:hidden"
             onClick={() => setMobileOpen(true)}
           >
             <Menu className="size-5" />
@@ -469,8 +490,8 @@ export function AppShell() {
         >
           <div
             className={cn(
-              'mx-auto w-full max-w-[1360px] px-4 sm:px-6 lg:px-8',
-              pathname.startsWith('/chat') ? 'h-[calc(100vh-52px)] py-4' : 'py-6',
+              'mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-8',
+              pathname.startsWith('/chat') ? 'h-[calc(100vh-48px)] py-4' : 'py-6',
             )}
           >
             <Outlet />

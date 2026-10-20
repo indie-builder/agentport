@@ -244,9 +244,9 @@ export function ServersPage() {
         {groups.map((group) => (
           <section key={group.kind} aria-label={`${kindMeta[group.kind].label} servers`}>
             <div className="mb-2 flex items-baseline gap-2">
-              <h2 className="text-[13px] font-semibold text-fg">{kindMeta[group.kind].label}</h2>
-              <span className="text-[11px] tabular-nums text-subtle">{group.servers.length}</span>
-              <span className="text-[11px] text-subtle">{kindMeta[group.kind].hint}</span>
+              <h2 className="text-base font-semibold text-fg">{kindMeta[group.kind].label}</h2>
+              <span className="text-2xs tabular-nums text-subtle">{group.servers.length}</span>
+              <span className="text-2xs text-subtle">{kindMeta[group.kind].hint}</span>
             </div>
             <div className="grid gap-2.5 xl:grid-cols-2">
               {group.servers.map((server) => (
@@ -337,7 +337,7 @@ function ServerCard({
   const generated = server.kind === 'generated';
   return (
     // data-slot 供端到端测试稳定定位；不要用圆角/颜色类当选择器。
-    <div data-slot="server-card" className="rounded-lg border border-line bg-surface">
+    <div data-slot="server-card" className="rounded-[3px] border border-line bg-surface">
       <div className="flex items-start gap-3 p-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -355,12 +355,12 @@ function ServerCard({
             </p>
           ) : null}
           <code
-            className="mt-2 block truncate font-mono text-[11px] text-subtle"
+            className="mt-2 block truncate font-mono text-2xs text-subtle"
             title={detailOf(server)}
           >
             {detailOf(server) || '—'}
           </code>
-          <div className="mt-1.5 text-[11px] text-subtle/80">
+          <div className="mt-1.5 text-2xs text-subtle/80">
             更新于 {formatDateTime(server.updatedAt)}
           </div>
         </div>
@@ -412,7 +412,7 @@ function ServerCard({
             type="button"
             aria-expanded={toolsOpen}
             onClick={onToggleTools}
-            className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-muted transition-colors hover:bg-sunken/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+            className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-muted transition-colors hover:bg-sunken/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal"
           >
             <Wrench className="size-3.5" />
             工具定义
@@ -454,7 +454,7 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
             <p className="text-xs text-subtle">{token.isError ? '读取失败' : '加载中…'}</p>
           )}
           {revealed ? (
-            <p role="status" className="text-[11px] leading-relaxed text-warning">
+            <p role="status" className="text-2xs leading-relaxed text-warning">
               只显示这一次，请立即保存；旧 token 已失效。
             </p>
           ) : null}
@@ -507,12 +507,12 @@ function TestResultPanel({ result }: { result: ServerTestResult }) {
         <span className="text-subtle">工具 {result.tools.length}</span>
       </div>
       {result.error ? (
-        <p className="mt-2 whitespace-pre-wrap break-words rounded-md border border-danger-line bg-danger-soft p-2 font-mono text-[11px] leading-relaxed text-danger">
+        <p className="mt-2 whitespace-pre-wrap break-words rounded-[2px] border border-danger-line bg-danger-soft p-2 font-mono text-2xs leading-relaxed text-danger">
           {result.error}
         </p>
       ) : null}
       {result.tools.length > 0 ? (
-        <TableWrap label="连接测试返回的工具" className="mt-2 rounded-md border border-line">
+        <TableWrap label="连接测试返回的工具" className="mt-2 rounded-[2px] border border-line">
           <Table>
             <caption className="sr-only">连接测试返回的工具</caption>
             <TableHeader>
@@ -524,10 +524,8 @@ function TestResultPanel({ result }: { result: ServerTestResult }) {
             <TableBody>
               {result.tools.map((tool) => (
                 <TableRow key={tool.name}>
-                  <TableCell className="font-mono text-[11px] text-fg">{tool.name}</TableCell>
-                  <TableCell className="text-[11px] text-muted">
-                    {tool.description || '—'}
-                  </TableCell>
+                  <TableCell className="font-mono text-2xs text-fg">{tool.name}</TableCell>
+                  <TableCell className="text-2xs text-muted">{tool.description || '—'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -604,7 +602,7 @@ function ToolsPanel({ serverId }: { serverId: string }) {
         <InlineEmpty>还没有工具。在下方填写名称与路径，添加第一个可调用的端点。</InlineEmpty>
       ) : null}
       {tools.data && tools.data.length > 0 ? (
-        <TableWrap label="生成的工具定义" className="rounded-md border border-line">
+        <TableWrap label="生成的工具定义" className="rounded-[2px] border border-line">
           <Table>
             <caption className="sr-only">生成的工具定义</caption>
             <TableHeader>
@@ -623,11 +621,11 @@ function ToolsPanel({ serverId }: { serverId: string }) {
                 <TableRow key={tool.id}>
                   <TableCell>
                     <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-[11px] text-fg">{tool.name}</span>
+                      <span className="font-mono text-2xs text-fg">{tool.name}</span>
                       {tool.requiresApproval ? <Badge variant="warn">需审批</Badge> : null}
                     </div>
                     {tool.description ? (
-                      <div className="max-w-xs truncate text-[11px] text-subtle">
+                      <div className="max-w-xs truncate text-2xs text-subtle">
                         {tool.description}
                       </div>
                     ) : null}
@@ -635,14 +633,14 @@ function ToolsPanel({ serverId }: { serverId: string }) {
                   <TableCell>
                     <Badge variant="mono">{tool.method}</Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-[11px] text-muted">
+                  <TableCell className="font-mono text-2xs text-muted">
                     {tool.pathTemplate}
                   </TableCell>
-                  <TableCell className="text-[11px] text-muted">{tool.paramsIn}</TableCell>
+                  <TableCell className="text-2xs text-muted">{tool.paramsIn}</TableCell>
                   <TableCell>
                     <input
                       type="checkbox"
-                      className="size-3.5 accent-accent"
+                      className="size-3.5 accent-signal"
                       aria-label={`启用工具 ${tool.name}`}
                       checked={tool.enabled}
                       disabled={setEnabled.isPending}
@@ -657,7 +655,7 @@ function ToolsPanel({ serverId }: { serverId: string }) {
                   <TableCell>
                     <input
                       type="checkbox"
-                      className="size-3.5 accent-accent"
+                      className="size-3.5 accent-signal"
                       aria-label={`批准工具 ${tool.name}`}
                       checked={tool.requiresApproval}
                       disabled={setEnabled.isPending}
@@ -777,7 +775,7 @@ function ToolsPanel({ serverId }: { serverId: string }) {
           <input
             id={`tool-approval-${serverId}`}
             type="checkbox"
-            className="size-3.5 accent-accent"
+            className="size-3.5 accent-signal"
             checked={form.requiresApproval}
             onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked })}
           />
@@ -967,14 +965,14 @@ function ServerFormDialog({
                 aria-pressed={kind === value}
                 onClick={() => setKind(value)}
                 className={cn(
-                  'rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                  'rounded-[2px] border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal',
                   kind === value
-                    ? 'border-accent bg-accent-soft'
+                    ? 'border-signal bg-signal-soft'
                     : 'border-line hover:border-line-strong hover:bg-sunken/50',
                 )}
               >
                 <span className="block text-xs font-medium text-fg">{kindMeta[value].label}</span>
-                <span className="mt-0.5 block text-[11px] leading-snug text-subtle">
+                <span className="mt-0.5 block text-2xs leading-snug text-subtle">
                   {kindMeta[value].hint}
                 </span>
               </button>
@@ -1086,7 +1084,7 @@ function ServerFormDialog({
               />
             </div>
             {kind === 'generated' ? (
-              <p className="rounded-md border border-line bg-sunken/70 p-2.5 text-[11px] leading-relaxed text-muted">
+              <p className="rounded-[2px] border border-line bg-sunken/70 p-2.5 text-2xs leading-relaxed text-muted">
                 创建后在列表中展开「工具定义」，把上游 HTTP API 的每个端点声明成一个 MCP 工具。
               </p>
             ) : null}

@@ -53,38 +53,38 @@ export function LoginPage() {
               <span
                 key={height}
                 className={
-                  index === 2 ? 'w-[3px] rounded-sm bg-accent' : 'w-[3px] rounded-sm bg-line-strong'
+                  index === 2 ? 'w-[3px] rounded-sm bg-ink' : 'w-[3px] rounded-sm bg-line-strong'
                 }
                 style={{ height }}
               />
             ))}
           </span>
-          <span className="text-[13px] font-semibold tracking-[0.08em] text-fg">PACE</span>
+          <span className="text-base font-semibold tracking-[0.08em] text-fg">PACE</span>
         </div>
 
         <div className="max-w-md">
           <h2 className="text-[28px] font-semibold leading-[1.25] tracking-tight text-fg">
             让智能体以可预测的节奏运行
           </h2>
-          <p className="mt-3 text-[13px] leading-relaxed text-muted">
+          <p className="mt-3 text-base leading-relaxed text-muted">
             接入 MCP Server，用文件定义智能体，在沙盒里运行并观察每一步。
           </p>
           <dl className="mt-8 space-y-5">
             {facts.map(({ icon: Icon, title, body }) => (
               <div key={title} className="flex gap-3">
-                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-surface text-accent">
+                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[2px] border border-line bg-surface text-signal-text">
                   <Icon className="size-3.5" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
-                  <dt className="text-[13px] font-medium text-fg">{title}</dt>
-                  <dd className="mt-0.5 text-[12px] leading-relaxed text-muted">{body}</dd>
+                  <dt className="text-base font-medium text-fg">{title}</dt>
+                  <dd className="mt-0.5 text-xs leading-relaxed text-muted">{body}</dd>
                 </div>
               </div>
             ))}
           </dl>
         </div>
 
-        <p className="text-[11px] text-subtle">配置变更、连接测试与对话都会记入审计。</p>
+        <p className="text-2xs text-subtle">配置变更、连接测试与对话都会记入审计。</p>
       </section>
 
       {/* 右侧：表单。视觉上是一张纸，不是悬浮卡片。 */}
@@ -96,19 +96,17 @@ export function LoginPage() {
                 <span
                   key={height}
                   className={
-                    index === 2
-                      ? 'w-[3px] rounded-sm bg-accent'
-                      : 'w-[3px] rounded-sm bg-line-strong'
+                    index === 2 ? 'w-[3px] rounded-sm bg-ink' : 'w-[3px] rounded-sm bg-line-strong'
                   }
                   style={{ height }}
                 />
               ))}
             </span>
-            <span className="text-[13px] font-semibold tracking-[0.08em] text-fg">PACE</span>
+            <span className="text-base font-semibold tracking-[0.08em] text-fg">PACE</span>
           </div>
 
           <h1 className="text-[20px] font-semibold tracking-tight text-fg">登录</h1>
-          <p className="mt-1 text-[12.5px] text-muted">使用管理员账号进入控制台。</p>
+          <p className="mt-1 text-sm text-muted">使用管理员账号进入控制台。</p>
 
           <form
             className="mt-6 space-y-4"
@@ -154,7 +152,7 @@ export function LoginPage() {
             </Button>
           </form>
 
-          <p className="mt-6 text-[11px] leading-relaxed text-subtle">
+          <p className="mt-6 text-2xs leading-relaxed text-subtle">
             单管理员部署。会话以 HttpOnly Cookie 保存在浏览器，退出后立即失效。
           </p>
         </div>

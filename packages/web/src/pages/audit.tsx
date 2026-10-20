@@ -156,7 +156,7 @@ export function AuditPage() {
                 {audit.isFetchingNextPage ? '加载中…' : '加载更多'}
               </Button>
             ) : rows.length > 0 ? (
-              <span className="text-[12px] text-subtle">已到末尾</span>
+              <span className="text-xs text-subtle">已到末尾</span>
             ) : null}
           </div>
         </>

@@ -57,16 +57,14 @@ export function SkillsPage() {
           {skills.data.map((skill) => (
             <div
               key={skill.id}
-              className="group rounded-lg border border-line bg-surface p-4 transition-colors hover:border-line-strong"
+              className="group rounded-[3px] border border-line bg-surface p-4 transition-colors hover:border-line-strong"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-[13px] font-medium text-fg">{skill.name}</div>
+                  <div className="truncate text-base font-medium text-fg">{skill.name}</div>
                   <div className="flex flex-wrap items-baseline gap-x-2">
-                    <code className="font-mono text-[11px] text-subtle">{skill.slug}</code>
-                    <span className="text-[11px] text-subtle">
-                      被 {skill.agentCount} 个智能体使用
-                    </span>
+                    <code className="font-mono text-2xs text-subtle">{skill.slug}</code>
+                    <span className="text-2xs text-subtle">被 {skill.agentCount} 个智能体使用</span>
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -85,11 +83,11 @@ export function SkillsPage() {
                   </Button>
                 </div>
               </div>
-              <p className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-muted">
+              <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted">
                 {skill.description || '（无描述）'}
               </p>
               {skill.body ? (
-                <p className="mt-2 line-clamp-2 border-t border-line/60 pt-2 text-[11px] leading-relaxed text-subtle">
+                <p className="mt-2 line-clamp-2 border-t border-line/60 pt-2 text-2xs leading-relaxed text-subtle">
                   {skill.body}
                 </p>
               ) : null}

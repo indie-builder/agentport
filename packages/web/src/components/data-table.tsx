@@ -183,9 +183,9 @@ export function DataTable<T>({
   };
 
   return (
-    <div className={cn('rounded-lg border border-line bg-surface', className)}>
+    <div className={cn('rounded-[3px] border border-line bg-surface', className)}>
       <div className="flex items-center justify-between border-b border-line bg-panel/60 px-4 py-2">
-        <div className="text-[12px] text-subtle">{loading ? '加载中…' : `${rows.length} 行`}</div>
+        <div className="text-xs text-subtle">{loading ? '加载中…' : `${rows.length} 行`}</div>
         <div className="relative">
           <Button
             ref={pickerButtonRef}
@@ -200,18 +200,18 @@ export function DataTable<T>({
           {pickerOpen && (
             <div
               ref={pickerRef}
-              className="absolute right-0 z-20 mt-1 w-52 rounded-lg border border-line bg-surface p-2 shadow-overlay"
+              className="absolute right-0 z-20 mt-1 w-52 rounded-[3px] border border-line bg-surface p-2 shadow-overlay"
             >
               {columns
                 .filter((c) => !c.locked)
                 .map((c) => (
                   <label
                     key={c.id}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[12.5px] text-muted hover:bg-sunken"
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-muted hover:bg-sunken"
                   >
                     <input
                       type="checkbox"
-                      className="accent-accent"
+                      className="accent-signal"
                       checked={!hidden.has(c.id)}
                       onChange={() => toggle(c.id)}
                     />
@@ -225,7 +225,7 @@ export function DataTable<T>({
       <section className="overflow-x-auto" aria-label={label}>
         <div style={{ minWidth }}>
           <div
-            className="grid items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-subtle"
+            className="grid items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 text-2xs font-medium uppercase tracking-[0.06em] text-subtle"
             style={{ gridTemplateColumns: template }}
           >
             {visible.map((col, index) => (
@@ -240,7 +240,7 @@ export function DataTable<T>({
                     : col.header
                 }
                 className={cn(
-                  'flex items-center gap-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+                  'flex items-center gap-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal',
                   col.numeric && 'justify-end',
                   col.sortValue && 'cursor-pointer hover:text-fg',
                   index === 0 && 'sticky left-0 z-10 bg-surface',
@@ -271,9 +271,7 @@ export function DataTable<T>({
               ))}
             </div>
           ) : rows.length === 0 ? (
-            <div className="px-4 py-14 text-center text-[13px] text-muted">
-              {empty ?? '暂无数据'}
-            </div>
+            <div className="px-4 py-14 text-center text-base text-muted">{empty ?? '暂无数据'}</div>
           ) : (
             <div>
               {sorted.map((row) => {
@@ -293,8 +291,8 @@ export function DataTable<T>({
                         onRowClick?.(row);
                       }}
                       className={cn(
-                        'grid w-full items-center gap-3 px-4 py-0 text-left text-[13px] transition-colors',
-                        'min-h-10 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+                        'grid w-full items-center gap-3 px-4 py-0 text-left text-base transition-colors',
+                        'min-h-10 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal',
                         renderExpanded ? 'cursor-pointer' : 'cursor-default',
                         isOpen && 'bg-sunken',
                       )}

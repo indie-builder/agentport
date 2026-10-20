@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toStep } from '../src/repo/runs.js';
+import { mergeToolSteps, toStep } from '../src/repo/runs.js';
 
 const at = new Date('2026-10-20T00:00:00Z');
 
@@ -30,7 +30,9 @@ describe('toStep', () => {
       at: at.toISOString(),
       name: 'get_user',
       toolUseId: 't1',
-      content: '{"id":1}',
+      // result 单独放 result；content 留给调用参数，由 mergeToolSteps 合并。
+      content: null,
+      result: '{"id":1}',
       parentToolUseId: null,
     });
   });
@@ -75,5 +77,61 @@ describe('toStep', () => {
   it('drops unrecognised rows instead of throwing', () => {
     expect(toStep({ role: 'system', content: {}, createdAt: at })).toBeNull();
     expect(toStep({ role: 'user', content: null, createdAt: at })).toBeNull();
+  });
+});
+
+describe('mergeToolSteps', () => {
+  const at = new Date('2026-10-20T00:00:00Z').toISOString();
+
+  it('merges a tool_use and its tool_result into one step', () => {
+    const use = toStep({
+      role: 'tool',
+      content: { type: 'tool_use', id: 't1', name: 'get_user', input: { id: '1' } },
+      createdAt: new Date(at),
+    });
+    const result = toStep({
+      role: 'tool',
+      content: { type: 'tool_result', name: 'get_user', toolUseId: 't1', content: '{"id":1}' },
+      createdAt: new Date(at),
+    });
+    expect(use).not.toBeNull();
+    expect(result).not.toBeNull();
+    const merged = mergeToolSteps([use, result].filter((step) => step !== null));
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      kind: 'tool',
+      content: { id: '1' },
+      result: '{"id":1}',
+    });
+  });
+
+  it('keeps unmergeable steps in their original order', () => {
+    const user = { kind: 'user' as const, at, text: 'hi' };
+    const orphan = {
+      kind: 'tool' as const,
+      at,
+      name: 'x',
+      toolUseId: null,
+      content: 1,
+      parentToolUseId: null,
+    };
+    const merged = mergeToolSteps([user, orphan]);
+    expect(merged).toEqual([user, orphan]);
+  });
+
+  it('does not mutate the input step order when result arrives first', () => {
+    const result = toStep({
+      role: 'tool',
+      content: { type: 'tool_result', name: 'g', toolUseId: 't9', content: 'ok' },
+      createdAt: new Date(at),
+    });
+    const use = toStep({
+      role: 'tool',
+      content: { type: 'tool_use', id: 't9', name: 'g', input: { a: 1 } },
+      createdAt: new Date(at),
+    });
+    const merged = mergeToolSteps([result, use].filter((step) => step !== null));
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({ content: { a: 1 }, result: 'ok' });
   });
 });

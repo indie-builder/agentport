@@ -74,7 +74,7 @@ export function MultiSelect({
       <PopoverPrimitive.Trigger
         aria-label={label}
         className={cn(
-          'flex min-h-8 w-full items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-left text-sm transition-colors hover:border-line-strong focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
+          'flex min-h-8 w-full items-center gap-1.5 rounded-[2px] border border-line bg-surface px-2 py-1 text-left text-sm transition-colors hover:border-line-strong focus-visible:border-signal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/30',
         )}
       >
         <span className="flex min-w-0 flex-1 flex-wrap gap-1">
@@ -106,7 +106,7 @@ export function MultiSelect({
             event.preventDefault();
             searchRef.current?.focus();
           }}
-          className="z-50 max-h-80 min-w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-lg border border-line bg-surface shadow-overlay"
+          className="z-50 max-h-80 min-w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-[3px] border border-line bg-surface shadow-overlay"
         >
           <div className="relative border-b border-line p-2">
             <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
@@ -142,24 +142,24 @@ export function MultiSelect({
                 return (
                   <label
                     key={option.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg transition-colors hover:bg-sunken focus-within:bg-sunken"
+                    className="flex cursor-pointer items-center gap-2 rounded-[2px] px-2 py-1.5 text-sm text-fg transition-colors hover:bg-sunken focus-within:bg-sunken"
                   >
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggle(option.id)}
-                      className="size-3.5 shrink-0 accent-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      className="size-3.5 shrink-0 accent-signal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px]">{option.label}</span>
+                      <span className="block truncate text-base">{option.label}</span>
                       {option.hint ? (
-                        <span className="block truncate font-mono text-[10px] text-subtle">
+                        <span className="block truncate font-mono text-2xs text-subtle">
                           {option.hint}
                         </span>
                       ) : null}
                     </span>
                     {option.tag ? <Badge variant="mono">{option.tag}</Badge> : null}
-                    {checked ? <Check className="size-3.5 shrink-0 text-accent" /> : null}
+                    {checked ? <Check className="size-3.5 shrink-0 text-signal-text" /> : null}
                   </label>
                 );
               })
