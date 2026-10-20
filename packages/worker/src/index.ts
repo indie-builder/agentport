@@ -161,10 +161,8 @@ async function writeWorkspace(
     mode: WORKSPACE_FILE_MODE,
   });
   await writeFile(join(dir, 'CLAUDE.md'), files.claudeMd, 'utf8');
-  await writeFile(join(agentsDir, `${agent.slug}.md`), files.agentMd, {
-    encoding: 'utf8',
-    mode: WORKSPACE_FILE_MODE,
-  });
+  // 主智能体自己的 md 不落盘：放进 .claude/agents/ 会被 SDK 当成可委派子智能体，
+  // 形成自我递归。它只用于 API 预览，CLAUDE.md 已承载主智能体上下文。
   for (const subAgent of files.subAgents) {
     await writeFile(join(agentsDir, `${subAgent.slug}.md`), subAgent.content, {
       encoding: 'utf8',

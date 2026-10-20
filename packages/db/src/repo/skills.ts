@@ -1,9 +1,11 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, count, eq } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
-import { skills } from '../schema.js';
+import { agentSkills, skills } from '../schema.js';
 
 export type SkillRow = typeof skills.$inferSelect;
+
+export type SkillWithAgentCount = SkillRow & { agentCount: number };
 
 export interface SkillWrite {
   slug: string;
@@ -12,8 +14,23 @@ export interface SkillWrite {
   body: string;
 }
 
-export async function listSkills(db: Database): Promise<SkillRow[]> {
-  return db.select().from(skills).orderBy(asc(skills.createdAt), asc(skills.id));
+/** 列表附带绑定的智能体数量；分组依据是主键，其余列在 PG 中函数依赖于它。 */
+export async function listSkills(db: Database): Promise<SkillWithAgentCount[]> {
+  return db
+    .select({
+      id: skills.id,
+      slug: skills.slug,
+      name: skills.name,
+      description: skills.description,
+      body: skills.body,
+      createdAt: skills.createdAt,
+      updatedAt: skills.updatedAt,
+      agentCount: count(agentSkills.agentId),
+    })
+    .from(skills)
+    .leftJoin(agentSkills, eq(agentSkills.skillId, skills.id))
+    .groupBy(skills.id)
+    .orderBy(asc(skills.createdAt), asc(skills.id));
 }
 
 export async function getSkill(db: Database, id: string): Promise<SkillRow | null> {

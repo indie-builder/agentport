@@ -6,8 +6,8 @@ import type {
   Server,
   ServerInput,
   ServerTestResult,
-  Skill,
   SkillInput,
+  SkillWithAgentCount,
 } from '@agentport/shared';
 import {
   QueryClient,
@@ -60,7 +60,7 @@ export const agentsQuery = queryOptions<Agent[]>({
   queryFn: api.agents,
 });
 
-export const skillsQuery = queryOptions<Skill[]>({
+export const skillsQuery = queryOptions<SkillWithAgentCount[]>({
   queryKey: ['skills'],
   queryFn: api.skills,
 });

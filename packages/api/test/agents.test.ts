@@ -256,8 +256,9 @@ describe.skipIf(!ready)('agents', () => {
     expect(body.subAgents.map((sub) => sub.slug)).toEqual([childSlug]);
     expect(body.claudeMd).toContain(childSlug);
     expect(body.agentMd).toContain('Agent');
-    // 子智能体文件不再放行 Agent，保证只有一层。
+    // 子智能体文件不放行 Agent（只有一层），也不写 tools（否则 SDK 派生时 MCP 工具解析为空）。
     expect(body.subAgents[0]?.content).toContain('"Agent"');
+    expect(body.subAgents[0]?.content).not.toContain('tools: [');
   });
 
   it('rejects self-delegation and two-level delegation', async () => {

@@ -160,7 +160,10 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
     `name: ${yamlString(agent.slug)}`,
     `description: ${yamlString(description)}`,
     `model: ${yamlString(agent.model)}`,
-    `tools: ${yamlList(hasSubAgents ? [...tools, 'Agent'] : tools)}`,
+    // 子智能体不能声明 tools：SDK 在派生时先按主会话解析这些名字，MCP 工具此时尚未注册，
+    // `mcp__<server>__*` 解析为空会被直接拒绝（"would be spawned with zero tools"）。
+    // 省略 tools 即继承父会话工具集，权限仍由父的 disallowedTools 收口。
+    ...(standalone ? [] : [`tools: ${yamlList(hasSubAgents ? [...tools, 'Agent'] : tools)}`]),
     `disallowedTools: ${yamlList(disallowed)}`,
     `maxTurns: ${agent.maxTurns}`,
     ...(skills.length > 0 ? [`skills: ${yamlList(skills.map((s) => s.slug))}`] : []),

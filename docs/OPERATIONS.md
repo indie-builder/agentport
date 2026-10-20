@@ -171,7 +171,9 @@ pnpm backup
 
 行为（`scripts/backup.sh`）：
 
-- `pg_dump --no-owner --no-privileges "$DATABASE_URL" | gzip` 写入 `backups/<YYYYMMDD-HHMMSS>.sql.gz`
+- `pg_dump --no-owner --no-privileges --clean --if-exists "$DATABASE_URL" | gzip` 写入 `backups/<YYYYMMDD-HHMMSS>.sql.gz`
+- 宿主没有 `pg_dump` 时自动改用 `docker compose exec -T postgres pg_dump`（`DATABASE_URL` 必须能在容器内解析，默认 compose 配置满足）
+- 生成后 `gzip -t` 校验，打印文件大小；校验失败删除临时文件并以非零退出
 - 成功后只保留 `backups/` 下最近 7 个 `.sql.gz`
 - 失败时删除临时文件并以非零退出
 - 需要宿主已安装 PostgreSQL 客户端
@@ -187,19 +189,51 @@ pnpm backup
 ### 3.2 恢复
 
 ```bash
+set -a; . ./.env; set +a
 docker compose stop api worker
-createdb -h localhost -U agentport agentport_restore   # 或创建一个空库
-gunzip -c backups/20261020-031500.sql.gz | psql "$DATABASE_URL"
-pnpm db:migrate
+pnpm restore backups/20261020-031500.sql.gz
 docker compose start api worker
 ```
 
+`scripts/restore.sh` 的行为：
+
+- 校验备份文件存在且 `gzip -t` 通过，并要求已 export `DATABASE_URL`
+- 先用 `pg_dump` 生成 `backups/pre-restore-<timestamp>.sql.gz`；这一步失败就中止，不动库
+- `gunzip -c <file> | psql -v ON_ERROR_STOP=1 --single-transaction`：备份自带 DROP/CREATE，整库替换，失败则整体回滚
+- 成功后执行 `pnpm db:migrate`，补齐备份之后新增的迁移
+- 成功打印 `RESTORE OK <file>`；任一步失败非零退出，并提示安全副本路径
+
 要点：
 
-- 恢复到空库或已清空的库；`pg_dump` 输出包含建表语句，不要叠加到同结构的旧库上。
+- 恢复会**清空并替换**目标库，所以要先 `docker compose stop api worker`；同库恢复不需要事先创建空库。
 - 保持原来的 `APP_SECRET_KEY`。换了主密钥，`servers.secrets_encrypted` 无法解密，所有 MCP 密钥需要重新填写。
 - 恢复后 `pnpm db:migrate` 只为补齐备份之后新增的迁移。
 - 如果只恢复单个智能体，用「智能体 → 导出 / 导入」（`agentport/agent@1` JSON）；导出不含密钥明文，只含键名，导入后要重新填写。
+
+### 3.3 恢复演练记录（2026-10-20）
+
+环境：本地 compose（postgres 18.6 / api / worker），宿主未安装 PostgreSQL 客户端，脚本走容器内 `pg_dump` / `psql`。
+
+| 项 | 结果 |
+|---|---|
+| 数据量 | 备份 484 KiB；`skills` 10、`agents` 16、`agent_runs` 16，迁移 15 条 |
+| `pnpm backup`（两次） | 约 0.3 s / 次 |
+| 标记记录 | 插入 `skills.slug = restore-drill-20261020-074317` → 确认存在 → 删除 → 确认 0 行 |
+| `pnpm restore` | 约 0.9 s，含 pre-restore 副本与迁移 |
+| 恢复后校验 | 标记记录回来；`pnpm db:migrate` 通过；`pnpm smoke` 全部 ok（含 /mcp 401 与带 token 的 tools/list） |
+
+遇到的问题：
+
+1. 宿主没有 `pg_dump` / `psql`，原脚本直接报 `command not found`。两个脚本改为缺客户端时回退到 `docker compose exec -T postgres`。
+2. 原始 `pg_dump` 输出不带 `DROP`，恢复到已有库会因表已存在失败。备份改为 `--clean --if-exists`，恢复才能直接整库替换。
+3. 按「先备份、后建标记」的顺序演练，恢复点早于标记，标记不可能回来。实际做法是建标记后再备份一次，用该备份演练；同一原因下，插入的标记 id 用朴素字符串，`pg_dump` 的 sequence 只覆盖表，不影响结果。
+4. `pnpm restore` 依赖 `DATABASE_URL` 已 export（与 `pnpm backup` 相同）；迁移步骤会把 `DATABASE_URL` 显式传给 `pnpm db:migrate`，不依赖 `.env`。
+
+遗留：
+
+- 单机库直接恢复；生产应恢复到新库、验证后再切流量，当前脚本仍会替换目标库。
+- 脚本用 `--single-transaction`，大库恢复时长受单个事务限制。
+- `backups/` 含密钥密文与审计数据，注意同步盘权限；演练产生的三个文件仍留在本地，确认后可删。
 
 ## 4. 维护任务
 
@@ -249,6 +283,7 @@ pnpm --filter @agentport/worker maintenance
 | 修改 schema 后报 `column ... does not exist` | 只改了 `schema.ts`，未生成或未应用迁移 | `pnpm db:generate && pnpm db:migrate`；迁移文件按顺序应用，不要手改已应用的迁移 |
 | 登录返回 429 | 登录限流 10 次/分钟（按 IP）；反向代理后未设 `TRUST_PROXY=1` 时所有请求共用代理 IP | 等一分钟；确认 `TRUST_PROXY=1`；只在本地/测试环境可临时 `RATE_LIMIT_DISABLED=1` 后重启 api |
 | `pnpm backup` 报 `DATABASE_URL is required` | 脚本不读取 `.env` | `set -a; . ./.env; set +a; pnpm backup` |
+| `pnpm backup` / `pnpm restore` 报 `pg_dump`、`psql` 或 `docker compose` 找不到 | 宿主既没有 PostgreSQL 客户端，也不在项目目录运行 | 在项目根目录运行；安装 `postgresql` 客户端，或保持 compose 的 postgres 容器运行 |
 | worker 退出并报 `Invalid environment` | `.env` 缺少必填项或长度不足 | 按报错里的字段名补齐；`APP_SECRET_KEY`、`JWT_SECRET` ≥32，`ADMIN_PASSWORD` ≥12 且不是常见默认口令 |
 | 运行超时 | `timeoutMs` 太小、模型慢、工具上游慢 | 运行详情看 `latencyMs` 与最后一步；调大智能体的 `timeoutMs`；检查上游 API 延迟 |
 | 评估跑批一直 `running` | 跑批在 api 进程内异步执行，api 重启会中断 | 重启后重新发起；不要在生产重启窗口跑批 |

@@ -37,6 +37,26 @@ describe.skipIf(!ready)('run subscribers', () => {
     second.close();
   });
 
+  it('delivers each event once when publishes race the drain', async () => {
+    const runId = unique('sse-run');
+    const texts: string[] = [];
+    const sub = await subscribeRun(runId, (event) => {
+      if (event.type === 'text_delta') texts.push(event.text);
+    });
+
+    // 每次 publish 都会唤醒一次 drain；并发 XRANGE 返回同一批事件时不能重复回调。
+    await Promise.all(
+      Array.from({ length: 50 }, (_, i) =>
+        publishRun(runId, { type: 'text_delta', text: `t${i}` }),
+      ),
+    );
+    await delay(500);
+
+    expect(texts).toHaveLength(50);
+    expect(new Set(texts).size).toBe(50);
+    sub.close();
+  });
+
   it('does not unsubscribe a live subscriber when a stale one closes', async () => {
     const runId = unique('sse-run');
     const channel = `run:${runId}:events:wake`;

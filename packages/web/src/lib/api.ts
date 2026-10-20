@@ -11,6 +11,7 @@ import type {
   ConversationDetail as SharedConversationDetail,
   Skill,
   SkillInput,
+  SkillWithAgentCount,
   WorkspaceFiles,
 } from '@agentport/shared';
 
@@ -392,7 +393,7 @@ export const api = {
   importAgent: (data: unknown): Promise<AgentImportResult> =>
     request('/import/agents', 'POST', data),
 
-  skills: (): Promise<Skill[]> => request('/skills'),
+  skills: (): Promise<SkillWithAgentCount[]> => request('/skills'),
   createSkill: (input: SkillInput): Promise<Skill> => request('/skills', 'POST', input),
   updateSkill: (id: string, input: Partial<SkillInput>): Promise<Skill> =>
     request(`/skills/${id}`, 'PATCH', input),

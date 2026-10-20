@@ -62,7 +62,12 @@ export function SkillsPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-[13px] font-medium text-fg">{skill.name}</div>
-                  <code className="font-mono text-[11px] text-subtle">{skill.slug}</code>
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <code className="font-mono text-[11px] text-subtle">{skill.slug}</code>
+                    <span className="text-[11px] text-subtle">
+                      被 {skill.agentCount} 个智能体使用
+                    </span>
+                  </div>
                 </div>
                 <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                   <Button variant="ghost" size="icon-sm" onClick={() => setEditing(skill)}>

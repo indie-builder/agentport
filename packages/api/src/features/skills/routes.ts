@@ -1,5 +1,5 @@
 import { repo as skillRepo } from '@agentport/db';
-import type { Skill } from '@agentport/shared';
+import type { Skill, SkillWithAgentCount } from '@agentport/shared';
 import { skillInputSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -64,7 +64,7 @@ export function registerSkillRoutes(app: FastifyInstance): void {
 
   app.get('/api/skills', auth, async () => {
     const rows = await repo.listSkills(app.db);
-    return rows.map(toApi);
+    return rows.map((row): SkillWithAgentCount => ({ ...toApi(row), agentCount: row.agentCount }));
   });
 
   app.post('/api/skills', auth, async (request, reply) => {

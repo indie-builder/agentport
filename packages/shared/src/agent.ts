@@ -87,6 +87,13 @@ export const skillSchema = skillInputSchema.and(
 
 export type Skill = z.infer<typeof skillSchema>;
 
+/** 技能列表项：附带引用它的智能体数量，用于「被 N 个智能体使用」。 */
+export const skillWithAgentCountSchema = skillSchema.and(
+  z.object({ agentCount: z.number().int().nonnegative() }),
+);
+
+export type SkillWithAgentCount = z.infer<typeof skillWithAgentCountSchema>;
+
 /** 工作区文件预览：前端「文件」tab 用。 */
 export const workspaceFilesSchema = z.object({
   mcpJson: z.string(),

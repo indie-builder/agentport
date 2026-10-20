@@ -1,5 +1,15 @@
-import { Link, useParams } from '@tanstack/react-router';
-import { ArrowLeft, Bot, Check, ChevronDown, CircleAlert, Copy, User, Wrench } from 'lucide-react';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
+import {
+  ArrowLeft,
+  Bot,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  Copy,
+  RotateCcw,
+  User,
+  Wrench,
+} from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
 import { PageHeader } from '../components/page.js';
@@ -197,6 +207,32 @@ export function RunDetailPage() {
   const params = useParams({ strict: false }) as { runId: string };
   const run = useRun(params.runId);
   const approvals = useRunApprovals(params.runId);
+  const navigate = useNavigate();
+  const [rerunning, setRerunning] = useState(false);
+
+  // 重跑取本次 run 的第一条 user 消息；run 详情接口只返回本次 run 的消息。
+  const rerun = async (): Promise<void> => {
+    if (!run.data || rerunning) return;
+    const { run: detail, steps } = run.data;
+    const prompt = steps.find((step) => step.kind === 'user')?.text;
+    if (!prompt) {
+      toastError(new Error('这次运行没有可重发的用户消息。'));
+      return;
+    }
+    setRerunning(true);
+    try {
+      const accepted = await api.sendChat({
+        agentId: detail.agentId,
+        conversationId: detail.conversationId,
+        message: prompt,
+      });
+      await navigate({ to: '/runs/$runId', params: { runId: accepted.runId } });
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setRerunning(false);
+    }
+  };
 
   if (run.isPending) {
     return (
@@ -225,6 +261,7 @@ export function RunDetailPage() {
   }
 
   const { run: detail, steps, conversation } = run.data;
+  const hasPrompt = steps.some((step) => step.kind === 'user');
   const firstStepAt = steps[0]?.at ?? null;
   const start = detail.startedAt ?? firstStepAt;
   const failed = detail.status === 'failed' || detail.status === 'timeout';
@@ -242,7 +279,21 @@ export function RunDetailPage() {
       <PageHeader
         title={`运行 ${detail.id}`}
         description={conversation.title || '运行详情与事件时间线'}
-        actions={<RunStatusBadge status={detail.status} />}
+        actions={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <RunStatusBadge status={detail.status} />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={rerunning || !hasPrompt}
+              aria-busy={rerunning}
+              onClick={() => void rerun()}
+            >
+              <RotateCcw className="size-3.5" />
+              {rerunning ? '提交中…' : '用同样输入重新运行'}
+            </Button>
+          </div>
+        }
       />
 
       {failed && detail.error ? (

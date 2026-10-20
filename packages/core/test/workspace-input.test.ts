@@ -80,4 +80,18 @@ describe('toWorkspaceInput', () => {
     expect(files.subAgents.map((sub) => sub.slug)).toEqual(['active-child']);
     expect(files.claudeMd).not.toContain('disabled-child');
   });
+
+  it('omits tools from sub-agent files so MCP tools resolve at spawn time', () => {
+    const files = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow(),
+        servers: servers('<已配置>'),
+        skills: [],
+        subAgents: [agentRow({ slug: 'active-child' })],
+      }),
+    );
+    // SDK 会把子智能体的 tools 当名字解析，此时 MCP 工具未注册 → 直接拒绝派生。
+    expect(files.subAgents[0]?.content).not.toContain('tools: [');
+    expect(files.agentMd).toContain('tools: [');
+  });
 });

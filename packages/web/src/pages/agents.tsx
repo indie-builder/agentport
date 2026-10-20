@@ -298,6 +298,40 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
   const [tab, setTab] = useState<'config' | 'files' | 'versions'>('config');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [exporting, setExporting] = useState(false);
+  // 多行文本按行解析为数组；草稿单独保留，输入换行时不会被 join 规范化掉。
+  const [allowedText, setAllowedText] = useState(() => agent.allowedTools.join('\n'));
+  const allowedInvalid = allowedText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some((line) => /\s/.test(line));
+  // 空值表示「不设置」，不能落成 0（schema 是可选正整数）。
+  const [thinkingText, setThinkingText] = useState(() =>
+    agent.maxThinkingTokens === undefined ? '' : String(agent.maxThinkingTokens),
+  );
+  const thinkingNumber = thinkingText.trim() === '' ? undefined : Number(thinkingText);
+  const thinkingInvalid =
+    thinkingNumber !== undefined && (!Number.isInteger(thinkingNumber) || thinkingNumber <= 0);
+
+  const setAllowedToolsText = (value: string): void => {
+    setAllowedText(value);
+    set(
+      'allowedTools',
+      value
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean),
+    );
+  };
+
+  const setThinkingTextSafely = (value: string): void => {
+    setThinkingText(value);
+    const number = value.trim() === '' ? undefined : Number(value);
+    set(
+      'maxThinkingTokens',
+      number !== undefined && Number.isInteger(number) && number > 0 ? number : undefined,
+    );
+  };
 
   const download = async (): Promise<void> => {
     setExporting(true);
@@ -334,6 +368,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
   };
 
   const save = (): void => {
+    if (allowedInvalid || thinkingInvalid) return;
     const parsed = agentInputSchema.safeParse(form);
     if (!parsed.success) {
       setErrors(fieldErrors(parsed.error.issues));
@@ -403,7 +438,7 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
           </Button>
           <Button
             size="sm"
-            disabled={!dirty || update.isPending}
+            disabled={!dirty || update.isPending || allowedInvalid || thinkingInvalid}
             aria-busy={update.isPending}
             onClick={save}
           >
@@ -657,6 +692,34 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
               </div>
             </div>
             <div className="mt-4">
+              <Label htmlFor="agent-allowed-tools" className="mb-1.5 block">
+                自定义允许的 MCP 工具
+              </Label>
+              <Textarea
+                id="agent-allowed-tools"
+                rows={3}
+                value={allowedText}
+                className="font-mono text-xs leading-relaxed"
+                placeholder={'mcp__jsonplaceholder__get_user\nmcp__crm__*'}
+                aria-invalid={allowedInvalid}
+                aria-describedby={
+                  allowedInvalid ? 'agent-allowed-tools-error' : 'agent-allowed-tools-hint'
+                }
+                onChange={(event) => setAllowedToolsText(event.target.value)}
+              />
+              {allowedInvalid ? (
+                <FieldError id="agent-allowed-tools-error">
+                  每行只能有一个工具名或模式，不能包含空格。
+                </FieldError>
+              ) : (
+                <FieldHint id="agent-allowed-tools-hint">
+                  每行一个模式，例如
+                  mcp__jsonplaceholder__get_user、mcp__crm__*。留空表示「所有已绑定 server
+                  的全部工具」。
+                </FieldHint>
+              )}
+            </div>
+            <div className="mt-4">
               <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-subtle">
                 内置工具
               </div>
@@ -739,11 +802,39 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
                 />
                 <FieldError id="agent-timeout-error">{errors.timeoutMs}</FieldError>
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="agent-thinking">最大思考 tokens</Label>
+                <Input
+                  id="agent-thinking"
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  value={thinkingText}
+                  placeholder="不设置"
+                  aria-invalid={thinkingInvalid}
+                  aria-describedby={
+                    thinkingInvalid ? 'agent-thinking-error' : 'agent-thinking-hint'
+                  }
+                  onChange={(event) => setThinkingTextSafely(event.target.value)}
+                />
+                {thinkingInvalid ? (
+                  <FieldError id="agent-thinking-error">
+                    请输入大于 0 的整数，或留空表示不设置。
+                  </FieldError>
+                ) : (
+                  <FieldHint id="agent-thinking-hint">留空表示不设置。</FieldHint>
+                )}
+              </div>
             </div>
           </section>
 
           <div className="flex justify-end gap-2">
-            <Button type="submit" size="sm" disabled={!dirty || update.isPending}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!dirty || update.isPending || allowedInvalid || thinkingInvalid}
+            >
               {update.isPending ? '保存中…' : '保存更改'}
             </Button>
           </div>
@@ -755,6 +846,10 @@ function AgentEditor({ agent, onDelete }: { agent: Agent; onDelete: () => void }
           agentId={agent.id}
           onRolledBack={(next) => {
             setForm(toInput(next));
+            setAllowedText(next.allowedTools.join('\n'));
+            setThinkingText(
+              next.maxThinkingTokens === undefined ? '' : String(next.maxThinkingTokens),
+            );
             setErrors({});
           }}
         />

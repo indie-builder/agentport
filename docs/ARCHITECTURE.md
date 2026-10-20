@@ -142,8 +142,7 @@ data/workspaces/<agent-slug>/
 ├─ CLAUDE.md
 └─ .claude/
    ├─ agents/
-   │  ├─ <agent-slug>.md         主智能体
-   │  └─ <child-slug>.md         子智能体（仅单层）
+   │  └─ <child-slug>.md         子智能体（仅单层；主智能体自己不落盘）
    └─ skills/
       └─ <skill-slug>/SKILL.md
 ```
@@ -152,7 +151,7 @@ data/workspaces/<agent-slug>/
 |---|---|---|
 | `.mcp.json` | `agent_servers` + `servers` | `mcpServers` 映射；stdio 写 command/args/env，http 写 url/headers，generated 写 `${SANDBOX_API_URL}/mcp/<id>` + Bearer token |
 | `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 可用技能 + 可用子智能体 |
-| `.claude/agents/<slug>.md` | 智能体配置 | YAML frontmatter：`name`、`description`、`model`、`tools`、`disallowedTools`、`maxTurns`，可选 `skills`、`effort` |
+| `.claude/agents/<child-slug>.md` | 子智能体配置 | YAML frontmatter：`name`、`description`、`model`、`disallowedTools`、`maxTurns`；**不写 `tools`**，否则 SDK 派生时按名字解析 MCP 工具会得到空集并拒绝启动。主智能体自己的 md 只用于预览（`GET /api/agents/:id/files`），不落盘，避免被当成可委派子智能体 |
 | `.claude/skills/<slug>/SKILL.md` | `skills` 表 | frontmatter：`name`、`description`，正文为技能步骤 |
 
 运行时约定：

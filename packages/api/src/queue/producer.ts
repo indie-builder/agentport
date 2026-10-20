@@ -145,7 +145,6 @@ export async function subscribeRun(
   const key = streamKey(runId);
   let closed = false;
   let lastId = '0-0';
-
   const drain = async (): Promise<void> => {
     if (closed) return;
     const start = lastId === '0-0' ? '-' : `(${lastId}`;
@@ -161,19 +160,38 @@ export async function subscribeRun(
     }
   };
 
+  // 唤醒只是提示；一次唤醒覆盖期间到达的所有事件。串行化 drain，
+  // 避免并发 XRANGE 用同一个 lastId 把同一批事件重复回调。
+  let draining: Promise<void> = Promise.resolve();
+  const queueDrain = (): Promise<void> => {
+    draining = draining.then(drain);
+    return draining;
+  };
+
   const handler = (incoming: string): void => {
     if (incoming !== wakeChannel) return;
-    void drain().catch((err: unknown) => {
+    void queueDrain().catch((err: unknown) => {
       // close() 时 quit 会让在途的 XRANGE 失败，属于预期。
       if (closed) return;
       logRedisError(err instanceof Error ? err : new Error(String(err)));
     });
   };
 
+  // 唤醒可能落在两次 drain 之间被合并，最后一批事件会等不到新唤醒；
+  // 低频轮询兜底（流有 1000 条上限，代价可忽略）。
+  // shortcut: 2s 的补投延迟，需要更实时时改成阻塞的 XREAD。
+  const poll = setInterval(() => {
+    void queueDrain().catch((err: unknown) => {
+      if (!closed) logRedisError(err instanceof Error ? err : new Error(String(err)));
+    });
+  }, 2_000);
+  poll.unref();
+
   let released = false;
   const release = (): void => {
     if (released) return;
     released = true;
+    clearInterval(poll);
     redis.off('message', handler);
     subscriptions.delete(redis);
     if (redis.status !== 'end') void redis.quit().catch(logRedisError);
@@ -183,7 +201,7 @@ export async function subscribeRun(
   try {
     await redis.subscribe(wakeChannel);
     redis.on('message', handler);
-    await drain();
+    await queueDrain();
   } catch (err) {
     release();
     throw err;

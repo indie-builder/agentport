@@ -20,6 +20,7 @@
     "db:generate": "pnpm --filter @agentport/db generate",
     "db:migrate": "pnpm --filter @agentport/db migrate",
     "backup": "bash scripts/backup.sh",
+    "restore": "bash scripts/restore.sh",
     "smoke": "bash scripts/smoke.sh",
     "infra:up": "docker compose up -d postgres redis",
     "infra:down": "docker compose down",
