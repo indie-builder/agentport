@@ -32,6 +32,15 @@ Defect check: off
 - CSS 选择器（`#id`、`div.rounded-[10px]`）只能用于 `browser.locator`；`screen` 只接受语义查询。
 - smoke 的「真实模型对话」步骤依赖 worker + 模型凭据，未迁移；它仍在 Playwright 套件中（`E2E_FULL=1` 时运行）。
 
+## 迁移收益（实测）
+
+| 指标 | Playwright | e2e |
+|---|---|---|
+| 登录次数 | 每个用例 1 次（6 次/轮）→ 触发 10/min 限流 | `test.setup` 一次，全轮复用 |
+| 全套耗时 | 2.1 分钟（含限流等待与重试） | 2.2–4.3 秒 |
+| 失败诊断 | trace.zip 需 `show-trace` 打开 | `.e2e/results/<test>/trace.md` 直接可读，含每步耗时、控制台、截图 |
+| 断言定位 | 文本匹配，失败只报 «no node» | 同上，但带 48 次读取记录与屏幕快照 |
+
 ## Next
 
 - 决定是否把 smoke 的聊天步骤也迁到 e2e（需要 agent 配置里的 model，而当前项目用 Anthropic 直连，需确认 `agent.*` 的 provider 配置）。
