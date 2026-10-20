@@ -18,6 +18,8 @@
   --color-sunken: #f2f2f0;
   --color-hover: rgb(3 3 3 / 0.04);
   --color-chip: rgb(3 3 3 / 0.02);
+  /* 选中态：比悬停更深一档（实测 --openui-sunk-deep） */
+  --color-selected: rgb(3 3 3 / 0.08);
 
   /* 线与文本 */
   --color-line: rgb(3 3 3 / 0.06);

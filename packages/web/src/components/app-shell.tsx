@@ -102,41 +102,54 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
 }
 
 /**
- * 品牌区（实测参考页）：展开时只露字标，收起时是 30×30 的圆角标记，
- * 悬停/聚焦在标记位置换成展开按钮——同一个 32×32 的位置上互换，不撑开布局。
+ * 品牌区（实测参考页侧栏头部，32px 高）：
+ * - 展开：字标在左，折叠按钮贴右（x=228）。按钮是 32×32、radius 7。
+ * - 收起：整行缩成 32×32，logo 与按钮重叠在同一位置。默认露 logo，
+ *   悬停或内部有焦点时 logo 淡出、换成展开按钮（140ms），布局不跳动。
  */
 function Brand({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
-  return (
-    <div className="relative flex h-8 shrink-0 items-center gap-2">
-      {collapsed ? (
-        <>
-          <Link
-            to="/"
-            aria-label="PACE 首页"
-            className="flex size-[30px] shrink-0 items-center justify-center rounded-[7px] bg-ink text-white transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/brand:opacity-0 group-focus-within/brand:opacity-0"
-          >
-            <Command aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
-          </Link>
-          <button
-            type="button"
-            aria-label="展开侧栏"
-            aria-pressed={false}
-            onClick={onToggle}
-            className="absolute left-0 top-0 flex size-8 items-center justify-center rounded-[7px] text-fg opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-hover focus-visible:opacity-100 group-hover/brand:opacity-100"
-          >
-            <PanelLeftOpen className="size-4" strokeWidth={1.75} />
-          </button>
-        </>
-      ) : (
+  if (collapsed) {
+    return (
+      <div className="relative h-8 w-8 shrink-0">
         <Link
           to="/"
           aria-label="PACE 首页"
-          className="flex h-8 min-w-0 items-center gap-2 rounded-[7px] focus-visible:outline-none"
+          className="group/logo absolute -left-0.5 top-0 flex h-[30px] w-9 items-center justify-center rounded-[7px] bg-ink px-[3px] text-white transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/nav:opacity-0 group-has-[:focus-visible]/nav:opacity-0"
         >
-          <Command aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.75} />
-          <span className="truncate text-sm font-medium tracking-[0.14em] text-fg">PACE</span>
+          <Command aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
         </Link>
-      )}
+        <button
+          type="button"
+          aria-label="展开侧栏"
+          aria-pressed
+          onClick={onToggle}
+          className="absolute left-0 top-0 flex size-8 items-center justify-center rounded-[7px] text-fg opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
+        >
+          <PanelLeftOpen className="size-4" strokeWidth={1.75} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-8 shrink-0 items-center gap-2">
+      <Link
+        to="/"
+        aria-label="PACE 首页"
+        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-[7px] focus-visible:outline-none"
+      >
+        <Command aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.75} />
+        <span className="truncate text-sm font-medium tracking-[0.14em] text-fg">PACE</span>
+      </Link>
+      <button
+        type="button"
+        aria-label="收起侧栏"
+        aria-pressed={false}
+        onClick={onToggle}
+        className="flex size-8 shrink-0 items-center justify-center rounded-[7px] text-muted transition-colors duration-150 hover:bg-hover hover:text-fg focus-visible:outline-none"
+      >
+        <PanelLeftClose className="size-4" strokeWidth={1.75} />
+      </button>
     </div>
   );
 }
@@ -156,18 +169,33 @@ function SidebarLink({
 }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const active = to === '/' ? pathname === '/' : pathname.startsWith(to);
+  // 收起态按参考页：整行透明，状态落在 32×32、radius 6 的图标块上。
   const link = (
     <Link
       to={to}
       onClick={onNavigate}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'flex h-9 items-center gap-2.5 rounded-[9px] text-sm transition-colors duration-150 focus-visible:outline-none',
-        collapsed ? 'w-9 justify-center' : 'px-2.5',
-        active ? 'bg-hover font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg',
+        'flex h-8 items-center gap-2.5 text-sm transition-colors duration-150 focus-visible:outline-none',
+        collapsed ? 'w-8 justify-center' : 'rounded-[9px] px-2.5',
+        collapsed
+          ? ''
+          : active
+            ? 'bg-hover font-medium text-fg'
+            : 'text-muted hover:bg-hover hover:text-fg',
+        collapsed && (active ? 'text-fg' : 'text-muted'),
       )}
     >
-      <Icon className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+      <span
+        className={cn(
+          'flex shrink-0 items-center justify-center transition-colors duration-150',
+          collapsed
+            ? cn('size-8 rounded-[6px]', active ? 'bg-selected' : 'group-hover/nav:bg-hover')
+            : 'size-4',
+        )}
+      >
+        <Icon className={collapsed ? 'size-5' : 'size-4'} strokeWidth={1.75} aria-hidden="true" />
+      </span>
       {collapsed ? (
         <span className="sr-only">{label}</span>
       ) : (
@@ -296,17 +324,14 @@ export function AppShell() {
   const sidebar = (drawer: boolean) => (
     <aside
       className={cn(
-        'group/brand flex h-full shrink-0 flex-col overflow-hidden',
+        'group/nav flex h-full shrink-0 flex-col overflow-hidden',
         // 实测：展开 272 / 收起 68，宽高与内边距一起过渡 160ms。
         drawer ? 'w-[294px] px-3' : collapsed ? 'w-[68px] px-[18px] py-4' : 'w-[272px] px-3 py-4',
       )}
       style={{ transition: 'width 160ms var(--ease-out-soft), padding 160ms var(--ease-out-soft)' }}
     >
       <Brand collapsed={drawer ? false : collapsed} onToggle={() => setCollapsed(!collapsed)} />
-      <nav
-        aria-label="主导航"
-        className={cn('mt-[18px] flex-1 overflow-y-auto', drawer || !collapsed ? '' : '')}
-      >
+      <nav aria-label="主导航" className="mt-[18px] flex-1 overflow-y-auto">
         <SidebarLink
           to={overviewNav.to}
           label={overviewNav.label}
@@ -336,20 +361,31 @@ export function AppShell() {
           </div>
         ))}
       </nav>
-      {!drawer && !collapsed ? (
-        <div className="pt-[18px]">
-          <button
-            type="button"
-            onClick={() => setCollapsed(true)}
-            aria-label="收起侧栏"
-            aria-pressed={false}
-            className="flex h-7 w-full items-center gap-2 rounded-[7px] px-2.5 text-xs text-subtle transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
-          >
-            <PanelLeftClose className="size-4" strokeWidth={1.75} />
-            <span>收起侧栏</span>
-          </button>
-        </div>
-      ) : null}
+      {/* 底部：用户信息（参考页把升级入口放在同一位置）。 */}
+      <div className={cn('pt-[18px]', collapsed && !drawer && 'flex justify-center')}>
+        {drawer || !collapsed ? (
+          <UserMenu username={me.data.username ?? 'admin'} />
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={`账户 ${me.data.username ?? 'admin'}`}
+                className="flex size-8 items-center justify-center rounded-full bg-sunken text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
+                onClick={() => setCollapsed(false)}
+              >
+                <User className="size-4" strokeWidth={1.75} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="right"
+              className="rounded-[7px] bg-ink px-2 py-1 text-2xs text-white"
+            >
+              {me.data.username ?? 'admin'}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
     </aside>
   );
 
@@ -385,7 +421,7 @@ export function AppShell() {
         </Sheet>
 
         <div className="mr-1 mb-1 mt-1 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[16px] bg-surface outline outline-1 -outline-offset-1 outline-shell-line">
-          {/* 顶部只有一行：页面名 + 用户。实测内边距 12px，高 44px。 */}
+          {/* 顶部只有一行：面包屑。实测内边距 12px，高 44px。 */}
           <header className="flex h-11 shrink-0 items-center gap-3 px-3">
             <button
               type="button"
@@ -397,9 +433,6 @@ export function AppShell() {
               <Menu className="size-5" strokeWidth={1.75} />
             </button>
             {!pathname.startsWith('/chat') ? <Breadcrumb pathname={pathname} /> : null}
-            <div className="ml-auto flex items-center gap-1">
-              <UserMenu username={me.data.username ?? 'admin'} />
-            </div>
           </header>
 
           <main
