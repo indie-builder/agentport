@@ -20,6 +20,23 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
   expect(empty || table).toBe(true);
 });
 
+test('runs status filter selects and resets', { session: 'admin' }, async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/runs');
+  const filter = screen.getByRole('combobox', '按状态筛选');
+  await filter.tap();
+  await screen.getByRole('option', '失败', { exact: true }).tap();
+  await expect(filter).toHaveText('失败');
+  await expect(browser).toHaveURL(/\/runs\?status=failed$/);
+  await filter.tap();
+  await screen.getByRole('option', '全部状态', { exact: true }).tap();
+  await expect(filter).toHaveText('全部状态');
+  await expect(browser).toHaveURL(/\/runs$/);
+});
+
 test('audit page shows recorded actions', { session: 'admin' }, async ({ app, screen }) => {
   await app.open('/audit');
   await expect(screen.getByRole('heading', '审计')).toBeVisible();

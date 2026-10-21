@@ -1,18 +1,11 @@
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
+import { FilterSelect } from '../components/filter-select.js';
 import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState } from '../components/states.js';
 import { buttonVariants } from '../components/ui/button.js';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select.js';
 import type { RunListItem, RunStatus } from '../lib/api.js';
 import {
   formatCost,
@@ -157,50 +150,22 @@ export function RunsPage() {
       <PageHeader title="运行" />
 
       <PageToolbar>
-        <Select
+        <FilterSelect
           value={agentId}
-          onValueChange={(next) => {
-            if (next !== null) {
-              setFilter({ agent: next || undefined });
-            }
-          }}
-          items={agentOptions}
-        >
-          <SelectTrigger aria-label="按智能体筛选" className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {agentOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        <Select
+          onValueChange={(next) => setFilter({ agent: next || undefined })}
+          options={agentOptions}
+          label="按智能体筛选"
+          className="w-48"
+        />
+        <FilterSelect
           value={status}
-          onValueChange={(next) => {
-            if (next !== null) {
-              setFilter({ status: (next || undefined) as RunStatus | undefined });
-            }
-          }}
-          items={statusOptions}
-        >
-          <SelectTrigger aria-label="按状态筛选" className="w-32">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {statusOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+          onValueChange={(next) =>
+            setFilter({ status: (next || undefined) as RunStatus | undefined })
+          }
+          options={statusOptions}
+          label="按状态筛选"
+          className="w-32"
+        />
         <span className="ml-auto text-xs text-subtle">
           {runs.isPending ? '加载中…' : `最近 ${items.length} 条`}
         </span>

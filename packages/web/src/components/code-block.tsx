@@ -1,7 +1,7 @@
-import { Check, Copy } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { cn } from '../lib/cn.js';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible.js';
+import { CopyButton } from './copy-button.js';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './motion-collapsible.js';
 
 const JSON_TOKEN =
   /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"\s*:)|("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
@@ -66,21 +66,10 @@ export function CodeBlock({
   copyLabel?: string;
   json?: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
   // 超大内容默认不渲染，避免一次插入数万行 DOM。
   const [expanded, setExpanded] = useState(false);
   const large = code.length > LARGE_CONTENT_CHARS;
   const open = !large || expanded;
-
-  const copy = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // 非安全上下文或权限被拒时静默失败，内容仍可手动选择。
-    }
-  };
 
   // Collapsible is unstyled; keep the code surface, border, and container corners.
   return (
@@ -98,15 +87,12 @@ export function CodeBlock({
       <CollapsibleContent>
         {open && (
           <>
-            <button
-              type="button"
-              onClick={() => void copy()}
-              aria-label={copied ? '已复制' : copyLabel}
-              className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-icon border bg-surface/90 px-2 text-2xs text-muted-foreground opacity-0 backdrop-blur transition-opacity hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg group-hover:opacity-100"
-            >
-              {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
-              {copied ? '已复制' : copyLabel}
-            </button>
+            <CopyButton
+              value={code}
+              label={copyLabel}
+              showLabel
+              className="absolute right-2 top-2 z-10 bg-surface/90 opacity-0 backdrop-blur transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+            />
             <pre className="overflow-auto py-3 font-mono text-xs leading-5" style={{ maxHeight }}>
               <code className="block">
                 {code.split('\n').map((line, i) => (

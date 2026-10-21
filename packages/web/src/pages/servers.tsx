@@ -26,22 +26,31 @@ import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { FilterSelect } from '../components/filter-select.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
+import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu.js';
-import { FieldDescription, FieldError } from '../components/ui/field.js';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
-import { Label } from '../components/ui/label.js';
 import {
   Select,
   SelectContent,
@@ -225,32 +234,14 @@ export function ServersPage() {
         meta={<span className="font-mono text-xs tabular-nums text-subtle">{all.length}</span>}
         actions={
           <>
-            <Select
+            <FilterSelect
               value={kind}
-              onValueChange={(next) => {
-                if (next !== null) {
-                  setKind(next as KindFilter);
-                }
-              }}
-              items={kindOptions}
-            >
-              <SelectTrigger
-                aria-label="按来源筛选"
-                // Keep the header filter borderless with a chip surface and hover feedback.
-                className="w-36 border-transparent bg-chip hover:bg-hover"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {kindOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+              onValueChange={(next) => setKind(next as KindFilter)}
+              options={kindOptions}
+              label="按来源筛选"
+              // Keep the header filter borderless with a chip surface and hover feedback.
+              className="w-36 border-transparent bg-chip hover:bg-hover"
+            />
             <SearchInput
               label="搜索 server"
               value={query}
@@ -460,26 +451,30 @@ function ServerRow({
             // Keep 16px corners, the border, and the project shadow.
             className="w-40 rounded-card border shadow-overlay"
           >
-            <DropdownMenuItem disabled={testing} onClick={onTest}>
-              <Plug className="size-4" /> {testing ? '测试中…' : '测试连接'}
-            </DropdownMenuItem>
-            {generated ? (
-              <>
-                <DropdownMenuItem onClick={onTools}>
-                  <Wrench className="size-4" /> 工具定义
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onConnection}>
-                  <KeyRound className="size-4" /> 连接信息
-                </DropdownMenuItem>
-              </>
-            ) : null}
+            <DropdownMenuGroup>
+              <DropdownMenuItem disabled={testing} onClick={onTest}>
+                <Plug className="size-4" /> {testing ? '测试中…' : '测试连接'}
+              </DropdownMenuItem>
+              {generated ? (
+                <>
+                  <DropdownMenuItem onClick={onTools}>
+                    <Wrench className="size-4" /> 工具定义
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={onConnection}>
+                    <KeyRound className="size-4" /> 连接信息
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onEdit}>
-              <Pencil className="size-4" /> 编辑
-            </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              <Trash2 className="size-4" /> 删除
-            </DropdownMenuItem>
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={onEdit}>
+                <Pencil className="size-4" /> 编辑
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                <Trash2 className="size-4" /> 删除
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </TableCell>
@@ -593,11 +588,11 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
         ) : null}
 
         {risky && !loading && !unknown ? (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="delete-server-confirm">
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor="delete-server-confirm">
               输入 <span className="font-mono">{server.name}</span> 以确认
               <RequiredMark />
-            </Label>
+            </FieldLabel>
             <LineInput
               id="delete-server-confirm"
               value={typed}
@@ -608,7 +603,7 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
             <FieldDescription id="delete-server-confirm-hint">
               名称必须完全一致；误删后绑定的智能体不会自动恢复。
             </FieldDescription>
-          </div>
+          </Field>
         ) : null}
       </div>
     </ConfirmDialog>
@@ -807,26 +802,22 @@ function ToolEditorDialog({
                       {tool.paramsIn}
                     </TableCell>
                     <TableCell>
-                      <input
-                        type="checkbox"
-                        className="size-3.5 accent-ink"
+                      <Checkbox
+                        className="size-3.5"
                         aria-label={`启用工具 ${tool.name}`}
                         checked={tool.enabled}
                         disabled={pendingToolId === tool.id}
-                        onChange={(event) =>
-                          setTool({ toolId: tool.id, enabled: event.target.checked })
-                        }
+                        onCheckedChange={(enabled) => setTool({ toolId: tool.id, enabled })}
                       />
                     </TableCell>
                     <TableCell>
-                      <input
-                        type="checkbox"
-                        className="size-3.5 accent-ink"
+                      <Checkbox
+                        className="size-3.5"
                         aria-label={`批准工具 ${tool.name}`}
                         checked={tool.requiresApproval}
                         disabled={pendingToolId === tool.id}
-                        onChange={(event) =>
-                          setTool({ toolId: tool.id, requiresApproval: event.target.checked })
+                        onCheckedChange={(requiresApproval) =>
+                          setTool({ toolId: tool.id, requiresApproval })
                         }
                       />
                     </TableCell>
@@ -1021,11 +1012,11 @@ function ToolForm({
           </Button>
         ) : null}
       </div>
-      <div className="flex flex-col gap-1.5 sm:col-span-2">
-        <Label htmlFor={`tool-name-${serverId}`}>
+      <Field className="gap-1.5 sm:col-span-2" data-invalid={Boolean(errors.name)}>
+        <FieldLabel htmlFor={`tool-name-${serverId}`}>
           名称
           <RequiredMark />
-        </Label>
+        </FieldLabel>
         <LineInput
           id={`tool-name-${serverId}`}
           value={form.name}
@@ -1035,9 +1026,9 @@ function ToolForm({
           onChange={(event) => setForm({ ...form, name: event.target.value })}
         />
         <FieldError id={`tool-name-error-${serverId}`}>{errors.name}</FieldError>
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor={`tool-method-${serverId}`}>方法</Label>
+      </Field>
+      <Field className="gap-1">
+        <FieldLabel htmlFor={`tool-method-${serverId}`}>方法</FieldLabel>
         <Select
           value={form.method}
           onValueChange={(next) => {
@@ -1060,12 +1051,12 @@ function ToolForm({
             </SelectGroup>
           </SelectContent>
         </Select>
-      </div>
-      <div className="flex flex-col gap-1.5 sm:col-span-2">
-        <Label htmlFor={`tool-path-${serverId}`}>
+      </Field>
+      <Field className="gap-1.5 sm:col-span-2" data-invalid={Boolean(errors.pathTemplate)}>
+        <FieldLabel htmlFor={`tool-path-${serverId}`}>
           路径
           <RequiredMark />
-        </Label>
+        </FieldLabel>
         <LineInput
           id={`tool-path-${serverId}`}
           value={form.pathTemplate}
@@ -1075,9 +1066,9 @@ function ToolForm({
           onChange={(event) => setForm({ ...form, pathTemplate: event.target.value })}
         />
         <FieldError id={`tool-path-error-${serverId}`}>{errors.pathTemplate}</FieldError>
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor={`tool-params-${serverId}`}>参数位置</Label>
+      </Field>
+      <Field className="gap-1">
+        <FieldLabel htmlFor={`tool-params-${serverId}`}>参数位置</FieldLabel>
         <Select
           value={form.paramsIn}
           onValueChange={(next) => {
@@ -1100,18 +1091,18 @@ function ToolForm({
             </SelectGroup>
           </SelectContent>
         </Select>
-      </div>
-      <div className="flex flex-col gap-1.5 sm:col-span-5">
-        <Label htmlFor={`tool-desc-${serverId}`}>描述</Label>
+      </Field>
+      <Field className="gap-1.5 sm:col-span-5">
+        <FieldLabel htmlFor={`tool-desc-${serverId}`}>描述</FieldLabel>
         <LineInput
           id={`tool-desc-${serverId}`}
           value={form.description}
           placeholder="告诉智能体这个工具做什么、何时用"
           onChange={(event) => setForm({ ...form, description: event.target.value })}
         />
-      </div>
-      <div className="flex flex-col gap-1.5 sm:col-span-5">
-        <Label htmlFor={`tool-schema-${serverId}`}>inputSchema (JSON)</Label>
+      </Field>
+      <Field className="gap-1.5 sm:col-span-5" data-invalid={Boolean(errors.inputSchema)}>
+        <FieldLabel htmlFor={`tool-schema-${serverId}`}>inputSchema (JSON)</FieldLabel>
         <CodeArea
           id={`tool-schema-${serverId}`}
           rows={4}
@@ -1123,17 +1114,16 @@ function ToolForm({
           onChange={(event) => setSchemaText(event.target.value)}
         />
         <FieldError id={`tool-schema-error-${serverId}`}>{errors.inputSchema}</FieldError>
-      </div>
-      <div className="flex items-center gap-2 pt-1 sm:col-span-6">
-        <input
+      </Field>
+      <Field orientation="horizontal" className="pt-1 sm:col-span-6">
+        <Checkbox
           id={`tool-approval-${serverId}`}
-          type="checkbox"
-          className="size-3.5 accent-ink"
+          className="size-3.5"
           checked={form.requiresApproval}
-          onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked })}
+          onCheckedChange={(requiresApproval) => setForm({ ...form, requiresApproval })}
         />
-        <Label htmlFor={`tool-approval-${serverId}`}>调用前需要人工批准</Label>
-      </div>
+        <FieldLabel htmlFor={`tool-approval-${serverId}`}>调用前需要人工批准</FieldLabel>
+      </Field>
       <div className="flex items-start pt-2">
         <Button
           type="submit"
@@ -1324,8 +1314,8 @@ function ServerFormDialog({
           }}
         >
           {creating ? (
-            <fieldset className="flex flex-col gap-2.5">
-              <legend className="mb-2.5 text-xs text-subtle">来源类型</legend>
+            <FieldSet className="gap-2.5">
+              <FieldLegend className="mb-2.5 text-xs font-normal text-subtle">来源类型</FieldLegend>
               <div className="grid gap-2 sm:grid-cols-3">
                 {(Object.keys(kindMeta) as Kind[]).map((value) => (
                   <button
@@ -1348,18 +1338,18 @@ function ServerFormDialog({
                   </button>
                 ))}
               </div>
-            </fieldset>
+            </FieldSet>
           ) : null}
 
           {kind === null ? (
             <p className="text-2xs text-subtle">先选一种来源类型，下面的字段会随类型变化。</p>
           ) : (
             <>
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="server-name">
+              <Field className="gap-1" data-invalid={Boolean(errors.name)}>
+                <FieldLabel htmlFor="server-name">
                   名称
                   <RequiredMark />
-                </Label>
+                </FieldLabel>
                 <LineInput
                   id="server-name"
                   value={form.name}
@@ -1375,25 +1365,25 @@ function ServerFormDialog({
                     小写字母、数字、- 和 _；会作为 .mcp.json 的 key。
                   </FieldDescription>
                 )}
-              </div>
+              </Field>
 
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="server-desc">描述</Label>
+              <Field className="gap-1">
+                <FieldLabel htmlFor="server-desc">描述</FieldLabel>
                 <LineInput
                   id="server-desc"
                   value={form.description}
                   placeholder="一句话说明它提供什么能力"
                   onChange={(event) => setForm({ ...form, description: event.target.value })}
                 />
-              </div>
+              </Field>
 
               {kind === 'stdio' ? (
                 <>
-                  <div className="flex flex-col gap-1">
-                    <Label htmlFor="server-command">
+                  <Field className="gap-1" data-invalid={Boolean(errors.command)}>
+                    <FieldLabel htmlFor="server-command">
                       命令
                       <RequiredMark />
-                    </Label>
+                    </FieldLabel>
                     <LineInput
                       id="server-command"
                       value={form.command}
@@ -1405,9 +1395,9 @@ function ServerFormDialog({
                       onChange={(event) => setForm({ ...form, command: event.target.value })}
                     />
                     <FieldError id="server-command-error">{errors.command}</FieldError>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label htmlFor="server-args">参数（每行一个）</Label>
+                  </Field>
+                  <Field className="gap-1">
+                    <FieldLabel htmlFor="server-args">参数（每行一个）</FieldLabel>
                     <CodeArea
                       id="server-args"
                       rows={2}
@@ -1417,9 +1407,9 @@ function ServerFormDialog({
                       placeholder={'-y\n@modelcontextprotocol/server-filesystem\n/tmp'}
                       onChange={(event) => setForm({ ...form, args: event.target.value })}
                     />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label htmlFor="server-env">环境变量（每行 KEY=value）</Label>
+                  </Field>
+                  <Field className="gap-1">
+                    <FieldLabel htmlFor="server-env">环境变量（每行 KEY=value）</FieldLabel>
                     <CodeArea
                       id="server-env"
                       rows={2}
@@ -1432,15 +1422,15 @@ function ServerFormDialog({
                     <FieldDescription>
                       保存后密钥只以 •••• 返回；保持 •••• 不动即沿用原值。
                     </FieldDescription>
-                  </div>
+                  </Field>
                 </>
               ) : (
                 <>
-                  <div className="flex flex-col gap-1">
-                    <Label htmlFor="server-url">
+                  <Field className="gap-1" data-invalid={Boolean(urlError)}>
+                    <FieldLabel htmlFor="server-url">
                       {urlLabel}
                       <RequiredMark />
-                    </Label>
+                    </FieldLabel>
                     <LineInput
                       id="server-url"
                       value={urlValue}
@@ -1468,9 +1458,9 @@ function ServerFormDialog({
                           : '上游 API 的根地址；工具路径会拼在它后面。'}
                       </FieldDescription>
                     )}
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label htmlFor="server-headers">Headers（每行 KEY=value）</Label>
+                  </Field>
+                  <Field className="gap-1">
+                    <FieldLabel htmlFor="server-headers">Headers（每行 KEY=value）</FieldLabel>
                     <CodeArea
                       id="server-headers"
                       rows={2}
@@ -1480,7 +1470,7 @@ function ServerFormDialog({
                       placeholder="Authorization=Bearer …"
                       onChange={(event) => setForm({ ...form, pairs: event.target.value })}
                     />
-                  </div>
+                  </Field>
                   {kind === 'generated' ? (
                     <p className="rounded-item bg-chip p-3 text-xs leading-relaxed text-muted-foreground">
                       保存后会直接打开工具编辑，把上游 HTTP API 的端点声明成 MCP 工具。
