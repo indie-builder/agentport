@@ -45,9 +45,11 @@ import {
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader } from '../components/page.js';
+import { RequiredMark } from '../components/required-mark.js';
+import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
-import { Dialog } from '../components/ui/app-dialog.js';
 import { Button } from '../components/ui/button.js';
 import {
   Collapsible,
@@ -55,20 +57,28 @@ import {
   CollapsibleTrigger,
 } from '../components/ui/collapsible.js';
 import {
+  Combobox,
+  ComboboxChip,
+  ComboboxChips,
+  ComboboxChipsInput,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxValue,
+  useComboboxAnchor,
+} from '../components/ui/combobox.js';
+import { Dialog } from '../components/ui/dialog.js';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu.js';
-
 import { FieldDescription, FieldError } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
-import { MultiSelect } from '../components/ui/multi-select.js';
-import { RequiredMark } from '../components/ui/required-mark.js';
-import { SearchInput } from '../components/ui/search-input.js';
-import { SegmentedTabs } from '../components/ui/segmented-tabs.js';
 import {
   Select,
   SelectContent,
@@ -84,6 +94,8 @@ import {
   SheetDescription,
   SheetTitle,
 } from '../components/ui/sheet.js';
+import { StatusBadge } from '../components/ui/status-badge.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { AgentVersionSummary } from '../lib/api.js';
 import { ApiError, api } from '../lib/api.js';
@@ -456,6 +468,9 @@ function AgentEditor({
   const servers = useServers();
   const skills = useSkills();
   const agents = useAgents();
+  const serverAnchor = useComboboxAnchor();
+  const skillAnchor = useComboboxAnchor();
+  const subAgentAnchor = useComboboxAnchor();
   const [form, setForm] = useState<AgentInput>(() => toInput(agent));
   const [tab, setTab] = useState<'config' | 'files'>('config');
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -573,6 +588,12 @@ function AgentEditor({
     label: server.name,
     hint: server.kind,
     tag: server.kind,
+  }));
+
+  const skillOptions = (skills.data ?? []).map((skill) => ({
+    id: skill.id,
+    label: skill.name,
+    hint: skill.description,
   }));
 
   // 候选只能是还没有 parent 的顶层 agent，排除自己；已是子智能体时不能再委派。
@@ -837,539 +858,665 @@ function AgentEditor({
         </div>
       </div>
 
-      <SegmentedTabs
-        label="智能体编辑视图"
+      <Tabs
+        className="flex-col"
         value={tab}
-        onChange={setTab}
-        size="sm"
-        items={[
-          { value: 'config', label: '配置' },
-          { value: 'files', label: '完整文件' },
-        ]}
-      />
-
-      {tab === 'config' ? (
-        <form
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (dirty && !update.isPending) save();
-          }}
-        >
-          <nav
-            aria-label="配置分区"
-            className="sticky top-0 z-20 flex gap-0.5 overflow-x-auto border-b border-line bg-surface/95 py-1.5 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onValueChange={(value) => {
+          if (value === 'config' || value === 'files') setTab(value);
+        }}
+      >
+        <TabsList className="h-8" aria-label="智能体编辑视图">
+          <TabsTrigger value="config">配置</TabsTrigger>
+          <TabsTrigger value="files">完整文件</TabsTrigger>
+        </TabsList>
+        <TabsContent value="config">
+          <form
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (dirty && !update.isPending) save();
+            }}
           >
-            {sectionItems.map((item) => (
-              <Button
-                key={item.id}
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setOpenSections((current) => ({ ...current, [item.id]: true }));
-                  document.getElementById(`agent-${item.id}`)?.scrollIntoView({ block: 'start' });
-                }}
-                className="h-auto border-0 px-2.5 py-1 text-sm font-normal text-muted-foreground transition-colors hover:bg-hover hover:text-fg active:not-aria-[haspopup]:translate-y-0 [&]:rounded-item"
-              >
-                {item.label}
-              </Button>
-            ))}
-          </nav>
-
-          <div className="pt-2">
-            <Section
-              id="identity"
-              title="身份"
-              summary={sectionSummary.identity}
-              open={openSections.identity}
-              onToggle={() =>
-                setOpenSections((current) => ({ ...current, identity: !current.identity }))
-              }
+            <nav
+              aria-label="配置分区"
+              className="sticky top-0 z-20 flex gap-0.5 overflow-x-auto border-b border-line bg-surface/95 py-1.5 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
+              {sectionItems.map((item) => (
+                <Button
+                  key={item.id}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setOpenSections((current) => ({ ...current, [item.id]: true }));
+                    document.getElementById(`agent-${item.id}`)?.scrollIntoView({ block: 'start' });
+                  }}
+                  className="h-auto border-0 px-2.5 py-1 text-sm font-normal text-muted-foreground transition-colors hover:bg-hover hover:text-fg active:not-aria-[haspopup]:translate-y-0 [&]:rounded-item"
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </nav>
+
+            <div className="pt-2">
+              <Section
+                id="identity"
+                title="身份"
+                summary={sectionSummary.identity}
+                open={openSections.identity}
+                onToggle={() =>
+                  setOpenSections((current) => ({ ...current, identity: !current.identity }))
+                }
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-name">
+                        名称
+                        <RequiredMark />
+                      </Label>
+                      <FileTag>→ CLAUDE.md</FileTag>
+                    </div>
+                    <LineInput
+                      id="agent-name"
+                      value={form.name}
+                      aria-invalid={Boolean(errors.name)}
+                      aria-describedby={errors.name ? 'agent-name-error' : undefined}
+                      onChange={(event) => set('name', event.target.value)}
+                    />
+                    <FieldError id="agent-name-error">{errors.name}</FieldError>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-slug">Slug</Label>
+                      <FileTag>→ 工作区目录名</FileTag>
+                    </div>
+                    <LineInput
+                      id="agent-slug"
+                      value={form.slug}
+                      className="font-mono"
+                      readOnly
+                      aria-describedby="agent-slug-hint"
+                    />
+                    <FieldDescription id="agent-slug-hint">
+                      创建后不可修改；子智能体文件名也是 .claude/agents/&lt;slug&gt;.md。
+                    </FieldDescription>
+                  </div>
+                  <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-desc">描述</Label>
+                      <FileTag>→ .claude/agents/&lt;slug&gt;.md · description</FileTag>
+                    </div>
+                    <LineInput
+                      id="agent-desc"
+                      value={form.description}
+                      placeholder="一句话说明它擅长什么"
+                      onChange={(event) => set('description', event.target.value)}
+                    />
+                  </div>
+                </div>
+              </Section>
+
+              <Section
+                id="behavior"
+                title="行为"
+                summary={sectionSummary.behavior}
+                open={openSections.behavior}
+                onToggle={() =>
+                  setOpenSections((current) => ({ ...current, behavior: !current.behavior }))
+                }
+              >
+                <div className="flex flex-col gap-1.5">
                   <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-name">
-                      名称
-                      <RequiredMark />
-                    </Label>
+                    <Label htmlFor="agent-prompt">系统提示词</Label>
                     <FileTag>→ CLAUDE.md</FileTag>
                   </div>
-                  <LineInput
-                    id="agent-name"
-                    value={form.name}
-                    aria-invalid={Boolean(errors.name)}
-                    aria-describedby={errors.name ? 'agent-name-error' : undefined}
-                    onChange={(event) => set('name', event.target.value)}
-                  />
-                  <FieldError id="agent-name-error">{errors.name}</FieldError>
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-slug">Slug</Label>
-                    <FileTag>→ 工作区目录名</FileTag>
-                  </div>
-                  <LineInput
-                    id="agent-slug"
-                    value={form.slug}
-                    className="font-mono"
-                    readOnly
-                    aria-describedby="agent-slug-hint"
-                  />
-                  <FieldDescription id="agent-slug-hint">
-                    创建后不可修改；子智能体文件名也是 .claude/agents/&lt;slug&gt;.md。
-                  </FieldDescription>
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-desc">描述</Label>
-                    <FileTag>→ .claude/agents/&lt;slug&gt;.md · description</FileTag>
-                  </div>
-                  <LineInput
-                    id="agent-desc"
-                    value={form.description}
-                    placeholder="一句话说明它擅长什么"
-                    onChange={(event) => set('description', event.target.value)}
-                  />
-                </div>
-              </div>
-            </Section>
-
-            <Section
-              id="behavior"
-              title="行为"
-              summary={sectionSummary.behavior}
-              open={openSections.behavior}
-              onToggle={() =>
-                setOpenSections((current) => ({ ...current, behavior: !current.behavior }))
-              }
-            >
-              <div className="space-y-1.5">
-                <div className="flex items-baseline justify-between gap-2">
-                  <Label htmlFor="agent-prompt">系统提示词</Label>
-                  <FileTag>→ CLAUDE.md</FileTag>
-                </div>
-                <CodeArea
-                  id="agent-prompt"
-                  rows={16}
-                  value={form.systemPrompt}
-                  className="font-mono text-xs leading-relaxed"
-                  placeholder="描述角色、边界与工作方式；会写入 CLAUDE.md。"
-                  onChange={(event) => set('systemPrompt', event.target.value)}
-                />
-              </div>
-
-              <DraftPreview title="将写入 CLAUDE.md 的内容" code={claudeDraft} />
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-model">模型</Label>
-                    <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
-                  </div>
-                  <LineInput
-                    id="agent-model"
-                    list="agent-models"
-                    value={form.model}
-                    className="font-mono"
-                    onChange={(event) => set('model', event.target.value)}
-                  />
-                  <datalist id="agent-models">
-                    {modelOptions(form.model).map((option) => (
-                      <option key={option.value} value={option.value} />
-                    ))}
-                  </datalist>
-                  <FieldDescription>
-                    可以填任意网关模型 ID，下面是当前部署的建议值。
-                  </FieldDescription>
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-effort">推理强度</Label>
-                    <FileTag>→ .claude/agents/&lt;slug&gt;.md · effort</FileTag>
-                  </div>
-                  <Select
-                    value={form.effort ?? ''}
-                    onValueChange={(value) => {
-                      if (value !== null) {
-                        set('effort', value === '' ? undefined : (value as AgentInput['effort']));
-                      }
-                    }}
-                    items={effortOptions}
-                  >
-                    <SelectTrigger id="agent-effort">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {effortOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </Section>
-
-            <Section
-              id="capability"
-              title="能力"
-              summary={sectionSummary.capability}
-              open={openSections.capability}
-              onToggle={() =>
-                setOpenSections((current) => ({ ...current, capability: !current.capability }))
-              }
-            >
-              <div className="divide-y divide-line border-y border-line">
-                <div className="py-3">
-                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Plug className="size-4 text-subtle" aria-hidden="true" /> MCP Servers
-                      <FileTag>→ .mcp.json · mcpServers.&lt;name&gt;</FileTag>
-                    </h3>
-                    <span className="font-mono text-2xs tabular-nums text-subtle">
-                      {serverToolSummary}
-                    </span>
-                  </div>
-                  {servers.isPending ? <LoadingState rows={1} /> : null}
-                  {servers.isError ? (
-                    <ErrorState error={servers.error} onRetry={() => void servers.refetch()} />
-                  ) : null}
-                  {servers.data && servers.data.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      还没有可绑定的 server，先去 MCP Servers 页面创建。
-                    </p>
-                  ) : null}
-                  {servers.data && servers.data.length > 0 ? (
-                    <MultiSelect
-                      label="MCP Server"
-                      options={serverOptions}
-                      value={form.serverIds}
-                      onChange={(next) => set('serverIds', next)}
-                      placeholder="搜索并选择 server…"
-                      emptyText="没有匹配的 server"
-                    />
-                  ) : null}
-                  <p className="mt-1.5 text-2xs text-subtle">
-                    绑定后智能体可使用
-                    <code className="mx-1 font-mono text-muted-foreground">
-                      mcp__&lt;server&gt;__*
-                    </code>
-                    工具；密钥只在运行时注入。
-                  </p>
-                </div>
-
-                <div className="py-3">
-                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Sparkles className="size-4 text-subtle" aria-hidden="true" /> 技能
-                      <FileTag>→ .claude/skills/&lt;slug&gt;/SKILL.md</FileTag>
-                    </h3>
-                    <span className="font-mono text-2xs tabular-nums text-subtle">
-                      选中 {form.skillIds.length} 个 · 不新增工具
-                    </span>
-                  </div>
-                  {skills.isPending ? <LoadingState rows={1} /> : null}
-                  {skills.data && skills.data.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      还没有技能。技能是可复用的操作流程，会渲染为
-                      <code className="mx-1 font-mono text-muted-foreground">
-                        .claude/skills/&lt;slug&gt;/SKILL.md
-                      </code>
-                      供智能体按需读取。
-                    </p>
-                  ) : null}
-                  {skills.data && skills.data.length > 0 ? (
-                    <MultiSelect
-                      label="技能"
-                      options={skills.data.map((skill) => ({
-                        id: skill.id,
-                        label: skill.name,
-                        hint: skill.description,
-                      }))}
-                      value={form.skillIds}
-                      onChange={(next) => set('skillIds', next)}
-                      placeholder="搜索并选择技能…"
-                      emptyText="没有匹配的技能"
-                    />
-                  ) : null}
-                  <p className="mt-1.5 text-2xs text-subtle">
-                    技能不注册新工具；已选技能的 slug 同时写进 agent md 的
-                    <code className="mx-1 font-mono text-muted-foreground">skills</code>。
-                  </p>
-                </div>
-
-                <div className="py-3">
-                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Bot className="size-4 text-subtle" aria-hidden="true" /> 子智能体
-                      <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
-                    </h3>
-                    <span className="font-mono text-2xs tabular-nums text-subtle">
-                      将获得 {hasSubAgents ? 1 : 0} 个工具（Agent）
-                    </span>
-                  </div>
-                  {agent.parentId !== null ? (
-                    <p className="text-xs text-muted-foreground">
-                      它本身已经是子智能体，不能再委派。子智能体只支持一层。
-                    </p>
-                  ) : subAgentOptions.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      没有可选的主智能体。只有「没有父级」的智能体才能被委派。
-                    </p>
-                  ) : (
-                    <MultiSelect
-                      label="子智能体"
-                      options={subAgentOptions}
-                      value={form.subAgentIds}
-                      onChange={(next) => set('subAgentIds', next)}
-                      placeholder="搜索并选择子智能体…"
-                      emptyText="没有匹配的智能体"
-                    />
-                  )}
-                  <p className="mt-1.5 text-2xs text-subtle">
-                    选中后主智能体获得{' '}
-                    <code className="font-mono text-muted-foreground">Agent</code> 工具，
-                    子智能体定义渲染到{' '}
-                    <code className="font-mono text-muted-foreground">
-                      .claude/agents/&lt;slug&gt;.md
-                    </code>
-                    。
-                  </p>
-                </div>
-              </div>
-
-              <DraftPreview title="将写入 .mcp.json 与 frontmatter" code={fileDraft} />
-            </Section>
-
-            <Section
-              id="permissions"
-              title="权限"
-              summary={sectionSummary.permissions}
-              open={openSections.permissions}
-              onToggle={() =>
-                setOpenSections((current) => ({ ...current, permissions: !current.permissions }))
-              }
-            >
-              <p className="rounded-item bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
-                放行内置工具会扩大攻击面：Bash、文件写入和网络访问都绕过沙盒的只读约定。
-              </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-perm">权限模式</Label>
-                    <RuntimeTag />
-                  </div>
-                  <Select
-                    value={form.permissionMode}
-                    onValueChange={(next) => {
-                      if (next !== null) {
-                        set('permissionMode', next as AgentInput['permissionMode']);
-                      }
-                    }}
-                    items={permissionOptions}
-                  >
-                    <SelectTrigger id="agent-perm" className="h-9 rounded-item">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {permissionOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FieldDescription>
-                    auto 依赖模型分类器，平台无法审计，因此不开放。该值只传给 SDK，不写文件。
-                  </FieldDescription>
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-allowed-tools">自定义允许的工具</Label>
-                    <FileTag>→ agent md · tools</FileTag>
-                  </div>
                   <CodeArea
-                    id="agent-allowed-tools"
-                    rows={3}
-                    value={allowedText}
+                    id="agent-prompt"
+                    rows={16}
+                    value={form.systemPrompt}
                     className="font-mono text-xs leading-relaxed"
-                    placeholder={'mcp__jsonplaceholder__get_user\nmcp__crm__*'}
-                    aria-invalid={allowedInvalid}
-                    aria-describedby={
-                      allowedInvalid ? 'agent-allowed-tools-error' : 'agent-allowed-tools-hint'
-                    }
-                    onChange={(event) => setAllowedToolsText(event.target.value)}
+                    placeholder="描述角色、边界与工作方式；会写入 CLAUDE.md。"
+                    onChange={(event) => set('systemPrompt', event.target.value)}
                   />
-                  {allowedInvalid ? (
-                    <FieldError id="agent-allowed-tools-error">
-                      每行只能有一个工具名或模式，不能包含空格。
-                    </FieldError>
-                  ) : (
-                    <FieldDescription id="agent-allowed-tools-hint">
-                      每行一个模式，例如 mcp__jsonplaceholder__get_user、mcp__crm__*。留空表示
-                      「所有已绑定 server 的全部工具」。
-                    </FieldDescription>
-                  )}
                 </div>
-              </div>
 
-              <div>
-                <div className="mb-2 flex items-baseline justify-between gap-2">
-                  <span className="text-xs text-subtle">内置工具</span>
-                  <FileTag>→ agent md · tools / disallowedTools</FileTag>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {BUILTIN_TOOLS.map((tool) => {
-                    const enabled = builtinEnabled(tool);
-                    const fixed = tool === 'Agent' || tool === 'TaskStop';
-                    return (
-                      <Button
-                        key={tool}
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        aria-pressed={enabled}
-                        disabled={fixed}
-                        onClick={() => toggleBuiltin(tool)}
-                        title={
-                          fixed
-                            ? enabled
-                              ? '由子智能体绑定放行；解绑子智能体后自动禁用'
-                              : '绑定子智能体后自动放行'
-                            : enabled
-                              ? '已放行：点击禁用'
-                              : '已禁用：点击放行'
+                <DraftPreview title="将写入 CLAUDE.md 的内容" code={claudeDraft} />
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-model">模型</Label>
+                      <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
+                    </div>
+                    <LineInput
+                      id="agent-model"
+                      list="agent-models"
+                      value={form.model}
+                      className="font-mono"
+                      onChange={(event) => set('model', event.target.value)}
+                    />
+                    <datalist id="agent-models">
+                      {modelOptions(form.model).map((option) => (
+                        <option key={option.value} value={option.value} />
+                      ))}
+                    </datalist>
+                    <FieldDescription>
+                      可以填任意网关模型 ID，下面是当前部署的建议值。
+                    </FieldDescription>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-effort">推理强度</Label>
+                      <FileTag>→ .claude/agents/&lt;slug&gt;.md · effort</FileTag>
+                    </div>
+                    <Select
+                      value={form.effort ?? ''}
+                      onValueChange={(value) => {
+                        if (value !== null) {
+                          set('effort', value === '' ? undefined : (value as AgentInput['effort']));
                         }
-                        className={cn(
-                          'h-auto border-0 px-2 py-1 font-mono text-2xs font-normal transition-colors active:not-aria-[haspopup]:translate-y-0 [&]:rounded-tag',
-                          enabled
-                            ? 'bg-warning-soft text-warning hover:bg-warning-soft hover:text-warning'
-                            : 'bg-chip text-subtle hover:bg-hover hover:text-muted-foreground',
-                          fixed && 'cursor-default opacity-80 disabled:opacity-80',
-                        )}
-                      >
-                        {tool}
-                        <span className="sr-only">
-                          {enabled ? '：已启用' : '：已禁用'}
-                          {fixed ? '，由子智能体绑定决定' : ''}
-                        </span>
-                      </Button>
-                    );
-                  })}
+                      }}
+                      items={effortOptions}
+                    >
+                      <SelectTrigger id="agent-effort">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {effortOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <FieldDescription>
-                  默认全部禁用。放行状态 = 不在默认禁用名单且未被显式禁用，或在允许列表里；
-                  有子智能体时 Agent/TaskStop 自动放行。runner 对 Bash/文件/网络工具仍有硬限制。
-                </FieldDescription>
-              </div>
-            </Section>
+              </Section>
 
-            <Section
-              id="limits"
-              title="运行限制"
-              summary={sectionSummary.limits}
-              open={openSections.limits}
-              onToggle={() =>
-                setOpenSections((current) => ({ ...current, limits: !current.limits }))
-              }
-            >
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-turns">最大轮次</Label>
-                    <FileTag>→ agent md · maxTurns</FileTag>
+              <Section
+                id="capability"
+                title="能力"
+                summary={sectionSummary.capability}
+                open={openSections.capability}
+                onToggle={() =>
+                  setOpenSections((current) => ({ ...current, capability: !current.capability }))
+                }
+              >
+                <div className="divide-y divide-line border-y border-line">
+                  <div className="py-3">
+                    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                      <h3 className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Plug className="size-4 text-subtle" aria-hidden="true" /> MCP Servers
+                        <FileTag>→ .mcp.json · mcpServers.&lt;name&gt;</FileTag>
+                      </h3>
+                      <span className="font-mono text-2xs tabular-nums text-subtle">
+                        {serverToolSummary}
+                      </span>
+                    </div>
+                    {servers.isPending ? <LoadingState rows={1} /> : null}
+                    {servers.isError ? (
+                      <ErrorState error={servers.error} onRetry={() => void servers.refetch()} />
+                    ) : null}
+                    {servers.data && servers.data.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        还没有可绑定的 server，先去 MCP Servers 页面创建。
+                      </p>
+                    ) : null}
+                    {servers.data && servers.data.length > 0 ? (
+                      <Combobox
+                        multiple
+                        items={serverOptions}
+                        value={serverOptions.filter((option) => form.serverIds.includes(option.id))}
+                        onValueChange={(picked) =>
+                          set(
+                            'serverIds',
+                            picked.map((option) => option.id),
+                          )
+                        }
+                        itemToStringLabel={(option) => option.label}
+                        itemToStringValue={(option) => option.id}
+                        isItemEqualToValue={(a, b) => a.id === b.id}
+                        filter={(option, query) =>
+                          `${option.label} ${option.hint}`
+                            .toLowerCase()
+                            .includes(query.trim().toLowerCase())
+                        }
+                      >
+                        <ComboboxChips ref={serverAnchor}>
+                          <ComboboxValue>
+                            {(selected: typeof serverOptions) =>
+                              selected.map((option) => (
+                                <ComboboxChip key={option.id} aria-label={option.label}>
+                                  {option.label}
+                                </ComboboxChip>
+                              ))
+                            }
+                          </ComboboxValue>
+                          <ComboboxChipsInput
+                            aria-label="MCP Server"
+                            placeholder="搜索并选择 server…"
+                          />
+                        </ComboboxChips>
+                        <ComboboxContent anchor={serverAnchor}>
+                          <ComboboxEmpty>没有匹配的 server</ComboboxEmpty>
+                          <ComboboxList>
+                            {(option: (typeof serverOptions)[number]) => (
+                              <ComboboxItem key={option.id} value={option}>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate">{option.label}</span>
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    {option.hint}
+                                  </span>
+                                </span>
+                                <StatusBadge tone="mono">{option.tag}</StatusBadge>
+                              </ComboboxItem>
+                            )}
+                          </ComboboxList>
+                        </ComboboxContent>
+                      </Combobox>
+                    ) : null}
+                    <p className="mt-1.5 text-2xs text-subtle">
+                      绑定后智能体可使用
+                      <code className="mx-1 font-mono text-muted-foreground">
+                        mcp__&lt;server&gt;__*
+                      </code>
+                      工具；密钥只在运行时注入。
+                    </p>
                   </div>
-                  <LineInput
-                    id="agent-turns"
-                    type="number"
-                    min={1}
-                    inputMode="numeric"
-                    value={form.maxTurns}
-                    aria-invalid={Boolean(errors.maxTurns)}
-                    aria-describedby={errors.maxTurns ? 'agent-turns-error' : undefined}
-                    onChange={(event) => set('maxTurns', Number(event.target.value))}
-                  />
-                  <FieldError id="agent-turns-error">{errors.maxTurns}</FieldError>
+
+                  <div className="py-3">
+                    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                      <h3 className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Sparkles className="size-4 text-subtle" aria-hidden="true" /> 技能
+                        <FileTag>→ .claude/skills/&lt;slug&gt;/SKILL.md</FileTag>
+                      </h3>
+                      <span className="font-mono text-2xs tabular-nums text-subtle">
+                        选中 {form.skillIds.length} 个 · 不新增工具
+                      </span>
+                    </div>
+                    {skills.isPending ? <LoadingState rows={1} /> : null}
+                    {skills.data && skills.data.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        还没有技能。技能是可复用的操作流程，会渲染为
+                        <code className="mx-1 font-mono text-muted-foreground">
+                          .claude/skills/&lt;slug&gt;/SKILL.md
+                        </code>
+                        供智能体按需读取。
+                      </p>
+                    ) : null}
+                    {skills.data && skills.data.length > 0 ? (
+                      <Combobox
+                        multiple
+                        items={skillOptions}
+                        value={skillOptions.filter((option) => form.skillIds.includes(option.id))}
+                        onValueChange={(picked) =>
+                          set(
+                            'skillIds',
+                            picked.map((option) => option.id),
+                          )
+                        }
+                        itemToStringLabel={(option) => option.label}
+                        itemToStringValue={(option) => option.id}
+                        isItemEqualToValue={(a, b) => a.id === b.id}
+                        filter={(option, query) =>
+                          `${option.label} ${option.hint}`
+                            .toLowerCase()
+                            .includes(query.trim().toLowerCase())
+                        }
+                      >
+                        <ComboboxChips ref={skillAnchor}>
+                          <ComboboxValue>
+                            {(selected: typeof skillOptions) =>
+                              selected.map((option) => (
+                                <ComboboxChip key={option.id} aria-label={option.label}>
+                                  {option.label}
+                                </ComboboxChip>
+                              ))
+                            }
+                          </ComboboxValue>
+                          <ComboboxChipsInput aria-label="技能" placeholder="搜索并选择技能…" />
+                        </ComboboxChips>
+                        <ComboboxContent anchor={skillAnchor}>
+                          <ComboboxEmpty>没有匹配的技能</ComboboxEmpty>
+                          <ComboboxList>
+                            {(option: (typeof skillOptions)[number]) => (
+                              <ComboboxItem key={option.id} value={option}>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate">{option.label}</span>
+                                  {option.hint ? (
+                                    <span className="block truncate text-xs text-muted-foreground">
+                                      {option.hint}
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </ComboboxItem>
+                            )}
+                          </ComboboxList>
+                        </ComboboxContent>
+                      </Combobox>
+                    ) : null}
+                    <p className="mt-1.5 text-2xs text-subtle">
+                      技能不注册新工具；已选技能的 slug 同时写进 agent md 的
+                      <code className="mx-1 font-mono text-muted-foreground">skills</code>。
+                    </p>
+                  </div>
+
+                  <div className="py-3">
+                    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                      <h3 className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Bot className="size-4 text-subtle" aria-hidden="true" /> 子智能体
+                        <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
+                      </h3>
+                      <span className="font-mono text-2xs tabular-nums text-subtle">
+                        将获得 {hasSubAgents ? 1 : 0} 个工具（Agent）
+                      </span>
+                    </div>
+                    {agent.parentId !== null ? (
+                      <p className="text-xs text-muted-foreground">
+                        它本身已经是子智能体，不能再委派。子智能体只支持一层。
+                      </p>
+                    ) : subAgentOptions.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        没有可选的主智能体。只有「没有父级」的智能体才能被委派。
+                      </p>
+                    ) : (
+                      <Combobox
+                        multiple
+                        items={subAgentOptions}
+                        value={subAgentOptions.filter((option) =>
+                          form.subAgentIds.includes(option.id),
+                        )}
+                        onValueChange={(picked) =>
+                          set(
+                            'subAgentIds',
+                            picked.map((option) => option.id),
+                          )
+                        }
+                        itemToStringLabel={(option) => option.label}
+                        itemToStringValue={(option) => option.id}
+                        isItemEqualToValue={(a, b) => a.id === b.id}
+                        filter={(option, query) =>
+                          `${option.label} ${option.hint}`
+                            .toLowerCase()
+                            .includes(query.trim().toLowerCase())
+                        }
+                      >
+                        <ComboboxChips ref={subAgentAnchor}>
+                          <ComboboxValue>
+                            {(selected: typeof subAgentOptions) =>
+                              selected.map((option) => (
+                                <ComboboxChip key={option.id} aria-label={option.label}>
+                                  {option.label}
+                                </ComboboxChip>
+                              ))
+                            }
+                          </ComboboxValue>
+                          <ComboboxChipsInput
+                            aria-label="子智能体"
+                            placeholder="搜索并选择子智能体…"
+                          />
+                        </ComboboxChips>
+                        <ComboboxContent anchor={subAgentAnchor}>
+                          <ComboboxEmpty>没有匹配的智能体</ComboboxEmpty>
+                          <ComboboxList>
+                            {(option: (typeof subAgentOptions)[number]) => (
+                              <ComboboxItem key={option.id} value={option}>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate">{option.label}</span>
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    {option.hint}
+                                  </span>
+                                </span>
+                              </ComboboxItem>
+                            )}
+                          </ComboboxList>
+                        </ComboboxContent>
+                      </Combobox>
+                    )}
+                    <p className="mt-1.5 text-2xs text-subtle">
+                      选中后主智能体获得{' '}
+                      <code className="font-mono text-muted-foreground">Agent</code> 工具，
+                      子智能体定义渲染到{' '}
+                      <code className="font-mono text-muted-foreground">
+                        .claude/agents/&lt;slug&gt;.md
+                      </code>
+                      。
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-budget">预算上限 (USD)</Label>
-                    <RuntimeTag />
-                  </div>
-                  <LineInput
-                    id="agent-budget"
-                    type="number"
-                    min={0.01}
-                    step={0.01}
-                    inputMode="decimal"
-                    value={form.maxBudgetUsd}
-                    aria-invalid={Boolean(errors.maxBudgetUsd)}
-                    aria-describedby={errors.maxBudgetUsd ? 'agent-budget-error' : undefined}
-                    onChange={(event) => set('maxBudgetUsd', Number(event.target.value))}
-                  />
-                  <FieldError id="agent-budget-error">{errors.maxBudgetUsd}</FieldError>
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-timeout">超时 (毫秒)</Label>
-                    <RuntimeTag />
-                  </div>
-                  <LineInput
-                    id="agent-timeout"
-                    type="number"
-                    min={1000}
-                    step={1000}
-                    inputMode="numeric"
-                    value={form.timeoutMs}
-                    aria-invalid={Boolean(errors.timeoutMs)}
-                    aria-describedby={errors.timeoutMs ? 'agent-timeout-error' : undefined}
-                    onChange={(event) => set('timeoutMs', Number(event.target.value))}
-                  />
-                  <FieldError id="agent-timeout-error">{errors.timeoutMs}</FieldError>
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-thinking">最大思考 tokens</Label>
-                    <RuntimeTag />
-                  </div>
-                  <LineInput
-                    id="agent-thinking"
-                    type="number"
-                    min={1}
-                    step={1}
-                    inputMode="numeric"
-                    value={thinkingText}
-                    placeholder="不设置"
-                    aria-invalid={thinkingInvalid}
-                    aria-describedby={
-                      thinkingInvalid ? 'agent-thinking-error' : 'agent-thinking-hint'
-                    }
-                    onChange={(event) => setThinkingTextSafely(event.target.value)}
-                  />
-                  {thinkingInvalid ? (
-                    <FieldError id="agent-thinking-error">
-                      请输入大于 0 的整数，或留空表示不设置。
-                    </FieldError>
-                  ) : (
-                    <FieldDescription id="agent-thinking-hint">
-                      留空表示不设置；只传给 SDK，不写文件。
+
+                <DraftPreview title="将写入 .mcp.json 与 frontmatter" code={fileDraft} />
+              </Section>
+
+              <Section
+                id="permissions"
+                title="权限"
+                summary={sectionSummary.permissions}
+                open={openSections.permissions}
+                onToggle={() =>
+                  setOpenSections((current) => ({ ...current, permissions: !current.permissions }))
+                }
+              >
+                <p className="rounded-item bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
+                  放行内置工具会扩大攻击面：Bash、文件写入和网络访问都绕过沙盒的只读约定。
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-perm">权限模式</Label>
+                      <RuntimeTag />
+                    </div>
+                    <Select
+                      value={form.permissionMode}
+                      onValueChange={(next) => {
+                        if (next !== null) {
+                          set('permissionMode', next as AgentInput['permissionMode']);
+                        }
+                      }}
+                      items={permissionOptions}
+                    >
+                      <SelectTrigger id="agent-perm" className="h-9 rounded-item">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {permissionOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FieldDescription>
+                      auto 依赖模型分类器，平台无法审计，因此不开放。该值只传给 SDK，不写文件。
                     </FieldDescription>
-                  )}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-allowed-tools">自定义允许的工具</Label>
+                      <FileTag>→ agent md · tools</FileTag>
+                    </div>
+                    <CodeArea
+                      id="agent-allowed-tools"
+                      rows={3}
+                      value={allowedText}
+                      className="font-mono text-xs leading-relaxed"
+                      placeholder={'mcp__jsonplaceholder__get_user\nmcp__crm__*'}
+                      aria-invalid={allowedInvalid}
+                      aria-describedby={
+                        allowedInvalid ? 'agent-allowed-tools-error' : 'agent-allowed-tools-hint'
+                      }
+                      onChange={(event) => setAllowedToolsText(event.target.value)}
+                    />
+                    {allowedInvalid ? (
+                      <FieldError id="agent-allowed-tools-error">
+                        每行只能有一个工具名或模式，不能包含空格。
+                      </FieldError>
+                    ) : (
+                      <FieldDescription id="agent-allowed-tools-hint">
+                        每行一个模式，例如 mcp__jsonplaceholder__get_user、mcp__crm__*。留空表示
+                        「所有已绑定 server 的全部工具」。
+                      </FieldDescription>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </Section>
-          </div>
-        </form>
-      ) : (
-        <FilesPreview agentId={agent.id} dirty={dirty} />
-      )}
+
+                <div>
+                  <div className="mb-2 flex items-baseline justify-between gap-2">
+                    <span className="text-xs text-subtle">内置工具</span>
+                    <FileTag>→ agent md · tools / disallowedTools</FileTag>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {BUILTIN_TOOLS.map((tool) => {
+                      const enabled = builtinEnabled(tool);
+                      const fixed = tool === 'Agent' || tool === 'TaskStop';
+                      return (
+                        <Button
+                          key={tool}
+                          type="button"
+                          variant="ghost"
+                          size="xs"
+                          aria-pressed={enabled}
+                          disabled={fixed}
+                          onClick={() => toggleBuiltin(tool)}
+                          title={
+                            fixed
+                              ? enabled
+                                ? '由子智能体绑定放行；解绑子智能体后自动禁用'
+                                : '绑定子智能体后自动放行'
+                              : enabled
+                                ? '已放行：点击禁用'
+                                : '已禁用：点击放行'
+                          }
+                          className={cn(
+                            'h-auto border-0 px-2 py-1 font-mono text-2xs font-normal transition-colors active:not-aria-[haspopup]:translate-y-0 [&]:rounded-tag',
+                            enabled
+                              ? 'bg-warning-soft text-warning hover:bg-warning-soft hover:text-warning'
+                              : 'bg-chip text-subtle hover:bg-hover hover:text-muted-foreground',
+                            fixed && 'cursor-default opacity-80 disabled:opacity-80',
+                          )}
+                        >
+                          {tool}
+                          <span className="sr-only">
+                            {enabled ? '：已启用' : '：已禁用'}
+                            {fixed ? '，由子智能体绑定决定' : ''}
+                          </span>
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  <FieldDescription>
+                    默认全部禁用。放行状态 = 不在默认禁用名单且未被显式禁用，或在允许列表里；
+                    有子智能体时 Agent/TaskStop 自动放行。runner 对 Bash/文件/网络工具仍有硬限制。
+                  </FieldDescription>
+                </div>
+              </Section>
+
+              <Section
+                id="limits"
+                title="运行限制"
+                summary={sectionSummary.limits}
+                open={openSections.limits}
+                onToggle={() =>
+                  setOpenSections((current) => ({ ...current, limits: !current.limits }))
+                }
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-turns">最大轮次</Label>
+                      <FileTag>→ agent md · maxTurns</FileTag>
+                    </div>
+                    <LineInput
+                      id="agent-turns"
+                      type="number"
+                      min={1}
+                      inputMode="numeric"
+                      value={form.maxTurns}
+                      aria-invalid={Boolean(errors.maxTurns)}
+                      aria-describedby={errors.maxTurns ? 'agent-turns-error' : undefined}
+                      onChange={(event) => set('maxTurns', Number(event.target.value))}
+                    />
+                    <FieldError id="agent-turns-error">{errors.maxTurns}</FieldError>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-budget">预算上限 (USD)</Label>
+                      <RuntimeTag />
+                    </div>
+                    <LineInput
+                      id="agent-budget"
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      inputMode="decimal"
+                      value={form.maxBudgetUsd}
+                      aria-invalid={Boolean(errors.maxBudgetUsd)}
+                      aria-describedby={errors.maxBudgetUsd ? 'agent-budget-error' : undefined}
+                      onChange={(event) => set('maxBudgetUsd', Number(event.target.value))}
+                    />
+                    <FieldError id="agent-budget-error">{errors.maxBudgetUsd}</FieldError>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-timeout">超时 (毫秒)</Label>
+                      <RuntimeTag />
+                    </div>
+                    <LineInput
+                      id="agent-timeout"
+                      type="number"
+                      min={1000}
+                      step={1000}
+                      inputMode="numeric"
+                      value={form.timeoutMs}
+                      aria-invalid={Boolean(errors.timeoutMs)}
+                      aria-describedby={errors.timeoutMs ? 'agent-timeout-error' : undefined}
+                      onChange={(event) => set('timeoutMs', Number(event.target.value))}
+                    />
+                    <FieldError id="agent-timeout-error">{errors.timeoutMs}</FieldError>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Label htmlFor="agent-thinking">最大思考 tokens</Label>
+                      <RuntimeTag />
+                    </div>
+                    <LineInput
+                      id="agent-thinking"
+                      type="number"
+                      min={1}
+                      step={1}
+                      inputMode="numeric"
+                      value={thinkingText}
+                      placeholder="不设置"
+                      aria-invalid={thinkingInvalid}
+                      aria-describedby={
+                        thinkingInvalid ? 'agent-thinking-error' : 'agent-thinking-hint'
+                      }
+                      onChange={(event) => setThinkingTextSafely(event.target.value)}
+                    />
+                    {thinkingInvalid ? (
+                      <FieldError id="agent-thinking-error">
+                        请输入大于 0 的整数，或留空表示不设置。
+                      </FieldError>
+                    ) : (
+                      <FieldDescription id="agent-thinking-hint">
+                        留空表示不设置；只传给 SDK，不写文件。
+                      </FieldDescription>
+                    )}
+                  </div>
+                </div>
+              </Section>
+            </div>
+          </form>
+        </TabsContent>
+        <TabsContent value="files">
+          <FilesPreview agentId={agent.id} dirty={dirty} />
+        </TabsContent>
+      </Tabs>
 
       <ConfirmDialog
         open={blocker.status === 'blocked'}
@@ -1475,7 +1622,7 @@ function Section({
             transition={reduce ? { duration: 0 } : { duration: 0.15, ease: 'easeOut' }}
             className="overflow-hidden"
           >
-            <div hidden={!open} className="space-y-4 pb-5">
+            <div hidden={!open} className="flex flex-col gap-4 pb-5 [&[hidden]]:hidden">
               {children}
             </div>
           </motion.div>
@@ -1609,35 +1756,45 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
   const [which, setWhich] = useState<(typeof fileTabs)[number][0]>('mcpJson');
 
   const disabled = files.isPending || files.isError || !files.data;
-  const active = fileTabs.find(([key]) => key === which) ?? fileTabs[0];
-  const content = files.data?.[active[0]] ?? '';
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <p className="rounded-item bg-chip px-3 py-2 text-xs leading-relaxed text-muted-foreground">
         密钥在运行时注入，此处显示为占位符。
         {dirty ? ' 这里是上次保存后的完整文件；编辑中的草稿请回「配置」看内联预览。' : ''}
       </p>
-      <SegmentedTabs
-        label="工作区文件"
+      <Tabs
+        className="flex-col"
         value={which}
-        onChange={setWhich}
-        items={fileTabs.map(([value, label, Icon]) => ({
-          value,
-          label,
-          icon: Icon,
-        }))}
-      />
-      {files.isPending ? <LoadingState rows={6} /> : null}
-      {files.isError ? (
-        <ErrorState error={files.error} onRetry={() => void files.refetch()} />
-      ) : null}
-      {!disabled && content ? (
-        <CodeBlock key={active[0]} code={content} lineNumbers maxHeight="calc(100vh - 22rem)" />
-      ) : null}
-      {!disabled && !content ? (
-        <InlineEmpty>该文件当前为空。保存配置后会自动生成内容。</InlineEmpty>
-      ) : null}
+        onValueChange={(value) => {
+          if (value === 'mcpJson' || value === 'claudeMd' || value === 'agentMd') setWhich(value);
+        }}
+      >
+        <TabsList className="h-8" aria-label="工作区文件">
+          {fileTabs.map(([value, label, Icon]) => (
+            <TabsTrigger key={value} value={value}>
+              <Icon /> {label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {fileTabs.map(([value]) => {
+          const content = files.data?.[value] ?? '';
+          return (
+            <TabsContent key={value} value={value}>
+              {files.isPending ? <LoadingState rows={6} /> : null}
+              {files.isError ? (
+                <ErrorState error={files.error} onRetry={() => void files.refetch()} />
+              ) : null}
+              {!disabled && content ? (
+                <CodeBlock code={content} lineNumbers maxHeight="calc(100vh - 22rem)" />
+              ) : null}
+              {!disabled && !content ? (
+                <InlineEmpty>该文件当前为空。保存配置后会自动生成内容。</InlineEmpty>
+              ) : null}
+            </TabsContent>
+          );
+        })}
+      </Tabs>
       <p className="py-2 text-2xs text-subtle">
         主智能体自己的 agent md 仅供预览、不落盘；路径{' '}
         <code className="font-mono">data/workspaces/{'{slug}'}/</code>
@@ -1705,7 +1862,7 @@ function VersionHistory({
     pending !== null && pendingDetail.data ? diffAgent(current, pendingDetail.data.snapshot) : null;
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       {versions.isPending ? <LoadingState rows={4} /> : null}
       {versions.isError ? (
         <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
@@ -1873,102 +2030,107 @@ function CreateAgentDialog({
   return (
     <Dialog
       open
-      onClose={onClose}
-      title="新建智能体"
-      description="创建后可继续配置提示词、绑定 server 与运行时限制。"
-      returnFocusRef={returnFocusRef}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <form
-        className="space-y-3"
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit();
-        }}
+      <DialogShell
+        title="新建智能体"
+        description="创建后可继续配置提示词、绑定 server 与运行时限制。"
+        finalFocus={returnFocusRef}
       >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="new-agent-slug">
-              Slug
-              <RequiredMark />
-            </Label>
-            <LineInput
-              id="new-agent-slug"
-              value={form.slug}
-              placeholder="support-bot"
-              className="font-mono"
-              aria-invalid={Boolean(errors.slug)}
-              aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
-              onChange={(event) => setForm({ ...form, slug: event.target.value })}
-            />
-            {errors.slug ? (
-              <FieldError id="new-agent-slug-error">{errors.slug}</FieldError>
-            ) : (
-              <FieldDescription id="new-agent-slug-hint">
-                小写字母、数字、- 和 _；创建后不可修改。
-              </FieldDescription>
-            )}
+        <form
+          className="flex flex-col gap-3"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            submit();
+          }}
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="new-agent-slug">
+                Slug
+                <RequiredMark />
+              </Label>
+              <LineInput
+                id="new-agent-slug"
+                value={form.slug}
+                placeholder="support-bot"
+                className="font-mono"
+                aria-invalid={Boolean(errors.slug)}
+                aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
+                onChange={(event) => setForm({ ...form, slug: event.target.value })}
+              />
+              {errors.slug ? (
+                <FieldError id="new-agent-slug-error">{errors.slug}</FieldError>
+              ) : (
+                <FieldDescription id="new-agent-slug-hint">
+                  小写字母、数字、- 和 _；创建后不可修改。
+                </FieldDescription>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="new-agent-name">名称</Label>
+              <LineInput
+                id="new-agent-name"
+                value={form.name}
+                placeholder="客服助手"
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="new-agent-name">名称</Label>
-            <LineInput
-              id="new-agent-name"
-              value={form.name}
-              placeholder="客服助手"
-              onChange={(event) => setForm({ ...form, name: event.target.value })}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="new-agent-model">模型</Label>
+            <Select
+              value={form.model}
+              onValueChange={(model) => {
+                if (model !== null) {
+                  setForm({ ...form, model });
+                }
+              }}
+              items={newModelOptions}
+            >
+              <SelectTrigger id="new-agent-model">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {newModelOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="new-agent-prompt">系统提示词</Label>
+            <CodeArea
+              id="new-agent-prompt"
+              rows={5}
+              className="font-mono text-xs"
+              value={form.systemPrompt}
+              onChange={(event) => setForm({ ...form, systemPrompt: event.target.value })}
             />
           </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="new-agent-model">模型</Label>
-          <Select
-            value={form.model}
-            onValueChange={(model) => {
-              if (model !== null) {
-                setForm({ ...form, model });
-              }
-            }}
-            items={newModelOptions}
-          >
-            <SelectTrigger id="new-agent-model">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {newModelOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="new-agent-prompt">系统提示词</Label>
-          <CodeArea
-            id="new-agent-prompt"
-            rows={5}
-            className="font-mono text-xs"
-            value={form.systemPrompt}
-            onChange={(event) => setForm({ ...form, systemPrompt: event.target.value })}
-          />
-        </div>
-        <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            取消
-          </Button>
-          <Button
-            type="submit"
-            size="sm"
-            className="rounded-full px-3.5"
-            disabled={create.isPending}
-            aria-busy={create.isPending}
-          >
-            {create.isPending ? '创建中…' : '创建'}
-          </Button>
-        </div>
-      </form>
+          <div className="flex justify-end gap-2 border-t border-line pt-3">
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              className="rounded-full px-3.5"
+              disabled={create.isPending}
+              aria-busy={create.isPending}
+            >
+              {create.isPending ? '创建中…' : '创建'}
+            </Button>
+          </div>
+        </form>
+      </DialogShell>
     </Dialog>
   );
 }

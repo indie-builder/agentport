@@ -1,7 +1,7 @@
 import { Search, X } from 'lucide-react';
-import { cn } from '../../lib/cn.js';
-import { Button } from './button.js';
-import { Input } from './input.js';
+import { cn } from '../lib/cn.js';
+import { Button } from './ui/button.js';
+import { Input } from './ui/input.js';
 
 /**
  * 项目自定义层：带图标与清除按钮的搜索框。

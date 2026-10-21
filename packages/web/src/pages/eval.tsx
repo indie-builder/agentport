@@ -4,14 +4,15 @@ import { useMemo, useState } from 'react';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
+import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
+import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
-import { Dialog } from '../components/ui/app-dialog.js';
 import { Button } from '../components/ui/button.js';
+import { Dialog } from '../components/ui/dialog.js';
 import { FieldDescription, FieldError } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
-import { RequiredMark } from '../components/ui/required-mark.js';
 import {
   Select,
   SelectContent,
@@ -467,70 +468,77 @@ function CaseDialog({
   return (
     <Dialog
       open
-      onClose={close}
-      title={testCase ? '编辑用例' : '新建用例'}
-      description="运行评估时，每个用例都会发起一次真实运行。"
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
     >
-      <form onSubmit={submit} className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="eval-name">
-            名称 <RequiredMark />
-          </Label>
-          <Input
-            id="eval-name"
-            value={form.name}
-            aria-invalid={Boolean(errors.name)}
-            aria-describedby={errors.name ? 'eval-name-error' : undefined}
-            onChange={(event) => set('name', event.target.value)}
-            placeholder="例如：拒绝编造不存在的工具"
-          />
-          <FieldError id="eval-name-error">{errors.name}</FieldError>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="eval-prompt">
-            Prompt <RequiredMark />
-          </Label>
-          <Textarea
-            id="eval-prompt"
-            rows={5}
-            value={form.prompt}
-            aria-invalid={Boolean(errors.prompt)}
-            aria-describedby={errors.prompt ? 'eval-prompt-error' : undefined}
-            onChange={(event) => set('prompt', event.target.value)}
-            placeholder="发送给智能体的完整输入"
-          />
-          <FieldError id="eval-prompt-error">{errors.prompt}</FieldError>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="eval-expectation">期望包含</Label>
-          <Textarea
-            id="eval-expectation"
-            rows={2}
-            value={form.expectation}
-            onChange={(event) => set('expectation', event.target.value)}
-            placeholder="输出中应出现的文本（不区分大小写）；留空则只要求有文本输出"
-          />
-          <FieldDescription>最小判定，不做语义判断；需要更严格时写更具体的片段。</FieldDescription>
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
-            取消
-          </Button>
-          <Button type="submit" size="sm" disabled={pending}>
-            {pending ? '保存中…' : '保存'}
-          </Button>
-        </div>
-      </form>
-      <ConfirmDialog
-        open={confirmDiscard}
-        onClose={() => setConfirmDiscard(false)}
-        title="放弃未保存的更改？"
-        description="关闭后这条用例的修改会丢失。"
-        confirmLabel="放弃并关闭"
-        onConfirm={async () => {
-          onClose();
-        }}
-      />
+      <DialogShell
+        title={testCase ? '编辑用例' : '新建用例'}
+        description="运行评估时，每个用例都会发起一次真实运行。"
+      >
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="eval-name">
+              名称 <RequiredMark />
+            </Label>
+            <Input
+              id="eval-name"
+              value={form.name}
+              aria-invalid={Boolean(errors.name)}
+              aria-describedby={errors.name ? 'eval-name-error' : undefined}
+              onChange={(event) => set('name', event.target.value)}
+              placeholder="例如：拒绝编造不存在的工具"
+            />
+            <FieldError id="eval-name-error">{errors.name}</FieldError>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="eval-prompt">
+              Prompt <RequiredMark />
+            </Label>
+            <Textarea
+              id="eval-prompt"
+              rows={5}
+              value={form.prompt}
+              aria-invalid={Boolean(errors.prompt)}
+              aria-describedby={errors.prompt ? 'eval-prompt-error' : undefined}
+              onChange={(event) => set('prompt', event.target.value)}
+              placeholder="发送给智能体的完整输入"
+            />
+            <FieldError id="eval-prompt-error">{errors.prompt}</FieldError>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="eval-expectation">期望包含</Label>
+            <Textarea
+              id="eval-expectation"
+              rows={2}
+              value={form.expectation}
+              onChange={(event) => set('expectation', event.target.value)}
+              placeholder="输出中应出现的文本（不区分大小写）；留空则只要求有文本输出"
+            />
+            <FieldDescription>
+              最小判定，不做语义判断；需要更严格时写更具体的片段。
+            </FieldDescription>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
+              取消
+            </Button>
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后这条用例的修改会丢失。"
+          confirmLabel="放弃并关闭"
+          onConfirm={async () => {
+            onClose();
+          }}
+        />
+      </DialogShell>
     </Dialog>
   );
 }

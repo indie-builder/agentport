@@ -466,7 +466,7 @@ function HistoryPanel({
             还没有会话。发送第一条消息即可开始。
           </p>
         ) : null}
-        <ul className="space-y-0.5">
+        <ul className="flex flex-col gap-0.5">
           {history.map((conversation) => (
             <li key={conversation.id} className="group relative">
               <Button
@@ -717,7 +717,7 @@ function Composer({
               type="submit"
               disabled={!agent || !input.trim()}
               aria-label="发送消息"
-              className="size-8 shrink-0 rounded-pill bg-fg p-0 text-surface hover:bg-fg/90 disabled:bg-hover disabled:text-subtle"
+              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover disabled:text-subtle"
             >
               <ArrowUp className="size-4" />
             </Button>
@@ -1006,14 +1006,14 @@ const ToolGroup = memo(function ToolGroup({
   const approval = findApproval(tool, approvalItems);
   return (
     <>
-      <div className="space-y-1.5">
+      <div className="flex flex-col gap-1.5">
         <ToolRow item={tool} nested={tool.parentToolUseId !== undefined} childCount={kids.length} />
         {approval ? <ApprovalCard item={approval} pending={pending} onApprove={onApprove} /> : null}
       </div>
       {kids.map((child) => {
         const childApproval = findApproval(child, approvalItems);
         return (
-          <div key={`${child.toolUseId}-child`} className="space-y-1.5">
+          <div key={`${child.toolUseId}-child`} className="flex flex-col gap-1.5">
             <ToolRow item={child} nested={true} childCount={0} />
             {childApproval ? (
               <ApprovalCard item={childApproval} pending={pending} onApprove={onApprove} />
@@ -1221,7 +1221,7 @@ function renderAssistantText(text: string) {
       </div>,
     );
   }
-  return <div className="space-y-1">{parts}</div>;
+  return <div className="flex flex-col gap-1">{parts}</div>;
 }
 
 /** 一行读数：完成 · 轮次 · 耗时 · token · 成本 · 查看详情。 */
@@ -1233,7 +1233,7 @@ function RunMetricsLine({ run }: { run: RunMetrics }) {
         ? 'text-subtle'
         : 'text-danger';
   return (
-    <div className="space-y-1">
+    <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-2xs tabular-nums text-subtle">
         <span className={tone}>{outcomeLabel[run.status]}</span>
         {run.turns !== undefined ? (

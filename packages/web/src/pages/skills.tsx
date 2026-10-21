@@ -7,15 +7,15 @@ import {
 import { Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
+import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
-import { Dialog } from '../components/ui/app-dialog.js';
 import { Button } from '../components/ui/button.js';
-
+import { Dialog } from '../components/ui/dialog.js';
 import { FieldDescription, FieldError } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
-import { RequiredMark } from '../components/ui/required-mark.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
@@ -197,93 +197,98 @@ function SkillDialog({
   return (
     <Dialog
       open
-      onClose={close}
-      title={skill ? '编辑技能' : '新建技能'}
-      description="技能内容会写入 SKILL.md 的正文。"
-      {...(returnFocusRef ? { returnFocusRef } : {})}
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
     >
-      <form onSubmit={submit} className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="skill-name">
-              名称 <RequiredMark />
+      <DialogShell
+        title={skill ? '编辑技能' : '新建技能'}
+        description="技能内容会写入 SKILL.md 的正文。"
+        {...(returnFocusRef ? { finalFocus: returnFocusRef } : {})}
+      >
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="skill-name">
+                名称 <RequiredMark />
+              </Label>
+              <Input
+                id="skill-name"
+                value={form.name}
+                aria-invalid={Boolean(errors.name)}
+                aria-describedby={errors.name ? 'skill-name-error' : undefined}
+                onChange={(event) => set('name', event.target.value)}
+              />
+              <FieldError id="skill-name-error">{errors.name}</FieldError>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="skill-slug">
+                Slug <RequiredMark />
+              </Label>
+              <Input
+                id="skill-slug"
+                value={form.slug}
+                disabled={Boolean(skill)}
+                aria-invalid={Boolean(errors.slug)}
+                aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
+                onChange={(event) => set('slug', event.target.value)}
+                className="font-mono"
+              />
+              {skill ? (
+                <FieldDescription id="skill-slug-hint">
+                  创建后不可修改：它对应目录名。
+                </FieldDescription>
+              ) : (
+                <FieldError id="skill-slug-error">{errors.slug}</FieldError>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="skill-desc">
+              描述 <RequiredMark />
             </Label>
             <Input
-              id="skill-name"
-              value={form.name}
-              aria-invalid={Boolean(errors.name)}
-              aria-describedby={errors.name ? 'skill-name-error' : undefined}
-              onChange={(event) => set('name', event.target.value)}
+              id="skill-desc"
+              value={form.description}
+              aria-invalid={Boolean(errors.description)}
+              aria-describedby={errors.description ? 'skill-desc-error' : undefined}
+              onChange={(event) => set('description', event.target.value)}
+              placeholder="一句话说明这个技能解决什么问题"
             />
-            <FieldError id="skill-name-error">{errors.name}</FieldError>
+            <FieldError id="skill-desc-error">{errors.description}</FieldError>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="skill-slug">
-              Slug <RequiredMark />
-            </Label>
-            <Input
-              id="skill-slug"
-              value={form.slug}
-              disabled={Boolean(skill)}
-              aria-invalid={Boolean(errors.slug)}
-              aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
-              onChange={(event) => set('slug', event.target.value)}
-              className="font-mono"
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="skill-body">步骤</Label>
+            <Textarea
+              id="skill-body"
+              rows={10}
+              value={form.body}
+              onChange={(event) => set('body', event.target.value)}
+              className="font-mono text-xs leading-relaxed"
+              placeholder="1. 先读取 …&#10;2. 再调用 mcp__…&#10;3. 最后汇总 …"
             />
-            {skill ? (
-              <FieldDescription id="skill-slug-hint">
-                创建后不可修改：它对应目录名。
-              </FieldDescription>
-            ) : (
-              <FieldError id="skill-slug-error">{errors.slug}</FieldError>
-            )}
+            <FieldDescription>支持 Markdown，渲染为 SKILL.md 正文。</FieldDescription>
           </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="skill-desc">
-            描述 <RequiredMark />
-          </Label>
-          <Input
-            id="skill-desc"
-            value={form.description}
-            aria-invalid={Boolean(errors.description)}
-            aria-describedby={errors.description ? 'skill-desc-error' : undefined}
-            onChange={(event) => set('description', event.target.value)}
-            placeholder="一句话说明这个技能解决什么问题"
-          />
-          <FieldError id="skill-desc-error">{errors.description}</FieldError>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="skill-body">步骤</Label>
-          <Textarea
-            id="skill-body"
-            rows={10}
-            value={form.body}
-            onChange={(event) => set('body', event.target.value)}
-            className="font-mono text-xs leading-relaxed"
-            placeholder="1. 先读取 …&#10;2. 再调用 mcp__…&#10;3. 最后汇总 …"
-          />
-          <FieldDescription>支持 Markdown，渲染为 SKILL.md 正文。</FieldDescription>
-        </div>
-        <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
-          <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
-            取消
-          </Button>
-          <Button type="submit" size="sm" disabled={pending}>
-            {pending ? '保存中…' : '保存'}
-          </Button>
-        </div>
-      </form>
-      <ConfirmDialog
-        open={confirmDiscard}
-        onClose={() => setConfirmDiscard(false)}
-        title="放弃未保存的更改？"
-        description="关闭后这段技能内容会丢失。"
-        confirmLabel="放弃并关闭"
-        onConfirm={async () => {
-          onClose();
-        }}
-      />
+          <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
+            <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
+              取消
+            </Button>
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后这段技能内容会丢失。"
+          confirmLabel="放弃并关闭"
+          onConfirm={async () => {
+            onClose();
+          }}
+        />
+      </DialogShell>
     </Dialog>
   );
 }

@@ -7,7 +7,7 @@ import { Skeleton } from './ui/skeleton.js';
 
 export function LoadingState({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="space-y-2" aria-busy="true" aria-label="加载中" role="status">
+    <div className="flex flex-col gap-2" aria-busy="true" aria-label="加载中" role="status">
       {Array.from({ length: rows }, (_, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: 骨架屏是静态占位
         <Skeleton key={i} className="h-11 w-full" />

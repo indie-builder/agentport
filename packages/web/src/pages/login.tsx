@@ -56,7 +56,7 @@ export function LoginPage() {
           <p className="mt-3 text-base leading-relaxed text-muted-foreground">
             接入 MCP Server，用文件定义智能体，在沙盒里运行并观察每一步。
           </p>
-          <dl className="mt-8 space-y-5">
+          <dl className="mt-8 flex flex-col gap-5">
             {facts.map(({ icon: Icon, title, body }) => (
               <div key={title} className="flex gap-3">
                 <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-icon border border-line bg-surface text-fg">
@@ -85,7 +85,7 @@ export function LoginPage() {
           <p className="mt-1 text-sm text-muted-foreground">使用管理员账号进入控制台。</p>
 
           <form
-            className="mt-6 space-y-4"
+            className="mt-6 flex flex-col gap-4"
             noValidate
             onSubmit={(event) => {
               event.preventDefault();
@@ -93,7 +93,7 @@ export function LoginPage() {
               login.mutate();
             }}
           >
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="username">用户名</Label>
               <Input
                 id="username"
@@ -104,7 +104,7 @@ export function LoginPage() {
                 onChange={(event) => setUsername(event.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="password">密码</Label>
               <Input
                 id="password"

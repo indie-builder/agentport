@@ -91,7 +91,7 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
 function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   if (collapsed) {
     return (
-      <div className="relative h-8 w-8 shrink-0">
+      <div className="relative size-8 shrink-0">
         <Link
           to="/"
           aria-label="返回首页"
@@ -269,13 +269,13 @@ export function AppShell() {
       >
         <div className="hidden w-56 shrink-0 border-r border-line p-3 sm:block">
           <Skeleton className="mb-3 h-8 w-full" />
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
           </div>
         </div>
-        <div className="flex-1 space-y-4 p-8">
+        <div className="flex flex-1 flex-col gap-4 p-8">
           <Skeleton className="h-6 w-40" />
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-32 w-full" />
@@ -333,7 +333,7 @@ export function AppShell() {
             ) : (
               <div className="mx-auto mb-1 h-px w-6 bg-line" aria-hidden="true" />
             )}
-            <div className="space-y-0.5">
+            <div className="flex flex-col gap-0.5">
               {group.items.map((item) => (
                 <SidebarLink
                   key={item.to}
