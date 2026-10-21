@@ -4,14 +4,24 @@ import { useMemo, useState } from 'react';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
+import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
+import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
-import { FieldError, FieldHint, Input } from '../components/ui/input.js';
-import { Label, RequiredMark } from '../components/ui/label.js';
-import { Select } from '../components/ui/select.js';
+import { FieldDescription, FieldError } from '../components/ui/field.js';
+import { Input } from '../components/ui/input.js';
+import { Label } from '../components/ui/label.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js';
+import { StatusBadge } from '../components/ui/status-badge.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { EvalCase, EvalCaseInput, EvalRun } from '../lib/api.js';
 import {
@@ -53,12 +63,12 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '100px',
     sortValue: (run) => run.status,
     cell: (run) => (
-      <Badge variant={evalStatusVariant[run.status]} className="rounded-[6px]">
+      <StatusBadge tone={evalStatusVariant[run.status]}>
         {run.status === 'running' ? (
           <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
         ) : null}
         {evalStatusLabel[run.status]}
-      </Badge>
+      </StatusBadge>
     ),
   },
   {
@@ -78,7 +88,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '96px',
     sortValue: (run) => run.createdAt,
     cell: (run) => (
-      <span className="text-sm text-muted" title={formatDateTime(run.createdAt)}>
+      <span className="text-sm text-muted-foreground" title={formatDateTime(run.createdAt)}>
         {formatRelative(run.createdAt)}
       </span>
     ),
@@ -104,7 +114,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '96px',
     sortValue: (run) => run.finishedAt ?? '',
     cell: (run) => (
-      <span className="text-sm text-muted" title={formatDateTime(run.finishedAt)}>
+      <span className="text-sm text-muted-foreground" title={formatDateTime(run.finishedAt)}>
         {formatRelative(run.finishedAt)}
       </span>
     ),
@@ -153,6 +163,8 @@ export function EvalPage() {
           ? '先新建至少一个用例'
           : null;
 
+  const agentOptions = (agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }));
+
   return (
     <Page>
       <PageHeader
@@ -160,6 +172,7 @@ export function EvalPage() {
         actions={
           <Button
             size="sm"
+            // Keep the page action pill-shaped instead of the compact button radius.
             className="rounded-full"
             onClick={startRun}
             disabled={startDisabledReason !== null}
@@ -174,12 +187,25 @@ export function EvalPage() {
 
       <PageToolbar>
         <Select
-          aria-label="按智能体筛选"
-          className="w-56"
           value={effectiveAgentId ?? ''}
-          onValueChange={setAgentId}
-          options={(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }))}
-        />
+          onValueChange={(next) => {
+            if (next !== null) setAgentId(next);
+          }}
+          items={agentOptions}
+        >
+          <SelectTrigger aria-label="按智能体筛选" className="w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {agentOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <span className="text-sm text-subtle">
           判定：期望非空时检查输出包含该文本（不区分大小写）；为空时只要求有文本输出。
         </span>
@@ -191,6 +217,7 @@ export function EvalPage() {
           <Button
             variant="outline"
             size="sm"
+            // Keep the page action pill-shaped instead of the compact button radius.
             className="rounded-full"
             disabled={!effectiveAgentId}
             onClick={() => setCreating(true)}
@@ -220,6 +247,7 @@ export function EvalPage() {
             title="还没有用例"
             description="把线上出过问题的输入写成用例，下次改动前先跑一遍。"
             action={
+              // Keep the empty-state action consistent with the page action pills.
               <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
                 <Plus className="size-4" aria-hidden="true" /> 新建用例
               </Button>
@@ -231,11 +259,11 @@ export function EvalPage() {
             {cases.data.map((testCase) => (
               <li
                 key={testCase.id}
-                className="group flex min-h-14 items-start gap-3 border-b border-line px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
+                className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-md font-medium text-fg">{testCase.name}</div>
-                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm leading-relaxed text-muted">
+                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
                     {testCase.prompt}
                   </p>
                   <p className="mt-1 truncate text-xs text-subtle">
@@ -252,6 +280,7 @@ export function EvalPage() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    // Signal deletion on hover while preserving the neutral ghost button at rest.
                     className="hover:text-danger"
                     onClick={() => setDeleting(testCase)}
                   >
@@ -312,7 +341,7 @@ function EvalRunResults({ id }: { id: string }) {
   const { results } = detail.data;
   if (results.length === 0) {
     return (
-      <p className="text-sm text-muted">
+      <p className="text-sm text-muted-foreground">
         {detail.data.evalRun.status === 'running'
           ? '正在逐个执行用例…'
           : '还没有结果记录。这条运行可能仍在排队，稍后会自动刷新。'}
@@ -326,12 +355,12 @@ function EvalRunResults({ id }: { id: string }) {
         <li
           // 用例被删除后 caseId 为 null：退回「名称 + 提示词」，两者相同即同一条用例。
           key={result.caseId ?? `${result.name}\u0000${result.prompt}`}
-          className="border-b border-line py-4 last:border-b-0 last:pb-0"
+          className="border-b py-4 last:border-b-0 last:pb-0"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={result.passed ? 'success' : 'danger'} className="rounded-[6px]">
+            <StatusBadge tone={result.passed ? 'success' : 'danger'}>
               {result.passed ? '通过' : '未通过'}
-            </Badge>
+            </StatusBadge>
             <span className="text-md font-medium text-fg">{result.name}</span>
             {result.runId ? (
               <Link
@@ -346,11 +375,13 @@ function EvalRunResults({ id }: { id: string }) {
           <div className="mt-2 grid gap-x-8 gap-y-2 text-sm leading-relaxed sm:grid-cols-2">
             <div>
               <div className="text-xs text-subtle">Prompt</div>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-muted">{result.prompt}</p>
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">
+                {result.prompt}
+              </p>
             </div>
             <div>
               <div className="text-xs text-subtle">期望</div>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-muted">
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">
                 {result.expectation || '（只要求有文本输出）'}
               </p>
             </div>
@@ -441,70 +472,77 @@ function CaseDialog({
   return (
     <Dialog
       open
-      onClose={close}
-      title={testCase ? '编辑用例' : '新建用例'}
-      description="运行评估时，每个用例都会发起一次真实运行。"
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
     >
-      <form onSubmit={submit} className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="eval-name">
-            名称 <RequiredMark />
-          </Label>
-          <Input
-            id="eval-name"
-            value={form.name}
-            aria-invalid={Boolean(errors.name)}
-            aria-describedby={errors.name ? 'eval-name-error' : undefined}
-            onChange={(event) => set('name', event.target.value)}
-            placeholder="例如：拒绝编造不存在的工具"
-          />
-          <FieldError id="eval-name-error">{errors.name}</FieldError>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="eval-prompt">
-            Prompt <RequiredMark />
-          </Label>
-          <Textarea
-            id="eval-prompt"
-            rows={5}
-            value={form.prompt}
-            aria-invalid={Boolean(errors.prompt)}
-            aria-describedby={errors.prompt ? 'eval-prompt-error' : undefined}
-            onChange={(event) => set('prompt', event.target.value)}
-            placeholder="发送给智能体的完整输入"
-          />
-          <FieldError id="eval-prompt-error">{errors.prompt}</FieldError>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="eval-expectation">期望包含</Label>
-          <Textarea
-            id="eval-expectation"
-            rows={2}
-            value={form.expectation}
-            onChange={(event) => set('expectation', event.target.value)}
-            placeholder="输出中应出现的文本（不区分大小写）；留空则只要求有文本输出"
-          />
-          <FieldHint>最小判定，不做语义判断；需要更严格时写更具体的片段。</FieldHint>
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
-            取消
-          </Button>
-          <Button type="submit" size="sm" disabled={pending}>
-            {pending ? '保存中…' : '保存'}
-          </Button>
-        </div>
-      </form>
-      <ConfirmDialog
-        open={confirmDiscard}
-        onClose={() => setConfirmDiscard(false)}
-        title="放弃未保存的更改？"
-        description="关闭后这条用例的修改会丢失。"
-        confirmLabel="放弃并关闭"
-        onConfirm={async () => {
-          onClose();
-        }}
-      />
+      <DialogShell
+        title={testCase ? '编辑用例' : '新建用例'}
+        description="运行评估时，每个用例都会发起一次真实运行。"
+      >
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="eval-name">
+              名称 <RequiredMark />
+            </Label>
+            <Input
+              id="eval-name"
+              value={form.name}
+              aria-invalid={Boolean(errors.name)}
+              aria-describedby={errors.name ? 'eval-name-error' : undefined}
+              onChange={(event) => set('name', event.target.value)}
+              placeholder="例如：拒绝编造不存在的工具"
+            />
+            <FieldError id="eval-name-error">{errors.name}</FieldError>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="eval-prompt">
+              Prompt <RequiredMark />
+            </Label>
+            <Textarea
+              id="eval-prompt"
+              rows={5}
+              value={form.prompt}
+              aria-invalid={Boolean(errors.prompt)}
+              aria-describedby={errors.prompt ? 'eval-prompt-error' : undefined}
+              onChange={(event) => set('prompt', event.target.value)}
+              placeholder="发送给智能体的完整输入"
+            />
+            <FieldError id="eval-prompt-error">{errors.prompt}</FieldError>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="eval-expectation">期望包含</Label>
+            <Textarea
+              id="eval-expectation"
+              rows={2}
+              value={form.expectation}
+              onChange={(event) => set('expectation', event.target.value)}
+              placeholder="输出中应出现的文本（不区分大小写）；留空则只要求有文本输出"
+            />
+            <FieldDescription>
+              最小判定，不做语义判断；需要更严格时写更具体的片段。
+            </FieldDescription>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
+              取消
+            </Button>
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后这条用例的修改会丢失。"
+          confirmLabel="放弃并关闭"
+          onConfirm={async () => {
+            onClose();
+          }}
+        />
+      </DialogShell>
     </Dialog>
   );
 }

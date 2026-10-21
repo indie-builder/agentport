@@ -9,8 +9,8 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
-import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
+import { StatusBadge } from '../components/ui/status-badge.js';
 import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
 import { formatBytes, formatDuration } from '../lib/format.js';
 import { healthLiveQuery, healthMetricsQuery, healthReadyQuery } from '../lib/queries.js';
@@ -41,10 +41,10 @@ function StatusPill({ state }: { state: CheckState }) {
           ? CircleAlert
           : CircleX;
   return (
-    <Badge variant={stateVariant[state]} className="rounded-[6px]">
+    <StatusBadge tone={stateVariant[state]}>
       <Icon className={state === 'pending' ? 'size-3 animate-spin' : 'size-3'} aria-hidden="true" />
       {stateLabel[state]}
-    </Badge>
+    </StatusBadge>
   );
 }
 
@@ -75,7 +75,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Reason({ children }: { children: ReactNode }) {
   return (
-    <div className="flex items-start gap-1.5 border-t border-line pt-2 text-sm leading-relaxed text-danger">
+    <div className="flex items-start gap-1.5 border-t pt-2 text-sm leading-relaxed text-danger">
       <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span>{children}</span>
     </div>
@@ -192,6 +192,7 @@ function SmokeChecklist() {
         <Button
           variant="outline"
           size="sm"
+          // Keep the section action pill-shaped instead of the compact button radius.
           className="rounded-full"
           disabled={running}
           onClick={() => void run()}
@@ -206,7 +207,7 @@ function SmokeChecklist() {
       }
     >
       {steps.length === 0 ? (
-        <p className="text-sm text-muted">
+        <p className="text-sm text-muted-foreground">
           {running
             ? '正在依次检查…'
             : '依次请求 live、ready、metrics 三个端点，只在这个浏览器里执行，不会改动服务。'}
@@ -216,7 +217,7 @@ function SmokeChecklist() {
           {steps.map((step) => (
             <li
               key={step.label}
-              className="flex items-center gap-3 border-b border-line py-3 text-sm last:border-b-0"
+              className="flex items-center gap-3 border-b py-3 text-sm last:border-b-0"
             >
               {step.state === 'ok' ? (
                 <CircleCheck className="size-4 shrink-0 text-success" aria-hidden="true" />
@@ -224,7 +225,11 @@ function SmokeChecklist() {
                 <CircleX className="size-4 shrink-0 text-danger" aria-hidden="true" />
               )}
               <span className="w-44 shrink-0 font-mono text-xs text-fg">{step.label}</span>
-              <span className={step.state === 'ok' ? 'min-w-0 text-muted' : 'min-w-0 text-danger'}>
+              <span
+                className={
+                  step.state === 'ok' ? 'min-w-0 text-muted-foreground' : 'min-w-0 text-danger'
+                }
+              >
                 {step.detail}
               </span>
               <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-subtle">
@@ -233,7 +238,7 @@ function SmokeChecklist() {
             </li>
           ))}
           {running ? (
-            <li className="flex items-center gap-2 border-b border-line py-3 text-sm text-subtle">
+            <li className="flex items-center gap-2 border-b py-3 text-sm text-subtle">
               <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
               下一项检查中…
             </li>
@@ -296,6 +301,7 @@ export function StatusPage() {
         title="健康"
         description="API 进程、队列、数据库连接池与 Redis 的实时状态，每 10 秒自动刷新。"
         actions={
+          // Keep the refresh action consistent with the section action pill.
           <Button variant="outline" size="sm" className="rounded-full" onClick={refresh}>
             <RefreshCw className="size-4" aria-hidden="true" /> 立即刷新
           </Button>
@@ -303,7 +309,7 @@ export function StatusPage() {
       />
 
       <Panel title="存活检查 /health/live" state={liveState}>
-        <div className="text-sm text-muted">
+        <div className="text-sm text-muted-foreground">
           {live.isPending
             ? '正在请求…'
             : live.isError
@@ -315,23 +321,17 @@ export function StatusPage() {
       </Panel>
 
       <Panel title="就绪检查 /health/ready" state={readyState}>
-        <div className="text-sm text-muted">
+        <div className="text-sm text-muted-foreground">
           {ready.isPending ? '正在请求…' : (readyProblem ?? '数据库与 Redis 均可用。')}
         </div>
         {!ready.isPending && !ready.isError && ready.data?.body ? (
           <div className="mt-1 flex gap-2">
-            <Badge
-              variant={ready.data.body.db === 'ok' ? 'success' : 'danger'}
-              className="rounded-[6px]"
-            >
+            <StatusBadge tone={ready.data.body.db === 'ok' ? 'success' : 'danger'}>
               数据库 {ready.data.body.db === 'ok' ? '正常' : '不可用'}
-            </Badge>
-            <Badge
-              variant={ready.data.body.redis === 'ok' ? 'success' : 'danger'}
-              className="rounded-[6px]"
-            >
+            </StatusBadge>
+            <StatusBadge tone={ready.data.body.redis === 'ok' ? 'success' : 'danger'}>
               Redis {ready.data.body.redis === 'ok' ? '正常' : '不可用'}
-            </Badge>
+            </StatusBadge>
           </div>
         ) : null}
       </Panel>
@@ -345,7 +345,7 @@ export function StatusPage() {
           </div>
         ) : (
           <>
-            <div className="text-sm text-muted">
+            <div className="text-sm text-muted-foreground">
               {metrics.isPending ? '正在请求 /health/metrics…' : '读不到进程指标。'}
             </div>
             {!metrics.isPending ? (
@@ -379,7 +379,7 @@ export function StatusPage() {
           </>
         ) : (
           <>
-            <div className="text-sm text-muted">
+            <div className="text-sm text-muted-foreground">
               {metrics.isPending ? '正在请求…' : '队列计数不可用。'}
             </div>
             {!metrics.isPending ? (
@@ -404,7 +404,7 @@ export function StatusPage() {
             ) : null}
           </>
         ) : (
-          <div className="text-sm text-muted">读不到连接池指标。</div>
+          <div className="text-sm text-muted-foreground">读不到连接池指标。</div>
         )}
       </Panel>
 
@@ -416,7 +416,7 @@ export function StatusPage() {
           </div>
         ) : (
           <>
-            <div className="text-sm text-muted">
+            <div className="text-sm text-muted-foreground">
               {metrics.isPending ? '正在请求…' : 'Redis 不可用。'}
             </div>
             {!metrics.isPending ? (
@@ -434,9 +434,9 @@ export function StatusPage() {
         title="处置步骤"
         description={
           <>
-            见 <code className="font-mono text-muted">docs/RUNBOOK.md</code>
-            ；指标字段与观测入口见 <code className="font-mono text-muted">docs/OPERATIONS.md</code>
-            。
+            见 <code className="font-mono text-muted-foreground">docs/RUNBOOK.md</code>
+            ；指标字段与观测入口见{' '}
+            <code className="font-mono text-muted-foreground">docs/OPERATIONS.md</code>。
           </>
         }
       />

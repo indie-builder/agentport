@@ -3,10 +3,17 @@ import { useDeferredValue } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageToolbar } from '../components/page.js';
 import { ErrorState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Input } from '../components/ui/input.js';
-import { Select } from '../components/ui/select.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js';
+import { StatusBadge } from '../components/ui/status-badge.js';
 import type { AuditEntry, AuditStatus } from '../lib/api.js';
 import {
   auditStatusLabel,
@@ -32,7 +39,7 @@ const columns: DataColumn<AuditEntry>[] = [
     width: '130px',
     sortValue: (row) => row.createdAt,
     cell: (row) => (
-      <span className="font-mono tabular-nums text-muted" title={row.createdAt}>
+      <span className="font-mono tabular-nums text-muted-foreground" title={row.createdAt}>
         {formatDateTime(row.createdAt)}
       </span>
     ),
@@ -50,7 +57,7 @@ const columns: DataColumn<AuditEntry>[] = [
     width: 'minmax(120px,1fr)',
     cell: (row) =>
       row.target ? (
-        <span className="font-mono text-muted" title={row.target}>
+        <span className="font-mono text-muted-foreground" title={row.target}>
           {shortId(row.target)}
         </span>
       ) : (
@@ -62,7 +69,9 @@ const columns: DataColumn<AuditEntry>[] = [
     header: '状态',
     width: '90px',
     cell: (row) => (
-      <Badge variant={auditStatusVariant[row.status]}>{auditStatusLabel[row.status]}</Badge>
+      <StatusBadge tone={auditStatusVariant[row.status]}>
+        {auditStatusLabel[row.status]}
+      </StatusBadge>
     ),
   },
   {
@@ -79,7 +88,7 @@ const columns: DataColumn<AuditEntry>[] = [
     width: '130px',
     cell: (row) =>
       row.requestId ? (
-        <span className="font-mono text-muted" title={row.requestId}>
+        <span className="font-mono text-muted-foreground" title={row.requestId}>
           {shortId(row.requestId)}
         </span>
       ) : (
@@ -111,6 +120,7 @@ export function AuditPage() {
           <Button
             variant="outline"
             size="sm"
+            // Keep audit actions pill-shaped instead of the compact button radius.
             className="rounded-full"
             onClick={() => void audit.refetch()}
             disabled={audit.isFetching}
@@ -136,17 +146,30 @@ export function AuditPage() {
           className="w-56"
         />
         <Select
-          aria-label="按状态过滤"
           value={status}
-          onValueChange={(next) =>
-            void navigate({
-              to: '/audit',
-              search: { ...search, status: next === 'all' ? undefined : (next as AuditStatus) },
-            })
-          }
-          className="w-32"
-          options={statusOptions}
-        />
+          onValueChange={(next) => {
+            if (next !== null) {
+              void navigate({
+                to: '/audit',
+                search: { ...search, status: next === 'all' ? undefined : (next as AuditStatus) },
+              });
+            }
+          }}
+          items={statusOptions}
+        >
+          <SelectTrigger aria-label="按状态过滤" className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {statusOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <span className="ml-auto hidden text-xs text-subtle md:block">
           登录与配置变更的长期记录；输入只保存摘要，不落原文。
         </span>
@@ -169,6 +192,7 @@ export function AuditPage() {
               <Button
                 variant="outline"
                 size="sm"
+                // Keep audit actions pill-shaped instead of the compact button radius.
                 className="rounded-full"
                 disabled={audit.isFetchingNextPage}
                 onClick={() => void audit.fetchNextPage()}

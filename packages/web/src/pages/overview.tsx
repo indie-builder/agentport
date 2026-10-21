@@ -6,8 +6,8 @@ import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { TelemetryReadout, TelemetryStrip } from '../components/telemetry.js';
-import { Badge } from '../components/ui/badge.js';
 import { buttonVariants } from '../components/ui/button.js';
+import { StatusBadge } from '../components/ui/status-badge.js';
 import type { OverviewAgentRow, RecentRun } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
@@ -53,7 +53,7 @@ const agentColumns: DataColumn<OverviewAgentRow>[] = [
     width: '110px',
     sortValue: (row) => row.lastRunStartTime,
     cell: (row) => (
-      <span className="text-sm text-muted" title={formatDateTime(row.lastRunStartTime)}>
+      <span className="text-sm text-muted-foreground" title={formatDateTime(row.lastRunStartTime)}>
         {formatRelative(row.lastRunStartTime)}
       </span>
     ),
@@ -171,7 +171,7 @@ const runColumns: DataColumn<RecentRun>[] = [
         <RunStatusBadge status={run.status} />
         {run.error ? (
           <span title={run.error}>
-            <Badge variant="danger">错误</Badge>
+            <StatusBadge tone="danger">错误</StatusBadge>
           </span>
         ) : null}
       </div>
@@ -192,7 +192,7 @@ const runColumns: DataColumn<RecentRun>[] = [
     width: '96px',
     sortValue: (run) => run.startedAt ?? '',
     cell: (run) => (
-      <span className="text-sm text-muted" title={formatDateTime(run.startedAt)}>
+      <span className="text-sm text-muted-foreground" title={formatDateTime(run.startedAt)}>
         {formatRelative(run.startedAt)}
       </span>
     ),
@@ -224,7 +224,7 @@ function HealthLine() {
   const queue = data.queue;
   const degraded = (queue?.failed ?? 0) > 0 || (queue?.waiting ?? 0) > 5;
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-2xs tabular-nums text-muted">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-2xs tabular-nums text-muted-foreground">
       <span>
         队列 <span className={cn(degraded && 'text-warning')}>{queue?.waiting ?? 0}</span> 等待 /{' '}
         {queue?.active ?? 0} 运行
@@ -252,7 +252,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
     <Link
       to="/runs/$runId"
       params={{ runId: item.runId }}
-      className="group flex h-14 items-center gap-3 border-b border-line px-2.5 last:border-b-0 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+      className="group flex h-14 items-center gap-3 border-b px-2.5 last:border-b-0 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
     >
       <span
         aria-hidden="true"

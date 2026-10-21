@@ -4,7 +4,8 @@ import { Activity, FileCode2, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Brand } from '../components/brand.js';
 import { Button } from '../components/ui/button.js';
-import { FieldError, Input } from '../components/ui/input.js';
+import { FieldError } from '../components/ui/field.js';
+import { Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
 import { api, errorMessage } from '../lib/api.js';
 import { queryClient } from '../lib/queries.js';
@@ -46,47 +47,45 @@ export function LoginPage() {
 
   return (
     <div className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,1fr)_minmax(380px,0.9fr)]">
-      {/* 左侧：品牌与平台事实。窄屏隐藏，登录本身不被说明文字挤走。 */}
-      <section className="hidden flex-col justify-between border-r border-line bg-panel px-10 py-10 lg:flex">
-        <Brand />
-
+      {/* 左侧：平台事实。窄屏隐藏，登录本身不被说明文字挤走。 */}
+      <section className="hidden flex-col justify-center border-r bg-panel px-10 py-10 lg:flex">
         <div className="max-w-md">
           <p className="text-[28px] font-semibold leading-[1.25] tracking-tight text-fg">
             让智能体以可预测的节奏运行
           </p>
-          <p className="mt-3 text-base leading-relaxed text-muted">
+          <p className="mt-3 text-base leading-relaxed text-muted-foreground">
             接入 MCP Server，用文件定义智能体，在沙盒里运行并观察每一步。
           </p>
-          <dl className="mt-8 space-y-5">
+          <dl className="mt-8 flex flex-col gap-5">
             {facts.map(({ icon: Icon, title, body }) => (
               <div key={title} className="flex gap-3">
-                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-icon border border-line bg-surface text-fg">
+                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-icon border bg-surface text-fg">
                   <Icon className="size-3.5" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
                   <dt className="text-base font-medium text-fg">{title}</dt>
-                  <dd className="mt-0.5 text-xs leading-relaxed text-muted">{body}</dd>
+                  <dd className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{body}</dd>
                 </div>
               </div>
             ))}
           </dl>
         </div>
 
-        <p className="text-2xs text-subtle">配置变更、连接测试与对话都会记入审计。</p>
+        <p className="mt-10 text-2xs text-subtle">配置变更、连接测试与对话都会记入审计。</p>
       </section>
 
       {/* 右侧：表单。视觉上是一张纸，不是悬浮卡片。 */}
-      <section className="flex items-center justify-center border-l border-line bg-surface px-6 py-12">
+      <section className="flex items-center justify-center border-l bg-surface px-6 py-12">
         <div className="w-full max-w-[340px]">
           <div className="mb-8 lg:hidden">
             <Brand />
           </div>
 
           <h1 className="text-[20px] font-semibold tracking-tight text-fg">登录</h1>
-          <p className="mt-1 text-sm text-muted">使用管理员账号进入控制台。</p>
+          <p className="mt-1 text-sm text-muted-foreground">使用管理员账号进入控制台。</p>
 
           <form
-            className="mt-6 space-y-4"
+            className="mt-6 flex flex-col gap-4"
             noValidate
             onSubmit={(event) => {
               event.preventDefault();
@@ -94,7 +93,7 @@ export function LoginPage() {
               login.mutate();
             }}
           >
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="username">用户名</Label>
               <Input
                 id="username"
@@ -105,7 +104,7 @@ export function LoginPage() {
                 onChange={(event) => setUsername(event.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="password">密码</Label>
               <Input
                 id="password"

@@ -35,7 +35,7 @@ export function PageHeader({
         {title}
       </h1>
       {description ? (
-        <p className="hidden min-w-0 max-w-[60ch] truncate text-sm text-muted md:block">
+        <p className="hidden min-w-0 max-w-[60ch] truncate text-sm text-muted-foreground md:block">
           {description}
         </p>
       ) : null}
@@ -70,9 +70,7 @@ export function PageSection({
   divided?: boolean;
 }) {
   return (
-    <section
-      className={cn('flex flex-col gap-4', divided && 'border-t border-line pt-7', className)}
-    >
+    <section className={cn('flex flex-col gap-4', divided && 'border-t pt-7', className)}>
       {title || actions || description ? (
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -104,7 +102,7 @@ export function PageNote({
   tone?: 'default' | 'danger';
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y border-line py-6 text-sm">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-6 text-sm">
       {icon ? (
         <span className={cn('shrink-0', tone === 'danger' ? 'text-danger' : 'text-subtle')}>
           {icon}
@@ -113,7 +111,7 @@ export function PageNote({
       <span className={cn('font-medium', tone === 'danger' ? 'text-danger' : 'text-fg')}>
         {title}
       </span>
-      {description ? <span className="min-w-0 text-muted">{description}</span> : null}
+      {description ? <span className="min-w-0 text-muted-foreground">{description}</span> : null}
       {action ? <div className="ml-auto shrink-0">{action}</div> : null}
     </div>
   );

@@ -4,6 +4,7 @@
 
 ## 优先级（冲突时自上而下裁决）
 
+0. **官方最佳实践优先。** 项目引用的每个技术栈（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Fastify、Vitest…）如果官方文档给出了做法，**以官方为准**。用户的口头偏好、我的判断、项目历史习惯，都不高于官方文档。用户明确说过「我可能说的也不对」——遇到分歧先去查官方文档，再决定。
 1. **并行优先。** 任何可拆的工作都必须并行；串行只在存在真实依赖时允许，并且必须说明依赖是什么。
 2. **UI 基准优先。** 视觉一律以 https://www.openui.com/chat?form_factor=desktop 与 `docs/DESIGN-SYSTEM.md` 为准；任何技术选型、库默认样式、动效偏好都不得改动这套视觉数值。
 3. **技术栈优先。** 功能实现必须走项目已选定的库（shadcn/ui、lucide、Motion、react-resizable-panels、dnd-kit、Zustand、TanStack Query/Router、Radix），不允许手写等价实现。
@@ -25,12 +26,20 @@
 - **结构靠 1px 线与留白，不靠卡片盒子**；圆角随尺寸递增（16 外壳 / 16 chip / 12 卡片 / 9 行 / 7 图标 / 6 标签）。
 - **图标统一 lucide，`strokeWidth={1.75}`，16px。**
 - **组件库统一使用 shadcn/ui。** `components.json` 已配置，新增组件用 `pnpm dlx shadcn@latest add <name>` 生成，再改为本项目令牌；不要手写近似实现。 新增 UI 一律从 shadcn/ui 的组件出发（复制到 `packages/web/src/components/ui/`，按项目设计语言调整 token），不要另起一套控件、不要重复手写同类组件。
+- **底座先行，项目自定义在后。** 组件必须先按官方底座（shadcn + Base UI，`style: base-nova`）安装到位，再在这个底座文件上改写成本项目的令牌与设计语言；不许为了保住旧实现而拒绝覆盖原始底座，也不许绕过底座自己手写等价组件。顺序颠倒会导致行为、无障碍与后续升级全部脱节。
+  - 安装用 `pnpm dlx shadcn@latest add <name> -c packages/web --overwrite`，然后立刻把 `cn` 指向 `lib/cn`、把颜色/圆角/间距换成本项目 `@theme` 令牌。
+  - 覆盖前先提交或确认该文件已在 git 中，保证可以 diff 出「底座 → 项目」这层改动。
+- **只有两层：底座 + 一层 UI 覆盖。** `components/ui/` 只放底座原版，不改结构。项目差异用**令牌**表达（`styles.css`），不要靠包装组件。
+  - 页面直接用底座的复合组件（`Dialog` + `DialogContent` + `DialogTitle`…），不要为「少写几行」再造 `AppDialog` 这类中间层。
+  - 确实需要多次复用的组合（如「带标题与关闭按钮的弹窗外壳」）放在 `src/components/`，属于应用组合，不放进 `ui/`。
+  - 新增文件前先问：底座是否已经能做？能，就不要加。
 - **先复用，再新增。** 写新界面前先看 `components/ui/` 与 `components/` 是否已有可用的组件；能组合就不新建。
 - **样式遵循 `docs/DESIGN-SYSTEM.md` 的项目设计语言。** 组件结构、无障碍行为、交互约定沿用组件库；颜色、间距、字体、圆角只通过 `packages/web/src/styles.css` 的 `@theme` token 取值，禁止在组件里硬编码十六进制色值。
 - **CSS 统一用 Tailwind CSS 4**，不自造 CSS 文件、不引入第二套样式方案。
 - 新增 shadcn 组件时保持其原始结构与可访问性属性（`aria-*`、焦点管理、键盘交互），只改外观 token。
-- **交互原语用 Radix，不自研。** Dialog / Tabs / Select / Popover 等必须基于 `radix-ui`；
-  焦点陷阱、portal、aria 关联由 Radix 负责。手写版本出现过浮层被祖先 `overflow` 裁切的问题。
+- **交互原语用 Base UI，不自研。** Dialog / Tabs / Select / Popover 等必须基于 `@base-ui/react`
+  （shadcn `base-nova` 底座）；焦点陷阱、portal、aria 关联由 Base UI 负责。
+  手写版本出现过浮层被祖先 `overflow` 裁切的问题。**Radix 已整体移除，不要再引入。**
 - **页面骨架统一用 `components/page.tsx`**（`Page` / `PageHeader` / `PageToolbar` / `PageSection`）。
   页面里不要写 `mb-*` / `mt-*` 这类页面级外边距；每个渲染状态下恰好一个 `h1`，由 `PageHeader` 提供
   （互斥分支各写一个也算合规，同一时刻只渲染一个）。

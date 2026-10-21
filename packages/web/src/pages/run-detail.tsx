@@ -59,9 +59,9 @@ function elapsed(at: string, start: string | null): number {
 }
 
 const stepMeta = {
-  user: { icon: User, label: '用户', tone: 'text-muted' },
+  user: { icon: User, label: '用户', tone: 'text-muted-foreground' },
   assistant: { icon: Bot, label: '助手', tone: 'text-success' },
-  tool: { icon: Wrench, label: '工具', tone: 'text-muted' },
+  tool: { icon: Wrench, label: '工具', tone: 'text-muted-foreground' },
 } as const;
 
 type ApprovalItem = ApprovalRequest;
@@ -143,7 +143,7 @@ export function RunDetailPage() {
         <PageHeader title="运行详情" className="sr-only" />
         <Link
           to="/runs"
-          className="inline-flex items-center gap-1 self-start text-xs text-muted hover:text-fg"
+          className="inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-fg"
         >
           <ArrowLeft className="size-3.5" /> 返回运行列表
         </Link>
@@ -209,6 +209,7 @@ export function RunDetailPage() {
               <Button
                 variant="outline"
                 size="sm"
+                // Keep the rerun action pill-shaped with the existing label padding.
                 className="rounded-full px-3"
                 disabled={rerunMutation.isPending || !hasPrompt}
                 aria-busy={rerunMutation.isPending}
@@ -230,7 +231,7 @@ export function RunDetailPage() {
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-fg">运行{runStatusLabel[detail.status]}</div>
-            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted">
+            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted-foreground">
               {detail.error}
             </pre>
           </div>
@@ -272,7 +273,7 @@ export function RunDetailPage() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
         <section className="flex min-w-0 flex-col" aria-label="步骤">
-          <div className="flex h-10 items-baseline justify-between border-b border-line">
+          <div className="flex h-10 items-baseline justify-between border-b">
             <h2 className="text-xs text-subtle">步骤</h2>
             <span className="font-mono text-2xs tabular-nums text-subtle">{steps.length} 步</span>
           </div>
@@ -314,7 +315,7 @@ export function RunDetailPage() {
                         <span
                           className={cn(
                             'block truncate font-mono text-xs',
-                            step.kind === 'tool' ? 'text-fg' : 'text-muted',
+                            step.kind === 'tool' ? 'text-fg' : 'text-muted-foreground',
                           )}
                         >
                           {stepName(step)}
@@ -340,14 +341,14 @@ export function RunDetailPage() {
           )}
         </section>
 
-        <section className="min-w-0 border-line lg:border-l lg:pl-6" aria-label="步骤详情">
+        <section className="min-w-0 lg:border-l lg:pl-6" aria-label="步骤详情">
           {activeStep ? (
             <StepInspector step={activeStep} index={activeIndex} start={start} />
           ) : null}
         </section>
       </div>
 
-      <section className="flex flex-col gap-3 border-t border-line pt-5">
+      <section className="flex flex-col gap-3 border-t pt-5">
         <div className="flex flex-wrap items-baseline gap-2">
           <h2 className="text-xs text-subtle">运行上下文</h2>
           <span className="text-2xs text-subtle">
@@ -391,7 +392,7 @@ function ContextRow({
   copy?: boolean;
 }) {
   return (
-    <div className="flex h-9 items-center gap-2 border-b border-line">
+    <div className="flex h-9 items-center gap-2 border-b">
       <span className="w-20 shrink-0 text-2xs text-subtle">{label}</span>
       <span
         className={cn('min-w-0 flex-1 truncate text-xs text-fg', mono && 'font-mono tabular-nums')}
@@ -424,14 +425,14 @@ function StepInspector({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line pb-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b pb-3">
         <span className="font-mono text-2xs tabular-nums text-subtle">#{index + 1}</span>
         <span className="font-mono text-xs text-fg">{stepName(step)}</span>
         <span className="font-mono text-2xs tabular-nums text-subtle">
           {start ? formatDateTime(step.at) : ''}
         </span>
         {nested ? (
-          <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted">
+          <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground">
             子智能体内部调用
           </span>
         ) : null}
@@ -448,6 +449,7 @@ function StepInspector({
       {step.kind === 'assistant' || step.kind === 'user' ? (
         <CollapsibleText
           text={step.text}
+          // Preserve message whitespace and readable body typography in the step inspector.
           className="whitespace-pre-wrap break-words text-md leading-relaxed text-fg"
         />
       ) : (

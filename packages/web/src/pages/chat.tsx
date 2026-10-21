@@ -36,7 +36,23 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/ui/collapsible.js';
-import { Select } from '../components/ui/select.js';
+import { Message, MessageContent, MessageGroup } from '../components/ui/message.js';
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from '../components/ui/message-scroller.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js';
 import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
@@ -355,7 +371,7 @@ function ChatWorkspace({
           side="left"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-[294px] max-w-none gap-0 border-r border-line bg-surface p-0"
+          className="w-[294px]! max-w-none! gap-0 p-0"
         >
           <SheetTitle className="sr-only">会话历史</SheetTitle>
           <HistoryHeader onNew={newConversation} onClose={() => setHistoryOpen(false)} />
@@ -379,7 +395,7 @@ function ChatWorkspace({
                 {historyPanel}
               </aside>
             </Panel>
-            <Separator className="w-px border-r border-line" aria-label="调整会话列表宽度" />
+            <Separator className="w-px border-r" aria-label="调整会话列表宽度" />
             <Panel id="chat">{column}</Panel>
           </Group>
         </div>
@@ -450,21 +466,22 @@ function HistoryPanel({
             还没有会话。发送第一条消息即可开始。
           </p>
         ) : null}
-        <ul className="space-y-0.5">
+        <ul className="flex flex-col gap-0.5">
           {history.map((conversation) => (
             <li key={conversation.id} className="group relative">
               <Button
                 variant="ghost"
                 aria-current={conversation.id === conversationId ? 'true' : undefined}
                 onClick={() => onOpen(conversation.id)}
+                // Keep normal-weight history text, muted inactive labels, and the translucent row hover.
                 className={cn(
-                  'h-auto w-full flex-col items-start gap-0 whitespace-normal rounded-[9px] px-2.5 py-2 pr-8 text-left font-normal',
+                  'h-auto w-full min-w-0 flex-col items-start gap-0 whitespace-normal px-2.5 py-2 pr-8 text-left font-normal',
                   conversation.id === conversationId
                     ? 'bg-hover text-fg'
-                    : 'text-muted hover:bg-hover hover:text-fg',
+                    : 'text-muted-foreground hover:bg-hover',
                 )}
               >
-                <span className="block truncate text-sm">{conversation.title}</span>
+                <span className="block w-full truncate text-sm">{conversation.title}</span>
                 <span className="mt-0.5 block text-xs text-subtle">
                   {formatRelative(conversation.updatedAt)}
                 </span>
@@ -489,7 +506,7 @@ function HistoryPanel({
         </ul>
       </div>
       {!supported && history.length > 0 ? (
-        <p className="border-t border-line px-3 py-2 text-xs leading-relaxed text-subtle">
+        <p className="border-t px-3 py-2 text-xs leading-relaxed text-subtle">
           历史列表来自本浏览器；服务端列表接口上线后会自动切换。
         </p>
       ) : null}
@@ -557,6 +574,8 @@ function ChatColumn({
   );
   const approvals = useMemo(() => ({ pending: approving, onApprove }), [approving, onApprove]);
 
+  const agentOptions = agents.map((item) => ({ value: item.id, label: item.name }));
+
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-shell bg-surface outline outline-1 outline-shell-line">
       {/* 顶部一行：移动端菜单 + 智能体选择器。没有标题、没有描述。 */}
@@ -574,12 +593,29 @@ function ChatColumn({
           选择智能体
         </label>
         <Select
-          id="chat-agent"
           value={agentId ?? ''}
-          onValueChange={onSwitchAgent}
-          options={agents.map((item) => ({ value: item.id, label: item.name }))}
-          className="w-auto max-w-56 gap-1.5 rounded-pill border-0 bg-hover px-3 text-xs leading-3 tracking-[-0.12px] [&>span:first-child]:truncate [&_svg]:size-4"
-        />
+          onValueChange={(next) => {
+            if (next !== null) onSwitchAgent(next);
+          }}
+          items={agentOptions}
+        >
+          <SelectTrigger
+            id="chat-agent"
+            // Keep the borderless pill selector and compact typography instead of the base field appearance.
+            className="w-auto max-w-56 gap-1.5 rounded-pill border-0 bg-hover px-3 text-xs leading-3 tracking-[-0.12px] [&>span:first-child]:truncate"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {agentOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </header>
 
       <MessagePane
@@ -659,7 +695,8 @@ function Composer({
             title={run ? '本轮流式输出结束后即可继续输入，不会丢失当前内容' : undefined}
             disabled={!agent || Boolean(run)}
             value={input}
-            className="h-8 min-h-8 min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 py-1.5 text-md leading-5 tracking-[-0.15px] shadow-none placeholder:text-muted focus-visible:ring-0"
+            // The capsule owns the border and focus surface; keep its larger 15px composer text.
+            className="h-8 min-h-8 min-w-0 flex-1 resize-none rounded-none border-0 px-0 py-1.5 text-md leading-5 tracking-[-0.15px] shadow-none focus-visible:ring-0"
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -674,6 +711,7 @@ function Composer({
               disabled
               aria-label="发送消息"
               title="运行中，结束后可发送"
+              // Keep circular send controls and their quiet disabled surface instead of the base button appearance.
               className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover"
             >
               <ArrowUp className="size-4" />
@@ -683,7 +721,8 @@ function Composer({
               type="submit"
               disabled={!agent || !input.trim()}
               aria-label="发送消息"
-              className="size-8 shrink-0 rounded-pill bg-fg p-0 text-surface hover:bg-fg/90 disabled:bg-hover disabled:text-subtle"
+              // Keep circular send controls and subdued disabled text instead of the base button appearance.
+              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover disabled:text-subtle"
             >
               <ArrowUp className="size-4" />
             </Button>
@@ -766,7 +805,7 @@ function RunStatusBar({
           : `第 ${turn} 轮 · ${tool ? `正在调用 ${tool.name}` : '等待模型响应'}`;
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-line bg-surface px-3 py-1.5">
+    <div className="flex shrink-0 items-center gap-2 border-t bg-surface px-3 py-1.5">
       <span className="size-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate text-2xs text-fg">{text}</span>
       {run.status === 'reconnecting' || run.status === 'detached' ? (
@@ -816,39 +855,13 @@ function MessagePane({
   approvalItems: ApprovalRequest[];
   lastRun: RunMetrics | null;
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [pinned, setPinned] = useState(true);
+  const reduce = useReducedMotion();
+  const turns = useMemo(
+    () => messageTurns(items, Boolean(lastRun) || approvalItems.length > 0),
+    [items, lastRun, approvalItems],
+  );
   // 上一次的工具子集：文本增量不改工具对象，复用它就不会惊动下游 memo。
   const prevTools = useRef<ToolItem[]>([]);
-
-  // 用户上滚后暂停自动滚动；只有贴底时才跟随新内容。
-  useEffect(() => {
-    const element = scrollRef.current;
-    if (!element) return;
-    const onScroll = (): void => {
-      const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-      setPinned(distance < 80);
-    };
-    element.addEventListener('scroll', onScroll, { passive: true });
-    return () => element.removeEventListener('scroll', onScroll);
-  }, []);
-
-  useEffect(() => {
-    if (!pinned) return;
-    const element = scrollRef.current;
-    if (!element) return;
-    // items 本身也要依赖：文本增量不改变长度，只改最后一个元素的内容。
-    if (items.length === 0) return;
-    element.scrollTop = element.scrollHeight;
-  }, [pinned, items]);
-
-  const scrollToBottom = (): void => {
-    const element = scrollRef.current;
-    if (!element) return;
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    element.scrollTo({ top: element.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
-    setPinned(true);
-  };
 
   // 文本增量只换最后一项，其余对象共享，但 items 数组身份每次都变。
   // 工具子集逐项比对后复用；结构只依赖工具子集，于是增量不改变任何 ToolGroup 的入参。
@@ -871,72 +884,113 @@ function MessagePane({
   }, [matches]);
 
   return (
-    <div className="relative min-h-0 flex-1">
-      <div
-        ref={scrollRef}
-        className={cn('h-full overflow-y-auto', welcome ? 'flex flex-col' : 'px-4 py-4')}
-      >
-        {loading ? (
-          <div className="mx-auto max-w-[728px]">
-            <LoadingState rows={4} />
-          </div>
+    <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollEdgeThreshold={80}>
+      <MessageScroller className="h-auto flex-1">
+        <MessageScrollerViewport aria-label="对话消息">
+          <MessageScrollerContent
+            className={cn('mx-auto w-full max-w-[760px] gap-4', !welcome && 'p-4')}
+          >
+            {loading ? (
+              <MessageScrollerItem messageId="loading">
+                <LoadingState rows={4} />
+              </MessageScrollerItem>
+            ) : null}
+            {error ? (
+              <MessageScrollerItem messageId="error">
+                <ErrorState error={error} onRetry={onRetry} />
+              </MessageScrollerItem>
+            ) : null}
+            {!loading && !error && items.length === 0 && welcome ? (
+              <MessageScrollerItem messageId="welcome" className="flex flex-1 flex-col">
+                {welcome}
+              </MessageScrollerItem>
+            ) : null}
+            {!loading && !error && items.length > 0
+              ? turns.map((turn, turnIndex) => (
+                  <MessageScrollerItem key={turn.id} messageId={turn.id}>
+                    {/* Keep 15px conversation text instead of the base message's text-sm. */}
+                    <Message align={turn.user ? 'end' : 'start'} className="text-md">
+                      <MessageContent
+                        // Keep the user's pill surface; MessageContent supplies layout without a bubble appearance.
+                        className={cn(
+                          'gap-4',
+                          turn.user && 'w-fit max-w-[85%] rounded-pill bg-hover px-4 py-2',
+                        )}
+                      >
+                        <MessageGroup className="gap-4">
+                          {turn.items.map((item, index) => {
+                            // 有归属的子调用由父行渲染，不在顶层重复出现。
+                            if (item.kind === 'tool') {
+                              if (structure.root.has(item.toolUseId)) return null;
+                              return (
+                                <ToolGroup
+                                  key={item.toolUseId}
+                                  tool={item}
+                                  kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
+                                  approvalItems={approvalItems}
+                                  pending={approvals.pending}
+                                  onApprove={approvals.onApprove}
+                                />
+                              );
+                            }
+                            return (
+                              // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
+                              <MessagePart key={`${index}-${item.kind}`} item={item} />
+                            );
+                          })}
+                        </MessageGroup>
+                        {!turn.user && turnIndex === turns.length - 1 ? (
+                          <>
+                            {lastRun ? <RunMetricsLine run={lastRun} /> : null}
+                            {approvalItems
+                              .filter((item) => !placed.has(item.id))
+                              .map((item) => (
+                                <ApprovalCard
+                                  key={item.id}
+                                  item={item}
+                                  pending={approvals.pending}
+                                  onApprove={approvals.onApprove}
+                                />
+                              ))}
+                          </>
+                        ) : null}
+                      </MessageContent>
+                    </Message>
+                  </MessageScrollerItem>
+                ))
+              : null}
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+        {items.length > 0 ? (
+          <MessageScrollerButton
+            variant="outline"
+            size="xs"
+            behavior={reduce ? 'instant' : 'smooth'}
+            // Keep the translucent hover; outline defaults to the opaque muted surface.
+            className="hover:bg-hover motion-reduce:transition-none"
+          >
+            <ArrowDown className="size-3" /> 回到底部
+          </MessageScrollerButton>
         ) : null}
-        {error ? (
-          <div className="mx-auto max-w-[728px]">
-            <ErrorState error={error} onRetry={onRetry} />
-          </div>
-        ) : null}
-        {!loading && !error && items.length === 0 ? welcome : null}
-        {!loading && !error && items.length > 0 ? (
-          <div className="mx-auto max-w-[728px] space-y-4">
-            {items.map((item, index) => {
-              // 有归属的子调用由父行渲染，不在顶层重复出现。
-              if (structure.root.has(item.kind === 'tool' ? item.toolUseId : '')) return null;
-              if (item.kind === 'tool') {
-                return (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
-                  <div key={`${index}-${item.toolUseId}`} className="space-y-1">
-                    <ToolGroup
-                      tool={item}
-                      kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
-                      approvalItems={approvalItems}
-                      pending={approvals.pending}
-                      onApprove={approvals.onApprove}
-                    />
-                  </div>
-                );
-              }
-              return (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
-                <ItemView key={`${index}-${item.kind}`} item={item} />
-              );
-            })}
-            {lastRun ? <RunMetricsLine run={lastRun} /> : null}
-            {approvalItems
-              .filter((item) => !placed.has(item.id))
-              .map((item) => (
-                <ApprovalCard
-                  key={item.id}
-                  item={item}
-                  pending={approvals.pending}
-                  onApprove={approvals.onApprove}
-                />
-              ))}
-          </div>
-        ) : null}
-      </div>
-      {!pinned && items.length > 0 ? (
-        <Button
-          variant="outline"
-          size="xs"
-          onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2"
-        >
-          <ArrowDown className="size-3" /> 回到底部
-        </Button>
-      ) : null}
-    </div>
+      </MessageScroller>
+    </MessageScrollerProvider>
   );
+}
+
+function messageTurns(items: ChatItem[], hasFooter: boolean) {
+  const turns: { id: string; user: boolean; items: ChatItem[] }[] = [];
+  for (const [index, item] of items.entries()) {
+    const previous = turns.at(-1);
+    if (item.kind !== 'user' && previous && !previous.user) {
+      previous.items.push(item);
+    } else {
+      turns.push({ id: `turn-${index}`, user: item.kind === 'user', items: [item] });
+    }
+  }
+  if (hasFooter && turns.at(-1)?.user) {
+    turns.push({ id: `turn-${items.length}`, user: false, items: [] });
+  }
+  return turns;
 }
 
 /**
@@ -960,14 +1014,14 @@ const ToolGroup = memo(function ToolGroup({
   const approval = findApproval(tool, approvalItems);
   return (
     <>
-      <div className="space-y-1.5">
+      <div className="flex flex-col gap-1.5">
         <ToolRow item={tool} nested={tool.parentToolUseId !== undefined} childCount={kids.length} />
         {approval ? <ApprovalCard item={approval} pending={pending} onApprove={onApprove} /> : null}
       </div>
       {kids.map((child) => {
         const childApproval = findApproval(child, approvalItems);
         return (
-          <div key={`${child.toolUseId}-child`} className="space-y-1.5">
+          <div key={`${child.toolUseId}-child`} className="flex flex-col gap-1.5">
             <ToolRow item={child} nested={true} childCount={0} />
             {childApproval ? (
               <ApprovalCard item={childApproval} pending={pending} onApprove={onApprove} />
@@ -1067,7 +1121,7 @@ function WelcomeState({
     <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center gap-8 px-4 pb-32 pt-3">
       <div className="flex flex-col items-center gap-1 text-center tracking-[-0.24px]">
         <h2 className="text-lg font-normal leading-[30px] text-fg">你好</h2>
-        <p className="text-lg font-medium leading-[26.4px] text-muted">今天想做什么？</p>
+        <p className="text-lg font-medium leading-[26.4px] text-muted-foreground">今天想做什么？</p>
       </div>
 
       {children}
@@ -1079,7 +1133,7 @@ function WelcomeState({
               key={text}
               type="button"
               onClick={() => onPick(text)}
-              className="h-[72px] w-[136px] overflow-hidden rounded-card bg-chip p-4 text-left text-base leading-5 text-muted transition-[background-color] duration-150 hover:bg-hover focus-visible:ring-2 focus-visible:ring-fg"
+              className="h-[72px] w-[136px] overflow-hidden rounded-card bg-chip p-4 text-left text-base leading-5 text-muted-foreground transition-[background-color] duration-150 hover:bg-hover focus-visible:ring-2 focus-visible:ring-fg"
             >
               <span className="line-clamp-2">{text}</span>
             </button>
@@ -1093,21 +1147,17 @@ function WelcomeState({
 /** 只为展示取字段，避免把 Agent 类型一路传进展示组件。 */
 type AgentView = NonNullable<ReturnType<typeof useAgents>['data']>[number];
 
-/** 一行气泡/文本/通知：入参 item 在文本增量间保持身份，memo 让其余行原地不动。 */
-const ItemView = memo(function ItemView({ item }: { item: ChatItem }) {
+/** 文本增量只更新对应片段，工具行继续使用独立的 memo。 */
+const MessagePart = memo(function MessagePart({
+  item,
+}: {
+  item: Exclude<ChatItem, { kind: 'tool' }>;
+}) {
   switch (item.kind) {
     case 'user':
-      return (
-        <div className="flex justify-end">
-          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-pill bg-hover px-4 py-2 text-md leading-relaxed text-fg">
-            {item.text}
-          </div>
-        </div>
-      );
+      return <p className="whitespace-pre-wrap break-words leading-relaxed">{item.text}</p>;
     case 'text':
-      return <AssistantText text={item.text} />;
-    case 'tool':
-      return <ToolRow item={item} nested={false} childCount={0} />;
+      return renderAssistantText(item.text);
     case 'notice':
       return (
         <div
@@ -1134,11 +1184,12 @@ const ItemView = memo(function ItemView({ item }: { item: ChatItem }) {
 });
 
 /** 助手文本不用气泡；围栏代码交给 CodeBlock，其余保留换行与空白。 */
-function AssistantText({ text }: { text: string }) {
+function renderAssistantText(text: string) {
   if (!text.includes('```')) {
     return (
       <CollapsibleText
         text={text}
+        // Keep readable message typography when large text is forwarded to the unstyled Collapsible.
         className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg"
       />
     );
@@ -1179,7 +1230,7 @@ function AssistantText({ text }: { text: string }) {
       </div>,
     );
   }
-  return <div className="space-y-1">{parts}</div>;
+  return <div className="flex flex-col gap-1">{parts}</div>;
 }
 
 /** 一行读数：完成 · 轮次 · 耗时 · token · 成本 · 查看详情。 */
@@ -1191,7 +1242,7 @@ function RunMetricsLine({ run }: { run: RunMetrics }) {
         ? 'text-subtle'
         : 'text-danger';
   return (
-    <div className="space-y-1">
+    <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-2xs tabular-nums text-subtle">
         <span className={tone}>{outcomeLabel[run.status]}</span>
         {run.turns !== undefined ? (
@@ -1246,12 +1297,14 @@ const ApprovalCard = memo(function ApprovalCard({
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={reduce ? STILL : EXPAND}
-      className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-chip px-3 py-2"
+      className="flex flex-wrap items-center gap-2 rounded-card border bg-chip px-3 py-2"
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg">
         工具 <code className="font-mono text-xs">{item.toolName}</code>
-        {item.serverName ? <span className="text-muted"> @ {item.serverName}</span> : null}{' '}
+        {item.serverName ? (
+          <span className="text-muted-foreground"> @ {item.serverName}</span>
+        ) : null}{' '}
         需要批准。批准只记录到该 server；继续请在输入框重新发送消息（新一次运行）。
       </div>
       <Button size="sm" disabled={busy} aria-busy={busy} onClick={() => onApprove(item)}>
@@ -1285,6 +1338,7 @@ const ToolRow = memo(function ToolRow({
       ? item.endedAt - item.startedAt
       : undefined;
 
+  // Collapsible is unstyled; keep the tool surface, 9px corners, hover, and keyboard focus ring.
   return (
     <Collapsible
       open={open}
@@ -1302,7 +1356,7 @@ const ToolRow = memo(function ToolRow({
         ) : (
           <Check className="size-3 shrink-0 text-success" aria-hidden="true" />
         )}
-        <span className="shrink-0 text-xs text-muted" aria-hidden="true">
+        <span className="shrink-0 text-xs text-muted-foreground" aria-hidden="true">
           {running ? '运行中' : failed ? '失败' : '完成'}
         </span>
         {duration !== undefined ? (
@@ -1315,8 +1369,8 @@ const ToolRow = memo(function ToolRow({
           aria-hidden="true"
         />
       </CollapsibleTrigger>
-      {/* forceMount：Radix 保留节点，高度补间仍由 Motion 负责。 */}
-      <CollapsibleContent forceMount>
+      {/* keepMounted：保留面板，inert 隔离收起内容，Motion 完成高度退出动画。 */}
+      <CollapsibleContent keepMounted>
         <AnimatePresence initial={false}>
           {open ? (
             <motion.div
@@ -1328,9 +1382,11 @@ const ToolRow = memo(function ToolRow({
               className="overflow-hidden"
             >
               {childCount > 0 ? (
-                <p className="px-3 pt-2 text-xs text-muted">子智能体 · {childCount} 次调用</p>
+                <p className="px-3 pt-2 text-xs text-muted-foreground">
+                  子智能体 · {childCount} 次调用
+                </p>
               ) : null}
-              <div className="grid gap-2 border-t border-line p-2 md:grid-cols-2">
+              <div className="grid gap-2 border-t p-2 md:grid-cols-2">
                 <div className="min-w-0">
                   <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
                     参数

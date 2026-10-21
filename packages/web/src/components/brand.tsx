@@ -1,11 +1,13 @@
-import { Command } from 'lucide-react';
-
-/** 品牌标记：lucide 线框 + 12.5px 字标。登录页与侧栏共用同一份。 */
-export function Brand() {
+/**
+ * 品牌：项目头像（public/brand.gif）。
+ * 侧栏、登录页共用这一份；没有字标，强调靠头像本身。
+ */
+export function BrandMark({ className }: { className?: string }) {
   return (
-    <span className="flex min-w-0 items-center gap-2">
-      <Command aria-hidden="true" className="size-4 shrink-0" />
-      <span className="truncate text-[12.5px] font-medium tracking-[0.14em] text-fg">PACE</span>
-    </span>
+    <img src="/brand.gif" alt="" aria-hidden="true" className={className} width={32} height={32} />
   );
+}
+
+export function Brand() {
+  return <BrandMark className="size-7 shrink-0 rounded-icon object-cover" />;
 }

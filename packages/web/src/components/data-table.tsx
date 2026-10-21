@@ -158,17 +158,20 @@ function ColumnRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn('flex items-center gap-1', isDragging && 'opacity-40')}
     >
-      <button
+      <Button
         ref={setActivatorNodeRef}
         type="button"
+        variant="ghost"
+        size="icon-xs"
         {...attributes}
         {...listeners}
         aria-label={`拖动调整「${column.header}」顺序`}
-        className="cursor-grab touch-none rounded-[6px] p-1 text-subtle hover:bg-hover hover:text-fg active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+        // Keep the subdued drag handle, 6px corners, translucent hover, and stronger focus ring.
+        className="cursor-grab touch-none rounded-tag border-0 p-1 text-subtle transition-none hover:bg-hover active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-2 focus-visible:ring-fg"
       >
         <GripVertical className="size-4" aria-hidden="true" />
-      </button>
-      <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1.5 text-xs hover:bg-hover">
+      </Button>
+      <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-icon px-2 py-1.5 text-xs hover:bg-hover">
         <input
           type="checkbox"
           checked={checked}
@@ -332,18 +335,24 @@ export function DataTable<T>({
           >
             <Popover
               open={pickerOpen}
-              onOpenChange={(open) => {
-                // Radix 的捕获阶段先请求关闭；保留弹层，让 dnd-kit 在冒泡阶段取消键盘拖动。
-                if (!open && dragging?.keyboard) return;
+              onOpenChange={(open, eventDetails) => {
+                // 保留弹层并放行 Escape，让 document 上的 dnd-kit 取消键盘拖动。
+                if (!open && eventDetails.reason === 'escape-key' && dragging?.keyboard) {
+                  eventDetails.cancel();
+                  eventDetails.allowPropagation();
+                  return;
+                }
                 setPickerOpen(open);
                 if (!open) setDragging(null);
               }}
             >
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="rounded-[7px]" aria-label="列设置">
-                  <Columns3 className="size-4" aria-hidden="true" />列
-                </Button>
-              </PopoverTrigger>
+              <PopoverTrigger
+                render={
+                  <Button variant="ghost" size="sm" aria-label="列设置">
+                    <Columns3 className="size-4" aria-hidden="true" />列
+                  </Button>
+                }
+              />
               <PopoverContent align="end" aria-label="列设置" className="w-48 p-2">
                 <ColumnPicker columns={draggable} hidden={hiddenSet} toggle={toggle} />
               </PopoverContent>
@@ -351,7 +360,7 @@ export function DataTable<T>({
             {/* 浮层必须挂在弹层之外：Popper 容器的 transform 会成为 fixed 的包含块。 */}
             <DragOverlay>
               {draggingColumn ? (
-                <div className="rounded-[7px] border border-line bg-surface px-2 py-1.5 text-xs shadow-overlay">
+                <div className="rounded-icon border bg-surface px-2 py-1.5 text-xs shadow-overlay">
                   {draggingColumn.header}
                 </div>
               ) : null}
@@ -362,7 +371,7 @@ export function DataTable<T>({
       <section className="overflow-x-auto" aria-label={label}>
         <div style={{ minWidth }}>
           <div
-            className="grid items-center gap-3 border-b border-line px-3 pb-2 text-xs text-subtle"
+            className="grid items-center gap-3 border-b px-3 pb-2 text-xs text-subtle"
             style={{ gridTemplateColumns: template }}
           >
             {visible.map((col) => (
@@ -401,11 +410,13 @@ export function DataTable<T>({
           {loading && rows.length === 0 ? (
             <div>
               {Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
-                <Skeleton key={key} className="h-14 border-b border-line" />
+                <Skeleton key={key} className="h-14 border-b" />
               ))}
             </div>
           ) : rows.length === 0 ? (
-            <div className="py-16 text-center text-sm text-muted">{empty ?? '暂无数据'}</div>
+            <div className="py-16 text-center text-sm text-muted-foreground">
+              {empty ?? '暂无数据'}
+            </div>
           ) : (
             <div>
               {sorted.map((row) => {
@@ -421,7 +432,7 @@ export function DataTable<T>({
                     key={col.id}
                     className={cn(
                       'truncate py-2',
-                      col.numeric && 'text-right font-mono tabular-nums text-muted',
+                      col.numeric && 'text-right font-mono tabular-nums text-muted-foreground',
                     )}
                   >
                     {col.cell
@@ -431,12 +442,12 @@ export function DataTable<T>({
                 ));
                 const rowClass = cn(
                   'grid min-h-14 w-full items-center gap-3 px-3 text-left text-base transition-colors duration-150',
-                  'rounded-[9px] hover:bg-hover',
+                  'rounded-item hover:bg-hover',
                   interactive ? 'cursor-pointer' : 'cursor-default',
                   isOpen && 'bg-hover',
                 );
                 return (
-                  <div key={key} className="group border-b border-line last:border-b-0">
+                  <div key={key} className="group border-b last:border-b-0">
                     {interactive ? (
                       <button
                         type="button"
@@ -459,7 +470,7 @@ export function DataTable<T>({
                       </div>
                     )}
                     {isOpen && (
-                      <div id={panelId} className="border-t border-line px-3 py-4">
+                      <div id={panelId} className="border-t px-3 py-4">
                         {expandedContent}
                       </div>
                     )}

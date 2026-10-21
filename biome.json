@@ -49,10 +49,28 @@
   },
   "overrides": [
     {
-      "includes": ["packages/web/src/components/data-table.tsx"],
+      "includes": ["packages/web/src/components/ui/field.tsx"],
       "linter": {
         "rules": {
           "a11y": {
+            "useSemanticElements": "off"
+          },
+          "suspicious": {
+            "noDoubleEquals": "off",
+            "noArrayIndexKey": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/web/src/components/ui/label.tsx",
+        "packages/web/src/components/data-table.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "noLabelWithoutControl": "off",
             "useSemanticElements": "off"
           }
         }

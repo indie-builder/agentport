@@ -1,109 +1,72 @@
-import { Search, X } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { cn } from '../../lib/cn.js';
-import { Button } from './button.js';
-import { Input } from './input.js';
+import { Tabs as TabsPrimitive } from '@base-ui/react/tabs';
+import { cva, type VariantProps } from 'class-variance-authority';
+import { cn } from 'cn';
 
-export function SearchInput({
-  value,
-  onChange,
-  placeholder = '搜索…',
-  label,
-  className,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  label: string;
-  className?: string;
-}) {
+function Tabs({ className, orientation = 'horizontal', ...props }: TabsPrimitive.Root.Props) {
   return (
-    <div className={cn('relative', className)}>
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
-      <Input
-        type="search"
-        aria-label={label}
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="rounded-icon pl-8 pr-8 focus-visible:ring-fg/30 [&::-webkit-search-cancel-button]:hidden"
-      />
-      {value ? (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="清除搜索"
-          className="absolute right-1.5 top-1/2 size-auto -translate-y-1/2 rounded p-1 text-subtle hover:bg-transparent hover:text-fg"
-          onClick={() => onChange('')}
-        >
-          <X className="size-3.5" />
-        </Button>
-      ) : null}
-    </div>
+    <TabsPrimitive.Root
+      data-slot="tabs"
+      data-orientation={orientation}
+      className={cn('group/tabs flex gap-2 data-horizontal:flex-col', className)}
+      {...props}
+    />
   );
 }
 
-export interface TabItem<T extends string> {
-  value: T;
-  label: string;
-  icon?: ReactNode;
-  count?: number;
+const tabsListVariants = cva(
+  'group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none',
+  {
+    variants: {
+      variant: {
+        default: 'bg-muted',
+        line: 'gap-1 bg-transparent',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+    },
+  },
+);
+
+function TabsList({
+  className,
+  variant = 'default',
+  ...props
+}: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants>) {
+  return (
+    <TabsPrimitive.List
+      data-slot="tabs-list"
+      data-variant={variant}
+      className={cn(tabsListVariants({ variant }), className)}
+      {...props}
+    />
+  );
 }
 
-/**
- * 分段视图切换。页面自己渲染面板、这里只负责触发按钮，所以是
- * aria-pressed 的按钮组，而不是 tablist —— Radix Tabs 的 aria-controls
- * 会指向不存在的 TabsContent。
- */
-export function Tabs<T extends string>({
-  items,
-  value,
-  onChange,
-  label,
-  className,
-  size = 'default',
-}: {
-  items: ReadonlyArray<TabItem<T>>;
-  value: T;
-  onChange: (value: T) => void;
-  label: string;
-  className?: string;
-  size?: 'default' | 'sm';
-}) {
+function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
   return (
-    <fieldset
-      aria-label={label}
+    <TabsPrimitive.Tab
+      data-slot="tabs-trigger"
       className={cn(
-        'm-0 flex min-w-0 items-center gap-0.5 overflow-x-auto border-0 border-b border-line p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground group-data-[variant=default]/tabs-list:data-active:shadow-sm group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        'group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent',
+        'data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground',
+        'after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100',
         className,
       )}
-    >
-      {items.map((item) => {
-        const active = item.value === value;
-        return (
-          <button
-            key={item.value}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(item.value)}
-            className={cn(
-              '-mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg focus-visible:ring-offset-0',
-              size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-2 text-base',
-              active
-                ? 'border-fg text-fg'
-                : 'border-transparent text-muted hover:border-line-strong hover:text-fg',
-            )}
-          >
-            {item.icon}
-            {item.label}
-            {item.count !== undefined ? (
-              <span className="rounded bg-sunken px-1 text-2xs tabular-nums text-subtle">
-                {item.count}
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
-    </fieldset>
+      {...props}
+    />
   );
 }
+
+function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
+  return (
+    <TabsPrimitive.Panel
+      data-slot="tabs-content"
+      className={cn('flex-1 text-sm outline-none', className)}
+      {...props}
+    />
+  );
+}
+
+export { Tabs, TabsContent, TabsList, TabsTrigger, tabsListVariants };

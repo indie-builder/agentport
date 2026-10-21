@@ -168,9 +168,9 @@ export function App() {
             duration: 4000,
             classNames: {
               toast: 'border border-line bg-surface text-fg',
-              description: 'text-muted',
+              description: 'text-muted-foreground',
               actionButton: 'bg-ink text-white',
-              closeButton: 'bg-surface border-line text-muted hover:text-fg',
+              closeButton: 'bg-surface border-line text-muted-foreground hover:text-fg',
             },
           }}
         />

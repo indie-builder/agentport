@@ -21,3 +21,6 @@ playwright-report/
 
 # 构建时由 scripts/up.sh 与 CI 从 packages/shared/dist 暂存，不入库
 packages/sandbox/shared/
+
+# 本地 worktree，不入库
+.claude/worktrees/

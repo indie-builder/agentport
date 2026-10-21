@@ -7,7 +7,7 @@ import { Skeleton } from './ui/skeleton.js';
 
 export function LoadingState({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="space-y-2" aria-busy="true" aria-label="加载中" role="status">
+    <div className="flex flex-col gap-2" aria-busy="true" aria-label="加载中" role="status">
       {Array.from({ length: rows }, (_, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: 骨架屏是静态占位
         <Skeleton key={i} className="h-11 w-full" />
@@ -33,7 +33,7 @@ export function ErrorState({
       <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
       <div className="min-w-0 flex-1">
         <div className="font-medium text-fg">{title}</div>
-        <div className="mt-0.5 break-words text-xs leading-relaxed text-muted">
+        <div className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
           {errorMessage(error)}
           {onRetry ? ' 可以点右侧「重试」，或在网络恢复后再试一次。' : null}
         </div>
@@ -72,7 +72,7 @@ export function EmptyState({
       </div>
       <div className="mt-1 text-sm font-medium text-fg">{title}</div>
       {description ? (
-        <div className="max-w-sm text-xs leading-relaxed text-muted">{description}</div>
+        <div className="max-w-sm text-xs leading-relaxed text-muted-foreground">{description}</div>
       ) : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
@@ -80,5 +80,5 @@ export function EmptyState({
 }
 
 export function InlineEmpty({ children }: { children: ReactNode }) {
-  return <div className="px-3 py-6 text-center text-xs text-muted">{children}</div>;
+  return <div className="px-3 py-6 text-center text-xs text-muted-foreground">{children}</div>;
 }

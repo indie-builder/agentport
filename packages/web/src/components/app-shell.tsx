@@ -3,7 +3,6 @@ import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-route
 import {
   Activity,
   Bot,
-  Command,
   HeartPulse,
   LayoutDashboard,
   LogOut,
@@ -21,7 +20,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { meQuery, queryClient } from '../lib/queries.js';
-import { Brand } from './brand.js';
+import { Brand, BrandMark } from './brand.js';
 import { Button } from './ui/button.js';
 import {
   DropdownMenu,
@@ -92,20 +91,21 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
 function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   if (collapsed) {
     return (
-      <div className="relative h-8 w-8 shrink-0">
+      <div className="relative size-8 shrink-0">
         <Link
           to="/"
-          aria-label="PACE 首页"
-          className="group/logo absolute -left-0.5 top-0 flex h-[30px] w-9 items-center justify-center rounded-icon bg-ink px-[3px] text-white transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/nav:opacity-0 group-has-[:focus-visible]/nav:opacity-0"
+          aria-label="返回首页"
+          className="group/logo absolute -left-0.5 top-0 flex size-8 items-center justify-center rounded-icon transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/nav:opacity-0 group-has-[:focus-visible]/nav:opacity-0"
         >
-          <Command aria-hidden="true" className="size-3.5" />
+          <BrandMark className="size-8 rounded-icon object-cover" />
         </Link>
         <Button
           variant="ghost"
           aria-label="展开侧栏"
           aria-expanded={!collapsed}
           onClick={onToggle}
-          className="absolute left-0 top-0 size-8 rounded-icon p-0 text-fg opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
+          // Keep 7px corners and the translucent hover; ghost defaults to 9px and opaque muted.
+          className="absolute left-0 top-0 size-8 rounded-icon p-0 opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
         >
           <PanelLeftOpen className="size-4" />
         </Button>
@@ -117,7 +117,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
     <div className="flex h-8 shrink-0 items-center gap-2">
       <Link
         to="/"
-        aria-label="PACE 首页"
+        aria-label="返回首页"
         className="flex h-8 min-w-0 flex-1 items-center rounded-icon"
       >
         <Brand />
@@ -127,6 +127,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
         aria-label="收起侧栏"
         aria-expanded={!collapsed}
         onClick={onToggle}
+        // Keep 7px corners and the translucent hover instead of the regular ghost defaults.
         className="size-8 rounded-icon p-0 hover:bg-hover"
       >
         <PanelLeftClose className="size-4" />
@@ -163,8 +164,8 @@ function SidebarLink({
           ? ''
           : active
             ? 'bg-hover font-medium text-fg'
-            : 'text-muted hover:bg-hover hover:text-fg',
-        collapsed && (active ? 'text-fg' : 'text-muted'),
+            : 'text-muted-foreground hover:bg-hover hover:text-fg',
+        collapsed && (active ? 'text-fg' : 'text-muted-foreground'),
       )}
     >
       <span
@@ -187,7 +188,7 @@ function SidebarLink({
   if (!collapsed) return link;
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipTrigger render={link} />
       <TooltipContent side="right" sideOffset={8}>
         {label}
       </TooltipContent>
@@ -206,29 +207,34 @@ function UserMenu({ username }: { username: string }) {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          className="gap-2 rounded-icon px-2 text-xs data-[state=open]:bg-sunken"
-        >
-          <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted">
-            <User className="size-3" />
-          </span>
-          <span className="hidden max-w-32 truncate sm:block">{username}</span>
-        </Button>
-      </DropdownMenuTrigger>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            // Keep the compact 12px account label, 7px corners, and opaque open-state surface.
+            className="gap-2 rounded-icon px-2 text-xs data-[popup-open]:bg-sunken"
+          >
+            <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">
+              <User className="size-3" />
+            </span>
+            <span className="hidden max-w-32 truncate sm:block">{username}</span>
+          </Button>
+        }
+      />
       <DropdownMenuContent
         align="end"
         sideOffset={8}
-        className="w-48 rounded-icon border border-line bg-surface p-1 shadow-overlay"
+        // Keep the 7px menu corners, explicit border, and project overlay shadow.
+        className="w-48 rounded-icon border p-1 shadow-overlay"
       >
-        <div className="border-b border-line px-2.5 py-2">
+        <div className="border-b px-2.5 py-2">
           <div className="truncate text-xs text-fg">{username}</div>
           <div className="text-2xs text-subtle">管理员</div>
         </div>
         <DropdownMenuItem
-          className="mt-1 flex w-full items-center gap-2 rounded-icon px-2.5 py-1.5 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken focus:text-fg"
-          onSelect={() => void logout()}
+          // Keep the smaller muted label and opaque hover/focus surface instead of the base accent.
+          className="mt-1 flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken"
+          onClick={() => void logout()}
         >
           <LogOut className="size-3.5" />
           退出登录
@@ -255,7 +261,7 @@ export function AppShell() {
     const current = flat.find((item) =>
       item.to === '/' ? pathname === '/' : pathname.startsWith(item.to),
     );
-    document.title = current ? `${current.label} · PACE` : 'PACE';
+    document.title = current ? `${current.label} · 控制台` : '控制台';
   }, [pathname]);
 
   if (me.isPending) {
@@ -266,15 +272,15 @@ export function AppShell() {
         role="status"
         aria-label="加载中"
       >
-        <div className="hidden w-56 shrink-0 border-r border-line p-3 sm:block">
+        <div className="hidden w-56 shrink-0 border-r p-3 sm:block">
           <Skeleton className="mb-3 h-8 w-full" />
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
           </div>
         </div>
-        <div className="flex-1 space-y-4 p-8">
+        <div className="flex flex-1 flex-col gap-4 p-8">
           <Skeleton className="h-6 w-40" />
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-32 w-full" />
@@ -285,7 +291,7 @@ export function AppShell() {
 
   if (me.isError || !me.data?.authenticated) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-canvas text-sm text-muted">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-canvas text-sm text-muted-foreground">
         {me.isError ? (
           <>
             <span>无法验证登录状态</span>
@@ -332,7 +338,7 @@ export function AppShell() {
             ) : (
               <div className="mx-auto mb-1 h-px w-6 bg-line" aria-hidden="true" />
             )}
-            <div className="space-y-0.5">
+            <div className="flex flex-col gap-0.5">
               {group.items.map((item) => (
                 <SidebarLink
                   key={item.to}
@@ -353,16 +359,19 @@ export function AppShell() {
           <UserMenu username={me.data.username ?? 'admin'} />
         ) : (
           <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                aria-label={`账户 ${me.data.username ?? 'admin'}`}
-                onClick={() => setCollapsed(false)}
-                className="size-8 rounded-full bg-sunken p-0 hover:bg-hover"
-              >
-                <User className="size-4" />
-              </Button>
-            </TooltipTrigger>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  aria-label={`账户 ${me.data.username ?? 'admin'}`}
+                  onClick={() => setCollapsed(false)}
+                  // Keep the circular account surface and translucent hover instead of the ghost defaults.
+                  className="size-8 rounded-full bg-sunken p-0 hover:bg-hover"
+                >
+                  <User className="size-4" />
+                </Button>
+              }
+            />
             <TooltipContent side="right">{me.data.username ?? 'admin'}</TooltipContent>
           </Tooltip>
         )}
@@ -371,7 +380,7 @@ export function AppShell() {
   );
 
   return (
-    <TooltipProvider delayDuration={400}>
+    <TooltipProvider delay={400}>
       {/*
        * 实测结构：侧栏在外、白壳在内。壳的下/右留 4px，左侧紧贴侧栏。
        * 壳用 1px outline（.04）而不是 border，避免内边距被边框吃掉。
@@ -388,19 +397,23 @@ export function AppShell() {
             side="left"
             showCloseButton={false}
             aria-describedby={undefined}
-            className="w-[294px] max-w-none gap-0 border-r border-line bg-surface p-0 shadow-overlay sm:max-w-none lg:hidden"
+            // Keep the project shadow.
+            className="w-[294px]! max-w-none! gap-0 p-0 shadow-overlay sm:max-w-none! lg:hidden"
           >
             <SheetTitle className="sr-only">导航</SheetTitle>
-            <SheetClose asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="关闭导航"
-                className="absolute right-3 top-4 z-10 rounded-icon text-subtle hover:bg-hover"
-              >
-                <X className="size-4" />
-              </Button>
-            </SheetClose>
+            <SheetClose
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="关闭导航"
+                  // Keep the subdued close icon and translucent hover instead of the ghost defaults.
+                  className="absolute right-3 top-4 z-10 text-subtle hover:bg-hover"
+                >
+                  <X className="size-4" />
+                </Button>
+              }
+            />
             {sidebar(true)}
           </SheetContent>
         </Sheet>
@@ -416,6 +429,7 @@ export function AppShell() {
               aria-label="打开导航"
               aria-expanded={mobileOpen}
               onClick={() => setMobileOpen(true)}
+              // Keep the 7px icon corners and translucent hover instead of the regular ghost defaults.
               className="-ml-1 rounded-icon p-1.5 hover:bg-hover"
             >
               <Menu className="size-5" />

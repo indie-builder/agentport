@@ -4,6 +4,12 @@
 @import "tw-animate-css";
 
 /*
+ * 项目只有亮色主题。Tailwind 4 默认的 dark: 跟随系统偏好，
+ * 会让深色 OS 的用户看到组件里的 dark:bg-* 生效；显式绑定到 .dark 类即彻底关闭。
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
  * PACE 设计令牌。基准：https://www.openui.com/chat?form_factor=desktop
  * 数值来自 CDP 读取的计算样式（见 docs/DESIGN-SYSTEM.md）。
  *
@@ -27,12 +33,15 @@
   /* 外壳的 1px outline 比常规分隔线更淡 */
   --color-shell-line: rgb(3 3 3 / 0.04);
   --color-fg: #030303;
-  --color-muted: rgb(3 3 3 / 0.6);
+  /*
+   * base-nova 把 muted 当「表面色」（bg-muted = 浅灰底），
+   * 文字色走 muted-foreground。两者不能共用同一个变量。
+   */
+  --color-muted: var(--color-sunken);
   --color-subtle: rgb(3 3 3 / 0.38);
 
   /* 实底（主按钮、发送、选中） */
   --color-ink: #030303;
-  --color-ink-hover: #1f1f1f;
 
   /* 状态：只用于小面积 */
   --color-success: #1a7f4b;
@@ -58,11 +67,22 @@
   /* 圆角：实测 --openui-radius-*（6/8/16）叠加实测元素值 */
   --radius-shell: 16px; /* 外壳、卡片、建议卡 */
   --radius-card: 16px;
-  --radius-chip: 16px;
   --radius-item: 9px; /* 会话条目、新建会话 */
   --radius-icon: 7px; /* 图标按钮、logo、折叠按钮 */
   --radius-tag: 6px; /* 小标签、侧栏图标底 */
   --radius-pill: 9999px;
+
+  /*
+   * base-nova 圆角：sm → 标签 6 / md → 图标 7 / lg → 行 9 / xl → 卡片 12。
+   * 2xl、3xl → 外壳 16；4xl 专用于 Badge，沿用标签 6，不按名称递增。
+   */
+  --radius-sm: var(--radius-tag); /* 小标签 */
+  --radius-md: var(--radius-icon); /* 图标按钮、小号控件、Tab */
+  --radius-lg: var(--radius-item); /* 常规按钮、输入框、Tab 列表 */
+  --radius-xl: var(--radius-card); /* 卡片与弹层容器 */
+  --radius-2xl: var(--radius-shell); /* 大容器 */
+  --radius-3xl: var(--radius-shell); /* 更大容器仍使用外壳圆角 */
+  --radius-4xl: var(--radius-tag); /* Badge 小标签 */
 
   /* 侧栏：实测 272 展开 / 68 收起，过渡 160ms */
   --sidebar-width: 272px;
@@ -104,11 +124,15 @@
   --color-secondary-foreground: var(--color-fg);
   --color-accent: var(--color-hover);
   --color-accent-foreground: var(--color-fg);
-  --color-muted-foreground: var(--color-muted);
+  --color-muted-foreground: rgb(3 3 3 / 0.6);
   --color-destructive: var(--color-danger);
+  --color-destructive-foreground: #fff;
   --color-border: var(--color-line);
   --color-input: var(--color-line);
   --color-ring: var(--color-fg);
+  --secondary: var(--color-secondary); /* 次按钮悬停 color-mix 的原始 CSS 变量 */
+  --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
+
 
   /* 唯一带阴影的元素是输入框胶囊 */
   --shadow-composer: 0 0 0 0.5px rgb(3 3 3 / 0.08), 0 4px 16px 0 rgb(0 0 0 / 0.06);
@@ -116,6 +140,17 @@
 }
 
 @layer base {
+  /*
+   * 底座组件大量使用裸 `border`（不带颜色），Tailwind 会回落到 currentColor，
+   * 在本项目里就是近黑的文字色。这里统一给一个默认边框色，
+   * 组件内部就不必再逐个写 border-line（shadcn 官方也是这么做的）。
+   */
+  *,
+  ::after,
+  ::before {
+    border-color: var(--color-border);
+  }
+
   html {
     background-color: var(--color-canvas);
     color-scheme: light;
@@ -130,10 +165,6 @@
     color: var(--color-fg);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-  }
-
-  .tabular {
-    font-variant-numeric: tabular-nums;
   }
 
   /* 焦点用实底黑环：无彩度体系里，黑就是强调 */
@@ -183,21 +214,6 @@
 
   .skip-link:focus-visible {
     transform: none;
-  }
-
-  /* 流式光标：唯一的循环动效 */
-  @keyframes pace-caret {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0;
-    }
-  }
-
-  .streaming-caret {
-    animation: pace-caret 1s step-end infinite;
   }
 
   @media (prefers-reduced-motion: reduce) {

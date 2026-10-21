@@ -5,7 +5,14 @@ import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState } from '../components/states.js';
 import { buttonVariants } from '../components/ui/button.js';
-import { Select } from '../components/ui/select.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js';
 import type { RunListItem, RunStatus } from '../lib/api.js';
 import {
   formatCost,
@@ -58,7 +65,7 @@ const columns: DataColumn<RunListItem>[] = [
     width: '96px',
     sortValue: (run) => run.startedAt ?? '',
     cell: (run) => (
-      <span className="text-sm text-muted" title={formatDateTime(run.startedAt)}>
+      <span className="text-sm text-muted-foreground" title={formatDateTime(run.startedAt)}>
         {formatRelative(run.startedAt)}
       </span>
     ),
@@ -136,33 +143,64 @@ export function RunsPage() {
   const items = runs.data?.items ?? [];
   const empty = !runs.isPending && !runs.isError && items.length === 0;
 
+  const agentOptions = [
+    { value: '', label: '全部智能体' },
+    ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
+  ];
+  const statusOptions = [
+    { value: '', label: '全部状态' },
+    ...statuses.map((value) => ({ value, label: runStatusLabel[value] })),
+  ];
+
   return (
     <Page>
       <PageHeader title="运行" />
 
       <PageToolbar>
         <Select
-          aria-label="按智能体筛选"
-          className="w-48"
           value={agentId}
-          onValueChange={(next) => setFilter({ agent: next || undefined })}
-          options={[
-            { value: '', label: '全部智能体' },
-            ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
-          ]}
-        />
+          onValueChange={(next) => {
+            if (next !== null) {
+              setFilter({ agent: next || undefined });
+            }
+          }}
+          items={agentOptions}
+        >
+          <SelectTrigger aria-label="按智能体筛选" className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {agentOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <Select
-          aria-label="按状态筛选"
-          className="w-32"
           value={status}
-          onValueChange={(next) =>
-            setFilter({ status: (next || undefined) as RunStatus | undefined })
-          }
-          options={[
-            { value: '', label: '全部状态' },
-            ...statuses.map((value) => ({ value, label: runStatusLabel[value] })),
-          ]}
-        />
+          onValueChange={(next) => {
+            if (next !== null) {
+              setFilter({ status: (next || undefined) as RunStatus | undefined });
+            }
+          }}
+          items={statusOptions}
+        >
+          <SelectTrigger aria-label="按状态筛选" className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {statusOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <span className="ml-auto text-xs text-subtle">
           {runs.isPending ? '加载中…' : `最近 ${items.length} 条`}
         </span>

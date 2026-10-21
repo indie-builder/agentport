@@ -1,6 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toastError } from '../lib/toast.js';
+import { DialogShell } from './dialog-shell.js';
 import { Button } from './ui/button.js';
 import { Dialog } from './ui/dialog.js';
 
@@ -41,30 +42,37 @@ export function ConfirmDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} title={title} className="max-w-md">
-      <div className="flex gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-danger-soft text-danger">
-          <AlertTriangle className="size-4" />
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogShell title={title} className="max-w-md">
+        <div className="flex gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-item bg-danger-soft text-danger">
+            <AlertTriangle className="size-4" />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
+            <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
+            {children}
+          </div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
-          <p className="text-sm leading-relaxed text-muted">{description}</p>
-          {children}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
+            取消
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            aria-busy={pending}
+            disabled={pending || confirmDisabled}
+            onClick={() => void confirm()}
+          >
+            {pending ? '处理中…' : confirmLabel}
+          </Button>
         </div>
-      </div>
-      <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
-          取消
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          aria-busy={pending}
-          disabled={pending || confirmDisabled}
-          onClick={() => void confirm()}
-        >
-          {pending ? '处理中…' : confirmLabel}
-        </Button>
-      </div>
+      </DialogShell>
     </Dialog>
   );
 }

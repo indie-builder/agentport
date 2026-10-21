@@ -7,12 +7,15 @@ import {
 import { Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
+import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
-import { FieldError, FieldHint, Input } from '../components/ui/input.js';
-import { Label, RequiredMark } from '../components/ui/label.js';
+import { FieldDescription, FieldError } from '../components/ui/field.js';
+import { Input } from '../components/ui/input.js';
+import { Label } from '../components/ui/label.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
@@ -37,6 +40,7 @@ export function SkillsPage() {
           <Button
             ref={createButtonRef}
             size="sm"
+            // Keep the page action pill-shaped instead of the compact button radius.
             className="rounded-full"
             onClick={() => setCreating(true)}
           >
@@ -55,6 +59,7 @@ export function SkillsPage() {
           title="还没有技能"
           description="把重复出现的步骤写成技能，多个智能体可以共享它。"
           action={
+            // Keep the empty-state action consistent with the page action pill.
             <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
               <Plus className="size-4" aria-hidden="true" /> 新建技能
             </Button>
@@ -67,7 +72,7 @@ export function SkillsPage() {
           {skills.data.map((skill) => (
             <li
               key={skill.id}
-              className="group flex min-h-14 items-start gap-4 border-b border-line px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
+              className="group flex min-h-14 items-start gap-4 border-b px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -75,7 +80,7 @@ export function SkillsPage() {
                   <code className="font-mono text-xs text-subtle">{skill.slug}</code>
                   <span className="text-xs text-subtle">被 {skill.agentCount} 个智能体使用</span>
                 </div>
-                <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted">
+                <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
                   {skill.description || '（无描述）'}
                 </p>
                 {skill.body ? (
@@ -92,6 +97,7 @@ export function SkillsPage() {
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  // Signal deletion on hover while keeping the neutral ghost button at rest.
                   className="hover:text-danger"
                   onClick={() => setDeleting(skill)}
                 >
@@ -194,91 +200,100 @@ function SkillDialog({
   return (
     <Dialog
       open
-      onClose={close}
-      title={skill ? '编辑技能' : '新建技能'}
-      description="技能内容会写入 SKILL.md 的正文。"
-      {...(returnFocusRef ? { returnFocusRef } : {})}
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
     >
-      <form onSubmit={submit} className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="skill-name">
-              名称 <RequiredMark />
+      <DialogShell
+        title={skill ? '编辑技能' : '新建技能'}
+        description="技能内容会写入 SKILL.md 的正文。"
+        {...(returnFocusRef ? { finalFocus: returnFocusRef } : {})}
+      >
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="skill-name">
+                名称 <RequiredMark />
+              </Label>
+              <Input
+                id="skill-name"
+                value={form.name}
+                aria-invalid={Boolean(errors.name)}
+                aria-describedby={errors.name ? 'skill-name-error' : undefined}
+                onChange={(event) => set('name', event.target.value)}
+              />
+              <FieldError id="skill-name-error">{errors.name}</FieldError>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="skill-slug">
+                Slug <RequiredMark />
+              </Label>
+              <Input
+                id="skill-slug"
+                value={form.slug}
+                disabled={Boolean(skill)}
+                aria-invalid={Boolean(errors.slug)}
+                aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
+                onChange={(event) => set('slug', event.target.value)}
+                // Keep the directory slug monospaced for literal identifier editing.
+                className="font-mono"
+              />
+              {skill ? (
+                <FieldDescription id="skill-slug-hint">
+                  创建后不可修改：它对应目录名。
+                </FieldDescription>
+              ) : (
+                <FieldError id="skill-slug-error">{errors.slug}</FieldError>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="skill-desc">
+              描述 <RequiredMark />
             </Label>
             <Input
-              id="skill-name"
-              value={form.name}
-              aria-invalid={Boolean(errors.name)}
-              aria-describedby={errors.name ? 'skill-name-error' : undefined}
-              onChange={(event) => set('name', event.target.value)}
+              id="skill-desc"
+              value={form.description}
+              aria-invalid={Boolean(errors.description)}
+              aria-describedby={errors.description ? 'skill-desc-error' : undefined}
+              onChange={(event) => set('description', event.target.value)}
+              placeholder="一句话说明这个技能解决什么问题"
             />
-            <FieldError id="skill-name-error">{errors.name}</FieldError>
+            <FieldError id="skill-desc-error">{errors.description}</FieldError>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="skill-slug">
-              Slug <RequiredMark />
-            </Label>
-            <Input
-              id="skill-slug"
-              value={form.slug}
-              disabled={Boolean(skill)}
-              aria-invalid={Boolean(errors.slug)}
-              aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
-              onChange={(event) => set('slug', event.target.value)}
-              className="font-mono"
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="skill-body">步骤</Label>
+            <Textarea
+              id="skill-body"
+              rows={10}
+              value={form.body}
+              onChange={(event) => set('body', event.target.value)}
+              // Keep Markdown compact and monospaced with readable line spacing.
+              className="font-mono text-xs leading-relaxed"
+              placeholder="1. 先读取 …&#10;2. 再调用 mcp__…&#10;3. 最后汇总 …"
             />
-            {skill ? (
-              <FieldHint id="skill-slug-hint">创建后不可修改：它对应目录名。</FieldHint>
-            ) : (
-              <FieldError id="skill-slug-error">{errors.slug}</FieldError>
-            )}
+            <FieldDescription>支持 Markdown，渲染为 SKILL.md 正文。</FieldDescription>
           </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="skill-desc">
-            描述 <RequiredMark />
-          </Label>
-          <Input
-            id="skill-desc"
-            value={form.description}
-            aria-invalid={Boolean(errors.description)}
-            aria-describedby={errors.description ? 'skill-desc-error' : undefined}
-            onChange={(event) => set('description', event.target.value)}
-            placeholder="一句话说明这个技能解决什么问题"
-          />
-          <FieldError id="skill-desc-error">{errors.description}</FieldError>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="skill-body">步骤</Label>
-          <Textarea
-            id="skill-body"
-            rows={10}
-            value={form.body}
-            onChange={(event) => set('body', event.target.value)}
-            className="font-mono text-xs leading-relaxed"
-            placeholder="1. 先读取 …&#10;2. 再调用 mcp__…&#10;3. 最后汇总 …"
-          />
-          <FieldHint>支持 Markdown，渲染为 SKILL.md 正文。</FieldHint>
-        </div>
-        <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
-          <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
-            取消
-          </Button>
-          <Button type="submit" size="sm" disabled={pending}>
-            {pending ? '保存中…' : '保存'}
-          </Button>
-        </div>
-      </form>
-      <ConfirmDialog
-        open={confirmDiscard}
-        onClose={() => setConfirmDiscard(false)}
-        title="放弃未保存的更改？"
-        description="关闭后这段技能内容会丢失。"
-        confirmLabel="放弃并关闭"
-        onConfirm={async () => {
-          onClose();
-        }}
-      />
+          <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
+            <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
+              取消
+            </Button>
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后这段技能内容会丢失。"
+          confirmLabel="放弃并关闭"
+          onConfirm={async () => {
+            onClose();
+          }}
+        />
+      </DialogShell>
     </Dialog>
   );
 }
