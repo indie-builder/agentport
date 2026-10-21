@@ -14,6 +14,7 @@ vi.mock('ioredis', () => {
     set = vi.fn().mockResolvedValue('OK');
     subscribe = vi.fn().mockResolvedValue(1);
     xrange = vi.fn().mockResolvedValue([]);
+    xrevrange = vi.fn().mockResolvedValue([]);
     quit = vi.fn().mockResolvedValue('OK');
     duplicate = vi.fn(() => this);
   }
@@ -53,7 +54,13 @@ describe('producer shared stream contract', () => {
     const subscription = await subscribeRun('run-1', () => undefined);
     const subscriber = vi.mocked(Redis).mock.instances.at(-1);
     expect(subscriber?.subscribe).toHaveBeenCalledWith(runChannel('run-1'));
-    expect(subscriber?.xrange).toHaveBeenCalledWith(runStreamKey('run-1'), '-', '+');
+    expect(publisher?.xrevrange).toHaveBeenCalledWith(
+      runStreamKey('run-1'),
+      '+',
+      '-',
+      'COUNT',
+      expect.any(Number),
+    );
     subscription.close();
   });
 

@@ -65,6 +65,8 @@ export interface SandboxRunOutcome {
 
 /** SIGTERM 后留一点时间让 runner 收尾，否则强杀。 */
 const KILL_GRACE_MS = 5_000;
+const CREATE_TIMEOUT_MS = 30_000;
+const DESTROY_TIMEOUT_MS = 10_000;
 
 interface Killable {
   kill(signal: NodeJS.Signals): unknown;
@@ -198,8 +200,13 @@ function reasonFor(signal: ExitSignal): RunFailure['reason'] {
  * 取消、超时、进程退出三者用 race 表达，谁先到谁赢；容器销毁由 Scope 保证。
  */
 export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOutcome> {
-  return Effect.runPromise(
-    Effect.scoped(runInSandboxEffect(input)).pipe(
+  let cleanupError: string | undefined;
+  const outcome = await Effect.runPromise(
+    Effect.scoped(
+      runInSandboxEffect(input, (error) => {
+        cleanupError = error;
+      }),
+    ).pipe(
       // 订阅取消频道失败属于基础设施故障：交给 BullMQ 重试，而不是伪装成 agent 失败。
       Effect.catch((failure) =>
         Effect.succeed<SandboxRunOutcome>({
@@ -212,10 +219,23 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
       ),
     ),
   );
+  if (
+    cleanupError !== undefined &&
+    (outcome.failure === undefined || outcome.failure.reason === 'infra')
+  ) {
+    return {
+      ...outcome,
+      status: 'failed',
+      error: cleanupError,
+      failure: new RunFailure('infra', cleanupError),
+    };
+  }
+  return outcome;
 }
 
 function runInSandboxEffect(
   input: SandboxRunInput,
+  onCleanupError: (error: string) => void,
 ): Effect.Effect<SandboxRunOutcome, RunFailure, Scope.Scope> {
   return Effect.gen(function* () {
     const { logger, runId } = input;
@@ -233,6 +253,7 @@ function runInSandboxEffect(
     let overflowed = false;
     let child: Sandbox['child'] | undefined;
     let abandoning = false;
+    let runnerStarted = false;
 
     // 同一连接上的命令按序排队；不 await 也能保证事件顺序。
     const publish = (event: ChatEvent): void => {
@@ -244,6 +265,7 @@ function runInSandboxEffect(
     const onEvent = (line: string): void => {
       const event = parseLine(line, logger);
       if (!event) return;
+      runnerStarted = true;
 
       if (event.type === 'run_finished') {
         // 只记下终态，由调用方统一发布，保证每个 run 恰好一条。
@@ -286,17 +308,42 @@ function runInSandboxEffect(
       (release) => Effect.promise(release),
     );
 
+    const destroy = async (sandbox: Sandbox): Promise<void> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          input.provider.destroy(sandbox),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              sandbox.child.kill('SIGKILL');
+              reject(new Error(`sandbox cleanup timed out after ${DESTROY_TIMEOUT_MS}ms`));
+            }, DESTROY_TIMEOUT_MS);
+          }),
+        ]);
+      } catch (err) {
+        sandbox.child.kill('SIGKILL');
+        onCleanupError(`sandbox cleanup failed: ${toError(err)}`);
+        logger.warn({ err, runId }, 'sandbox cleanup failed');
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    };
+
     const attach = (sandbox: Sandbox): void => {
       if (abandoning) {
         // 取消先到，容器才创建完成：直接扔掉，不让它泄漏。
-        void input.provider.destroy(sandbox).catch(() => undefined);
+        sandbox.child.kill('SIGKILL');
+        void destroy(sandbox);
         return;
       }
       const proc = sandbox.child;
       child = proc;
 
       proc.stderr.setEncoding('utf8');
+      let startupLog = '';
       proc.stderr.on('data', (chunk: string) => {
+        startupLog = (startupLog + chunk).slice(-256);
+        if (startupLog.includes('[runner] starting query')) runnerStarted = true;
         appendStderr(stderrTap, chunk);
         for (const line of chunk.split('\n')) {
           if (line.trim().length > 0) {
@@ -354,19 +401,32 @@ function runInSandboxEffect(
       proc.stdin.write(`${JSON.stringify(input.task)}\n`);
     };
 
-    // 容器创建与取消竞争；创建期间收到取消也要立刻放弃。
+    // 创建失败也必须结束竞争；raceAll 只在成功时结束，会吞掉创建错误。
     const created = yield* Effect.result(
-      Effect.raceAll([
+      Effect.raceAllFirst([
         Effect.tryPromise({
           try: () =>
-            input.provider.create({
-              image: input.image,
-              workspaceDir: input.workspaceDir,
-              env: input.env,
-              name: `agentport-${runId.toLowerCase()}`,
-            }),
+            input.provider
+              .create({
+                image: input.image,
+                workspaceDir: input.workspaceDir,
+                env: input.env,
+                name: `agentport-${runId.toLowerCase()}`,
+              })
+              .then((sandbox) => {
+                if (abandoning) {
+                  sandbox.child.kill('SIGKILL');
+                  void destroy(sandbox);
+                }
+                return sandbox;
+              }),
           catch: (err) => err,
         }).pipe(Effect.map((sandbox) => ({ sandbox }))),
+        Effect.sleep(CREATE_TIMEOUT_MS).pipe(
+          Effect.flatMap(() =>
+            Effect.fail(new Error(`sandbox create timed out after ${CREATE_TIMEOUT_MS}ms`)),
+          ),
+        ),
         Deferred.await(cancelled).pipe(
           Effect.map(() => {
             abandoning = true;
@@ -377,6 +437,7 @@ function runInSandboxEffect(
     );
 
     if (created._tag === 'Failure') {
+      abandoning = true;
       const error = `sandbox create failed: ${toError(created.failure)}`;
       logger.error({ err: created.failure, runId }, error);
       return {
@@ -392,13 +453,7 @@ function runInSandboxEffect(
     }
 
     const sandbox = created.success.sandbox;
-    yield* Effect.acquireRelease(Effect.succeed(sandbox), (s) =>
-      Effect.promise(() =>
-        input.provider.destroy(s).catch((err: unknown) => {
-          logger.warn({ err, runId }, 'sandbox cleanup failed');
-        }),
-      ),
-    );
+    yield* Effect.acquireRelease(Effect.succeed(sandbox), (s) => Effect.promise(() => destroy(s)));
     attach(sandbox);
 
     // 谁先到谁赢：正常退出 / 用户取消 / 超时。
@@ -406,8 +461,24 @@ function runInSandboxEffect(
       Deferred.await(exitSignal).pipe(Effect.map((s) => ({ kind: s.kind, signal: s }))),
       Deferred.await(cancelled).pipe(Effect.map(() => ({ kind: 'cancelled' as const }))),
       Effect.sleep(input.timeoutMs).pipe(Effect.map(() => ({ kind: 'timeout' as const }))),
+      Effect.sleep(CREATE_TIMEOUT_MS).pipe(
+        Effect.flatMap(() =>
+          runnerStarted ? Effect.never : Effect.succeed({ kind: 'infra' as const }),
+        ),
+      ),
     ]);
 
+    if (stopped.kind === 'infra') {
+      sandbox.child.kill('SIGKILL');
+      const error = `sandbox startup timed out after ${CREATE_TIMEOUT_MS}ms`;
+      return {
+        status: 'failed',
+        sandboxId: sandbox.id,
+        error,
+        failure: new RunFailure('infra', error),
+        events,
+      };
+    }
     if (stopped.kind === 'cancelled') {
       logger.info({ runId }, 'sandbox run cancelled');
       if (child) escalateKill(child);

@@ -75,6 +75,29 @@ function fillPath(
  * fetch 前再次校验目标地址：工具定义保存时能过检查，不代表运行时 DNS 没被改。
  * 这里不吞错误，让它冒泡成 CallToolResult 的错误内容。
  */
+/** 读响应体时立即截断：超出上限就停止读取并取消流。 */
+async function readCapped(res: Response, max: number): Promise<string> {
+  const body = res.body;
+  if (!body) return '';
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let total = 0;
+  // 读满上限后再多读一块，用来判断是否真的被截断。
+  while (total <= max) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    text += decoder.decode(value, { stream: true });
+    if (text.length > max) break;
+  }
+  if (total > max || text.length > max) {
+    await reader.cancel().catch(() => undefined);
+    return `${text.slice(0, max)}\n…[truncated at ${max} chars]`;
+  }
+  return text + decoder.decode();
+}
+
 async function callUpstream(
   tool: ApiTool,
   baseUrl: string,
@@ -115,12 +138,9 @@ async function callUpstream(
     redirect: 'error',
     signal: AbortSignal.timeout(30_000),
   });
-  const raw = await res.text();
+  // 边流边截断：上游返回 2GB 时不能在截断前先整块读进内存。
   const MAX_BODY = 1_048_576;
-  const text =
-    raw.length > MAX_BODY
-      ? `${raw.slice(0, MAX_BODY)}\n…[truncated ${raw.length - MAX_BODY} chars]`
-      : raw;
+  const text = await readCapped(res, MAX_BODY);
   if (!res.ok) {
     return { isError: true, content: [{ type: 'text', text: `upstream ${res.status}: ${text}` }] };
   }

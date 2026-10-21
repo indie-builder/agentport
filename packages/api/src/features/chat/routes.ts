@@ -1,5 +1,12 @@
 import { newId, repo, schema } from '@agentport/db';
-import { type ChatEvent, chatRequestSchema, idParams, wireFailureKind } from '@agentport/shared';
+import {
+  type ChatEvent,
+  chatRequestSchema,
+  idParams,
+  RUN_QUEUE_MAX_WAITING,
+  runEnqueueOptions,
+  wireFailureKind,
+} from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -41,8 +48,20 @@ function terminalEvent(run: RunRow): ChatEvent | null {
   }
 }
 
-function writeEvent(reply: FastifyReply, event: ChatEvent): boolean {
-  return reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+async function writeEvent(reply: FastifyReply, event: ChatEvent): Promise<void> {
+  if (reply.raw.destroyed || reply.raw.writableEnded) return;
+  if (reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)) return;
+  await new Promise<void>((resolve) => {
+    const done = (): void => {
+      reply.raw.off('drain', done);
+      reply.raw.off('close', done);
+      reply.raw.off('error', done);
+      resolve();
+    };
+    reply.raw.once('drain', done);
+    reply.raw.once('close', done);
+    reply.raw.once('error', done);
+  });
 }
 
 export function registerChatRoutes(rawApp: FastifyInstance): void {
@@ -67,6 +86,10 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
           'AGENT_DISABLED',
           '该智能体已停用，无法发起新对话；请到智能体页面启用后再试',
         );
+      }
+
+      if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
+        return reject(reply, 'SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
       }
 
       let conversationId = request.body.conversationId;
@@ -118,14 +141,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
             prompt: message,
             ...(history === null ? {} : { history }),
           },
-          {
-            jobId: run.id,
-            // 只对基础设施类失败重试；业务失败（模型拒绝、工具报错）重试会重复计费。
-            attempts: 2,
-            backoff: { type: 'exponential', delay: 5_000 },
-            removeOnComplete: 100,
-            removeOnFail: 200,
-          },
+          runEnqueueOptions(run.id),
         );
       } catch (err) {
         await app.db
@@ -184,10 +200,12 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       reply.raw.write('retry: 3000\n\n');
 
       let closed = false;
+      const subscriptionAbort = new AbortController();
       let subscription: { close: () => void } | undefined;
       const cleanup = (): void => {
         if (closed) return;
         closed = true;
+        subscriptionAbort.abort();
         subscription?.close();
       };
       const finish = (): void => {
@@ -203,21 +221,25 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       reply.raw.on('error', onClose);
 
       try {
-        subscription = await subscribeRun(runId, (event) => {
-          if (closed) return;
-          try {
-            writeEvent(reply, event);
-          } catch (err) {
-            request.log.error({ err, runId }, 'sse write failed');
-            finish();
-            return;
-          }
-          if (event.type === 'run_finished' || event.type === 'error') finish();
-        });
+        subscription = await subscribeRun(
+          runId,
+          async (event) => {
+            if (closed) return;
+            try {
+              await writeEvent(reply, event);
+            } catch (err) {
+              request.log.error({ err, runId }, 'sse write failed');
+              finish();
+              return;
+            }
+            if (event.type === 'run_finished' || event.type === 'error') finish();
+          },
+          subscriptionAbort.signal,
+        );
       } catch (err) {
         request.log.error({ err, runId }, 'sse subscribe failed');
         try {
-          writeEvent(reply, {
+          await writeEvent(reply, {
             type: 'error',
             // 上游 Redis 报错可能含连接串，脱敏后再发给浏览器。
             message: '事件流中断，请刷新页面或重试',
@@ -239,7 +261,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       const finished = terminalEvent(run);
       if (finished) {
         try {
-          writeEvent(reply, finished);
+          await writeEvent(reply, finished);
         } catch (err) {
           request.log.error({ err, runId }, 'sse write failed');
         }

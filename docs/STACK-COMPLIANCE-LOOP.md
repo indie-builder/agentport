@@ -163,3 +163,18 @@
 - **排障断点**：MCP 测试失败只留一行无原因的审计；模型代理每个请求零日志；`persistRunMessages` 未保护，DB 失败会让重试掩盖真实错误。
 
 **验证**：7 包 typecheck、biome 157 文件、**173 测试**、构建通过；并用真实失败的 MCP 连接实测，证明响应与日志都带上了具体原因且密钥已脱敏。
+
+### 第 8 轮 — 2026-10-21
+
+**范围**：不可信内容处理 / 资源上限。
+**发现**：1 个可远程执行漏洞 + 3 项会直接崩溃的上限缺失。
+
+关键结论：
+- **RCE（已修并实测）**：「测试连接」在 API 主机上 spawn 用户提供的命令，任何已登录用户都能执行任意命令。改为命令白名单（npx/uvx/node/python/python3/deno/bun），实测 `/bin/sh -c 'echo pwned'` 被明确拒绝。根治要把测试挪进沙盒，但沙盒镜像当前跑不起来。
+- **SSRF**：stdio 之外的 http 测试只校验第一跳，302 可跳到 169.254.169.254。加 `redirect: 'error'`。
+- **一处慢客户端能让 API OOM**：SSE 忽略 `write()` 背压，回放上限 1000×1MiB。已加背压与 8MiB 回放上限。
+- **Docker 守护进程挂起会永久卡死整个 worker**：`provider.create()` 只与取消竞争，不与超时竞争。加 30s 创建超时与 10s 清理超时。
+- **队列无准入**：10k 个排队任务时 API 仍返回 202，UI 看起来「正常」。改为 `waiting > 100` 返回 503，并给任务加 `removeOnComplete/Fail`。
+- 其余：DB 加 `statement_timeout`/`connectionTimeoutMillis`；上游响应改流式截断；skill/子智能体描述做 markdown 注入口中和。
+
+**验证**：7 包 typecheck、biome 159 文件、**176 测试**、构建、smoke 全绿；RCE 与 SSRF 均实测。

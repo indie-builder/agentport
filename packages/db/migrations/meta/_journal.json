@@ -141,6 +141,13 @@
       "when": 1792555134412,
       "tag": "0019_quiet_hobgoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792560139213,
+      "tag": "0020_overconfident_may_parker",
+      "breakpoints": true
     }
   ]
 }

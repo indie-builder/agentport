@@ -83,6 +83,14 @@ function yamlString(value: string): string {
   return JSON.stringify(value);
 }
 
+/**
+ * 描述会被插进 markdown 列表与表格单元格。换行能另起段落伪造标题，
+ * `|` 能冲出表格单元格，两者都要压平——描述是用户可控的导入内容。
+ */
+function inlineText(value: string): string {
+  return value.replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+}
+
 function yamlList(values: string[]): string {
   return `[${values.map(yamlString).join(', ')}]`;
 }
@@ -153,7 +161,7 @@ function renderClaudeMd(input: WorkspaceInput): string {
           '',
           '## 可用技能',
           '',
-          ...skills.map((s) => `- \`${s.slug}\`：${s.description}`),
+          ...skills.map((s) => `- \`${s.slug}\`：${inlineText(s.description)}`),
           '',
           '需要时读取 `.claude/skills/<slug>/SKILL.md` 按步骤执行。',
         ];
@@ -172,7 +180,7 @@ function renderClaudeMd(input: WorkspaceInput): string {
           '|---|---|---|',
           ...subAgents.map(
             (s) =>
-              `| \`${s.slug}\` | ${s.description || s.name} | ${s.timeoutMs ? `${Math.round(s.timeoutMs / 1000)}s` : '默认'} |`,
+              `| \`${s.slug}\` | ${inlineText(s.description || s.name)} | ${s.timeoutMs ? `${Math.round(s.timeoutMs / 1000)}s` : '默认'} |`,
           ),
           '',
           '委派前先读上面的「等待规则」。',

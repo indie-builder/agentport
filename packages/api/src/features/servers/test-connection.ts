@@ -11,6 +11,16 @@ const TIMEOUT_MS = 5000;
 const STDERR_MAX_BYTES = 8192;
 
 /**
+ * 「测试连接」在 API 主机上 spawn 进程，而 server 的 command/args 完全由用户提供：
+ * 不设限就是一个已认证用户的任意命令执行。运行时本身在沙盒里跑，这里只做试连，
+ * 没有理由允许 shell 与绝对路径的任意二进制。
+ *
+ * shortcut: 白名单只覆盖常见的 MCP 启动方式；要支持任意命令，应改为在沙盒镜像里
+ * 执行测试，而不是放宽这里。
+ */
+const ALLOWED_COMMANDS = new Set(['npx', 'uvx', 'node', 'python', 'python3', 'deno', 'bun']);
+
+/**
  * 只依赖 warn 的形状，`request.log` 与 pino 都满足。
  * 失败原因进日志：审计表只有 digest，读不出原文。
  */
@@ -29,6 +39,11 @@ function transportFor(
   onStderr?: (stream: Readable) => void,
 ): Transport {
   if (server.kind === 'stdio') {
+    if (!ALLOWED_COMMANDS.has(server.command)) {
+      throw new Error(
+        `不支持测试该命令（${server.command}）：只允许 ${[...ALLOWED_COMMANDS].join('、')}。运行时的执行在沙盒内，不受此限制。`,
+      );
+    }
     const transport = new StdioClientTransport({
       command: server.command,
       args: server.args,
@@ -48,13 +63,14 @@ function transportFor(
   }
   if (server.kind === 'http') {
     return new StreamableHTTPClientTransport(new URL(server.url), {
-      requestInit: { headers: server.headers },
+      // 不跟随重定向：SSRF 检查只覆盖第一跳，302 到内网地址会绕过它。
+      requestInit: { headers: server.headers, redirect: 'error' },
     });
   }
   // generated server 的 MCP 端点是平台自己挂载的 /mcp/:id，不是上游 baseUrl。
   if (!self) throw new Error('generated server requires platform MCP endpoint info');
   return new StreamableHTTPClientTransport(new URL(`${self.baseUrl}/mcp/${server.id}`), {
-    requestInit: { headers: { authorization: `Bearer ${self.token}` } },
+    requestInit: { headers: { authorization: `Bearer ${self.token}` }, redirect: 'error' },
   });
 }
 

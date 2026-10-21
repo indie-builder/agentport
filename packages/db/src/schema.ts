@@ -226,6 +226,8 @@ export const agentRuns = pgTable(
       .default('queued'),
     sessionId: text('session_id'),
     sandboxId: text('sandbox_id'),
+    /** 入队时刻：queued 从未启动时 startedAt 为 NULL，只能靠它判断陈旧。 */
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     error: text('error'),

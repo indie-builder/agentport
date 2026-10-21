@@ -85,8 +85,16 @@ export class DockerSandboxProvider implements SandboxProvider {
     this.running.add(name);
     const child = spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'] });
     await new Promise<void>((resolveReady, reject) => {
-      child.once('spawn', resolveReady);
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error('docker create timed out after 30000ms'));
+      }, 30_000);
+      child.once('spawn', () => {
+        clearTimeout(timer);
+        resolveReady();
+      });
       child.once('error', (err) => {
+        clearTimeout(timer);
         this.running.delete(name);
         reject(err);
       });
@@ -97,11 +105,8 @@ export class DockerSandboxProvider implements SandboxProvider {
   async destroy(sandbox: Sandbox): Promise<void> {
     this.running.delete(sandbox.id);
     // runner 结束后容器的 stdin 关闭会自行退出；没退出就按名字强杀。
-    await new Promise<void>((resolveKill) => {
-      const killer = spawn('docker', ['rm', '-f', sandbox.id], { stdio: 'ignore' });
-      killer.once('error', () => resolveKill());
-      killer.once('close', () => resolveKill());
-    });
+    sandbox.child.kill('SIGKILL');
+    await this.remove([sandbox.id]);
   }
 
   /** 关闭兜底：把所有还在运行的沙盒容器强杀。 */
@@ -109,10 +114,25 @@ export class DockerSandboxProvider implements SandboxProvider {
     const ids = [...this.running];
     this.running.clear();
     if (ids.length === 0) return;
-    await new Promise<void>((resolveKill) => {
+    await this.remove(ids);
+  }
+
+  private async remove(ids: string[]): Promise<void> {
+    await new Promise<void>((resolveKill, reject) => {
       const killer = spawn('docker', ['rm', '-f', ...ids], { stdio: 'ignore' });
-      killer.once('error', () => resolveKill());
-      killer.once('close', () => resolveKill());
+      const timer = setTimeout(() => {
+        killer.kill('SIGKILL');
+        reject(new Error('docker rm timed out after 10000ms'));
+      }, 10_000);
+      killer.once('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+      killer.once('close', () => {
+        clearTimeout(timer);
+        // --rm may already have removed the container before this command.
+        resolveKill();
+      });
     });
   }
 }

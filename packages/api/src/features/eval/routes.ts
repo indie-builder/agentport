@@ -1,12 +1,17 @@
 import { newId, repo, schema } from '@agentport/db';
-import { evalRunDetailSchema, evalRunSchema, idParams } from '@agentport/shared';
+import {
+  evalRunDetailSchema,
+  evalRunSchema,
+  idParams,
+  RUN_QUEUE_MAX_WAITING,
+} from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { evalRunRateLimit } from '../../plugins/security.js';
-import { getEvalQueue } from '../../queue/producer.js';
+import { getEvalQueue, getQueue } from '../../queue/producer.js';
 import { typed } from '../../types.js';
 
 const evalRepo = repo.evalRepo;
@@ -126,6 +131,14 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
       const cases = await evalRepo.listCases(app.db, agentId);
       if (cases.length === 0) return invalid(reply, '该智能体还没有用例');
 
+      const [waitingRuns, waitingEvals] = await Promise.all([
+        getQueue().getWaitingCount(),
+        getEvalQueue().getWaitingCount(),
+      ]);
+      if (waitingRuns > RUN_QUEUE_MAX_WAITING || waitingEvals > RUN_QUEUE_MAX_WAITING) {
+        return reject(reply, 'SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
+      }
+
       let evalRun: typeof schema.evalRuns.$inferSelect | undefined;
       try {
         evalRun = await app.db.transaction(async (tx) => {
@@ -155,7 +168,11 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
       }
 
       // 执行搬到 worker：API 重启不再让跑批停在 running。
-      await getEvalQueue().add('eval-run', { evalRunId: evalRun.id }, { jobId: evalRun.id });
+      await getEvalQueue().add(
+        'eval-run',
+        { evalRunId: evalRun.id },
+        { jobId: evalRun.id, removeOnComplete: 100, removeOnFail: 200 },
+      );
 
       await writeAudit(app.db, request.log, {
         actor: 'admin',
