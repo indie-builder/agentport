@@ -32,7 +32,7 @@ const columns: DataColumn<AuditEntry>[] = [
     width: '130px',
     sortValue: (row) => row.createdAt,
     cell: (row) => (
-      <span className="font-mono tabular-nums text-muted" title={row.createdAt}>
+      <span className="font-mono tabular-nums text-muted-foreground" title={row.createdAt}>
         {formatDateTime(row.createdAt)}
       </span>
     ),
@@ -50,7 +50,7 @@ const columns: DataColumn<AuditEntry>[] = [
     width: 'minmax(120px,1fr)',
     cell: (row) =>
       row.target ? (
-        <span className="font-mono text-muted" title={row.target}>
+        <span className="font-mono text-muted-foreground" title={row.target}>
           {shortId(row.target)}
         </span>
       ) : (
@@ -81,7 +81,7 @@ const columns: DataColumn<AuditEntry>[] = [
     width: '130px',
     cell: (row) =>
       row.requestId ? (
-        <span className="font-mono text-muted" title={row.requestId}>
+        <span className="font-mono text-muted-foreground" title={row.requestId}>
           {shortId(row.requestId)}
         </span>
       ) : (

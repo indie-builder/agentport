@@ -58,7 +58,7 @@ const columns: DataColumn<RunListItem>[] = [
     width: '96px',
     sortValue: (run) => run.startedAt ?? '',
     cell: (run) => (
-      <span className="text-sm text-muted" title={formatDateTime(run.startedAt)}>
+      <span className="text-sm text-muted-foreground" title={formatDateTime(run.startedAt)}>
         {formatRelative(run.startedAt)}
       </span>
     ),

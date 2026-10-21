@@ -53,7 +53,7 @@ export function LoginPage() {
           <p className="text-[28px] font-semibold leading-[1.25] tracking-tight text-fg">
             让智能体以可预测的节奏运行
           </p>
-          <p className="mt-3 text-base leading-relaxed text-muted">
+          <p className="mt-3 text-base leading-relaxed text-muted-foreground">
             接入 MCP Server，用文件定义智能体，在沙盒里运行并观察每一步。
           </p>
           <dl className="mt-8 space-y-5">
@@ -64,7 +64,7 @@ export function LoginPage() {
                 </span>
                 <div className="min-w-0">
                   <dt className="text-base font-medium text-fg">{title}</dt>
-                  <dd className="mt-0.5 text-xs leading-relaxed text-muted">{body}</dd>
+                  <dd className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{body}</dd>
                 </div>
               </div>
             ))}
@@ -82,7 +82,7 @@ export function LoginPage() {
           </div>
 
           <h1 className="text-[20px] font-semibold tracking-tight text-fg">登录</h1>
-          <p className="mt-1 text-sm text-muted">使用管理员账号进入控制台。</p>
+          <p className="mt-1 text-sm text-muted-foreground">使用管理员账号进入控制台。</p>
 
           <form
             className="mt-6 space-y-4"

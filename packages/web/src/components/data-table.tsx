@@ -334,9 +334,13 @@ export function DataTable<T>({
           >
             <Popover
               open={pickerOpen}
-              onOpenChange={(open) => {
-                // Radix 的捕获阶段先请求关闭；保留弹层，让 dnd-kit 在冒泡阶段取消键盘拖动。
-                if (!open && dragging?.keyboard) return;
+              onOpenChange={(open, eventDetails) => {
+                // 保留弹层并放行 Escape，让 document 上的 dnd-kit 取消键盘拖动。
+                if (!open && eventDetails.reason === 'escape-key' && dragging?.keyboard) {
+                  eventDetails.cancel();
+                  eventDetails.allowPropagation();
+                  return;
+                }
                 setPickerOpen(open);
                 if (!open) setDragging(null);
               }}
@@ -409,7 +413,9 @@ export function DataTable<T>({
               ))}
             </div>
           ) : rows.length === 0 ? (
-            <div className="py-16 text-center text-sm text-muted">{empty ?? '暂无数据'}</div>
+            <div className="py-16 text-center text-sm text-muted-foreground">
+              {empty ?? '暂无数据'}
+            </div>
           ) : (
             <div>
               {sorted.map((row) => {
@@ -425,7 +431,7 @@ export function DataTable<T>({
                     key={col.id}
                     className={cn(
                       'truncate py-2',
-                      col.numeric && 'text-right font-mono tabular-nums text-muted',
+                      col.numeric && 'text-right font-mono tabular-nums text-muted-foreground',
                     )}
                   >
                     {col.cell

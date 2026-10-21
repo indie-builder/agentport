@@ -59,9 +59,9 @@ function elapsed(at: string, start: string | null): number {
 }
 
 const stepMeta = {
-  user: { icon: User, label: '用户', tone: 'text-muted' },
+  user: { icon: User, label: '用户', tone: 'text-muted-foreground' },
   assistant: { icon: Bot, label: '助手', tone: 'text-success' },
-  tool: { icon: Wrench, label: '工具', tone: 'text-muted' },
+  tool: { icon: Wrench, label: '工具', tone: 'text-muted-foreground' },
 } as const;
 
 type ApprovalItem = ApprovalRequest;
@@ -143,7 +143,7 @@ export function RunDetailPage() {
         <PageHeader title="运行详情" className="sr-only" />
         <Link
           to="/runs"
-          className="inline-flex items-center gap-1 self-start text-xs text-muted hover:text-fg"
+          className="inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-fg"
         >
           <ArrowLeft className="size-3.5" /> 返回运行列表
         </Link>
@@ -230,7 +230,7 @@ export function RunDetailPage() {
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-fg">运行{runStatusLabel[detail.status]}</div>
-            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted">
+            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted-foreground">
               {detail.error}
             </pre>
           </div>
@@ -314,7 +314,7 @@ export function RunDetailPage() {
                         <span
                           className={cn(
                             'block truncate font-mono text-xs',
-                            step.kind === 'tool' ? 'text-fg' : 'text-muted',
+                            step.kind === 'tool' ? 'text-fg' : 'text-muted-foreground',
                           )}
                         >
                           {stepName(step)}
@@ -431,7 +431,7 @@ function StepInspector({
           {start ? formatDateTime(step.at) : ''}
         </span>
         {nested ? (
-          <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted">
+          <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground">
             子智能体内部调用
           </span>
         ) : null}

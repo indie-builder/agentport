@@ -53,7 +53,7 @@ const agentColumns: DataColumn<OverviewAgentRow>[] = [
     width: '110px',
     sortValue: (row) => row.lastRunStartTime,
     cell: (row) => (
-      <span className="text-sm text-muted" title={formatDateTime(row.lastRunStartTime)}>
+      <span className="text-sm text-muted-foreground" title={formatDateTime(row.lastRunStartTime)}>
         {formatRelative(row.lastRunStartTime)}
       </span>
     ),
@@ -192,7 +192,7 @@ const runColumns: DataColumn<RecentRun>[] = [
     width: '96px',
     sortValue: (run) => run.startedAt ?? '',
     cell: (run) => (
-      <span className="text-sm text-muted" title={formatDateTime(run.startedAt)}>
+      <span className="text-sm text-muted-foreground" title={formatDateTime(run.startedAt)}>
         {formatRelative(run.startedAt)}
       </span>
     ),
@@ -224,7 +224,7 @@ function HealthLine() {
   const queue = data.queue;
   const degraded = (queue?.failed ?? 0) > 0 || (queue?.waiting ?? 0) > 5;
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-2xs tabular-nums text-muted">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-2xs tabular-nums text-muted-foreground">
       <span>
         队列 <span className={cn(degraded && 'text-warning')}>{queue?.waiting ?? 0}</span> 等待 /{' '}
         {queue?.active ?? 0} 运行

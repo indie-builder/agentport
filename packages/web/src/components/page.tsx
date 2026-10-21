@@ -35,7 +35,7 @@ export function PageHeader({
         {title}
       </h1>
       {description ? (
-        <p className="hidden min-w-0 max-w-[60ch] truncate text-sm text-muted md:block">
+        <p className="hidden min-w-0 max-w-[60ch] truncate text-sm text-muted-foreground md:block">
           {description}
         </p>
       ) : null}
@@ -113,7 +113,7 @@ export function PageNote({
       <span className={cn('font-medium', tone === 'danger' ? 'text-danger' : 'text-fg')}>
         {title}
       </span>
-      {description ? <span className="min-w-0 text-muted">{description}</span> : null}
+      {description ? <span className="min-w-0 text-muted-foreground">{description}</span> : null}
       {action ? <div className="ml-auto shrink-0">{action}</div> : null}
     </div>
   );

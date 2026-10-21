@@ -11,7 +11,8 @@ import { cn } from '../../lib/cn.js';
  * 需要时从 @base-ui/react/menu 重新补齐。
  */
 function DropdownMenu({ ...props }: React.ComponentProps<typeof MenuPrimitive.Root>) {
-  return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
+  // 保留原菜单在首尾停止的键盘行为，短操作列表不循环焦点。
+  return <MenuPrimitive.Root data-slot="dropdown-menu" loopFocus={false} {...props} />;
 }
 
 function DropdownMenuTrigger({ ...props }: React.ComponentProps<typeof MenuPrimitive.Trigger>) {
@@ -55,7 +56,7 @@ function DropdownMenuItem({
       data-slot="dropdown-menu-item"
       data-variant={variant}
       className={cn(
-        'flex cursor-default items-center gap-2 rounded-icon px-2.5 py-1.5 text-xs text-muted outline-hidden select-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-sunken data-[highlighted]:text-fg data-[variant=destructive]:text-danger data-[variant=destructive]:data-[highlighted]:bg-danger-soft [&_svg]:pointer-events-none [&_svg]:shrink-0',
+        'flex cursor-default items-center gap-2 rounded-icon px-2.5 py-1.5 text-xs text-muted-foreground outline-hidden select-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-sunken data-[highlighted]:text-fg data-[variant=destructive]:text-danger data-[variant=destructive]:data-[highlighted]:bg-danger-soft [&_svg]:pointer-events-none [&_svg]:shrink-0',
         className,
       )}
       {...props}

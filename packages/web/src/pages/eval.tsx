@@ -6,8 +6,8 @@ import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
+import { Dialog } from '../components/ui/app-dialog.js';
 import { Button } from '../components/ui/button.js';
-import { Dialog } from '../components/ui/dialog.js';
 import { FieldError, FieldHint, RequiredMark } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
@@ -79,7 +79,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '96px',
     sortValue: (run) => run.createdAt,
     cell: (run) => (
-      <span className="text-sm text-muted" title={formatDateTime(run.createdAt)}>
+      <span className="text-sm text-muted-foreground" title={formatDateTime(run.createdAt)}>
         {formatRelative(run.createdAt)}
       </span>
     ),
@@ -105,7 +105,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '96px',
     sortValue: (run) => run.finishedAt ?? '',
     cell: (run) => (
-      <span className="text-sm text-muted" title={formatDateTime(run.finishedAt)}>
+      <span className="text-sm text-muted-foreground" title={formatDateTime(run.finishedAt)}>
         {formatRelative(run.finishedAt)}
       </span>
     ),
@@ -236,7 +236,7 @@ export function EvalPage() {
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-md font-medium text-fg">{testCase.name}</div>
-                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm leading-relaxed text-muted">
+                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
                     {testCase.prompt}
                   </p>
                   <p className="mt-1 truncate text-xs text-subtle">
@@ -313,7 +313,7 @@ function EvalRunResults({ id }: { id: string }) {
   const { results } = detail.data;
   if (results.length === 0) {
     return (
-      <p className="text-sm text-muted">
+      <p className="text-sm text-muted-foreground">
         {detail.data.evalRun.status === 'running'
           ? '正在逐个执行用例…'
           : '还没有结果记录。这条运行可能仍在排队，稍后会自动刷新。'}
@@ -347,11 +347,13 @@ function EvalRunResults({ id }: { id: string }) {
           <div className="mt-2 grid gap-x-8 gap-y-2 text-sm leading-relaxed sm:grid-cols-2">
             <div>
               <div className="text-xs text-subtle">Prompt</div>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-muted">{result.prompt}</p>
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">
+                {result.prompt}
+              </p>
             </div>
             <div>
               <div className="text-xs text-subtle">期望</div>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-muted">
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">
                 {result.expectation || '（只要求有文本输出）'}
               </p>
             </div>

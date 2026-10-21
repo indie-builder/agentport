@@ -364,7 +364,7 @@ function ChatWorkspace({
           side="left"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-[294px] max-w-none gap-0 border-r border-line bg-surface p-0"
+          className="w-[294px]! max-w-none! gap-0 border-r border-line bg-surface p-0"
         >
           <SheetTitle className="sr-only">会话历史</SheetTitle>
           <HistoryHeader onNew={newConversation} onClose={() => setHistoryOpen(false)} />
@@ -470,7 +470,7 @@ function HistoryPanel({
                   'h-auto w-full min-w-0 flex-col items-start gap-0 whitespace-normal rounded-item px-2.5 py-2 pr-8 text-left font-normal',
                   conversation.id === conversationId
                     ? 'bg-hover text-fg'
-                    : 'text-muted hover:bg-hover hover:text-fg',
+                    : 'text-muted-foreground hover:bg-hover hover:text-fg',
                 )}
               >
                 <span className="block w-full truncate text-sm">{conversation.title}</span>
@@ -668,7 +668,7 @@ function Composer({
             title={run ? '本轮流式输出结束后即可继续输入，不会丢失当前内容' : undefined}
             disabled={!agent || Boolean(run)}
             value={input}
-            className="h-8 min-h-8 min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 py-1.5 text-md leading-5 tracking-[-0.15px] shadow-none placeholder:text-muted focus-visible:ring-0"
+            className="h-8 min-h-8 min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 py-1.5 text-md leading-5 tracking-[-0.15px] shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -1088,7 +1088,7 @@ function WelcomeState({
     <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center gap-8 px-4 pb-32 pt-3">
       <div className="flex flex-col items-center gap-1 text-center tracking-[-0.24px]">
         <h2 className="text-lg font-normal leading-[30px] text-fg">你好</h2>
-        <p className="text-lg font-medium leading-[26.4px] text-muted">今天想做什么？</p>
+        <p className="text-lg font-medium leading-[26.4px] text-muted-foreground">今天想做什么？</p>
       </div>
 
       {children}
@@ -1100,7 +1100,7 @@ function WelcomeState({
               key={text}
               type="button"
               onClick={() => onPick(text)}
-              className="h-[72px] w-[136px] overflow-hidden rounded-card bg-chip p-4 text-left text-base leading-5 text-muted transition-[background-color] duration-150 hover:bg-hover focus-visible:ring-2 focus-visible:ring-fg"
+              className="h-[72px] w-[136px] overflow-hidden rounded-card bg-chip p-4 text-left text-base leading-5 text-muted-foreground transition-[background-color] duration-150 hover:bg-hover focus-visible:ring-2 focus-visible:ring-fg"
             >
               <span className="line-clamp-2">{text}</span>
             </button>
@@ -1268,7 +1268,9 @@ const ApprovalCard = memo(function ApprovalCard({
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg">
         工具 <code className="font-mono text-xs">{item.toolName}</code>
-        {item.serverName ? <span className="text-muted"> @ {item.serverName}</span> : null}{' '}
+        {item.serverName ? (
+          <span className="text-muted-foreground"> @ {item.serverName}</span>
+        ) : null}{' '}
         需要批准。批准只记录到该 server；继续请在输入框重新发送消息（新一次运行）。
       </div>
       <Button size="sm" disabled={busy} aria-busy={busy} onClick={() => onApprove(item)}>
@@ -1319,7 +1321,7 @@ const ToolRow = memo(function ToolRow({
         ) : (
           <Check className="size-3 shrink-0 text-success" aria-hidden="true" />
         )}
-        <span className="shrink-0 text-xs text-muted" aria-hidden="true">
+        <span className="shrink-0 text-xs text-muted-foreground" aria-hidden="true">
           {running ? '运行中' : failed ? '失败' : '完成'}
         </span>
         {duration !== undefined ? (
@@ -1332,7 +1334,7 @@ const ToolRow = memo(function ToolRow({
           aria-hidden="true"
         />
       </CollapsibleTrigger>
-      {/* keepMounted：保留节点，高度补间仍由 Motion 负责。 */}
+      {/* keepMounted：保留面板，inert 隔离收起内容，Motion 完成高度退出动画。 */}
       <CollapsibleContent keepMounted>
         <AnimatePresence initial={false}>
           {open ? (
@@ -1345,7 +1347,9 @@ const ToolRow = memo(function ToolRow({
               className="overflow-hidden"
             >
               {childCount > 0 ? (
-                <p className="px-3 pt-2 text-xs text-muted">子智能体 · {childCount} 次调用</p>
+                <p className="px-3 pt-2 text-xs text-muted-foreground">
+                  子智能体 · {childCount} 次调用
+                </p>
               ) : null}
               <div className="grid gap-2 border-t border-line p-2 md:grid-cols-2">
                 <div className="min-w-0">

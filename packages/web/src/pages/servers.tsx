@@ -27,8 +27,8 @@ import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
+import { Dialog } from '../components/ui/app-dialog.js';
 import { Button } from '../components/ui/button.js';
-import { Dialog } from '../components/ui/dialog.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -393,13 +393,13 @@ function ServerRow({
         </div>
       </TableCell>
       <TableCell>
-        <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted">
+        <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground">
           {kindMeta[server.kind].label}
         </span>
       </TableCell>
       <TableCell>
         <code
-          className="block max-w-[300px] truncate font-mono text-2xs text-muted"
+          className="block max-w-[300px] truncate font-mono text-2xs text-muted-foreground"
           title={detailOf(server)}
         >
           {detailOf(server) || '—'}
@@ -458,7 +458,7 @@ function ServerRow({
 }
 
 function TestSummary({ state, testing }: { state: LastTest | null; testing: boolean }) {
-  if (testing) return <span className="text-xs text-muted">测试中…</span>;
+  if (testing) return <span className="text-xs text-muted-foreground">测试中…</span>;
   if (!state) return <span className="text-xs text-subtle">未测试</span>;
   const { result, at } = state;
   return (
@@ -480,7 +480,7 @@ function TestSummary({ state, testing }: { state: LastTest | null; testing: bool
       {/* 列出工具名：只给数量无法判断「连上了但工具没注册」这种情况。 */}
       {result.ok && result.tools.length > 0 ? (
         <p
-          className="truncate font-mono text-2xs text-muted"
+          className="truncate font-mono text-2xs text-muted-foreground"
           title={result.tools.map((tool) => tool.name).join(', ')}
         >
           {result.tools.map((tool) => tool.name).join(' · ')}
@@ -525,7 +525,7 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
         <div className="rounded-item bg-danger-soft p-3">
           <p className="text-xs text-danger">影响范围</p>
           {loading ? (
-            <p className="mt-1 text-xs text-muted">正在读取绑定关系…</p>
+            <p className="mt-1 text-xs text-muted-foreground">正在读取绑定关系…</p>
           ) : unknown ? (
             <p className="mt-1 text-xs text-danger">
               读取不到完整的绑定关系，暂时无法安全删除。请刷新后重试，或先到智能体页确认。
@@ -605,9 +605,9 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
     >
       <div className="space-y-3">
         <div className="space-y-1">
-          <span className="text-xs font-medium text-muted">Endpoint</span>
+          <span className="text-xs font-medium text-muted-foreground">Endpoint</span>
           {token.isError && !revealed ? (
-            <p className="flex items-center gap-2 text-xs text-muted">
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
               Endpoint 读取失败。
               <Button variant="outline" size="sm" onClick={retry}>
                 <RefreshCw className="size-3.5" aria-hidden="true" /> 重试
@@ -618,18 +618,18 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
           )}
         </div>
         <div className="space-y-1">
-          <span className="text-xs font-medium text-muted">Token</span>
+          <span className="text-xs font-medium text-muted-foreground">Token</span>
           {data ? (
             // 未轮换时接口只回掩码：那不是可用的 token，不能让用户复制。
             data.token === SECRET_MASK || !revealed ? (
-              <p className="text-xs leading-relaxed text-muted">
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 {SECRET_MASK} 已配置。点「轮换 Token」生成新的明文，旧的立即失效。
               </p>
             ) : (
               <CodeBlock code={data.token} copyLabel="复制 Token" />
             )
           ) : token.isError ? (
-            <p className="flex items-center gap-2 text-xs text-muted">
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
               Token 读取失败。
               <Button variant="outline" size="sm" onClick={retry}>
                 <RefreshCw className="size-3.5" aria-hidden="true" /> 重试
@@ -753,14 +753,16 @@ function ToolEditorDialog({
                       ) : null}
                     </TableCell>
                     <TableCell>
-                      <span className="rounded-tag bg-chip px-1.5 py-0.5 font-mono text-2xs text-muted">
+                      <span className="rounded-tag bg-chip px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
                         {tool.method}
                       </span>
                     </TableCell>
-                    <TableCell className="font-mono text-2xs text-muted">
+                    <TableCell className="font-mono text-2xs text-muted-foreground">
                       {tool.pathTemplate}
                     </TableCell>
-                    <TableCell className="text-2xs text-muted">{tool.paramsIn}</TableCell>
+                    <TableCell className="text-2xs text-muted-foreground">
+                      {tool.paramsIn}
+                    </TableCell>
                     <TableCell>
                       <input
                         type="checkbox"
@@ -1388,7 +1390,7 @@ function ServerFormDialog({
                   />
                 </div>
                 {kind === 'generated' ? (
-                  <p className="rounded-item bg-chip p-3 text-xs leading-relaxed text-muted">
+                  <p className="rounded-item bg-chip p-3 text-xs leading-relaxed text-muted-foreground">
                     保存后会直接打开工具编辑，把上游 HTTP API 的端点声明成 MCP 工具。
                   </p>
                 ) : null}

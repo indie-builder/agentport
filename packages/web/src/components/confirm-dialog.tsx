@@ -1,8 +1,8 @@
 import { AlertTriangle } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toastError } from '../lib/toast.js';
+import { Dialog } from './ui/app-dialog.js';
 import { Button } from './ui/button.js';
-import { Dialog } from './ui/dialog.js';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -47,7 +47,7 @@ export function ConfirmDialog({
           <AlertTriangle className="size-4" />
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
-          <p className="text-sm leading-relaxed text-muted">{description}</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
           {children}
         </div>
       </div>

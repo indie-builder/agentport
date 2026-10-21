@@ -39,7 +39,7 @@ export function SegmentedTabs<T extends string>({
             className={cn(
               'inline-flex items-center gap-1.5 rounded-item px-2.5 font-medium transition-colors duration-150',
               size === 'sm' ? 'h-7 text-xs' : 'h-8 text-sm',
-              active ? 'bg-sunken text-fg' : 'text-muted hover:bg-hover hover:text-fg',
+              active ? 'bg-sunken text-fg' : 'text-muted-foreground hover:bg-hover hover:text-fg',
             )}
           >
             {Icon ? <Icon className="size-3.5" aria-hidden="true" /> : null}

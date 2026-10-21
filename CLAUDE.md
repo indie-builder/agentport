@@ -32,8 +32,9 @@
 - **样式遵循 `docs/DESIGN-SYSTEM.md` 的项目设计语言。** 组件结构、无障碍行为、交互约定沿用组件库；颜色、间距、字体、圆角只通过 `packages/web/src/styles.css` 的 `@theme` token 取值，禁止在组件里硬编码十六进制色值。
 - **CSS 统一用 Tailwind CSS 4**，不自造 CSS 文件、不引入第二套样式方案。
 - 新增 shadcn 组件时保持其原始结构与可访问性属性（`aria-*`、焦点管理、键盘交互），只改外观 token。
-- **交互原语用 Radix，不自研。** Dialog / Tabs / Select / Popover 等必须基于 `radix-ui`；
-  焦点陷阱、portal、aria 关联由 Radix 负责。手写版本出现过浮层被祖先 `overflow` 裁切的问题。
+- **交互原语用 Base UI，不自研。** Dialog / Tabs / Select / Popover 等必须基于 `@base-ui/react`
+  （shadcn `base-nova` 底座）；焦点陷阱、portal、aria 关联由 Base UI 负责。
+  手写版本出现过浮层被祖先 `overflow` 裁切的问题。**Radix 已整体移除，不要再引入。**
 - **页面骨架统一用 `components/page.tsx`**（`Page` / `PageHeader` / `PageToolbar` / `PageSection`）。
   页面里不要写 `mb-*` / `mt-*` 这类页面级外边距；每个渲染状态下恰好一个 `h1`，由 `PageHeader` 提供
   （互斥分支各写一个也算合规，同一时刻只渲染一个）。

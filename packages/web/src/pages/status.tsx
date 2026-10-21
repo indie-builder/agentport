@@ -206,7 +206,7 @@ function SmokeChecklist() {
       }
     >
       {steps.length === 0 ? (
-        <p className="text-sm text-muted">
+        <p className="text-sm text-muted-foreground">
           {running
             ? '正在依次检查…'
             : '依次请求 live、ready、metrics 三个端点，只在这个浏览器里执行，不会改动服务。'}
@@ -224,7 +224,11 @@ function SmokeChecklist() {
                 <CircleX className="size-4 shrink-0 text-danger" aria-hidden="true" />
               )}
               <span className="w-44 shrink-0 font-mono text-xs text-fg">{step.label}</span>
-              <span className={step.state === 'ok' ? 'min-w-0 text-muted' : 'min-w-0 text-danger'}>
+              <span
+                className={
+                  step.state === 'ok' ? 'min-w-0 text-muted-foreground' : 'min-w-0 text-danger'
+                }
+              >
                 {step.detail}
               </span>
               <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-subtle">
@@ -303,7 +307,7 @@ export function StatusPage() {
       />
 
       <Panel title="存活检查 /health/live" state={liveState}>
-        <div className="text-sm text-muted">
+        <div className="text-sm text-muted-foreground">
           {live.isPending
             ? '正在请求…'
             : live.isError
@@ -315,7 +319,7 @@ export function StatusPage() {
       </Panel>
 
       <Panel title="就绪检查 /health/ready" state={readyState}>
-        <div className="text-sm text-muted">
+        <div className="text-sm text-muted-foreground">
           {ready.isPending ? '正在请求…' : (readyProblem ?? '数据库与 Redis 均可用。')}
         </div>
         {!ready.isPending && !ready.isError && ready.data?.body ? (
@@ -345,7 +349,7 @@ export function StatusPage() {
           </div>
         ) : (
           <>
-            <div className="text-sm text-muted">
+            <div className="text-sm text-muted-foreground">
               {metrics.isPending ? '正在请求 /health/metrics…' : '读不到进程指标。'}
             </div>
             {!metrics.isPending ? (
@@ -379,7 +383,7 @@ export function StatusPage() {
           </>
         ) : (
           <>
-            <div className="text-sm text-muted">
+            <div className="text-sm text-muted-foreground">
               {metrics.isPending ? '正在请求…' : '队列计数不可用。'}
             </div>
             {!metrics.isPending ? (
@@ -404,7 +408,7 @@ export function StatusPage() {
             ) : null}
           </>
         ) : (
-          <div className="text-sm text-muted">读不到连接池指标。</div>
+          <div className="text-sm text-muted-foreground">读不到连接池指标。</div>
         )}
       </Panel>
 
@@ -416,7 +420,7 @@ export function StatusPage() {
           </div>
         ) : (
           <>
-            <div className="text-sm text-muted">
+            <div className="text-sm text-muted-foreground">
               {metrics.isPending ? '正在请求…' : 'Redis 不可用。'}
             </div>
             {!metrics.isPending ? (
@@ -434,9 +438,9 @@ export function StatusPage() {
         title="处置步骤"
         description={
           <>
-            见 <code className="font-mono text-muted">docs/RUNBOOK.md</code>
-            ；指标字段与观测入口见 <code className="font-mono text-muted">docs/OPERATIONS.md</code>
-            。
+            见 <code className="font-mono text-muted-foreground">docs/RUNBOOK.md</code>
+            ；指标字段与观测入口见{' '}
+            <code className="font-mono text-muted-foreground">docs/OPERATIONS.md</code>。
           </>
         }
       />

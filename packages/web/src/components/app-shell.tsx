@@ -162,8 +162,8 @@ function SidebarLink({
           ? ''
           : active
             ? 'bg-hover font-medium text-fg'
-            : 'text-muted hover:bg-hover hover:text-fg',
-        collapsed && (active ? 'text-fg' : 'text-muted'),
+            : 'text-muted-foreground hover:bg-hover hover:text-fg',
+        collapsed && (active ? 'text-fg' : 'text-muted-foreground'),
       )}
     >
       <span
@@ -211,7 +211,7 @@ function UserMenu({ username }: { username: string }) {
             variant="ghost"
             className="gap-2 rounded-icon px-2 text-xs data-[popup-open]:bg-sunken"
           >
-            <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted">
+            <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">
               <User className="size-3" />
             </span>
             <span className="hidden max-w-32 truncate sm:block">{username}</span>
@@ -228,7 +228,7 @@ function UserMenu({ username }: { username: string }) {
           <div className="text-2xs text-subtle">管理员</div>
         </div>
         <DropdownMenuItem
-          className="mt-1 flex w-full items-center gap-2 rounded-icon px-2.5 py-1.5 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken focus:text-fg"
+          className="mt-1 flex w-full items-center gap-2 rounded-icon px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken focus:text-fg"
           onClick={() => void logout()}
         >
           <LogOut className="size-3.5" />
@@ -286,7 +286,7 @@ export function AppShell() {
 
   if (me.isError || !me.data?.authenticated) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-canvas text-sm text-muted">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-canvas text-sm text-muted-foreground">
         {me.isError ? (
           <>
             <span>无法验证登录状态</span>
@@ -391,7 +391,7 @@ export function AppShell() {
             side="left"
             showCloseButton={false}
             aria-describedby={undefined}
-            className="w-[294px] max-w-none gap-0 border-r border-line bg-surface p-0 shadow-overlay sm:max-w-none lg:hidden"
+            className="w-[294px]! max-w-none! gap-0 border-r border-line bg-surface p-0 shadow-overlay sm:max-w-none! lg:hidden"
           >
             <SheetTitle className="sr-only">导航</SheetTitle>
             <SheetClose

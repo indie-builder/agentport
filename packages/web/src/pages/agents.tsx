@@ -47,13 +47,13 @@ import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { Page, PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
+import { Dialog } from '../components/ui/app-dialog.js';
 import { Button } from '../components/ui/button.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/ui/collapsible.js';
-import { Dialog } from '../components/ui/dialog.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -721,7 +721,7 @@ function AgentEditor({
           aria-label="启用智能体"
           title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
           onClick={() => set('enabled', !form.enabled)}
-          className="inline-flex items-center gap-2 rounded-item p-1 text-xs text-muted transition-colors hover:bg-hover hover:text-fg"
+          className="inline-flex items-center gap-2 rounded-item p-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-fg"
         >
           <span
             className={cn(
@@ -847,7 +847,7 @@ function AgentEditor({
                   setOpenSections((current) => ({ ...current, [item.id]: true }));
                   document.getElementById(`agent-${item.id}`)?.scrollIntoView({ block: 'start' });
                 }}
-                className="h-auto border-0 px-2.5 py-1 text-sm font-normal text-muted transition-colors hover:bg-hover hover:text-fg active:not-aria-[haspopup]:translate-y-0 [&]:rounded-item"
+                className="h-auto border-0 px-2.5 py-1 text-sm font-normal text-muted-foreground transition-colors hover:bg-hover hover:text-fg active:not-aria-[haspopup]:translate-y-0 [&]:rounded-item"
               >
                 {item.label}
               </Button>
@@ -995,7 +995,7 @@ function AgentEditor({
               <div className="divide-y divide-line border-y border-line">
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="flex items-center gap-1.5 text-xs text-muted">
+                    <h3 className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Plug className="size-4 text-subtle" aria-hidden="true" /> MCP Servers
                       <FileTag>→ .mcp.json · mcpServers.&lt;name&gt;</FileTag>
                     </h3>
@@ -1008,7 +1008,7 @@ function AgentEditor({
                     <ErrorState error={servers.error} onRetry={() => void servers.refetch()} />
                   ) : null}
                   {servers.data && servers.data.length === 0 ? (
-                    <p className="text-xs text-muted">
+                    <p className="text-xs text-muted-foreground">
                       还没有可绑定的 server，先去 MCP Servers 页面创建。
                     </p>
                   ) : null}
@@ -1024,14 +1024,16 @@ function AgentEditor({
                   ) : null}
                   <p className="mt-1.5 text-2xs text-subtle">
                     绑定后智能体可使用
-                    <code className="mx-1 font-mono text-muted">mcp__&lt;server&gt;__*</code>
+                    <code className="mx-1 font-mono text-muted-foreground">
+                      mcp__&lt;server&gt;__*
+                    </code>
                     工具；密钥只在运行时注入。
                   </p>
                 </div>
 
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="flex items-center gap-1.5 text-xs text-muted">
+                    <h3 className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Sparkles className="size-4 text-subtle" aria-hidden="true" /> 技能
                       <FileTag>→ .claude/skills/&lt;slug&gt;/SKILL.md</FileTag>
                     </h3>
@@ -1041,9 +1043,9 @@ function AgentEditor({
                   </div>
                   {skills.isPending ? <LoadingState rows={1} /> : null}
                   {skills.data && skills.data.length === 0 ? (
-                    <p className="text-xs text-muted">
+                    <p className="text-xs text-muted-foreground">
                       还没有技能。技能是可复用的操作流程，会渲染为
-                      <code className="mx-1 font-mono text-muted">
+                      <code className="mx-1 font-mono text-muted-foreground">
                         .claude/skills/&lt;slug&gt;/SKILL.md
                       </code>
                       供智能体按需读取。
@@ -1065,13 +1067,13 @@ function AgentEditor({
                   ) : null}
                   <p className="mt-1.5 text-2xs text-subtle">
                     技能不注册新工具；已选技能的 slug 同时写进 agent md 的
-                    <code className="mx-1 font-mono text-muted">skills</code>。
+                    <code className="mx-1 font-mono text-muted-foreground">skills</code>。
                   </p>
                 </div>
 
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="flex items-center gap-1.5 text-xs text-muted">
+                    <h3 className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Bot className="size-4 text-subtle" aria-hidden="true" /> 子智能体
                       <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
                     </h3>
@@ -1080,11 +1082,11 @@ function AgentEditor({
                     </span>
                   </div>
                   {agent.parentId !== null ? (
-                    <p className="text-xs text-muted">
+                    <p className="text-xs text-muted-foreground">
                       它本身已经是子智能体，不能再委派。子智能体只支持一层。
                     </p>
                   ) : subAgentOptions.length === 0 ? (
-                    <p className="text-xs text-muted">
+                    <p className="text-xs text-muted-foreground">
                       没有可选的主智能体。只有「没有父级」的智能体才能被委派。
                     </p>
                   ) : (
@@ -1098,9 +1100,13 @@ function AgentEditor({
                     />
                   )}
                   <p className="mt-1.5 text-2xs text-subtle">
-                    选中后主智能体获得 <code className="font-mono text-muted">Agent</code> 工具，
+                    选中后主智能体获得{' '}
+                    <code className="font-mono text-muted-foreground">Agent</code> 工具，
                     子智能体定义渲染到{' '}
-                    <code className="font-mono text-muted">.claude/agents/&lt;slug&gt;.md</code>。
+                    <code className="font-mono text-muted-foreground">
+                      .claude/agents/&lt;slug&gt;.md
+                    </code>
+                    。
                   </p>
                 </div>
               </div>
@@ -1205,7 +1211,7 @@ function AgentEditor({
                           'h-auto border-0 px-2 py-1 font-mono text-2xs font-normal transition-colors active:not-aria-[haspopup]:translate-y-0 [&]:rounded-tag',
                           enabled
                             ? 'bg-warning-soft text-warning hover:bg-warning-soft hover:text-warning'
-                            : 'bg-chip text-subtle hover:bg-hover hover:text-muted',
+                            : 'bg-chip text-subtle hover:bg-hover hover:text-muted-foreground',
                           fixed && 'cursor-default opacity-80 disabled:opacity-80',
                         )}
                       >
@@ -1341,12 +1347,12 @@ function AgentEditor({
           side="right"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-full max-w-[480px] gap-0 border-l border-line bg-surface p-0 shadow-overlay sm:max-w-[480px]"
+          className="w-full max-w-[480px]! gap-0 border-l border-line bg-surface p-0 shadow-overlay sm:max-w-[480px]!"
         >
           <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-3.5">
             <div className="min-w-0">
               <SheetTitle className="text-md font-semibold text-fg">版本历史</SheetTitle>
-              <SheetDescription className="mt-1 text-xs leading-relaxed text-muted">
+              <SheetDescription className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 每次保存生成一份快照。回滚会覆盖当前配置并生成新版本。
               </SheetDescription>
             </div>
@@ -1446,7 +1452,7 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="rounded-item border border-line">
-      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
         <ChevronRight
           className={cn(
             'size-3.5 shrink-0 text-subtle transition-transform duration-150',
@@ -1568,7 +1574,7 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
 
   return (
     <div className="space-y-3">
-      <p className="rounded-item bg-chip px-3 py-2 text-xs leading-relaxed text-muted">
+      <p className="rounded-item bg-chip px-3 py-2 text-xs leading-relaxed text-muted-foreground">
         密钥在运行时注入，此处显示为占位符。
         {dirty ? ' 这里是上次保存后的完整文件；编辑中的草稿请回「配置」看内联预览。' : ''}
       </p>
@@ -1730,7 +1736,7 @@ function VersionRow({
               v{item.version}
             </span>
             {item.note ? (
-              <span className="truncate rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted">
+              <span className="truncate rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground">
                 {item.note}
               </span>
             ) : null}
@@ -1775,7 +1781,7 @@ function VersionRow({
                 >
                   <span className="text-subtle">{entry.label}</span>
                   <span className="break-all text-fg">
-                    <span className="text-muted">{entry.from}</span>
+                    <span className="text-muted-foreground">{entry.from}</span>
                     <span className="mx-1 text-subtle" aria-hidden="true">
                       →
                     </span>

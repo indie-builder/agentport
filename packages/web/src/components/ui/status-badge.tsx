@@ -9,13 +9,13 @@ import { cn } from '../../lib/cn.js';
  * 独立成文件，底座重装不会丢。
  */
 const statusStyles = {
-  default: 'border-line bg-sunken text-muted',
+  default: 'border-line bg-sunken text-muted-foreground',
   accent: 'border-line-strong bg-hover text-fg',
   success: 'border-success-line bg-success-soft text-success',
   warn: 'border-warning-line bg-warning-soft text-warning',
   danger: 'border-danger-line bg-danger-soft text-danger',
-  outline: 'border-line-strong bg-transparent text-muted',
-  mono: 'border-code-line bg-code font-mono text-muted',
+  outline: 'border-line-strong bg-transparent text-muted-foreground',
+  mono: 'border-code-line bg-code font-mono text-muted-foreground',
 } as const;
 
 export type StatusTone = keyof typeof statusStyles;

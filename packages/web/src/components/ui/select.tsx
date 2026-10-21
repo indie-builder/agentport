@@ -61,9 +61,14 @@ export function Select({
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
-        <SelectPrimitive.Positioner sideOffset={4} className="z-50">
-          <SelectPrimitive.Popup className="max-h-72 min-w-[var(--anchor-width)] overflow-hidden rounded-icon border border-line bg-surface shadow-overlay">
-            <SelectPrimitive.List className="p-1">
+        <SelectPrimitive.Positioner
+          alignItemWithTrigger={false}
+          align="start"
+          sideOffset={4}
+          className="z-50"
+        >
+          <SelectPrimitive.Popup className="min-w-[var(--anchor-width)] rounded-icon border border-line bg-surface shadow-overlay">
+            <SelectPrimitive.List className="max-h-72 overflow-y-auto p-1">
               {options.map((option) => (
                 <SelectPrimitive.Item
                   key={option.value}

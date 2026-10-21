@@ -9,8 +9,8 @@ import { useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
+import { Dialog } from '../components/ui/app-dialog.js';
 import { Button } from '../components/ui/button.js';
-import { Dialog } from '../components/ui/dialog.js';
 
 import { FieldError, FieldHint, RequiredMark } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
@@ -77,7 +77,7 @@ export function SkillsPage() {
                   <code className="font-mono text-xs text-subtle">{skill.slug}</code>
                   <span className="text-xs text-subtle">被 {skill.agentCount} 个智能体使用</span>
                 </div>
-                <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted">
+                <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
                   {skill.description || '（无描述）'}
                 </p>
                 {skill.body ? (

@@ -1,65 +1,44 @@
 # project — Radix → Base UI
 
-2026-10-21 · 手工转换（legacy `new-york` 风格没有 base 对应版本，CLI 无法生成）· 8 个 wrapper 全部迁移完成，radix 依赖已移除。
+2026-10-21 · `base-nova`（Base UI）· 全部 wrapper 已迁移，radix 依赖与 lockfile 条目已清零。
 
-## 策略
+## 当前状态（以磁盘为准）
 
-`components.json` 的 style 是 `new-york` —— 这是旧式注册表风格，**没有 `base-new-york`**。
-按技能规则：legacy 风格只能用转换引擎，不能用 golden pair。因此保留原有全部 class
-（这些 class 已按 `docs/DESIGN-SYSTEM.md` 改成项目令牌），只替换行为层与结构。
+- `components.json`：`style: base-nova`，无 `base` 键（schema 不接受该键）。
+- `packages/web/src/components/ui/`：15 个底座文件 + 项目自定义层。
+- radix 残留：`grep -rn "radix-ui" packages/web/src` → **0**；`pnpm-lock.yaml` 中 `@radix-ui/` → **0**。
 
-`components.json` 的 `base` 从 `radix` 改为 `base-ui`，`style` 保持 `new-york`。
+## 目录结构
 
-## 结构映射（radix → Base UI）
+| 分类 | 文件 |
+|---|---|
+| 底座（registry 原样） | button, badge, input, label, textarea, skeleton, table, dialog, sheet, select, popover, tooltip, dropdown-menu, collapsible |
+| 项目自定义层 | field.tsx, status-badge.tsx, search-input.tsx, segmented-tabs.tsx, table-wrap.tsx, app-dialog.tsx（若存在） |
+| AI Elements（官方 registry） | message.tsx, message-scroller.tsx |
 
-| radix | Base UI | 说明 |
-|---|---|---|
-| `Content`（自带定位） | `Positioner` + `Popup` | 定位属性在 Positioner，外观在 Popup |
-| `Overlay`（Dialog） | `Backdrop` | 改名 |
-| `Content`（Collapsible） | `Panel` | 改名 |
-| `asChild` | `render={<El />}` | 全项目统一 |
-| `onSelect`（MenuItem） | `onClick` | Base UI 没有 onSelect |
-| `delayDuration` | `delay` | Tooltip Provider |
-| `forceMount` | `keepMounted` | Collapsible Panel |
-| `data-[state=open/closed]` | `data-[open]/[closed]` | 
-| `--radix-*-trigger-width` | `--anchor-width` | Select / Popover |
+规则见 `docs/BASE-FIRST.md`：底座先行，视觉由 `styles.css` 令牌层控制，自定义独立成文件。
 
-## 改动文件
+## 行为差异（已修）
 
-- `components/ui/collapsible.tsx` — Content → Panel，forceMount → keepMounted
-- `components/ui/tooltip.tsx` — Portal > Positioner > Popup；delayDuration → delay
-- `components/ui/popover.tsx` — 同上；删除无人使用的 PopoverAnchor
-- `components/ui/dialog.tsx` — Overlay → Backdrop
-- `components/ui/dropdown-menu.tsx` — radix DropdownMenu → Base UI Menu；只保留实际使用的 5 个部件（Sub/Radio/Checkbox 本项目无使用方，删除）
-- `components/ui/sheet.tsx` — 同 Dialog，Content → Popup
-- `components/ui/select.tsx` — Content → Positioner+Popup+List；`--anchor-width`
-- `components/ui/multi-select.tsx` — `onOpenAutoFocus` → `initialFocus`，`--radix-popover-trigger-width` → `--anchor-width`
-- `components/app-shell.tsx`、`pages/agents.tsx`、`pages/servers.tsx`、`components/data-table.tsx` — 调用点：asChild → render、onSelect → onClick
-- `packages/web/package.json` — 移除 `radix-ui`
-- `packages/web/components.json` — base: radix → base-ui
+| 项 | 旧（Radix） | 新（Base UI） | 处理 |
+|---|---|---|---|
+| Select 列表滚动 | Viewport 自带 | List 仅在 item 对齐时滚动 | 给 List 加 `max-h` + `overflow-y-auto` |
+| Select 展开位置 | `position="popper"` | 默认 `alignItemWithTrigger` | `alignItemWithTrigger={false}` |
+| Menu 焦点循环 | 到端点停 | `loopFocus=true` 默认环绕 | 设 `loopFocus={false}` 保持旧行为 |
+| Collapsible 退出动画 | `forceMount` 交给 Motion | `keepMounted` 仍会加 `hidden` | 与 Motion 完成回调协调 |
+| 键盘拖拽中按 Esc | 文档捕获阶段，dnd-kit 能取消 | Popup 上处理并阻止冒泡 | 在 reason=escape-key 时 `cancel()` 并放行传播 |
+| Tooltip 箭头 | Radix 计算贴合边 | Base UI 只给坐标 | 按 side 补贴合偏移 |
 
-残留扫描：`grep -rn "radix-ui" packages/web/src` → **0**；`data-[state=` → **0**；`--radix-` → **0**。
+## 令牌层
 
-## 未触碰
+- `--color-muted` 是**表面色**（base-nova 的 `bg-muted` 语义）；文字色统一走 `--color-muted-foreground`。
+  项目原有 107 处 `text-muted` 已重命名为 `text-muted-foreground`。
+- 圆角：sm 6 / md 7 / lg 9 / xl 16（=radius-card）/ 2xl 16 / 3xl 16 / 4xl 6。
+- `@custom-variant dark (&:where(.dark, .dark *))`：项目只有亮色，显式关闭系统级 dark 生效。
 
-- `sonner`（toast）— 不是 radix，按技能规则不动
-- `dnd-kit`、`motion`、`react-resizable-panels`、`zustand` — 与底座库无关
-- `ui/badge`、`ui/button`、`ui/input`、`ui/label`、`ui/skeleton`、`ui/table`、`ui/textarea` — 本来就不依赖 radix
+## 遗留扫描
 
-## 行为差异（已确认，未修补）
-
-- **Menu 关闭时机**：Base UI 默认点击 item 后关闭，与 radix 一致，实测无差异。
-- **Select 空值编码**：radix 用 `''` 表示未选中；Base UI 用 `null`。wrapper 内部仍用
-  `__empty__` 哨兵转发，对外 API（`value: string`）不变。
-- **Sheet 无侧滑动画**：原实现已按 DESIGN-SYSTEM §9 去掉位移，只保留淡入淡出，本次未改变。
-
-## 验证
-
-- typecheck 7 包 · biome 190 文件 · 179 单测 · web build
-- 浏览器实测：/servers 的 Select 开合（4 个选项）、行操作 Menu、新建 Server Dialog 均正常
-- 视觉对比迁移前后截图：布局、间距、圆角、字号无变化（「来源」列换行是迁移前就有的）
-
-## 遗留
-
-`components.json` 的 style 仍是 `new-york`（legacy），CLI 未来 `shadcn add` 可能仍给 radix 变体；
-新增组件需手工改底座或单独处理。按用户决定保留此状态以维持视觉不变。
+- 无 `*.bak` / `*-old` / `*-radix` / `*-base` 文件。
+- 无 `--radix-*`、`data-radix-*`。
+- `data-[state=]` 仅剩一处且属于原生表格行语义（非 Radix）。
+- 已删除：`ui/tabs.tsx`（无消费方）、`.tabular`、`.streaming-caret`、`@keyframes pace-caret`、`--radius-chip`、`--color-ink-hover`、`--shadow-sm`。
