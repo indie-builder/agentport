@@ -1,6 +1,7 @@
 import {
   type ApiTool,
   type ApiToolInput,
+  SECRET_MASK,
   type Server,
   type ServerInput,
   type ServerTestResult,
@@ -615,7 +616,14 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
         <div className="space-y-1">
           <span className="text-xs font-medium text-muted">Token</span>
           {data ? (
-            <CodeBlock code={data.token} copyLabel="复制 Token" />
+            // 未轮换时接口只回掩码：那不是可用的 token，不能让用户复制。
+            data.token === SECRET_MASK || !revealed ? (
+              <p className="text-xs leading-relaxed text-muted">
+                {SECRET_MASK} 已配置。点「轮换 Token」生成新的明文，旧的立即失效。
+              </p>
+            ) : (
+              <CodeBlock code={data.token} copyLabel="复制 Token" />
+            )
           ) : token.isError ? (
             <p className="flex items-center gap-2 text-xs text-muted">
               Token 读取失败。

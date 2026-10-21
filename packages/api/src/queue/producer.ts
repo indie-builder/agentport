@@ -12,8 +12,6 @@ import {
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 
-export { RUNS_QUEUE as QUEUE_NAME } from '@agentport/shared';
-
 /** worker 用 ChatEvent 回传，API 用 cancel 通知 worker 终止。 */
 export type RunSignal = ChatEvent | { type: 'cancel' };
 

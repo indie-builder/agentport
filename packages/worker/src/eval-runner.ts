@@ -47,13 +47,7 @@ function dbQuery<A>(run: () => Promise<A>): Effect.Effect<A, DbError> {
 function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages>>): string {
   return messages
     .filter((message) => message.role === 'assistant')
-    .map((message) => {
-      const content = message.content;
-      if (typeof content === 'object' && content !== null && 'text' in content) {
-        return typeof content.text === 'string' ? content.text : '';
-      }
-      return '';
-    })
+    .map((message) => chatRepo.messageText(message.content) ?? '')
     .filter((part) => part.length > 0)
     .join('\n\n');
 }
@@ -214,7 +208,8 @@ export async function executeEvalRun(input: {
                 id: newId('evalResult'),
                 evalRunId,
                 caseId: testCase.id,
-                runId,
+                // 失败的 case 没有 run：外键要求 NULL 而不是空串。
+                runId: runId === '' ? null : runId,
                 passed: ok,
                 output,
               }),

@@ -102,7 +102,7 @@
 
 分步说明：
 
-1. `POST /api/chat` 校验 agent 是否存在，创建或复用 conversation，写 user 消息，创建 `agent_runs` 行（`queued`），取最近 20 条历史，投递 `agent-runs` 队列（`jobId = runId`，`attempts: 2`，指数退避 5s），写审计，返回 202。
+1. `POST /api/chat` 校验 agent 是否存在，创建或复用 conversation，写 user 消息，创建 `agent_runs` 行（`queued`），取最近 20 条历史，投递 `agent-runs` 队列（`jobId = runId`，`attempts: 2`，指数退避 5s；仅当排队数 ≤ 100 时才入队，否则 503），写审计，返回 202。
 2. `GET /api/chat/:runId/events` 先订阅 Redis Stream，从 `0` 开始回放，因此 POST 与建连之间的事件不会丢；已结束的 run 直接补发终态。
 3. worker 消费 job：若 run 已被取消则跳过；置为 `running` 并发布 `run_started`。
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 生成文件并写入 `WORKSPACES_DIR/<slug>/<runId>/`。
@@ -204,7 +204,7 @@ data/workspaces/<agent-slug>/<run-id>/
 
 `packages/db/src/repo/audit.ts` 的 `writeAudit(db, logger, event)` 正常用 `newId('audit')` 生成主键。
 传 `dedupeKey` 时它**直接作为主键**并走 `onConflictDoNothing()`：重复上报同一件事只会保留第一行。
-worker 在 run 完成时传 `aud_<runId>`，因此 BullMQ 的基础设施重试重放同一个 job 不会写出多条「run 完成」审计。
+worker 在 run 完成时传 `dedupeKey: aud_<runId 去掉前缀>`，因此 BullMQ 的基础设施重试重放同一个 job 不会写出多条「run 完成」审计。
 审计写失败只 `logger.warn`，不影响 run 的终态。
 
 ### 6.3 沙盒镜像依赖 `@agentport/shared`

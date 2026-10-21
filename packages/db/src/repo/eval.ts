@@ -134,14 +134,6 @@ export async function listRuns(db: Database, agentId?: string): Promise<EvalRun[
 }
 
 /** 同一智能体只允许一个在跑的评估；API 层据此返回 409。 */
-export async function hasRunningRun(db: Database, agentId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: evalRuns.id })
-    .from(evalRuns)
-    .where(and(eq(evalRuns.agentId, agentId), eq(evalRuns.status, 'running')))
-    .limit(1);
-  return row !== undefined;
-}
 
 export interface EvalResultRow {
   caseId: string | null;
@@ -159,7 +151,8 @@ export async function addResult(
     id: string;
     evalRunId: string;
     caseId: string;
-    runId: string;
+    /** 失败的 case 没有对应运行，写 NULL；外键要求如此。 */
+    runId: string | null;
     passed: boolean;
     output: string;
   },

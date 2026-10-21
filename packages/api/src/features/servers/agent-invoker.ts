@@ -95,13 +95,7 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
         const messages = await repo.chat.listMessages(app.db, conversation.id);
         const text = messages
           .filter((message) => message.role === 'assistant')
-          .map((message) => {
-            const content = message.content;
-            if (typeof content === 'object' && content !== null && 'text' in content) {
-              return typeof content.text === 'string' ? content.text : '';
-            }
-            return '';
-          })
+          .map((message) => repo.chat.messageText(message.content) ?? '')
           .filter((part) => part.length > 0)
           .join('\n\n');
         return text.length > 0 ? text : '（智能体没有产生文本输出）';
