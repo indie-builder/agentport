@@ -1,4 +1,4 @@
-import { typeid } from 'typeid-js';
+import { TypeID, typeid } from 'typeid-js';
 
 /**
  * 所有实体 ID 都是 TypeID：`<prefix>_<uuidv7 base32>`。
@@ -28,5 +28,10 @@ export function newId(entity: Entity): string {
 
 /** 校验 ID 的类型前缀是否匹配，用于路由参数早失败。 */
 export function isIdOfType(id: string, entity: Entity): boolean {
-  return id.startsWith(`${idPrefixes[entity]}_`);
+  try {
+    TypeID.fromString(id, idPrefixes[entity]);
+    return true;
+  } catch {
+    return false;
+  }
 }

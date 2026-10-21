@@ -2,6 +2,7 @@ import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
 import { renderWorkspace, toWorkspaceInput } from '@agentport/core';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import type { FastifyInstance } from 'fastify';
+import { str, strArray } from '../servers/repo.js';
 import { decryptSecrets } from '../servers/secrets.js';
 
 type ServerRow = Awaited<ReturnType<typeof agentRepo.getBoundServers>>[number];
@@ -13,14 +14,6 @@ const RUNTIME_AUTH_NOTE = 'Authorization 由运行时注入，不在此显示。
 // 沙盒视角的 API 地址；compose 内是 http://api:3000，本机 Docker 用 host.docker.internal。
 function sandboxApiUrl(): string {
   return process.env.SANDBOX_API_URL ?? 'http://host.docker.internal:3000';
-}
-
-function str(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-function strArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
 /** 保留键名、替换值：预览既能看到配置了哪些键，又拿不到任何密钥。 */

@@ -37,6 +37,28 @@ describe.skipIf(!ready)('auth', () => {
     expect(res.statusCode).toBe(401);
   });
 
+  it('rejects a missing or non-string field with the schema message', async () => {
+    // schema 在进入 handler 前就拒绝（也不会白算一次 scrypt），文案保持人类可读。
+    for (const payload of [
+      {},
+      { username: config.ADMIN_USER },
+      { username: null, password: 'x' },
+    ]) {
+      const res = await inject(app, { method: 'POST', url: '/api/auth/login', payload });
+      expect(res.statusCode).toBe(400);
+      const body = res.json<{ code: string; message: string; path?: string }>();
+      expect(body.code).toBe('INVALID_INPUT');
+      expect(body.path).toMatch(/^\/(username|password)$/);
+      expect(body.message).toMatch(/用户名|密码/);
+    }
+  });
+
+  it('rejects an over-long username instead of truncating it', async () => {
+    const res = await login('x'.repeat(129), config.ADMIN_PASSWORD);
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: 'INVALID_INPUT', path: '/username' });
+  });
+
   it('logs in with the right credentials and sets an httpOnly cookie', async () => {
     const res = await login(config.ADMIN_USER, config.ADMIN_PASSWORD);
     expect(res.statusCode).toBe(200);

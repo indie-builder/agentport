@@ -33,6 +33,26 @@ describe('problem responses', () => {
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ code: 'UNAUTHORIZED', status: 401, retryable: false });
   });
+
+  it('validates querystring at the schema boundary', async () => {
+    // 校验在 preHandler 之前：非法查询串不会因为未登录而变成 401。
+    for (const url of [
+      '/api/runs?limit=0',
+      '/api/runs?limit=201',
+      '/api/runs?limit=abc',
+      '/api/runs?status=nope',
+      '/api/conversations?limit=999',
+      '/api/overview?days=0',
+    ]) {
+      const res = await inject(app, { method: 'GET', url });
+      expect(res.statusCode, url).toBe(400);
+      expect(res.json(), url).toMatchObject({ code: 'INVALID_INPUT', status: 400 });
+      expect(typeof res.json<{ path: string }>().path, url).toBe('string');
+    }
+
+    const ok = await inject(app, { method: 'GET', url: '/api/runs?limit=5' });
+    expect(ok.statusCode).toBe(401);
+  });
 });
 
 describe('AppError contract', () => {

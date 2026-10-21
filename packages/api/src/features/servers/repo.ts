@@ -8,6 +8,15 @@ import { decryptSecrets, encryptSecrets, maskServer } from './secrets.js';
 
 type Db = Database;
 
+/** jsonb 里的配置是不可信输入：类型不对就当空值，而不是把 undefined 写进响应。 */
+export function str(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+export function strArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
 /** DB 行 + 解密后的 env/headers → 共享 Server 形状（仍含明文 secret）。 */
 export function toApiServer(row: ServerRow, keyB64url: string): Server {
   const secrets = row.secretsEncrypted ? decryptSecrets(row.secretsEncrypted, keyB64url) : {};

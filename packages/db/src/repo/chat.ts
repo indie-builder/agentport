@@ -74,7 +74,8 @@ export async function listMessages(db: Database, conversationId: string): Promis
 const HISTORY_LIMIT = 20;
 const HISTORY_TEXT_LIMIT = 2_000;
 
-function messageText(content: unknown): string | null {
+/** 消息正文只在 content.text 里；tool 消息没有该字段。 */
+export function messageText(content: unknown): string | null {
   if (typeof content !== 'object' || content === null || !('text' in content)) return null;
   return typeof content.text === 'string' ? content.text : null;
 }

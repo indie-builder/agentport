@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline';
-import { type PermissionMode, query } from '@anthropic-ai/claude-agent-sdk';
+import { agentInputSchema, agentRunJobSchema, permissionModeSchema } from '@agentport/shared';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { composePrompt } from './prompt.js';
 
 /**
@@ -42,28 +43,20 @@ interface RunnerEvent {
  */
 type FailureKind = 'agent' | 'infra' | 'cancelled';
 
-interface RunnerTask {
-  prompt: string;
-  /** 之前的对话，由宿主格式化为「用户：/助手：」文本；拼在当前请求之前。 */
-  history?: string;
-  model?: string;
-  maxTurns?: number;
-  maxBudgetUsd?: number;
-  /** 智能体配置的权限模式；缺省 dontAsk（未预批准的工具一律拒绝）。 */
-  permissionMode?: string;
-  /** .mcp.json 里的 server key，用于生成精确的 allow 规则 */
-  mcpServers?: string[];
-  /** 智能体自定义的额外允许项（mcp__ 通配由 mcpServers 推导） */
-  extraAllowedTools?: string[];
-  /** 智能体自定义的额外禁用项，与默认禁用列表合并 */
-  extraDisallowedTools?: string[];
-  /** 推理强度，透传给 SDK */
-  effort?: string;
-  /** 思考预算 token 上限 */
-  maxThinkingTokens?: number;
-  /** 有子智能体时放行 Agent/TaskStop；子智能体定义由 .claude/agents/*.md 自动发现。 */
-  allowSubAgents?: boolean;
-}
+const runnerTaskSchema = agentRunJobSchema.pick({ prompt: true, history: true }).extend({
+  model: agentInputSchema.shape.model.removeDefault().optional(),
+  maxTurns: agentInputSchema.shape.maxTurns.removeDefault().optional(),
+  maxBudgetUsd: agentInputSchema.shape.maxBudgetUsd.removeDefault().optional(),
+  permissionMode: permissionModeSchema.optional(),
+  mcpServers: agentInputSchema.shape.serverIds.removeDefault().optional(),
+  extraAllowedTools: agentInputSchema.shape.allowedTools.removeDefault().optional(),
+  extraDisallowedTools: agentInputSchema.shape.disallowedTools.removeDefault().optional(),
+  effort: agentInputSchema.shape.effort,
+  maxThinkingTokens: agentInputSchema.shape.maxThinkingTokens,
+  allowSubAgents: agentInputSchema.shape.enabled.removeDefault().optional(),
+});
+
+type RunnerTask = ReturnType<typeof runnerTaskSchema.parse>;
 
 function log(message: string): void {
   process.stderr.write(`[runner] ${message}\n`);
@@ -86,7 +79,7 @@ async function readTask(): Promise<RunnerTask> {
     for await (const line of rl) {
       const trimmed = line.trim();
       if (trimmed.length === 0) continue;
-      return JSON.parse(trimmed) as RunnerTask;
+      return runnerTaskSchema.parse(JSON.parse(trimmed));
     }
   } finally {
     rl.close();
@@ -207,15 +200,13 @@ try {
     options: {
       cwd: '/workspace',
       settingSources: ['project'],
-      permissionMode: (task.permissionMode ?? 'dontAsk') as PermissionMode,
+      permissionMode: task.permissionMode ?? 'dontAsk',
       allowedTools,
       disallowedTools: [...new Set(disallowedTools)],
       includePartialMessages: true,
       maxTurns: task.maxTurns ?? 20,
       maxBudgetUsd: task.maxBudgetUsd ?? 2,
-      ...(task.effort === undefined
-        ? {}
-        : { effort: task.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' }),
+      ...(task.effort === undefined ? {} : { effort: task.effort }),
       ...(task.maxThinkingTokens === undefined
         ? {}
         : { maxThinkingTokens: task.maxThinkingTokens }),
@@ -285,7 +276,7 @@ try {
                   ? message.result
                   : `${message.subtype}: ${message.errors.join('; ')}`,
               // SDK 返回的失败都来自模型/工具层；基础设施故障走下面的 catch。
-              failureKind: 'agent' as const,
+              failureKind: 'agent',
             }),
       });
     }

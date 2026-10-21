@@ -6,7 +6,7 @@ import { agentInputSchema, permissionModeSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { reject } from '../../plugins/errors.js';
+import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import { renderAgentWorkspace } from './workspace.js';
 
@@ -66,26 +66,11 @@ function notFound(reply: FastifyReply) {
   return reject(reply, 'NOT_FOUND', 'agent not found');
 }
 
-/** slug 上有唯一索引，冲突转 409。drizzle 把 pg 错误包在 cause 里，得顺着链找。 */
-/** 外键失败意味着引用了不存在的 server/skill，属于客户端错误。 */
-/** drizzle 把 pg 错误包在 cause 链里，需要逐层查找。 */
-function pgCode(err: unknown): string | undefined {
-  let cause: unknown = err;
-  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
-    if ('code' in cause && typeof cause.code === 'string') return cause.code;
-    cause = 'cause' in cause ? cause.cause : undefined;
-  }
-  return undefined;
-}
-
+/** slug 有唯一索引（23505）→ 409；外键失败（23503）→ 引用了不存在的 server/skill。 */
 function rethrowConflict(err: unknown): never {
-  const code = pgCode(err);
-  if (code === '23505') {
-    fail('CONFLICT', 'agent slug already exists');
-  }
-  if (code === '23503') {
+  if (isPgCode(err, '23505')) fail('CONFLICT', 'agent slug already exists');
+  if (isPgCode(err, '23503'))
     fail('INVALID_REFERENCE', 'referenced server or skill does not exist');
-  }
   throw err;
 }
 
@@ -230,25 +215,23 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     '/api/agents/:id',
     { ...auth, schema: { params: idParams, body: patchSchema } },
     async (request, reply) => {
-      const params = { data: request.params };
-      const body = { data: request.body };
-      const modeError = unsupportedPermissionMode(body.data.permissionMode);
+      const input = request.body;
+      const modeError = unsupportedPermissionMode(input.permissionMode);
       if (modeError) return invalid(reply, modeError);
 
-      const current = await repo.getAgent(app.db, params.data.id);
+      const current = await repo.getAgent(app.db, request.params.id);
       if (!current) return notFound(reply);
-      const slugError = assertSlugUnchanged(current.slug, body.data.slug);
+      const slugError = assertSlugUnchanged(current.slug, input.slug);
       if (slugError) return invalid(reply, slugError);
-      if (body.data.subAgentIds !== undefined) {
+      if (input.subAgentIds !== undefined) {
         // 自己已经是子智能体时不能再有子智能体，否则就是两层。
-        if (current.parentId !== null && body.data.subAgentIds.length > 0) {
+        if (current.parentId !== null && input.subAgentIds.length > 0) {
           return invalid(reply, 'a sub-agent cannot have its own sub-agents');
         }
-        const subAgentError = await validateSubAgents(app, current.id, body.data.subAgentIds);
+        const subAgentError = await validateSubAgents(app, current.id, input.subAgentIds);
         if (subAgentError) return invalid(reply, subAgentError);
       }
 
-      const input = body.data;
       const patch: Partial<repo.AgentWrite> = {
         name: input.name ?? current.name,
         description: input.description ?? current.description,
@@ -283,7 +266,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           actor: 'admin',
           action: 'agent.updated',
           target: row.id,
-          input: body.data,
+          input,
           status: 'ok',
           requestId: request.id,
         });
@@ -303,13 +286,12 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     '/api/agents/:id',
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
-      const params = { data: request.params };
-      const ok = await repo.deleteAgent(app.db, params.data.id);
+      const ok = await repo.deleteAgent(app.db, request.params.id);
       if (!ok) return notFound(reply);
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'agent.deleted',
-        target: params.data.id,
+        target: request.params.id,
         status: 'ok',
         requestId: request.id,
       });
@@ -372,15 +354,12 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     '/api/agents/:id/rollback',
     { ...auth, schema: { params: idParams, body: rollbackBody } },
     async (request, reply) => {
-      const params = { data: request.params };
-      const body = { data: request.body };
-
-      const current = await repo.getAgent(app.db, params.data.id);
+      const current = await repo.getAgent(app.db, request.params.id);
       if (!current) return notFound(reply);
       const target = await allRepo.agentVersions.getAgentVersion(
         app.db,
         current.id,
-        body.data.version,
+        request.body.version,
       );
       if (!target) {
         return reject(reply, 'NOT_FOUND', 'version not found');

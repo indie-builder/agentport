@@ -4,15 +4,20 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
+import { chatRateLimit } from '../../plugins/security.js';
 import { closeProducer, getQueue, publishRun, subscribeRun } from '../../queue/producer.js';
 import { typed } from '../../types.js';
-
-const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
 
 const chatRepo = repo.chat;
 const runsRepo = repo.runs;
 
+const idParams = z.object({ id: z.string().min(1) });
+const runIdParams = z.object({ runId: z.string().min(1) });
 const branchBodySchema = z.object({ fromMessageId: z.string().min(1).optional() });
+const listQuery = z.object({
+  agentId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
 
 type RunRow = NonNullable<Awaited<ReturnType<typeof chatRepo.getRun>>>;
 
@@ -46,8 +51,8 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/chat',
     {
       preHandler: [rawApp.requireAuth],
+      ...chatRateLimit,
       schema: { body: chatRequestSchema },
-      config: limits.off ? {} : { rateLimit: { max: 20, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
       const { agentId, message } = request.body;
@@ -146,9 +151,9 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get<{ Params: { runId: string } }>(
+  app.get(
     '/api/chat/:runId/events',
-    { preHandler: [app.requireAuth] },
+    { preHandler: [rawApp.requireAuth], schema: { params: runIdParams } },
     async (request, reply) => {
       const { runId } = request.params;
       const run = await chatRepo.getRun(app.db, runId);
@@ -230,9 +235,9 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get<{ Params: { id: string } }>(
+  app.get(
     '/api/conversations/:id',
-    { preHandler: [app.requireAuth] },
+    { preHandler: [rawApp.requireAuth], schema: { params: idParams } },
     async (request, reply) => {
       const conversation = await chatRepo.getConversation(app.db, request.params.id);
       if (!conversation) {
@@ -247,9 +252,9 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.post<{ Params: { runId: string } }>(
+  app.post(
     '/api/chat/:runId/cancel',
-    { preHandler: [app.requireAuth] },
+    { preHandler: [rawApp.requireAuth], schema: { params: runIdParams } },
     async (request, reply) => {
       const { runId } = request.params;
       const run = await chatRepo.getRun(app.db, runId);
@@ -276,19 +281,15 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/conversations/:id/branch',
     {
       preHandler: [rawApp.requireAuth],
-      schema: {
-        params: z.object({ id: z.string().min(1) }),
-        body: branchBodySchema,
-      },
+      schema: { params: idParams, body: branchBodySchema },
     },
     async (request, reply) => {
-      const parsed = { data: request.body };
       const result = await chatRepo.branchConversation(app.db, {
         id: newId('conversation'),
         conversationId: request.params.id,
-        ...(parsed.data.fromMessageId === undefined
+        ...(request.body.fromMessageId === undefined
           ? {}
-          : { fromMessageId: parsed.data.fromMessageId }),
+          : { fromMessageId: request.body.fromMessageId }),
       });
       if (!result) {
         return reject(
@@ -301,7 +302,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         actor: 'admin',
         action: 'conversation.branched',
         target: result.conversation.id,
-        input: { source: request.params.id, fromMessageId: parsed.data.fromMessageId ?? null },
+        input: { source: request.params.id, fromMessageId: request.body.fromMessageId ?? null },
         status: 'ok',
         requestId: request.id,
       });
@@ -309,23 +310,26 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/conversations', { preHandler: [app.requireAuth] }, async (request) => {
-    const query = request.query as { agentId?: string; limit?: string };
-    const limit = Number(query.limit ?? 50);
-    const rows = await chatRepo.listConversations(app.db, {
-      ...(query.agentId ? { agentId: query.agentId } : {}),
-      limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 200) : 50,
-    });
-    return rows.map((row) => ({
-      ...row,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-      lastMessage: row.lastMessage && {
-        ...row.lastMessage,
-        createdAt: row.lastMessage.createdAt.toISOString(),
-      },
-    }));
-  });
+  app.get(
+    '/api/conversations',
+    { preHandler: [rawApp.requireAuth], schema: { querystring: listQuery } },
+    async (request) => {
+      const { agentId, limit } = request.query;
+      const rows = await chatRepo.listConversations(app.db, {
+        ...(agentId === undefined ? {} : { agentId }),
+        limit,
+      });
+      return rows.map((row) => ({
+        ...row,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+        lastMessage: row.lastMessage && {
+          ...row.lastMessage,
+          createdAt: row.lastMessage.createdAt.toISOString(),
+        },
+      }));
+    },
+  );
 
   app.addHook('onClose', async () => {
     await closeProducer();

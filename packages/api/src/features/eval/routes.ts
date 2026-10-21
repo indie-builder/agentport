@@ -1,14 +1,12 @@
-import { AppError } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { problem, reject } from '../../plugins/errors.js';
+import { reject } from '../../plugins/errors.js';
+import { evalRunRateLimit } from '../../plugins/security.js';
 import { getEvalQueue } from '../../queue/producer.js';
 import { typed } from '../../types.js';
-
-const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
 
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
@@ -31,31 +29,30 @@ function invalid(reply: FastifyReply, message: string) {
 }
 
 const idParams = z.object({ id: z.string().min(1) });
+const listQuery = z.object({ agentId: z.string().min(1).optional() });
 
 export function registerEvalRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   const auth = { preHandler: [rawApp.requireAuth] };
 
-  app.get(
-    '/api/eval/cases',
-    { ...auth, schema: { querystring: z.object({ agentId: z.string().optional() }) } },
-    async (request) => evalRepo.listCases(app.db, request.query.agentId),
+  app.get('/api/eval/cases', { ...auth, schema: { querystring: listQuery } }, async (request) =>
+    evalRepo.listCases(app.db, request.query.agentId),
   );
 
   app.post(
     '/api/eval/cases',
     { ...auth, schema: { body: createCaseSchema } },
     async (request, reply) => {
-      const parsed = { data: request.body };
-      if (!(await chatRepo.agentExists(app.db, parsed.data.agentId))) {
+      const input = request.body;
+      if (!(await chatRepo.agentExists(app.db, input.agentId))) {
         return reject(reply, 'AGENT_NOT_FOUND', 'agent not found');
       }
-      const row = await evalRepo.createCase(app.db, newId('evalCase'), parsed.data);
+      const row = await evalRepo.createCase(app.db, newId('evalCase'), input);
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'eval.case.created',
         target: row.id,
-        input: { agentId: parsed.data.agentId, name: parsed.data.name },
+        input: { agentId: input.agentId, name: input.name },
         status: 'ok',
         requestId: request.id,
       });
@@ -67,14 +64,13 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     '/api/eval/cases/:id',
     { ...auth, schema: { params: idParams, body: patchCaseSchema } },
     async (request, reply) => {
-      const parsed = { data: request.body };
-      const row = await evalRepo.updateCase(app.db, request.params.id, parsed.data);
+      const row = await evalRepo.updateCase(app.db, request.params.id, request.body);
       if (!row) return reject(reply, 'NOT_FOUND', 'case not found');
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'eval.case.updated',
         target: request.params.id,
-        input: { fields: Object.keys(parsed.data) },
+        input: { fields: Object.keys(request.body) },
         status: 'ok',
         requestId: request.id,
       });
@@ -103,8 +99,8 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     '/api/eval/runs',
     {
       ...auth,
+      ...evalRunRateLimit,
       schema: { body: z.object({ agentId: z.string().min(1) }) },
-      config: limits.off ? {} : { rateLimit: { max: 10, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
       const { agentId } = request.body;
@@ -119,11 +115,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
       }
 
       if (await evalRepo.hasRunningRun(app.db, agentId)) {
-        return reply
-          .status(409)
-          .send(
-            problem(request.id, new AppError('EVAL_RUN_IN_PROGRESS', '该智能体已有正在运行的评估')),
-          );
+        return reject(reply, 'EVAL_RUN_IN_PROGRESS', '该智能体已有正在运行的评估');
       }
 
       const cases = await evalRepo.listCases(app.db, agentId);
@@ -151,13 +143,17 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get<{ Querystring: { agentId?: string } }>('/api/eval/runs', auth, async (request) =>
+  app.get('/api/eval/runs', { ...auth, schema: { querystring: listQuery } }, async (request) =>
     evalRepo.listRuns(app.db, request.query.agentId),
   );
 
-  app.get<{ Params: { id: string } }>('/api/eval/runs/:id', auth, async (request, reply) => {
-    const detail = await evalRepo.getRunDetail(app.db, request.params.id);
-    if (!detail) return reject(reply, 'NOT_FOUND', 'eval run not found');
-    return detail;
-  });
+  app.get(
+    '/api/eval/runs/:id',
+    { ...auth, schema: { params: idParams } },
+    async (request, reply) => {
+      const detail = await evalRepo.getRunDetail(app.db, request.params.id);
+      if (!detail) return reject(reply, 'NOT_FOUND', 'eval run not found');
+      return detail;
+    },
+  );
 }

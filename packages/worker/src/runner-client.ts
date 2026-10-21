@@ -1,5 +1,12 @@
-import { RunFailure } from '@agentport/core';
-import { type ChatEvent, chatEventSchema } from '@agentport/shared';
+import { isRetryableFailure, RunFailure } from '@agentport/core';
+import {
+  type ChatEvent,
+  chatEventSchema,
+  RUN_STREAM_MAXLEN,
+  runCancelKey,
+  runChannel,
+  runStreamKey,
+} from '@agentport/shared';
 import { Deferred, Effect, Exit, type Scope } from 'effect';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
@@ -38,7 +45,7 @@ export interface SandboxRunInput {
 
 /** 可重试 = 基础设施瞬时故障；业务失败不重试。分类来自 RunFailure，不再匹配错误文本。 */
 export function isRetryable(outcome: SandboxRunOutcome): boolean {
-  return outcome.failure?.reason === 'infra';
+  return outcome.failure !== undefined && isRetryableFailure(outcome.failure);
 }
 
 export interface SandboxRunOutcome {
@@ -82,16 +89,6 @@ export function configureRunnerClient(url: string): void {
   redisUrl = url;
 }
 
-/** 事件流键；与 API 的 producer 保持一致。 */
-function streamKey(runId: string): string {
-  return `run:${runId}:events`;
-}
-
-/** 取消信号通道；与 API 的 producer 保持一致。 */
-function channelFor(runId: string): string {
-  return `run:${runId}:cancel`;
-}
-
 let publisher: Redis | undefined;
 let cancelSubscriber: Redis | undefined;
 
@@ -118,10 +115,10 @@ function getCancelSubscriber(logger: Logger): Redis {
  */
 export async function publishRun(runId: string, event: ChatEvent, logger: Logger): Promise<void> {
   const redis = getPublisher(logger);
-  const key = streamKey(runId);
-  await redis.xadd(key, 'MAXLEN', '~', 1000, '*', 'payload', JSON.stringify(event));
+  const key = runStreamKey(runId);
+  await redis.xadd(key, 'MAXLEN', '~', RUN_STREAM_MAXLEN, '*', 'payload', JSON.stringify(event));
   await redis.expire(key, 3600);
-  await redis.publish(`${key}:wake`, '1');
+  await redis.publish(runChannel(runId), '1');
 }
 
 export async function closeRunnerClient(): Promise<void> {
@@ -470,7 +467,7 @@ function subscribeCancel(
 ): Effect.Effect<() => Promise<void>, RunFailure> {
   return Effect.callback((resume, signal) => {
     const redis = getCancelSubscriber(logger);
-    const channel = channelFor(runId);
+    const channel = runCancelKey(runId);
     // API 在 cancel 频道上只发 '1'；订阅成立后先查一次键，避免漏掉早到的取消。
     const handler = (received: string): void => {
       if (received === channel) onCancel();

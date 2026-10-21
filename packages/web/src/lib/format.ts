@@ -66,6 +66,15 @@ export const runStatusLabel: Record<RunStatus, string> = {
   timeout: '超时',
 };
 
+export const runStatusVariant = {
+  queued: 'default',
+  running: 'warn',
+  succeeded: 'success',
+  failed: 'danger',
+  cancelled: 'outline',
+  timeout: 'danger',
+} as const satisfies Record<RunStatus, 'default' | 'warn' | 'success' | 'danger' | 'outline'>;
+
 /**
  * TypeID 形如 run_01m5bv0faceh4v4jtw00eta1sn：后缀是时间有序的随机段。
  * 表格里只保留后缀末 8 位——前缀每个单元格都一样，留着只占宽度。

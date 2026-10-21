@@ -9,14 +9,13 @@ import {
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { reject } from '../../plugins/errors.js';
+import { isPgCode, reject } from '../../plugins/errors.js';
+import { serverTestRateLimit } from '../../plugins/security.js';
 import { typed } from '../../types.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
 import { assertSafeUrl } from './ssrf.js';
 import { testConnection } from './test-connection.js';
-
-const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
 
 const idParams = z.object({ id: z.string().min(1) });
 const toolParams = idParams.extend({ toolId: z.string().min(1) });
@@ -65,18 +64,9 @@ function notFound(reply: FastifyReply, what: string) {
   return reject(reply, 'NOT_FOUND', `${what} not found`);
 }
 
-/**
- * drizzle 0.45 把 pg 的 23505 包进 DrizzleQueryError.cause，
- * 顶层没有 code；必须沿 cause 链查找。
- */
+/** server 名有唯一索引（23505）→ 409。 */
 function rethrowConflict(err: unknown): never {
-  let cause: unknown = err;
-  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
-    if ('code' in cause && cause.code === '23505') {
-      fail('CONFLICT', 'server name already exists');
-    }
-    cause = 'cause' in cause ? cause.cause : undefined;
-  }
+  if (isPgCode(err, '23505')) fail('CONFLICT', 'server name already exists');
   throw err;
 }
 
@@ -212,11 +202,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/servers/:id/test',
-    {
-      ...auth,
-      schema: { params: idParams },
-      config: limits.off ? {} : { rateLimit: { max: 20, timeWindow: '1 minute' } },
-    },
+    { ...auth, ...serverTestRateLimit, schema: { params: idParams } },
     async (request, reply) => {
       const server = await getServerWithSecrets(app.db, request.params.id, key());
       if (!server) return notFound(reply, 'server');

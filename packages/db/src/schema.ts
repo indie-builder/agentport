@@ -1,5 +1,5 @@
 import type { Agent } from '@agentport/shared';
-import { sql } from 'drizzle-orm';
+import { isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   boolean,
@@ -212,11 +212,11 @@ export const agentRuns = pgTable(
     mcpTokenExpiresAt: timestamp('mcp_token_expires_at', { withTimezone: true }),
     /** 模型代理 token 的 sha256（明文即 runId）；run 结束清空。 */
     modelTokenHash: text('model_token_hash'),
-    /** 已废弃：审批改存 approval_requests，此列不再写入，仅为兼容旧数据保留。 */
-    approvals: jsonb('approvals').$type<string[]>().notNull().default([]),
   },
   (t) => [
     index('agent_runs_conversation_idx').on(t.conversationId),
+    // 模型代理每个请求都按 hash 查一次；只索引仍持有 token 的行。
+    index('agent_runs_model_token_idx').on(t.modelTokenHash).where(isNotNull(t.modelTokenHash)),
     // 列表与概览都按 started_at desc nulls last 排序；agentId 过滤时走复合索引。
     index('agent_runs_started_idx').on(t.startedAt.desc().nullsLast(), t.id.desc()),
     index('agent_runs_agent_started_idx').on(

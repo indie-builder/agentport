@@ -5,19 +5,12 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { str, strArray } from '../servers/repo.js';
 
 const idParams = z.object({ id: z.string().min(1) });
 
 type ServerRow = Awaited<ReturnType<typeof agentRepo.getBoundServers>>[number];
 type SkillRow = Awaited<ReturnType<typeof agentRepo.getBoundSkills>>[number];
-
-function str(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-function strArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
-}
 
 /** 导出里只留非敏感配置；generated 的 mcpToken 和加密列的值一律不出现。 */
 function toExportedServer(row: ServerRow, key: string) {

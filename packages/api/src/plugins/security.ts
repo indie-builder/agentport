@@ -2,6 +2,12 @@ import { AppError } from '@agentport/core';
 import type { FastifyInstance } from 'fastify';
 
 /**
+ * 测试与本地关掉限流。关闭时路由级配置要显式写 `rateLimit: false`：
+ * 全局 skip 管不到路由级配置，删掉 config 反而会落回全局 120/min。
+ */
+const limitsOff = process.env.RATE_LIMIT_DISABLED === '1';
+
+/**
  * 安全与限流插件集中注册，避免散落在各 feature 里。
  * 限流用 Redis 存储：多进程/多 worker 部署时计数才一致。
  */
@@ -30,7 +36,6 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
   const redis = new Redis(app.config.REDIS_URL, { maxRetriesPerRequest: null });
   redis.on('error', (err: Error) => app.log.warn({ err }, 'rate-limit redis error'));
 
-  const limitsOff = process.env.RATE_LIMIT_DISABLED === '1';
   if (limitsOff) app.log.warn('rate limiting disabled by RATE_LIMIT_DISABLED=1');
   await app.register(rateLimit, {
     global: false,
@@ -52,22 +57,15 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
 }
 
 /** 登录与执行类接口用更严格的限额。 */
-export const authRateLimit = {
-  config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
-} as const;
+function preset(max: number) {
+  const rateLimit: false | { max: number; timeWindow: string } = limitsOff
+    ? false
+    : { max, timeWindow: '1 minute' };
+  return { config: { rateLimit } };
+}
 
-export const chatRateLimit = {
-  config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
-} as const;
-
-export const mcpRateLimit = {
-  config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
-} as const;
-
-export const serverTestRateLimit = {
-  config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
-} as const;
-
-export const evalRunRateLimit = {
-  config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
-} as const;
+export const authRateLimit = preset(10);
+export const chatRateLimit = preset(20);
+export const mcpRateLimit = preset(60);
+export const serverTestRateLimit = preset(20);
+export const evalRunRateLimit = preset(10);

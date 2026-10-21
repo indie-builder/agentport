@@ -28,7 +28,7 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-[12px] border border-danger-line bg-danger-soft p-3.5 text-sm"
+      className="flex items-start gap-3 rounded-card border border-danger-line bg-danger-soft p-3.5 text-sm"
     >
       <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
       <div className="min-w-0 flex-1">
@@ -63,7 +63,7 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center gap-2 rounded-[12px] border border-dashed border-line-strong/70 px-6 py-14 text-center',
+        'flex flex-col items-center justify-center gap-2 rounded-card border border-dashed border-line-strong/70 px-6 py-14 text-center',
         className,
       )}
     >

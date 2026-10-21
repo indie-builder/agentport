@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler, fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 
@@ -71,10 +70,6 @@ export function buildAgentServer(specs: AgentToolSpec[], invoker: AgentInvoker):
 export function platformMcpToken(env: NodeJS.ProcessEnv): string | null {
   const token = env.PLATFORM_MCP_TOKEN;
   return token && token.length >= 16 ? token : null;
-}
-
-export function newPlatformToken(): string {
-  return randomBytes(24).toString('base64url');
 }
 
 export function agentHandler(invoker: AgentInvoker, specs: AgentToolSpec[]): McpHttpHandler {

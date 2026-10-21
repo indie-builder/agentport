@@ -35,7 +35,7 @@ export function SkillsPage() {
             className="rounded-full"
             onClick={() => setCreating(true)}
           >
-            <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建技能
+            <Plus className="size-4" aria-hidden="true" /> 新建技能
           </Button>
         }
       />
@@ -46,12 +46,12 @@ export function SkillsPage() {
       ) : null}
       {skills.data && skills.data.length === 0 ? (
         <PageNote
-          icon={<Sparkles className="size-4" strokeWidth={1.75} aria-hidden="true" />}
+          icon={<Sparkles className="size-4" aria-hidden="true" />}
           title="还没有技能"
           description="把重复出现的步骤写成技能，多个智能体可以共享它。"
           action={
             <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
-              <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建技能
+              <Plus className="size-4" aria-hidden="true" /> 新建技能
             </Button>
           }
         />
@@ -82,7 +82,7 @@ export function SkillsPage() {
               <div className="flex shrink-0 gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
                 <Button variant="ghost" size="icon-sm" onClick={() => setEditing(skill)}>
                   <span className="sr-only">编辑 {skill.name}</span>
-                  <Pencil className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                  <Pencil className="size-4" aria-hidden="true" />
                 </Button>
                 <Button
                   variant="ghost"
@@ -91,7 +91,7 @@ export function SkillsPage() {
                   onClick={() => setDeleting(skill)}
                 >
                   <span className="sr-only">删除 {skill.name}</span>
-                  <Trash2 className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                  <Trash2 className="size-4" aria-hidden="true" />
                 </Button>
               </div>
             </li>

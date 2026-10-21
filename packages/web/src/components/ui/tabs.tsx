@@ -2,6 +2,8 @@ import { Search, X } from 'lucide-react';
 import * as TabsPrimitive from 'radix-ui/tabs';
 import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn.js';
+import { Button } from './button.js';
+import { Input } from './input.js';
 
 export function SearchInput({
   value,
@@ -19,23 +21,24 @@ export function SearchInput({
   return (
     <div className={cn('relative', className)}>
       <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
-      <input
+      <Input
         type="search"
         aria-label={label}
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-full rounded-[7px] border border-line bg-surface pl-8 pr-8 text-sm text-fg transition-colors placeholder:text-subtle hover:border-line-strong focus-visible:border-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/30 [&::-webkit-search-cancel-button]:hidden"
+        className="rounded-icon pl-8 pr-8 focus-visible:ring-fg/30 [&::-webkit-search-cancel-button]:hidden"
       />
       {value ? (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           aria-label="清除搜索"
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+          className="absolute right-1.5 top-1/2 size-auto -translate-y-1/2 rounded p-1 text-subtle hover:bg-transparent hover:text-fg"
           onClick={() => onChange('')}
         >
           <X className="size-3.5" />
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -99,29 +102,5 @@ export function Tabs<T extends string>({
         ))}
       </TabsPrimitive.List>
     </TabsPrimitive.Root>
-  );
-}
-
-export function TabPanel({
-  id,
-  children,
-  className,
-}: {
-  id: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div role="tabpanel" id={id} className={className}>
-      {children}
-    </div>
-  );
-}
-
-export function Kbd({ children }: { children: ReactNode }) {
-  return (
-    <kbd className="rounded border border-line bg-sunken px-1 py-0.5 font-mono text-2xs text-muted">
-      {children}
-    </kbd>
   );
 }

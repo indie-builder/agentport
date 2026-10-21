@@ -1,30 +1,18 @@
-import { timingSafeEqual } from 'node:crypto';
-import { AppError, hashMcpToken } from '@agentport/core';
+import { hashMcpToken } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { NodeIncomingMessageLike, NodeServerResponseLike } from '@modelcontextprotocol/node';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { runMcp } from '../../plugins/concurrency.js';
-import { problem, reject } from '../../plugins/errors.js';
+import { reject } from '../../plugins/errors.js';
+import { mcpRateLimit } from '../../plugins/security.js';
+import { typed } from '../../types.js';
+import { bearerToken, tokenMatches } from './bearer.js';
 import { buildGeneratedServer } from './generated.js';
 import { getServerRow, listTools, toApiServer } from './repo.js';
-
-const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
-
-function tokenMatches(
-  expected: unknown,
-  header: string | undefined,
-  actual: (token: string) => string = (token) => token,
-): boolean {
-  if (typeof expected !== 'string' || expected.length === 0) return false;
-  const match = /^Bearer\s+(.+)$/i.exec(header ?? '');
-  if (!match?.[1]) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(actual(match[1]));
-  return a.length === b.length && timingSafeEqual(a, b);
-}
 
 /**
  * 每个请求按 serverId 重建 handler：工具定义改动无需重启，也避免跨 server 复用实例。
@@ -71,17 +59,20 @@ function handlerFor(app: FastifyInstance, serverId: string, runId: string | null
   });
 }
 
-export function registerMcpEndpoint(app: FastifyInstance): void {
+const params = z.object({ serverId: z.string().min(1) });
+
+export function registerMcpEndpoint(rawApp: FastifyInstance): void {
+  const app = typed(rawApp);
   app.all(
     '/mcp/:serverId',
     {
-      config: {
-        ...(limits.off ? {} : { rateLimit: { max: 60, timeWindow: '1 minute' } }),
-        helmet: { contentSecurityPolicy: false },
-      },
+      ...mcpRateLimit,
+      // 非浏览器客户端访问，CSP 无意义。
+      config: { ...mcpRateLimit.config, helmet: { contentSecurityPolicy: false } },
+      schema: { params },
     },
     async (request, reply) => {
-      const { serverId } = request.params as { serverId: string };
+      const { serverId } = request.params;
       const row = await getServerRow(app.db, serverId);
       if (row?.kind !== 'generated') {
         return reject(reply, 'NOT_FOUND', 'generated server not found');
@@ -96,12 +87,10 @@ export function registerMcpEndpoint(app: FastifyInstance): void {
         runToken.hash !== null &&
         runToken.expiresAt !== null &&
         runToken.expiresAt.getTime() > Date.now() &&
-        tokenMatches(runToken.hash, request.headers.authorization, hashMcpToken);
-      if (!runTokenOk && !tokenMatches(expected, request.headers.authorization)) {
-        return reply
-          .status(401)
-          .header('WWW-Authenticate', 'Bearer realm="agentport-mcp"')
-          .send(problem(request.id, new AppError('UNAUTHORIZED', 'invalid bearer token')));
+        tokenMatches(runToken.hash, bearerToken(request.headers.authorization), hashMcpToken);
+      if (!runTokenOk && !tokenMatches(expected, bearerToken(request.headers.authorization))) {
+        reply.header('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
+        return reject(reply, 'UNAUTHORIZED', 'invalid bearer token');
       }
 
       // 交给 MCP 适配器自己读写原始 req/res，Fastify 不再参与响应。

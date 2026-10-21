@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
   Bot,
@@ -22,6 +21,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { meQuery, queryClient } from '../lib/queries.js';
+import { Brand } from './brand.js';
 import { Button } from './ui/button.js';
 import {
   DropdownMenu,
@@ -34,10 +34,6 @@ import { Skeleton } from './ui/skeleton.js';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip.js';
 
 /**
- * 导航按「配置 → 使用 → 观测 → 运维」分组。
- * 平铺九项会让读者每次重新扫描；分组给出稳定的位置记忆。
- */
-/**
  * 导航按「使用 → 构建 → 系统」排，不按实体平铺。
  *
  * 依据（docs/UI-REDESIGN.md）：对话是每天多次的最高频动作，构建是低频但
@@ -48,23 +44,23 @@ const nav = [
   {
     label: '使用',
     items: [
-      { to: '/chat', label: '对话', icon: MessagesSquare, title: '对话' },
-      { to: '/runs', label: '运行', icon: Activity, title: '运行' },
+      { to: '/chat', label: '对话', icon: MessagesSquare },
+      { to: '/runs', label: '运行', icon: Activity },
     ],
   },
   {
     label: '构建',
     items: [
-      { to: '/agents', label: '智能体', icon: Bot, title: '智能体' },
-      { to: '/servers', label: 'MCP Servers', icon: Server, title: 'MCP Servers' },
-      { to: '/skills', label: '技能', icon: Sparkles, title: '技能' },
+      { to: '/agents', label: '智能体', icon: Bot },
+      { to: '/servers', label: 'MCP Servers', icon: Server },
+      { to: '/skills', label: '技能', icon: Sparkles },
     ],
   },
   {
     label: '系统',
     items: [
-      { to: '/status', label: '健康', icon: HeartPulse, title: '健康' },
-      { to: '/audit', label: '审计', icon: ScrollText, title: '审计' },
+      { to: '/status', label: '健康', icon: HeartPulse },
+      { to: '/audit', label: '审计', icon: ScrollText },
     ],
   },
 ] as const;
@@ -74,20 +70,7 @@ const overviewNav = {
   to: '/',
   label: '工作台',
   icon: LayoutDashboard,
-  title: '工作台',
 } as const;
-
-/** 扁平列表供标题查找与路由匹配使用。 */
-interface NavItem {
-  readonly to: string;
-  readonly label: string;
-  readonly icon: LucideIcon;
-  readonly title: string;
-}
-const allNavItems: readonly NavItem[] = [
-  overviewNav,
-  ...nav.flatMap((group) => group.items as readonly NavItem[]),
-];
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
 
@@ -106,26 +89,26 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
  * - 收起：整行缩成 32×32，logo 与按钮重叠在同一位置。默认露 logo，
  *   悬停或内部有焦点时 logo 淡出、换成展开按钮（140ms），布局不跳动。
  */
-function Brand({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   if (collapsed) {
     return (
       <div className="relative h-8 w-8 shrink-0">
         <Link
           to="/"
           aria-label="PACE 首页"
-          className="group/logo absolute -left-0.5 top-0 flex h-[30px] w-9 items-center justify-center rounded-[7px] bg-ink px-[3px] text-white transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/nav:opacity-0 group-has-[:focus-visible]/nav:opacity-0"
+          className="group/logo absolute -left-0.5 top-0 flex h-[30px] w-9 items-center justify-center rounded-icon bg-ink px-[3px] text-white transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/nav:opacity-0 group-has-[:focus-visible]/nav:opacity-0"
         >
-          <Command aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
+          <Command aria-hidden="true" className="size-3.5" />
         </Link>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
           aria-label="展开侧栏"
           aria-pressed
           onClick={onToggle}
-          className="absolute left-0 top-0 flex size-8 items-center justify-center rounded-[7px] text-fg opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
+          className="absolute left-0 top-0 size-8 rounded-icon p-0 text-fg opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
         >
-          <PanelLeftOpen className="size-4" strokeWidth={1.75} />
-        </button>
+          <PanelLeftOpen className="size-4" />
+        </Button>
       </div>
     );
   }
@@ -135,20 +118,19 @@ function Brand({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => vo
       <Link
         to="/"
         aria-label="PACE 首页"
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-[7px] focus-visible:outline-none"
+        className="flex h-8 min-w-0 flex-1 items-center rounded-icon focus-visible:outline-none"
       >
-        <Command aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.75} />
-        <span className="truncate text-sm font-medium tracking-[0.14em] text-fg">PACE</span>
+        <Brand />
       </Link>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
         aria-label="收起侧栏"
         aria-pressed={false}
         onClick={onToggle}
-        className="flex size-8 shrink-0 items-center justify-center rounded-[7px] text-muted transition-colors duration-150 hover:bg-hover hover:text-fg focus-visible:outline-none"
+        className="size-8 rounded-icon p-0 hover:bg-hover"
       >
-        <PanelLeftClose className="size-4" strokeWidth={1.75} />
-      </button>
+        <PanelLeftClose className="size-4" />
+      </Button>
     </div>
   );
 }
@@ -176,7 +158,7 @@ function SidebarLink({
       aria-current={active ? 'page' : undefined}
       className={cn(
         'flex h-8 items-center gap-2.5 text-sm transition-colors duration-150 focus-visible:outline-none',
-        collapsed ? 'w-8 justify-center' : 'rounded-[9px] px-2.5',
+        collapsed ? 'w-8 justify-center' : 'rounded-item px-2.5',
         collapsed
           ? ''
           : active
@@ -189,11 +171,11 @@ function SidebarLink({
         className={cn(
           'flex shrink-0 items-center justify-center transition-colors duration-150',
           collapsed
-            ? cn('size-8 rounded-[6px]', active ? 'bg-selected' : 'group-hover/nav:bg-hover')
+            ? cn('size-8 rounded-tag', active ? 'bg-selected' : 'group-hover/nav:bg-hover')
             : 'size-4',
         )}
       >
-        <Icon className={collapsed ? 'size-5' : 'size-4'} strokeWidth={1.75} aria-hidden="true" />
+        <Icon className={collapsed ? 'size-5' : 'size-4'} aria-hidden="true" />
       </span>
       {collapsed ? (
         <span className="sr-only">{label}</span>
@@ -206,11 +188,7 @@ function SidebarLink({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent
-        side="right"
-        sideOffset={8}
-        className="rounded-[7px] bg-ink px-2 py-1 text-2xs text-white"
-      >
+      <TooltipContent side="right" sideOffset={8}>
         {label}
       </TooltipContent>
     </Tooltip>
@@ -229,30 +207,30 @@ function UserMenu({ username }: { username: string }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="flex h-8 items-center gap-2 rounded-[7px] px-2 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none data-[state=open]:bg-sunken focus-visible:ring-2 focus-visible:ring-fg"
+        <Button
+          variant="ghost"
+          className="gap-2 rounded-icon px-2 text-xs data-[state=open]:bg-sunken"
         >
           <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted">
-            <User className="size-3" strokeWidth={1.75} />
+            <User className="size-3" />
           </span>
           <span className="hidden max-w-32 truncate sm:block">{username}</span>
-        </button>
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
         sideOffset={8}
-        className="w-48 rounded-[7px] border border-line bg-surface p-1 shadow-overlay"
+        className="w-48 rounded-icon border border-line bg-surface p-1 shadow-overlay"
       >
         <div className="border-b border-line px-2.5 py-2">
           <div className="truncate text-xs text-fg">{username}</div>
           <div className="text-2xs text-subtle">管理员</div>
         </div>
         <DropdownMenuItem
-          className="mt-1 flex w-full items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken focus:text-fg"
+          className="mt-1 flex w-full items-center gap-2 rounded-icon px-2.5 py-1.5 text-xs text-muted transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken focus:text-fg"
           onSelect={() => void logout()}
         >
-          <LogOut className="size-3.5" strokeWidth={1.75} />
+          <LogOut className="size-3.5" />
           退出登录
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -272,10 +250,12 @@ export function AppShell() {
   }, [me.data, navigate]);
 
   useEffect(() => {
-    const current = allNavItems.find((item) =>
+    const flat: { to: string; label: string }[] = [overviewNav];
+    for (const group of nav) flat.push(...group.items);
+    const current = flat.find((item) =>
       item.to === '/' ? pathname === '/' : pathname.startsWith(item.to),
     );
-    document.title = current ? `${current.title} · PACE` : 'PACE';
+    document.title = current ? `${current.label} · PACE` : 'PACE';
   }, [pathname]);
 
   if (me.isPending) {
@@ -325,11 +305,18 @@ export function AppShell() {
       className={cn(
         'group/nav flex h-full shrink-0 flex-col overflow-hidden',
         // 实测：展开 272 / 收起 68，宽高与内边距一起过渡 160ms。
-        drawer ? 'w-[294px] px-3' : collapsed ? 'w-[68px] px-[18px] py-4' : 'w-[272px] px-3 py-4',
+        drawer
+          ? 'w-[294px] px-3'
+          : collapsed
+            ? 'w-(--sidebar-collapsed) p-(--sidebar-pad-collapsed)'
+            : 'w-(--sidebar-width) p-(--sidebar-pad)',
       )}
       style={{ transition: 'width 160ms var(--ease-out-soft), padding 160ms var(--ease-out-soft)' }}
     >
-      <Brand collapsed={drawer ? false : collapsed} onToggle={() => setCollapsed(!collapsed)} />
+      <SidebarBrand
+        collapsed={drawer ? false : collapsed}
+        onToggle={() => setCollapsed(!collapsed)}
+      />
       <nav aria-label="主导航" className="mt-[18px] flex-1 overflow-y-auto">
         <SidebarLink
           to={overviewNav.to}
@@ -367,21 +354,16 @@ export function AppShell() {
         ) : (
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 aria-label={`账户 ${me.data.username ?? 'admin'}`}
-                className="flex size-8 items-center justify-center rounded-full bg-sunken text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
                 onClick={() => setCollapsed(false)}
+                className="size-8 rounded-full bg-sunken p-0 hover:bg-hover"
               >
-                <User className="size-4" strokeWidth={1.75} />
-              </button>
+                <User className="size-4" />
+              </Button>
             </TooltipTrigger>
-            <TooltipContent
-              side="right"
-              className="rounded-[7px] bg-ink px-2 py-1 text-2xs text-white"
-            >
-              {me.data.username ?? 'admin'}
-            </TooltipContent>
+            <TooltipContent side="right">{me.data.username ?? 'admin'}</TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -409,31 +391,35 @@ export function AppShell() {
             className="w-[294px] max-w-none gap-0 border-r border-line bg-surface p-0 shadow-overlay sm:max-w-none lg:hidden"
           >
             <SheetTitle className="sr-only">导航</SheetTitle>
-            <SheetClose
-              aria-label="关闭导航"
-              className="absolute right-3 top-4 z-10 rounded-[7px] p-1.5 text-subtle hover:bg-hover hover:text-fg focus-visible:outline-none"
-            >
-              <X className="size-4" strokeWidth={1.75} />
+            <SheetClose asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="关闭导航"
+                className="absolute right-3 top-4 z-10 rounded-icon text-subtle hover:bg-hover"
+              >
+                <X className="size-4" />
+              </Button>
             </SheetClose>
             {sidebar(true)}
           </SheetContent>
         </Sheet>
 
-        <div className="mr-1 mb-1 mt-1 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[16px] bg-surface outline outline-1 -outline-offset-1 outline-shell-line">
+        <div className="mr-1 mb-1 mt-1 flex min-w-0 flex-1 flex-col overflow-hidden rounded-shell bg-surface outline outline-1 -outline-offset-1 outline-shell-line">
           {/*
            * 桌面端没有外壳自己的顶栏：参考页白面板里就是页面内容的第一行。
            * 移动端才需要这一行来放抽屉入口，页面标题由各页的 PageHeader 负责。
            */}
           <header className="flex h-11 shrink-0 items-center gap-3 px-3 lg:hidden">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               aria-label="打开导航"
               aria-expanded={mobileOpen}
-              className="-ml-1 rounded-[7px] p-1.5 text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
               onClick={() => setMobileOpen(true)}
+              className="-ml-1 rounded-icon p-1.5 hover:bg-hover"
             >
-              <Menu className="size-5" strokeWidth={1.75} />
-            </button>
+              <Menu className="size-5" />
+            </Button>
           </header>
 
           <main

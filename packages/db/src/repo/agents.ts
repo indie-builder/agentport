@@ -1,10 +1,11 @@
 import { AppError } from '@agentport/core';
 import type { Agent, AgentInput } from '@agentport/shared';
-import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentServers, agentSkills, agents, servers, skills } from '../schema.js';
 import { insertAgentVersion, retryOnVersionConflict, type Tx } from './agent-versions.js';
+import { notStale } from './freshness.js';
 
 export type AgentRow = typeof agents.$inferSelect;
 
@@ -118,10 +119,7 @@ export async function updateAgent(
       const where =
         expectedUpdatedAt === undefined
           ? eq(agents.id, id)
-          : and(
-              eq(agents.id, id),
-              sql`date_trunc('milliseconds', ${agents.updatedAt}) = date_trunc('milliseconds', ${expectedUpdatedAt}::timestamptz)`,
-            );
+          : and(eq(agents.id, id), notStale(agents.updatedAt, expectedUpdatedAt));
       const [row] = await tx
         .update(agents)
         .set({ ...patch, updatedAt: new Date() })

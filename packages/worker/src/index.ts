@@ -7,6 +7,7 @@ import {
   hashMcpToken,
   installProcessGuards,
   renderWorkspace,
+  toMcpJsonEntry,
   toWorkspaceInput,
   WORKSPACE_DIR_MODE,
   WORKSPACE_FILE_MODE,
@@ -17,6 +18,7 @@ import {
   type ChatEvent,
   EVAL_RUNS_QUEUE,
   evalRunJobSchema,
+  serverInputSchema,
   wireFailureKind,
 } from '@agentport/shared';
 import { Worker } from 'bullmq';
@@ -59,17 +61,13 @@ if (config.SANDBOX_EGRESS === 'none') {
   logger.warn(
     'SANDBOX_EGRESS=none: 沙盒无网络，HTTP MCP server、平台 /mcp 端点与模型 API 都将不可用',
   );
-} else if (
-  config.SANDBOX_EGRESS === 'proxy' &&
-  !process.env.HTTPS_PROXY &&
-  !process.env.HTTP_PROXY
-) {
+} else if (config.SANDBOX_EGRESS === 'proxy' && !config.HTTPS_PROXY && !config.HTTP_PROXY) {
   logger.warn('SANDBOX_EGRESS=proxy but HTTPS_PROXY/HTTP_PROXY is unset: egress stays open');
 }
 
 /** proxy 模式没配代理时实际按 open 跑：别让日志声称在走代理。 */
 const sandboxEgress =
-  config.SANDBOX_EGRESS === 'proxy' && !process.env.HTTPS_PROXY && !process.env.HTTP_PROXY
+  config.SANDBOX_EGRESS === 'proxy' && !config.HTTPS_PROXY && !config.HTTP_PROXY
     ? 'open'
     : config.SANDBOX_EGRESS;
 
@@ -84,28 +82,6 @@ const provider = new DockerSandboxProvider({
 type ServerRow = typeof schema.servers.$inferSelect;
 type AgentRow = typeof schema.agents.$inferSelect;
 
-function str(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
-
-function strArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
-}
-
-function strRecord(value: unknown): Record<string, string> {
-  if (typeof value !== 'object' || value === null) return {};
-  const out: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry === 'string') out[key] = entry;
-  }
-  return out;
-}
-
-/**
- * 把 DB 中的 server 渲染成 `.mcp.json` 条目。
- * generated server 的 URL 指向平台自身，必须换成本次运行可达的沙盒视角地址；
- * stdio/env 与 headers 里的密钥仅以加密列存在，运行时解密后注入。
- */
 function toEntry(
   server: ServerRow,
   apiUrl: string,
@@ -113,33 +89,22 @@ function toEntry(
   runId: string,
   runToken: string,
 ): McpJsonEntry {
-  // 密钥只存在加密列里；运行时必须在这里解密注入，否则 .mcp.json 会丢 env/headers。
   const secrets = server.secretsEncrypted ? decryptSecrets(server.secretsEncrypted, secretKey) : {};
-  const serverConfig = server.config;
-  if (server.kind === 'stdio') {
-    return {
-      command: str(serverConfig.command) ?? '',
-      args: strArray(serverConfig.args),
-      env: { ...strRecord(serverConfig.env), ...secrets },
-    };
-  }
-  if (server.kind === 'http') {
-    return {
-      type: 'http',
-      url: str(serverConfig.url) ?? '',
-      headers: { ...strRecord(serverConfig.headers), ...secrets },
-    };
-  }
-  return {
-    type: 'http',
-    url: `${apiUrl}/mcp/${server.id}`,
-    // 平台 MCP 端点靠这个 header 识别 run，才能查到该 run 的工具审批。
-    headers: {
-      // 短期 token：只在本 run 有效，run 结束即被清空；长期 token 不落工作区。
-      Authorization: `Bearer ${runToken}`,
-      'x-agentport-run-id': runId,
-    },
-  };
+  const input = serverInputSchema.parse({
+    ...server.config,
+    name: server.name,
+    description: server.description,
+    kind: server.kind,
+  });
+  const entry = toMcpJsonEntry(
+    input,
+    input.kind === 'generated'
+      ? { Authorization: `Bearer ${runToken}`, 'x-agentport-run-id': runId }
+      : secrets,
+  );
+  return input.kind === 'generated' && 'url' in entry
+    ? { ...entry, url: `${apiUrl}/mcp/${server.id}` }
+    : entry;
 }
 
 /** 每次 run 重写工作区：文件是 DB 的只读快照，prompt 只走 stdin。 */
@@ -257,10 +222,10 @@ function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
   // proxy 模式：把宿主上的代理地址传给沙盒，仍由容器自行出站。
   if (sandboxEgress === 'proxy') {
     for (const key of ['HTTPS_PROXY', 'HTTP_PROXY'] as const) {
-      const value = process.env[key];
+      const value = config[key];
       if (value) env[key] = toHostUrl(value);
     }
-    const noProxy = process.env.NO_PROXY ?? process.env.no_proxy;
+    const noProxy = config.NO_PROXY ?? config.no_proxy;
     if (noProxy) env.NO_PROXY = noProxy;
   }
   return env;

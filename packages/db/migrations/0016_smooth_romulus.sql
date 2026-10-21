@@ -1,0 +1,2 @@
+CREATE INDEX "agent_runs_model_token_idx" ON "agent_runs" USING btree ("model_token_hash") WHERE "agent_runs"."model_token_hash" is not null;--> statement-breakpoint
+ALTER TABLE "agent_runs" DROP COLUMN "approvals";

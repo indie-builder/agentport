@@ -1,7 +1,8 @@
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { Activity, Command, FileCode2, ShieldCheck } from 'lucide-react';
+import { Activity, FileCode2, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
+import { Brand } from '../components/brand.js';
 import { Button } from '../components/ui/button.js';
 import { FieldError, Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
@@ -26,21 +27,6 @@ const facts = [
     body: '内置工具默认禁用，密钥不进沙箱，工具按需审批。',
   },
 ] as const;
-
-/** 品牌标记，与侧栏 Brand 同一套：lucide 线框 + 7px 方标 + 12.5px 字标。 */
-function Brand() {
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        aria-hidden="true"
-        className="flex size-7 shrink-0 items-center justify-center rounded-icon bg-ink text-white"
-      >
-        <Command className="size-4" strokeWidth={1.75} />
-      </span>
-      <span className="text-[12.5px] font-medium tracking-[0.14em] text-fg">PACE</span>
-    </div>
-  );
-}
 
 export function LoginPage() {
   const navigate = useNavigate();

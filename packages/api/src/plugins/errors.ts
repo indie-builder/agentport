@@ -146,3 +146,16 @@ export function reject(reply: FastifyReply, code: ErrorCode, message: string) {
   const err = new AppError(code, message);
   return reply.status(err.status).send(problem(reply.request.id, err));
 }
+
+/**
+ * drizzle 把 pg 错误包在 DrizzleQueryError.cause 里，顶层没有 code；
+ * 唯一约束（23505）与外键（23503）冲突都要沿 cause 链查。
+ */
+export function isPgCode(err: unknown, code: string): boolean {
+  let cause: unknown = err;
+  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
+    if ('code' in cause && cause.code === code) return true;
+    cause = 'cause' in cause ? cause.cause : undefined;
+  }
+  return false;
+}

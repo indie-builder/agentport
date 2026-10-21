@@ -13,6 +13,7 @@ import {
   formatDateTime,
   formatDuration,
   formatTokens,
+  runStatusLabel,
   shortId,
 } from '../lib/format.js';
 import { useApproveRun, useRerun, useRun, useRunApprovals } from '../lib/queries.js';
@@ -175,7 +176,7 @@ export function RunDetailPage() {
           aria-label="返回运行列表"
           className="rounded-icon p-1.5 text-subtle transition-colors hover:bg-hover hover:text-fg"
         >
-          <ArrowLeft className="size-4" strokeWidth={1.75} />
+          <ArrowLeft className="size-4" />
         </Link>
         <PageHeader
           title={`运行 ${shortId(detail.id)}`}
@@ -213,7 +214,7 @@ export function RunDetailPage() {
                 aria-busy={rerunMutation.isPending}
                 onClick={() => void rerun()}
               >
-                <RotateCcw className="size-4" strokeWidth={1.75} />
+                <RotateCcw className="size-4" />
                 {rerunMutation.isPending ? '提交中…' : '重跑'}
               </Button>
             </>
@@ -228,7 +229,7 @@ export function RunDetailPage() {
         >
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-fg">运行{failureLabel(detail.status)}</div>
+            <div className="text-sm font-medium text-fg">运行{runStatusLabel[detail.status]}</div>
             <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted">
               {detail.error}
             </pre>
@@ -295,11 +296,7 @@ export function RunDetailPage() {
                       <span className="w-5 shrink-0 text-right font-mono text-2xs tabular-nums text-subtle">
                         {index + 1}
                       </span>
-                      <Icon
-                        aria-hidden="true"
-                        className={cn('size-4 shrink-0', meta.tone)}
-                        strokeWidth={1.75}
-                      />
+                      <Icon aria-hidden="true" className={cn('size-4 shrink-0', meta.tone)} />
                       <span className="min-w-0 flex-1">
                         <span
                           className={cn(
@@ -355,12 +352,6 @@ export function RunDetailPage() {
       </section>
     </Page>
   );
-}
-
-function failureLabel(status: string): string {
-  if (status === 'timeout') return '超时';
-  if (status === 'cancelled') return '已取消';
-  return '失败';
 }
 
 /** 摘要读数：12px 弱标签 + 等宽数字，跟在标题后，不另起一块。 */

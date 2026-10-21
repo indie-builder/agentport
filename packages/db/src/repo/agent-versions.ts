@@ -1,6 +1,6 @@
 import { AppError } from '@agentport/core';
 import type { Agent } from '@agentport/shared';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentVersions } from '../schema.js';
@@ -92,7 +92,7 @@ export async function getAgentVersion(
   const [row] = await db
     .select()
     .from(agentVersions)
-    .where(sql`${agentVersions.agentId} = ${agentId} and ${agentVersions.version} = ${version}`)
+    .where(and(eq(agentVersions.agentId, agentId), eq(agentVersions.version, version)))
     .limit(1);
   return row ?? null;
 }

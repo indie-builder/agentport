@@ -88,6 +88,10 @@ echo "依赖就绪"
 if [ "$REBUILD" = 1 ] || ! docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1; then
   echo "==> 构建沙盒镜像 $SANDBOX_IMAGE"
   pnpm --filter @agentport/sandbox build || fail "构建 sandbox dist 失败（先运行 pnpm install）"
+  # runner 在 stdin 边界用 @agentport/shared 校验任务，镜像需要它的编译产物。
+  pnpm --filter @agentport/shared build || fail "构建 shared dist 失败"
+  rm -rf packages/sandbox/shared
+  cp -R packages/shared/dist packages/sandbox/shared
   docker build -t "$SANDBOX_IMAGE" packages/sandbox || fail "构建沙盒镜像失败"
 else
   echo "==> 沙盒镜像已存在，跳过构建（需要重建时加 --rebuild）"

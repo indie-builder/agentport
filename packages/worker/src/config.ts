@@ -15,6 +15,10 @@ const envSchema = z.object({
   SANDBOX_IMAGE: z.string().min(1).default('agentport/sandbox:dev'),
   /** open=bridge；none=断网；proxy=仍用 bridge，由 HTTPS_PROXY 指向宿主代理。 */
   SANDBOX_EGRESS: z.enum(['open', 'none', 'proxy']).default('proxy'),
+  HTTPS_PROXY: z.string().optional(),
+  HTTP_PROXY: z.string().optional(),
+  NO_PROXY: z.string().optional(),
+  no_proxy: z.string().optional(),
   SANDBOX_MEMORY: z
     .string()
     .regex(/^[1-9]\d*[bkmg]?$/i, 'expected a docker memory value such as 1g')
