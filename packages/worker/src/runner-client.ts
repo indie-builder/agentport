@@ -81,6 +81,30 @@ const MAX_LINE_BYTES = 1024 * 1024;
 /** 单 run 收集上限：超出后只保留终态，不再转发事件。 */
 const MAX_EVENTS = 2_000;
 const MAX_EVENT_BYTES = 32 * 1024 * 1024;
+/** 失败时保留的 stderr 上限：2KB 常常只剩最后一行，16KB 才能看到启动错误。 */
+const STDERR_KEEP_CHARS = 16 * 1024;
+
+interface StderrTap {
+  text: string;
+  /** 超出上限被丢弃的字符数；非 0 时取出的片段要带截断标记。 */
+  dropped: number;
+}
+
+function appendStderr(tap: StderrTap, chunk: string): void {
+  tap.text += chunk;
+  const excess = tap.text.length - STDERR_KEEP_CHARS;
+  if (excess > 0) {
+    tap.dropped += excess;
+    tap.text = tap.text.slice(excess);
+  }
+}
+
+/** 脱敏后取尾部；截断时必须说明「前面还有」，否则读者会以为这就是全部。 */
+function stderrExcerpt(tap: StderrTap, max: number): string {
+  const body = redactSecrets(tap.text.slice(-max).trim());
+  if (!body) return '';
+  return tap.dropped > 0 || tap.text.length > max ? `[…stderr truncated]\n${body}` : body;
+}
 
 let redisUrl = 'redis://localhost:6379';
 
@@ -204,7 +228,7 @@ function runInSandboxEffect(
     let reportedSessionId: string | undefined;
     let reportedInput: number | undefined;
     let reportedOutput: number | undefined;
-    let stderrTail = '';
+    const stderrTap: StderrTap = { text: '', dropped: 0 };
     let eventBytes = 0;
     let overflowed = false;
     let child: Sandbox['child'] | undefined;
@@ -273,7 +297,7 @@ function runInSandboxEffect(
 
       proc.stderr.setEncoding('utf8');
       proc.stderr.on('data', (chunk: string) => {
-        stderrTail = `${stderrTail}${chunk}`.slice(-2_000);
+        appendStderr(stderrTap, chunk);
         for (const line of chunk.split('\n')) {
           if (line.trim().length > 0) {
             logger.debug({ runId, sandbox: sandbox.id }, redactSecrets(line));
@@ -432,12 +456,21 @@ function runInSandboxEffect(
     }
 
     if (reportedStatus === undefined) {
-      const suffix = redactSecrets(stderrTail.trim());
+      // 日志留 16KB 供排查；agent_runs.error 只取尾部 2KB，避免把整段 stderr 带进页面。
+      const suffix = stderrExcerpt(stderrTap, STDERR_KEEP_CHARS);
+      const persisted = stderrExcerpt(stderrTap, 2_000);
+      if (suffix) {
+        // 默认 info 级下 debug 不可见，而失败现场只有 stderr 能说明原因。
+        logger.warn(
+          { runId, sandbox: sandbox.id, exitCode: stopped.signal.code, stderr: suffix },
+          'sandbox stderr on abnormal exit',
+        );
+      }
       const detail =
         stopped.signal.code === 0
           ? 'sandbox exited without run_finished'
           : `sandbox exited with code ${String(stopped.signal.code)}${stopped.signal.signal ? ` (${stopped.signal.signal})` : ''}`;
-      const error = suffix ? `${detail}: ${suffix}` : detail;
+      const error = persisted ? `${detail}: ${persisted}` : detail;
       return {
         status: 'failed',
         sandboxId: sandbox.id,
@@ -445,6 +478,16 @@ function runInSandboxEffect(
         failure: new RunFailure(reasonFor(stopped.signal), error),
         events,
       };
+    }
+    if (reportedStatus !== 'succeeded') {
+      // runner 自己报了失败：SDK 的 stderr 往往有更具体的那一行。
+      const suffix = stderrExcerpt(stderrTap, STDERR_KEEP_CHARS);
+      if (suffix) {
+        logger.warn(
+          { runId, sandbox: sandbox.id, status: reportedStatus, stderr: suffix },
+          'sandbox stderr on failed run',
+        );
+      }
     }
     return {
       status: reportedStatus,

@@ -134,6 +134,13 @@
       "when": 1792551600000,
       "tag": "0018_last_message_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792555134412,
+      "tag": "0019_quiet_hobgoblin",
+      "breakpoints": true
     }
   ]
 }

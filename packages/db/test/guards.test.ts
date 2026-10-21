@@ -70,7 +70,10 @@ describe.skipIf(!ready)('db repo guards', () => {
     expect(row?.status).toBe('failed');
     expect(row?.passed).toBe(0);
 
-    const result = { evalRunId, caseId, runId: 'run_x', passed: true, output: '' };
+    // 新外键要求 run 真实存在：造一条属于本测试的 run。
+    const realRunId = newId('run');
+    await chat.createRun(db, { id: realRunId, conversationId, agentId });
+    const result = { evalRunId, caseId, runId: realRunId, passed: true, output: '' };
     await evalRepo.addResult(db, { id: newId('evalResult'), ...result });
     await evalRepo.addResult(db, { id: newId('evalResult'), ...result });
 

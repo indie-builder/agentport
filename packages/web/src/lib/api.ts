@@ -223,13 +223,14 @@ export interface EvalRun {
 }
 
 export interface EvalResult {
-  caseId: string;
+  /** 用例或运行被清理后置空，历史结果仍然保留。 */
+  caseId: string | null;
   name: string;
   prompt: string;
   expectation: string;
   passed: boolean;
   output: string;
-  runId: string;
+  runId: string | null;
 }
 
 export interface EvalRunDetail {

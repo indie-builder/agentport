@@ -3,6 +3,7 @@ import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -27,7 +28,10 @@ export const servers = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('servers_name_idx').on(t.name)],
+  (t) => [
+    uniqueIndex('servers_name_idx').on(t.name),
+    check('servers_kind_check', sql`${t.kind} in ('stdio', 'http', 'generated')`),
+  ],
 );
 
 export const apiTools = pgTable(
@@ -61,6 +65,7 @@ export const agents = pgTable(
     model: text('model').notNull(),
     description: text('description').notNull().default(''),
     systemPromptMd: text('system_prompt_md').notNull().default(''),
+    /** [] 继承所有已绑定 MCP server 的工具；非空为显式自动批准规则，禁用用 disallowedTools。 */
     allowedTools: jsonb('allowed_tools').$type<string[]>().notNull().default([]),
     disallowedTools: jsonb('disallowed_tools').$type<string[]>().notNull().default([]),
     permissionMode: text('permission_mode').notNull().default('dontAsk'),
@@ -77,7 +82,18 @@ export const agents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('agents_slug_idx').on(t.slug), index('agents_parent_idx').on(t.parentId)],
+  (t) => [
+    uniqueIndex('agents_slug_idx').on(t.slug),
+    index('agents_parent_idx').on(t.parentId),
+    check(
+      'agents_permission_mode_check',
+      sql`${t.permissionMode} in ('dontAsk', 'plan', 'default', 'acceptEdits')`,
+    ),
+    check(
+      'agents_allowed_tools_check',
+      sql`jsonb_typeof(${t.allowedTools}) = 'array' and not jsonb_path_exists(${t.allowedTools}, '$[*] ? (@.type() != "string")')`,
+    ),
+  ],
 );
 
 export const skills = pgTable(
@@ -181,7 +197,7 @@ export const messages = pgTable(
       .references(() => conversations.id, { onDelete: 'cascade' }),
     role: text('role').notNull(),
     content: jsonb('content').$type<unknown>().notNull(),
-    /** 可空：没有 run 的 user 消息；孤儿值由迁移清理。 */
+    /** 可空：用户输入或分支副本；分支副本由会话级保留规则保护。 */
     runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -189,6 +205,7 @@ export const messages = pgTable(
     // 会话消息按 (created_at, id) 排序，复合索引让 listMessages 免排序。
     index('messages_conversation_idx').on(t.conversationId, t.createdAt, t.id),
     index('messages_run_idx').on(t.runId),
+    check('messages_role_check', sql`${t.role} in ('user', 'assistant', 'tool')`),
   ],
 );
 
@@ -229,6 +246,10 @@ export const agentRuns = pgTable(
   },
   (t) => [
     index('agent_runs_conversation_idx').on(t.conversationId),
+    check(
+      'agent_runs_status_check',
+      sql`${t.status} in ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout')`,
+    ),
     // 模型代理每个请求都按 hash 查一次；只索引仍持有 token 的行。
     index('agent_runs_model_token_idx').on(t.modelTokenHash).where(isNotNull(t.modelTokenHash)),
     // 列表与概览都按 started_at desc nulls last 排序；agentId 过滤时走复合索引。
@@ -304,6 +325,7 @@ export const evalRuns = pgTable(
   },
   (t) => [
     index('eval_runs_agent_idx').on(t.agentId),
+    check('eval_runs_status_check', sql`${t.status} in ('running', 'succeeded', 'failed')`),
     // 同一智能体同时最多一个在跑的评估；DB 层兜底 API 的 409 检查并发竞态。
     uniqueIndex('eval_runs_agent_running_idx').on(t.agentId).where(eq(t.status, 'running')),
   ],
@@ -316,10 +338,8 @@ export const evalResults = pgTable(
     evalRunId: text('eval_run_id')
       .notNull()
       .references(() => evalRuns.id, { onDelete: 'cascade' }),
-    caseId: text('case_id')
-      .notNull()
-      .references(() => evalCases.id, { onDelete: 'cascade' }),
-    runId: text('run_id').notNull(),
+    caseId: text('case_id').references(() => evalCases.id, { onDelete: 'set null' }),
+    runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     passed: boolean('passed').notNull(),
     output: text('output').notNull().default(''),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

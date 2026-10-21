@@ -441,11 +441,18 @@ const worker = new Worker(
     });
 
     // 把本次 run 的 assistant 文本与工具调用写入会话，刷新后历史才完整。
-    await persistRunMessages(db, {
-      conversationId,
-      runId,
-      events: outcome.events,
-    });
+    // 写库失败不能抛出：抛出会让 BullMQ 重跑整个沙盒并最终只留 reconcile 的
+    // "worker lost track of this run"，真实原因反而被覆盖。记日志，继续写终态。
+    try {
+      await persistRunMessages(db, {
+        conversationId,
+        runId,
+        events: outcome.events,
+      });
+    } catch (err) {
+      // agent_runs.error 说明的是沙盒失败原因；消息丢失是另一件事，只进日志。
+      logger.error({ err, runId }, 'failed to persist run messages');
+    }
 
     const retryable = isRetryable(outcome);
     if (retryable && job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {

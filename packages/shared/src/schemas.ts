@@ -50,11 +50,16 @@ export const runStepSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
+/** 失败分类：infra=平台/沙箱基础设施，agent=模型或工具，sandbox=容器异常退出。 */
+export const runErrorKindSchema = z.enum(['cancelled', 'timeout', 'sandbox', 'agent', 'infra']);
+
 export const runDetailSchema = z.object({
   run: runListItemSchema.extend({
     conversationId: z.string(),
     sessionId: z.string().nullable(),
     sandboxId: z.string().nullable(),
+    // optional：db 的 runColumns 尚未取该列，缺失时响应序列化不能失败。
+    errorKind: runErrorKindSchema.nullable().optional(),
   }),
   steps: z.array(runStepSchema),
   conversation: z.object({ id: z.string(), agentId: z.string(), title: z.string() }),
@@ -118,13 +123,14 @@ export const evalRunSchema = z.object({
 export type EvalRun = z.infer<typeof evalRunSchema>;
 
 export const evalResultSchema = z.object({
-  caseId: z.string(),
+  // 用例或运行被清理后，结果仍保留：引用置空而不是级联删除历史。
+  caseId: z.string().nullable(),
   name: z.string(),
   prompt: z.string(),
   expectation: z.string(),
   passed: z.boolean(),
   output: z.string(),
-  runId: z.string(),
+  runId: z.string().nullable(),
 });
 
 export const evalRunDetailSchema = z.object({

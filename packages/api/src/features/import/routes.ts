@@ -31,7 +31,9 @@ type ImportedServer = z.infer<typeof importedServerSchema>;
 
 const importBodySchema = z.object({
   format: z.literal('agentport/agent@1'),
-  agent: agentInputSchema,
+  agent: agentInputSchema.extend({
+    permissionMode: z.enum(['dontAsk', 'plan', 'default', 'acceptEdits']).default('dontAsk'),
+  }),
   servers: z.array(importedServerSchema).max(100).default([]),
   skills: z.array(skillInputSchema).max(100).default([]),
 });

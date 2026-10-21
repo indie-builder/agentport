@@ -323,7 +323,11 @@ function EvalRunResults({ id }: { id: string }) {
   return (
     <ul>
       {results.map((result) => (
-        <li key={result.caseId} className="border-b border-line py-4 last:border-b-0 last:pb-0">
+        <li
+          // 用例被删除后 caseId 为 null：退回「名称 + 提示词」，两者相同即同一条用例。
+          key={result.caseId ?? `${result.name}\u0000${result.prompt}`}
+          className="border-b border-line py-4 last:border-b-0 last:pb-0"
+        >
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={result.passed ? 'success' : 'danger'} className="rounded-[6px]">
               {result.passed ? '通过' : '未通过'}

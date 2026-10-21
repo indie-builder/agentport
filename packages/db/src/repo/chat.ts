@@ -196,6 +196,7 @@ export async function branchConversation(
         role: row.role,
         content: row.content,
         runId: null,
+        createdAt: row.createdAt,
       })),
     );
   }

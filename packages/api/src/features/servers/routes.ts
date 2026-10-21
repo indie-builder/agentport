@@ -218,7 +218,6 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const server = await getServerWithSecrets(app.db, request.params.id, key());
       if (!server) return notFound(reply, 'server');
-      const startedAt = Date.now();
       const result = await testConnection(
         server,
         app.config.NODE_ENV,
@@ -228,14 +227,26 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
               token: (await getMcpToken(app.db, server.id)) ?? '',
             }
           : undefined,
+        request.log,
       );
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'mcp.server.tested',
         target: server.id,
-        input: { kind: server.kind, name: server.name },
+        // 失败原因（含脱敏后的 stderr 摘要）进 digest：审计表没有 detail 列，
+        // 原文只有日志里有；这里保证「同一原因同一条审计」可被检索比对。
+        input: {
+          kind: server.kind,
+          name: server.name,
+          ...(result.ok
+            ? { tools: result.tools.length }
+            : {
+                error: result.error ?? 'connection failed',
+                ...(result.stderr ? { stderr: result.stderr } : {}),
+              }),
+        },
         status: result.ok ? 'ok' : 'error',
-        durationMs: Date.now() - startedAt,
+        durationMs: result.durationMs,
         requestId: request.id,
       });
       return serverTestResultSchema.parse(result);

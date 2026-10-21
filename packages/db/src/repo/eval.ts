@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { evalCases, evalResults, evalRuns } from '../schema.js';
 
@@ -131,13 +131,13 @@ export async function hasRunningRun(db: Database, agentId: string): Promise<bool
 }
 
 export interface EvalResultRow {
-  caseId: string;
+  caseId: string | null;
   name: string;
   prompt: string;
   expectation: string;
   passed: boolean;
   output: string;
-  runId: string;
+  runId: string | null;
 }
 
 export async function addResult(
@@ -165,15 +165,15 @@ export async function getRunDetail(
   const results = await db
     .select({
       caseId: evalResults.caseId,
-      name: evalCases.name,
-      prompt: evalCases.prompt,
-      expectation: evalCases.expectation,
+      name: sql<string>`coalesce(${evalCases.name}, 'Deleted case')`,
+      prompt: sql<string>`coalesce(${evalCases.prompt}, '')`,
+      expectation: sql<string>`coalesce(${evalCases.expectation}, '')`,
       passed: evalResults.passed,
       output: evalResults.output,
       runId: evalResults.runId,
     })
     .from(evalResults)
-    .innerJoin(evalCases, eq(evalCases.id, evalResults.caseId))
+    .leftJoin(evalCases, eq(evalCases.id, evalResults.caseId))
     .where(eq(evalResults.evalRunId, id))
     .orderBy(asc(evalResults.createdAt), asc(evalResults.id));
 

@@ -61,6 +61,15 @@ function handlerFor(app: FastifyInstance, serverId: string, runId: string | null
 
 const params = z.object({ serverId: z.string().min(1) });
 
+/** JSON-RPC tools/call 里的工具名；其他方法没有，也是唯一不读参数内容的来源。 */
+function toolNameOf(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null) return undefined;
+  const { method, params } = body as { method?: unknown; params?: unknown };
+  if (method !== 'tools/call' || typeof params !== 'object' || params === null) return undefined;
+  const name = (params as { name?: unknown }).name;
+  return typeof name === 'string' ? name : undefined;
+}
+
 export function registerMcpEndpoint(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   app.all(
@@ -95,9 +104,17 @@ export function registerMcpEndpoint(rawApp: FastifyInstance): void {
 
       // 交给 MCP 适配器自己读写原始 req/res，Fastify 不再参与响应。
       reply.hijack();
+      // 一次工具调用失败后要能在日志里对上具体哪个工具、哪个 run：
+      // 只记 serverId 时运维无从下手。tool 名来自 JSON-RPC 方法名，不含参数。
+      const fields = {
+        serverId,
+        tool: toolNameOf(request.body),
+        runId,
+        requestId: request.id,
+      };
       // 每个 HTTP 请求重建 handler，header 在请求边界读取一次，不依赖工厂回调时机。
       const nodeHandler = toNodeHandler(handlerFor(app, serverId, runId), {
-        onerror: (err) => app.log.error({ err, serverId }, 'mcp endpoint error'),
+        onerror: (err) => app.log.error({ err, ...fields }, 'mcp endpoint error'),
       });
       await runMcp(() =>
         nodeHandler(
