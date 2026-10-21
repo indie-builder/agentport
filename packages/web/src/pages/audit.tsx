@@ -5,7 +5,14 @@ import { Page, PageHeader, PageToolbar } from '../components/page.js';
 import { ErrorState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Input } from '../components/ui/input.js';
-import { Select } from '../components/ui/select.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js';
 import { StatusBadge } from '../components/ui/status-badge.js';
 import type { AuditEntry, AuditStatus } from '../lib/api.js';
 import {
@@ -138,17 +145,30 @@ export function AuditPage() {
           className="w-56"
         />
         <Select
-          aria-label="按状态过滤"
           value={status}
-          onValueChange={(next) =>
-            void navigate({
-              to: '/audit',
-              search: { ...search, status: next === 'all' ? undefined : (next as AuditStatus) },
-            })
-          }
-          className="w-32"
-          options={statusOptions}
-        />
+          onValueChange={(next) => {
+            if (next !== null) {
+              void navigate({
+                to: '/audit',
+                search: { ...search, status: next === 'all' ? undefined : (next as AuditStatus) },
+              });
+            }
+          }}
+          items={statusOptions}
+        >
+          <SelectTrigger aria-label="按状态过滤" className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {statusOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <span className="ml-auto hidden text-xs text-subtle md:block">
           登录与配置变更的长期记录；输入只保存摘要，不落原文。
         </span>

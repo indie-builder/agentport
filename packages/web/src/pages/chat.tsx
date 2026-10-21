@@ -45,7 +45,14 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from '../components/ui/message-scroller.js';
-import { Select } from '../components/ui/select.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js';
 import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
@@ -566,6 +573,8 @@ function ChatColumn({
   );
   const approvals = useMemo(() => ({ pending: approving, onApprove }), [approving, onApprove]);
 
+  const agentOptions = agents.map((item) => ({ value: item.id, label: item.name }));
+
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-shell bg-surface outline outline-1 outline-shell-line">
       {/* 顶部一行：移动端菜单 + 智能体选择器。没有标题、没有描述。 */}
@@ -583,12 +592,28 @@ function ChatColumn({
           选择智能体
         </label>
         <Select
-          id="chat-agent"
           value={agentId ?? ''}
-          onValueChange={onSwitchAgent}
-          options={agents.map((item) => ({ value: item.id, label: item.name }))}
-          className="w-auto max-w-56 gap-1.5 rounded-pill border-0 bg-hover px-3 text-xs leading-3 tracking-[-0.12px] [&>span:first-child]:truncate [&_svg]:size-4"
-        />
+          onValueChange={(next) => {
+            if (next !== null) onSwitchAgent(next);
+          }}
+          items={agentOptions}
+        >
+          <SelectTrigger
+            id="chat-agent"
+            className="w-auto max-w-56 gap-1.5 rounded-pill border-0 bg-hover px-3 text-xs leading-3 tracking-[-0.12px] [&>span:first-child]:truncate [&_svg]:size-4"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {agentOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </header>
 
       <MessagePane

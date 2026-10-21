@@ -8,10 +8,18 @@ import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../compone
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Dialog } from '../components/ui/app-dialog.js';
 import { Button } from '../components/ui/button.js';
-import { FieldError, FieldHint, RequiredMark } from '../components/ui/field.js';
+import { FieldDescription, FieldError } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
-import { Select } from '../components/ui/select.js';
+import { RequiredMark } from '../components/ui/required-mark.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js';
 import { StatusBadge } from '../components/ui/status-badge.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { EvalCase, EvalCaseInput, EvalRun } from '../lib/api.js';
@@ -154,6 +162,8 @@ export function EvalPage() {
           ? '先新建至少一个用例'
           : null;
 
+  const agentOptions = (agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }));
+
   return (
     <Page>
       <PageHeader
@@ -175,12 +185,25 @@ export function EvalPage() {
 
       <PageToolbar>
         <Select
-          aria-label="按智能体筛选"
-          className="w-56"
           value={effectiveAgentId ?? ''}
-          onValueChange={setAgentId}
-          options={(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }))}
-        />
+          onValueChange={(next) => {
+            if (next !== null) setAgentId(next);
+          }}
+          items={agentOptions}
+        >
+          <SelectTrigger aria-label="按智能体筛选" className="w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {agentOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <span className="text-sm text-subtle">
           判定：期望非空时检查输出包含该文本（不区分大小写）；为空时只要求有文本输出。
         </span>
@@ -487,7 +510,7 @@ function CaseDialog({
             onChange={(event) => set('expectation', event.target.value)}
             placeholder="输出中应出现的文本（不区分大小写）；留空则只要求有文本输出"
           />
-          <FieldHint>最小判定，不做语义判断；需要更严格时写更具体的片段。</FieldHint>
+          <FieldDescription>最小判定，不做语义判断；需要更严格时写更具体的片段。</FieldDescription>
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>

@@ -37,11 +37,19 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu.js';
 
-import { FieldError, FieldHint, RequiredMark } from '../components/ui/field.js';
+import { FieldDescription, FieldError } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
+import { RequiredMark } from '../components/ui/required-mark.js';
 import { SearchInput } from '../components/ui/search-input.js';
-import { Select } from '../components/ui/select.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js';
 import {
   Table,
   TableBody,
@@ -205,6 +213,13 @@ export function ServersPage() {
     });
   };
 
+  const kindOptions = [
+    { value: 'all', label: '全部来源' },
+    { value: 'stdio', label: kindMeta.stdio.label },
+    { value: 'http', label: kindMeta.http.label },
+    { value: 'generated', label: kindMeta.generated.label },
+  ];
+
   return (
     <Page>
       <PageHeader
@@ -213,17 +228,30 @@ export function ServersPage() {
         actions={
           <>
             <Select
-              aria-label="按来源筛选"
               value={kind}
-              onValueChange={(next) => setKind(next as KindFilter)}
-              options={[
-                { value: 'all', label: '全部来源' },
-                { value: 'stdio', label: kindMeta.stdio.label },
-                { value: 'http', label: kindMeta.http.label },
-                { value: 'generated', label: kindMeta.generated.label },
-              ]}
-              className="w-36 rounded-item border-transparent bg-chip hover:bg-hover"
-            />
+              onValueChange={(next) => {
+                if (next !== null) {
+                  setKind(next as KindFilter);
+                }
+              }}
+              items={kindOptions}
+            >
+              <SelectTrigger
+                aria-label="按来源筛选"
+                className="w-36 rounded-item border-transparent bg-chip hover:bg-hover"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {kindOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
             <SearchInput
               label="搜索 server"
               value={query}
@@ -575,9 +603,9 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
               aria-describedby="delete-server-confirm-hint"
               onChange={(event) => setTyped(event.target.value)}
             />
-            <FieldHint id="delete-server-confirm-hint">
+            <FieldDescription id="delete-server-confirm-hint">
               名称必须完全一致；误删后绑定的智能体不会自动恢复。
-            </FieldHint>
+            </FieldDescription>
           </div>
         ) : null}
       </div>
@@ -951,6 +979,15 @@ function ToolForm({
     );
   };
 
+  const methodOptions = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => ({
+    value: method,
+    label: method,
+  }));
+  const paramsOptions = [
+    { value: 'query', label: 'query' },
+    { value: 'body', label: 'body' },
+  ];
+
   return (
     <form
       className="grid gap-3 border-t border-line pt-5 sm:grid-cols-6"
@@ -986,14 +1023,27 @@ function ToolForm({
       <div className="space-y-1">
         <Label htmlFor={`tool-method-${serverId}`}>方法</Label>
         <Select
-          id={`tool-method-${serverId}`}
           value={form.method}
-          onValueChange={(next) => setForm({ ...form, method: next as ApiToolInput['method'] })}
-          options={['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => ({
-            value: method,
-            label: method,
-          }))}
-        />
+          onValueChange={(next) => {
+            if (next !== null) {
+              setForm({ ...form, method: next as ApiToolInput['method'] });
+            }
+          }}
+          items={methodOptions}
+        >
+          <SelectTrigger id={`tool-method-${serverId}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {methodOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-1.5 sm:col-span-2">
         <Label htmlFor={`tool-path-${serverId}`}>
@@ -1013,14 +1063,27 @@ function ToolForm({
       <div className="space-y-1">
         <Label htmlFor={`tool-params-${serverId}`}>参数位置</Label>
         <Select
-          id={`tool-params-${serverId}`}
           value={form.paramsIn}
-          onValueChange={(next) => setForm({ ...form, paramsIn: next as ApiToolInput['paramsIn'] })}
-          options={[
-            { value: 'query', label: 'query' },
-            { value: 'body', label: 'body' },
-          ]}
-        />
+          onValueChange={(next) => {
+            if (next !== null) {
+              setForm({ ...form, paramsIn: next as ApiToolInput['paramsIn'] });
+            }
+          }}
+          items={paramsOptions}
+        >
+          <SelectTrigger id={`tool-params-${serverId}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {paramsOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-1.5 sm:col-span-5">
         <Label htmlFor={`tool-desc-${serverId}`}>描述</Label>
@@ -1286,9 +1349,9 @@ function ServerFormDialog({
               {errors.name ? (
                 <FieldError id="server-name-error">{errors.name}</FieldError>
               ) : (
-                <FieldHint id="server-name-hint">
+                <FieldDescription id="server-name-hint">
                   小写字母、数字、- 和 _；会作为 .mcp.json 的 key。
-                </FieldHint>
+                </FieldDescription>
               )}
             </div>
 
@@ -1341,7 +1404,9 @@ function ServerFormDialog({
                     placeholder="TOKEN=…"
                     onChange={(event) => setForm({ ...form, pairs: event.target.value })}
                   />
-                  <FieldHint>保存后密钥只以 •••• 返回；保持 •••• 不动即沿用原值。</FieldHint>
+                  <FieldDescription>
+                    保存后密钥只以 •••• 返回；保持 •••• 不动即沿用原值。
+                  </FieldDescription>
                 </div>
               </>
             ) : (
@@ -1371,11 +1436,11 @@ function ServerFormDialog({
                   {urlError ? (
                     <FieldError id="server-url-error">{urlError}</FieldError>
                   ) : (
-                    <FieldHint id="server-url-hint">
+                    <FieldDescription id="server-url-hint">
                       {kind === 'http'
                         ? 'MCP 端点地址，平台直接与它通信。'
                         : '上游 API 的根地址；工具路径会拼在它后面。'}
-                    </FieldHint>
+                    </FieldDescription>
                   )}
                 </div>
                 <div className="space-y-1">

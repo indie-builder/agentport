@@ -62,13 +62,21 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu.js';
 
-import { FieldError, FieldHint, RequiredMark } from '../components/ui/field.js';
+import { FieldDescription, FieldError } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
 import { MultiSelect } from '../components/ui/multi-select.js';
+import { RequiredMark } from '../components/ui/required-mark.js';
 import { SearchInput } from '../components/ui/search-input.js';
 import { SegmentedTabs } from '../components/ui/segmented-tabs.js';
-import { Select } from '../components/ui/select.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js';
 import {
   Sheet,
   SheetClose,
@@ -711,6 +719,21 @@ function AgentEditor({
     limits: `${form.maxTurns} 轮 · $${form.maxBudgetUsd}`,
   };
 
+  const effortOptions = [
+    { value: '', label: '默认' },
+    { value: 'low', label: 'low' },
+    { value: 'medium', label: 'medium' },
+    { value: 'high', label: 'high' },
+    { value: 'xhigh', label: 'xhigh' },
+    { value: 'max', label: 'max' },
+  ];
+  const permissionOptions = [
+    { value: 'dontAsk', label: 'dontAsk — 拒绝未预批准' },
+    { value: 'plan', label: 'plan — 只规划不执行' },
+    { value: 'default', label: 'default — 标准权限' },
+    { value: 'acceptEdits', label: 'acceptEdits — 自动接受编辑' },
+  ];
+
   return (
     <div className="min-w-0">
       <div className="flex h-14 items-center gap-2.5">
@@ -894,9 +917,9 @@ function AgentEditor({
                     readOnly
                     aria-describedby="agent-slug-hint"
                   />
-                  <FieldHint id="agent-slug-hint">
+                  <FieldDescription id="agent-slug-hint">
                     创建后不可修改；子智能体文件名也是 .claude/agents/&lt;slug&gt;.md。
-                  </FieldHint>
+                  </FieldDescription>
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <div className="flex items-baseline justify-between gap-2">
@@ -957,7 +980,9 @@ function AgentEditor({
                       <option key={option.value} value={option.value} />
                     ))}
                   </datalist>
-                  <FieldHint>可以填任意网关模型 ID，下面是当前部署的建议值。</FieldHint>
+                  <FieldDescription>
+                    可以填任意网关模型 ID，下面是当前部署的建议值。
+                  </FieldDescription>
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-baseline justify-between gap-2">
@@ -965,20 +990,27 @@ function AgentEditor({
                     <FileTag>→ .claude/agents/&lt;slug&gt;.md · effort</FileTag>
                   </div>
                   <Select
-                    id="agent-effort"
                     value={form.effort ?? ''}
-                    onValueChange={(value) =>
-                      set('effort', value === '' ? undefined : (value as AgentInput['effort']))
-                    }
-                    options={[
-                      { value: '', label: '默认' },
-                      { value: 'low', label: 'low' },
-                      { value: 'medium', label: 'medium' },
-                      { value: 'high', label: 'high' },
-                      { value: 'xhigh', label: 'xhigh' },
-                      { value: 'max', label: 'max' },
-                    ]}
-                  />
+                    onValueChange={(value) => {
+                      if (value !== null) {
+                        set('effort', value === '' ? undefined : (value as AgentInput['effort']));
+                      }
+                    }}
+                    items={effortOptions}
+                  >
+                    <SelectTrigger id="agent-effort">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {effortOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </Section>
@@ -1133,22 +1165,30 @@ function AgentEditor({
                     <RuntimeTag />
                   </div>
                   <Select
-                    id="agent-perm"
-                    className="h-9 rounded-item"
                     value={form.permissionMode}
-                    onValueChange={(next) =>
-                      set('permissionMode', next as AgentInput['permissionMode'])
-                    }
-                    options={[
-                      { value: 'dontAsk', label: 'dontAsk — 拒绝未预批准' },
-                      { value: 'plan', label: 'plan — 只规划不执行' },
-                      { value: 'default', label: 'default — 标准权限' },
-                      { value: 'acceptEdits', label: 'acceptEdits — 自动接受编辑' },
-                    ]}
-                  />
-                  <FieldHint>
+                    onValueChange={(next) => {
+                      if (next !== null) {
+                        set('permissionMode', next as AgentInput['permissionMode']);
+                      }
+                    }}
+                    items={permissionOptions}
+                  >
+                    <SelectTrigger id="agent-perm" className="h-9 rounded-item">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {permissionOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>
                     auto 依赖模型分类器，平台无法审计，因此不开放。该值只传给 SDK，不写文件。
-                  </FieldHint>
+                  </FieldDescription>
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-baseline justify-between gap-2">
@@ -1172,10 +1212,10 @@ function AgentEditor({
                       每行只能有一个工具名或模式，不能包含空格。
                     </FieldError>
                   ) : (
-                    <FieldHint id="agent-allowed-tools-hint">
+                    <FieldDescription id="agent-allowed-tools-hint">
                       每行一个模式，例如 mcp__jsonplaceholder__get_user、mcp__crm__*。留空表示
                       「所有已绑定 server 的全部工具」。
-                    </FieldHint>
+                    </FieldDescription>
                   )}
                 </div>
               </div>
@@ -1224,10 +1264,10 @@ function AgentEditor({
                     );
                   })}
                 </div>
-                <FieldHint>
+                <FieldDescription>
                   默认全部禁用。放行状态 = 不在默认禁用名单且未被显式禁用，或在允许列表里；
                   有子智能体时 Agent/TaskStop 自动放行。runner 对 Bash/文件/网络工具仍有硬限制。
-                </FieldHint>
+                </FieldDescription>
               </div>
             </Section>
 
@@ -1318,9 +1358,9 @@ function AgentEditor({
                       请输入大于 0 的整数，或留空表示不设置。
                     </FieldError>
                   ) : (
-                    <FieldHint id="agent-thinking-hint">
+                    <FieldDescription id="agent-thinking-hint">
                       留空表示不设置；只传给 SDK，不写文件。
-                    </FieldHint>
+                    </FieldDescription>
                   )}
                 </div>
               </div>
@@ -1828,6 +1868,8 @@ function CreateAgentDialog({
     });
   };
 
+  const newModelOptions = modelOptions(form.model);
+
   return (
     <Dialog
       open
@@ -1862,9 +1904,9 @@ function CreateAgentDialog({
             {errors.slug ? (
               <FieldError id="new-agent-slug-error">{errors.slug}</FieldError>
             ) : (
-              <FieldHint id="new-agent-slug-hint">
+              <FieldDescription id="new-agent-slug-hint">
                 小写字母、数字、- 和 _；创建后不可修改。
-              </FieldHint>
+              </FieldDescription>
             )}
           </div>
           <div className="space-y-1.5">
@@ -1880,11 +1922,27 @@ function CreateAgentDialog({
         <div className="space-y-1.5">
           <Label htmlFor="new-agent-model">模型</Label>
           <Select
-            id="new-agent-model"
             value={form.model}
-            onValueChange={(model) => setForm({ ...form, model })}
-            options={modelOptions(form.model)}
-          />
+            onValueChange={(model) => {
+              if (model !== null) {
+                setForm({ ...form, model });
+              }
+            }}
+            items={newModelOptions}
+          >
+            <SelectTrigger id="new-agent-model">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {newModelOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="new-agent-prompt">系统提示词</Label>

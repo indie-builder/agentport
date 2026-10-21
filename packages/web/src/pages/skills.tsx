@@ -12,9 +12,10 @@ import { ErrorState, LoadingState } from '../components/states.js';
 import { Dialog } from '../components/ui/app-dialog.js';
 import { Button } from '../components/ui/button.js';
 
-import { FieldError, FieldHint, RequiredMark } from '../components/ui/field.js';
+import { FieldDescription, FieldError } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
+import { RequiredMark } from '../components/ui/required-mark.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
@@ -230,7 +231,9 @@ function SkillDialog({
               className="font-mono"
             />
             {skill ? (
-              <FieldHint id="skill-slug-hint">创建后不可修改：它对应目录名。</FieldHint>
+              <FieldDescription id="skill-slug-hint">
+                创建后不可修改：它对应目录名。
+              </FieldDescription>
             ) : (
               <FieldError id="skill-slug-error">{errors.slug}</FieldError>
             )}
@@ -260,7 +263,7 @@ function SkillDialog({
             className="font-mono text-xs leading-relaxed"
             placeholder="1. 先读取 …&#10;2. 再调用 mcp__…&#10;3. 最后汇总 …"
           />
-          <FieldHint>支持 Markdown，渲染为 SKILL.md 正文。</FieldHint>
+          <FieldDescription>支持 Markdown，渲染为 SKILL.md 正文。</FieldDescription>
         </div>
         <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
           <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
