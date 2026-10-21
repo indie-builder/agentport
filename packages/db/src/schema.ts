@@ -1,5 +1,5 @@
 import type { Agent } from '@agentport/shared';
-import { isNotNull, sql } from 'drizzle-orm';
+import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   boolean,
@@ -104,7 +104,11 @@ export const agentSkills = pgTable(
       .notNull()
       .references(() => skills.id, { onDelete: 'cascade' }),
   },
-  (t) => [uniqueIndex('agent_skills_pk').on(t.agentId, t.skillId)],
+  (t) => [
+    uniqueIndex('agent_skills_pk').on(t.agentId, t.skillId),
+    // agent_skills_pk 只覆盖 (agent_id, skill_id)：删除 skill 或按 skill 反查要单独一条。
+    index('agent_skills_skill_idx').on(t.skillId),
+  ],
 );
 
 export const agentServers = pgTable(
@@ -117,7 +121,11 @@ export const agentServers = pgTable(
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
   },
-  (t) => [uniqueIndex('agent_servers_pk').on(t.agentId, t.serverId)],
+  (t) => [
+    uniqueIndex('agent_servers_pk').on(t.agentId, t.serverId),
+    // 同上：server 级联删除与按 server 反查需要 server_id 前导索引。
+    index('agent_servers_server_idx').on(t.serverId),
+  ],
 );
 
 export const agentVersions = pgTable(
@@ -151,10 +159,16 @@ export const conversations = pgTable(
     /** 分支点消息：新会话复制到这条消息（含）为止。 */
     branchOfMessageId: text('branch_of_message_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * 最后一条消息时间，由 messages 上的语句级触发器维护；无消息时等于 createdAt。
+     * 冗余一列是为了让会话列表能按它索引排序，否则要先全表算 max 再排序。
+     */
+    lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('conversations_agent_idx').on(t.agentId),
     index('conversations_parent_idx').on(t.parentId),
+    index('conversations_last_message_idx').on(t.lastMessageAt.desc(), t.id.desc()),
   ],
 );
 
@@ -224,6 +238,15 @@ export const agentRuns = pgTable(
       t.startedAt.desc().nullsLast(),
       t.id.desc(),
     ),
+    // 概览的「正在运行」计数：running 行极少，部分索引比全表 status 索引小得多。
+    index('agent_runs_running_idx').on(t.status).where(eq(t.status, 'running')),
+    // runs 页按 status 过滤 + started_at 排序；也覆盖按 status 的计数（前缀列），
+    // 但 running 计数仍用上面的部分索引——索引体积差两个数量级。
+    index('agent_runs_status_started_idx').on(
+      t.status,
+      t.startedAt.desc().nullsLast(),
+      t.id.desc(),
+    ),
   ],
 );
 
@@ -279,7 +302,11 @@ export const evalRuns = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
   },
-  (t) => [index('eval_runs_agent_idx').on(t.agentId)],
+  (t) => [
+    index('eval_runs_agent_idx').on(t.agentId),
+    // 同一智能体同时最多一个在跑的评估；DB 层兜底 API 的 409 检查并发竞态。
+    uniqueIndex('eval_runs_agent_running_idx').on(t.agentId).where(eq(t.status, 'running')),
+  ],
 );
 
 export const evalResults = pgTable(
@@ -297,7 +324,11 @@ export const evalResults = pgTable(
     output: text('output').notNull().default(''),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('eval_results_run_idx').on(t.evalRunId)],
+  (t) => [
+    index('eval_results_run_idx').on(t.evalRunId),
+    // 重复投递的 eval job 会重写同一 run/case 的结果，唯一键让写入幂等。
+    uniqueIndex('eval_results_run_case_idx').on(t.evalRunId, t.caseId),
+  ],
 );
 
 export const auditLog = pgTable(
@@ -313,7 +344,16 @@ export const auditLog = pgTable(
     requestId: text('request_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('audit_log_created_idx').on(t.createdAt)],
+  (t) => [
+    index('audit_log_created_idx').on(t.createdAt),
+    // action LIKE 'x%' 走 text_pattern_ops（C collation 下才能用前缀索引）；
+    // 尾随列让「前缀 + 时间倒序 + id 游标」整个查询都在索引里完成。
+    index('audit_log_action_created_idx').on(
+      sql`${t.action} text_pattern_ops`,
+      t.createdAt.desc(),
+      t.id.desc(),
+    ),
+  ],
 );
 
 export const schema = {

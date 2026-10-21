@@ -84,10 +84,11 @@ export async function finishEvalRun(
   id: string,
   result: { status: Exclude<EvalStatus, 'running'>; passed: number; error?: string | null },
 ): Promise<void> {
+  // 只收口仍在 running 的跑批：reconciler 已标记 failed 的行不能被晚到的 worker 覆盖。
   await db
     .update(evalRuns)
     .set({ ...result, finishedAt: new Date() })
-    .where(eq(evalRuns.id, id));
+    .where(and(eq(evalRuns.id, id), eq(evalRuns.status, 'running')));
 }
 
 /** worker 重启后把超时仍停在 running 的跑批收敛为 failed，避免永久卡住。 */
@@ -105,7 +106,10 @@ export async function failStaleEvalRuns(
 }
 
 export async function updateProgress(db: Database, id: string, passed: number): Promise<void> {
-  await db.update(evalRuns).set({ passed }).where(eq(evalRuns.id, id));
+  await db
+    .update(evalRuns)
+    .set({ passed })
+    .where(and(eq(evalRuns.id, id), eq(evalRuns.status, 'running')));
 }
 
 export async function listRuns(db: Database, agentId?: string): Promise<EvalRun[]> {
@@ -147,7 +151,8 @@ export async function addResult(
     output: string;
   },
 ): Promise<void> {
-  await db.insert(evalResults).values(input);
+  // 重复投递的 job 会重写同一 run/case；唯一键让重试幂等而不是报错。
+  await db.insert(evalResults).values(input).onConflictDoNothing();
 }
 
 export async function getRunDetail(

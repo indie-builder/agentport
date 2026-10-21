@@ -489,9 +489,10 @@ function subscribeCancel(
 
     void (async () => {
       try {
-        if ((await redis.exists(channel)) === 1) onCancel();
         redis.on('message', handler);
         await redis.subscribe(channel);
+        // 订阅连接不能执行 EXISTS；通过普通连接补查订阅之前的取消。
+        if ((await getPublisher(logger).exists(channel)) === 1) onCancel();
       } catch (err) {
         // 订阅不上就无法保证取消：宁可让这次 run 失败并由 BullMQ 重试，
         // 也不要启动一个用户停不掉的容器。

@@ -1,9 +1,9 @@
 import { newId, repo, schema } from '@agentport/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { reject } from '../../plugins/errors.js';
+import { isPgCode, reject } from '../../plugins/errors.js';
 import { evalRunRateLimit } from '../../plugins/security.js';
 import { getEvalQueue } from '../../queue/producer.js';
 import { typed } from '../../types.js';
@@ -114,18 +114,36 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
         return reject(reply, 'AGENT_NOT_FOUND', 'agent not found');
       }
 
-      if (await evalRepo.hasRunningRun(app.db, agentId)) {
-        return reject(reply, 'EVAL_RUN_IN_PROGRESS', '该智能体已有正在运行的评估');
-      }
-
       const cases = await evalRepo.listCases(app.db, agentId);
       if (cases.length === 0) return invalid(reply, '该智能体还没有用例');
 
-      const evalRun = await evalRepo.createEvalRun(app.db, {
-        id: newId('evalRun'),
-        agentId,
-        total: cases.length,
-      });
+      let evalRun: typeof schema.evalRuns.$inferSelect | undefined;
+      try {
+        evalRun = await app.db.transaction(async (tx) => {
+          // 同一 agent 的提交跨 API 进程串行；Redis 入队不持有数据库锁。
+          await tx
+            .select({ id: schema.agents.id })
+            .from(schema.agents)
+            .where(eq(schema.agents.id, agentId))
+            .for('update');
+          const [running] = await tx
+            .select({ id: schema.evalRuns.id })
+            .from(schema.evalRuns)
+            .where(and(eq(schema.evalRuns.agentId, agentId), eq(schema.evalRuns.status, 'running')))
+            .limit(1);
+          if (running) return undefined;
+          const [created] = await tx
+            .insert(schema.evalRuns)
+            .values({ id: newId('evalRun'), agentId, total: cases.length })
+            .returning();
+          return created;
+        });
+      } catch (err) {
+        if (!isPgCode(err, '23505')) throw err;
+      }
+      if (!evalRun) {
+        return reject(reply, 'EVAL_RUN_IN_PROGRESS', '该智能体已有正在运行的评估');
+      }
 
       // 执行搬到 worker：API 重启不再让跑批停在 running。
       await getEvalQueue().add('eval-run', { evalRunId: evalRun.id }, { jobId: evalRun.id });

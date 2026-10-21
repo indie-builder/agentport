@@ -161,6 +161,7 @@ export async function executeEvalRun(input: {
         .limit(1),
     );
     if (!agent) return yield* Effect.fail(new Error(`agent ${evalRun.agentId} not found`));
+    if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
 
     const cases = yield* dbQuery(() => evalRepo.listCases(db, evalRun.agentId));
     let passed = 0;
@@ -170,6 +171,8 @@ export async function executeEvalRun(input: {
       cases,
       (testCase) =>
         Effect.gen(function* () {
+          if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
+            return;
           let output = '';
           let runId = '';
           let ok = false;
@@ -193,6 +196,8 @@ export async function executeEvalRun(input: {
               ),
             ),
           );
+          if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
+            return;
           if (Result.isSuccess(result)) ok = result.success;
           else output = errorMessage(result.failure);
           if (ok) passed += 1;
@@ -228,6 +233,7 @@ export async function executeEvalRun(input: {
       ),
     );
 
+    if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
     yield* dbQuery(() =>
       evalRepo.finishEvalRun(db, evalRunId, {
         status: crashed === null && passed === cases.length ? 'succeeded' : 'failed',

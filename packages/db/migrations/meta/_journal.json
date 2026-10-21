@@ -120,6 +120,20 @@
       "when": 1792542006230,
       "tag": "0016_smooth_romulus",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792551111582,
+      "tag": "0017_absurd_thor",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792551600000,
+      "tag": "0018_last_message_trigger",
+      "breakpoints": true
     }
   ]
 }

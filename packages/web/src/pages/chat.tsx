@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
+  memo,
   type ReactNode,
   type RefObject,
   useCallback,
@@ -166,6 +167,9 @@ function ChatWorkspace({
   const runApprovals = useRunApprovals(run?.runId || lastRunId);
   const historyLayout = useDefaultLayout({ id: 'chat-history' });
 
+  // 空数组也要稳定：否则轮询之外的重渲染会给工具行换一个新身份。
+  const approvalData = useMemo(() => runApprovals.data?.items ?? [], [runApprovals.data]);
+
   const stream = useChatStream({
     agentId,
     onAccepted: (accepted, text) => {
@@ -235,11 +239,15 @@ function ChatWorkspace({
   };
 
   /** 只记录批准；继续需要用户重新发送消息，也就是新一次运行。 */
-  const approve = (item: ApprovalRequest): void => {
-    const runId = run?.runId || lastRunId;
-    if (!runId) return;
-    approveMutation.mutate({ ...item, runId });
-  };
+  // 固定身份：工具行的 memo 依赖这个回调，每次渲染都换新函数会让整列重渲染。
+  const approve = useCallback(
+    (item: ApprovalRequest): void => {
+      const runId = run?.runId || lastRunId;
+      if (!runId) return;
+      approveMutation.mutate({ ...item, runId });
+    },
+    [run?.runId, lastRunId, approveMutation.mutate],
+  );
 
   const openConversation = (id: string): void => {
     stream.closeStream();
@@ -326,7 +334,7 @@ function ChatWorkspace({
       lastRunId={lastRunId}
       approving={approveMutation.isPending ? (approveMutation.variables?.id ?? null) : null}
       cancelling={cancelMutation.isPending}
-      approvalItems={runApprovals.data?.items ?? []}
+      approvalItems={approvalData}
       onApprove={approve}
       onCancel={cancel}
       onOpenHistory={() => setHistoryOpen(true)}
@@ -542,6 +550,13 @@ function ChatColumn({
     />
   );
 
+  // 两个入参直接来自 query 数据；缓存住身份，流式期间 WebSocket 增量不会让工具行的 memo 失效。
+  const pendingApprovals = useMemo(
+    () => approvalItems.filter((item) => item.approvedAt === null),
+    [approvalItems],
+  );
+  const approvals = useMemo(() => ({ pending: approving, onApprove }), [approving, onApprove]);
+
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-shell bg-surface outline outline-1 outline-shell-line">
       {/* 顶部一行：移动端菜单 + 智能体选择器。没有标题、没有描述。 */}
@@ -572,8 +587,8 @@ function ChatColumn({
         loading={detail.isPending && conversationId !== null && !run}
         error={detail.isError ? detail.error : null}
         onRetry={() => void detail.refetch()}
-        approvals={{ pending: approving, onApprove }}
-        approvalItems={approvalItems.filter((item) => item.approvedAt === null)}
+        approvals={approvals}
+        approvalItems={pendingApprovals}
         lastRun={lastRun}
         welcome={
           showWelcome ? (
@@ -803,6 +818,8 @@ function MessagePane({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
+  // 上一次的工具子集：文本增量不改工具对象，复用它就不会惊动下游 memo。
+  const prevTools = useRef<ToolItem[]>([]);
 
   // 用户上滚后暂停自动滚动；只有贴底时才跟随新内容。
   useEffect(() => {
@@ -833,70 +850,25 @@ function MessagePane({
     setPinned(true);
   };
 
-  // 子调用挂到最上层父 Agent 下；只保留一层，grandchildren 平铺到同一层。
-  const toolById = new Map<string, Extract<ChatItem, { kind: 'tool' }>>();
-  for (const item of items) {
-    if (item.kind === 'tool') toolById.set(item.toolUseId, item);
-  }
-  const rootOf = (item: Extract<ChatItem, { kind: 'tool' }>): string | null => {
-    let node = item.parentToolUseId ? toolById.get(item.parentToolUseId) : undefined;
-    let depth = 0;
-    while (node?.parentToolUseId && depth < 8) {
-      const up = toolById.get(node.parentToolUseId);
-      if (!up) break;
-      node = up;
-      depth += 1;
-    }
-    return node?.toolUseId ?? null;
-  };
-  const children = new Map<string, Extract<ChatItem, { kind: 'tool' }>[]>();
-  const topLevel: ChatItem[] = [];
-  for (const item of items) {
-    if (item.kind !== 'tool' || item.parentToolUseId === undefined) {
-      topLevel.push(item);
-      continue;
-    }
-    const root = rootOf(item);
-    if (root === null) {
-      topLevel.push(item);
-      continue;
-    }
-    const list = children.get(root) ?? [];
-    list.push(item);
-    children.set(root, list);
-  }
+  // 文本增量只换最后一项，其余对象共享，但 items 数组身份每次都变。
+  // 工具子集逐项比对后复用；结构只依赖工具子集，于是增量不改变任何 ToolGroup 的入参。
+  const tools = useMemo(() => stableTools(items, prevTools.current), [items]);
+  prevTools.current = tools;
+  const structure = useMemo(() => buildStructure(tools), [tools]);
 
-  // 审批卡放在被拒工具的原位置；匹配不上的兜底放在末尾，不能吞掉。
-  const placed = new Set<string>();
-  const approvalFor = (item: Extract<ChatItem, { kind: 'tool' }>): ApprovalRequest | undefined => {
-    const match = approvalItems.find(
-      (approval) =>
-        (approval.serverName
-          ? item.name === `mcp__${approval.serverName}__${approval.toolName}`
-          : false) || item.name.endsWith(`__${approval.toolName}`),
-    );
-    if (match) placed.add(match.id);
-    return match;
-  };
-  const renderTool = (
-    item: Extract<ChatItem, { kind: 'tool' }>,
-    nested: boolean,
-    childCount: number,
-  ): ReactNode => {
-    const approval = approvalFor(item);
-    return (
-      <div key={`${item.toolUseId}-${nested ? 'child' : 'root'}`} className="space-y-1.5">
-        <ToolRow item={item} nested={nested} childCount={childCount} />
-        {approval ? (
-          <ApprovalCard
-            item={approval}
-            pending={approvals.pending}
-            onApprove={approvals.onApprove}
-          />
-        ) : null}
-      </div>
-    );
-  };
+  // 审批匹配表只在工具或审批变化时重算（依赖不变时 useMemo 返回同一个 Map）。
+  const matches = useMemo(() => {
+    const map = new Map<string, ApprovalRequest | undefined>();
+    for (const tool of tools) map.set(tool.toolUseId, findApproval(tool, approvalItems));
+    return map;
+  }, [tools, approvalItems]);
+
+  // 已放置的审批：兜底卡不能重复出现。
+  const placed = useMemo(() => {
+    const ids = new Set<string>();
+    for (const approval of matches.values()) if (approval) ids.add(approval.id);
+    return ids;
+  }, [matches]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -917,14 +889,20 @@ function MessagePane({
         {!loading && !error && items.length === 0 ? welcome : null}
         {!loading && !error && items.length > 0 ? (
           <div className="mx-auto max-w-[728px] space-y-4">
-            {topLevel.map((item, index) => {
+            {items.map((item, index) => {
+              // 有归属的子调用由父行渲染，不在顶层重复出现。
+              if (structure.root.has(item.kind === 'tool' ? item.toolUseId : '')) return null;
               if (item.kind === 'tool') {
-                const kids = children.get(item.toolUseId) ?? [];
                 return (
                   // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
                   <div key={`${index}-${item.toolUseId}`} className="space-y-1">
-                    {renderTool(item, item.parentToolUseId !== undefined, kids.length)}
-                    {kids.map((child) => renderTool(child, true, 0))}
+                    <ToolGroup
+                      tool={item}
+                      kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
+                      approvalItems={approvalItems}
+                      pending={approvals.pending}
+                      onApprove={approvals.onApprove}
+                    />
                   </div>
                 );
               }
@@ -959,6 +937,111 @@ function MessagePane({
       ) : null}
     </div>
   );
+}
+
+/**
+ * 一行顶层调用：父行 + 子调用 + 审批。memo 的入参全部在流式期间保持身份：
+ * tool/kids 来自按 tools 缓存的树，approvalItems 在 ChatColumn 里按 query 数据缓存，
+ * onApprove 由 useCallback 固定。文本增量因此不会渲染任何工具行。
+ */
+const ToolGroup = memo(function ToolGroup({
+  tool,
+  kids,
+  approvalItems,
+  pending,
+  onApprove,
+}: {
+  tool: ToolItem;
+  kids: ToolItem[];
+  approvalItems: ApprovalRequest[];
+  pending: string | null;
+  onApprove: (item: ApprovalRequest) => void;
+}) {
+  const approval = findApproval(tool, approvalItems);
+  return (
+    <>
+      <div className="space-y-1.5">
+        <ToolRow item={tool} nested={tool.parentToolUseId !== undefined} childCount={kids.length} />
+        {approval ? <ApprovalCard item={approval} pending={pending} onApprove={onApprove} /> : null}
+      </div>
+      {kids.map((child) => {
+        const childApproval = findApproval(child, approvalItems);
+        return (
+          <div key={`${child.toolUseId}-child`} className="space-y-1.5">
+            <ToolRow item={child} nested={true} childCount={0} />
+            {childApproval ? (
+              <ApprovalCard item={childApproval} pending={pending} onApprove={onApprove} />
+            ) : null}
+          </div>
+        );
+      })}
+    </>
+  );
+});
+
+/** 审批卡放在被拒工具的原位置；匹配不上的兜底放在末尾，不能吞掉。 */
+function findApproval(
+  item: ToolItem,
+  approvalItems: ApprovalRequest[],
+): ApprovalRequest | undefined {
+  return approvalItems.find(
+    (approval) =>
+      (approval.serverName
+        ? item.name === `mcp__${approval.serverName}__${approval.toolName}`
+        : false) || item.name.endsWith(`__${approval.toolName}`),
+  );
+}
+
+type ToolItem = Extract<ChatItem, { kind: 'tool' }>;
+const NO_KIDS: ToolItem[] = [];
+
+function isTool(item: ChatItem): item is ToolItem {
+  return item.kind === 'tool';
+}
+
+/** 文本增量不改工具对象；整表逐项比对后可复用旧数组，保住下游 memo。 */
+function stableTools(items: ChatItem[], previous: ToolItem[]): ToolItem[] {
+  const tools = items.filter(isTool);
+  if (tools.length !== previous.length) return tools;
+  for (let index = 0; index < tools.length; index += 1) {
+    if (tools[index] !== previous[index]) return tools;
+  }
+  return previous;
+}
+
+/**
+ * 子调用挂到最上层父 Agent 下；只保留一层，grandchildren 平铺到同一层。
+ * 只依赖 tools：文本增量不改它，树与各行的 children 数组因此保持身份。
+ */
+function buildStructure(tools: ToolItem[]): {
+  root: Map<string, string>;
+  kids: Map<string, ToolItem[]>;
+} {
+  const toolById = new Map<string, ToolItem>();
+  for (const item of tools) toolById.set(item.toolUseId, item);
+  const rootOf = (item: ToolItem): string | null => {
+    let node = item.parentToolUseId ? toolById.get(item.parentToolUseId) : undefined;
+    let depth = 0;
+    while (node?.parentToolUseId && depth < 8) {
+      const up = toolById.get(node.parentToolUseId);
+      if (!up) break;
+      node = up;
+      depth += 1;
+    }
+    return node?.toolUseId ?? null;
+  };
+  const root = new Map<string, string>();
+  const kids = new Map<string, ToolItem[]>();
+  for (const item of tools) {
+    if (item.parentToolUseId === undefined) continue;
+    const top = rootOf(item);
+    if (top === null) continue;
+    root.set(item.toolUseId, top);
+    const list = kids.get(top) ?? [];
+    list.push(item);
+    kids.set(top, list);
+  }
+  return { root, kids };
 }
 
 /** 空态共用 728px 轴线：两行问候语、输入胶囊、建议卡。 */
@@ -1010,7 +1093,8 @@ function WelcomeState({
 /** 只为展示取字段，避免把 Agent 类型一路传进展示组件。 */
 type AgentView = NonNullable<ReturnType<typeof useAgents>['data']>[number];
 
-function ItemView({ item }: { item: ChatItem }) {
+/** 一行气泡/文本/通知：入参 item 在文本增量间保持身份，memo 让其余行原地不动。 */
+const ItemView = memo(function ItemView({ item }: { item: ChatItem }) {
   switch (item.kind) {
     case 'user':
       return (
@@ -1047,7 +1131,7 @@ function ItemView({ item }: { item: ChatItem }) {
         </div>
       );
   }
-}
+});
 
 /** 助手文本不用气泡；围栏代码交给 CodeBlock，其余保留换行与空白。 */
 function AssistantText({ text }: { text: string }) {
@@ -1145,7 +1229,7 @@ function RunMetricsLine({ run }: { run: RunMetrics }) {
 }
 
 /** 审批只记录，不重试；文案必须和真实行为一致。 */
-function ApprovalCard({
+const ApprovalCard = memo(function ApprovalCard({
   item,
   pending,
   onApprove,
@@ -1175,9 +1259,9 @@ function ApprovalCard({
       </Button>
     </motion.div>
   );
-}
+});
 
-function ToolRow({
+const ToolRow = memo(function ToolRow({
   item,
   nested,
   childCount,
@@ -1274,4 +1358,4 @@ function ToolRow({
       </CollapsibleContent>
     </Collapsible>
   );
-}
+});

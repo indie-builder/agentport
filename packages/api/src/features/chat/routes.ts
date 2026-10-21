@@ -1,5 +1,6 @@
-import { newId, repo } from '@agentport/db';
+import { newId, repo, schema } from '@agentport/db';
 import { type ChatEvent, chatRequestSchema, wireFailureKind } from '@agentport/shared';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
@@ -108,24 +109,37 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         runId: run.id,
       });
       // jobId = runId，重复投递天然幂等。
-      await getQueue().add(
-        'run',
-        {
-          runId: run.id,
-          agentId,
-          conversationId,
-          prompt: message,
-          ...(history === null ? {} : { history }),
-        },
-        {
-          jobId: run.id,
-          // 只对基础设施类失败重试；业务失败（模型拒绝、工具报错）重试会重复计费。
-          attempts: 2,
-          backoff: { type: 'exponential', delay: 5_000 },
-          removeOnComplete: 100,
-          removeOnFail: 200,
-        },
-      );
+      try {
+        await getQueue().add(
+          'run',
+          {
+            runId: run.id,
+            agentId,
+            conversationId,
+            prompt: message,
+            ...(history === null ? {} : { history }),
+          },
+          {
+            jobId: run.id,
+            // 只对基础设施类失败重试；业务失败（模型拒绝、工具报错）重试会重复计费。
+            attempts: 2,
+            backoff: { type: 'exponential', delay: 5_000 },
+            removeOnComplete: 100,
+            removeOnFail: 200,
+          },
+        );
+      } catch (err) {
+        await app.db
+          .update(schema.agentRuns)
+          .set({
+            status: 'failed',
+            endedAt: new Date(),
+            error: 'Failed to enqueue run; send the message again.',
+            errorKind: 'infra',
+          })
+          .where(and(eq(schema.agentRuns.id, run.id), eq(schema.agentRuns.status, 'queued')));
+        throw err;
+      }
 
       await writeAudit(app.db, request.log, {
         actor: 'admin',
@@ -263,8 +277,9 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       }
       // 已结束的 run 再发 cancel 只会打扰 worker，直接返回。
       if (terminalEvent(run) === null) {
+        const cancelled = await chatRepo.cancelRun(app.db, runId);
+        if (!cancelled) return reply.status(202).send({ ok: true });
         await publishRun(runId, { type: 'cancel' });
-        await chatRepo.cancelRun(app.db, runId);
         await writeAudit(app.db, request.log, {
           actor: 'admin',
           action: 'agent.run.cancelled',

@@ -6,6 +6,7 @@ import {
   decryptSecrets,
   hashMcpToken,
   installProcessGuards,
+  RunFailure,
   renderWorkspace,
   toWorkspaceInput,
   WORKSPACE_DIR_MODE,
@@ -173,18 +174,21 @@ async function persistRunMessages(
 
   // BullMQ 重试会重放同一 run：先删本 run 已落库的输出再写，避免重复消息。
   // 用户消息也带 run_id，但由 API 写入，重试时不能删。
+  // 一次 insert 多行：一次运行可能有上千条消息，逐行写是上千次往返。
+  const CHUNK = 500;
   await db.transaction(async (tx) => {
     await tx
       .delete(schema.messages)
       .where(and(eq(schema.messages.runId, input.runId), ne(schema.messages.role, 'user')));
-    for (const row of rows) {
-      await tx.insert(schema.messages).values({
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const values = rows.slice(i, i + CHUNK).map((row) => ({
         id: newId('message'),
         conversationId: input.conversationId,
         role: row.role,
         content: row.content,
         runId: input.runId,
-      });
+      }));
+      if (values.length > 0) await tx.insert(schema.messages).values(values);
     }
   });
 }
@@ -309,10 +313,19 @@ const worker = new Worker(
       logger.info({ runId, status: run?.status }, 'run no longer pending, skipping');
       return;
     }
-    await db
+    const claimed = await db
       .update(schema.agentRuns)
       .set({ status: 'running', startedAt: new Date() })
-      .where(eq(schema.agentRuns.id, runId));
+      .where(
+        and(
+          eq(schema.agentRuns.id, runId),
+          inArray(schema.agentRuns.status, ['queued', 'running']),
+        ),
+      );
+    if (claimed.rowCount === 0) {
+      logger.info({ runId }, 'run externally terminated before claim, skipping');
+      return;
+    }
     await publishRun(runId, { type: 'run_started', runId, conversationId }, logger);
 
     let outcome: SandboxRunOutcome;
@@ -427,7 +440,16 @@ const worker = new Worker(
       events: outcome.events,
     });
 
-    await db
+    const retryable = isRetryable(outcome);
+    if (retryable && job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {
+      const current = await repo.chat.getRun(db, runId);
+      if (current?.status === 'running') {
+        logger.warn({ runId, attempt: job.attemptsMade + 1 }, 'retrying sandbox failure');
+        throw new Error(`retryable sandbox failure: ${outcome.error ?? 'unknown'}`);
+      }
+    }
+
+    const finished = await db
       .update(schema.agentRuns)
       .set({
         status: outcome.status,
@@ -442,7 +464,25 @@ const worker = new Worker(
         error: outcome.error ?? null,
         errorKind: outcome.failure?.reason ?? null,
       })
-      .where(eq(schema.agentRuns.id, runId));
+      .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')));
+    if (finished.rowCount === 0) {
+      const current = await repo.chat.getRun(db, runId);
+      if (!current || current.status === 'queued' || current.status === 'running') {
+        logger.warn({ runId, status: current?.status }, 'run disappeared or is no longer terminal');
+        return;
+      }
+      outcome = {
+        status: current.status,
+        sandboxId: current.sandboxId ?? '',
+        events: outcome.events,
+        ...(current.costUsd === null ? {} : { costUsd: Number(current.costUsd) }),
+        ...(current.turns === null ? {} : { turns: current.turns }),
+        ...(current.error === null ? {} : { error: current.error }),
+        ...(current.errorKind === null
+          ? {}
+          : { failure: new RunFailure(current.errorKind, current.error ?? current.status) }),
+      };
+    }
 
     await publishRun(
       runId,
@@ -472,15 +512,13 @@ const worker = new Worker(
       'agent run finished',
     );
 
-    // 重试会复用同一 run 的工作区，因此只在最终结束（不再重试）后清理。
-    if (!isRetryable(outcome) && workspaceDirForRun) {
+    // 能走到这里的运行已经结束；仍可重试的尝试在写终态之前抛出。
+    if (workspaceDirForRun) {
       await rm(workspaceDirForRun, { recursive: true, force: true }).catch((err: unknown) => {
         logger.warn({ err, runId }, 'workspace cleanup failed');
       });
     }
-
-    // 瞬时基础设施故障交给 BullMQ 重试；业务失败直接结束，避免重复计费。
-    if (isRetryable(outcome)) {
+    if (retryable && finished.rowCount !== 0) {
       throw new Error(`retryable sandbox failure: ${outcome.error ?? 'unknown'}`);
     }
   },
