@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { slugSchema } from './params.js';
 
 /** 智能体可配置的权限模式，与 Agent SDK 的 PermissionMode 对齐。 */
 export const permissionModeSchema = z.enum(['default', 'acceptEdits', 'plan', 'dontAsk', 'auto']);
@@ -22,11 +23,7 @@ export const BUILTIN_TOOLS = [
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 
 export const agentInputSchema = z.object({
-  slug: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _'),
+  slug: slugSchema,
   name: z.string().min(1).max(128),
   description: z.string().max(300).default(''),
   model: z.string().default('claude-sonnet-5-5'),
@@ -65,11 +62,7 @@ export type Agent = z.infer<typeof agentSchema>;
 
 /** 技能：可复用的操作流程，渲染为 .claude/skills/<slug>/SKILL.md。 */
 export const skillInputSchema = z.object({
-  slug: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _'),
+  slug: slugSchema,
   name: z.string().min(1).max(128),
   description: z.string().min(1).max(500),
   body: z.string().default(''),

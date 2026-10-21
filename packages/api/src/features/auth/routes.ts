@@ -1,16 +1,25 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { AppError } from '@agentport/core';
 import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { Redis } from 'ioredis';
+import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { problem } from '../../plugins/errors.js';
+import { reject } from '../../plugins/errors.js';
+import { authRateLimit } from '../../plugins/security.js';
+import { typed } from '../../types.js';
 import { AUTH_COOKIE, AUTH_MAX_AGE_SECONDS } from './types.js';
 
-const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
-
 const SCRYPT_KEYLEN = 32;
+
+/** 登录是唯一未认证的写入口：用户名进审计表，所以长度有上限。 */
+const loginBody = z.object({
+  username: z
+    .string({ error: '请输入用户名' })
+    .min(1, '请输入用户名')
+    .max(128, '用户名不能超过 128 个字符'),
+  password: z.string({ error: '请输入密码' }).min(1, '请输入密码'),
+});
 
 function sessionKey(sid: string): string {
   return `session:${sid}`;
@@ -80,7 +89,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
   } as const;
 
   const unauthorized = (reply: FastifyReply, message: string): void => {
-    reply.status(401).send(problem(reply.request.id, new AppError('UNAUTHORIZED', message)));
+    reject(reply, 'UNAUTHORIZED', message);
   };
 
   app.decorate('requireAuth', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -101,30 +110,11 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post(
+  typed(app).post(
     '/api/auth/login',
-    { config: limits.off ? {} : { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    { ...authRateLimit, schema: { body: loginBody } },
     async (request, reply) => {
-      const body = request.body as unknown;
-      if (typeof body !== 'object' || body === null) {
-        return reply
-          .status(400)
-          .send(problem(reply.request.id, new AppError('INVALID_INPUT', 'body must be an object')));
-      }
-      const raw = body as Record<string, unknown>;
-      if (typeof raw.username !== 'string' || typeof raw.password !== 'string') {
-        return reply
-          .status(400)
-          .send(
-            problem(
-              reply.request.id,
-              new AppError('INVALID_INPUT', 'username and password are required'),
-            ),
-          );
-      }
-      // 未认证端点：超长用户名会被永久写入审计表，截断后再使用。
-      const username = raw.username.slice(0, 128);
-      const password = raw.password;
+      const { username, password } = request.body;
 
       const userOk = username === app.config.ADMIN_USER;
       // 用户名错也照样算一次 scrypt，避免响应时间泄露「用户名对不对」。
@@ -138,9 +128,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
           status: 'denied',
           requestId: request.id,
         });
-        return reply
-          .status(401)
-          .send(problem(reply.request.id, new AppError('UNAUTHORIZED', 'invalid credentials')));
+        return reject(reply, 'UNAUTHORIZED', 'invalid credentials');
       }
 
       await writeAudit(app.db, request.log, {

@@ -1,15 +1,39 @@
 import { z } from 'zod';
+import { slugSchema } from './params.js';
 
 /** 用户配置的 MCP Server；密钥字段在 API 层加密，返回时脱敏。 */
 export const serverKindSchema = z.enum(['stdio', 'http', 'generated']);
 export type ServerKind = z.infer<typeof serverKindSchema>;
 
+export const SECRET_MASK = '••••';
+export const PREVIEW_SECRET = SECRET_MASK;
+
+/** 空值保留为空；已配置密钥不泄露长度或前缀。 */
+export function maskSecret(value: string | null | undefined): string {
+  return value ? SECRET_MASK : '';
+}
+
+/** Build an MCP entry with values supplied by the caller (masked, empty, or runtime secrets). */
+export function previewMcpEntry(
+  server: { kind: ServerKind; config: Record<string, unknown> },
+  values: Record<string, string> = {},
+) {
+  const config = server.config;
+  if (server.kind === 'stdio') {
+    return {
+      command: typeof config.command === 'string' ? config.command : '',
+      args: Array.isArray(config.args)
+        ? config.args.filter((value): value is string => typeof value === 'string')
+        : [],
+      env: values,
+    };
+  }
+  const url = server.kind === 'generated' ? config.baseUrl : config.url;
+  return { type: 'http' as const, url: typeof url === 'string' ? url : '', headers: values };
+}
+
 const baseServer = {
-  name: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _'),
+  name: slugSchema,
   description: z.string().max(500).default(''),
 };
 
@@ -61,11 +85,7 @@ export type Server = z.infer<typeof serverSchema>;
 
 /** generated server 下的单个 HTTP 工具。 */
 export const apiToolInputSchema = z.object({
-  name: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _'),
+  name: slugSchema,
   description: z.string().max(1000).default(''),
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
   /** 相对 baseUrl 的路径模板，如 `/users/{id}` */

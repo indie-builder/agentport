@@ -14,6 +14,7 @@ import {
   type Server,
 } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useBlocker } from '@tanstack/react-router';
 import {
   Bot,
   Check,
@@ -26,12 +27,12 @@ import {
   Plug,
   Plus,
   RotateCcw,
-  Search,
   Sparkles,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
-import * as DropdownMenuPrimitive from 'radix-ui/dropdown-menu';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   type ComponentProps,
   type ReactNode,
@@ -44,14 +45,34 @@ import {
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { Page, PageHeader } from '../components/page.js';
+import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../components/ui/collapsible.js';
 import { Dialog } from '../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
 import { FieldError, FieldHint, Input } from '../components/ui/input.js';
 import { Label, RequiredMark } from '../components/ui/label.js';
 import { MultiSelect } from '../components/ui/multi-select.js';
 import { Select } from '../components/ui/select.js';
-import { Tabs } from '../components/ui/tabs.js';
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from '../components/ui/sheet.js';
+import { SearchInput, Tabs } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { AgentVersionSummary } from '../lib/api.js';
 import { ApiError, api } from '../lib/api.js';
@@ -59,6 +80,7 @@ import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
 import { formatDateTime } from '../lib/format.js';
 import {
+  toolsQuery,
   useAgentFiles,
   useAgents,
   useAgentVersion,
@@ -200,61 +222,58 @@ export function AgentsPage() {
     (agents.data ?? []).find((agent) => agent.id === selectedId) ?? filtered[0] ?? null;
 
   return (
-    <div>
-      <div className="flex h-14 items-center gap-3 border-b border-line">
-        <h1 className="min-w-0 truncate text-md font-medium text-fg">智能体</h1>
-        <span className="font-mono text-xs tabular-nums text-subtle">
-          {agents.data?.length ?? 0}
-        </span>
-        <div className="ml-auto flex items-center gap-1">
-          <input
-            ref={fileInput}
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = '';
-              if (file) void importFile(file);
-            }}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 rounded-full px-3"
-            disabled={importing}
-            aria-busy={importing}
-            onClick={() => fileInput.current?.click()}
-          >
-            <Upload className="size-4" strokeWidth={1.75} /> {importing ? '导入中…' : '导入'}
-          </Button>
-          <Button
-            ref={createButtonRef}
-            size="sm"
-            className="h-8 rounded-full px-3.5"
-            onClick={() => setCreating(true)}
-          >
-            <Plus className="size-4" strokeWidth={1.75} /> 新建智能体
-          </Button>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title="智能体"
+        meta={
+          <span className="font-mono text-xs tabular-nums text-subtle">
+            {agents.data?.length ?? 0}
+          </span>
+        }
+        actions={
+          <>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void importFile(file);
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-full px-3"
+              disabled={importing}
+              aria-busy={importing}
+              onClick={() => fileInput.current?.click()}
+            >
+              <Upload className="size-4" /> {importing ? '导入中…' : '导入'}
+            </Button>
+            <Button
+              ref={createButtonRef}
+              size="sm"
+              className="h-8 rounded-full px-3.5"
+              onClick={() => setCreating(true)}
+            >
+              <Plus className="size-4" /> 新建智能体
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
         <div className="min-w-0 py-3 pr-5 lg:border-r lg:border-line">
-          <div className="relative mb-2">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle"
-              strokeWidth={1.75}
-            />
-            <LineInput
-              type="search"
-              aria-label="搜索智能体"
-              placeholder="搜索名称或 slug…"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-9 rounded-[9px] pl-9"
-            />
-          </div>
+          <SearchInput
+            label="搜索智能体"
+            placeholder="搜索名称或 slug…"
+            value={query}
+            onChange={setQuery}
+            className="mb-2"
+          />
 
           {agents.isPending ? <LoadingState rows={4} /> : null}
           {agents.isError ? (
@@ -273,7 +292,7 @@ export function AgentsPage() {
             />
           ) : null}
           {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
-            <p className="px-1 py-6 text-center text-xs text-subtle">没有匹配的智能体。</p>
+            <InlineEmpty>没有匹配的智能体。</InlineEmpty>
           ) : null}
 
           <ul aria-label="智能体列表">
@@ -286,7 +305,7 @@ export function AgentsPage() {
                     aria-current={active ? 'true' : undefined}
                     onClick={() => selectAgent(agent.id)}
                     className={cn(
-                      'flex h-14 w-full items-center gap-3 rounded-[9px] px-2.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none',
+                      'flex h-14 w-full items-center gap-3 rounded-[9px] px-2.5 text-left transition-colors duration-150 hover:bg-chip',
                       active ? 'bg-hover' : '',
                     )}
                   >
@@ -323,9 +342,7 @@ export function AgentsPage() {
             />
           ) : agents.data && agents.data.length > 0 ? (
             <EmptyState title="选择一个智能体" description="从左侧列表选择以查看和编辑配置。" />
-          ) : (
-            <p className="py-16 text-center text-sm text-subtle">新建智能体后在这里编辑。</p>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -362,7 +379,7 @@ export function AgentsPage() {
           if (selectedId === deleting.id) setSelectedId(null);
         }}
       />
-    </div>
+    </Page>
   );
 }
 
@@ -514,6 +531,14 @@ function AgentEditor({
   const initial = useMemo(() => toInput(agent), [agent]);
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initial), [form, initial]);
 
+  const shouldBlock = useCallback(() => dirty, [dirty]);
+  // 站内切换路由同样会丢草稿；beforeunload 只管关标签页。
+  const blocker = useBlocker({
+    shouldBlockFn: shouldBlock,
+    withResolver: true,
+    enableBeforeUnload: false,
+  });
+
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
@@ -548,13 +573,7 @@ function AgentEditor({
   const generatedIds = boundServers
     .filter((server) => server.kind === 'generated')
     .map((server) => server.id);
-  const toolQueries = useQueries({
-    queries: generatedIds.map((id) => ({
-      queryKey: ['tools', id],
-      queryFn: () => api.tools(id),
-      staleTime: 60_000,
-    })),
-  });
+  const toolQueries = useQueries({ queries: generatedIds.map((id) => toolsQuery(id)) });
   const toolCount = toolQueries.reduce(
     (sum, query) => sum + (query.data?.filter((tool) => tool.enabled).length ?? 0),
     0,
@@ -594,8 +613,39 @@ function AgentEditor({
     );
   };
 
+  // 这两项不经过 zod：按钮禁用前要说明是哪一项、在哪个折叠分区里。
+  const invalidField = allowedInvalid
+    ? ('permissions' as const)
+    : thinkingInvalid
+      ? ('limits' as const)
+      : null;
+  const saveHint =
+    invalidField === 'permissions'
+      ? '「权限」里的自定义工具格式无效'
+      : invalidField === 'limits'
+        ? '「运行限制」里的最大思考 tokens 无效'
+        : null;
+
+  /** 展开并聚焦出错的字段：它可能躺在折叠分区里，光禁用按钮等于什么都不说。 */
+  const revealInvalidField = (): void => {
+    const [section, id] =
+      invalidField === 'limits'
+        ? (['limits', 'agent-thinking'] as const)
+        : (['permissions', 'agent-allowed-tools'] as const);
+    setOpenSections((current) => ({ ...current, [section]: true }));
+    // 分区收起时内容带 hidden：展开后下一帧再聚焦。
+    requestAnimationFrame(() => {
+      const field = document.getElementById(id);
+      field?.scrollIntoView({ block: 'center' });
+      field?.focus();
+    });
+  };
+
   const save = (): void => {
-    if (allowedInvalid || thinkingInvalid) return;
+    if (allowedInvalid || thinkingInvalid) {
+      revealInvalidField();
+      return;
+    }
     const parsed = agentInputSchema.safeParse(form);
     if (!parsed.success) {
       const issues = fieldErrors(parsed.error.issues);
@@ -668,7 +718,7 @@ function AgentEditor({
           aria-label="启用智能体"
           title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
           onClick={() => set('enabled', !form.enabled)}
-          className="inline-flex items-center gap-2 rounded-[9px] p-1 text-xs text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
+          className="inline-flex items-center gap-2 rounded-[9px] p-1 text-xs text-muted transition-colors hover:bg-hover hover:text-fg"
         >
           <span
             className={cn(
@@ -693,11 +743,26 @@ function AgentEditor({
               未保存
             </span>
           ) : null}
+          {saveHint ? (
+            <span className="mr-1 flex items-center gap-1.5 text-2xs text-danger">
+              <span id="agent-save-hint" role="alert">
+                {saveHint}
+              </span>
+              <button
+                type="button"
+                onClick={revealInvalidField}
+                className="underline underline-offset-2 hover:text-fg"
+              >
+                去修正
+              </button>
+            </span>
+          ) : null}
           <Button
             size="sm"
             className="h-8 rounded-full px-3.5"
-            disabled={!dirty || update.isPending || allowedInvalid || thinkingInvalid}
+            disabled={!dirty || update.isPending || invalidField !== null}
             aria-busy={update.isPending}
+            aria-describedby={saveHint ? 'agent-save-hint' : undefined}
             onClick={save}
           >
             {update.isPending ? (
@@ -706,7 +771,7 @@ function AgentEditor({
               '保存更改'
             ) : (
               <>
-                <Check className="size-3.5" strokeWidth={1.75} /> 已保存
+                <Check className="size-3.5" /> 已保存
               </>
             )}
           </Button>
@@ -717,38 +782,28 @@ function AgentEditor({
             title="版本历史"
             onClick={() => setHistoryOpen(true)}
           >
-            <History className="size-4" strokeWidth={1.75} />
+            <History className="size-4" />
           </Button>
-          <DropdownMenuPrimitive.Root>
-            <DropdownMenuPrimitive.Trigger asChild>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-sm" aria-label="更多操作">
-                <Ellipsis className="size-4" strokeWidth={1.75} />
+                <Ellipsis className="size-4" />
               </Button>
-            </DropdownMenuPrimitive.Trigger>
-            <DropdownMenuPrimitive.Portal>
-              <DropdownMenuPrimitive.Content
-                align="end"
-                sideOffset={4}
-                className="z-50 min-w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
-              >
-                <DropdownMenuPrimitive.Item
-                  disabled={exporting}
-                  onSelect={() => void download()}
-                  className={menuItemClass}
-                >
-                  <Download className="size-4" strokeWidth={1.75} />{' '}
-                  {exporting ? '导出中…' : '导出 JSON'}
-                </DropdownMenuPrimitive.Item>
-                <DropdownMenuPrimitive.Separator className="my-1 h-px bg-line" />
-                <DropdownMenuPrimitive.Item
-                  onSelect={onDelete}
-                  className={cn(menuItemClass, 'text-danger data-[highlighted]:bg-danger-soft')}
-                >
-                  <Trash2 className="size-4" strokeWidth={1.75} /> 删除智能体
-                </DropdownMenuPrimitive.Item>
-              </DropdownMenuPrimitive.Content>
-            </DropdownMenuPrimitive.Portal>
-          </DropdownMenuPrimitive.Root>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={4}
+              className="w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
+            >
+              <DropdownMenuItem disabled={exporting} onSelect={() => void download()}>
+                <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-line" />
+              <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+                <Trash2 className="size-4" /> 删除智能体
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -783,7 +838,7 @@ function AgentEditor({
                   setOpenSections((current) => ({ ...current, [item.id]: true }));
                   document.getElementById(`agent-${item.id}`)?.scrollIntoView({ block: 'start' });
                 }}
-                className="shrink-0 rounded-[9px] px-2.5 py-1 text-sm text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
+                className="shrink-0 rounded-[9px] px-2.5 py-1 text-sm text-muted transition-colors hover:bg-hover hover:text-fg"
               >
                 {item.label}
               </button>
@@ -932,8 +987,7 @@ function AgentEditor({
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="flex items-center gap-1.5 text-xs text-muted">
-                      <Plug className="size-4 text-subtle" strokeWidth={1.75} aria-hidden="true" />{' '}
-                      MCP Servers
+                      <Plug className="size-4 text-subtle" aria-hidden="true" /> MCP Servers
                       <FileTag>→ .mcp.json · mcpServers.&lt;name&gt;</FileTag>
                     </h3>
                     <span className="font-mono text-2xs tabular-nums text-subtle">
@@ -969,12 +1023,7 @@ function AgentEditor({
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="flex items-center gap-1.5 text-xs text-muted">
-                      <Sparkles
-                        className="size-4 text-subtle"
-                        strokeWidth={1.75}
-                        aria-hidden="true"
-                      />{' '}
-                      技能
+                      <Sparkles className="size-4 text-subtle" aria-hidden="true" /> 技能
                       <FileTag>→ .claude/skills/&lt;slug&gt;/SKILL.md</FileTag>
                     </h3>
                     <span className="font-mono text-2xs tabular-nums text-subtle">
@@ -1014,8 +1063,7 @@ function AgentEditor({
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="flex items-center gap-1.5 text-xs text-muted">
-                      <Bot className="size-4 text-subtle" strokeWidth={1.75} aria-hidden="true" />{' '}
-                      子智能体
+                      <Bot className="size-4 text-subtle" aria-hidden="true" /> 子智能体
                       <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
                     </h3>
                     <span className="font-mono text-2xs tabular-nums text-subtle">
@@ -1266,34 +1314,59 @@ function AgentEditor({
         <FilesPreview agentId={agent.id} dirty={dirty} />
       )}
 
-      <Dialog
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        title="版本历史"
-        description="每次保存生成一份快照。回滚会覆盖当前配置并生成新版本。"
-        className="left-auto right-0 top-0 w-full max-w-[480px] translate-x-0 rounded-none border-y-0 border-r-0"
-      >
-        <VersionHistory
-          agentId={agent.id}
-          current={agent}
-          active={historyOpen}
-          onRolledBack={(next) => {
-            setForm(toInput(next));
-            setAllowedText(next.allowedTools.join('\n'));
-            setThinkingText(
-              next.maxThinkingTokens === undefined ? '' : String(next.maxThinkingTokens),
-            );
-            setErrors({});
-            setHistoryOpen(false);
-          }}
-        />
-      </Dialog>
+      <ConfirmDialog
+        open={blocker.status === 'blocked'}
+        onClose={() => blocker.reset?.()}
+        title="放弃未保存的更改？"
+        description={`「${agent.name}」还有未保存的修改，离开后会丢失。可以先取消、保存后再离开。`}
+        confirmLabel="放弃并离开"
+        onConfirm={async () => {
+          blocker.proceed?.();
+        }}
+      />
+
+      <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+        <SheetContent
+          side="right"
+          showCloseButton={false}
+          aria-describedby={undefined}
+          className="w-full max-w-[480px] gap-0 border-l border-line bg-surface p-0 shadow-overlay sm:max-w-[480px]"
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-3.5">
+            <div className="min-w-0">
+              <SheetTitle className="text-md font-semibold text-fg">版本历史</SheetTitle>
+              <SheetDescription className="mt-1 text-xs leading-relaxed text-muted">
+                每次保存生成一份快照。回滚会覆盖当前配置并生成新版本。
+              </SheetDescription>
+            </div>
+            <SheetClose
+              aria-label="关闭"
+              className="-mr-1 rounded-[7px] p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+            >
+              <X className="size-4" />
+            </SheetClose>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <VersionHistory
+              agentId={agent.id}
+              current={agent}
+              active={historyOpen}
+              onRolledBack={(next) => {
+                setForm(toInput(next));
+                setAllowedText(next.allowedTools.join('\n'));
+                setThinkingText(
+                  next.maxThinkingTokens === undefined ? '' : String(next.maxThinkingTokens),
+                );
+                setErrors({});
+                setHistoryOpen(false);
+              }}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
-
-const menuItemClass =
-  'flex cursor-pointer select-none items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-sm text-fg outline-none data-[highlighted]:bg-hover';
 
 function Section({
   id,
@@ -1310,61 +1383,89 @@ function Section({
   onToggle: () => void;
   children: ReactNode;
 }) {
-  const bodyId = `agent-${id}-body`;
+  const reduce = useReducedMotion();
+  const headingId = `agent-${id}-heading`;
   return (
     <section
       id={`agent-${id}`}
-      aria-labelledby={`agent-${id}-heading`}
+      aria-labelledby={headingId}
       className="scroll-mt-24 border-t border-line py-1 first:border-t-0"
     >
-      <h2>
-        <button
-          id={`agent-${id}-heading`}
-          type="button"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          onClick={onToggle}
-          className="flex w-full items-center gap-1.5 rounded-[7px] py-2.5 text-left text-xs text-subtle transition-colors hover:text-fg focus-visible:outline-none"
-        >
-          <ChevronRight
-            className={cn(
-              'size-3.5 shrink-0 text-subtle transition-transform',
-              open && 'rotate-90',
-            )}
-            strokeWidth={1.75}
-            aria-hidden="true"
-          />
-          {title}
-          <span className="ml-auto max-w-[60%] truncate font-mono text-2xs tabular-nums text-subtle">
-            {summary}
-          </span>
-        </button>
-      </h2>
-      {/* 折叠时保留 DOM（hidden）：收起分区里的校验错误仍能被 aria-describedby 找到。 */}
-      <div id={bodyId} hidden={!open} className="space-y-4 pb-5">
-        {children}
-      </div>
+      <Collapsible open={open} onOpenChange={onToggle}>
+        <h2>
+          <CollapsibleTrigger
+            id={headingId}
+            className="flex w-full items-center gap-1.5 rounded-[7px] py-2.5 text-left text-xs text-subtle transition-colors hover:text-fg"
+          >
+            <ChevronRight
+              className={cn(
+                'size-3.5 shrink-0 text-subtle transition-transform duration-150',
+                open && 'rotate-90',
+              )}
+              aria-hidden="true"
+            />
+            {title}
+            <span className="ml-auto max-w-[60%] truncate font-mono text-2xs tabular-nums text-subtle">
+              {summary}
+            </span>
+          </CollapsibleTrigger>
+        </h2>
+        {/* forceMount 保留 DOM（收起时 Radix 置 hidden）：校验错误仍能被 aria-describedby 找到。 */}
+        <CollapsibleContent forceMount>
+          <motion.div
+            initial={false}
+            animate={open ? { height: 'auto' } : { height: 0 }}
+            transition={reduce ? { duration: 0 } : { duration: 0.15, ease: 'easeOut' }}
+            className="overflow-hidden"
+          >
+            <div hidden={!open} className="space-y-4 pb-5">
+              {children}
+            </div>
+          </motion.div>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }
 
 /** 草稿预览：折叠在表单里，内容随表单实时变化。 */
 function DraftPreview({ title, code }: { title: string; code: string }) {
+  const [open, setOpen] = useState(false);
+  const reduce = useReducedMotion();
+
   return (
-    <details className="group rounded-[9px] border border-line">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2.5 text-xs text-muted transition-colors hover:text-fg">
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-[9px] border border-line">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-[9px] px-3 py-2.5 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
         <ChevronRight
-          className="size-3.5 shrink-0 text-subtle transition-transform group-open:rotate-90"
-          strokeWidth={1.75}
+          className={cn(
+            'size-3.5 shrink-0 text-subtle transition-transform duration-150',
+            open && 'rotate-90',
+          )}
           aria-hidden="true"
         />
         {title}
         <span className="ml-auto font-mono text-2xs text-subtle">草稿 · 实时</span>
-      </summary>
-      <div className="border-t border-line p-2">
-        <CodeBlock code={code} maxHeight="22rem" />
-      </div>
-    </details>
+      </CollapsibleTrigger>
+      {/* 高度动画由 motion 管，Radix 负责 open 状态和 trigger/content 的 aria 关联。 */}
+      <CollapsibleContent forceMount>
+        <AnimatePresence initial={false}>
+          {open ? (
+            <motion.div
+              key="body"
+              initial={{ height: 0 }}
+              animate={{ height: 'auto' }}
+              exit={{ height: 0 }}
+              transition={reduce ? { duration: 0 } : { duration: 0.15, ease: 'easeOut' }}
+              className="overflow-hidden"
+            >
+              <div className="border-t border-line p-2">
+                <CodeBlock code={code} maxHeight="22rem" />
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -1467,7 +1568,7 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
         items={fileTabs.map(([value, label, Icon]) => ({
           value,
           label,
-          icon: <Icon className="size-4" strokeWidth={1.75} />,
+          icon: <Icon className="size-4" />,
         }))}
       />
       {files.isPending ? <LoadingState rows={6} /> : null}
@@ -1478,9 +1579,7 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
         <CodeBlock key={active[0]} code={content} lineNumbers maxHeight="calc(100vh - 22rem)" />
       ) : null}
       {!disabled && !content ? (
-        <p className="py-8 text-center text-xs text-subtle">
-          该文件当前为空。保存配置后会自动生成内容。
-        </p>
+        <InlineEmpty>该文件当前为空。保存配置后会自动生成内容。</InlineEmpty>
       ) : null}
       <p className="py-2 text-2xs text-subtle">
         主智能体自己的 agent md 仅供预览、不落盘；路径{' '}
@@ -1555,9 +1654,7 @@ function VersionHistory({
         <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
       ) : null}
       {versions.data && versions.data.length === 0 ? (
-        <p className="py-8 text-center text-xs text-subtle">
-          还没有版本记录。修改配置并保存后，这里会留下第一份快照。
-        </p>
+        <InlineEmpty>还没有版本记录。修改配置并保存后，这里会留下第一份快照。</InlineEmpty>
       ) : null}
       {versions.data && versions.data.length > 0 ? (
         <ul className="divide-y divide-line border-y border-line">
@@ -1640,13 +1737,12 @@ function VersionRow({
           >
             <ChevronRight
               className={cn('size-4 transition-transform', open && 'rotate-90')}
-              strokeWidth={1.75}
               aria-hidden="true"
             />
             {open ? '收起差异' : '查看差异'}
           </Button>
           <Button variant="outline" size="sm" className="rounded-full" onClick={onRollback}>
-            <RotateCcw className="size-4" strokeWidth={1.75} /> 回滚
+            <RotateCcw className="size-4" /> 回滚
           </Button>
         </div>
       </div>

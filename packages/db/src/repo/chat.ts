@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentRuns, agents, conversations, messages } from '../schema.js';
@@ -63,18 +63,60 @@ export async function getConversation(
   return row ?? null;
 }
 
-export async function listMessages(db: Database, conversationId: string): Promise<Message[]> {
-  return db
+export interface ListMessagesOptions {
+  /** 只取最新 N 条（按 created_at, id 倒序取，仍按正序返回）。 */
+  limit?: number;
+  /** 游标：只取这条消息之前的历史，配合 limit 做向前分页。 */
+  before?: string;
+}
+
+/**
+ * 不传 limit 时返回整段历史（branch 需要全部消息复制）；
+ * 传 limit 时只取最新 N 条，避免把 tool 消息的大 jsonb 全量带给页面。
+ */
+export async function listMessages(
+  db: Database,
+  conversationId: string,
+  options: ListMessagesOptions = {},
+): Promise<Message[]> {
+  const filters: SQL[] = [eq(messages.conversationId, conversationId)];
+  if (options.before !== undefined) {
+    // 行值比较正好命中 (conversation_id, created_at, id) 索引；游标也限定在本会话。
+    filters.push(sql`(${messages.createdAt}, ${messages.id}) < (
+      select b.created_at, b.id from ${messages} b
+      where b.id = ${options.before} and b.conversation_id = ${conversationId}
+    )`);
+  }
+  const query = db
     .select()
     .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt), asc(messages.id));
+    .where(and(...filters));
+  if (options.limit === undefined) {
+    return query.orderBy(asc(messages.createdAt), asc(messages.id));
+  }
+  const rows = await query
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(options.limit);
+  return rows.reverse();
+}
+
+const INSERT_CHUNK = 500;
+
+type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+export type MessageInsert = typeof messages.$inferInsert;
+
+/** 一个 run 的消息逐行 insert 会有上千次往返；按 500 行一条语句批量写。 */
+export async function insertMessages(db: Database | Tx, rows: MessageInsert[]): Promise<void> {
+  for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+    await db.insert(messages).values(rows.slice(i, i + INSERT_CHUNK));
+  }
 }
 
 const HISTORY_LIMIT = 20;
 const HISTORY_TEXT_LIMIT = 2_000;
 
-function messageText(content: unknown): string | null {
+/** 消息正文只在 content.text 里；tool 消息没有该字段。 */
+export function messageText(content: unknown): string | null {
   if (typeof content !== 'object' || content === null || !('text' in content)) return null;
   return typeof content.text === 'string' ? content.text : null;
 }
@@ -146,13 +188,15 @@ export async function branchConversation(
   if (!conversation) throw new Error('conversation insert returned no row');
 
   if (copy.length > 0) {
-    await db.insert(messages).values(
+    await insertMessages(
+      db,
       copy.map((row) => ({
         id: newId('message'),
         conversationId: conversation.id,
         role: row.role,
         content: row.content,
         runId: null,
+        createdAt: row.createdAt,
       })),
     );
   }
@@ -174,6 +218,21 @@ export async function listConversations(
   db: Database,
   options: { agentId?: string; limit?: number } = {},
 ): Promise<ConversationSummary[]> {
+  // 先按 last_message_at 取一页会话（由 messages 触发器维护），lateral 只对这几行求最后一条消息。
+  // 直接 lateral + orderBy 会把子查询跑遍全表（N 个会话 × messages 扫描）。
+  const page = db
+    .select({
+      id: conversations.id,
+      agentId: conversations.agentId,
+      title: conversations.title,
+      createdAt: conversations.createdAt,
+    })
+    .from(conversations)
+    .where(options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId))
+    .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
+    .limit(options.limit ?? 50)
+    .as('page');
+
   const last = db
     .select({
       role: messages.role,
@@ -182,27 +241,24 @@ export async function listConversations(
       createdAt: messages.createdAt,
     })
     .from(messages)
-    .where(eq(messages.conversationId, conversations.id))
+    .where(eq(messages.conversationId, page.id))
     .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(1)
     .as('last_message');
 
-  const updatedAt = sql`coalesce(${last.createdAt}, ${conversations.createdAt})`;
+  // 行的顺序已由 page 的子查询确定，外层不再排序。
   const rows = await db
     .select({
-      id: conversations.id,
-      agentId: conversations.agentId,
-      title: conversations.title,
-      createdAt: conversations.createdAt,
+      id: page.id,
+      agentId: page.agentId,
+      title: page.title,
+      createdAt: page.createdAt,
       lastRole: last.role,
       lastText: last.text,
       lastCreatedAt: last.createdAt,
     })
-    .from(conversations)
-    .leftJoinLateral(last, sql`true`)
-    .where(options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId))
-    .orderBy(desc(updatedAt), desc(conversations.id))
-    .limit(options.limit ?? 50);
+    .from(page)
+    .leftJoinLateral(last, sql`true`);
 
   return rows.map(({ lastRole, lastText, lastCreatedAt, ...row }) => ({
     ...row,

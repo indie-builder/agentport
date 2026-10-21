@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
-import { infraReady, inject, startApp, testConfig } from './helpers.js';
+import { infraReady, inject, loginCookie, startApp, testConfig } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -42,8 +42,18 @@ describe.skipIf(!ready)('health', () => {
     expect(res.json()).toMatchObject({ status: 'ok', db: 'ok' });
   });
 
+  it('GET /health/metrics requires auth: it is not a public probe', async () => {
+    const anon = await inject(app, { method: 'GET', url: '/health/metrics' });
+    expect(anon.statusCode).toBe(401);
+  });
+
   it('GET /health/metrics returns process, queue, db and redis metrics', async () => {
-    const res = await inject(app, { method: 'GET', url: '/health/metrics' });
+    const cookie = await loginCookie(app);
+    const res = await inject(app, {
+      method: 'GET',
+      url: '/health/metrics',
+      headers: { cookie },
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
       process: { uptimeSeconds: expect.any(Number), memoryRssBytes: expect.any(Number) },

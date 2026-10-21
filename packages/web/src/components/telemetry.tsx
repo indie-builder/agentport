@@ -65,7 +65,7 @@ export function TelemetryStrip({ ticks, label }: { ticks: TelemetryTick[]; label
             'h-4 w-[3px] rounded-[1px]',
             tick.state === 'ok' && 'bg-line-strong',
             tick.state === 'error' && 'bg-danger',
-            tick.state === 'live' && 'live-dot bg-signal',
+            tick.state === 'live' && 'bg-ink',
             tick.state === 'idle' && 'bg-line',
           )}
         />

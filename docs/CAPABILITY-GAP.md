@@ -203,7 +203,7 @@
 | 能力 | 状态 | 证据 |
 |---|---|---|
 | 子智能体调用归属 | ✅ | 事件新增可选 `parentToolUseId`；worker 落库保留；对话页与运行详情缩进并标「子智能体内部调用」 |
-| CI 扩展 | ✅ | ci.yml 增加 e2e（Playwright）与 docker（构建 api/sandbox 镜像）job |
+| CI 扩展 | ✅ | ci.yml 增加 e2e（`e2e run`，Playwright 已退役）与 docker（构建 api/sandbox 镜像）job |
 | 发布流程 | ✅ | `v*` tag 触发 release.yml，推送 `ghcr.io/<repo>/api` 与 `/sandbox` |
 | 运维手册 | ✅ | [RUNBOOK.md](RUNBOOK.md)：症状 → 判断 → 处置 → 验证，含 token 泄露与审计取证 |
 | 系统状态页 | ✅ | `/status`：live / ready / metrics 三面板，10 秒刷新，浏览器内只读自检 |

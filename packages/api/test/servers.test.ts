@@ -1,9 +1,10 @@
-import type { Server } from '@agentport/shared';
+import { SECRET_MASK, type Server } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import {
   cleanup,
+  expectProblem,
   infraReady,
   inject,
   loginCookie,
@@ -102,7 +103,8 @@ describe.skipIf(!ready)('servers', () => {
     });
     expect(shown.statusCode).toBe(200);
     expect(shown.json()).toEqual({
-      token: expect.stringMatching(/^.{4}••••$/),
+      // GET 只回掩码，字段名与 rotate 的明文 token 区分。
+      maskedToken: SECRET_MASK,
       endpoint: expect.stringContaining(`/mcp/${server.id}`),
     });
 
@@ -174,8 +176,7 @@ describe.skipIf(!ready)('servers', () => {
         payload: { name: unique('prod-private'), kind: 'http', url: 'http://10.0.0.1/mcp' },
       });
       expect(res.statusCode).toBe(400);
-      expect(res.json()).toMatchObject({ code: 'INVALID_URL' });
-      expect(res.json().message).toContain('内网');
+      expect(expectProblem(res, 'INVALID_URL').message).toContain('内网');
 
       const publicName = unique('prod-public');
       created.push(publicName);
@@ -194,8 +195,7 @@ describe.skipIf(!ready)('servers', () => {
         headers: auth(),
         payload: { url: 'http://192.168.1.10/mcp' },
       });
-      expect(patched.statusCode).toBe(400);
-      expect(patched.json()).toMatchObject({ code: 'INVALID_URL' });
+      expectProblem(patched, 'INVALID_URL');
     } finally {
       await prodApp.close();
     }
@@ -386,8 +386,7 @@ describe.skipIf(!ready)('servers', () => {
       headers: auth(),
       payload: { description: 'second', expectedUpdatedAt: server.updatedAt },
     });
-    expect(stale.statusCode).toBe(409);
-    expect(stale.json()).toMatchObject({ code: 'CONFLICT_STALE' });
+    expectProblem(stale, 'CONFLICT_STALE');
   });
 
   it('DELETE removes the server and returns 404 afterwards', async () => {

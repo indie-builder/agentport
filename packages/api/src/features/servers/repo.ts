@@ -4,9 +4,18 @@ import type { Database } from '@agentport/db';
 import type { ServerRow } from '@agentport/db/repo/servers.js';
 import * as serverRepo from '@agentport/db/repo/servers.js';
 import type { ApiTool, ApiToolInput, Server, ServerInput } from '@agentport/shared';
-import { decryptSecrets, encryptSecrets, maskServer } from './secrets.js';
+import { decryptSecrets, encryptSecrets, maskServer, SECRET_MASK } from './secrets.js';
 
 type Db = Database;
+
+/** jsonb 里的配置是不可信输入：类型不对就当空值，而不是把 undefined 写进响应。 */
+export function str(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+export function strArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
 
 /** DB 行 + 解密后的 env/headers → 共享 Server 形状（仍含明文 secret）。 */
 export function toApiServer(row: ServerRow, keyB64url: string): Server {
@@ -142,7 +151,7 @@ export async function updateServer(
   }
   const current = toApiServer(row, key);
   if (patch.kind !== undefined && patch.kind !== current.kind) {
-    fail('INVALID_INPUT', 'server kind cannot change');
+    fail('INVALID_INPUT', 'Server 类型创建后不能修改；需要其他类型请新建一个 Server');
   }
 
   const mergedSecrets = (
@@ -151,7 +160,7 @@ export async function updateServer(
   ) => {
     if (!next) return prev;
     const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(next)) out[k] = v === '••••' ? (prev[k] ?? '') : v;
+    for (const [k, v] of Object.entries(next)) out[k] = v === SECRET_MASK ? (prev[k] ?? '') : v;
     return out;
   };
 

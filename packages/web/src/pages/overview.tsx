@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Activity, ArrowRight, Bot, CircleAlert, MessagesSquare, Plus, Server } from 'lucide-react';
+import { Activity, ArrowRight, Bot, CircleAlert, Plus, Server } from 'lucide-react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { Page, PageHeader, PageSection } from '../components/page.js';
+import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { ErrorState, LoadingState } from '../components/states.js';
 import { TelemetryReadout, TelemetryStrip } from '../components/telemetry.js';
 import { Badge } from '../components/ui/badge.js';
 import { buttonVariants } from '../components/ui/button.js';
@@ -27,27 +27,6 @@ import {
   useRuns,
 } from '../lib/queries.js';
 
-const _links = [
-  {
-    to: '/servers',
-    label: 'MCP Servers',
-    description: '接入 stdio / HTTP，或把 HTTP API 包装成 MCP',
-    icon: Server,
-  },
-  {
-    to: '/agents',
-    label: '智能体',
-    description: '配置提示词、模型、技能与绑定的 MCP Servers',
-    icon: Bot,
-  },
-  {
-    to: '/chat',
-    label: '对话',
-    description: '选择智能体发起一次带工具的对话',
-    icon: MessagesSquare,
-  },
-] as const;
-
 const agentColumns: DataColumn<OverviewAgentRow>[] = [
   {
     id: 'name',
@@ -58,7 +37,7 @@ const agentColumns: DataColumn<OverviewAgentRow>[] = [
     cell: (row) => (
       <Link
         to="/agents"
-        className="flex items-center gap-2 font-medium text-fg hover:text-accent"
+        className="flex items-center gap-2 font-medium text-fg hover:underline hover:underline-offset-4"
         onClick={(e) => e.stopPropagation()}
       >
         <span
@@ -273,7 +252,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
     <Link
       to="/runs/$runId"
       params={{ runId: item.runId }}
-      className="group flex items-center gap-3 border-b border-line py-2.5 last:border-0 hover:bg-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+      className="group flex h-14 items-center gap-3 border-b border-line px-2.5 last:border-b-0 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
     >
       <span
         aria-hidden="true"
@@ -288,7 +267,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
       </span>
       <ArrowRight
         aria-hidden="true"
-        className="size-3.5 shrink-0 text-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-fg"
+        className="size-3.5 shrink-0 text-subtle group-hover:text-fg"
       />
     </Link>
   );
@@ -311,6 +290,9 @@ export function OverviewPage() {
   };
   const recent = overview.data?.recent ?? runs.data?.items ?? null;
   const agentRows = overview.data?.agents ?? null;
+  // 只有 runs 是最近运行来源时才由它报错；否则「没有失败」会被当成结论。
+  const runsSource = (overview.data?.recent ?? null) === null;
+  const runsError = runsSource && runs.isError ? runs.error : null;
 
   const error = overview.isError ? overview.error : (servers.error ?? agents.error);
   const loading = overview.isPending || servers.isPending || agents.isPending;
@@ -400,8 +382,8 @@ export function OverviewPage() {
       ) : null}
 
       {empty ? (
-        <EmptyState
-          icon={<Bot className="size-5" />}
+        <PageNote
+          icon={<Bot className="size-4" aria-hidden="true" />}
           title="平台还没有任何配置"
           description="三步开始：接入一个 MCP Server → 创建智能体并绑定它 → 在对话里使用。"
           action={
@@ -419,13 +401,12 @@ export function OverviewPage() {
             {...(attention.length === 0 ? {} : { description: `${attention.length} 项` })}
             divided={false}
           >
-            {runs.isPending && !overview.data ? (
+            {runsError ? (
+              <ErrorState error={runsError} onRetry={() => void runs.refetch()} />
+            ) : runs.isPending && runsSource ? (
               <LoadingState rows={2} />
             ) : attention.length === 0 ? (
-              <div className="flex items-center gap-2 border-y border-line py-3 text-sm text-muted">
-                <span aria-hidden="true" className="size-1.5 rounded-full bg-success" />
-                过去 24 小时没有失败或超时的运行。
-              </div>
+              <PageNote title="过去 24 小时没有失败或超时的运行" />
             ) : (
               <div>
                 {attention.map((item) => (
@@ -447,7 +428,7 @@ export function OverviewPage() {
             <div className="flex flex-wrap gap-2">
               <Link
                 to="/servers"
-                className="flex items-center gap-2 border border-line bg-surface px-3 py-2 text-xs text-fg hover:border-line-strong"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-2')}
               >
                 <Server aria-hidden="true" className="size-3.5 text-subtle" />
                 MCP Servers
@@ -455,7 +436,7 @@ export function OverviewPage() {
               </Link>
               <Link
                 to="/agents"
-                className="flex items-center gap-2 border border-line bg-surface px-3 py-2 text-xs text-fg hover:border-line-strong"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-2')}
               >
                 <Bot aria-hidden="true" className="size-3.5 text-subtle" />
                 智能体
@@ -463,7 +444,7 @@ export function OverviewPage() {
               </Link>
               <Link
                 to="/runs"
-                className="flex items-center gap-2 border border-line bg-surface px-3 py-2 text-xs text-fg hover:border-line-strong"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-2')}
               >
                 <Activity aria-hidden="true" className="size-3.5 text-subtle" />
                 运行
@@ -475,15 +456,19 @@ export function OverviewPage() {
           <PageSection title="智能体" description="最近 7 天">
             {overview.isPending ? <LoadingState rows={3} /> : null}
             {fallback ? (
-              <div className="border border-dashed border-line px-4 py-6 text-center text-xs text-muted">
-                聚合指标暂不可用：后端还没有提供{' '}
-                <code className="font-mono text-fg/80">GET /api/overview</code>
-                。接入后这里会自动显示。
-              </div>
+              <PageNote
+                title="聚合指标暂不可用"
+                description={
+                  <>
+                    后端还没有提供 <code className="font-mono text-fg/80">GET /api/overview</code>
+                    ；接入后这里会自动显示。
+                  </>
+                }
+              />
             ) : null}
             {agentRows && agentRows.length === 0 ? (
-              <EmptyState
-                icon={<Bot className="size-5" />}
+              <PageNote
+                icon={<Bot className="size-4" aria-hidden="true" />}
                 title="还没有智能体"
                 description="创建智能体、绑定 MCP Server 后，这里会显示运行次数与成本。"
                 action={
@@ -506,9 +491,12 @@ export function OverviewPage() {
           </PageSection>
 
           <PageSection title="最近运行" description="最近 20 条；失败项在上方「需要处理」">
+            {runsError ? (
+              <ErrorState error={runsError} onRetry={() => void runs.refetch()} />
+            ) : null}
             {recent && recent.length === 0 ? (
-              <EmptyState
-                icon={<Activity className="size-5" />}
+              <PageNote
+                icon={<Activity className="size-4" aria-hidden="true" />}
                 title="还没有运行记录"
                 description="在对话页发起一次运行，这里会显示状态、耗时与成本。"
                 action={

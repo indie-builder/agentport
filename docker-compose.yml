@@ -6,7 +6,8 @@ name: agentport
 
 services:
   postgres:
-    image: postgres:18-alpine
+    # 摘要固定到当前 18-alpine 的 multi-arch index，重建不会漂移。
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     restart: unless-stopped
     environment:
       POSTGRES_USER: agentport
@@ -23,7 +24,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:8-alpine
+    image: redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
     restart: unless-stopped
     # 密码由 compose 在启动时注入；healthcheck 里用同一个变量名，避免两处不一致。
     environment:
@@ -39,23 +40,34 @@ services:
       timeout: 3s
       retries: 10
 
+  # 命名卷首次创建时属主是 root；worker 以 node(1000) 运行会 EACCES。
+  # 单独的一次性 init 修复，`docker compose up` 与 up.sh 行为一致。
+  init:
+    image: alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+    command: ['chown', '-R', '1000:1000', '/w']
+    restart: 'no'
+    volumes:
+      - workspaces:/w
+
   migrate:
     build: .
-    image: agentport/api:dev
+    image: ${API_IMAGE:-agentport/api:dev}
     # 一次性迁移：使用镜像内已 deploy 的 db 包（含 dist、migrations、scripts）。
     command: ['node', 'api/node_modules/@agentport/db/scripts/migrate.js']
     restart: 'no'
     env_file: .env
     environment:
       DATABASE_URL: postgres://agentport:agentport@postgres:5432/agentport
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
         condition: service_healthy
 
   api:
     build: .
-    image: agentport/api:dev
+    image: ${API_IMAGE:-agentport/api:dev}
     restart: unless-stopped
+    stop_grace_period: 30s
     env_file: .env
     environment:
       NODE_ENV: production
@@ -64,13 +76,13 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-agentport-dev}@redis:6379
       # web 构建产物在镜像里的位置（根 Dockerfile 复制 packages/web/dist 到 /app/web）
       WEB_DIST: /app/web
-      # 与 worker 共用工作区卷；api 只负责渲染，不落盘，路径保持一致便于排查。
-      WORKSPACES_DIR: /workspaces
-    volumes:
-      - workspaces:/workspaces
+      # .env 里 development/debug 只用于本地进程；容器部署默认 info，需要时显式 export。
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - '3000:3000'
     depends_on:
+      init:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       postgres:
@@ -80,21 +92,23 @@ services:
 
   worker:
     build: .
-    image: agentport/api:dev
+    image: ${API_IMAGE:-agentport/api:dev}
     restart: unless-stopped
+    stop_grace_period: 30s
     command: ['node', 'worker/dist/index.js']
     env_file: .env
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://agentport:agentport@postgres:5432/agentport
       REDIS_URL: redis://:${REDIS_PASSWORD:-agentport-dev}@redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       # 固定容器内路径，与执行 compose 的目录无关。
       WORKSPACES_DIR: /workspaces
       # 沙盒由宿主 daemon 启动，-v 的源路径按宿主文件系统解析，不能直接用容器内路径。
       # 命名卷在标准 rootful Docker 上的宿主目录如下（项目名固定为 agentport）；
       # rootless / 自定义 data-root 时用 HOST_WORKSPACES_DIR 覆盖。
       HOST_WORKSPACES_DIR: ${HOST_WORKSPACES_DIR:-/var/lib/docker/volumes/agentport_workspaces/_data}
-      SANDBOX_IMAGE: agentport/sandbox:dev
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-agentport/sandbox:dev}
       # 沙盒在默认 bridge 上，通过 host.docker.internal 回到宿主发布的 3000 端口。
       SANDBOX_API_URL: http://host.docker.internal:3000
       # 模型代理端口：必须发布到宿主，沙盒（默认 bridge）才能经 host.docker.internal 访问。
@@ -119,6 +133,8 @@ services:
     group_add:
       - '${DOCKER_GID:-0}'
     depends_on:
+      init:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       postgres:

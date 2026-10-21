@@ -62,7 +62,7 @@
 
 **M12 现在的边界**：MCP 凭证与模型凭证都不再以长期明文进入沙盒。模型代理只转发 `/v1/messages` 等白名单路径，避免变成开放代理；未启用代理时启动日志会明确警告。stdio / http server 自己的 env/headers 仍会解密写入 `.mcp.json`（0600，run 结束删除）；Linux 宿主 uid 非 1000 时容器读取 0600 bind mount 的行为未验证。
 
-本次最终文档复核实际运行了 `pnpm test`（18 个文件、104 个用例通过，需先停 worker）、`pnpm typecheck`、`pnpm build` 与 `pnpm smoke`（`SMOKE OK`）。E2E 未复跑；真实部署下的限流、CSP、会话吊销仍为「未验证」。
+本次最终文档复核实际运行了 `pnpm test`（2026-10-21 复跑：25 个文件、156/162 通过、6 失败——失败项对应并行线尚未合入的 `/health/metrics` 鉴权与脱敏改动；需先停 worker）、`pnpm typecheck`、`pnpm build` 与 `pnpm smoke`（`SMOKE OK`）；biome 对 `packages/*/src packages/*/test` 的 154 个文件为 1 warning、0 error。E2E 未复跑；真实部署下的限流、CSP、会话吊销仍为「未验证」。
 
 ## 已检查无问题
 

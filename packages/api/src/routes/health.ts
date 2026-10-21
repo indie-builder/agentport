@@ -5,8 +5,8 @@ import { collectMetrics } from '../plugins/metrics.js';
 export async function registerHealthRoutes(app: FastifyInstance) {
   app.get('/health/live', async () => ({ status: 'ok' }));
 
-  // 本机运维读取，无鉴权；单项依赖失败时该字段返回 null。
-  app.get('/health/metrics', async () => collectMetrics(app));
+  // 运维指标需登录；单项依赖失败时该字段返回 null。
+  app.get('/health/metrics', { preHandler: [app.requireAuth] }, async () => collectMetrics(app));
 
   app.get('/health/ready', async (_request, reply) => {
     const checks = { db: 'ok' as 'ok' | 'error', redis: 'ok' as 'ok' | 'error' };

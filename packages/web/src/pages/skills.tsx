@@ -1,6 +1,11 @@
-import { type Skill, type SkillInput, skillInputSchema } from '@agentport/shared';
+import {
+  type Skill,
+  type SkillInput,
+  type SkillWithAgentCount,
+  skillInputSchema,
+} from '@agentport/shared';
 import { Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
@@ -20,7 +25,7 @@ export function SkillsPage() {
   const skills = useSkills();
   const [editing, setEditing] = useState<Skill | null>(null);
   const [creating, setCreating] = useState(false);
-  const [deleting, setDeleting] = useState<Skill | null>(null);
+  const [deleting, setDeleting] = useState<SkillWithAgentCount | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -35,7 +40,7 @@ export function SkillsPage() {
             className="rounded-full"
             onClick={() => setCreating(true)}
           >
-            <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建技能
+            <Plus className="size-4" aria-hidden="true" /> 新建技能
           </Button>
         }
       />
@@ -46,23 +51,23 @@ export function SkillsPage() {
       ) : null}
       {skills.data && skills.data.length === 0 ? (
         <PageNote
-          icon={<Sparkles className="size-4" strokeWidth={1.75} aria-hidden="true" />}
+          icon={<Sparkles className="size-4" aria-hidden="true" />}
           title="还没有技能"
           description="把重复出现的步骤写成技能，多个智能体可以共享它。"
           action={
             <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
-              <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建技能
+              <Plus className="size-4" aria-hidden="true" /> 新建技能
             </Button>
           }
         />
       ) : null}
 
       {skills.data && skills.data.length > 0 ? (
-        <ul className="-mt-3">
+        <ul>
           {skills.data.map((skill) => (
             <li
               key={skill.id}
-              className="group flex items-start gap-4 border-b border-line py-4 last:border-b-0"
+              className="group flex min-h-14 items-start gap-4 border-b border-line px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -80,23 +85,18 @@ export function SkillsPage() {
                 ) : null}
               </div>
               <div className="flex shrink-0 gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="rounded-[7px]"
-                  onClick={() => setEditing(skill)}
-                >
+                <Button variant="ghost" size="icon-sm" onClick={() => setEditing(skill)}>
                   <span className="sr-only">编辑 {skill.name}</span>
-                  <Pencil className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                  <Pencil className="size-4" aria-hidden="true" />
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="rounded-[7px] hover:text-danger"
+                  className="hover:text-danger"
                   onClick={() => setDeleting(skill)}
                 >
                   <span className="sr-only">删除 {skill.name}</span>
-                  <Trash2 className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                  <Trash2 className="size-4" aria-hidden="true" />
                 </Button>
               </div>
             </li>
@@ -135,6 +135,20 @@ function SkillDialog({
       : emptySkill,
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const initial = useMemo<SkillInput>(
+    () =>
+      skill
+        ? {
+            slug: skill.slug,
+            name: skill.name,
+            description: skill.description,
+            body: skill.body,
+          }
+        : emptySkill,
+    [skill],
+  );
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
 
   const set = <K extends keyof SkillInput>(key: K, value: SkillInput[K]): void => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -174,11 +188,13 @@ function SkillDialog({
   };
 
   const pending = create.isPending || update.isPending;
+  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认。
+  const close = dirty ? () => setConfirmDiscard(true) : onClose;
 
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={skill ? '编辑技能' : '新建技能'}
       description="技能内容会写入 SKILL.md 的正文。"
       {...(returnFocusRef ? { returnFocusRef } : {})}
@@ -253,17 +269,37 @@ function SkillDialog({
           </Button>
         </div>
       </form>
+      <ConfirmDialog
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        title="放弃未保存的更改？"
+        description="关闭后这段技能内容会丢失。"
+        confirmLabel="放弃并关闭"
+        onConfirm={async () => {
+          onClose();
+        }}
+      />
     </Dialog>
   );
 }
 
-function DeleteSkillDialog({ skill, onClose }: { skill: Skill; onClose: () => void }) {
+function DeleteSkillDialog({
+  skill,
+  onClose,
+}: {
+  skill: SkillWithAgentCount;
+  onClose: () => void;
+}) {
   const remove = useDeleteSkill();
   return (
     <ConfirmDialog
       open
       title="删除技能"
-      description={`将删除「${skill.name}」。已绑定的智能体会自动解除绑定。`}
+      description={
+        skill.agentCount > 0
+          ? `将删除「${skill.name}」。${skill.agentCount} 个智能体将失去该技能，需要重新绑定。`
+          : `将删除「${skill.name}」。目前没有智能体绑定它。`
+      }
       confirmLabel="删除"
       onClose={onClose}
       onConfirm={async () => {

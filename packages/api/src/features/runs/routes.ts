@@ -1,14 +1,18 @@
-import { AppError } from '@agentport/core';
-import { repo, type schema } from '@agentport/db';
+import { repo } from '@agentport/db';
+import { idParams, runDetailSchema, runListSchema, runStatusSchema } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { problem, reject } from '../../plugins/errors.js';
+import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 
 const runsRepo = repo.runs;
 
-type RunStatusFilter = NonNullable<typeof schema.agentRuns.$inferInsert.status>;
+const listQuery = z.object({
+  agentId: z.string().min(1).optional(),
+  status: runStatusSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
 
 function toIso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
@@ -21,25 +25,13 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/runs',
-    {
-      ...auth,
-      schema: {
-        querystring: z.object({
-          agentId: z.string().optional(),
-          status: z.string().optional(),
-          limit: z.coerce.number().int().min(1).max(200).optional(),
-        }),
-      },
-    },
+    { ...auth, schema: { querystring: listQuery, response: { 200: runListSchema } } },
     async (request) => {
-      const { agentId, status } = request.query;
-      const limit = request.query.limit ?? 50;
+      const { agentId, status, limit } = request.query;
       const items = await runsRepo.listRuns(app.db, {
-        ...(agentId ? { agentId } : {}),
-        ...(status !== undefined && (repo.runs.RUN_STATUSES as readonly string[]).includes(status)
-          ? { status: status as RunStatusFilter }
-          : {}),
-        limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 200) : 50,
+        ...(agentId === undefined ? {} : { agentId }),
+        ...(status === undefined ? {} : { status }),
+        limit,
       });
 
       return {
@@ -52,49 +44,48 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get<{ Params: { id: string } }>('/api/runs/:id', auth, async (request, reply) => {
-    const detail = await runsRepo.getRunDetail(app.db, request.params.id);
-    if (!detail) {
-      return reply
-        .status(404)
-        .send(
-          problem(request.id, new AppError('RUN_NOT_FOUND', `run ${request.params.id} not found`)),
-        );
-    }
+  app.get(
+    '/api/runs/:id',
+    { ...auth, schema: { params: idParams, response: { 200: runDetailSchema } } },
+    async (request, reply) => {
+      const detail = await runsRepo.getRunDetail(app.db, request.params.id);
+      if (!detail)
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新运行列表');
 
-    return {
-      run: {
-        ...detail.run,
-        startedAt: toIso(detail.run.startedAt),
-        endedAt: toIso(detail.run.endedAt),
-      },
-      steps: detail.steps,
-      conversation: detail.conversation,
-    };
-  });
+      return {
+        run: {
+          ...detail.run,
+          startedAt: toIso(detail.run.startedAt),
+          endedAt: toIso(detail.run.endedAt),
+        },
+        steps: detail.steps,
+        conversation: detail.conversation,
+      };
+    },
+  );
 
   /** 结构化审批请求：pending 由 MCP 端点写入，批准后 approvedAt 非空。 */
-  app.get<{ Params: { id: string } }>('/api/runs/:id/approvals', auth, async (request, reply) => {
-    const agentId = await runsRepo.getRunAgentId(app.db, request.params.id);
-    if (!agentId) {
-      return reply
-        .status(404)
-        .send(
-          problem(request.id, new AppError('RUN_NOT_FOUND', `run ${request.params.id} not found`)),
-        );
-    }
-    const rows = await runsRepo.listApprovalRequests(app.db, request.params.id);
-    return {
-      items: rows.map((row) => ({
-        id: row.id,
-        serverId: row.serverId,
-        serverName: row.serverName,
-        toolName: row.toolName,
-        createdAt: row.createdAt.toISOString(),
-        approvedAt: row.approvedAt === null ? null : row.approvedAt.toISOString(),
-      })),
-    };
-  });
+  app.get(
+    '/api/runs/:id/approvals',
+    { ...auth, schema: { params: idParams } },
+    async (request, reply) => {
+      const agentId = await runsRepo.getRunAgentId(app.db, request.params.id);
+      if (!agentId) {
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新运行列表');
+      }
+      const rows = await runsRepo.listApprovalRequests(app.db, request.params.id);
+      return {
+        items: rows.map((row) => ({
+          id: row.id,
+          serverId: row.serverId,
+          serverName: row.serverName,
+          toolName: row.toolName,
+          createdAt: row.createdAt.toISOString(),
+          approvedAt: row.approvedAt === null ? null : row.approvedAt.toISOString(),
+        })),
+      };
+    },
+  );
 
   /**
    * 批准必须对应一条已存在的 (run, server, tool) 请求：
@@ -105,34 +96,22 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
     {
       ...auth,
       schema: {
-        params: z.object({ id: z.string().min(1) }),
+        params: idParams,
         body: z.object({ serverId: z.string().min(1), toolName: z.string().min(1) }),
       },
     },
     async (request, reply) => {
-      const body = { data: request.body };
+      const { serverId, toolName } = request.body;
       const agentId = await runsRepo.getRunAgentId(app.db, request.params.id);
       if (!agentId) {
-        return reply
-          .status(404)
-          .send(
-            problem(
-              request.id,
-              new AppError('RUN_NOT_FOUND', `run ${request.params.id} not found`),
-            ),
-          );
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新运行列表');
       }
-      const approved = await runsRepo.approveTool(
-        app.db,
-        request.params.id,
-        body.data.serverId,
-        body.data.toolName,
-      );
+      const approved = await runsRepo.approveTool(app.db, request.params.id, serverId, toolName);
       if (!approved) {
         return reject(
           reply,
           'APPROVAL_NOT_FOUND',
-          `no pending approval for tool ${body.data.toolName} on this server in this run`,
+          '这次工具调用没有待批准记录；它可能已批准或已失效，请刷新后重试',
         );
       }
       await writeAudit(app.db, request.log, {

@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { installProcessGuards } from '@agentport/core';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { closeProducer } from './queue/producer.js';
 
 const config = loadConfig();
 const app = await buildApp(config);
@@ -30,10 +31,29 @@ if (webDist && existsSync(webDist)) {
   });
 }
 
+let shuttingDown = false;
 const shutdown = async (signal: string) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   app.log.info({ signal }, 'shutting down');
-  await app.close();
-  process.exit(0);
+  await closeProducer();
+  const closing = app.close();
+  let graceTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      closing,
+      new Promise<void>((resolveClose) => {
+        graceTimer = setTimeout(() => {
+          app.server.closeAllConnections();
+          resolveClose();
+        }, 2_000);
+      }),
+    ]);
+    await closing;
+    process.exit(0);
+  } finally {
+    clearTimeout(graceTimer);
+  }
 };
 
 process.on('SIGTERM', () => void shutdown('SIGTERM'));

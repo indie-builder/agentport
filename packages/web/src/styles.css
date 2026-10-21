@@ -1,6 +1,7 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 @import "tailwindcss";
+@import "tw-animate-css";
 
 /*
  * PACE 设计令牌。基准：https://www.openui.com/chat?form_factor=desktop
@@ -10,24 +11,28 @@
  * 强调靠透明度与实底黑，不靠色相。
  */
 @theme {
-  /* 表面：页面暖白 < 外壳近白 < 悬停浅灰 */
-  --color-canvas: #f7f7f5;
-  --color-surface: #fefefd;
-  --color-panel: #fefefd;
+  /* 表面：页面暖白 < 外壳近白 < 悬停浅灰（2026-10-21 CDP 实测） */
+  --color-canvas: #f5f5f5;
+  --color-surface: #fdfdfd;
+  --color-panel: #fdfdfd;
   --color-sunken: #f2f2f0;
-  --color-hover: rgb(15 15 15 / 0.04);
-  --color-chip: rgb(15 15 15 / 0.02);
+  --color-hover: rgb(3 3 3 / 0.04);
+  --color-chip: rgb(3 3 3 / 0.02);
+  /* 选中态：比悬停更深一档（实测 --openui-sunk-deep） */
+  --color-selected: rgb(3 3 3 / 0.08);
 
   /* 线与文本 */
-  --color-line: rgb(15 15 15 / 0.06);
-  --color-line-strong: rgb(15 15 15 / 0.12);
-  --color-fg: #0f0f0f;
-  --color-muted: rgb(15 15 15 / 0.6);
-  --color-subtle: rgb(15 15 15 / 0.38);
+  --color-line: rgb(3 3 3 / 0.06);
+  --color-line-strong: rgb(3 3 3 / 0.12);
+  /* 外壳的 1px outline 比常规分隔线更淡 */
+  --color-shell-line: rgb(3 3 3 / 0.04);
+  --color-fg: #030303;
+  --color-muted: rgb(3 3 3 / 0.6);
+  --color-subtle: rgb(3 3 3 / 0.38);
 
   /* 实底（主按钮、发送、选中） */
-  --color-ink: #0f0f0f;
-  --color-ink-hover: #262626;
+  --color-ink: #030303;
+  --color-ink-hover: #1f1f1f;
 
   /* 状态：只用于小面积 */
   --color-success: #1a7f4b;
@@ -48,15 +53,23 @@
   --color-code-literal: #8a5a00;
   --color-code-number: #6b3fa0;
 
-  --color-scrim: rgb(15 15 15 / 0.32);
+  --color-scrim: rgb(0 0 0 / 0.4);
 
-  /* 圆角：随元素尺寸递增（实测值） */
-  --radius-shell: 16px;
-  --radius-card: 12px;
+  /* 圆角：实测 --openui-radius-*（6/8/16）叠加实测元素值 */
+  --radius-shell: 16px; /* 外壳、卡片、建议卡 */
+  --radius-card: 16px;
   --radius-chip: 16px;
-  --radius-item: 9px;
-  --radius-icon: 7px;
-  --radius-tag: 6px;
+  --radius-item: 9px; /* 会话条目、新建会话 */
+  --radius-icon: 7px; /* 图标按钮、logo、折叠按钮 */
+  --radius-tag: 6px; /* 小标签、侧栏图标底 */
+  --radius-pill: 9999px;
+
+  /* 侧栏：实测 272 展开 / 68 收起，过渡 160ms */
+  --sidebar-width: 272px;
+  --sidebar-collapsed: 68px;
+  --sidebar-pad: 16px 12px;
+  --sidebar-pad-collapsed: 16px 18px;
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 
   --font-sans: "Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Geist Mono", monospace;
@@ -75,9 +88,31 @@
   --text-lg: 1.5rem;
   --text-lg--line-height: 1.875rem;
 
+  /*
+   * shadcn 原语用的语义别名，全部映射到同一套无彩度令牌。
+   * 组件保持库的原始类名，外观仍由这里决定——不要在组件里改色值。
+   */
+  --color-background: var(--color-surface);
+  --color-foreground: var(--color-fg);
+  --color-popover: var(--color-surface);
+  --color-popover-foreground: var(--color-fg);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-fg);
+  --color-primary: var(--color-ink);
+  --color-primary-foreground: #fff;
+  --color-secondary: var(--color-hover);
+  --color-secondary-foreground: var(--color-fg);
+  --color-accent: var(--color-hover);
+  --color-accent-foreground: var(--color-fg);
+  --color-muted-foreground: var(--color-muted);
+  --color-destructive: var(--color-danger);
+  --color-border: var(--color-line);
+  --color-input: var(--color-line);
+  --color-ring: var(--color-fg);
+
   /* 唯一带阴影的元素是输入框胶囊 */
-  --shadow-composer: 0 0 0 0.5px rgb(15 15 15 / 0.08), 0 4px 16px 0 rgb(15 15 15 / 0.06);
-  --shadow-overlay: 0 8px 24px -8px rgb(15 15 15 / 0.16);
+  --shadow-composer: 0 0 0 0.5px rgb(3 3 3 / 0.08), 0 4px 16px 0 rgb(0 0 0 / 0.06);
+  --shadow-overlay: 0 8px 24px -8px rgb(0 0 0 / 0.16);
 }
 
 @layer base {
@@ -120,7 +155,7 @@
   ::-webkit-scrollbar-thumb {
     border: 3px solid transparent;
     border-radius: 9999px;
-    background-color: rgb(15 15 15 / 0.16);
+    background-color: rgb(0 0 0 / 0.16);
     background-clip: content-box;
   }
 

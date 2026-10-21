@@ -1,4 +1,4 @@
-import { chatEventSchema } from '@agentport/shared';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
   ArrowDown,
@@ -16,21 +16,31 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import {
+  memo,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { CodeBlock, CollapsibleText, JsonBlock } from '../components/code-block.js';
-import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../components/ui/collapsible.js';
+import { Select } from '../components/ui/select.js';
+import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { type ApprovalRequest, api } from '../lib/api.js';
 import {
-  type ApprovalRequest,
-  api,
-  type ChatAccepted,
-  errorMessage,
-  type RecentRun,
-} from '../lib/api.js';
-import {
-  applyEvent,
   type ChatItem,
   historyToItems,
   type LocalConversation,
@@ -40,16 +50,17 @@ import {
   toolFailed,
   upsertLocalConversation,
 } from '../lib/chat-state.js';
-import { cn } from '../lib/cn.js';
-import { formatBytes, formatCost, formatDuration, formatRelative } from '../lib/format.js';
 import {
-  useAgents,
-  useConversation,
-  useConversations,
-  useRunApprovals,
-  useRuns,
-} from '../lib/queries.js';
+  type RunMetrics,
+  type RunOutcome,
+  type RunState,
+  useChatStore,
+} from '../lib/chat-store.js';
+import { cn } from '../lib/cn.js';
+import { formatDuration, formatRelative } from '../lib/format.js';
+import { useAgents, useConversation, useConversations, useRunApprovals } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useChatStream } from '../lib/use-chat-stream.js';
 
 export function ChatPage() {
   const agents = useAgents();
@@ -83,7 +94,7 @@ export function ChatPage() {
           title="还没有智能体"
           description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
           action={
-            <Link to="/agents" className="text-xs text-signal-text hover:underline">
+            <Link to="/agents" className="text-xs text-fg hover:underline">
               前往创建
             </Link>
           }
@@ -101,32 +112,30 @@ export function ChatPage() {
   );
 }
 
-type RunOutcome = 'succeeded' | 'failed' | 'cancelled' | 'timeout';
-
-interface RunState {
-  runId: string;
-  conversationId: string;
-  /** queued：已提交、还没拿到 runId；此时没有可停止的对象。 */
-  status: 'queued' | 'streaming' | 'reconnecting' | 'detached';
-  startedAt: number;
-}
-
-interface RunMetrics {
-  runId: string;
-  status: RunOutcome;
-  turns?: number;
-  durationMs: number;
-  tokens?: number;
-  costUsd?: number;
-  error?: string;
-}
-
 const outcomeLabel: Record<RunOutcome, string> = {
   succeeded: '完成',
   failed: '失败',
   cancelled: '已停止',
   timeout: '超时',
 };
+
+/** 设计规范 §9：只有展开折叠这类状态切换，150ms、ease-out、不加位移。 */
+const EXPAND = { duration: 0.15, ease: 'easeOut' } as const;
+const STILL = { duration: 0 } as const;
+
+/** 与 Tailwind 的 lg 断点一致：只有这一侧需要可拖拽分栏。 */
+const DESKTOP = '(min-width: 64rem)';
+
+function useDesktop(): boolean {
+  const [desktop, setDesktop] = useState(() => window.matchMedia(DESKTOP).matches);
+  useEffect(() => {
+    const query = window.matchMedia(DESKTOP);
+    const onChange = (): void => setDesktop(query.matches);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
+  return desktop;
+}
 
 function ChatWorkspace({
   agents,
@@ -138,32 +147,50 @@ function ChatWorkspace({
   onAgentChange: (id: string) => void;
 }) {
   const agent = agents.find((item) => item.id === agentId) ?? null;
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [items, setItems] = useState<ChatItem[]>([]);
-  const [input, setInput] = useState('');
-  const [run, setRun] = useState<RunState | null>(null);
-  const [lastRun, setLastRun] = useState<RunMetrics | null>(null);
+  const conversationId = useChatStore((state) => state.conversationId);
+  const items = useChatStore((state) => state.items);
+  const run = useChatStore((state) => state.run);
+  const lastRun = useChatStore((state) => state.lastRun);
+  const lastRunId = useChatStore((state) => state.lastRunId);
+  const historyOpen = useChatStore((state) => state.historyOpen);
+  const setInput = useChatStore((state) => state.setInput);
+  const setHistoryOpen = useChatStore((state) => state.setHistoryOpen);
+  const client = useQueryClient();
   const [local, setLocal] = useState<LocalConversation[]>(() => loadLocalConversations());
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [branching, setBranching] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState(false);
-  // 审批针对产生错误的 run；run_finished 后 run 会被清空，所以单独保留 id。
-  const [lastRunId, setLastRunId] = useState<string | null>(null);
-  const [approving, setApproving] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  // 服务端重连时从头回放事件流；保留发起前的消息（含用户气泡），避免文本重复或丢失。
-  const baseItemsRef = useRef<ChatItem[]>([]);
-  const sourceRef = useRef<EventSource | null>(null);
-  const retryRef = useRef<number | null>(null);
-  const startedAtRef = useRef(0);
+  // 本地索引只有两条写路径（新会话被接收、历史会话被打开），统一走这里刷新。
+  const refreshLocal = useCallback(() => setLocal(loadLocalConversations()), []);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  // 切换会话时才从服务端回填历史；否则流式结束瞬间的重新查询会覆盖刚收到的回答。
-  const hydratedRef = useRef<string | null>(null);
+  const desktop = useDesktop();
 
   const conversations = useConversations(agentId);
   const detail = useConversation(conversationId);
   const runApprovals = useRunApprovals(run?.runId || lastRunId);
-  const recentRuns = useRuns({ ...(agentId ? { agentId } : {}), limit: 1 });
+  const historyLayout = useDefaultLayout({ id: 'chat-history' });
+
+  // 空数组也要稳定：否则轮询之外的重渲染会给工具行换一个新身份。
+  const approvalData = useMemo(() => runApprovals.data?.items ?? [], [runApprovals.data]);
+
+  const stream = useChatStream({
+    agentId,
+    onAccepted: (accepted, text) => {
+      upsertLocalConversation({
+        id: accepted.conversationId,
+        agentId: agent?.id ?? agentId ?? '',
+        title: text.slice(0, 80),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      refreshLocal();
+    },
+  });
+
+  // store 是模块级的：离开对话页时恢复到首次挂载的状态，避免下次进来看到上一次的会话。
+  useEffect(() => () => useChatStore.getState().reset(), []);
+
+  // 空态或运行结束后把焦点交还输入框，键盘用户不用再找一次。
+  useEffect(() => {
+    if (!run && items.length === 0) composerRef.current?.focus();
+  }, [run, items.length]);
 
   const history = useMemo(() => {
     if (conversations.data?.supported) {
@@ -178,225 +205,77 @@ function ChatWorkspace({
     return local.filter((conversation) => conversation.agentId === agentId);
   }, [conversations.data, local, agentId]);
 
-  const closeStream = useCallback((): void => {
-    if (retryRef.current !== null) {
-      window.clearTimeout(retryRef.current);
-      retryRef.current = null;
-    }
-    sourceRef.current?.close();
-    sourceRef.current = null;
-  }, []);
+  // 三个写操作都用 mutation：pending 与失效刷新交给 TanStack Query。
+  const cancelMutation = useMutation({
+    mutationFn: (runId: string) => api.cancelRun(runId),
+    onError: (error) => toastError(error),
+    onSettled: (_data, _error, runId) => client.invalidateQueries({ queryKey: ['run', runId] }),
+  });
 
-  useEffect(() => closeStream, [closeStream]);
-
-  // 状态条计时：只有存在 runId 时才需要每秒刷新。
-  useEffect(() => {
-    if (!run?.runId) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [run?.runId]);
-
-  // 空态或运行结束后把焦点交还输入框，键盘用户不用再找一次。
-  useEffect(() => {
-    if (!run && items.length === 0) composerRef.current?.focus();
-  }, [run, items.length]);
-
-  const openStream = useCallback(
-    (accepted: ChatAccepted, attempt = 0): void => {
-      closeStream();
-      if (attempt > 0) setItems(baseItemsRef.current);
-      const source = new EventSource(`/api/chat/${accepted.runId}/events`);
-      sourceRef.current = source;
-      let finished = false;
-      // 服务端收到 error 事件后会主动断流；此时 run 可能还在跑，不能重连也不能清状态。
-      let errored = false;
-
-      source.onopen = () => {
-        if (sourceRef.current !== source) return;
-        setRun((current) =>
-          current?.runId === accepted.runId ? { ...current, status: 'streaming' } : current,
-        );
-      };
-
-      source.onmessage = (message) => {
-        let raw: unknown;
-        try {
-          raw = JSON.parse(message.data);
-        } catch {
-          return;
-        }
-        const parsed = chatEventSchema.safeParse(raw);
-        if (!parsed.success) return;
-        const event = parsed.data;
-        setItems((previous) => applyEvent(previous, event));
-        if (event.type === 'error') {
-          errored = true;
-          return;
-        }
-        if (event.type === 'run_finished') {
-          finished = true;
-          closeStream();
-          setRun(null);
-          setNow(Date.now());
-          setLastRun({
-            runId: accepted.runId,
-            status: event.status,
-            durationMs: Date.now() - startedAtRef.current,
-            ...(event.turns === undefined ? {} : { turns: event.turns }),
-            ...(event.inputTokens === undefined && event.outputTokens === undefined
-              ? {}
-              : { tokens: (event.inputTokens ?? 0) + (event.outputTokens ?? 0) }),
-            ...(event.costUsd === undefined ? {} : { costUsd: event.costUsd }),
-            ...(event.error === undefined ? {} : { error: event.error }),
-          });
-        }
-        // error 只是事件流里的一条通知：服务端 run 可能仍在运行，不在这里收尾。
-      };
-
-      source.onerror = () => {
-        // 服务端在 run_finished 后主动结束流；此后重连没有意义。
-        if (finished || sourceRef.current !== source) return;
-        source.close();
-        sourceRef.current = null;
-        if (errored && attempt === 0) {
-          // 服务端已明确报错并断流：保留 run，只标记事件流丢失，停止仍可用。
-          setRun((current) =>
-            current?.runId === accepted.runId ? { ...current, status: 'detached' } : current,
-          );
-          return;
-        }
-        if (attempt < 3) {
-          setRun({ ...accepted, status: 'reconnecting', startedAt: startedAtRef.current });
-          retryRef.current = window.setTimeout(() => openStream(accepted, attempt + 1), 1500);
-          return;
-        }
-        setRun(null);
-        setItems((previous) => [
-          ...previous,
-          { kind: 'notice', tone: 'error', text: '事件流多次中断，已停止重连。' },
-        ]);
-      };
+  const approveMutation = useMutation({
+    mutationFn: (item: ApprovalRequest & { runId: string }) =>
+      api.approveRun(item.runId, item.serverId, item.toolName),
+    onSuccess: (_data, item) => {
+      toastSuccess(`已批准 ${item.toolName}；继续请在输入框重新发送消息`);
+      void client.invalidateQueries({ queryKey: ['run-approvals'] });
     },
-    [closeStream],
-  );
+    onError: (error) => toastError(error),
+  });
 
-  const send = async (): Promise<void> => {
-    const text = input.trim();
-    if (!text || !agent || run) return;
-    setInput('');
-    setLastRun(null);
-    // base 必须包含刚追加的用户气泡：重连会整体回放事件，不能把它丢掉。
-    const nextItems: ChatItem[] = [...items, { kind: 'user', text }];
-    baseItemsRef.current = nextItems;
-    setItems(nextItems);
-    startedAtRef.current = Date.now();
-    setNow(startedAtRef.current);
-    setRun({
-      runId: '',
-      conversationId: conversationId ?? '',
-      status: 'queued',
-      startedAt: startedAtRef.current,
-    });
-    try {
-      const accepted = await api.sendChat({
-        agentId: agent.id,
-        message: text,
-        ...(conversationId ? { conversationId } : {}),
-      });
-      setConversationId(accepted.conversationId);
-      setLastRunId(accepted.runId);
-      hydratedRef.current = accepted.conversationId;
-      setRun({ ...accepted, status: 'streaming', startedAt: startedAtRef.current });
-      upsertLocalConversation({
-        id: accepted.conversationId,
-        agentId: agent.id,
-        title: text.slice(0, 80),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      setLocal(loadLocalConversations());
-      openStream(accepted);
-    } catch (error) {
-      setRun(null);
-      setInput(text);
-      toastError(error);
-      // 没有 run 产生任何回答：撤回本地用户气泡，只留一条错误通知。
-      setItems([...items, { kind: 'notice', tone: 'error', text: errorMessage(error) }]);
-    }
-  };
+  const branchMutation = useMutation({
+    mutationFn: (id: string) => api.branchConversation(id),
+    onSuccess: (conversation) => {
+      // 先切到新会话再失效列表：openConversation 会关闭流并清空当前消息。
+      openConversation(conversation.id);
+      void client.invalidateQueries({ queryKey: ['conversations'] });
+    },
+    onError: (error) => toastError(error),
+  });
 
   const cancel = (): void => {
     // 没有 runId 时后端还没有可取消的 run；按钮也不会显示。
-    if (!run?.runId || cancelling) return;
-    setCancelling(true);
-    api
-      .cancelRun(run.runId)
-      .catch((error) => toastError(error))
-      .finally(() => setCancelling(false));
+    if (!run?.runId) return;
+    cancelMutation.mutate(run.runId);
   };
 
   /** 只记录批准；继续需要用户重新发送消息，也就是新一次运行。 */
-  const approve = (item: ApprovalRequest): void => {
-    const runId = run?.runId || lastRunId;
-    if (!runId || approving) return;
-    setApproving(item.id);
-    api
-      .approveRun(runId, item.serverId, item.toolName)
-      .then(() => {
-        toastSuccess(`已批准 ${item.toolName}；继续请在输入框重新发送消息`);
-        void runApprovals.refetch();
-      })
-      .catch((error) => toastError(error))
-      .finally(() => setApproving(null));
-  };
+  // 固定身份：工具行的 memo 依赖这个回调，每次渲染都换新函数会让整列重渲染。
+  const approve = useCallback(
+    (item: ApprovalRequest): void => {
+      const runId = run?.runId || lastRunId;
+      if (!runId) return;
+      approveMutation.mutate({ ...item, runId });
+    },
+    [run?.runId, lastRunId, approveMutation.mutate],
+  );
 
   const openConversation = (id: string): void => {
-    closeStream();
-    setRun(null);
-    setLastRun(null);
-    setLastRunId(null);
-    hydratedRef.current = null;
-    setConversationId(id);
-    setItems([]);
+    stream.closeStream();
+    stream.hydratedRef.current = null;
+    useChatStore.getState().resetConversation(id);
     setHistoryOpen(false);
   };
 
   const newConversation = (): void => {
-    closeStream();
-    setRun(null);
-    setLastRun(null);
-    setLastRunId(null);
-    hydratedRef.current = null;
-    setConversationId(null);
-    setItems([]);
+    stream.closeStream();
+    stream.hydratedRef.current = null;
+    useChatStore.getState().resetConversation(null);
     setHistoryOpen(false);
     composerRef.current?.focus();
   };
 
   // 分支：服务端复制消息，前端切到新会话；列表由 query 失效后刷新。
-  const branch = async (id: string): Promise<void> => {
-    if (branching) return;
-    setBranching(id);
-    try {
-      const conversation = await api.branchConversation(id);
-      await conversations.refetch();
-      openConversation(conversation.id);
-    } catch (error) {
-      toastError(error);
-    } finally {
-      setBranching(null);
-    }
-  };
+  const branch = (id: string): void => branchMutation.mutate(id);
 
   // 载入历史：每个会话只回填一次，之后由流式事件维护。
+  const hydrated = stream.hydratedRef;
   useEffect(() => {
     const data = detail.data;
     if (!data || run) return;
-    if (hydratedRef.current === data.conversation.id) return;
-    hydratedRef.current = data.conversation.id;
-    setItems(historyToItems(data.messages));
-  }, [detail.data, run]);
+    if (hydrated.current === data.conversation.id) return;
+    hydrated.current = data.conversation.id;
+    useChatStore.getState().setItems(historyToItems(data.messages));
+  }, [detail.data, run, hydrated]);
 
   useEffect(() => {
     if (!detail.data) return;
@@ -414,251 +293,416 @@ function ChatWorkspace({
       titleFromDetail(detail.data),
     );
     upsertLocalConversation(next);
-    setLocal(loadLocalConversations());
-  }, [detail.data]);
+    refreshLocal();
+  }, [detail.data, refreshLocal]);
 
   const switchAgent = (id: string): void => {
-    closeStream();
-    setRun(null);
-    setLastRun(null);
-    setLastRunId(null);
-    hydratedRef.current = null;
-    setConversationId(null);
-    setItems([]);
+    stream.closeStream();
+    stream.hydratedRef.current = null;
+    useChatStore.getState().resetConversation(null);
     onAgentChange(id);
   };
 
-  const showWelcome = items.length === 0 && !run && (conversationId === null || !detail.isPending);
-  const lastAgentRun = recentRuns.data?.items.find((item) => item.agentId === agentId) ?? null;
+  const showWelcome =
+    items.length === 0 && !run && !detail.isError && (conversationId === null || !detail.isPending);
+
+  const historyPanel = (
+    <HistoryPanel
+      history={history}
+      pending={conversations.isPending}
+      error={conversations.isError ? conversations.error : null}
+      onRetry={() => void conversations.refetch()}
+      supported={conversations.data?.supported === true}
+      conversationId={conversationId}
+      branching={branchMutation.isPending ? branchMutation.variables : null}
+      onOpen={openConversation}
+      onBranch={branch}
+    />
+  );
+
+  const column = (
+    <ChatColumn
+      agent={agent}
+      agentId={agentId}
+      agents={agents}
+      onSwitchAgent={switchAgent}
+      conversationId={conversationId}
+      detail={detail}
+      items={items}
+      run={run}
+      lastRun={lastRun}
+      lastRunId={lastRunId}
+      approving={approveMutation.isPending ? (approveMutation.variables?.id ?? null) : null}
+      cancelling={cancelMutation.isPending}
+      approvalItems={approvalData}
+      onApprove={approve}
+      onCancel={cancel}
+      onOpenHistory={() => setHistoryOpen(true)}
+      onPickSuggestion={setInput}
+      showWelcome={showWelcome}
+      send={stream.send}
+      composerRef={composerRef}
+    />
+  );
 
   return (
     <div className="flex h-full min-h-0">
       <h1 className="sr-only">对话</h1>
 
-      {/* 会话列表：参考页的侧栏形态——白底、行高 36、圆角 9、悬停浅灰。 */}
-      <aside
-        className={cn(
-          'flex w-[280px] shrink-0 flex-col overflow-hidden border-r border-line bg-surface',
-          historyOpen ? 'absolute inset-y-0 left-0 z-20 shadow-overlay' : 'hidden lg:flex',
-        )}
-        aria-label="会话历史"
+      {/* 窄屏抽屉：Radix 负责焦点陷阱、Escape 与滚动锁；桌面分栏常驻，不挂这层。 */}
+      <Sheet open={historyOpen && !desktop} onOpenChange={setHistoryOpen}>
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          aria-describedby={undefined}
+          className="w-[294px] max-w-none gap-0 border-r border-line bg-surface p-0"
+        >
+          <SheetTitle className="sr-only">会话历史</SheetTitle>
+          <HistoryHeader onNew={newConversation} onClose={() => setHistoryOpen(false)} />
+          {historyPanel}
+        </SheetContent>
+      </Sheet>
+
+      {desktop ? (
+        <div className="flex min-h-0 w-full">
+          <Group
+            orientation="horizontal"
+            defaultLayout={historyLayout.defaultLayout}
+            onLayoutChanged={historyLayout.onLayoutChanged}
+          >
+            <Panel id="history" defaultSize={272} minSize={220} maxSize={420}>
+              <aside
+                className="flex h-full flex-col overflow-hidden bg-surface"
+                aria-label="会话历史"
+              >
+                <HistoryHeader onNew={newConversation} />
+                {historyPanel}
+              </aside>
+            </Panel>
+            <Separator className="w-px border-r border-line" aria-label="调整会话列表宽度" />
+            <Panel id="chat">{column}</Panel>
+          </Group>
+        </div>
+      ) : (
+        // 窄屏没有分栏：主列直接占满整行。
+        <div className="flex min-h-0 min-w-0 flex-1">{column}</div>
+      )}
+    </div>
+  );
+}
+
+function HistoryHeader({ onNew, onClose }: { onNew: () => void; onClose?: () => void }) {
+  return (
+    <div className="flex h-11 shrink-0 items-center gap-2 px-3 pt-3">
+      <span className="text-sm font-medium text-fg">会话</span>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="新建会话"
+        className="ml-auto"
+        onClick={onNew}
       >
-        <div className="flex h-14 items-center gap-2 px-3">
-          <span className="text-sm font-medium text-fg">会话</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="新建会话"
-            className="ml-auto"
-            onClick={newConversation}
-          >
-            <Plus className="size-4" strokeWidth={1.75} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="关闭会话列表"
-            className="lg:hidden"
-            onClick={() => setHistoryOpen(false)}
-          >
-            <X className="size-4" strokeWidth={1.75} />
-          </Button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          {conversations.isPending ? <LoadingState rows={4} /> : null}
-          {conversations.isError ? (
-            <ErrorState error={conversations.error} onRetry={() => void conversations.refetch()} />
-          ) : null}
-          {history.length === 0 && !conversations.isPending ? (
-            <p className="px-2 py-6 text-xs leading-relaxed text-subtle">
-              还没有会话。发送第一条消息即可开始。
-            </p>
-          ) : null}
-          <ul className="space-y-0.5">
-            {history.map((conversation) => (
-              <li key={conversation.id} className="group relative">
-                <button
-                  type="button"
-                  aria-current={conversation.id === conversationId ? 'true' : undefined}
-                  onClick={() => openConversation(conversation.id)}
-                  className={cn(
-                    'w-full rounded-[9px] px-2.5 py-2 pr-8 text-left transition-colors focus-visible:outline-none',
-                    conversation.id === conversationId
-                      ? 'bg-hover text-fg'
-                      : 'text-muted hover:bg-hover hover:text-fg',
-                  )}
-                >
-                  <span className="block truncate text-sm">{conversation.title}</span>
-                  <span className="mt-0.5 block text-xs text-subtle">
-                    {formatRelative(conversation.updatedAt)}
-                  </span>
-                </button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`从「${conversation.title}」分支`}
-                  title="分支"
-                  disabled={branching !== null}
-                  className="absolute right-1 top-2.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
-                  onClick={() => void branch(conversation.id)}
-                >
-                  {branching === conversation.id ? (
-                    <LoaderCircle className="size-3.5 animate-spin" />
-                  ) : (
-                    <GitBranch className="size-3.5" strokeWidth={1.75} />
-                  )}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-        {!conversations.data?.supported && history.length > 0 ? (
-          <p className="border-t border-line px-3 py-2 text-xs leading-relaxed text-subtle">
-            历史列表来自本浏览器；服务端列表接口上线后会自动切换。
+        <Plus className="size-4" />
+      </Button>
+      {onClose ? (
+        <Button variant="ghost" size="icon-sm" aria-label="关闭会话列表" onClick={onClose}>
+          <X className="size-4" />
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+interface HistoryEntry {
+  id: string;
+  title: string;
+  updatedAt: string;
+}
+
+function HistoryPanel({
+  history,
+  pending,
+  error,
+  onRetry,
+  supported,
+  conversationId,
+  branching,
+  onOpen,
+  onBranch,
+}: {
+  history: HistoryEntry[];
+  pending: boolean;
+  error: unknown;
+  onRetry: () => void;
+  supported: boolean;
+  conversationId: string | null;
+  branching: string | null;
+  onOpen: (id: string) => void;
+  onBranch: (id: string) => void;
+}) {
+  return (
+    <>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        {pending ? <LoadingState rows={4} /> : null}
+        {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
+        {history.length === 0 && !pending ? (
+          <p className="px-2 py-6 text-xs leading-relaxed text-subtle">
+            还没有会话。发送第一条消息即可开始。
           </p>
         ) : null}
-      </aside>
-
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* 顶部一行：移动端菜单 + 智能体选择器。没有标题、没有描述。 */}
-        <header className="flex h-14 shrink-0 items-center gap-2 px-4 sm:px-6">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="打开会话列表"
-            className="lg:hidden"
-            onClick={() => setHistoryOpen(true)}
-          >
-            <MessageSquare className="size-4" strokeWidth={1.75} />
-          </Button>
-          <label className="sr-only" htmlFor="chat-agent">
-            选择智能体
-          </label>
-          <div className="relative">
-            <select
-              id="chat-agent"
-              value={agentId ?? ''}
-              onChange={(event) => switchAgent(event.target.value)}
-              className="h-8 max-w-56 cursor-pointer appearance-none rounded-full bg-hover pl-3.5 pr-9 text-sm text-fg hover:bg-chip focus-visible:outline-none"
-            >
-              {agents.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              aria-hidden="true"
-              className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted"
-              strokeWidth={1.75}
-            />
-          </div>
-        </header>
-
-        <MessagePane
-          items={items}
-          loading={detail.isPending && conversationId !== null && !run}
-          error={detail.isError ? detail.error : null}
-          onRetry={() => void detail.refetch()}
-          approvals={{
-            pending: approving,
-            onApprove: approve,
-          }}
-          approvalItems={(runApprovals.data?.items ?? []).filter(
-            (item) => item.approvedAt === null,
-          )}
-          lastRun={lastRun}
-          welcome={
-            showWelcome ? (
-              <WelcomeState
-                agent={agent}
-                lastRun={lastAgentRun}
-                onPick={(text) => setInput(text)}
-              />
-            ) : null
-          }
-        />
-
-        <div aria-live="polite" role="status" className="sr-only">
-          {run
-            ? run.status === 'queued'
-              ? '已提交，等待沙盒'
-              : run.status === 'reconnecting'
-                ? '事件流断开，正在重连'
-                : run.status === 'detached'
-                  ? '事件流已中断，运行状态未知'
-                  : `第 ${currentTurn(items)} 轮，${runningTool(items) ? `正在调用 ${runningTool(items)?.name}` : '等待模型响应'}`
-            : ''}
-        </div>
-        <RunStatusBar run={run} items={items} now={now} cancelling={cancelling} onCancel={cancel} />
-
-        {/* 输入胶囊：白底、28px 圆角、唯一带阴影的元素；发送是 32px 圆形黑底。 */}
-        <form
-          className="shrink-0 px-4 pb-5 pt-2 sm:px-6"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void send();
-          }}
-        >
-          <div className="mx-auto w-full max-w-[728px]">
-            <div className="flex items-end gap-2 rounded-[28px] bg-surface px-3 py-2.5 shadow-composer">
-              <Textarea
-                ref={composerRef}
-                aria-label="消息"
-                rows={1}
-                placeholder={
-                  run
-                    ? run.runId
-                      ? '运行中 · 结束后可继续输入'
-                      : '已提交，等待沙盒…'
-                    : 'Ask anything…'
-                }
-                title={run ? '本轮流式输出结束后即可继续输入，不会丢失当前内容' : undefined}
-                disabled={!agent || Boolean(run)}
-                value={input}
-                className="min-h-[36px] flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-md shadow-none focus-visible:ring-0"
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    if (!run) void send();
-                  }
-                }}
-              />
-              {run ? (
-                <span
-                  className="mb-0.5 flex size-8 items-center justify-center rounded-full bg-sunken text-subtle"
-                  title="运行中，结束后可发送"
-                >
-                  <ArrowUp className="size-4" strokeWidth={2} />
+        <ul className="space-y-0.5">
+          {history.map((conversation) => (
+            <li key={conversation.id} className="group relative">
+              <Button
+                variant="ghost"
+                aria-current={conversation.id === conversationId ? 'true' : undefined}
+                onClick={() => onOpen(conversation.id)}
+                className={cn(
+                  'h-auto w-full flex-col items-start gap-0 whitespace-normal rounded-[9px] px-2.5 py-2 pr-8 text-left font-normal',
+                  conversation.id === conversationId
+                    ? 'bg-hover text-fg'
+                    : 'text-muted hover:bg-hover hover:text-fg',
+                )}
+              >
+                <span className="block truncate text-sm">{conversation.title}</span>
+                <span className="mt-0.5 block text-xs text-subtle">
+                  {formatRelative(conversation.updatedAt)}
                 </span>
-              ) : (
-                <Button
-                  type="submit"
-                  disabled={!agent || !input.trim()}
-                  aria-label="发送消息"
-                  className="mb-0.5 size-8 rounded-full bg-ink p-0 text-white hover:bg-ink-hover disabled:bg-sunken disabled:text-subtle"
-                >
-                  <ArrowUp className="size-4" strokeWidth={2} />
-                </Button>
-              )}
-            </div>
-            <div className="mt-2 flex items-center justify-center gap-3 text-xs text-subtle">
-              <span>Enter 发送 · Shift+Enter 换行</span>
-              {lastRunId ? (
-                <Link
-                  to="/runs/$runId"
-                  params={{ runId: lastRunId }}
-                  className="underline-offset-2 hover:text-fg hover:underline"
-                >
-                  查看本次运行
-                </Link>
-              ) : null}
-            </div>
-          </div>
-        </form>
-      </section>
-    </div>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`从「${conversation.title}」分支`}
+                title="分支"
+                disabled={branching !== null}
+                className="absolute right-1 top-2.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                onClick={() => onBranch(conversation.id)}
+              >
+                {branching === conversation.id ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : (
+                  <GitBranch className="size-3.5" />
+                )}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {!supported && history.length > 0 ? (
+        <p className="border-t border-line px-3 py-2 text-xs leading-relaxed text-subtle">
+          历史列表来自本浏览器；服务端列表接口上线后会自动切换。
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function ChatColumn({
+  agent,
+  agentId,
+  agents,
+  onSwitchAgent,
+  conversationId,
+  detail,
+  items,
+  run,
+  lastRun,
+  lastRunId,
+  approving,
+  cancelling,
+  approvalItems,
+  onApprove,
+  onCancel,
+  onOpenHistory,
+  onPickSuggestion,
+  showWelcome,
+  send,
+  composerRef,
+}: {
+  agent: AgentView | null;
+  agentId: string | null;
+  agents: NonNullable<ReturnType<typeof useAgents>['data']>;
+  onSwitchAgent: (id: string) => void;
+  conversationId: string | null;
+  detail: ReturnType<typeof useConversation>;
+  items: ChatItem[];
+  run: RunState | null;
+  lastRun: RunMetrics | null;
+  lastRunId: string | null;
+  approving: string | null;
+  cancelling: boolean;
+  approvalItems: ApprovalRequest[];
+  onApprove: (item: ApprovalRequest) => void;
+  onCancel: () => void;
+  onOpenHistory: () => void;
+  onPickSuggestion: (text: string) => void;
+  showWelcome: boolean;
+  send: () => Promise<void>;
+  composerRef: RefObject<HTMLTextAreaElement | null>;
+}) {
+  const composer = (
+    <Composer
+      agent={agent}
+      send={send}
+      textareaRef={composerRef}
+      lastRunId={lastRunId}
+      welcome={showWelcome}
+    />
+  );
+
+  // 两个入参直接来自 query 数据；缓存住身份，流式期间 WebSocket 增量不会让工具行的 memo 失效。
+  const pendingApprovals = useMemo(
+    () => approvalItems.filter((item) => item.approvedAt === null),
+    [approvalItems],
+  );
+  const approvals = useMemo(() => ({ pending: approving, onApprove }), [approving, onApprove]);
+
+  return (
+    <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-shell bg-surface outline outline-1 outline-shell-line">
+      {/* 顶部一行：移动端菜单 + 智能体选择器。没有标题、没有描述。 */}
+      <header className="flex h-11 shrink-0 items-center gap-2 px-3 pt-3">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="打开会话列表"
+          className="lg:hidden"
+          onClick={onOpenHistory}
+        >
+          <MessageSquare className="size-4" />
+        </Button>
+        <label className="sr-only" htmlFor="chat-agent">
+          选择智能体
+        </label>
+        <Select
+          id="chat-agent"
+          value={agentId ?? ''}
+          onValueChange={onSwitchAgent}
+          options={agents.map((item) => ({ value: item.id, label: item.name }))}
+          className="w-auto max-w-56 gap-1.5 rounded-pill border-0 bg-hover px-3 text-xs leading-3 tracking-[-0.12px] [&>span:first-child]:truncate [&_svg]:size-4"
+        />
+      </header>
+
+      <MessagePane
+        items={items}
+        loading={detail.isPending && conversationId !== null && !run}
+        error={detail.isError ? detail.error : null}
+        onRetry={() => void detail.refetch()}
+        approvals={approvals}
+        approvalItems={pendingApprovals}
+        lastRun={lastRun}
+        welcome={
+          showWelcome ? (
+            <WelcomeState agent={agent} onPick={onPickSuggestion}>
+              {composer}
+            </WelcomeState>
+          ) : null
+        }
+      />
+
+      <div aria-live="polite" role="status" className="sr-only">
+        {run
+          ? run.status === 'queued'
+            ? '已提交，等待沙盒'
+            : run.status === 'reconnecting'
+              ? '事件流断开，正在重连'
+              : run.status === 'detached'
+                ? '事件流已中断，运行状态未知'
+                : `第 ${currentTurn(items)} 轮，${runningTool(items) ? `正在调用 ${runningTool(items)?.name}` : '等待模型响应'}`
+          : ''}
+      </div>
+      <RunStatusBar run={run} items={items} cancelling={cancelling} onCancel={onCancel} />
+
+      {showWelcome ? null : composer}
+    </section>
+  );
+}
+
+/** 输入胶囊：白底、28px 圆角、唯一带阴影的元素；发送是 32px 圆形黑底。 */
+function Composer({
+  agent,
+  send,
+  textareaRef,
+  lastRunId,
+  welcome,
+}: {
+  agent: AgentView | null;
+  send: () => Promise<void>;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  lastRunId: string | null;
+  welcome: boolean;
+}) {
+  // 只订阅输入内容：打字不会重渲染消息列表所在的 ChatColumn。
+  const input = useChatStore((state) => state.input);
+  const setInput = useChatStore((state) => state.setInput);
+  const run = useChatStore((state) => state.run);
+  return (
+    <form
+      className={cn('w-full shrink-0', !welcome && 'mx-auto max-w-[760px] px-4 pb-5 pt-2')}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void send();
+      }}
+    >
+      <div className="mx-auto w-full max-w-[728px]">
+        <div className="flex h-14 items-center gap-3 rounded-[28px] border border-transparent bg-surface py-[11px] pl-6 pr-3 shadow-composer">
+          <Textarea
+            ref={textareaRef}
+            aria-label="消息"
+            rows={1}
+            placeholder={
+              run
+                ? run.runId
+                  ? '运行中 · 结束后可继续输入'
+                  : '已提交，等待沙盒…'
+                : 'Ask anything…'
+            }
+            title={run ? '本轮流式输出结束后即可继续输入，不会丢失当前内容' : undefined}
+            disabled={!agent || Boolean(run)}
+            value={input}
+            className="h-8 min-h-8 min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 py-1.5 text-md leading-5 tracking-[-0.15px] shadow-none placeholder:text-muted focus-visible:ring-0"
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                if (!run) void send();
+              }
+            }}
+          />
+          {run ? (
+            <Button
+              type="button"
+              disabled
+              aria-label="发送消息"
+              title="运行中，结束后可发送"
+              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover"
+            >
+              <ArrowUp className="size-4" />
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              disabled={!agent || !input.trim()}
+              aria-label="发送消息"
+              className="size-8 shrink-0 rounded-pill bg-fg p-0 text-surface hover:bg-fg/90 disabled:bg-hover disabled:text-subtle"
+            >
+              <ArrowUp className="size-4" />
+            </Button>
+          )}
+        </div>
+        <div className="mt-2 flex items-center justify-center gap-3 text-xs text-subtle">
+          <span>Enter 发送 · Shift+Enter 换行</span>
+          {lastRunId ? (
+            <Link
+              to="/runs/$runId"
+              params={{ runId: lastRunId }}
+              className="underline-offset-2 hover:text-fg hover:underline"
+            >
+              查看本次运行
+            </Link>
+          ) : null}
+        </div>
+      </div>
+    </form>
   );
 }
 
@@ -691,16 +735,24 @@ function elapsed(ms: number): string {
 function RunStatusBar({
   run,
   items,
-  now,
   cancelling,
   onCancel,
 }: {
   run: RunState | null;
   items: ChatItem[];
-  now: number;
   cancelling: boolean;
   onCancel: () => void;
 }) {
+  // 计时只在存在 run 时刷新；每秒一次，状态条以外的行不跟着重渲染。
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!run) return;
+    setNow(Date.now());
+    if (!run.runId) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [run]);
+
   if (!run) return null;
   const tool = runningTool(items);
   const turn = currentTurn(items);
@@ -715,21 +767,15 @@ function RunStatusBar({
 
   return (
     <div className="flex shrink-0 items-center gap-2 border-t border-line bg-surface px-3 py-1.5">
-      <span
-        className={cn(
-          'size-1.5 shrink-0 rounded-full bg-signal',
-          run.status !== 'reconnecting' && run.status !== 'detached' && 'live-dot',
-        )}
-        aria-hidden="true"
-      />
-      <span className="min-w-0 flex-1 truncate text-2xs text-signal-text">{text}</span>
+      <span className="size-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate text-2xs text-fg">{text}</span>
       {run.status === 'reconnecting' || run.status === 'detached' ? (
         <RefreshCw
-          className={cn('size-3 text-signal-text', run.status === 'reconnecting' && 'animate-spin')}
+          className={cn('size-3 text-fg', run.status === 'reconnecting' && 'animate-spin')}
           aria-hidden="true"
         />
       ) : null}
-      <span className="shrink-0 font-mono text-2xs tabular-nums text-signal-text">
+      <span className="shrink-0 font-mono text-2xs tabular-nums text-fg">
         {elapsed(now - run.startedAt)}
       </span>
       {run.runId ? (
@@ -772,6 +818,8 @@ function MessagePane({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
+  // 上一次的工具子集：文本增量不改工具对象，复用它就不会惊动下游 memo。
+  const prevTools = useRef<ToolItem[]>([]);
 
   // 用户上滚后暂停自动滚动；只有贴底时才跟随新内容。
   useEffect(() => {
@@ -802,95 +850,59 @@ function MessagePane({
     setPinned(true);
   };
 
-  // 子调用挂到最上层父 Agent 下；只保留一层， grandchildren 平铺到同一层。
-  const toolById = new Map<string, Extract<ChatItem, { kind: 'tool' }>>();
-  for (const item of items) {
-    if (item.kind === 'tool') toolById.set(item.toolUseId, item);
-  }
-  const rootOf = (item: Extract<ChatItem, { kind: 'tool' }>): string | null => {
-    let node = item.parentToolUseId ? toolById.get(item.parentToolUseId) : undefined;
-    let depth = 0;
-    while (node?.parentToolUseId && depth < 8) {
-      const up = toolById.get(node.parentToolUseId);
-      if (!up) break;
-      node = up;
-      depth += 1;
-    }
-    return node?.toolUseId ?? null;
-  };
-  const children = new Map<string, Extract<ChatItem, { kind: 'tool' }>[]>();
-  const topLevel: ChatItem[] = [];
-  for (const item of items) {
-    if (item.kind !== 'tool' || item.parentToolUseId === undefined) {
-      topLevel.push(item);
-      continue;
-    }
-    const root = rootOf(item);
-    if (root === null) {
-      topLevel.push(item);
-      continue;
-    }
-    const list = children.get(root) ?? [];
-    list.push(item);
-    children.set(root, list);
-  }
+  // 文本增量只换最后一项，其余对象共享，但 items 数组身份每次都变。
+  // 工具子集逐项比对后复用；结构只依赖工具子集，于是增量不改变任何 ToolGroup 的入参。
+  const tools = useMemo(() => stableTools(items, prevTools.current), [items]);
+  prevTools.current = tools;
+  const structure = useMemo(() => buildStructure(tools), [tools]);
 
-  // 审批卡放在被拒工具的原位置；匹配不上的兜底放在末尾，不能吞掉。
-  const placed = new Set<string>();
-  const approvalFor = (item: Extract<ChatItem, { kind: 'tool' }>): ApprovalRequest | undefined => {
-    const match = approvalItems.find(
-      (approval) =>
-        (approval.serverName
-          ? item.name === `mcp__${approval.serverName}__${approval.toolName}`
-          : false) || item.name.endsWith(`__${approval.toolName}`),
-    );
-    if (match) placed.add(match.id);
-    return match;
-  };
-  const renderTool = (
-    item: Extract<ChatItem, { kind: 'tool' }>,
-    nested: boolean,
-    childCount: number,
-  ): ReactNode => {
-    const approval = approvalFor(item);
-    return (
-      <div key={`${item.toolUseId}-${nested ? 'child' : 'root'}`} className="space-y-1.5">
-        <ToolRow item={item} nested={nested} childCount={childCount} />
-        {approval ? (
-          <ApprovalCard
-            item={approval}
-            pending={approvals.pending}
-            onApprove={approvals.onApprove}
-          />
-        ) : null}
-      </div>
-    );
-  };
+  // 审批匹配表只在工具或审批变化时重算（依赖不变时 useMemo 返回同一个 Map）。
+  const matches = useMemo(() => {
+    const map = new Map<string, ApprovalRequest | undefined>();
+    for (const tool of tools) map.set(tool.toolUseId, findApproval(tool, approvalItems));
+    return map;
+  }, [tools, approvalItems]);
+
+  // 已放置的审批：兜底卡不能重复出现。
+  const placed = useMemo(() => {
+    const ids = new Set<string>();
+    for (const approval of matches.values()) if (approval) ids.add(approval.id);
+    return ids;
+  }, [matches]);
 
   return (
     <div className="relative min-h-0 flex-1">
-      <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-4">
+      <div
+        ref={scrollRef}
+        className={cn('h-full overflow-y-auto', welcome ? 'flex flex-col' : 'px-4 py-4')}
+      >
         {loading ? (
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto max-w-[728px]">
             <LoadingState rows={4} />
           </div>
         ) : null}
         {error ? (
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto max-w-[728px]">
             <ErrorState error={error} onRetry={onRetry} />
           </div>
         ) : null}
         {!loading && !error && items.length === 0 ? welcome : null}
         {!loading && !error && items.length > 0 ? (
-          <div className="mx-auto max-w-3xl space-y-4">
-            {topLevel.map((item, index) => {
+          <div className="mx-auto max-w-[728px] space-y-4">
+            {items.map((item, index) => {
+              // 有归属的子调用由父行渲染，不在顶层重复出现。
+              if (structure.root.has(item.kind === 'tool' ? item.toolUseId : '')) return null;
               if (item.kind === 'tool') {
-                const kids = children.get(item.toolUseId) ?? [];
                 return (
                   // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
                   <div key={`${index}-${item.toolUseId}`} className="space-y-1">
-                    {renderTool(item, item.parentToolUseId !== undefined, kids.length)}
-                    {kids.map((child) => renderTool(child, true, 0))}
+                    <ToolGroup
+                      tool={item}
+                      kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
+                      approvalItems={approvalItems}
+                      pending={approvals.pending}
+                      onApprove={approvals.onApprove}
+                    />
                   </div>
                 );
               }
@@ -914,32 +926,133 @@ function MessagePane({
         ) : null}
       </div>
       {!pinned && items.length > 0 ? (
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="xs"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-[2px] border border-line bg-surface px-3 py-1.5 text-2xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          className="absolute bottom-4 left-1/2 -translate-x-1/2"
         >
           <ArrowDown className="size-3" /> 回到底部
-        </button>
+        </Button>
       ) : null}
     </div>
   );
 }
 
 /**
- * 空态：参考页的核心构图——两行 24px 问候语，输入框在中间，建议卡在下方。
- *
- * 与上一版的差别：不再把「绑定 server / 权限 / 最近运行」堆在中间，
- * 那些是配置信息，不属于发起任务的现场。
+ * 一行顶层调用：父行 + 子调用 + 审批。memo 的入参全部在流式期间保持身份：
+ * tool/kids 来自按 tools 缓存的树，approvalItems 在 ChatColumn 里按 query 数据缓存，
+ * onApprove 由 useCallback 固定。文本增量因此不会渲染任何工具行。
  */
+const ToolGroup = memo(function ToolGroup({
+  tool,
+  kids,
+  approvalItems,
+  pending,
+  onApprove,
+}: {
+  tool: ToolItem;
+  kids: ToolItem[];
+  approvalItems: ApprovalRequest[];
+  pending: string | null;
+  onApprove: (item: ApprovalRequest) => void;
+}) {
+  const approval = findApproval(tool, approvalItems);
+  return (
+    <>
+      <div className="space-y-1.5">
+        <ToolRow item={tool} nested={tool.parentToolUseId !== undefined} childCount={kids.length} />
+        {approval ? <ApprovalCard item={approval} pending={pending} onApprove={onApprove} /> : null}
+      </div>
+      {kids.map((child) => {
+        const childApproval = findApproval(child, approvalItems);
+        return (
+          <div key={`${child.toolUseId}-child`} className="space-y-1.5">
+            <ToolRow item={child} nested={true} childCount={0} />
+            {childApproval ? (
+              <ApprovalCard item={childApproval} pending={pending} onApprove={onApprove} />
+            ) : null}
+          </div>
+        );
+      })}
+    </>
+  );
+});
+
+/** 审批卡放在被拒工具的原位置；匹配不上的兜底放在末尾，不能吞掉。 */
+function findApproval(
+  item: ToolItem,
+  approvalItems: ApprovalRequest[],
+): ApprovalRequest | undefined {
+  return approvalItems.find(
+    (approval) =>
+      (approval.serverName
+        ? item.name === `mcp__${approval.serverName}__${approval.toolName}`
+        : false) || item.name.endsWith(`__${approval.toolName}`),
+  );
+}
+
+type ToolItem = Extract<ChatItem, { kind: 'tool' }>;
+const NO_KIDS: ToolItem[] = [];
+
+function isTool(item: ChatItem): item is ToolItem {
+  return item.kind === 'tool';
+}
+
+/** 文本增量不改工具对象；整表逐项比对后可复用旧数组，保住下游 memo。 */
+function stableTools(items: ChatItem[], previous: ToolItem[]): ToolItem[] {
+  const tools = items.filter(isTool);
+  if (tools.length !== previous.length) return tools;
+  for (let index = 0; index < tools.length; index += 1) {
+    if (tools[index] !== previous[index]) return tools;
+  }
+  return previous;
+}
+
+/**
+ * 子调用挂到最上层父 Agent 下；只保留一层，grandchildren 平铺到同一层。
+ * 只依赖 tools：文本增量不改它，树与各行的 children 数组因此保持身份。
+ */
+function buildStructure(tools: ToolItem[]): {
+  root: Map<string, string>;
+  kids: Map<string, ToolItem[]>;
+} {
+  const toolById = new Map<string, ToolItem>();
+  for (const item of tools) toolById.set(item.toolUseId, item);
+  const rootOf = (item: ToolItem): string | null => {
+    let node = item.parentToolUseId ? toolById.get(item.parentToolUseId) : undefined;
+    let depth = 0;
+    while (node?.parentToolUseId && depth < 8) {
+      const up = toolById.get(node.parentToolUseId);
+      if (!up) break;
+      node = up;
+      depth += 1;
+    }
+    return node?.toolUseId ?? null;
+  };
+  const root = new Map<string, string>();
+  const kids = new Map<string, ToolItem[]>();
+  for (const item of tools) {
+    if (item.parentToolUseId === undefined) continue;
+    const top = rootOf(item);
+    if (top === null) continue;
+    root.set(item.toolUseId, top);
+    const list = kids.get(top) ?? [];
+    list.push(item);
+    kids.set(top, list);
+  }
+  return { root, kids };
+}
+
+/** 空态共用 728px 轴线：两行问候语、输入胶囊、建议卡。 */
 function WelcomeState({
   agent,
-  lastRun,
   onPick,
+  children,
 }: {
   agent: AgentView | null;
-  lastRun: RecentRun | null;
   onPick: (text: string) => void;
+  children: ReactNode;
 }) {
   const suggestions = agent
     ? [
@@ -951,34 +1064,27 @@ function WelcomeState({
     : [];
 
   return (
-    <div className="mx-auto flex w-full max-w-[728px] flex-1 flex-col justify-center px-4 pb-8">
-      <h2 className="text-center text-lg font-medium leading-[30px] text-fg">你好</h2>
-      <p className="mt-1 text-center text-lg font-medium leading-[26px] text-muted">
-        今天想做什么？
-      </p>
+    <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center gap-8 px-4 pb-32 pt-3">
+      <div className="flex flex-col items-center gap-1 text-center tracking-[-0.24px]">
+        <h2 className="text-lg font-normal leading-[30px] text-fg">你好</h2>
+        <p className="text-lg font-medium leading-[26.4px] text-muted">今天想做什么？</p>
+      </div>
+
+      {children}
 
       {suggestions.length > 0 ? (
-        <div className="mt-8 flex flex-wrap justify-center gap-2">
+        <div className="flex flex-wrap justify-center gap-3">
           {suggestions.map((text) => (
             <button
               key={text}
               type="button"
               onClick={() => onPick(text)}
-              className="h-[72px] w-[136px] overflow-hidden rounded-[16px] bg-chip p-4 text-left text-sm leading-[18px] text-muted transition-colors hover:bg-hover focus-visible:outline-none"
+              className="h-[72px] w-[136px] overflow-hidden rounded-card bg-chip p-4 text-left text-base leading-5 text-muted transition-[background-color] duration-150 hover:bg-hover focus-visible:ring-2 focus-visible:ring-fg"
             >
               <span className="line-clamp-2">{text}</span>
             </button>
           ))}
         </div>
-      ) : null}
-
-      {lastRun ? (
-        <p className="mt-6 text-center text-xs text-subtle">
-          上次运行 <RunStatusBadge status={lastRun.status} />{' '}
-          <span className="font-mono tabular-nums">
-            {formatDuration(lastRun.latencyMs)} · {formatCost(lastRun.costUsd)}
-          </span>
-        </p>
       ) : null}
     </div>
   );
@@ -987,12 +1093,13 @@ function WelcomeState({
 /** 只为展示取字段，避免把 Agent 类型一路传进展示组件。 */
 type AgentView = NonNullable<ReturnType<typeof useAgents>['data']>[number];
 
-function ItemView({ item }: { item: ChatItem }) {
+/** 一行气泡/文本/通知：入参 item 在文本增量间保持身份，memo 让其余行原地不动。 */
+const ItemView = memo(function ItemView({ item }: { item: ChatItem }) {
   switch (item.kind) {
     case 'user':
       return (
         <div className="flex justify-end">
-          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[2px] border border-line bg-panel px-3 py-2 text-base leading-relaxed text-fg">
+          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-pill bg-hover px-4 py-2 text-md leading-relaxed text-fg">
             {item.text}
           </div>
         </div>
@@ -1024,7 +1131,7 @@ function ItemView({ item }: { item: ChatItem }) {
         </div>
       );
   }
-}
+});
 
 /** 助手文本不用气泡；围栏代码交给 CodeBlock，其余保留换行与空白。 */
 function AssistantText({ text }: { text: string }) {
@@ -1032,7 +1139,7 @@ function AssistantText({ text }: { text: string }) {
     return (
       <CollapsibleText
         text={text}
-        className="whitespace-pre-wrap break-words text-base leading-[1.7] text-fg"
+        className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg"
       />
     );
   }
@@ -1046,7 +1153,7 @@ function AssistantText({ text }: { text: string }) {
       parts.push(
         <div
           key={index++}
-          className="whitespace-pre-wrap break-words text-base leading-[1.7] text-fg"
+          className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg"
         >
           {prose}
         </div>,
@@ -1067,10 +1174,7 @@ function AssistantText({ text }: { text: string }) {
   const tail = text.slice(last);
   if (tail) {
     parts.push(
-      <div
-        key={index++}
-        className="whitespace-pre-wrap break-words text-base leading-[1.7] text-fg"
-      >
+      <div key={index++} className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg">
         {tail}
       </div>,
     );
@@ -1114,7 +1218,7 @@ function RunMetricsLine({ run }: { run: RunMetrics }) {
         <Link
           to="/runs/$runId"
           params={{ runId: run.runId }}
-          className="text-fg underline decoration-line-strong underline-offset-2 hover:text-signal-text"
+          className="text-fg underline decoration-line-strong underline-offset-2 hover:text-fg"
         >
           查看详情
         </Link>
@@ -1125,7 +1229,7 @@ function RunMetricsLine({ run }: { run: RunMetrics }) {
 }
 
 /** 审批只记录，不重试；文案必须和真实行为一致。 */
-function ApprovalCard({
+const ApprovalCard = memo(function ApprovalCard({
   item,
   pending,
   onApprove,
@@ -1135,10 +1239,14 @@ function ApprovalCard({
   onApprove: (item: ApprovalRequest) => void;
 }) {
   const busy = pending === item.id;
+  const reduce = useReducedMotion();
   return (
-    <div
+    <motion.div
       role="alert"
-      className="flex flex-wrap items-center gap-2 rounded-[2px] border border-warning-line bg-warning-soft px-3 py-2"
+      initial={reduce ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={reduce ? STILL : EXPAND}
+      className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-chip px-3 py-2"
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg">
@@ -1149,36 +1257,11 @@ function ApprovalCard({
       <Button size="sm" disabled={busy} aria-busy={busy} onClick={() => onApprove(item)}>
         {busy ? '批准中…' : '批准并继续（新一次运行）'}
       </Button>
-    </div>
+    </motion.div>
   );
-}
+});
 
-function inputPreview(input: string | undefined): string {
-  if (!input) return '';
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(input);
-  } catch {
-    return oneLine(input);
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return oneLine(typeof parsed === 'string' ? parsed : (JSON.stringify(parsed) ?? ''));
-  }
-  return Object.entries(parsed)
-    .slice(0, 3)
-    .map(
-      ([key, value]) =>
-        `${key}=${oneLine(typeof value === 'string' ? value : (JSON.stringify(value) ?? ''))}`,
-    )
-    .join(' · ');
-}
-
-function oneLine(value: string): string {
-  const flat = value.replace(/\s+/g, ' ').trim();
-  return flat.length > 48 ? `${flat.slice(0, 48)}…` : flat;
-}
-
-function ToolRow({
+const ToolRow = memo(function ToolRow({
   item,
   nested,
   childCount,
@@ -1190,6 +1273,7 @@ function ToolRow({
   const running = item.result === undefined;
   const failed = toolFailed(item.result);
   const [open, setOpen] = useState(running);
+  const reduce = useReducedMotion();
 
   // 跑着的自动展开，结束后收起；用户仍可手动再展开。
   useEffect(() => {
@@ -1200,87 +1284,78 @@ function ToolRow({
     item.startedAt !== undefined && item.endedAt !== undefined
       ? item.endedAt - item.startedAt
       : undefined;
-  const size = useMemo(
-    () => (item.result === undefined ? undefined : new TextEncoder().encode(item.result).length),
-    [item.result],
-  );
-  const preview = inputPreview(item.input);
 
   return (
-    <div
-      className={cn(
-        'overflow-hidden border border-line bg-surface',
-        nested && 'border-l-2 border-l-signal-line',
-      )}
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className={cn('overflow-hidden rounded-item bg-surface', nested && 'ml-4')}
     >
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal"
-      >
-        {nested ? (
-          <span className="shrink-0 font-mono text-2xs text-subtle" aria-hidden="true">
-            ↳
-          </span>
-        ) : (
-          <Wrench className="size-3 shrink-0 text-subtle" aria-hidden="true" />
-        )}
+      <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg">
+        <Wrench className="size-4 shrink-0 text-subtle" aria-hidden="true" />
+        <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{item.name}</code>
         <span className="sr-only">{running ? '运行中' : failed ? '失败' : '完成'}</span>
         {running ? (
-          <LoaderCircle
-            className="size-3 shrink-0 animate-spin text-signal-text"
-            aria-hidden="true"
-          />
+          <LoaderCircle className="size-3 shrink-0 animate-spin text-fg" aria-hidden="true" />
         ) : failed ? (
           <CircleAlert className="size-3 shrink-0 text-danger" aria-hidden="true" />
         ) : (
           <Check className="size-3 shrink-0 text-success" aria-hidden="true" />
         )}
-        <code className="max-w-[38%] shrink-0 truncate font-mono text-2xs text-fg">
-          {item.name}
-        </code>
-        {childCount > 0 ? (
-          <span className="shrink-0 text-2xs text-signal-text">子智能体 · {childCount} 次调用</span>
-        ) : null}
-        <span className="min-w-0 flex-1 truncate font-mono text-2xs text-subtle">
-          {preview || (running ? '等待参数…' : '')}
+        <span className="shrink-0 text-xs text-muted" aria-hidden="true">
+          {running ? '运行中' : failed ? '失败' : '完成'}
         </span>
         {duration !== undefined ? (
           <span className="shrink-0 font-mono text-2xs tabular-nums text-subtle">
             {formatDuration(duration)}
           </span>
         ) : null}
-        {size !== undefined ? (
-          <span className="shrink-0 font-mono text-2xs tabular-nums text-subtle">
-            {formatBytes(size)}
-          </span>
-        ) : null}
         <ChevronDown
           className={cn('size-3 shrink-0 text-subtle transition-transform', open && 'rotate-180')}
           aria-hidden="true"
         />
-      </button>
-      {open ? (
-        <div className="grid gap-2 border-t border-line p-2 md:grid-cols-2">
-          <div className="min-w-0">
-            <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">参数</div>
-            {item.input !== undefined ? (
-              <JsonBlock value={item.input} maxHeight="16rem" />
-            ) : (
-              <p className="px-1 text-2xs text-subtle">等待参数…</p>
-            )}
-          </div>
-          <div className="min-w-0">
-            <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">结果</div>
-            {item.result !== undefined ? (
-              <JsonBlock value={item.result} maxHeight="20rem" />
-            ) : (
-              <p className="px-1 text-2xs text-subtle">等待结果…</p>
-            )}
-          </div>
-        </div>
-      ) : null}
-    </div>
+      </CollapsibleTrigger>
+      {/* forceMount：Radix 保留节点，高度补间仍由 Motion 负责。 */}
+      <CollapsibleContent forceMount>
+        <AnimatePresence initial={false}>
+          {open ? (
+            <motion.div
+              key="body"
+              initial={{ height: 0 }}
+              animate={{ height: 'auto' }}
+              exit={{ height: 0 }}
+              transition={reduce ? STILL : EXPAND}
+              className="overflow-hidden"
+            >
+              {childCount > 0 ? (
+                <p className="px-3 pt-2 text-xs text-muted">子智能体 · {childCount} 次调用</p>
+              ) : null}
+              <div className="grid gap-2 border-t border-line p-2 md:grid-cols-2">
+                <div className="min-w-0">
+                  <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
+                    参数
+                  </div>
+                  {item.input !== undefined ? (
+                    <JsonBlock value={item.input} maxHeight="16rem" />
+                  ) : (
+                    <p className="px-1 text-2xs text-subtle">等待参数…</p>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
+                    结果
+                  </div>
+                  {item.result !== undefined ? (
+                    <JsonBlock value={item.result} maxHeight="20rem" />
+                  ) : (
+                    <p className="px-1 text-2xs text-subtle">等待结果…</p>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </CollapsibleContent>
+    </Collapsible>
   );
-}
+});

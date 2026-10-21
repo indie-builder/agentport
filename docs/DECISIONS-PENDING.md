@@ -23,11 +23,15 @@
 
 ---
 
-## D-3 ✅ 工具调用的审批（HITL）
+## D-3 ✅ 工具调用的审批（HITL）— 已被 D-18 取代
+
+**状态**：**已被 D-18 取代（2026-10-20，见下文 D-18）**。本节保留历史记录，当前行为以 D-18 为准。
 
 **问题**：目前智能体在 `dontAsk` 模式下运行，未预批准的工具调用直接拒绝，没有「暂停等人批准」的路径。
 
-**决定（循环 6 已落地，按最小闭环 B′）**：工具上可标 `requiresApproval`；调用时若未批准，MCP 端点写入 `approval_requests(run_id, server_id, tool_name)` 并返回带说明的错误；`POST /api/runs/:id/approve` 后，同一 run 内的后续调用放行。**不是进程内暂停**：批准后需要模型/用户再次发起同一调用。
+**当时的决定（循环 6 已落地，按最小闭环 B′）**：工具上可标 `requiresApproval`；调用时若未批准，MCP 端点写入 `approval_requests(run_id, server_id, tool_name)` 并返回带说明的错误；`POST /api/runs/:id/approve` 后，同一 run 内的后续调用放行。**当时不是进程内暂停**：批准后需要模型/用户再次发起同一调用。
+
+**被取代的原因**：D-18 已改为挂起式暂停。`packages/api/src/features/servers/generated.ts` 的 `waitForApproval()` 在 MCP 工具调用内部轮询 DB（500ms，上限 `APPROVAL_WAIT_MS`），批准后**同一次调用直接继续并返回结果**，不再要求模型重发；超时按拒绝处理。
 
 **未做**：持久化暂停与自动恢复（LangGraph `interrupt` 式）。若需要，按原备选 B 实现。
 
@@ -205,7 +209,9 @@
 
 ## D-21 ⏳ 对外程度
 
-**问题**：单管理员、`/mcp` 单一全局 token、读接口无限流、`/health/*` 无鉴权。
+**问题**：单管理员、`/mcp` 单一全局 token、读接口限流较松、`/health/live` 与 `/health/ready` 无鉴权。
+
+> 现状更新（2026-10-21）：限流已改为全局 120/min（`plugins/security.ts` 的 `global: true`），`/health/metrics` 已挂 `requireAuth`；仍无鉴权的只剩供容器探针使用的 `/health/live`、`/health/ready`。
 
 **决定**：**暂不对外**。保持现状，但在文档里写清四项前置条件；一旦要对外，先做按 agent 发 token 与读接口限流。
 

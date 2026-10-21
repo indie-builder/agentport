@@ -1,8 +1,9 @@
 import type { Agent } from '@agentport/shared';
-import { sql } from 'drizzle-orm';
+import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -27,7 +28,10 @@ export const servers = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('servers_name_idx').on(t.name)],
+  (t) => [
+    uniqueIndex('servers_name_idx').on(t.name),
+    check('servers_kind_check', sql`${t.kind} in ('stdio', 'http', 'generated')`),
+  ],
 );
 
 export const apiTools = pgTable(
@@ -61,6 +65,7 @@ export const agents = pgTable(
     model: text('model').notNull(),
     description: text('description').notNull().default(''),
     systemPromptMd: text('system_prompt_md').notNull().default(''),
+    /** [] 继承所有已绑定 MCP server 的工具；非空为显式自动批准规则，禁用用 disallowedTools。 */
     allowedTools: jsonb('allowed_tools').$type<string[]>().notNull().default([]),
     disallowedTools: jsonb('disallowed_tools').$type<string[]>().notNull().default([]),
     permissionMode: text('permission_mode').notNull().default('dontAsk'),
@@ -77,7 +82,18 @@ export const agents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('agents_slug_idx').on(t.slug), index('agents_parent_idx').on(t.parentId)],
+  (t) => [
+    uniqueIndex('agents_slug_idx').on(t.slug),
+    index('agents_parent_idx').on(t.parentId),
+    check(
+      'agents_permission_mode_check',
+      sql`${t.permissionMode} in ('dontAsk', 'plan', 'default', 'acceptEdits')`,
+    ),
+    check(
+      'agents_allowed_tools_check',
+      sql`jsonb_typeof(${t.allowedTools}) = 'array' and not jsonb_path_exists(${t.allowedTools}, '$[*] ? (@.type() != "string")')`,
+    ),
+  ],
 );
 
 export const skills = pgTable(
@@ -104,7 +120,11 @@ export const agentSkills = pgTable(
       .notNull()
       .references(() => skills.id, { onDelete: 'cascade' }),
   },
-  (t) => [uniqueIndex('agent_skills_pk').on(t.agentId, t.skillId)],
+  (t) => [
+    uniqueIndex('agent_skills_pk').on(t.agentId, t.skillId),
+    // agent_skills_pk 只覆盖 (agent_id, skill_id)：删除 skill 或按 skill 反查要单独一条。
+    index('agent_skills_skill_idx').on(t.skillId),
+  ],
 );
 
 export const agentServers = pgTable(
@@ -117,7 +137,11 @@ export const agentServers = pgTable(
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
   },
-  (t) => [uniqueIndex('agent_servers_pk').on(t.agentId, t.serverId)],
+  (t) => [
+    uniqueIndex('agent_servers_pk').on(t.agentId, t.serverId),
+    // 同上：server 级联删除与按 server 反查需要 server_id 前导索引。
+    index('agent_servers_server_idx').on(t.serverId),
+  ],
 );
 
 export const agentVersions = pgTable(
@@ -151,10 +175,16 @@ export const conversations = pgTable(
     /** 分支点消息：新会话复制到这条消息（含）为止。 */
     branchOfMessageId: text('branch_of_message_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * 最后一条消息时间，由 messages 上的语句级触发器维护；无消息时等于 createdAt。
+     * 冗余一列是为了让会话列表能按它索引排序，否则要先全表算 max 再排序。
+     */
+    lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('conversations_agent_idx').on(t.agentId),
     index('conversations_parent_idx').on(t.parentId),
+    index('conversations_last_message_idx').on(t.lastMessageAt.desc(), t.id.desc()),
   ],
 );
 
@@ -167,7 +197,7 @@ export const messages = pgTable(
       .references(() => conversations.id, { onDelete: 'cascade' }),
     role: text('role').notNull(),
     content: jsonb('content').$type<unknown>().notNull(),
-    /** 可空：没有 run 的 user 消息；孤儿值由迁移清理。 */
+    /** 可空：用户输入或分支副本；分支副本由会话级保留规则保护。 */
     runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -175,6 +205,7 @@ export const messages = pgTable(
     // 会话消息按 (created_at, id) 排序，复合索引让 listMessages 免排序。
     index('messages_conversation_idx').on(t.conversationId, t.createdAt, t.id),
     index('messages_run_idx').on(t.runId),
+    check('messages_role_check', sql`${t.role} in ('user', 'assistant', 'tool')`),
   ],
 );
 
@@ -195,6 +226,8 @@ export const agentRuns = pgTable(
       .default('queued'),
     sessionId: text('session_id'),
     sandboxId: text('sandbox_id'),
+    /** 入队时刻：queued 从未启动时 startedAt 为 NULL，只能靠它判断陈旧。 */
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     error: text('error'),
@@ -212,15 +245,28 @@ export const agentRuns = pgTable(
     mcpTokenExpiresAt: timestamp('mcp_token_expires_at', { withTimezone: true }),
     /** 模型代理 token 的 sha256（明文即 runId）；run 结束清空。 */
     modelTokenHash: text('model_token_hash'),
-    /** 已废弃：审批改存 approval_requests，此列不再写入，仅为兼容旧数据保留。 */
-    approvals: jsonb('approvals').$type<string[]>().notNull().default([]),
   },
   (t) => [
     index('agent_runs_conversation_idx').on(t.conversationId),
+    check(
+      'agent_runs_status_check',
+      sql`${t.status} in ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout')`,
+    ),
+    // 模型代理每个请求都按 hash 查一次；只索引仍持有 token 的行。
+    index('agent_runs_model_token_idx').on(t.modelTokenHash).where(isNotNull(t.modelTokenHash)),
     // 列表与概览都按 started_at desc nulls last 排序；agentId 过滤时走复合索引。
     index('agent_runs_started_idx').on(t.startedAt.desc().nullsLast(), t.id.desc()),
     index('agent_runs_agent_started_idx').on(
       t.agentId,
+      t.startedAt.desc().nullsLast(),
+      t.id.desc(),
+    ),
+    // 概览的「正在运行」计数：running 行极少，部分索引比全表 status 索引小得多。
+    index('agent_runs_running_idx').on(t.status).where(eq(t.status, 'running')),
+    // runs 页按 status 过滤 + started_at 排序；也覆盖按 status 的计数（前缀列），
+    // 但 running 计数仍用上面的部分索引——索引体积差两个数量级。
+    index('agent_runs_status_started_idx').on(
+      t.status,
       t.startedAt.desc().nullsLast(),
       t.id.desc(),
     ),
@@ -277,9 +323,16 @@ export const evalRuns = pgTable(
     passed: integer('passed').notNull().default(0),
     error: text('error'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** 认领时刻：BullMQ 重复投递时，只有抢到认领的 worker 才执行。 */
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
   },
-  (t) => [index('eval_runs_agent_idx').on(t.agentId)],
+  (t) => [
+    index('eval_runs_agent_idx').on(t.agentId),
+    check('eval_runs_status_check', sql`${t.status} in ('running', 'succeeded', 'failed')`),
+    // 同一智能体同时最多一个在跑的评估；DB 层兜底 API 的 409 检查并发竞态。
+    uniqueIndex('eval_runs_agent_running_idx').on(t.agentId).where(eq(t.status, 'running')),
+  ],
 );
 
 export const evalResults = pgTable(
@@ -289,15 +342,17 @@ export const evalResults = pgTable(
     evalRunId: text('eval_run_id')
       .notNull()
       .references(() => evalRuns.id, { onDelete: 'cascade' }),
-    caseId: text('case_id')
-      .notNull()
-      .references(() => evalCases.id, { onDelete: 'cascade' }),
-    runId: text('run_id').notNull(),
+    caseId: text('case_id').references(() => evalCases.id, { onDelete: 'set null' }),
+    runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     passed: boolean('passed').notNull(),
     output: text('output').notNull().default(''),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('eval_results_run_idx').on(t.evalRunId)],
+  (t) => [
+    index('eval_results_run_idx').on(t.evalRunId),
+    // 重复投递的 eval job 会重写同一 run/case 的结果，唯一键让写入幂等。
+    uniqueIndex('eval_results_run_case_idx').on(t.evalRunId, t.caseId),
+  ],
 );
 
 export const auditLog = pgTable(
@@ -313,7 +368,16 @@ export const auditLog = pgTable(
     requestId: text('request_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('audit_log_created_idx').on(t.createdAt)],
+  (t) => [
+    index('audit_log_created_idx').on(t.createdAt),
+    // action LIKE 'x%' 走 text_pattern_ops（C collation 下才能用前缀索引）；
+    // 尾随列让「前缀 + 时间倒序 + id 游标」整个查询都在索引里完成。
+    index('audit_log_action_created_idx').on(
+      sql`${t.action} text_pattern_ops`,
+      t.createdAt.desc(),
+      t.id.desc(),
+    ),
+  ],
 );
 
 export const schema = {

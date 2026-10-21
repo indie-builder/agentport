@@ -1,5 +1,12 @@
-import { RunFailure } from '@agentport/core';
-import { type ChatEvent, chatEventSchema } from '@agentport/shared';
+import { isRetryableFailure, RunFailure } from '@agentport/core';
+import {
+  type ChatEvent,
+  chatEventSchema,
+  RUN_STREAM_MAXLEN,
+  runCancelKey,
+  runChannel,
+  runStreamKey,
+} from '@agentport/shared';
 import { Deferred, Effect, Exit, type Scope } from 'effect';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
@@ -38,7 +45,7 @@ export interface SandboxRunInput {
 
 /** 可重试 = 基础设施瞬时故障；业务失败不重试。分类来自 RunFailure，不再匹配错误文本。 */
 export function isRetryable(outcome: SandboxRunOutcome): boolean {
-  return outcome.failure?.reason === 'infra';
+  return outcome.failure !== undefined && isRetryableFailure(outcome.failure);
 }
 
 export interface SandboxRunOutcome {
@@ -58,6 +65,8 @@ export interface SandboxRunOutcome {
 
 /** SIGTERM 后留一点时间让 runner 收尾，否则强杀。 */
 const KILL_GRACE_MS = 5_000;
+const CREATE_TIMEOUT_MS = 30_000;
+const DESTROY_TIMEOUT_MS = 10_000;
 
 interface Killable {
   kill(signal: NodeJS.Signals): unknown;
@@ -74,22 +83,36 @@ const MAX_LINE_BYTES = 1024 * 1024;
 /** 单 run 收集上限：超出后只保留终态，不再转发事件。 */
 const MAX_EVENTS = 2_000;
 const MAX_EVENT_BYTES = 32 * 1024 * 1024;
+/** 失败时保留的 stderr 上限：2KB 常常只剩最后一行，16KB 才能看到启动错误。 */
+const STDERR_KEEP_CHARS = 16 * 1024;
+
+interface StderrTap {
+  text: string;
+  /** 超出上限被丢弃的字符数；非 0 时取出的片段要带截断标记。 */
+  dropped: number;
+}
+
+function appendStderr(tap: StderrTap, chunk: string): void {
+  tap.text += chunk;
+  const excess = tap.text.length - STDERR_KEEP_CHARS;
+  if (excess > 0) {
+    tap.dropped += excess;
+    tap.text = tap.text.slice(excess);
+  }
+}
+
+/** 脱敏后取尾部；截断时必须说明「前面还有」，否则读者会以为这就是全部。 */
+function stderrExcerpt(tap: StderrTap, max: number): string {
+  const body = redactSecrets(tap.text.slice(-max).trim());
+  if (!body) return '';
+  return tap.dropped > 0 || tap.text.length > max ? `[…stderr truncated]\n${body}` : body;
+}
 
 let redisUrl = 'redis://localhost:6379';
 
 /** 由 worker 入口在启动时注入校验过的 REDIS_URL。 */
 export function configureRunnerClient(url: string): void {
   redisUrl = url;
-}
-
-/** 事件流键；与 API 的 producer 保持一致。 */
-function streamKey(runId: string): string {
-  return `run:${runId}:events`;
-}
-
-/** 取消信号通道；与 API 的 producer 保持一致。 */
-function channelFor(runId: string): string {
-  return `run:${runId}:cancel`;
 }
 
 let publisher: Redis | undefined;
@@ -118,10 +141,10 @@ function getCancelSubscriber(logger: Logger): Redis {
  */
 export async function publishRun(runId: string, event: ChatEvent, logger: Logger): Promise<void> {
   const redis = getPublisher(logger);
-  const key = streamKey(runId);
-  await redis.xadd(key, 'MAXLEN', '~', 1000, '*', 'payload', JSON.stringify(event));
+  const key = runStreamKey(runId);
+  await redis.xadd(key, 'MAXLEN', '~', RUN_STREAM_MAXLEN, '*', 'payload', JSON.stringify(event));
   await redis.expire(key, 3600);
-  await redis.publish(`${key}:wake`, '1');
+  await redis.publish(runChannel(runId), '1');
 }
 
 export async function closeRunnerClient(): Promise<void> {
@@ -151,19 +174,23 @@ function toError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** 子进程错误里只有这些是基础设施问题；其余算沙盒自身失败。 */
-const INFRA_RE =
-  /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|Cannot connect to the Docker daemon|no such image|pull access denied/i;
-
-function reasonFor(error: string): RunFailure['reason'] {
-  return INFRA_RE.test(error) ? 'infra' : 'sandbox';
-}
-
 interface ExitSignal {
   kind: 'closed' | 'error';
   code: number | null;
   signal: NodeJS.Signals | null;
   error?: string;
+}
+
+/**
+ * 按退出信号分类，不匹配错误文本：
+ * - spawn 'error'（docker 进程都没起来）= 基础设施问题
+ * - docker run 自身的失败码 125（daemon 不可达、镜像拉取失败）= 基础设施问题
+ * - 其余非零退出（OOM、容器内命令崩溃）= 沙盒失败
+ * shortcut: 容器进程自己以 125 退出会与 docker 失败混淆，等 runner 上报带分类的退出码时再区分。
+ */
+function reasonFor(signal: ExitSignal): RunFailure['reason'] {
+  if (signal.kind === 'error') return 'infra';
+  return signal.code === 125 ? 'infra' : 'sandbox';
 }
 
 /**
@@ -173,8 +200,13 @@ interface ExitSignal {
  * 取消、超时、进程退出三者用 race 表达，谁先到谁赢；容器销毁由 Scope 保证。
  */
 export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOutcome> {
-  return Effect.runPromise(
-    Effect.scoped(runInSandboxEffect(input)).pipe(
+  let cleanupError: string | undefined;
+  const outcome = await Effect.runPromise(
+    Effect.scoped(
+      runInSandboxEffect(input, (error) => {
+        cleanupError = error;
+      }),
+    ).pipe(
       // 订阅取消频道失败属于基础设施故障：交给 BullMQ 重试，而不是伪装成 agent 失败。
       Effect.catch((failure) =>
         Effect.succeed<SandboxRunOutcome>({
@@ -187,10 +219,23 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
       ),
     ),
   );
+  if (
+    cleanupError !== undefined &&
+    (outcome.failure === undefined || outcome.failure.reason === 'infra')
+  ) {
+    return {
+      ...outcome,
+      status: 'failed',
+      error: cleanupError,
+      failure: new RunFailure('infra', cleanupError),
+    };
+  }
+  return outcome;
 }
 
 function runInSandboxEffect(
   input: SandboxRunInput,
+  onCleanupError: (error: string) => void,
 ): Effect.Effect<SandboxRunOutcome, RunFailure, Scope.Scope> {
   return Effect.gen(function* () {
     const { logger, runId } = input;
@@ -203,11 +248,12 @@ function runInSandboxEffect(
     let reportedSessionId: string | undefined;
     let reportedInput: number | undefined;
     let reportedOutput: number | undefined;
-    let stderrTail = '';
+    const stderrTap: StderrTap = { text: '', dropped: 0 };
     let eventBytes = 0;
     let overflowed = false;
     let child: Sandbox['child'] | undefined;
     let abandoning = false;
+    let runnerStarted = false;
 
     // 同一连接上的命令按序排队；不 await 也能保证事件顺序。
     const publish = (event: ChatEvent): void => {
@@ -219,6 +265,7 @@ function runInSandboxEffect(
     const onEvent = (line: string): void => {
       const event = parseLine(line, logger);
       if (!event) return;
+      runnerStarted = true;
 
       if (event.type === 'run_finished') {
         // 只记下终态，由调用方统一发布，保证每个 run 恰好一条。
@@ -261,18 +308,43 @@ function runInSandboxEffect(
       (release) => Effect.promise(release),
     );
 
+    const destroy = async (sandbox: Sandbox): Promise<void> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          input.provider.destroy(sandbox),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              sandbox.child.kill('SIGKILL');
+              reject(new Error(`sandbox cleanup timed out after ${DESTROY_TIMEOUT_MS}ms`));
+            }, DESTROY_TIMEOUT_MS);
+          }),
+        ]);
+      } catch (err) {
+        sandbox.child.kill('SIGKILL');
+        onCleanupError(`sandbox cleanup failed: ${toError(err)}`);
+        logger.warn({ err, runId }, 'sandbox cleanup failed');
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    };
+
     const attach = (sandbox: Sandbox): void => {
       if (abandoning) {
         // 取消先到，容器才创建完成：直接扔掉，不让它泄漏。
-        void input.provider.destroy(sandbox).catch(() => undefined);
+        sandbox.child.kill('SIGKILL');
+        void destroy(sandbox);
         return;
       }
       const proc = sandbox.child;
       child = proc;
 
       proc.stderr.setEncoding('utf8');
+      let startupLog = '';
       proc.stderr.on('data', (chunk: string) => {
-        stderrTail = `${stderrTail}${chunk}`.slice(-2_000);
+        startupLog = (startupLog + chunk).slice(-256);
+        if (startupLog.includes('[runner] starting query')) runnerStarted = true;
+        appendStderr(stderrTap, chunk);
         for (const line of chunk.split('\n')) {
           if (line.trim().length > 0) {
             logger.debug({ runId, sandbox: sandbox.id }, redactSecrets(line));
@@ -329,19 +401,32 @@ function runInSandboxEffect(
       proc.stdin.write(`${JSON.stringify(input.task)}\n`);
     };
 
-    // 容器创建与取消竞争；创建期间收到取消也要立刻放弃。
+    // 创建失败也必须结束竞争；raceAll 只在成功时结束，会吞掉创建错误。
     const created = yield* Effect.result(
-      Effect.raceAll([
+      Effect.raceAllFirst([
         Effect.tryPromise({
           try: () =>
-            input.provider.create({
-              image: input.image,
-              workspaceDir: input.workspaceDir,
-              env: input.env,
-              name: `agentport-${runId.toLowerCase()}`,
-            }),
+            input.provider
+              .create({
+                image: input.image,
+                workspaceDir: input.workspaceDir,
+                env: input.env,
+                name: `agentport-${runId.toLowerCase()}`,
+              })
+              .then((sandbox) => {
+                if (abandoning) {
+                  sandbox.child.kill('SIGKILL');
+                  void destroy(sandbox);
+                }
+                return sandbox;
+              }),
           catch: (err) => err,
         }).pipe(Effect.map((sandbox) => ({ sandbox }))),
+        Effect.sleep(CREATE_TIMEOUT_MS).pipe(
+          Effect.flatMap(() =>
+            Effect.fail(new Error(`sandbox create timed out after ${CREATE_TIMEOUT_MS}ms`)),
+          ),
+        ),
         Deferred.await(cancelled).pipe(
           Effect.map(() => {
             abandoning = true;
@@ -352,6 +437,7 @@ function runInSandboxEffect(
     );
 
     if (created._tag === 'Failure') {
+      abandoning = true;
       const error = `sandbox create failed: ${toError(created.failure)}`;
       logger.error({ err: created.failure, runId }, error);
       return {
@@ -367,13 +453,7 @@ function runInSandboxEffect(
     }
 
     const sandbox = created.success.sandbox;
-    yield* Effect.acquireRelease(Effect.succeed(sandbox), (s) =>
-      Effect.promise(() =>
-        input.provider.destroy(s).catch((err: unknown) => {
-          logger.warn({ err, runId }, 'sandbox cleanup failed');
-        }),
-      ),
-    );
+    yield* Effect.acquireRelease(Effect.succeed(sandbox), (s) => Effect.promise(() => destroy(s)));
     attach(sandbox);
 
     // 谁先到谁赢：正常退出 / 用户取消 / 超时。
@@ -381,8 +461,24 @@ function runInSandboxEffect(
       Deferred.await(exitSignal).pipe(Effect.map((s) => ({ kind: s.kind, signal: s }))),
       Deferred.await(cancelled).pipe(Effect.map(() => ({ kind: 'cancelled' as const }))),
       Effect.sleep(input.timeoutMs).pipe(Effect.map(() => ({ kind: 'timeout' as const }))),
+      Effect.sleep(CREATE_TIMEOUT_MS).pipe(
+        Effect.flatMap(() =>
+          runnerStarted ? Effect.never : Effect.succeed({ kind: 'infra' as const }),
+        ),
+      ),
     ]);
 
+    if (stopped.kind === 'infra') {
+      sandbox.child.kill('SIGKILL');
+      const error = `sandbox startup timed out after ${CREATE_TIMEOUT_MS}ms`;
+      return {
+        status: 'failed',
+        sandboxId: sandbox.id,
+        error,
+        failure: new RunFailure('infra', error),
+        events,
+      };
+    }
     if (stopped.kind === 'cancelled') {
       logger.info({ runId }, 'sandbox run cancelled');
       if (child) escalateKill(child);
@@ -425,25 +521,44 @@ function runInSandboxEffect(
         status: 'failed',
         sandboxId: sandbox.id,
         error,
-        failure: new RunFailure(reasonFor(error), error),
+        failure: new RunFailure(reasonFor(stopped.signal), error),
         events,
       };
     }
 
     if (reportedStatus === undefined) {
-      const suffix = redactSecrets(stderrTail.trim());
+      // 日志留 16KB 供排查；agent_runs.error 只取尾部 2KB，避免把整段 stderr 带进页面。
+      const suffix = stderrExcerpt(stderrTap, STDERR_KEEP_CHARS);
+      const persisted = stderrExcerpt(stderrTap, 2_000);
+      if (suffix) {
+        // 默认 info 级下 debug 不可见，而失败现场只有 stderr 能说明原因。
+        logger.warn(
+          { runId, sandbox: sandbox.id, exitCode: stopped.signal.code, stderr: suffix },
+          'sandbox stderr on abnormal exit',
+        );
+      }
       const detail =
         stopped.signal.code === 0
           ? 'sandbox exited without run_finished'
           : `sandbox exited with code ${String(stopped.signal.code)}${stopped.signal.signal ? ` (${stopped.signal.signal})` : ''}`;
-      const error = suffix ? `${detail}: ${suffix}` : detail;
+      const error = persisted ? `${detail}: ${persisted}` : detail;
       return {
         status: 'failed',
         sandboxId: sandbox.id,
         error,
-        failure: new RunFailure(reasonFor(error), error),
+        failure: new RunFailure(reasonFor(stopped.signal), error),
         events,
       };
+    }
+    if (reportedStatus !== 'succeeded') {
+      // runner 自己报了失败：SDK 的 stderr 往往有更具体的那一行。
+      const suffix = stderrExcerpt(stderrTap, STDERR_KEEP_CHARS);
+      if (suffix) {
+        logger.warn(
+          { runId, sandbox: sandbox.id, status: reportedStatus, stderr: suffix },
+          'sandbox stderr on failed run',
+        );
+      }
     }
     return {
       status: reportedStatus,
@@ -470,7 +585,7 @@ function subscribeCancel(
 ): Effect.Effect<() => Promise<void>, RunFailure> {
   return Effect.callback((resume, signal) => {
     const redis = getCancelSubscriber(logger);
-    const channel = channelFor(runId);
+    const channel = runCancelKey(runId);
     // API 在 cancel 频道上只发 '1'；订阅成立后先查一次键，避免漏掉早到的取消。
     const handler = (received: string): void => {
       if (received === channel) onCancel();
@@ -488,9 +603,10 @@ function subscribeCancel(
 
     void (async () => {
       try {
-        if ((await redis.exists(channel)) === 1) onCancel();
         redis.on('message', handler);
         await redis.subscribe(channel);
+        // 订阅连接不能执行 EXISTS；通过普通连接补查订阅之前的取消。
+        if ((await getPublisher(logger).exists(channel)) === 1) onCancel();
       } catch (err) {
         // 订阅不上就无法保证取消：宁可让这次 run 失败并由 BullMQ 重试，
         // 也不要启动一个用户停不掉的容器。

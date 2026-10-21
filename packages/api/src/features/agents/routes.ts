@@ -1,27 +1,28 @@
-import { fail } from '@agentport/core';
+import { DEFAULT_DISALLOWED_TOOLS, fail } from '@agentport/core';
 import { repo as allRepo } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
-import { agentInputSchema, permissionModeSchema } from '@agentport/shared';
+import {
+  agentInputSchema,
+  agentSchema,
+  idParams,
+  permissionModeSchema,
+  slugSchema,
+} from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { reject } from '../../plugins/errors.js';
+import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import { renderAgentWorkspace } from './workspace.js';
 
-const idParams = z.object({ id: z.string().min(1) });
 const versionParams = z.object({
   id: z.string().min(1),
   version: z.coerce.number().int().positive(),
 });
 const rollbackBody = z.object({ version: z.number().int().positive() });
 
-/**
- * `auto` 依赖模型分类器，平台无法审计它的决定，暂不开放；
- * `default` 与 `acceptEdits` 在沙盒里没有可交互的宿主，行为与 `dontAsk` 相同，
- * 开放只会误导用户，等 D-18 的挂起式审批覆盖全部工具后再考虑。
- */
+/** default/acceptEdits 直接透传 SDK；auto 依赖无法审计的模型分类器，暂不开放。 */
 const unsupportedPermissionModes = new Set(['auto']);
 
 function unsupportedPermissionMode(mode: string | undefined): string | undefined {
@@ -30,14 +31,28 @@ function unsupportedPermissionMode(mode: string | undefined): string | undefined
     : undefined;
 }
 
+const blockedAllowedTools = new Set(
+  DEFAULT_DISALLOWED_TOOLS.filter(
+    (tool) => !['Agent', 'TaskStop', 'ListAgents', 'SendMessage'].includes(tool),
+  ),
+);
+
+function unsupportedAllowedTool(tools: string[]): string | undefined {
+  const tool = tools.find((rule) => blockedAllowedTools.has(rule.split('(')[0]?.trim() ?? rule));
+  return tool === undefined
+    ? undefined
+    : `allowedTools 中的「${tool}」被运行时固定禁用，无法放行；请移除该项`;
+}
+
+const allowedToolsSchema = z.array(z.string()).superRefine((tools, ctx) => {
+  const message = unsupportedAllowedTool(tools);
+  if (message) ctx.addIssue({ code: 'custom', message });
+});
+const createSchema = agentInputSchema.extend({ allowedTools: allowedToolsSchema.default([]) });
+
 // 字段与 agentInputSchema 保持一致；PATCH 用显式可选字段，才能区分「没传」与「传了默认值」。
 const patchSchema = z.object({
-  slug: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _')
-    .optional(),
+  slug: slugSchema.optional(),
   name: z.string().min(1).max(128).optional(),
   description: z.string().max(300).optional(),
   model: z.string().min(1).optional(),
@@ -45,7 +60,7 @@ const patchSchema = z.object({
   serverIds: z.array(z.string()).optional(),
   skillIds: z.array(z.string()).optional(),
   subAgentIds: z.array(z.string()).optional(),
-  allowedTools: z.array(z.string()).optional(),
+  allowedTools: allowedToolsSchema.optional(),
   disallowedTools: z.array(z.string()).optional(),
   permissionMode: permissionModeSchema.optional(),
   maxTurns: z.number().int().positive().optional(),
@@ -63,29 +78,14 @@ function invalid(reply: FastifyReply, message: string) {
 }
 
 function notFound(reply: FastifyReply) {
-  return reject(reply, 'NOT_FOUND', 'agent not found');
+  return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
 }
 
-/** slug 上有唯一索引，冲突转 409。drizzle 把 pg 错误包在 cause 里，得顺着链找。 */
-/** 外键失败意味着引用了不存在的 server/skill，属于客户端错误。 */
-/** drizzle 把 pg 错误包在 cause 链里，需要逐层查找。 */
-function pgCode(err: unknown): string | undefined {
-  let cause: unknown = err;
-  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
-    if ('code' in cause && typeof cause.code === 'string') return cause.code;
-    cause = 'cause' in cause ? cause.cause : undefined;
-  }
-  return undefined;
-}
-
+/** slug 有唯一索引（23505）→ 409；外键失败（23503）→ 引用了不存在的 server/skill。 */
 function rethrowConflict(err: unknown): never {
-  const code = pgCode(err);
-  if (code === '23505') {
-    fail('CONFLICT', 'agent slug already exists');
-  }
-  if (code === '23503') {
-    fail('INVALID_REFERENCE', 'referenced server or skill does not exist');
-  }
+  if (isPgCode(err, '23505')) fail('CONFLICT', '该 slug 已被其他智能体占用，请换一个');
+  if (isPgCode(err, '23503'))
+    fail('INVALID_REFERENCE', '引用的 MCP Server 或技能不存在，请刷新后重新选择');
   throw err;
 }
 
@@ -112,7 +112,9 @@ function toWrite(
 
 // slug 是工作区目录名，改了旧目录会变孤儿，只能显式拒绝。
 function assertSlugUnchanged(current: string, next: string | undefined): string | undefined {
-  return next !== undefined && next !== current ? 'slug cannot change' : undefined;
+  return next !== undefined && next !== current
+    ? 'slug 是工作区目录名，创建后不能修改；需要新名称请另建智能体'
+    : undefined;
 }
 
 /**
@@ -124,13 +126,15 @@ async function validateSubAgents(
   selfId: string | null,
   subAgentIds: string[],
 ): Promise<string | undefined> {
-  if (new Set(subAgentIds).size !== subAgentIds.length) return 'duplicate sub-agent';
-  if (selfId !== null && subAgentIds.includes(selfId)) return 'an agent cannot delegate to itself';
+  if (new Set(subAgentIds).size !== subAgentIds.length) {
+    return '同一个智能体被重复选为子智能体，请去掉重复项';
+  }
+  if (selfId !== null && subAgentIds.includes(selfId)) return '智能体不能把自己设为子智能体';
   const rows = await repo.getAgentsByIds(app.db, subAgentIds);
-  if (rows.length !== subAgentIds.length) return 'referenced sub-agent does not exist';
+  if (rows.length !== subAgentIds.length) return '选中的子智能体已被删除，请刷新后重新选择';
   for (const row of rows) {
     if (row.parentId !== null && row.parentId !== selfId) {
-      return `agent ${row.slug} already has a parent (single-level delegation only)`;
+      return `「${row.name}」已经是其他智能体的子智能体；只支持一层委派`;
     }
   }
   // 候选自己不能再有子智能体，否则会拼出两层。
@@ -140,7 +144,7 @@ async function validateSubAgents(
   );
   for (const row of rows) {
     if ((nested.get(row.id) ?? []).length > 0) {
-      return `agent ${row.slug} already has sub-agents (single-level delegation only)`;
+      return `「${row.name}」自己还有子智能体；只支持一层委派，请先解除它的子智能体`;
     }
   }
   return undefined;
@@ -170,50 +174,50 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   const auth = { preHandler: [rawApp.requireAuth] };
 
-  app.get('/api/agents', auth, async () => {
-    const rows = await repo.listAgents(app.db);
-    const ids = rows.map((row) => row.id);
-    const [servers, skills, subAgents] = await Promise.all([
-      repo.listAgentServerIds(app.db, ids),
-      repo.listAgentSkillIds(app.db, ids),
-      repo.listAgentSubAgentIds(app.db, ids),
-    ]);
-    return rows.map((row) =>
-      repo.toAgent(
-        row,
-        servers.get(row.id) ?? [],
-        skills.get(row.id) ?? [],
-        subAgents.get(row.id) ?? [],
-      ),
-    );
-  });
-
-  app.post(
+  app.get(
     '/api/agents',
-    { ...auth, schema: { body: agentInputSchema } },
-    async (request, reply) => {
-      const input = request.body;
-      const modeError = unsupportedPermissionMode(input.permissionMode);
-      if (modeError) return invalid(reply, modeError);
-      const { serverIds, skillIds, subAgentIds, ...rest } = input;
-      const subAgentError = await validateSubAgents(app, null, subAgentIds);
-      if (subAgentError) return invalid(reply, subAgentError);
-      try {
-        const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds, subAgentIds);
-        await writeAudit(app.db, request.log, {
-          actor: 'admin',
-          action: 'agent.created',
-          target: row.id,
-          input,
-          status: 'ok',
-          requestId: request.id,
-        });
-        return reply.status(201).send(repo.toAgent(row, serverIds, skillIds, subAgentIds));
-      } catch (err) {
-        rethrowConflict(err);
-      }
+    { ...auth, schema: { response: { 200: z.array(agentSchema) } } },
+    async () => {
+      const rows = await repo.listAgents(app.db);
+      const ids = rows.map((row) => row.id);
+      const [servers, skills, subAgents] = await Promise.all([
+        repo.listAgentServerIds(app.db, ids),
+        repo.listAgentSkillIds(app.db, ids),
+        repo.listAgentSubAgentIds(app.db, ids),
+      ]);
+      return rows.map((row) =>
+        repo.toAgent(
+          row,
+          servers.get(row.id) ?? [],
+          skills.get(row.id) ?? [],
+          subAgents.get(row.id) ?? [],
+        ),
+      );
     },
   );
+
+  app.post('/api/agents', { ...auth, schema: { body: createSchema } }, async (request, reply) => {
+    const input = request.body;
+    const modeError = unsupportedPermissionMode(input.permissionMode);
+    if (modeError) return invalid(reply, modeError);
+    const { serverIds, skillIds, subAgentIds, ...rest } = input;
+    const subAgentError = await validateSubAgents(app, null, subAgentIds);
+    if (subAgentError) return invalid(reply, subAgentError);
+    try {
+      const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds, subAgentIds);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.created',
+        target: row.id,
+        input,
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(201).send(repo.toAgent(row, serverIds, skillIds, subAgentIds));
+    } catch (err) {
+      rethrowConflict(err);
+    }
+  });
 
   app.get('/api/agents/:id', { ...auth, schema: { params: idParams } }, async (request, reply) => {
     const row = await repo.getAgent(app.db, request.params.id);
@@ -230,25 +234,23 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     '/api/agents/:id',
     { ...auth, schema: { params: idParams, body: patchSchema } },
     async (request, reply) => {
-      const params = { data: request.params };
-      const body = { data: request.body };
-      const modeError = unsupportedPermissionMode(body.data.permissionMode);
+      const input = request.body;
+      const modeError = unsupportedPermissionMode(input.permissionMode);
       if (modeError) return invalid(reply, modeError);
 
-      const current = await repo.getAgent(app.db, params.data.id);
+      const current = await repo.getAgent(app.db, request.params.id);
       if (!current) return notFound(reply);
-      const slugError = assertSlugUnchanged(current.slug, body.data.slug);
+      const slugError = assertSlugUnchanged(current.slug, input.slug);
       if (slugError) return invalid(reply, slugError);
-      if (body.data.subAgentIds !== undefined) {
+      if (input.subAgentIds !== undefined) {
         // 自己已经是子智能体时不能再有子智能体，否则就是两层。
-        if (current.parentId !== null && body.data.subAgentIds.length > 0) {
+        if (current.parentId !== null && input.subAgentIds.length > 0) {
           return invalid(reply, 'a sub-agent cannot have its own sub-agents');
         }
-        const subAgentError = await validateSubAgents(app, current.id, body.data.subAgentIds);
+        const subAgentError = await validateSubAgents(app, current.id, input.subAgentIds);
         if (subAgentError) return invalid(reply, subAgentError);
       }
 
-      const input = body.data;
       const patch: Partial<repo.AgentWrite> = {
         name: input.name ?? current.name,
         description: input.description ?? current.description,
@@ -283,7 +285,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           actor: 'admin',
           action: 'agent.updated',
           target: row.id,
-          input: body.data,
+          input,
           status: 'ok',
           requestId: request.id,
         });
@@ -303,13 +305,12 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     '/api/agents/:id',
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
-      const params = { data: request.params };
-      const ok = await repo.deleteAgent(app.db, params.data.id);
+      const ok = await repo.deleteAgent(app.db, request.params.id);
       if (!ok) return notFound(reply);
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'agent.deleted',
-        target: params.data.id,
+        target: request.params.id,
         status: 'ok',
         requestId: request.id,
       });
@@ -325,7 +326,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       ...auth,
       schema: {
         params: idParams,
-        querystring: z.object({ reveal: z.string().optional() }),
+        querystring: z.object({ reveal: z.enum(['0', '1']).optional() }),
       },
     },
     async (request, reply) => {
@@ -358,7 +359,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         request.params.version,
       );
       if (!row) {
-        return reject(reply, 'NOT_FOUND', 'version not found');
+        return reject(reply, 'NOT_FOUND', '该版本不存在，可能已被清理；请刷新版本列表');
       }
       return {
         version: row.version,
@@ -372,21 +373,20 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     '/api/agents/:id/rollback',
     { ...auth, schema: { params: idParams, body: rollbackBody } },
     async (request, reply) => {
-      const params = { data: request.params };
-      const body = { data: request.body };
-
-      const current = await repo.getAgent(app.db, params.data.id);
+      const current = await repo.getAgent(app.db, request.params.id);
       if (!current) return notFound(reply);
       const target = await allRepo.agentVersions.getAgentVersion(
         app.db,
         current.id,
-        body.data.version,
+        request.body.version,
       );
       if (!target) {
-        return reject(reply, 'NOT_FOUND', 'version not found');
+        return reject(reply, 'NOT_FOUND', '该版本不存在，可能已被清理；请刷新版本列表');
       }
 
       const snapshot = target.snapshot;
+      const toolError = unsupportedAllowedTool(snapshot.allowedTools);
+      if (toolError) return invalid(reply, toolError);
       // 旧快照没有 subAgentIds 字段；缺失时保持现有关系不动。
       const snapshotSubAgentIds = snapshot.subAgentIds as string[] | undefined;
       if (snapshotSubAgentIds !== undefined) {

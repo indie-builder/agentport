@@ -1,9 +1,18 @@
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createDb } from '@agentport/db';
+import {
+  type ErrorCode,
+  errorCode,
+  type Problem,
+  problemSchema,
+  type Server,
+} from '@agentport/shared';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { Redis } from 'ioredis';
+import { expect } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { type Config, loadConfig } from '../src/config.js';
 import { AUTH_COOKIE } from '../src/features/auth/types.js';
@@ -12,18 +21,8 @@ import { AUTH_COOKIE } from '../src/features/auth/types.js';
 const SUFFIX = randomBytes(4).toString('hex');
 let counter = 0;
 
-/**
- * RATE_LIMIT_DISABLED=1 实际不生效（security.ts 检查的是 process.env，但同样从 env 读），
- * 而登录路由自带 10 次/分钟限额、计数落在共享 Redis 里。这里固定一个本文件专用的
- * 回环地址，让 @fastify/rate-limit 按 IP 分桶，跨文件互不干扰。
- * shortcut: 仅适用于本机注入测试，CI 并发跑同文件时仍需注意次数，超过 10 次登录会 429。
- */
-const HOST_OCTET = 10 + (Number.parseInt(SUFFIX.slice(0, 2), 16) % 40);
-export const INJECT_IP = `127.0.0.${HOST_OCTET}`;
-
-/** 登录请求统一带 remoteAddress，否则所有文件共用 127.0.0.1 的额度。 */
 export function inject(app: FastifyInstance, opts: InjectOptions): Promise<LightMyRequestResponse> {
-  return app.inject({ remoteAddress: INJECT_IP, ...opts });
+  return app.inject(opts);
 }
 
 /** 合法 slug/name：小写字母、数字、- 和 _。 */
@@ -106,22 +105,141 @@ export async function loginCookie(app: FastifyInstance): Promise<string> {
   return `${cookie.name}=${cookie.value}`;
 }
 
+interface CreateAgentOptions {
+  slug?: string;
+  serverIds?: string[];
+  skillIds?: string[];
+  subAgentIds?: string[];
+  /** 把 slug 记进调用方的清理数组。 */
+  track?: string[];
+  /** 预期状态码，默认 201；用于重复 slug 之类的拒绝路径。 */
+  expectStatus?: number;
+}
+
+export async function createAgent(
+  app: FastifyInstance,
+  cookie: string,
+  options: CreateAgentOptions = {},
+): Promise<LightMyRequestResponse> {
+  const slug = options.slug ?? unique('agent');
+  options.track?.push(slug);
+  const res = await inject(app, {
+    method: 'POST',
+    url: '/api/agents',
+    headers: { cookie },
+    payload: {
+      slug,
+      name: `Agent ${slug}`,
+      systemPrompt: 'You are helpful.',
+      ...(options.serverIds === undefined ? {} : { serverIds: options.serverIds }),
+      ...(options.skillIds === undefined ? {} : { skillIds: options.skillIds }),
+      ...(options.subAgentIds === undefined ? {} : { subAgentIds: options.subAgentIds }),
+    },
+  });
+  expect(res.statusCode, res.body).toBe(options.expectStatus ?? 201);
+  return res;
+}
+
+/** 只有 generated server 需要工厂：测试里它是最常见的类型。 */
+export async function createServer(
+  app: FastifyInstance,
+  cookie: string,
+  options: { name?: string; baseUrl?: string; track?: string[] } = {},
+): Promise<Server> {
+  const name = options.name ?? unique('server');
+  options.track?.push(name);
+  const res = await inject(app, {
+    method: 'POST',
+    url: '/api/servers',
+    headers: { cookie },
+    payload: {
+      name,
+      kind: 'generated',
+      baseUrl: options.baseUrl ?? 'https://jsonplaceholder.typicode.com',
+    },
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  return res.json<Server>();
+}
+
+/**
+ * 直接落一条 run（含所属会话），跳过 /api/chat：用于验证从 run 出发的读路径。
+ * mcpTokenHash 同时写入有效期，供 per-run token 的用例使用。
+ */
+export async function seedRun(
+  app: FastifyInstance,
+  agentId: string,
+  options: { runId?: string; conversationId?: string; mcpTokenHash?: string } = {},
+): Promise<{ runId: string; conversationId: string }> {
+  const runId = options.runId ?? unique('seed-run');
+  const conversationId = options.conversationId ?? unique('seed-conv');
+  await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
+    conversationId,
+    agentId,
+  ]);
+  await app.pool.query(
+    'insert into agent_runs (id, conversation_id, agent_id, mcp_token_hash, mcp_token_expires_at) values ($1, $2, $3, $4, $5)',
+    [
+      runId,
+      conversationId,
+      agentId,
+      options.mcpTokenHash ?? null,
+      options.mcpTokenHash === undefined ? null : new Date(Date.now() + 5 * 60_000),
+    ],
+  );
+  return { runId, conversationId };
+}
+
+/** 断言响应体是完整 Problem，且 code 与 HTTP 状态一致。 */
+export function expectProblem(res: LightMyRequestResponse, code: ErrorCode): Problem {
+  const body = problemSchema.parse(res.json());
+  expect(res.statusCode).toBe(errorCode[code]);
+  expect(body).toMatchObject({ code, status: res.statusCode });
+  return body;
+}
+
+/** 轮询到条件成立；SSE 订阅/退订是异步的，不能立即断言。 */
+export async function waitFor(
+  check: () => boolean | Promise<boolean>,
+  timeoutMs = 5_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return true;
+    await delay(25);
+  }
+  return false;
+}
+
+/** 用独立连接数某个 channel 的观众数；服务端订阅连接不参与计数。 */
+export async function subscriberCount(redis: Redis, channel: string): Promise<number> {
+  return Number((await redis.pubsub('NUMSUB', channel))[1] ?? 0);
+}
+
 /** 只删本次测试创建的目标；级联会带走 tools / agent_servers / conversations。 */
 export async function cleanup(
   app: FastifyInstance,
-  targets: { serverNames?: string[]; agentSlugs?: string[]; runIds?: string[] },
+  targets: {
+    serverNames?: string[];
+    agentSlugs?: string[];
+    skillSlugs?: string[];
+    runIds?: string[];
+  },
 ): Promise<void> {
-  const { serverNames = [], agentSlugs = [], runIds = [] } = targets;
+  const { serverNames = [], agentSlugs = [], skillSlugs = [], runIds = [] } = targets;
   if (runIds.length > 0) {
     await app.pool.query('delete from agent_runs where id = any($1::text[])', [runIds]);
   }
   if (agentSlugs.length > 0) {
     await app.pool.query('delete from agents where slug = any($1::text[])', [agentSlugs]);
   }
+  if (skillSlugs.length > 0) {
+    await app.pool.query('delete from skills where slug = any($1::text[])', [skillSlugs]);
+  }
   if (serverNames.length > 0) {
     await app.pool.query('delete from servers where name = any($1::text[])', [serverNames]);
   }
-  const ids = [...serverNames, ...agentSlugs, ...runIds];
+  const ids = [...serverNames, ...agentSlugs, ...skillSlugs, ...runIds];
   if (ids.length > 0) {
     await app.pool.query('delete from audit_log where target = any($1::text[])', [ids]);
   }

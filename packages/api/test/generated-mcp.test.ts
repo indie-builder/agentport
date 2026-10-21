@@ -5,7 +5,16 @@ import type { Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cleanup, infraReady, inject, loginCookie, startApp, unique } from './helpers.js';
+import {
+  cleanup,
+  createAgent,
+  infraReady,
+  inject,
+  loginCookie,
+  seedRun,
+  startApp,
+  unique,
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -120,28 +129,16 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     expect(tool.requiresApproval).toBe(true);
 
     // 审批只接受该 run 所属智能体实际绑定、且要求批准的工具，因此落一个真实 agent。
-    const agentSlug = unique('approval-agent');
-    createdAgents.push(agentSlug);
-    const agentRes = await inject(app, {
-      method: 'POST',
-      url: '/api/agents',
-      headers: { cookie },
-      payload: { slug: agentSlug, name: agentSlug, serverIds: [server.id] },
-    });
-    expect(agentRes.statusCode).toBe(201);
-    const agentId = agentRes.json<{ id: string }>().id;
+    const agent = (
+      await createAgent(app, cookie, {
+        slug: unique('approval-agent'),
+        serverIds: [server.id],
+        track: createdAgents,
+      })
+    ).json<{ id: string }>();
 
-    const runId = unique('run');
+    const { runId } = await seedRun(app, agent.id, { runId: unique('run') });
     runIds.push(runId);
-    // agent_runs 现在有外键，先落一个真实会话。
-    await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
-      `conv_test_${runId}`,
-      agentId,
-    ]);
-    await app.pool.query(
-      'insert into agent_runs (id, conversation_id, agent_id) values ($1, $2, $3)',
-      [runId, `conv_test_${runId}`, agentId],
-    );
 
     const call = async (): Promise<{ isError?: boolean; content: Array<{ text?: string }> }> => {
       const client = new Client({ name: 'agentport-test', version: '0.0.0' });
@@ -225,27 +222,16 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       });
       expect(toolRes.statusCode).toBe(201);
 
-      const agentSlug = unique('suspend-agent');
-      createdAgents.push(agentSlug);
-      const agentRes = await inject(waiting, {
-        method: 'POST',
-        url: '/api/agents',
-        headers: { cookie },
-        payload: { slug: agentSlug, name: agentSlug, serverIds: [server.id] },
-      });
-      expect(agentRes.statusCode).toBe(201);
-      const agentId = agentRes.json<{ id: string }>().id;
+      const agent = (
+        await createAgent(waiting, cookie, {
+          slug: unique('suspend-agent'),
+          serverIds: [server.id],
+          track: createdAgents,
+        })
+      ).json<{ id: string }>();
 
-      const runId = unique('run');
+      const { runId } = await seedRun(waiting, agent.id, { runId: unique('run') });
       runIds.push(runId);
-      await waiting.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
-        `conv_test_${runId}`,
-        agentId,
-      ]);
-      await waiting.pool.query(
-        'insert into agent_runs (id, conversation_id, agent_id) values ($1, $2, $3)',
-        [runId, `conv_test_${runId}`, agentId],
-      );
 
       const client = new Client({ name: 'agentport-test', version: '0.0.0' });
       const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp/${server.id}`), {
@@ -279,30 +265,20 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   });
 
   it('accepts a per-run token until it expires or the run ends', async () => {
-    const agentSlug = unique('run-token-agent');
-    createdAgents.push(agentSlug);
-    const agentRes = await inject(app, {
-      method: 'POST',
-      url: '/api/agents',
-      headers: { cookie },
-      payload: { slug: agentSlug, name: agentSlug, serverIds: [server.id] },
-    });
-    expect(agentRes.statusCode).toBe(201);
-    const agentId = agentRes.json<{ id: string }>().id;
+    const agent = (
+      await createAgent(app, cookie, {
+        slug: unique('run-token-agent'),
+        serverIds: [server.id],
+        track: createdAgents,
+      })
+    ).json<{ id: string }>();
 
-    const runId = unique('run-token');
-    runIds.push(runId);
-    await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
-      `conv_test_${runId}`,
-      agentId,
-    ]);
     const runToken = randomBytes(32).toString('base64url');
-    const tokenHash = hashMcpToken(runToken);
-    await app.pool.query(
-      `insert into agent_runs (id, conversation_id, agent_id, mcp_token_hash, mcp_token_expires_at)
-       values ($1, $2, $3, $4, now() + interval '5 minutes')`,
-      [runId, `conv_test_${runId}`, agentId, tokenHash],
-    );
+    const { runId } = await seedRun(app, agent.id, {
+      runId: unique('run-token'),
+      mcpTokenHash: hashMcpToken(runToken),
+    });
+    runIds.push(runId);
 
     const call = async (bearer: string): Promise<Response> =>
       fetch(`${baseUrl}/mcp/${server.id}`, {
@@ -350,27 +326,15 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   });
 
   it('does not accept a run header whose agent is not bound to the server', async () => {
-    const agentSlug = unique('unbound-agent');
-    createdAgents.push(agentSlug);
-    const agentRes = await inject(app, {
-      method: 'POST',
-      url: '/api/agents',
-      headers: { cookie },
-      payload: { slug: agentSlug, name: agentSlug },
-    });
-    expect(agentRes.statusCode).toBe(201);
-    const agentId = agentRes.json<{ id: string }>().id;
+    const agent = (
+      await createAgent(app, cookie, {
+        slug: unique('unbound-agent'),
+        track: createdAgents,
+      })
+    ).json<{ id: string }>();
 
-    const runId = unique('unbound-run');
+    const { runId } = await seedRun(app, agent.id, { runId: unique('unbound-run') });
     runIds.push(runId);
-    await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
-      `conv_test_${runId}`,
-      agentId,
-    ]);
-    await app.pool.query(
-      'insert into agent_runs (id, conversation_id, agent_id) values ($1, $2, $3)',
-      [runId, `conv_test_${runId}`, agentId],
-    );
 
     const client = new Client({ name: 'agentport-test', version: '0.0.0' });
     const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp/${server.id}`), {

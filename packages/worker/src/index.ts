@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { McpJsonEntry } from '@agentport/core';
 import {
   decryptSecrets,
   hashMcpToken,
   installProcessGuards,
+  RunFailure,
   renderWorkspace,
   toWorkspaceInput,
   WORKSPACE_DIR_MODE,
@@ -17,10 +18,13 @@ import {
   type ChatEvent,
   EVAL_RUNS_QUEUE,
   evalRunJobSchema,
+  previewMcpEntry,
+  RUNS_QUEUE,
+  serverInputSchema,
   wireFailureKind,
 } from '@agentport/shared';
 import { Worker } from 'bullmq';
-import { and, asc, eq, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 import pino from 'pino';
 import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
@@ -59,17 +63,13 @@ if (config.SANDBOX_EGRESS === 'none') {
   logger.warn(
     'SANDBOX_EGRESS=none: 沙盒无网络，HTTP MCP server、平台 /mcp 端点与模型 API 都将不可用',
   );
-} else if (
-  config.SANDBOX_EGRESS === 'proxy' &&
-  !process.env.HTTPS_PROXY &&
-  !process.env.HTTP_PROXY
-) {
+} else if (config.SANDBOX_EGRESS === 'proxy' && !config.HTTPS_PROXY && !config.HTTP_PROXY) {
   logger.warn('SANDBOX_EGRESS=proxy but HTTPS_PROXY/HTTP_PROXY is unset: egress stays open');
 }
 
 /** proxy 模式没配代理时实际按 open 跑：别让日志声称在走代理。 */
 const sandboxEgress =
-  config.SANDBOX_EGRESS === 'proxy' && !process.env.HTTPS_PROXY && !process.env.HTTP_PROXY
+  config.SANDBOX_EGRESS === 'proxy' && !config.HTTPS_PROXY && !config.HTTP_PROXY
     ? 'open'
     : config.SANDBOX_EGRESS;
 
@@ -84,28 +84,6 @@ const provider = new DockerSandboxProvider({
 type ServerRow = typeof schema.servers.$inferSelect;
 type AgentRow = typeof schema.agents.$inferSelect;
 
-function str(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
-
-function strArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
-}
-
-function strRecord(value: unknown): Record<string, string> {
-  if (typeof value !== 'object' || value === null) return {};
-  const out: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry === 'string') out[key] = entry;
-  }
-  return out;
-}
-
-/**
- * 把 DB 中的 server 渲染成 `.mcp.json` 条目。
- * generated server 的 URL 指向平台自身，必须换成本次运行可达的沙盒视角地址；
- * stdio/env 与 headers 里的密钥仅以加密列存在，运行时解密后注入。
- */
 function toEntry(
   server: ServerRow,
   apiUrl: string,
@@ -113,33 +91,26 @@ function toEntry(
   runId: string,
   runToken: string,
 ): McpJsonEntry {
-  // 密钥只存在加密列里；运行时必须在这里解密注入，否则 .mcp.json 会丢 env/headers。
   const secrets = server.secretsEncrypted ? decryptSecrets(server.secretsEncrypted, secretKey) : {};
-  const serverConfig = server.config;
-  if (server.kind === 'stdio') {
-    return {
-      command: str(serverConfig.command) ?? '',
-      args: strArray(serverConfig.args),
-      env: { ...strRecord(serverConfig.env), ...secrets },
-    };
-  }
-  if (server.kind === 'http') {
-    return {
-      type: 'http',
-      url: str(serverConfig.url) ?? '',
-      headers: { ...strRecord(serverConfig.headers), ...secrets },
-    };
-  }
-  return {
-    type: 'http',
-    url: `${apiUrl}/mcp/${server.id}`,
-    // 平台 MCP 端点靠这个 header 识别 run，才能查到该 run 的工具审批。
-    headers: {
-      // 短期 token：只在本 run 有效，run 结束即被清空；长期 token 不落工作区。
-      Authorization: `Bearer ${runToken}`,
-      'x-agentport-run-id': runId,
+  const input = serverInputSchema.parse({
+    ...server.config,
+    name: server.name,
+    description: server.description,
+    kind: server.kind,
+  });
+  // stdio 命令有意由容器内的 SDK 启动，须在沙盒镜像中可用；不在 worker 宿主执行。
+  const entry = previewMcpEntry(
+    { kind: input.kind, config: input },
+    {
+      ...(input.kind === 'stdio' ? input.env : input.headers),
+      ...(input.kind === 'generated'
+        ? { Authorization: `Bearer ${runToken}`, 'x-agentport-run-id': runId }
+        : secrets),
     },
-  };
+  );
+  return input.kind === 'generated' && 'url' in entry
+    ? { ...entry, url: `${apiUrl}/mcp/${server.id}` }
+    : entry;
 }
 
 /** 每次 run 重写工作区：文件是 DB 的只读快照，prompt 只走 stdin。 */
@@ -203,18 +174,21 @@ async function persistRunMessages(
 
   // BullMQ 重试会重放同一 run：先删本 run 已落库的输出再写，避免重复消息。
   // 用户消息也带 run_id，但由 API 写入，重试时不能删。
+  // 一次 insert 多行：一次运行可能有上千条消息，逐行写是上千次往返。
+  const CHUNK = 500;
   await db.transaction(async (tx) => {
     await tx
       .delete(schema.messages)
       .where(and(eq(schema.messages.runId, input.runId), ne(schema.messages.role, 'user')));
-    for (const row of rows) {
-      await tx.insert(schema.messages).values({
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const values = rows.slice(i, i + CHUNK).map((row) => ({
         id: newId('message'),
         conversationId: input.conversationId,
         role: row.role,
         content: row.content,
         runId: input.runId,
-      });
+      }));
+      if (values.length > 0) await tx.insert(schema.messages).values(values);
     }
   });
 }
@@ -257,10 +231,10 @@ function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
   // proxy 模式：把宿主上的代理地址传给沙盒，仍由容器自行出站。
   if (sandboxEgress === 'proxy') {
     for (const key of ['HTTPS_PROXY', 'HTTP_PROXY'] as const) {
-      const value = process.env[key];
+      const value = config[key];
       if (value) env[key] = toHostUrl(value);
     }
-    const noProxy = process.env.NO_PROXY ?? process.env.no_proxy;
+    const noProxy = config.NO_PROXY ?? config.no_proxy;
     if (noProxy) env.NO_PROXY = noProxy;
   }
   return env;
@@ -291,8 +265,37 @@ if (modelProxy) {
   );
 }
 
+/** Only derived run directories are pruned; queued/running runs may still need them. */
+async function sweepStaleWorkspaces(): Promise<number> {
+  const liveRuns = await db
+    .select({ id: schema.agentRuns.id })
+    .from(schema.agentRuns)
+    .where(inArray(schema.agentRuns.status, ['queued', 'running']));
+  const liveIds = new Set(liveRuns.map((run) => run.id));
+  let removed = 0;
+  const agents = await readdir(workspacesDir, { withFileTypes: true }).catch(
+    (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return [];
+      throw err;
+    },
+  );
+  for (const agent of agents) {
+    if (!agent.isDirectory()) continue;
+    const agentDir = join(workspacesDir, agent.name);
+    for (const run of await readdir(agentDir, { withFileTypes: true })) {
+      if (!run.isDirectory() || !run.name.startsWith('run_') || liveIds.has(run.name)) continue;
+      await rm(join(agentDir, run.name), { recursive: true, force: true });
+      removed += 1;
+    }
+  }
+  logger.info({ removed }, 'stale workspaces removed');
+  return removed;
+}
+
+await sweepStaleWorkspaces();
+
 const worker = new Worker(
-  'agent-runs',
+  RUNS_QUEUE,
   async (job) => {
     const parsed = agentRunJobSchema.safeParse(job.data);
     if (!parsed.success) {
@@ -305,16 +308,29 @@ const worker = new Worker(
       .from(schema.agentRuns)
       .where(eq(schema.agentRuns.id, runId))
       .limit(1);
-    // cancel 可能发生在排队期间：不启动容器，API 侧已经写过终态。
+    // 排队取消由 API 的 queued → cancelled 更新负责发布终态，worker 不重复发布。
     if (run?.status !== 'queued' && run?.status !== 'running') {
       logger.info({ runId, status: run?.status }, 'run no longer pending, skipping');
       return;
     }
-    await db
+    // 只认领 queued：BullMQ 在 Redis 抖动后会重投递仍在 running 的任务，
+    // 若这里也接受 running，同一 run 会被两个 worker 各跑一遍（重复计费、消息互相覆盖）。
+    const claimed = await db
       .update(schema.agentRuns)
       .set({ status: 'running', startedAt: new Date() })
-      .where(eq(schema.agentRuns.id, runId));
+      .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')));
+    if (claimed.rowCount === 0) {
+      logger.info({ runId }, 'run externally terminated before claim, skipping');
+      return;
+    }
     await publishRun(runId, { type: 'run_started', runId, conversationId }, logger);
+    await repo.audit.writeAudit(db, logger, {
+      actor: 'worker',
+      action: 'agent.run.started',
+      target: runId,
+      status: 'ok',
+      dedupeKey: `aud_started_${runId.slice(4)}`,
+    });
 
     let outcome: SandboxRunOutcome;
     let runStartedAt = 0;
@@ -422,13 +438,35 @@ const worker = new Worker(
     });
 
     // 把本次 run 的 assistant 文本与工具调用写入会话，刷新后历史才完整。
-    await persistRunMessages(db, {
-      conversationId,
-      runId,
-      events: outcome.events,
-    });
+    // 写库失败不能抛出：抛出会让 BullMQ 重跑整个沙盒并最终只留 reconcile 的
+    // "worker lost track of this run"，真实原因反而被覆盖。记日志，继续写终态。
+    try {
+      await persistRunMessages(db, {
+        conversationId,
+        runId,
+        events: outcome.events,
+      });
+    } catch (err) {
+      // agent_runs.error 说明的是沙盒失败原因；消息丢失是另一件事，只进日志。
+      logger.error({ err, runId }, 'failed to persist run messages');
+    }
 
-    await db
+    const retryable = isRetryable(outcome);
+    if (retryable && job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {
+      // 认领只接受 queued，所以重试前必须把行改回 queued 再抛错；
+      // 否则下一次投递会被自己的守卫当成「外部已终止」而跳过。
+      const requeued = await db
+        .update(schema.agentRuns)
+        .set({ status: 'queued', startedAt: null })
+        .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')))
+        .returning({ id: schema.agentRuns.id });
+      if (requeued.length > 0) {
+        logger.warn({ runId, attempt: job.attemptsMade + 1 }, 'retrying sandbox failure');
+        throw new Error(`retryable sandbox failure: ${outcome.error ?? 'unknown'}`);
+      }
+    }
+
+    const finished = await db
       .update(schema.agentRuns)
       .set({
         status: outcome.status,
@@ -443,7 +481,25 @@ const worker = new Worker(
         error: outcome.error ?? null,
         errorKind: outcome.failure?.reason ?? null,
       })
-      .where(eq(schema.agentRuns.id, runId));
+      .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')));
+    if (finished.rowCount === 0) {
+      const current = await repo.chat.getRun(db, runId);
+      if (!current || current.status === 'queued' || current.status === 'running') {
+        logger.warn({ runId, status: current?.status }, 'run disappeared or is no longer terminal');
+        return;
+      }
+      outcome = {
+        status: current.status,
+        sandboxId: current.sandboxId ?? '',
+        events: outcome.events,
+        ...(current.costUsd === null ? {} : { costUsd: Number(current.costUsd) }),
+        ...(current.turns === null ? {} : { turns: current.turns }),
+        ...(current.error === null ? {} : { error: current.error }),
+        ...(current.errorKind === null
+          ? {}
+          : { failure: new RunFailure(current.errorKind, current.error ?? current.status) }),
+      };
+    }
 
     await publishRun(
       runId,
@@ -458,42 +514,51 @@ const worker = new Worker(
       logger,
     );
     // 运行结果进审计表：日志会滚动，审计长期保留。
-    await db
-      .insert(schema.auditLog)
-      .values({
-        id: `aud_${runId.slice(4)}`,
-        actor: 'worker',
-        action: 'agent.run.finished',
-        target: runId,
-        status: outcome.status === 'succeeded' ? 'ok' : 'error',
-        durationMs: runLatencyMs,
-        inputDigest: null,
-        requestId: null,
-      })
-      .onConflictDoNothing();
+    // 幂等：基础设施重试会重跑同一次运行，不能为一次运行写多条审计。
+    await repo.audit.writeAudit(db, logger, {
+      actor: 'worker',
+      action: 'agent.run.finished',
+      target: runId,
+      status: outcome.status === 'succeeded' ? 'ok' : 'error',
+      dedupeKey: `aud_${runId.slice(4)}`,
+      ...(runLatencyMs === null ? {} : { durationMs: runLatencyMs }),
+    });
 
     logger.info(
       { runId, status: outcome.status, costUsd: outcome.costUsd, latencyMs: runLatencyMs },
       'agent run finished',
     );
 
-    // 重试会复用同一 run 的工作区，因此只在最终结束（不再重试）后清理。
-    if (!isRetryable(outcome) && workspaceDirForRun) {
+    // 能走到这里的运行已经结束；仍可重试的尝试在写终态之前抛出。
+    if (workspaceDirForRun) {
       await rm(workspaceDirForRun, { recursive: true, force: true }).catch((err: unknown) => {
         logger.warn({ err, runId }, 'workspace cleanup failed');
       });
     }
-
-    // 瞬时基础设施故障交给 BullMQ 重试；业务失败直接结束，避免重复计费。
-    if (isRetryable(outcome)) {
+    if (retryable && finished.rowCount !== 0) {
       throw new Error(`retryable sandbox failure: ${outcome.error ?? 'unknown'}`);
     }
   },
   { connection: { url: config.REDIS_URL }, concurrency: config.AGENT_MAX_CONCURRENT },
 );
 
-worker.on('failed', (job, err) => {
+worker.on('failed', async (job, err) => {
   logger.error({ jobId: job?.id, err }, 'job failed');
+  // BullMQ increments attemptsMade before emitting failed.
+  if (!job || job.attemptsMade < (job.opts.attempts ?? 1)) return;
+  const parsed = agentRunJobSchema.safeParse(job.data);
+  if (!parsed.success) return;
+  const { runId, agentId } = parsed.data;
+  try {
+    const [agent] = await db
+      .select({ slug: schema.agents.slug })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, agentId))
+      .limit(1);
+    if (agent) await rm(join(workspacesDir, agent.slug, runId), { recursive: true, force: true });
+  } catch (cleanupError) {
+    logger.warn({ err: cleanupError, runId }, 'workspace cleanup failed');
+  }
 });
 
 // 评估本身串行：并发固定 1。
@@ -557,12 +622,12 @@ const shutdown = async (): Promise<void> => {
   shuttingDown = true;
   logger.info('shutting down');
 
-  const closing = Promise.all([worker.close(), evalWorker.close()]);
+  const closing = Promise.allSettled([worker.close(), evalWorker.close()]);
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
   await stopReconciler();
   await provider.destroyAll();
-  await Promise.race([closing.catch(() => undefined), sleep(POOL_WAIT_MS)]);
+  await Promise.race([closing, sleep(POOL_WAIT_MS)]);
   await closeEvalRunQueue();
 
   await modelProxy?.close();

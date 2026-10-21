@@ -2,22 +2,21 @@ import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { ArrowLeft, Bot, Check, CircleAlert, Copy, RotateCcw, User, Wrench } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
-import { Page } from '../components/page.js';
+import { Page, PageHeader } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
-import { Skeleton } from '../components/ui/skeleton.js';
 import type { ApprovalRequest, RunStep } from '../lib/api.js';
-import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
   formatCost,
   formatDateTime,
   formatDuration,
   formatTokens,
+  runStatusLabel,
   shortId,
 } from '../lib/format.js';
-import { useRun, useRunApprovals } from '../lib/queries.js';
+import { useApproveRun, useRerun, useRun, useRunApprovals } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 /**
@@ -80,73 +79,76 @@ function stepServerName(step: RunStep): string | null {
 }
 
 export function RunDetailPage() {
-  const params = useParams({ strict: false }) as { runId: string };
-  const search = useSearch({ strict: false }) as { step?: string };
+  const params = useParams({ from: '/shell/runs/$runId' });
+  const search = useSearch({ from: '/shell/runs/$runId' });
   const run = useRun(params.runId);
-  const approvals = useRunApprovals(params.runId);
   const navigate = useNavigate();
-  const [rerunning, setRerunning] = useState(false);
-  const [selected, setSelected] = useState<number | null>(
-    search.step === undefined ? null : Number(search.step),
-  );
+  // 运行结束后不再轮询审批。
+  const approvals = useRunApprovals(params.runId, run.data?.run.status === 'running');
+  const rerunMutation = useRerun();
+  const approveMutation = useApproveRun();
+  // 选中的步骤由 URL 决定：刷新、分享、前进后退都保留。
+  const selected = search.step ?? null;
 
-  const rerun = async (): Promise<void> => {
-    if (!run.data || rerunning) return;
+  const selectStep = (index: number): void => {
+    void navigate({
+      to: '/runs/$runId',
+      params: { runId: params.runId },
+      search: (prev) => ({ ...prev, step: index }),
+      replace: true,
+    });
+  };
+
+  const rerun = (): void => {
+    if (!run.data) return;
     const { run: detail, steps } = run.data;
     const prompt = steps.find((step) => step.kind === 'user')?.text;
     if (!prompt) {
       toastError(new Error('这次运行没有可重发的用户消息。'));
       return;
     }
-    setRerunning(true);
-    try {
-      const accepted = await api.sendChat({
-        agentId: detail.agentId,
-        conversationId: detail.conversationId,
-        message: prompt,
-      });
-      await navigate({ to: '/runs/$runId', params: { runId: accepted.runId } });
-    } catch (error) {
-      toastError(error);
-    } finally {
-      setRerunning(false);
-    }
+    rerunMutation.mutate(
+      { agentId: detail.agentId, conversationId: detail.conversationId, message: prompt },
+      {
+        onSuccess: (accepted) =>
+          void navigate({ to: '/runs/$runId', params: { runId: accepted.runId } }),
+        onError: (error) => toastError(error),
+      },
+    );
   };
 
   const approve = (item: ApprovalItem): void => {
     if (!run.data) return;
-    api
-      .approveRun(run.data.run.id, item.serverId, item.toolName)
-      .then(() => {
-        toastSuccess(`已批准 ${item.toolName}`);
-        void approvals.refetch();
-      })
-      .catch((error) => toastError(error));
+    approveMutation.mutate(
+      { runId: run.data.run.id, serverId: item.serverId, toolName: item.toolName },
+      {
+        onSuccess: () => toastSuccess(`已批准 ${item.toolName}`),
+        onError: (error) => toastError(error),
+      },
+    );
   };
 
   if (run.isPending) {
     return (
-      <div className="space-y-4">
-        <h1 className="sr-only">运行详情</h1>
-        <Skeleton className="h-8 w-56" />
-        <Skeleton className="h-32 w-full" />
-        <LoadingState rows={4} />
-      </div>
+      <Page>
+        <PageHeader title="运行详情" className="sr-only" />
+        <LoadingState rows={6} />
+      </Page>
     );
   }
 
   if (run.isError) {
     return (
-      <div>
-        <h1 className="sr-only">运行详情</h1>
+      <Page>
+        <PageHeader title="运行详情" className="sr-only" />
         <Link
           to="/runs"
-          className="mb-4 inline-flex items-center gap-1 text-xs text-muted hover:text-fg"
+          className="inline-flex items-center gap-1 self-start text-xs text-muted hover:text-fg"
         >
           <ArrowLeft className="size-3.5" /> 返回运行列表
         </Link>
         <ErrorState error={run.error} onRetry={() => void run.refetch()} />
-      </div>
+      </Page>
     );
   }
 
@@ -168,49 +170,56 @@ export function RunDetailPage() {
 
   return (
     <Page>
-      <div className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link
           to="/runs"
           aria-label="返回运行列表"
-          className="rounded-[7px] p-1.5 text-subtle transition-colors hover:bg-hover hover:text-fg"
+          className="rounded-icon p-1.5 text-subtle transition-colors hover:bg-hover hover:text-fg"
         >
-          <ArrowLeft className="size-4" strokeWidth={1.75} />
+          <ArrowLeft className="size-4" />
         </Link>
-        <div className="min-w-0">
-          <h1 className="truncate text-md font-medium text-fg">运行 {shortId(detail.id)}</h1>
-        </div>
-        {conversation.title ? (
-          <span className="hidden min-w-0 max-w-56 truncate text-xs text-subtle sm:block">
-            {conversation.title}
-          </span>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          <Metric
-            label="耗时"
-            value={formatDuration(detail.latencyMs)}
-            danger={detail.status === 'timeout'}
-          />
-          <Metric label="轮次" value={detail.turns ?? '—'} />
-          <Metric label="成本" value={formatCost(detail.costUsd)} />
-          <Metric
-            label="Tokens"
-            value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
-          />
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <RunStatusBadge status={detail.status} />
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-full px-3"
-            disabled={rerunning || !hasPrompt}
-            aria-busy={rerunning}
-            onClick={() => void rerun()}
-          >
-            <RotateCcw className="size-4" strokeWidth={1.75} />
-            {rerunning ? '提交中…' : '重跑'}
-          </Button>
-        </div>
+        <PageHeader
+          title={`运行 ${shortId(detail.id)}`}
+          className="min-w-0 flex-1 gap-x-3 gap-y-2"
+          meta={
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              {conversation.title ? (
+                <span className="hidden min-w-0 max-w-56 truncate text-xs text-subtle sm:block">
+                  {conversation.title}
+                </span>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                <Metric
+                  label="耗时"
+                  value={formatDuration(detail.latencyMs)}
+                  danger={detail.status === 'timeout'}
+                />
+                <Metric label="轮次" value={detail.turns ?? '—'} />
+                <Metric label="成本" value={formatCost(detail.costUsd)} />
+                <Metric
+                  label="Tokens"
+                  value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
+                />
+              </div>
+            </div>
+          }
+          actions={
+            <>
+              <RunStatusBadge status={detail.status} />
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full px-3"
+                disabled={rerunMutation.isPending || !hasPrompt}
+                aria-busy={rerunMutation.isPending}
+                onClick={() => void rerun()}
+              >
+                <RotateCcw className="size-4" />
+                {rerunMutation.isPending ? '提交中…' : '重跑'}
+              </Button>
+            </>
+          }
+        />
       </div>
 
       {failed && detail.error ? (
@@ -220,7 +229,7 @@ export function RunDetailPage() {
         >
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-fg">运行{failureLabel(detail.status)}</div>
+            <div className="text-sm font-medium text-fg">运行{runStatusLabel[detail.status]}</div>
             <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted">
               {detail.error}
             </pre>
@@ -239,11 +248,24 @@ export function RunDetailPage() {
             有 {pending.length} 个工具等待批准；批准后回到对话页重发上一条消息。
           </span>
           <div className="ml-auto flex flex-wrap gap-2">
-            {pending.map((item) => (
-              <Button key={item.id} size="sm" onClick={() => approve(item)}>
-                批准 {item.toolName}
-              </Button>
-            ))}
+            {pending.map((item) => {
+              // mutation 是全局状态：按当前 mutation 的变量判断是哪一条在批准。
+              const approving =
+                approveMutation.isPending &&
+                approveMutation.variables?.serverId === item.serverId &&
+                approveMutation.variables.toolName === item.toolName;
+              return (
+                <Button
+                  key={item.id}
+                  size="sm"
+                  disabled={approveMutation.isPending}
+                  aria-busy={approving}
+                  onClick={() => approve(item)}
+                >
+                  {approving ? '批准中…' : `批准 ${item.toolName}`}
+                </Button>
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -277,21 +299,17 @@ export function RunDetailPage() {
                   <li key={`${index}-${step.at}`}>
                     <button
                       type="button"
-                      onClick={() => setSelected(index)}
+                      onClick={() => selectStep(index)}
                       aria-current={isActive ? 'step' : undefined}
                       className={cn(
-                        'group flex h-12 w-full items-center gap-2.5 rounded-[9px] px-2 text-left transition-colors hover:bg-hover focus-visible:outline-none',
+                        'group flex h-12 w-full items-center gap-2.5 rounded-item px-2 text-left transition-colors hover:bg-hover',
                         isActive && 'bg-hover',
                       )}
                     >
                       <span className="w-5 shrink-0 text-right font-mono text-2xs tabular-nums text-subtle">
                         {index + 1}
                       </span>
-                      <Icon
-                        aria-hidden="true"
-                        className={cn('size-4 shrink-0', meta.tone)}
-                        strokeWidth={1.75}
-                      />
+                      <Icon aria-hidden="true" className={cn('size-4 shrink-0', meta.tone)} />
                       <span className="min-w-0 flex-1">
                         <span
                           className={cn(
@@ -347,12 +365,6 @@ export function RunDetailPage() {
       </section>
     </Page>
   );
-}
-
-function failureLabel(status: string): string {
-  if (status === 'timeout') return '超时';
-  if (status === 'cancelled') return '已取消';
-  return '失败';
 }
 
 /** 摘要读数：12px 弱标签 + 等宽数字，跟在标题后，不另起一块。 */
@@ -419,13 +431,13 @@ function StepInspector({
           {start ? formatDateTime(step.at) : ''}
         </span>
         {nested ? (
-          <span className="rounded-[6px] bg-chip px-1.5 py-0.5 text-2xs text-muted">
+          <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted">
             子智能体内部调用
           </span>
         ) : null}
         {step.kind === 'tool' && step.toolUseId ? (
           <span
-            className="rounded-[6px] bg-chip px-1.5 py-0.5 font-mono text-2xs text-subtle"
+            className="rounded-tag bg-chip px-1.5 py-0.5 font-mono text-2xs text-subtle"
             title={step.toolUseId}
           >
             {shortId(step.toolUseId)}

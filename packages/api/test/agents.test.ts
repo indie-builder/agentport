@@ -1,7 +1,17 @@
-import type { Agent, Server } from '@agentport/shared';
+import type { Agent } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cleanup, infraReady, inject, loginCookie, startApp, unique } from './helpers.js';
+import {
+  cleanup,
+  createAgent,
+  createServer,
+  expectProblem,
+  infraReady,
+  inject,
+  loginCookie,
+  startApp,
+  unique,
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -29,30 +39,15 @@ describe.skipIf(!ready)('agents', () => {
   });
 
   const auth = () => ({ cookie });
-  const createServer = async (name: string): Promise<Server> => {
-    createdServers.push(name);
-    const res = await inject(app, {
-      method: 'POST',
-      url: '/api/servers',
-      headers: auth(),
-      payload: { name, kind: 'generated', baseUrl: 'https://jsonplaceholder.typicode.com' },
-    });
-    expect(res.statusCode).toBe(201);
-    return res.json<Server>();
-  };
-
-  const createAgent = async (slug: string, serverIds: string[] = []) => {
-    createdAgents.push(slug);
-    return inject(app, {
-      method: 'POST',
-      url: '/api/agents',
-      headers: auth(),
-      payload: { slug, name: `Agent ${slug}`, systemPrompt: 'You are helpful.', serverIds },
-    });
-  };
+  const newAgent = (
+    slug: string,
+    serverIds: string[] = [],
+    expectStatus = 201,
+  ): ReturnType<typeof createAgent> =>
+    createAgent(app, cookie, { slug, serverIds, track: createdAgents, expectStatus });
 
   it('creates an agent with defaults', async () => {
-    const res = await createAgent(unique('agent'));
+    const res = await newAgent(unique('agent'));
     expect(res.statusCode).toBe(201);
     const body = res.json<Agent>();
     expect(body).toMatchObject({
@@ -67,14 +62,13 @@ describe.skipIf(!ready)('agents', () => {
 
   it('rejects a duplicate slug with 409', async () => {
     const slug = unique('dup');
-    expect((await createAgent(slug)).statusCode).toBe(201);
-    const res = await createAgent(slug);
-    expect(res.statusCode).toBe(409);
+    expect((await newAgent(slug)).statusCode).toBe(201);
+    expectProblem(await newAgent(slug, [], 409), 'CONFLICT');
   });
 
   it('PATCH updates fields and forbids slug changes', async () => {
     const slug = unique('patch');
-    const agent = (await createAgent(slug)).json<Agent>();
+    const agent = (await newAgent(slug)).json<Agent>();
 
     const res = await inject(app, {
       method: 'PATCH',
@@ -107,7 +101,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { slug: unique('perms'), name: 'Perms', permissionMode: 'auto' },
     });
     expect(rejected.statusCode).toBe(400);
-    expect(rejected.json()).toMatchObject({ code: 'INVALID_INPUT' });
+    expectProblem(rejected, 'INVALID_INPUT');
 
     const slug = unique('perms-ok');
     const accepted = await inject(app, {
@@ -120,8 +114,16 @@ describe.skipIf(!ready)('agents', () => {
     createdAgents.push(slug);
   });
 
+  it('rejects a reference to a missing server as INVALID_REFERENCE, not 500', async () => {
+    // agent_servers.server_id 的外键失败（23503）由 isPgCode 沿 drizzle 的 cause 链识别。
+    const slug = unique('bad-ref');
+    createdAgents.push(slug);
+    const res = await newAgent(slug, ['srv_missing'], 400);
+    expectProblem(res, 'INVALID_REFERENCE');
+  });
+
   it('PATCH rejects a stale expectedUpdatedAt with 409', async () => {
-    const agent = (await createAgent(unique('stale-agent'))).json<Agent>();
+    const agent = (await newAgent(unique('stale-agent'))).json<Agent>();
 
     const ok = await inject(app, {
       method: 'PATCH',
@@ -137,13 +139,15 @@ describe.skipIf(!ready)('agents', () => {
       headers: auth(),
       payload: { name: 'Second', expectedUpdatedAt: agent.updatedAt },
     });
-    expect(stale.statusCode).toBe(409);
-    expect(stale.json()).toMatchObject({ code: 'CONFLICT_STALE' });
+    expectProblem(stale, 'CONFLICT_STALE');
   });
 
   it('renders three workspace files with mcp tool wildcards', async () => {
-    const server = await createServer(unique('files-srv'));
-    const res = await createAgent(unique('files'), [server.id]);
+    const server = await createServer(app, cookie, {
+      name: unique('files-srv'),
+      track: createdServers,
+    });
+    const res = await newAgent(unique('files'), [server.id]);
     const agent = res.json<Agent>();
 
     const files = await inject(app, {
@@ -216,7 +220,7 @@ describe.skipIf(!ready)('agents', () => {
 
   it('DELETE removes the agent', async () => {
     const slug = unique('delete');
-    const agent = (await createAgent(slug)).json<Agent>();
+    const agent = (await newAgent(slug)).json<Agent>();
     const del = await inject(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}`,
@@ -234,7 +238,7 @@ describe.skipIf(!ready)('agents', () => {
   it('delegates to sub-agents and renders them as agent files', async () => {
     const parentSlug = unique('parent');
     const childSlug = unique('child');
-    const child = (await createAgent(childSlug)).json<Agent>();
+    const child = (await newAgent(childSlug)).json<Agent>();
     const res = await inject(app, {
       method: 'POST',
       url: '/api/agents',
@@ -273,8 +277,8 @@ describe.skipIf(!ready)('agents', () => {
   });
 
   it('rejects self-delegation and two-level delegation', async () => {
-    const a = (await createAgent(unique('cycle-a'))).json<Agent>();
-    const b = (await createAgent(unique('cycle-b'))).json<Agent>();
+    const a = (await newAgent(unique('cycle-a'))).json<Agent>();
+    const b = (await newAgent(unique('cycle-b'))).json<Agent>();
 
     const self = await inject(app, {
       method: 'PATCH',
@@ -293,7 +297,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(first.statusCode).toBe(200);
 
     // b 已经是 a 的子智能体，不能再被 c 委派，也不能自己再委派。
-    const c = (await createAgent(unique('cycle-c'))).json<Agent>();
+    const c = (await newAgent(unique('cycle-c'))).json<Agent>();
     const second = await inject(app, {
       method: 'PATCH',
       url: `/api/agents/${c.id}`,

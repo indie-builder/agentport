@@ -10,6 +10,7 @@ import {
   messages,
   servers,
 } from '../schema.js';
+import { messageText } from './chat.js';
 
 export const RUN_STATUSES = [
   'queued',
@@ -115,6 +116,7 @@ export async function listRuns(
   if (options.agentId !== undefined) filters.push(eq(agentRuns.agentId, options.agentId));
   if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
 
+  // drizzle 0.45 的 ORDER BY 没有 nullsLast 构造器（只有索引列有），保留原始 sql。
   return db
     .select(runColumns)
     .from(agentRuns)
@@ -136,16 +138,13 @@ export function toStep(message: {
 }): RunStep | null {
   const content = asRecord(message.content);
   const at = message.createdAt.toISOString();
+  const text = messageText(message.content);
 
-  if (message.role === 'user' && typeof content?.text === 'string') {
-    return { kind: 'user', at, text: content.text };
+  if (message.role === 'user' && text !== null) {
+    return { kind: 'user', at, text };
   }
-  if (
-    message.role === 'assistant' &&
-    content?.type === 'text' &&
-    typeof content.text === 'string'
-  ) {
-    return { kind: 'assistant', at, text: content.text };
+  if (message.role === 'assistant' && content?.type === 'text' && text !== null) {
+    return { kind: 'assistant', at, text };
   }
   if (message.role === 'tool' && content?.type === 'tool_use') {
     return {

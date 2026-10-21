@@ -1,6 +1,6 @@
 {
   "name": "agentport",
-  "version": "0.1.0",
+  "version": "0.13.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.14.0",
@@ -31,7 +31,6 @@
     "@ai-sdk/openai-compatible": "^3.0.71",
     "@biomejs/biome": "2.5.15",
     "@e2e-dev/web": "0.15.2",
-    "@vitest/coverage-v8": "5.0.5",
     "ai": "^7.0.143",
     "e2e": "0.21.2",
     "typescript": "7.0.2",

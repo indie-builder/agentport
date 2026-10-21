@@ -49,6 +49,19 @@ export interface ModelProxy {
   close: () => Promise<void>;
 }
 
+/** 单个请求的日志上下文：成功、失败、token 拒绝都带同一组字段。 */
+interface ProxyRequestContext {
+  runId?: string | undefined;
+  model?: string | undefined;
+  upstreamRequestId?: string | undefined;
+  startedAt?: number | undefined;
+}
+
+/** 只从请求体开头找 model：完整 JSON.parse 会把 32MB 上下文再复制一份。 */
+function modelOf(body: Buffer): string | undefined {
+  return /"model"\s*:\s*"([^"]+)"/.exec(body.subarray(0, 4096).toString('utf8'))?.[1];
+}
+
 function pathAllowed(pathname: string): boolean {
   return ALLOWED_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
@@ -82,8 +95,10 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
   const upstream = new URL(upstreamBaseUrl);
 
   const server = createServer((req, res) => {
-    void handle(req, res).catch((err: unknown) => {
-      logger.error({ err }, 'model proxy request failed');
+    // 每个请求一行上下文，错误路径也能带上 runId / model，不再只剩一条堆栈。
+    const ctx: ProxyRequestContext = {};
+    void handle(req, res, ctx).catch((err: unknown) => {
+      logger.error({ err, ...ctx }, 'model proxy request failed');
       if (!res.headersSent) {
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { type: 'proxy_error', message: 'proxy failed' } }));
@@ -93,9 +108,15 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     });
   });
 
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function handle(
+    req: IncomingMessage,
+    res: ServerResponse,
+    ctx: ProxyRequestContext,
+  ): Promise<void> {
+    const startedAt = Date.now();
     const url = new URL(req.url ?? '/', 'http://proxy.local');
     if (!pathAllowed(url.pathname)) {
+      logger.warn({ path: url.pathname, status: 404 }, 'model proxy rejected path');
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { type: 'not_found', message: 'path not proxied' } }));
       return;
@@ -103,6 +124,8 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
 
     const token = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
     if (!token) {
+      // token 本身不落日志；这里只记「没带凭证」这一事实。
+      logger.warn({ path: url.pathname, status: 401 }, 'model proxy rejected token: missing');
       res.writeHead(401, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { type: 'unauthorized', message: 'missing token' } }));
       return;
@@ -110,10 +133,16 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
 
     const run = await options.resolveRun(token);
     if (!run || (activeRuns.size > 0 && !activeRuns.has(run.runId))) {
+      // 已结束 / 未签发的 run token：沙盒仍在发请求时，这条日志就是唯一线索。
+      logger.warn(
+        { path: url.pathname, status: 401, ...(run ? { runId: run.runId } : {}) },
+        'model proxy rejected token: invalid or revoked',
+      );
       res.writeHead(401, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { type: 'unauthorized', message: 'invalid token' } }));
       return;
     }
+    ctx.runId = run.runId;
 
     let body: Buffer;
     try {
@@ -124,6 +153,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
       return;
     }
 
+    ctx.startedAt = startedAt;
     const target = new URL(url.pathname + url.search, upstream);
     const headers: Record<string, string> = {
       'content-type': req.headers['content-type'] ?? 'application/json',
@@ -137,17 +167,31 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
       headers['anthropic-beta'] = req.headers['anthropic-beta'];
     }
 
+    ctx.model = modelOf(body);
     const upstreamRes = await fetch(target, {
       method: req.method ?? 'POST',
       headers,
       ...(body.length > 0 && req.method !== 'GET' && req.method !== 'HEAD' ? { body } : {}),
     });
 
+    const upstreamRequestId = upstreamRes.headers.get('request-id') ?? undefined;
+    ctx.upstreamRequestId = upstreamRequestId;
+    // 每次请求一行：runId + 上游 request-id 能把沙盒里的报错对回上游账单与日志。
+    // 不记请求体、不记响应体。
+    logger.info(
+      {
+        runId: ctx.runId,
+        model: ctx.model,
+        status: upstreamRes.status,
+        durationMs: Date.now() - startedAt,
+        upstreamRequestId,
+      },
+      'model proxy request',
+    );
+
     res.writeHead(upstreamRes.status, {
       'content-type': upstreamRes.headers.get('content-type') ?? 'application/json',
-      ...(upstreamRes.headers.get('request-id')
-        ? { 'request-id': String(upstreamRes.headers.get('request-id')) }
-        : {}),
+      ...(upstreamRequestId ? { 'request-id': upstreamRequestId } : {}),
     });
     if (!upstreamRes.body) {
       res.end();

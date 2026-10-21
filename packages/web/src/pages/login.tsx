@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { Activity, FileCode2, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
+import { Brand } from '../components/brand.js';
 import { Button } from '../components/ui/button.js';
 import { FieldError, Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
@@ -47,30 +48,19 @@ export function LoginPage() {
     <div className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,1fr)_minmax(380px,0.9fr)]">
       {/* 左侧：品牌与平台事实。窄屏隐藏，登录本身不被说明文字挤走。 */}
       <section className="hidden flex-col justify-between border-r border-line bg-panel px-10 py-10 lg:flex">
-        <div className="flex items-center gap-2.5">
-          <span className="flex items-end gap-[2px]" aria-hidden="true">
-            {[4, 9, 13, 7].map((height, index) => (
-              <span
-                key={height}
-                className={index === 2 ? 'w-[2px] bg-signal' : 'w-[2px] bg-ink'}
-                style={{ height }}
-              />
-            ))}
-          </span>
-          <span className="text-base font-semibold tracking-[0.08em] text-fg">PACE</span>
-        </div>
+        <Brand />
 
         <div className="max-w-md">
-          <h2 className="text-[28px] font-semibold leading-[1.25] tracking-tight text-fg">
+          <p className="text-[28px] font-semibold leading-[1.25] tracking-tight text-fg">
             让智能体以可预测的节奏运行
-          </h2>
+          </p>
           <p className="mt-3 text-base leading-relaxed text-muted">
             接入 MCP Server，用文件定义智能体，在沙盒里运行并观察每一步。
           </p>
           <dl className="mt-8 space-y-5">
             {facts.map(({ icon: Icon, title, body }) => (
               <div key={title} className="flex gap-3">
-                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[2px] border border-line bg-surface text-signal-text">
+                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-icon border border-line bg-surface text-fg">
                   <Icon className="size-3.5" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
@@ -88,17 +78,8 @@ export function LoginPage() {
       {/* 右侧：表单。视觉上是一张纸，不是悬浮卡片。 */}
       <section className="flex items-center justify-center border-l border-line bg-surface px-6 py-12">
         <div className="w-full max-w-[340px]">
-          <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <span className="flex items-end gap-[2px]" aria-hidden="true">
-              {[4, 9, 13, 7].map((height, index) => (
-                <span
-                  key={height}
-                  className={index === 2 ? 'w-[2px] bg-signal' : 'w-[2px] bg-ink'}
-                  style={{ height }}
-                />
-              ))}
-            </span>
-            <span className="text-base font-semibold tracking-[0.08em] text-fg">PACE</span>
+          <div className="mb-8 lg:hidden">
+            <Brand />
           </div>
 
           <h1 className="text-[20px] font-semibold tracking-tight text-fg">登录</h1>

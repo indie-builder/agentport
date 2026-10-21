@@ -15,7 +15,7 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
   await expect(screen.getByRole('heading', '运行')).toBeVisible();
 
   // 有数据时是表格行；空库时是空态。e2e 没有 `or()`，分别取状态判断。
-  const empty = await screen.getByText('还没有运行', { exact: false }).isVisible();
+  const empty = await screen.getByText('没有匹配的运行', { exact: false }).isVisible();
   const table = await browser.locator('section[aria-label], table').first().isVisible();
   expect(empty || table).toBe(true);
 });

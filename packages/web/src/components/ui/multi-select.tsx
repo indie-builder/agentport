@@ -1,6 +1,6 @@
 import { Check, ChevronDown, Search } from 'lucide-react';
 import * as PopoverPrimitive from 'radix-ui/popover';
-import { type KeyboardEvent, useRef, useState } from 'react';
+import { type KeyboardEvent, useId, useRef, useState } from 'react';
 import { cn } from '../../lib/cn.js';
 import { Badge } from './badge.js';
 import { Input } from './input.js';
@@ -35,6 +35,7 @@ export function MultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const labelId = useId();
   const searchRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -71,10 +72,13 @@ export function MultiSelect({
         if (!next) setQuery('');
       }}
     >
+      <span id={labelId} className="sr-only">
+        {label}，{selected.length > 0 ? `已选 ${selected.length} 个` : '未选择'}
+      </span>
       <PopoverPrimitive.Trigger
-        aria-label={label}
+        aria-labelledby={labelId}
         className={cn(
-          'flex min-h-8 w-full items-center gap-1.5 rounded-[2px] border border-line bg-surface px-2 py-1 text-left text-sm transition-colors hover:border-line-strong focus-visible:border-signal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/30',
+          'flex min-h-8 w-full items-center gap-1.5 rounded-[7px] border border-line bg-surface px-2 py-1 text-left text-sm transition-colors hover:border-line-strong focus-visible:border-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/30',
         )}
       >
         <span className="flex min-w-0 flex-1 flex-wrap gap-1">
@@ -106,7 +110,7 @@ export function MultiSelect({
             event.preventDefault();
             searchRef.current?.focus();
           }}
-          className="z-50 max-h-80 min-w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-[3px] border border-line bg-surface shadow-overlay"
+          className="z-50 max-h-80 min-w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-[7px] border border-line bg-surface shadow-overlay"
         >
           <div className="relative border-b border-line p-2">
             <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
@@ -129,11 +133,7 @@ export function MultiSelect({
             />
           </div>
           {/* 列表用 div 承载键盘导航：内部是可聚焦的 label/input，事件冒泡到这里。 */}
-          <fieldset
-            className="max-h-60 overflow-y-auto p-1"
-            onKeyDown={onListKeyDown}
-            aria-label={`${label}选项`}
-          >
+          <fieldset className="max-h-60 overflow-y-auto p-1" onKeyDown={onListKeyDown}>
             {filtered.length === 0 ? (
               <p className="px-2 py-4 text-center text-xs text-subtle">{emptyText}</p>
             ) : (
@@ -142,13 +142,13 @@ export function MultiSelect({
                 return (
                   <label
                     key={option.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-[2px] px-2 py-1.5 text-sm text-fg transition-colors hover:bg-sunken focus-within:bg-sunken"
+                    className="flex cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1.5 text-sm text-fg transition-colors hover:bg-sunken focus-within:bg-sunken"
                   >
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggle(option.id)}
-                      className="size-3.5 shrink-0 accent-signal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                      className="size-3.5 shrink-0 accent-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-base">{option.label}</span>
@@ -159,7 +159,7 @@ export function MultiSelect({
                       ) : null}
                     </span>
                     {option.tag ? <Badge variant="mono">{option.tag}</Badge> : null}
-                    {checked ? <Check className="size-3.5 shrink-0 text-signal-text" /> : null}
+                    {checked ? <Check className="size-3.5 shrink-0 text-fg" /> : null}
                   </label>
                 );
               })

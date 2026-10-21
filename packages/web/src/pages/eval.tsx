@@ -1,9 +1,10 @@
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { ClipboardCheck, FlaskConical, Pencil, Play, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
+import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -54,7 +55,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     cell: (run) => (
       <Badge variant={evalStatusVariant[run.status]} className="rounded-[6px]">
         {run.status === 'running' ? (
-          <span className="size-1.5 animate-pulse rounded-full bg-warning" aria-hidden="true" />
+          <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
         ) : null}
         {evalStatusLabel[run.status]}
       </Badge>
@@ -83,6 +84,21 @@ const runColumns: DataColumn<EvalRun>[] = [
     ),
   },
   {
+    id: 'error',
+    header: '失败原因',
+    width: '220px',
+    hiddenByDefault: true,
+    sortValue: (run) => run.error ?? '',
+    cell: (run) =>
+      run.error ? (
+        <span className="block truncate text-sm text-danger" title={run.error}>
+          {run.error}
+        </span>
+      ) : (
+        <span className="text-subtle">—</span>
+      ),
+  },
+  {
     id: 'finishedAt',
     header: '结束',
     width: '96px',
@@ -97,8 +113,17 @@ const runColumns: DataColumn<EvalRun>[] = [
 
 export function EvalPage() {
   const agents = useAgents();
-  const [agentId, setAgentId] = useState('');
+  const navigate = useNavigate();
+  // 选中的智能体放在 URL 里：刷新、分享、前进后退都保留。
+  const search = useSearch({ from: '/shell/eval' });
+  const agentId = search.agent ?? '';
   const effectiveAgentId = agentId || agents.data?.[0]?.id || null;
+  const setAgentId = (next: string): void => {
+    void navigate({
+      to: '/eval',
+      search: { agent: next || undefined },
+    });
+  };
 
   const cases = useEvalCases(effectiveAgentId);
   const runs = useEvalRuns(effectiveAgentId);
@@ -117,6 +142,16 @@ export function EvalPage() {
   };
 
   const latest = runs.data?.[0];
+  // 按钮禁用时说明原因：悬停可见，读屏也能拿到。
+  const startDisabledReason = start.isPending
+    ? '正在启动评估'
+    : agents.isPending || (effectiveAgentId !== null && cases.isPending)
+      ? '用例加载中，稍后再试'
+      : !effectiveAgentId
+        ? '先创建一个智能体'
+        : (cases.data?.length ?? 0) === 0
+          ? '先新建至少一个用例'
+          : null;
 
   return (
     <Page>
@@ -127,17 +162,20 @@ export function EvalPage() {
             size="sm"
             className="rounded-full"
             onClick={startRun}
-            disabled={start.isPending || !effectiveAgentId || (cases.data?.length ?? 0) === 0}
+            disabled={startDisabledReason !== null}
+            aria-busy={start.isPending}
+            {...(startDisabledReason ? { title: startDisabledReason } : {})}
           >
-            <Play className="size-4" strokeWidth={1.75} aria-hidden="true" /> 运行评估
+            <Play className="size-4" aria-hidden="true" />{' '}
+            {start.isPending ? '启动中…' : '运行评估'}
           </Button>
         }
       />
 
-      <div className="-mt-3 flex flex-wrap items-center gap-3">
+      <PageToolbar>
         <Select
           aria-label="按智能体筛选"
-          className="w-56 rounded-[9px]"
+          className="w-56"
           value={effectiveAgentId ?? ''}
           onValueChange={setAgentId}
           options={(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }))}
@@ -145,7 +183,7 @@ export function EvalPage() {
         <span className="text-sm text-subtle">
           判定：期望非空时检查输出包含该文本（不区分大小写）；为空时只要求有文本输出。
         </span>
-      </div>
+      </PageToolbar>
 
       <PageSection
         title="用例"
@@ -157,7 +195,7 @@ export function EvalPage() {
             disabled={!effectiveAgentId}
             onClick={() => setCreating(true)}
           >
-            <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建用例
+            <Plus className="size-4" aria-hidden="true" /> 新建用例
           </Button>
         }
       >
@@ -178,12 +216,12 @@ export function EvalPage() {
         ) : null}
         {cases.data && cases.data.length === 0 ? (
           <PageNote
-            icon={<FlaskConical className="size-4" strokeWidth={1.75} aria-hidden="true" />}
+            icon={<FlaskConical className="size-4" aria-hidden="true" />}
             title="还没有用例"
             description="把线上出过问题的输入写成用例，下次改动前先跑一遍。"
             action={
               <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
-                <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建用例
+                <Plus className="size-4" aria-hidden="true" /> 新建用例
               </Button>
             }
           />
@@ -193,7 +231,7 @@ export function EvalPage() {
             {cases.data.map((testCase) => (
               <li
                 key={testCase.id}
-                className="group flex items-start gap-3 rounded-[9px] px-3 py-4 transition-colors duration-150 hover:bg-hover"
+                className="group flex min-h-14 items-start gap-3 border-b border-line px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-md font-medium text-fg">{testCase.name}</div>
@@ -207,23 +245,18 @@ export function EvalPage() {
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="rounded-[7px]"
-                    onClick={() => setEditing(testCase)}
-                  >
+                  <Button variant="ghost" size="icon-sm" onClick={() => setEditing(testCase)}>
                     <span className="sr-only">编辑 {testCase.name}</span>
-                    <Pencil className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                    <Pencil className="size-4" aria-hidden="true" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    className="rounded-[7px] hover:text-danger"
+                    className="hover:text-danger"
                     onClick={() => setDeleting(testCase)}
                   >
                     <span className="sr-only">删除 {testCase.name}</span>
-                    <Trash2 className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                    <Trash2 className="size-4" aria-hidden="true" />
                   </Button>
                 </div>
               </li>
@@ -242,7 +275,7 @@ export function EvalPage() {
         {runs.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
         {runs.data && runs.data.length === 0 ? (
           <PageNote
-            icon={<ClipboardCheck className="size-4" strokeWidth={1.75} aria-hidden="true" />}
+            icon={<ClipboardCheck className="size-4" aria-hidden="true" />}
             title="还没有评估运行"
             description="写好用例后点「运行评估」，这里会显示每次回归的通过情况。"
           />
@@ -290,7 +323,11 @@ function EvalRunResults({ id }: { id: string }) {
   return (
     <ul>
       {results.map((result) => (
-        <li key={result.caseId} className="border-b border-line py-4 last:border-b-0 last:pb-0">
+        <li
+          // 用例被删除后 caseId 为 null：退回「名称 + 提示词」，两者相同即同一条用例。
+          key={result.caseId ?? `${result.name}\u0000${result.prompt}`}
+          className="border-b border-line py-4 last:border-b-0 last:pb-0"
+        >
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={result.passed ? 'success' : 'danger'} className="rounded-[6px]">
               {result.passed ? '通过' : '未通过'}
@@ -320,9 +357,12 @@ function EvalRunResults({ id }: { id: string }) {
           </div>
           <div className="mt-2">
             <div className="text-xs text-subtle">输出</div>
-            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-[12px] bg-chip px-3 py-2 font-mono text-xs leading-relaxed text-fg/90">
-              {result.output || '（空）'}
-            </pre>
+            <CodeBlock
+              code={result.output || '（空）'}
+              maxHeight="12rem"
+              className="mt-1"
+              copyLabel="复制输出"
+            />
           </div>
         </li>
       ))}
@@ -352,17 +392,29 @@ function CaseDialog({
       ? { name: testCase.name, prompt: testCase.prompt, expectation: testCase.expectation }
       : { name: '', prompt: '', expectation: '' },
   );
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState<Partial<Record<keyof CaseForm, string>>>({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const initial = useMemo<CaseForm>(
+    () =>
+      testCase
+        ? { name: testCase.name, prompt: testCase.prompt, expectation: testCase.expectation }
+        : { name: '', prompt: '', expectation: '' },
+    [testCase],
+  );
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
 
   const set = <K extends keyof CaseForm>(key: K, value: CaseForm[K]): void => {
     setForm((prev) => ({ ...prev, [key]: value }));
-    setError('');
+    setErrors((prev) => ({ ...prev, [key]: undefined }));
   };
 
   const submit = (event: React.FormEvent): void => {
     event.preventDefault();
-    if (!form.name.trim() || !form.prompt.trim()) {
-      setError('名称和 Prompt 都需要填写，补全后再保存。');
+    const issues: Partial<Record<keyof CaseForm, string>> = {};
+    if (!form.name.trim()) issues.name = '名称需要填写。';
+    if (!form.prompt.trim()) issues.prompt = 'Prompt 需要填写。';
+    if (issues.name || issues.prompt) {
+      setErrors(issues);
       return;
     }
     const input: EvalCaseInput = { agentId: agentId ?? testCase?.agentId ?? '', ...form };
@@ -384,11 +436,12 @@ function CaseDialog({
   };
 
   const pending = create.isPending || update.isPending;
+  const close = dirty ? () => setConfirmDiscard(true) : onClose;
 
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={testCase ? '编辑用例' : '新建用例'}
       description="运行评估时，每个用例都会发起一次真实运行。"
     >
@@ -400,11 +453,12 @@ function CaseDialog({
           <Input
             id="eval-name"
             value={form.name}
-            aria-invalid={Boolean(error)}
-            aria-describedby={error ? 'eval-form-error' : undefined}
+            aria-invalid={Boolean(errors.name)}
+            aria-describedby={errors.name ? 'eval-name-error' : undefined}
             onChange={(event) => set('name', event.target.value)}
             placeholder="例如：拒绝编造不存在的工具"
           />
+          <FieldError id="eval-name-error">{errors.name}</FieldError>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="eval-prompt">
@@ -414,11 +468,12 @@ function CaseDialog({
             id="eval-prompt"
             rows={5}
             value={form.prompt}
-            aria-invalid={Boolean(error)}
-            aria-describedby={error ? 'eval-form-error' : undefined}
+            aria-invalid={Boolean(errors.prompt)}
+            aria-describedby={errors.prompt ? 'eval-prompt-error' : undefined}
             onChange={(event) => set('prompt', event.target.value)}
             placeholder="发送给智能体的完整输入"
           />
+          <FieldError id="eval-prompt-error">{errors.prompt}</FieldError>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="eval-expectation">期望包含</Label>
@@ -430,7 +485,6 @@ function CaseDialog({
             placeholder="输出中应出现的文本（不区分大小写）；留空则只要求有文本输出"
           />
           <FieldHint>最小判定，不做语义判断；需要更严格时写更具体的片段。</FieldHint>
-          <FieldError id="eval-form-error">{error}</FieldError>
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
@@ -441,6 +495,16 @@ function CaseDialog({
           </Button>
         </div>
       </form>
+      <ConfirmDialog
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        title="放弃未保存的更改？"
+        description="关闭后这条用例的修改会丢失。"
+        confirmLabel="放弃并关闭"
+        onConfirm={async () => {
+          onClose();
+        }}
+      />
     </Dialog>
   );
 }

@@ -1,6 +1,7 @@
 import { Check, Copy } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { cn } from '../lib/cn.js';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible.js';
 
 const JSON_TOKEN =
   /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"\s*:)|("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
@@ -68,22 +69,8 @@ export function CodeBlock({
   const [copied, setCopied] = useState(false);
   // 超大内容默认不渲染，避免一次插入数万行 DOM。
   const [expanded, setExpanded] = useState(false);
-  const lines = code.split('\n');
-
-  if (code.length > LARGE_CONTENT_CHARS && !expanded) {
-    return (
-      <div className={cn('rounded-[3px] border border-line bg-code px-3 py-2', className)}>
-        <button
-          type="button"
-          aria-expanded={false}
-          onClick={() => setExpanded(true)}
-          className="text-xs text-signal-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-        >
-          内容过大，点击查看
-        </button>
-      </div>
-    );
-  }
+  const large = code.length > LARGE_CONTENT_CHARS;
+  const open = !large || expanded;
 
   const copy = async (): Promise<void> => {
     try {
@@ -96,42 +83,55 @@ export function CodeBlock({
   };
 
   return (
-    <div
+    <Collapsible
+      open={open}
+      onOpenChange={setExpanded}
       className={cn(
-        'group relative overflow-hidden rounded-[3px] border border-line bg-code',
+        'group relative overflow-hidden rounded-[12px] border border-line bg-code',
         className,
       )}
     >
-      <button
-        type="button"
-        onClick={() => void copy()}
-        aria-label={copied ? '已复制' : copyLabel}
-        className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-[2px] border border-line bg-surface/90 px-2 text-2xs text-muted opacity-0 backdrop-blur transition-opacity hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal group-hover:opacity-100"
-      >
-        {copied ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
-        {copied ? '已复制' : copyLabel}
-      </button>
-      <pre className="overflow-auto py-3 font-mono text-xs leading-5" style={{ maxHeight }}>
-        <code className="block">
-          {lines.map((line, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 代码行没有稳定 id，行号即身份
-            <span key={i} className="flex min-w-max px-3">
-              {lineNumbers ? (
-                <span
-                  aria-hidden="true"
-                  className="mr-3 inline-block w-8 shrink-0 select-none text-right text-subtle/50"
-                >
-                  {i + 1}
-                </span>
-              ) : null}
-              <span className="whitespace-pre text-fg/90">
-                {json ? highlightJson(line) : line || ' '}
-              </span>
-            </span>
-          ))}
-        </code>
-      </pre>
-    </div>
+      {large && (
+        <CollapsibleTrigger className="px-3 py-2 text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
+          {expanded ? '收起内容' : '内容过大，点击查看'}
+        </CollapsibleTrigger>
+      )}
+      <CollapsibleContent>
+        {open && (
+          <>
+            <button
+              type="button"
+              onClick={() => void copy()}
+              aria-label={copied ? '已复制' : copyLabel}
+              className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-[7px] border border-line bg-surface/90 px-2 text-2xs text-muted opacity-0 backdrop-blur transition-opacity hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg group-hover:opacity-100"
+            >
+              {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
+              {copied ? '已复制' : copyLabel}
+            </button>
+            <pre className="overflow-auto py-3 font-mono text-xs leading-5" style={{ maxHeight }}>
+              <code className="block">
+                {code.split('\n').map((line, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 代码行没有稳定 id，行号即身份
+                  <span key={i} className="flex min-w-max px-3">
+                    {lineNumbers ? (
+                      <span
+                        aria-hidden="true"
+                        className="mr-3 inline-block w-8 shrink-0 select-none text-right text-subtle/50"
+                      >
+                        {i + 1}
+                      </span>
+                    ) : null}
+                    <span className="whitespace-pre text-fg/90">
+                      {json ? highlightJson(line) : line || ' '}
+                    </span>
+                  </span>
+                ))}
+              </code>
+            </pre>
+          </>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -149,16 +149,11 @@ export function CollapsibleText({ text, className }: { text: string; className?:
   const [open, setOpen] = useState(false);
   if (text.length <= LARGE_CONTENT_CHARS) return <div className={className}>{text}</div>;
   return (
-    <div className={className}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="text-xs text-signal-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-      >
+    <Collapsible open={open} onOpenChange={setOpen} className={className}>
+      <CollapsibleTrigger className="text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
         {open ? '收起内容' : '内容过大，点击查看'}
-      </button>
-      {open ? <div className="mt-1">{text}</div> : null}
-    </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-1">{text}</CollapsibleContent>
+    </Collapsible>
   );
 }

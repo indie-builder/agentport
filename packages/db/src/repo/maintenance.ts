@@ -67,13 +67,17 @@ export async function pruneRuns(db: Database, olderThanDays: number): Promise<Pr
   return { runs: Number(row?.runs ?? 0), messages: Number(row?.messages ?? 0) };
 }
 
-/** 没有 run_id 的旧消息（用户输入等）；有 run_id 的随 run 一起清理。 */
+/** 没有 run_id 的旧消息；分支副本归会话保留，父会话删除后仍受保护。 */
 export async function pruneOrphanMessages(db: Database, olderThanDays: number): Promise<number> {
   const days = positive(olderThanDays, 'olderThanDays');
   const result = await db.execute(sql`
     delete from ${messages}
     where ${messages.runId} is null
       and ${messages.createdAt} < now() - make_interval(days => ${days})
+      and not exists (
+        select 1 from conversations c
+        where c.id = ${messages.conversationId} and c.branch_of_message_id is not null
+      )
   `);
   return result.rowCount ?? 0;
 }

@@ -1,6 +1,7 @@
 import {
   type ApiTool,
   type ApiToolInput,
+  SECRET_MASK,
   type Server,
   type ServerInput,
   type ServerTestResult,
@@ -15,19 +16,26 @@ import {
   Pencil,
   Plug,
   Plus,
+  RefreshCw,
   Server as ServerIcon,
   Trash2,
   Wrench,
 } from 'lucide-react';
-import * as DropdownMenuPrimitive from 'radix-ui/dropdown-menu';
 import { type ComponentProps, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { Page } from '../components/page.js';
-import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
+import { Page, PageHeader, PageNote } from '../components/page.js';
+import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
 import { FieldError, FieldHint, Input } from '../components/ui/input.js';
 import { Label, RequiredMark } from '../components/ui/label.js';
 import { Select } from '../components/ui/select.js';
@@ -83,9 +91,6 @@ const kindMeta: Record<Kind, { label: string; hint: string; newHint: string }> =
     newHint: '逐个声明上游 HTTP 端点，平台替你生成可调用的 MCP 工具。',
   },
 };
-
-const menuItemClass =
-  'flex cursor-pointer select-none items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-sm text-fg outline-none data-[disabled]:pointer-events-none data-[disabled]:text-subtle data-[highlighted]:bg-hover';
 
 /** 表单控件 36px / radius 9，跟随设计基准；表格行里的控件不受影响。 */
 function LineInput({ className, ...props }: ComponentProps<'input'>) {
@@ -200,39 +205,41 @@ export function ServersPage() {
 
   return (
     <Page>
-      <div className="flex h-14 flex-wrap items-center gap-2">
-        <h1 className="text-md font-medium text-fg">MCP Servers</h1>
-        <span className="font-mono text-xs tabular-nums text-subtle">{all.length}</span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Select
-            aria-label="按来源筛选"
-            value={kind}
-            onValueChange={(next) => setKind(next as KindFilter)}
-            options={[
-              { value: 'all', label: '全部来源' },
-              { value: 'stdio', label: kindMeta.stdio.label },
-              { value: 'http', label: kindMeta.http.label },
-              { value: 'generated', label: kindMeta.generated.label },
-            ]}
-            className="w-36 rounded-[9px] border-transparent bg-chip hover:bg-hover"
-          />
-          <SearchInput
-            label="搜索 server"
-            value={query}
-            onChange={setQuery}
-            placeholder="搜索名称、描述或地址…"
-            className="w-56 [&_input]:rounded-[9px] [&_input]:border-transparent [&_input]:bg-chip"
-          />
-          <Button
-            ref={createButtonRef}
-            size="sm"
-            className="h-8 rounded-full px-3.5"
-            onClick={openCreate}
-          >
-            <Plus className="size-4" strokeWidth={1.75} /> 新建 Server
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="MCP Servers"
+        meta={<span className="font-mono text-xs tabular-nums text-subtle">{all.length}</span>}
+        actions={
+          <>
+            <Select
+              aria-label="按来源筛选"
+              value={kind}
+              onValueChange={(next) => setKind(next as KindFilter)}
+              options={[
+                { value: 'all', label: '全部来源' },
+                { value: 'stdio', label: kindMeta.stdio.label },
+                { value: 'http', label: kindMeta.http.label },
+                { value: 'generated', label: kindMeta.generated.label },
+              ]}
+              className="w-36 rounded-[9px] border-transparent bg-chip hover:bg-hover"
+            />
+            <SearchInput
+              label="搜索 server"
+              value={query}
+              onChange={setQuery}
+              placeholder="搜索名称、描述或地址…"
+              className="w-56 [&_input]:rounded-[9px] [&_input]:border-transparent [&_input]:bg-chip"
+            />
+            <Button
+              ref={createButtonRef}
+              size="sm"
+              className="h-8 rounded-full px-3.5"
+              onClick={openCreate}
+            >
+              <Plus className="size-4" /> 新建 Server
+            </Button>
+          </>
+        }
+      />
 
       {servers.isPending ? <LoadingState rows={4} /> : null}
       {servers.isError ? (
@@ -240,8 +247,8 @@ export function ServersPage() {
       ) : null}
 
       {servers.data && all.length === 0 ? (
-        <EmptyState
-          icon={<ServerIcon className="size-5" />}
+        <PageNote
+          icon={<ServerIcon className="size-4" aria-hidden="true" />}
           title="还没有 MCP Server"
           description="本地命令适合自建工具，远程 MCP 适合已有服务，HTTP API 转 MCP 适合把内部接口直接交给智能体。"
           action={
@@ -253,7 +260,7 @@ export function ServersPage() {
       ) : null}
 
       {servers.data && all.length > 0 && filtered.length === 0 ? (
-        <EmptyState
+        <PageNote
           title="没有匹配的 server"
           description="换个关键词，或清除来源筛选。"
           action={
@@ -272,7 +279,7 @@ export function ServersPage() {
       ) : null}
 
       {filtered.length > 0 ? (
-        <TableWrap label="MCP Server 列表" className="-mt-3">
+        <TableWrap label="MCP Server 列表">
           <Table>
             <caption className="sr-only">MCP Server 列表</caption>
             <TableHeader>
@@ -374,7 +381,7 @@ function ServerRow({
   const tools = useTools(generated ? server.id : null);
 
   return (
-    <TableRow data-slot="server-row" className="h-14 hover:bg-hover">
+    <TableRow data-slot="server-row" className="h-14 hover:bg-chip">
       <TableCell className="pl-2">
         <div className="min-w-0">
           <div className="truncate text-base text-fg">{server.name}</div>
@@ -408,48 +415,39 @@ function ServerRow({
         <span className="font-mono text-xs tabular-nums text-fg">{agentCount}</span>
       </TableCell>
       <TableCell>
-        <DropdownMenuPrimitive.Root>
-          <DropdownMenuPrimitive.Trigger asChild>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label={`操作 ${server.name}`}>
-              <MoreHorizontal className="size-4" strokeWidth={1.75} />
+              <MoreHorizontal className="size-4" />
             </Button>
-          </DropdownMenuPrimitive.Trigger>
-          <DropdownMenuPrimitive.Portal>
-            <DropdownMenuPrimitive.Content
-              align="end"
-              sideOffset={4}
-              className="z-50 min-w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
-            >
-              <DropdownMenuPrimitive.Item
-                disabled={testing}
-                onSelect={onTest}
-                className={menuItemClass}
-              >
-                <Plug className="size-4" strokeWidth={1.75} /> {testing ? '测试中…' : '测试连接'}
-              </DropdownMenuPrimitive.Item>
-              {generated ? (
-                <>
-                  <DropdownMenuPrimitive.Item onSelect={onTools} className={menuItemClass}>
-                    <Wrench className="size-4" strokeWidth={1.75} /> 工具定义
-                  </DropdownMenuPrimitive.Item>
-                  <DropdownMenuPrimitive.Item onSelect={onConnection} className={menuItemClass}>
-                    <KeyRound className="size-4" strokeWidth={1.75} /> 连接信息
-                  </DropdownMenuPrimitive.Item>
-                </>
-              ) : null}
-              <DropdownMenuPrimitive.Separator className="my-1 h-px bg-line" />
-              <DropdownMenuPrimitive.Item onSelect={onEdit} className={menuItemClass}>
-                <Pencil className="size-4" strokeWidth={1.75} /> 编辑
-              </DropdownMenuPrimitive.Item>
-              <DropdownMenuPrimitive.Item
-                onSelect={onDelete}
-                className={cn(menuItemClass, 'text-danger data-[highlighted]:bg-danger-soft')}
-              >
-                <Trash2 className="size-4" strokeWidth={1.75} /> 删除
-              </DropdownMenuPrimitive.Item>
-            </DropdownMenuPrimitive.Content>
-          </DropdownMenuPrimitive.Portal>
-        </DropdownMenuPrimitive.Root>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            sideOffset={4}
+            className="w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
+          >
+            <DropdownMenuItem disabled={testing} onSelect={onTest}>
+              <Plug className="size-4" /> {testing ? '测试中…' : '测试连接'}
+            </DropdownMenuItem>
+            {generated ? (
+              <>
+                <DropdownMenuItem onSelect={onTools}>
+                  <Wrench className="size-4" /> 工具定义
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onConnection}>
+                  <KeyRound className="size-4" /> 连接信息
+                </DropdownMenuItem>
+              </>
+            ) : null}
+            <DropdownMenuSeparator className="bg-line" />
+            <DropdownMenuItem onSelect={onEdit}>
+              <Pencil className="size-4" /> 编辑
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+              <Trash2 className="size-4" /> 删除
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </TableCell>
     </TableRow>
   );
@@ -498,36 +496,26 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
   const agents = useAgents();
   const tools = useTools(server.kind === 'generated' ? server.id : null);
   const [typed, setTyped] = useState('');
-  const [pending, setPending] = useState(false);
 
   const bound = (agents.data ?? []).filter((agent) => agent.serverIds.includes(server.id));
-  const generated = server.kind === 'generated';
   const toolCount = tools.data?.length ?? 0;
-  const loading = agents.isPending || (generated && tools.isPending);
-  const unknown = agents.isError || (generated && tools.isError);
+  const loading = agents.isPending || (server.kind === 'generated' && tools.isPending);
+  const unknown = agents.isError || (server.kind === 'generated' && tools.isError);
   const risky = bound.length > 0 || toolCount > 0;
   const confirmed = !risky || typed.trim() === server.name;
 
-  const confirm = async (): Promise<void> => {
-    setPending(true);
-    try {
-      await remove.mutateAsync(server.id);
-      toastSuccess('Server 已删除');
-      onClose();
-    } catch (error) {
-      toastError(error);
-    } finally {
-      setPending(false);
-    }
-  };
-
   return (
-    <Dialog
+    <ConfirmDialog
       open
       onClose={onClose}
       title={`删除 server「${server.name}」`}
       description="删除后无法恢复；绑定它的智能体会立即失去这个工具来源。"
-      className="max-w-md rounded-[12px]"
+      confirmLabel="删除"
+      confirmDisabled={loading || unknown || !confirmed}
+      onConfirm={async () => {
+        await remove.mutateAsync(server.id);
+        toastSuccess('Server 已删除');
+      }}
     >
       <div className="space-y-4">
         <div className="rounded-[9px] bg-danger-soft p-3">
@@ -588,24 +576,8 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
             </FieldHint>
           </div>
         ) : null}
-
-        <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
-            取消
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            className="rounded-full px-3.5"
-            aria-busy={pending}
-            disabled={pending || loading || unknown || !confirmed}
-            onClick={() => void confirm()}
-          >
-            {pending ? '删除中…' : '删除'}
-          </Button>
-        </div>
       </div>
-    </Dialog>
+    </ConfirmDialog>
   );
 }
 
@@ -614,7 +586,11 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
   const rotate = useRotateServerToken(server.id);
   // 轮换后只在这里保留明文；关闭对话框即丢弃。
   const [revealed, setRevealed] = useState<{ token: string; endpoint: string } | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const data = revealed ?? token.data;
+  const retry = (): void => {
+    void token.refetch();
+  };
 
   return (
     <Dialog
@@ -626,14 +602,37 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
       <div className="space-y-3">
         <div className="space-y-1">
           <span className="text-xs font-medium text-muted">Endpoint</span>
-          <CodeBlock code={data?.endpoint ?? '加载中…'} copyLabel="复制 Endpoint" />
+          {token.isError && !revealed ? (
+            <p className="flex items-center gap-2 text-xs text-muted">
+              Endpoint 读取失败。
+              <Button variant="outline" size="sm" onClick={retry}>
+                <RefreshCw className="size-3.5" aria-hidden="true" /> 重试
+              </Button>
+            </p>
+          ) : (
+            <CodeBlock code={data?.endpoint ?? '加载中…'} copyLabel="复制 Endpoint" />
+          )}
         </div>
         <div className="space-y-1">
           <span className="text-xs font-medium text-muted">Token</span>
           {data ? (
-            <CodeBlock code={data.token} copyLabel="复制 Token" />
+            // 未轮换时接口只回掩码：那不是可用的 token，不能让用户复制。
+            data.token === SECRET_MASK || !revealed ? (
+              <p className="text-xs leading-relaxed text-muted">
+                {SECRET_MASK} 已配置。点「轮换 Token」生成新的明文，旧的立即失效。
+              </p>
+            ) : (
+              <CodeBlock code={data.token} copyLabel="复制 Token" />
+            )
+          ) : token.isError ? (
+            <p className="flex items-center gap-2 text-xs text-muted">
+              Token 读取失败。
+              <Button variant="outline" size="sm" onClick={retry}>
+                <RefreshCw className="size-3.5" aria-hidden="true" /> 重试
+              </Button>
+            </p>
           ) : (
-            <p className="text-xs text-subtle">{token.isError ? '读取失败' : '加载中…'}</p>
+            <p className="text-xs text-subtle">加载中…</p>
           )}
           {revealed ? (
             <p role="status" className="text-2xs leading-relaxed text-warning">
@@ -647,17 +646,23 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
             size="sm"
             disabled={rotate.isPending}
             aria-busy={rotate.isPending}
-            onClick={() =>
-              rotate.mutate(undefined, {
-                onSuccess: (result) => setRevealed(result),
-                onError: (error) => toastError(error),
-              })
-            }
+            onClick={() => setConfirming(true)}
           >
             <KeyRound className="size-3.5" /> {rotate.isPending ? '轮换中' : '轮换'}
           </Button>
         </div>
       </div>
+      <ConfirmDialog
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title="轮换 token？"
+        description="旧 token 立即失效，正在使用的外部 Host 会中断。旧值不会再显示，只能把新 token 配置到每个 Host。"
+        confirmLabel="轮换 token"
+        onConfirm={async () => {
+          const result = await rotate.mutateAsync(undefined);
+          setRevealed(result);
+        }}
+      />
     </Dialog>
   );
 }
@@ -676,6 +681,20 @@ function ToolEditorDialog({
   const setEnabled = useSetToolEnabled(server.id);
   const [editing, setEditing] = useState<ApiTool | null>(null);
   const [deleting, setDeleting] = useState<ApiTool | null>(null);
+  // 只锁正在切换的那一行，其余行照常可点。
+  const [pendingToolId, setPendingToolId] = useState<string | null>(null);
+
+  const setTool = (vars: {
+    toolId: string;
+    enabled?: boolean;
+    requiresApproval?: boolean;
+  }): void => {
+    setPendingToolId(vars.toolId);
+    setEnabled.mutate(vars, {
+      onError: (error) => toastError(error),
+      onSettled: () => setPendingToolId(null),
+    });
+  };
 
   return (
     <Dialog
@@ -713,7 +732,7 @@ function ToolEditorDialog({
               </TableHeader>
               <TableBody>
                 {tools.data.map((tool) => (
-                  <TableRow key={tool.id} className="h-14 hover:bg-hover">
+                  <TableRow key={tool.id} className="h-14 hover:bg-chip">
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-xs text-fg">{tool.name}</span>
@@ -744,12 +763,9 @@ function ToolEditorDialog({
                         className="size-3.5 accent-ink"
                         aria-label={`启用工具 ${tool.name}`}
                         checked={tool.enabled}
-                        disabled={setEnabled.isPending}
+                        disabled={pendingToolId === tool.id}
                         onChange={(event) =>
-                          setEnabled.mutate(
-                            { toolId: tool.id, enabled: event.target.checked },
-                            { onError: (error) => toastError(error) },
-                          )
+                          setTool({ toolId: tool.id, enabled: event.target.checked })
                         }
                       />
                     </TableCell>
@@ -759,12 +775,9 @@ function ToolEditorDialog({
                         className="size-3.5 accent-ink"
                         aria-label={`批准工具 ${tool.name}`}
                         checked={tool.requiresApproval}
-                        disabled={setEnabled.isPending}
+                        disabled={pendingToolId === tool.id}
                         onChange={(event) =>
-                          setEnabled.mutate(
-                            { toolId: tool.id, requiresApproval: event.target.checked },
-                            { onError: (error) => toastError(error) },
-                          )
+                          setTool({ toolId: tool.id, requiresApproval: event.target.checked })
                         }
                       />
                     </TableCell>
@@ -1048,7 +1061,7 @@ function ToolForm({
             '保存更改'
           ) : (
             <>
-              <Plus className="size-4" strokeWidth={1.75} /> 添加
+              <Plus className="size-4" /> 添加
             </>
           )}
         </Button>
@@ -1127,8 +1140,14 @@ function ServerFormDialog({
   const [kind, setKind] = useState<Kind | null>(server?.kind ?? null);
   const [form, setForm] = useState<FormState>(() => (server ? serverToForm(server) : emptyForm));
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const dirty =
+    JSON.stringify({ kind, form }) !==
+    JSON.stringify({ kind: server?.kind ?? null, form: server ? serverToForm(server) : emptyForm });
 
   const pending = create.isPending || update.isPending;
+  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认。
+  const close = dirty && !pending ? () => setConfirmDiscard(true) : onClose;
 
   const buildInput = (selected: Kind): ServerInput => {
     const common = { name: form.name, description: form.description };
@@ -1196,7 +1215,7 @@ function ServerFormDialog({
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={creating ? '新建 MCP Server' : `编辑「${server.name}」`}
       description={
         creating
@@ -1227,7 +1246,7 @@ function ServerFormDialog({
                     setErrors({});
                   }}
                   className={cn(
-                    'rounded-[9px] border px-3 py-2.5 text-left transition-colors focus-visible:outline-none',
+                    'rounded-[9px] border px-3 py-2.5 text-left transition-colors',
                     kind === value ? 'border-fg bg-chip' : 'border-line hover:bg-hover',
                   )}
                 >
@@ -1377,7 +1396,7 @@ function ServerFormDialog({
         {errors.form ? <FieldError>{errors.form}</FieldError> : null}
 
         <div className="flex justify-end gap-2 border-t border-line pt-4">
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
             取消
           </Button>
           <Button
@@ -1391,6 +1410,16 @@ function ServerFormDialog({
           </Button>
         </div>
       </form>
+      <ConfirmDialog
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        title="放弃未保存的更改？"
+        description="关闭后这个 Server 的修改会丢失，密钥需要重新填写。"
+        confirmLabel="放弃并关闭"
+        onConfirm={async () => {
+          onClose();
+        }}
+      />
     </Dialog>
   );
 }

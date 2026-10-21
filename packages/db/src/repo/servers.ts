@@ -1,7 +1,8 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { apiTools, servers } from '../schema.js';
+import { notStale } from './freshness.js';
 
 export type ServerRow = typeof servers.$inferSelect;
 export type ApiToolRow = typeof apiTools.$inferSelect;
@@ -64,14 +65,10 @@ export async function updateServer(
   patch: Partial<ServerWrite>,
   expectedUpdatedAt?: Date,
 ): Promise<ServerRow | null> {
-  // Postgres 的 now() 带微秒，驱动解析成 JS Date 时只剩毫秒，比较前统一截断。
   const where =
     expectedUpdatedAt === undefined
       ? eq(servers.id, id)
-      : and(
-          eq(servers.id, id),
-          sql`date_trunc('milliseconds', ${servers.updatedAt}) = date_trunc('milliseconds', ${expectedUpdatedAt}::timestamptz)`,
-        );
+      : and(eq(servers.id, id), notStale(servers.updatedAt, expectedUpdatedAt));
   const [row] = await db
     .update(servers)
     .set({ ...patch, updatedAt: new Date() })

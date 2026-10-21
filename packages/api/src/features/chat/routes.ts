@@ -1,18 +1,30 @@
-import { newId, repo } from '@agentport/db';
-import { type ChatEvent, chatRequestSchema, wireFailureKind } from '@agentport/shared';
+import { newId, repo, schema } from '@agentport/db';
+import {
+  type ChatEvent,
+  chatRequestSchema,
+  idParams,
+  RUN_QUEUE_MAX_WAITING,
+  runEnqueueOptions,
+  wireFailureKind,
+} from '@agentport/shared';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
+import { chatRateLimit } from '../../plugins/security.js';
 import { closeProducer, getQueue, publishRun, subscribeRun } from '../../queue/producer.js';
 import { typed } from '../../types.js';
-
-const limits = { off: process.env.RATE_LIMIT_DISABLED === '1' };
 
 const chatRepo = repo.chat;
 const runsRepo = repo.runs;
 
+const runIdParams = z.object({ runId: z.string().min(1) });
 const branchBodySchema = z.object({ fromMessageId: z.string().min(1).optional() });
+const listQuery = z.object({
+  agentId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
 
 type RunRow = NonNullable<Awaited<ReturnType<typeof chatRepo.getRun>>>;
 
@@ -36,8 +48,20 @@ function terminalEvent(run: RunRow): ChatEvent | null {
   }
 }
 
-function writeEvent(reply: FastifyReply, event: ChatEvent): boolean {
-  return reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+async function writeEvent(reply: FastifyReply, event: ChatEvent): Promise<void> {
+  if (reply.raw.destroyed || reply.raw.writableEnded) return;
+  if (reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)) return;
+  await new Promise<void>((resolve) => {
+    const done = (): void => {
+      reply.raw.off('drain', done);
+      reply.raw.off('close', done);
+      reply.raw.off('error', done);
+      resolve();
+    };
+    reply.raw.once('drain', done);
+    reply.raw.once('close', done);
+    reply.raw.once('error', done);
+  });
 }
 
 export function registerChatRoutes(rawApp: FastifyInstance): void {
@@ -46,22 +70,26 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/chat',
     {
       preHandler: [rawApp.requireAuth],
+      ...chatRateLimit,
       schema: { body: chatRequestSchema },
-      config: limits.off ? {} : { rateLimit: { max: 20, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
       const { agentId, message } = request.body;
 
       if (!(await chatRepo.agentExists(app.db, agentId))) {
-        return reject(reply, 'AGENT_NOT_FOUND', `agent ${agentId} not found`);
+        return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
       }
       // 停用的智能体不应能发起新运行；错误信息要说明下一步。
       if (!(await chatRepo.agentEnabled(app.db, agentId))) {
         return reject(
           reply,
           'AGENT_DISABLED',
-          `agent ${agentId} is disabled; enable it on the agents page first`,
+          '该智能体已停用，无法发起新对话；请到智能体页面启用后再试',
         );
+      }
+
+      if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
+        return reject(reply, 'SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
       }
 
       let conversationId = request.body.conversationId;
@@ -71,7 +99,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
           return reject(
             reply,
             'CONVERSATION_NOT_FOUND',
-            `conversation ${conversationId} not found`,
+            '会话不存在或不属于该智能体；请从会话列表重新打开',
           );
         }
       } else {
@@ -103,24 +131,30 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         runId: run.id,
       });
       // jobId = runId，重复投递天然幂等。
-      await getQueue().add(
-        'run',
-        {
-          runId: run.id,
-          agentId,
-          conversationId,
-          prompt: message,
-          ...(history === null ? {} : { history }),
-        },
-        {
-          jobId: run.id,
-          // 只对基础设施类失败重试；业务失败（模型拒绝、工具报错）重试会重复计费。
-          attempts: 2,
-          backoff: { type: 'exponential', delay: 5_000 },
-          removeOnComplete: 100,
-          removeOnFail: 200,
-        },
-      );
+      try {
+        await getQueue().add(
+          'run',
+          {
+            runId: run.id,
+            agentId,
+            conversationId,
+            prompt: message,
+            ...(history === null ? {} : { history }),
+          },
+          runEnqueueOptions(run.id),
+        );
+      } catch (err) {
+        await app.db
+          .update(schema.agentRuns)
+          .set({
+            status: 'failed',
+            endedAt: new Date(),
+            error: '消息入队失败，请重新发送。',
+            errorKind: 'infra',
+          })
+          .where(and(eq(schema.agentRuns.id, run.id), eq(schema.agentRuns.status, 'queued')));
+        throw err;
+      }
 
       await writeAudit(app.db, request.log, {
         actor: 'admin',
@@ -146,14 +180,14 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get<{ Params: { runId: string } }>(
+  app.get(
     '/api/chat/:runId/events',
-    { preHandler: [app.requireAuth] },
+    { preHandler: [rawApp.requireAuth], schema: { params: runIdParams } },
     async (request, reply) => {
       const { runId } = request.params;
       const run = await chatRepo.getRun(app.db, runId);
       if (!run) {
-        return reject(reply, 'RUN_NOT_FOUND', `run ${runId} not found`);
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新后重试');
       }
 
       reply.hijack();
@@ -166,10 +200,12 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       reply.raw.write('retry: 3000\n\n');
 
       let closed = false;
+      const subscriptionAbort = new AbortController();
       let subscription: { close: () => void } | undefined;
       const cleanup = (): void => {
         if (closed) return;
         closed = true;
+        subscriptionAbort.abort();
         subscription?.close();
       };
       const finish = (): void => {
@@ -185,21 +221,25 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       reply.raw.on('error', onClose);
 
       try {
-        subscription = await subscribeRun(runId, (event) => {
-          if (closed) return;
-          try {
-            writeEvent(reply, event);
-          } catch (err) {
-            request.log.error({ err, runId }, 'sse write failed');
-            finish();
-            return;
-          }
-          if (event.type === 'run_finished' || event.type === 'error') finish();
-        });
+        subscription = await subscribeRun(
+          runId,
+          async (event) => {
+            if (closed) return;
+            try {
+              await writeEvent(reply, event);
+            } catch (err) {
+              request.log.error({ err, runId }, 'sse write failed');
+              finish();
+              return;
+            }
+            if (event.type === 'run_finished' || event.type === 'error') finish();
+          },
+          subscriptionAbort.signal,
+        );
       } catch (err) {
         request.log.error({ err, runId }, 'sse subscribe failed');
         try {
-          writeEvent(reply, {
+          await writeEvent(reply, {
             type: 'error',
             // 上游 Redis 报错可能含连接串，脱敏后再发给浏览器。
             message: '事件流中断，请刷新页面或重试',
@@ -221,7 +261,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       const finished = terminalEvent(run);
       if (finished) {
         try {
-          writeEvent(reply, finished);
+          await writeEvent(reply, finished);
         } catch (err) {
           request.log.error({ err, runId }, 'sse write failed');
         }
@@ -230,16 +270,16 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get<{ Params: { id: string } }>(
+  app.get(
     '/api/conversations/:id',
-    { preHandler: [app.requireAuth] },
+    { preHandler: [rawApp.requireAuth], schema: { params: idParams } },
     async (request, reply) => {
       const conversation = await chatRepo.getConversation(app.db, request.params.id);
       if (!conversation) {
         return reject(
           reply,
           'CONVERSATION_NOT_FOUND',
-          `conversation ${request.params.id} not found`,
+          '会话不存在，可能已被删除；请从会话列表重新打开',
         );
       }
       const messages = await chatRepo.listMessages(app.db, conversation.id);
@@ -247,19 +287,33 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.post<{ Params: { runId: string } }>(
+  app.post(
     '/api/chat/:runId/cancel',
-    { preHandler: [app.requireAuth] },
+    { preHandler: [rawApp.requireAuth], schema: { params: runIdParams } },
     async (request, reply) => {
       const { runId } = request.params;
       const run = await chatRepo.getRun(app.db, runId);
       if (!run) {
-        return reject(reply, 'RUN_NOT_FOUND', `run ${runId} not found`);
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新后重试');
       }
       // 已结束的 run 再发 cancel 只会打扰 worker，直接返回。
       if (terminalEvent(run) === null) {
-        await publishRun(runId, { type: 'cancel' });
-        await chatRepo.cancelRun(app.db, runId);
+        // queued → cancelled 与 worker 的 claim 竞争；只有赢得更新的一方负责终态事件。
+        const [queuedCancelled] =
+          run.status === 'queued'
+            ? await app.db
+                .update(schema.agentRuns)
+                .set({ status: 'cancelled', endedAt: new Date() })
+                .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')))
+                .returning({ id: schema.agentRuns.id })
+            : [];
+        if (queuedCancelled) {
+          await publishRun(runId, { type: 'run_finished', status: 'cancelled' });
+        } else {
+          const cancelled = await chatRepo.cancelRun(app.db, runId);
+          if (!cancelled) return reply.status(202).send({ ok: true });
+          await publishRun(runId, { type: 'cancel' });
+        }
         await writeAudit(app.db, request.log, {
           actor: 'admin',
           action: 'agent.run.cancelled',
@@ -276,32 +330,28 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/conversations/:id/branch',
     {
       preHandler: [rawApp.requireAuth],
-      schema: {
-        params: z.object({ id: z.string().min(1) }),
-        body: branchBodySchema,
-      },
+      schema: { params: idParams, body: branchBodySchema },
     },
     async (request, reply) => {
-      const parsed = { data: request.body };
       const result = await chatRepo.branchConversation(app.db, {
         id: newId('conversation'),
         conversationId: request.params.id,
-        ...(parsed.data.fromMessageId === undefined
+        ...(request.body.fromMessageId === undefined
           ? {}
-          : { fromMessageId: parsed.data.fromMessageId }),
+          : { fromMessageId: request.body.fromMessageId }),
       });
       if (!result) {
         return reject(
           reply,
           'CONVERSATION_NOT_FOUND',
-          `conversation ${request.params.id} or branch point not found`,
+          '会话或分支点不存在，可能已被删除；请刷新后重试',
         );
       }
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'conversation.branched',
         target: result.conversation.id,
-        input: { source: request.params.id, fromMessageId: parsed.data.fromMessageId ?? null },
+        input: { source: request.params.id, fromMessageId: request.body.fromMessageId ?? null },
         status: 'ok',
         requestId: request.id,
       });
@@ -309,23 +359,26 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/conversations', { preHandler: [app.requireAuth] }, async (request) => {
-    const query = request.query as { agentId?: string; limit?: string };
-    const limit = Number(query.limit ?? 50);
-    const rows = await chatRepo.listConversations(app.db, {
-      ...(query.agentId ? { agentId: query.agentId } : {}),
-      limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 200) : 50,
-    });
-    return rows.map((row) => ({
-      ...row,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-      lastMessage: row.lastMessage && {
-        ...row.lastMessage,
-        createdAt: row.lastMessage.createdAt.toISOString(),
-      },
-    }));
-  });
+  app.get(
+    '/api/conversations',
+    { preHandler: [rawApp.requireAuth], schema: { querystring: listQuery } },
+    async (request) => {
+      const { agentId, limit } = request.query;
+      const rows = await chatRepo.listConversations(app.db, {
+        ...(agentId === undefined ? {} : { agentId }),
+        limit,
+      });
+      return rows.map((row) => ({
+        ...row,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+        lastMessage: row.lastMessage && {
+          ...row.lastMessage,
+          createdAt: row.lastMessage.createdAt.toISOString(),
+        },
+      }));
+    },
+  );
 
   app.addHook('onClose', async () => {
     await closeProducer();

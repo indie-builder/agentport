@@ -1,7 +1,7 @@
-import { Clock, ClockLive, DbError, runProgram } from '@agentport/core';
+import { DbError, runProgram } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
-import { judge } from '@agentport/shared';
-import { Queue } from 'bullmq';
+import { type AgentRunJob, judge, RUNS_QUEUE, runEnqueueOptions } from '@agentport/shared';
+import { Queue, QueueEvents } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { Cause, Effect, Result } from 'effect';
 import type { Logger } from 'pino';
@@ -9,19 +9,28 @@ import type { Logger } from 'pino';
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
 
-const POLL_MS = 500;
-const TERMINAL = ['succeeded', 'failed', 'cancelled', 'timeout'];
+let runQueue: Queue<AgentRunJob> | undefined;
+let runQueueEvents: QueueEvents | undefined;
 
-let runQueue: Queue | undefined;
-
-function getRunQueue(redisUrl: string): Queue {
-  if (!runQueue) runQueue = new Queue('agent-runs', { connection: { url: redisUrl } });
+function getRunQueue(redisUrl: string): Queue<AgentRunJob> {
+  if (!runQueue) runQueue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection: { url: redisUrl } });
   return runQueue;
 }
 
+function getRunQueueEvents(redisUrl: string): QueueEvents {
+  if (!runQueueEvents) {
+    runQueueEvents = new QueueEvents(RUNS_QUEUE, { connection: { url: redisUrl } });
+    runQueueEvents.on('error', (error) => {
+      process.stderr.write(`[eval-queue] redis error: ${error.message}\n`);
+    });
+  }
+  return runQueueEvents;
+}
+
 export async function closeEvalRunQueue(): Promise<void> {
-  await runQueue?.close();
+  await Promise.allSettled([runQueue?.close(), runQueueEvents?.close()]);
   runQueue = undefined;
+  runQueueEvents = undefined;
 }
 
 function errorMessage(error: unknown): string {
@@ -38,13 +47,7 @@ function dbQuery<A>(run: () => Promise<A>): Effect.Effect<A, DbError> {
 function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages>>): string {
   return messages
     .filter((message) => message.role === 'assistant')
-    .map((message) => {
-      const content = message.content;
-      if (typeof content === 'object' && content !== null && 'text' in content) {
-        return typeof content.text === 'string' ? content.text : '';
-      }
-      return '';
-    })
+    .map((message) => chatRepo.messageText(message.content) ?? '')
     .filter((part) => part.length > 0)
     .join('\n\n');
 }
@@ -56,7 +59,6 @@ function runOneCase(
   input: { agentId: string; prompt: string; timeoutMs: number; title: string },
 ) {
   return Effect.gen(function* () {
-    const clock = yield* Clock;
     const conversation = yield* dbQuery(() =>
       chatRepo.createConversation(db, {
         id: newId('conversation'),
@@ -80,7 +82,12 @@ function runOneCase(
         runId: run.id,
       }),
     );
+    const queueEvents = getRunQueueEvents(redisUrl);
     yield* Effect.tryPromise({
+      try: () => queueEvents.waitUntilReady(),
+      catch: (cause) => new Error(errorMessage(cause)),
+    });
+    const job = yield* Effect.tryPromise({
       try: () =>
         getRunQueue(redisUrl).add(
           'run',
@@ -90,29 +97,33 @@ function runOneCase(
             conversationId: conversation.id,
             prompt: input.prompt,
           },
-          { jobId: run.id, attempts: 2, backoff: { type: 'exponential', delay: 5_000 } },
+          runEnqueueOptions(run.id),
         ),
       catch: (cause) => new Error(errorMessage(cause)),
     });
 
-    const deadline = (yield* clock.now()) + Math.min(input.timeoutMs, 30 * 60_000);
-    for (;;) {
-      yield* clock.sleep(POLL_MS);
-      const current = yield* dbQuery(() => chatRepo.getRun(db, run.id));
-      if (!current) return yield* Effect.fail(new Error('run disappeared'));
-      if (TERMINAL.includes(current.status)) {
-        if (current.status !== 'succeeded') {
-          return yield* Effect.fail(
-            new Error(
-              `run ended with ${current.status}${current.error ? `: ${current.error}` : ''}`,
-            ),
-          );
-        }
-        break;
-      }
-      if ((yield* clock.now()) >= deadline) {
-        return yield* Effect.fail(new Error('run timed out'));
-      }
+    const timeoutMs = Math.min(input.timeoutMs, 30 * 60_000);
+    const deadline = Date.now() + timeoutMs;
+    const completion = yield* Effect.result(
+      Effect.tryPromise({
+        try: () => job.waitUntilFinished(queueEvents, timeoutMs),
+        catch: (cause) => new Error(errorMessage(cause)),
+      }),
+    );
+    const current = yield* dbQuery(() => chatRepo.getRun(db, run.id));
+    if (!current) return yield* Effect.fail(new Error('run disappeared'));
+    if (['failed', 'cancelled', 'timeout'].includes(current.status)) {
+      return yield* Effect.fail(
+        new Error(`run ended with ${current.status}${current.error ? `: ${current.error}` : ''}`),
+      );
+    }
+    if (Result.isFailure(completion)) {
+      return yield* Effect.fail(
+        Date.now() >= deadline ? new Error('run timed out') : completion.failure,
+      );
+    }
+    if (current.status !== 'succeeded') {
+      return yield* Effect.fail(new Error(`run ended with ${current.status}`));
     }
 
     const messages = yield* dbQuery(() => chatRepo.listMessages(db, conversation.id));
@@ -135,6 +146,12 @@ export async function executeEvalRun(input: {
       logger.info({ evalRunId }, 'eval run no longer running, skipping');
       return;
     }
+    // BullMQ 重复投递时只让一个 worker 执行：认领失败说明别人已经在跑。
+    const claimed = yield* dbQuery(() => evalRepo.claimEvalRun(db, evalRunId));
+    if (!claimed) {
+      logger.info({ evalRunId }, 'eval run already claimed, skipping duplicate delivery');
+      return;
+    }
 
     const [agent] = yield* dbQuery(async () =>
       db
@@ -144,6 +161,7 @@ export async function executeEvalRun(input: {
         .limit(1),
     );
     if (!agent) return yield* Effect.fail(new Error(`agent ${evalRun.agentId} not found`));
+    if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
 
     const cases = yield* dbQuery(() => evalRepo.listCases(db, evalRun.agentId));
     let passed = 0;
@@ -153,6 +171,8 @@ export async function executeEvalRun(input: {
       cases,
       (testCase) =>
         Effect.gen(function* () {
+          if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
+            return;
           let output = '';
           let runId = '';
           let ok = false;
@@ -176,6 +196,8 @@ export async function executeEvalRun(input: {
               ),
             ),
           );
+          if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
+            return;
           if (Result.isSuccess(result)) ok = result.success;
           else output = errorMessage(result.failure);
           if (ok) passed += 1;
@@ -186,7 +208,8 @@ export async function executeEvalRun(input: {
                 id: newId('evalResult'),
                 evalRunId,
                 caseId: testCase.id,
-                runId,
+                // 失败的 case 没有 run：外键要求 NULL 而不是空串。
+                runId: runId === '' ? null : runId,
                 passed: ok,
                 output,
               }),
@@ -211,6 +234,7 @@ export async function executeEvalRun(input: {
       ),
     );
 
+    if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
     yield* dbQuery(() =>
       evalRepo.finishEvalRun(db, evalRunId, {
         status: crashed === null && passed === cases.length ? 'succeeded' : 'failed',
@@ -225,5 +249,5 @@ export async function executeEvalRun(input: {
       ),
     );
   });
-  await runProgram(program.pipe(Effect.provide(ClockLive)));
+  await runProgram(program);
 }

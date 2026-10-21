@@ -92,7 +92,7 @@ pnpm run up
 
 1. `.env` 不存在时从 `.env.example` 复制，随机生成 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN`、`ADMIN_PASSWORD`（同时改写 `REDIS_URL`），并打印管理员密码；运行智能体仍需自行填写模型凭证。
 2. `docker compose up -d --build postgres redis`，轮询 `docker compose ps` 直到两者 healthy。
-3. 构建沙盒镜像 `agentport/sandbox:dev`（已存在则跳过；`pnpm run up --rebuild` 强制重建）。构建前先执行 `pnpm --filter @agentport/sandbox build` 生成 `dist/`。
+3. 构建沙盒镜像 `agentport/sandbox:dev`（已存在则跳过；`pnpm run up --rebuild` 强制重建）。步骤见下文「2.2.1 手动构建沙盒镜像」。
 4. `docker compose up -d --build api worker`。compose 会先运行一次性服务 `migrate`（`node api/node_modules/@agentport/db/scripts/migrate.js`，`restart: no`），成功后 api 才启动（`depends_on: service_completed_successfully`）。
 5. 轮询 `/health/ready`，最多 90 秒。
 6. 执行 `bash scripts/smoke.sh`。
@@ -111,13 +111,38 @@ curl -s http://localhost:3000/health/ready
 
 说明：
 
-- compose 的 `api`/`worker` 镜像内执行 `pnpm -r build`，不依赖宿主 `dist`；沙盒镜像例外，其 Dockerfile 复制 `packages/sandbox/dist`，由 `pnpm run up` 先构建。
+- compose 的 `api`/`worker` 镜像内执行 `pnpm -r build`，不依赖宿主 `dist`；沙盒镜像例外，其 Dockerfile 复制 `packages/sandbox/dist` 与 `packages/sandbox/shared/`（即 `@agentport/shared` 的编译产物），由 `pnpm run up` 先构建并复制。
 - 迁移由 compose 的 `migrate` 服务自动执行；直接在宿主机操作时仍可用 `pnpm db:migrate`（需要 `packages/db/dist`，先 `pnpm build`）。
 - `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。`pnpm run up` 生成 `.env` 时会同时写入匹配的 `REDIS_PASSWORD` 与 `REDIS_URL`。
 - compose 会占用 3000、5432、6379；如冲突，先停掉本机对应服务或改端口。
 - worker 容器内是 `node` 用户，通过 `group_add: ${DOCKER_GID:-0}` 访问 socket。Linux 上若 docker 组 GID 不是 0，部署前 `export DOCKER_GID=$(getent group docker | cut -d: -f3)`。
 - Redis 健康检查（compose 里的 `healthcheck.test`）在容器内使用 redis 服务自身的 `REDIS_PASSWORD`；若宿主另行导出 `REDIS_PASSWORD`，compose 会用它重建 redis，与 `.env` 的 `REDIS_URL` 不一致时 api/worker 连不上。`pnpm run up` 不读取宿主导出的该变量，直接使用 `.env`。
 - 生产通过 `http://localhost:3000` 访问；Cookie 带 `Secure`，局域网 IP + HTTP 会无法保持登录。
+
+#### 2.2.1 手动构建沙盒镜像
+
+镜像的 Dockerfile 会 `COPY dist/`、`COPY shared/` 与 `package.shared.json`，**不能**直接 `docker build`：
+构建上下文是 `packages/sandbox`，`shared/` 需要先把 `packages/shared/dist` 复制进来。
+
+推荐直接用脚本（它会完成全部三步）：
+
+```bash
+pnpm run up --rebuild
+```
+
+手动等价步骤：
+
+```bash
+pnpm --filter @agentport/sandbox build      # → packages/sandbox/dist
+pnpm --filter @agentport/shared build       # → packages/shared/dist
+rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
+docker build -t agentport/sandbox:dev packages/sandbox
+```
+
+- 跳过 `shared` 复制会得到 `COPY shared/: not found` 或镜像运行时 `ERR_MODULE_NOT_FOUND`（runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务）。
+- `packages/sandbox/.dockerignore` 是为这个构建上下文单独准备的：根目录 `.dockerignore` 会排除 `**/dist`，这里显式放行 `dist/` 与 `shared/`，同时排除 `node_modules`、`src`、`test`、`*.tsbuildinfo`。
+- `package.shared.json` 是 shared 在镜像内的独立 manifest（`node_modules/@agentport/shared/package.json`）；`package.docker.json` 是 runner 自身的独立 manifest。workspace 协议无法在镜像内解析，所以两者都不能用根 `package.json` 代替。
+- `pnpm --filter @agentport/sandbox image` 只执行 `docker build`，**不含**前面的构建与复制步骤。
 - 反向代理之后部署时，设置 `TRUST_PROXY=1`（否则限流按代理 IP 计数），并把 `CORS_ORIGINS` 改成浏览器实际访问的 Origin。
 
 #### Docker socket 风险
@@ -141,7 +166,11 @@ pnpm build
 cp .env.example .env
 docker compose up -d postgres redis
 pnpm db:migrate
-pnpm --filter @agentport/sandbox image
+# 见上文「2.2.1 手动构建沙盒镜像」：先构建 sandbox 与 shared，再复制 shared/dist 进构建上下文
+pnpm --filter @agentport/sandbox build
+pnpm --filter @agentport/shared build
+rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
+docker build -t agentport/sandbox:dev packages/sandbox
 pnpm dev
 ```
 
@@ -160,6 +189,8 @@ pnpm run up --rebuild
 ```
 
 `pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run（容器随 `docker rm -f` 清理）；建议在空闲时操作。
+
+**关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 退出时清理自己遗留的工作区目录，reconciler 会把仍为 running 的 run 收敛为失败。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
 
 ## 3. 备份与恢复
 
@@ -273,11 +304,12 @@ pnpm --filter @agentport/worker maintenance
 | `/health/ready` 返回 503，`db` 或 `redis` 为 `error` | 依赖未启动、连接串错误、容器不健康 | `docker compose ps`；`docker compose logs postgres redis`；`curl -s localhost:3000/health/ready`；确认 `.env` 的 `DATABASE_URL` / `REDIS_URL` 与实际端口一致 |
 | `docker compose ps` 中 redis 一直 `health: starting`，api/worker 不启动 | 宿主导出了与 `.env` 不同的 `REDIS_PASSWORD`，compose 用它重建了 redis，而 `.env` 的 `REDIS_URL` 仍是旧密码 | `unset REDIS_PASSWORD` 后 `docker compose up -d --force-recreate redis api worker`；或让 `.env` 的 `REDIS_PASSWORD`/`REDIS_URL` 与导出的值一致；确认用 `docker compose exec redis redis-cli -a "$REDIS_PASSWORD" ping` |
 | 日志报 `Could not find a working container runtime strategy` 或 `Cannot connect to the Docker daemon` | worker 无法访问宿主 Docker socket | 在 worker 容器内 `docker ps`；检查 `/var/run/docker.sock` 挂载与 `DOCKER_GID`（`ls -l /var/run/docker.sock`，`getent group docker`） |
-| run 失败，错误含 `no such image` / `pull access denied` | 沙盒镜像未构建或名字不对 | `docker images agentport/sandbox`；`pnpm --filter @agentport/sandbox build && pnpm --filter @agentport/sandbox image`；核对 `SANDBOX_IMAGE` |
+| run 失败，错误含 `no such image` / `pull access denied` | 沙盒镜像未构建或名字不对 | `docker images agentport/sandbox`；`pnpm run up --rebuild`（或按「2.2.1 手动构建沙盒镜像」三步走）；核对 `SANDBOX_IMAGE` |
+| 构建镜像报 `COPY shared/: not found` | 直接 `docker build packages/sandbox`，没有先把 `packages/shared/dist` 复制成 `packages/sandbox/shared` | 按「2.2.1 手动构建沙盒镜像」执行，或用 `pnpm run up --rebuild` |
 | 模型调用 401 / 403 | 凭证缺失、失效，或 `ANTHROPIC_BASE_URL` 在容器内不可达 | `docker compose logs worker` 看容器 stderr；确认 `.env` 只填了 `ANTHROPIC_API_KEY` 与 `ANTHROPIC_AUTH_TOKEN` 之一；`ANTHROPIC_BASE_URL` 不要写 `127.0.0.1`（worker 会改写为 `host.docker.internal`，Linux 需 Docker 支持该别名） |
 | MCP 工具未出现在智能体上下文 | 未绑定 server、工具被禁用、绑定关系未保存，或 server 连接失败 | 「MCP Servers」页点「测试」看 `listTools()`；检查 generated server 的工具是否 `enabled`；「智能体 → 文件预览」确认 `.mcp.json` 含该 server；运行详情看拒绝原因（`permissionMode=dontAsk` 下未预批准会直接拒绝） |
 | `mcp__<server>__tool` 被拒绝 | 允许规则写成了 `mcp__*`，或 server 名与绑定名不一致 | 规则由 worker 按 `.mcp.json` 的 server key 生成 `mcp__<name>__*`；不要手写 `mcp__*`；在文件预览核对 server key |
-| 队列堆积，run 一直 `queued` | worker 未启动、并发占满、Redis 不可用 | `curl -s localhost:3000/health/metrics` 看 `queue.waiting/active`；`docker compose logs worker`；确认 `AGENT_MAX_CONCURRENT`；`docker compose ps worker` |
+| 队列堆积，run 一直 `queued` | worker 未启动、并发占满、Redis 不可用 | 登录后看 `/health/metrics` 的 `queue.waiting/active`（需 Cookie）；`docker compose logs worker`；确认 `AGENT_MAX_CONCURRENT`；`docker compose ps worker` |
 | SSE 无输出或立即断开 | 未登录（401 后前端跳登录）、反向代理缓冲、run 尚未开始、事件流已过期 | `curl -N -b "agentport_token=<token>" http://localhost:3000/api/chat/<runId>/events`；代理需关闭 buffering（代码已发 `X-Accel-Buffering: no`）；确认 run 状态不是 `queued`；事件流 TTL 为 1 小时 |
 | generated server 在沙盒内 401 | `.mcp.json` 里的 `mcpToken` 与数据库不一致，或平台地址不可达 | 短期 token 只在 run 期间有效，run 结束后 401 属预期；外部客户端用长期 `mcpToken`（页面「轮换 token」后旧值立即失效）；确认 `SANDBOX_API_URL` 从容器可达（`docker run --rm curlimages/curl -s $SANDBOX_API_URL/health/live`） |
 | 页面登录成功但刷新后退出 | 生产 Cookie 带 `Secure`，却用 HTTP + 非 localhost 访问 | 用 `http://localhost:3000`，或在明确可信的内网终止 TLS 后访问；不要把 `NODE_ENV` 改成 development 来绕过 |
@@ -295,7 +327,7 @@ pnpm --filter @agentport/worker maintenance
 ```bash
 docker compose logs -f api worker
 docker compose ps
-curl -s localhost:3000/health/metrics
+curl -s -b "agentport_token=<登录后的 JWT>" localhost:3000/health/metrics   # 需要登录
 set -a; . ./.env; set +a
 redis-cli -u "$REDIS_URL" llen bull:agent-runs:wait
 redis-cli -u "$REDIS_URL" xlen run:<runId>:events
@@ -310,13 +342,13 @@ docker ps --filter name=agentport-
 |---|---|---|
 | `GET /health/live` | 进程存活 | 无 |
 | `GET /health/ready` | DB 查询 + Redis ping；任一失败返回 503 与 `status: degraded` | 无 |
-| `GET /health/metrics` | 进程（uptime、RSS、Node 版本）、队列计数、连接池、Redis ping 延迟；单项失败返回 `null`，整体仍 200 | 无 |
+| `GET /health/metrics` | 进程（uptime、RSS、Node 版本）、队列计数、连接池、Redis ping 延迟；单项失败返回 `null`，整体仍 200 | 登录（`requireAuth`） |
 | `/api/overview` | 统计卡、智能体聚合（运行数、成本、错误率、P50/P99、tokens）、最近 20 条运行；`days` 限制 1–3650 | 登录 |
 | `/api/runs`、`/api/runs/:id` | 运行列表与 trace 步骤 | 登录 |
 | `/api/audit` | 审计事件，可按 action / status / 时间过滤 | 登录 |
 | 页面「审计」 | 同上，按时间倒序 | 登录 |
 | 页面「运行」→ 详情 | 状态、耗时、轮次、成本、token、错误、步骤时间线（子智能体内部调用缩进）；「用同样输入重新运行」 |
-| 页面「系统状态」`/status` | live / ready / metrics 三面板，10 秒刷新；浏览器内只读自检 | 登录（接口本身无鉴权） |
+| 页面「系统状态」`/status` | live / ready / metrics 三面板，10 秒刷新；浏览器内只读自检 | 登录（metrics 接口同样需要登录） |
 | api 日志 | pino JSON（生产）/ pino-pretty（开发）；按路由模板记录，>2s 记 `slow request`，SSE 不打慢请求 | stdout |
 | worker 日志 | 结构化 JSON；每步带 `runId`，容器 stderr 以 `sandbox` 字段转发 | stdout |
 

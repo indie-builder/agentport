@@ -1,6 +1,6 @@
 import { DbError } from '@agentport/core';
-import { type createDb, newId, repo, schema } from '@agentport/db';
-import { and, eq, lt } from 'drizzle-orm';
+import { type createDb, repo, schema } from '@agentport/db';
+import { and, eq, lt, or } from 'drizzle-orm';
 import { Effect, Schedule } from 'effect';
 import type { Logger } from 'pino';
 import { publishRun } from './runner-client.js';
@@ -41,7 +41,7 @@ export async function reconcileOrphanedEvalRuns(
 }
 
 /**
- * worker 崩溃/重启后，DB 里会残留 running 的 run：把已超过超时上限的收敛成 failed，
+ * worker 崩溃/重启后，DB 里会残留 running 或 queued 的 run：把已超过超时上限的收敛成 failed，
  * 并补发 run_finished，否则前端会一直转圈。
  * shortcut: 阈值用全局 AGENT_TIMEOUT_MS，个别 agent 自定义更长超时时可能被提前收敛。
  */
@@ -56,7 +56,13 @@ export async function reconcileOrphanedRuns(
       db
         .update(schema.agentRuns)
         .set({ status: 'failed', error: LOST_RUN_ERROR, endedAt: new Date() })
-        .where(and(eq(schema.agentRuns.status, 'running'), lt(schema.agentRuns.startedAt, cutoff)))
+        .where(
+          or(
+            and(eq(schema.agentRuns.status, 'running'), lt(schema.agentRuns.startedAt, cutoff)),
+            // queued 从未启动：startedAt 为 NULL，用入队时间判断陈旧。
+            and(eq(schema.agentRuns.status, 'queued'), lt(schema.agentRuns.createdAt, cutoff)),
+          ),
+        )
         .returning({ id: schema.agentRuns.id, conversationId: schema.agentRuns.conversationId }),
     ),
   );
@@ -77,20 +83,15 @@ export async function reconcileOrphanedRuns(
     ),
   );
   if (rows.length > 0) {
-    await Effect.runPromise(
-      withDb(() =>
-        db.insert(schema.auditLog).values(
-          rows.map((row) => ({
-            id: newId('audit'),
-            actor: 'worker',
-            action: 'agent.run.reconciled',
-            target: row.id,
-            status: 'error',
-          })),
-        ),
-      ),
-    );
-    logger.warn({ runs: rows.map((row) => row.id) }, 'reconciled orphaned running runs');
+    for (const row of rows) {
+      await repo.audit.writeAudit(db, logger, {
+        actor: 'worker',
+        action: 'agent.run.reconciled',
+        target: row.id,
+        status: 'error',
+      });
+    }
+    logger.warn({ runs: rows.map((row) => row.id) }, 'reconciled orphaned runs');
   }
   return rows.length;
 }

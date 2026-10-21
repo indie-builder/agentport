@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
 
-export const SECRET_MASK = '••••';
+export { SECRET_MASK } from '@agentport/shared';
+
 const IV_LEN = 12;
 const TAG_LEN = 16;
 

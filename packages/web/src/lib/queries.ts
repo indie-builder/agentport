@@ -3,6 +3,7 @@ import type {
   AgentInput,
   ApiTool,
   ApiToolInput,
+  ChatRequest,
   Server,
   ServerInput,
   ServerTestResult,
@@ -111,12 +112,15 @@ export const healthReadyQuery = queryOptions<HealthProbe<HealthReady>>({
   staleTime: 0,
 });
 
-export function useTools(serverId: string | null) {
-  return useQuery({
+export const toolsQuery = (serverId: string) =>
+  queryOptions({
     queryKey: ['tools', serverId],
-    queryFn: () => api.tools(serverId ?? ''),
-    enabled: serverId !== null,
+    queryFn: () => api.tools(serverId),
+    staleTime: 60_000,
   });
+
+export function useTools(serverId: string | null) {
+  return useQuery({ ...toolsQuery(serverId ?? ''), enabled: serverId !== null });
 }
 
 export function useAgentFiles(agentId: string | null, enabled = true) {
@@ -195,12 +199,33 @@ export function useRun(runId: string) {
 }
 
 /** 审批请求由 MCP 端点在工具被拒时写入；运行期间轮询，结束后停。 */
-export function useRunApprovals(runId: string | null) {
+export function useRunApprovals(runId: string | null, active = true) {
   return useQuery<ApprovalRequestList>({
     queryKey: ['run-approvals', runId],
     queryFn: () => api.runApprovals(runId ?? ''),
     enabled: runId !== null,
-    refetchInterval: 2_000,
+    // 只有运行还在进行时才轮询；结束后停止，避免在后台一直打接口。
+    refetchInterval: active ? 2_000 : false,
+  });
+}
+
+/** 审批写操作：成功后让该 run 的审批列表失效，不手动 refetch。 */
+export function useApproveRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { runId: string; serverId: string; toolName: string }) =>
+      api.approveRun(input.runId, input.serverId, input.toolName),
+    onSuccess: (_data, input) =>
+      void client.invalidateQueries({ queryKey: ['run-approvals', input.runId] }),
+  });
+}
+
+/** 重发一次运行：成功后跳转到新 run 并让运行列表失效。 */
+export function useRerun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ChatRequest) => api.sendChat(input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['runs'] }),
   });
 }
 

@@ -8,7 +8,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
-import { Page, PageHeader, PageSection } from '../components/page.js';
+import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
@@ -42,11 +42,7 @@ function StatusPill({ state }: { state: CheckState }) {
           : CircleX;
   return (
     <Badge variant={stateVariant[state]} className="rounded-[6px]">
-      <Icon
-        className={state === 'pending' ? 'size-3 animate-spin' : 'size-3'}
-        strokeWidth={1.75}
-        aria-hidden="true"
-      />
+      <Icon className={state === 'pending' ? 'size-3 animate-spin' : 'size-3'} aria-hidden="true" />
       {stateLabel[state]}
     </Badge>
   );
@@ -62,7 +58,7 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <PageSection title={title} actions={<StatusPill state={state} />} className="gap-3 pt-5">
+    <PageSection title={title} actions={<StatusPill state={state} />}>
       {children}
     </PageSection>
   );
@@ -80,7 +76,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 function Reason({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-start gap-1.5 border-t border-line pt-2 text-sm leading-relaxed text-danger">
-      <CircleAlert className="mt-0.5 size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+      <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span>{children}</span>
     </div>
   );
@@ -201,9 +197,9 @@ function SmokeChecklist() {
           onClick={() => void run()}
         >
           {running ? (
-            <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
           ) : (
-            <ListChecks className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            <ListChecks className="size-4" aria-hidden="true" />
           )}
           运行冒烟检查
         </Button>
@@ -223,17 +219,9 @@ function SmokeChecklist() {
               className="flex items-center gap-3 border-b border-line py-3 text-sm last:border-b-0"
             >
               {step.state === 'ok' ? (
-                <CircleCheck
-                  className="size-4 shrink-0 text-success"
-                  strokeWidth={1.75}
-                  aria-hidden="true"
-                />
+                <CircleCheck className="size-4 shrink-0 text-success" aria-hidden="true" />
               ) : (
-                <CircleX
-                  className="size-4 shrink-0 text-danger"
-                  strokeWidth={1.75}
-                  aria-hidden="true"
-                />
+                <CircleX className="size-4 shrink-0 text-danger" aria-hidden="true" />
               )}
               <span className="w-44 shrink-0 font-mono text-xs text-fg">{step.label}</span>
               <span className={step.state === 'ok' ? 'min-w-0 text-muted' : 'min-w-0 text-danger'}>
@@ -246,7 +234,7 @@ function SmokeChecklist() {
           ))}
           {running ? (
             <li className="flex items-center gap-2 border-b border-line py-3 text-sm text-subtle">
-              <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
               下一项检查中…
             </li>
           ) : null}
@@ -306,151 +294,152 @@ export function StatusPage() {
     <Page>
       <PageHeader
         title="健康"
+        description="API 进程、队列、数据库连接池与 Redis 的实时状态，每 10 秒自动刷新。"
         actions={
           <Button variant="outline" size="sm" className="rounded-full" onClick={refresh}>
-            <RefreshCw className="size-4" strokeWidth={1.75} aria-hidden="true" /> 立即刷新
+            <RefreshCw className="size-4" aria-hidden="true" /> 立即刷新
           </Button>
         }
       />
 
-      <p className="-mt-3 text-sm text-subtle">
-        API 进程、队列、数据库连接池与 Redis 的实时状态，每 10 秒自动刷新。
-      </p>
+      <Panel title="存活检查 /health/live" state={liveState}>
+        <div className="text-sm text-muted">
+          {live.isPending
+            ? '正在请求…'
+            : live.isError
+              ? '存活检查请求失败。'
+              : live.data.reachable && live.data.httpStatus === 200
+                ? '进程能响应 HTTP 请求。'
+                : (live.data.error ?? `HTTP ${live.data.httpStatus ?? '未知'}，进程未返回 200。`)}
+        </div>
+      </Panel>
 
-      <div className="grid gap-x-10 gap-y-7 sm:grid-cols-2">
-        <Panel title="存活检查 /health/live" state={liveState}>
-          <div className="text-sm text-muted">
-            {live.isPending
-              ? '正在请求…'
-              : live.isError
-                ? '存活检查请求失败。'
-                : live.data.reachable && live.data.httpStatus === 200
-                  ? '进程能响应 HTTP 请求。'
-                  : (live.data.error ?? `HTTP ${live.data.httpStatus ?? '未知'}，进程未返回 200。`)}
+      <Panel title="就绪检查 /health/ready" state={readyState}>
+        <div className="text-sm text-muted">
+          {ready.isPending ? '正在请求…' : (readyProblem ?? '数据库与 Redis 均可用。')}
+        </div>
+        {!ready.isPending && !ready.isError && ready.data?.body ? (
+          <div className="mt-1 flex gap-2">
+            <Badge
+              variant={ready.data.body.db === 'ok' ? 'success' : 'danger'}
+              className="rounded-[6px]"
+            >
+              数据库 {ready.data.body.db === 'ok' ? '正常' : '不可用'}
+            </Badge>
+            <Badge
+              variant={ready.data.body.redis === 'ok' ? 'success' : 'danger'}
+              className="rounded-[6px]"
+            >
+              Redis {ready.data.body.redis === 'ok' ? '正常' : '不可用'}
+            </Badge>
           </div>
-        </Panel>
+        ) : null}
+      </Panel>
 
-        <Panel title="就绪检查 /health/ready" state={readyState}>
-          <div className="text-sm text-muted">
-            {ready.isPending ? '正在请求…' : (readyProblem ?? '数据库与 Redis 均可用。')}
+      <Panel title="进程" state={processState}>
+        {data ? (
+          <div className="grid grid-cols-3 gap-4">
+            <Metric label="运行时长" value={formatUptime(data.process.uptimeSeconds)} />
+            <Metric label="内存 RSS" value={formatBytes(data.process.memoryRssBytes)} />
+            <Metric label="Node" value={data.process.nodeVersion} />
           </div>
-          {!ready.isPending && !ready.isError && ready.data?.body ? (
-            <div className="mt-1 flex gap-2">
-              <Badge
-                variant={ready.data.body.db === 'ok' ? 'success' : 'danger'}
-                className="rounded-[6px]"
-              >
-                数据库 {ready.data.body.db === 'ok' ? '正常' : '不可用'}
-              </Badge>
-              <Badge
-                variant={ready.data.body.redis === 'ok' ? 'success' : 'danger'}
-                className="rounded-[6px]"
-              >
-                Redis {ready.data.body.redis === 'ok' ? '正常' : '不可用'}
-              </Badge>
+        ) : (
+          <>
+            <div className="text-sm text-muted">
+              {metrics.isPending ? '正在请求 /health/metrics…' : '读不到进程指标。'}
             </div>
-          ) : null}
-        </Panel>
+            {!metrics.isPending ? (
+              <Reason>
+                指标端点不可达或返回非 200；先确认 API 进程与反向代理，再看{' '}
+                <code className="font-mono">docker compose logs api</code>。
+              </Reason>
+            ) : null}
+          </>
+        )}
+      </Panel>
 
-        <Panel title="进程" state={processState}>
-          {data ? (
+      <Panel title="队列 agent-runs" state={queueState}>
+        {queue ? (
+          <>
+            <div className="grid grid-cols-4 gap-4">
+              <Metric label="等待" value={String(queue.waiting)} />
+              <Metric label="运行中" value={String(queue.active)} />
+              <Metric label="失败" value={String(queue.failed)} />
+              <Metric label="延迟" value={String(queue.delayed)} />
+            </div>
+            {queue.waiting > 10 ? (
+              <Reason>
+                队列等待超过 10：worker 可能未运行、并发（AGENT_MAX_CONCURRENT）太低，或单个 run
+                卡住。
+              </Reason>
+            ) : null}
+            {queue.waiting > 0 && queue.active === 0 ? (
+              <Reason>有排队任务但没有运行中的任务：检查 worker 容器是否存活。</Reason>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <div className="text-sm text-muted">
+              {metrics.isPending ? '正在请求…' : '队列计数不可用。'}
+            </div>
+            {!metrics.isPending ? (
+              <Reason>BullMQ 查询失败或超过 1.5 秒：Redis 不可用，或队列键被阻塞。</Reason>
+            ) : null}
+          </>
+        )}
+      </Panel>
+
+      <Panel title="数据库连接池" state={dbState}>
+        {data ? (
+          <>
             <div className="grid grid-cols-3 gap-4">
-              <Metric label="运行时长" value={formatUptime(data.process.uptimeSeconds)} />
-              <Metric label="内存 RSS" value={formatBytes(data.process.memoryRssBytes)} />
-              <Metric label="Node" value={data.process.nodeVersion} />
+              <Metric label="总数" value={String(db?.total ?? 0)} />
+              <Metric label="空闲" value={String(db?.idle ?? 0)} />
+              <Metric label="等待" value={String(db?.waiting ?? 0)} />
             </div>
-          ) : (
-            <>
-              <div className="text-sm text-muted">
-                {metrics.isPending ? '正在请求 /health/metrics…' : '读不到进程指标。'}
-              </div>
-              {!metrics.isPending ? (
-                <Reason>
-                  指标端点不可达或返回非 200；先确认 API 进程与反向代理，再看{' '}
-                  <code className="font-mono">docker compose logs api</code>。
-                </Reason>
-              ) : null}
-            </>
-          )}
-        </Panel>
+            {db && db.waiting > 5 ? (
+              <Reason>
+                连接池在排队（waiting &gt; 5）：调大 DB_POOL_MAX，或先减少单请求的 SQL 条数。
+              </Reason>
+            ) : null}
+          </>
+        ) : (
+          <div className="text-sm text-muted">读不到连接池指标。</div>
+        )}
+      </Panel>
 
-        <Panel title="队列 agent-runs" state={queueState}>
-          {queue ? (
-            <>
-              <div className="grid grid-cols-4 gap-4">
-                <Metric label="等待" value={String(queue.waiting)} />
-                <Metric label="运行中" value={String(queue.active)} />
-                <Metric label="失败" value={String(queue.failed)} />
-                <Metric label="延迟" value={String(queue.delayed)} />
-              </div>
-              {queue.waiting > 10 ? (
-                <Reason>
-                  队列等待超过 10：worker 可能未运行、并发（AGENT_MAX_CONCURRENT）太低，或单个 run
-                  卡住。
-                </Reason>
-              ) : null}
-              {queue.waiting > 0 && queue.active === 0 ? (
-                <Reason>有排队任务但没有运行中的任务：检查 worker 容器是否存活。</Reason>
-              ) : null}
-            </>
-          ) : (
-            <>
-              <div className="text-sm text-muted">
-                {metrics.isPending ? '正在请求…' : '队列计数不可用。'}
-              </div>
-              {!metrics.isPending ? (
-                <Reason>BullMQ 查询失败或超过 1.5 秒：Redis 不可用，或队列键被阻塞。</Reason>
-              ) : null}
-            </>
-          )}
-        </Panel>
-
-        <Panel title="数据库连接池" state={dbState}>
-          {data ? (
-            <>
-              <div className="grid grid-cols-3 gap-4">
-                <Metric label="总数" value={String(db?.total ?? 0)} />
-                <Metric label="空闲" value={String(db?.idle ?? 0)} />
-                <Metric label="等待" value={String(db?.waiting ?? 0)} />
-              </div>
-              {db && db.waiting > 5 ? (
-                <Reason>
-                  连接池在排队（waiting &gt; 5）：调大 DB_POOL_MAX，或先减少单请求的 SQL 条数。
-                </Reason>
-              ) : null}
-            </>
-          ) : (
-            <div className="text-sm text-muted">读不到连接池指标。</div>
-          )}
-        </Panel>
-
-        <Panel title="Redis" state={redisState}>
-          {redis ? (
-            <div className="grid grid-cols-2 gap-4">
-              <Metric label="Ping" value={`${redis.pingMs} ms`} />
-              <Metric label="状态" value="PONG" />
+      <Panel title="Redis" state={redisState}>
+        {redis ? (
+          <div className="grid grid-cols-2 gap-4">
+            <Metric label="Ping" value={`${redis.pingMs} ms`} />
+            <Metric label="状态" value="PONG" />
+          </div>
+        ) : (
+          <>
+            <div className="text-sm text-muted">
+              {metrics.isPending ? '正在请求…' : 'Redis 不可用。'}
             </div>
-          ) : (
-            <>
-              <div className="text-sm text-muted">
-                {metrics.isPending ? '正在请求…' : 'Redis 不可用。'}
-              </div>
-              {!metrics.isPending ? (
-                <Reason>
-                  Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
-                </Reason>
-              ) : null}
-            </>
-          )}
-        </Panel>
-      </div>
+            {!metrics.isPending ? (
+              <Reason>
+                Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
+              </Reason>
+            ) : null}
+          </>
+        )}
+      </Panel>
 
       <SmokeChecklist />
 
-      <p className="border-t border-line pt-5 text-sm text-subtle">
-        处置步骤见 <code className="font-mono text-muted">docs/RUNBOOK.md</code>
-        ；指标字段与观测入口见 <code className="font-mono text-muted">docs/OPERATIONS.md</code>。
-      </p>
+      <PageNote
+        title="处置步骤"
+        description={
+          <>
+            见 <code className="font-mono text-muted">docs/RUNBOOK.md</code>
+            ；指标字段与观测入口见 <code className="font-mono text-muted">docs/OPERATIONS.md</code>
+            。
+          </>
+        }
+      />
     </Page>
   );
 }

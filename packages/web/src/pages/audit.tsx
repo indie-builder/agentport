@@ -1,4 +1,5 @@
-import { useDeferredValue, useState } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { useDeferredValue } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageToolbar } from '../components/page.js';
 import { ErrorState } from '../components/states.js';
@@ -88,8 +89,11 @@ const columns: DataColumn<AuditEntry>[] = [
 ];
 
 export function AuditPage() {
-  const [action, setAction] = useState('');
-  const [status, setStatus] = useState<AuditStatus | 'all'>('all');
+  const navigate = useNavigate();
+  // 筛选放在 URL 里：刷新、分享、前进后退都保留条件。
+  const search = useSearch({ from: '/shell/audit' });
+  const action = search.action ?? '';
+  const status = search.status ?? 'all';
   // 低优先级更新：输入保持响应，查询用延迟后的值。
   const deferredAction = useDeferredValue(action.trim());
   const audit = useAudit({
@@ -121,14 +125,26 @@ export function AuditPage() {
           aria-label="按动作前缀过滤"
           placeholder="动作前缀，如 auth.login"
           value={action}
-          onChange={(event) => setAction(event.target.value)}
-          className="w-56 rounded-[9px]"
+          onChange={(event) =>
+            // replace：输入框每敲一个字不该在浏览历史里留一条记录。
+            void navigate({
+              to: '/audit',
+              search: { ...search, action: event.target.value || undefined },
+              replace: true,
+            })
+          }
+          className="w-56"
         />
         <Select
           aria-label="按状态过滤"
           value={status}
-          onValueChange={(next) => setStatus(next as AuditStatus | 'all')}
-          className="w-32 rounded-[9px]"
+          onValueChange={(next) =>
+            void navigate({
+              to: '/audit',
+              search: { ...search, status: next === 'all' ? undefined : (next as AuditStatus) },
+            })
+          }
+          className="w-32"
           options={statusOptions}
         />
         <span className="ml-auto hidden text-xs text-subtle md:block">
@@ -149,7 +165,7 @@ export function AuditPage() {
             empty="还没有审计记录。登录或修改配置后，这里会自动出现对应事件。"
           />
           {audit.hasNextPage ? (
-            <div className="flex justify-center pt-2">
+            <div className="flex justify-center">
               <Button
                 variant="outline"
                 size="sm"
@@ -161,7 +177,7 @@ export function AuditPage() {
               </Button>
             </div>
           ) : rows.length > 0 ? (
-            <div className="pt-2 text-center text-xs text-subtle">已到末尾</div>
+            <div className="text-center text-xs text-subtle">已到末尾</div>
           ) : null}
         </>
       )}

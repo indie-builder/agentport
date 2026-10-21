@@ -8,12 +8,12 @@
 
 ## 0. 先做三件事
 
-1. 打开页面「系统状态」（`/status`），或用 curl 看三个端点：
+1. 打开页面「系统状态」（`/status`），或用 curl 看端点（`/health/metrics` 需要登录 Cookie）：
 
 ```bash
 curl -sS -w '\nHTTP %{http_code}\n' http://localhost:3000/health/live
 curl -sS -w '\nHTTP %{http_code}\n' http://localhost:3000/health/ready
-curl -sS http://localhost:3000/health/metrics | jq .
+curl -sS -b "agentport_token=<登录后的 JWT>" http://localhost:3000/health/metrics | jq .
 ```
 
 2. 看容器与最近日志：
@@ -29,7 +29,11 @@ docker compose logs --tail=120 api worker
 set -a; . ./.env; set +a; pnpm backup
 ```
 
-`/health/live`、`/health/ready`、`/health/metrics` **没有鉴权**，不要直接暴露到公网；只经由反向代理的内网路径或本机访问。
+`/health/live`、`/health/ready` **没有鉴权**，`/health/metrics` 需要登录（`requireAuth`），不要直接暴露到公网；只经由反向代理的内网路径或本机访问。后文所有 `/health/metrics` 命令都假定先设置登录 Cookie：
+
+```bash
+AUTH='-b agentport_token=<登录后的 JWT>'
+```
 
 ---
 
@@ -198,7 +202,12 @@ grep '^SANDBOX_IMAGE=' .env
 **处置**
 
 ```bash
+# 推荐：脚本会构建 sandbox + shared、复制 shared/dist 后再 docker build
+pnpm run up --rebuild
+# 手动等价：docker build 前必须有 packages/sandbox/shared（否则 COPY shared/: not found）
 pnpm --filter @agentport/sandbox build
+pnpm --filter @agentport/shared build
+rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
 docker build -t agentport/sandbox:dev packages/sandbox
 # 若 .env 的 SANDBOX_IMAGE 不是这个名字，改成上面的 tag 后重启 worker
 docker compose up -d --force-recreate worker
@@ -307,7 +316,7 @@ docker compose logs -f worker
 **验证**
 
 ```bash
-curl -sS http://localhost:3000/health/metrics | jq '.queue'
+curl -sS $AUTH http://localhost:3000/health/metrics | jq '.queue'
 ```
 
 ### 4.3 并发太低
@@ -366,7 +375,7 @@ docker compose start worker
 **验证**
 
 ```bash
-curl -sS http://localhost:3000/health/metrics | jq '.queue | {waiting, active, failed}'
+curl -sS $AUTH http://localhost:3000/health/metrics | jq '.queue | {waiting, active, failed}'
 ```
 
 ---
@@ -411,7 +420,7 @@ docker compose up -d --force-recreate api worker
 **验证**
 
 ```bash
-curl -sS http://localhost:3000/health/metrics | jq '.db'
+curl -sS $AUTH http://localhost:3000/health/metrics | jq '.db'
 docker compose exec -T postgres psql -U agentport -d agentport -c \
   "SELECT count(*) FROM pg_stat_activity WHERE datname='agentport';"
 ```
@@ -648,7 +657,7 @@ pnpm run up --rebuild
 ```bash
 docker compose ps
 curl -sS -w '\nHTTP %{http_code}\n' http://localhost:3000/health/ready
-curl -sS http://localhost:3000/health/metrics | jq '{process, queue, db, redis}'
+curl -sS $AUTH http://localhost:3000/health/metrics | jq '{process, queue, db, redis}'
 BASE_URL=http://localhost:3000 ADMIN_USER=admin ADMIN_PASSWORD="$(sed -n 's/^ADMIN_PASSWORD=//p' .env | tail -1)" \
   bash scripts/smoke.sh
 ```
@@ -826,7 +835,7 @@ docker compose exec -T postgres psql -U agentport -d agentport -c \
 docker compose ps
 curl -sS localhost:3000/health/live; echo
 curl -sS localhost:3000/health/ready; echo
-curl -sS localhost:3000/health/metrics | jq .
+curl -sS $AUTH localhost:3000/health/metrics | jq .
 
 # 日志
 docker compose logs -f --tail=100 api worker

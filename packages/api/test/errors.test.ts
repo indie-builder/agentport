@@ -1,8 +1,10 @@
 import { AppError, isAppError } from '@agentport/core';
+import { isIdOfType, newId } from '@agentport/db';
 import { errorCode } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { inject, startApp } from './helpers.js';
+import { isPgCode, toAppError } from '../src/plugins/errors.js';
+import { expectProblem, inject, loginCookie, startApp } from './helpers.js';
 
 /**
  * 错误契约的边界测试：每个出口都必须给出同一形状。
@@ -19,28 +21,56 @@ describe('problem responses', () => {
     await app.close();
   });
 
-  it('returns a complete Problem for an unknown route', async () => {
+  it('unknown route produces a complete Problem', async () => {
     const res = await inject(app, { method: 'GET', url: '/api/definitely-not-a-route' });
-    expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ code: 'NOT_FOUND', status: 404, retryable: false });
-    const body = res.json();
+    const body = expectProblem(res, 'NOT_FOUND');
+    expect(body.retryable).toBe(false);
     expect(typeof body.message).toBe('string');
     expect(typeof body.requestId).toBe('string');
   });
 
   it('returns 401 Problem when unauthenticated', async () => {
     const res = await inject(app, { method: 'GET', url: '/api/agents' });
-    expect(res.statusCode).toBe(401);
-    expect(res.json()).toMatchObject({ code: 'UNAUTHORIZED', status: 401, retryable: false });
+    expect(expectProblem(res, 'UNAUTHORIZED').retryable).toBe(false);
+  });
+
+  it('validates querystring at the schema boundary', async () => {
+    // 校验在 preHandler 之前：非法查询串不会因为未登录而变成 401。
+    for (const url of [
+      '/api/runs?limit=0',
+      '/api/runs?limit=201',
+      '/api/runs?limit=abc',
+      '/api/runs?status=nope',
+      '/api/conversations?limit=999',
+      '/api/overview?days=0',
+    ]) {
+      const res = await inject(app, { method: 'GET', url });
+      expect(typeof expectProblem(res, 'INVALID_INPUT').path, url).toBe('string');
+    }
+
+    const ok = await inject(app, { method: 'GET', url: '/api/runs?limit=5' });
+    expect(ok.statusCode).toBe(401);
   });
 });
 
 describe('AppError contract', () => {
-  it('never leaks internal details on 5xx', () => {
-    // 系统异常统一走 INTERNAL_ERROR；细节只进日志，响应文案由边界替换。
-    const err = new AppError('INTERNAL_ERROR', 'password=hunter2 at src/db.ts:88');
-    expect(err.status).toBe(500);
-    expect(err.retryable).toBe(true);
+  it('never leaks internal details on a real 500', async () => {
+    // 登录只依赖 Redis（审计写失败会被吞掉），之后打库的读路径才可以制造真实 500。
+    const broken = await startApp({ DATABASE_URL: 'postgres://u:hunter2@127.0.0.1:1/nope' });
+    try {
+      const cookie = await loginCookie(broken);
+      const res = await inject(broken, {
+        method: 'GET',
+        url: '/api/servers',
+        headers: { cookie },
+      });
+      const body = expectProblem(res, 'INTERNAL_ERROR');
+      expect(body).toMatchObject({ message: 'Internal server error', retryable: true });
+      expect(res.body).not.toContain('hunter2');
+      expect(res.body).not.toContain('127.0.0.1:1');
+    } finally {
+      await broken.close();
+    }
   });
 
   it('keeps 4xx messages specific and retryable flags honest', () => {
@@ -66,7 +96,7 @@ describe('AppError contract', () => {
         payload: '{bad',
       });
       expect(res.statusCode).toBe(400);
-      expect(res.json()).toMatchObject({ code: 'INVALID_INPUT', status: 400, retryable: false });
+      expect(expectProblem(res, 'INVALID_INPUT').retryable).toBe(false);
     } finally {
       await app.close();
     }
@@ -83,5 +113,48 @@ describe('AppError contract', () => {
     expect(isAppError(new AppError('NOT_FOUND', 'x'))).toBe(true);
     expect(isAppError(new Error('x'))).toBe(false);
     expect(isAppError(null)).toBe(false);
+  });
+});
+
+describe('toAppError mappings', () => {
+  it.each([
+    [{ statusCode: 413 }, 'PAYLOAD_TOO_LARGE'],
+    [{ statusCode: 415 }, 'UNSUPPORTED_MEDIA_TYPE'],
+    [{ statusCode: 429 }, 'RATE_LIMITED'],
+    [{ statusCode: 503 }, 'SERVICE_UNAVAILABLE'],
+  ] as const)('maps %o to %s', (input, code) => {
+    expect(toAppError(input)).toMatchObject({ code, status: errorCode[code] });
+  });
+
+  it('keeps an existing AppError and defaults everything else to INTERNAL_ERROR', () => {
+    const original = new AppError('CONFLICT', 'dup');
+    expect(toAppError(original)).toBe(original);
+    expect(toAppError(new Error('boom'))).toMatchObject({ code: 'INTERNAL_ERROR', status: 500 });
+  });
+});
+
+describe('isPgCode', () => {
+  it('finds 23505/23503 nested in drizzle causes', () => {
+    const fk = Object.assign(new Error('update violates fk'), {
+      cause: Object.assign(new Error('pg'), { code: '23503' }),
+    });
+    expect(isPgCode(fk, '23503')).toBe(true);
+    expect(isPgCode(fk, '23505')).toBe(false);
+    expect(isPgCode({ code: '23505' }, '23505')).toBe(true);
+    expect(isPgCode(null, '23505')).toBe(false);
+    expect(isPgCode(new Error('plain'), '23505')).toBe(false);
+  });
+});
+
+describe('isIdOfType', () => {
+  it('accepts a real id and rejects a wrong prefix or junk suffix', () => {
+    const id = newId('run');
+    expect(isIdOfType(id, 'run')).toBe(true);
+
+    // 旧实现只比对 `run_` 前缀，因此 run_junk 会通过。
+    expect(isIdOfType('run_junk', 'run')).toBe(false);
+    expect(isIdOfType(newId('agent'), 'run')).toBe(false);
+    expect(isIdOfType('', 'run')).toBe(false);
+    expect(isIdOfType('agt_missing', 'agent')).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
-import { type ClassValue, clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-export function cn(...inputs: ClassValue[]): string {
-  return twMerge(clsx(inputs));
-}
+/**
+ * 类名合并的唯一实现。
+ *
+ * 直接用 shadcn 的 `cn` 包（clsx + tailwind-merge 的编译版），
+ * 不再自己拼一份，避免两套实现产生不同的合并结果。
+ */
+export { cn } from 'cn';

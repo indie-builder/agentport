@@ -4,54 +4,39 @@ import type { Database } from '@agentport/db';
 import { agentServers, agentSkills, agents, newId, repo, servers, skills } from '@agentport/db';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import type { AgentInput, ServerInput } from '@agentport/shared';
-import { agentInputSchema, serverInputSchema, skillInputSchema } from '@agentport/shared';
+import {
+  agentInputSchema,
+  serverInputSchema,
+  skillInputSchema,
+  slugSchema,
+} from '@agentport/shared';
 import { eq, inArray } from 'drizzle-orm';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
-const nameSchema = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _');
-
 const importedServerSchema = z.object({
-  name: nameSchema,
+  name: slugSchema,
   kind: z.enum(['stdio', 'http', 'generated']),
   description: z.string().max(500).default(''),
   config: z.record(z.string(), z.unknown()).default({}),
   secretKeys: z.array(z.string()).default([]),
 });
 
-const importBodySchema = z.object({
-  format: z.literal('agentport/agent@1'),
-  agent: agentInputSchema,
-  servers: z.array(importedServerSchema).default([]),
-  skills: z.array(skillInputSchema).default([]),
-});
-
 type ImportedServer = z.infer<typeof importedServerSchema>;
 
-function invalid(reply: FastifyReply, message: string) {
-  return reject(reply, 'INVALID_INPUT', message);
-}
-
-/** 导出里的 config 就是 serverInputSchema 去掉密钥后的字段；不一致即视为非法导出。 */
-function toServerInput(entry: ImportedServer): ServerInput | null {
-  const parsed = serverInputSchema.safeParse({
-    ...entry.config,
-    name: entry.name,
-    kind: entry.kind,
-    description: entry.description,
-  });
-  return parsed.success ? parsed.data : null;
-}
+const importBodySchema = z.object({
+  format: z.literal('agentport/agent@1'),
+  agent: agentInputSchema.extend({
+    permissionMode: z.enum(['dontAsk', 'plan', 'default', 'acceptEdits']).default('dontAsk'),
+  }),
+  servers: z.array(importedServerSchema).max(100).default([]),
+  skills: z.array(skillInputSchema).max(100).default([]),
+});
 
 /** 密钥不入库；generated server 需要一个本机可用的新令牌。 */
 function toServerConfig(input: ServerInput): Record<string, unknown> {
@@ -99,6 +84,21 @@ async function uniqueSlug(tx: Tx, base: string): Promise<string> {
   return `${prefix}-${n}`;
 }
 
+/**
+ * 导出里的 config 就是 serverInputSchema 去掉密钥后的字段；不一致即视为非法导出。
+ * config 是 JSON Schema，无法在 zod 顶层表达，所以在 handler 入口这一行校验一次。
+ */
+function toServerInput(entry: ImportedServer): ServerInput {
+  const parsed = serverInputSchema.safeParse({
+    ...entry.config,
+    name: entry.name,
+    kind: entry.kind,
+    description: entry.description,
+  });
+  if (!parsed.success) fail('INVALID_INPUT', `「${entry.name}」的 Server 配置不完整，无法导入`);
+  return parsed.data;
+}
+
 export function registerImportRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   const auth = { preHandler: [rawApp.requireAuth] };
@@ -107,15 +107,9 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
     '/api/import/agents',
     { ...auth, schema: { body: importBodySchema } },
     async (request, reply) => {
-      const parsed = { data: request.body };
-      const input = parsed.data.agent;
+      const { agent: input, servers: entries, skills: skillInputs } = request.body;
+      const serverInputs = entries.map(toServerInput);
 
-      const serverInputs: ServerInput[] = [];
-      for (const entry of parsed.data.servers) {
-        const serverInput = toServerInput(entry);
-        if (!serverInput) return invalid(reply, `invalid server config: ${entry.name}`);
-        serverInputs.push(serverInput);
-      }
       // 导入文件同样不可信：http/generated 的地址与手动创建走同一个 SSRF 校验。
       for (const serverInput of serverInputs) {
         if (serverInput.kind === 'http') {
@@ -126,12 +120,12 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
       }
       // 同名/同 slug 重复出现时只处理一次，避免重复绑定。
       const uniqueServers = [...new Map(serverInputs.map((s) => [s.name, s])).values()];
-      const uniqueSkills = [...new Map(parsed.data.skills.map((s) => [s.slug, s])).values()];
+      const uniqueSkills = [...new Map(skillInputs.map((s) => [s.slug, s])).values()];
 
       const warnings: string[] = [];
-      for (const entry of parsed.data.servers) {
+      for (const entry of entries) {
         if (entry.secretKeys.length > 0) {
-          warnings.push(`server ${entry.name} 的密钥需要重新填写：${entry.secretKeys.join(', ')}`);
+          warnings.push(`「${entry.name}」的密钥需要重新填写：${entry.secretKeys.join(', ')}`);
         }
       }
 
@@ -161,7 +155,7 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
             if (reusedKind !== serverInput.kind) {
               fail(
                 'INVALID_INPUT',
-                `server ${serverInput.name} already exists with kind ${reusedKind}, refusing to reuse it as ${serverInput.kind}`,
+                `已存在同名 Server「${serverInput.name}」，但类型不同（${reusedKind} / ${serverInput.kind}），无法复用；请先在导入文件中改名`,
               );
             }
             reusedServers.push(serverInput.name);

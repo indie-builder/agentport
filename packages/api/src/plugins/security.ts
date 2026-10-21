@@ -1,6 +1,9 @@
 import { AppError } from '@agentport/core';
 import type { FastifyInstance } from 'fastify';
 
+/** 测试与本地关闭限流；预设保留显式 `rateLimit: false`，避免落回全局默认。 */
+const limitsOff = process.env.RATE_LIMIT_DISABLED === '1';
+
 /**
  * 安全与限流插件集中注册，避免散落在各 feature 里。
  * 限流用 Redis 存储：多进程/多 worker 部署时计数才一致。
@@ -30,20 +33,24 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
   const redis = new Redis(app.config.REDIS_URL, { maxRetriesPerRequest: null });
   redis.on('error', (err: Error) => app.log.warn({ err }, 'rate-limit redis error'));
 
-  const limitsOff = process.env.RATE_LIMIT_DISABLED === '1';
   if (limitsOff) app.log.warn('rate limiting disabled by RATE_LIMIT_DISABLED=1');
+  /*
+   * 全局额度是「按 IP 计的所有请求」：servers 页面一次加载就会为每个已配置的
+   * server 各拉一次工具列表（实测 40+ 条），120/min 会让正常浏览也 429。
+   * 读放大是设计使然，所以总量放宽；真正的滥用风险在 SSE/登录/执行，
+   * 那些已有更严格的 preset 单独限流。
+   */
   await app.register(rateLimit, {
-    global: false,
-    max: 120,
+    global: true,
+    max: 600,
     timeWindow: '1 minute',
     redis,
     nameSpace: 'agentport:rl:',
     // 插件会 throw 这个返回值，所以必须是 Error；边界再渲染成 Problem。
     errorResponseBuilder: () =>
       new AppError('RATE_LIMITED', '请求过于频繁，请稍后再试', { retryable: true }),
-    // 注意：route 级 config.rateLimit 不受这个 skip 影响（Fastify 在路由层另建实例），
-    // 因此测试里还要通过下面的 env 开关整体关闭限流。
-    ...(process.env.RATE_LIMIT_DISABLED === '1' ? { skip: () => true } : {}),
+    // allowList 在计数前跳过全局限流；预设另以 rateLimit: false 显式关闭。
+    ...(limitsOff ? { allowList: () => true } : {}),
   });
 
   app.addHook('onClose', async () => {
@@ -52,22 +59,15 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
 }
 
 /** 登录与执行类接口用更严格的限额。 */
-export const authRateLimit = {
-  config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
-} as const;
+function preset(max: number) {
+  const rateLimit: false | { max: number; timeWindow: string } = limitsOff
+    ? false
+    : { max, timeWindow: '1 minute' };
+  return { config: { rateLimit } };
+}
 
-export const chatRateLimit = {
-  config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
-} as const;
-
-export const mcpRateLimit = {
-  config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
-} as const;
-
-export const serverTestRateLimit = {
-  config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
-} as const;
-
-export const evalRunRateLimit = {
-  config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
-} as const;
+export const authRateLimit = preset(10);
+export const chatRateLimit = preset(20);
+export const mcpRateLimit = preset(60);
+export const serverTestRateLimit = preset(20);
+export const evalRunRateLimit = preset(10);

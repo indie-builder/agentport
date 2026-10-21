@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline';
-import { type PermissionMode, query } from '@anthropic-ai/claude-agent-sdk';
+import { agentInputSchema, agentRunJobSchema, permissionModeSchema } from '@agentport/shared';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { composePrompt } from './prompt.js';
 
 /**
@@ -17,8 +18,10 @@ interface RunnerEvent {
     | 'tool_start'
     | 'tool_input'
     | 'tool_result'
+    | 'error'
     | 'run_finished';
   text?: string;
+  msg?: string;
   toolUseId?: string;
   /** 子智能体产生的消息：指向父侧 Agent 的 tool_use id；顶层消息不写。 */
   parentToolUseId?: string;
@@ -42,28 +45,20 @@ interface RunnerEvent {
  */
 type FailureKind = 'agent' | 'infra' | 'cancelled';
 
-interface RunnerTask {
-  prompt: string;
-  /** 之前的对话，由宿主格式化为「用户：/助手：」文本；拼在当前请求之前。 */
-  history?: string;
-  model?: string;
-  maxTurns?: number;
-  maxBudgetUsd?: number;
-  /** 智能体配置的权限模式；缺省 dontAsk（未预批准的工具一律拒绝）。 */
-  permissionMode?: string;
-  /** .mcp.json 里的 server key，用于生成精确的 allow 规则 */
-  mcpServers?: string[];
-  /** 智能体自定义的额外允许项（mcp__ 通配由 mcpServers 推导） */
-  extraAllowedTools?: string[];
-  /** 智能体自定义的额外禁用项，与默认禁用列表合并 */
-  extraDisallowedTools?: string[];
-  /** 推理强度，透传给 SDK */
-  effort?: string;
-  /** 思考预算 token 上限 */
-  maxThinkingTokens?: number;
-  /** 有子智能体时放行 Agent/TaskStop；子智能体定义由 .claude/agents/*.md 自动发现。 */
-  allowSubAgents?: boolean;
-}
+const runnerTaskSchema = agentRunJobSchema.pick({ prompt: true, history: true }).extend({
+  model: agentInputSchema.shape.model.removeDefault().optional(),
+  maxTurns: agentInputSchema.shape.maxTurns.removeDefault().optional(),
+  maxBudgetUsd: agentInputSchema.shape.maxBudgetUsd.removeDefault().optional(),
+  permissionMode: permissionModeSchema.optional(),
+  mcpServers: agentInputSchema.shape.serverIds.removeDefault().optional(),
+  extraAllowedTools: agentInputSchema.shape.allowedTools.removeDefault().optional(),
+  extraDisallowedTools: agentInputSchema.shape.disallowedTools.removeDefault().optional(),
+  effort: agentInputSchema.shape.effort,
+  maxThinkingTokens: agentInputSchema.shape.maxThinkingTokens,
+  allowSubAgents: agentInputSchema.shape.enabled.removeDefault().optional(),
+});
+
+type RunnerTask = ReturnType<typeof runnerTaskSchema.parse>;
 
 function log(message: string): void {
   process.stderr.write(`[runner] ${message}\n`);
@@ -86,7 +81,7 @@ async function readTask(): Promise<RunnerTask> {
     for await (const line of rl) {
       const trimmed = line.trim();
       if (trimmed.length === 0) continue;
-      return JSON.parse(trimmed) as RunnerTask;
+      return runnerTaskSchema.parse(JSON.parse(trimmed));
     }
   } finally {
     rl.close();
@@ -207,15 +202,19 @@ try {
     options: {
       cwd: '/workspace',
       settingSources: ['project'],
-      permissionMode: (task.permissionMode ?? 'dontAsk') as PermissionMode,
+      // .mcp.json 里的 server 默认需要审批；无人值守时不批准就等于零工具静默成功。
+      settings: { enableAllProjectMcpServers: true },
+      // 用户文本是纯文本：不要做 @路径展开或斜杠命令解析。
+      verbatimPrompts: true,
+      // 子智能体的文本也要流出来，否则前端看不到它们的回答。
+      forwardSubagentText: true,
+      permissionMode: task.permissionMode ?? 'dontAsk',
       allowedTools,
       disallowedTools: [...new Set(disallowedTools)],
       includePartialMessages: true,
       maxTurns: task.maxTurns ?? 20,
       maxBudgetUsd: task.maxBudgetUsd ?? 2,
-      ...(task.effort === undefined
-        ? {}
-        : { effort: task.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' }),
+      ...(task.effort === undefined ? {} : { effort: task.effort }),
       ...(task.maxThinkingTokens === undefined
         ? {}
         : { maxThinkingTokens: task.maxThinkingTokens }),
@@ -223,6 +222,22 @@ try {
       ...(task.model === undefined ? {} : { model: task.model }),
     },
   })) {
+    if (message.type === 'system' && message.subtype === 'init') {
+      // MCP 起不来时 SDK 仍会正常跑完：模型只能用内置工具，最后报「成功」。
+      // 这里必须显式暴露，否则用户在 UI 上看到的是「完成但什么都没做」。
+      const failed = message.mcp_servers?.filter((s) => s.status !== 'connected') ?? [];
+      if (failed.length > 0) {
+        log(`mcp not connected: ${failed.map((s) => `${s.name}=${s.status}`).join(', ')}`);
+        emit({
+          type: 'error',
+          msg: `这些 MCP Server 没有连上，本次运行缺少它们的工具：${failed
+            .map((s) => s.name)
+            .join('、')}`,
+        });
+      }
+      continue;
+    }
+
     if (message.type === 'assistant') {
       // 子智能体消息带 parent_tool_use_id（父侧 Agent 的 tool_use id）；顶层为 null。
       const parent = parentTag(message.parent_tool_use_id);
@@ -269,6 +284,20 @@ try {
     }
 
     if (message.type === 'result') {
+      // 主动中止也会走到 result（subtype=error_during_execution），不会抛异常；
+      // 不在这里判 abort，用户点「停止」会被显示成红色失败。
+      const cancelled = abortController.signal.aborted;
+      if (cancelled) {
+        emit({
+          type: 'run_finished',
+          status: 'cancelled',
+          costUsd: message.total_cost_usd,
+          turns: message.num_turns,
+          sessionId: message.session_id,
+          ...tokenUsage(message.modelUsage),
+        });
+        continue;
+      }
       const succeeded = message.subtype === 'success' && !message.is_error;
       emit({
         type: 'run_finished',
@@ -285,7 +314,7 @@ try {
                   ? message.result
                   : `${message.subtype}: ${message.errors.join('; ')}`,
               // SDK 返回的失败都来自模型/工具层；基础设施故障走下面的 catch。
-              failureKind: 'agent' as const,
+              failureKind: 'agent',
             }),
       });
     }

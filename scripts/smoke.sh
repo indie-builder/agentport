@@ -24,12 +24,12 @@ check() {
   status="$(curl -sS -o "$BODY_FILE" -w '%{http_code}' -X "$method" "$@" "$BASE_URL$path")" ||
     fail "${method} ${path} 请求失败（服务未启动？BASE_URL=${BASE_URL}）"
   case " $expected " in
-    *" $status "*) echo "ok  $method $path" ;;
+    *" $status "*) echo "ok  $method $path -> $status" ;;
     *) fail "${method} ${path} 期望 ${expected}，实际 ${status}：$(cat "$BODY_FILE")" ;;
   esac
 }
 
-for path in /health/live /health/ready /health/metrics; do
+for path in /health/live /health/ready; do
   check GET "$path" 200
 done
 
@@ -45,6 +45,10 @@ status="$(curl -sS -D "$HEADER_FILE" -o "$BODY_FILE" -w '%{http_code}' \
 COOKIE="$(sed -n 's/^[Ss]et-[Cc]ookie: *\([^;]*\).*/\1/p' "$HEADER_FILE")"
 [ -n "$COOKIE" ] || fail "登录响应没有 Set-Cookie"
 echo "ok  POST /api/auth/login"
+
+# 指标含队列/连接池内部信息，匿名必须 401；登录后必须 200。
+check GET /health/metrics 401
+check GET /health/metrics 200 -H "Cookie: $COOKIE"
 
 for path in /api/servers /api/agents '/api/runs?limit=1'; do
   check GET "$path" 200 -H "Cookie: $COOKIE"

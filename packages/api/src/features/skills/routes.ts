@@ -1,43 +1,30 @@
 import { fail } from '@agentport/core';
 import { repo as skillRepo } from '@agentport/db';
 import type { Skill, SkillWithAgentCount } from '@agentport/shared';
-import { skillInputSchema } from '@agentport/shared';
+import { idParams, skillInputSchema, slugSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { reject } from '../../plugins/errors.js';
+import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 
 const repo = skillRepo.skills;
 type SkillWrite = Parameters<typeof repo.createSkill>[1];
 
-const idParams = z.object({ id: z.string().min(1) });
-
 const patchSchema = z.object({
-  slug: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _')
-    .optional(),
+  slug: slugSchema.optional(),
   name: z.string().min(1).max(128).optional(),
   description: z.string().min(1).max(500).optional(),
   body: z.string().optional(),
 });
 
 function notFound(reply: FastifyReply) {
-  return reject(reply, 'NOT_FOUND', 'skill not found');
+  return reject(reply, 'NOT_FOUND', '技能不存在，可能已被删除；请刷新后重试');
 }
 
-/** skills.slug 上有唯一索引；drizzle 把 pg 错误包在 cause 里，得顺着链找。 */
+/** skills.slug 有唯一索引（23505）→ 409。 */
 function rethrowConflict(err: unknown): never {
-  let cause: unknown = err;
-  while (typeof cause === 'object' && cause !== null) {
-    if ('code' in cause && cause.code === '23505') {
-      fail('CONFLICT', 'skill slug already exists');
-    }
-    cause = 'cause' in cause ? cause.cause : undefined;
-  }
+  if (isPgCode(err, '23505')) fail('CONFLICT', '该 slug 已被其他技能占用，请换一个');
   throw err;
 }
 
@@ -94,7 +81,6 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
     '/api/skills/:id',
     { ...auth, schema: { params: idParams, body: patchSchema } },
     async (request, reply) => {
-      const params = { data: request.params };
       const input = request.body;
       const patch: Partial<SkillWrite> = {
         ...(input.slug === undefined ? {} : { slug: input.slug }),
@@ -103,7 +89,7 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
         ...(input.body === undefined ? {} : { body: input.body }),
       };
       try {
-        const row = await repo.updateSkill(app.db, params.data.id, patch);
+        const row = await repo.updateSkill(app.db, request.params.id, patch);
         if (!row) return notFound(reply);
         await writeAudit(app.db, request.log, {
           actor: 'admin',
@@ -124,13 +110,12 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
     '/api/skills/:id',
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
-      const params = { data: request.params };
-      const ok = await repo.deleteSkill(app.db, params.data.id);
+      const ok = await repo.deleteSkill(app.db, request.params.id);
       if (!ok) return notFound(reply);
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'skill.deleted',
-        target: params.data.id,
+        target: request.params.id,
         status: 'ok',
         requestId: request.id,
       });

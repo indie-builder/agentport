@@ -1,19 +1,26 @@
 import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Agent, Server } from '@agentport/shared';
+import { runCancelKey, runChannel, runStreamKey } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getQueue, publishRun } from '../src/queue/producer.js';
 import {
   cleanup,
+  createAgent,
+  createServer,
+  expectProblem,
   infraReady,
   inject,
   loginCookie,
   queueIdle,
+  seedRun,
   startApp,
+  subscriberCount,
   testConfig,
   unique,
+  waitFor,
 } from './helpers.js';
 
 const ready = await infraReady;
@@ -45,44 +52,31 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
         .remove(runId)
         .catch(() => undefined);
       await redis
-        .del(`run:${runId}:events`, `run:${runId}:events:wake`, `run:${runId}:cancel`)
+        .del(runStreamKey(runId), runChannel(runId), runCancelKey(runId))
         .catch(() => undefined);
     }
-    if (skillSlugs.length > 0) {
-      await app.pool.query('delete from skills where slug = any($1::text[])', [skillSlugs]);
-    }
-    await cleanup(app, { serverNames, agentSlugs, runIds });
+    await cleanup(app, { serverNames, agentSlugs, skillSlugs, runIds });
     await redis.quit();
     await app.close();
   });
 
   const auth = () => ({ cookie });
 
-  const createAgent = async (serverIds: string[] = []): Promise<Agent> => {
-    const slug = unique('fail-agent');
-    agentSlugs.push(slug);
-    const res = await inject(app, {
-      method: 'POST',
-      url: '/api/agents',
-      headers: auth(),
-      payload: { slug, name: `Failure ${slug}`, systemPrompt: 'be brief', serverIds },
-    });
-    expect(res.statusCode).toBe(201);
-    return res.json<Agent>();
-  };
+  const newAgent = async (serverIds: string[] = []): Promise<Agent> =>
+    (
+      await createAgent(app, cookie, {
+        slug: unique('fail-agent'),
+        serverIds,
+        track: agentSlugs,
+      })
+    ).json<Agent>();
 
-  const createGeneratedServer = async (baseUrlValue = 'https://example.com'): Promise<Server> => {
-    const name = unique('fail-srv');
-    serverNames.push(name);
-    const res = await inject(app, {
-      method: 'POST',
-      url: '/api/servers',
-      headers: auth(),
-      payload: { name, kind: 'generated', baseUrl: baseUrlValue },
+  const createGeneratedServer = (baseUrlValue = 'https://example.com'): Promise<Server> =>
+    createServer(app, cookie, {
+      name: unique('fail-srv'),
+      baseUrl: baseUrlValue,
+      track: serverNames,
     });
-    expect(res.statusCode).toBe(201);
-    return res.json<Server>();
-  };
 
   const createRun = async (agent: Agent, message = 'hello'): Promise<string> => {
     const res = await inject(app, {
@@ -101,21 +95,6 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       [agentId],
     );
     return res.rows[0]?.count ?? 0;
-  };
-
-  const subscriberCount = async (channel: string): Promise<number> => {
-    const reply = await redis.pubsub('NUMSUB', channel);
-    return Number(reply[1] ?? 0);
-  };
-
-  /** 轮询到条件成立；SSE 关闭是异步的，不能立即断言。 */
-  const waitFor = async (check: () => Promise<boolean>, timeoutMs = 5_000): Promise<boolean> => {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (await check()) return true;
-      await delay(50);
-    }
-    return false;
   };
 
   const openSse = async (
@@ -158,10 +137,10 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
   };
 
   it('releases the SSE subscription when the client aborts early', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const runId = await createRun(agent, 'abort me');
     runIds.push(runId);
-    const channel = `run:${runId}:events:wake`;
+    const channel = runChannel(runId);
 
     // 断开发生在 subscribe 完成前后，覆盖订阅建立过程中的每个时间窗。
     // 每次请求独立、留出间隔：并行 abort 会让服务端在另一请求的 subscribe 完成前就 close，
@@ -181,27 +160,27 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       }
     }
 
-    expect(await waitFor(async () => (await subscriberCount(channel)) === 0)).toBe(true);
+    expect(await waitFor(async () => (await subscriberCount(redis, channel)) === 0)).toBe(true);
     // 服务端仍能处理新请求，说明断开路径没有把连接池或事件循环拖死。
     const health = await inject(app, { method: 'GET', url: '/health/live' });
     expect(health.statusCode).toBe(200);
   });
 
   it('keeps other SSE clients subscribed when one aborts', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const runId = await createRun(agent, 'shared channel');
     runIds.push(runId);
-    const channel = `run:${runId}:events:wake`;
+    const channel = runChannel(runId);
 
     const first = await openSse(runId);
     const second = await openSse(runId);
     // 每个订阅独立连接，NUMSUB 按观众计数。
-    expect(await waitFor(async () => (await subscriberCount(channel)) === 2)).toBe(true);
+    expect(await waitFor(async () => (await subscriberCount(redis, channel)) === 2)).toBe(true);
 
     await first.abort();
     // 连接断开是异步的；给服务端一个事件循环窗口。
     await delay(300);
-    expect(await subscriberCount(channel)).toBe(1);
+    expect(await subscriberCount(redis, channel)).toBe(1);
 
     await publishRun(runId, { type: 'text_delta', text: 'still-here' });
     // SSE 可能分多个 chunk 到达；读到目标文本或超时为止。
@@ -211,7 +190,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     }
     expect(received).toContain('still-here');
     await second.abort();
-    expect(await waitFor(async () => (await subscriberCount(channel)) === 0)).toBe(true);
+    expect(await waitFor(async () => (await subscriberCount(redis, channel)) === 0)).toBe(true);
   });
 
   it('returns 404 for a missing run on events, cancel and approve', async () => {
@@ -220,16 +199,14 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       url: '/api/chat/run_missing/events',
       headers: auth(),
     });
-    expect(events.statusCode).toBe(404);
-    expect(events.json()).toMatchObject({ code: 'RUN_NOT_FOUND' });
+    expectProblem(events, 'RUN_NOT_FOUND');
 
     const cancel = await inject(app, {
       method: 'POST',
       url: '/api/chat/run_missing/cancel',
       headers: auth(),
     });
-    expect(cancel.statusCode).toBe(404);
-    expect(cancel.json()).toMatchObject({ code: 'RUN_NOT_FOUND' });
+    expectProblem(cancel, 'RUN_NOT_FOUND');
 
     const approve = await inject(app, {
       method: 'POST',
@@ -237,12 +214,11 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       headers: auth(),
       payload: { serverId: 'srv_missing', toolName: 'anything' },
     });
-    expect(approve.statusCode).toBe(404);
-    expect(approve.json()).toMatchObject({ code: 'RUN_NOT_FOUND' });
+    expectProblem(approve, 'RUN_NOT_FOUND');
   });
 
   it('enqueueing the same jobId twice does not create a second run', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const created = await inject(app, {
       method: 'POST',
       url: '/api/chat',
@@ -289,15 +265,14 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
   });
 
   it('rejects a prompt larger than 64KB with 400 and creates no run', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const res = await inject(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
       payload: { agentId: agent.id, message: 'x'.repeat(64 * 1024 + 1) },
     });
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({ code: 'INVALID_INPUT' });
+    expectProblem(res, 'INVALID_INPUT');
     expect(await runCount(agent.id)).toBe(0);
   });
 
@@ -305,8 +280,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     const server = await createGeneratedServer();
 
     const missing = await inject(app, { method: 'POST', url: `/mcp/${server.id}` });
-    expect(missing.statusCode).toBe(401);
-    expect(missing.json()).toMatchObject({ code: 'UNAUTHORIZED' });
+    expectProblem(missing, 'UNAUTHORIZED');
 
     const wrong = await inject(app, {
       method: 'POST',
@@ -347,17 +321,9 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     });
     expect(tool.statusCode).toBe(201);
 
-    const agent = await createAgent([server.id]);
-    const runId = unique('fail-run');
+    const agent = await newAgent([server.id]);
+    const { runId } = await seedRun(app, agent.id, { runId: unique('fail-run') });
     runIds.push(runId);
-    await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
-      'conv_failure_test',
-      agent.id,
-    ]);
-    await app.pool.query(
-      "insert into agent_runs (id, conversation_id, agent_id) values ($1, 'conv_failure_test', $2)",
-      [runId, agent.id],
-    );
 
     const unknown = await inject(app, {
       method: 'POST',
@@ -365,8 +331,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       headers: auth(),
       payload: { serverId: server.id, toolName: 'not-a-real-tool' },
     });
-    expect(unknown.statusCode).toBe(404);
-    expect(unknown.json()).toMatchObject({ code: 'APPROVAL_NOT_FOUND' });
+    expectProblem(unknown, 'APPROVAL_NOT_FOUND');
 
     const unchanged = await app.pool.query<{ count: number }>(
       'select count(*)::int as count from approval_requests where run_id = $1',
@@ -421,7 +386,6 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       headers: auth(),
       payload,
     });
-    expect(second.statusCode).toBe(409);
-    expect(second.json()).toMatchObject({ code: 'CONFLICT' });
+    expectProblem(second, 'CONFLICT');
   });
 });
