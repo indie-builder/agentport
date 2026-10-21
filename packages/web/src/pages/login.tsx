@@ -46,10 +46,8 @@ export function LoginPage() {
 
   return (
     <div className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,1fr)_minmax(380px,0.9fr)]">
-      {/* 左侧：品牌与平台事实。窄屏隐藏，登录本身不被说明文字挤走。 */}
-      <section className="hidden flex-col justify-between border-r border-line bg-panel px-10 py-10 lg:flex">
-        <Brand />
-
+      {/* 左侧：平台事实。窄屏隐藏，登录本身不被说明文字挤走。 */}
+      <section className="hidden flex-col justify-center border-r border-line bg-panel px-10 py-10 lg:flex">
         <div className="max-w-md">
           <p className="text-[28px] font-semibold leading-[1.25] tracking-tight text-fg">
             让智能体以可预测的节奏运行
@@ -72,7 +70,7 @@ export function LoginPage() {
           </dl>
         </div>
 
-        <p className="text-2xs text-subtle">配置变更、连接测试与对话都会记入审计。</p>
+        <p className="mt-10 text-2xs text-subtle">配置变更、连接测试与对话都会记入审计。</p>
       </section>
 
       {/* 右侧：表单。视觉上是一张纸，不是悬浮卡片。 */}

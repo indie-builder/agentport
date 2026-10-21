@@ -94,7 +94,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
       <div className="relative h-8 w-8 shrink-0">
         <Link
           to="/"
-          aria-label="PACE 首页"
+          aria-label="返回首页"
           className="group/logo absolute -left-0.5 top-0 flex size-8 items-center justify-center rounded-icon transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/nav:opacity-0 group-has-[:focus-visible]/nav:opacity-0"
         >
           <BrandMark className="size-8 rounded-icon object-cover" />
@@ -116,7 +116,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
     <div className="flex h-8 shrink-0 items-center gap-2">
       <Link
         to="/"
-        aria-label="PACE 首页"
+        aria-label="返回首页"
         className="flex h-8 min-w-0 flex-1 items-center rounded-icon"
       >
         <Brand />
@@ -254,7 +254,7 @@ export function AppShell() {
     const current = flat.find((item) =>
       item.to === '/' ? pathname === '/' : pathname.startsWith(item.to),
     );
-    document.title = current ? `${current.label} · PACE` : 'PACE';
+    document.title = current ? `${current.label} · 控制台` : '控制台';
   }, [pathname]);
 
   if (me.isPending) {
