@@ -3,7 +3,6 @@ import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-route
 import {
   Activity,
   Bot,
-  Command,
   HeartPulse,
   LayoutDashboard,
   LogOut,
@@ -21,7 +20,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { meQuery, queryClient } from '../lib/queries.js';
-import { Brand } from './brand.js';
+import { Brand, BrandMark } from './brand.js';
 import { Button } from './ui/button.js';
 import {
   DropdownMenu,
@@ -96,9 +95,9 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
         <Link
           to="/"
           aria-label="PACE 首页"
-          className="group/logo absolute -left-0.5 top-0 flex h-[30px] w-9 items-center justify-center rounded-icon bg-ink px-[3px] text-white transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/nav:opacity-0 group-has-[:focus-visible]/nav:opacity-0"
+          className="group/logo absolute -left-0.5 top-0 flex size-8 items-center justify-center rounded-icon transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/nav:opacity-0 group-has-[:focus-visible]/nav:opacity-0"
         >
-          <Command aria-hidden="true" className="size-3.5" />
+          <BrandMark className="size-8 rounded-icon object-cover" />
         </Link>
         <Button
           variant="ghost"
