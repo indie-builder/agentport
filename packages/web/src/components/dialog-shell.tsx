@@ -30,13 +30,14 @@ export function DialogShell({
       showCloseButton={false}
       finalFocus={finalFocus}
     >
-      <DialogHeader className="flex-row items-start justify-between gap-4 border-b border-line px-5 py-3.5">
+      <DialogHeader className="flex-row items-start justify-between gap-4 border-b px-5 py-3.5">
         <div className="min-w-0">
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </div>
         <DialogClose
           aria-label="关闭"
+          // DialogClose is unstyled; keep the subdued icon, 7px corners, hover, and focus ring.
           className="-mr-1 rounded-icon p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
         >
           <X className="size-4" />

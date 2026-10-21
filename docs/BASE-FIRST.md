@@ -55,3 +55,39 @@
 - 9 个页面浏览器实测全部正常渲染
 - 整体无彩度：主按钮 `rgb(3,3,3)` / 白字，页面底 `rgb(245,245,245)`
 - typecheck 7 包、biome 197 文件、179 单测、构建通过
+
+## 令牌层如何接管视觉（2026-10-21）
+
+B 方案的核心：**不在组件里写颜色，全部由 `styles.css` 决定**。
+
+```css
+@layer base {
+  /* 底座组件大量用裸 `border`，Tailwind 会回落到 currentColor（近黑）。
+     给一个默认边框色，组件就不用再逐个写 border-line。 */
+  *, ::after, ::before { border-color: var(--color-border); }
+}
+```
+
+效果（实测）：未改动的底座 `Input`/`Textarea` 自动得到
+`border-color: rgba(3,3,3,.06)`，与项目 line token 相同。
+
+### 由此删掉的冗余
+
+| 冗余 | 数量 | 为什么能删 |
+|---|---:|---|
+| `border-line` | 52 | 默认边框色 = 同一个值 |
+| `rounded-item` / `rounded-icon` | 24 | 底座 `rounded-lg` = `--radius-item` = 9px；`rounded-md` = 7px |
+| `space-y-*` / `space-x-*` | 66 | 官方禁止，改 `flex + gap` |
+| `text-muted` | 107 | 统一为 `text-muted-foreground` |
+
+删除后逐个比对：**2473 个渲染边框的计算样式完全一致**。
+
+### 仍需保留的项目覆盖
+
+底座没有对应语义的情况，保留并注明理由：
+- `font-mono` — 代码输入框
+- `text-2xs` — 紧凑标签（底座是 `text-sm`）
+- `bg-chip` — 比 `--muted` 更浅的触发器底色
+- `text-warning` / `text-success` — 状态色（底座只有 `destructive`）
+- `divide-line` — 分隔线不是边框，不继承默认值
+- `border-line-strong` — 不同 token（.12）

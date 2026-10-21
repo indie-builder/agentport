@@ -48,7 +48,7 @@ export function LoginPage() {
   return (
     <div className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,1fr)_minmax(380px,0.9fr)]">
       {/* 左侧：平台事实。窄屏隐藏，登录本身不被说明文字挤走。 */}
-      <section className="hidden flex-col justify-center border-r border-line bg-panel px-10 py-10 lg:flex">
+      <section className="hidden flex-col justify-center border-r bg-panel px-10 py-10 lg:flex">
         <div className="max-w-md">
           <p className="text-[28px] font-semibold leading-[1.25] tracking-tight text-fg">
             让智能体以可预测的节奏运行
@@ -59,7 +59,7 @@ export function LoginPage() {
           <dl className="mt-8 flex flex-col gap-5">
             {facts.map(({ icon: Icon, title, body }) => (
               <div key={title} className="flex gap-3">
-                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-icon border border-line bg-surface text-fg">
+                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-icon border bg-surface text-fg">
                   <Icon className="size-3.5" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
@@ -75,7 +75,7 @@ export function LoginPage() {
       </section>
 
       {/* 右侧：表单。视觉上是一张纸，不是悬浮卡片。 */}
-      <section className="flex items-center justify-center border-l border-line bg-surface px-6 py-12">
+      <section className="flex items-center justify-center border-l bg-surface px-6 py-12">
         <div className="w-full max-w-[340px]">
           <div className="mb-8 lg:hidden">
             <Brand />

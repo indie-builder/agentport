@@ -120,6 +120,7 @@ export function AuditPage() {
           <Button
             variant="outline"
             size="sm"
+            // Keep audit actions pill-shaped instead of the compact button radius.
             className="rounded-full"
             onClick={() => void audit.refetch()}
             disabled={audit.isFetching}
@@ -191,6 +192,7 @@ export function AuditPage() {
               <Button
                 variant="outline"
                 size="sm"
+                // Keep audit actions pill-shaped instead of the compact button radius.
                 className="rounded-full"
                 disabled={audit.isFetchingNextPage}
                 onClick={() => void audit.fetchNextPage()}

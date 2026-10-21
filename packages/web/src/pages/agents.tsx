@@ -269,6 +269,7 @@ export function AgentsPage() {
             <Button
               variant="ghost"
               size="sm"
+              // Keep pill action corners instead of the small button's 7px radius.
               className="h-8 rounded-full px-3"
               disabled={importing}
               aria-busy={importing}
@@ -279,6 +280,7 @@ export function AgentsPage() {
             <Button
               ref={createButtonRef}
               size="sm"
+              // Keep pill action corners instead of the small button's 7px radius.
               className="h-8 rounded-full px-3.5"
               onClick={() => setCreating(true)}
             >
@@ -289,7 +291,7 @@ export function AgentsPage() {
       />
 
       <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
-        <div className="min-w-0 py-3 pr-5 lg:border-r lg:border-line">
+        <div className="min-w-0 py-3 pr-5 lg:border-r">
           <SearchInput
             label="搜索智能体"
             placeholder="搜索名称或 slug…"
@@ -322,7 +324,7 @@ export function AgentsPage() {
             {filtered.map((agent) => {
               const active = selected?.id === agent.id;
               return (
-                <li key={agent.id} className="border-b border-line last:border-b-0">
+                <li key={agent.id} className="border-b last:border-b-0">
                   <button
                     type="button"
                     aria-current={active ? 'true' : undefined}
@@ -442,13 +444,12 @@ function FileTag({ children }: { children: ReactNode }) {
 
 /** 输入 36px / radius 9：表单密度跟着设计基准走，而不是沿用表格控件。 */
 function LineInput({ className, ...props }: ComponentProps<'input'>) {
-  return <Input className={cn('h-9 rounded-item px-3', className)} {...props} />;
+  return <Input className={cn('h-9 px-3', className)} {...props} />;
 }
 
 function CodeArea({ className, ...props }: ComponentProps<'textarea'>) {
-  return (
-    <Textarea className={cn('rounded-item px-3 py-2 leading-relaxed', className)} {...props} />
-  );
+  // Keep relaxed code line spacing instead of the base text line height.
+  return <Textarea className={cn('px-3 leading-relaxed', className)} {...props} />;
 }
 
 function RuntimeTag() {
@@ -800,6 +801,7 @@ function AgentEditor({
                 variant="link"
                 size="xs"
                 onClick={revealInvalidField}
+                // Keep a small inline warning link instead of the base primary-colored, medium-weight link.
                 className="h-auto rounded-none border-0 p-0 text-2xs font-normal text-inherit underline underline-offset-2 hover:text-fg active:not-aria-[haspopup]:translate-y-0"
               >
                 去修正
@@ -808,6 +810,7 @@ function AgentEditor({
           ) : null}
           <Button
             size="sm"
+            // Keep pill action corners instead of the small button's 7px radius.
             className="h-8 rounded-full px-3.5"
             disabled={!dirty || update.isPending || invalidField !== null}
             aria-busy={update.isPending}
@@ -844,12 +847,13 @@ function AgentEditor({
             <DropdownMenuContent
               align="end"
               sideOffset={4}
-              className="w-40 rounded-card border border-line bg-surface p-1 shadow-overlay"
+              // Keep the 16px menu corners, explicit border, and project overlay shadow.
+              className="w-40 rounded-card border shadow-overlay"
             >
               <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
                 <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
               </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-line" />
+              <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={onDelete}>
                 <Trash2 className="size-4" /> 删除智能体
               </DropdownMenuItem>
@@ -879,7 +883,7 @@ function AgentEditor({
           >
             <nav
               aria-label="配置分区"
-              className="sticky top-0 z-20 flex gap-0.5 overflow-x-auto border-b border-line bg-surface/95 py-1.5 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              className="sticky top-0 z-20 flex gap-0.5 overflow-x-auto border-b bg-surface/95 py-1.5 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
               {sectionItems.map((item) => (
                 <Button
@@ -891,7 +895,8 @@ function AgentEditor({
                     setOpenSections((current) => ({ ...current, [item.id]: true }));
                     document.getElementById(`agent-${item.id}`)?.scrollIntoView({ block: 'start' });
                   }}
-                  className="h-auto border-0 px-2.5 py-1 text-sm font-normal text-muted-foreground transition-colors hover:bg-hover hover:text-fg active:not-aria-[haspopup]:translate-y-0 [&]:rounded-item"
+                  // Keep the softer section labels, normal weight, translucent hover, and 9px corners.
+                  className="h-auto border-0 px-2.5 py-1 text-sm font-normal text-muted-foreground transition-colors hover:bg-hover active:not-aria-[haspopup]:translate-y-0 [&]:rounded-item"
                 >
                   {item.label}
                 </Button>
@@ -934,6 +939,7 @@ function AgentEditor({
                     <LineInput
                       id="agent-slug"
                       value={form.slug}
+                      // Keep monospace technical identifiers instead of the base sans-serif input.
                       className="font-mono"
                       readOnly
                       aria-describedby="agent-slug-hint"
@@ -975,6 +981,7 @@ function AgentEditor({
                     id="agent-prompt"
                     rows={16}
                     value={form.systemPrompt}
+                    // Keep compact monospace code text instead of the base prose typography.
                     className="font-mono text-xs leading-relaxed"
                     placeholder="描述角色、边界与工作方式；会写入 CLAUDE.md。"
                     onChange={(event) => set('systemPrompt', event.target.value)}
@@ -993,6 +1000,7 @@ function AgentEditor({
                       id="agent-model"
                       list="agent-models"
                       value={form.model}
+                      // Keep monospace technical identifiers instead of the base sans-serif input.
                       className="font-mono"
                       onChange={(event) => set('model', event.target.value)}
                     />
@@ -1045,7 +1053,7 @@ function AgentEditor({
                   setOpenSections((current) => ({ ...current, capability: !current.capability }))
                 }
               >
-                <div className="divide-y divide-line border-y border-line">
+                <div className="divide-y divide-line border-y">
                   <div className="py-3">
                     <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                       <h3 className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1318,7 +1326,7 @@ function AgentEditor({
                       }}
                       items={permissionOptions}
                     >
-                      <SelectTrigger id="agent-perm" className="h-9 rounded-item">
+                      <SelectTrigger id="agent-perm" className="h-9">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1344,6 +1352,7 @@ function AgentEditor({
                       id="agent-allowed-tools"
                       rows={3}
                       value={allowedText}
+                      // Keep compact monospace code text instead of the base prose typography.
                       className="font-mono text-xs leading-relaxed"
                       placeholder={'mcp__jsonplaceholder__get_user\nmcp__crm__*'}
                       aria-invalid={allowedInvalid}
@@ -1392,6 +1401,7 @@ function AgentEditor({
                                 ? '已放行：点击禁用'
                                 : '已禁用：点击放行'
                           }
+                          // Keep compact monospace permission chips and their enabled/disabled status colors.
                           className={cn(
                             'h-auto border-0 px-2 py-1 font-mono text-2xs font-normal transition-colors active:not-aria-[haspopup]:translate-y-0 [&]:rounded-tag',
                             enabled
@@ -1534,17 +1544,21 @@ function AgentEditor({
           side="right"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-full max-w-[480px]! gap-0 border-l border-line bg-surface p-0 shadow-overlay sm:max-w-[480px]!"
+          // Keep the project shadow.
+          className="w-full max-w-[480px]! gap-0 p-0 shadow-overlay sm:max-w-[480px]!"
         >
-          <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-3.5">
+          <div className="flex items-start justify-between gap-4 border-b px-5 py-3.5">
             <div className="min-w-0">
-              <SheetTitle className="text-md font-semibold text-fg">版本历史</SheetTitle>
-              <SheetDescription className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {/* Keep the larger, heavier history title instead of the base title typography. */}
+              <SheetTitle className="text-md font-semibold">版本历史</SheetTitle>
+              {/* Keep smaller, relaxed history help text instead of the base text-sm. */}
+              <SheetDescription className="mt-1 text-xs leading-relaxed">
                 每次保存生成一份快照。回滚会覆盖当前配置并生成新版本。
               </SheetDescription>
             </div>
             <SheetClose
               aria-label="关闭"
+              // SheetClose is unstyled; keep the subdued icon, 7px corners, hover, and focus ring.
               className="-mr-1 rounded-icon p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
             >
               <X className="size-4" />
@@ -1593,12 +1607,13 @@ function Section({
     <section
       id={`agent-${id}`}
       aria-labelledby={headingId}
-      className="scroll-mt-24 border-t border-line py-1 first:border-t-0"
+      className="scroll-mt-24 border-t py-1 first:border-t-0"
     >
       <Collapsible open={open} onOpenChange={onToggle}>
         <h2>
           <CollapsibleTrigger
             id={headingId}
+            // CollapsibleTrigger is unstyled; keep compact subdued headings, corners, and hover.
             className="flex w-full items-center gap-1.5 rounded-icon py-2.5 text-left text-xs text-subtle transition-colors hover:text-fg"
           >
             <ChevronRight
@@ -1637,8 +1652,9 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
 
+  // Collapsible is unstyled; keep the draft border, 9px corners, and compact muted trigger.
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="rounded-item border border-line">
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-item border">
       <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
         <ChevronRight
           className={cn(
@@ -1662,7 +1678,7 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
               transition={reduce ? { duration: 0 } : { duration: 0.15, ease: 'easeOut' }}
               className="overflow-hidden"
             >
-              <div className="border-t border-line p-2">
+              <div className="border-t p-2">
                 <CodeBlock code={code} maxHeight="22rem" />
               </div>
             </motion.div>
@@ -1871,7 +1887,7 @@ function VersionHistory({
         <InlineEmpty>还没有版本记录。修改配置并保存后，这里会留下第一份快照。</InlineEmpty>
       ) : null}
       {versions.data && versions.data.length > 0 ? (
-        <ul className="divide-y divide-line border-y border-line">
+        <ul className="divide-y divide-line border-y">
           {versions.data.map((item) => (
             <VersionRow
               key={item.id}
@@ -1955,6 +1971,7 @@ function VersionRow({
             />
             {open ? '收起差异' : '查看差异'}
           </Button>
+          {/* Keep pill action corners instead of the small button's 7px radius. */}
           <Button variant="outline" size="sm" className="rounded-full" onClick={onRollback}>
             <RotateCcw className="size-4" /> 回滚
           </Button>
@@ -1970,7 +1987,7 @@ function VersionRow({
             <p className="text-2xs text-subtle">与当前配置一致。</p>
           ) : null}
           {diff && diff.length > 0 ? (
-            <ul className="divide-y divide-line border-y border-line">
+            <ul className="divide-y divide-line border-y">
               {diff.map((entry) => (
                 <li
                   key={entry.label}
@@ -2057,6 +2074,7 @@ function CreateAgentDialog({
                 id="new-agent-slug"
                 value={form.slug}
                 placeholder="support-bot"
+                // Keep monospace for the technical slug instead of the base sans-serif input.
                 className="font-mono"
                 aria-invalid={Boolean(errors.slug)}
                 aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
@@ -2110,18 +2128,20 @@ function CreateAgentDialog({
             <CodeArea
               id="new-agent-prompt"
               rows={5}
+              // Keep compact monospace code text instead of the base prose typography.
               className="font-mono text-xs"
               value={form.systemPrompt}
               onChange={(event) => setForm({ ...form, systemPrompt: event.target.value })}
             />
           </div>
-          <div className="flex justify-end gap-2 border-t border-line pt-3">
+          <div className="flex justify-end gap-2 border-t pt-3">
             <Button variant="ghost" size="sm" onClick={onClose}>
               取消
             </Button>
             <Button
               type="submit"
               size="sm"
+              // Keep pill action corners instead of the small button's 7px radius.
               className="rounded-full px-3.5"
               disabled={create.isPending}
               aria-busy={create.isPending}

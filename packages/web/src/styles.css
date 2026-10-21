@@ -126,11 +126,10 @@
   --color-accent-foreground: var(--color-fg);
   --color-muted-foreground: rgb(3 3 3 / 0.6);
   --color-destructive: var(--color-danger);
+  --color-destructive-foreground: #fff;
   --color-border: var(--color-line);
   --color-input: var(--color-line);
   --color-ring: var(--color-fg);
-  /* muted 仍是项目的 60% 文本色；base-nova 的 bg-muted 复用了同名令牌，待统一语义。 */
-  /* destructive 保留项目危险状态色；不能在此悄悄改成无彩度。 */
   --secondary: var(--color-secondary); /* 次按钮悬停 color-mix 的原始 CSS 变量 */
   --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
 
@@ -141,6 +140,17 @@
 }
 
 @layer base {
+  /*
+   * 底座组件大量使用裸 `border`（不带颜色），Tailwind 会回落到 currentColor，
+   * 在本项目里就是近黑的文字色。这里统一给一个默认边框色，
+   * 组件内部就不必再逐个写 border-line（shadcn 官方也是这么做的）。
+   */
+  *,
+  ::after,
+  ::before {
+    border-color: var(--color-border);
+  }
+
   html {
     background-color: var(--color-canvas);
     color-scheme: light;

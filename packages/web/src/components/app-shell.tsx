@@ -104,7 +104,8 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
           aria-label="展开侧栏"
           aria-expanded={!collapsed}
           onClick={onToggle}
-          className="absolute left-0 top-0 size-8 rounded-icon p-0 text-fg opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
+          // Keep 7px corners and the translucent hover; ghost defaults to 9px and opaque muted.
+          className="absolute left-0 top-0 size-8 rounded-icon p-0 opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
         >
           <PanelLeftOpen className="size-4" />
         </Button>
@@ -126,6 +127,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
         aria-label="收起侧栏"
         aria-expanded={!collapsed}
         onClick={onToggle}
+        // Keep 7px corners and the translucent hover instead of the regular ghost defaults.
         className="size-8 rounded-icon p-0 hover:bg-hover"
       >
         <PanelLeftClose className="size-4" />
@@ -209,6 +211,7 @@ function UserMenu({ username }: { username: string }) {
         render={
           <Button
             variant="ghost"
+            // Keep the compact 12px account label, 7px corners, and opaque open-state surface.
             className="gap-2 rounded-icon px-2 text-xs data-[popup-open]:bg-sunken"
           >
             <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">
@@ -221,14 +224,16 @@ function UserMenu({ username }: { username: string }) {
       <DropdownMenuContent
         align="end"
         sideOffset={8}
-        className="w-48 rounded-icon border border-line bg-surface p-1 shadow-overlay"
+        // Keep the 7px menu corners, explicit border, and project overlay shadow.
+        className="w-48 rounded-icon border p-1 shadow-overlay"
       >
-        <div className="border-b border-line px-2.5 py-2">
+        <div className="border-b px-2.5 py-2">
           <div className="truncate text-xs text-fg">{username}</div>
           <div className="text-2xs text-subtle">管理员</div>
         </div>
         <DropdownMenuItem
-          className="mt-1 flex w-full items-center gap-2 rounded-icon px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken focus:text-fg"
+          // Keep the smaller muted label and opaque hover/focus surface instead of the base accent.
+          className="mt-1 flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken"
           onClick={() => void logout()}
         >
           <LogOut className="size-3.5" />
@@ -267,7 +272,7 @@ export function AppShell() {
         role="status"
         aria-label="加载中"
       >
-        <div className="hidden w-56 shrink-0 border-r border-line p-3 sm:block">
+        <div className="hidden w-56 shrink-0 border-r p-3 sm:block">
           <Skeleton className="mb-3 h-8 w-full" />
           <div className="flex flex-col gap-2">
             <Skeleton className="h-8 w-full" />
@@ -360,6 +365,7 @@ export function AppShell() {
                   variant="ghost"
                   aria-label={`账户 ${me.data.username ?? 'admin'}`}
                   onClick={() => setCollapsed(false)}
+                  // Keep the circular account surface and translucent hover instead of the ghost defaults.
                   className="size-8 rounded-full bg-sunken p-0 hover:bg-hover"
                 >
                   <User className="size-4" />
@@ -391,7 +397,8 @@ export function AppShell() {
             side="left"
             showCloseButton={false}
             aria-describedby={undefined}
-            className="w-[294px]! max-w-none! gap-0 border-r border-line bg-surface p-0 shadow-overlay sm:max-w-none! lg:hidden"
+            // Keep the project shadow.
+            className="w-[294px]! max-w-none! gap-0 p-0 shadow-overlay sm:max-w-none! lg:hidden"
           >
             <SheetTitle className="sr-only">导航</SheetTitle>
             <SheetClose
@@ -400,7 +407,8 @@ export function AppShell() {
                   variant="ghost"
                   size="icon-sm"
                   aria-label="关闭导航"
-                  className="absolute right-3 top-4 z-10 rounded-icon text-subtle hover:bg-hover"
+                  // Keep the subdued close icon and translucent hover instead of the ghost defaults.
+                  className="absolute right-3 top-4 z-10 text-subtle hover:bg-hover"
                 >
                   <X className="size-4" />
                 </Button>
@@ -421,6 +429,7 @@ export function AppShell() {
               aria-label="打开导航"
               aria-expanded={mobileOpen}
               onClick={() => setMobileOpen(true)}
+              // Keep the 7px icon corners and translucent hover instead of the regular ghost defaults.
               className="-ml-1 rounded-icon p-1.5 hover:bg-hover"
             >
               <Menu className="size-5" />

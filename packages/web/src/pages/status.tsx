@@ -41,7 +41,7 @@ function StatusPill({ state }: { state: CheckState }) {
           ? CircleAlert
           : CircleX;
   return (
-    <StatusBadge tone={stateVariant[state]} className="rounded-tag">
+    <StatusBadge tone={stateVariant[state]}>
       <Icon className={state === 'pending' ? 'size-3 animate-spin' : 'size-3'} aria-hidden="true" />
       {stateLabel[state]}
     </StatusBadge>
@@ -75,7 +75,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Reason({ children }: { children: ReactNode }) {
   return (
-    <div className="flex items-start gap-1.5 border-t border-line pt-2 text-sm leading-relaxed text-danger">
+    <div className="flex items-start gap-1.5 border-t pt-2 text-sm leading-relaxed text-danger">
       <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span>{children}</span>
     </div>
@@ -192,6 +192,7 @@ function SmokeChecklist() {
         <Button
           variant="outline"
           size="sm"
+          // Keep the section action pill-shaped instead of the compact button radius.
           className="rounded-full"
           disabled={running}
           onClick={() => void run()}
@@ -216,7 +217,7 @@ function SmokeChecklist() {
           {steps.map((step) => (
             <li
               key={step.label}
-              className="flex items-center gap-3 border-b border-line py-3 text-sm last:border-b-0"
+              className="flex items-center gap-3 border-b py-3 text-sm last:border-b-0"
             >
               {step.state === 'ok' ? (
                 <CircleCheck className="size-4 shrink-0 text-success" aria-hidden="true" />
@@ -237,7 +238,7 @@ function SmokeChecklist() {
             </li>
           ))}
           {running ? (
-            <li className="flex items-center gap-2 border-b border-line py-3 text-sm text-subtle">
+            <li className="flex items-center gap-2 border-b py-3 text-sm text-subtle">
               <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
               下一项检查中…
             </li>
@@ -300,6 +301,7 @@ export function StatusPage() {
         title="健康"
         description="API 进程、队列、数据库连接池与 Redis 的实时状态，每 10 秒自动刷新。"
         actions={
+          // Keep the refresh action consistent with the section action pill.
           <Button variant="outline" size="sm" className="rounded-full" onClick={refresh}>
             <RefreshCw className="size-4" aria-hidden="true" /> 立即刷新
           </Button>
@@ -324,16 +326,10 @@ export function StatusPage() {
         </div>
         {!ready.isPending && !ready.isError && ready.data?.body ? (
           <div className="mt-1 flex gap-2">
-            <StatusBadge
-              tone={ready.data.body.db === 'ok' ? 'success' : 'danger'}
-              className="rounded-tag"
-            >
+            <StatusBadge tone={ready.data.body.db === 'ok' ? 'success' : 'danger'}>
               数据库 {ready.data.body.db === 'ok' ? '正常' : '不可用'}
             </StatusBadge>
-            <StatusBadge
-              tone={ready.data.body.redis === 'ok' ? 'success' : 'danger'}
-              className="rounded-tag"
-            >
+            <StatusBadge tone={ready.data.body.redis === 'ok' ? 'success' : 'danger'}>
               Redis {ready.data.body.redis === 'ok' ? '正常' : '不可用'}
             </StatusBadge>
           </div>

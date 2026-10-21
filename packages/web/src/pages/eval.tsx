@@ -63,7 +63,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '100px',
     sortValue: (run) => run.status,
     cell: (run) => (
-      <StatusBadge tone={evalStatusVariant[run.status]} className="rounded-tag">
+      <StatusBadge tone={evalStatusVariant[run.status]}>
         {run.status === 'running' ? (
           <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
         ) : null}
@@ -172,6 +172,7 @@ export function EvalPage() {
         actions={
           <Button
             size="sm"
+            // Keep the page action pill-shaped instead of the compact button radius.
             className="rounded-full"
             onClick={startRun}
             disabled={startDisabledReason !== null}
@@ -216,6 +217,7 @@ export function EvalPage() {
           <Button
             variant="outline"
             size="sm"
+            // Keep the page action pill-shaped instead of the compact button radius.
             className="rounded-full"
             disabled={!effectiveAgentId}
             onClick={() => setCreating(true)}
@@ -245,6 +247,7 @@ export function EvalPage() {
             title="还没有用例"
             description="把线上出过问题的输入写成用例，下次改动前先跑一遍。"
             action={
+              // Keep the empty-state action consistent with the page action pills.
               <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
                 <Plus className="size-4" aria-hidden="true" /> 新建用例
               </Button>
@@ -256,7 +259,7 @@ export function EvalPage() {
             {cases.data.map((testCase) => (
               <li
                 key={testCase.id}
-                className="group flex min-h-14 items-start gap-3 border-b border-line px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
+                className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-md font-medium text-fg">{testCase.name}</div>
@@ -277,6 +280,7 @@ export function EvalPage() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    // Signal deletion on hover while preserving the neutral ghost button at rest.
                     className="hover:text-danger"
                     onClick={() => setDeleting(testCase)}
                   >
@@ -351,10 +355,10 @@ function EvalRunResults({ id }: { id: string }) {
         <li
           // 用例被删除后 caseId 为 null：退回「名称 + 提示词」，两者相同即同一条用例。
           key={result.caseId ?? `${result.name}\u0000${result.prompt}`}
-          className="border-b border-line py-4 last:border-b-0 last:pb-0"
+          className="border-b py-4 last:border-b-0 last:pb-0"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone={result.passed ? 'success' : 'danger'} className="rounded-tag">
+            <StatusBadge tone={result.passed ? 'success' : 'danger'}>
               {result.passed ? '通过' : '未通过'}
             </StatusBadge>
             <span className="text-md font-medium text-fg">{result.name}</span>

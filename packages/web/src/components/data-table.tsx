@@ -166,7 +166,8 @@ function ColumnRow({
         {...attributes}
         {...listeners}
         aria-label={`拖动调整「${column.header}」顺序`}
-        className="cursor-grab touch-none rounded-tag border-0 p-1 text-subtle transition-none hover:bg-hover hover:text-fg active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-2 focus-visible:ring-fg"
+        // Keep the subdued drag handle, 6px corners, translucent hover, and stronger focus ring.
+        className="cursor-grab touch-none rounded-tag border-0 p-1 text-subtle transition-none hover:bg-hover active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-2 focus-visible:ring-fg"
       >
         <GripVertical className="size-4" aria-hidden="true" />
       </Button>
@@ -347,7 +348,7 @@ export function DataTable<T>({
             >
               <PopoverTrigger
                 render={
-                  <Button variant="ghost" size="sm" className="rounded-icon" aria-label="列设置">
+                  <Button variant="ghost" size="sm" aria-label="列设置">
                     <Columns3 className="size-4" aria-hidden="true" />列
                   </Button>
                 }
@@ -359,7 +360,7 @@ export function DataTable<T>({
             {/* 浮层必须挂在弹层之外：Popper 容器的 transform 会成为 fixed 的包含块。 */}
             <DragOverlay>
               {draggingColumn ? (
-                <div className="rounded-icon border border-line bg-surface px-2 py-1.5 text-xs shadow-overlay">
+                <div className="rounded-icon border bg-surface px-2 py-1.5 text-xs shadow-overlay">
                   {draggingColumn.header}
                 </div>
               ) : null}
@@ -370,7 +371,7 @@ export function DataTable<T>({
       <section className="overflow-x-auto" aria-label={label}>
         <div style={{ minWidth }}>
           <div
-            className="grid items-center gap-3 border-b border-line px-3 pb-2 text-xs text-subtle"
+            className="grid items-center gap-3 border-b px-3 pb-2 text-xs text-subtle"
             style={{ gridTemplateColumns: template }}
           >
             {visible.map((col) => (
@@ -409,7 +410,7 @@ export function DataTable<T>({
           {loading && rows.length === 0 ? (
             <div>
               {Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
-                <Skeleton key={key} className="h-14 border-b border-line" />
+                <Skeleton key={key} className="h-14 border-b" />
               ))}
             </div>
           ) : rows.length === 0 ? (
@@ -446,7 +447,7 @@ export function DataTable<T>({
                   isOpen && 'bg-hover',
                 );
                 return (
-                  <div key={key} className="group border-b border-line last:border-b-0">
+                  <div key={key} className="group border-b last:border-b-0">
                     {interactive ? (
                       <button
                         type="button"
@@ -469,7 +470,7 @@ export function DataTable<T>({
                       </div>
                     )}
                     {isOpen && (
-                      <div id={panelId} className="border-t border-line px-3 py-4">
+                      <div id={panelId} className="border-t px-3 py-4">
                         {expandedContent}
                       </div>
                     )}

@@ -29,6 +29,7 @@ export function SearchInput({
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
+        // Keep the compact search field's 7px corners instead of the base 9px.
         className="rounded-icon pl-8 pr-8 [&::-webkit-search-cancel-button]:hidden"
       />
       {value ? (
@@ -36,7 +37,8 @@ export function SearchInput({
           variant="ghost"
           size="icon-sm"
           aria-label="清除搜索"
-          className="absolute right-1.5 top-1/2 z-10 size-auto -translate-y-1/2 rounded p-1 text-subtle hover:bg-transparent hover:text-fg"
+          // Keep the subdued clear icon and transparent hover instead of the ghost defaults.
+          className="absolute right-1.5 top-1/2 z-10 size-auto -translate-y-1/2 rounded p-1 text-subtle hover:bg-transparent"
           onClick={() => onChange('')}
         >
           <X className="size-3.5" />

@@ -101,15 +101,14 @@ const kindMeta: Record<Kind, { label: string; hint: string; newHint: string }> =
   },
 };
 
-/** 表单控件 36px / radius 9，跟随设计基准；表格行里的控件不受影响。 */
+/** Keep server form fields at 36px with 12px horizontal padding for configuration entry. */
 function LineInput({ className, ...props }: ComponentProps<'input'>) {
-  return <Input className={cn('h-9 rounded-item px-3', className)} {...props} />;
+  return <Input className={cn('h-9 px-3', className)} {...props} />;
 }
 
 function CodeArea({ className, ...props }: ComponentProps<'textarea'>) {
-  return (
-    <Textarea className={cn('rounded-item px-3 py-2 leading-relaxed', className)} {...props} />
-  );
+  // Keep wider padding and relaxed leading so multiline configuration stays readable.
+  return <Textarea className={cn('px-3 leading-relaxed', className)} {...props} />;
 }
 
 /** 最近一次连接测试；只存在页面内存里，刷新或换设备后消失（后端没有持久化字段）。 */
@@ -237,7 +236,8 @@ export function ServersPage() {
             >
               <SelectTrigger
                 aria-label="按来源筛选"
-                className="w-36 rounded-item border-transparent bg-chip hover:bg-hover"
+                // Keep the header filter borderless with a chip surface and hover feedback.
+                className="w-36 border-transparent bg-chip hover:bg-hover"
               >
                 <SelectValue />
               </SelectTrigger>
@@ -256,11 +256,13 @@ export function ServersPage() {
               value={query}
               onChange={setQuery}
               placeholder="搜索名称、描述或地址…"
+              // Match the 9px header filter corners and its borderless chip surface.
               className="w-56 [&_input]:rounded-item [&_input]:border-transparent [&_input]:bg-chip"
             />
             <Button
               ref={createButtonRef}
               size="sm"
+              // Keep the header action as a 32px pill with room for its label.
               className="h-8 rounded-full px-3.5"
               onClick={openCreate}
             >
@@ -311,6 +313,7 @@ export function ServersPage() {
         <Table>
           <caption className="sr-only">MCP Server 列表</caption>
           <TableHeader>
+            {/* Keep table headings static when the pointer crosses the header. */}
             <TableRow className="hover:bg-transparent">
               <TableHead className="pl-2">名称</TableHead>
               <TableHead className="w-36">来源</TableHead>
@@ -408,6 +411,7 @@ function ServerRow({
   const tools = useTools(generated ? server.id : null);
 
   return (
+    // Keep server rows on the lighter chip hover surface instead of muted/50.
     <TableRow data-slot="server-row" className="h-14 hover:bg-chip">
       <TableCell className="pl-2">
         <div className="min-w-0">
@@ -453,7 +457,8 @@ function ServerRow({
           <DropdownMenuContent
             align="end"
             sideOffset={4}
-            className="w-40 rounded-card border border-line bg-surface p-1 shadow-overlay"
+            // Keep 16px corners, the border, and the project shadow.
+            className="w-40 rounded-card border shadow-overlay"
           >
             <DropdownMenuItem disabled={testing} onClick={onTest}>
               <Plug className="size-4" /> {testing ? '测试中…' : '测试连接'}
@@ -468,7 +473,7 @@ function ServerRow({
                 </DropdownMenuItem>
               </>
             ) : null}
-            <DropdownMenuSeparator className="bg-line" />
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onEdit}>
               <Pencil className="size-4" /> 编辑
             </DropdownMenuItem>
@@ -741,7 +746,8 @@ function ToolEditorDialog({
         title={`工具定义「${server.name}」`}
         description="每个上游 HTTP 端点对应一个 MCP 工具。路径里的 {param} 必须在 inputSchema.properties 中有同名属性。"
         finalFocus={returnFocusRef}
-        className="max-w-3xl rounded-card [&>div:last-child]:px-6 [&>div:last-child]:py-6"
+        // Keep the tool editor body's 24px padding for the dense configuration form.
+        className="max-w-3xl [&>div:last-child]:px-6 [&>div:last-child]:py-6"
       >
         <div className="flex flex-col gap-5">
           {tools.isPending ? <LoadingState rows={2} /> : null}
@@ -755,6 +761,7 @@ function ToolEditorDialog({
             <Table>
               <caption className="sr-only">生成的工具定义</caption>
               <TableHeader>
+                {/* Keep table headings static when the pointer crosses the header. */}
                 <TableRow className="hover:bg-transparent">
                   <TableHead>名称</TableHead>
                   <TableHead className="w-20">方法</TableHead>
@@ -769,6 +776,7 @@ function ToolEditorDialog({
               </TableHeader>
               <TableBody>
                 {tools.data.map((tool) => (
+                  // Keep tool rows on the same light chip hover surface as server rows.
                   <TableRow key={tool.id} className="h-14 hover:bg-chip">
                     <TableCell>
                       <div className="flex items-center gap-1.5">
@@ -790,9 +798,11 @@ function ToolEditorDialog({
                         {tool.method}
                       </span>
                     </TableCell>
+                    {/* Keep paths compact and monospaced beside tool metadata. */}
                     <TableCell className="font-mono text-2xs text-muted-foreground">
                       {tool.pathTemplate}
                     </TableCell>
+                    {/* Keep parameter placement subordinate to the tool name. */}
                     <TableCell className="text-2xs text-muted-foreground">
                       {tool.paramsIn}
                     </TableCell>
@@ -834,6 +844,7 @@ function ToolEditorDialog({
                           variant="ghost"
                           size="icon-sm"
                           aria-label={`删除工具 ${tool.name}`}
+                          // Signal deletion on hover while keeping the neutral ghost button at rest.
                           className="hover:text-danger"
                           onClick={() => setDeleting(tool)}
                         >
@@ -995,7 +1006,7 @@ function ToolForm({
 
   return (
     <form
-      className="grid gap-3 border-t border-line pt-5 sm:grid-cols-6"
+      className="grid gap-3 border-t pt-5 sm:grid-cols-6"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -1105,6 +1116,7 @@ function ToolForm({
           id={`tool-schema-${serverId}`}
           rows={4}
           value={schemaText}
+          // Keep configuration values compact and monospaced for literal editing.
           className="font-mono text-xs"
           aria-invalid={Boolean(errors.inputSchema)}
           aria-describedby={errors.inputSchema ? `tool-schema-error-${serverId}` : undefined}
@@ -1126,6 +1138,7 @@ function ToolForm({
         <Button
           type="submit"
           size="sm"
+          // Keep the form action pill-shaped with the existing label padding.
           className="rounded-full px-3.5"
           disabled={pending || !form.name}
         >
@@ -1325,7 +1338,7 @@ function ServerFormDialog({
                     }}
                     className={cn(
                       'rounded-item border px-3 py-2.5 text-left transition-colors',
-                      kind === value ? 'border-fg bg-chip' : 'border-line hover:bg-hover',
+                      kind === value ? 'border-fg bg-chip' : 'hover:bg-hover',
                     )}
                   >
                     <span className="block text-sm text-fg">{kindMeta[value].label}</span>
@@ -1385,6 +1398,7 @@ function ServerFormDialog({
                       id="server-command"
                       value={form.command}
                       placeholder="npx"
+                      // Keep command syntax monospaced to make executable names easy to scan.
                       className="font-mono"
                       aria-invalid={Boolean(errors.command)}
                       aria-describedby={errors.command ? 'server-command-error' : undefined}
@@ -1398,6 +1412,7 @@ function ServerFormDialog({
                       id="server-args"
                       rows={2}
                       value={form.args}
+                      // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       placeholder={'-y\n@modelcontextprotocol/server-filesystem\n/tmp'}
                       onChange={(event) => setForm({ ...form, args: event.target.value })}
@@ -1409,6 +1424,7 @@ function ServerFormDialog({
                       id="server-env"
                       rows={2}
                       value={form.pairs}
+                      // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       placeholder="TOKEN=…"
                       onChange={(event) => setForm({ ...form, pairs: event.target.value })}
@@ -1431,6 +1447,7 @@ function ServerFormDialog({
                       placeholder={
                         kind === 'http' ? 'https://example.com/mcp' : 'https://api.example.com/v1'
                       }
+                      // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       aria-invalid={Boolean(urlError)}
                       aria-describedby={urlError ? 'server-url-error' : 'server-url-hint'}
@@ -1458,6 +1475,7 @@ function ServerFormDialog({
                       id="server-headers"
                       rows={2}
                       value={form.pairs}
+                      // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       placeholder="Authorization=Bearer …"
                       onChange={(event) => setForm({ ...form, pairs: event.target.value })}
@@ -1475,13 +1493,14 @@ function ServerFormDialog({
 
           {errors.form ? <FieldError>{errors.form}</FieldError> : null}
 
-          <div className="flex justify-end gap-2 border-t border-line pt-4">
+          <div className="flex justify-end gap-2 border-t pt-4">
             <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
               取消
             </Button>
             <Button
               type="submit"
               size="sm"
+              // Keep the form action pill-shaped with the existing label padding.
               className="rounded-full px-3.5"
               disabled={pending || kind === null}
               aria-busy={pending}

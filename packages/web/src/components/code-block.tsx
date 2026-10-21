@@ -82,16 +82,15 @@ export function CodeBlock({
     }
   };
 
+  // Collapsible is unstyled; keep the code surface, border, and container corners.
   return (
     <Collapsible
       open={open}
       onOpenChange={setExpanded}
-      className={cn(
-        'group relative overflow-hidden rounded-card border border-line bg-code',
-        className,
-      )}
+      className={cn('group relative overflow-hidden rounded-card border bg-code', className)}
     >
       {large && (
+        // Keep compact disclosure text and its focus ring; the primitive supplies no styling.
         <CollapsibleTrigger className="px-3 py-2 text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
           {expanded ? '收起内容' : '内容过大，点击查看'}
         </CollapsibleTrigger>
@@ -103,7 +102,7 @@ export function CodeBlock({
               type="button"
               onClick={() => void copy()}
               aria-label={copied ? '已复制' : copyLabel}
-              className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-icon border border-line bg-surface/90 px-2 text-2xs text-muted-foreground opacity-0 backdrop-blur transition-opacity hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg group-hover:opacity-100"
+              className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-icon border bg-surface/90 px-2 text-2xs text-muted-foreground opacity-0 backdrop-blur transition-opacity hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg group-hover:opacity-100"
             >
               {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
               {copied ? '已复制' : copyLabel}
@@ -150,6 +149,7 @@ export function CollapsibleText({ text, className }: { text: string; className?:
   if (text.length <= LARGE_CONTENT_CHARS) return <div className={className}>{text}</div>;
   return (
     <Collapsible open={open} onOpenChange={setOpen} className={className}>
+      {/* Keep compact disclosure text and its focus ring; the primitive supplies no styling. */}
       <CollapsibleTrigger className="text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
         {open ? '收起内容' : '内容过大，点击查看'}
       </CollapsibleTrigger>

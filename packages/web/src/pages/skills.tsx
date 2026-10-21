@@ -40,6 +40,7 @@ export function SkillsPage() {
           <Button
             ref={createButtonRef}
             size="sm"
+            // Keep the page action pill-shaped instead of the compact button radius.
             className="rounded-full"
             onClick={() => setCreating(true)}
           >
@@ -58,6 +59,7 @@ export function SkillsPage() {
           title="还没有技能"
           description="把重复出现的步骤写成技能，多个智能体可以共享它。"
           action={
+            // Keep the empty-state action consistent with the page action pill.
             <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
               <Plus className="size-4" aria-hidden="true" /> 新建技能
             </Button>
@@ -70,7 +72,7 @@ export function SkillsPage() {
           {skills.data.map((skill) => (
             <li
               key={skill.id}
-              className="group flex min-h-14 items-start gap-4 border-b border-line px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
+              className="group flex min-h-14 items-start gap-4 border-b px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -95,6 +97,7 @@ export function SkillsPage() {
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  // Signal deletion on hover while keeping the neutral ghost button at rest.
                   className="hover:text-danger"
                   onClick={() => setDeleting(skill)}
                 >
@@ -232,6 +235,7 @@ function SkillDialog({
                 aria-invalid={Boolean(errors.slug)}
                 aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
                 onChange={(event) => set('slug', event.target.value)}
+                // Keep the directory slug monospaced for literal identifier editing.
                 className="font-mono"
               />
               {skill ? (
@@ -264,6 +268,7 @@ function SkillDialog({
               rows={10}
               value={form.body}
               onChange={(event) => set('body', event.target.value)}
+              // Keep Markdown compact and monospaced with readable line spacing.
               className="font-mono text-xs leading-relaxed"
               placeholder="1. 先读取 …&#10;2. 再调用 mcp__…&#10;3. 最后汇总 …"
             />

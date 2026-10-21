@@ -371,7 +371,7 @@ function ChatWorkspace({
           side="left"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-[294px]! max-w-none! gap-0 border-r border-line bg-surface p-0"
+          className="w-[294px]! max-w-none! gap-0 p-0"
         >
           <SheetTitle className="sr-only">会话历史</SheetTitle>
           <HistoryHeader onNew={newConversation} onClose={() => setHistoryOpen(false)} />
@@ -395,7 +395,7 @@ function ChatWorkspace({
                 {historyPanel}
               </aside>
             </Panel>
-            <Separator className="w-px border-r border-line" aria-label="调整会话列表宽度" />
+            <Separator className="w-px border-r" aria-label="调整会话列表宽度" />
             <Panel id="chat">{column}</Panel>
           </Group>
         </div>
@@ -473,11 +473,12 @@ function HistoryPanel({
                 variant="ghost"
                 aria-current={conversation.id === conversationId ? 'true' : undefined}
                 onClick={() => onOpen(conversation.id)}
+                // Keep normal-weight history text, muted inactive labels, and the translucent row hover.
                 className={cn(
-                  'h-auto w-full min-w-0 flex-col items-start gap-0 whitespace-normal rounded-item px-2.5 py-2 pr-8 text-left font-normal',
+                  'h-auto w-full min-w-0 flex-col items-start gap-0 whitespace-normal px-2.5 py-2 pr-8 text-left font-normal',
                   conversation.id === conversationId
                     ? 'bg-hover text-fg'
-                    : 'text-muted-foreground hover:bg-hover hover:text-fg',
+                    : 'text-muted-foreground hover:bg-hover',
                 )}
               >
                 <span className="block w-full truncate text-sm">{conversation.title}</span>
@@ -505,7 +506,7 @@ function HistoryPanel({
         </ul>
       </div>
       {!supported && history.length > 0 ? (
-        <p className="border-t border-line px-3 py-2 text-xs leading-relaxed text-subtle">
+        <p className="border-t px-3 py-2 text-xs leading-relaxed text-subtle">
           历史列表来自本浏览器；服务端列表接口上线后会自动切换。
         </p>
       ) : null}
@@ -600,7 +601,8 @@ function ChatColumn({
         >
           <SelectTrigger
             id="chat-agent"
-            className="w-auto max-w-56 gap-1.5 rounded-pill border-0 bg-hover px-3 text-xs leading-3 tracking-[-0.12px] [&>span:first-child]:truncate [&_svg]:size-4"
+            // Keep the borderless pill selector and compact typography instead of the base field appearance.
+            className="w-auto max-w-56 gap-1.5 rounded-pill border-0 bg-hover px-3 text-xs leading-3 tracking-[-0.12px] [&>span:first-child]:truncate"
           >
             <SelectValue />
           </SelectTrigger>
@@ -693,7 +695,8 @@ function Composer({
             title={run ? '本轮流式输出结束后即可继续输入，不会丢失当前内容' : undefined}
             disabled={!agent || Boolean(run)}
             value={input}
-            className="h-8 min-h-8 min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 py-1.5 text-md leading-5 tracking-[-0.15px] shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
+            // The capsule owns the border and focus surface; keep its larger 15px composer text.
+            className="h-8 min-h-8 min-w-0 flex-1 resize-none rounded-none border-0 px-0 py-1.5 text-md leading-5 tracking-[-0.15px] shadow-none focus-visible:ring-0"
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -708,6 +711,7 @@ function Composer({
               disabled
               aria-label="发送消息"
               title="运行中，结束后可发送"
+              // Keep circular send controls and their quiet disabled surface instead of the base button appearance.
               className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover"
             >
               <ArrowUp className="size-4" />
@@ -717,6 +721,7 @@ function Composer({
               type="submit"
               disabled={!agent || !input.trim()}
               aria-label="发送消息"
+              // Keep circular send controls and subdued disabled text instead of the base button appearance.
               className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover disabled:text-subtle"
             >
               <ArrowUp className="size-4" />
@@ -800,7 +805,7 @@ function RunStatusBar({
           : `第 ${turn} 轮 · ${tool ? `正在调用 ${tool.name}` : '等待模型响应'}`;
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-line bg-surface px-3 py-1.5">
+    <div className="flex shrink-0 items-center gap-2 border-t bg-surface px-3 py-1.5">
       <span className="size-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate text-2xs text-fg">{text}</span>
       {run.status === 'reconnecting' || run.status === 'detached' ? (
@@ -903,8 +908,10 @@ function MessagePane({
             {!loading && !error && items.length > 0
               ? turns.map((turn, turnIndex) => (
                   <MessageScrollerItem key={turn.id} messageId={turn.id}>
-                    <Message align={turn.user ? 'end' : 'start'} className="text-md text-fg">
+                    {/* Keep 15px conversation text instead of the base message's text-sm. */}
+                    <Message align={turn.user ? 'end' : 'start'} className="text-md">
                       <MessageContent
+                        // Keep the user's pill surface; MessageContent supplies layout without a bubble appearance.
                         className={cn(
                           'gap-4',
                           turn.user && 'w-fit max-w-[85%] rounded-pill bg-hover px-4 py-2',
@@ -959,7 +966,8 @@ function MessagePane({
             variant="outline"
             size="xs"
             behavior={reduce ? 'instant' : 'smooth'}
-            className="border-line bg-surface text-fg hover:bg-hover hover:text-fg motion-reduce:transition-none"
+            // Keep the translucent hover; outline defaults to the opaque muted surface.
+            className="hover:bg-hover motion-reduce:transition-none"
           >
             <ArrowDown className="size-3" /> 回到底部
           </MessageScrollerButton>
@@ -1181,6 +1189,7 @@ function renderAssistantText(text: string) {
     return (
       <CollapsibleText
         text={text}
+        // Keep readable message typography when large text is forwarded to the unstyled Collapsible.
         className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg"
       />
     );
@@ -1288,7 +1297,7 @@ const ApprovalCard = memo(function ApprovalCard({
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={reduce ? STILL : EXPAND}
-      className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-chip px-3 py-2"
+      className="flex flex-wrap items-center gap-2 rounded-card border bg-chip px-3 py-2"
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg">
@@ -1329,6 +1338,7 @@ const ToolRow = memo(function ToolRow({
       ? item.endedAt - item.startedAt
       : undefined;
 
+  // Collapsible is unstyled; keep the tool surface, 9px corners, hover, and keyboard focus ring.
   return (
     <Collapsible
       open={open}
@@ -1376,7 +1386,7 @@ const ToolRow = memo(function ToolRow({
                   子智能体 · {childCount} 次调用
                 </p>
               ) : null}
-              <div className="grid gap-2 border-t border-line p-2 md:grid-cols-2">
+              <div className="grid gap-2 border-t p-2 md:grid-cols-2">
                 <div className="min-w-0">
                   <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
                     参数
