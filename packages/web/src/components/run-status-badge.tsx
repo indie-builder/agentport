@@ -1,6 +1,6 @@
 import type { RunStatus } from '../lib/api.js';
 import { runStatusLabel, runStatusVariant } from '../lib/format.js';
-import { StatusBadge } from './ui/status-badge.js';
+import { StatusBadge } from './status-badge.js';
 
 export function RunStatusBadge({ status }: { status: RunStatus }) {
   return (

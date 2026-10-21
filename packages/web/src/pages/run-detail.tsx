@@ -1,7 +1,8 @@
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { ArrowLeft, Bot, Check, CircleAlert, Copy, RotateCcw, User, Wrench } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { ArrowLeft, Bot, CircleAlert, RotateCcw, User, Wrench } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
+import { CopyButton } from '../components/copy-button.js';
 import { Page, PageHeader } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
@@ -26,30 +27,6 @@ import { toastError, toastSuccess } from '../lib/toast.js';
  * 也看不出哪一步最慢。这里左栏给「谁花了多久」，右栏给「它到底传了什么、拿回了什么」。
  * 选中步骤写进 URL（?step=），可分享、刷新不丢。
  */
-
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // 非安全上下文或权限被拒时静默失败，内容仍可手动选择。
-    }
-  };
-  return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      onClick={() => void copy()}
-      aria-label={copied ? '已复制' : label}
-      title={copied ? '已复制' : label}
-    >
-      {copied ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
-    </Button>
-  );
-}
 
 function elapsed(at: string, start: string | null): number {
   const base = new Date(start ?? at).getTime();

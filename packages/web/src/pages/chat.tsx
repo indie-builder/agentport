@@ -29,13 +29,13 @@ import {
 } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { CodeBlock, CollapsibleText, JsonBlock } from '../components/code-block.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button } from '../components/ui/button.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '../components/ui/collapsible.js';
+} from '../components/motion-collapsible.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { Button } from '../components/ui/button.js';
 import { Message, MessageContent, MessageGroup } from '../components/ui/message.js';
 import {
   MessageScroller,

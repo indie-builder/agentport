@@ -26,6 +26,7 @@ import {
 } from 'react';
 import { cn } from '../lib/cn.js';
 import { Button } from './ui/button.js';
+import { Checkbox } from './ui/checkbox.js';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
 import { Skeleton } from './ui/skeleton.js';
 
@@ -172,12 +173,7 @@ function ColumnRow({
         <GripVertical className="size-4" aria-hidden="true" />
       </Button>
       <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-icon px-2 py-1.5 text-xs hover:bg-hover">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={onToggle}
-          className="size-4 accent-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
-        />
+        <Checkbox checked={checked} onCheckedChange={() => onToggle()} />
         {column.header}
       </label>
     </div>

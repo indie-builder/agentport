@@ -4,9 +4,8 @@ import { Activity, FileCode2, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Brand } from '../components/brand.js';
 import { Button } from '../components/ui/button.js';
-import { FieldError } from '../components/ui/field.js';
+import { Field, FieldError, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
-import { Label } from '../components/ui/label.js';
 import { api, errorMessage } from '../lib/api.js';
 import { queryClient } from '../lib/queries.js';
 
@@ -93,8 +92,8 @@ export function LoginPage() {
               login.mutate();
             }}
           >
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="username">用户名</Label>
+            <Field className="gap-1.5" data-invalid={Boolean(error)}>
+              <FieldLabel htmlFor="username">用户名</FieldLabel>
               <Input
                 id="username"
                 autoComplete="username"
@@ -103,9 +102,9 @@ export function LoginPage() {
                 aria-describedby={error ? 'login-error' : undefined}
                 onChange={(event) => setUsername(event.target.value)}
               />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="password">密码</Label>
+            </Field>
+            <Field className="gap-1.5" data-invalid={Boolean(error)}>
+              <FieldLabel htmlFor="password">密码</FieldLabel>
               <Input
                 id="password"
                 type="password"
@@ -117,7 +116,7 @@ export function LoginPage() {
                 onChange={(event) => setPassword(event.target.value)}
               />
               <FieldError id="login-error">{error ?? undefined}</FieldError>
-            </div>
+            </Field>
             <Button
               type="submit"
               className="w-full"

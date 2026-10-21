@@ -25,6 +25,7 @@ import { Button } from './ui/button.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu.js';
@@ -211,6 +212,7 @@ function UserMenu({ username }: { username: string }) {
         render={
           <Button
             variant="ghost"
+            aria-label={`账户 ${username}`}
             // Keep the compact 12px account label, 7px corners, and opaque open-state surface.
             className="gap-2 rounded-icon px-2 text-xs data-[popup-open]:bg-sunken"
           >
@@ -231,14 +233,16 @@ function UserMenu({ username }: { username: string }) {
           <div className="truncate text-xs text-fg">{username}</div>
           <div className="text-2xs text-subtle">管理员</div>
         </div>
-        <DropdownMenuItem
-          // Keep the smaller muted label and opaque hover/focus surface instead of the base accent.
-          className="mt-1 flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken"
-          onClick={() => void logout()}
-        >
-          <LogOut className="size-3.5" />
-          退出登录
-        </DropdownMenuItem>
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            // Keep the smaller muted label and opaque hover/focus surface instead of the base accent.
+            className="mt-1 flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken"
+            onClick={() => void logout()}
+          >
+            <LogOut className="size-3.5" />
+            退出登录
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -9,8 +9,8 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
+import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
-import { StatusBadge } from '../components/ui/status-badge.js';
 import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
 import { formatBytes, formatDuration } from '../lib/format.js';
 import { healthLiveQuery, healthMetricsQuery, healthReadyQuery } from '../lib/queries.js';

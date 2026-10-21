@@ -13,9 +13,14 @@ import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
-import { FieldDescription, FieldError } from '../components/ui/field.js';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
-import { Label } from '../components/ui/label.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
@@ -210,11 +215,11 @@ function SkillDialog({
         {...(returnFocusRef ? { finalFocus: returnFocusRef } : {})}
       >
         <form onSubmit={submit} className="flex flex-col gap-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="skill-name">
+          <FieldGroup className="grid gap-3 sm:grid-cols-2">
+            <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
+              <FieldLabel htmlFor="skill-name">
                 名称 <RequiredMark />
-              </Label>
+              </FieldLabel>
               <Input
                 id="skill-name"
                 value={form.name}
@@ -223,11 +228,15 @@ function SkillDialog({
                 onChange={(event) => set('name', event.target.value)}
               />
               <FieldError id="skill-name-error">{errors.name}</FieldError>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="skill-slug">
+            </Field>
+            <Field
+              className="gap-1.5"
+              data-invalid={Boolean(errors.slug)}
+              data-disabled={Boolean(skill)}
+            >
+              <FieldLabel htmlFor="skill-slug">
                 Slug <RequiredMark />
-              </Label>
+              </FieldLabel>
               <Input
                 id="skill-slug"
                 value={form.slug}
@@ -245,12 +254,12 @@ function SkillDialog({
               ) : (
                 <FieldError id="skill-slug-error">{errors.slug}</FieldError>
               )}
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="skill-desc">
+            </Field>
+          </FieldGroup>
+          <Field className="gap-1.5" data-invalid={Boolean(errors.description)}>
+            <FieldLabel htmlFor="skill-desc">
               描述 <RequiredMark />
-            </Label>
+            </FieldLabel>
             <Input
               id="skill-desc"
               value={form.description}
@@ -260,9 +269,9 @@ function SkillDialog({
               placeholder="一句话说明这个技能解决什么问题"
             />
             <FieldError id="skill-desc-error">{errors.description}</FieldError>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="skill-body">步骤</Label>
+          </Field>
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor="skill-body">步骤</FieldLabel>
             <Textarea
               id="skill-body"
               rows={10}
@@ -273,7 +282,7 @@ function SkillDialog({
               placeholder="1. 先读取 …&#10;2. 再调用 mcp__…&#10;3. 最后汇总 …"
             />
             <FieldDescription>支持 Markdown，渲染为 SKILL.md 正文。</FieldDescription>
-          </div>
+          </Field>
           <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
             <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
               取消

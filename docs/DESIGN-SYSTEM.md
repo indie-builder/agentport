@@ -138,7 +138,7 @@ body #F5F5F5
 
 | 需求 | 唯一实现 | 约束 |
 |---|---|---|
-| 控件、表单、浮层 | shadcn/ui（`components/ui/`）+ Radix | 新增先 `pnpm dlx shadcn@latest add <name>`，再把外观换成 `@theme` 令牌 |
+| 控件、表单、浮层 | shadcn/ui（`base-nova`）+ Base UI | 先复用或安装官方组件，共享视觉由 `@theme` 语义令牌控制 |
 | 图标 | lucide | `LucideProvider` 在 `App.tsx` 统一设 `strokeWidth={1.75}`、`size={16}`，组件里不要再逐个传 |
 | 动效 | Motion（`motion/react`） | 只用于 §9 允许的三类；`duration` 0.15–0.2、`easeOut`；读 `useReducedMotion` |
 | 可拖拽分栏 | react-resizable-panels v4 | `Group` / `Panel` / `Separator`；用 `useDefaultLayout` 持久化；分隔条就是 1px `border-line`，不加把手 |
@@ -147,14 +147,14 @@ body #F5F5F5
 | 路由与 URL 状态 | TanStack Router | 筛选、分页、选中的 tab 走 `validateSearch`，不要塞进组件 state |
 | 类名合并 | `cn`（`lib/cn.ts`） | 唯一实现，不引入 clsx / tailwind-merge 的第二份 |
 
-- 圆角一律从令牌取值：外壳 16 / 卡片 16 / 行 9 / 图标 7 / 标签 6。控件用 7，容器用 16（`--radius-shell` / `--radius-card` / `--radius-chip` 都是 16），不要出现 2px、3px 这类体系外的值。
+- 项目圆角：外壳与卡片 16 / 行与常规控件 9 / 图标按钮 7 / 标签 6。底座内部细节沿用官方结构；`--radius` 为 9px，InputGroup 的内部按钮经 `calc()` 推导为 6px。共享映射见 `styles.css`。
 - 动画类（`animate-in` / `fade-in-0` / `zoom-in-95`）由 `tw-animate-css` 提供，已在 `styles.css` 引入。
 - shadcn 原语的语义色（`bg-popover`、`text-muted-foreground`、`bg-accent` 等）已全部映射到无彩度令牌，**不要在组件里改回具体色值**。
 
 ## 11. 禁止
 
 - 卡片套卡片、彩色边框、彩色左边条。
-- 渐变、玻璃、阴影堆叠（外壳无阴影，输入框是唯一带阴影的元素）。
+- 渐变、玻璃、阴影堆叠（外壳无阴影；输入框用 composer 阴影，浮层统一用 overlay 阴影）。
 - emoji 当图标。
 - 一页多个同等权重标题。
 - 彩色品牌色（参考页没有）。

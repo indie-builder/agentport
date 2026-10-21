@@ -72,16 +72,17 @@
   --radius-tag: 6px; /* 小标签、侧栏图标底 */
   --radius-pill: 9999px;
 
+  /* base-nova 语义圆角映射；Badge 的 4xl 保留项目的小标签圆角。 */
   /*
-   * base-nova 圆角：sm → 标签 6 / md → 图标 7 / lg → 行 9 / xl → 卡片 12。
-   * 2xl、3xl → 外壳 16；4xl 专用于 Badge，沿用标签 6，不按名称递增。
+   * --radius 是 shadcn 的基础变量，input-group 用 calc(var(--radius) - 3px)
+   * 推导小按钮圆角。缺了它 calc 整条失效，圆角会变成 0。
    */
+  --radius: var(--radius-item);
   --radius-sm: var(--radius-tag); /* 小标签 */
   --radius-md: var(--radius-icon); /* 图标按钮、小号控件、Tab */
   --radius-lg: var(--radius-item); /* 常规按钮、输入框、Tab 列表 */
   --radius-xl: var(--radius-card); /* 卡片与弹层容器 */
-  --radius-2xl: var(--radius-shell); /* 大容器 */
-  --radius-3xl: var(--radius-shell); /* 更大容器仍使用外壳圆角 */
+  /* 底座 Badge 用 rounded-4xl；项目里它是最小的标签圆角，不是最大。 */
   --radius-4xl: var(--radius-tag); /* Badge 小标签 */
 
   /* 侧栏：实测 272 展开 / 68 收起，过渡 160ms */
@@ -134,9 +135,16 @@
   --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
 
 
-  /* 唯一带阴影的元素是输入框胶囊 */
+  /* 输入框胶囊保留独立阴影，浮层共享 overlay 阴影。 */
   --shadow-composer: 0 0 0 0.5px rgb(3 3 3 / 0.08), 0 4px 16px 0 rgb(0 0 0 / 0.06);
   --shadow-overlay: 0 8px 24px -8px rgb(0 0 0 / 0.16);
+
+  /*
+   * 底座浮层用 shadow-md / shadow-lg。项目只有一种浮层阴影语言，
+   * 在这里统一覆盖，避免两套阴影同时出现在屏幕上。
+   */
+  --shadow-md: var(--shadow-overlay);
+  --shadow-lg: var(--shadow-overlay);
 }
 
 @layer base {

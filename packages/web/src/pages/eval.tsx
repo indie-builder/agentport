@@ -5,23 +5,15 @@ import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { FilterSelect } from '../components/filter-select.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
+import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
-import { FieldDescription, FieldError } from '../components/ui/field.js';
+import { Field, FieldDescription, FieldError, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
-import { Label } from '../components/ui/label.js';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select.js';
-import { StatusBadge } from '../components/ui/status-badge.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { EvalCase, EvalCaseInput, EvalRun } from '../lib/api.js';
 import {
@@ -186,26 +178,13 @@ export function EvalPage() {
       />
 
       <PageToolbar>
-        <Select
+        <FilterSelect
           value={effectiveAgentId ?? ''}
-          onValueChange={(next) => {
-            if (next !== null) setAgentId(next);
-          }}
-          items={agentOptions}
-        >
-          <SelectTrigger aria-label="按智能体筛选" className="w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {agentOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+          onValueChange={setAgentId}
+          options={agentOptions}
+          label="按智能体筛选"
+          className="w-56"
+        />
         <span className="text-sm text-subtle">
           判定：期望非空时检查输出包含该文本（不区分大小写）；为空时只要求有文本输出。
         </span>
@@ -481,10 +460,10 @@ function CaseDialog({
         description="运行评估时，每个用例都会发起一次真实运行。"
       >
         <form onSubmit={submit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="eval-name">
+          <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
+            <FieldLabel htmlFor="eval-name">
               名称 <RequiredMark />
-            </Label>
+            </FieldLabel>
             <Input
               id="eval-name"
               value={form.name}
@@ -494,11 +473,11 @@ function CaseDialog({
               placeholder="例如：拒绝编造不存在的工具"
             />
             <FieldError id="eval-name-error">{errors.name}</FieldError>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="eval-prompt">
+          </Field>
+          <Field className="gap-1.5" data-invalid={Boolean(errors.prompt)}>
+            <FieldLabel htmlFor="eval-prompt">
               Prompt <RequiredMark />
-            </Label>
+            </FieldLabel>
             <Textarea
               id="eval-prompt"
               rows={5}
@@ -509,9 +488,9 @@ function CaseDialog({
               placeholder="发送给智能体的完整输入"
             />
             <FieldError id="eval-prompt-error">{errors.prompt}</FieldError>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="eval-expectation">期望包含</Label>
+          </Field>
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor="eval-expectation">期望包含</FieldLabel>
             <Textarea
               id="eval-expectation"
               rows={2}
@@ -522,7 +501,7 @@ function CaseDialog({
             <FieldDescription>
               最小判定，不做语义判断；需要更严格时写更具体的片段。
             </FieldDescription>
-          </div>
+          </Field>
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
               取消

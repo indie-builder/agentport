@@ -46,16 +46,17 @@ import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
-import { Page, PageHeader } from '../components/page.js';
-import { RequiredMark } from '../components/required-mark.js';
-import { SearchInput } from '../components/search-input.js';
-import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
-import { Button } from '../components/ui/button.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '../components/ui/collapsible.js';
+} from '../components/motion-collapsible.js';
+import { Page, PageHeader } from '../components/page.js';
+import { RequiredMark } from '../components/required-mark.js';
+import { SearchInput } from '../components/search-input.js';
+import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
+import { StatusBadge } from '../components/status-badge.js';
+import { Button } from '../components/ui/button.js';
 import {
   Combobox,
   ComboboxChip,
@@ -72,13 +73,19 @@ import { Dialog } from '../components/ui/dialog.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu.js';
-import { FieldDescription, FieldError } from '../components/ui/field.js';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
-import { Label } from '../components/ui/label.js';
 import {
   Select,
   SelectContent,
@@ -94,7 +101,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from '../components/ui/sheet.js';
-import { StatusBadge } from '../components/ui/status-badge.js';
+import { Switch } from '../components/ui/switch.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { AgentVersionSummary } from '../lib/api.js';
@@ -759,31 +766,19 @@ function AgentEditor({
   return (
     <div className="min-w-0">
       <div className="flex h-14 items-center gap-2.5">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={form.enabled}
-          aria-label="启用智能体"
-          title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
-          onClick={() => set('enabled', !form.enabled)}
+        <label
+          htmlFor="agent-enabled"
           className="inline-flex items-center gap-2 rounded-item p-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-fg"
         >
-          <span
-            className={cn(
-              'inline-flex h-[18px] w-8 items-center rounded-full transition-colors',
-              form.enabled ? 'bg-ink' : 'bg-line-strong',
-            )}
-            aria-hidden="true"
-          >
-            <span
-              className={cn(
-                'size-3.5 rounded-full bg-surface transition-transform',
-                form.enabled ? 'translate-x-4' : 'translate-x-0.5',
-              )}
-            />
-          </span>
+          <Switch
+            id="agent-enabled"
+            checked={form.enabled}
+            onCheckedChange={(enabled) => set('enabled', enabled)}
+            aria-label="启用智能体"
+            title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
+          />
           {form.enabled ? '已启用' : '已停用'}
-        </button>
+        </label>
         <div className="ml-auto flex items-center gap-1.5">
           {dirty ? (
             <span className="mr-1 inline-flex items-center gap-1.5 text-2xs text-warning">
@@ -850,13 +845,17 @@ function AgentEditor({
               // Keep the 16px menu corners, explicit border, and project overlay shadow.
               className="w-40 rounded-card border shadow-overlay"
             >
-              <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
-                <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
+                  <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={onDelete}>
-                <Trash2 className="size-4" /> 删除智能体
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                  <Trash2 className="size-4" /> 删除智能体
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -913,13 +912,13 @@ function AgentEditor({
                   setOpenSections((current) => ({ ...current, identity: !current.identity }))
                 }
               >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
+                <FieldGroup className="grid gap-4 sm:grid-cols-2">
+                  <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-name">
+                      <FieldLabel htmlFor="agent-name">
                         名称
                         <RequiredMark />
-                      </Label>
+                      </FieldLabel>
                       <FileTag>→ CLAUDE.md</FileTag>
                     </div>
                     <LineInput
@@ -930,10 +929,10 @@ function AgentEditor({
                       onChange={(event) => set('name', event.target.value)}
                     />
                     <FieldError id="agent-name-error">{errors.name}</FieldError>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
+                  </Field>
+                  <Field className="gap-1.5">
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-slug">Slug</Label>
+                      <FieldLabel htmlFor="agent-slug">Slug</FieldLabel>
                       <FileTag>→ 工作区目录名</FileTag>
                     </div>
                     <LineInput
@@ -947,10 +946,10 @@ function AgentEditor({
                     <FieldDescription id="agent-slug-hint">
                       创建后不可修改；子智能体文件名也是 .claude/agents/&lt;slug&gt;.md。
                     </FieldDescription>
-                  </div>
-                  <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  </Field>
+                  <Field className="gap-1.5 sm:col-span-2">
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-desc">描述</Label>
+                      <FieldLabel htmlFor="agent-desc">描述</FieldLabel>
                       <FileTag>→ .claude/agents/&lt;slug&gt;.md · description</FileTag>
                     </div>
                     <LineInput
@@ -959,8 +958,8 @@ function AgentEditor({
                       placeholder="一句话说明它擅长什么"
                       onChange={(event) => set('description', event.target.value)}
                     />
-                  </div>
-                </div>
+                  </Field>
+                </FieldGroup>
               </Section>
 
               <Section
@@ -972,9 +971,9 @@ function AgentEditor({
                   setOpenSections((current) => ({ ...current, behavior: !current.behavior }))
                 }
               >
-                <div className="flex flex-col gap-1.5">
+                <Field className="gap-1.5">
                   <div className="flex items-baseline justify-between gap-2">
-                    <Label htmlFor="agent-prompt">系统提示词</Label>
+                    <FieldLabel htmlFor="agent-prompt">系统提示词</FieldLabel>
                     <FileTag>→ CLAUDE.md</FileTag>
                   </div>
                   <CodeArea
@@ -986,14 +985,14 @@ function AgentEditor({
                     placeholder="描述角色、边界与工作方式；会写入 CLAUDE.md。"
                     onChange={(event) => set('systemPrompt', event.target.value)}
                   />
-                </div>
+                </Field>
 
                 <DraftPreview title="将写入 CLAUDE.md 的内容" code={claudeDraft} />
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
+                <FieldGroup className="grid gap-4 sm:grid-cols-2">
+                  <Field className="gap-1.5">
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-model">模型</Label>
+                      <FieldLabel htmlFor="agent-model">模型</FieldLabel>
                       <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
                     </div>
                     <LineInput
@@ -1012,10 +1011,10 @@ function AgentEditor({
                     <FieldDescription>
                       可以填任意网关模型 ID，下面是当前部署的建议值。
                     </FieldDescription>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
+                  </Field>
+                  <Field className="gap-1.5">
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-effort">推理强度</Label>
+                      <FieldLabel htmlFor="agent-effort">推理强度</FieldLabel>
                       <FileTag>→ .claude/agents/&lt;slug&gt;.md · effort</FileTag>
                     </div>
                     <Select
@@ -1040,8 +1039,8 @@ function AgentEditor({
                         </SelectGroup>
                       </SelectContent>
                     </Select>
-                  </div>
-                </div>
+                  </Field>
+                </FieldGroup>
               </Section>
 
               <Section
@@ -1311,10 +1310,10 @@ function AgentEditor({
                 <p className="rounded-item bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
                   放行内置工具会扩大攻击面：Bash、文件写入和网络访问都绕过沙盒的只读约定。
                 </p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
+                <FieldGroup className="grid gap-4 sm:grid-cols-2">
+                  <Field className="gap-1.5">
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-perm">权限模式</Label>
+                      <FieldLabel htmlFor="agent-perm">权限模式</FieldLabel>
                       <RuntimeTag />
                     </div>
                     <Select
@@ -1342,10 +1341,10 @@ function AgentEditor({
                     <FieldDescription>
                       auto 依赖模型分类器，平台无法审计，因此不开放。该值只传给 SDK，不写文件。
                     </FieldDescription>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
+                  </Field>
+                  <Field className="gap-1.5" data-invalid={allowedInvalid}>
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-allowed-tools">自定义允许的工具</Label>
+                      <FieldLabel htmlFor="agent-allowed-tools">自定义允许的工具</FieldLabel>
                       <FileTag>→ agent md · tools</FileTag>
                     </div>
                     <CodeArea
@@ -1371,8 +1370,8 @@ function AgentEditor({
                         「所有已绑定 server 的全部工具」。
                       </FieldDescription>
                     )}
-                  </div>
-                </div>
+                  </Field>
+                </FieldGroup>
 
                 <div>
                   <div className="mb-2 flex items-baseline justify-between gap-2">
@@ -1435,10 +1434,10 @@ function AgentEditor({
                   setOpenSections((current) => ({ ...current, limits: !current.limits }))
                 }
               >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
+                <FieldGroup className="grid gap-4 sm:grid-cols-2">
+                  <Field className="gap-1.5" data-invalid={Boolean(errors.maxTurns)}>
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-turns">最大轮次</Label>
+                      <FieldLabel htmlFor="agent-turns">最大轮次</FieldLabel>
                       <FileTag>→ agent md · maxTurns</FileTag>
                     </div>
                     <LineInput
@@ -1452,10 +1451,10 @@ function AgentEditor({
                       onChange={(event) => set('maxTurns', Number(event.target.value))}
                     />
                     <FieldError id="agent-turns-error">{errors.maxTurns}</FieldError>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
+                  </Field>
+                  <Field className="gap-1.5" data-invalid={Boolean(errors.maxBudgetUsd)}>
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-budget">预算上限 (USD)</Label>
+                      <FieldLabel htmlFor="agent-budget">预算上限 (USD)</FieldLabel>
                       <RuntimeTag />
                     </div>
                     <LineInput
@@ -1470,10 +1469,10 @@ function AgentEditor({
                       onChange={(event) => set('maxBudgetUsd', Number(event.target.value))}
                     />
                     <FieldError id="agent-budget-error">{errors.maxBudgetUsd}</FieldError>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
+                  </Field>
+                  <Field className="gap-1.5" data-invalid={Boolean(errors.timeoutMs)}>
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-timeout">超时 (毫秒)</Label>
+                      <FieldLabel htmlFor="agent-timeout">超时 (毫秒)</FieldLabel>
                       <RuntimeTag />
                     </div>
                     <LineInput
@@ -1488,10 +1487,10 @@ function AgentEditor({
                       onChange={(event) => set('timeoutMs', Number(event.target.value))}
                     />
                     <FieldError id="agent-timeout-error">{errors.timeoutMs}</FieldError>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
+                  </Field>
+                  <Field className="gap-1.5" data-invalid={thinkingInvalid}>
                     <div className="flex items-baseline justify-between gap-2">
-                      <Label htmlFor="agent-thinking">最大思考 tokens</Label>
+                      <FieldLabel htmlFor="agent-thinking">最大思考 tokens</FieldLabel>
                       <RuntimeTag />
                     </div>
                     <LineInput
@@ -1517,8 +1516,8 @@ function AgentEditor({
                         留空表示不设置；只传给 SDK，不写文件。
                       </FieldDescription>
                     )}
-                  </div>
-                </div>
+                  </Field>
+                </FieldGroup>
               </Section>
             </div>
           </form>
@@ -2064,12 +2063,12 @@ function CreateAgentDialog({
             submit();
           }}
         >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-agent-slug">
+          <FieldGroup className="grid gap-3 sm:grid-cols-2">
+            <Field className="gap-1.5" data-invalid={Boolean(errors.slug)}>
+              <FieldLabel htmlFor="new-agent-slug">
                 Slug
                 <RequiredMark />
-              </Label>
+              </FieldLabel>
               <LineInput
                 id="new-agent-slug"
                 value={form.slug}
@@ -2087,19 +2086,19 @@ function CreateAgentDialog({
                   小写字母、数字、- 和 _；创建后不可修改。
                 </FieldDescription>
               )}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-agent-name">名称</Label>
+            </Field>
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="new-agent-name">名称</FieldLabel>
               <LineInput
                 id="new-agent-name"
                 value={form.name}
                 placeholder="客服助手"
                 onChange={(event) => setForm({ ...form, name: event.target.value })}
               />
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="new-agent-model">模型</Label>
+            </Field>
+          </FieldGroup>
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor="new-agent-model">模型</FieldLabel>
             <Select
               value={form.model}
               onValueChange={(model) => {
@@ -2122,9 +2121,9 @@ function CreateAgentDialog({
                 </SelectGroup>
               </SelectContent>
             </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="new-agent-prompt">系统提示词</Label>
+          </Field>
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor="new-agent-prompt">系统提示词</FieldLabel>
             <CodeArea
               id="new-agent-prompt"
               rows={5}
@@ -2133,7 +2132,7 @@ function CreateAgentDialog({
               value={form.systemPrompt}
               onChange={(event) => setForm({ ...form, systemPrompt: event.target.value })}
             />
-          </div>
+          </Field>
           <div className="flex justify-end gap-2 border-t pt-3">
             <Button variant="ghost" size="sm" onClick={onClose}>
               取消

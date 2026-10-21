@@ -5,9 +5,9 @@ import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState, LoadingState } from '../components/states.js';
+import { StatusBadge } from '../components/status-badge.js';
 import { TelemetryReadout, TelemetryStrip } from '../components/telemetry.js';
 import { buttonVariants } from '../components/ui/button.js';
-import { StatusBadge } from '../components/ui/status-badge.js';
 import type { OverviewAgentRow, RecentRun } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
