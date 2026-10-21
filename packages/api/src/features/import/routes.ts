@@ -4,7 +4,12 @@ import type { Database } from '@agentport/db';
 import { agentServers, agentSkills, agents, newId, repo, servers, skills } from '@agentport/db';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import type { AgentInput, ServerInput } from '@agentport/shared';
-import { agentInputSchema, serverInputSchema, skillInputSchema } from '@agentport/shared';
+import {
+  agentInputSchema,
+  serverInputSchema,
+  skillInputSchema,
+  slugSchema,
+} from '@agentport/shared';
 import { eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -14,15 +19,8 @@ import { assertSafeUrl } from '../servers/ssrf.js';
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
-// 与 agentInputSchema/skillInputSchema 的 slug 同规则；shared 尚未导出 slugSchema。
-const nameSchema = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _');
-
 const importedServerSchema = z.object({
-  name: nameSchema,
+  name: slugSchema,
   kind: z.enum(['stdio', 'http', 'generated']),
   description: z.string().max(500).default(''),
   config: z.record(z.string(), z.unknown()).default({}),
@@ -95,7 +93,7 @@ function toServerInput(entry: ImportedServer): ServerInput {
     kind: entry.kind,
     description: entry.description,
   });
-  if (!parsed.success) fail('INVALID_INPUT', `invalid server config: ${entry.name}`);
+  if (!parsed.success) fail('INVALID_INPUT', `「${entry.name}」的 Server 配置不完整，无法导入`);
   return parsed.data;
 }
 
@@ -125,7 +123,7 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
       const warnings: string[] = [];
       for (const entry of entries) {
         if (entry.secretKeys.length > 0) {
-          warnings.push(`server ${entry.name} 的密钥需要重新填写：${entry.secretKeys.join(', ')}`);
+          warnings.push(`「${entry.name}」的密钥需要重新填写：${entry.secretKeys.join(', ')}`);
         }
       }
 
@@ -155,7 +153,7 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
             if (reusedKind !== serverInput.kind) {
               fail(
                 'INVALID_INPUT',
-                `server ${serverInput.name} already exists with kind ${reusedKind}, refusing to reuse it as ${serverInput.kind}`,
+                `已存在同名 Server「${serverInput.name}」，但类型不同（${reusedKind} / ${serverInput.kind}），无法复用；请先在导入文件中改名`,
               );
             }
             reusedServers.push(serverInput.name);

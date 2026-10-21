@@ -3,9 +3,11 @@ import type { ApiToolPatch } from '@agentport/db/repo/servers.js';
 import {
   apiToolInputSchema,
   httpUrlSchema,
+  idParams,
   maskSecret,
   serverInputSchema,
   serverTestResultSchema,
+  slugSchema,
 } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -18,13 +20,12 @@ import { getMcpToken, getServerWithSecrets } from './repo.js';
 import { assertSafeUrl } from './ssrf.js';
 import { testConnection } from './test-connection.js';
 
-const idParams = z.object({ id: z.string().min(1) });
 const toolParams = idParams.extend({ toolId: z.string().min(1) });
 
 // kind 不可变，其余字段按 kind 取用；未知字段忽略。
 const serverPatchSchema = z.object({
   kind: z.enum(['stdio', 'http', 'generated']).optional(),
-  name: z.string().min(1).max(64).optional(),
+  name: slugSchema.optional(),
   description: z.string().max(500).optional(),
   command: z.string().min(1).optional(),
   args: z.array(z.string()).optional(),
@@ -43,12 +44,7 @@ const serverPatchSchema = z.object({
  */
 const toolPatchSchema = z
   .object({
-    name: z
-      .string()
-      .min(1)
-      .max(64)
-      .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _')
-      .optional(),
+    name: slugSchema.optional(),
     description: z.string().max(1000).optional(),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
     pathTemplate: z.string().min(1).optional(),
@@ -58,16 +54,22 @@ const toolPatchSchema = z
     enabled: z.boolean().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
-    message: 'at least one field is required',
+    message: '至少需要修改一项',
   });
 
-function notFound(reply: FastifyReply, what: string) {
-  return reject(reply, 'NOT_FOUND', `${what} not found`);
+function notFound(reply: FastifyReply, what: 'server' | 'tool') {
+  return reject(
+    reply,
+    'NOT_FOUND',
+    what === 'server'
+      ? 'MCP Server 不存在，可能已被删除；请刷新后重试'
+      : '该工具不存在，可能已被删除；请刷新后重试',
+  );
 }
 
 /** server 名有唯一索引（23505）→ 409。 */
 function rethrowConflict(err: unknown): never {
-  if (isPgCode(err, '23505')) fail('CONFLICT', 'server name already exists');
+  if (isPgCode(err, '23505')) fail('CONFLICT', '该名称已被其他 MCP Server 占用，请换一个');
   throw err;
 }
 
@@ -120,11 +122,16 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
       if (row.kind !== 'generated') {
-        return reject(reply, 'INVALID_INPUT', 'token is only available for generated servers');
+        return reject(
+          reply,
+          'INVALID_INPUT',
+          '只有平台生成的 Server 才有访问 token；其他类型请在连接配置里填写上游凭据',
+        );
       }
       const token = await getMcpToken(app.db, row.id);
       return {
-        token: maskSecret(token),
+        // 与 rotate-token 的明文 `token` 区分：这里永远只有掩码。
+        maskedToken: maskSecret(token),
         endpoint: `${app.config.SELF_URL}/mcp/${row.id}`,
       };
     },
@@ -137,7 +144,11 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
       if (row.kind !== 'generated') {
-        return reject(reply, 'INVALID_INPUT', 'token is only available for generated servers');
+        return reject(
+          reply,
+          'INVALID_INPUT',
+          '只有平台生成的 Server 才能轮换 token；其他类型请在连接配置里更新上游凭据',
+        );
       }
       const token = await repo.rotateMcpToken(app.db, row.id);
       if (!token) return notFound(reply, 'server');
@@ -248,7 +259,11 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
       if (row.kind !== 'generated') {
-        return reject(reply, 'INVALID_INPUT', 'tools can only be added to generated servers');
+        return reject(
+          reply,
+          'INVALID_INPUT',
+          '只有平台生成的 Server 才能添加 HTTP 工具；其他类型请直接连接上游 MCP 端点',
+        );
       }
       try {
         const tool = await repo.createTool(app.db, request.params.id, request.body);

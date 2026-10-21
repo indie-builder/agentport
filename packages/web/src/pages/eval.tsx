@@ -84,6 +84,21 @@ const runColumns: DataColumn<EvalRun>[] = [
     ),
   },
   {
+    id: 'error',
+    header: '失败原因',
+    width: '220px',
+    hiddenByDefault: true,
+    sortValue: (run) => run.error ?? '',
+    cell: (run) =>
+      run.error ? (
+        <span className="block truncate text-sm text-danger" title={run.error}>
+          {run.error}
+        </span>
+      ) : (
+        <span className="text-subtle">—</span>
+      ),
+  },
+  {
     id: 'finishedAt',
     header: '结束',
     width: '96px',

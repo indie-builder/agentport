@@ -216,6 +216,8 @@ export interface EvalRun {
   status: EvalRunStatus;
   total: number;
   passed: number;
+  /** worker 崩溃时的原因；正常完成为 null。 */
+  error: string | null;
   createdAt: string;
   finishedAt: string | null;
 }
@@ -399,9 +401,16 @@ export const api = {
     }),
   deleteServer: (id: string): Promise<void> => request(`/servers/${id}`, 'DELETE'),
   testServer: (id: string): Promise<ServerTestResult> => request(`/servers/${id}/test`, 'POST'),
-  /** 只有 rotate 返回明文；其余接口一律掩码。 */
-  serverToken: (id: string): Promise<{ token: string; endpoint: string }> =>
-    request(`/servers/${id}/token`),
+  /**
+   * wire 上掩码字段叫 maskedToken（rotate 的 token 是明文，两者不能同名）。
+   * 这里映射回 `token`，页面把「掩码」和「刚轮换的明文」放进同一处渲染。
+   */
+  serverToken: async (id: string): Promise<{ token: string; endpoint: string }> => {
+    const { maskedToken, endpoint } = await request<{ maskedToken: string; endpoint: string }>(
+      `/servers/${id}/token`,
+    );
+    return { token: maskedToken, endpoint };
+  },
   rotateServerToken: (id: string): Promise<{ token: string; endpoint: string }> =>
     request(`/servers/${id}/rotate-token`, 'POST'),
   tools: (serverId: string): Promise<ApiTool[]> => request(`/servers/${serverId}/tools`),

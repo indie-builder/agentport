@@ -1,12 +1,14 @@
 # 沙盒运行时镜像：只含 runner，不含业务代码与智能体定义。
 # 构建：docker build -t agentport/sandbox:dev packages/sandbox
-FROM node:24-alpine
+FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f
 
 # 容器内用独立 manifest：workspace 协议无法在镜像里解析。
 # 不能用 --omit=dev / --omit=optional：Agent SDK 的平台原生 CLI 在 optionalDependencies 里。
 # zod 是 @agentport/shared 的运行时依赖，runner 在 stdin 边界用它校验任务。
+# 锁文件由 package.docker.json 生成（npm install --package-lock-only），用 npm ci 冻结安装。
 COPY package.docker.json ./package.json
-RUN npm install --no-audit --no-fund
+COPY package.docker-lock.json ./package-lock.json
+RUN npm ci --no-audit --no-fund
 
 COPY dist/ ./dist/
 

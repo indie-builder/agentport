@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { slugSchema } from './params.js';
 
 /** 用户配置的 MCP Server；密钥字段在 API 层加密，返回时脱敏。 */
 export const serverKindSchema = z.enum(['stdio', 'http', 'generated']);
@@ -32,11 +33,7 @@ export function previewMcpEntry(
 }
 
 const baseServer = {
-  name: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _'),
+  name: slugSchema,
   description: z.string().max(500).default(''),
 };
 
@@ -88,11 +85,7 @@ export type Server = z.infer<typeof serverSchema>;
 
 /** generated server 下的单个 HTTP 工具。 */
 export const apiToolInputSchema = z.object({
-  name: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _'),
+  name: slugSchema,
   description: z.string().max(1000).default(''),
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
   /** 相对 baseUrl 的路径模板，如 `/users/{id}` */

@@ -1,13 +1,11 @@
 import type { McpJsonEntry, WorkspaceSkill } from '@agentport/core';
 import { decryptSecrets, renderWorkspace } from '@agentport/core';
 import * as agentRepo from '@agentport/db/repo/agents.js';
+import { idParams } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import { str, strArray } from '../servers/repo.js';
-
-const idParams = z.object({ id: z.string().min(1) });
 
 type ServerRow = Awaited<ReturnType<typeof agentRepo.getBoundServers>>[number];
 type SkillRow = Awaited<ReturnType<typeof agentRepo.getBoundSkills>>[number];
@@ -51,7 +49,7 @@ export function registerExportRoutes(rawApp: FastifyInstance): void {
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
       const row = await agentRepo.getAgent(app.db, request.params.id);
-      if (!row) return reject(reply, 'NOT_FOUND', 'agent not found');
+      if (!row) return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重试');
 
       const [serverRows, skillRows, serverIds, skillIds, subAgentIds] = await Promise.all([
         agentRepo.getBoundServers(app.db, row.id),

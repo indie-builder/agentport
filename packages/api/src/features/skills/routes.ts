@@ -1,7 +1,7 @@
 import { fail } from '@agentport/core';
 import { repo as skillRepo } from '@agentport/db';
 import type { Skill, SkillWithAgentCount } from '@agentport/shared';
-import { skillInputSchema } from '@agentport/shared';
+import { idParams, skillInputSchema, slugSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
@@ -11,27 +11,20 @@ import { typed } from '../../types.js';
 const repo = skillRepo.skills;
 type SkillWrite = Parameters<typeof repo.createSkill>[1];
 
-const idParams = z.object({ id: z.string().min(1) });
-
 const patchSchema = z.object({
-  slug: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _')
-    .optional(),
+  slug: slugSchema.optional(),
   name: z.string().min(1).max(128).optional(),
   description: z.string().min(1).max(500).optional(),
   body: z.string().optional(),
 });
 
 function notFound(reply: FastifyReply) {
-  return reject(reply, 'NOT_FOUND', 'skill not found');
+  return reject(reply, 'NOT_FOUND', '技能不存在，可能已被删除；请刷新后重试');
 }
 
 /** skills.slug 有唯一索引（23505）→ 409。 */
 function rethrowConflict(err: unknown): never {
-  if (isPgCode(err, '23505')) fail('CONFLICT', 'skill slug already exists');
+  if (isPgCode(err, '23505')) fail('CONFLICT', '该 slug 已被其他技能占用，请换一个');
   throw err;
 }
 

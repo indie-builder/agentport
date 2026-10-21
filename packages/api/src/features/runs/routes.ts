@@ -1,4 +1,5 @@
 import { repo } from '@agentport/db';
+import { idParams, runDetailSchema, runListSchema, runStatusSchema } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
@@ -7,10 +8,9 @@ import { typed } from '../../types.js';
 
 const runsRepo = repo.runs;
 
-const idParams = z.object({ id: z.string().min(1) });
 const listQuery = z.object({
   agentId: z.string().min(1).optional(),
-  status: z.enum(repo.runs.RUN_STATUSES).optional(),
+  status: runStatusSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
@@ -23,37 +23,46 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   const auth = { preHandler: [rawApp.requireAuth] };
 
-  app.get('/api/runs', { ...auth, schema: { querystring: listQuery } }, async (request) => {
-    const { agentId, status, limit } = request.query;
-    const items = await runsRepo.listRuns(app.db, {
-      ...(agentId === undefined ? {} : { agentId }),
-      ...(status === undefined ? {} : { status }),
-      limit,
-    });
+  app.get(
+    '/api/runs',
+    { ...auth, schema: { querystring: listQuery, response: { 200: runListSchema } } },
+    async (request) => {
+      const { agentId, status, limit } = request.query;
+      const items = await runsRepo.listRuns(app.db, {
+        ...(agentId === undefined ? {} : { agentId }),
+        ...(status === undefined ? {} : { status }),
+        limit,
+      });
 
-    return {
-      items: items.map((run) => ({
-        ...run,
-        startedAt: toIso(run.startedAt),
-        endedAt: toIso(run.endedAt),
-      })),
-    };
-  });
+      return {
+        items: items.map((run) => ({
+          ...run,
+          startedAt: toIso(run.startedAt),
+          endedAt: toIso(run.endedAt),
+        })),
+      };
+    },
+  );
 
-  app.get('/api/runs/:id', { ...auth, schema: { params: idParams } }, async (request, reply) => {
-    const detail = await runsRepo.getRunDetail(app.db, request.params.id);
-    if (!detail) return reject(reply, 'RUN_NOT_FOUND', `run ${request.params.id} not found`);
+  app.get(
+    '/api/runs/:id',
+    { ...auth, schema: { params: idParams, response: { 200: runDetailSchema } } },
+    async (request, reply) => {
+      const detail = await runsRepo.getRunDetail(app.db, request.params.id);
+      if (!detail)
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新运行列表');
 
-    return {
-      run: {
-        ...detail.run,
-        startedAt: toIso(detail.run.startedAt),
-        endedAt: toIso(detail.run.endedAt),
-      },
-      steps: detail.steps,
-      conversation: detail.conversation,
-    };
-  });
+      return {
+        run: {
+          ...detail.run,
+          startedAt: toIso(detail.run.startedAt),
+          endedAt: toIso(detail.run.endedAt),
+        },
+        steps: detail.steps,
+        conversation: detail.conversation,
+      };
+    },
+  );
 
   /** 结构化审批请求：pending 由 MCP 端点写入，批准后 approvedAt 非空。 */
   app.get(
@@ -61,7 +70,9 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
       const agentId = await runsRepo.getRunAgentId(app.db, request.params.id);
-      if (!agentId) return reject(reply, 'RUN_NOT_FOUND', `run ${request.params.id} not found`);
+      if (!agentId) {
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新运行列表');
+      }
       const rows = await runsRepo.listApprovalRequests(app.db, request.params.id);
       return {
         items: rows.map((row) => ({
@@ -92,13 +103,15 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const { serverId, toolName } = request.body;
       const agentId = await runsRepo.getRunAgentId(app.db, request.params.id);
-      if (!agentId) return reject(reply, 'RUN_NOT_FOUND', `run ${request.params.id} not found`);
+      if (!agentId) {
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新运行列表');
+      }
       const approved = await runsRepo.approveTool(app.db, request.params.id, serverId, toolName);
       if (!approved) {
         return reject(
           reply,
           'APPROVAL_NOT_FOUND',
-          `no pending approval for tool ${toolName} on this server in this run`,
+          '这次工具调用没有待批准记录；它可能已批准或已失效，请刷新后重试',
         );
       }
       await writeAudit(app.db, request.log, {

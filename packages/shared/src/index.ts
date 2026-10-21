@@ -5,3 +5,4 @@ export * from './errors.js';
 export * from './mcp.js';
 export * from './params.js';
 export * from './run-stream.js';
+export * from './schemas.js';

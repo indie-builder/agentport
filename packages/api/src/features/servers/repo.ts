@@ -151,7 +151,7 @@ export async function updateServer(
   }
   const current = toApiServer(row, key);
   if (patch.kind !== undefined && patch.kind !== current.kind) {
-    fail('INVALID_INPUT', 'server kind cannot change');
+    fail('INVALID_INPUT', 'Server 类型创建后不能修改；需要其他类型请新建一个 Server');
   }
 
   const mergedSecrets = (

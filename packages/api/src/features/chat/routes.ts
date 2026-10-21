@@ -1,5 +1,5 @@
 import { newId, repo, schema } from '@agentport/db';
-import { type ChatEvent, chatRequestSchema, wireFailureKind } from '@agentport/shared';
+import { type ChatEvent, chatRequestSchema, idParams, wireFailureKind } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -12,7 +12,6 @@ import { typed } from '../../types.js';
 const chatRepo = repo.chat;
 const runsRepo = repo.runs;
 
-const idParams = z.object({ id: z.string().min(1) });
 const runIdParams = z.object({ runId: z.string().min(1) });
 const branchBodySchema = z.object({ fromMessageId: z.string().min(1).optional() });
 const listQuery = z.object({
@@ -59,14 +58,14 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       const { agentId, message } = request.body;
 
       if (!(await chatRepo.agentExists(app.db, agentId))) {
-        return reject(reply, 'AGENT_NOT_FOUND', `agent ${agentId} not found`);
+        return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
       }
       // 停用的智能体不应能发起新运行；错误信息要说明下一步。
       if (!(await chatRepo.agentEnabled(app.db, agentId))) {
         return reject(
           reply,
           'AGENT_DISABLED',
-          `agent ${agentId} is disabled; enable it on the agents page first`,
+          '该智能体已停用，无法发起新对话；请到智能体页面启用后再试',
         );
       }
 
@@ -77,7 +76,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
           return reject(
             reply,
             'CONVERSATION_NOT_FOUND',
-            `conversation ${conversationId} not found`,
+            '会话不存在或不属于该智能体；请从会话列表重新打开',
           );
         }
       } else {
@@ -134,7 +133,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
           .set({
             status: 'failed',
             endedAt: new Date(),
-            error: 'Failed to enqueue run; send the message again.',
+            error: '消息入队失败，请重新发送。',
             errorKind: 'infra',
           })
           .where(and(eq(schema.agentRuns.id, run.id), eq(schema.agentRuns.status, 'queued')));
@@ -172,7 +171,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       const { runId } = request.params;
       const run = await chatRepo.getRun(app.db, runId);
       if (!run) {
-        return reject(reply, 'RUN_NOT_FOUND', `run ${runId} not found`);
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新后重试');
       }
 
       reply.hijack();
@@ -258,7 +257,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         return reject(
           reply,
           'CONVERSATION_NOT_FOUND',
-          `conversation ${request.params.id} not found`,
+          '会话不存在，可能已被删除；请从会话列表重新打开',
         );
       }
       const messages = await chatRepo.listMessages(app.db, conversation.id);
@@ -273,7 +272,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       const { runId } = request.params;
       const run = await chatRepo.getRun(app.db, runId);
       if (!run) {
-        return reject(reply, 'RUN_NOT_FOUND', `run ${runId} not found`);
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新后重试');
       }
       // 已结束的 run 再发 cancel 只会打扰 worker，直接返回。
       if (terminalEvent(run) === null) {
@@ -310,7 +309,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         return reject(
           reply,
           'CONVERSATION_NOT_FOUND',
-          `conversation ${request.params.id} or branch point not found`,
+          '会话或分支点不存在，可能已被删除；请刷新后重试',
         );
       }
       await writeAudit(app.db, request.log, {

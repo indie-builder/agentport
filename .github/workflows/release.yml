@@ -22,8 +22,10 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # 沙盒镜像的 Dockerfile 只复制 packages/sandbox/dist。
+      # 沙盒镜像的 Dockerfile 只复制 packages/sandbox/dist 与暂存的 shared/。
       - run: pnpm --filter @agentport/sandbox build
+      - run: pnpm --filter @agentport/shared build
+      - run: rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:

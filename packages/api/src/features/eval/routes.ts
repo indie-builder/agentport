@@ -1,4 +1,5 @@
 import { newId, repo, schema } from '@agentport/db';
+import { evalRunDetailSchema, evalRunSchema, idParams } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -10,6 +11,15 @@ import { typed } from '../../types.js';
 
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
+
+/** 库里是 Date、wire 上是 ISO 字符串；列表和详情都要走这一层，否则 response schema 会 500。 */
+function toEvalRun(row: typeof schema.evalRuns.$inferSelect) {
+  return {
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    finishedAt: row.finishedAt === null ? null : row.finishedAt.toISOString(),
+  };
+}
 
 const createCaseSchema = z.object({
   agentId: z.string().min(1),
@@ -28,7 +38,6 @@ function invalid(reply: FastifyReply, message: string) {
   return reject(reply, 'INVALID_INPUT', message);
 }
 
-const idParams = z.object({ id: z.string().min(1) });
 const listQuery = z.object({ agentId: z.string().min(1).optional() });
 
 export function registerEvalRoutes(rawApp: FastifyInstance): void {
@@ -45,7 +54,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const input = request.body;
       if (!(await chatRepo.agentExists(app.db, input.agentId))) {
-        return reject(reply, 'AGENT_NOT_FOUND', 'agent not found');
+        return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
       }
       const row = await evalRepo.createCase(app.db, newId('evalCase'), input);
       await writeAudit(app.db, request.log, {
@@ -65,7 +74,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     { ...auth, schema: { params: idParams, body: patchCaseSchema } },
     async (request, reply) => {
       const row = await evalRepo.updateCase(app.db, request.params.id, request.body);
-      if (!row) return reject(reply, 'NOT_FOUND', 'case not found');
+      if (!row) return reject(reply, 'NOT_FOUND', '用例不存在，可能已被删除；请刷新后重试');
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'eval.case.updated',
@@ -83,7 +92,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
       const deleted = await evalRepo.deleteCase(app.db, request.params.id);
-      if (!deleted) return reject(reply, 'NOT_FOUND', 'case not found');
+      if (!deleted) return reject(reply, 'NOT_FOUND', '用例不存在，可能已被删除；请刷新后重试');
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'eval.case.deleted',
@@ -111,7 +120,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
         .where(eq(schema.agents.id, agentId))
         .limit(1);
       if (!agent) {
-        return reject(reply, 'AGENT_NOT_FOUND', 'agent not found');
+        return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
       }
 
       const cases = await evalRepo.listCases(app.db, agentId);
@@ -161,17 +170,22 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/eval/runs', { ...auth, schema: { querystring: listQuery } }, async (request) =>
-    evalRepo.listRuns(app.db, request.query.agentId),
+  app.get(
+    '/api/eval/runs',
+    { ...auth, schema: { querystring: listQuery, response: { 200: z.array(evalRunSchema) } } },
+    async (request) => {
+      const rows = await evalRepo.listRuns(app.db, request.query.agentId);
+      return rows.map(toEvalRun);
+    },
   );
 
   app.get(
     '/api/eval/runs/:id',
-    { ...auth, schema: { params: idParams } },
+    { ...auth, schema: { params: idParams, response: { 200: evalRunDetailSchema } } },
     async (request, reply) => {
       const detail = await evalRepo.getRunDetail(app.db, request.params.id);
-      if (!detail) return reject(reply, 'NOT_FOUND', 'eval run not found');
-      return detail;
+      if (!detail) return reject(reply, 'NOT_FOUND', '评估运行不存在，可能已被清理；请刷新列表');
+      return { ...detail, evalRun: toEvalRun(detail.evalRun) };
     },
   );
 }

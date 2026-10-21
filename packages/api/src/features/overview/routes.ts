@@ -1,4 +1,5 @@
 import { schema } from '@agentport/db';
+import { overviewSchema } from '@agentport/shared';
 import { and, avg, count, desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -30,6 +31,7 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
         querystring: z.object({
           days: z.coerce.number().int().min(1).max(3650).default(7),
         }),
+        response: { 200: overviewSchema },
       },
     },
     async (request) => {

@@ -15,7 +15,8 @@ for arg in "$@"; do
 done
 
 BASE_URL="${BASE_URL:-http://localhost:3000}"
-SANDBOX_IMAGE=agentport/sandbox:dev
+# 沙盒镜像由 compose/worker 读取 SANDBOX_IMAGE；默认是本地构建的 dev 标签。
+SANDBOX_IMAGE="${SANDBOX_IMAGE:-agentport/sandbox:dev}"
 
 fail() {
   echo "UP FAIL: $*" >&2
@@ -85,7 +86,14 @@ deps_healthy || {
 }
 echo "依赖就绪"
 
-if [ "$REBUILD" = 1 ] || ! docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1; then
+# 远程镜像（发布产物）由 worker 启动沙盒时按需 pull，本地不构建。
+is_remote_image() {
+  case "$SANDBOX_IMAGE" in ghcr.io/*|docker.io/*|*.*/*) return 0 ;; *) return 1 ;; esac
+}
+
+if is_remote_image; then
+  echo "==> 使用远程沙盒镜像 $SANDBOX_IMAGE（首次运行时由 worker 拉取）"
+elif [ "$REBUILD" = 1 ] || ! docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1; then
   echo "==> 构建沙盒镜像 $SANDBOX_IMAGE"
   pnpm --filter @agentport/sandbox build || fail "构建 sandbox dist 失败（先运行 pnpm install）"
   # runner 在 stdin 边界用 @agentport/shared 校验任务，镜像需要它的编译产物。
@@ -96,12 +104,6 @@ if [ "$REBUILD" = 1 ] || ! docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1
 else
   echo "==> 沙盒镜像已存在，跳过构建（需要重建时加 --rebuild）"
 fi
-
-echo "==> 修正工作区卷属主"
-# docker compose down -v 之后命名卷归 root，worker 以 node(1000) 运行会 Permission denied。
-# 卷本身用一次性 alpine 容器 chown，避免依赖宿主权限。
-docker run --rm -v agentport_workspaces:/w alpine sh -c 'chown -R 1000:1000 /w' >/dev/null 2>&1 ||
-  echo "warn: 工作区卷属主修正失败，若首次运行报 EACCES 请手动 chown" >&2
 
 echo "==> 迁移并启动 api / worker"
 # 删除上次完成的一次性迁移容器，确保本次重新执行迁移。
@@ -134,7 +136,7 @@ PLATFORM_MCP_TOKEN="$(env_get PLATFORM_MCP_TOKEN)" \
   bash scripts/smoke.sh || fail "冒烟测试失败"
 
 echo "部署完成：$BASE_URL"
-if ! env_get ANTHROPIC_API_KEY >/dev/null 2>&1 && ! env_get ANTHROPIC_AUTH_TOKEN >/dev/null 2>&1; then
+if [ -z "$(env_get ANTHROPIC_API_KEY)$(env_get ANTHROPIC_AUTH_TOKEN)" ]; then
   echo
   echo "注意：未配置模型凭据（ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN）。"
   echo "      平台本身可用，但发起对话会失败；补全 .env 后运行 pnpm run up 重启。"

@@ -103,7 +103,8 @@ describe.skipIf(!ready)('servers', () => {
     });
     expect(shown.statusCode).toBe(200);
     expect(shown.json()).toEqual({
-      token: SECRET_MASK,
+      // GET 只回掩码，字段名与 rotate 的明文 token 区分。
+      maskedToken: SECRET_MASK,
       endpoint: expect.stringContaining(`/mcp/${server.id}`),
     });
 

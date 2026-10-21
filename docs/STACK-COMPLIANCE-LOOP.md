@@ -118,3 +118,19 @@
 
 **验证**：7 包 typecheck、biome 155 文件、165 测试全过、构建通过、迁移 0017/0018 已应用。
 **遗留**：`queued` 状态的陈旧 run 无清扫（需要 `created_at` 列）；聊天面板无虚拟列表，长会话仍全量渲染。
+
+### 第 5 轮 — 2026-10-21
+
+**范围**：API 契约完备性 / 部署与环境一致性。
+**发现**：2 项阻断 + 9 项真问题。
+
+关键结论：
+- **阻断：smoke 每次部署都假失败。** 第 3 轮给 `/health/metrics` 加了鉴权，smoke 仍匿名探测它。已改为匿名断言 401、登录后断言 200——顺带把安全属性也测了。
+- **阻断：release workflow 红。** 漏了 shared 暂存步骤，`COPY shared/` 必失败。已补齐并跑 actionlint。
+- **测试静默跳过**：`vitest.config` 硬编码 Redis 无密码，而 `up.sh` 写入随机密码，导致 `pnpm test` 拿到 WRONGPASS 后**静默跳过 87 个测试**。改为读同一份 `.env`：87 skipped → 0 skipped。
+- **用户可见：评估失败无原因。** 服务端存了 `error`，客户端类型没有该字段，UI 只显示「失败」。已补字段并加「失败原因」列。
+- **零 response schema**：web 解析的 5 个端点现在有 schema，形状漂移会被测试抓到而不是静默丢弃。
+- 错误文案英文混杂且泄露内部 id → 全部改为中文带下一步。
+- 沙盒镜像不可复现（无锁文件）→ 提交 `package.docker-lock.json`，`npm ci`，基础镜像按 digest 固定。
+
+**验证**：7 包 typecheck、biome 156 文件、165 测试全过、`compose config` 有效、全部脚本 `bash -n` 通过、smoke 实跑全绿。

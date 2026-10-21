@@ -9,8 +9,26 @@ DIR="$ROOT/backups"
 mkdir -p "$DIR"
 
 # 宿主没装客户端时借 compose 的 postgres 容器；DATABASE_URL 需在容器内可达（localhost 指向容器自身）。
+# 宿主 pg_dump 主版本与服务器不一致（旧客户端连 PG18）时同样改走容器。
+container_pg() { docker compose -f "$ROOT/docker-compose.yml" exec -T postgres "$@"; }
+
+dump_client_matches_server() {
+  command -v pg_dump >/dev/null 2>&1 || return 1
+  local host_major server_major
+  host_major="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"
+  server_major="$(container_pg postgres --version 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+  # 容器没起来时无从比较，只能寄望宿主客户端。
+  [ -z "$server_major" ] || [ "$host_major" = "$server_major" ]
+}
+
 pg() {
-  if command -v "$1" >/dev/null 2>&1; then "$@"; else docker compose -f "$ROOT/docker-compose.yml" exec -T postgres "$@"; fi
+  if [ "$1" = pg_dump ] && ! dump_client_matches_server; then
+    container_pg "$@"
+  elif command -v "$1" >/dev/null 2>&1; then
+    "$@"
+  else
+    container_pg "$@"
+  fi
 }
 
 OUT="$DIR/$(date +%Y%m%d-%H%M%S).sql.gz"
@@ -31,5 +49,6 @@ mv "$TMP" "$OUT"
 echo "backup written: $OUT ($(wc -c <"$OUT" | tr -d ' ') bytes)"
 
 # 只清理本脚本产出的文件名，避免误删 backups/ 里的其他文件。
+# pre-restore-*.sql.gz 是 restore.sh 的安全副本，不参与保留数量与删除。
 # BSD xargs 没有 -r，用 while 读入；为空时循环不执行。
-ls -1t "$DIR"/*.sql.gz 2>/dev/null | tail -n +8 | while IFS= read -r old; do rm -f "$old"; done
+ls -1t "$DIR"/*.sql.gz 2>/dev/null | grep -v '/pre-restore-' | tail -n +8 | while IFS= read -r old; do rm -f "$old"; done || true
