@@ -21,7 +21,7 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
 
   // 1. 建 generated server，指向公开的 jsonplaceholder
   await app.open('/servers');
-  await screen.getByRole('button', '新建 Server').first().tap();
+  await screen.getByRole('button', '新建连接器').first().tap();
   await screen.getByRole('button', 'HTTP API 转 MCP', { exact: false }).tap();
   await browser.locator('#server-name').fill(serverName);
   await browser.locator('#server-url').fill('https://jsonplaceholder.typicode.com');
@@ -44,7 +44,7 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
 
   // 4. 测试连接走行操作菜单：服务端真连平台自己的 /mcp/:id 并 listTools。
   // 行用 data-slot 定位：视觉类名（圆角、颜色）不能当选择器。
-  const row = browser.locator('[data-slot="server-row"]').filter({ hasText: serverName }).first();
+  const row = browser.locator('[data-slot="server-card"]').filter({ hasText: serverName }).first();
   await row.getByRole('button', { name: `操作 ${serverName}` }).tap();
   await screen.getByRole('menuitem', '测试连接').tap();
   await expect(screen.getByText('连接成功')).toBeVisible();
@@ -52,7 +52,7 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
 
   // 5. 建 agent、绑定 server、看渲染出的 .mcp.json
   await app.open('/agents');
-  await screen.getByRole('button', '新建智能体').first().tap();
+  await screen.getByRole('button', '新建专家').first().tap();
   await browser.locator('#new-agent-slug').fill(agentSlug);
   await browser.locator('#new-agent-name').fill(agentName);
   await browser.locator('#new-agent-prompt').fill(' You help test Agentport.');
@@ -73,6 +73,19 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   // 底座 Tabs 的触发器是 role=tab 的 button。
   await screen.getByRole('tab', '完整文件').tap();
   await expect(screen.getByText('"mcpServers"', { exact: false }).first()).toBeVisible();
+
+  await screen.getByRole('tab', '配置', { exact: true }).tap();
+  const prompt = browser.locator(
+    'textarea[placeholder="描述角色、边界与工作方式；会写入 CLAUDE.md。"]',
+  );
+  await prompt.fill('Unsaved expert draft');
+  await browser.keyboard.press('Escape');
+  await expect(screen.getByRole('heading', '放弃未保存的更改？')).toBeVisible();
+  await screen.getByRole('button', '取消', { exact: true }).tap();
+  await expect(prompt).toHaveValue('Unsaved expert draft');
+  await browser.keyboard.press('Escape');
+  await screen.getByRole('button', '放弃并关闭').tap();
+  await expect(screen.getByRole('button', `配置 ${agentName}`)).toBeVisible();
 });
 
 /**
@@ -87,9 +100,9 @@ test('smoke: chat runs to a terminal state', { session: 'admin' }, async ({
   test.skip(process.env.E2E_FULL !== '1', '需要 worker 与模型凭据，设置 E2E_FULL=1 才跑');
 
   await app.open('/chat');
-  // 原生 <select>：用 selectOption，选择第一个可用智能体。
-  const agentSelect = screen.getByLabel('选择智能体');
-  await agentSelect.selectOption({ index: 0 });
+  const agentSelect = screen.getByRole('combobox', '选择智能体');
+  await agentSelect.tap();
+  await screen.getByRole('option').first().tap();
   await screen.getByRole('textbox', '消息').fill('hello');
   await screen.getByRole('button', '发送消息').tap();
 

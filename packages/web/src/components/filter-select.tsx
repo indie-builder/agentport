@@ -34,7 +34,7 @@ export function FilterSelect({
       <SelectTrigger aria-label={label} className={className}>
         <SelectValue />
       </SelectTrigger>
-      <SelectContent align="start" alignItemWithTrigger={false}>
+      <SelectContent>
         <SelectGroup>
           {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>

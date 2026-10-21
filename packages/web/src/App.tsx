@@ -41,21 +41,35 @@ const indexRoute = createRoute({
   component: OverviewPage,
 });
 
+const resourceSearchSchema = z.object({
+  q: z.string().optional().catch(undefined),
+  sort: z.enum(['newest', 'name']).optional().catch(undefined),
+});
+
 const serversRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/servers',
+  validateSearch: resourceSearchSchema.extend({
+    kind: z.enum(['stdio', 'http', 'generated']).optional().catch(undefined),
+  }),
   component: ServersPage,
 });
 
 const agentsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/agents',
+  validateSearch: resourceSearchSchema.extend({
+    status: z.enum(['enabled', 'disabled']).optional().catch(undefined),
+  }),
   component: AgentsPage,
 });
 
 const skillsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/skills',
+  validateSearch: resourceSearchSchema.extend({
+    usage: z.enum(['bound', 'unbound']).optional().catch(undefined),
+  }),
   component: SkillsPage,
 });
 

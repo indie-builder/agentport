@@ -1,9 +1,10 @@
 import { AlertTriangle } from 'lucide-react';
+import type { ComponentProps } from 'react';
 import { type ReactNode, useState } from 'react';
 import { toastError } from '../lib/toast.js';
 import { DialogShell } from './dialog-shell.js';
 import { Button } from './ui/button.js';
-import { Dialog } from './ui/dialog.js';
+import { Dialog, DialogDescription } from './ui/dialog.js';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -14,6 +15,7 @@ interface ConfirmDialogProps {
   children?: ReactNode;
   confirmDisabled?: boolean;
   onConfirm: () => Promise<unknown>;
+  finalFocus?: ComponentProps<typeof DialogShell>['finalFocus'];
 }
 
 /** 破坏性操作的统一二次确认；确认按钮在请求完成前保持 pending。 */
@@ -26,6 +28,7 @@ export function ConfirmDialog({
   children,
   confirmDisabled = false,
   onConfirm,
+  finalFocus,
 }: ConfirmDialogProps) {
   const [pending, setPending] = useState(false);
 
@@ -44,22 +47,31 @@ export function ConfirmDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => {
+      onOpenChange={(next, details) => {
+        if (pending) {
+          details.cancel();
+          return;
+        }
         if (!next) onClose();
       }}
     >
-      <DialogShell title={title} className="max-w-md">
+      <DialogShell
+        title={title}
+        className="max-w-md sm:max-w-md"
+        closeDisabled={pending}
+        finalFocus={finalFocus}
+      >
         <div className="flex gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-item bg-danger-soft text-danger">
             <AlertTriangle className="size-4" />
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
-            <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
+            <DialogDescription className="leading-relaxed">{description}</DialogDescription>
             {children}
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
             取消
           </Button>
           <Button

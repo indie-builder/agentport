@@ -23,7 +23,7 @@
 
 - **设计基准固定为 https://www.openui.com/chat?form_factor=desktop。** 所有页面、组件、间距、圆角、字号、图标都以它为准，详见 `docs/DESIGN-SYSTEM.md`。改动前先读该文件；不要凭感觉发明视觉。
 - **无彩度体系**：黑白灰承担层级，没有品牌色。强调靠实底黑与透明度，不靠色相。
-- **结构靠 1px 线与留白，不靠卡片盒子**；圆角随尺寸递增（16 外壳 / 16 chip / 12 卡片 / 9 行 / 7 图标 / 6 标签）。
+- **结构靠 1px 线与留白。** 一般页面以行组织，资源中心允许约定的卡片网格；尺寸和例外统一查 `docs/DESIGN-SYSTEM.md`。
 - **图标统一 lucide，`strokeWidth={1.75}`，16px。**
 - **组件库统一使用 shadcn/ui。** `components.json` 已配置，新增组件用 `pnpm dlx shadcn@latest add <name>` 生成，再改为本项目令牌；不要手写近似实现。 新增 UI 一律从 shadcn/ui 的组件出发（复制到 `packages/web/src/components/ui/`，按项目设计语言调整 token），不要另起一套控件、不要重复手写同类组件。
 - **底座先行，按官方方式自定义。** 先安装 shadcn + Base UI（`base-nova`）的官方组件，再应用项目设计系统。共享颜色、圆角和阴影优先走 `styles.css` 语义令牌；局部布局使用 `className`。
@@ -31,6 +31,7 @@
   - 安装或更新组件前检查 git diff，逐组件比较官方源码；`--overwrite` 会覆盖定制，只有确认差异已处理后才使用。
   - 应用组合放在 `src/components/`，如 `ConfirmDialog`；底座组件放在 `components/ui/`。复用必须有明确行为或设计用途，不以调用次数或 JSX 长度机械决定。
 
+- **单一设计契约，随开发补齐。** UI 变更先核对 `docs/DESIGN-SYSTEM.md`；发现缺口就在该文件补齐规则，并同步共享组件与受影响页面。并行任务遵守主会话确定的同一契约，页面不另建同类约定；例外必须在该文件说明适用场景与原因。
 - **先复用，再新增。** 写新界面前先看 `components/ui/` 与 `components/` 是否已有可用的组件；能组合就不新建。
 - **样式遵循 `docs/DESIGN-SYSTEM.md` 的项目设计语言。** 组件结构、无障碍行为、交互约定沿用组件库；颜色、间距、字体、圆角只通过 `packages/web/src/styles.css` 的 `@theme` token 取值，禁止在组件里硬编码十六进制色值。
 - **CSS 统一用 Tailwind CSS 4**，不自造 CSS 文件、不引入第二套样式方案。

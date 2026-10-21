@@ -4,15 +4,35 @@ import {
   type SkillWithAgentCount,
   skillInputSchema,
 } from '@agentport/shared';
-import { Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { MoreHorizontal, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
-import { Page, PageHeader, PageNote } from '../components/page.js';
+import { FilterSelect } from '../components/filter-select.js';
+import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
+import { ResourcePage } from '../components/resource-page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
+import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
 import { Dialog } from '../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
 import {
   Field,
   FieldDescription,
@@ -28,110 +48,232 @@ import { useCreateSkill, useDeleteSkill, useSkills, useUpdateSkill } from '../li
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 const emptySkill: SkillInput = { slug: '', name: '', description: '', body: '' };
+const usageOptions = [
+  { value: 'all', label: '全部技能' },
+  { value: 'bound', label: '已绑定' },
+  { value: 'unbound', label: '未绑定' },
+];
 
 export function SkillsPage() {
   const skills = useSkills();
+  const navigate = useNavigate();
+  const search = useSearch({ from: '/shell/skills' });
+  const query = search.q ?? '';
+  const sort = search.sort ?? 'newest';
+  const usage = search.usage ?? 'all';
   const [editing, setEditing] = useState<Skill | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<SkillWithAgentCount | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
+  const actionTriggerRef = useRef<HTMLElement | null>(null);
+  // 关闭后回到真实触发器；菜单项会随菜单卸载，所以记的是常驻的下拉触发器。
+  const panelFocus = (): HTMLElement | null =>
+    actionTriggerRef.current?.isConnected ? actionTriggerRef.current : null;
+  const setFilter = (
+    patch: { q?: string | undefined; usage?: 'bound' | 'unbound' | undefined },
+    replace = false,
+  ): void => {
+    void navigate({ to: '/skills', search: (previous) => ({ ...previous, ...patch }), replace });
+  };
+  const visibleSkills = useMemo(() => {
+    const term = query.trim().toLocaleLowerCase();
+    return (skills.data ?? [])
+      .filter(
+        (skill) =>
+          (usage === 'all' ||
+            (usage === 'bound' ? skill.agentCount > 0 : skill.agentCount === 0)) &&
+          [skill.name, skill.slug, skill.description, skill.body].some((value) =>
+            value.toLocaleLowerCase().includes(term),
+          ),
+      )
+      .sort((a, b) =>
+        sort === 'name'
+          ? a.name.localeCompare(b.name, 'zh-CN')
+          : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+  }, [skills.data, query, sort, usage]);
 
   return (
-    <Page>
-      <PageHeader
-        title="技能"
-        description="可复用的操作流程，渲染为 .claude/skills/<slug>/SKILL.md。"
-        actions={
-          <Button
-            ref={createButtonRef}
-            size="sm"
-            // Keep the page action pill-shaped instead of the compact button radius.
-            className="rounded-full"
-            onClick={() => setCreating(true)}
-          >
-            <Plus className="size-4" aria-hidden="true" /> 新建技能
-          </Button>
-        }
-      />
-
-      {skills.isPending ? <LoadingState rows={4} /> : null}
+    <ResourcePage
+      section="skills"
+      query={query}
+      onQueryChange={(next) => setFilter({ q: next || undefined }, true)}
+      sort={sort}
+      onSortChange={(next) =>
+        void navigate({
+          to: '/skills',
+          search: { ...search, sort: next === 'newest' ? undefined : next },
+        })
+      }
+      count={visibleSkills.length}
+      filters={
+        <FilterSelect
+          value={usage}
+          onValueChange={(next) => {
+            if (next !== 'all' && next !== 'bound' && next !== 'unbound') return;
+            setFilter({ usage: next === 'all' ? undefined : next });
+          }}
+          options={usageOptions}
+          label="按使用情况筛选"
+          className="w-36"
+        />
+      }
+      actions={
+        <Button ref={createButtonRef} onClick={() => setCreating(true)}>
+          <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
+        </Button>
+      }
+    >
+      {skills.isPending ? <LoadingState rows={4} layout="cards" /> : null}
       {skills.isError ? (
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
       ) : null}
       {skills.data && skills.data.length === 0 ? (
         <PageNote
-          icon={<Sparkles className="size-4" aria-hidden="true" />}
+          icon={<Sparkles aria-hidden="true" />}
           title="还没有技能"
-          description="把重复出现的步骤写成技能，多个智能体可以共享它。"
+          description="把重复出现的步骤写成技能，多个专家可以共享它。"
           action={
-            // Keep the empty-state action consistent with the page action pill.
-            <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
-              <Plus className="size-4" aria-hidden="true" /> 新建技能
+            <Button onClick={() => setCreating(true)}>
+              <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
+            </Button>
+          }
+        />
+      ) : null}
+      {skills.data && skills.data.length > 0 && visibleSkills.length === 0 ? (
+        <PageNote
+          icon={<Sparkles aria-hidden="true" />}
+          title="没有匹配的技能"
+          description="试试其他关键词或使用情况。"
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFilter({ q: undefined, usage: undefined })}
+            >
+              清除筛选
             </Button>
           }
         />
       ) : null}
 
-      {skills.data && skills.data.length > 0 ? (
-        <ul>
-          {skills.data.map((skill) => (
-            <li
-              key={skill.id}
-              className="group flex min-h-14 items-start gap-4 border-b px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                  <span className="truncate text-md font-medium text-fg">{skill.name}</span>
-                  <code className="font-mono text-xs text-subtle">{skill.slug}</code>
-                  <span className="text-xs text-subtle">被 {skill.agentCount} 个智能体使用</span>
-                </div>
-                <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
-                  {skill.description || '（无描述）'}
-                </p>
-                {skill.body ? (
-                  <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-subtle">
-                    {skill.body}
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex shrink-0 gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
-                <Button variant="ghost" size="icon-sm" onClick={() => setEditing(skill)}>
-                  <span className="sr-only">编辑 {skill.name}</span>
-                  <Pencil className="size-4" aria-hidden="true" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  // Signal deletion on hover while keeping the neutral ghost button at rest.
-                  className="hover:text-danger"
-                  onClick={() => setDeleting(skill)}
-                >
-                  <span className="sr-only">删除 {skill.name}</span>
-                  <Trash2 className="size-4" aria-hidden="true" />
-                </Button>
-              </div>
+      {visibleSkills.length > 0 ? (
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {visibleSkills.map((skill) => (
+            <li key={skill.id} className="min-w-0">
+              <Card className="h-full">
+                <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
+                  <span className="row-span-2 flex size-10 shrink-0 items-center justify-center self-center rounded-item bg-muted text-muted-foreground">
+                    <Sparkles aria-hidden="true" />
+                  </span>
+                  <CardTitle className="col-start-2 min-w-0">
+                    <h2 className="min-w-0">
+                      <Button
+                        variant="ghost"
+                        className="h-auto w-full min-w-0 justify-start p-0 text-base leading-snug font-medium"
+                        onClick={(event) => {
+                          actionTriggerRef.current = event.currentTarget;
+                          setEditing(skill);
+                        }}
+                      >
+                        <span className="truncate" title={skill.name}>
+                          {skill.name}
+                        </span>
+                      </Button>
+                    </h2>
+                  </CardTitle>
+                  <CardAction className="col-start-3">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`操作 ${skill.name}`}
+                            onClick={(event) => {
+                              actionTriggerRef.current = event.currentTarget;
+                            }}
+                          >
+                            <MoreHorizontal />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" sideOffset={4} className="w-36">
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem onClick={() => setEditing(skill)}>
+                            <Pencil /> 编辑
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => setDeleting(skill)}
+                          >
+                            <Trash2 /> 删除
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </CardAction>
+                  <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10">
+                    {skill.description || '暂无描述'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col gap-3">
+                  <Badge variant="secondary" className="max-w-full font-mono">
+                    <span className="truncate">{skill.slug}</span>
+                  </Badge>
+                </CardContent>
+                <CardFooter className="mt-auto justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    被 {skill.agentCount} 个专家使用
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`编辑 ${skill.name}`}
+                    title={`编辑 ${skill.name}`}
+                    aria-haspopup="dialog"
+                    onClick={(event) => {
+                      actionTriggerRef.current = event.currentTarget;
+                      setEditing(skill);
+                    }}
+                  >
+                    编辑
+                  </Button>
+                </CardFooter>
+              </Card>
             </li>
           ))}
         </ul>
       ) : null}
 
       {creating ? (
-        <SkillDialog returnFocusRef={createButtonRef} onClose={() => setCreating(false)} />
+        <SkillDialog
+          finalFocus={() => (createButtonRef.current?.isConnected ? createButtonRef.current : null)}
+          onClose={() => setCreating(false)}
+        />
       ) : null}
-      {editing ? <SkillDialog skill={editing} onClose={() => setEditing(null)} /> : null}
-      {deleting ? <DeleteSkillDialog skill={deleting} onClose={() => setDeleting(null)} /> : null}
-    </Page>
+      {editing ? (
+        <SkillDialog skill={editing} finalFocus={panelFocus} onClose={() => setEditing(null)} />
+      ) : null}
+      {deleting ? (
+        <DeleteSkillDialog
+          skill={deleting}
+          finalFocus={panelFocus}
+          onClose={() => setDeleting(null)}
+        />
+      ) : null}
+    </ResourcePage>
   );
 }
 
 function SkillDialog({
   skill,
   onClose,
-  returnFocusRef,
+  finalFocus,
 }: {
   skill?: Skill;
   onClose: () => void;
-  returnFocusRef?: { current: HTMLElement | null };
+  finalFocus?: () => HTMLElement | null;
 }) {
   const create = useCreateSkill();
   const update = useUpdateSkill();
@@ -199,22 +341,31 @@ function SkillDialog({
   };
 
   const pending = create.isPending || update.isPending;
-  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认。
-  const close = dirty ? () => setConfirmDiscard(true) : onClose;
+  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中不能丢弃。
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
 
   return (
     <Dialog
       open
-      onOpenChange={(next) => {
+      onOpenChange={(next, details) => {
+        if (pending) {
+          details.cancel();
+          return;
+        }
         if (!next) close();
       }}
     >
       <DialogShell
         title={skill ? '编辑技能' : '新建技能'}
         description="技能内容会写入 SKILL.md 的正文。"
-        {...(returnFocusRef ? { finalFocus: returnFocusRef } : {})}
+        closeDisabled={pending}
+        finalFocus={finalFocus}
       >
-        <form onSubmit={submit} className="flex flex-col gap-4">
+        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <FieldGroup className="grid gap-3 sm:grid-cols-2">
             <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
               <FieldLabel htmlFor="skill-name">
@@ -223,6 +374,7 @@ function SkillDialog({
               <Input
                 id="skill-name"
                 value={form.name}
+                aria-required="true"
                 aria-invalid={Boolean(errors.name)}
                 aria-describedby={errors.name ? 'skill-name-error' : undefined}
                 onChange={(event) => set('name', event.target.value)}
@@ -241,6 +393,7 @@ function SkillDialog({
                 id="skill-slug"
                 value={form.slug}
                 disabled={Boolean(skill)}
+                aria-required="true"
                 aria-invalid={Boolean(errors.slug)}
                 aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
                 onChange={(event) => set('slug', event.target.value)}
@@ -263,6 +416,7 @@ function SkillDialog({
             <Input
               id="skill-desc"
               value={form.description}
+              aria-required="true"
               aria-invalid={Boolean(errors.description)}
               aria-describedby={errors.description ? 'skill-desc-error' : undefined}
               onChange={(event) => set('description', event.target.value)}
@@ -284,10 +438,10 @@ function SkillDialog({
             <FieldDescription>支持 Markdown，渲染为 SKILL.md 正文。</FieldDescription>
           </Field>
           <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
-            <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
+            <Button variant="outline" onClick={close} disabled={pending}>
               取消
             </Button>
-            <Button type="submit" size="sm" disabled={pending}>
+            <Button type="submit" aria-busy={pending} disabled={pending}>
               {pending ? '保存中…' : '保存'}
             </Button>
           </div>
@@ -310,9 +464,11 @@ function SkillDialog({
 function DeleteSkillDialog({
   skill,
   onClose,
+  finalFocus,
 }: {
   skill: SkillWithAgentCount;
   onClose: () => void;
+  finalFocus?: () => HTMLElement | null;
 }) {
   const remove = useDeleteSkill();
   return (
@@ -325,6 +481,7 @@ function DeleteSkillDialog({
           : `将删除「${skill.name}」。目前没有智能体绑定它。`
       }
       confirmLabel="删除"
+      finalFocus={finalFocus}
       onClose={onClose}
       onConfirm={async () => {
         await remove.mutateAsync(skill.id);

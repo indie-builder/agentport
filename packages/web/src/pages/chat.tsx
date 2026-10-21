@@ -34,8 +34,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
+import { Page, PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { Message, MessageContent, MessageGroup } from '../components/ui/message.js';
 import {
   MessageScroller,
@@ -83,39 +84,27 @@ export function ChatPage() {
   const [agentId, setAgentId] = useState<string | null>(null);
   const activeAgentId = agentId ?? agents.data?.[0]?.id ?? null;
 
-  if (agents.isPending) {
+  if (agents.isPending || agents.isError || agents.data.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <h1 className="sr-only">对话</h1>
-        <LoadingState rows={3} />
-      </div>
-    );
-  }
-
-  if (agents.isError) {
-    return (
-      <div>
-        <h1 className="sr-only">对话</h1>
-        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-      </div>
-    );
-  }
-
-  if (agents.data && agents.data.length === 0) {
-    return (
-      <div>
-        <h1 className="sr-only">对话</h1>
-        <EmptyState
-          icon={<Bot className="size-5" />}
-          title="还没有智能体"
-          description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
-          action={
-            <Link to="/agents" className="text-xs text-fg hover:underline">
-              前往创建
-            </Link>
-          }
-        />
-      </div>
+      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
+        {agents.isPending ? (
+          <LoadingState rows={3} />
+        ) : agents.isError ? (
+          <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+        ) : (
+          <EmptyState
+            icon={<Bot className="size-5" />}
+            title="还没有智能体"
+            description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
+            action={
+              <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
+                前往创建
+              </Link>
+            }
+          />
+        )}
+      </Page>
     );
   }
 
@@ -176,6 +165,7 @@ function ChatWorkspace({
   // 本地索引只有两条写路径（新会话被接收、历史会话被打开），统一走这里刷新。
   const refreshLocal = useCallback(() => setLocal(loadLocalConversations()), []);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const historyTriggerRef = useRef<HTMLButtonElement>(null);
   const desktop = useDesktop();
 
   const conversations = useConversations(agentId);
@@ -358,20 +348,20 @@ function ChatWorkspace({
       showWelcome={showWelcome}
       send={stream.send}
       composerRef={composerRef}
+      historyTriggerRef={historyTriggerRef}
     />
   );
 
   return (
-    <div className="flex h-full min-h-0">
-      <h1 className="sr-only">对话</h1>
-
-      {/* 窄屏抽屉：Radix 负责焦点陷阱、Escape 与滚动锁；桌面分栏常驻，不挂这层。 */}
+    <div className="flex h-full min-h-0 min-w-0">
+      {/* 窄屏抽屉由 Base UI 管理焦点、Escape 与滚动锁。 */}
       <Sheet open={historyOpen && !desktop} onOpenChange={setHistoryOpen}>
         <SheetContent
           side="left"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-[294px]! max-w-none! gap-0 p-0"
+          finalFocus={historyTriggerRef}
+          className="w-[294px]! max-w-full! gap-5 p-0"
         >
           <SheetTitle className="sr-only">会话历史</SheetTitle>
           <HistoryHeader onNew={newConversation} onClose={() => setHistoryOpen(false)} />
@@ -388,7 +378,7 @@ function ChatWorkspace({
           >
             <Panel id="history" defaultSize={272} minSize={220} maxSize={420}>
               <aside
-                className="flex h-full flex-col overflow-hidden bg-surface"
+                className="flex h-full min-w-0 flex-col gap-5 overflow-hidden"
                 aria-label="会话历史"
               >
                 <HistoryHeader onNew={newConversation} />
@@ -396,7 +386,9 @@ function ChatWorkspace({
               </aside>
             </Panel>
             <Separator className="w-px border-r" aria-label="调整会话列表宽度" />
-            <Panel id="chat">{column}</Panel>
+            <Panel id="chat" minSize={400}>
+              {column}
+            </Panel>
           </Group>
         </div>
       ) : (
@@ -409,19 +401,13 @@ function ChatWorkspace({
 
 function HistoryHeader({ onNew, onClose }: { onNew: () => void; onClose?: () => void }) {
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 px-3 pt-3">
+    <div className="flex min-h-11 shrink-0 items-center gap-2 px-3 pt-3">
       <span className="text-sm font-medium text-fg">会话</span>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label="新建会话"
-        className="ml-auto"
-        onClick={onNew}
-      >
+      <Button variant="ghost" size="icon" aria-label="新建会话" className="ml-auto" onClick={onNew}>
         <Plus className="size-4" />
       </Button>
       {onClose ? (
-        <Button variant="ghost" size="icon-sm" aria-label="关闭会话列表" onClick={onClose}>
+        <Button variant="ghost" size="icon" aria-label="关闭会话列表" onClick={onClose}>
           <X className="size-4" />
         </Button>
       ) : null}
@@ -535,6 +521,7 @@ function ChatColumn({
   showWelcome,
   send,
   composerRef,
+  historyTriggerRef,
 }: {
   agent: AgentView | null;
   agentId: string | null;
@@ -556,6 +543,7 @@ function ChatColumn({
   showWelcome: boolean;
   send: () => Promise<void>;
   composerRef: RefObject<HTMLTextAreaElement | null>;
+  historyTriggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   const composer = (
     <Composer
@@ -577,46 +565,51 @@ function ChatColumn({
   const agentOptions = agents.map((item) => ({ value: item.id, label: item.name }));
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-shell bg-surface outline outline-1 outline-shell-line">
-      {/* 顶部一行：移动端菜单 + 智能体选择器。没有标题、没有描述。 */}
-      <header className="flex h-11 shrink-0 items-center gap-2 px-3 pt-3">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="打开会话列表"
-          className="lg:hidden"
-          onClick={onOpenHistory}
-        >
-          <MessageSquare className="size-4" />
-        </Button>
-        <label className="sr-only" htmlFor="chat-agent">
-          选择智能体
-        </label>
-        <Select
-          value={agentId ?? ''}
-          onValueChange={(next) => {
-            if (next !== null) onSwitchAgent(next);
-          }}
-          items={agentOptions}
-        >
-          <SelectTrigger
-            id="chat-agent"
-            // Keep the borderless pill selector and compact typography instead of the base field appearance.
-            className="w-auto max-w-56 gap-1.5 rounded-pill border-0 bg-hover px-3 text-xs leading-3 tracking-[-0.12px] [&>span:first-child]:truncate"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {agentOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </header>
+    <Page className="h-full min-h-0 flex-1 overflow-hidden">
+      <PageHeader
+        title="对话"
+        className="shrink-0 px-3 [&_h1]:sr-only [&>div]:ml-0 [&>div]:min-w-0 [&>div>div]:min-w-0"
+        actions={
+          <>
+            <Button
+              ref={historyTriggerRef}
+              variant="outline"
+              size="icon"
+              aria-label="打开会话列表"
+              className="lg:hidden"
+              onClick={onOpenHistory}
+            >
+              <MessageSquare />
+            </Button>
+            <label className="sr-only" htmlFor="chat-agent">
+              选择智能体
+            </label>
+            <Select
+              value={agentId ?? ''}
+              onValueChange={(next) => {
+                if (next !== null) onSwitchAgent(next);
+              }}
+              items={agentOptions}
+            >
+              <SelectTrigger
+                id="chat-agent"
+                className="min-w-0 max-w-56 [&>span:first-child]:truncate"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {agentOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </>
+        }
+      />
 
       <MessagePane
         items={items}
@@ -649,7 +642,7 @@ function ChatColumn({
       <RunStatusBar run={run} items={items} cancelling={cancelling} onCancel={onCancel} />
 
       {showWelcome ? null : composer}
-    </section>
+    </Page>
   );
 }
 
@@ -680,7 +673,7 @@ function Composer({
       }}
     >
       <div className="mx-auto w-full max-w-[728px]">
-        <div className="flex h-14 items-center gap-3 rounded-[28px] border border-transparent bg-surface py-[11px] pl-6 pr-3 shadow-composer">
+        <div className="flex h-14 items-center gap-3 rounded-[28px] border border-transparent bg-surface py-[11px] pl-6 pr-3 shadow-composer focus-within:ring-2 focus-within:ring-ring">
           <Textarea
             ref={textareaRef}
             aria-label="消息"
@@ -712,7 +705,7 @@ function Composer({
               aria-label="发送消息"
               title="运行中，结束后可发送"
               // Keep circular send controls and their quiet disabled surface instead of the base button appearance.
-              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover"
+              className="size-8 shrink-0 rounded-pill p-0 focus-visible:ring-0 disabled:bg-hover"
             >
               <ArrowUp className="size-4" />
             </Button>
@@ -722,13 +715,13 @@ function Composer({
               disabled={!agent || !input.trim()}
               aria-label="发送消息"
               // Keep circular send controls and subdued disabled text instead of the base button appearance.
-              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover disabled:text-subtle"
+              className="size-8 shrink-0 rounded-pill p-0 focus-visible:ring-0 disabled:bg-hover disabled:text-subtle"
             >
               <ArrowUp className="size-4" />
             </Button>
           )}
         </div>
-        <div className="mt-2 flex items-center justify-center gap-3 text-xs text-subtle">
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-subtle">
           <span>Enter 发送 · Shift+Enter 换行</span>
           {lastRunId ? (
             <Link
@@ -964,7 +957,7 @@ function MessagePane({
         {items.length > 0 ? (
           <MessageScrollerButton
             variant="outline"
-            size="xs"
+            size="sm"
             behavior={reduce ? 'instant' : 'smooth'}
             // Keep the translucent hover; outline defaults to the opaque muted surface.
             className="hover:bg-hover motion-reduce:transition-none"
@@ -1118,7 +1111,7 @@ function WelcomeState({
     : [];
 
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center gap-8 px-4 pb-32 pt-3">
+    <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center gap-5 px-4 pb-5 pt-3">
       <div className="flex flex-col items-center gap-1 text-center tracking-[-0.24px]">
         <h2 className="text-lg font-normal leading-[30px] text-fg">你好</h2>
         <p className="text-lg font-medium leading-[26.4px] text-muted-foreground">今天想做什么？</p>
@@ -1129,14 +1122,15 @@ function WelcomeState({
       {suggestions.length > 0 ? (
         <div className="flex flex-wrap justify-center gap-3">
           {suggestions.map((text) => (
-            <button
+            <Button
               key={text}
+              variant="ghost"
               type="button"
               onClick={() => onPick(text)}
-              className="h-[72px] w-[136px] overflow-hidden rounded-card bg-chip p-4 text-left text-base leading-5 text-muted-foreground transition-[background-color] duration-150 hover:bg-hover focus-visible:ring-2 focus-visible:ring-fg"
+              className="h-[72px] w-[136px] items-start justify-start overflow-hidden whitespace-normal rounded-card border-0 bg-chip p-4 text-left text-base font-normal leading-5 text-muted-foreground hover:bg-hover"
             >
               <span className="line-clamp-2">{text}</span>
-            </button>
+            </Button>
           ))}
         </div>
       ) : null}
@@ -1300,14 +1294,20 @@ const ApprovalCard = memo(function ApprovalCard({
       className="flex flex-wrap items-center gap-2 rounded-card border bg-chip px-3 py-2"
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
-      <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg">
+      <div className="min-w-0 flex-1 basis-48 text-xs leading-relaxed text-fg [overflow-wrap:anywhere]">
         工具 <code className="font-mono text-xs">{item.toolName}</code>
         {item.serverName ? (
           <span className="text-muted-foreground"> @ {item.serverName}</span>
         ) : null}{' '}
         需要批准。批准只记录到该 server；继续请在输入框重新发送消息（新一次运行）。
       </div>
-      <Button size="sm" disabled={busy} aria-busy={busy} onClick={() => onApprove(item)}>
+      <Button
+        size="sm"
+        className="h-auto min-h-7 max-w-full whitespace-normal py-1"
+        disabled={busy}
+        aria-busy={busy}
+        onClick={() => onApprove(item)}
+      >
         {busy ? '批准中…' : '批准并继续（新一次运行）'}
       </Button>
     </motion.div>
@@ -1345,7 +1345,7 @@ const ToolRow = memo(function ToolRow({
       onOpenChange={setOpen}
       className={cn('overflow-hidden rounded-item bg-surface', nested && 'ml-4')}
     >
-      <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg">
+      <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
         <Wrench className="size-4 shrink-0 text-subtle" aria-hidden="true" />
         <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{item.name}</code>
         <span className="sr-only">{running ? '运行中' : failed ? '失败' : '完成'}</span>
@@ -1386,7 +1386,7 @@ const ToolRow = memo(function ToolRow({
                   子智能体 · {childCount} 次调用
                 </p>
               ) : null}
-              <div className="grid gap-2 border-t p-2 md:grid-cols-2">
+              <div className="grid gap-2 border-t p-2">
                 <div className="min-w-0">
                   <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
                     参数

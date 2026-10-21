@@ -15,7 +15,7 @@
 | 表单字段缺少官方 Field 组合 | 改用 Field/FieldLabel；主会话追加复审后补齐 20 处 data-invalid、1 处 data-disabled、6 个 FieldGroup |
 | 重复复制状态与定时器 | 统一 CopyButton；主会话修复连续点击的计时器叠加，并在卸载时清理 |
 | 工具栏筛选重复 | 5 个普通筛选使用 FilterSelect；聊天与特殊表单仍直接使用复合 Select |
-| 筛选弹层覆盖触发器 | 主会话实测后在 FilterSelect 显式传入 alignItemWithTrigger=false 与 align=start，不改底座默认值 |
+| 筛选弹层覆盖触发器 | 统一 SelectContent 在触发器下方展开；当前组件契约见 DESIGN-SYSTEM §9 |
 | --radius 缺失导致 InputGroup 内部 calc 失效 | 令牌设为 9px，内部减去 3px 为 6px |
 | 浮层阴影不一致 | shadow-md/lg 映射到同一 overlay 令牌 |
 | 菜单项目缺少 Group | 账户、智能体、Server 菜单按用途分组；移动端账户触发器补 accessible name |
@@ -30,6 +30,20 @@
 - Hex/RGB 是完整 CSS 颜色，支持 Tailwind 的 color-mix 与透明度，不因官方示例使用 OKLCH 就强制转换。
 - 不机械拉直所有圆角档位：Badge 的 rounded-4xl 映射到项目标签圆角是已记录的设计取舍。
 - 不把可变官方 registry 的新 class 差异自动判为 bug；没有对应功能或行为证据的版本漂移单独处理。
+
+## 资源中心统一性复审
+
+三个独立 Haiku 审查分别覆盖共享令牌/底座、表单弹层、资源页面；修复按文件域并行，主会话复核，并追加独立 Opus 复审。当前组件规则只维护在 DESIGN-SYSTEM §9，本文件记录审查结果。
+
+- 修复输入焦点近黑边框与重复光环，统一输入、搜索、多选、筛选和按钮的焦点提示；保留错误色与键盘焦点。
+- 删除页面内 LineInput / CodeArea 外观包装，统一单行控件尺寸，卡片头部、操作菜单、页脚与空结果处理。
+- 来源选择使用官方 ToggleGroup，所有 Select 默认向下展开。
+- 统一取消/关闭的草稿确认、请求中禁止关闭和实际触发器焦点返回；工具切换也经过草稿保护，并发保存冲突保留输入。
+- 补齐必填读屏标记及遗漏的字段错误状态，修复弹层重复内边距与宽度覆盖。
+- 浏览器实测普通输入与多选的尺寸/边框/焦点相同，错误边框保留；模拟失败保存保留草稿，390px 下三页及弹层无横向溢出。
+- 验证：7 个包 typecheck、208 文件 Biome、web 构建通过；30 个 Vitest 文件、179 项通过；E2E 9 通过、1 个完整模型运行用例按配置跳过。worker 已恢复。
+
+未将“路由链接不能组合 Tabs”判为问题：Base UI 官方支持 Link render 与 nativeButton=false。没有把视觉统一扩展成未经验证的全站 WCAG 合规声明。
 
 ## 验证边界
 

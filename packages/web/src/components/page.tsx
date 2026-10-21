@@ -1,36 +1,30 @@
 import type { ReactNode } from 'react';
 import { cn } from '../lib/cn.js';
 
-/**
- * 页面骨架（参考页实测版，2026-10-21）。
- *
- * 结构由 1px 线与留白承担，而不是卡片：
- * - 页头一行 44px，与外壳顶行同高；名称 + 右侧读数/操作。
- * - 区块之间 28px 留白，顶部分隔线；标题用小字号 + 颜色分层。
- * - 页头就是白面板的第一行：44px 高、12px 横内边距，与参考页的 header 对齐。
- * - 页面自身不写外边距，节奏由这里的内边距提供。
- */
-
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('flex flex-col gap-7', className)}>{children}</div>;
+  return (
+    <div data-slot="page" className={cn('flex min-w-0 flex-col gap-5', className)}>
+      {children}
+    </div>
+  );
 }
 
 export function PageHeader({
   title,
   description,
   actions,
-  meta,
   className,
 }: {
   title: string;
   description?: string;
   actions?: ReactNode;
-  /** 读数区：页头右侧的测量值。 */
-  meta?: ReactNode;
   className?: string;
 }) {
   return (
-    <div className={cn('flex min-h-11 flex-wrap items-center gap-x-4 gap-y-2 pt-3', className)}>
+    <div
+      data-slot="page-header"
+      className={cn('flex min-h-11 flex-wrap items-center gap-4 pt-3', className)}
+    >
       <h1 className="shrink-0 text-[16px] font-medium leading-6 tracking-[-0.01em] text-fg">
         {title}
       </h1>
@@ -39,20 +33,26 @@ export function PageHeader({
           {description}
         </p>
       ) : null}
-      <div className="ml-auto flex items-center gap-6">
-        {meta ? <div className="flex flex-wrap items-center gap-6">{meta}</div> : null}
-        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-3">
+        {actions ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>
+        ) : null}
       </div>
     </div>
   );
 }
 
-/** 工具条：筛选、搜索。与内容同宽，不画边框，靠页头下方的留白分隔。 */
 export function PageToolbar({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('-mt-3 flex flex-wrap items-center gap-2', className)}>{children}</div>;
+  return (
+    <div
+      data-slot="page-toolbar"
+      className={cn('flex min-w-0 flex-wrap items-center gap-3', className)}
+    >
+      {children}
+    </div>
+  );
 }
 
-/** 区块：顶部分隔线 + 28px 留白；内容不带卡片。 */
 export function PageSection({
   title,
   description,
@@ -70,7 +70,10 @@ export function PageSection({
   divided?: boolean;
 }) {
   return (
-    <section className={cn('flex flex-col gap-4', divided && 'border-t pt-7', className)}>
+    <section
+      data-slot="page-section"
+      className={cn('flex min-w-0 flex-col gap-4', divided && 'border-t pt-5', className)}
+    >
       {title || actions || description ? (
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -102,7 +105,7 @@ export function PageNote({
   tone?: 'default' | 'danger';
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-6 text-sm">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-5 text-sm">
       {icon ? (
         <span className={cn('shrink-0', tone === 'danger' ? 'text-danger' : 'text-subtle')}>
           {icon}

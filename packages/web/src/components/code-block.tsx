@@ -80,7 +80,7 @@ export function CodeBlock({
     >
       {large && (
         // Keep compact disclosure text and its focus ring; the primitive supplies no styling.
-        <CollapsibleTrigger className="px-3 py-2 text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
+        <CollapsibleTrigger className="px-3 py-2 text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           {expanded ? '收起内容' : '内容过大，点击查看'}
         </CollapsibleTrigger>
       )}
@@ -136,7 +136,7 @@ export function CollapsibleText({ text, className }: { text: string; className?:
   return (
     <Collapsible open={open} onOpenChange={setOpen} className={className}>
       {/* Keep compact disclosure text and its focus ring; the primitive supplies no styling. */}
-      <CollapsibleTrigger className="text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
+      <CollapsibleTrigger className="text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         {open ? '收起内容' : '内容过大，点击查看'}
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-1">{text}</CollapsibleContent>

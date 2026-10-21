@@ -3,8 +3,7 @@ import { ArrowLeft, Bot, CircleAlert, RotateCcw, User, Wrench } from 'lucide-rea
 import type { ReactNode } from 'react';
 import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
 import { CopyButton } from '../components/copy-button.js';
-import { Page, PageHeader } from '../components/page.js';
-import { RunStatusBadge } from '../components/run-status-badge.js';
+import { Page, PageHeader, PageSection } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import type { ApprovalRequest, RunStep } from '../lib/api.js';
@@ -20,14 +19,6 @@ import {
 import { useApproveRun, useRerun, useRun, useRunApprovals } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
-/**
- * 运行详情：主从结构（左步骤树 + 右检查器）。
- *
- * 为什么不是纯时间线：时间线适合读故事，但长 trace 里无法并排比较参数与结果，
- * 也看不出哪一步最慢。这里左栏给「谁花了多久」，右栏给「它到底传了什么、拿回了什么」。
- * 选中步骤写进 URL（?step=），可分享、刷新不丢。
- */
-
 function elapsed(at: string, start: string | null): number {
   const base = new Date(start ?? at).getTime();
   const time = new Date(at).getTime();
@@ -35,15 +26,8 @@ function elapsed(at: string, start: string | null): number {
   return Math.max(0, time - base);
 }
 
-const stepMeta = {
-  user: { icon: User, label: '用户', tone: 'text-muted-foreground' },
-  assistant: { icon: Bot, label: '助手', tone: 'text-success' },
-  tool: { icon: Wrench, label: '工具', tone: 'text-muted-foreground' },
-} as const;
+const stepIcons = { user: User, assistant: Bot, tool: Wrench } as const;
 
-type ApprovalItem = ApprovalRequest;
-
-/** 每一步的显示名：工具名只保留最后一段，前缀是 server 名，表格里太占宽。 */
 function stepName(step: RunStep): string {
   if (step.kind === 'tool') return step.name ?? '未知工具';
   return step.kind === 'user' ? '用户消息' : '助手回复';
@@ -94,7 +78,7 @@ export function RunDetailPage() {
     );
   };
 
-  const approve = (item: ApprovalItem): void => {
+  const approve = (item: ApprovalRequest): void => {
     if (!run.data) return;
     approveMutation.mutate(
       { runId: run.data.run.id, serverId: item.serverId, toolName: item.toolName },
@@ -105,10 +89,42 @@ export function RunDetailPage() {
     );
   };
 
+  const hasPrompt = run.data?.steps.some((step) => step.kind === 'user') ?? false;
+  const header = (
+    <div className="flex min-w-0 items-end gap-3">
+      <Button
+        variant="outline"
+        size="icon"
+        render={<Link to="/runs" />}
+        nativeButton={false}
+        role="link"
+        aria-label="返回运行列表"
+      >
+        <ArrowLeft />
+      </Button>
+      <PageHeader
+        title={`运行 ${shortId(params.runId)}${run.data ? ` · ${runStatusLabel[run.data.run.status]}` : ''}`}
+        className="min-w-0 flex-1 [&_h1]:shrink"
+        actions={
+          run.data ? (
+            <Button
+              disabled={rerunMutation.isPending || !hasPrompt}
+              aria-busy={rerunMutation.isPending}
+              onClick={rerun}
+            >
+              <RotateCcw data-icon="inline-start" />
+              {rerunMutation.isPending ? '提交中…' : '重跑'}
+            </Button>
+          ) : undefined
+        }
+      />
+    </div>
+  );
+
   if (run.isPending) {
     return (
       <Page>
-        <PageHeader title="运行详情" className="sr-only" />
+        {header}
         <LoadingState rows={6} />
       </Page>
     );
@@ -117,86 +133,36 @@ export function RunDetailPage() {
   if (run.isError) {
     return (
       <Page>
-        <PageHeader title="运行详情" className="sr-only" />
-        <Link
-          to="/runs"
-          className="inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-fg"
-        >
-          <ArrowLeft className="size-3.5" /> 返回运行列表
-        </Link>
+        {header}
         <ErrorState error={run.error} onRetry={() => void run.refetch()} />
       </Page>
     );
   }
 
   const { run: detail, steps, conversation } = run.data;
-  const hasPrompt = steps.some((step) => step.kind === 'user');
   const start = detail.startedAt ?? steps[0]?.at ?? null;
   const failed = detail.status === 'failed' || detail.status === 'timeout';
   const pending = (approvals.data?.items ?? []).filter((item) => item.approvedAt === null);
   const activeIndex = selected !== null && selected < steps.length ? selected : steps.length - 1;
   const activeStep = steps[activeIndex];
 
-  // 每步耗时：从本步到下一步的时间差；最后一步没有下一步，记为 0。
-  const durations = steps.map((step, index) => {
-    const next = steps[index + 1];
-    if (!next) return 0;
-    return Math.max(0, elapsed(next.at, step.at));
-  });
-  const slowest = Math.max(...durations, 1);
-
   return (
     <Page>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Link
-          to="/runs"
-          aria-label="返回运行列表"
-          className="rounded-icon p-1.5 text-subtle transition-colors hover:bg-hover hover:text-fg"
-        >
-          <ArrowLeft className="size-4" />
-        </Link>
-        <PageHeader
-          title={`运行 ${shortId(detail.id)}`}
-          className="min-w-0 flex-1 gap-x-3 gap-y-2"
-          meta={
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              {conversation.title ? (
-                <span className="hidden min-w-0 max-w-56 truncate text-xs text-subtle sm:block">
-                  {conversation.title}
-                </span>
-              ) : null}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                <Metric
-                  label="耗时"
-                  value={formatDuration(detail.latencyMs)}
-                  danger={detail.status === 'timeout'}
-                />
-                <Metric label="轮次" value={detail.turns ?? '—'} />
-                <Metric label="成本" value={formatCost(detail.costUsd)} />
-                <Metric
-                  label="Tokens"
-                  value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
-                />
-              </div>
-            </div>
-          }
-          actions={
-            <>
-              <RunStatusBadge status={detail.status} />
-              <Button
-                variant="outline"
-                size="sm"
-                // Keep the rerun action pill-shaped with the existing label padding.
-                className="rounded-full px-3"
-                disabled={rerunMutation.isPending || !hasPrompt}
-                aria-busy={rerunMutation.isPending}
-                onClick={() => void rerun()}
-              >
-                <RotateCcw className="size-4" />
-                {rerunMutation.isPending ? '提交中…' : '重跑'}
-              </Button>
-            </>
-          }
+      {header}
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-2 text-xs">
+        {conversation.title ? (
+          <span className="min-w-0 break-words text-muted-foreground">{conversation.title}</span>
+        ) : null}
+        <Metric
+          label="运行耗时"
+          value={formatDuration(detail.latencyMs)}
+          danger={detail.status === 'timeout'}
+        />
+        <Metric label="轮次" value={detail.turns ?? '—'} />
+        <Metric label="成本" value={formatCost(detail.costUsd)} />
+        <Metric
+          label="Tokens 输入 / 输出"
+          value={`${formatTokens(detail.inputTokens)} / ${formatTokens(detail.outputTokens)}`}
         />
       </div>
 
@@ -216,16 +182,20 @@ export function RunDetailPage() {
         </div>
       ) : null}
 
+      {approvals.isError ? (
+        <ErrorState error={approvals.error} onRetry={() => void approvals.refetch()} />
+      ) : null}
+
       {pending.length > 0 ? (
         <div
           role="alert"
           className="flex flex-wrap items-center gap-3 border-y border-warning-line bg-warning-soft px-4 py-2.5"
         >
           <CircleAlert className="size-4 shrink-0 text-warning" />
-          <span className="text-xs text-fg">
+          <span className="min-w-0 break-words text-xs text-fg">
             有 {pending.length} 个工具等待批准；批准后回到对话页重发上一条消息。
           </span>
-          <div className="ml-auto flex flex-wrap gap-2">
+          <div className="ml-auto flex min-w-0 max-w-full flex-wrap gap-2">
             {pending.map((item) => {
               // mutation 是全局状态：按当前 mutation 的变量判断是哪一条在批准。
               const approving =
@@ -236,11 +206,14 @@ export function RunDetailPage() {
                 <Button
                   key={item.id}
                   size="sm"
+                  className="max-w-full"
                   disabled={approveMutation.isPending}
                   aria-busy={approving}
                   onClick={() => approve(item)}
                 >
-                  {approving ? '批准中…' : `批准 ${item.toolName}`}
+                  <span className="truncate">
+                    {approving ? '批准中…' : `批准 ${item.toolName}`}
+                  </span>
                 </Button>
               );
             })}
@@ -248,11 +221,11 @@ export function RunDetailPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
-        <section className="flex min-w-0 flex-col" aria-label="步骤">
-          <div className="flex h-10 items-baseline justify-between border-b">
-            <h2 className="text-xs text-subtle">步骤</h2>
-            <span className="font-mono text-2xs tabular-nums text-subtle">{steps.length} 步</span>
+      <div className="grid min-w-0 gap-4 border-t pt-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <section className="flex min-w-0 flex-col gap-4" aria-label="步骤">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
+            <h2 className="text-sm font-medium text-fg">步骤</h2>
+            <span className="text-2xs text-subtle">{steps.length} 步 · 时间为运行后经过时间</span>
           </div>
           {steps.length === 0 ? (
             <EmptyState
@@ -266,28 +239,25 @@ export function RunDetailPage() {
           ) : (
             <ol className="flex flex-col">
               {steps.map((step, index) => {
-                const meta = stepMeta[step.kind];
-                const Icon = meta.icon;
-                const duration = durations[index] ?? 0;
-                const ratio = Math.max(0.02, duration / slowest);
+                const Icon = stepIcons[step.kind];
                 const isActive = index === activeIndex;
                 const server = stepServerName(step);
                 return (
                   // biome-ignore lint/suspicious/noArrayIndexKey: 步骤没有稳定 id，位置即身份
                   <li key={`${index}-${step.at}`}>
-                    <button
-                      type="button"
+                    <Button
+                      variant="ghost"
                       onClick={() => selectStep(index)}
                       aria-current={isActive ? 'step' : undefined}
                       className={cn(
-                        'group flex h-12 w-full items-center gap-2.5 rounded-item px-2 text-left transition-colors hover:bg-hover',
+                        'w-full justify-start gap-2.5 text-left',
                         isActive && 'bg-hover',
                       )}
                     >
                       <span className="w-5 shrink-0 text-right font-mono text-2xs tabular-nums text-subtle">
                         {index + 1}
                       </span>
-                      <Icon aria-hidden="true" className={cn('size-4 shrink-0', meta.tone)} />
+                      <Icon aria-hidden="true" className="shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1">
                         <span
                           className={cn(
@@ -301,16 +271,13 @@ export function RunDetailPage() {
                           <span className="block truncate text-2xs text-subtle">@ {server}</span>
                         ) : null}
                       </span>
-                      {/* 时长条：2px 线，按本次最长步骤归一化，「卡在哪」一眼可见 */}
                       <span
-                        aria-hidden="true"
-                        className="h-0.5 shrink-0 rounded-full bg-line-strong"
-                        style={{ width: `${Math.round(ratio * 56)}px` }}
-                      />
-                      <span className="w-12 shrink-0 text-right font-mono text-2xs tabular-nums text-subtle">
-                        {duration === 0 ? '—' : formatDuration(duration)}
+                        className="shrink-0 font-mono text-2xs tabular-nums text-subtle"
+                        title={`事件时间：${formatDateTime(step.at)}`}
+                      >
+                        +{formatDuration(elapsed(step.at, start))}
                       </span>
-                    </button>
+                    </Button>
                   </li>
                 );
               })}
@@ -318,21 +285,16 @@ export function RunDetailPage() {
           )}
         </section>
 
-        <section className="min-w-0 lg:border-l lg:pl-6" aria-label="步骤详情">
-          {activeStep ? (
-            <StepInspector step={activeStep} index={activeIndex} start={start} />
-          ) : null}
+        <section
+          className="min-w-0 border-t pt-5 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-4"
+          aria-label="步骤详情"
+        >
+          {activeStep ? <StepInspector step={activeStep} index={activeIndex} /> : null}
         </section>
       </div>
 
-      <section className="flex flex-col gap-3 border-t pt-5">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h2 className="text-xs text-subtle">运行上下文</h2>
-          <span className="text-2xs text-subtle">
-            这些值在运行开始时确定，之后修改智能体不影响本次运行
-          </span>
-        </div>
-        <div className="grid gap-x-8 sm:grid-cols-2">
+      <PageSection title="运行上下文" description="运行标识与时间；专家名称显示当前配置名称。">
+        <div className="grid min-w-0 grid-cols-1 gap-x-4 sm:grid-cols-2">
           <ContextRow label="运行 ID" value={detail.id} mono copy />
           <ContextRow label="智能体" value={detail.agentName ?? detail.agentId} />
           <ContextRow label="开始" value={formatDateTime(detail.startedAt)} mono />
@@ -340,12 +302,11 @@ export function RunDetailPage() {
           <ContextRow label="Sandbox" value={detail.sandboxId ?? '—'} mono copy />
           <ContextRow label="Session" value={detail.sessionId ?? '—'} mono copy />
         </div>
-      </section>
+      </PageSection>
     </Page>
   );
 }
 
-/** 摘要读数：12px 弱标签 + 等宽数字，跟在标题后，不另起一块。 */
 function Metric({ label, value, danger }: { label: string; value: ReactNode; danger?: boolean }) {
   return (
     <span className="inline-flex items-baseline gap-1.5">
@@ -369,7 +330,7 @@ function ContextRow({
   copy?: boolean;
 }) {
   return (
-    <div className="flex h-9 items-center gap-2 border-b">
+    <div className="flex h-9 min-w-0 items-center gap-2 border-b">
       <span className="w-20 shrink-0 text-2xs text-subtle">{label}</span>
       <span
         className={cn('min-w-0 flex-1 truncate text-xs text-fg', mono && 'font-mono tabular-nums')}
@@ -382,20 +343,7 @@ function ContextRow({
   );
 }
 
-/**
- * 检查器：参数与结果分开。
- * 旧版把 step.content 整块塞进一个代码块，读者无法区分「它传了什么」和「它拿回了什么」——
- * 而这正是可解释性的核心。
- */
-function StepInspector({
-  step,
-  index,
-  start,
-}: {
-  step: RunStep;
-  index: number;
-  start: string | null;
-}) {
+function StepInspector({ step, index }: { step: RunStep; index: number }) {
   const input = step.kind === 'tool' ? (step.content ?? null) : null;
   const output = step.kind === 'tool' ? (step.result ?? null) : null;
   const nested = step.kind === 'tool' && step.parentToolUseId !== null;
@@ -404,9 +352,9 @@ function StepInspector({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b pb-3">
         <span className="font-mono text-2xs tabular-nums text-subtle">#{index + 1}</span>
-        <span className="font-mono text-xs text-fg">{stepName(step)}</span>
+        <span className="min-w-0 break-all font-mono text-xs text-fg">{stepName(step)}</span>
         <span className="font-mono text-2xs tabular-nums text-subtle">
-          {start ? formatDateTime(step.at) : ''}
+          事件时间 {formatDateTime(step.at)}
         </span>
         {nested ? (
           <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground">
@@ -426,7 +374,6 @@ function StepInspector({
       {step.kind === 'assistant' || step.kind === 'user' ? (
         <CollapsibleText
           text={step.text}
-          // Preserve message whitespace and readable body typography in the step inspector.
           className="whitespace-pre-wrap break-words text-md leading-relaxed text-fg"
         />
       ) : (
