@@ -276,9 +276,22 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       }
       // 已结束的 run 再发 cancel 只会打扰 worker，直接返回。
       if (terminalEvent(run) === null) {
-        const cancelled = await chatRepo.cancelRun(app.db, runId);
-        if (!cancelled) return reply.status(202).send({ ok: true });
-        await publishRun(runId, { type: 'cancel' });
+        // queued → cancelled 与 worker 的 claim 竞争；只有赢得更新的一方负责终态事件。
+        const [queuedCancelled] =
+          run.status === 'queued'
+            ? await app.db
+                .update(schema.agentRuns)
+                .set({ status: 'cancelled', endedAt: new Date() })
+                .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')))
+                .returning({ id: schema.agentRuns.id })
+            : [];
+        if (queuedCancelled) {
+          await publishRun(runId, { type: 'run_finished', status: 'cancelled' });
+        } else {
+          const cancelled = await chatRepo.cancelRun(app.db, runId);
+          if (!cancelled) return reply.status(202).send({ ok: true });
+          await publishRun(runId, { type: 'cancel' });
+        }
         await writeAudit(app.db, request.log, {
           actor: 'admin',
           action: 'agent.run.cancelled',

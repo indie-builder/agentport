@@ -1,6 +1,11 @@
-import { type Skill, type SkillInput, skillInputSchema } from '@agentport/shared';
+import {
+  type Skill,
+  type SkillInput,
+  type SkillWithAgentCount,
+  skillInputSchema,
+} from '@agentport/shared';
 import { Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
@@ -20,7 +25,7 @@ export function SkillsPage() {
   const skills = useSkills();
   const [editing, setEditing] = useState<Skill | null>(null);
   const [creating, setCreating] = useState(false);
-  const [deleting, setDeleting] = useState<Skill | null>(null);
+  const [deleting, setDeleting] = useState<SkillWithAgentCount | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -130,6 +135,20 @@ function SkillDialog({
       : emptySkill,
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const initial = useMemo<SkillInput>(
+    () =>
+      skill
+        ? {
+            slug: skill.slug,
+            name: skill.name,
+            description: skill.description,
+            body: skill.body,
+          }
+        : emptySkill,
+    [skill],
+  );
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
 
   const set = <K extends keyof SkillInput>(key: K, value: SkillInput[K]): void => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -169,11 +188,13 @@ function SkillDialog({
   };
 
   const pending = create.isPending || update.isPending;
+  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认。
+  const close = dirty ? () => setConfirmDiscard(true) : onClose;
 
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={skill ? '编辑技能' : '新建技能'}
       description="技能内容会写入 SKILL.md 的正文。"
       {...(returnFocusRef ? { returnFocusRef } : {})}
@@ -248,17 +269,37 @@ function SkillDialog({
           </Button>
         </div>
       </form>
+      <ConfirmDialog
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        title="放弃未保存的更改？"
+        description="关闭后这段技能内容会丢失。"
+        confirmLabel="放弃并关闭"
+        onConfirm={async () => {
+          onClose();
+        }}
+      />
     </Dialog>
   );
 }
 
-function DeleteSkillDialog({ skill, onClose }: { skill: Skill; onClose: () => void }) {
+function DeleteSkillDialog({
+  skill,
+  onClose,
+}: {
+  skill: SkillWithAgentCount;
+  onClose: () => void;
+}) {
   const remove = useDeleteSkill();
   return (
     <ConfirmDialog
       open
       title="删除技能"
-      description={`将删除「${skill.name}」。已绑定的智能体会自动解除绑定。`}
+      description={
+        skill.agentCount > 0
+          ? `将删除「${skill.name}」。${skill.agentCount} 个智能体将失去该技能，需要重新绑定。`
+          : `将删除「${skill.name}」。目前没有智能体绑定它。`
+      }
       confirmLabel="删除"
       onClose={onClose}
       onConfirm={async () => {

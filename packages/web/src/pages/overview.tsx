@@ -290,6 +290,9 @@ export function OverviewPage() {
   };
   const recent = overview.data?.recent ?? runs.data?.items ?? null;
   const agentRows = overview.data?.agents ?? null;
+  // 只有 runs 是最近运行来源时才由它报错；否则「没有失败」会被当成结论。
+  const runsSource = (overview.data?.recent ?? null) === null;
+  const runsError = runsSource && runs.isError ? runs.error : null;
 
   const error = overview.isError ? overview.error : (servers.error ?? agents.error);
   const loading = overview.isPending || servers.isPending || agents.isPending;
@@ -398,7 +401,9 @@ export function OverviewPage() {
             {...(attention.length === 0 ? {} : { description: `${attention.length} 项` })}
             divided={false}
           >
-            {runs.isPending && !overview.data ? (
+            {runsError ? (
+              <ErrorState error={runsError} onRetry={() => void runs.refetch()} />
+            ) : runs.isPending && runsSource ? (
               <LoadingState rows={2} />
             ) : attention.length === 0 ? (
               <PageNote title="过去 24 小时没有失败或超时的运行" />
@@ -486,6 +491,9 @@ export function OverviewPage() {
           </PageSection>
 
           <PageSection title="最近运行" description="最近 20 条；失败项在上方「需要处理」">
+            {runsError ? (
+              <ErrorState error={runsError} onRetry={() => void runs.refetch()} />
+            ) : null}
             {recent && recent.length === 0 ? (
               <PageNote
                 icon={<Activity className="size-4" aria-hidden="true" />}

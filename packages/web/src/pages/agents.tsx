@@ -14,6 +14,7 @@ import {
   type Server,
 } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useBlocker } from '@tanstack/react-router';
 import {
   Bot,
   Check,
@@ -530,6 +531,14 @@ function AgentEditor({
   const initial = useMemo(() => toInput(agent), [agent]);
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initial), [form, initial]);
 
+  const shouldBlock = useCallback(() => dirty, [dirty]);
+  // 站内切换路由同样会丢草稿；beforeunload 只管关标签页。
+  const blocker = useBlocker({
+    shouldBlockFn: shouldBlock,
+    withResolver: true,
+    enableBeforeUnload: false,
+  });
+
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
@@ -604,8 +613,39 @@ function AgentEditor({
     );
   };
 
+  // 这两项不经过 zod：按钮禁用前要说明是哪一项、在哪个折叠分区里。
+  const invalidField = allowedInvalid
+    ? ('permissions' as const)
+    : thinkingInvalid
+      ? ('limits' as const)
+      : null;
+  const saveHint =
+    invalidField === 'permissions'
+      ? '「权限」里的自定义工具格式无效'
+      : invalidField === 'limits'
+        ? '「运行限制」里的最大思考 tokens 无效'
+        : null;
+
+  /** 展开并聚焦出错的字段：它可能躺在折叠分区里，光禁用按钮等于什么都不说。 */
+  const revealInvalidField = (): void => {
+    const [section, id] =
+      invalidField === 'limits'
+        ? (['limits', 'agent-thinking'] as const)
+        : (['permissions', 'agent-allowed-tools'] as const);
+    setOpenSections((current) => ({ ...current, [section]: true }));
+    // 分区收起时内容带 hidden：展开后下一帧再聚焦。
+    requestAnimationFrame(() => {
+      const field = document.getElementById(id);
+      field?.scrollIntoView({ block: 'center' });
+      field?.focus();
+    });
+  };
+
   const save = (): void => {
-    if (allowedInvalid || thinkingInvalid) return;
+    if (allowedInvalid || thinkingInvalid) {
+      revealInvalidField();
+      return;
+    }
     const parsed = agentInputSchema.safeParse(form);
     if (!parsed.success) {
       const issues = fieldErrors(parsed.error.issues);
@@ -703,11 +743,26 @@ function AgentEditor({
               未保存
             </span>
           ) : null}
+          {saveHint ? (
+            <span className="mr-1 flex items-center gap-1.5 text-2xs text-danger">
+              <span id="agent-save-hint" role="alert">
+                {saveHint}
+              </span>
+              <button
+                type="button"
+                onClick={revealInvalidField}
+                className="underline underline-offset-2 hover:text-fg"
+              >
+                去修正
+              </button>
+            </span>
+          ) : null}
           <Button
             size="sm"
             className="h-8 rounded-full px-3.5"
-            disabled={!dirty || update.isPending || allowedInvalid || thinkingInvalid}
+            disabled={!dirty || update.isPending || invalidField !== null}
             aria-busy={update.isPending}
+            aria-describedby={saveHint ? 'agent-save-hint' : undefined}
             onClick={save}
           >
             {update.isPending ? (
@@ -1258,6 +1313,17 @@ function AgentEditor({
       ) : (
         <FilesPreview agentId={agent.id} dirty={dirty} />
       )}
+
+      <ConfirmDialog
+        open={blocker.status === 'blocked'}
+        onClose={() => blocker.reset?.()}
+        title="放弃未保存的更改？"
+        description={`「${agent.name}」还有未保存的修改，离开后会丢失。可以先取消、保存后再离开。`}
+        confirmLabel="放弃并离开"
+        onConfirm={async () => {
+          blocker.proceed?.();
+        }}
+      />
 
       <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
         <SheetContent

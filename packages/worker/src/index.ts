@@ -308,7 +308,7 @@ const worker = new Worker(
       .from(schema.agentRuns)
       .where(eq(schema.agentRuns.id, runId))
       .limit(1);
-    // cancel 可能发生在排队期间：不启动容器，API 侧已经写过终态。
+    // 排队取消由 API 的 queued → cancelled 更新负责发布终态，worker 不重复发布。
     if (run?.status !== 'queued' && run?.status !== 'running') {
       logger.info({ runId, status: run?.status }, 'run no longer pending, skipping');
       return;
@@ -327,6 +327,13 @@ const worker = new Worker(
       return;
     }
     await publishRun(runId, { type: 'run_started', runId, conversationId }, logger);
+    await repo.audit.writeAudit(db, logger, {
+      actor: 'worker',
+      action: 'agent.run.started',
+      target: runId,
+      status: 'ok',
+      dedupeKey: `aud_started_${runId.slice(4)}`,
+    });
 
     let outcome: SandboxRunOutcome;
     let runStartedAt = 0;

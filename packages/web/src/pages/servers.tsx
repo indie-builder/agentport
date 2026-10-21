@@ -15,6 +15,7 @@ import {
   Pencil,
   Plug,
   Plus,
+  RefreshCw,
   Server as ServerIcon,
   Trash2,
   Wrench,
@@ -584,7 +585,11 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
   const rotate = useRotateServerToken(server.id);
   // 轮换后只在这里保留明文；关闭对话框即丢弃。
   const [revealed, setRevealed] = useState<{ token: string; endpoint: string } | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const data = revealed ?? token.data;
+  const retry = (): void => {
+    void token.refetch();
+  };
 
   return (
     <Dialog
@@ -596,14 +601,30 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
       <div className="space-y-3">
         <div className="space-y-1">
           <span className="text-xs font-medium text-muted">Endpoint</span>
-          <CodeBlock code={data?.endpoint ?? '加载中…'} copyLabel="复制 Endpoint" />
+          {token.isError && !revealed ? (
+            <p className="flex items-center gap-2 text-xs text-muted">
+              Endpoint 读取失败。
+              <Button variant="outline" size="sm" onClick={retry}>
+                <RefreshCw className="size-3.5" aria-hidden="true" /> 重试
+              </Button>
+            </p>
+          ) : (
+            <CodeBlock code={data?.endpoint ?? '加载中…'} copyLabel="复制 Endpoint" />
+          )}
         </div>
         <div className="space-y-1">
           <span className="text-xs font-medium text-muted">Token</span>
           {data ? (
             <CodeBlock code={data.token} copyLabel="复制 Token" />
+          ) : token.isError ? (
+            <p className="flex items-center gap-2 text-xs text-muted">
+              Token 读取失败。
+              <Button variant="outline" size="sm" onClick={retry}>
+                <RefreshCw className="size-3.5" aria-hidden="true" /> 重试
+              </Button>
+            </p>
           ) : (
-            <p className="text-xs text-subtle">{token.isError ? '读取失败' : '加载中…'}</p>
+            <p className="text-xs text-subtle">加载中…</p>
           )}
           {revealed ? (
             <p role="status" className="text-2xs leading-relaxed text-warning">
@@ -617,17 +638,23 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
             size="sm"
             disabled={rotate.isPending}
             aria-busy={rotate.isPending}
-            onClick={() =>
-              rotate.mutate(undefined, {
-                onSuccess: (result) => setRevealed(result),
-                onError: (error) => toastError(error),
-              })
-            }
+            onClick={() => setConfirming(true)}
           >
             <KeyRound className="size-3.5" /> {rotate.isPending ? '轮换中' : '轮换'}
           </Button>
         </div>
       </div>
+      <ConfirmDialog
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title="轮换 token？"
+        description="旧 token 立即失效，正在使用的外部 Host 会中断。旧值不会再显示，只能把新 token 配置到每个 Host。"
+        confirmLabel="轮换 token"
+        onConfirm={async () => {
+          const result = await rotate.mutateAsync(undefined);
+          setRevealed(result);
+        }}
+      />
     </Dialog>
   );
 }
@@ -646,6 +673,20 @@ function ToolEditorDialog({
   const setEnabled = useSetToolEnabled(server.id);
   const [editing, setEditing] = useState<ApiTool | null>(null);
   const [deleting, setDeleting] = useState<ApiTool | null>(null);
+  // 只锁正在切换的那一行，其余行照常可点。
+  const [pendingToolId, setPendingToolId] = useState<string | null>(null);
+
+  const setTool = (vars: {
+    toolId: string;
+    enabled?: boolean;
+    requiresApproval?: boolean;
+  }): void => {
+    setPendingToolId(vars.toolId);
+    setEnabled.mutate(vars, {
+      onError: (error) => toastError(error),
+      onSettled: () => setPendingToolId(null),
+    });
+  };
 
   return (
     <Dialog
@@ -714,12 +755,9 @@ function ToolEditorDialog({
                         className="size-3.5 accent-ink"
                         aria-label={`启用工具 ${tool.name}`}
                         checked={tool.enabled}
-                        disabled={setEnabled.isPending}
+                        disabled={pendingToolId === tool.id}
                         onChange={(event) =>
-                          setEnabled.mutate(
-                            { toolId: tool.id, enabled: event.target.checked },
-                            { onError: (error) => toastError(error) },
-                          )
+                          setTool({ toolId: tool.id, enabled: event.target.checked })
                         }
                       />
                     </TableCell>
@@ -729,12 +767,9 @@ function ToolEditorDialog({
                         className="size-3.5 accent-ink"
                         aria-label={`批准工具 ${tool.name}`}
                         checked={tool.requiresApproval}
-                        disabled={setEnabled.isPending}
+                        disabled={pendingToolId === tool.id}
                         onChange={(event) =>
-                          setEnabled.mutate(
-                            { toolId: tool.id, requiresApproval: event.target.checked },
-                            { onError: (error) => toastError(error) },
-                          )
+                          setTool({ toolId: tool.id, requiresApproval: event.target.checked })
                         }
                       />
                     </TableCell>
@@ -1097,8 +1132,14 @@ function ServerFormDialog({
   const [kind, setKind] = useState<Kind | null>(server?.kind ?? null);
   const [form, setForm] = useState<FormState>(() => (server ? serverToForm(server) : emptyForm));
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const dirty =
+    JSON.stringify({ kind, form }) !==
+    JSON.stringify({ kind: server?.kind ?? null, form: server ? serverToForm(server) : emptyForm });
 
   const pending = create.isPending || update.isPending;
+  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认。
+  const close = dirty && !pending ? () => setConfirmDiscard(true) : onClose;
 
   const buildInput = (selected: Kind): ServerInput => {
     const common = { name: form.name, description: form.description };
@@ -1166,7 +1207,7 @@ function ServerFormDialog({
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={creating ? '新建 MCP Server' : `编辑「${server.name}」`}
       description={
         creating
@@ -1347,7 +1388,7 @@ function ServerFormDialog({
         {errors.form ? <FieldError>{errors.form}</FieldError> : null}
 
         <div className="flex justify-end gap-2 border-t border-line pt-4">
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
             取消
           </Button>
           <Button
@@ -1361,6 +1402,16 @@ function ServerFormDialog({
           </Button>
         </div>
       </form>
+      <ConfirmDialog
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        title="放弃未保存的更改？"
+        description="关闭后这个 Server 的修改会丢失，密钥需要重新填写。"
+        confirmLabel="放弃并关闭"
+        onConfirm={async () => {
+          onClose();
+        }}
+      />
     </Dialog>
   );
 }

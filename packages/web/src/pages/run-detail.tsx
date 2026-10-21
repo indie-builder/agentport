@@ -248,11 +248,24 @@ export function RunDetailPage() {
             有 {pending.length} 个工具等待批准；批准后回到对话页重发上一条消息。
           </span>
           <div className="ml-auto flex flex-wrap gap-2">
-            {pending.map((item) => (
-              <Button key={item.id} size="sm" onClick={() => approve(item)}>
-                批准 {item.toolName}
-              </Button>
-            ))}
+            {pending.map((item) => {
+              // mutation 是全局状态：按当前 mutation 的变量判断是哪一条在批准。
+              const approving =
+                approveMutation.isPending &&
+                approveMutation.variables?.serverId === item.serverId &&
+                approveMutation.variables.toolName === item.toolName;
+              return (
+                <Button
+                  key={item.id}
+                  size="sm"
+                  disabled={approveMutation.isPending}
+                  aria-busy={approving}
+                  onClick={() => approve(item)}
+                >
+                  {approving ? '批准中…' : `批准 ${item.toolName}`}
+                </Button>
+              );
+            })}
           </div>
         </div>
       ) : null}

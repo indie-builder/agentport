@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { DEFAULT_DISALLOWED_TOOLS, fail } from '@agentport/core';
 import { repo as allRepo } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
@@ -22,11 +22,7 @@ const versionParams = z.object({
 });
 const rollbackBody = z.object({ version: z.number().int().positive() });
 
-/**
- * `auto` 依赖模型分类器，平台无法审计它的决定，暂不开放；
- * `default` 与 `acceptEdits` 在沙盒里没有可交互的宿主，行为与 `dontAsk` 相同，
- * 开放只会误导用户，等 D-18 的挂起式审批覆盖全部工具后再考虑。
- */
+/** default/acceptEdits 直接透传 SDK；auto 依赖无法审计的模型分类器，暂不开放。 */
 const unsupportedPermissionModes = new Set(['auto']);
 
 function unsupportedPermissionMode(mode: string | undefined): string | undefined {
@@ -34,6 +30,25 @@ function unsupportedPermissionMode(mode: string | undefined): string | undefined
     ? `permissionMode "${mode}" 依赖模型分类器，平台暂不开放；可用 dontAsk、plan、default、acceptEdits`
     : undefined;
 }
+
+const blockedAllowedTools = new Set(
+  DEFAULT_DISALLOWED_TOOLS.filter(
+    (tool) => !['Agent', 'TaskStop', 'ListAgents', 'SendMessage'].includes(tool),
+  ),
+);
+
+function unsupportedAllowedTool(tools: string[]): string | undefined {
+  const tool = tools.find((rule) => blockedAllowedTools.has(rule.split('(')[0]?.trim() ?? rule));
+  return tool === undefined
+    ? undefined
+    : `allowedTools 中的「${tool}」被运行时固定禁用，无法放行；请移除该项`;
+}
+
+const allowedToolsSchema = z.array(z.string()).superRefine((tools, ctx) => {
+  const message = unsupportedAllowedTool(tools);
+  if (message) ctx.addIssue({ code: 'custom', message });
+});
+const createSchema = agentInputSchema.extend({ allowedTools: allowedToolsSchema.default([]) });
 
 // 字段与 agentInputSchema 保持一致；PATCH 用显式可选字段，才能区分「没传」与「传了默认值」。
 const patchSchema = z.object({
@@ -45,7 +60,7 @@ const patchSchema = z.object({
   serverIds: z.array(z.string()).optional(),
   skillIds: z.array(z.string()).optional(),
   subAgentIds: z.array(z.string()).optional(),
-  allowedTools: z.array(z.string()).optional(),
+  allowedTools: allowedToolsSchema.optional(),
   disallowedTools: z.array(z.string()).optional(),
   permissionMode: permissionModeSchema.optional(),
   maxTurns: z.number().int().positive().optional(),
@@ -181,32 +196,28 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.post(
-    '/api/agents',
-    { ...auth, schema: { body: agentInputSchema } },
-    async (request, reply) => {
-      const input = request.body;
-      const modeError = unsupportedPermissionMode(input.permissionMode);
-      if (modeError) return invalid(reply, modeError);
-      const { serverIds, skillIds, subAgentIds, ...rest } = input;
-      const subAgentError = await validateSubAgents(app, null, subAgentIds);
-      if (subAgentError) return invalid(reply, subAgentError);
-      try {
-        const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds, subAgentIds);
-        await writeAudit(app.db, request.log, {
-          actor: 'admin',
-          action: 'agent.created',
-          target: row.id,
-          input,
-          status: 'ok',
-          requestId: request.id,
-        });
-        return reply.status(201).send(repo.toAgent(row, serverIds, skillIds, subAgentIds));
-      } catch (err) {
-        rethrowConflict(err);
-      }
-    },
-  );
+  app.post('/api/agents', { ...auth, schema: { body: createSchema } }, async (request, reply) => {
+    const input = request.body;
+    const modeError = unsupportedPermissionMode(input.permissionMode);
+    if (modeError) return invalid(reply, modeError);
+    const { serverIds, skillIds, subAgentIds, ...rest } = input;
+    const subAgentError = await validateSubAgents(app, null, subAgentIds);
+    if (subAgentError) return invalid(reply, subAgentError);
+    try {
+      const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds, subAgentIds);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.created',
+        target: row.id,
+        input,
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(201).send(repo.toAgent(row, serverIds, skillIds, subAgentIds));
+    } catch (err) {
+      rethrowConflict(err);
+    }
+  });
 
   app.get('/api/agents/:id', { ...auth, schema: { params: idParams } }, async (request, reply) => {
     const row = await repo.getAgent(app.db, request.params.id);
@@ -374,6 +385,8 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       }
 
       const snapshot = target.snapshot;
+      const toolError = unsupportedAllowedTool(snapshot.allowedTools);
+      if (toolError) return invalid(reply, toolError);
       // 旧快照没有 subAgentIds 字段；缺失时保持现有关系不动。
       const snapshotSubAgentIds = snapshot.subAgentIds as string[] | undefined;
       if (snapshotSubAgentIds !== undefined) {

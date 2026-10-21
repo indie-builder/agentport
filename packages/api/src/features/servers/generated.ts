@@ -82,6 +82,17 @@ async function callUpstream(
   args: Record<string, unknown>,
   nodeEnv: string | undefined,
 ): Promise<CallToolResult> {
+  if (tool.paramsIn === 'body' && (tool.method === 'GET' || tool.method === 'DELETE')) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: `${tool.method} 工具「${tool.name}」不能使用 body 参数；请改为 query`,
+        },
+      ],
+    };
+  }
   const { path, rest } = fillPath(tool.pathTemplate, args);
   const url = new URL(baseUrl.replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
   // 与 test-connection 一致：nodeEnv 决定是否放行 localhost，避免「测得通但跑不通」。

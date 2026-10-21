@@ -1,6 +1,6 @@
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { ClipboardCheck, FlaskConical, Pencil, Play, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
@@ -142,6 +142,16 @@ export function EvalPage() {
   };
 
   const latest = runs.data?.[0];
+  // 按钮禁用时说明原因：悬停可见，读屏也能拿到。
+  const startDisabledReason = start.isPending
+    ? '正在启动评估'
+    : agents.isPending || (effectiveAgentId !== null && cases.isPending)
+      ? '用例加载中，稍后再试'
+      : !effectiveAgentId
+        ? '先创建一个智能体'
+        : (cases.data?.length ?? 0) === 0
+          ? '先新建至少一个用例'
+          : null;
 
   return (
     <Page>
@@ -152,9 +162,12 @@ export function EvalPage() {
             size="sm"
             className="rounded-full"
             onClick={startRun}
-            disabled={start.isPending || !effectiveAgentId || (cases.data?.length ?? 0) === 0}
+            disabled={startDisabledReason !== null}
+            aria-busy={start.isPending}
+            {...(startDisabledReason ? { title: startDisabledReason } : {})}
           >
-            <Play className="size-4" aria-hidden="true" /> 运行评估
+            <Play className="size-4" aria-hidden="true" />{' '}
+            {start.isPending ? '启动中…' : '运行评估'}
           </Button>
         }
       />
@@ -375,17 +388,29 @@ function CaseDialog({
       ? { name: testCase.name, prompt: testCase.prompt, expectation: testCase.expectation }
       : { name: '', prompt: '', expectation: '' },
   );
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState<Partial<Record<keyof CaseForm, string>>>({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const initial = useMemo<CaseForm>(
+    () =>
+      testCase
+        ? { name: testCase.name, prompt: testCase.prompt, expectation: testCase.expectation }
+        : { name: '', prompt: '', expectation: '' },
+    [testCase],
+  );
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
 
   const set = <K extends keyof CaseForm>(key: K, value: CaseForm[K]): void => {
     setForm((prev) => ({ ...prev, [key]: value }));
-    setError('');
+    setErrors((prev) => ({ ...prev, [key]: undefined }));
   };
 
   const submit = (event: React.FormEvent): void => {
     event.preventDefault();
-    if (!form.name.trim() || !form.prompt.trim()) {
-      setError('名称和 Prompt 都需要填写，补全后再保存。');
+    const issues: Partial<Record<keyof CaseForm, string>> = {};
+    if (!form.name.trim()) issues.name = '名称需要填写。';
+    if (!form.prompt.trim()) issues.prompt = 'Prompt 需要填写。';
+    if (issues.name || issues.prompt) {
+      setErrors(issues);
       return;
     }
     const input: EvalCaseInput = { agentId: agentId ?? testCase?.agentId ?? '', ...form };
@@ -407,11 +432,12 @@ function CaseDialog({
   };
 
   const pending = create.isPending || update.isPending;
+  const close = dirty ? () => setConfirmDiscard(true) : onClose;
 
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={testCase ? '编辑用例' : '新建用例'}
       description="运行评估时，每个用例都会发起一次真实运行。"
     >
@@ -423,11 +449,12 @@ function CaseDialog({
           <Input
             id="eval-name"
             value={form.name}
-            aria-invalid={Boolean(error)}
-            aria-describedby={error ? 'eval-form-error' : undefined}
+            aria-invalid={Boolean(errors.name)}
+            aria-describedby={errors.name ? 'eval-name-error' : undefined}
             onChange={(event) => set('name', event.target.value)}
             placeholder="例如：拒绝编造不存在的工具"
           />
+          <FieldError id="eval-name-error">{errors.name}</FieldError>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="eval-prompt">
@@ -437,11 +464,12 @@ function CaseDialog({
             id="eval-prompt"
             rows={5}
             value={form.prompt}
-            aria-invalid={Boolean(error)}
-            aria-describedby={error ? 'eval-form-error' : undefined}
+            aria-invalid={Boolean(errors.prompt)}
+            aria-describedby={errors.prompt ? 'eval-prompt-error' : undefined}
             onChange={(event) => set('prompt', event.target.value)}
             placeholder="发送给智能体的完整输入"
           />
+          <FieldError id="eval-prompt-error">{errors.prompt}</FieldError>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="eval-expectation">期望包含</Label>
@@ -453,7 +481,6 @@ function CaseDialog({
             placeholder="输出中应出现的文本（不区分大小写）；留空则只要求有文本输出"
           />
           <FieldHint>最小判定，不做语义判断；需要更严格时写更具体的片段。</FieldHint>
-          <FieldError id="eval-form-error">{error}</FieldError>
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
@@ -464,6 +491,16 @@ function CaseDialog({
           </Button>
         </div>
       </form>
+      <ConfirmDialog
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        title="放弃未保存的更改？"
+        description="关闭后这条用例的修改会丢失。"
+        confirmLabel="放弃并关闭"
+        onConfirm={async () => {
+          onClose();
+        }}
+      />
     </Dialog>
   );
 }
