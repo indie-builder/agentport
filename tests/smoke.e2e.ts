@@ -58,9 +58,9 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   await browser.locator('#new-agent-prompt').fill(' You help test Agentport.');
   await screen.getByRole('button', '创建').tap();
 
-  // 触发器的无障碍名称带已选数量："MCP Server，未选择"。
-  await screen.getByRole('button', 'MCP Server', { exact: false }).tap();
-  await browser.locator('label').filter({ hasText: serverName }).getByRole('checkbox').check();
+  // 底座 Combobox：点开是 role=combobox 的输入框，选项在 listbox 里点选。
+  await screen.getByRole('combobox', 'MCP Server').tap();
+  await browser.locator('[role="option"]').filter({ hasText: serverName }).first().click();
   await browser.keyboard.press('Escape');
   await screen.getByRole('button', '保存更改').first().tap();
   await expect(screen.getByText('智能体已保存')).toBeVisible();
@@ -70,7 +70,8 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
     screen.getByText('将写入 .mcp.json 与 frontmatter', { exact: false }).first(),
   ).toBeVisible();
   // 分段按钮用 aria-pressed，不再是 tablist 语义。
-  await screen.getByRole('button', '完整文件').tap();
+  // 底座 Tabs 的触发器是 role=tab 的 button。
+  await screen.getByRole('tab', '完整文件').tap();
   await expect(screen.getByText('"mcpServers"', { exact: false }).first()).toBeVisible();
 });
 
