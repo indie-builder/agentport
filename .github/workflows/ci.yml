@@ -95,9 +95,11 @@ jobs:
       - run: pnpm build
       - run: pnpm db:migrate
       - run: pnpm exec e2e-web install chromium --with-deps
-      - name: Start api + web
+      # 只启动 API：web 由 e2e 自己拉起（CI 下 reuseExisting 会被拒绝，
+      # 预先启动会在 5173 上撞车并报 APP_ALREADY_RUNNING）。
+      - name: Start api
         run: |
-          pnpm dev > dev.log 2>&1 &
+          pnpm --filter @agentport/api --filter @agentport/worker dev > dev.log 2>&1 &
           for _ in $(seq 1 90); do
             if curl -fsS http://localhost:3000/health/ready >/dev/null 2>&1; then break; fi
             sleep 2
