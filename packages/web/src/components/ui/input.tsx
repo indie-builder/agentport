@@ -1,6 +1,6 @@
 import { Input as InputPrimitive } from '@base-ui/react/input';
+import { cn } from 'cn';
 import type * as React from 'react';
-import { cn } from '../../lib/cn.js';
 
 function Input({ className, type, ...props }: React.ComponentProps<'input'>) {
   return (
@@ -17,26 +17,3 @@ function Input({ className, type, ...props }: React.ComponentProps<'input'>) {
 }
 
 export { Input };
-
-/**
- * 项目自定义层：底座（Base UI / shadcn）之上补充的字段辅助组件。
- * 这些是本项目表单的约定，不属于底座。
- */
-export function FieldError({ children, id }: { children?: string | undefined; id?: string }) {
-  if (!children) return null;
-  // 没有显式 id 时无法被 aria-describedby 引用；调用方应传 id。
-  return (
-    <p id={id} role="alert" className="text-2xs leading-relaxed text-danger">
-      {children}
-    </p>
-  );
-}
-
-export function FieldHint({ children, id }: { children?: string | undefined; id?: string }) {
-  if (!children) return null;
-  return (
-    <p id={id} className="text-2xs leading-relaxed text-subtle">
-      {children}
-    </p>
-  );
-}

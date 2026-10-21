@@ -11,8 +11,10 @@ import { Page, PageHeader, PageNote } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
-import { FieldError, FieldHint, Input } from '../components/ui/input.js';
-import { Label, RequiredMark } from '../components/ui/label.js';
+
+import { FieldError, FieldHint, RequiredMark } from '../components/ui/field.js';
+import { Input } from '../components/ui/input.js';
+import { Label } from '../components/ui/label.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';

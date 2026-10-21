@@ -4,6 +4,7 @@ import { type KeyboardEvent, useId, useRef, useState } from 'react';
 import { cn } from '../../lib/cn.js';
 import { Badge } from './badge.js';
 import { Input } from './input.js';
+import { StatusBadge } from './status-badge.js';
 
 export interface MultiSelectOption {
   id: string;
@@ -159,7 +160,7 @@ export function MultiSelect({
                           </span>
                         ) : null}
                       </span>
-                      {option.tag ? <Badge variant="mono">{option.tag}</Badge> : null}
+                      {option.tag ? <StatusBadge tone="mono">{option.tag}</StatusBadge> : null}
                       {checked ? <Check className="size-3.5 shrink-0 text-fg" /> : null}
                     </label>
                   );

@@ -3,10 +3,10 @@ import { useDeferredValue } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageToolbar } from '../components/page.js';
 import { ErrorState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Input } from '../components/ui/input.js';
 import { Select } from '../components/ui/select.js';
+import { StatusBadge } from '../components/ui/status-badge.js';
 import type { AuditEntry, AuditStatus } from '../lib/api.js';
 import {
   auditStatusLabel,
@@ -62,7 +62,9 @@ const columns: DataColumn<AuditEntry>[] = [
     header: '状态',
     width: '90px',
     cell: (row) => (
-      <Badge variant={auditStatusVariant[row.status]}>{auditStatusLabel[row.status]}</Badge>
+      <StatusBadge tone={auditStatusVariant[row.status]}>
+        {auditStatusLabel[row.status]}
+      </StatusBadge>
     ),
   },
   {

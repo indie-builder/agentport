@@ -9,8 +9,8 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
-import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
+import { StatusBadge } from '../components/ui/status-badge.js';
 import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
 import { formatBytes, formatDuration } from '../lib/format.js';
 import { healthLiveQuery, healthMetricsQuery, healthReadyQuery } from '../lib/queries.js';
@@ -41,10 +41,10 @@ function StatusPill({ state }: { state: CheckState }) {
           ? CircleAlert
           : CircleX;
   return (
-    <Badge variant={stateVariant[state]} className="rounded-[6px]">
+    <StatusBadge tone={stateVariant[state]} className="rounded-tag">
       <Icon className={state === 'pending' ? 'size-3 animate-spin' : 'size-3'} aria-hidden="true" />
       {stateLabel[state]}
-    </Badge>
+    </StatusBadge>
   );
 }
 
@@ -320,18 +320,18 @@ export function StatusPage() {
         </div>
         {!ready.isPending && !ready.isError && ready.data?.body ? (
           <div className="mt-1 flex gap-2">
-            <Badge
-              variant={ready.data.body.db === 'ok' ? 'success' : 'danger'}
-              className="rounded-[6px]"
+            <StatusBadge
+              tone={ready.data.body.db === 'ok' ? 'success' : 'danger'}
+              className="rounded-tag"
             >
               数据库 {ready.data.body.db === 'ok' ? '正常' : '不可用'}
-            </Badge>
-            <Badge
-              variant={ready.data.body.redis === 'ok' ? 'success' : 'danger'}
-              className="rounded-[6px]"
+            </StatusBadge>
+            <StatusBadge
+              tone={ready.data.body.redis === 'ok' ? 'success' : 'danger'}
+              className="rounded-tag"
             >
               Redis {ready.data.body.redis === 'ok' ? '正常' : '不可用'}
-            </Badge>
+            </StatusBadge>
           </div>
         ) : null}
       </Panel>

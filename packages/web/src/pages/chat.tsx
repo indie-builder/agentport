@@ -36,6 +36,15 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/ui/collapsible.js';
+import { Message, MessageContent, MessageGroup } from '../components/ui/message.js';
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from '../components/ui/message-scroller.js';
 import { Select } from '../components/ui/select.js';
 import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
 import { Textarea } from '../components/ui/textarea.js';
@@ -458,13 +467,13 @@ function HistoryPanel({
                 aria-current={conversation.id === conversationId ? 'true' : undefined}
                 onClick={() => onOpen(conversation.id)}
                 className={cn(
-                  'h-auto w-full flex-col items-start gap-0 whitespace-normal rounded-[9px] px-2.5 py-2 pr-8 text-left font-normal',
+                  'h-auto w-full min-w-0 flex-col items-start gap-0 whitespace-normal rounded-item px-2.5 py-2 pr-8 text-left font-normal',
                   conversation.id === conversationId
                     ? 'bg-hover text-fg'
                     : 'text-muted hover:bg-hover hover:text-fg',
                 )}
               >
-                <span className="block truncate text-sm">{conversation.title}</span>
+                <span className="block w-full truncate text-sm">{conversation.title}</span>
                 <span className="mt-0.5 block text-xs text-subtle">
                   {formatRelative(conversation.updatedAt)}
                 </span>
@@ -816,39 +825,13 @@ function MessagePane({
   approvalItems: ApprovalRequest[];
   lastRun: RunMetrics | null;
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [pinned, setPinned] = useState(true);
+  const reduce = useReducedMotion();
+  const turns = useMemo(
+    () => messageTurns(items, Boolean(lastRun) || approvalItems.length > 0),
+    [items, lastRun, approvalItems],
+  );
   // 上一次的工具子集：文本增量不改工具对象，复用它就不会惊动下游 memo。
   const prevTools = useRef<ToolItem[]>([]);
-
-  // 用户上滚后暂停自动滚动；只有贴底时才跟随新内容。
-  useEffect(() => {
-    const element = scrollRef.current;
-    if (!element) return;
-    const onScroll = (): void => {
-      const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-      setPinned(distance < 80);
-    };
-    element.addEventListener('scroll', onScroll, { passive: true });
-    return () => element.removeEventListener('scroll', onScroll);
-  }, []);
-
-  useEffect(() => {
-    if (!pinned) return;
-    const element = scrollRef.current;
-    if (!element) return;
-    // items 本身也要依赖：文本增量不改变长度，只改最后一个元素的内容。
-    if (items.length === 0) return;
-    element.scrollTop = element.scrollHeight;
-  }, [pinned, items]);
-
-  const scrollToBottom = (): void => {
-    const element = scrollRef.current;
-    if (!element) return;
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    element.scrollTo({ top: element.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
-    setPinned(true);
-  };
 
   // 文本增量只换最后一项，其余对象共享，但 items 数组身份每次都变。
   // 工具子集逐项比对后复用；结构只依赖工具子集，于是增量不改变任何 ToolGroup 的入参。
@@ -871,72 +854,110 @@ function MessagePane({
   }, [matches]);
 
   return (
-    <div className="relative min-h-0 flex-1">
-      <div
-        ref={scrollRef}
-        className={cn('h-full overflow-y-auto', welcome ? 'flex flex-col' : 'px-4 py-4')}
-      >
-        {loading ? (
-          <div className="mx-auto max-w-[728px]">
-            <LoadingState rows={4} />
-          </div>
+    <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollEdgeThreshold={80}>
+      <MessageScroller className="h-auto flex-1">
+        <MessageScrollerViewport aria-label="对话消息">
+          <MessageScrollerContent
+            className={cn('mx-auto w-full max-w-[760px] gap-4', !welcome && 'p-4')}
+          >
+            {loading ? (
+              <MessageScrollerItem messageId="loading">
+                <LoadingState rows={4} />
+              </MessageScrollerItem>
+            ) : null}
+            {error ? (
+              <MessageScrollerItem messageId="error">
+                <ErrorState error={error} onRetry={onRetry} />
+              </MessageScrollerItem>
+            ) : null}
+            {!loading && !error && items.length === 0 && welcome ? (
+              <MessageScrollerItem messageId="welcome" className="flex flex-1 flex-col">
+                {welcome}
+              </MessageScrollerItem>
+            ) : null}
+            {!loading && !error && items.length > 0
+              ? turns.map((turn, turnIndex) => (
+                  <MessageScrollerItem key={turn.id} messageId={turn.id}>
+                    <Message align={turn.user ? 'end' : 'start'} className="text-md text-fg">
+                      <MessageContent
+                        className={cn(
+                          'gap-4',
+                          turn.user && 'w-fit max-w-[85%] rounded-pill bg-hover px-4 py-2',
+                        )}
+                      >
+                        <MessageGroup className="gap-4">
+                          {turn.items.map((item, index) => {
+                            // 有归属的子调用由父行渲染，不在顶层重复出现。
+                            if (item.kind === 'tool') {
+                              if (structure.root.has(item.toolUseId)) return null;
+                              return (
+                                <ToolGroup
+                                  key={item.toolUseId}
+                                  tool={item}
+                                  kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
+                                  approvalItems={approvalItems}
+                                  pending={approvals.pending}
+                                  onApprove={approvals.onApprove}
+                                />
+                              );
+                            }
+                            return (
+                              // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
+                              <MessagePart key={`${index}-${item.kind}`} item={item} />
+                            );
+                          })}
+                        </MessageGroup>
+                        {!turn.user && turnIndex === turns.length - 1 ? (
+                          <>
+                            {lastRun ? <RunMetricsLine run={lastRun} /> : null}
+                            {approvalItems
+                              .filter((item) => !placed.has(item.id))
+                              .map((item) => (
+                                <ApprovalCard
+                                  key={item.id}
+                                  item={item}
+                                  pending={approvals.pending}
+                                  onApprove={approvals.onApprove}
+                                />
+                              ))}
+                          </>
+                        ) : null}
+                      </MessageContent>
+                    </Message>
+                  </MessageScrollerItem>
+                ))
+              : null}
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+        {items.length > 0 ? (
+          <MessageScrollerButton
+            variant="outline"
+            size="xs"
+            behavior={reduce ? 'instant' : 'smooth'}
+            className="border-line bg-surface text-fg hover:bg-hover hover:text-fg motion-reduce:transition-none"
+          >
+            <ArrowDown className="size-3" /> 回到底部
+          </MessageScrollerButton>
         ) : null}
-        {error ? (
-          <div className="mx-auto max-w-[728px]">
-            <ErrorState error={error} onRetry={onRetry} />
-          </div>
-        ) : null}
-        {!loading && !error && items.length === 0 ? welcome : null}
-        {!loading && !error && items.length > 0 ? (
-          <div className="mx-auto max-w-[728px] space-y-4">
-            {items.map((item, index) => {
-              // 有归属的子调用由父行渲染，不在顶层重复出现。
-              if (structure.root.has(item.kind === 'tool' ? item.toolUseId : '')) return null;
-              if (item.kind === 'tool') {
-                return (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
-                  <div key={`${index}-${item.toolUseId}`} className="space-y-1">
-                    <ToolGroup
-                      tool={item}
-                      kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
-                      approvalItems={approvalItems}
-                      pending={approvals.pending}
-                      onApprove={approvals.onApprove}
-                    />
-                  </div>
-                );
-              }
-              return (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
-                <ItemView key={`${index}-${item.kind}`} item={item} />
-              );
-            })}
-            {lastRun ? <RunMetricsLine run={lastRun} /> : null}
-            {approvalItems
-              .filter((item) => !placed.has(item.id))
-              .map((item) => (
-                <ApprovalCard
-                  key={item.id}
-                  item={item}
-                  pending={approvals.pending}
-                  onApprove={approvals.onApprove}
-                />
-              ))}
-          </div>
-        ) : null}
-      </div>
-      {!pinned && items.length > 0 ? (
-        <Button
-          variant="outline"
-          size="xs"
-          onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2"
-        >
-          <ArrowDown className="size-3" /> 回到底部
-        </Button>
-      ) : null}
-    </div>
+      </MessageScroller>
+    </MessageScrollerProvider>
   );
+}
+
+function messageTurns(items: ChatItem[], hasFooter: boolean) {
+  const turns: { id: string; user: boolean; items: ChatItem[] }[] = [];
+  for (const [index, item] of items.entries()) {
+    const previous = turns.at(-1);
+    if (item.kind !== 'user' && previous && !previous.user) {
+      previous.items.push(item);
+    } else {
+      turns.push({ id: `turn-${index}`, user: item.kind === 'user', items: [item] });
+    }
+  }
+  if (hasFooter && turns.at(-1)?.user) {
+    turns.push({ id: `turn-${items.length}`, user: false, items: [] });
+  }
+  return turns;
 }
 
 /**
@@ -1093,21 +1114,17 @@ function WelcomeState({
 /** 只为展示取字段，避免把 Agent 类型一路传进展示组件。 */
 type AgentView = NonNullable<ReturnType<typeof useAgents>['data']>[number];
 
-/** 一行气泡/文本/通知：入参 item 在文本增量间保持身份，memo 让其余行原地不动。 */
-const ItemView = memo(function ItemView({ item }: { item: ChatItem }) {
+/** 文本增量只更新对应片段，工具行继续使用独立的 memo。 */
+const MessagePart = memo(function MessagePart({
+  item,
+}: {
+  item: Exclude<ChatItem, { kind: 'tool' }>;
+}) {
   switch (item.kind) {
     case 'user':
-      return (
-        <div className="flex justify-end">
-          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-pill bg-hover px-4 py-2 text-md leading-relaxed text-fg">
-            {item.text}
-          </div>
-        </div>
-      );
+      return <p className="whitespace-pre-wrap break-words leading-relaxed">{item.text}</p>;
     case 'text':
-      return <AssistantText text={item.text} />;
-    case 'tool':
-      return <ToolRow item={item} nested={false} childCount={0} />;
+      return renderAssistantText(item.text);
     case 'notice':
       return (
         <div
@@ -1134,7 +1151,7 @@ const ItemView = memo(function ItemView({ item }: { item: ChatItem }) {
 });
 
 /** 助手文本不用气泡；围栏代码交给 CodeBlock，其余保留换行与空白。 */
-function AssistantText({ text }: { text: string }) {
+function renderAssistantText(text: string) {
   if (!text.includes('```')) {
     return (
       <CollapsibleText

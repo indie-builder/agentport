@@ -158,17 +158,19 @@ function ColumnRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn('flex items-center gap-1', isDragging && 'opacity-40')}
     >
-      <button
+      <Button
         ref={setActivatorNodeRef}
         type="button"
+        variant="ghost"
+        size="icon-xs"
         {...attributes}
         {...listeners}
         aria-label={`拖动调整「${column.header}」顺序`}
-        className="cursor-grab touch-none rounded-[6px] p-1 text-subtle hover:bg-hover hover:text-fg active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+        className="cursor-grab touch-none rounded-tag border-0 p-1 text-subtle transition-none hover:bg-hover hover:text-fg active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-2 focus-visible:ring-fg"
       >
         <GripVertical className="size-4" aria-hidden="true" />
-      </button>
-      <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1.5 text-xs hover:bg-hover">
+      </Button>
+      <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-icon px-2 py-1.5 text-xs hover:bg-hover">
         <input
           type="checkbox"
           checked={checked}
@@ -341,7 +343,7 @@ export function DataTable<T>({
             >
               <PopoverTrigger
                 render={
-                  <Button variant="ghost" size="sm" className="rounded-[7px]" aria-label="列设置">
+                  <Button variant="ghost" size="sm" className="rounded-icon" aria-label="列设置">
                     <Columns3 className="size-4" aria-hidden="true" />列
                   </Button>
                 }
@@ -353,7 +355,7 @@ export function DataTable<T>({
             {/* 浮层必须挂在弹层之外：Popper 容器的 transform 会成为 fixed 的包含块。 */}
             <DragOverlay>
               {draggingColumn ? (
-                <div className="rounded-[7px] border border-line bg-surface px-2 py-1.5 text-xs shadow-overlay">
+                <div className="rounded-icon border border-line bg-surface px-2 py-1.5 text-xs shadow-overlay">
                   {draggingColumn.header}
                 </div>
               ) : null}
@@ -433,7 +435,7 @@ export function DataTable<T>({
                 ));
                 const rowClass = cn(
                   'grid min-h-14 w-full items-center gap-3 px-3 text-left text-base transition-colors duration-150',
-                  'rounded-[9px] hover:bg-hover',
+                  'rounded-item hover:bg-hover',
                   interactive ? 'cursor-pointer' : 'cursor-default',
                   isOpen && 'bg-hover',
                 );

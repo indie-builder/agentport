@@ -61,9 +61,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu.js';
-import { FieldError, FieldHint, Input } from '../components/ui/input.js';
-import { Label, RequiredMark } from '../components/ui/label.js';
+
+import { FieldError, FieldHint, RequiredMark } from '../components/ui/field.js';
+import { Input } from '../components/ui/input.js';
+import { Label } from '../components/ui/label.js';
 import { MultiSelect } from '../components/ui/multi-select.js';
+import { SearchInput } from '../components/ui/search-input.js';
+import { SegmentedTabs } from '../components/ui/segmented-tabs.js';
 import { Select } from '../components/ui/select.js';
 import {
   Sheet,
@@ -72,7 +76,6 @@ import {
   SheetDescription,
   SheetTitle,
 } from '../components/ui/sheet.js';
-import { SearchInput, Tabs } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { AgentVersionSummary } from '../lib/api.js';
 import { ApiError, api } from '../lib/api.js';
@@ -305,7 +308,7 @@ export function AgentsPage() {
                     aria-current={active ? 'true' : undefined}
                     onClick={() => selectAgent(agent.id)}
                     className={cn(
-                      'flex h-14 w-full items-center gap-3 rounded-[9px] px-2.5 text-left transition-colors duration-150 hover:bg-chip',
+                      'flex h-14 w-full items-center gap-3 rounded-item px-2.5 text-left transition-colors duration-150 hover:bg-chip',
                       active ? 'bg-hover' : '',
                     )}
                   >
@@ -419,12 +422,12 @@ function FileTag({ children }: { children: ReactNode }) {
 
 /** 输入 36px / radius 9：表单密度跟着设计基准走，而不是沿用表格控件。 */
 function LineInput({ className, ...props }: ComponentProps<'input'>) {
-  return <Input className={cn('h-9 rounded-[9px] px-3', className)} {...props} />;
+  return <Input className={cn('h-9 rounded-item px-3', className)} {...props} />;
 }
 
 function CodeArea({ className, ...props }: ComponentProps<'textarea'>) {
   return (
-    <Textarea className={cn('rounded-[9px] px-3 py-2 leading-relaxed', className)} {...props} />
+    <Textarea className={cn('rounded-item px-3 py-2 leading-relaxed', className)} {...props} />
   );
 }
 
@@ -718,7 +721,7 @@ function AgentEditor({
           aria-label="启用智能体"
           title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
           onClick={() => set('enabled', !form.enabled)}
-          className="inline-flex items-center gap-2 rounded-[9px] p-1 text-xs text-muted transition-colors hover:bg-hover hover:text-fg"
+          className="inline-flex items-center gap-2 rounded-item p-1 text-xs text-muted transition-colors hover:bg-hover hover:text-fg"
         >
           <span
             className={cn(
@@ -748,13 +751,15 @@ function AgentEditor({
               <span id="agent-save-hint" role="alert">
                 {saveHint}
               </span>
-              <button
+              <Button
                 type="button"
+                variant="link"
+                size="xs"
                 onClick={revealInvalidField}
-                className="underline underline-offset-2 hover:text-fg"
+                className="h-auto rounded-none border-0 p-0 text-2xs font-normal text-inherit underline underline-offset-2 hover:text-fg active:not-aria-[haspopup]:translate-y-0"
               >
                 去修正
-              </button>
+              </Button>
             </span>
           ) : null}
           <Button
@@ -795,7 +800,7 @@ function AgentEditor({
             <DropdownMenuContent
               align="end"
               sideOffset={4}
-              className="w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
+              className="w-40 rounded-card border border-line bg-surface p-1 shadow-overlay"
             >
               <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
                 <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
@@ -809,7 +814,7 @@ function AgentEditor({
         </div>
       </div>
 
-      <Tabs
+      <SegmentedTabs
         label="智能体编辑视图"
         value={tab}
         onChange={setTab}
@@ -833,17 +838,19 @@ function AgentEditor({
             className="sticky top-0 z-20 flex gap-0.5 overflow-x-auto border-b border-line bg-surface/95 py-1.5 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             {sectionItems.map((item) => (
-              <button
+              <Button
                 key={item.id}
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setOpenSections((current) => ({ ...current, [item.id]: true }));
                   document.getElementById(`agent-${item.id}`)?.scrollIntoView({ block: 'start' });
                 }}
-                className="shrink-0 rounded-[9px] px-2.5 py-1 text-sm text-muted transition-colors hover:bg-hover hover:text-fg"
+                className="h-auto border-0 px-2.5 py-1 text-sm font-normal text-muted transition-colors hover:bg-hover hover:text-fg active:not-aria-[haspopup]:translate-y-0 [&]:rounded-item"
               >
                 {item.label}
-              </button>
+              </Button>
             ))}
           </nav>
 
@@ -1110,7 +1117,7 @@ function AgentEditor({
                 setOpenSections((current) => ({ ...current, permissions: !current.permissions }))
               }
             >
-              <p className="rounded-[9px] bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
+              <p className="rounded-item bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
                 放行内置工具会扩大攻击面：Bash、文件写入和网络访问都绕过沙盒的只读约定。
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -1121,7 +1128,7 @@ function AgentEditor({
                   </div>
                   <Select
                     id="agent-perm"
-                    className="h-9 rounded-[9px]"
+                    className="h-9 rounded-item"
                     value={form.permissionMode}
                     onValueChange={(next) =>
                       set('permissionMode', next as AgentInput['permissionMode'])
@@ -1177,9 +1184,11 @@ function AgentEditor({
                     const enabled = builtinEnabled(tool);
                     const fixed = tool === 'Agent' || tool === 'TaskStop';
                     return (
-                      <button
+                      <Button
                         key={tool}
                         type="button"
+                        variant="ghost"
+                        size="xs"
                         aria-pressed={enabled}
                         disabled={fixed}
                         onClick={() => toggleBuiltin(tool)}
@@ -1193,11 +1202,11 @@ function AgentEditor({
                               : '已禁用：点击放行'
                         }
                         className={cn(
-                          'rounded-[6px] px-2 py-1 font-mono text-2xs transition-colors',
+                          'h-auto border-0 px-2 py-1 font-mono text-2xs font-normal transition-colors active:not-aria-[haspopup]:translate-y-0 [&]:rounded-tag',
                           enabled
-                            ? 'bg-warning-soft text-warning'
+                            ? 'bg-warning-soft text-warning hover:bg-warning-soft hover:text-warning'
                             : 'bg-chip text-subtle hover:bg-hover hover:text-muted',
-                          fixed && 'cursor-default opacity-80',
+                          fixed && 'cursor-default opacity-80 disabled:opacity-80',
                         )}
                       >
                         {tool}
@@ -1205,7 +1214,7 @@ function AgentEditor({
                           {enabled ? '：已启用' : '：已禁用'}
                           {fixed ? '，由子智能体绑定决定' : ''}
                         </span>
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -1343,7 +1352,7 @@ function AgentEditor({
             </div>
             <SheetClose
               aria-label="关闭"
-              className="-mr-1 rounded-[7px] p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+              className="-mr-1 rounded-icon p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
             >
               <X className="size-4" />
             </SheetClose>
@@ -1397,7 +1406,7 @@ function Section({
         <h2>
           <CollapsibleTrigger
             id={headingId}
-            className="flex w-full items-center gap-1.5 rounded-[7px] py-2.5 text-left text-xs text-subtle transition-colors hover:text-fg"
+            className="flex w-full items-center gap-1.5 rounded-icon py-2.5 text-left text-xs text-subtle transition-colors hover:text-fg"
           >
             <ChevronRight
               className={cn(
@@ -1436,8 +1445,8 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
   const reduce = useReducedMotion();
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="rounded-[9px] border border-line">
-      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-[9px] px-3 py-2.5 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-item border border-line">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
         <ChevronRight
           className={cn(
             'size-3.5 shrink-0 text-subtle transition-transform duration-150',
@@ -1559,18 +1568,18 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
 
   return (
     <div className="space-y-3">
-      <p className="rounded-[9px] bg-chip px-3 py-2 text-xs leading-relaxed text-muted">
+      <p className="rounded-item bg-chip px-3 py-2 text-xs leading-relaxed text-muted">
         密钥在运行时注入，此处显示为占位符。
         {dirty ? ' 这里是上次保存后的完整文件；编辑中的草稿请回「配置」看内联预览。' : ''}
       </p>
-      <Tabs
+      <SegmentedTabs
         label="工作区文件"
         value={which}
         onChange={setWhich}
         items={fileTabs.map(([value, label, Icon]) => ({
           value,
           label,
-          icon: <Icon className="size-4" />,
+          icon: Icon,
         }))}
       />
       {files.isPending ? <LoadingState rows={6} /> : null}
@@ -1721,7 +1730,7 @@ function VersionRow({
               v{item.version}
             </span>
             {item.note ? (
-              <span className="truncate rounded-[6px] bg-chip px-1.5 py-0.5 text-2xs text-muted">
+              <span className="truncate rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted">
                 {item.note}
               </span>
             ) : null}

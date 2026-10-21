@@ -6,12 +6,13 @@ import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
-import { FieldError, FieldHint, Input } from '../components/ui/input.js';
-import { Label, RequiredMark } from '../components/ui/label.js';
+import { FieldError, FieldHint, RequiredMark } from '../components/ui/field.js';
+import { Input } from '../components/ui/input.js';
+import { Label } from '../components/ui/label.js';
 import { Select } from '../components/ui/select.js';
+import { StatusBadge } from '../components/ui/status-badge.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { EvalCase, EvalCaseInput, EvalRun } from '../lib/api.js';
 import {
@@ -53,12 +54,12 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '100px',
     sortValue: (run) => run.status,
     cell: (run) => (
-      <Badge variant={evalStatusVariant[run.status]} className="rounded-[6px]">
+      <StatusBadge tone={evalStatusVariant[run.status]} className="rounded-tag">
         {run.status === 'running' ? (
           <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
         ) : null}
         {evalStatusLabel[run.status]}
-      </Badge>
+      </StatusBadge>
     ),
   },
   {
@@ -329,9 +330,9 @@ function EvalRunResults({ id }: { id: string }) {
           className="border-b border-line py-4 last:border-b-0 last:pb-0"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={result.passed ? 'success' : 'danger'} className="rounded-[6px]">
+            <StatusBadge tone={result.passed ? 'success' : 'danger'} className="rounded-tag">
               {result.passed ? '通过' : '未通过'}
-            </Badge>
+            </StatusBadge>
             <span className="text-md font-medium text-fg">{result.name}</span>
             {result.runId ? (
               <Link

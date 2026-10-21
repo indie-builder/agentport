@@ -87,7 +87,7 @@ export function CodeBlock({
       open={open}
       onOpenChange={setExpanded}
       className={cn(
-        'group relative overflow-hidden rounded-[12px] border border-line bg-code',
+        'group relative overflow-hidden rounded-card border border-line bg-code',
         className,
       )}
     >
@@ -103,7 +103,7 @@ export function CodeBlock({
               type="button"
               onClick={() => void copy()}
               aria-label={copied ? '已复制' : copyLabel}
-              className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-[7px] border border-line bg-surface/90 px-2 text-2xs text-muted opacity-0 backdrop-blur transition-opacity hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg group-hover:opacity-100"
+              className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-icon border border-line bg-surface/90 px-2 text-2xs text-muted opacity-0 backdrop-blur transition-opacity hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg group-hover:opacity-100"
             >
               {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
               {copied ? '已复制' : copyLabel}

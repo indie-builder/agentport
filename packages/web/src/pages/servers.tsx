@@ -36,8 +36,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu.js';
-import { FieldError, FieldHint, Input } from '../components/ui/input.js';
-import { Label, RequiredMark } from '../components/ui/label.js';
+
+import { FieldError, FieldHint, RequiredMark } from '../components/ui/field.js';
+import { Input } from '../components/ui/input.js';
+import { Label } from '../components/ui/label.js';
+import { SearchInput } from '../components/ui/search-input.js';
 import { Select } from '../components/ui/select.js';
 import {
   Table,
@@ -46,9 +49,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  TableWrap,
 } from '../components/ui/table.js';
-import { SearchInput } from '../components/ui/tabs.js';
+import { TableWrap } from '../components/ui/table-wrap.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { ApiError } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
@@ -94,12 +96,12 @@ const kindMeta: Record<Kind, { label: string; hint: string; newHint: string }> =
 
 /** 表单控件 36px / radius 9，跟随设计基准；表格行里的控件不受影响。 */
 function LineInput({ className, ...props }: ComponentProps<'input'>) {
-  return <Input className={cn('h-9 rounded-[9px] px-3', className)} {...props} />;
+  return <Input className={cn('h-9 rounded-item px-3', className)} {...props} />;
 }
 
 function CodeArea({ className, ...props }: ComponentProps<'textarea'>) {
   return (
-    <Textarea className={cn('rounded-[9px] px-3 py-2 leading-relaxed', className)} {...props} />
+    <Textarea className={cn('rounded-item px-3 py-2 leading-relaxed', className)} {...props} />
   );
 }
 
@@ -220,14 +222,14 @@ export function ServersPage() {
                 { value: 'http', label: kindMeta.http.label },
                 { value: 'generated', label: kindMeta.generated.label },
               ]}
-              className="w-36 rounded-[9px] border-transparent bg-chip hover:bg-hover"
+              className="w-36 rounded-item border-transparent bg-chip hover:bg-hover"
             />
             <SearchInput
               label="搜索 server"
               value={query}
               onChange={setQuery}
               placeholder="搜索名称、描述或地址…"
-              className="w-56 [&_input]:rounded-[9px] [&_input]:border-transparent [&_input]:bg-chip"
+              className="w-56 [&_input]:rounded-item [&_input]:border-transparent [&_input]:bg-chip"
             />
             <Button
               ref={createButtonRef}
@@ -391,7 +393,7 @@ function ServerRow({
         </div>
       </TableCell>
       <TableCell>
-        <span className="rounded-[6px] bg-chip px-1.5 py-0.5 text-2xs text-muted">
+        <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted">
           {kindMeta[server.kind].label}
         </span>
       </TableCell>
@@ -426,7 +428,7 @@ function ServerRow({
           <DropdownMenuContent
             align="end"
             sideOffset={4}
-            className="w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
+            className="w-40 rounded-card border border-line bg-surface p-1 shadow-overlay"
           >
             <DropdownMenuItem disabled={testing} onClick={onTest}>
               <Plug className="size-4" /> {testing ? '测试中…' : '测试连接'}
@@ -520,7 +522,7 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
       }}
     >
       <div className="space-y-4">
-        <div className="rounded-[9px] bg-danger-soft p-3">
+        <div className="rounded-item bg-danger-soft p-3">
           <p className="text-xs text-danger">影响范围</p>
           {loading ? (
             <p className="mt-1 text-xs text-muted">正在读取绑定关系…</p>
@@ -705,7 +707,7 @@ function ToolEditorDialog({
       title={`工具定义「${server.name}」`}
       description="每个上游 HTTP 端点对应一个 MCP 工具。路径里的 {param} 必须在 inputSchema.properties 中有同名属性。"
       returnFocusRef={returnFocusRef}
-      className="max-w-3xl rounded-[12px] [&>div:last-child]:px-6 [&>div:last-child]:py-6"
+      className="max-w-3xl rounded-card [&>div:last-child]:px-6 [&>div:last-child]:py-6"
     >
       <div className="space-y-5">
         {tools.isPending ? <LoadingState rows={2} /> : null}
@@ -739,7 +741,7 @@ function ToolEditorDialog({
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-xs text-fg">{tool.name}</span>
                         {tool.requiresApproval ? (
-                          <span className="rounded-[6px] bg-warning-soft px-1.5 py-0.5 text-2xs text-warning">
+                          <span className="rounded-tag bg-warning-soft px-1.5 py-0.5 text-2xs text-warning">
                             需审批
                           </span>
                         ) : null}
@@ -751,7 +753,7 @@ function ToolEditorDialog({
                       ) : null}
                     </TableCell>
                     <TableCell>
-                      <span className="rounded-[6px] bg-chip px-1.5 py-0.5 font-mono text-2xs text-muted">
+                      <span className="rounded-tag bg-chip px-1.5 py-0.5 font-mono text-2xs text-muted">
                         {tool.method}
                       </span>
                     </TableCell>
@@ -1248,7 +1250,7 @@ function ServerFormDialog({
                     setErrors({});
                   }}
                   className={cn(
-                    'rounded-[9px] border px-3 py-2.5 text-left transition-colors',
+                    'rounded-item border px-3 py-2.5 text-left transition-colors',
                     kind === value ? 'border-fg bg-chip' : 'border-line hover:bg-hover',
                   )}
                 >
@@ -1386,7 +1388,7 @@ function ServerFormDialog({
                   />
                 </div>
                 {kind === 'generated' ? (
-                  <p className="rounded-[9px] bg-chip p-3 text-xs leading-relaxed text-muted">
+                  <p className="rounded-item bg-chip p-3 text-xs leading-relaxed text-muted">
                     保存后会直接打开工具编辑，把上游 HTTP API 的端点声明成 MCP 工具。
                   </p>
                 ) : null}

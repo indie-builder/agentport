@@ -6,8 +6,8 @@ import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { TelemetryReadout, TelemetryStrip } from '../components/telemetry.js';
-import { Badge } from '../components/ui/badge.js';
 import { buttonVariants } from '../components/ui/button.js';
+import { StatusBadge } from '../components/ui/status-badge.js';
 import type { OverviewAgentRow, RecentRun } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
@@ -171,7 +171,7 @@ const runColumns: DataColumn<RecentRun>[] = [
         <RunStatusBadge status={run.status} />
         {run.error ? (
           <span title={run.error}>
-            <Badge variant="danger">错误</Badge>
+            <StatusBadge tone="danger">错误</StatusBadge>
           </span>
         ) : null}
       </div>
