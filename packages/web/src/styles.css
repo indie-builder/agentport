@@ -64,6 +64,17 @@
   --radius-tag: 6px; /* 小标签、侧栏图标底 */
   --radius-pill: 9999px;
 
+  /*
+   * shadcn 底部（base-nova）用 rounded-sm/md/lg/xl/4xl 表达控件与容器。
+   * 把它们映射到本项目的圆角体系，底部组件的几何才不会跑偏。
+   */
+  --radius-sm: var(--radius-tag);
+  --radius-md: var(--radius-icon);
+  --radius-lg: var(--radius-icon);
+  --radius-xl: var(--radius-card);
+  --radius-2xl: var(--radius-card);
+  --radius-4xl: var(--radius-tag);
+
   /* 侧栏：实测 272 展开 / 68 收起，过渡 160ms */
   --sidebar-width: 272px;
   --sidebar-collapsed: 68px;

@@ -25,6 +25,9 @@
 - **结构靠 1px 线与留白，不靠卡片盒子**；圆角随尺寸递增（16 外壳 / 16 chip / 12 卡片 / 9 行 / 7 图标 / 6 标签）。
 - **图标统一 lucide，`strokeWidth={1.75}`，16px。**
 - **组件库统一使用 shadcn/ui。** `components.json` 已配置，新增组件用 `pnpm dlx shadcn@latest add <name>` 生成，再改为本项目令牌；不要手写近似实现。 新增 UI 一律从 shadcn/ui 的组件出发（复制到 `packages/web/src/components/ui/`，按项目设计语言调整 token），不要另起一套控件、不要重复手写同类组件。
+- **底座先行，项目自定义在后。** 组件必须先按官方底座（shadcn + Base UI，`style: base-nova`）安装到位，再在这个底座文件上改写成本项目的令牌与设计语言；不许为了保住旧实现而拒绝覆盖原始底座，也不许绕过底座自己手写等价组件。顺序颠倒会导致行为、无障碍与后续升级全部脱节。
+  - 安装用 `pnpm dlx shadcn@latest add <name> -c packages/web --overwrite`，然后立刻把 `cn` 指向 `lib/cn`、把颜色/圆角/间距换成本项目 `@theme` 令牌。
+  - 覆盖前先提交或确认该文件已在 git 中，保证可以 diff 出「底座 → 项目」这层改动。
 - **先复用，再新增。** 写新界面前先看 `components/ui/` 与 `components/` 是否已有可用的组件；能组合就不新建。
 - **样式遵循 `docs/DESIGN-SYSTEM.md` 的项目设计语言。** 组件结构、无障碍行为、交互约定沿用组件库；颜色、间距、字体、圆角只通过 `packages/web/src/styles.css` 的 `@theme` token 取值，禁止在组件里硬编码十六进制色值。
 - **CSS 统一用 Tailwind CSS 4**，不自造 CSS 文件、不引入第二套样式方案。
