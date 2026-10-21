@@ -313,15 +313,12 @@ const worker = new Worker(
       logger.info({ runId, status: run?.status }, 'run no longer pending, skipping');
       return;
     }
+    // 只认领 queued：BullMQ 在 Redis 抖动后会重投递仍在 running 的任务，
+    // 若这里也接受 running，同一 run 会被两个 worker 各跑一遍（重复计费、消息互相覆盖）。
     const claimed = await db
       .update(schema.agentRuns)
       .set({ status: 'running', startedAt: new Date() })
-      .where(
-        and(
-          eq(schema.agentRuns.id, runId),
-          inArray(schema.agentRuns.status, ['queued', 'running']),
-        ),
-      );
+      .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')));
     if (claimed.rowCount === 0) {
       logger.info({ runId }, 'run externally terminated before claim, skipping');
       return;

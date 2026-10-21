@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { evalCases, evalResults, evalRuns } from '../schema.js';
 
@@ -72,6 +72,19 @@ export async function createEvalRun(
   const [row] = await db.insert(evalRuns).values(input).returning();
   if (!row) throw new Error('eval run insert returned no row');
   return row;
+}
+
+/**
+ * 原子认领：只有把 claimed_at 从 NULL 改成有值的调用方拿到 true。
+ * BullMQ 在 Redis 抖动后会重复投递同一个 job，没有认领就会跑两遍（双倍模型花费）。
+ */
+export async function claimEvalRun(db: Database, id: string): Promise<boolean> {
+  const rows = await db
+    .update(evalRuns)
+    .set({ claimedAt: new Date() })
+    .where(and(eq(evalRuns.id, id), isNull(evalRuns.claimedAt), eq(evalRuns.status, 'running')))
+    .returning({ id: evalRuns.id });
+  return rows.length > 0;
 }
 
 export async function getEvalRun(db: Database, id: string): Promise<EvalRun | null> {

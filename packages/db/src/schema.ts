@@ -323,6 +323,8 @@ export const evalRuns = pgTable(
     passed: integer('passed').notNull().default(0),
     error: text('error'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** 认领时刻：BullMQ 重复投递时，只有抢到认领的 worker 才执行。 */
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
   },
   (t) => [

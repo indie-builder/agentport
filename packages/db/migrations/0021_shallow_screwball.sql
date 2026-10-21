@@ -1,0 +1,1 @@
+ALTER TABLE "eval_runs" ADD COLUMN "claimed_at" timestamp with time zone;

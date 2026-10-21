@@ -152,6 +152,12 @@ export async function executeEvalRun(input: {
       logger.info({ evalRunId }, 'eval run no longer running, skipping');
       return;
     }
+    // BullMQ 重复投递时只让一个 worker 执行：认领失败说明别人已经在跑。
+    const claimed = yield* dbQuery(() => evalRepo.claimEvalRun(db, evalRunId));
+    if (!claimed) {
+      logger.info({ evalRunId }, 'eval run already claimed, skipping duplicate delivery');
+      return;
+    }
 
     const [agent] = yield* dbQuery(async () =>
       db

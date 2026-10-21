@@ -18,8 +18,10 @@ interface RunnerEvent {
     | 'tool_start'
     | 'tool_input'
     | 'tool_result'
+    | 'error'
     | 'run_finished';
   text?: string;
+  msg?: string;
   toolUseId?: string;
   /** 子智能体产生的消息：指向父侧 Agent 的 tool_use id；顶层消息不写。 */
   parentToolUseId?: string;
@@ -200,6 +202,12 @@ try {
     options: {
       cwd: '/workspace',
       settingSources: ['project'],
+      // .mcp.json 里的 server 默认需要审批；无人值守时不批准就等于零工具静默成功。
+      settings: { enableAllProjectMcpServers: true },
+      // 用户文本是纯文本：不要做 @路径展开或斜杠命令解析。
+      verbatimPrompts: true,
+      // 子智能体的文本也要流出来，否则前端看不到它们的回答。
+      forwardSubagentText: true,
       permissionMode: task.permissionMode ?? 'dontAsk',
       allowedTools,
       disallowedTools: [...new Set(disallowedTools)],
@@ -214,6 +222,22 @@ try {
       ...(task.model === undefined ? {} : { model: task.model }),
     },
   })) {
+    if (message.type === 'system' && message.subtype === 'init') {
+      // MCP 起不来时 SDK 仍会正常跑完：模型只能用内置工具，最后报「成功」。
+      // 这里必须显式暴露，否则用户在 UI 上看到的是「完成但什么都没做」。
+      const failed = message.mcp_servers?.filter((s) => s.status !== 'connected') ?? [];
+      if (failed.length > 0) {
+        log(`mcp not connected: ${failed.map((s) => `${s.name}=${s.status}`).join(', ')}`);
+        emit({
+          type: 'error',
+          msg: `这些 MCP Server 没有连上，本次运行缺少它们的工具：${failed
+            .map((s) => s.name)
+            .join('、')}`,
+        });
+      }
+      continue;
+    }
+
     if (message.type === 'assistant') {
       // 子智能体消息带 parent_tool_use_id（父侧 Agent 的 tool_use id）；顶层为 null。
       const parent = parentTag(message.parent_tool_use_id);
@@ -260,6 +284,20 @@ try {
     }
 
     if (message.type === 'result') {
+      // 主动中止也会走到 result（subtype=error_during_execution），不会抛异常；
+      // 不在这里判 abort，用户点「停止」会被显示成红色失败。
+      const cancelled = abortController.signal.aborted;
+      if (cancelled) {
+        emit({
+          type: 'run_finished',
+          status: 'cancelled',
+          costUsd: message.total_cost_usd,
+          turns: message.num_turns,
+          sessionId: message.session_id,
+          ...tokenUsage(message.modelUsage),
+        });
+        continue;
+      }
       const succeeded = message.subtype === 'success' && !message.is_error;
       emit({
         type: 'run_finished',

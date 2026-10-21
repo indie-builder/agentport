@@ -178,3 +178,18 @@
 - 其余：DB 加 `statement_timeout`/`connectionTimeoutMillis`；上游响应改流式截断；skill/子智能体描述做 markdown 注入口中和。
 
 **验证**：7 包 typecheck、biome 159 文件、**176 测试**、构建、smoke 全绿；RCE 与 SSRF 均实测。
+
+### 第 9 轮 — 2026-10-21
+
+**范围**：Agent SDK 集成正确性 / 多实例扩展。
+**发现**：5 项 SDK 误用（其中 1 项导致「静默成功」）+ 3 项扩展缺陷。
+
+关键结论：
+- **静默零工具成功**：`.mcp.json` 里的 server 默认需要审批，代码从未批准，SDK 仍正常跑完并报成功——用户看到「完成」但模型一个工具都没用。已设 `settings.enableAllProjectMcpServers`，并在 `system/init` 里把未连上的 server 显式报给用户。
+- **取消被显示成失败**：SDK 中止时返回 result 而非抛异常，`catch` 里的取消判断永远走不到。已在 result 分支按 abort 信号映射为 `cancelled`。
+- **`allowedTools` 不是限制**：它是「免审批列表」，SDK 的限制选项是 `tools`。代码把前者当后者用，导致「限定某几个工具」的设置实际不生效。
+- `verbatimPrompts` 与 `forwardSubagentText` 均为默认关闭，用户输入会被当成斜杠命令解析、子智能体文本前端看不到。
+- **BullMQ 重投递会导致同一 run 被两个 worker 各跑一遍**：认领条件写成 `queued OR running`。改为只认领 `queued`；eval 也补了 `claimed_at` 原子认领。
+
+**验证**：7 包 typecheck、biome 159 文件、176 测试、迁移 0020/0021 已应用。
+**遗留**：`allowedTools` → `tools` 的语义修正涉及权限模型调整，需单独确认；多实例部署的端口/模型代理寻址未改（当前是单实例设计）。
