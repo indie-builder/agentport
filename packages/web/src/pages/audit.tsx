@@ -126,9 +126,11 @@ export function AuditPage() {
           placeholder="动作前缀，如 auth.login"
           value={action}
           onChange={(event) =>
+            // replace：输入框每敲一个字不该在浏览历史里留一条记录。
             void navigate({
               to: '/audit',
               search: { ...search, action: event.target.value || undefined },
+              replace: true,
             })
           }
           className="w-56"

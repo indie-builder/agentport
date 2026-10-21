@@ -1,3 +1,4 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
   ArrowDown,
@@ -16,12 +17,26 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { CodeBlock, CollapsibleText, JsonBlock } from '../components/code-block.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../components/ui/collapsible.js';
 import { Select } from '../components/ui/select.js';
+import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
 import {
@@ -136,13 +151,13 @@ function ChatWorkspace({
   const run = useChatStore((state) => state.run);
   const lastRun = useChatStore((state) => state.lastRun);
   const lastRunId = useChatStore((state) => state.lastRunId);
-  const approving = useChatStore((state) => state.approving);
-  const branching = useChatStore((state) => state.branching);
-  const cancelling = useChatStore((state) => state.cancelling);
   const historyOpen = useChatStore((state) => state.historyOpen);
   const setInput = useChatStore((state) => state.setInput);
   const setHistoryOpen = useChatStore((state) => state.setHistoryOpen);
+  const client = useQueryClient();
   const [local, setLocal] = useState<LocalConversation[]>(() => loadLocalConversations());
+  // 本地索引只有两条写路径（新会话被接收、历史会话被打开），统一走这里刷新。
+  const refreshLocal = useCallback(() => setLocal(loadLocalConversations()), []);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const desktop = useDesktop();
 
@@ -161,7 +176,7 @@ function ChatWorkspace({
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-      setLocal(loadLocalConversations());
+      refreshLocal();
     },
   });
 
@@ -186,29 +201,44 @@ function ChatWorkspace({
     return local.filter((conversation) => conversation.agentId === agentId);
   }, [conversations.data, local, agentId]);
 
+  // 三个写操作都用 mutation：pending 与失效刷新交给 TanStack Query。
+  const cancelMutation = useMutation({
+    mutationFn: (runId: string) => api.cancelRun(runId),
+    onError: (error) => toastError(error),
+    onSettled: (_data, _error, runId) => client.invalidateQueries({ queryKey: ['run', runId] }),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (item: ApprovalRequest & { runId: string }) =>
+      api.approveRun(item.runId, item.serverId, item.toolName),
+    onSuccess: (_data, item) => {
+      toastSuccess(`已批准 ${item.toolName}；继续请在输入框重新发送消息`);
+      void client.invalidateQueries({ queryKey: ['run-approvals'] });
+    },
+    onError: (error) => toastError(error),
+  });
+
+  const branchMutation = useMutation({
+    mutationFn: (id: string) => api.branchConversation(id),
+    onSuccess: (conversation) => {
+      // 先切到新会话再失效列表：openConversation 会关闭流并清空当前消息。
+      openConversation(conversation.id);
+      void client.invalidateQueries({ queryKey: ['conversations'] });
+    },
+    onError: (error) => toastError(error),
+  });
+
   const cancel = (): void => {
     // 没有 runId 时后端还没有可取消的 run；按钮也不会显示。
-    if (!run?.runId || cancelling) return;
-    useChatStore.getState().setCancelling(true);
-    api
-      .cancelRun(run.runId)
-      .catch((error) => toastError(error))
-      .finally(() => useChatStore.getState().setCancelling(false));
+    if (!run?.runId) return;
+    cancelMutation.mutate(run.runId);
   };
 
   /** 只记录批准；继续需要用户重新发送消息，也就是新一次运行。 */
   const approve = (item: ApprovalRequest): void => {
     const runId = run?.runId || lastRunId;
-    if (!runId || approving) return;
-    useChatStore.getState().setApproving(item.id);
-    api
-      .approveRun(runId, item.serverId, item.toolName)
-      .then(() => {
-        toastSuccess(`已批准 ${item.toolName}；继续请在输入框重新发送消息`);
-        void runApprovals.refetch();
-      })
-      .catch((error) => toastError(error))
-      .finally(() => useChatStore.getState().setApproving(null));
+    if (!runId) return;
+    approveMutation.mutate({ ...item, runId });
   };
 
   const openConversation = (id: string): void => {
@@ -227,19 +257,7 @@ function ChatWorkspace({
   };
 
   // 分支：服务端复制消息，前端切到新会话；列表由 query 失效后刷新。
-  const branch = async (id: string): Promise<void> => {
-    if (branching) return;
-    useChatStore.getState().setBranching(id);
-    try {
-      const conversation = await api.branchConversation(id);
-      await conversations.refetch();
-      openConversation(conversation.id);
-    } catch (error) {
-      toastError(error);
-    } finally {
-      useChatStore.getState().setBranching(null);
-    }
-  };
+  const branch = (id: string): void => branchMutation.mutate(id);
 
   // 载入历史：每个会话只回填一次，之后由流式事件维护。
   const hydrated = stream.hydratedRef;
@@ -267,8 +285,8 @@ function ChatWorkspace({
       titleFromDetail(detail.data),
     );
     upsertLocalConversation(next);
-    setLocal(loadLocalConversations());
-  }, [detail.data]);
+    refreshLocal();
+  }, [detail.data, refreshLocal]);
 
   const switchAgent = (id: string): void => {
     stream.closeStream();
@@ -288,9 +306,9 @@ function ChatWorkspace({
       onRetry={() => void conversations.refetch()}
       supported={conversations.data?.supported === true}
       conversationId={conversationId}
-      branching={branching}
+      branching={branchMutation.isPending ? branchMutation.variables : null}
       onOpen={openConversation}
-      onBranch={(id) => void branch(id)}
+      onBranch={branch}
     />
   );
 
@@ -306,8 +324,8 @@ function ChatWorkspace({
       run={run}
       lastRun={lastRun}
       lastRunId={lastRunId}
-      approving={approving}
-      cancelling={cancelling}
+      approving={approveMutation.isPending ? (approveMutation.variables?.id ?? null) : null}
+      cancelling={cancelMutation.isPending}
       approvalItems={runApprovals.data?.items ?? []}
       onApprove={approve}
       onCancel={cancel}
@@ -323,16 +341,19 @@ function ChatWorkspace({
     <div className="flex h-full min-h-0">
       <h1 className="sr-only">对话</h1>
 
-      {/* 窄屏抽屉：桌面分栏常驻，不需要这层浮层。 */}
-      {historyOpen && !desktop ? (
-        <aside
-          className="absolute inset-y-0 left-0 z-20 flex w-[272px] max-w-full shrink-0 flex-col overflow-hidden border-r border-line bg-surface"
-          aria-label="会话历史"
+      {/* 窄屏抽屉：Radix 负责焦点陷阱、Escape 与滚动锁；桌面分栏常驻，不挂这层。 */}
+      <Sheet open={historyOpen && !desktop} onOpenChange={setHistoryOpen}>
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          aria-describedby={undefined}
+          className="w-[294px] max-w-none gap-0 border-r border-line bg-surface p-0"
         >
+          <SheetTitle className="sr-only">会话历史</SheetTitle>
           <HistoryHeader onNew={newConversation} onClose={() => setHistoryOpen(false)} />
           {historyPanel}
-        </aside>
-      ) : null}
+        </SheetContent>
+      </Sheet>
 
       {desktop ? (
         <div className="flex min-h-0 w-full">
@@ -373,11 +394,11 @@ function HistoryHeader({ onNew, onClose }: { onNew: () => void; onClose?: () => 
         className="ml-auto"
         onClick={onNew}
       >
-        <Plus className="size-4" strokeWidth={1.75} />
+        <Plus className="size-4" />
       </Button>
       {onClose ? (
         <Button variant="ghost" size="icon-sm" aria-label="关闭会话列表" onClick={onClose}>
-          <X className="size-4" strokeWidth={1.75} />
+          <X className="size-4" />
         </Button>
       ) : null}
     </div>
@@ -424,12 +445,12 @@ function HistoryPanel({
         <ul className="space-y-0.5">
           {history.map((conversation) => (
             <li key={conversation.id} className="group relative">
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 aria-current={conversation.id === conversationId ? 'true' : undefined}
                 onClick={() => onOpen(conversation.id)}
                 className={cn(
-                  'w-full rounded-[9px] px-2.5 py-2 pr-8 text-left transition-colors focus-visible:outline-none',
+                  'h-auto w-full flex-col items-start gap-0 whitespace-normal rounded-[9px] px-2.5 py-2 pr-8 text-left font-normal',
                   conversation.id === conversationId
                     ? 'bg-hover text-fg'
                     : 'text-muted hover:bg-hover hover:text-fg',
@@ -439,7 +460,7 @@ function HistoryPanel({
                 <span className="mt-0.5 block text-xs text-subtle">
                   {formatRelative(conversation.updatedAt)}
                 </span>
-              </button>
+              </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -452,7 +473,7 @@ function HistoryPanel({
                 {branching === conversation.id ? (
                   <LoaderCircle className="size-3.5 animate-spin" />
                 ) : (
-                  <GitBranch className="size-3.5" strokeWidth={1.75} />
+                  <GitBranch className="size-3.5" />
                 )}
               </Button>
             </li>
@@ -532,7 +553,7 @@ function ChatColumn({
           className="lg:hidden"
           onClick={onOpenHistory}
         >
-          <MessageSquare className="size-4" strokeWidth={1.75} />
+          <MessageSquare className="size-4" />
         </Button>
         <label className="sr-only" htmlFor="chat-agent">
           选择智能体
@@ -633,12 +654,15 @@ function Composer({
             }}
           />
           {run ? (
-            <span
-              className="flex size-8 shrink-0 items-center justify-center rounded-pill bg-hover text-subtle"
+            <Button
+              type="button"
+              disabled
+              aria-label="发送消息"
               title="运行中，结束后可发送"
+              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover"
             >
-              <ArrowUp className="size-4" strokeWidth={1.75} />
-            </span>
+              <ArrowUp className="size-4" />
+            </Button>
           ) : (
             <Button
               type="submit"
@@ -646,7 +670,7 @@ function Composer({
               aria-label="发送消息"
               className="size-8 shrink-0 rounded-pill bg-fg p-0 text-surface hover:bg-fg/90 disabled:bg-hover disabled:text-subtle"
             >
-              <ArrowUp className="size-4" strokeWidth={1.75} />
+              <ArrowUp className="size-4" />
             </Button>
           )}
         </div>
@@ -728,13 +752,7 @@ function RunStatusBar({
 
   return (
     <div className="flex shrink-0 items-center gap-2 border-t border-line bg-surface px-3 py-1.5">
-      <span
-        className={cn(
-          'size-1.5 shrink-0 rounded-full bg-ink',
-          run.status !== 'reconnecting' && run.status !== 'detached' && 'live-dot',
-        )}
-        aria-hidden="true"
-      />
+      <span className="size-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate text-2xs text-fg">{text}</span>
       {run.status === 'reconnecting' || run.status === 'detached' ? (
         <RefreshCw
@@ -930,13 +948,14 @@ function MessagePane({
         ) : null}
       </div>
       {!pinned && items.length > 0 ? (
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="xs"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-[7px] border border-line bg-surface px-3 py-1.5 text-2xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+          className="absolute bottom-4 left-1/2 -translate-x-1/2"
         >
           <ArrowDown className="size-3" /> 回到底部
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -1183,13 +1202,12 @@ function ToolRow({
       : undefined;
 
   return (
-    <div className={cn('overflow-hidden rounded-item bg-surface', nested && 'ml-4')}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg"
-      >
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className={cn('overflow-hidden rounded-item bg-surface', nested && 'ml-4')}
+    >
+      <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg">
         <Wrench className="size-4 shrink-0 text-subtle" aria-hidden="true" />
         <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{item.name}</code>
         <span className="sr-only">{running ? '运行中' : failed ? '失败' : '完成'}</span>
@@ -1212,45 +1230,48 @@ function ToolRow({
           className={cn('size-3 shrink-0 text-subtle transition-transform', open && 'rotate-180')}
           aria-hidden="true"
         />
-      </button>
-      <AnimatePresence initial={false}>
-        {open ? (
-          <motion.div
-            key="body"
-            initial={{ height: 0 }}
-            animate={{ height: 'auto' }}
-            exit={{ height: 0 }}
-            transition={reduce ? STILL : EXPAND}
-            className="overflow-hidden"
-          >
-            {childCount > 0 ? (
-              <p className="px-3 pt-2 text-xs text-muted">子智能体 · {childCount} 次调用</p>
-            ) : null}
-            <div className="grid gap-2 border-t border-line p-2 md:grid-cols-2">
-              <div className="min-w-0">
-                <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
-                  参数
+      </CollapsibleTrigger>
+      {/* forceMount：Radix 保留节点，高度补间仍由 Motion 负责。 */}
+      <CollapsibleContent forceMount>
+        <AnimatePresence initial={false}>
+          {open ? (
+            <motion.div
+              key="body"
+              initial={{ height: 0 }}
+              animate={{ height: 'auto' }}
+              exit={{ height: 0 }}
+              transition={reduce ? STILL : EXPAND}
+              className="overflow-hidden"
+            >
+              {childCount > 0 ? (
+                <p className="px-3 pt-2 text-xs text-muted">子智能体 · {childCount} 次调用</p>
+              ) : null}
+              <div className="grid gap-2 border-t border-line p-2 md:grid-cols-2">
+                <div className="min-w-0">
+                  <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
+                    参数
+                  </div>
+                  {item.input !== undefined ? (
+                    <JsonBlock value={item.input} maxHeight="16rem" />
+                  ) : (
+                    <p className="px-1 text-2xs text-subtle">等待参数…</p>
+                  )}
                 </div>
-                {item.input !== undefined ? (
-                  <JsonBlock value={item.input} maxHeight="16rem" />
-                ) : (
-                  <p className="px-1 text-2xs text-subtle">等待参数…</p>
-                )}
-              </div>
-              <div className="min-w-0">
-                <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
-                  结果
+                <div className="min-w-0">
+                  <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
+                    结果
+                  </div>
+                  {item.result !== undefined ? (
+                    <JsonBlock value={item.result} maxHeight="20rem" />
+                  ) : (
+                    <p className="px-1 text-2xs text-subtle">等待结果…</p>
+                  )}
                 </div>
-                {item.result !== undefined ? (
-                  <JsonBlock value={item.result} maxHeight="20rem" />
-                ) : (
-                  <p className="px-1 text-2xs text-subtle">等待结果…</p>
-                )}
               </div>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-    </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

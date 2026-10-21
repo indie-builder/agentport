@@ -95,12 +95,20 @@ const runsRoute = createRoute({
 const runDetailRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/runs/$runId',
+  validateSearch: z.object({
+    step: z.coerce.number().int().nonnegative().optional().catch(undefined),
+  }),
   component: RunDetailPage,
+});
+
+const evalSearchSchema = z.object({
+  agent: z.string().optional().catch(undefined),
 });
 
 const evalRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/eval',
+  validateSearch: evalSearchSchema,
   component: EvalPage,
 });
 

@@ -18,29 +18,16 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ArrowDown, ArrowUp, ChevronsUpDown, Columns3, GripVertical } from 'lucide-react';
 import {
-  type ComponentProps,
-  type ComponentType,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useCallback,
-  useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import { cn } from '../lib/cn.js';
 import { Button } from './ui/button.js';
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu.js';
-
-// Radix 把 onOpenAutoFocus 标成内部 prop（类型里被 Omit），运行时照常转发给 Content。
-const MenuContent = DropdownMenuContent as ComponentType<
-  ComponentProps<typeof DropdownMenuContent> & { onOpenAutoFocus?: (event: Event) => void }
->;
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
+import { Skeleton } from './ui/skeleton.js';
 
 export interface DataColumn<T> {
   id: string;
@@ -176,23 +163,20 @@ function ColumnRow({
         type="button"
         {...attributes}
         {...listeners}
-        data-column-handle=""
         aria-label={`拖动调整「${column.header}」顺序`}
-        className="cursor-grab touch-none rounded-[6px] p-1 text-subtle hover:bg-hover hover:text-fg active:cursor-grabbing"
+        className="cursor-grab touch-none rounded-[6px] p-1 text-subtle hover:bg-hover hover:text-fg active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
       >
-        <GripVertical className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+        <GripVertical className="size-4" strokeWidth={1.75} aria-hidden="true" />
       </button>
-      <DropdownMenuCheckboxItem
-        checked={checked}
-        onCheckedChange={onToggle}
-        // 关掉 Radix 的「选中即关闭」，连续勾选多列时弹层保持打开。
-        onSelect={(event) => event.preventDefault()}
-        // Radix 的 roving focus 只留一个 Tab 停靠点；这里让每行都能被 Tab 到。
-        tabIndex={0}
-        className="flex-1"
-      >
+      <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1.5 text-xs hover:bg-hover">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+          className="size-4 accent-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+        />
         {column.header}
-      </DropdownMenuCheckboxItem>
+      </label>
     </div>
   );
 }
@@ -206,26 +190,9 @@ function ColumnPicker({
   hidden: Set<string>;
   toggle: (id: string) => void;
 }) {
-  const listRef = useRef<HTMLFieldSetElement>(null);
-
-  // Radix 的自动聚焦被关掉了（否则焦点落在菜单容器上，方向键归它管），
-  // 由列表自己把焦点交给第一个拖动手柄。
-  useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>('[data-column-handle]')?.focus();
-  }, []);
-
   return (
     <SortableContext items={columns.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-      <fieldset
-        ref={listRef}
-        aria-label="列顺序"
-        className="m-0 min-w-0 border-0 p-0"
-        // Radix 的菜单容器会吞掉 Tab（preventDefault），FocusScope 也按焦点陷阱处理；
-        // 在这里截断冒泡，Tab 就按 DOM 顺序在列表内自然前进。
-        onKeyDown={(event) => {
-          if (event.key === 'Tab') event.stopPropagation();
-        }}
-      >
+      <fieldset aria-label="列顺序" className="m-0 min-w-0 border-0 p-0">
         {columns.map((column) => (
           <ColumnRow
             key={column.id}
@@ -257,6 +224,7 @@ export function DataTable<T>({
   );
   const [sort, setSort] = useState<{ id: string; dir: 'asc' | 'desc' } | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [dragging, setDragging] = useState<{ id: string; keyboard: boolean } | null>(null);
 
   const sensors = useSensors(
@@ -373,32 +341,24 @@ export function DataTable<T>({
             onDragCancel={() => setDragging(null)}
             onDragEnd={onDragEnd}
           >
-            {/* 非模态：列表自己管焦点，不被 Radix 的焦点陷阱困住；外部点击/Esc 仍由 Radix 处理。 */}
-            <DropdownMenu
-              modal={false}
-              // 弹层被外部点击关掉时 dnd-kit 不会发 onDragEnd，清掉残留的拖动状态。
+            <Popover
+              open={pickerOpen}
               onOpenChange={(open) => {
+                // Radix 的捕获阶段先请求关闭；保留弹层，让 dnd-kit 在冒泡阶段取消键盘拖动。
+                if (!open && dragging?.keyboard) return;
+                setPickerOpen(open);
                 if (!open) setDragging(null);
               }}
             >
-              <DropdownMenuTrigger asChild>
+              <PopoverTrigger asChild>
                 <Button variant="ghost" size="sm" className="rounded-[7px]" aria-label="列设置">
                   <Columns3 className="size-4" strokeWidth={1.75} aria-hidden="true" />列
                 </Button>
-              </DropdownMenuTrigger>
-              <MenuContent
-                align="end"
-                className="w-48 rounded-[7px] border-line p-2 shadow-overlay"
-                // 焦点交给列表里的拖动手柄，Radix 的自动聚焦会让方向键归菜单容器管。
-                onOpenAutoFocus={(event) => event.preventDefault()}
-                // 键盘拖动时 Esc 是 dnd-kit 的取消键：别让 Radix 顺带关掉弹层。
-                onEscapeKeyDown={(event) => {
-                  if (dragging?.keyboard) event.preventDefault();
-                }}
-              >
+              </PopoverTrigger>
+              <PopoverContent align="end" aria-label="列设置" className="w-48 p-2">
                 <ColumnPicker columns={draggable} hidden={hiddenSet} toggle={toggle} />
-              </MenuContent>
-            </DropdownMenu>
+              </PopoverContent>
+            </Popover>
             {/* 浮层必须挂在弹层之外：Popper 容器的 transform 会成为 fixed 的包含块。 */}
             <DragOverlay>
               {draggingColumn ? (
@@ -417,45 +377,59 @@ export function DataTable<T>({
             style={{ gridTemplateColumns: template }}
           >
             {visible.map((col) => (
-              <button
+              <div
                 key={col.id}
-                type="button"
-                onClick={() => toggleSort(col)}
-                disabled={!col.sortValue}
-                aria-label={
+                tabIndex={-1}
+                role="columnheader"
+                aria-sort={
                   col.sortValue
-                    ? `${col.header}，按此列排序${sort?.id === col.id ? `（当前${sort.dir === 'asc' ? '升序' : '降序'}）` : ''}`
-                    : col.header
+                    ? sort?.id === col.id
+                      ? sort.dir === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                      : 'none'
+                    : undefined
                 }
-                className={cn(
-                  'flex items-center gap-1 text-left',
-                  col.numeric && 'justify-end',
-                  col.sortValue && 'cursor-pointer hover:text-fg',
-                )}
               >
-                {col.header}
-                {col.sortValue &&
-                  (sort?.id === col.id ? (
-                    sort.dir === 'asc' ? (
-                      <ArrowUp className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                <button
+                  type="button"
+                  onClick={() => toggleSort(col)}
+                  disabled={!col.sortValue}
+                  aria-label={
+                    col.sortValue
+                      ? `${col.header}，按此列排序${sort?.id === col.id ? `（当前${sort.dir === 'asc' ? '升序' : '降序'}）` : ''}`
+                      : col.header
+                  }
+                  className={cn(
+                    'flex w-full items-center gap-1 text-left',
+                    col.numeric && 'justify-end',
+                    col.sortValue && 'cursor-pointer hover:text-fg',
+                  )}
+                >
+                  {col.header}
+                  {col.sortValue &&
+                    (sort?.id === col.id ? (
+                      sort.dir === 'asc' ? (
+                        <ArrowUp className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                      ) : (
+                        <ArrowDown className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                      )
                     ) : (
-                      <ArrowDown className="size-3" strokeWidth={1.75} aria-hidden="true" />
-                    )
-                  ) : (
-                    <ChevronsUpDown
-                      className="size-3 opacity-40"
-                      strokeWidth={1.75}
-                      aria-hidden="true"
-                    />
-                  ))}
-              </button>
+                      <ChevronsUpDown
+                        className="size-3 opacity-40"
+                        strokeWidth={1.75}
+                        aria-hidden="true"
+                      />
+                    ))}
+                </button>
+              </div>
             ))}
           </div>
 
           {loading && rows.length === 0 ? (
             <div>
               {Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
-                <div key={key} className="h-14 animate-pulse border-b border-line bg-chip/70" />
+                <Skeleton key={key} className="h-14 border-b border-line" />
               ))}
             </div>
           ) : rows.length === 0 ? (
@@ -471,7 +445,7 @@ export function DataTable<T>({
                     <button
                       type="button"
                       data-row=""
-                      disabled={!renderExpanded}
+                      disabled={!renderExpanded && !onRowClick}
                       aria-expanded={renderExpanded ? isOpen : undefined}
                       onKeyDown={(event) => onRowKeyDown(event, row, isOpen)}
                       onClick={() => {
@@ -481,7 +455,7 @@ export function DataTable<T>({
                       className={cn(
                         'grid min-h-14 w-full items-center gap-3 px-3 text-left text-base transition-colors duration-150',
                         'rounded-[9px] hover:bg-hover',
-                        renderExpanded ? 'cursor-pointer' : 'cursor-default',
+                        renderExpanded || onRowClick ? 'cursor-pointer' : 'cursor-default',
                         isOpen && 'bg-hover',
                       )}
                       style={{ gridTemplateColumns: template }}

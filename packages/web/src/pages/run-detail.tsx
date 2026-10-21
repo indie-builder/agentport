@@ -7,7 +7,6 @@ import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import type { ApprovalRequest, RunStep } from '../lib/api.js';
-import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
   formatCost,
@@ -16,7 +15,7 @@ import {
   formatTokens,
   shortId,
 } from '../lib/format.js';
-import { useRun, useRunApprovals } from '../lib/queries.js';
+import { useApproveRun, useRerun, useRun, useRunApprovals } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 /**
@@ -79,48 +78,53 @@ function stepServerName(step: RunStep): string | null {
 }
 
 export function RunDetailPage() {
-  const params = useParams({ strict: false }) as { runId: string };
-  const search = useSearch({ strict: false }) as { step?: string };
+  const params = useParams({ from: '/shell/runs/$runId' });
+  const search = useSearch({ from: '/shell/runs/$runId' });
   const run = useRun(params.runId);
-  const approvals = useRunApprovals(params.runId);
   const navigate = useNavigate();
-  const [rerunning, setRerunning] = useState(false);
-  const [selected, setSelected] = useState<number | null>(
-    search.step === undefined ? null : Number(search.step),
-  );
+  // 运行结束后不再轮询审批。
+  const approvals = useRunApprovals(params.runId, run.data?.run.status === 'running');
+  const rerunMutation = useRerun();
+  const approveMutation = useApproveRun();
+  // 选中的步骤由 URL 决定：刷新、分享、前进后退都保留。
+  const selected = search.step ?? null;
 
-  const rerun = async (): Promise<void> => {
-    if (!run.data || rerunning) return;
+  const selectStep = (index: number): void => {
+    void navigate({
+      to: '/runs/$runId',
+      params: { runId: params.runId },
+      search: (prev) => ({ ...prev, step: index }),
+      replace: true,
+    });
+  };
+
+  const rerun = (): void => {
+    if (!run.data) return;
     const { run: detail, steps } = run.data;
     const prompt = steps.find((step) => step.kind === 'user')?.text;
     if (!prompt) {
       toastError(new Error('这次运行没有可重发的用户消息。'));
       return;
     }
-    setRerunning(true);
-    try {
-      const accepted = await api.sendChat({
-        agentId: detail.agentId,
-        conversationId: detail.conversationId,
-        message: prompt,
-      });
-      await navigate({ to: '/runs/$runId', params: { runId: accepted.runId } });
-    } catch (error) {
-      toastError(error);
-    } finally {
-      setRerunning(false);
-    }
+    rerunMutation.mutate(
+      { agentId: detail.agentId, conversationId: detail.conversationId, message: prompt },
+      {
+        onSuccess: (accepted) =>
+          void navigate({ to: '/runs/$runId', params: { runId: accepted.runId } }),
+        onError: (error) => toastError(error),
+      },
+    );
   };
 
   const approve = (item: ApprovalItem): void => {
     if (!run.data) return;
-    api
-      .approveRun(run.data.run.id, item.serverId, item.toolName)
-      .then(() => {
-        toastSuccess(`已批准 ${item.toolName}`);
-        void approvals.refetch();
-      })
-      .catch((error) => toastError(error));
+    approveMutation.mutate(
+      { runId: run.data.run.id, serverId: item.serverId, toolName: item.toolName },
+      {
+        onSuccess: () => toastSuccess(`已批准 ${item.toolName}`),
+        onError: (error) => toastError(error),
+      },
+    );
   };
 
   if (run.isPending) {
@@ -205,12 +209,12 @@ export function RunDetailPage() {
                 variant="outline"
                 size="sm"
                 className="rounded-full px-3"
-                disabled={rerunning || !hasPrompt}
-                aria-busy={rerunning}
+                disabled={rerunMutation.isPending || !hasPrompt}
+                aria-busy={rerunMutation.isPending}
                 onClick={() => void rerun()}
               >
                 <RotateCcw className="size-4" strokeWidth={1.75} />
-                {rerunning ? '提交中…' : '重跑'}
+                {rerunMutation.isPending ? '提交中…' : '重跑'}
               </Button>
             </>
           }
@@ -281,7 +285,7 @@ export function RunDetailPage() {
                   <li key={`${index}-${step.at}`}>
                     <button
                       type="button"
-                      onClick={() => setSelected(index)}
+                      onClick={() => selectStep(index)}
                       aria-current={isActive ? 'step' : undefined}
                       className={cn(
                         'group flex h-12 w-full items-center gap-2.5 rounded-item px-2 text-left transition-colors hover:bg-hover focus-visible:outline-none',

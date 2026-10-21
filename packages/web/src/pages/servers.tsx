@@ -19,7 +19,6 @@ import {
   Trash2,
   Wrench,
 } from 'lucide-react';
-import * as DropdownMenuPrimitive from 'radix-ui/dropdown-menu';
 import { type ComponentProps, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
@@ -28,6 +27,13 @@ import { Page, PageHeader, PageNote } from '../components/page.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
 import { FieldError, FieldHint, Input } from '../components/ui/input.js';
 import { Label, RequiredMark } from '../components/ui/label.js';
 import { Select } from '../components/ui/select.js';
@@ -83,9 +89,6 @@ const kindMeta: Record<Kind, { label: string; hint: string; newHint: string }> =
     newHint: '逐个声明上游 HTTP 端点，平台替你生成可调用的 MCP 工具。',
   },
 };
-
-const menuItemClass =
-  'flex cursor-pointer select-none items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-sm text-fg outline-none data-[disabled]:pointer-events-none data-[disabled]:text-subtle data-[highlighted]:bg-hover';
 
 /** 表单控件 36px / radius 9，跟随设计基准；表格行里的控件不受影响。 */
 function LineInput({ className, ...props }: ComponentProps<'input'>) {
@@ -410,48 +413,39 @@ function ServerRow({
         <span className="font-mono text-xs tabular-nums text-fg">{agentCount}</span>
       </TableCell>
       <TableCell>
-        <DropdownMenuPrimitive.Root>
-          <DropdownMenuPrimitive.Trigger asChild>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label={`操作 ${server.name}`}>
               <MoreHorizontal className="size-4" strokeWidth={1.75} />
             </Button>
-          </DropdownMenuPrimitive.Trigger>
-          <DropdownMenuPrimitive.Portal>
-            <DropdownMenuPrimitive.Content
-              align="end"
-              sideOffset={4}
-              className="z-50 min-w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
-            >
-              <DropdownMenuPrimitive.Item
-                disabled={testing}
-                onSelect={onTest}
-                className={menuItemClass}
-              >
-                <Plug className="size-4" strokeWidth={1.75} /> {testing ? '测试中…' : '测试连接'}
-              </DropdownMenuPrimitive.Item>
-              {generated ? (
-                <>
-                  <DropdownMenuPrimitive.Item onSelect={onTools} className={menuItemClass}>
-                    <Wrench className="size-4" strokeWidth={1.75} /> 工具定义
-                  </DropdownMenuPrimitive.Item>
-                  <DropdownMenuPrimitive.Item onSelect={onConnection} className={menuItemClass}>
-                    <KeyRound className="size-4" strokeWidth={1.75} /> 连接信息
-                  </DropdownMenuPrimitive.Item>
-                </>
-              ) : null}
-              <DropdownMenuPrimitive.Separator className="my-1 h-px bg-line" />
-              <DropdownMenuPrimitive.Item onSelect={onEdit} className={menuItemClass}>
-                <Pencil className="size-4" strokeWidth={1.75} /> 编辑
-              </DropdownMenuPrimitive.Item>
-              <DropdownMenuPrimitive.Item
-                onSelect={onDelete}
-                className={cn(menuItemClass, 'text-danger data-[highlighted]:bg-danger-soft')}
-              >
-                <Trash2 className="size-4" strokeWidth={1.75} /> 删除
-              </DropdownMenuPrimitive.Item>
-            </DropdownMenuPrimitive.Content>
-          </DropdownMenuPrimitive.Portal>
-        </DropdownMenuPrimitive.Root>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            sideOffset={4}
+            className="w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
+          >
+            <DropdownMenuItem disabled={testing} onSelect={onTest}>
+              <Plug className="size-4" strokeWidth={1.75} /> {testing ? '测试中…' : '测试连接'}
+            </DropdownMenuItem>
+            {generated ? (
+              <>
+                <DropdownMenuItem onSelect={onTools}>
+                  <Wrench className="size-4" strokeWidth={1.75} /> 工具定义
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onConnection}>
+                  <KeyRound className="size-4" strokeWidth={1.75} /> 连接信息
+                </DropdownMenuItem>
+              </>
+            ) : null}
+            <DropdownMenuSeparator className="bg-line" />
+            <DropdownMenuItem onSelect={onEdit}>
+              <Pencil className="size-4" strokeWidth={1.75} /> 编辑
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+              <Trash2 className="size-4" strokeWidth={1.75} /> 删除
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </TableCell>
     </TableRow>
   );
@@ -500,35 +494,26 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
   const agents = useAgents();
   const tools = useTools(server.kind === 'generated' ? server.id : null);
   const [typed, setTyped] = useState('');
-  const [pending, setPending] = useState(false);
 
   const bound = (agents.data ?? []).filter((agent) => agent.serverIds.includes(server.id));
-  const generated = server.kind === 'generated';
   const toolCount = tools.data?.length ?? 0;
-  const loading = agents.isPending || (generated && tools.isPending);
-  const unknown = agents.isError || (generated && tools.isError);
+  const loading = agents.isPending || (server.kind === 'generated' && tools.isPending);
+  const unknown = agents.isError || (server.kind === 'generated' && tools.isError);
   const risky = bound.length > 0 || toolCount > 0;
   const confirmed = !risky || typed.trim() === server.name;
 
-  const confirm = async (): Promise<void> => {
-    setPending(true);
-    try {
-      await remove.mutateAsync(server.id);
-      toastSuccess('Server 已删除');
-      onClose();
-    } catch (error) {
-      toastError(error);
-    } finally {
-      setPending(false);
-    }
-  };
-
   return (
-    <Dialog
+    <ConfirmDialog
       open
       onClose={onClose}
       title={`删除 server「${server.name}」`}
       description="删除后无法恢复；绑定它的智能体会立即失去这个工具来源。"
+      confirmLabel="删除"
+      confirmDisabled={loading || unknown || !confirmed}
+      onConfirm={async () => {
+        await remove.mutateAsync(server.id);
+        toastSuccess('Server 已删除');
+      }}
     >
       <div className="space-y-4">
         <div className="rounded-[9px] bg-danger-soft p-3">
@@ -589,23 +574,8 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
             </FieldHint>
           </div>
         ) : null}
-
-        <div className="flex justify-end gap-2 border-t border-line pt-3">
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
-            取消
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            aria-busy={pending}
-            disabled={pending || loading || unknown || !confirmed}
-            onClick={() => void confirm()}
-          >
-            {pending ? '删除中…' : '删除'}
-          </Button>
-        </div>
       </div>
-    </Dialog>
+    </ConfirmDialog>
   );
 }
 

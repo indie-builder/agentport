@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { ClipboardCheck, FlaskConical, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { CodeBlock } from '../components/code-block.js';
@@ -98,8 +98,17 @@ const runColumns: DataColumn<EvalRun>[] = [
 
 export function EvalPage() {
   const agents = useAgents();
-  const [agentId, setAgentId] = useState('');
+  const navigate = useNavigate();
+  // 选中的智能体放在 URL 里：刷新、分享、前进后退都保留。
+  const search = useSearch({ from: '/shell/eval' });
+  const agentId = search.agent ?? '';
   const effectiveAgentId = agentId || agents.data?.[0]?.id || null;
+  const setAgentId = (next: string): void => {
+    void navigate({
+      to: '/eval',
+      search: { agent: next || undefined },
+    });
+  };
 
   const cases = useEvalCases(effectiveAgentId);
   const runs = useEvalRuns(effectiveAgentId);

@@ -26,12 +26,12 @@ import {
   Plug,
   Plus,
   RotateCcw,
-  Search,
   Sparkles,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
-import * as DropdownMenuPrimitive from 'radix-ui/dropdown-menu';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   type ComponentProps,
   type ReactNode,
@@ -47,12 +47,31 @@ import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { Page, PageHeader } from '../components/page.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../components/ui/collapsible.js';
 import { Dialog } from '../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
 import { FieldError, FieldHint, Input } from '../components/ui/input.js';
 import { Label, RequiredMark } from '../components/ui/label.js';
 import { MultiSelect } from '../components/ui/multi-select.js';
 import { Select } from '../components/ui/select.js';
-import { Tabs } from '../components/ui/tabs.js';
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from '../components/ui/sheet.js';
+import { SearchInput, Tabs } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import type { AgentVersionSummary } from '../lib/api.js';
 import { ApiError, api } from '../lib/api.js';
@@ -247,20 +266,13 @@ export function AgentsPage() {
 
       <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
         <div className="min-w-0 py-3 pr-5 lg:border-r lg:border-line">
-          <div className="relative mb-2">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle"
-              strokeWidth={1.75}
-            />
-            <LineInput
-              type="search"
-              aria-label="搜索智能体"
-              placeholder="搜索名称或 slug…"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-9 rounded-[9px] pl-9"
-            />
-          </div>
+          <SearchInput
+            label="搜索智能体"
+            placeholder="搜索名称或 slug…"
+            value={query}
+            onChange={setQuery}
+            className="mb-2"
+          />
 
           {agents.isPending ? <LoadingState rows={4} /> : null}
           {agents.isError ? (
@@ -717,36 +729,27 @@ function AgentEditor({
           >
             <History className="size-4" strokeWidth={1.75} />
           </Button>
-          <DropdownMenuPrimitive.Root>
-            <DropdownMenuPrimitive.Trigger asChild>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-sm" aria-label="更多操作">
                 <Ellipsis className="size-4" strokeWidth={1.75} />
               </Button>
-            </DropdownMenuPrimitive.Trigger>
-            <DropdownMenuPrimitive.Portal>
-              <DropdownMenuPrimitive.Content
-                align="end"
-                sideOffset={4}
-                className="z-50 min-w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
-              >
-                <DropdownMenuPrimitive.Item
-                  disabled={exporting}
-                  onSelect={() => void download()}
-                  className={menuItemClass}
-                >
-                  <Download className="size-4" strokeWidth={1.75} />{' '}
-                  {exporting ? '导出中…' : '导出 JSON'}
-                </DropdownMenuPrimitive.Item>
-                <DropdownMenuPrimitive.Separator className="my-1 h-px bg-line" />
-                <DropdownMenuPrimitive.Item
-                  onSelect={onDelete}
-                  className={cn(menuItemClass, 'text-danger data-[highlighted]:bg-danger-soft')}
-                >
-                  <Trash2 className="size-4" strokeWidth={1.75} /> 删除智能体
-                </DropdownMenuPrimitive.Item>
-              </DropdownMenuPrimitive.Content>
-            </DropdownMenuPrimitive.Portal>
-          </DropdownMenuPrimitive.Root>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={4}
+              className="w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
+            >
+              <DropdownMenuItem disabled={exporting} onSelect={() => void download()}>
+                <Download className="size-4" strokeWidth={1.75} />{' '}
+                {exporting ? '导出中…' : '导出 JSON'}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-line" />
+              <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+                <Trash2 className="size-4" strokeWidth={1.75} /> 删除智能体
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -1264,34 +1267,48 @@ function AgentEditor({
         <FilesPreview agentId={agent.id} dirty={dirty} />
       )}
 
-      <Dialog
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        title="版本历史"
-        description="每次保存生成一份快照。回滚会覆盖当前配置并生成新版本。"
-        className="left-auto right-0 top-0 w-full max-w-[480px] translate-x-0 rounded-none border-y-0 border-r-0"
-      >
-        <VersionHistory
-          agentId={agent.id}
-          current={agent}
-          active={historyOpen}
-          onRolledBack={(next) => {
-            setForm(toInput(next));
-            setAllowedText(next.allowedTools.join('\n'));
-            setThinkingText(
-              next.maxThinkingTokens === undefined ? '' : String(next.maxThinkingTokens),
-            );
-            setErrors({});
-            setHistoryOpen(false);
-          }}
-        />
-      </Dialog>
+      <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+        <SheetContent
+          side="right"
+          showCloseButton={false}
+          aria-describedby={undefined}
+          className="w-full max-w-[480px] gap-0 border-l border-line bg-surface p-0 shadow-overlay sm:max-w-[480px]"
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-3.5">
+            <div className="min-w-0">
+              <SheetTitle className="text-md font-semibold text-fg">版本历史</SheetTitle>
+              <SheetDescription className="mt-1 text-xs leading-relaxed text-muted">
+                每次保存生成一份快照。回滚会覆盖当前配置并生成新版本。
+              </SheetDescription>
+            </div>
+            <SheetClose
+              aria-label="关闭"
+              className="-mr-1 rounded-[7px] p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+            >
+              <X className="size-4" strokeWidth={1.75} />
+            </SheetClose>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <VersionHistory
+              agentId={agent.id}
+              current={agent}
+              active={historyOpen}
+              onRolledBack={(next) => {
+                setForm(toInput(next));
+                setAllowedText(next.allowedTools.join('\n'));
+                setThinkingText(
+                  next.maxThinkingTokens === undefined ? '' : String(next.maxThinkingTokens),
+                );
+                setErrors({});
+                setHistoryOpen(false);
+              }}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
-
-const menuItemClass =
-  'flex cursor-pointer select-none items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-sm text-fg outline-none data-[highlighted]:bg-hover';
 
 function Section({
   id,
@@ -1348,21 +1365,43 @@ function Section({
 
 /** 草稿预览：折叠在表单里，内容随表单实时变化。 */
 function DraftPreview({ title, code }: { title: string; code: string }) {
+  const [open, setOpen] = useState(false);
+  const reduce = useReducedMotion();
+
   return (
-    <details className="group rounded-[9px] border border-line">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2.5 text-xs text-muted transition-colors hover:text-fg">
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-[9px] border border-line">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-[9px] px-3 py-2.5 text-xs text-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
         <ChevronRight
-          className="size-3.5 shrink-0 text-subtle transition-transform group-open:rotate-90"
+          className={cn(
+            'size-3.5 shrink-0 text-subtle transition-transform duration-150',
+            open && 'rotate-90',
+          )}
           strokeWidth={1.75}
           aria-hidden="true"
         />
         {title}
         <span className="ml-auto font-mono text-2xs text-subtle">草稿 · 实时</span>
-      </summary>
-      <div className="border-t border-line p-2">
-        <CodeBlock code={code} maxHeight="22rem" />
-      </div>
-    </details>
+      </CollapsibleTrigger>
+      {/* 高度动画由 motion 管，Radix 负责 open 状态和 trigger/content 的 aria 关联。 */}
+      <CollapsibleContent forceMount>
+        <AnimatePresence initial={false}>
+          {open ? (
+            <motion.div
+              key="body"
+              initial={{ height: 0 }}
+              animate={{ height: 'auto' }}
+              exit={{ height: 0 }}
+              transition={reduce ? { duration: 0 } : { duration: 0.15, ease: 'easeOut' }}
+              className="overflow-hidden"
+            >
+              <div className="border-t border-line p-2">
+                <CodeBlock code={code} maxHeight="22rem" />
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

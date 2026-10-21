@@ -423,7 +423,7 @@ export function OverviewPage() {
             <div className="flex flex-wrap gap-2">
               <Link
                 to="/servers"
-                className="flex items-center gap-2 rounded-[9px] border border-line px-2.5 py-1.5 text-xs text-fg transition-colors hover:bg-hover"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-2')}
               >
                 <Server aria-hidden="true" className="size-3.5 text-subtle" />
                 MCP Servers
@@ -431,7 +431,7 @@ export function OverviewPage() {
               </Link>
               <Link
                 to="/agents"
-                className="flex items-center gap-2 rounded-[9px] border border-line px-2.5 py-1.5 text-xs text-fg transition-colors hover:bg-hover"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-2')}
               >
                 <Bot aria-hidden="true" className="size-3.5 text-subtle" />
                 智能体
@@ -439,7 +439,7 @@ export function OverviewPage() {
               </Link>
               <Link
                 to="/runs"
-                className="flex items-center gap-2 rounded-[9px] border border-line px-2.5 py-1.5 text-xs text-fg transition-colors hover:bg-hover"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-2')}
               >
                 <Activity aria-hidden="true" className="size-3.5 text-subtle" />
                 运行
