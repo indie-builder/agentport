@@ -148,19 +148,23 @@ function toError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** 子进程错误里只有这些是基础设施问题；其余算沙盒自身失败。 */
-const INFRA_RE =
-  /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|Cannot connect to the Docker daemon|no such image|pull access denied/i;
-
-function reasonFor(error: string): RunFailure['reason'] {
-  return INFRA_RE.test(error) ? 'infra' : 'sandbox';
-}
-
 interface ExitSignal {
   kind: 'closed' | 'error';
   code: number | null;
   signal: NodeJS.Signals | null;
   error?: string;
+}
+
+/**
+ * 按退出信号分类，不匹配错误文本：
+ * - spawn 'error'（docker 进程都没起来）= 基础设施问题
+ * - docker run 自身的失败码 125（daemon 不可达、镜像拉取失败）= 基础设施问题
+ * - 其余非零退出（OOM、容器内命令崩溃）= 沙盒失败
+ * shortcut: 容器进程自己以 125 退出会与 docker 失败混淆，等 runner 上报带分类的退出码时再区分。
+ */
+function reasonFor(signal: ExitSignal): RunFailure['reason'] {
+  if (signal.kind === 'error') return 'infra';
+  return signal.code === 125 ? 'infra' : 'sandbox';
 }
 
 /**
@@ -422,7 +426,7 @@ function runInSandboxEffect(
         status: 'failed',
         sandboxId: sandbox.id,
         error,
-        failure: new RunFailure(reasonFor(error), error),
+        failure: new RunFailure(reasonFor(stopped.signal), error),
         events,
       };
     }
@@ -438,7 +442,7 @@ function runInSandboxEffect(
         status: 'failed',
         sandboxId: sandbox.id,
         error,
-        failure: new RunFailure(reasonFor(error), error),
+        failure: new RunFailure(reasonFor(stopped.signal), error),
         events,
       };
     }

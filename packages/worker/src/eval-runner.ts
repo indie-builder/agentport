@@ -1,6 +1,6 @@
 import { DbError, runProgram } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
-import { type AgentRunJob, judge, runEnqueueOptions } from '@agentport/shared';
+import { type AgentRunJob, judge, RUNS_QUEUE, runEnqueueOptions } from '@agentport/shared';
 import { Queue, QueueEvents } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { Cause, Effect, Result } from 'effect';
@@ -13,13 +13,13 @@ let runQueue: Queue<AgentRunJob> | undefined;
 let runQueueEvents: QueueEvents | undefined;
 
 function getRunQueue(redisUrl: string): Queue<AgentRunJob> {
-  if (!runQueue) runQueue = new Queue<AgentRunJob>('agent-runs', { connection: { url: redisUrl } });
+  if (!runQueue) runQueue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection: { url: redisUrl } });
   return runQueue;
 }
 
 function getRunQueueEvents(redisUrl: string): QueueEvents {
   if (!runQueueEvents) {
-    runQueueEvents = new QueueEvents('agent-runs', { connection: { url: redisUrl } });
+    runQueueEvents = new QueueEvents(RUNS_QUEUE, { connection: { url: redisUrl } });
     runQueueEvents.on('error', (error) => {
       process.stderr.write(`[eval-queue] redis error: ${error.message}\n`);
     });

@@ -63,3 +63,19 @@
 
 **验证**：7 包 typecheck、biome 126 文件、139 测试全过（停 worker 后跑完整集成）。
 **遗留**：`mayEnableTool` 需从 core 导出（sandbox 未声明 core 依赖）；`slugSchema` 需从 shared 导出；队列工厂仍需下沉。
+
+### 第 2 轮 — 2026-10-21
+
+**范围**：错误处理与日志 / 测试与跨包重复 / 前端无障碍与动效（三条隔离子代理）。
+**发现**：12 项真违规 + 12 项次要 + 8 个测试缺口。
+**修复**：四条并行线。
+
+关键结论：
+- **第 1 轮的漏修**：只有 worker 换到了 shared 流常量，API 的 producer 仍保留自己的副本。本轮补齐，并加了契约测试（mock 值证明 producer 真的在消费 shared，而非复制）。
+- **真实功能缺陷**：`overview` 的智能体名链接嵌在 `disabled` 按钮里，用户点不动。根因在 data-table：无交互的行不该渲染成 button。
+- **无障碍**：8 处 `focus-visible:outline-none` 没有焦点环兜底，键盘用户完全看不到焦点。已删，回落到全局黑环；浏览器实测全站 Tab 遍历无遗漏。
+- **幂等回归**（本会话发现并修）：audit 写入改成 `newId('audit')` 后，基础设施重试会为同一次运行写多行。给 `writeAudit` 加 `dedupeKey`，worker 传 `aud_<runId>` 且 `onConflictDoNothing`。
+- 测试从 139 增至 162，新增 producer 契约、限流开关、TypeID 解析、pg 23503 分支、toAppError 映射。
+
+**验证**：7 包 typecheck、biome 154 文件、162 测试全过；浏览器实测焦点环与链接可点。
+**遗留**：`Tabs` 不再是 Radix（改成分段按钮，失去了方向键导航）；如需方向键语义要换成带真实面板的 tablist。

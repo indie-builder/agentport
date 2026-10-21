@@ -103,7 +103,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
         <Button
           variant="ghost"
           aria-label="展开侧栏"
-          aria-pressed
+          aria-expanded={!collapsed}
           onClick={onToggle}
           className="absolute left-0 top-0 size-8 rounded-icon p-0 text-fg opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
         >
@@ -118,14 +118,14 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
       <Link
         to="/"
         aria-label="PACE 首页"
-        className="flex h-8 min-w-0 flex-1 items-center rounded-icon focus-visible:outline-none"
+        className="flex h-8 min-w-0 flex-1 items-center rounded-icon"
       >
         <Brand />
       </Link>
       <Button
         variant="ghost"
         aria-label="收起侧栏"
-        aria-pressed={false}
+        aria-expanded={!collapsed}
         onClick={onToggle}
         className="size-8 rounded-icon p-0 hover:bg-hover"
       >
@@ -157,7 +157,7 @@ function SidebarLink({
       onClick={onNavigate}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'flex h-8 items-center gap-2.5 text-sm transition-colors duration-150 focus-visible:outline-none',
+        'flex h-8 items-center gap-2.5 text-sm transition-colors duration-150',
         collapsed ? 'w-8 justify-center' : 'rounded-item px-2.5',
         collapsed
           ? ''

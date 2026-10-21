@@ -37,10 +37,11 @@ describe.skipIf(!ready)('import agents', () => {
   });
 
   afterAll(async () => {
-    await cleanup(app, { agentSlugs: createdAgents, serverNames: createdServers });
-    if (createdSkills.length > 0) {
-      await app.pool.query('delete from skills where slug = any($1::text[])', [createdSkills]);
-    }
+    await cleanup(app, {
+      agentSlugs: createdAgents,
+      serverNames: createdServers,
+      skillSlugs: createdSkills,
+    });
     await app.close();
   });
 

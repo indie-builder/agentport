@@ -1,5 +1,5 @@
 import { DbError } from '@agentport/core';
-import { type createDb, newId, repo, schema } from '@agentport/db';
+import { type createDb, repo, schema } from '@agentport/db';
 import { and, eq, lt } from 'drizzle-orm';
 import { Effect, Schedule } from 'effect';
 import type { Logger } from 'pino';
@@ -77,19 +77,14 @@ export async function reconcileOrphanedRuns(
     ),
   );
   if (rows.length > 0) {
-    await Effect.runPromise(
-      withDb(() =>
-        db.insert(schema.auditLog).values(
-          rows.map((row) => ({
-            id: newId('audit'),
-            actor: 'worker',
-            action: 'agent.run.reconciled',
-            target: row.id,
-            status: 'error',
-          })),
-        ),
-      ),
-    );
+    for (const row of rows) {
+      await repo.audit.writeAudit(db, logger, {
+        actor: 'worker',
+        action: 'agent.run.reconciled',
+        target: row.id,
+        status: 'error',
+      });
+    }
     logger.warn({ runs: rows.map((row) => row.id) }, 'reconciled orphaned running runs');
   }
   return rows.length;

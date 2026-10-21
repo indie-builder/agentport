@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AUTH_COOKIE } from '../src/features/auth/types.js';
-import { infraReady, inject, startApp, testConfig } from './helpers.js';
+import { expectProblem, infraReady, inject, startApp, testConfig } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -22,8 +22,7 @@ describe.skipIf(!ready)('auth', () => {
 
   it('rejects protected routes without a cookie', async () => {
     const res = await inject(app, { method: 'GET', url: '/api/servers' });
-    expect(res.statusCode).toBe(401);
-    expect(res.json()).toMatchObject({ code: 'UNAUTHORIZED' });
+    expectProblem(res, 'UNAUTHORIZED');
   });
 
   it('rejects a wrong password', async () => {
@@ -45,9 +44,7 @@ describe.skipIf(!ready)('auth', () => {
       { username: null, password: 'x' },
     ]) {
       const res = await inject(app, { method: 'POST', url: '/api/auth/login', payload });
-      expect(res.statusCode).toBe(400);
-      const body = res.json<{ code: string; message: string; path?: string }>();
-      expect(body.code).toBe('INVALID_INPUT');
+      const body = expectProblem(res, 'INVALID_INPUT');
       expect(body.path).toMatch(/^\/(username|password)$/);
       expect(body.message).toMatch(/用户名|密码/);
     }
@@ -55,8 +52,7 @@ describe.skipIf(!ready)('auth', () => {
 
   it('rejects an over-long username instead of truncating it', async () => {
     const res = await login('x'.repeat(129), config.ADMIN_PASSWORD);
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({ code: 'INVALID_INPUT', path: '/username' });
+    expect(expectProblem(res, 'INVALID_INPUT').path).toBe('/username');
   });
 
   it('logs in with the right credentials and sets an httpOnly cookie', async () => {

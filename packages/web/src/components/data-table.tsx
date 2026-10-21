@@ -299,28 +299,17 @@ export function DataTable<T>({
     );
   };
 
-  // 行是按钮承载的 grid：方向键上下移动、Enter/Space 展开。
-  const onRowKeyDown = (
-    event: ReactKeyboardEvent<HTMLButtonElement>,
-    row: T,
-    isOpen: boolean,
-  ): void => {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      const buttons = Array.from(
-        event.currentTarget.parentElement?.parentElement?.querySelectorAll<HTMLButtonElement>(
-          'button[data-row]',
-        ) ?? [],
-      );
-      const index = buttons.indexOf(event.currentTarget);
-      buttons[event.key === 'ArrowDown' ? index + 1 : index - 1]?.focus();
-      return;
-    }
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      if (renderExpanded) setExpanded(isOpen ? null : rowKey(row));
-      onRowClick?.(row);
-    }
+  // 行用方向键上下移动；Enter/Space 由原生 button 激活，不重复处理。
+  const onRowKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const buttons = Array.from(
+      event.currentTarget.parentElement?.parentElement?.querySelectorAll<HTMLButtonElement>(
+        'button[data-row]',
+      ) ?? [],
+    );
+    const index = buttons.indexOf(event.currentTarget);
+    buttons[event.key === 'ArrowDown' ? index + 1 : index - 1]?.focus();
   };
 
   return (
@@ -377,20 +366,7 @@ export function DataTable<T>({
             style={{ gridTemplateColumns: template }}
           >
             {visible.map((col) => (
-              <div
-                key={col.id}
-                tabIndex={-1}
-                role="columnheader"
-                aria-sort={
-                  col.sortValue
-                    ? sort?.id === col.id
-                      ? sort.dir === 'asc'
-                        ? 'ascending'
-                        : 'descending'
-                      : 'none'
-                    : undefined
-                }
-              >
+              <div key={col.id}>
                 <button
                   type="button"
                   onClick={() => toggleSort(col)}
@@ -440,42 +416,56 @@ export function DataTable<T>({
                 const key = rowKey(row);
                 const expandedContent = renderExpanded?.(row) ?? null;
                 const isOpen = expanded === key && expandedContent !== null;
+                const interactive = Boolean(renderExpanded || onRowClick);
+                const panelId = `row-panel-${key}`;
+                // 非交互行渲染成 div：button 的子元素在 disabled 时不可聚焦、也不可点击，
+                // 会连带废掉单元格里的链接，并且是无效的嵌套 HTML。
+                const cells = visible.map((col) => (
+                  <div
+                    key={col.id}
+                    className={cn(
+                      'truncate py-2',
+                      col.numeric && 'text-right font-mono tabular-nums text-muted',
+                    )}
+                  >
+                    {col.cell
+                      ? col.cell(row)
+                      : String((row as Record<string, unknown>)[col.id] ?? '')}
+                  </div>
+                ));
+                const rowClass = cn(
+                  'grid min-h-14 w-full items-center gap-3 px-3 text-left text-base transition-colors duration-150',
+                  'rounded-[9px] hover:bg-hover',
+                  interactive ? 'cursor-pointer' : 'cursor-default',
+                  isOpen && 'bg-hover',
+                );
                 return (
                   <div key={key} className="group border-b border-line last:border-b-0">
-                    <button
-                      type="button"
-                      data-row=""
-                      disabled={!renderExpanded && !onRowClick}
-                      aria-expanded={renderExpanded ? isOpen : undefined}
-                      onKeyDown={(event) => onRowKeyDown(event, row, isOpen)}
-                      onClick={() => {
-                        if (renderExpanded) setExpanded(isOpen ? null : key);
-                        onRowClick?.(row);
-                      }}
-                      className={cn(
-                        'grid min-h-14 w-full items-center gap-3 px-3 text-left text-base transition-colors duration-150',
-                        'rounded-[9px] hover:bg-hover',
-                        renderExpanded || onRowClick ? 'cursor-pointer' : 'cursor-default',
-                        isOpen && 'bg-hover',
-                      )}
-                      style={{ gridTemplateColumns: template }}
-                    >
-                      {visible.map((col) => (
-                        <div
-                          key={col.id}
-                          className={cn(
-                            'truncate py-2',
-                            col.numeric && 'text-right font-mono tabular-nums text-muted',
-                          )}
-                        >
-                          {col.cell
-                            ? col.cell(row)
-                            : String((row as Record<string, unknown>)[col.id] ?? '')}
-                        </div>
-                      ))}
-                    </button>
+                    {interactive ? (
+                      <button
+                        type="button"
+                        data-row=""
+                        aria-expanded={expandedContent !== null ? isOpen : undefined}
+                        aria-controls={expandedContent !== null ? panelId : undefined}
+                        onKeyDown={onRowKeyDown}
+                        onClick={() => {
+                          if (renderExpanded) setExpanded(isOpen ? null : key);
+                          onRowClick?.(row);
+                        }}
+                        className={rowClass}
+                        style={{ gridTemplateColumns: template }}
+                      >
+                        {cells}
+                      </button>
+                    ) : (
+                      <div className={rowClass} style={{ gridTemplateColumns: template }}>
+                        {cells}
+                      </div>
+                    )}
                     {isOpen && (
-                      <div className="border-t border-line px-3 py-4">{expandedContent}</div>
+                      <div id={panelId} className="border-t border-line px-3 py-4">
+                        {expandedContent}
+                      </div>
                     )}
                   </div>
                 );

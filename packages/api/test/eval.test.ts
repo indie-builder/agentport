@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getEvalQueue } from '../src/queue/producer.js';
 import {
   cleanup,
+  createAgent,
   infraReady,
   inject,
   loginCookie,
@@ -47,21 +48,16 @@ describe.skipIf(!ready)('eval routes', () => {
     await app.close();
   });
 
-  const createAgent = async (): Promise<Agent> => {
-    const slug = unique('eval-agent');
-    createdAgents.push(slug);
-    const res = await inject(app, {
-      method: 'POST',
-      url: '/api/agents',
-      headers: { cookie },
-      payload: { slug, name: `Eval ${slug}`, systemPrompt: 'be brief' },
-    });
-    expect(res.statusCode).toBe(201);
-    return res.json<Agent>();
-  };
+  const newAgent = async (): Promise<Agent> =>
+    (
+      await createAgent(app, cookie, {
+        slug: unique('eval-agent'),
+        track: createdAgents,
+      })
+    ).json<Agent>();
 
   it('POST /api/eval/runs returns 202 and enqueues the job', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const created = await inject(app, {
       method: 'POST',
       url: '/api/eval/cases',

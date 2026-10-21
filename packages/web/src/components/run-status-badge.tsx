@@ -6,7 +6,7 @@ export function RunStatusBadge({ status }: { status: RunStatus }) {
   return (
     <Badge variant={runStatusVariant[status]}>
       {status === 'running' ? (
-        <span className="size-1.5 animate-pulse rounded-full bg-warning" aria-hidden="true" />
+        <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
       ) : null}
       {runStatusLabel[status]}
     </Badge>

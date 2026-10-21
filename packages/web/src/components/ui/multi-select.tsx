@@ -1,6 +1,6 @@
 import { Check, ChevronDown, Search } from 'lucide-react';
 import * as PopoverPrimitive from 'radix-ui/popover';
-import { type KeyboardEvent, useRef, useState } from 'react';
+import { type KeyboardEvent, useId, useRef, useState } from 'react';
 import { cn } from '../../lib/cn.js';
 import { Badge } from './badge.js';
 import { Input } from './input.js';
@@ -35,6 +35,7 @@ export function MultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const labelId = useId();
   const searchRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -71,8 +72,11 @@ export function MultiSelect({
         if (!next) setQuery('');
       }}
     >
+      <span id={labelId} className="sr-only">
+        {label}，{selected.length > 0 ? `已选 ${selected.length} 个` : '未选择'}
+      </span>
       <PopoverPrimitive.Trigger
-        aria-label={label}
+        aria-labelledby={labelId}
         className={cn(
           'flex min-h-8 w-full items-center gap-1.5 rounded-[7px] border border-line bg-surface px-2 py-1 text-left text-sm transition-colors hover:border-line-strong focus-visible:border-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/30',
         )}
@@ -129,11 +133,7 @@ export function MultiSelect({
             />
           </div>
           {/* 列表用 div 承载键盘导航：内部是可聚焦的 label/input，事件冒泡到这里。 */}
-          <fieldset
-            className="max-h-60 overflow-y-auto p-1"
-            onKeyDown={onListKeyDown}
-            aria-label={`${label}选项`}
-          >
+          <fieldset className="max-h-60 overflow-y-auto p-1" onKeyDown={onListKeyDown}>
             {filtered.length === 0 ? (
               <p className="px-2 py-4 text-center text-xs text-subtle">{emptyText}</p>
             ) : (

@@ -55,7 +55,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     cell: (run) => (
       <Badge variant={evalStatusVariant[run.status]} className="rounded-[6px]">
         {run.status === 'running' ? (
-          <span className="size-1.5 animate-pulse rounded-full bg-warning" aria-hidden="true" />
+          <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
         ) : null}
         {evalStatusLabel[run.status]}
       </Badge>

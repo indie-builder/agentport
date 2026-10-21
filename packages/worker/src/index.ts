@@ -7,7 +7,6 @@ import {
   hashMcpToken,
   installProcessGuards,
   renderWorkspace,
-  toMcpJsonEntry,
   toWorkspaceInput,
   WORKSPACE_DIR_MODE,
   WORKSPACE_FILE_MODE,
@@ -18,6 +17,8 @@ import {
   type ChatEvent,
   EVAL_RUNS_QUEUE,
   evalRunJobSchema,
+  previewMcpEntry,
+  RUNS_QUEUE,
   serverInputSchema,
   wireFailureKind,
 } from '@agentport/shared';
@@ -96,11 +97,14 @@ function toEntry(
     description: server.description,
     kind: server.kind,
   });
-  const entry = toMcpJsonEntry(
-    input,
-    input.kind === 'generated'
-      ? { Authorization: `Bearer ${runToken}`, 'x-agentport-run-id': runId }
-      : secrets,
+  const entry = previewMcpEntry(
+    { kind: input.kind, config: input },
+    {
+      ...(input.kind === 'stdio' ? input.env : input.headers),
+      ...(input.kind === 'generated'
+        ? { Authorization: `Bearer ${runToken}`, 'x-agentport-run-id': runId }
+        : secrets),
+    },
   );
   return input.kind === 'generated' && 'url' in entry
     ? { ...entry, url: `${apiUrl}/mcp/${server.id}` }
@@ -257,7 +261,7 @@ if (modelProxy) {
 }
 
 const worker = new Worker(
-  'agent-runs',
+  RUNS_QUEUE,
   async (job) => {
     const parsed = agentRunJobSchema.safeParse(job.data);
     if (!parsed.success) {
@@ -423,19 +427,15 @@ const worker = new Worker(
       logger,
     );
     // 运行结果进审计表：日志会滚动，审计长期保留。
-    await db
-      .insert(schema.auditLog)
-      .values({
-        id: `aud_${runId.slice(4)}`,
-        actor: 'worker',
-        action: 'agent.run.finished',
-        target: runId,
-        status: outcome.status === 'succeeded' ? 'ok' : 'error',
-        durationMs: runLatencyMs,
-        inputDigest: null,
-        requestId: null,
-      })
-      .onConflictDoNothing();
+    // 幂等：基础设施重试会重跑同一次运行，不能为一次运行写多条审计。
+    await repo.audit.writeAudit(db, logger, {
+      actor: 'worker',
+      action: 'agent.run.finished',
+      target: runId,
+      status: outcome.status === 'succeeded' ? 'ok' : 'error',
+      dedupeKey: `aud_${runId.slice(4)}`,
+      ...(runLatencyMs === null ? {} : { durationMs: runLatencyMs }),
+    });
 
     logger.info(
       { runId, status: outcome.status, costUsd: outcome.costUsd, latencyMs: runLatencyMs },

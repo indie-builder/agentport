@@ -1,3 +1,4 @@
+import { fail } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -20,8 +21,8 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
         .where(eq(schema.agents.slug, slug))
         .limit(1);
       const agent = rows[0];
-      if (!agent) throw new Error(`agent ${slug} not found`);
-      if (!agent.enabled) throw new Error(`agent ${slug} is disabled`);
+      if (!agent) fail('AGENT_NOT_FOUND', `agent ${slug} not found`);
+      if (!agent.enabled) fail('AGENT_DISABLED', `agent ${slug} is disabled`);
 
       const conversation = await repo.chat.createConversation(app.db, {
         id: newId('conversation'),
@@ -58,7 +59,7 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
       while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, POLL_MS));
         const current = await repo.chat.getRun(app.db, run.id);
-        if (!current) throw new Error('run disappeared');
+        if (!current) fail('RUN_NOT_FOUND', 'run disappeared');
         status = current.status;
         if (
           status === 'succeeded' ||
@@ -67,7 +68,8 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
           status === 'timeout'
         ) {
           if (status !== 'succeeded') {
-            throw new Error(
+            fail(
+              'UPSTREAM_FAILED',
               `agent run ${run.id} ended with ${status}${current.error ? `: ${current.error}` : ''}`,
             );
           }
@@ -75,7 +77,7 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
         }
       }
       if (status === 'queued' || status === 'running') {
-        throw new Error(`agent run ${run.id} timed out`);
+        fail('UPSTREAM_FAILED', `agent run ${run.id} timed out`);
       }
 
       const messages = await repo.chat.listMessages(app.db, conversation.id);

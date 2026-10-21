@@ -1,10 +1,13 @@
+import { commonEnvSchema, parseEnv } from '@agentport/shared';
 import { z } from 'zod';
 
+const { NODE_ENV, LOG_LEVEL, REDIS_URL } = commonEnvSchema.shape;
+
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  NODE_ENV,
+  LOG_LEVEL,
   DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
+  REDIS_URL,
   /** 与宿主机同一路径：worker 把该目录挂进沙盒，路径必须对宿主 daemon 有效。 */
   WORKSPACES_DIR: z.string().min(1).default('./data/workspaces'),
   /**
@@ -47,10 +50,5 @@ const envSchema = z.object({
 export type Config = z.infer<typeof envSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const parsed = envSchema.safeParse(env);
-  if (!parsed.success) {
-    const detail = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('\n');
-    throw new Error(`Invalid environment:\n${detail}`);
-  }
-  return parsed.data;
+  return parseEnv(envSchema, env);
 }

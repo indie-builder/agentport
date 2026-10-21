@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildMessageRows } from '../../worker/src/messages.js';
 import {
   cleanup,
+  createAgent,
+  expectProblem,
   infraReady,
   inject,
   loginCookie,
@@ -35,21 +37,16 @@ describe.skipIf(!ready)('chat', () => {
 
   const auth = () => ({ cookie });
 
-  const createAgent = async (): Promise<Agent> => {
-    const slug = unique('chat-agent');
-    createdAgents.push(slug);
-    const res = await inject(app, {
-      method: 'POST',
-      url: '/api/agents',
-      headers: auth(),
-      payload: { slug, name: `Chat ${slug}`, systemPrompt: 'be brief' },
-    });
-    expect(res.statusCode).toBe(201);
-    return res.json<Agent>();
-  };
+  const newAgent = async (): Promise<Agent> =>
+    (
+      await createAgent(app, cookie, {
+        slug: unique('chat-agent'),
+        track: createdAgents,
+      })
+    ).json<Agent>();
 
   it('POST /api/chat creates a run and returns 202', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const res = await inject(app, {
       method: 'POST',
       url: '/api/chat',
@@ -73,7 +70,7 @@ describe.skipIf(!ready)('chat', () => {
   });
 
   it('persists parentToolUseId on messages produced inside a sub-agent', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const created = await inject(app, {
       method: 'POST',
       url: '/api/chat',
@@ -133,8 +130,7 @@ describe.skipIf(!ready)('chat', () => {
       headers: auth(),
       payload: { agentId: 'agt_missing', message: 'hi' },
     });
-    expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ code: 'AGENT_NOT_FOUND' });
+    expectProblem(res, 'AGENT_NOT_FOUND');
   });
 
   it('GET /api/chat/:runId/events returns 404 for an unknown run', async () => {
@@ -143,12 +139,11 @@ describe.skipIf(!ready)('chat', () => {
       url: '/api/chat/run_missing/events',
       headers: auth(),
     });
-    expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ code: 'RUN_NOT_FOUND' });
+    expectProblem(res, 'RUN_NOT_FOUND');
   });
 
   it('passes prior messages as history on the next run', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const first = await inject(app, {
       method: 'POST',
       url: '/api/chat',
@@ -184,7 +179,7 @@ describe.skipIf(!ready)('chat', () => {
   });
 
   it('branches a conversation up to the given message', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const created = await inject(app, {
       method: 'POST',
       url: '/api/chat',
@@ -232,7 +227,7 @@ describe.skipIf(!ready)('chat', () => {
   });
 
   it('inherits approvals from the previous run in the same conversation', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const first = await inject(app, {
       method: 'POST',
       url: '/api/chat',
@@ -287,7 +282,7 @@ describe.skipIf(!ready)('chat', () => {
   });
 
   it('POST /api/conversations/:id/branch rejects an unknown branch point', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const created = await inject(app, {
       method: 'POST',
       url: '/api/chat',
@@ -307,7 +302,7 @@ describe.skipIf(!ready)('chat', () => {
   });
 
   it('cancel is idempotent for an already terminal run', async () => {
-    const agent = await createAgent();
+    const agent = await newAgent();
     const created = await inject(app, {
       method: 'POST',
       url: '/api/chat',

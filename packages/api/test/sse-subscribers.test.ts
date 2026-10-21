@@ -1,8 +1,9 @@
 import { setTimeout as delay } from 'node:timers/promises';
+import { runChannel } from '@agentport/shared';
 import { Redis } from 'ioredis';
 import { afterAll, describe, expect, it } from 'vitest';
 import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
-import { infraReady, testConfig, unique } from './helpers.js';
+import { infraReady, subscriberCount, testConfig, unique, waitFor } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -11,15 +12,6 @@ describe.skipIf(!ready)('run subscribers', () => {
   afterAll(async () => {
     await closeProducer();
   });
-
-  const waitFor = async (check: () => boolean, timeoutMs = 3_000): Promise<boolean> => {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (check()) return true;
-      await delay(20);
-    }
-    return false;
-  };
 
   it('keeps pushing to the remaining subscriber after the other closes', async () => {
     const runId = unique('sse-run');
@@ -59,7 +51,7 @@ describe.skipIf(!ready)('run subscribers', () => {
 
   it('does not unsubscribe a live subscriber when a stale one closes', async () => {
     const runId = unique('sse-run');
-    const channel = `run:${runId}:events:wake`;
+    const channel = runChannel(runId);
     const types: string[] = [];
     const probe = new Redis(testConfig().REDIS_URL);
 
@@ -71,16 +63,13 @@ describe.skipIf(!ready)('run subscribers', () => {
 
       stale.close();
       await delay(100);
-      const subscribers = Number((await probe.pubsub('NUMSUB', channel))[1] ?? 0);
-      expect(subscribers).toBe(1);
+      expect(await subscriberCount(probe, channel)).toBe(1);
 
       await publishRun(runId, { type: 'text_delta', text: 'still here' });
       expect(await waitFor(() => types.length > 0)).toBe(true);
 
       live.close();
-      expect(
-        await waitFor(async () => Number((await probe.pubsub('NUMSUB', channel))[1] ?? 0) === 0),
-      ).toBe(true);
+      expect(await waitFor(async () => (await subscriberCount(probe, channel)) === 0)).toBe(true);
     } finally {
       await probe.quit();
     }

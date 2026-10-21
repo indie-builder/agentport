@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import { createDb, newId, repo, schema } from '@agentport/db';
+import { createDb, repo } from '@agentport/db';
 import { Queue, Worker } from 'bullmq';
 import pino, { type Logger } from 'pino';
 import { loadConfig } from './config.js';
@@ -40,8 +40,7 @@ export async function runMaintenance(
     durationMs: Date.now() - startedAt,
   };
 
-  await db.insert(schema.auditLog).values({
-    id: newId('audit'),
+  await repo.audit.writeAudit(db, logger, {
     actor: 'worker',
     action: 'maintenance.pruned',
     target: JSON.stringify(summary),

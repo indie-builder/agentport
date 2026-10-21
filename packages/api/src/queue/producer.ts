@@ -1,9 +1,18 @@
 import type { AgentRunJob, ChatEvent, EvalRunJob } from '@agentport/shared';
-import { chatEventSchema, EVAL_RUNS_QUEUE } from '@agentport/shared';
+import {
+  chatEventSchema,
+  EVAL_RUNS_QUEUE,
+  RUN_CANCEL_PAYLOAD,
+  RUN_STREAM_MAXLEN,
+  RUNS_QUEUE,
+  runCancelKey,
+  runChannel,
+  runStreamKey,
+} from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 
-export const QUEUE_NAME = 'agent-runs';
+export { RUNS_QUEUE as QUEUE_NAME } from '@agentport/shared';
 
 /** worker 用 ChatEvent 回传，API 用 cancel 通知 worker 终止。 */
 export type RunSignal = ChatEvent | { type: 'cancel' };
@@ -15,16 +24,7 @@ const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
  * pub/sub 在订阅建立前发出的事件会永久丢失（客户端从 POST 到建连之间常见）。
  * Stream 允许从 0 回放，且由 TTL 清理，不需要额外维护。
  */
-const STREAM_MAXLEN = 1000;
 const STREAM_TTL_SECONDS = 3600;
-
-function streamKey(runId: string): string {
-  return `run:${runId}:events`;
-}
-
-function cancelKey(runId: string): string {
-  return `run:${runId}:cancel`;
-}
 
 function logRedisError(err: Error): void {
   process.stderr.write(`[queue] redis error: ${err.message}\n`);
@@ -37,7 +37,7 @@ let subscriber: Redis | undefined;
 
 export function getQueue(): Queue<AgentRunJob> {
   if (!queue) {
-    queue = new Queue<AgentRunJob>(QUEUE_NAME, { connection: { url: REDIS_URL } });
+    queue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection: { url: REDIS_URL } });
     queue.on('error', logRedisError);
   }
   return queue;
@@ -81,32 +81,32 @@ function parseEvent(payload: string): ChatEvent | null {
 export async function publishRun(runId: string, event: RunSignal): Promise<void> {
   // cancel 走独立键：它不是 ChatEvent，也不该出现在事件流里被前端看到。
   if (event.type === 'cancel') {
-    await getClient().set(cancelKey(runId), '1', 'EX', STREAM_TTL_SECONDS);
-    await getClient().publish(cancelKey(runId), '1');
+    await getClient().set(runCancelKey(runId), RUN_CANCEL_PAYLOAD, 'EX', STREAM_TTL_SECONDS);
+    await getClient().publish(runCancelKey(runId), RUN_CANCEL_PAYLOAD);
     return;
   }
 
   const redis = getClient();
   await redis.xadd(
-    streamKey(runId),
+    runStreamKey(runId),
     'MAXLEN',
     '~',
-    STREAM_MAXLEN,
+    RUN_STREAM_MAXLEN,
     '*',
     'payload',
     JSON.stringify(event),
   );
   // 事件流不会被读取者删除（可回放），单独给 TTL 兜底。
-  await redis.expire(streamKey(runId), STREAM_TTL_SECONDS);
+  await redis.expire(runStreamKey(runId), STREAM_TTL_SECONDS);
 
   // 唤醒正在 XREAD BLOCK 的订阅者。
-  await redis.publish(`${streamKey(runId)}:wake`, '1');
+  await redis.publish(runChannel(runId), '1');
 }
 
 /** 等待取消信号；返回取消订阅函数。 */
 export async function onCancel(runId: string, cb: () => void): Promise<() => void> {
   const redis = getSubscriber();
-  const channel = cancelKey(runId);
+  const channel = runCancelKey(runId);
   const handler = (incoming: string): void => {
     if (incoming === channel) cb();
   };
@@ -119,7 +119,7 @@ export async function onCancel(runId: string, cb: () => void): Promise<() => voi
 }
 
 export async function isCancelled(runId: string): Promise<boolean> {
-  return (await getClient().exists(cancelKey(runId))) === 1;
+  return (await getClient().exists(runCancelKey(runId))) === 1;
 }
 
 export interface RunSubscription {
@@ -141,8 +141,8 @@ export async function subscribeRun(
   const redis = getSubscriber().duplicate();
   redis.on('error', logRedisError);
   subscriptions.add(redis);
-  const wakeChannel = `${streamKey(runId)}:wake`;
-  const key = streamKey(runId);
+  const wakeChannel = runChannel(runId);
+  const key = runStreamKey(runId);
   let closed = false;
   let lastId = '0-0';
   const drain = async (): Promise<void> => {

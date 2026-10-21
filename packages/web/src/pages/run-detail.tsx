@@ -289,7 +289,7 @@ export function RunDetailPage() {
                       onClick={() => selectStep(index)}
                       aria-current={isActive ? 'step' : undefined}
                       className={cn(
-                        'group flex h-12 w-full items-center gap-2.5 rounded-item px-2 text-left transition-colors hover:bg-hover focus-visible:outline-none',
+                        'group flex h-12 w-full items-center gap-2.5 rounded-item px-2 text-left transition-colors hover:bg-hover',
                         isActive && 'bg-hover',
                       )}
                     >

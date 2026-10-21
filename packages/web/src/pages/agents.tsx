@@ -304,7 +304,7 @@ export function AgentsPage() {
                     aria-current={active ? 'true' : undefined}
                     onClick={() => selectAgent(agent.id)}
                     className={cn(
-                      'flex h-14 w-full items-center gap-3 rounded-[9px] px-2.5 text-left transition-colors duration-150 hover:bg-chip focus-visible:outline-none',
+                      'flex h-14 w-full items-center gap-3 rounded-[9px] px-2.5 text-left transition-colors duration-150 hover:bg-chip',
                       active ? 'bg-hover' : '',
                     )}
                   >
@@ -678,7 +678,7 @@ function AgentEditor({
           aria-label="启用智能体"
           title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
           onClick={() => set('enabled', !form.enabled)}
-          className="inline-flex items-center gap-2 rounded-[9px] p-1 text-xs text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
+          className="inline-flex items-center gap-2 rounded-[9px] p-1 text-xs text-muted transition-colors hover:bg-hover hover:text-fg"
         >
           <span
             className={cn(
@@ -784,7 +784,7 @@ function AgentEditor({
                   setOpenSections((current) => ({ ...current, [item.id]: true }));
                   document.getElementById(`agent-${item.id}`)?.scrollIntoView({ block: 'start' });
                 }}
-                className="shrink-0 rounded-[9px] px-2.5 py-1 text-sm text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none"
+                className="shrink-0 rounded-[9px] px-2.5 py-1 text-sm text-muted transition-colors hover:bg-hover hover:text-fg"
               >
                 {item.label}
               </button>
@@ -1325,40 +1325,48 @@ function Section({
   onToggle: () => void;
   children: ReactNode;
 }) {
-  const bodyId = `agent-${id}-body`;
+  const reduce = useReducedMotion();
+  const headingId = `agent-${id}-heading`;
   return (
     <section
       id={`agent-${id}`}
-      aria-labelledby={`agent-${id}-heading`}
+      aria-labelledby={headingId}
       className="scroll-mt-24 border-t border-line py-1 first:border-t-0"
     >
-      <h2>
-        <button
-          id={`agent-${id}-heading`}
-          type="button"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          onClick={onToggle}
-          className="flex w-full items-center gap-1.5 rounded-[7px] py-2.5 text-left text-xs text-subtle transition-colors hover:text-fg focus-visible:outline-none"
-        >
-          <ChevronRight
-            className={cn(
-              'size-3.5 shrink-0 text-subtle transition-transform',
-              open && 'rotate-90',
-            )}
-            strokeWidth={1.75}
-            aria-hidden="true"
-          />
-          {title}
-          <span className="ml-auto max-w-[60%] truncate font-mono text-2xs tabular-nums text-subtle">
-            {summary}
-          </span>
-        </button>
-      </h2>
-      {/* 折叠时保留 DOM（hidden）：收起分区里的校验错误仍能被 aria-describedby 找到。 */}
-      <div id={bodyId} hidden={!open} className="space-y-4 pb-5">
-        {children}
-      </div>
+      <Collapsible open={open} onOpenChange={onToggle}>
+        <h2>
+          <CollapsibleTrigger
+            id={headingId}
+            className="flex w-full items-center gap-1.5 rounded-[7px] py-2.5 text-left text-xs text-subtle transition-colors hover:text-fg"
+          >
+            <ChevronRight
+              className={cn(
+                'size-3.5 shrink-0 text-subtle transition-transform duration-150',
+                open && 'rotate-90',
+              )}
+              strokeWidth={1.75}
+              aria-hidden="true"
+            />
+            {title}
+            <span className="ml-auto max-w-[60%] truncate font-mono text-2xs tabular-nums text-subtle">
+              {summary}
+            </span>
+          </CollapsibleTrigger>
+        </h2>
+        {/* forceMount 保留 DOM（收起时 Radix 置 hidden）：校验错误仍能被 aria-describedby 找到。 */}
+        <CollapsibleContent forceMount>
+          <motion.div
+            initial={false}
+            animate={open ? { height: 'auto' } : { height: 0 }}
+            transition={reduce ? { duration: 0 } : { duration: 0.15, ease: 'easeOut' }}
+            className="overflow-hidden"
+          >
+            <div hidden={!open} className="space-y-4 pb-5">
+              {children}
+            </div>
+          </motion.div>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }

@@ -1197,7 +1197,7 @@ function ServerFormDialog({
                     setErrors({});
                   }}
                   className={cn(
-                    'rounded-[9px] border px-3 py-2.5 text-left transition-colors focus-visible:outline-none',
+                    'rounded-[9px] border px-3 py-2.5 text-left transition-colors',
                     kind === value ? 'border-fg bg-chip' : 'border-line hover:bg-hover',
                   )}
                 >

@@ -51,9 +51,9 @@ export function LoginPage() {
         <Brand />
 
         <div className="max-w-md">
-          <h2 className="text-[28px] font-semibold leading-[1.25] tracking-tight text-fg">
+          <p className="text-[28px] font-semibold leading-[1.25] tracking-tight text-fg">
             让智能体以可预测的节奏运行
-          </h2>
+          </p>
           <p className="mt-3 text-base leading-relaxed text-muted">
             接入 MCP Server，用文件定义智能体，在沙盒里运行并观察每一步。
           </p>

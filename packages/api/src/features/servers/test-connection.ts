@@ -2,7 +2,7 @@ import type { Server, ServerTestResult } from '@agentport/shared';
 import type { Transport } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { Effect, type Scope } from 'effect';
+import { Cause, Effect, type Scope } from 'effect';
 import { assertSafeUrl } from './ssrf.js';
 
 const TIMEOUT_MS = 5000;
@@ -120,10 +120,9 @@ export async function testConnection(
 }
 
 /** Exit/Cause 不可读；转成一句能贴到 UI 的话。 */
-function describeFailure(cause: unknown): string {
-  const c = cause as { failures?: Array<{ error?: unknown }> };
-  const first = c?.failures?.[0]?.error;
-  if (first instanceof Error) return first.message;
-  if (typeof first === 'string') return first;
+function describeFailure(cause: Cause.Cause<unknown>): string {
+  const error = Cause.squash(cause);
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
   return 'connection failed';
 }

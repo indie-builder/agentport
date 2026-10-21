@@ -4,6 +4,27 @@ import { z } from 'zod';
 export const serverKindSchema = z.enum(['stdio', 'http', 'generated']);
 export type ServerKind = z.infer<typeof serverKindSchema>;
 
+export const PREVIEW_SECRET = '<已配置>';
+
+/** Build an MCP entry with values supplied by the caller (masked, empty, or runtime secrets). */
+export function previewMcpEntry(
+  server: { kind: ServerKind; config: Record<string, unknown> },
+  values: Record<string, string> = {},
+) {
+  const config = server.config;
+  if (server.kind === 'stdio') {
+    return {
+      command: typeof config.command === 'string' ? config.command : '',
+      args: Array.isArray(config.args)
+        ? config.args.filter((value): value is string => typeof value === 'string')
+        : [],
+      env: values,
+    };
+  }
+  const url = server.kind === 'generated' ? config.baseUrl : config.url;
+  return { type: 'http' as const, url: typeof url === 'string' ? url : '', headers: values };
+}
+
 const baseServer = {
   name: z
     .string()
