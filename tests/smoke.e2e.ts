@@ -58,7 +58,8 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   await browser.locator('#new-agent-prompt').fill(' You help test Agentport.');
   await screen.getByRole('button', '创建').tap();
 
-  await screen.getByRole('button', 'MCP Server').tap();
+  // 触发器的无障碍名称带已选数量："MCP Server，未选择"。
+  await screen.getByRole('button', 'MCP Server', { exact: false }).tap();
   await browser.locator('label').filter({ hasText: serverName }).getByRole('checkbox').check();
   await browser.keyboard.press('Escape');
   await screen.getByRole('button', '保存更改').first().tap();
@@ -68,7 +69,8 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   await expect(
     screen.getByText('将写入 .mcp.json 与 frontmatter', { exact: false }).first(),
   ).toBeVisible();
-  await screen.getByRole('tab', '完整文件').tap();
+  // 分段按钮用 aria-pressed，不再是 tablist 语义。
+  await screen.getByRole('button', '完整文件').tap();
   await expect(screen.getByText('"mcpServers"', { exact: false }).first()).toBeVisible();
 });
 

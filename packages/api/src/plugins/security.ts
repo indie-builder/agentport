@@ -34,9 +34,15 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
   redis.on('error', (err: Error) => app.log.warn({ err }, 'rate-limit redis error'));
 
   if (limitsOff) app.log.warn('rate limiting disabled by RATE_LIMIT_DISABLED=1');
+  /*
+   * 全局额度是「按 IP 计的所有请求」：servers 页面一次加载就会为每个已配置的
+   * server 各拉一次工具列表（实测 40+ 条），120/min 会让正常浏览也 429。
+   * 读放大是设计使然，所以总量放宽；真正的滥用风险在 SSE/登录/执行，
+   * 那些已有更严格的 preset 单独限流。
+   */
   await app.register(rateLimit, {
     global: true,
-    max: 120,
+    max: 600,
     timeWindow: '1 minute',
     redis,
     nameSpace: 'agentport:rl:',
