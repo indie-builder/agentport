@@ -103,32 +103,13 @@ export async function publishRun(runId: string, event: RunSignal): Promise<void>
   await redis.publish(runChannel(runId), '1');
 }
 
-/** 等待取消信号；返回取消订阅函数。 */
-export async function onCancel(runId: string, cb: () => void): Promise<() => void> {
-  const redis = getSubscriber();
-  const channel = runCancelKey(runId);
-  const handler = (incoming: string): void => {
-    if (incoming === channel) cb();
-  };
-  redis.on('message', handler);
-  await redis.subscribe(channel);
-  return () => {
-    redis.off('message', handler);
-    void redis.unsubscribe(channel).catch(logRedisError);
-  };
-}
-
-export async function isCancelled(runId: string): Promise<boolean> {
-  return (await getClient().exists(runCancelKey(runId))) === 1;
-}
-
 export interface RunSubscription {
   /** 从第一条事件开始回放，并在有新事件时继续推送。 */
   close: () => void;
 }
 
 /** 每个订阅独占连接；close() 时 quit，避免一条连接的退订影响其他观众。 */
-const subscriptions = new Set<Redis>();
+const subscriptions = new Map<Redis, () => Promise<void>>();
 
 /**
  * 从流头回放并持续跟进。lastId 从 '0' 开始，因此订阅前的 run_started 不会丢。
@@ -140,7 +121,6 @@ export async function subscribeRun(
 ): Promise<RunSubscription> {
   const redis = getSubscriber().duplicate();
   redis.on('error', logRedisError);
-  subscriptions.add(redis);
   const wakeChannel = runChannel(runId);
   const key = runStreamKey(runId);
   let closed = false;
@@ -188,14 +168,22 @@ export async function subscribeRun(
   poll.unref();
 
   let released = false;
-  const release = (): void => {
+  const release = async (): Promise<void> => {
     if (released) return;
     released = true;
+    closed = true;
     clearInterval(poll);
     redis.off('message', handler);
     subscriptions.delete(redis);
-    if (redis.status !== 'end') void redis.quit().catch(logRedisError);
+    if (redis.status !== 'end') await redis.quit().catch(logRedisError);
   };
+  subscriptions.set(redis, async () => {
+    try {
+      cb({ type: 'error', message: 'Server shutting down' });
+    } finally {
+      await release();
+    }
+  });
 
   // 先订阅再挂 handler：唤醒只是提示，drain 从流头回放，订阅前的消息不会丢。
   try {
@@ -203,7 +191,7 @@ export async function subscribeRun(
     redis.on('message', handler);
     await queueDrain();
   } catch (err) {
-    release();
+    await release();
     throw err;
   }
 
@@ -211,7 +199,7 @@ export async function subscribeRun(
     close: () => {
       if (closed) return;
       closed = true;
-      release();
+      void release();
     },
   };
 }
@@ -227,7 +215,7 @@ export async function closeProducer(): Promise<void> {
     closing[1]?.close(),
     closing[2]?.quit(),
     closing[3]?.quit(),
-    ...[...subscriptions].map((redis) => redis.quit()),
+    ...[...subscriptions.values()].map((close) => close()),
   ]);
   subscriptions.clear();
 }

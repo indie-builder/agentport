@@ -1,10 +1,7 @@
 import { AppError } from '@agentport/core';
 import type { FastifyInstance } from 'fastify';
 
-/**
- * 测试与本地关掉限流。关闭时路由级配置要显式写 `rateLimit: false`：
- * 全局 skip 管不到路由级配置，删掉 config 反而会落回全局 120/min。
- */
+/** 测试与本地关闭限流；预设保留显式 `rateLimit: false`，避免落回全局默认。 */
 const limitsOff = process.env.RATE_LIMIT_DISABLED === '1';
 
 /**
@@ -38,7 +35,7 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
 
   if (limitsOff) app.log.warn('rate limiting disabled by RATE_LIMIT_DISABLED=1');
   await app.register(rateLimit, {
-    global: false,
+    global: true,
     max: 120,
     timeWindow: '1 minute',
     redis,
@@ -46,9 +43,8 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
     // 插件会 throw 这个返回值，所以必须是 Error；边界再渲染成 Problem。
     errorResponseBuilder: () =>
       new AppError('RATE_LIMITED', '请求过于频繁，请稍后再试', { retryable: true }),
-    // 注意：route 级 config.rateLimit 不受这个 skip 影响（Fastify 在路由层另建实例），
-    // 因此测试里还要通过下面的 env 开关整体关闭限流。
-    ...(process.env.RATE_LIMIT_DISABLED === '1' ? { skip: () => true } : {}),
+    // allowList 在计数前跳过全局限流；预设另以 rateLimit: false 显式关闭。
+    ...(limitsOff ? { allowList: () => true } : {}),
   });
 
   app.addHook('onClose', async () => {

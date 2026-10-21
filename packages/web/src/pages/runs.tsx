@@ -172,7 +172,7 @@ export function RunsPage() {
         <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
       ) : empty ? (
         <PageNote
-          icon={<Activity className="size-4" strokeWidth={1.75} aria-hidden="true" />}
+          icon={<Activity className="size-4" aria-hidden="true" />}
           title="没有匹配的运行"
           description="在对话页发起一次运行，或调整上方的筛选条件。"
           action={

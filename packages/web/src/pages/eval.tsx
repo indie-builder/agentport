@@ -139,7 +139,7 @@ export function EvalPage() {
             onClick={startRun}
             disabled={start.isPending || !effectiveAgentId || (cases.data?.length ?? 0) === 0}
           >
-            <Play className="size-4" strokeWidth={1.75} aria-hidden="true" /> 运行评估
+            <Play className="size-4" aria-hidden="true" /> 运行评估
           </Button>
         }
       />
@@ -167,7 +167,7 @@ export function EvalPage() {
             disabled={!effectiveAgentId}
             onClick={() => setCreating(true)}
           >
-            <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建用例
+            <Plus className="size-4" aria-hidden="true" /> 新建用例
           </Button>
         }
       >
@@ -188,12 +188,12 @@ export function EvalPage() {
         ) : null}
         {cases.data && cases.data.length === 0 ? (
           <PageNote
-            icon={<FlaskConical className="size-4" strokeWidth={1.75} aria-hidden="true" />}
+            icon={<FlaskConical className="size-4" aria-hidden="true" />}
             title="还没有用例"
             description="把线上出过问题的输入写成用例，下次改动前先跑一遍。"
             action={
               <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
-                <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" /> 新建用例
+                <Plus className="size-4" aria-hidden="true" /> 新建用例
               </Button>
             }
           />
@@ -219,7 +219,7 @@ export function EvalPage() {
                 <div className="flex shrink-0 gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
                   <Button variant="ghost" size="icon-sm" onClick={() => setEditing(testCase)}>
                     <span className="sr-only">编辑 {testCase.name}</span>
-                    <Pencil className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                    <Pencil className="size-4" aria-hidden="true" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -228,7 +228,7 @@ export function EvalPage() {
                     onClick={() => setDeleting(testCase)}
                   >
                     <span className="sr-only">删除 {testCase.name}</span>
-                    <Trash2 className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                    <Trash2 className="size-4" aria-hidden="true" />
                   </Button>
                 </div>
               </li>
@@ -247,7 +247,7 @@ export function EvalPage() {
         {runs.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
         {runs.data && runs.data.length === 0 ? (
           <PageNote
-            icon={<ClipboardCheck className="size-4" strokeWidth={1.75} aria-hidden="true" />}
+            icon={<ClipboardCheck className="size-4" aria-hidden="true" />}
             title="还没有评估运行"
             description="写好用例后点「运行评估」，这里会显示每次回归的通过情况。"
           />

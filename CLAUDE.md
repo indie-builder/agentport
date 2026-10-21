@@ -32,7 +32,8 @@
 - **交互原语用 Radix，不自研。** Dialog / Tabs / Select / Popover 等必须基于 `radix-ui`；
   焦点陷阱、portal、aria 关联由 Radix 负责。手写版本出现过浮层被祖先 `overflow` 裁切的问题。
 - **页面骨架统一用 `components/page.tsx`**（`Page` / `PageHeader` / `PageToolbar` / `PageSection`）。
-  页面里不要写 `mb-*` / `mt-*` 这类页面级外边距，一个页面只有一个 `h1`。
+  页面里不要写 `mb-*` / `mt-*` 这类页面级外边距；每个渲染状态下恰好一个 `h1`，由 `PageHeader` 提供
+  （互斥分支各写一个也算合规，同一时刻只渲染一个）。
 
 ## 后端
 

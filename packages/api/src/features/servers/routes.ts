@@ -3,6 +3,7 @@ import type { ApiToolPatch } from '@agentport/db/repo/servers.js';
 import {
   apiToolInputSchema,
   httpUrlSchema,
+  maskSecret,
   serverInputSchema,
   serverTestResultSchema,
 } from '@agentport/shared';
@@ -123,7 +124,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       }
       const token = await getMcpToken(app.db, row.id);
       return {
-        token: token ? `${token.slice(0, 4)}••••` : '',
+        token: maskSecret(token),
         endpoint: `${app.config.SELF_URL}/mcp/${row.id}`,
       };
     },

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { McpJsonEntry } from '@agentport/core';
 import {
@@ -23,7 +23,7 @@ import {
   wireFailureKind,
 } from '@agentport/shared';
 import { Worker } from 'bullmq';
-import { and, asc, eq, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 import pino from 'pino';
 import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
@@ -97,6 +97,7 @@ function toEntry(
     description: server.description,
     kind: server.kind,
   });
+  // stdio 命令有意由容器内的 SDK 启动，须在沙盒镜像中可用；不在 worker 宿主执行。
   const entry = previewMcpEntry(
     { kind: input.kind, config: input },
     {
@@ -259,6 +260,35 @@ if (modelProxy) {
     'model proxy disabled (no credential configured); sandbox receives the real model credential',
   );
 }
+
+/** Only derived run directories are pruned; queued/running runs may still need them. */
+async function sweepStaleWorkspaces(): Promise<number> {
+  const liveRuns = await db
+    .select({ id: schema.agentRuns.id })
+    .from(schema.agentRuns)
+    .where(inArray(schema.agentRuns.status, ['queued', 'running']));
+  const liveIds = new Set(liveRuns.map((run) => run.id));
+  let removed = 0;
+  const agents = await readdir(workspacesDir, { withFileTypes: true }).catch(
+    (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return [];
+      throw err;
+    },
+  );
+  for (const agent of agents) {
+    if (!agent.isDirectory()) continue;
+    const agentDir = join(workspacesDir, agent.name);
+    for (const run of await readdir(agentDir, { withFileTypes: true })) {
+      if (!run.isDirectory() || !run.name.startsWith('run_') || liveIds.has(run.name)) continue;
+      await rm(join(agentDir, run.name), { recursive: true, force: true });
+      removed += 1;
+    }
+  }
+  logger.info({ removed }, 'stale workspaces removed');
+  return removed;
+}
+
+await sweepStaleWorkspaces();
 
 const worker = new Worker(
   RUNS_QUEUE,
@@ -457,8 +487,23 @@ const worker = new Worker(
   { connection: { url: config.REDIS_URL }, concurrency: config.AGENT_MAX_CONCURRENT },
 );
 
-worker.on('failed', (job, err) => {
+worker.on('failed', async (job, err) => {
   logger.error({ jobId: job?.id, err }, 'job failed');
+  // BullMQ increments attemptsMade before emitting failed.
+  if (!job || job.attemptsMade < (job.opts.attempts ?? 1)) return;
+  const parsed = agentRunJobSchema.safeParse(job.data);
+  if (!parsed.success) return;
+  const { runId, agentId } = parsed.data;
+  try {
+    const [agent] = await db
+      .select({ slug: schema.agents.slug })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, agentId))
+      .limit(1);
+    if (agent) await rm(join(workspacesDir, agent.slug, runId), { recursive: true, force: true });
+  } catch (cleanupError) {
+    logger.warn({ err: cleanupError, runId }, 'workspace cleanup failed');
+  }
 });
 
 // 评估本身串行：并发固定 1。
@@ -522,12 +567,12 @@ const shutdown = async (): Promise<void> => {
   shuttingDown = true;
   logger.info('shutting down');
 
-  const closing = Promise.all([worker.close(), evalWorker.close()]);
+  const closing = Promise.allSettled([worker.close(), evalWorker.close()]);
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
   await stopReconciler();
   await provider.destroyAll();
-  await Promise.race([closing.catch(() => undefined), sleep(POOL_WAIT_MS)]);
+  await Promise.race([closing, sleep(POOL_WAIT_MS)]);
   await closeEvalRunQueue();
 
   await modelProxy?.close();

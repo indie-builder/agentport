@@ -233,7 +233,7 @@ export function ServersPage() {
               className="h-8 rounded-full px-3.5"
               onClick={openCreate}
             >
-              <Plus className="size-4" strokeWidth={1.75} /> 新建 Server
+              <Plus className="size-4" /> 新建 Server
             </Button>
           </>
         }
@@ -246,7 +246,7 @@ export function ServersPage() {
 
       {servers.data && all.length === 0 ? (
         <PageNote
-          icon={<ServerIcon className="size-4" strokeWidth={1.75} aria-hidden="true" />}
+          icon={<ServerIcon className="size-4" aria-hidden="true" />}
           title="还没有 MCP Server"
           description="本地命令适合自建工具，远程 MCP 适合已有服务，HTTP API 转 MCP 适合把内部接口直接交给智能体。"
           action={
@@ -416,7 +416,7 @@ function ServerRow({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label={`操作 ${server.name}`}>
-              <MoreHorizontal className="size-4" strokeWidth={1.75} />
+              <MoreHorizontal className="size-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -425,24 +425,24 @@ function ServerRow({
             className="w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
           >
             <DropdownMenuItem disabled={testing} onSelect={onTest}>
-              <Plug className="size-4" strokeWidth={1.75} /> {testing ? '测试中…' : '测试连接'}
+              <Plug className="size-4" /> {testing ? '测试中…' : '测试连接'}
             </DropdownMenuItem>
             {generated ? (
               <>
                 <DropdownMenuItem onSelect={onTools}>
-                  <Wrench className="size-4" strokeWidth={1.75} /> 工具定义
+                  <Wrench className="size-4" /> 工具定义
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={onConnection}>
-                  <KeyRound className="size-4" strokeWidth={1.75} /> 连接信息
+                  <KeyRound className="size-4" /> 连接信息
                 </DropdownMenuItem>
               </>
             ) : null}
             <DropdownMenuSeparator className="bg-line" />
             <DropdownMenuItem onSelect={onEdit}>
-              <Pencil className="size-4" strokeWidth={1.75} /> 编辑
+              <Pencil className="size-4" /> 编辑
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onSelect={onDelete}>
-              <Trash2 className="size-4" strokeWidth={1.75} /> 删除
+              <Trash2 className="size-4" /> 删除
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1018,7 +1018,7 @@ function ToolForm({
             '保存更改'
           ) : (
             <>
-              <Plus className="size-4" strokeWidth={1.75} /> 添加
+              <Plus className="size-4" /> 添加
             </>
           )}
         </Button>

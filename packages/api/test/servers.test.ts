@@ -1,4 +1,4 @@
-import type { Server } from '@agentport/shared';
+import { SECRET_MASK, type Server } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -103,7 +103,7 @@ describe.skipIf(!ready)('servers', () => {
     });
     expect(shown.statusCode).toBe(200);
     expect(shown.json()).toEqual({
-      token: expect.stringMatching(/^.{4}••••$/),
+      token: SECRET_MASK,
       endpoint: expect.stringContaining(`/mcp/${server.id}`),
     });
 

@@ -1,11 +1,36 @@
 # Changelog
 
+## [0.13.0] - 2026-10-21
+
+### 前端技术栈对齐
+
+- 手写控件全部换成项目指定的库：浮层/对话框/下拉用 shadcn/ui + Radix，图标统一走 lucide provider，类名合一走 `cn`，客户端状态与服务端数据分别交给 Zustand / TanStack Query
+- 页面骨架统一到 `Page` / `PageHeader` / `PageToolbar` / `PageSection`；移除页面级硬编码外边距
+- 设计令牌收进 `styles.css` 的 `@theme`，组件里不再出现硬编码十六进制色值与任意圆角
+
+### 设计系统按实测校正
+
+- 以 https://www.openui.com/chat?form_factor=desktop 为唯一基准，用 CDP 读取计算样式后修正：外壳 16px 圆角 / 4px 外边距、建议卡 16px 圆角、侧栏 272px 展开 / 68px 收起（抽屉 294px）、空态两行均 24px
+- `docs/DESIGN-SYSTEM.md` 与实现对齐，包括对话页真实文案与侧栏尺寸
+
+### 技术栈合规循环 第 1–2 轮
+
+- 第 1 轮：30 项真违规 + 22 项次要。登录改为 zod schema；`agent_runs.model_token_hash` 补部分索引；Redis 流协议抽到 `@agentport/shared/run-stream.ts`，producer 与 runner-client 共用；sandbox 镜像打包 `@agentport/shared`（此前运行时会 `ERR_MODULE_NOT_FOUND`）；6 个裸 `<button>`、33 处任意圆角、16 处冗余 `strokeWidth` 收敛
+- 第 2 轮：12 项真违规 + 12 项次要 + 8 个测试缺口。API producer 补齐 shared 流常量并加契约测试；修复概览页智能体链接嵌在 `disabled` 按钮里点不动；8 处无焦点环的 `focus-visible:outline-none` 删除；`writeAudit` 增加 `dedupeKey`（worker 传 `aud_<runId>` + `onConflictDoNothing`），基础设施重试不再写重复审计行
+- 测试从 139 增至 162 项；biome 154 文件全绿
+
+### 运行期加固（同批并行改动）
+
+- **限流覆盖全部路由**：`plugins/security.ts` 增加 `global: true` 的 120/min 桶；`/health/metrics` 改挂 `requireAuth`
+- **API 优雅关停**：先关闭队列 producer 与 SSE 订阅，再 `app.close()`，与超时竞速后强制关闭残留 socket；compose 增加 `stop_grace_period: 30s`
+- **worker 退出时清扫遗留工作区目录**；孤儿 run 仍由 reconciler 收敛
+
 ## [0.12.0] - 2026-10-21
 
 - 设计基准改为 https://www.openui.com/chat?form_factor=desktop，规范与实测值写入 `docs/DESIGN-SYSTEM.md`
 - 通过 ego-browser（CDP）读取参考页计算样式：外壳 16px 圆角、4px 外边距、输入胶囊 56px 高 / 28px 圆角 / 双层阴影、两行标题均 24px
 - 全站改为无彩度体系（黑白灰），移除品牌色；强调靠实底黑与透明度
-- 外壳重写为 16px 圆角白色容器；侧栏改为白底 310px，选中态为浅灰底
+- 外壳重写为 16px 圆角白色容器；侧栏改为白底 272px（收起 68px，移动端抽屉 294px），选中态为浅灰底
 - 对话页重写：24px 问候语 + 胶囊输入 + 建议卡，会话列表移入白底侧栏
 - 智能体 / Servers / 运行详情 / 运行 / 审计 / 健康 / 评估 / 技能 全部按新语言重排
 - shadcn CLI 真正接入（`components.json` + `tsconfig` 路径别名 + vite alias），新增 sheet/scroll-area/separator/tooltip/dropdown-menu

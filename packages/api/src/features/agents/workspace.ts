@@ -1,6 +1,7 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
 import { renderWorkspace, toWorkspaceInput } from '@agentport/core';
 import * as agentRepo from '@agentport/db/repo/agents.js';
+import { SECRET_MASK } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { str, strArray } from '../servers/repo.js';
 import { decryptSecrets } from '../servers/secrets.js';
@@ -8,7 +9,7 @@ import { decryptSecrets } from '../servers/secrets.js';
 type ServerRow = Awaited<ReturnType<typeof agentRepo.getBoundServers>>[number];
 
 /** 预览里密钥只保留键名；明文值只在 worker 写工作区时注入。 */
-const PREVIEW_SECRET = '<已配置>';
+const PREVIEW_SECRET = SECRET_MASK;
 const RUNTIME_AUTH_NOTE = 'Authorization 由运行时注入，不在此显示。';
 
 // 沙盒视角的 API 地址；compose 内是 http://api:3000，本机 Docker 用 host.docker.internal。

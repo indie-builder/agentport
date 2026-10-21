@@ -105,11 +105,7 @@ export function CodeBlock({
               aria-label={copied ? '已复制' : copyLabel}
               className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-[7px] border border-line bg-surface/90 px-2 text-2xs text-muted opacity-0 backdrop-blur transition-opacity hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg group-hover:opacity-100"
             >
-              {copied ? (
-                <Check className="size-4 text-success" strokeWidth={1.75} />
-              ) : (
-                <Copy className="size-4" strokeWidth={1.75} />
-              )}
+              {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
               {copied ? '已复制' : copyLabel}
             </button>
             <pre className="overflow-auto py-3 font-mono text-xs leading-5" style={{ maxHeight }}>

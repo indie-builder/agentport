@@ -34,8 +34,8 @@ type ImportedServer = z.infer<typeof importedServerSchema>;
 const importBodySchema = z.object({
   format: z.literal('agentport/agent@1'),
   agent: agentInputSchema,
-  servers: z.array(importedServerSchema).default([]),
-  skills: z.array(skillInputSchema).default([]),
+  servers: z.array(importedServerSchema).max(100).default([]),
+  skills: z.array(skillInputSchema).max(100).default([]),
 });
 
 /** 密钥不入库；generated server 需要一个本机可用的新令牌。 */

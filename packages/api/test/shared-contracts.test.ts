@@ -55,7 +55,7 @@ describe('shared MCP entry rendering', () => {
     ).toEqual({
       command: '',
       args: ['ok'],
-      env: { TOKEN: '<已配置>' },
+      env: { TOKEN: PREVIEW_SECRET },
     });
     expect(
       previewMcpEntry({

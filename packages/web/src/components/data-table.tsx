@@ -166,7 +166,7 @@ function ColumnRow({
         aria-label={`拖动调整「${column.header}」顺序`}
         className="cursor-grab touch-none rounded-[6px] p-1 text-subtle hover:bg-hover hover:text-fg active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
       >
-        <GripVertical className="size-4" strokeWidth={1.75} aria-hidden="true" />
+        <GripVertical className="size-4" aria-hidden="true" />
       </button>
       <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1.5 text-xs hover:bg-hover">
         <input
@@ -341,7 +341,7 @@ export function DataTable<T>({
             >
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="sm" className="rounded-[7px]" aria-label="列设置">
-                  <Columns3 className="size-4" strokeWidth={1.75} aria-hidden="true" />列
+                  <Columns3 className="size-4" aria-hidden="true" />列
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" aria-label="列设置" className="w-48 p-2">
@@ -386,16 +386,12 @@ export function DataTable<T>({
                   {col.sortValue &&
                     (sort?.id === col.id ? (
                       sort.dir === 'asc' ? (
-                        <ArrowUp className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                        <ArrowUp className="size-3" aria-hidden="true" />
                       ) : (
-                        <ArrowDown className="size-3" strokeWidth={1.75} aria-hidden="true" />
+                        <ArrowDown className="size-3" aria-hidden="true" />
                       )
                     ) : (
-                      <ChevronsUpDown
-                        className="size-3 opacity-40"
-                        strokeWidth={1.75}
-                        aria-hidden="true"
-                      />
+                      <ChevronsUpDown className="size-3 opacity-40" aria-hidden="true" />
                     ))}
                 </button>
               </div>

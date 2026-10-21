@@ -79,3 +79,27 @@
 
 **验证**：7 包 typecheck、biome 154 文件、162 测试全过；浏览器实测焦点环与链接可点。
 **遗留**：`Tabs` 不再是 Radix（改成分段按钮，失去了方向键导航）；如需方向键语义要换成带真实面板的 tablist。
+
+### 第 3 轮 — 2026-10-21
+
+<!-- 待主会话填写本轮范围、发现数、修复数与验证结果 -->
+
+**范围**：_(待填)_
+**发现**：_(待填)_
+**修复**：_(待填)_
+**验证**：_(待填)_
+
+### 第 3 轮 — 2026-10-21
+
+**范围**：安全边界 / 依赖与资源生命周期 / 文档与代码漂移（三条隔离子代理）。
+**发现**：3 项高危 + 7 项真违规 + 12 项次要。
+
+关键结论：
+- **高危：全局限流是关闭的。** `global:false` 让只有 5 个路由受限，SSE 完全开放；每个订阅者 `duplicate()` 一条 Redis 连接，一个会话就能耗尽 `maxclients`。改为 `global:true`（120/min），`/health/metrics` 加 `requireAuth`。
+- **高危：API 关机永远走不完。** `app.close()` 等待所有 socket，而 SSE 用 `reply.hijack()` 长连接，唯一能关它们的 `closeProducer` 挂在 `onClose`（关完之后）。SIGTERM 必然超时被 SIGKILL，Redis/PG 连接泄漏。改为先关 producer、超时兜底、强制断连。
+- **高危：workspace 目录无界泄漏。** 可重试失败耗尽重试后目录不清；实测清理出 **42 个** 残留目录。加了启动清扫与终态清理。
+- 文档：sandbox 镜像构建配方因我上轮改 Dockerfile 而失效（`COPY shared/: not found`），已全面修正；CI 同样问题一并修复。
+- 安全：`isServerUsableInSandbox` 是从未被调用的死代码，选择删除并明确记录「stdio 在沙盒内执行是有意为之」。
+
+**验证**：7 包 typecheck、biome 154 文件、163 测试全过、`docker compose config` 有效。
+**遗留**：`Tabs` 无方向键导航（第 2 轮取舍）；sandbox 镜像 musl 二进制问题未修（需换基础镜像）。

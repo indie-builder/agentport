@@ -80,8 +80,8 @@ body #F5F5F5
 ```
 [ 智能体选择器 ▾ ]                         ← 顶部一行
 （垂直居中于内容区）
-        Good to see you                     ← 24px / 500 / 实色
-    What's on your mind today?              ← 24px / 500 / 60%
+        你好                                ← 24px / 400 / 实色（h2）
+    今天想做什么？                          ← 24px / 500 / 60%（p）
 
 ┌────────────────────────────────────────┐
 │  Ask anything...                  (↑)  │  ← 728×56，radius 28
@@ -99,7 +99,7 @@ body #F5F5F5
 ### 对话态
 
 - 消息流最大宽 728px，居中。
-- 用户消息：右对齐，**黑底白字胶囊**（radius 9999 / 20px）。
+- 用户消息：右对齐，**浅灰 `bg-hover` 胶囊**（radius 9999 / 20px，深色文字），不用黑底白字。
 - 助手消息：左对齐，无气泡，15–16px 正文；可含标题、列表、卡片。
 - 工具调用：单行「图标 + 名称 + 状态 + 耗时」，点击展开参数/结果；不用厚边框。
 - 底部输入框常驻，形态同空态。
@@ -147,7 +147,7 @@ body #F5F5F5
 | 路由与 URL 状态 | TanStack Router | 筛选、分页、选中的 tab 走 `validateSearch`，不要塞进组件 state |
 | 类名合并 | `cn`（`lib/cn.ts`） | 唯一实现，不引入 clsx / tailwind-merge 的第二份 |
 
-- 圆角一律从令牌取值：外壳 16 / 卡片 12 / 行 9 / 图标 7 / 标签 6。控件用 7，容器用 12，不要出现 2px、3px 这类体系外的值。
+- 圆角一律从令牌取值：外壳 16 / 卡片 16 / 行 9 / 图标 7 / 标签 6。控件用 7，容器用 16（`--radius-shell` / `--radius-card` / `--radius-chip` 都是 16），不要出现 2px、3px 这类体系外的值。
 - 动画类（`animate-in` / `fade-in-0` / `zoom-in-95`）由 `tw-animate-css` 提供，已在 `styles.css` 引入。
 - shadcn 原语的语义色（`bg-popover`、`text-muted-foreground`、`bg-accent` 等）已全部映射到无彩度令牌，**不要在组件里改回具体色值**。
 

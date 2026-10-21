@@ -42,11 +42,7 @@ function StatusPill({ state }: { state: CheckState }) {
           : CircleX;
   return (
     <Badge variant={stateVariant[state]} className="rounded-[6px]">
-      <Icon
-        className={state === 'pending' ? 'size-3 animate-spin' : 'size-3'}
-        strokeWidth={1.75}
-        aria-hidden="true"
-      />
+      <Icon className={state === 'pending' ? 'size-3 animate-spin' : 'size-3'} aria-hidden="true" />
       {stateLabel[state]}
     </Badge>
   );
@@ -80,7 +76,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 function Reason({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-start gap-1.5 border-t border-line pt-2 text-sm leading-relaxed text-danger">
-      <CircleAlert className="mt-0.5 size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+      <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span>{children}</span>
     </div>
   );
@@ -201,9 +197,9 @@ function SmokeChecklist() {
           onClick={() => void run()}
         >
           {running ? (
-            <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
           ) : (
-            <ListChecks className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            <ListChecks className="size-4" aria-hidden="true" />
           )}
           运行冒烟检查
         </Button>
@@ -223,17 +219,9 @@ function SmokeChecklist() {
               className="flex items-center gap-3 border-b border-line py-3 text-sm last:border-b-0"
             >
               {step.state === 'ok' ? (
-                <CircleCheck
-                  className="size-4 shrink-0 text-success"
-                  strokeWidth={1.75}
-                  aria-hidden="true"
-                />
+                <CircleCheck className="size-4 shrink-0 text-success" aria-hidden="true" />
               ) : (
-                <CircleX
-                  className="size-4 shrink-0 text-danger"
-                  strokeWidth={1.75}
-                  aria-hidden="true"
-                />
+                <CircleX className="size-4 shrink-0 text-danger" aria-hidden="true" />
               )}
               <span className="w-44 shrink-0 font-mono text-xs text-fg">{step.label}</span>
               <span className={step.state === 'ok' ? 'min-w-0 text-muted' : 'min-w-0 text-danger'}>
@@ -246,7 +234,7 @@ function SmokeChecklist() {
           ))}
           {running ? (
             <li className="flex items-center gap-2 border-b border-line py-3 text-sm text-subtle">
-              <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
               下一项检查中…
             </li>
           ) : null}
@@ -309,7 +297,7 @@ export function StatusPage() {
         description="API 进程、队列、数据库连接池与 Redis 的实时状态，每 10 秒自动刷新。"
         actions={
           <Button variant="outline" size="sm" className="rounded-full" onClick={refresh}>
-            <RefreshCw className="size-4" strokeWidth={1.75} aria-hidden="true" /> 立即刷新
+            <RefreshCw className="size-4" aria-hidden="true" /> 立即刷新
           </Button>
         }
       />

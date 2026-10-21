@@ -60,3 +60,15 @@ zod 校验失败由 `plugins/errors.ts` 统一映射：
 - 不写兼容层（例如把两种错误格式都返回）。
 - 不在 handler 里保留 `safeParse` 作为「兜底」——那会让唯一校验点重新变成可选项。
 - 不为旧响应格式保留 shim；前端与测试按新契约对齐。
+
+## 唯一例外：导入导出的 `config`
+
+`packages/api/src/features/import/routes.ts` 的 `toServerInput()` 会调用一次 `serverInputSchema.safeParse`。
+原因：导入条目的 `config` 是用户提交的**开放 JSON 记录**（远端 MCP server 的 JSON Schema），
+它的字段集合在运行时才知道，无法作为路由 `schema` 的一部分声明。这一行是该入口的**边界校验**：
+解析失败等价于「格式不合法」，用 `fail('INVALID_INPUT', …)` 返回，仍由 `plugins/errors.ts` 转成统一的
+`INVALID_INPUT` Problem，不产生第二种错误格式。
+
+规则因此仍然成立：**路由层面没有 `safeParse`**，唯一的前置校验点仍是路由 `schema`；handler 内的
+`safeParse` 只用于把开放 JSON 收窄成已知类型，而不是补路由漏写的校验。新增类似场景时，同样需要
+在类型层无法表达的前提下才允许，并在代码注释里写明原因。

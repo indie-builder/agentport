@@ -25,15 +25,15 @@ pnpm run up          # 生成 .env、起 Postgres/Redis、迁移、构建镜像�
 
 本地开发：`docker compose up -d postgres redis` → `pnpm dev`（api + worker + web）。
 
-## 三、质量基线（2026-10-20 最终实测）
+## 三、质量基线（2026-10-21 实测）
 
 | 项 | 结果 |
 |---|---|
 | `pnpm typecheck` | ✅ 7 个包全通过 |
 | `pnpm build` | ✅ 全通过；web 产物 669.63 kB（gzip 199.35 kB），有 >500 kB chunk 警告 |
-| `pnpm exec biome check .` | ❌ 170 文件中 2 errors + 1 warning（`chat.tsx` 数组索引 key、`test-results/.last-run.json` 格式、`mcp-endpoint.ts` 未使用 `ctx`） |
-| `pnpm test` | ✅ **18 个文件、104 个用例全部通过**（需先停 worker；worker 在跑时 19 个集成用例按设计跳过，结果为 16 文件 / 85 通过 + 19 跳过） |
-| `pnpm test:e2e` | 本次未复跑；上次记录 `passed`（5 条用例，`E2E_FULL=1` 才跑真实对话） |
+| `./node_modules/.bin/biome check packages/*/src packages/*/test` | 🟡 154 个文件，1 warning、0 error（`worker/src/index.ts` 未使用导入，来自并行进行中的改动） |
+| `pnpm test` | 🟡 2026-10-21 复跑：156/162 通过、6 失败（`health` / `servers` / shared 脱敏契约，属并行线未合入的改动）；合入后需重跑 |
+| `pnpm test:e2e` | 本次未复跑（`e2e run`，需 5173 与 3000 在跑；`E2E_FULL=1` 才跑真实对话链路） |
 | `pnpm smoke` | ✅ `SMOKE OK`（本次对运行中的 compose 栈实测） |
 | 真实链路 | ✅ 浏览器 → API → 队列 → 沙盒 → 模型 → MCP 工具 → 上游 API → SSE |
 | 平台即 MCP | ✅ 外部 MCP 客户端可发现并调用智能体 |
@@ -70,7 +70,7 @@ pnpm run up          # 生成 .env、起 Postgres/Redis、迁移、构建镜像�
 - **评估入队**：`POST /api/eval/runs` 只建行并入 `eval-runs` 队列（202），worker 串行执行；超过 1 小时仍 `running` 的跑批由 reconciler 置为 `failed`。
 - **SSE 独立连接**：每个观众 `duplicate()` 一条 Redis 连接，关闭只释放自己的；串行 drain + 2 秒轮询兜底，事件不重复、不丢失。
 - **子智能体验证**：修复零工具拒绝、事件重复、父智能体自我递归；子智能体内部调用带 `parentToolUseId`，对话页与运行详情缩进展示。
-- **CI / 发布**：CI 三 job（biome/typecheck/build/migrate/test、Playwright E2E、Docker 镜像构建）；`v*` tag 推送 api/sandbox 镜像到 GHCR。
+- **CI / 发布**：CI 三 job（biome/typecheck/build/migrate/test、e2e 端到端、Docker 镜像构建）；`v*` tag 推送 api/sandbox 镜像到 GHCR。
 - **Runbook**：`docs/RUNBOOK.md`，按症状 → 判断 → 处置 → 验证组织，含 token 泄露、恢复、审计取证。
 - **状态页**：`/status` 展示 live / ready / metrics，10 秒刷新，含浏览器内只读自检按钮。
 

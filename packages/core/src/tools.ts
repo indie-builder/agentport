@@ -1,13 +1,4 @@
-import type { Server, ServerInput } from '@agentport/shared';
-
-/**
- * 判断某个工具在当前 server 配置下是否应被智能体看到。
- * 目前只有一条规则：stdio server 默认不可在沙盒内直接执行，需由 worker 决定。
- * 后续权限/白名单策略集中在这里，避免散落到 api 与 worker。
- */
-export function isServerUsableInSandbox(_server: Server): boolean {
-  return true;
-}
+import type { ServerInput } from '@agentport/shared';
 
 /** `.mcp.json` 中的单个条目。 */
 export type McpJsonEntry =
@@ -22,6 +13,7 @@ export type McpJsonEntry =
 
 /** 把 DB 中的 server 配置渲染成 `.mcp.json` 的条目，密钥由调用方注入。 */
 export function toMcpJsonEntry(server: ServerInput, secrets: Record<string, string>): McpJsonEntry {
+  // stdio 有意在非 root Docker 沙盒内执行；命令必须在镜像中可用，env 仅注入绑定的密钥。
   if (server.kind === 'stdio') {
     return {
       command: server.command,

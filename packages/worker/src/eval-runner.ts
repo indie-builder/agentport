@@ -28,7 +28,7 @@ function getRunQueueEvents(redisUrl: string): QueueEvents {
 }
 
 export async function closeEvalRunQueue(): Promise<void> {
-  await Promise.all([runQueue?.close(), runQueueEvents?.close()]);
+  await Promise.allSettled([runQueue?.close(), runQueueEvents?.close()]);
   runQueue = undefined;
   runQueueEvents = undefined;
 }

@@ -2,7 +2,7 @@
 
 PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：把 HTTP API 或 MCP Server 接进来，用文件定义智能体，在隔离沙盒里运行，并观测每一次调用。
 
-产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。依赖版本以 `package.json` / `pnpm-lock.yaml` 为准：Node.js >= 24、pnpm 12.14.0、React 19.3、Vite 8.3、Fastify 5.12、PostgreSQL 18、Redis 8。项目版本见根 `package.json`（当前 0.1.0）。
+产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。依赖版本以 `package.json` / `pnpm-lock.yaml` 为准：Node.js >= 24、pnpm 12.14.0、React 19.3、Vite 8.3、Fastify 5.12、PostgreSQL 18、Redis 8。项目版本见根 `package.json`（当前 0.13.0）。
 
 ## 能力
 
@@ -57,7 +57,11 @@ pnpm build                      # 生成各包 dist；db:migrate 与沙盒镜像
 cp .env.example .env            # 填写下方必填项
 docker compose up -d postgres redis
 pnpm db:migrate
-pnpm --filter @agentport/sandbox image
+# 沙盒镜像：runner 需要 @agentport/shared 的编译产物，不能只跑 docker build
+pnpm --filter @agentport/sandbox build
+pnpm --filter @agentport/shared build
+rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
+docker build -t agentport/sandbox:dev packages/sandbox
 pnpm dev
 ```
 
@@ -93,7 +97,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `pnpm lint:fix` | Biome 检查并写入修复 |
 | `pnpm test` | Vitest 测试（需要 PostgreSQL 与 Redis；不可用时集成用例自动跳过）。**先停 worker**（`docker compose stop worker api`），否则集成用例的 run 会被真实消费而失败/跳过。vitest 不读 `.env`；用 compose 的 Redis 时需 `REDIS_URL=redis://:agentport-dev@localhost:6379 pnpm test` |
 | `pnpm test:watch` | Vitest watch |
-| `pnpm test:e2e` | Playwright 端到端测试；`E2E_FULL=1` 才跑真实对话链路 |
+| `pnpm test:e2e` | e2e 端到端测试（`e2e run`，用例在 `tests/*.e2e.ts`）；需要 5173 与 3000 在跑，`E2E_FULL=1` 才跑真实对话链路 |
 | `pnpm db:generate` | 修改 Drizzle schema 后生成迁移 |
 | `pnpm db:migrate` | 在宿主机应用迁移（`pnpm run up` 部署时由 compose 的 `migrate` 服务自动执行） |
 | `pnpm backup` | `pg_dump` → `backups/<timestamp>.sql.gz`，保留最近 7 份；需先 export `DATABASE_URL` |
@@ -103,17 +107,17 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `pnpm infra:down` | `docker compose down`，会停止整套 compose 服务 |
 | `pnpm clean` | 删除各包 `dist` 与所有 `node_modules` |
 | `pnpm --filter @agentport/sandbox build` | 构建 runner 产物（镜像构建前置） |
-| `pnpm --filter @agentport/sandbox image` | 构建 `agentport/sandbox:dev` 镜像 |
+| `pnpm --filter @agentport/sandbox image` | 构建 `agentport/sandbox:dev` 镜像；**需先**构建 sandbox 与 shared 的 dist，并把 `packages/shared/dist` 复制到 `packages/sandbox/shared`（见上文本地开发，或直接用 `pnpm run up --rebuild`） |
 | `pnpm --filter @agentport/worker maintenance` | 手动执行一次数据保留任务 |
 | `pnpm --filter @agentport/api start` | 以构建产物启动 api（需先 `pnpm build`） |
 | `pnpm --filter @agentport/web preview` | 预览 web 构建产物 |
 
-E2E 不读取 `.env`，默认管理员为 `admin` / `admin-change-me`（该口令不能用于服务端配置）；如与 `.env` 不同，用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。本地 `.env` 的默认口令是 `admin-local-dev-2026`。
+E2E 不读取 `.env`，默认管理员为 `admin` / `admin-local-dev-2026`（`e2e.config.ts` 的默认值；服务端不会接受该口令作为 `ADMIN_PASSWORD`）。如与 `.env` 不同，用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。
 
 ## 版本与发布
 
 版本号在根 `package.json`，变更记录见 [CHANGELOG.md](CHANGELOG.md)（SemVer）。
-发布：更新版本号与 CHANGELOG 后推送 `v*` tag（如 `git tag v0.1.0 && git push origin v0.1.0`）。
+发布：更新版本号与 CHANGELOG 后推送 `v*` tag（如 `git tag v0.13.0 && git push origin v0.13.0`）。
 tag 触发 `.github/workflows/release.yml`，构建并推送 `ghcr.io/<repo>/api:<tag>` 与 `ghcr.io/<repo>/sandbox:<tag>` 到 GHCR。
 
 ## 目录结构
@@ -129,7 +133,7 @@ agentport/
 │  ├─ sandbox/     容器内 runner 与沙盒镜像（Claude Agent SDK）
 │  └─ web/         React 19 + Vite SPA
 ├─ docs/           产品、架构、运维与实施文档
-├─ e2e/            Playwright 用例
+├─ tests/          e2e 用例（`*.e2e.ts`，`e2e run` 执行）
 ├─ scripts/        backup.sh 等运维脚本
 ├─ data/           运行期工作区（gitignore）
 ├─ backups/        pg_dump 输出（gitignore）
@@ -162,14 +166,14 @@ agentport/
 
 ## 安全说明
 
-- **认证**：单管理员账号，scrypt 校验（常量时间比较），JWT 存在 httpOnly、SameSite=Lax 的 Cookie 中，有效期 24 小时；JWT 带随机 `sid`，服务端在 Redis 校验 `session:<sid>`，logout 立即吊销。CORS 使用 `CORS_ORIGINS` allowlist；限流按 IP 计数（登录 10/min、对话 20/min、`/mcp` 60/min、连接测试 20/min、评估发起 10/min）。
+- **认证**：单管理员账号，scrypt 校验（常量时间比较），JWT 存在 httpOnly、SameSite=Lax 的 Cookie 中，有效期 24 小时；JWT 带随机 `sid`，服务端在 Redis 校验 `session:<sid>`，logout 立即吊销。CORS 使用 `CORS_ORIGINS` allowlist；限流按 IP 计数（全局 120/min，登录 10/min、对话 20/min、`/mcp` 60/min、连接测试 20/min、评估发起 10/min）。
 - **密钥**：MCP 的 env/headers 使用 AES-256-GCM 加密入库，API 返回时脱敏为 `••••`；日志对 authorization、cookie、token、secret 等字段脱敏。
 - **工作区密钥**：每次运行会把解密后的 MCP env/headers 写入按 run 隔离的 `data/workspaces/<slug>/<runId>/.mcp.json`，供沙盒内进程使用。目录 0700、文件 0600，run 结束即删除；MCP 凭据使用按 run 签发的短期 token（DB 只存 sha256）。但工作区仍含明文 MCP 密钥，不要提交或打包；模型凭证仍未代理（见 [SECURITY.md](docs/SECURITY.md) M12）。
 - **SSRF**：只允许 http/https；连接测试与工具运行时都会解析 DNS 并拒绝私网、回环、link-local 地址；开发模式放行 localhost。DNS 重绑定无法在应用层彻底消除，出站仍建议配合网络 allowlist。
 - **沙盒**：只读根文件系统、只读工作区挂载、`--cap-drop ALL`、`no-new-privileges`、非 root 用户、内存/CPU/PID 限制；内置工具（Bash/Read/Write/Edit/WebFetch 等）从上下文移除，只放行绑定的 MCP 工具；有子智能体时才放行 `Agent`。
-- **工具审批**：当前没有「暂停等待批准」的 HITL；`dontAsk` 下未预批准的工具直接拒绝。标记 `requiresApproval` 的工具会先记录审批请求，批准后同一 run 的后续调用放行，但不是暂停恢复。
+- **工具审批**：标记 `requiresApproval` 的工具会**挂起同一次调用**（MCP 工具内部轮询 DB，默认最多 300s，`APPROVAL_WAIT_MS`），在运行详情页批准后直接继续并返回结果，不需要模型重发；超时按拒绝处理。未标记的工具在 `dontAsk` 下直接拒绝。
 - **出站**：`SANDBOX_EGRESS` 默认 `proxy`，容器通过 `HTTPS_PROXY` 出站；未设置代理地址时启动 warn 并回退到 `open`（bridge 直连）。`none` 完全断网（此时模型与 MCP 不可用）。需要硬隔离时用 `none` 或独立出站网关。
-- **平台端点**：`/mcp` 只校验单个 `PLATFORM_MCP_TOKEN`；`/mcp/:serverId` 使用每个 generated server 的 Bearer token。`/health/*`（含 `/health/metrics`）无鉴权，不要直接暴露到公网。
+- **平台端点**：`/mcp` 只校验单个 `PLATFORM_MCP_TOKEN`；`/mcp/:serverId` 使用每个 generated server 的 Bearer token。`/health/live`、`/health/ready` 无鉴权；`/health/metrics` 需要登录，不要直接暴露到公网。
 - **宿主权限**：worker 挂载 Docker socket，可控制宿主 Docker，等同于宿主 root。生产环境应改为独立沙盒节点或 microVM 运行时（`SandboxProvider` 接口已预留）。
 - **生产 Cookie**：`NODE_ENV=production` 时 Cookie 带 `Secure`，通过 HTTP + 非 localhost 访问会登录失败。
 

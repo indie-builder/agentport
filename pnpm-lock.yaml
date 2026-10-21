@@ -175,9 +175,6 @@ importers:
       '@e2e-dev/web':
         specifier: 0.15.2
         version: 0.15.2(e2e@0.21.2(@ai-sdk/openai-compatible@3.0.71(zod@4.6.7))(ai@7.0.143(zod@4.6.7)))
-      '@vitest/coverage-v8':
-        specifier: 5.0.5
-        version: 5.0.5(vitest@5.0.5)
       ai:
         specifier: ^7.0.143
         version: 7.0.143(zod@4.6.7)
@@ -220,15 +217,9 @@ importers:
       '@fastify/rate-limit':
         specifier: 11.2.1
         version: 11.2.1
-      '@fastify/sensible':
-        specifier: 6.0.7
-        version: 6.0.7
       '@fastify/static':
         specifier: 10.1.6
         version: 10.1.6
-      '@fastify/under-pressure':
-        specifier: 9.2.1
-        version: 9.2.1
       '@modelcontextprotocol/client':
         specifier: 2.3.1
         version: 2.3.1
@@ -265,9 +256,6 @@ importers:
       pino-pretty:
         specifier: 13.2.0
         version: 13.2.0
-      typeid-js:
-        specifier: 1.2.0
-        version: 1.2.0
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -450,9 +438,6 @@ importers:
       pino:
         specifier: 10.4.0
         version: 10.4.0
-      pino-pretty:
-        specifier: 13.2.0
-        version: 13.2.0
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -1172,17 +1157,11 @@ packages:
   '@fastify/send@4.1.2':
     resolution: {integrity: sha512-PitRBXg/N4IrE5ToLuP7lITI5Mz8MmP13dv2aMtMNfaGfc5W5hNOwHqcsdQdqu0Lwm5cpDiYLkiOsZTgmhyt2Q==}
 
-  '@fastify/sensible@6.0.7':
-    resolution: {integrity: sha512-e4+bJEcAPGdKsIljulWtEKeECuYGLkVTB1dgWh19m2u4ttETS/5EWZhw6KPXlgi6ZiSet5IqYrcMRMrRub0Hrg==}
-
   '@fastify/static@10.1.6':
     resolution: {integrity: sha512-f3x9XisI+y6AIhIfA/+Q3SFsuXeqNNk5HQh5htgHsPxmMLb4pLFskV6eFaLSW3IbI4azrS5np+/tkzXNH99LyQ==}
 
   '@fastify/swagger@9.9.2':
     resolution: {integrity: sha512-ayxItVgf/1axBvw33lqsA5ns02YMpT1r59G/HCJraRNWWBzvLgN+oiCBPhuzTiN67TvctlCYkG0+40WLKYuusQ==}
-
-  '@fastify/under-pressure@9.2.1':
-    resolution: {integrity: sha512-eScrraL3PXJwWAfnpYVVDkctvl/RiQCnRahmsBS+ZhcQ6fy54beMc9Kom4NhlU4aYNgsl3J3ps4KBTndzHUkLQ==}
 
   '@floating-ui/core@1.8.0':
     resolution: {integrity: sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==}
@@ -4317,13 +4296,16 @@ snapshots:
     optionalDependencies:
       zod: 4.6.7
 
-  '@babel/helper-string-parser@7.29.7': {}
+  '@babel/helper-string-parser@7.29.7':
+    optional: true
 
-  '@babel/helper-validator-identifier@7.29.7': {}
+  '@babel/helper-validator-identifier@7.29.7':
+    optional: true
 
   '@babel/parser@7.29.9':
     dependencies:
       '@babel/types': 7.29.8
+    optional: true
 
   '@babel/runtime@7.29.10': {}
 
@@ -4331,8 +4313,10 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
+    optional: true
 
-  '@bcoe/v8-coverage@1.0.2': {}
+  '@bcoe/v8-coverage@1.0.2':
+    optional: true
 
   '@biomejs/biome@2.5.15':
     optionalDependencies:
@@ -4716,16 +4700,6 @@ snapshots:
       http-errors: 2.0.1
       mime: 3.0.0
 
-  '@fastify/sensible@6.0.7':
-    dependencies:
-      '@lukeed/ms': 2.0.2
-      dequal: 2.0.3
-      fastify-plugin: 6.0.1
-      forwarded: 0.2.0
-      http-errors: 2.0.1
-      type-is: 2.1.0
-      vary: 1.1.2
-
   '@fastify/static@10.1.6':
     dependencies:
       '@fastify/accept-negotiator': 2.1.1
@@ -4745,11 +4719,6 @@ snapshots:
       yaml: 2.9.1
     transitivePeerDependencies:
       - supports-color
-
-  '@fastify/under-pressure@9.2.1':
-    dependencies:
-      '@fastify/error': 4.2.1
-      fastify-plugin: 6.0.1
 
   '@floating-ui/core@1.8.0':
     dependencies:
@@ -6008,6 +5977,7 @@ snapshots:
       std-env: 4.3.0
       tinyrainbow: 3.2.0
       vitest: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/coverage-v8@5.0.5)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+    optional: true
 
   '@vitest/expect@5.0.3':
     dependencies:
@@ -6018,11 +5988,13 @@ snapshots:
       chai: 6.3.0
       tinyrainbow: 3.2.0
 
-  '@vitest/istanbul-lib-coverage@1.0.2': {}
+  '@vitest/istanbul-lib-coverage@1.0.2':
+    optional: true
 
   '@vitest/istanbul-lib-report@1.0.2':
     dependencies:
       '@vitest/istanbul-lib-coverage': 1.0.2
+    optional: true
 
   '@vitest/mocker@5.0.5(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))':
     dependencies:
@@ -6092,6 +6064,7 @@ snapshots:
       '@jridgewell/trace-mapping': 0.3.31
       estree-walker: 3.0.3
       js-tokens: 10.0.0
+    optional: true
 
   atomic-sleep@1.0.0: {}
 
@@ -6650,7 +6623,8 @@ snapshots:
 
   joycon@3.1.1: {}
 
-  js-tokens@10.0.0: {}
+  js-tokens@10.0.0:
+    optional: true
 
   json-schema-ref-resolver@3.0.1:
     dependencies:
@@ -6803,6 +6777,7 @@ snapshots:
       '@babel/parser': 7.29.9
       '@babel/types': 7.29.8
       source-map-js: 1.2.2
+    optional: true
 
   math-intrinsics@1.1.0: {}
 

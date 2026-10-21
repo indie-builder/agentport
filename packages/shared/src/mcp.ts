@@ -4,7 +4,13 @@ import { z } from 'zod';
 export const serverKindSchema = z.enum(['stdio', 'http', 'generated']);
 export type ServerKind = z.infer<typeof serverKindSchema>;
 
-export const PREVIEW_SECRET = '<已配置>';
+export const SECRET_MASK = '••••';
+export const PREVIEW_SECRET = SECRET_MASK;
+
+/** 空值保留为空；已配置密钥不泄露长度或前缀。 */
+export function maskSecret(value: string | null | undefined): string {
+  return value ? SECRET_MASK : '';
+}
 
 /** Build an MCP entry with values supplied by the caller (masked, empty, or runtime secrets). */
 export function previewMcpEntry(

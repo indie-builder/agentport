@@ -103,7 +103,7 @@ jobs:
             sleep 2
           done
           curl -fsS http://localhost:3000/health/ready
-      # e2e 是主套件；Playwright 仍在迁移期并行运行（MIGRATION.md）。
+      # e2e 是唯一的主套件（Playwright 已退役）。
       - run: pnpm exec e2e run --reporter=list,junit
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -127,7 +127,10 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # 沙盒镜像的 Dockerfile 只复制 packages/sandbox/dist，不再在镜像内编译。
+      # 沙盒镜像的 Dockerfile 复制 dist/ 与 shared/，不在镜像内编译。
+      # runner 的 stdin 校验依赖 @agentport/shared，必须先把它的 dist 暂存进构建上下文。
       - run: pnpm --filter @agentport/sandbox build
+      - run: pnpm --filter @agentport/shared build
+      - run: rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
       - run: docker build -t agentport/api:ci .
       - run: docker build -t agentport/sandbox:ci packages/sandbox

@@ -39,6 +39,8 @@
 
 进程之间只通过 PostgreSQL、Redis、HTTP 通信，不共享内存对象。
 
+**关停顺序**（api）：收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`；关停与超时竞速，超时后强制关闭残留 socket。compose 的 `stop_grace_period` 为 30s。worker 退出时清扫自己遗留的工作区目录，仍为 running 的 run 由 reconciler 收敛。
+
 ## 2. 运行时拓扑
 
 ```
@@ -175,9 +177,45 @@ data/workspaces/<agent-slug>/<run-id>/
 | DB 为真相源，文件为快照 | 页面字段与文件一一对应；同一智能体可被其他 Host 直接使用 | 每次 run 都有渲染与写盘开销 |
 | 宿主目录 bind mount，不打进镜像 | 一个镜像服务所有智能体；改配置不需重建 | 只支持单机，workspace 必须与 worker 同机 |
 | 整个 runner 在容器内 | Agent SDK 自带的 sandbox 只隔离 shell，不能隔离 stdio MCP | 镜像体积更大；每次 run 启动容器 |
+| Redis 流契约只在 `shared/run-stream.ts` 定义 | api 与 worker 分属两个进程，键名/通道/取消载荷一旦漂移就是「事件写了没人读」这类静默故障；第 1 轮发现两处独立副本后收敛 | `@agentport/shared` 因此成为沙盒镜像的运行时依赖（见下） |
+| 审计写入支持 `dedupeKey` | BullMQ 基础设施重试会重放同一件事；没有幂等键时每次重试都多写一行审计 | 有键时用 `onConflictDoNothing` 而不是覆盖，重复上报被丢弃 |
 | 内置工具默认禁用 | 用户可配置任意 stdio server，必须收紧默认权限 | 需要显式绑定 MCP 才能做事 |
 | SSE 走 Redis Stream + pub/sub 唤醒 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库；每个观众一条独立订阅连接；唤醒丢失时最多 2 秒轮询延迟 |
 | api / worker 分进程 | 长任务不占 HTTP；队列消费可独立扩容 | 多一层队列与状态同步 |
+
+### 6.1 `shared/run-stream.ts`：跨进程的事件流契约
+
+沙盒事件的 Redis 布局由 `@agentport/shared` 的 `run-stream.ts` 唯一定义，**api 的 producer 与 worker 的
+消费/订阅两侧都必须从这里取，不得再写字符串副本**（第 1 轮只在 worker 换过来，第 2 轮补上 api，并加了
+一个 mock 值的契约测试证明 producer 真的在消费 shared 常量）。
+
+| 导出 | 作用 |
+|---|---|
+| `RUN_STREAM_MAXLEN`（1000） | `XADD` 的 `MAXLEN ~`，事件流按条数截断 |
+| `runStreamKey(runId)` | `run:<runId>:events`，SSE 回放的事件流 |
+| `runChannel(runId)` | `run:<runId>:events:wake`，pub/sub 唤醒通道（事件本体仍在 Stream 里） |
+| `runCancelKey(runId)` | `run:<runId>:cancel`，取消标记 |
+| `RUN_CANCEL_PAYLOAD` | 取消键的固定值 |
+| `runEnqueueOptions(jobId)` | BullMQ `jobId` + `attempts: 2` + 5s 指数退避 |
+
+流的 TTL（1 小时）在写入侧设置；`runChannel` 只负责「有新事件，去 XRANGE」，丢唤醒时靠 2 秒轮询兜底。
+
+### 6.2 审计幂等：`writeAudit(dedupeKey)`
+
+`packages/db/src/repo/audit.ts` 的 `writeAudit(db, logger, event)` 正常用 `newId('audit')` 生成主键。
+传 `dedupeKey` 时它**直接作为主键**并走 `onConflictDoNothing()`：重复上报同一件事只会保留第一行。
+worker 在 run 完成时传 `aud_<runId>`，因此 BullMQ 的基础设施重试重放同一个 job 不会写出多条「run 完成」审计。
+审计写失败只 `logger.warn`，不影响 run 的终态。
+
+### 6.3 沙盒镜像依赖 `@agentport/shared`
+
+runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`agentRunJobSchema`），所以该包是
+**镜像的运行时依赖**，不只是构建期依赖：
+
+- Dockerfile 复制 `dist/`、`shared/`（即 `packages/shared/dist`）与 `package.shared.json`（镜像内的独立 manifest）。
+- 构建脚本必须先构建 shared 并把 `packages/shared/dist` 复制到 `packages/sandbox/shared`，再 `docker build`；否则报 `COPY shared/: not found`，或镜像能构建但运行时报 `ERR_MODULE_NOT_FOUND`。
+- `packages/sandbox/.dockerignore` 单独放行这两个目录（根 `.dockerignore` 会排除 `**/dist`）。
+- 步骤见 [OPERATIONS.md §3.1](OPERATIONS.md#31-手动构建沙盒镜像)；`pnpm run up --rebuild` 已包含全部三步。
 | 单机优先，不抽象多机 | 少一层存储与服务发现 | 不能横向扩容 worker |
 | TypeID（`srv_`、`agt_`、`run_`…） | 可排序、日志与 URL 自解释 | 依赖 `typeid-js` |
 | 智能体版本快照 + 回滚 | 配置变更可追溯，回滚生成新版本 | 需维护保留策略 |

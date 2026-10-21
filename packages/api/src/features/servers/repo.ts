@@ -4,7 +4,7 @@ import type { Database } from '@agentport/db';
 import type { ServerRow } from '@agentport/db/repo/servers.js';
 import * as serverRepo from '@agentport/db/repo/servers.js';
 import type { ApiTool, ApiToolInput, Server, ServerInput } from '@agentport/shared';
-import { decryptSecrets, encryptSecrets, maskServer } from './secrets.js';
+import { decryptSecrets, encryptSecrets, maskServer, SECRET_MASK } from './secrets.js';
 
 type Db = Database;
 
@@ -160,7 +160,7 @@ export async function updateServer(
   ) => {
     if (!next) return prev;
     const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(next)) out[k] = v === '••••' ? (prev[k] ?? '') : v;
+    for (const [k, v] of Object.entries(next)) out[k] = v === SECRET_MASK ? (prev[k] ?? '') : v;
     return out;
   };
 

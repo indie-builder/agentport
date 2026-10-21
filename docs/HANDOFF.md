@@ -12,9 +12,9 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 |---|---|---|
 | 类型检查 | `pnpm typecheck` | ✅ 7 个包全部通过 |
 | 构建 | `pnpm build` | ✅ 全部通过；web 产物 669.63 kB（gzip 199.35 kB），仍有 >500 kB chunk 警告 |
-| Lint | `pnpm exec biome check .` | ❌ 170 文件中 2 errors + 1 warning：`chat.tsx` 的 `noArrayIndexKey`、`test-results/.last-run.json` 格式、`mcp-endpoint.ts` 未使用参数 `ctx` |
-| 单测/集成 | `pnpm test` | ✅ **18 个文件、104 个用例全部通过**（先 `docker compose stop worker`，Postgres/Redis 用 compose；worker 在跑时 chat/failure-paths/eval 的 19 个集成用例会按设计跳过，结果为 16 文件 / 85 通过 + 19 跳过） |
-| E2E | `pnpm test:e2e` | 本次未复跑（需 5173 + 3000）；`test-results/.last-run.json` 记录上次为 `passed`，`E2E_FULL=1` 才跑真实对话 |
+| Lint | `./node_modules/.bin/biome check packages/*/src packages/*/test` | 🟡 **154 个文件，1 warning、0 error**（`packages/worker/src/index.ts` 未使用的 `readdir` 导入，来自并行进行中的工作区清理改动；此前记录的 2 errors 已修） |
+| 单测/集成 | `pnpm test` | 🟡 **2026-10-21 10:28 实测：156/162 通过、6 失败**——失败集中在 `health.test.ts`（`/health/metrics` 鉴权）、`servers.test.ts`（token 脱敏）、`shared-contracts.test.ts`（env 脱敏），均为并行线上尚未合入的 `requireAuth` 与脱敏改动；全部合入后需重跑。同日上午的全量运行曾为 162/162（先 `docker stop agentport-worker-1`，`REDIS_URL=redis://:agentport-dev@localhost:6379 pnpm test`） |
+| E2E | `pnpm test:e2e` | 本次未复跑（`e2e run`，需 5173 + 3000；`E2E_FULL=1` 才跑真实对话链路） |
 | 部署自检 | `pnpm smoke` | ✅ `SMOKE OK`（本次实际对运行中的 compose 栈执行，含 `/mcp` 401 与带 token 的 `tools/list`） |
 | 基础设施 | `docker compose ps` | ✅ postgres/redis healthy；api/worker Up |
 | CI | `.github/workflows/ci.yml` | biome ci → typecheck → build → migrate → test；另含 e2e、docker 两个 job |
@@ -58,8 +58,8 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 11. **分支 UI 只能从最新消息分支**；API 支持 `fromMessageId`，UI 未暴露。
 12. **导入不携带子智能体与工具审批标记**；导入格式当前没有这两个字段。
 13. **Server 地址校验与连接之间的 DNS 重绑定窗口**仍靠网络层 allowlist 兜底。
-14. **读接口无限流**（`global: false`）；高并发下 Postgres 连接池是第一个瓶颈（OPERATIONS §8）。
-15. **`/health/*` 无鉴权**，状态页依赖这三个端点；不要直接暴露到公网。
+14. **限流已覆盖全部路由**：`plugins/security.ts` 注册 `global: true` 的 120/min 桶（按 IP），另有登录 10/min 等更严的按路由桶。高并发下 Postgres 连接池仍是第一个瓶颈（OPERATIONS §8）。
+15. **`/health/live`、`/health/ready` 无鉴权**（供容器探针）；`/health/metrics` 需要登录。不要把前两者暴露到公网。
 16. **运行详情「重新运行」只重发该 run 的第一条 user 消息**，不带当时的工具审批状态。
 17. **未实现**：浅色主题、RAG/知识库、多用户/RBAC、多机部署。
 
@@ -68,7 +68,7 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 1. 用真实业务 API 走一遍完整流程（建 server → 工具 → agent → 评估 → 运行详情 → `/status`）。
 2. ~~决定 M12 剩余项（模型凭证代理）~~ 已按 D-17 实现。
 3. 若要对外：先做按 agent 发 token 与读接口限流，再考虑 D-12 的 microVM。
-4. 修复上述 2 条 lint error 后，把 `pnpm exec biome check .` 接回零错误基线。
+4. ~~修复上述 2 条 lint error 后，把 `pnpm exec biome check .` 接回零错误基线。~~ 已完成：`biome check packages/*/src packages/*/test` 154 文件 0 error（当前 1 个未使用导入 warning，随并行改动合入后清除）。
 
 ## 如何继续
 

@@ -23,10 +23,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32),
   /** 逗号分隔的浏览器 Origin allowlist；开发默认 Vite dev server。 */
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
-  AGENT_DEFAULT_MODEL: z.string().default('claude-sonnet-5-5'),
-  AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
-  AGENT_MAX_BUDGET_USD: z.coerce.number().positive().default(2),
   /** 未批准的工具调用挂起多久（D-18）；超时按拒绝处理。0 表示立即拒绝。 */
   APPROVAL_WAIT_MS: z.coerce.number().int().nonnegative().default(300_000),
 });

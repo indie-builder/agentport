@@ -250,7 +250,7 @@ export function AgentsPage() {
               aria-busy={importing}
               onClick={() => fileInput.current?.click()}
             >
-              <Upload className="size-4" strokeWidth={1.75} /> {importing ? '导入中…' : '导入'}
+              <Upload className="size-4" /> {importing ? '导入中…' : '导入'}
             </Button>
             <Button
               ref={createButtonRef}
@@ -258,7 +258,7 @@ export function AgentsPage() {
               className="h-8 rounded-full px-3.5"
               onClick={() => setCreating(true)}
             >
-              <Plus className="size-4" strokeWidth={1.75} /> 新建智能体
+              <Plus className="size-4" /> 新建智能体
             </Button>
           </>
         }
@@ -716,7 +716,7 @@ function AgentEditor({
               '保存更改'
             ) : (
               <>
-                <Check className="size-3.5" strokeWidth={1.75} /> 已保存
+                <Check className="size-3.5" /> 已保存
               </>
             )}
           </Button>
@@ -727,12 +727,12 @@ function AgentEditor({
             title="版本历史"
             onClick={() => setHistoryOpen(true)}
           >
-            <History className="size-4" strokeWidth={1.75} />
+            <History className="size-4" />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-sm" aria-label="更多操作">
-                <Ellipsis className="size-4" strokeWidth={1.75} />
+                <Ellipsis className="size-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -741,12 +741,11 @@ function AgentEditor({
               className="w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
             >
               <DropdownMenuItem disabled={exporting} onSelect={() => void download()}>
-                <Download className="size-4" strokeWidth={1.75} />{' '}
-                {exporting ? '导出中…' : '导出 JSON'}
+                <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-line" />
               <DropdownMenuItem variant="destructive" onSelect={onDelete}>
-                <Trash2 className="size-4" strokeWidth={1.75} /> 删除智能体
+                <Trash2 className="size-4" /> 删除智能体
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -933,8 +932,7 @@ function AgentEditor({
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="flex items-center gap-1.5 text-xs text-muted">
-                      <Plug className="size-4 text-subtle" strokeWidth={1.75} aria-hidden="true" />{' '}
-                      MCP Servers
+                      <Plug className="size-4 text-subtle" aria-hidden="true" /> MCP Servers
                       <FileTag>→ .mcp.json · mcpServers.&lt;name&gt;</FileTag>
                     </h3>
                     <span className="font-mono text-2xs tabular-nums text-subtle">
@@ -970,12 +968,7 @@ function AgentEditor({
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="flex items-center gap-1.5 text-xs text-muted">
-                      <Sparkles
-                        className="size-4 text-subtle"
-                        strokeWidth={1.75}
-                        aria-hidden="true"
-                      />{' '}
-                      技能
+                      <Sparkles className="size-4 text-subtle" aria-hidden="true" /> 技能
                       <FileTag>→ .claude/skills/&lt;slug&gt;/SKILL.md</FileTag>
                     </h3>
                     <span className="font-mono text-2xs tabular-nums text-subtle">
@@ -1015,8 +1008,7 @@ function AgentEditor({
                 <div className="py-3">
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="flex items-center gap-1.5 text-xs text-muted">
-                      <Bot className="size-4 text-subtle" strokeWidth={1.75} aria-hidden="true" />{' '}
-                      子智能体
+                      <Bot className="size-4 text-subtle" aria-hidden="true" /> 子智能体
                       <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
                     </h3>
                     <span className="font-mono text-2xs tabular-nums text-subtle">
@@ -1285,7 +1277,7 @@ function AgentEditor({
               aria-label="关闭"
               className="-mr-1 rounded-[7px] p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
             >
-              <X className="size-4" strokeWidth={1.75} />
+              <X className="size-4" />
             </SheetClose>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -1344,7 +1336,6 @@ function Section({
                 'size-3.5 shrink-0 text-subtle transition-transform duration-150',
                 open && 'rotate-90',
               )}
-              strokeWidth={1.75}
               aria-hidden="true"
             />
             {title}
@@ -1384,7 +1375,6 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
             'size-3.5 shrink-0 text-subtle transition-transform duration-150',
             open && 'rotate-90',
           )}
-          strokeWidth={1.75}
           aria-hidden="true"
         />
         {title}
@@ -1512,7 +1502,7 @@ function FilesPreview({ agentId, dirty }: { agentId: string; dirty: boolean }) {
         items={fileTabs.map(([value, label, Icon]) => ({
           value,
           label,
-          icon: <Icon className="size-4" strokeWidth={1.75} />,
+          icon: <Icon className="size-4" />,
         }))}
       />
       {files.isPending ? <LoadingState rows={6} /> : null}
@@ -1681,13 +1671,12 @@ function VersionRow({
           >
             <ChevronRight
               className={cn('size-4 transition-transform', open && 'rotate-90')}
-              strokeWidth={1.75}
               aria-hidden="true"
             />
             {open ? '收起差异' : '查看差异'}
           </Button>
           <Button variant="outline" size="sm" className="rounded-full" onClick={onRollback}>
-            <RotateCcw className="size-4" strokeWidth={1.75} /> 回滚
+            <RotateCcw className="size-4" /> 回滚
           </Button>
         </div>
       </div>
