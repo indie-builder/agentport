@@ -416,34 +416,36 @@ function ServerRow({
       </TableCell>
       <TableCell>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label={`操作 ${server.name}`}>
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="ghost" size="icon-sm" aria-label={`操作 ${server.name}`}>
+                <MoreHorizontal className="size-4" />
+              </Button>
+            }
+          />
           <DropdownMenuContent
             align="end"
             sideOffset={4}
             className="w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
           >
-            <DropdownMenuItem disabled={testing} onSelect={onTest}>
+            <DropdownMenuItem disabled={testing} onClick={onTest}>
               <Plug className="size-4" /> {testing ? '测试中…' : '测试连接'}
             </DropdownMenuItem>
             {generated ? (
               <>
-                <DropdownMenuItem onSelect={onTools}>
+                <DropdownMenuItem onClick={onTools}>
                   <Wrench className="size-4" /> 工具定义
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={onConnection}>
+                <DropdownMenuItem onClick={onConnection}>
                   <KeyRound className="size-4" /> 连接信息
                 </DropdownMenuItem>
               </>
             ) : null}
             <DropdownMenuSeparator className="bg-line" />
-            <DropdownMenuItem onSelect={onEdit}>
+            <DropdownMenuItem onClick={onEdit}>
               <Pencil className="size-4" /> 编辑
             </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+            <DropdownMenuItem variant="destructive" onClick={onDelete}>
               <Trash2 className="size-4" /> 删除
             </DropdownMenuItem>
           </DropdownMenuContent>

@@ -1,7 +1,12 @@
-import { Popover as PopoverPrimitive } from 'radix-ui';
+import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import type * as React from 'react';
 import { cn } from '../../lib/cn.js';
 
+/**
+ * Popover（Base UI）。
+ * 结构：Root > Portal > Positioner（定位）> Popup（外观）。
+ * radix 的 Anchor 在 Base UI 里用 `anchor` prop 表达，本项目没有使用方，未保留。
+ */
 function Popover({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />;
 }
@@ -13,27 +18,36 @@ function PopoverTrigger({ ...props }: React.ComponentProps<typeof PopoverPrimiti
 function PopoverContent({
   className,
   align = 'center',
+  side,
   sideOffset = 4,
+  children,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: React.ComponentProps<typeof PopoverPrimitive.Popup> & {
+  align?: React.ComponentProps<typeof PopoverPrimitive.Positioner>['align'];
+  side?: React.ComponentProps<typeof PopoverPrimitive.Positioner>['side'];
+  sideOffset?: number;
+}) {
   return (
     <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content
-        data-slot="popover-content"
+      <PopoverPrimitive.Positioner
         align={align}
+        side={side}
         sideOffset={sideOffset}
-        className={cn(
-          'z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-card border border-line bg-surface p-3 text-fg shadow-overlay outline-hidden data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
-          className,
-        )}
-        {...props}
-      />
+        className="z-50"
+      >
+        <PopoverPrimitive.Popup
+          data-slot="popover-content"
+          className={cn(
+            'z-50 w-72 animate-in rounded-card border border-line bg-surface p-3 text-fg shadow-overlay fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[closed]:animate-out data-[closed]:fade-out-0 data-[closed]:zoom-out-95',
+            className,
+          )}
+          {...props}
+        >
+          {children}
+        </PopoverPrimitive.Popup>
+      </PopoverPrimitive.Positioner>
     </PopoverPrimitive.Portal>
   );
-}
-
-function PopoverAnchor({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
-  return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />;
 }
 
 function PopoverHeader({ className, ...props }: React.ComponentProps<'div'>) {
@@ -51,21 +65,7 @@ function PopoverTitle({ className, ...props }: React.ComponentProps<'h2'>) {
 }
 
 function PopoverDescription({ className, ...props }: React.ComponentProps<'p'>) {
-  return (
-    <p
-      data-slot="popover-description"
-      className={cn('text-muted-foreground', className)}
-      {...props}
-    />
-  );
+  return <p data-slot="popover-description" className={cn('text-muted', className)} {...props} />;
 }
 
-export {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-};
+export { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger };

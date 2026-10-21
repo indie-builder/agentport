@@ -339,11 +339,13 @@ export function DataTable<T>({
                 if (!open) setDragging(null);
               }}
             >
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="rounded-[7px]" aria-label="列设置">
-                  <Columns3 className="size-4" aria-hidden="true" />列
-                </Button>
-              </PopoverTrigger>
+              <PopoverTrigger
+                render={
+                  <Button variant="ghost" size="sm" className="rounded-[7px]" aria-label="列设置">
+                    <Columns3 className="size-4" aria-hidden="true" />列
+                  </Button>
+                }
+              />
               <PopoverContent align="end" aria-label="列设置" className="w-48 p-2">
                 <ColumnPicker columns={draggable} hidden={hiddenSet} toggle={toggle} />
               </PopoverContent>

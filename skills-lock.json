@@ -7,6 +7,12 @@
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "89496d5dd00f4810205f351759594fc2742bf8eea85a2f2b2d1de59f4bd91576"
     },
+    "migrate-radix-to-base": {
+      "source": "shadcn-ui/ui",
+      "sourceType": "github",
+      "skillPath": "skills/migrate-radix-to-base/SKILL.md",
+      "computedHash": "e1f2030ee5059be3dff0812ca0e4b995ee9fa3132176f049ebe6c90346a6755e"
+    },
     "shadcn": {
       "source": "shadcn-ui/ui",
       "sourceType": "github",

@@ -1315,8 +1315,8 @@ const ToolRow = memo(function ToolRow({
           aria-hidden="true"
         />
       </CollapsibleTrigger>
-      {/* forceMount：Radix 保留节点，高度补间仍由 Motion 负责。 */}
-      <CollapsibleContent forceMount>
+      {/* keepMounted：保留节点，高度补间仍由 Motion 负责。 */}
+      <CollapsibleContent keepMounted>
         <AnimatePresence initial={false}>
           {open ? (
             <motion.div

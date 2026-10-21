@@ -785,21 +785,23 @@ function AgentEditor({
             <History className="size-4" />
           </Button>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label="更多操作">
-                <Ellipsis className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="ghost" size="icon-sm" aria-label="更多操作">
+                  <Ellipsis className="size-4" />
+                </Button>
+              }
+            />
             <DropdownMenuContent
               align="end"
               sideOffset={4}
               className="w-40 rounded-[12px] border border-line bg-surface p-1 shadow-overlay"
             >
-              <DropdownMenuItem disabled={exporting} onSelect={() => void download()}>
+              <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
                 <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-line" />
-              <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
                 <Trash2 className="size-4" /> 删除智能体
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -1410,8 +1412,8 @@ function Section({
             </span>
           </CollapsibleTrigger>
         </h2>
-        {/* forceMount 保留 DOM（收起时 Radix 置 hidden）：校验错误仍能被 aria-describedby 找到。 */}
-        <CollapsibleContent forceMount>
+        {/* keepMounted 保留 DOM（收起时置 hidden）：校验错误仍能被 aria-describedby 找到。 */}
+        <CollapsibleContent keepMounted>
           <motion.div
             initial={false}
             animate={open ? { height: 'auto' } : { height: 0 }}
@@ -1447,7 +1449,7 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
         <span className="ml-auto font-mono text-2xs text-subtle">草稿 · 实时</span>
       </CollapsibleTrigger>
       {/* 高度动画由 motion 管，Radix 负责 open 状态和 trigger/content 的 aria 关联。 */}
-      <CollapsibleContent forceMount>
+      <CollapsibleContent keepMounted>
         <AnimatePresence initial={false}>
           {open ? (
             <motion.div
