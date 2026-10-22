@@ -7,11 +7,13 @@ import {
   type WorkspaceFiles,
 } from '@agentport/core/workspace';
 import {
+  AGENT_PACKAGE_MAX_BYTES,
   type Agent,
   type AgentInput,
   agentInputSchema,
   BUILTIN_TOOLS,
   type Server,
+  serializeAgentPackage,
 } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
@@ -224,16 +226,27 @@ export function AgentsPage() {
   const importFile = async (file: File): Promise<void> => {
     setImporting(true);
     try {
-      const data: unknown = JSON.parse(await file.text());
-      const result = await api.importAgent(data);
+      const isMarkdown = file.name.toLowerCase().endsWith('.md');
+      if (file.size > (isMarkdown ? 131072 : AGENT_PACKAGE_MAX_BYTES)) {
+        toastError(
+          new Error(
+            isMarkdown ? 'agent.md 不能超过 128 KB，请精简后重试。' : '导入文件不能超过 1 MiB。',
+          ),
+        );
+        return;
+      }
+      const text = await file.text();
+      const result = isMarkdown
+        ? await api.importAgentFile(text)
+        : await api.importAgent(JSON.parse(text));
       setSelectedId(result.agent.id);
       await Promise.all(
         ['agents', 'servers', 'skills', 'overview'].map((key) =>
           queryClient.invalidateQueries({ queryKey: [key] }),
         ),
       );
-      const suffix = result.warnings.length > 0 ? `，${result.warnings.length} 条提示` : '';
-      toastSuccess(`已导入「${result.agent.name}」${suffix}`);
+      toastSuccess(`已导入「${result.agent.name}」`);
+      for (const warning of result.warnings) toast.info(warning);
     } catch (error) {
       toastError(error);
     } finally {
@@ -294,7 +307,7 @@ export function AgentsPage() {
           <input
             ref={fileInput}
             type="file"
-            accept="application/json,.json"
+            accept="application/json,.json,text/markdown,.md"
             className="hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -304,6 +317,7 @@ export function AgentsPage() {
           />
           <Button
             variant="outline"
+            title="导入专家 JSON 或 agent.md"
             disabled={importing}
             aria-busy={importing}
             onClick={(event) => {
@@ -680,7 +694,7 @@ function AgentEditor({
     try {
       const data = await api.exportAgent(agent.id);
       const url = URL.createObjectURL(
-        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        new Blob([serializeAgentPackage(data)], { type: 'application/json' }),
       );
       const link = document.createElement('a');
       link.href = url;
@@ -729,8 +743,20 @@ function AgentEditor({
     [skills.data, form.skillIds],
   );
   const boundSubAgents = useMemo(
-    () => (agents.data ?? []).filter((item) => form.subAgentIds.includes(item.id)),
-    [agents.data, form.subAgentIds],
+    () =>
+      (agents.data ?? [])
+        .filter((item) => item.enabled && form.subAgentIds.includes(item.id))
+        .map((item) => ({
+          ...item,
+          effort: item.effort ?? null,
+          skills: (skills.data ?? []).filter((skill) => item.skillIds.includes(skill.id)),
+        })),
+    [agents.data, form.subAgentIds, skills.data],
+  );
+  // 下载入口只能指向已落盘的配置，不能跟着未保存的草稿走。
+  const savedSubAgents = useMemo(
+    () => (agents.data ?? []).filter((item) => item.enabled && agent.subAgentIds.includes(item.id)),
+    [agents.data, agent.subAgentIds],
   );
 
   const serverOptions = (servers.data ?? []).map((server) => ({
@@ -844,7 +870,16 @@ function AgentEditor({
       return;
     }
     update.mutate(
-      { id: agent.id, input: parsed.data, expectedUpdatedAt: agent.updatedAt },
+      {
+        id: agent.id,
+        // 全量表单保存时显式发 null，才能清空已设为「默认」的字段。
+        input: {
+          ...parsed.data,
+          effort: parsed.data.effort ?? null,
+          maxThinkingTokens: parsed.data.maxThinkingTokens ?? null,
+        },
+        expectedUpdatedAt: agent.updatedAt,
+      },
       {
         onSuccess: () => {
           setErrors({});
@@ -1449,6 +1484,38 @@ function AgentEditor({
                       。
                     </p>
                   </div>
+
+                  {savedSubAgents.length > 0 ? (
+                    <div className="py-3">
+                      <h3 className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <FileText className="size-4 text-subtle" aria-hidden="true" />{' '}
+                        已保存的子智能体文件
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {savedSubAgents.map((child) => (
+                          <Button
+                            key={child.id}
+                            variant="outline"
+                            size="sm"
+                            nativeButton={false}
+                            render={
+                              <a href={`/api/agents/${agent.id}/subagents/${child.id}/file`} />
+                            }
+                          >
+                            <Download />
+                            {child.slug}.md
+                          </Button>
+                        ))}
+                      </div>
+                      <p className="mt-1.5 text-2xs text-subtle">
+                        下载已保存的子定义；其中声明的技能文件与 MCP 连接配置仍需来自同一工作区。
+                        {form.subAgentIds.length !== agent.subAgentIds.length ||
+                        form.subAgentIds.some((id) => !agent.subAgentIds.includes(id))
+                          ? '当前草稿的子智能体绑定尚未保存，这里仍是已保存版本。'
+                          : ''}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <DraftPreview title="将写入 .mcp.json 与 frontmatter" code={fileDraft} />
@@ -1862,8 +1929,11 @@ function draftFiles(
     systemPrompt: string;
     maxTurns: number;
     timeoutMs: number;
+    permissionMode: string;
+    effort?: string | null;
     allowedTools: string[];
     disallowedTools: string[];
+    skills?: Array<{ slug: string; name: string; description: string; body: string }>;
   }>,
 ): WorkspaceFiles {
   return renderWorkspace({
@@ -1885,7 +1955,7 @@ function draftFiles(
       entry: previewEntry(server),
     })),
     skills,
-    subAgents: subAgents.map((sub) => ({ ...sub, effort: null })),
+    subAgents,
     ...(form.allowedTools.length > 0 ? { toolsAllow: form.allowedTools } : {}),
     ...(form.disallowedTools.length > 0 ? { toolsDeny: form.disallowedTools } : {}),
   });

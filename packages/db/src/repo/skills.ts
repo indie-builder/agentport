@@ -1,7 +1,9 @@
-import { asc, count, eq } from 'drizzle-orm';
+import { AppError } from '@agentport/core';
+import { and, asc, count, eq, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentSkills, skills } from '../schema.js';
+import { notStale } from './freshness.js';
 
 export type SkillRow = typeof skills.$inferSelect;
 
@@ -51,12 +53,25 @@ export async function updateSkill(
   db: Database,
   id: string,
   patch: Partial<SkillWrite>,
+  expectedUpdatedAt?: Date,
 ): Promise<SkillRow | null> {
   const [row] = await db
     .update(skills)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(eq(skills.id, id))
+    .set({
+      ...patch,
+      // 版本按毫秒比较，同一毫秒内的连续更新也要推进，否则旧 token 仍会命中。
+      updatedAt: sql`greatest(now(), date_trunc('milliseconds', ${skills.updatedAt}) + interval '1 millisecond')`,
+    })
+    .where(
+      expectedUpdatedAt === undefined
+        ? eq(skills.id, id)
+        : and(eq(skills.id, id), notStale(skills.updatedAt, expectedUpdatedAt)),
+    )
     .returning();
+  // 条件更新落空且行还在 = 并发修改；行没了交给路由返回 404。
+  if (!row && expectedUpdatedAt !== undefined && (await getSkill(db, id))) {
+    throw new AppError('CONFLICT_STALE', '技能已被修改，请刷新后重试');
+  }
   return row ?? null;
 }
 

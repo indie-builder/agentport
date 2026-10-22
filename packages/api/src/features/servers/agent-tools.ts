@@ -14,8 +14,13 @@ export interface AgentToolSpec {
 }
 
 export interface AgentInvoker {
-  /** 执行一次智能体，返回最终文本；失败抛错。 */
-  invoke(input: { slug: string; prompt: string; timeoutMs?: number }): Promise<string>;
+  /** 执行一次智能体，返回最终文本；失败抛错。signal 中止时不得启动或需终止已创建的 run。 */
+  invoke(input: {
+    slug: string;
+    prompt: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  }): Promise<string>;
 }
 
 function toolName(slug: string): string {
@@ -36,12 +41,16 @@ export function buildAgentServer(specs: AgentToolSpec[], invoker: AgentInvoker):
           type: 'object',
           properties: {
             prompt: { type: 'string', description: '给智能体的任务描述' },
-            timeoutMs: { type: 'number', description: '超时毫秒数，默认 10 分钟' },
+            timeoutMs: {
+              type: 'number',
+              description: '超时毫秒数，默认 10 分钟',
+              exclusiveMinimum: 0,
+            },
           },
           required: ['prompt'],
         }),
       },
-      async (args: { prompt?: unknown; timeoutMs?: unknown }) => {
+      async (args: { prompt?: unknown; timeoutMs?: unknown }, ctx) => {
         const prompt = typeof args.prompt === 'string' ? args.prompt : '';
         if (prompt.length === 0) {
           return { content: [{ type: 'text', text: 'prompt is required' }], isError: true };
@@ -50,6 +59,8 @@ export function buildAgentServer(specs: AgentToolSpec[], invoker: AgentInvoker):
           const text = await invoker.invoke({
             slug: spec.slug,
             prompt,
+            // 客户端断开（tools/call 取消）时 SDK 通过 ctx.mcpReq.signal 通知，run 必须随之停下。
+            signal: ctx.mcpReq.signal,
             ...(typeof args.timeoutMs === 'number' ? { timeoutMs: args.timeoutMs } : {}),
           });
           return { content: [{ type: 'text', text }] };

@@ -3,7 +3,6 @@ import type { NodeIncomingMessageLike, NodeServerResponseLike } from '@modelcont
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { runMcp } from '../../plugins/concurrency.js';
 import { reject } from '../../plugins/errors.js';
 import { mcpRateLimit } from '../../plugins/security.js';
 import type { AgentInvoker } from './agent-tools.js';
@@ -47,12 +46,10 @@ export function registerAgentToolsEndpoint(app: FastifyInstance, invoker: AgentI
       const handler = toNodeHandler(agentHandler(invoker, rows), {
         onerror: (err) => app.log.error({ err }, 'platform mcp endpoint error'),
       });
-      await runMcp(() =>
-        handler(
-          request.raw as unknown as NodeIncomingMessageLike,
-          reply.raw as unknown as NodeServerResponseLike,
-          request.body,
-        ),
+      await handler(
+        request.raw as unknown as NodeIncomingMessageLike,
+        reply.raw as unknown as NodeServerResponseLike,
+        request.body,
       );
     },
   );

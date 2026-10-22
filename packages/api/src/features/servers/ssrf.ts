@@ -116,6 +116,9 @@ export async function assertSafeUrl(
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     fail('INVALID_URL', '仅支持 http/https 地址');
   }
+  if (url.username || url.password) {
+    fail('INVALID_URL', 'URL不能包含账号密码，请通过加密headers配置凭证');
+  }
   const host = url.hostname.replace(/^\[|\]$/g, '');
   if (isDevLocal(host, nodeEnv)) return;
 

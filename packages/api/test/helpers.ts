@@ -178,11 +178,12 @@ export async function seedRun(
     agentId,
   ]);
   await app.pool.query(
-    'insert into agent_runs (id, conversation_id, agent_id, mcp_token_hash, mcp_token_expires_at) values ($1, $2, $3, $4, $5)',
+    'insert into agent_runs (id, conversation_id, agent_id, status, mcp_token_hash, mcp_token_expires_at) values ($1, $2, $3, $4, $5, $6)',
     [
       runId,
       conversationId,
       agentId,
+      'running',
       options.mcpTokenHash ?? null,
       options.mcpTokenHash === undefined ? null : new Date(Date.now() + 5 * 60_000),
     ],

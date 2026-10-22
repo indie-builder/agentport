@@ -82,6 +82,7 @@ jobs:
       E2E_ADMIN_USER: admin
       E2E_ADMIN_PASSWORD: ci-admin-password
       RATE_LIMIT_DISABLED: '1'
+      E2E_WORKER_PAUSED: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -99,7 +100,7 @@ jobs:
       # 预先启动会在 5173 上撞车并报 APP_ALREADY_RUNNING）。
       - name: Start api
         run: |
-          pnpm --filter @agentport/api --filter @agentport/worker dev > dev.log 2>&1 &
+          pnpm --filter @agentport/api dev > dev.log 2>&1 &
           for _ in $(seq 1 90); do
             if curl -fsS http://localhost:3000/health/ready >/dev/null 2>&1; then break; fi
             sleep 2

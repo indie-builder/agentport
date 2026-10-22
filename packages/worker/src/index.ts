@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { chmod, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
-import type { McpJsonEntry } from '@agentport/core';
+import type { McpJsonEntry, WorkspaceSkill } from '@agentport/core';
 import {
   decryptSecrets,
   hashMcpToken,
@@ -12,10 +12,9 @@ import {
   WORKSPACE_DIR_MODE,
   WORKSPACE_FILE_MODE,
 } from '@agentport/core';
-import { createDb, newId, repo, schema } from '@agentport/db';
+import { createDb, repo, schema } from '@agentport/db';
 import {
   agentRunJobSchema,
-  type ChatEvent,
   EVAL_RUNS_QUEUE,
   evalRunJobSchema,
   previewMcpEntry,
@@ -24,12 +23,12 @@ import {
   wireFailureKind,
 } from '@agentport/shared';
 import { Worker } from 'bullmq';
-import { and, asc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
 import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
 import { startMaintenanceWorker } from './maintenance.js';
-import { buildMessageRows } from './messages.js';
+import { persistRunMessages } from './messages.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
 import { startReconciler } from './reconcile.js';
 import type { SandboxRunOutcome } from './runner-client.js';
@@ -83,6 +82,8 @@ const provider = new DockerSandboxProvider({
 
 type ServerRow = typeof schema.servers.$inferSelect;
 type AgentRow = typeof schema.agents.$inferSelect;
+/** 子智能体行带上自己的技能；根智能体的技能单独传，避免混进根配置。 */
+type SubAgentRow = AgentRow & { skills?: WorkspaceSkill[] };
 
 function toEntry(
   server: ServerRow,
@@ -119,7 +120,7 @@ async function writeWorkspace(
   runId: string,
   servers: Array<{ name: string; entry: McpJsonEntry }>,
   skills: Array<{ slug: string; name: string; description: string; body: string }>,
-  subAgents: AgentRow[],
+  subAgents: SubAgentRow[],
 ): Promise<{ dir: string; hasSubAgents: boolean }> {
   const files = renderWorkspace(toWorkspaceInput({ agent, servers, skills, subAgents }));
 
@@ -163,34 +164,6 @@ async function writeWorkspace(
     'workspace permissions applied',
   );
   return { dir, hasSubAgents: files.subAgents.length > 0 };
-}
-
-/** 事件流 → 消息行：assistant 文本按块存，工具调用存成 tool 消息。 */
-async function persistRunMessages(
-  db: ReturnType<typeof createDb>['db'],
-  input: { conversationId: string; runId: string; events: ChatEvent[] },
-): Promise<void> {
-  const rows = buildMessageRows(input.events);
-
-  // BullMQ 重试会重放同一 run：先删本 run 已落库的输出再写，避免重复消息。
-  // 用户消息也带 run_id，但由 API 写入，重试时不能删。
-  // 一次 insert 多行：一次运行可能有上千条消息，逐行写是上千次往返。
-  const CHUNK = 500;
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(schema.messages)
-      .where(and(eq(schema.messages.runId, input.runId), ne(schema.messages.role, 'user')));
-    for (let i = 0; i < rows.length; i += CHUNK) {
-      const values = rows.slice(i, i + CHUNK).map((row) => ({
-        id: newId('message'),
-        conversationId: input.conversationId,
-        role: row.role,
-        content: row.content,
-        runId: input.runId,
-      }));
-      if (values.length > 0) await tx.insert(schema.messages).values(values);
-    }
-  });
 }
 
 /** 本机代理常监听 127.0.0.1，容器内该地址指向容器自身；改写成宿主别名。 */
@@ -344,7 +317,7 @@ const worker = new Worker(
         .limit(1);
       if (!agent) throw new Error(`agent ${agentId} not found`);
 
-      const timeoutMs = agent.timeoutMs || config.AGENT_TIMEOUT_MS;
+      const timeoutMs = agent.timeoutMs;
       // 按 run 签发短期 token：DB 只存 hash，明文只在本工作区的 .mcp.json 里。
       // 过期时间比 run 超时多 5 分钟，避免收尾阶段请求被截断。
       const runToken = randomBytes(32).toString('base64url');
@@ -374,11 +347,20 @@ const worker = new Worker(
         .where(eq(schema.agentSkills.agentId, agentId));
 
       // 单层委派：只取直接子智能体；enabled 过滤在 toWorkspaceInput 里统一做。
-      const subAgentRows = await db
+      const subAgentRows: SubAgentRow[] = await db
         .select()
         .from(schema.agents)
         .where(eq(schema.agents.parentId, agentId))
         .orderBy(asc(schema.agents.id));
+      // 子智能体的技能也要落盘，否则它们的 md 里声明的 skills 无从加载。
+      const childSkills = await repo.agents.getBoundSkillsByAgentIds(
+        db,
+        subAgentRows.filter((row) => row.enabled).map((row) => row.id),
+      );
+      const subAgents = subAgentRows.map((row) => ({
+        ...row,
+        skills: childSkills.get(row.id) ?? [],
+      }));
 
       const { dir: workspaceDir, hasSubAgents } = await writeWorkspace(
         agent,
@@ -388,7 +370,7 @@ const worker = new Worker(
           entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId, runToken),
         })),
         skillRows,
-        subAgentRows,
+        subAgents,
       );
       workspaceDirForRun = workspaceDir;
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');
@@ -405,6 +387,7 @@ const worker = new Worker(
           maxBudgetUsd: Number(agent.maxBudgetUsd),
           permissionMode: agent.permissionMode,
           mcpServers: rows.map(({ server }) => server.name),
+          skills: skillRows.map((skill) => skill.slug),
           ...(agent.allowedTools.length > 0 ? { extraAllowedTools: agent.allowedTools } : {}),
           ...(agent.disallowedTools.length > 0
             ? { extraDisallowedTools: agent.disallowedTools }
@@ -442,6 +425,7 @@ const worker = new Worker(
     // "worker lost track of this run"，真实原因反而被覆盖。记日志，继续写终态。
     try {
       await persistRunMessages(db, {
+        agentId,
         conversationId,
         runId,
         events: outcome.events,
@@ -598,6 +582,7 @@ const stopReconciler = startReconciler({
   db,
   logger,
   agentTimeoutMs: config.AGENT_TIMEOUT_MS,
+  redisUrl: config.REDIS_URL,
 });
 
 installProcessGuards(logger);

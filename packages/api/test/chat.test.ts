@@ -3,6 +3,7 @@ import { chatEventSchema } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildMessageRows } from '../../worker/src/messages.js';
+import { getQueue } from '../src/queue/producer.js';
 import {
   cleanup,
   createAgent,
@@ -31,6 +32,13 @@ describe.skipIf(!ready)('chat', () => {
   });
 
   afterAll(async () => {
+    // waiting 的 job 不会自行过期；只清理本文件创建的 run。
+    for (const runId of runIds) {
+      await getQueue()
+        .getJob(runId)
+        .then((job) => job?.remove())
+        .catch(() => undefined);
+    }
     await cleanup(app, { agentSlugs: createdAgents, runIds, serverNames: createdServers });
     await app.close();
   });
@@ -156,6 +164,10 @@ describe.skipIf(!ready)('chat', () => {
       "insert into messages (id, conversation_id, role, content) values ('msg_history_test', $1, 'assistant', $2)",
       [firstBody.conversationId, JSON.stringify({ type: 'text', text: 'noted' })],
     );
+    await app.pool.query(
+      "update agent_runs set status = 'succeeded', ended_at = now() where id = $1",
+      [firstBody.runId],
+    );
 
     const second = await inject(app, {
       method: 'POST',
@@ -167,10 +179,10 @@ describe.skipIf(!ready)('chat', () => {
         message: 'and now?',
       },
     });
+    expect(second.statusCode, second.body).toBe(202);
     const secondBody = second.json<{ runId: string }>();
     runIds.push(secondBody.runId);
 
-    const { getQueue } = await import('../src/queue/producer.js');
     const job = await getQueue().getJob(secondBody.runId);
     const history = (job?.data as { history?: string } | undefined)?.history ?? '';
     expect(history).toContain('用户：remember this');
@@ -249,6 +261,10 @@ describe.skipIf(!ready)('chat', () => {
     await app.pool.query(
       'insert into approval_requests (id, run_id, server_id, tool_name, approved_at) values ($1, $2, $3, $4, now())',
       [unique('apr'), firstBody.runId, serverId, 'approved-tool'],
+    );
+    await app.pool.query(
+      "update agent_runs set status = 'failed', ended_at = now() where id = $1",
+      [firstBody.runId],
     );
 
     const second = await inject(app, {
@@ -331,5 +347,94 @@ describe.skipIf(!ready)('chat', () => {
       [runId],
     );
     expect(row.rows[0]?.status).toBe('cancelled');
+  });
+
+  const cancelAuditCount = async (runId: string): Promise<number> => {
+    const res = await app.pool.query<{ count: string }>(
+      "select count(*) from audit_log where action = 'agent.run.cancelled' and target = $1",
+      [runId],
+    );
+    return Number(res.rows[0]?.count);
+  };
+
+  const runStatus = async (runId: string): Promise<string | undefined> => {
+    const row = await app.pool.query<{ status: string }>(
+      'select status from agent_runs where id = $1',
+      [runId],
+    );
+    return row.rows[0]?.status;
+  };
+
+  it('cancel of a queued run removes the waiting job so it never reaches a worker', async () => {
+    const agent = await newAgent();
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: { agentId: agent.id, message: 'never run' },
+    });
+    const { runId } = created.json<{ runId: string }>();
+    runIds.push(runId);
+    expect(await getQueue().getJob(runId)).toBeDefined();
+
+    const res = await inject(app, {
+      method: 'POST',
+      url: `/api/chat/${runId}/cancel`,
+      headers: auth(),
+    });
+    expect(res.statusCode, res.body).toBe(202);
+    expect(await runStatus(runId)).toBe('cancelled');
+    expect(await getQueue().getJob(runId)).toBeUndefined();
+    expect(await cancelAuditCount(runId)).toBe(1);
+  });
+
+  it('second cancel of a queued run is idempotent and leaves no job behind', async () => {
+    const agent = await newAgent();
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: { agentId: agent.id, message: 'cancel twice' },
+    });
+    const { runId } = created.json<{ runId: string }>();
+    runIds.push(runId);
+
+    for (let i = 0; i < 2; i += 1) {
+      const res = await inject(app, {
+        method: 'POST',
+        url: `/api/chat/${runId}/cancel`,
+        headers: auth(),
+      });
+      expect(res.statusCode, res.body).toBe(202);
+      expect(res.json()).toEqual({ ok: true });
+    }
+
+    expect(await runStatus(runId)).toBe('cancelled');
+    expect(await getQueue().getJob(runId)).toBeUndefined();
+    expect(await cancelAuditCount(runId)).toBe(1);
+  });
+
+  it('cancel of a running run keeps the queued job untouched', async () => {
+    const agent = await newAgent();
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/chat',
+      headers: auth(),
+      payload: { agentId: agent.id, message: 'already running' },
+    });
+    const { runId } = created.json<{ runId: string }>();
+    runIds.push(runId);
+    // 直接把 DB 状态改成 running：模拟 worker 已领取，job 不再是 waiting。
+    await app.pool.query("update agent_runs set status = 'running' where id = $1", [runId]);
+
+    const res = await inject(app, {
+      method: 'POST',
+      url: `/api/chat/${runId}/cancel`,
+      headers: auth(),
+    });
+    expect(res.statusCode, res.body).toBe(202);
+    expect(await runStatus(runId)).toBe('cancelled');
+    expect(await getQueue().getJob(runId)).toBeDefined();
+    expect(await cancelAuditCount(runId)).toBe(1);
   });
 });

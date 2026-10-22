@@ -1,6 +1,6 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { RefreshCw } from 'lucide-react';
-import { useDeferredValue } from 'react';
+import { Download, RefreshCw } from 'lucide-react';
+import { useDeferredValue, useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
@@ -8,7 +8,7 @@ import { SearchInput } from '../components/search-input.js';
 import { ErrorState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
-import type { AuditEntry, AuditStatus } from '../lib/api.js';
+import { type AuditEntry, type AuditStatus, api } from '../lib/api.js';
 import {
   auditStatusLabel,
   auditStatusVariant,
@@ -17,6 +17,7 @@ import {
   shortId,
 } from '../lib/format.js';
 import { useAudit } from '../lib/queries.js';
+import { toastError } from '../lib/toast.js';
 
 const statusOptions: Array<{ value: AuditStatus | 'all'; label: string }> = [
   { value: 'all', label: '全部状态' },
@@ -96,33 +97,74 @@ export function AuditPage() {
   const search = useSearch({ from: '/shell/audit' });
   const action = search.action ?? '';
   const status = search.status ?? 'all';
+  const target = search.target ?? '';
+  const [exporting, setExporting] = useState(false);
   const deferredAction = useDeferredValue(action.trim());
+  const deferredTarget = useDeferredValue(target.trim());
   const audit = useAudit({
     ...(deferredAction ? { action: deferredAction } : {}),
     ...(status === 'all' ? {} : { status }),
+    ...(deferredTarget ? { target: deferredTarget } : {}),
   });
 
   const rows = audit.data?.pages.flatMap((page) => page.items) ?? [];
-  const filtered = Boolean(deferredAction) || status !== 'all';
-  const searchPending = action.trim() !== deferredAction;
+  const filtered = Boolean(deferredAction) || status !== 'all' || Boolean(deferredTarget);
+  const searchPending = action.trim() !== deferredAction || target.trim() !== deferredTarget;
+
+  const exportAudit = async (): Promise<void> => {
+    setExporting(true);
+    try {
+      // 与表格使用同一份延迟筛选值，避免刚输入就导出时导出旧条件。
+      const data = await api.exportAudit({
+        ...(deferredAction ? { action: deferredAction } : {}),
+        ...(status === 'all' ? {} : { status }),
+        ...(deferredTarget ? { target: deferredTarget } : {}),
+      });
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'audit.json';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <Page>
       <PageHeader
         title="审计"
         actions={
-          <Button
-            variant="outline"
-            onClick={() => void audit.refetch()}
-            disabled={audit.isFetching}
-          >
-            <RefreshCw
-              data-icon="inline-start"
-              className={audit.isFetching ? 'animate-spin' : undefined}
-              aria-hidden="true"
-            />
-            {audit.isFetching ? '刷新中…' : '刷新'}
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              onClick={() => void exportAudit()}
+              disabled={exporting || searchPending}
+              title={searchPending ? '等待筛选生效后再导出' : undefined}
+            >
+              <Download data-icon="inline-start" aria-hidden="true" />
+              {exporting ? '导出中…' : '导出审计'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void audit.refetch()}
+              disabled={audit.isFetching}
+            >
+              <RefreshCw
+                data-icon="inline-start"
+                className={audit.isFetching ? 'animate-spin' : undefined}
+                aria-hidden="true"
+              />
+              {audit.isFetching ? '刷新中…' : '刷新'}
+            </Button>
+          </>
         }
       />
 
@@ -135,6 +177,19 @@ export function AuditPage() {
             void navigate({
               to: '/audit',
               search: { ...search, action: value || undefined },
+              replace: true,
+            })
+          }
+          className="w-full sm:w-56"
+        />
+        <SearchInput
+          label="按目标精确筛选"
+          placeholder="目标，如 agent:123"
+          value={target}
+          onChange={(value) =>
+            void navigate({
+              to: '/audit',
+              search: { ...search, target: value || undefined },
               replace: true,
             })
           }

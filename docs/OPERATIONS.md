@@ -240,7 +240,23 @@ docker compose start api worker
 - 恢复会**清空并替换**目标库，所以要先 `docker compose stop api worker`；同库恢复不需要事先创建空库。
 - 保持原来的 `APP_SECRET_KEY`。换了主密钥，`servers.secrets_encrypted` 无法解密，所有 MCP 密钥需要重新填写。
 - 恢复后 `pnpm db:migrate` 只为补齐备份之后新增的迁移。
-- 如果只恢复单个智能体，用「智能体 → 导出 / 导入」（`agentport/agent@1` JSON）；导出不含密钥明文，只含键名，导入后要重新填写。
+- 集成测试使用固定APP_SECRET_KEY，禁止与使用本地密钥的验收数据共用数据库；独立测试库先迁移，再以DATABASE_URL覆盖运行`pnpm test`。否则连接器列表会因无法解密其他密钥写入的数据返回500；保留真实数据，不用忽略解密错误或清空库绕过。
+- URL中不能写username/password；新建、编辑和两类导入均拒绝。旧记录在列表/导出/预览显示掩码，测试连接会在传输前返回固定错误；数据库不自动改写。需改为无内嵌凭证的URL并在加密headers中配置认证后保存，详见D-33。
+- 连接器页「导入 .mcp.json」接受≤1MiB、1–100条HTTP/stdio配置；env/headers加密保存，响应只给密钥键名。任一重名整批409不覆盖；未知字段、未支持transport、`${VAR}`占位符及URL内嵌凭证明确拒绝。HTTP仍校验SSRF；导入不测试连接或执行命令，详见D-32。
+- 专家页「导入」同时接受专家JSON与≤128KiB的agent.md。Markdown只导入name/description/model/maxTurns/effort及完整正文（含H1），创建独立专家与初始版本；重名409不覆盖，不自动运行。权限和绑定使用平台默认值并提示，inherit及未支持的权限/Hook字段明确拒绝，详见D-30。
+- 技能页「导入 SKILL.md」接受≤128KiB文件，解析官方YAML frontmatter的name/description与Markdown正文；首个H1用作显示名。重名返回409且不覆盖；license/compatibility/metadata会提示未保存，尚未接入的Hooks/工具权限/model等行为字段会明确拒绝。保留当前项目500字符描述及命名规则，超限不截断。
+- 审计加载更多使用beforeId记录游标，数据库按原始(created_at,id)比较，同一时间超过一页也不漏记录；before继续表示独立时间范围。游标记录被清理后需刷新；审计导出共用过滤，仍以1000条为上限，超限拒绝。
+- 概览窗口与专家Token总量在加法前转bigint、汇总后转JSON数字，避免int32溢出；单条25亿和累计30亿已验证，超过JavaScript安全整数上限2^53-1的累计不保证精度。
+- 运行历史展开后可「导出结果」，仅终态开放，包含已记录的用例文本、输出与通过情况；最多500条且≤1MiB，超限明确拒绝。agentport/eval-run@1标记configurationPinned=false，专家配置未冻结，文件不构成完整复现包；提示词可能包含敏感内容，分享前自行检查，详见D-38。
+- 会话详情接口支持limit（默认50、最大100）与before消息ID，返回按时间正序的最近一页和nextBefore；nextBefore为null表示没有更早消息。未知/其他会话游标返回400，历史被清理后应刷新重新加载；分支复制、评估与平台调用的内部历史读取仍完整，详见D-40。
+- worker持久化输出时按专家→会话→运行锁序检查running；终态先提交则不追加/替换晚到输出，已有历史保留。落库先完成则取消等待其提交；这不撤回已发出的SSE或外部请求，详见D-41。
+- 同一会话已有queued/running时，聊天提交返回409并保留既有运行；等待完成或取消后重发。会话行锁保证HTTP入场互斥，历史和用户消息同事务写入；不同会话继续并行，既有重复运行不自动清理，详见D-39。
+- 评估页可导入/导出 `agentport/eval@1` JSON，只含用例name/prompt/expectation和导出时间；显式选择目标专家，同名跳过并告警。单文件≤500条且≤1MiB，导入不启动评估；超限导出留在页面提示错误，不截断。导入与单条CRUD并发不承诺名称全局唯一，详见D-24。
+- 单个技能可在资源中心「技能 → 操作 → 导出 SKILL.md」下载；内容与专家工作区预览一致。安装到其他 Claude Code/Agent SDK 工作区时，放到 `.claude/skills/<frontmatter中的name>/SKILL.md`；这是单文件下载，不是完整工作区或支持资源目录包。
+- 专家JSON包新增直接subAgents及其资源并集，根serverNames/skillSlugs保持自身绑定，最多20个直接子定义、100项连接器与100项技能；导入事务内为根和子定义创建新ID与最终版本，同slug后缀提示，不改挂已有专家。旧文件无名称引用时仍将包内资源绑定到根，旧subAgentIds继续告警不绑定；悬空引用与嵌套定义拒绝。子server绑定作为配置保存，执行仍按既有父工作区工具继承，详见D-37。
+- 专家JSON包导入导出统一1MiB UTF8上限，API与浏览器使用同一下载排版；导出过大在下载前409拒绝，不截断内容，导入恰好上限接受、多一字节413。既有workspace和子定义字段保留；旧非法凭证URL等历史数据仍需人工修正，详见D-53。
+- 专家PATCH只更新明确提交的字段，不带版本的不同字段并发各自保留，同字段后写优先；带expectedUpdatedAt仍按毫秒单调版本检查冲突，版本快照记录最终提交状态，详见D-52/D-54。
+- 如果只恢复单个智能体，用「专家 → 导出 / 导入」（`agentport/agent@1` JSON）；生成式连接器包含工具定义、启用状态与审批标记，导出不含密钥明文或服务令牌，只含密钥键名，导入后要重新填写。同名同类型连接器会复用并保留原工具；文件携带的工具不覆盖已有配置，导入提示会说明。旧文件缺少 tools 时仍可导入。
 
 ### 3.3 恢复演练记录（2026-10-20）
 
@@ -293,9 +309,22 @@ pnpm --filter @agentport/worker maintenance
 
 ### 4.3 会话与运行
 
-- 事件流在 Redis 中保留 1 小时（`run:<runId>:events`，最多 1000 条），过期后不能回放，但 `messages` 仍可还原主线。
+- 评估历史「比较运行」选择同专家两个终态批次，按结果快照中的用例ID对齐；仅在两边都有快照且prompt/expectation相同时显示改善/退步。输入变更、旧记录或重复身份另标；单边无结果也可能是批次未执行完成，不代表用例增删。专家配置未固定，比较不等于完整可复现。
+- 评估页「停止后续用例」将批次置为cancelled并保留已有结果；重复请求幂等，晚到进度/完成不能覆盖。当前用例可能仍执行至完成或超时并产生费用，停止不等同于即时终止沙盒，不提供恢复。迁移0023扩展eval_runs状态约束。
+- 评估提交时冻结本次用例数组与total；worker按冻结的提示词/期望执行，结果保留原文，后续编辑或删除用例不会改写新批次历史。迁移0022新增eval_runs/eval_results的case_snapshot列；旧记录不回填，专家配置/技能/连接器仍未冻结。
+- `/chat?agent=<id>&conversation=<id>`保留专家和会话选择；刷新、前进后退恢复已保存历史，服务端会话归属优先于链接中的专家参数。新建会话清除conversation，首次发送获id后replace写入URL；链接本身不创建运行、不恢复SDK会话。浏览其他历史只关闭客户端事件流，不等同取消服务端运行；离开后的迟到提交响应不会把界面拉回，运行结束后会刷新会话及历史列表缓存。
+- 对话历史的操作菜单支持重命名持久化会话：标题去除首尾空白、1–128字符；只更新标题，不修改消息、归属或最近消息时间。脏草稿退出须确认，提交中不可关闭。
+- MCP上游执行每API进程4槽、排队最多8项，满额返回可重试错误；审批等待独立4槽，满额立即返回需批准而非排队。握手/SSE/平台invoke不占上游槽，invoke仍保留既有4并发入场；多进程不共享全局容量，详见D-36。
+- 工具审批只接受running状态的运行；API在事务内锁定运行行再批准，与取消/终态更新串行。queued及终态返回409，不写批准时间；重复批准保留首次时间。等待中的同一次MCP调用可继续，无需重发消息。聊天结束后停止审批轮询，终态详情只显示失效说明。
+- 审批是有超时的调用内等待；0024新增expires_at，服务端返回waiting并区分当前等待与后续调用许可。过期批准仍可用于后续调用，不会恢复已超时的旧调用；截止前后都检查期限（包括读取批准状态之后）。期限不证明沙盒仍在线，不提供跨重启检查点；API与数据库时钟需保持同步。
+- 事件流在 Redis 中保留 1 小时（`run:<runId>:events`，约 1000 条），首次回放受8MiB上限约束；保留裁剪或字节裁剪返回独立提示。裁剪运行结束后页面读取该run已保存步骤恢复本轮尾部，保留已加载旧历史；保存缺失或读取失败则保留部分输出并提示。过期流仍需从历史查看，不等于SDK会话恢复，详见D-50。
+- 已订阅运行每2秒非重叠检查数据库终态：结束事件缺失时发terminal_missing标记后补终态，页面读取已保存步骤；若确认运行行已消失，则发run_unavailable并关闭，页面保留已接收文本、释放忙碌、不伪造结果。初次请求不存在仍404，数据库查询失败继续固定警告重试，详见D-58/D-60。
+- 普通聊天入队失败只将仍queued的运行收口为failed/infra，用户消息保留，可重提；固定503及统一安全日志不附原始队列cause，认领/终态保留。数据库收尾失败可能等待既有协调清理，详见D-59。
+- 连接器编辑与token轮换共用行锁内合并，避免并发覆盖或旧token复活；提交expectedUpdatedAt过期返回409且保留最新配置，版本时间至少前进一毫秒。省略版本仍是同字段后写优先，详见D-51。
 - 终态 run 及其消息会被每日维护任务按 `RETAIN_RUN_DAYS` 清理；`/api/runs` 只展示仍保留的数据。
-- 取消一个 queued 的 run 只会标记终态，worker 消费时会跳过；取消 running 的 run 会向容器发 SIGTERM。
+- 取消queued运行会写入终态并尽力移除等待job；worker若先认领则转入running取消路径，发布停止键与信号供沙盒异步终止，已发出的上游请求不保证撤回。
+- 平台MCP的timeoutMs必须是正有限数，等待时间最长30分钟；截止会取消对应运行，不只断开等待。入队失败返回固定错误并仅将仍queued的运行收口为failed/infra，已认领或终态不被覆盖；数据库或Redis故障可能推迟清理，详见D-47。
+- 评估入队失败返回固定503，仅收口尚未认领的running批次并尽力移除job；已认领或终态保留。数据库收尾失败时可取消或等待既有一小时清理；Redis命令故障可能推迟响应，错误日志不携带原始队列cause，详见D-56。
 
 ## 5. 故障排查
 
@@ -320,7 +349,7 @@ pnpm --filter @agentport/worker maintenance
 | generated server 在沙盒内 401 | run 的短期 token 已过期/被清空，或 `.mcp.json` 未带上 `x-agentport-run-id` | 确认 run 仍为 `running`；不要手工改工作区文件；run 结束后短期 token 必然失效，属预期 |
 | worker 退出并报 `Invalid environment` | `.env` 缺少必填项或长度不足 | 按报错里的字段名补齐；`APP_SECRET_KEY`、`JWT_SECRET` ≥32，`ADMIN_PASSWORD` ≥12 且不是常见默认口令 |
 | 运行超时 | `timeoutMs` 太小、模型慢、工具上游慢 | 运行详情看 `latencyMs` 与最后一步；调大智能体的 `timeoutMs`；检查上游 API 延迟 |
-| 评估跑批一直 `running` | 跑批在 worker 的 `eval-runs` 队列串行执行；worker 未运行、重启或 job 丢失会让它停在 running | 确认 worker 在运行；超过 1 小时的 running 会被 reconciler 置为 `failed`（`eval run lost`），之后重新发起跑批 |
+| 评估跑批一直 `running` | 跑批在 worker 的 `eval-runs` 队列串行执行；job 真正丢失才会永久停在 running | 确认 worker 在运行；超过 1 小时只成为候选，reconciler 会核对 eval 队列，waiting/delayed/active 仍保留，仅 job 缺失或已终结才置 `failed`（`eval run lost`）；不要仅因耗时超过一小时手动重发 |
 
 常用观察命令：
 
@@ -352,7 +381,7 @@ docker ps --filter name=agentport-
 | api 日志 | pino JSON（生产）/ pino-pretty（开发）；按路由模板记录，>2s 记 `slow request`，SSE 不打慢请求 | stdout |
 | worker 日志 | 结构化 JSON；每步带 `runId`，容器 stderr 以 `sandbox` 字段转发 | stdout |
 
-审计动作包括：`auth.login.succeeded`、`auth.login.failed`、`auth.logout`、`server.created/updated/deleted`、`mcp.server.tested`、`server.tool.created/updated/deleted`、`agent.created/updated/deleted/rolled_back/imported`、`skill.created/updated/deleted`、`agent.run.requested/approved/cancelled/finished`、`conversation.branched`、`eval.case.created/updated/deleted`、`eval.run.requested`、`maintenance.pruned`。审计只存输入摘要（SHA-256 前 32 位），不存原文。
+审计动作包括：`auth.login.succeeded`、`auth.login.failed`、`auth.logout`、`server.created/updated/deleted`、`mcp.server.tested`、`server.tool.created/updated/deleted`、`agent.created/updated/deleted/rolled_back/imported`、`skill.created/updated/deleted/imported`、`agent.run.requested/approved/cancelled/finished`、`conversation.branched/renamed`、`eval.case.created/updated/deleted`、`eval.cases.imported`、`eval.run.requested/cancelled`、`maintenance.pruned`。审计只存输入摘要（SHA-256 前 32 位），不存原文。
 
 ## 7. 性能备注
 

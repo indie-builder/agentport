@@ -76,12 +76,17 @@ const skillsRoute = createRoute({
 const chatRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/chat',
+  validateSearch: z.object({
+    agent: z.string().min(1).optional().catch(undefined),
+    conversation: z.string().min(1).optional().catch(undefined),
+  }),
   component: ChatPage,
 });
 
 const auditSearchSchema = z.object({
   action: z.string().optional().catch(undefined),
   status: z.enum(['ok', 'error', 'denied']).optional().catch(undefined),
+  target: z.string().optional().catch(undefined),
 });
 
 const auditRoute = createRoute({

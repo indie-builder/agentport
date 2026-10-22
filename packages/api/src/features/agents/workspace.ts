@@ -1,7 +1,7 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
 import { renderWorkspace, toWorkspaceInput } from '@agentport/core';
 import * as agentRepo from '@agentport/db/repo/agents.js';
-import { SECRET_MASK } from '@agentport/shared';
+import { maskUrlCredentials, SECRET_MASK } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { str, strArray } from '../servers/repo.js';
 import { decryptSecrets } from '../servers/secrets.js';
@@ -42,7 +42,11 @@ function toEntry(row: ServerRow, secretKeys: string[]): McpJsonEntry {
   }
 
   if (row.kind === 'http') {
-    return { type: 'http', url: str(config.url), headers: maskValues(secretKeys) };
+    return {
+      type: 'http',
+      url: maskUrlCredentials(str(config.url)),
+      headers: maskValues(secretKeys),
+    };
   }
 
   return {
@@ -67,6 +71,13 @@ export async function renderAgentWorkspace(
     agentRepo.getBoundSkills(app.db, agent.id),
     agentRepo.listSubAgents(app.db, agent.id),
   ]);
+  // 停用的子智能体不渲染，也不查它们的技能。
+  const enabledChildIds = subAgentRows.filter((row) => row.enabled).map((row) => row.id);
+  const childSkills = await agentRepo.getBoundSkillsByAgentIds(app.db, enabledChildIds);
+  const subAgents = subAgentRows.map((row) => ({
+    ...row,
+    skills: childSkills.get(row.id) ?? [],
+  }));
   const servers = rows.map((row) => {
     // 只传键名，值没有离开过加密列的解密结果，更不会进 API 响应。
     const secretKeys = row.secretsEncrypted
@@ -80,7 +91,7 @@ export async function renderAgentWorkspace(
       agent,
       servers,
       skills,
-      subAgents: subAgentRows,
+      subAgents,
     }),
   );
 }

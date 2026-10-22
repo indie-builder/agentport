@@ -1,5 +1,10 @@
 import { createInterface } from 'node:readline';
-import { agentInputSchema, agentRunJobSchema, permissionModeSchema } from '@agentport/shared';
+import {
+  agentInputSchema,
+  agentRunJobSchema,
+  permissionModeSchema,
+  slugSchema,
+} from '@agentport/shared';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { composePrompt } from './prompt.js';
 
@@ -56,6 +61,8 @@ const runnerTaskSchema = agentRunJobSchema.pick({ prompt: true, history: true })
   effort: agentInputSchema.shape.effort,
   maxThinkingTokens: agentInputSchema.shape.maxThinkingTokens,
   allowSubAgents: agentInputSchema.shape.enabled.removeDefault().optional(),
+  /** 本平台缺省转为 []；SDK 自身省略该选项时沿用 CLI 默认。 */
+  skills: slugSchema.array().optional(),
 });
 
 type RunnerTask = ReturnType<typeof runnerTaskSchema.parse>;
@@ -211,6 +218,8 @@ try {
       permissionMode: task.permissionMode ?? 'dontAsk',
       allowedTools,
       disallowedTools: [...new Set(disallowedTools)],
+      // SDK 自己按名字补 Skill(name) 权限；这里不要放通配的 Skill。
+      skills: task.skills ?? [],
       includePartialMessages: true,
       maxTurns: task.maxTurns ?? 20,
       maxBudgetUsd: task.maxBudgetUsd ?? 2,

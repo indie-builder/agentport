@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, like, lt, type SQL } from 'drizzle-orm';
+import { and, desc, eq, like, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
@@ -69,9 +69,13 @@ export interface AuditQuery {
   /** 动作前缀，例如 `auth.login`。 */
   action?: string;
   status?: AuditStatus;
+  /** 精确匹配资源 ID。 */
+  target?: string;
   limit?: number;
-  /** 只取该时间之前的事件，用于「加载更多」。 */
+  /** 独立时间范围：只取该时间之前的事件。 */
   before?: Date;
+  /** 分页时间戳由记录ID在库内读取，保留微秒精度。 */
+  beforeId?: string;
 }
 
 export interface AuditEntry {
@@ -100,7 +104,8 @@ const columns = {
 };
 
 export async function listAudit(db: Database, query: AuditQuery = {}): Promise<AuditEntry[]> {
-  const limit = Math.min(Math.max(query.limit ?? 100, 1), 200);
+  // 只保证非负；上限由各调用方按自己的契约检查，避免把超限探测悄悄截断。
+  const limit = Math.min(Math.max(query.limit ?? 100, 1), 1001);
   const filters: SQL[] = [];
   if (query.action) {
     // 转义 LIKE 通配符，保持「前缀」语义。
@@ -108,9 +113,14 @@ export async function listAudit(db: Database, query: AuditQuery = {}): Promise<A
     filters.push(like(auditLog.action, `${prefix}%`));
   }
   if (query.status) filters.push(eq(auditLog.status, query.status));
-  // 游标用严格小于：同一毫秒内的多条事件可能被跳过，审计页可接受。
-  // shortcut: 时间戳游标不处理并列，需要精确分页时改成 (created_at, id) 游标。
+  if (query.target) filters.push(eq(auditLog.target, query.target));
+  // 时间戳游标用严格小于：调用方明确要求按时间筛选时，并列行由 beforeId 处理。
   if (query.before) filters.push(lt(auditLog.createdAt, query.before));
+  if (query.beforeId) {
+    filters.push(sql`(${auditLog.createdAt}, ${auditLog.id}) < (
+      select cursor.created_at, cursor.id from ${auditLog} cursor where cursor.id = ${query.beforeId}
+    )`);
+  }
 
   return db
     .select(columns)
@@ -118,4 +128,9 @@ export async function listAudit(db: Database, query: AuditQuery = {}): Promise<A
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
     .limit(limit);
+}
+
+export async function auditEntryExists(db: Database, id: string): Promise<boolean> {
+  const rows = await db.select({ id: auditLog.id }).from(auditLog).where(eq(auditLog.id, id));
+  return rows.length > 0;
 }

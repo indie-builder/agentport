@@ -284,13 +284,14 @@ export function OverviewPage() {
   const fallback = overview.data === null;
   const servers = useQuery({ ...serversQuery, enabled: fallback });
   const agents = useQuery({ ...agentsQuery, enabled: fallback });
-  const runs = useRuns({ limit: 50 });
+  const runs = useRuns({ limit: 50 }, fallback);
 
   const counts = overview.data?.counts ?? {
     servers: servers.data?.length ?? 0,
     agents: agents.data?.length ?? 0,
     runs: null,
     running: null,
+    failed: 0,
   };
   const recent = overview.data?.recent ?? runs.data?.items ?? null;
   const agentRows = overview.data?.agents ?? null;
@@ -320,6 +321,7 @@ export function OverviewPage() {
   const windowLabel = overview.data?.window
     ? `最近 ${overview.data.window.days} 天`
     : '统计窗口未提供';
+  const failedCount = counts.failed ?? 0;
 
   return (
     <Page>
@@ -366,11 +368,22 @@ export function OverviewPage() {
             {[
               { label: '专家', value: counts.agents, hint: '已配置的专家', icon: Bot },
               { label: '连接器', value: counts.servers, hint: '已接入的工具服务', icon: Server },
-              { label: '运行次数', value: counts.runs ?? '—', hint: windowLabel, icon: Activity },
+              {
+                label: '运行次数',
+                value: counts.runs ?? '—',
+                hint:
+                  counts.runs === null || counts.runs === undefined
+                    ? windowLabel
+                    : `${windowLabel} · ${failedCount} 次失败`,
+                icon: Activity,
+              },
               {
                 label: '运行成本',
                 value: counts.costUsd === undefined ? '—' : formatCost(counts.costUsd),
-                hint: windowLabel,
+                hint:
+                  counts.tokens === undefined
+                    ? windowLabel
+                    : `${windowLabel} · ${formatTokens(counts.tokens)} tokens`,
                 icon: Sparkles,
               },
             ].map(({ label, value, hint, icon: Icon }) => (
@@ -441,6 +454,20 @@ export function OverviewPage() {
                       <AttentionRow key={item.id} item={item} />
                     ))}
                   </div>
+                ) : failedCount > 0 && recent ? (
+                  <PageNote
+                    tone="danger"
+                    title={`窗口内有 ${failedCount} 次失败运行`}
+                    description="最近 20 条中没有失败；到运行列表查看全部"
+                    action={
+                      <Link
+                        to="/runs"
+                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                      >
+                        查看运行
+                      </Link>
+                    }
+                  />
                 ) : (
                   <PageNote title="暂无待处理的失败运行" />
                 )}

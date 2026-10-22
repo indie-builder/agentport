@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { fail, isAppError, parseMcpJson } from '@agentport/core';
 import type { ApiToolPatch } from '@agentport/db/repo/servers.js';
 import {
   apiToolInputSchema,
@@ -67,6 +67,24 @@ function notFound(reply: FastifyReply, what: 'server' | 'tool') {
   );
 }
 
+/**
+ * `.mcp.json` 的原文先过字节上限，再交给 core 的白名单解析器。
+ * 解析失败统一变成字段级 INVALID_INPUT，handler 里不再 safeParse。
+ */
+const importFileSchema = z
+  .object({ mcpJson: z.string().max(1_048_576) })
+  .transform(({ mcpJson }, ctx) => {
+    try {
+      return parseMcpJson(mcpJson);
+    } catch (err) {
+      if (!isAppError(err)) throw err;
+      ctx.addIssue({ code: 'custom', path: ['mcpJson'], message: err.message });
+      return z.NEVER;
+    }
+  });
+
+const IMPORT_WARNINGS = ['仅导入连接配置；未测试连接或执行命令，请检查后再使用。'];
+
 /** server 名有唯一索引（23505）→ 409。 */
 function rethrowConflict(err: unknown): never {
   if (isPgCode(err, '23505')) fail('CONFLICT', '该名称已被其他 MCP Server 占用，请换一个');
@@ -103,6 +121,37 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
           requestId: request.id,
         });
         return reply.status(201).send(created);
+      } catch (err) {
+        rethrowConflict(err);
+      }
+    },
+  );
+
+  /**
+   * 原生 `.mcp.json` 批量导入：先整批校验（含 SSRF），再在一个事务里全部写入。
+   * bodyLimit 放宽到 8 MiB，因为 1 MiB 的 JSON 文本被转义成字符串后可能接近 4 倍；
+   * 真正的上限由 schema 的 mcpJson 字节数约束。
+   */
+  app.post(
+    '/api/servers/import-file',
+    { ...auth, bodyLimit: 8 * 1024 * 1024, schema: { body: importFileSchema } },
+    async (request, reply) => {
+      const inputs = request.body;
+      // http 地址在写库前逐条检查；stdio 不执行、不联网。
+      for (const input of inputs) {
+        if (input.kind === 'http') await assertSafeUrl(input.url, app.config.NODE_ENV);
+      }
+      try {
+        const servers = await repo.createServers(app.db, inputs, key());
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'server.imported',
+          // 批次没有单一目标；审计只存摘要，配置与密钥原文都不入库。
+          input: { count: servers.length, names: servers.map((server) => server.name) },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return reply.status(201).send({ servers, warnings: IMPORT_WARNINGS });
       } catch (err) {
         rethrowConflict(err);
       }
