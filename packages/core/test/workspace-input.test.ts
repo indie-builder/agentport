@@ -124,6 +124,38 @@ describe('toWorkspaceInput', () => {
     expect(noSub.claudeMd).not.toContain('等待规则');
   });
 
+  it('tells the agent to invoke skills with the native Skill tool', () => {
+    const files = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow(),
+        servers: servers('<已配置>'),
+        skills: [
+          { slug: 'release-notes', name: 'Release notes', description: '写发布说明', body: '步骤' },
+        ],
+        subAgents: [],
+      }),
+    );
+    // Read 在默认禁用列表里，指向 .claude/skills 的路径指令会变成死路。
+    expect(files.claudeMd).toContain('`Skill` 工具');
+    expect(files.claudeMd).toContain('`release-notes`');
+    expect(files.claudeMd).not.toContain('读取 `.claude/skills/');
+    // 技能文件内容不变：渲染只影响说明文字。
+    expect(files.skills[0]?.content).toContain('步骤');
+    // 没有 MCP server 但有技能时，不能声称「没有可调用的工具」。
+    const noMcp = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow(),
+        servers: [],
+        skills: [
+          { slug: 'release-notes', name: 'Release notes', description: '写发布说明', body: '步骤' },
+        ],
+        subAgents: [],
+      }),
+    );
+    expect(noMcp.claudeMd).not.toContain('没有可调用的工具');
+    expect(noMcp.claudeMd).toContain('可用能力只有下方列出的技能');
+  });
+
   it('tells the sub-agent it is being waited on', () => {
     const files = renderWorkspace(
       toWorkspaceInput({
@@ -136,6 +168,66 @@ describe('toWorkspaceInput', () => {
     const child = files.subAgents[0]?.content ?? '';
     expect(child).toContain('同步调用');
     expect(child).toContain('最多等你 120 秒');
+  });
+
+  it('unions root and child skills into workspace files, deduped by slug', () => {
+    const skill = (slug: string) => ({
+      slug,
+      name: slug,
+      description: `${slug} 描述`,
+      body: '步骤',
+    });
+    const files = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow(),
+        servers: servers('<已配置>'),
+        skills: [skill('root-skill'), skill('shared-skill')],
+        subAgents: [
+          agentRow({ slug: 'active-child', skills: [skill('shared-skill'), skill('child-skill')] }),
+        ],
+      }),
+    );
+    expect(files.skills.map((s) => s.slug)).toEqual(['root-skill', 'shared-skill', 'child-skill']);
+    // 父智能体的说明只列自己的技能；子技能仍落盘供子智能体使用。
+    expect(files.claudeMd).toContain('`root-skill`');
+    expect(files.claudeMd).toContain('`shared-skill`');
+    expect(files.claudeMd).not.toContain('child-skill');
+    expect(files.agentMd).not.toContain('child-skill');
+    // 子智能体 md 只声明自己的技能，供 SDK 原生 Skill 加载。
+    expect(files.subAgents[0]?.content).toContain('skills: ["shared-skill", "child-skill"]');
+    expect(files.subAgents[0]?.content).not.toContain('root-skill');
+  });
+
+  it('excludes skills of disabled children from workspace files', () => {
+    const files = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow(),
+        servers: servers('<已配置>'),
+        skills: [],
+        subAgents: [
+          agentRow({
+            slug: 'disabled-child',
+            enabled: false,
+            skills: [{ slug: 'off-skill', name: 'Off', description: '停用', body: '步骤' }],
+          }),
+        ],
+      }),
+    );
+    expect(files.skills).toEqual([]);
+    expect(files.subAgents).toEqual([]);
+    expect(files.claudeMd).not.toContain('off-skill');
+  });
+
+  it('leaves children without skills unchanged', () => {
+    const files = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow(),
+        servers: servers('<已配置>'),
+        skills: [],
+        subAgents: [agentRow({ slug: 'legacy-child' })],
+      }),
+    );
+    expect(files.subAgents[0]?.content).not.toContain('skills:');
   });
 
   it('always disallows Agent/TaskStop in sub-agent files, even if the DB value omits them', () => {

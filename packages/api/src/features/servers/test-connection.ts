@@ -83,7 +83,36 @@ export interface SelfMcp {
 
 interface ConnectResult {
   serverInfo?: { name: string; version: string };
-  tools: Array<{ name: string; description?: string }>;
+  tools: ServerTestResult['tools'];
+}
+
+/**
+ * 测试结果会原样进入 API 响应，工具目录是唯一由上游控制的变长部分：
+ * 超限时明确失败，不做静默截断，否则用户会以为工具真的只有这些。
+ *
+ * shortcut: SDK 的 listTools 先分页拉全再返回，内存已在 SDK 内占用；
+ * 这里限制的是回给浏览器的响应大小，不是上游传输量。
+ */
+const MAX_TOOLS = 1000;
+const MAX_TOOLS_BYTES = 1_048_576;
+
+type CatalogTool = ServerTestResult['tools'][number];
+
+function toToolCatalog(listed: { tools: ReadonlyArray<CatalogTool> }): ServerTestResult['tools'] {
+  // 只回传契约里的四个字段：icons/_meta/annotations/outputSchema 等不进响应。
+  const tools = listed.tools.map((t) => ({
+    name: t.name,
+    ...(t.title !== undefined ? { title: t.title } : {}),
+    ...(t.description !== undefined ? { description: t.description } : {}),
+    ...(t.inputSchema !== undefined ? { inputSchema: t.inputSchema } : {}),
+  }));
+  if (tools.length > MAX_TOOLS) {
+    throw new Error(`工具目录过大（${tools.length} 个工具，上限 ${MAX_TOOLS}），已拒绝返回`);
+  }
+  if (Buffer.byteLength(JSON.stringify(tools)) > MAX_TOOLS_BYTES) {
+    throw new Error(`工具目录超过 ${MAX_TOOLS_BYTES} 字节上限，已拒绝返回`);
+  }
+  return tools;
 }
 
 /**
@@ -113,12 +142,13 @@ function connectAndList(
     }).pipe(Effect.timeout(TIMEOUT_MS));
 
     const version = client.getServerVersion();
+    const tools = yield* Effect.try({
+      try: () => toToolCatalog(listed),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    });
     return {
       ...(version ? { serverInfo: { name: version.name, version: version.version } } : {}),
-      tools: listed.tools.map((t) => ({
-        name: t.name,
-        ...(t.description !== undefined ? { description: t.description } : {}),
-      })),
+      tools,
     };
   });
 }

@@ -1,6 +1,6 @@
 import { AppError } from '@agentport/core';
 import type { Agent, AgentInput } from '@agentport/shared';
-import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentServers, agentSkills, agents, servers, skills } from '../schema.js';
@@ -69,6 +69,58 @@ export async function getAgent(db: Database | Tx, id: string): Promise<AgentRow 
   return row ?? null;
 }
 
+/**
+ * 绑定变更串行化：路由里的预检是快路径，并发下两个请求可能都通过，
+ * 所以写事务再拿同一把 advisory 锁并复查。只保护绑定，不阻塞普通字段更新。
+ */
+async function lockSubAgentBindings(
+  tx: Tx,
+  selfId: string | null,
+  subAgentIds: string[],
+): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport.subagent-bindings'))`);
+  if (new Set(subAgentIds).size !== subAgentIds.length) {
+    throw new AppError('INVALID_INPUT', '同一个智能体被重复选为子智能体，请去掉重复项');
+  }
+  if (selfId !== null && subAgentIds.includes(selfId)) {
+    throw new AppError('INVALID_INPUT', '智能体不能把自己设为子智能体');
+  }
+  if (selfId !== null) {
+    const self = await getAgent(tx, selfId);
+    if (self?.parentId != null && subAgentIds.length > 0) {
+      throw new AppError('INVALID_INPUT', 'a sub-agent cannot have its own sub-agents');
+    }
+  }
+  if (subAgentIds.length === 0) return;
+  const rows = await tx
+    .select({ id: agents.id, name: agents.name, parentId: agents.parentId })
+    .from(agents)
+    .where(inArray(agents.id, subAgentIds));
+  if (rows.length !== subAgentIds.length) {
+    throw new AppError('INVALID_INPUT', '选中的子智能体已被删除，请刷新后重新选择');
+  }
+  for (const row of rows) {
+    if (row.parentId !== null && row.parentId !== selfId) {
+      throw new AppError(
+        'INVALID_INPUT',
+        `「${row.name}」已经是其他智能体的子智能体；只支持一层委派`,
+      );
+    }
+  }
+  const nested = await tx
+    .select({ parentId: agents.parentId })
+    .from(agents)
+    .where(inArray(agents.parentId, subAgentIds))
+    .limit(1);
+  if (nested.length > 0) {
+    const row = rows.find((candidate) => candidate.id === nested[0]?.parentId);
+    throw new AppError(
+      'INVALID_INPUT',
+      `「${row?.name ?? nested[0]?.parentId}」自己还有子智能体；只支持一层委派，请先解除它的子智能体`,
+    );
+  }
+}
+
 export async function createAgent(
   db: Database,
   input: AgentWrite,
@@ -79,12 +131,20 @@ export async function createAgent(
   const id = newId('agent');
   const [row] = await retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
+      if (subAgentIds.length > 0) await lockSubAgentBindings(tx, id, subAgentIds);
       const inserted = await tx
         .insert(agents)
         .values({ id, ...input })
         .returning();
       if (subAgentIds.length > 0) {
-        await tx.update(agents).set({ parentId: id }).where(inArray(agents.id, subAgentIds));
+        const claimed = await tx
+          .update(agents)
+          .set({ parentId: id })
+          .where(inArray(agents.id, subAgentIds))
+          .returning({ id: agents.id });
+        if (claimed.length !== subAgentIds.length) {
+          throw new AppError('INVALID_INPUT', '选中的子智能体已被删除，请刷新后重新选择');
+        }
       }
       if (serverIds.length > 0) {
         await tx
@@ -116,13 +176,19 @@ export async function updateAgent(
 ): Promise<AgentRow | null> {
   return retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
+      // 锁和复查必须在 UPDATE 之前：拿到锁后再读，读到的才是最终状态。
+      if (subAgentIds !== undefined) await lockSubAgentBindings(tx, id, subAgentIds);
       const where =
         expectedUpdatedAt === undefined
           ? eq(agents.id, id)
           : and(eq(agents.id, id), notStale(agents.updatedAt, expectedUpdatedAt));
       const [row] = await tx
         .update(agents)
-        .set({ ...patch, updatedAt: new Date() })
+        .set({
+          ...patch,
+          // 版本按毫秒比较，同一毫秒内的连续更新也要推进，否则旧 token 仍会命中。
+          updatedAt: sql`greatest(now(), date_trunc('milliseconds', ${agents.updatedAt}) + interval '1 millisecond')`,
+        })
         .where(where)
         .returning();
       if (!row) {
@@ -138,7 +204,14 @@ export async function updateAgent(
           .set({ parentId: null })
           .where(and(eq(agents.parentId, id), ne(agents.id, id)));
         if (subAgentIds.length > 0) {
-          await tx.update(agents).set({ parentId: id }).where(inArray(agents.id, subAgentIds));
+          const claimed = await tx
+            .update(agents)
+            .set({ parentId: id })
+            .where(inArray(agents.id, subAgentIds))
+            .returning({ id: agents.id });
+          if (claimed.length !== subAgentIds.length) {
+            throw new AppError('INVALID_INPUT', '选中的子智能体已被删除，请刷新后重新选择');
+          }
         }
       }
       if (serverIds !== undefined) {
@@ -157,11 +230,9 @@ export async function updateAgent(
             .values(skillIds.map((skillId) => ({ agentId: id, skillId })));
         }
       }
-      const [nextServerIds, nextSkillIds, nextSubAgentIds] = await Promise.all([
-        serverIds === undefined ? getAgentServerIds(tx, id) : Promise.resolve(serverIds),
-        skillIds === undefined ? getAgentSkillIds(tx, id) : Promise.resolve(skillIds),
-        subAgentIds === undefined ? getAgentSubAgentIds(tx, id) : Promise.resolve(subAgentIds),
-      ]);
+      const nextServerIds = serverIds ?? (await getAgentServerIds(tx, id));
+      const nextSkillIds = skillIds ?? (await getAgentSkillIds(tx, id));
+      const nextSubAgentIds = subAgentIds ?? (await getAgentSubAgentIds(tx, id));
       await insertAgentVersion(
         tx,
         id,
@@ -305,11 +376,26 @@ export async function getBoundSkills(
   db: Database,
   agentId: string,
 ): Promise<Array<typeof skills.$inferSelect>> {
+  return (await getBoundSkillsByAgentIds(db, [agentId])).get(agentId) ?? [];
+}
+
+/** 批量取多个 agent 绑定的技能：子智能体技能只查一次，不按行发 SQL。 */
+export async function getBoundSkillsByAgentIds(
+  db: Database,
+  agentIds: string[],
+): Promise<Map<string, Array<typeof skills.$inferSelect>>> {
+  const out = new Map<string, Array<typeof skills.$inferSelect>>();
+  if (agentIds.length === 0) return out;
   const rows = await db
-    .select({ skill: skills })
+    .select({ agentId: agentSkills.agentId, skill: skills })
     .from(agentSkills)
     .innerJoin(skills, eq(agentSkills.skillId, skills.id))
-    .where(eq(agentSkills.agentId, agentId))
-    .orderBy(asc(skills.slug));
-  return rows.map(({ skill }) => skill);
+    .where(inArray(agentSkills.agentId, agentIds))
+    .orderBy(asc(agentSkills.agentId), asc(skills.slug));
+  for (const row of rows) {
+    const list = out.get(row.agentId);
+    if (list) list.push(row.skill);
+    else out.set(row.agentId, [row.skill]);
+  }
+  return out;
 }

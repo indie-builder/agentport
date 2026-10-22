@@ -6,7 +6,6 @@ import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { runMcp } from '../../plugins/concurrency.js';
 import { reject } from '../../plugins/errors.js';
 import { mcpRateLimit } from '../../plugins/security.js';
 import { typed } from '../../types.js';
@@ -48,11 +47,14 @@ function handlerFor(app: FastifyInstance, serverId: string, runId: string | null
         ? {}
         : {
             refreshApprovals: () => repo.runs.getApprovedToolNames(app.db, trustedRunId, serverId),
-            onApprovalRequired: (toolName) =>
+            // run 结束后挂起的调用要立刻停下，不能等批准或把请求发到上游。
+            isRunActive: () => repo.runs.isRunActive(app.db, trustedRunId),
+            onApprovalRequired: (toolName, expiresAt) =>
               repo.runs.requestApproval(app.db, {
                 runId: trustedRunId,
                 serverId,
                 toolName,
+                expiresAt,
               }),
           }),
     });
@@ -116,13 +118,11 @@ export function registerMcpEndpoint(rawApp: FastifyInstance): void {
       const nodeHandler = toNodeHandler(handlerFor(app, serverId, runId), {
         onerror: (err) => app.log.error({ err, ...fields }, 'mcp endpoint error'),
       });
-      await runMcp(() =>
-        nodeHandler(
-          // Node 的 IncomingMessage.method 类型是 string | undefined，适配器按可选字段声明。
-          request.raw as unknown as NodeIncomingMessageLike,
-          reply.raw as unknown as NodeServerResponseLike,
-          request.body,
-        ),
+      await nodeHandler(
+        // Node 的 IncomingMessage.method 类型是 string | undefined，适配器按可选字段声明。
+        request.raw as unknown as NodeIncomingMessageLike,
+        reply.raw as unknown as NodeServerResponseLike,
+        request.body,
       );
     },
   );

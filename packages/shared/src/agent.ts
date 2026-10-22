@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { slugSchema } from './params.js';
 
+export const AGENT_PACKAGE_MAX_BYTES = 1_048_576;
+export const serializeAgentPackage = (value: unknown): string => JSON.stringify(value, null, 2);
+
 /** 智能体可配置的权限模式，与 Agent SDK 的 PermissionMode 对齐。 */
 export const permissionModeSchema = z.enum(['default', 'acceptEdits', 'plan', 'dontAsk', 'auto']);
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
@@ -47,6 +50,10 @@ export const agentInputSchema = z.object({
 });
 
 export type AgentInput = z.infer<typeof agentInputSchema>;
+export type AgentPatch = Omit<Partial<AgentInput>, 'effort' | 'maxThinkingTokens'> & {
+  effort?: AgentInput['effort'] | null;
+  maxThinkingTokens?: number | null;
+};
 
 export const agentSchema = agentInputSchema.and(
   z.object({

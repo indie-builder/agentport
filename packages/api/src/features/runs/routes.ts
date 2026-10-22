@@ -14,8 +14,17 @@ const listQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
+const exportQuerySchema = listQuery.extend({
+  limit: z.coerce.number().int().min(1).max(1000).default(1000),
+});
+
 function toIso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
+}
+
+/** 列表与导出共用同一形状：只暴露 RunListItem，不含 steps/messages。 */
+function toItem(run: Awaited<ReturnType<typeof runsRepo.listRuns>>[number]) {
+  return { ...run, startedAt: toIso(run.startedAt), endedAt: toIso(run.endedAt) };
 }
 
 /** 运行列表 + trace 详情。数据来源于 agent_runs 与 messages。 */
@@ -34,13 +43,40 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
         limit,
       });
 
-      return {
-        items: items.map((run) => ({
-          ...run,
-          startedAt: toIso(run.startedAt),
-          endedAt: toIso(run.endedAt),
-        })),
-      };
+      return { items: items.map(toItem) };
+    },
+  );
+
+  /** 导出完整列表；超限明确 409，绝不把截断后的结果当完整导出发出。 */
+  app.get(
+    '/api/runs/export',
+    { ...auth, schema: { querystring: exportQuerySchema } },
+    async (request, reply) => {
+      const { agentId, status, limit } = request.query;
+      const items = await runsRepo.listRuns(app.db, {
+        ...(agentId === undefined ? {} : { agentId }),
+        ...(status === undefined ? {} : { status }),
+        limit: limit + 1,
+      });
+      if (items.length > limit) {
+        return reject(
+          reply,
+          'CONFLICT',
+          `运行记录超过 ${limit} 条，请先按智能体或状态缩小范围后再导出`,
+        );
+      }
+      return reply
+        .header('content-disposition', 'attachment; filename="runs.json"')
+        .header('cache-control', 'no-store')
+        .header('x-content-type-options', 'nosniff')
+        .type('application/json')
+        .send(
+          JSON.stringify({
+            format: 'agentport/runs@1',
+            exportedAt: new Date().toISOString(),
+            items: items.map(toItem),
+          }),
+        );
     },
   );
 
@@ -74,6 +110,8 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
         return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新运行列表');
       }
       const rows = await runsRepo.listApprovalRequests(app.db, request.params.id);
+      // 一次取时钟，避免同一响应里的行用不同“现在”判断。
+      const now = Date.now();
       return {
         items: rows.map((row) => ({
           id: row.id,
@@ -82,6 +120,10 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
           toolName: row.toolName,
           createdAt: row.createdAt.toISOString(),
           approvedAt: row.approvedAt === null ? null : row.approvedAt.toISOString(),
+          expiresAt: toIso(row.expiresAt),
+          // 没有截止时间（立即拒绝）的请求不等待：批准后需模型重新发起。
+          waiting:
+            row.approvedAt === null && row.expiresAt !== null && row.expiresAt.getTime() > now,
         })),
       };
     },
@@ -126,6 +168,7 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
         serverId: approved.serverId,
         toolName: approved.toolName,
         approvedAt: approved.approvedAt.toISOString(),
+        waiting: approved.waiting,
       };
     },
   );

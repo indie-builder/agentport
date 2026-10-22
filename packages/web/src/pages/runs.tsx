@@ -1,12 +1,13 @@
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { Activity } from 'lucide-react';
+import { Activity, Download, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState } from '../components/states.js';
-import { buttonVariants } from '../components/ui/button.js';
-import type { RunListItem, RunStatus } from '../lib/api.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
+import { api, type RunListItem, type RunStatus } from '../lib/api.js';
 import {
   formatCost,
   formatDateTime,
@@ -17,6 +18,7 @@ import {
   shortId,
 } from '../lib/format.js';
 import { useAgents, useRuns } from '../lib/queries.js';
+import { toastError } from '../lib/toast.js';
 
 const statuses: RunStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'];
 
@@ -35,7 +37,7 @@ const columns: DataColumn<RunListItem>[] = [
   },
   {
     id: 'agent',
-    header: '智能体',
+    header: '专家',
     locked: true,
     width: 'minmax(140px,1fr)',
     sortValue: (run) => run.agentName ?? '',
@@ -132,12 +134,38 @@ export function RunsPage() {
     ...(status ? { status } : {}),
     limit: 100,
   });
+  const [exporting, setExporting] = useState(false);
+
+  const exportRuns = async (): Promise<void> => {
+    setExporting(true);
+    try {
+      const data = await api.exportRuns({
+        ...(agentId ? { agentId } : {}),
+        ...(status ? { status } : {}),
+      });
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'runs.json';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const items = runs.data?.items ?? [];
   const empty = !runs.isPending && !runs.isError && items.length === 0;
+  const filtered = Boolean(agentId || status);
 
   const agentOptions = [
-    { value: '', label: '全部智能体' },
+    { value: '', label: '全部专家' },
     ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
   ];
   const statusOptions = [
@@ -147,15 +175,32 @@ export function RunsPage() {
 
   return (
     <Page>
-      <PageHeader title="运行" />
+      <PageHeader
+        title="运行"
+        actions={
+          <>
+            <Button variant="outline" onClick={() => void exportRuns()} disabled={exporting}>
+              <Download data-icon="inline-start" aria-hidden="true" />
+              {exporting ? '导出中…' : '导出运行'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void runs.refetch()}
+              disabled={runs.isFetching}
+            >
+              <RefreshCw data-icon="inline-start" aria-hidden="true" /> 刷新
+            </Button>
+          </>
+        }
+      />
 
       <PageToolbar>
         <FilterSelect
           value={agentId}
           onValueChange={(next) => setFilter({ agent: next || undefined })}
           options={agentOptions}
-          label="按智能体筛选"
-          className="w-48"
+          label="按专家筛选"
+          className="w-full sm:w-36"
         />
         <FilterSelect
           value={status}
@@ -164,11 +209,8 @@ export function RunsPage() {
           }
           options={statusOptions}
           label="按状态筛选"
-          className="w-32"
+          className="w-full sm:w-36"
         />
-        <span className="ml-auto text-xs text-subtle">
-          {runs.isPending ? '加载中…' : `最近 ${items.length} 条`}
-        </span>
       </PageToolbar>
 
       {runs.isError ? (
@@ -176,12 +218,24 @@ export function RunsPage() {
       ) : empty ? (
         <PageNote
           icon={<Activity className="size-4" aria-hidden="true" />}
-          title="没有匹配的运行"
-          description="在对话页发起一次运行，或调整上方的筛选条件。"
+          title={filtered ? '没有匹配的运行' : '还没有运行记录'}
+          description={
+            filtered ? '调整或清除筛选条件后重试。' : '在对话页发起一次运行后，这里会显示运行记录。'
+          }
           action={
-            <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
-              去发起运行
-            </Link>
+            filtered ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFilter({ agent: undefined, status: undefined })}
+              >
+                清除筛选
+              </Button>
+            ) : (
+              <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                新建对话
+              </Link>
+            )
           }
         />
       ) : (
@@ -193,8 +247,6 @@ export function RunsPage() {
           loading={runs.isPending}
           storageKey="pace.runs.columns"
           empty="没有匹配的运行"
-          // DataTable 只在提供 renderExpanded 时启用整行按钮；这里不展开，只借它跳详情。
-          renderExpanded={() => null}
           onRowClick={(run) => void navigate({ to: '/runs/$runId', params: { runId: run.id } })}
         />
       )}

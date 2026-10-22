@@ -17,13 +17,9 @@ shadcn 把组件源码交给项目维护，支持修改源码。源码永远不�
 
 从仓库根目录运行 `pnpm dlx shadcn@latest info --json -c packages/web` 检查当前配置。安装或更新前先检查 diff，逐组件核对官方源码与项目变更。`--overwrite` 会覆盖源码定制，不作为无条件默认参数。
 
-## 语义令牌
+## 设计与交互
 
-- `muted` 是浅色表面；次要文字使用 `muted-foreground`，两者不能复用一个文字色变量。
-- `border` / `input` 使用项目分隔线颜色。base layer 给裸 `border` 设置默认色，显式状态边框仍由各组件控制。
-- `--radius` 供 InputGroup 的 `calc()` 使用；当前为 9px，减去 3px 的内部小按钮为 6px。
-- `shadow-md` / `shadow-lg` 映射到同一浮层阴影；输入框胶囊保留独立阴影。
-- 项目亮色主题使用 class-based `dark` variant，系统深色偏好不会自行改变组件主题。
+颜色、圆角、控件尺寸、焦点、卡片和弹层交互统一遵循 [DESIGN-SYSTEM.md §9](DESIGN-SYSTEM.md#9-组件与交互契约)。本文只维护底座安装与源码定制流程；新增视觉规则在设计契约中补齐，不在本文或页面重新定义。
 
 ## 组合约定
 

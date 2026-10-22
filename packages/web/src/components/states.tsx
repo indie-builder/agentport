@@ -5,12 +5,30 @@ import { cn } from '../lib/cn.js';
 import { Button } from './ui/button.js';
 import { Skeleton } from './ui/skeleton.js';
 
-export function LoadingState({ rows = 3 }: { rows?: number }) {
+export function LoadingState({
+  rows = 3,
+  layout = 'rows',
+}: {
+  rows?: number;
+  layout?: 'rows' | 'cards';
+}) {
   return (
-    <div className="flex flex-col gap-2" aria-busy="true" aria-label="加载中" role="status">
+    <div
+      className={
+        layout === 'cards'
+          ? 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+          : 'flex flex-col gap-2'
+      }
+      aria-busy="true"
+      aria-label="加载中"
+      role="status"
+    >
       {Array.from({ length: rows }, (_, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: 骨架屏是静态占位
-        <Skeleton key={i} className="h-11 w-full" />
+        <Skeleton
+          // biome-ignore lint/suspicious/noArrayIndexKey: 骨架屏是静态占位
+          key={i}
+          className={layout === 'cards' ? 'h-48 w-full rounded-card' : 'h-11 w-full'}
+        />
       ))}
     </div>
   );

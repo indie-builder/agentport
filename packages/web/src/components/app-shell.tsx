@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import {
   Activity,
-  Bot,
+  Cable,
+  FlaskConical,
   HeartPulse,
   LayoutDashboard,
   LogOut,
@@ -11,8 +12,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
-  Server,
-  Sparkles,
   User,
   X,
 } from 'lucide-react';
@@ -51,9 +50,8 @@ const nav = [
   {
     label: '构建',
     items: [
-      { to: '/agents', label: '智能体', icon: Bot },
-      { to: '/servers', label: 'MCP Servers', icon: Server },
-      { to: '/skills', label: '技能', icon: Sparkles },
+      { to: '/agents', label: '专家·技能·连接器', icon: Cable },
+      { to: '/eval', label: '评估', icon: FlaskConical },
     ],
   },
   {
@@ -71,6 +69,12 @@ const overviewNav = {
   label: '工作台',
   icon: LayoutDashboard,
 } as const;
+
+const resourceLabels: Record<string, string> = {
+  '/agents': '专家',
+  '/skills': '技能',
+  '/servers': '连接器',
+};
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
 
@@ -146,12 +150,17 @@ function SidebarLink({
 }: {
   to: string;
   label: string;
-  icon: typeof Server;
+  icon: typeof Cable;
   collapsed: boolean;
   onNavigate?: (() => void) | undefined;
 }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const active = to === '/' ? pathname === '/' : pathname.startsWith(to);
+  const active =
+    to === '/agents' && resourceLabels[pathname]
+      ? true
+      : to === '/'
+        ? pathname === '/'
+        : pathname.startsWith(to);
   // 收起态按参考页：整行透明，状态落在 32×32、radius 6 的图标块上。
   const link = (
     <Link
@@ -265,7 +274,8 @@ export function AppShell() {
     const current = flat.find((item) =>
       item.to === '/' ? pathname === '/' : pathname.startsWith(item.to),
     );
-    document.title = current ? `${current.label} · 控制台` : '控制台';
+    const title = resourceLabels[pathname] ?? current?.label;
+    document.title = title ? `${title} · 控制台` : '控制台';
   }, [pathname]);
 
   if (me.isPending) {
@@ -443,7 +453,10 @@ export function AppShell() {
           <main
             id="main-content"
             tabIndex={-1}
-            className={cn('min-h-0 flex-1', pathname.startsWith('/chat') && 'overflow-hidden')}
+            className={cn(
+              'min-h-0 flex-1',
+              pathname.startsWith('/chat') ? 'overflow-hidden' : 'overflow-y-auto',
+            )}
           >
             {pathname.startsWith('/chat') ? (
               <div className="h-full">
@@ -452,7 +465,7 @@ export function AppShell() {
             ) : (
               // 实测：内容区距白壳边缘 12px。顶部内边距由 PageHeader 承担。
               <div className="w-full px-3 pb-10">
-                <div className="mx-auto w-full max-w-[960px]">
+                <div className="w-full min-w-0">
                   <Outlet />
                 </div>
               </div>

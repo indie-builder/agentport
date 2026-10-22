@@ -1,7 +1,10 @@
 import { Search, X } from 'lucide-react';
-import { cn } from '../lib/cn.js';
-import { Button } from './ui/button.js';
-import { Input } from './ui/input.js';
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from './ui/input-group.js';
 
 /**
  * 项目自定义层：带图标与清除按钮的搜索框。
@@ -21,29 +24,25 @@ export function SearchInput({
   className?: string;
 }) {
   return (
-    <div className={cn('relative', className)}>
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
-      <Input
+    <InputGroup className={className}>
+      <InputGroupInput
         type="search"
         aria-label={label}
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        // Keep the compact search field's 7px corners instead of the base 9px.
-        className="rounded-icon pl-8 pr-8 [&::-webkit-search-cancel-button]:hidden"
+        className="[&::-webkit-search-cancel-button]:hidden"
       />
+      <InputGroupAddon>
+        <Search aria-hidden="true" />
+      </InputGroupAddon>
       {value ? (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="清除搜索"
-          // Keep the subdued clear icon and transparent hover instead of the ghost defaults.
-          className="absolute right-1.5 top-1/2 z-10 size-auto -translate-y-1/2 rounded p-1 text-subtle hover:bg-transparent"
-          onClick={() => onChange('')}
-        >
-          <X className="size-3.5" />
-        </Button>
+        <InputGroupAddon align="inline-end">
+          <InputGroupButton size="icon-xs" aria-label="清除搜索" onClick={() => onChange('')}>
+            <X aria-hidden="true" />
+          </InputGroupButton>
+        </InputGroupAddon>
       ) : null}
-    </div>
+    </InputGroup>
   );
 }

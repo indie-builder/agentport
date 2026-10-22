@@ -1,17 +1,18 @@
 import { Link } from '@tanstack/react-router';
-import { Page, PageHeader } from '../components/page.js';
-import { buttonVariants } from '../components/ui/button.js';
+import { Page, PageHeader, PageNote } from '../components/page.js';
+import { Button } from '../components/ui/button.js';
 
 export function NotFoundPage() {
   return (
     <Page>
-      <PageHeader
-        title="页面不存在"
-        description="地址可能已变更，或该功能尚未上线。"
-        actions={
-          <Link to="/" className={buttonVariants({ size: 'sm', variant: 'outline' })}>
-            返回概览
-          </Link>
+      <PageHeader title="页面不存在" />
+      <PageNote
+        title="找不到这个地址"
+        description="请检查地址，或返回工作台继续。"
+        action={
+          <Button variant="outline" nativeButton={false} render={<Link to="/" />}>
+            返回工作台
+          </Button>
         }
       />
     </Page>

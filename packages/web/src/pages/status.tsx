@@ -48,27 +48,11 @@ function StatusPill({ state }: { state: CheckState }) {
   );
 }
 
-function Panel({
-  title,
-  state,
-  children,
-}: {
-  title: string;
-  state: CheckState;
-  children: ReactNode;
-}) {
-  return (
-    <PageSection title={title} actions={<StatusPill state={state} />}>
-      {children}
-    </PageSection>
-  );
-}
-
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <div className="text-xs text-subtle">{label}</div>
-      <div className="mt-0.5 font-mono text-md tabular-nums text-fg">{value}</div>
+      <div className="break-words font-mono text-md tabular-nums text-fg">{value}</div>
     </div>
   );
 }
@@ -77,7 +61,7 @@ function Reason({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-start gap-1.5 border-t pt-2 text-sm leading-relaxed text-danger">
       <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-      <span>{children}</span>
+      <span className="min-w-0 break-words [overflow-wrap:anywhere]">{children}</span>
     </div>
   );
 }
@@ -99,14 +83,15 @@ function readyReason(ready: {
   if (ready.isPending) return null;
   if (ready.isError || !ready.data) return '就绪检查请求失败。';
   const probe = ready.data;
-  if (!probe.reachable) return probe.error;
-  if (probe.httpStatus === 200) return null;
+  if (!probe.reachable) return probe.error ?? '就绪检查端点不可达。';
   const body = probe.body;
+  if (probe.httpStatus === 200 && body?.status === 'ok' && body.db === 'ok' && body.redis === 'ok')
+    return null;
   if (body && (body.db === 'error' || body.redis === 'error')) {
     const failed = [body.db === 'error' ? '数据库' : null, body.redis === 'error' ? 'Redis' : null]
       .filter(Boolean)
       .join('、');
-    return `就绪检查返回 503：${failed} 不可用。`;
+    return `就绪检查返回 HTTP ${probe.httpStatus ?? '未知'}：${failed} 不可用。`;
   }
   return `就绪检查返回 HTTP ${probe.httpStatus ?? '未知'}，响应体无法解析。`;
 }
@@ -160,7 +145,11 @@ function SmokeChecklist() {
       if (!probe.reachable) return { ok: false, detail: probe.error ?? '请求失败' };
       const body = probe.body;
       return {
-        ok: probe.httpStatus === 200,
+        ok:
+          probe.httpStatus === 200 &&
+          body?.status === 'ok' &&
+          body.db === 'ok' &&
+          body.redis === 'ok',
         detail: body
           ? `HTTP ${probe.httpStatus} · db=${body.db} · redis=${body.redis}`
           : `HTTP ${probe.httpStatus} · 响应体无法解析`,
@@ -170,9 +159,11 @@ function SmokeChecklist() {
     await record('GET /health/metrics', async () => {
       const metrics = await api.healthMetrics();
       if (!metrics) return { ok: false, detail: '指标端点不可达或返回非 200' };
-      const missing = [metrics.queue ? null : '队列', metrics.redis ? null : 'Redis'].filter(
-        Boolean,
-      );
+      const missing = [
+        metrics.db ? null : '数据库',
+        metrics.queue ? null : '队列',
+        metrics.redis ? null : 'Redis',
+      ].filter(Boolean);
       return {
         ok: missing.length === 0,
         detail:
@@ -189,18 +180,11 @@ function SmokeChecklist() {
     <PageSection
       title="冒烟检查"
       actions={
-        <Button
-          variant="outline"
-          size="sm"
-          // Keep the section action pill-shaped instead of the compact button radius.
-          className="rounded-full"
-          disabled={running}
-          onClick={() => void run()}
-        >
+        <Button variant="outline" size="sm" disabled={running} onClick={() => void run()}>
           {running ? (
-            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+            <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
           ) : (
-            <ListChecks className="size-4" aria-hidden="true" />
+            <ListChecks data-icon="inline-start" aria-hidden="true" />
           )}
           运行冒烟检查
         </Button>
@@ -217,21 +201,25 @@ function SmokeChecklist() {
           {steps.map((step) => (
             <li
               key={step.label}
-              className="flex items-center gap-3 border-b py-3 text-sm last:border-b-0"
+              className="flex flex-wrap items-start gap-3 border-b py-3 text-sm last:border-b-0"
             >
               {step.state === 'ok' ? (
                 <CircleCheck className="size-4 shrink-0 text-success" aria-hidden="true" />
               ) : (
                 <CircleX className="size-4 shrink-0 text-danger" aria-hidden="true" />
               )}
-              <span className="w-44 shrink-0 font-mono text-xs text-fg">{step.label}</span>
-              <span
-                className={
-                  step.state === 'ok' ? 'min-w-0 text-muted-foreground' : 'min-w-0 text-danger'
-                }
-              >
-                {step.detail}
-              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:flex-wrap sm:gap-3">
+                <span className="min-w-0 break-all font-mono text-xs text-fg">{step.label}</span>
+                <span
+                  className={
+                    step.state === 'ok'
+                      ? 'min-w-0 break-words text-muted-foreground [overflow-wrap:anywhere]'
+                      : 'min-w-0 break-words text-danger [overflow-wrap:anywhere]'
+                  }
+                >
+                  {step.detail}
+                </span>
+              </div>
               <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-subtle">
                 {formatDuration(step.ms)}
               </span>
@@ -265,22 +253,34 @@ export function StatusPage() {
     : live.isError || !live.data.reachable || live.data.httpStatus !== 200
       ? 'error'
       : 'ok';
-  const processState: CheckState = metrics.isPending ? 'pending' : data ? 'ok' : 'error';
+  const processState: CheckState = metrics.isPending
+    ? 'pending'
+    : !data
+      ? 'error'
+      : metrics.isError
+        ? 'warn'
+        : 'ok';
   const queueState: CheckState = metrics.isPending
     ? 'pending'
     : !queue
       ? 'error'
-      : queue.waiting > 10
+      : metrics.isError || queue.waiting > 10 || (queue.waiting > 0 && queue.active === 0)
         ? 'warn'
         : 'ok';
   const dbState: CheckState = metrics.isPending
     ? 'pending'
-    : !data
+    : !db
       ? 'error'
-      : db && db.waiting > 5
+      : metrics.isError || db.waiting > 5
         ? 'warn'
         : 'ok';
-  const redisState: CheckState = metrics.isPending ? 'pending' : redis ? 'ok' : 'error';
+  const redisState: CheckState = metrics.isPending
+    ? 'pending'
+    : !redis
+      ? 'error'
+      : metrics.isError
+        ? 'warn'
+        : 'ok';
 
   const readyProblem = readyReason(ready);
   const readyState: CheckState = ready.isPending
@@ -288,6 +288,8 @@ export function StatusPage() {
     : readyProblem === null
       ? 'ok'
       : 'error';
+
+  const isFetching = live.isFetching || ready.isFetching || metrics.isFetching;
 
   const refresh = (): void => {
     void live.refetch();
@@ -299,136 +301,177 @@ export function StatusPage() {
     <Page>
       <PageHeader
         title="健康"
-        description="API 进程、队列、数据库连接池与 Redis 的实时状态，每 10 秒自动刷新。"
         actions={
-          // Keep the refresh action consistent with the section action pill.
-          <Button variant="outline" size="sm" className="rounded-full" onClick={refresh}>
-            <RefreshCw className="size-4" aria-hidden="true" /> 立即刷新
+          <Button variant="outline" onClick={refresh} disabled={isFetching}>
+            <RefreshCw
+              data-icon="inline-start"
+              className={isFetching ? 'animate-spin' : undefined}
+              aria-hidden="true"
+            />
+            {isFetching ? '刷新中…' : '刷新'}
           </Button>
         }
       />
+      <p className="text-xs text-subtle">
+        API 进程、队列、数据库连接池与 Redis，每 10 秒自动刷新。
+      </p>
 
-      <Panel title="存活检查 /health/live" state={liveState}>
-        <div className="text-sm text-muted-foreground">
-          {live.isPending
-            ? '正在请求…'
-            : live.isError
-              ? '存活检查请求失败。'
-              : live.data.reachable && live.data.httpStatus === 200
-                ? '进程能响应 HTTP 请求。'
-                : (live.data.error ?? `HTTP ${live.data.httpStatus ?? '未知'}，进程未返回 200。`)}
-        </div>
-      </Panel>
-
-      <Panel title="就绪检查 /health/ready" state={readyState}>
-        <div className="text-sm text-muted-foreground">
-          {ready.isPending ? '正在请求…' : (readyProblem ?? '数据库与 Redis 均可用。')}
-        </div>
-        {!ready.isPending && !ready.isError && ready.data?.body ? (
-          <div className="mt-1 flex gap-2">
-            <StatusBadge tone={ready.data.body.db === 'ok' ? 'success' : 'danger'}>
-              数据库 {ready.data.body.db === 'ok' ? '正常' : '不可用'}
-            </StatusBadge>
-            <StatusBadge tone={ready.data.body.redis === 'ok' ? 'success' : 'danger'}>
-              Redis {ready.data.body.redis === 'ok' ? '正常' : '不可用'}
-            </StatusBadge>
+      <PageSection title="端点诊断">
+        <div className="flex flex-wrap items-start gap-3 border-b pb-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <h3 className="text-sm text-fg">
+              存活检查 <code className="break-all font-mono text-xs text-subtle">/health/live</code>
+            </h3>
+            <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+              {live.isPending
+                ? '正在请求…'
+                : live.isError
+                  ? '存活检查请求失败。'
+                  : live.data.reachable && live.data.httpStatus === 200
+                    ? '进程能响应 HTTP 请求。'
+                    : (live.data.error ??
+                      `HTTP ${live.data.httpStatus ?? '未知'}，进程未返回 200。`)}
+            </p>
           </div>
-        ) : null}
-      </Panel>
-
-      <Panel title="进程" state={processState}>
-        {data ? (
-          <div className="grid grid-cols-3 gap-4">
-            <Metric label="运行时长" value={formatUptime(data.process.uptimeSeconds)} />
-            <Metric label="内存 RSS" value={formatBytes(data.process.memoryRssBytes)} />
-            <Metric label="Node" value={data.process.nodeVersion} />
+          <StatusPill state={liveState} />
+        </div>
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <h3 className="text-sm text-fg">
+              就绪检查{' '}
+              <code className="break-all font-mono text-xs text-subtle">/health/ready</code>
+            </h3>
+            <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+              {ready.isPending ? '正在请求…' : (readyProblem ?? '数据库与 Redis 均可用。')}
+            </p>
+            {!ready.isPending && !ready.isError && ready.data?.body ? (
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge tone={ready.data.body.db === 'ok' ? 'success' : 'danger'}>
+                  数据库 {ready.data.body.db === 'ok' ? '正常' : '不可用'}
+                </StatusBadge>
+                <StatusBadge tone={ready.data.body.redis === 'ok' ? 'success' : 'danger'}>
+                  Redis {ready.data.body.redis === 'ok' ? '正常' : '不可用'}
+                </StatusBadge>
+              </div>
+            ) : null}
           </div>
-        ) : (
-          <>
-            <div className="text-sm text-muted-foreground">
-              {metrics.isPending ? '正在请求 /health/metrics…' : '读不到进程指标。'}
-            </div>
-            {!metrics.isPending ? (
-              <Reason>
-                指标端点不可达或返回非 200；先确认 API 进程与反向代理，再看{' '}
-                <code className="font-mono">docker compose logs api</code>。
-              </Reason>
-            ) : null}
-          </>
-        )}
-      </Panel>
+          <StatusPill state={readyState} />
+        </div>
+      </PageSection>
 
-      <Panel title="队列 agent-runs" state={queueState}>
-        {queue ? (
-          <>
-            <div className="grid grid-cols-4 gap-4">
-              <Metric label="等待" value={String(queue.waiting)} />
-              <Metric label="运行中" value={String(queue.active)} />
-              <Metric label="失败" value={String(queue.failed)} />
-              <Metric label="延迟" value={String(queue.delayed)} />
-            </div>
-            {queue.waiting > 10 ? (
-              <Reason>
-                队列等待超过 10：worker 可能未运行、并发（AGENT_MAX_CONCURRENT）太低，或单个 run
-                卡住。
-              </Reason>
-            ) : null}
-            {queue.waiting > 0 && queue.active === 0 ? (
-              <Reason>有排队任务但没有运行中的任务：检查 worker 容器是否存活。</Reason>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <div className="text-sm text-muted-foreground">
-              {metrics.isPending ? '正在请求…' : '队列计数不可用。'}
-            </div>
-            {!metrics.isPending ? (
-              <Reason>BullMQ 查询失败或超过 1.5 秒：Redis 不可用，或队列键被阻塞。</Reason>
-            ) : null}
-          </>
-        )}
-      </Panel>
+      {metrics.isError ? (
+        <PageNote
+          tone="danger"
+          title="指标刷新失败"
+          description={data ? '以下保留上次成功读取的指标。' : '暂时无法读取运行指标。'}
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={metrics.isFetching}
+              onClick={() => void metrics.refetch()}
+            >
+              重试
+            </Button>
+          }
+        />
+      ) : null}
 
-      <Panel title="数据库连接池" state={dbState}>
-        {data ? (
-          <>
+      <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
+        <PageSection title="进程" actions={<StatusPill state={processState} />}>
+          {data ? (
             <div className="grid grid-cols-3 gap-4">
-              <Metric label="总数" value={String(db?.total ?? 0)} />
-              <Metric label="空闲" value={String(db?.idle ?? 0)} />
-              <Metric label="等待" value={String(db?.waiting ?? 0)} />
+              <Metric label="运行时长" value={formatUptime(data.process.uptimeSeconds)} />
+              <Metric label="内存 RSS" value={formatBytes(data.process.memoryRssBytes)} />
+              <Metric label="Node" value={data.process.nodeVersion} />
             </div>
-            {db && db.waiting > 5 ? (
-              <Reason>
-                连接池在排队（waiting &gt; 5）：调大 DB_POOL_MAX，或先减少单请求的 SQL 条数。
-              </Reason>
-            ) : null}
-          </>
-        ) : (
-          <div className="text-sm text-muted-foreground">读不到连接池指标。</div>
-        )}
-      </Panel>
+          ) : (
+            <>
+              <div className="text-sm text-muted-foreground">
+                {metrics.isPending ? '正在请求 /health/metrics…' : '读不到进程指标。'}
+              </div>
+              {!metrics.isPending ? (
+                <Reason>
+                  指标端点不可达或返回非 200；先确认 API 进程与反向代理，再看{' '}
+                  <code className="font-mono">docker compose logs api</code>。
+                </Reason>
+              ) : null}
+            </>
+          )}
+        </PageSection>
 
-      <Panel title="Redis" state={redisState}>
-        {redis ? (
-          <div className="grid grid-cols-2 gap-4">
-            <Metric label="Ping" value={`${redis.pingMs} ms`} />
-            <Metric label="状态" value="PONG" />
-          </div>
-        ) : (
-          <>
+        <PageSection title="队列 agent-runs" actions={<StatusPill state={queueState} />}>
+          {queue ? (
+            <>
+              <div className="grid grid-cols-4 gap-4">
+                <Metric label="等待" value={String(queue.waiting)} />
+                <Metric label="运行中" value={String(queue.active)} />
+                <Metric label="失败" value={String(queue.failed)} />
+                <Metric label="延迟" value={String(queue.delayed)} />
+              </div>
+              {queue.waiting > 10 ? (
+                <Reason>
+                  队列等待超过 10：worker 可能未运行、并发（AGENT_MAX_CONCURRENT）太低，或单个 run
+                  卡住。
+                </Reason>
+              ) : null}
+              {queue.waiting > 0 && queue.active === 0 ? (
+                <Reason>有排队任务但没有运行中的任务：检查 worker 容器是否存活。</Reason>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <div className="text-sm text-muted-foreground">
+                {metrics.isPending ? '正在请求…' : '队列计数不可用。'}
+              </div>
+              {!metrics.isPending ? (
+                <Reason>BullMQ 查询失败或超过 1.5 秒：Redis 不可用，或队列键被阻塞。</Reason>
+              ) : null}
+            </>
+          )}
+        </PageSection>
+
+        <PageSection title="数据库连接池" actions={<StatusPill state={dbState} />}>
+          {db ? (
+            <>
+              <div className="grid grid-cols-3 gap-4">
+                <Metric label="总数" value={String(db.total)} />
+                <Metric label="空闲" value={String(db.idle)} />
+                <Metric label="等待" value={String(db.waiting)} />
+              </div>
+              {db.waiting > 5 ? (
+                <Reason>
+                  连接池在排队（waiting &gt; 5）：调大 DB_POOL_MAX，或先减少单请求的 SQL 条数。
+                </Reason>
+              ) : null}
+            </>
+          ) : (
             <div className="text-sm text-muted-foreground">
-              {metrics.isPending ? '正在请求…' : 'Redis 不可用。'}
+              {metrics.isPending ? '正在请求…' : '读不到连接池指标。'}
             </div>
-            {!metrics.isPending ? (
-              <Reason>
-                Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
-              </Reason>
-            ) : null}
-          </>
-        )}
-      </Panel>
+          )}
+        </PageSection>
 
-      <SmokeChecklist />
+        <PageSection title="Redis" actions={<StatusPill state={redisState} />}>
+          {redis ? (
+            <div className="grid grid-cols-2 gap-4">
+              <Metric label="Ping" value={`${redis.pingMs} ms`} />
+              <Metric label="状态" value="PONG" />
+            </div>
+          ) : (
+            <>
+              <div className="text-sm text-muted-foreground">
+                {metrics.isPending ? '正在请求…' : 'Redis 不可用。'}
+              </div>
+              {!metrics.isPending ? (
+                <Reason>
+                  Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
+                </Reason>
+              ) : null}
+            </>
+          )}
+        </PageSection>
+      </div>
 
       <PageNote
         title="处置步骤"
@@ -440,6 +483,7 @@ export function StatusPage() {
           </>
         }
       />
+      <SmokeChecklist />
     </Page>
   );
 }

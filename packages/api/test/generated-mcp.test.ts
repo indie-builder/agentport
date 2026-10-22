@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { hashMcpToken } from '@agentport/core';
 import type { Server } from '@agentport/shared';
@@ -14,6 +15,7 @@ import {
   seedRun,
   startApp,
   unique,
+  waitFor,
 } from './helpers.js';
 
 const ready = await infraReady;
@@ -24,6 +26,14 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   let baseUrl: string;
   let server: Server;
   let token: string;
+  const upstream = createServer((request, response) => {
+    if (request.url?.split('?')[0] !== '/users/1') {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ id: 1, name: 'Fixture user' }));
+  });
   const createdServers: string[] = [];
   const createdAgents: string[] = [];
   const runIds: string[] = [];
@@ -36,6 +46,8 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     await app.listen({ port: 0, host: '127.0.0.1' });
     const address = app.server.address() as AddressInfo;
     baseUrl = `http://127.0.0.1:${address.port}`;
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    const upstreamUrl = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
 
     const name = unique('mcp');
     createdServers.push(name);
@@ -43,7 +55,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
-      payload: { name, kind: 'generated', baseUrl: 'https://jsonplaceholder.typicode.com' },
+      payload: { name, kind: 'generated', baseUrl: upstreamUrl },
     });
     expect(res.statusCode).toBe(201);
     server = res.json<Server>();
@@ -73,6 +85,9 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   afterAll(async () => {
     await cleanup(app, { serverNames: createdServers, agentSlugs: createdAgents, runIds });
     await app.close();
+    await new Promise<void>((resolve, reject) =>
+      upstream.close((error) => (error ? reject(error) : resolve())),
+    );
   });
 
   it('rejects a wrong bearer token with 401', async () => {
@@ -163,6 +178,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     expect(denied.content[0]?.text).toContain('需要批准：approved-user');
 
     // 拒绝时 MCP 端点写入结构化审批请求，UI 不再依赖错误文本。
+    // 立即拒绝（wait=0）没有等待窗口：waiting 为 false、没有截止时间。
     const pending = await inject(app, {
       method: 'GET',
       url: `/api/runs/${runId}/approvals`,
@@ -170,9 +186,24 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     });
     expect(pending.statusCode).toBe(200);
     expect(
-      pending.json<{ items: Array<{ serverId: string; toolName: string; approvedAt: string }> }>()
-        .items,
-    ).toMatchObject([{ serverId: server.id, toolName: 'approved-user', approvedAt: null }]);
+      pending.json<{
+        items: Array<{
+          serverId: string;
+          toolName: string;
+          approvedAt: string | null;
+          expiresAt: string | null;
+          waiting: boolean;
+        }>;
+      }>().items,
+    ).toMatchObject([
+      {
+        serverId: server.id,
+        toolName: 'approved-user',
+        approvedAt: null,
+        expiresAt: null,
+        waiting: false,
+      },
+    ]);
 
     // 缺少 serverId 的旧式请求不再被接受。
     const legacy = await inject(app, {
@@ -190,13 +221,51 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       payload: { serverId: server.id, toolName: 'approved-user' },
     });
     expect(approve.statusCode).toBe(200);
-    expect(approve.json<{ serverId: string; toolName: string }>()).toMatchObject({
+    expect(approve.json<{ serverId: string; toolName: string; waiting: boolean }>()).toMatchObject({
       serverId: server.id,
       toolName: 'approved-user',
+      waiting: false,
     });
 
     const allowed = await call();
     expect(allowed.isError).toBeFalsy();
+  });
+
+  it('reports the tool catalog from a real self test connection', async () => {
+    // 用已监听的真实端口做 SELF_URL：测试连接会以 MCP client 连回平台自身。
+    const testServer = await startApp({ SELF_URL: baseUrl });
+    try {
+      const res = await inject(testServer, {
+        method: 'POST',
+        url: `/api/servers/${server.id}/test`,
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = <Record<string, unknown>>res.json();
+      expect(body.ok).toBe(true);
+
+      // catalog 契约：每项只含 name/title/description/inputSchema，其余 SDK 元数据不外泄。
+      const tools = body.tools as Array<Record<string, unknown>>;
+      expect(tools.map((t) => t.name)).toContain('get-user');
+      for (const tool of tools) {
+        expect(
+          Object.keys(tool).every((key) =>
+            ['name', 'title', 'description', 'inputSchema'].includes(key),
+          ),
+        ).toBe(true);
+      }
+      const getUser = tools.find((t) => t.name === 'get-user');
+      expect(getUser?.inputSchema).toMatchObject({
+        type: 'object',
+        properties: { id: { type: 'integer' } },
+      });
+      expect(getUser?.description).toBe('fetch one user');
+
+      // 平台自身的 mcpToken 不得随测试结果回显。
+      expect(JSON.stringify(body)).not.toContain(token);
+    } finally {
+      await testServer.close();
+    }
   });
 
   it('suspends the call and resumes it after approval when a wait is configured', async () => {
@@ -243,8 +312,26 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       try {
         const pendingCall = client.callTool({ name: 'suspended-user', arguments: { id: 1 } });
 
-        // 调用应挂起：立刻批准，然后同一次调用返回真实结果。
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        // 调用应挂起：等请求落库，确认它带未来截止时间并可等待，再批准同一次调用。
+        const seeded = await waitFor(async () => {
+          const res = await inject(waiting, {
+            method: 'GET',
+            url: `/api/runs/${runId}/approvals`,
+            headers: { cookie },
+          });
+          return res.statusCode === 200 && res.json<{ items: unknown[] }>().items.length > 0;
+        });
+        expect(seeded).toBe(true);
+        const pendingApproval = (
+          await inject(waiting, {
+            method: 'GET',
+            url: `/api/runs/${runId}/approvals`,
+            headers: { cookie },
+          })
+        ).json<{ items: Array<{ expiresAt: string | null; waiting: boolean }> }>().items[0];
+        expect(pendingApproval?.waiting).toBe(true);
+        expect(new Date(pendingApproval?.expiresAt ?? 0).getTime()).toBeGreaterThan(Date.now());
+
         const approve = await inject(waiting, {
           method: 'POST',
           url: `/api/runs/${runId}/approve`,
@@ -252,13 +339,77 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
           payload: { serverId: server.id, toolName: 'suspended-user' },
         });
         expect(approve.statusCode).toBe(200);
+        expect(approve.json<{ waiting: boolean }>().waiting).toBe(true);
 
         const result = await pendingCall;
         expect(result.isError).toBeFalsy();
-        expect(JSON.stringify(result.content)).toContain('Leanne Graham');
+        expect(JSON.stringify(result.content)).toContain('Fixture user');
       } finally {
         await client.close();
       }
+    } finally {
+      await waiting.close();
+    }
+  });
+
+  it('times out before the upstream call and records an expired request', async () => {
+    // 100ms < 轮询间隔：调用在第一次轮询前就到截止，不会碰上游。
+    const waiting = await startApp({ APPROVAL_WAIT_MS: '100' });
+    try {
+      await waiting.listen({ port: 0, host: '127.0.0.1' });
+      const address = waiting.server.address() as AddressInfo;
+      const url = `http://127.0.0.1:${address.port}`;
+
+      const toolRes = await inject(waiting, {
+        method: 'POST',
+        url: `/api/servers/${server.id}/tools`,
+        headers: { cookie },
+        payload: {
+          name: 'timeout-user',
+          method: 'GET',
+          pathTemplate: '/users/{id}',
+          inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
+          paramsIn: 'query',
+          requiresApproval: true,
+        },
+      });
+      expect(toolRes.statusCode).toBe(201);
+
+      const agent = (
+        await createAgent(waiting, cookie, {
+          slug: unique('timeout-agent'),
+          serverIds: [server.id],
+          track: createdAgents,
+        })
+      ).json<{ id: string }>();
+      const { runId } = await seedRun(waiting, agent.id, { runId: unique('run') });
+      runIds.push(runId);
+
+      const client = new Client({ name: 'agentport-test', version: '0.0.0' });
+      const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp/${server.id}`), {
+        requestInit: {
+          headers: { authorization: `Bearer ${token}`, 'x-agentport-run-id': runId },
+        },
+      });
+      await client.connect(transport);
+      try {
+        const result = await client.callTool({ name: 'timeout-user', arguments: { id: 1 } });
+        expect(result.isError).toBe(true);
+        expect(result.content[0]).toMatchObject({ text: expect.stringContaining('本次调用取消') });
+      } finally {
+        await client.close();
+      }
+
+      const items = (
+        await inject(waiting, {
+          method: 'GET',
+          url: `/api/runs/${runId}/approvals`,
+          headers: { cookie },
+        })
+      ).json<{ items: Array<{ expiresAt: string | null; waiting: boolean }> }>().items;
+      expect(items).toHaveLength(1);
+      expect(new Date(items[0]?.expiresAt ?? 0).getTime()).toBeLessThanOrEqual(Date.now());
+      expect(items[0]?.waiting).toBe(false);
     } finally {
       await waiting.close();
     }

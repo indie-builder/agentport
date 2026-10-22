@@ -1,5 +1,6 @@
+import { conversationRenameSchema } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   ArrowDown,
   ArrowUp,
@@ -11,6 +12,8 @@ import {
   GitBranch,
   LoaderCircle,
   MessageSquare,
+  MoreHorizontal,
+  Pencil,
   Plus,
   RefreshCw,
   Wrench,
@@ -18,6 +21,8 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
+  type ComponentProps,
+  type FormEvent,
   memo,
   type ReactNode,
   type RefObject,
@@ -29,13 +34,28 @@ import {
 } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { CodeBlock, CollapsibleText, JsonBlock } from '../components/code-block.js';
+import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { DialogShell } from '../components/dialog-shell.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
+import { Page, PageHeader } from '../components/page.js';
+import { RequiredMark } from '../components/required-mark.js';
+import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
+import { Dialog } from '../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
+import { Field, FieldError, FieldLabel } from '../components/ui/field.js';
+import { Input } from '../components/ui/input.js';
 import { Message, MessageContent, MessageGroup } from '../components/ui/message.js';
 import {
   MessageScroller,
@@ -58,10 +78,13 @@ import { Textarea } from '../components/ui/textarea.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
 import {
   type ChatItem,
+  type HistorySnapshot,
   historyToItems,
   type LocalConversation,
   loadLocalConversations,
   localConversation,
+  mergeOlderHistory,
+  snapshotHistory,
   titleFromDetail,
   toolFailed,
   upsertLocalConversation,
@@ -73,57 +96,103 @@ import {
   useChatStore,
 } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
+import { fieldErrors } from '../lib/form.js';
 import { formatDuration, formatRelative } from '../lib/format.js';
 import { useAgents, useConversation, useConversations, useRunApprovals } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useChatStream } from '../lib/use-chat-stream.js';
 
 export function ChatPage() {
+  const search = useSearch({ from: '/shell/chat' });
+  const navigate = useNavigate();
   const agents = useAgents();
-  const [agentId, setAgentId] = useState<string | null>(null);
-  const activeAgentId = agentId ?? agents.data?.[0]?.id ?? null;
+  const conversationId = search.conversation ?? null;
+  const detail = useConversation(conversationId);
 
-  if (agents.isPending) {
+  // 已打开会话时，服务端记录才是真相；URL 只是它的镜像。
+  const serverAgentId = detail.data?.conversation.agentId ?? null;
+  const activeAgentId = serverAgentId ?? search.agent ?? agents.data?.[0]?.id ?? null;
+
+  // URL 里的 agent 与会话不一致时，用会话的真实归属校正 URL（replace，不进历史）。
+  useEffect(() => {
+    if (!serverAgentId || serverAgentId === search.agent) return;
+    void navigate({
+      to: '/chat',
+      search: (previous) => ({ ...previous, agent: serverAgentId }),
+      replace: true,
+    });
+  }, [serverAgentId, search.agent, navigate]);
+
+  const clearSelection = (): void => {
+    void navigate({ to: '/chat', search: {}, replace: true });
+  };
+
+  if (agents.isPending || agents.isError || agents.data.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <h1 className="sr-only">对话</h1>
-        <LoadingState rows={3} />
-      </div>
+      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
+        {agents.isPending ? (
+          <LoadingState rows={3} />
+        ) : agents.isError ? (
+          <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+        ) : (
+          <EmptyState
+            icon={<Bot className="size-5" />}
+            title="还没有智能体"
+            description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
+            action={
+              <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
+                前往创建
+              </Link>
+            }
+          />
+        )}
+      </Page>
     );
   }
 
-  if (agents.isError) {
+  // URL 指向的 agent 不存在：不静默改成第一个，免得把消息发给别的 agent。
+  if (!conversationId && search.agent && !agents.data.some((item) => item.id === search.agent)) {
     return (
-      <div>
-        <h1 className="sr-only">对话</h1>
-        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-      </div>
-    );
-  }
-
-  if (agents.data && agents.data.length === 0) {
-    return (
-      <div>
-        <h1 className="sr-only">对话</h1>
+      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <EmptyState
           icon={<Bot className="size-5" />}
-          title="还没有智能体"
-          description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
+          title="找不到这个智能体"
+          description="链接里的智能体可能已被删除，或不属于当前工作区。"
           action={
-            <Link to="/agents" className="text-xs text-fg hover:underline">
-              前往创建
-            </Link>
+            <Button variant="outline" onClick={clearSelection}>
+              开始新对话
+            </Button>
           }
         />
-      </div>
+      </Page>
     );
   }
 
+  // 深链会话的加载 / 失败状态在 ChatWorkspace 内处理：那里能区分「正在发送的本轮」，
+  // 不会因为新会话的数据刚到就卸载整个工作区、掐断事件流。
   return (
     <ChatWorkspace
       agents={agents.data ?? []}
       agentId={activeAgentId}
-      onAgentChange={(id) => setAgentId(id)}
+      conversationId={conversationId}
+      // 会话切换走 push：后退能回到上一条会话。新会话首次落 URL 用 replace。
+      onConversationChange={(id, replace = false) => {
+        void navigate({
+          to: '/chat',
+          search: {
+            ...(activeAgentId && agents.data.some((item) => item.id === activeAgentId)
+              ? { agent: activeAgentId }
+              : {}),
+            ...(id ? { conversation: id } : {}),
+          },
+          replace,
+        });
+      }}
+      onAgentChange={(id) => {
+        void navigate({ to: '/chat', search: { agent: id } });
+      }}
     />
   );
 }
@@ -156,14 +225,17 @@ function useDesktop(): boolean {
 function ChatWorkspace({
   agents,
   agentId,
+  conversationId,
+  onConversationChange,
   onAgentChange,
 }: {
   agents: NonNullable<ReturnType<typeof useAgents>['data']>;
   agentId: string | null;
-  onAgentChange: (id: string) => void;
+  conversationId: string | null;
+  onConversationChange: (conversationId: string | null, replace?: boolean) => void;
+  onAgentChange: (agentId: string) => void;
 }) {
   const agent = agents.find((item) => item.id === agentId) ?? null;
-  const conversationId = useChatStore((state) => state.conversationId);
   const items = useChatStore((state) => state.items);
   const run = useChatStore((state) => state.run);
   const lastRun = useChatStore((state) => state.lastRun);
@@ -176,11 +248,16 @@ function ChatWorkspace({
   // 本地索引只有两条写路径（新会话被接收、历史会话被打开），统一走这里刷新。
   const refreshLocal = useCallback(() => setLocal(loadLocalConversations()), []);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const historyTriggerRef = useRef<HTMLButtonElement>(null);
+  // 记下真正发起重命名的条目与菜单触发器：菜单卸载后，对话框关闭时焦点要回到它。
+  const [renaming, setRenaming] = useState<{ entry: HistoryEntry; trigger: HTMLElement } | null>(
+    null,
+  );
   const desktop = useDesktop();
 
   const conversations = useConversations(agentId);
   const detail = useConversation(conversationId);
-  const runApprovals = useRunApprovals(run?.runId || lastRunId);
+  const runApprovals = useRunApprovals(run?.runId || lastRunId, Boolean(run?.runId));
   const historyLayout = useDefaultLayout({ id: 'chat-history' });
 
   // 空数组也要稳定：否则轮询之外的重渲染会给工具行换一个新身份。
@@ -189,6 +266,8 @@ function ChatWorkspace({
   const stream = useChatStream({
     agentId,
     onAccepted: (accepted, text) => {
+      // 第一次发送才拿到会话 id：URL 镜像它，但这是同一次操作，用 replace 不留历史。
+      onConversationChange(accepted.conversationId, true);
       upsertLocalConversation({
         id: accepted.conversationId,
         agentId: agent?.id ?? agentId ?? '',
@@ -231,8 +310,12 @@ function ChatWorkspace({
   const approveMutation = useMutation({
     mutationFn: (item: ApprovalRequest & { runId: string }) =>
       api.approveRun(item.runId, item.serverId, item.toolName),
-    onSuccess: (_data, item) => {
-      toastSuccess(`已批准 ${item.toolName}；继续请在输入框重新发送消息`);
+    onSuccess: (data, item) => {
+      toastSuccess(
+        data.waiting
+          ? `已批准 ${item.toolName}；仍在等待的调用可继续，无需重发消息`
+          : '已记录后续调用许可；本次调用不会恢复。',
+      );
       void client.invalidateQueries({ queryKey: ['run-approvals'] });
     },
     onError: (error) => toastError(error),
@@ -248,13 +331,23 @@ function ChatWorkspace({
     onError: (error) => toastError(error),
   });
 
+  const renameMutation = useMutation({
+    mutationFn: (input: { id: string; title: string }) =>
+      api.renameConversation(input.id, input.title),
+    onSuccess: (_conversation, input) => {
+      void client.invalidateQueries({ queryKey: ['conversations'] });
+      void client.invalidateQueries({ queryKey: ['conversation', input.id] });
+      setRenaming(null);
+    },
+    onError: (error) => toastError(error),
+  });
+
   const cancel = (): void => {
     // 没有 runId 时后端还没有可取消的 run；按钮也不会显示。
     if (!run?.runId) return;
     cancelMutation.mutate(run.runId);
   };
 
-  /** 只记录批准；继续需要用户重新发送消息，也就是新一次运行。 */
   // 固定身份：工具行的 memo 依赖这个回调，每次渲染都换新函数会让整列重渲染。
   const approve = useCallback(
     (item: ApprovalRequest): void => {
@@ -265,10 +358,9 @@ function ChatWorkspace({
     [run?.runId, lastRunId, approveMutation.mutate],
   );
 
+  // URL 是选中的会话：历史、新建、切换 agent 都只改 URL，store 由下面的同步 effect 收敛。
   const openConversation = (id: string): void => {
-    stream.closeStream();
-    stream.hydratedRef.current = null;
-    useChatStore.getState().resetConversation(id);
+    if (id !== conversationId) onConversationChange(id);
     setHistoryOpen(false);
   };
 
@@ -276,6 +368,7 @@ function ChatWorkspace({
     stream.closeStream();
     stream.hydratedRef.current = null;
     useChatStore.getState().resetConversation(null);
+    onConversationChange(null);
     setHistoryOpen(false);
     composerRef.current?.focus();
   };
@@ -283,15 +376,51 @@ function ChatWorkspace({
   // 分支：服务端复制消息，前端切到新会话；列表由 query 失效后刷新。
   const branch = (id: string): void => branchMutation.mutate(id);
 
+  // URL → store：只清掉属于别的会话的本地状态；自己发送时 store 已先于 URL 写入，这里不动。
+  useEffect(() => {
+    const store = useChatStore.getState();
+    if (store.conversationId === conversationId) return;
+    if (store.run?.conversationId === conversationId) return;
+    stream.closeStream();
+    stream.hydratedRef.current = null;
+    store.resetConversation(conversationId);
+  }, [conversationId, stream.closeStream, stream.hydratedRef]);
+
   // 载入历史：每个会话只回填一次，之后由流式事件维护。
   const hydrated = stream.hydratedRef;
+  // 已回填的历史前缀；其后的 store 项都是本轮的流式尾部。没有前缀（本会话新建、历史从未回填）
+  // 时无法安全拼接更早页，因而不提供入口。
+  const [historyPrefix, setHistoryPrefix] = useState<HistorySnapshot | null>(null);
+
   useEffect(() => {
     const data = detail.data;
     if (!data || run) return;
     if (hydrated.current === data.conversation.id) return;
     hydrated.current = data.conversation.id;
-    useChatStore.getState().setItems(historyToItems(data.messages));
+    const items = historyToItems(data.messages);
+    setHistoryPrefix(snapshotHistory(data, items));
+    useChatStore.getState().setItems(items);
   }, [detail.data, run, hydrated]);
+
+  // 更早的页面只会在历史前缀前插入：整段前缀重新解析（跨页工具调用合并），尾部原样保留。
+  // 加载期间开始新一轮时先等它结束，避免合并打断流式基准。
+  useEffect(() => {
+    const data = detail.data;
+    if (!data || run || !historyPrefix) return;
+    const items = useChatStore.getState().items;
+    const merged = mergeOlderHistory(historyPrefix, data, items);
+    if (!merged) return;
+    setHistoryPrefix(merged.snapshot);
+    useChatStore.getState().setItems(merged.items);
+  }, [detail.data, run, historyPrefix]);
+
+  const loadOlder = useCallback((): void => {
+    if (!detail.hasNextPage || detail.isFetching || run) return;
+    // fetchNextPage 默认吞掉错误（结果里带 isFetchNextPageError），重试按钮保持可见。
+    void detail.fetchNextPage().then((result) => {
+      if (result.isFetchNextPageError) toastError(result.error);
+    });
+  }, [detail.hasNextPage, detail.isFetching, detail.fetchNextPage, run]);
 
   useEffect(() => {
     if (!detail.data) return;
@@ -333,6 +462,7 @@ function ChatWorkspace({
       branching={branchMutation.isPending ? branchMutation.variables : null}
       onOpen={openConversation}
       onBranch={branch}
+      onRename={(conversation, trigger) => setRenaming({ entry: conversation, trigger })}
     />
   );
 
@@ -355,27 +485,74 @@ function ChatWorkspace({
       onCancel={cancel}
       onOpenHistory={() => setHistoryOpen(true)}
       onPickSuggestion={setInput}
+      onLoadOlder={loadOlder}
+      hasOlder={Boolean(historyPrefix?.conversationId === conversationId && detail.hasNextPage)}
+      loadingOlder={detail.isFetchingNextPage}
       showWelcome={showWelcome}
       send={stream.send}
       composerRef={composerRef}
+      historyTriggerRef={historyTriggerRef}
     />
   );
 
-  return (
-    <div className="flex h-full min-h-0">
-      <h1 className="sr-only">对话</h1>
+  const renameDialog = renaming ? (
+    <RenameDialog
+      conversation={renaming.entry}
+      pending={renameMutation.isPending}
+      onClose={() => setRenaming(null)}
+      onRename={(title) => renameMutation.mutate({ id: renaming.entry.id, title })}
+      // 菜单项随菜单卸载；触发器还在就回到它，否则交给 Base UI 的默认落点。
+      finalFocus={() => (renaming.trigger.isConnected ? renaming.trigger : null)}
+    />
+  ) : null;
 
-      {/* 窄屏抽屉：Radix 负责焦点陷阱、Escape 与滚动锁；桌面分栏常驻，不挂这层。 */}
+  // 只有「静默的」深链失败才整页报错；正在跑的这一轮不能被卸载，否则事件流会被掐断。
+  if (conversationId && detail.isError && items.length === 0 && !run) {
+    return (
+      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
+        <div className="flex flex-col gap-3">
+          <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => onConversationChange(null)}
+          >
+            开始新对话
+          </Button>
+        </div>
+      </Page>
+    );
+  }
+
+  // 深链会话还没回填历史时不给输入框：此时还不知道会话属于哪个 agent。
+  // 自己发送时 store 已有本轮消息，不会闪这一屏。
+  if (conversationId && !run && items.length === 0 && hydrated.current !== conversationId) {
+    return (
+      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
+        <LoadingState rows={4} />
+      </Page>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 min-w-0">
+      {/* 窄屏抽屉由 Base UI 管理焦点、Escape 与滚动锁。 */}
       <Sheet open={historyOpen && !desktop} onOpenChange={setHistoryOpen}>
         <SheetContent
           side="left"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-[294px]! max-w-none! gap-0 p-0"
+          finalFocus={historyTriggerRef}
+          className="w-[294px]! max-w-full! gap-5 p-0"
         >
           <SheetTitle className="sr-only">会话历史</SheetTitle>
           <HistoryHeader onNew={newConversation} onClose={() => setHistoryOpen(false)} />
           {historyPanel}
+          {/* 必须挂在抽屉的 React 子树里：否则抽屉会把重命名对话框的 portal 当成外部节点隐藏。 */}
+          {desktop ? null : renameDialog}
         </SheetContent>
       </Sheet>
 
@@ -388,7 +565,7 @@ function ChatWorkspace({
           >
             <Panel id="history" defaultSize={272} minSize={220} maxSize={420}>
               <aside
-                className="flex h-full flex-col overflow-hidden bg-surface"
+                className="flex h-full min-w-0 flex-col gap-5 overflow-hidden"
                 aria-label="会话历史"
               >
                 <HistoryHeader onNew={newConversation} />
@@ -396,8 +573,11 @@ function ChatWorkspace({
               </aside>
             </Panel>
             <Separator className="w-px border-r" aria-label="调整会话列表宽度" />
-            <Panel id="chat">{column}</Panel>
+            <Panel id="chat" minSize={400}>
+              {column}
+            </Panel>
           </Group>
+          {renameDialog}
         </div>
       ) : (
         // 窄屏没有分栏：主列直接占满整行。
@@ -407,21 +587,107 @@ function ChatWorkspace({
   );
 }
 
+function RenameDialog({
+  conversation,
+  pending,
+  onClose,
+  onRename,
+  finalFocus,
+}: {
+  conversation: HistoryEntry;
+  pending: boolean;
+  onClose: () => void;
+  onRename: (title: string) => void;
+  finalFocus: ComponentProps<typeof DialogShell>['finalFocus'];
+}) {
+  const [title, setTitle] = useState(conversation.title);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // 只加空格等同于没改：既不该提示丢弃，也不该允许保存。
+  const dirty = title.trim() !== conversation.title;
+  // 保存按钮在无效时禁用，所以错误要随输入即时给出，而不是只在提交后出现。
+  const parsed = conversationRenameSchema.safeParse({ title });
+  const error = parsed.success
+    ? null
+    : (fieldErrors(parsed.error.issues).title ?? '请检查标题后重试');
+  const saveDisabled = !parsed.success || !dirty || pending;
+  // 未改动、无效或请求中都不能提交；脏时关闭先确认，请求中一律不关。
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onClose();
+  };
+
+  const submit = (event: FormEvent): void => {
+    event.preventDefault();
+    if (saveDisabled || !parsed.success) return;
+    onRename(parsed.data.title);
+  };
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
+    >
+      <DialogShell
+        title="重命名会话"
+        description="标题用于区分历史会话，不会改动已有消息。"
+        closeDisabled={pending}
+        finalFocus={finalFocus}
+      >
+        <form noValidate onSubmit={submit} className="flex flex-col gap-4">
+          <Field className="gap-1.5" data-invalid={Boolean(error)}>
+            <FieldLabel htmlFor="conversation-title">
+              标题 <RequiredMark />
+            </FieldLabel>
+            <Input
+              id="conversation-title"
+              value={title}
+              disabled={pending}
+              aria-required="true"
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'conversation-title-error' : undefined}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+            <FieldError id="conversation-title-error">{error}</FieldError>
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={close} disabled={pending}>
+              取消
+            </Button>
+            <Button type="submit" size="sm" disabled={saveDisabled} aria-busy={pending}>
+              {pending ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后这次修改的标题会丢失。"
+          confirmLabel="放弃并关闭"
+          onConfirm={async () => {
+            onClose();
+          }}
+        />
+      </DialogShell>
+    </Dialog>
+  );
+}
+
 function HistoryHeader({ onNew, onClose }: { onNew: () => void; onClose?: () => void }) {
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 px-3 pt-3">
+    <div className="flex min-h-11 shrink-0 items-center gap-2 px-3 pt-3">
       <span className="text-sm font-medium text-fg">会话</span>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label="新建会话"
-        className="ml-auto"
-        onClick={onNew}
-      >
+      <Button variant="ghost" size="icon" aria-label="新建会话" className="ml-auto" onClick={onNew}>
         <Plus className="size-4" />
       </Button>
       {onClose ? (
-        <Button variant="ghost" size="icon-sm" aria-label="关闭会话列表" onClick={onClose}>
+        <Button variant="ghost" size="icon" aria-label="关闭会话列表" onClick={onClose}>
           <X className="size-4" />
         </Button>
       ) : null}
@@ -435,6 +701,11 @@ interface HistoryEntry {
   updatedAt: string;
 }
 
+function filterHistory(history: HistoryEntry[], query: string): HistoryEntry[] {
+  const needle = query.trim().toLowerCase();
+  return needle ? history.filter((item) => item.title.toLowerCase().includes(needle)) : history;
+}
+
 function HistoryPanel({
   history,
   pending,
@@ -445,6 +716,7 @@ function HistoryPanel({
   branching,
   onOpen,
   onBranch,
+  onRename,
 }: {
   history: HistoryEntry[];
   pending: boolean;
@@ -455,19 +727,37 @@ function HistoryPanel({
   branching: string | null;
   onOpen: (id: string) => void;
   onBranch: (id: string) => void;
+  onRename: (conversation: HistoryEntry, trigger: HTMLElement) => void;
 }) {
+  // 同一时刻只开一个菜单：触发器的 DOM 身份在点击时记下，菜单项卸载后仍能把焦点交还。
+  const menuTriggerRef = useRef<HTMLElement | null>(null);
+  const [query, setQuery] = useState('');
+  const needle = query.trim();
+  const filtered = useMemo(() => filterHistory(history, needle), [history, needle]);
   return (
     <>
+      <div className="shrink-0 px-3 pb-2">
+        <SearchInput
+          label="搜索会话"
+          placeholder="搜索会话标题"
+          value={query}
+          onChange={setQuery}
+          className="w-full"
+        />
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {pending ? <LoadingState rows={4} /> : null}
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
-        {history.length === 0 && !pending ? (
+        {history.length === 0 && !pending && !needle ? (
           <p className="px-2 py-6 text-xs leading-relaxed text-subtle">
             还没有会话。发送第一条消息即可开始。
           </p>
         ) : null}
+        {needle && filtered.length === 0 && !pending && !error ? (
+          <p className="px-2 py-6 text-xs leading-relaxed text-subtle">没有匹配的会话</p>
+        ) : null}
         <ul className="flex flex-col gap-0.5">
-          {history.map((conversation) => (
+          {filtered.map((conversation) => (
             <li key={conversation.id} className="group relative">
               <Button
                 variant="ghost"
@@ -486,21 +776,56 @@ function HistoryPanel({
                   {formatRelative(conversation.updatedAt)}
                 </span>
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`从「${conversation.title}」分支`}
-                title="分支"
-                disabled={branching !== null}
-                className="absolute right-1 top-2.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
-                onClick={() => onBranch(conversation.id)}
-              >
-                {branching === conversation.id ? (
-                  <LoaderCircle className="size-3.5 animate-spin" />
-                ) : (
-                  <GitBranch className="size-3.5" />
-                )}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`操作「${conversation.title}」`}
+                      disabled={branching !== null}
+                      className="absolute right-1 top-2.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                      onClick={(event) => {
+                        menuTriggerRef.current = event.currentTarget;
+                      }}
+                    >
+                      {branching === conversation.id ? (
+                        <LoaderCircle className="size-3.5 animate-spin" />
+                      ) : (
+                        <MoreHorizontal className="size-3.5" />
+                      )}
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+                  <DropdownMenuGroup>
+                    {/* 后端没有列表接口时没有可写回的服务端会话，只保留分支。 */}
+                    {supported ? (
+                      <DropdownMenuItem
+                        onClick={() => {
+                          if (menuTriggerRef.current) {
+                            onRename(conversation, menuTriggerRef.current);
+                          }
+                        }}
+                      >
+                        <Pencil /> 重命名
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem
+                      aria-label={`从「${conversation.title}」分支`}
+                      disabled={branching !== null}
+                      onClick={() => onBranch(conversation.id)}
+                    >
+                      {branching === conversation.id ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <GitBranch />
+                      )}
+                      分支
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </li>
           ))}
         </ul>
@@ -532,9 +857,13 @@ function ChatColumn({
   onCancel,
   onOpenHistory,
   onPickSuggestion,
+  onLoadOlder,
+  hasOlder,
+  loadingOlder,
   showWelcome,
   send,
   composerRef,
+  historyTriggerRef,
 }: {
   agent: AgentView | null;
   agentId: string | null;
@@ -553,9 +882,13 @@ function ChatColumn({
   onCancel: () => void;
   onOpenHistory: () => void;
   onPickSuggestion: (text: string) => void;
+  onLoadOlder: () => void;
+  hasOlder: boolean;
+  loadingOlder: boolean;
   showWelcome: boolean;
   send: () => Promise<void>;
   composerRef: RefObject<HTMLTextAreaElement | null>;
+  historyTriggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   const composer = (
     <Composer
@@ -569,60 +902,69 @@ function ChatColumn({
 
   // 两个入参直接来自 query 数据；缓存住身份，流式期间 WebSocket 增量不会让工具行的 memo 失效。
   const pendingApprovals = useMemo(
-    () => approvalItems.filter((item) => item.approvedAt === null),
-    [approvalItems],
+    () => (run ? approvalItems.filter((item) => item.approvedAt === null) : []),
+    [approvalItems, run],
   );
   const approvals = useMemo(() => ({ pending: approving, onApprove }), [approving, onApprove]);
 
   const agentOptions = agents.map((item) => ({ value: item.id, label: item.name }));
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-shell bg-surface outline outline-1 outline-shell-line">
-      {/* 顶部一行：移动端菜单 + 智能体选择器。没有标题、没有描述。 */}
-      <header className="flex h-11 shrink-0 items-center gap-2 px-3 pt-3">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="打开会话列表"
-          className="lg:hidden"
-          onClick={onOpenHistory}
-        >
-          <MessageSquare className="size-4" />
-        </Button>
-        <label className="sr-only" htmlFor="chat-agent">
-          选择智能体
-        </label>
-        <Select
-          value={agentId ?? ''}
-          onValueChange={(next) => {
-            if (next !== null) onSwitchAgent(next);
-          }}
-          items={agentOptions}
-        >
-          <SelectTrigger
-            id="chat-agent"
-            // Keep the borderless pill selector and compact typography instead of the base field appearance.
-            className="w-auto max-w-56 gap-1.5 rounded-pill border-0 bg-hover px-3 text-xs leading-3 tracking-[-0.12px] [&>span:first-child]:truncate"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {agentOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </header>
+    <Page className="h-full min-h-0 flex-1 overflow-hidden">
+      <PageHeader
+        title="对话"
+        className="shrink-0 px-3 [&_h1]:sr-only [&>div]:ml-0 [&>div]:min-w-0 [&>div>div]:min-w-0"
+        actions={
+          <>
+            <Button
+              ref={historyTriggerRef}
+              variant="outline"
+              size="icon"
+              aria-label="打开会话列表"
+              className="lg:hidden"
+              onClick={onOpenHistory}
+            >
+              <MessageSquare />
+            </Button>
+            <label className="sr-only" htmlFor="chat-agent">
+              选择智能体
+            </label>
+            <Select
+              value={agentId ?? ''}
+              onValueChange={(next) => {
+                if (next !== null) onSwitchAgent(next);
+              }}
+              items={agentOptions}
+            >
+              <SelectTrigger
+                id="chat-agent"
+                className="min-w-0 max-w-56 [&>span:first-child]:truncate"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {agentOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </>
+        }
+      />
 
       <MessagePane
         items={items}
         loading={detail.isPending && conversationId !== null && !run}
         error={detail.isError ? detail.error : null}
         onRetry={() => void detail.refetch()}
+        hasOlder={hasOlder}
+        loadingOlder={loadingOlder}
+        onLoadOlder={onLoadOlder}
+        olderDisabled={detail.isFetching || Boolean(run)}
         approvals={approvals}
         approvalItems={pendingApprovals}
         lastRun={lastRun}
@@ -649,7 +991,7 @@ function ChatColumn({
       <RunStatusBar run={run} items={items} cancelling={cancelling} onCancel={onCancel} />
 
       {showWelcome ? null : composer}
-    </section>
+    </Page>
   );
 }
 
@@ -680,7 +1022,7 @@ function Composer({
       }}
     >
       <div className="mx-auto w-full max-w-[728px]">
-        <div className="flex h-14 items-center gap-3 rounded-[28px] border border-transparent bg-surface py-[11px] pl-6 pr-3 shadow-composer">
+        <div className="flex h-14 items-center gap-3 rounded-[28px] border border-transparent bg-surface py-[11px] pl-6 pr-3 shadow-composer focus-within:ring-2 focus-within:ring-ring">
           <Textarea
             ref={textareaRef}
             aria-label="消息"
@@ -712,7 +1054,7 @@ function Composer({
               aria-label="发送消息"
               title="运行中，结束后可发送"
               // Keep circular send controls and their quiet disabled surface instead of the base button appearance.
-              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover"
+              className="size-8 shrink-0 rounded-pill p-0 focus-visible:ring-0 disabled:bg-hover"
             >
               <ArrowUp className="size-4" />
             </Button>
@@ -722,13 +1064,13 @@ function Composer({
               disabled={!agent || !input.trim()}
               aria-label="发送消息"
               // Keep circular send controls and subdued disabled text instead of the base button appearance.
-              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover disabled:text-subtle"
+              className="size-8 shrink-0 rounded-pill p-0 focus-visible:ring-0 disabled:bg-hover disabled:text-subtle"
             >
               <ArrowUp className="size-4" />
             </Button>
           )}
         </div>
-        <div className="mt-2 flex items-center justify-center gap-3 text-xs text-subtle">
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-subtle">
           <span>Enter 发送 · Shift+Enter 换行</span>
           {lastRunId ? (
             <Link
@@ -838,6 +1180,10 @@ function MessagePane({
   loading,
   error,
   onRetry,
+  hasOlder,
+  loadingOlder,
+  onLoadOlder,
+  olderDisabled,
   welcome,
   approvals,
   approvalItems,
@@ -847,6 +1193,10 @@ function MessagePane({
   loading: boolean;
   error: unknown;
   onRetry: () => void;
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  onLoadOlder: () => void;
+  olderDisabled: boolean;
   welcome: ReactNode;
   approvals: {
     pending: string | null;
@@ -890,6 +1240,19 @@ function MessagePane({
           <MessageScrollerContent
             className={cn('mx-auto w-full max-w-[760px] gap-4', !welcome && 'p-4')}
           >
+            {hasOlder || loadingOlder ? (
+              <MessageScrollerItem messageId="load-older" className="flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingOlder || olderDisabled}
+                  aria-busy={loadingOlder}
+                  onClick={onLoadOlder}
+                >
+                  {loadingOlder ? '加载中…' : '加载更早消息'}
+                </Button>
+              </MessageScrollerItem>
+            ) : null}
             {loading ? (
               <MessageScrollerItem messageId="loading">
                 <LoadingState rows={4} />
@@ -964,7 +1327,7 @@ function MessagePane({
         {items.length > 0 ? (
           <MessageScrollerButton
             variant="outline"
-            size="xs"
+            size="sm"
             behavior={reduce ? 'instant' : 'smooth'}
             // Keep the translucent hover; outline defaults to the opaque muted surface.
             className="hover:bg-hover motion-reduce:transition-none"
@@ -984,7 +1347,8 @@ function messageTurns(items: ChatItem[], hasFooter: boolean) {
     if (item.kind !== 'user' && previous && !previous.user) {
       previous.items.push(item);
     } else {
-      turns.push({ id: `turn-${index}`, user: item.kind === 'user', items: [item] });
+      // 历史项自带稳定 id：补旧消息时前面整段不会换 key 重新挂载。
+      turns.push({ id: item.id ?? `turn-${index}`, user: item.kind === 'user', items: [item] });
     }
   }
   if (hasFooter && turns.at(-1)?.user) {
@@ -1118,7 +1482,7 @@ function WelcomeState({
     : [];
 
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center gap-8 px-4 pb-32 pt-3">
+    <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center gap-5 px-4 pb-5 pt-3">
       <div className="flex flex-col items-center gap-1 text-center tracking-[-0.24px]">
         <h2 className="text-lg font-normal leading-[30px] text-fg">你好</h2>
         <p className="text-lg font-medium leading-[26.4px] text-muted-foreground">今天想做什么？</p>
@@ -1129,14 +1493,15 @@ function WelcomeState({
       {suggestions.length > 0 ? (
         <div className="flex flex-wrap justify-center gap-3">
           {suggestions.map((text) => (
-            <button
+            <Button
               key={text}
+              variant="ghost"
               type="button"
               onClick={() => onPick(text)}
-              className="h-[72px] w-[136px] overflow-hidden rounded-card bg-chip p-4 text-left text-base leading-5 text-muted-foreground transition-[background-color] duration-150 hover:bg-hover focus-visible:ring-2 focus-visible:ring-fg"
+              className="h-[72px] w-[136px] items-start justify-start overflow-hidden whitespace-normal rounded-card border-0 bg-chip p-4 text-left text-base font-normal leading-5 text-muted-foreground hover:bg-hover"
             >
               <span className="line-clamp-2">{text}</span>
-            </button>
+            </Button>
           ))}
         </div>
       ) : null}
@@ -1300,15 +1665,23 @@ const ApprovalCard = memo(function ApprovalCard({
       className="flex flex-wrap items-center gap-2 rounded-card border bg-chip px-3 py-2"
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
-      <div className="min-w-0 flex-1 text-xs leading-relaxed text-fg">
+      <div className="min-w-0 flex-1 basis-48 text-xs leading-relaxed text-fg [overflow-wrap:anywhere]">
         工具 <code className="font-mono text-xs">{item.toolName}</code>
         {item.serverName ? (
           <span className="text-muted-foreground"> @ {item.serverName}</span>
         ) : null}{' '}
-        需要批准。批准只记录到该 server；继续请在输入框重新发送消息（新一次运行）。
+        {item.waiting
+          ? '调用仍在等待，批准后可继续本次调用，无需重发'
+          : '本次调用已结束等待，批准仅对后续调用生效，不会恢复已结束的调用。'}
       </div>
-      <Button size="sm" disabled={busy} aria-busy={busy} onClick={() => onApprove(item)}>
-        {busy ? '批准中…' : '批准并继续（新一次运行）'}
+      <Button
+        size="sm"
+        className="h-auto min-h-7 max-w-full whitespace-normal py-1"
+        disabled={busy}
+        aria-busy={busy}
+        onClick={() => onApprove(item)}
+      >
+        {busy ? '批准中…' : item.waiting ? '批准本次调用' : '批准后续调用'}
       </Button>
     </motion.div>
   );
@@ -1345,7 +1718,7 @@ const ToolRow = memo(function ToolRow({
       onOpenChange={setOpen}
       className={cn('overflow-hidden rounded-item bg-surface', nested && 'ml-4')}
     >
-      <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg">
+      <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
         <Wrench className="size-4 shrink-0 text-subtle" aria-hidden="true" />
         <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{item.name}</code>
         <span className="sr-only">{running ? '运行中' : failed ? '失败' : '完成'}</span>
@@ -1386,7 +1759,7 @@ const ToolRow = memo(function ToolRow({
                   子智能体 · {childCount} 次调用
                 </p>
               ) : null}
-              <div className="grid gap-2 border-t p-2 md:grid-cols-2">
+              <div className="grid gap-2 border-t p-2">
                 <div className="min-w-0">
                   <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
                     参数

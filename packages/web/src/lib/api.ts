@@ -1,15 +1,20 @@
 import type {
   Agent,
   AgentInput,
+  AgentPatch,
   ApiTool,
   ApiToolInput,
   ChatRequest,
   ConversationSummary,
+  EvalDataset,
+  EvalDatasetImportResult,
+  EvalRunExport,
   Problem,
   Server,
   ServerInput,
   ServerTestResult,
   ConversationDetail as SharedConversationDetail,
+  EvalComparison as SharedEvalComparison,
   Skill,
   SkillInput,
   SkillWithAgentCount,
@@ -22,9 +27,18 @@ export type AgentFiles = WorkspaceFiles;
 export interface AgentExport {
   format: string;
   exportedAt: string;
-  agent: Omit<Agent, 'id' | 'createdAt' | 'updatedAt'>;
+  agent: Omit<Agent, 'id' | 'createdAt' | 'updatedAt' | 'parentId'> & {
+    serverNames: string[];
+    skillSlugs: string[];
+  };
+  subAgents: Array<
+    Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds'> & {
+      serverNames: string[];
+      skillSlugs: string[];
+    }
+  >;
   servers: Array<Record<string, unknown>>;
-  skills: Skill[];
+  skills: SkillInput[];
   workspace: AgentFiles;
 }
 
@@ -33,6 +47,23 @@ export interface AgentImportResult {
   createdServers: string[];
   reusedServers: string[];
   createdSkills: string[];
+  createdSubAgents: string[];
+  warnings: string[];
+}
+
+export interface SkillImportResult {
+  skill: Skill;
+  warnings: string[];
+}
+
+/** `.mcp.json` 导入结果；secretKeys 只有键名，值不会回显。 */
+export interface McpImportResult {
+  servers: Array<{
+    id: string;
+    name: string;
+    kind: 'stdio' | 'http';
+    secretKeys: string[];
+  }>;
   warnings: string[];
 }
 
@@ -103,7 +134,7 @@ export interface RunDetail {
   conversation: { id: string; agentId: string; title: string };
 }
 
-/** 结构化审批请求；approvedAt 非空表示已批准。 */
+/** 结构化审批请求；approvedAt 非空表示已批准，waiting 由服务端计算。 */
 export interface ApprovalRequest {
   id: string;
   serverId: string;
@@ -111,6 +142,8 @@ export interface ApprovalRequest {
   toolName: string;
   createdAt: string;
   approvedAt: string | null;
+  expiresAt: string | null;
+  waiting: boolean;
 }
 
 export interface ApprovalRequestList {
@@ -151,6 +184,8 @@ export interface Overview {
     running: number | null;
     costUsd?: number;
     avgLatencyMs?: number | null;
+    failed?: number;
+    tokens?: number;
   };
   agents?: OverviewAgentRow[];
   recent: RecentRun[];
@@ -174,8 +209,12 @@ export interface AuditEntry {
 export interface AuditQuery {
   action?: string;
   status?: AuditStatus;
+  target?: string;
   limit?: number;
+  /** ISO 时间戳；与 beforeId 相互独立，由调用方自行选择。 */
   before?: string;
+  /** 上一页最后一条的 id；同毫秒并列时用 id 继续翻页。 */
+  beforeId?: string;
 }
 
 export interface AuditList {
@@ -186,13 +225,19 @@ export type Conversation = ConversationSummary;
 
 export type ConversationDetail = SharedConversationDetail;
 
+/** 会话消息分页：默认 50 条、上限 100；before 为上一页最早消息的 id。 */
+export interface ConversationPageOptions {
+  limit?: number;
+  before?: string;
+}
+
 export interface ConversationList {
   items: Conversation[];
   /** 后端尚未实现列表接口时为 false，页面退回本地会话记录。 */
   supported: boolean;
 }
 
-export type EvalRunStatus = 'running' | 'succeeded' | 'failed';
+export type EvalRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface EvalCase {
   id: string;
@@ -237,6 +282,8 @@ export interface EvalRunDetail {
   evalRun: EvalRun;
   results: EvalResult[];
 }
+
+export type EvalComparison = SharedEvalComparison;
 
 export interface HealthMetrics {
   process: { uptimeSeconds: number; memoryRssBytes: number; nodeVersion: string };
@@ -402,6 +449,8 @@ export const api = {
     }),
   deleteServer: (id: string): Promise<void> => request(`/servers/${id}`, 'DELETE'),
   testServer: (id: string): Promise<ServerTestResult> => request(`/servers/${id}/test`, 'POST'),
+  importMcpFile: (content: string): Promise<McpImportResult> =>
+    request('/servers/import-file', 'POST', { mcpJson: content }),
   /**
    * wire 上掩码字段叫 maskedToken（rotate 的 token 是明文，两者不能同名）。
    * 这里映射回 `token`，页面把「掩码」和「刚轮换的明文」放进同一处渲染。
@@ -431,16 +480,12 @@ export const api = {
     runId: string,
     serverId: string,
     toolName: string,
-  ): Promise<{ serverId: string; toolName: string; approvedAt: string }> =>
+  ): Promise<{ serverId: string; toolName: string; approvedAt: string; waiting: boolean }> =>
     request(`/runs/${runId}/approve`, 'POST', { serverId, toolName }),
 
   agents: (): Promise<Agent[]> => request('/agents'),
   createAgent: (input: AgentInput): Promise<Agent> => request('/agents', 'POST', input),
-  updateAgent: (
-    id: string,
-    input: Partial<AgentInput>,
-    expectedUpdatedAt?: string,
-  ): Promise<Agent> =>
+  updateAgent: (id: string, input: AgentPatch, expectedUpdatedAt?: string): Promise<Agent> =>
     request(`/agents/${id}`, 'PATCH', {
       ...input,
       ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
@@ -455,12 +500,26 @@ export const api = {
   exportAgent: (id: string): Promise<AgentExport> => request(`/export/agents/${id}`),
   importAgent: (data: unknown): Promise<AgentImportResult> =>
     request('/import/agents', 'POST', data),
+  importAgentFile: (agentMd: string): Promise<Pick<AgentImportResult, 'agent' | 'warnings'>> =>
+    request('/agents/import-file', 'POST', { agentMd }),
 
   skills: (): Promise<SkillWithAgentCount[]> => request('/skills'),
   createSkill: (input: SkillInput): Promise<Skill> => request('/skills', 'POST', input),
-  updateSkill: (id: string, input: Partial<SkillInput>): Promise<Skill> =>
-    request(`/skills/${id}`, 'PATCH', input),
+  importSkillFile: (content: string): Promise<SkillImportResult> =>
+    request('/skills/import', 'POST', { skillMd: content }),
+  updateSkill: (
+    id: string,
+    input: Partial<SkillInput>,
+    expectedUpdatedAt?: string,
+  ): Promise<Skill> =>
+    request(`/skills/${id}`, 'PATCH', {
+      ...input,
+      ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
+    }),
   deleteSkill: (id: string): Promise<void> => request(`/skills/${id}`, 'DELETE'),
+
+  renameConversation: (id: string, title: string): Promise<ConversationDetail['conversation']> =>
+    request(`/conversations/${id}`, 'PATCH', { title }),
 
   conversations: async (agentId?: string): Promise<ConversationList> => {
     const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
@@ -473,7 +532,16 @@ export const api = {
       throw error;
     }
   },
-  conversation: (id: string): Promise<ConversationDetail> => request(`/conversations/${id}`),
+  conversation: (
+    id: string,
+    options: ConversationPageOptions = {},
+  ): Promise<ConversationDetail> => {
+    const params = new URLSearchParams();
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    if (options.before !== undefined) params.set('before', options.before);
+    const query = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/conversations/${id}${query}`);
+  },
   branchConversation: (id: string, fromMessageId?: string): Promise<{ id: string }> =>
     request(`/conversations/${id}/branch`, 'POST', {
       ...(fromMessageId === undefined ? {} : { fromMessageId }),
@@ -490,16 +558,38 @@ export const api = {
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return request<RunList>(`/runs${search}`);
   },
+  exportRuns: (query: {
+    agentId?: string;
+    status?: RunStatus;
+  }): Promise<{ format: string; exportedAt: string; items: RunListItem[] }> => {
+    const params = new URLSearchParams();
+    if (query.agentId) params.set('agentId', query.agentId);
+    if (query.status) params.set('status', query.status);
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/runs/export${search}`);
+  },
   run: (id: string): Promise<RunDetail> => request(`/runs/${id}`),
 
   audit: (query: AuditQuery = {}): Promise<AuditList> => {
     const params = new URLSearchParams();
     if (query.action) params.set('action', query.action);
     if (query.status) params.set('status', query.status);
+    if (query.target) params.set('target', query.target);
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.before) params.set('before', query.before);
+    if (query.beforeId) params.set('beforeId', query.beforeId);
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return request<AuditList>(`/audit${search}`);
+  },
+  exportAudit: (
+    query: AuditQuery = {},
+  ): Promise<{ format: string; exportedAt: string; items: AuditEntry[] }> => {
+    const params = new URLSearchParams();
+    if (query.action) params.set('action', query.action);
+    if (query.status) params.set('status', query.status);
+    if (query.target) params.set('target', query.target);
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/audit/export${search}`);
   },
 
   evalCases: (agentId?: string): Promise<EvalCase[]> => {
@@ -511,6 +601,10 @@ export const api = {
   updateEvalCase: (id: string, input: Partial<Omit<EvalCaseInput, 'agentId'>>): Promise<EvalCase> =>
     request(`/eval/cases/${id}`, 'PATCH', input),
   deleteEvalCase: (id: string): Promise<void> => request(`/eval/cases/${id}`, 'DELETE'),
+  exportEvalDataset: (agentId: string): Promise<EvalDataset> =>
+    request(`/eval/cases/export?agentId=${encodeURIComponent(agentId)}`),
+  importEvalDataset: (agentId: string, dataset: EvalDataset): Promise<EvalDatasetImportResult> =>
+    request('/eval/cases/import', 'POST', { agentId, dataset }),
 
   evalRuns: (agentId?: string): Promise<EvalRun[]> => {
     const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
@@ -518,5 +612,10 @@ export const api = {
   },
   startEvalRun: (agentId: string): Promise<{ evalRunId: string }> =>
     request('/eval/runs', 'POST', { agentId }),
+  cancelEvalRun: (id: string): Promise<{ ok: true }> => request(`/eval/runs/${id}/cancel`, 'POST'),
   evalRun: (id: string): Promise<EvalRunDetail> => request(`/eval/runs/${id}`),
+  exportEvalRun: (id: string): Promise<EvalRunExport> =>
+    request(`/eval/runs/${encodeURIComponent(id)}/export`),
+  compareEvalRuns: (baseId: string, headId: string): Promise<EvalComparison> =>
+    request(`/eval/runs/${baseId}/compare?head=${encodeURIComponent(headId)}`),
 };

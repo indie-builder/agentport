@@ -1,0 +1,253 @@
+import type { Database } from '@agentport/db';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * 跑批开始时的用例快照契约：有快照就绝不再读活用例表。
+ * 只 mock repo/bullmq 这一层边界，断言 worker 的输入与写回内容。
+ */
+const mocks = vi.hoisted(() => {
+  const noop = () => undefined;
+  return {
+    queueAdd: vi.fn(),
+    waitUntilReady: vi.fn(async () => undefined),
+    waitUntilFinished: vi.fn(async () => undefined),
+    evalRepo: {
+      getEvalRun: vi.fn(),
+      claimEvalRun: vi.fn(),
+      listCases: vi.fn(),
+      addResult: vi.fn(),
+      updateProgress: vi.fn(),
+      finishEvalRun: vi.fn(),
+    },
+    chat: {
+      createConversation: vi.fn(),
+      createRun: vi.fn(),
+      appendMessage: vi.fn(),
+      getRun: vi.fn(),
+      listMessages: vi.fn(),
+      messageText: (content: { text?: string } | null | undefined) => content?.text ?? null,
+    },
+    logger: { info: noop, warn: noop, error: noop, debug: noop, child: noop },
+  };
+});
+
+vi.mock('@agentport/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@agentport/db')>();
+  return {
+    ...actual,
+    repo: { ...actual.repo, evalRepo: mocks.evalRepo, chat: mocks.chat },
+  };
+});
+
+vi.mock('bullmq', () => ({
+  Queue: class {
+    add = mocks.queueAdd;
+    close = vi.fn(async () => undefined);
+  },
+  QueueEvents: class {
+    on = vi.fn();
+    close = vi.fn(async () => undefined);
+    waitUntilReady = mocks.waitUntilReady;
+  },
+}));
+
+import { executeEvalRun } from '../src/eval-runner.js';
+
+type SnapshotCase = { id: string; name: string; prompt: string; expectation: string };
+
+const db = {
+  select: () => ({
+    from: () => ({
+      where: () => ({ limit: async () => [{ timeoutMs: 5_000 }] }),
+    }),
+  }),
+} as unknown as Database;
+const logger = mocks.logger as unknown as Parameters<typeof executeEvalRun>[0]['logger'];
+const agentId = 'agent-1';
+const evalRunId = 'evalRun-1';
+const outputsByConversation = new Map<string, string>();
+
+function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, string>): void {
+  mocks.evalRepo.getEvalRun.mockResolvedValue({ status: 'running', agentId, caseSnapshot });
+  mocks.evalRepo.claimEvalRun.mockResolvedValue(true);
+  mocks.evalRepo.listCases.mockImplementation(() => {
+    throw new Error('listCases must not run when a snapshot exists');
+  });
+  for (const [name, text] of Object.entries(outputs)) outputsByConversation.set(name, text);
+  mocks.chat.createConversation.mockImplementation(
+    async (_db: Database, input: { title: string; agentId: string }) => {
+      const name = input.title.replace('eval: ', '');
+      return { id: name, agentId: input.agentId, title: input.title };
+    },
+  );
+  mocks.chat.createRun.mockImplementation(
+    async (_db: Database, input: { conversationId: string }) => ({
+      id: `run-${input.conversationId}`,
+    }),
+  );
+  mocks.chat.appendMessage.mockResolvedValue(undefined);
+  mocks.chat.getRun.mockImplementation(async (_db: Database, id: string) => ({
+    id,
+    status: 'succeeded',
+  }));
+  mocks.chat.listMessages.mockImplementation(async (_db: Database, conversationId: string) => [
+    {
+      role: 'assistant',
+      content: { type: 'text', text: outputsByConversation.get(conversationId) ?? '' },
+    },
+  ]);
+  mocks.queueAdd.mockResolvedValue({ waitUntilFinished: mocks.waitUntilFinished });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  outputsByConversation.clear();
+});
+
+describe('executeEvalRun case snapshot', () => {
+  it('runs and judges snapshot cases without reading the live case table', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+      { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
+    ];
+    runWith(snapshot, { alpha: 'answer alpha-ok', beta: 'answer beta-ok' });
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.evalRepo.listCases).not.toHaveBeenCalled();
+    // 喂给 run job 的 prompt 与 judge 用的 expectation 都来自快照。
+    expect(mocks.queueAdd.mock.calls.map((call) => call[1].prompt)).toEqual([
+      'prompt-alpha',
+      'prompt-beta',
+    ]);
+    expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(2);
+    expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
+      evalRunId,
+      caseId: 'evalCase-a',
+      passed: true,
+      caseSnapshot: snapshot[0],
+    });
+    expect(mocks.evalRepo.addResult.mock.calls[1]?.[1]).toMatchObject({
+      evalRunId,
+      caseId: 'evalCase-b',
+      passed: true,
+      caseSnapshot: snapshot[1],
+    });
+    // 总数按快照长度收敛，而不是重读后的活用例。
+    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      status: 'succeeded',
+      passed: 2,
+      error: null,
+    });
+    // 超时仍取当前 agent 配置，不随快照冻结。
+    expect(mocks.waitUntilFinished).toHaveBeenCalledWith(expect.anything(), 5_000);
+  });
+
+  it('records a snapshot case whose live row was deleted, without a live fetch', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-deleted', name: 'gone', prompt: 'prompt-gone', expectation: 'gone-ok' },
+    ];
+    runWith(snapshot, { gone: 'answer gone-ok' });
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.evalRepo.listCases).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(1);
+    // 原用例字段随结果写回，报告不依赖仍然存在的 eval_cases 行。
+    expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
+      caseId: 'evalCase-deleted',
+      caseSnapshot: snapshot[0],
+      passed: true,
+    });
+    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      status: 'succeeded',
+      passed: 1,
+      error: null,
+    });
+  });
+
+  it('treats an empty snapshot as zero cases instead of re-reading them', async () => {
+    runWith([], {});
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.evalRepo.listCases).not.toHaveBeenCalled();
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      status: 'succeeded',
+      passed: 0,
+      error: null,
+    });
+  });
+
+  it('stops after the already-running case when cancelled between cases', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+      { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
+    ];
+    runWith(snapshot, { alpha: 'answer alpha-ok', beta: 'answer beta-ok' });
+    // 调用顺序：初次读取、认领后、alpha 前后各一次、beta 前、收口前。
+    const running = { status: 'running', agentId, caseSnapshot: snapshot };
+    const cancelled = { status: 'cancelled', agentId, caseSnapshot: snapshot };
+    mocks.evalRepo.getEvalRun
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(cancelled)
+      .mockResolvedValueOnce(cancelled);
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    // 取消前已跑完的 case 保留结果，之后不再入队、写结果或收口。
+    expect(mocks.queueAdd).toHaveBeenCalledTimes(1);
+    expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(1);
+    expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
+  });
+
+  it('discards the output of a case cancelled in flight', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+    ];
+    runWith(snapshot, { alpha: 'answer alpha-ok' });
+    const running = { status: 'running', agentId, caseSnapshot: snapshot };
+    const cancelled = { status: 'cancelled', agentId, caseSnapshot: snapshot };
+    // 调用顺序：初次读取、认领后、alpha 前、alpha 跑完后、收口前。
+    mocks.evalRepo.getEvalRun
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(cancelled)
+      .mockResolvedValueOnce(cancelled);
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.updateProgress).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
+  });
+
+  it('falls back to listCases only when the run has no snapshot', async () => {
+    const live: SnapshotCase[] = [
+      { id: 'evalCase-live', name: 'live', prompt: 'prompt-live', expectation: 'live-ok' },
+    ];
+    runWith(null, { live: 'answer live-ok' });
+    mocks.evalRepo.listCases.mockResolvedValue(live);
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.evalRepo.listCases).toHaveBeenCalledWith(db, agentId);
+    expect(mocks.queueAdd.mock.calls.map((call) => call[1].prompt)).toEqual(['prompt-live']);
+    expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
+      caseId: 'evalCase-live',
+      passed: true,
+      caseSnapshot: live[0],
+    });
+    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      status: 'succeeded',
+      passed: 1,
+      error: null,
+    });
+  });
+});

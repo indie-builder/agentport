@@ -7,14 +7,16 @@ import {
   type WorkspaceFiles,
 } from '@agentport/core/workspace';
 import {
+  AGENT_PACKAGE_MAX_BYTES,
   type Agent,
   type AgentInput,
   agentInputSchema,
   BUILTIN_TOOLS,
   type Server,
+  serializeAgentPackage,
 } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { useBlocker } from '@tanstack/react-router';
+import { useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   Bot,
   Check,
@@ -33,30 +35,32 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import {
-  type ComponentProps,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { FilterSelect } from '../components/filter-select.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
-import { Page, PageHeader } from '../components/page.js';
+import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
-import { SearchInput } from '../components/search-input.js';
-import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
+import { ResourcePage } from '../components/resource-page.js';
+import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
 import {
   Combobox,
   ComboboxChip,
@@ -182,32 +186,34 @@ function toInput(agent: Agent): AgentInput {
 export function AgentsPage() {
   const agents = useAgents();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const search = useSearch({ from: '/shell/agents' });
+  const query = search.q ?? '';
+  const sort = search.sort ?? 'newest';
+  const status = search.status ?? '';
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [query, setQuery] = useState('');
   const [deleting, setDeleting] = useState<Agent | null>(null);
   const [importing, setImporting] = useState(false);
-  // 切换智能体会重挂编辑器、丢弃草稿：脏的时候先确认。
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [editorPending, setEditorPending] = useState(false);
   const dirtyRef = useRef(false);
-  const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
+  const editorTriggerRef = useRef<HTMLButtonElement | null>(null);
   const remove = useDeleteAgent();
 
   const onDirtyChange = useCallback((dirty: boolean) => {
     dirtyRef.current = dirty;
   }, []);
 
-  const selectAgent = (id: string): void => {
-    if (id === selectedId) return;
-    if (dirtyRef.current) {
-      setPendingSwitch(id);
-      return;
-    }
-    setSelectedId(id);
+  const closeEditor = (): void => {
+    dirtyRef.current = false;
+    setSelectedId(null);
+    setConfirmClose(false);
   };
 
-  // 切走前关掉浏览器标签会静默丢草稿：脏时挂 beforeunload（刷新也算切换）。
+  // beforeunload 保护刷新和关闭标签页；站内离开由编辑器的 blocker 处理。
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent): void => {
       if (!dirtyRef.current) return;
@@ -217,20 +223,30 @@ export function AgentsPage() {
     return () => window.removeEventListener('beforeunload', guard);
   }, []);
 
-  // 导入返回的 agent 直接选中；列表与 server/skill 缓存随后失效刷新。
   const importFile = async (file: File): Promise<void> => {
     setImporting(true);
     try {
-      const data: unknown = JSON.parse(await file.text());
-      const result = await api.importAgent(data);
+      const isMarkdown = file.name.toLowerCase().endsWith('.md');
+      if (file.size > (isMarkdown ? 131072 : AGENT_PACKAGE_MAX_BYTES)) {
+        toastError(
+          new Error(
+            isMarkdown ? 'agent.md 不能超过 128 KB，请精简后重试。' : '导入文件不能超过 1 MiB。',
+          ),
+        );
+        return;
+      }
+      const text = await file.text();
+      const result = isMarkdown
+        ? await api.importAgentFile(text)
+        : await api.importAgent(JSON.parse(text));
       setSelectedId(result.agent.id);
       await Promise.all(
         ['agents', 'servers', 'skills', 'overview'].map((key) =>
           queryClient.invalidateQueries({ queryKey: [key] }),
         ),
       );
-      const suffix = result.warnings.length > 0 ? `，${result.warnings.length} 条提示` : '';
-      toastSuccess(`已导入「${result.agent.name}」${suffix}`);
+      toastSuccess(`已导入「${result.agent.name}」`);
+      for (const warning of result.warnings) toast.info(warning);
     } catch (error) {
       toastError(error);
     } finally {
@@ -240,143 +256,306 @@ export function AgentsPage() {
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const list = agents.data ?? [];
-    if (!needle) return list;
-    return list.filter((agent) =>
-      [agent.name, agent.slug, agent.description].join(' ').toLowerCase().includes(needle),
-    );
-  }, [agents.data, query]);
+    return (agents.data ?? [])
+      .filter(
+        (agent) =>
+          (!status || agent.enabled === (status === 'enabled')) &&
+          [agent.name, agent.slug, agent.description].join(' ').toLowerCase().includes(needle),
+      )
+      .sort((a, b) =>
+        sort === 'name'
+          ? a.name.localeCompare(b.name, 'zh-CN')
+          : Date.parse(b.createdAt) - Date.parse(a.createdAt),
+      );
+  }, [agents.data, query, sort, status]);
 
-  // 搜索不应悄悄换掉正在编辑的智能体：先按全量列表解析，只有它不存在时才落到筛选结果。
-  const selected =
-    (agents.data ?? []).find((agent) => agent.id === selectedId) ?? filtered[0] ?? null;
+  const selected = (agents.data ?? []).find((agent) => agent.id === selectedId) ?? null;
 
   return (
-    <Page>
-      <PageHeader
-        title="智能体"
-        meta={
-          <span className="font-mono text-xs tabular-nums text-subtle">
-            {agents.data?.length ?? 0}
-          </span>
-        }
-        actions={
-          <>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = '';
-                if (file) void importFile(file);
-              }}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              // Keep pill action corners instead of the small button's 7px radius.
-              className="h-8 rounded-full px-3"
-              disabled={importing}
-              aria-busy={importing}
-              onClick={() => fileInput.current?.click()}
-            >
-              <Upload className="size-4" /> {importing ? '导入中…' : '导入'}
-            </Button>
-            <Button
-              ref={createButtonRef}
-              size="sm"
-              // Keep pill action corners instead of the small button's 7px radius.
-              className="h-8 rounded-full px-3.5"
-              onClick={() => setCreating(true)}
-            >
-              <Plus className="size-4" /> 新建智能体
-            </Button>
-          </>
-        }
-      />
-
-      <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
-        <div className="min-w-0 py-3 pr-5 lg:border-r">
-          <SearchInput
-            label="搜索智能体"
-            placeholder="搜索名称或 slug…"
-            value={query}
-            onChange={setQuery}
-            className="mb-2"
+    <ResourcePage
+      section="agents"
+      query={query}
+      onQueryChange={(q) => {
+        void navigate({ to: '/agents', search: { ...search, q: q || undefined }, replace: true });
+      }}
+      sort={sort}
+      onSortChange={(next) => {
+        void navigate({
+          to: '/agents',
+          search: { ...search, sort: next === 'newest' ? undefined : next },
+        });
+      }}
+      count={filtered.length}
+      filters={
+        <FilterSelect
+          value={status}
+          onValueChange={(next) => {
+            if (next !== '' && next !== 'enabled' && next !== 'disabled') return;
+            void navigate({ to: '/agents', search: { ...search, status: next || undefined } });
+          }}
+          options={[
+            { value: '', label: '全部专家' },
+            { value: 'enabled', label: '已启用' },
+            { value: 'disabled', label: '已停用' },
+          ]}
+          label="按启用状态筛选"
+          className="w-36"
+        />
+      }
+      actions={
+        <>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="application/json,.json,text/markdown,.md"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (file) void importFile(file);
+            }}
           />
-
-          {agents.isPending ? <LoadingState rows={4} /> : null}
-          {agents.isError ? (
-            <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-          ) : null}
-          {agents.data && agents.data.length === 0 ? (
-            <EmptyState
-              icon={<Bot className="size-5" />}
-              title="还没有智能体"
-              description="创建后绑定 MCP Server，即可在对话中使用它的工具。"
-              action={
-                <Button size="sm" onClick={() => setCreating(true)}>
-                  新建智能体
-                </Button>
+          <Button
+            variant="outline"
+            title="导入专家 JSON 或 agent.md"
+            disabled={importing}
+            aria-busy={importing}
+            onClick={(event) => {
+              editorTriggerRef.current = event.currentTarget;
+              fileInput.current?.click();
+            }}
+          >
+            <Upload data-icon="inline-start" /> {importing ? '导入中…' : '导入'}
+          </Button>
+          <Button
+            ref={createButtonRef}
+            onClick={(event) => {
+              editorTriggerRef.current = event.currentTarget;
+              setCreating(true);
+            }}
+          >
+            <Plus data-icon="inline-start" /> 新建专家
+          </Button>
+        </>
+      }
+    >
+      {agents.isPending ? <LoadingState rows={4} layout="cards" /> : null}
+      {agents.isError ? (
+        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+      ) : null}
+      {agents.data && agents.data.length === 0 ? (
+        <PageNote
+          icon={<Bot />}
+          title="还没有专家"
+          description="创建专家，绑定技能和连接器，即可在对话中使用。"
+          action={
+            <Button
+              onClick={(event) => {
+                editorTriggerRef.current = event.currentTarget;
+                setCreating(true);
+              }}
+            >
+              新建专家
+            </Button>
+          }
+        />
+      ) : null}
+      {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
+        <PageNote
+          title="没有匹配的专家"
+          description="试试其他关键词或启用状态。"
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                void navigate({
+                  to: '/agents',
+                  search: { ...search, q: undefined, status: undefined },
+                })
               }
-            />
-          ) : null}
-          {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
-            <InlineEmpty>没有匹配的智能体。</InlineEmpty>
-          ) : null}
+            >
+              清除筛选
+            </Button>
+          }
+        />
+      ) : null}
 
-          <ul aria-label="智能体列表">
-            {filtered.map((agent) => {
-              const active = selected?.id === agent.id;
-              return (
-                <li key={agent.id} className="border-b last:border-b-0">
-                  <button
-                    type="button"
-                    aria-current={active ? 'true' : undefined}
-                    onClick={() => selectAgent(agent.id)}
-                    className={cn(
-                      'flex h-14 w-full items-center gap-3 rounded-item px-2.5 text-left transition-colors duration-150 hover:bg-chip',
-                      active ? 'bg-hover' : '',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'size-1.5 shrink-0 rounded-full',
-                        agent.enabled ? 'bg-success' : 'bg-subtle',
-                      )}
-                      aria-hidden="true"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-base text-fg">{agent.name}</span>
-                      <span className="block truncate font-mono text-2xs text-subtle">
-                        {agent.slug}
+      <ul
+        aria-label="专家列表"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+      >
+        {filtered.map((agent) => (
+          <li key={agent.id} className="min-w-0">
+            <Card className="h-full">
+              <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
+                <span className="row-span-2 flex size-10 shrink-0 items-center justify-center rounded-item bg-muted text-muted-foreground">
+                  <Bot aria-hidden="true" />
+                </span>
+                <CardTitle className="col-start-2 min-w-0">
+                  <h2>
+                    <Button
+                      variant="ghost"
+                      aria-label={`配置 ${agent.name}`}
+                      aria-haspopup="dialog"
+                      className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium whitespace-normal"
+                      onClick={(event) => {
+                        editorTriggerRef.current = event.currentTarget;
+                        setSelectedId(agent.id);
+                      }}
+                    >
+                      <span className="line-clamp-2 break-words" title={agent.name}>
+                        {agent.name}
                       </span>
-                    </span>
-                    <span className="font-mono text-2xs tabular-nums text-subtle">
-                      {agent.serverIds.length}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+                    </Button>
+                  </h2>
+                </CardTitle>
+                <CardAction className="col-start-3">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`操作 ${agent.name}`}
+                          onClick={(event) => {
+                            editorTriggerRef.current = event.currentTarget;
+                          }}
+                        >
+                          <Ellipsis />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem onClick={() => setSelectedId(agent.id)}>
+                          配置
+                        </DropdownMenuItem>
+                        <DropdownMenuItem variant="destructive" onClick={() => setDeleting(agent)}>
+                          删除
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </CardAction>
+                <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10 break-words">
+                  {agent.description || '暂无描述'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-1.5">
+                <StatusBadge>{agent.enabled ? '已启用' : '已停用'}</StatusBadge>
+                <StatusBadge>
+                  <Plug aria-hidden="true" /> {agent.serverIds.length} 个连接器
+                </StatusBadge>
+                <StatusBadge>
+                  <Sparkles aria-hidden="true" /> {agent.skillIds.length} 项技能
+                </StatusBadge>
+              </CardContent>
+              <CardFooter className="mt-auto justify-between">
+                <span className="truncate font-mono text-xs text-muted-foreground">
+                  {agent.slug}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-haspopup="dialog"
+                  onClick={(event) => {
+                    editorTriggerRef.current = event.currentTarget;
+                    setSelectedId(agent.id);
+                  }}
+                >
+                  配置
+                </Button>
+              </CardFooter>
+            </Card>
+          </li>
+        ))}
+      </ul>
 
-        <div className="min-w-0 lg:pl-6">
-          {selected ? (
-            <AgentEditor
-              key={selected.id}
-              agent={selected}
-              onDelete={() => setDeleting(selected)}
-              onDirtyChange={onDirtyChange}
-            />
-          ) : agents.data && agents.data.length > 0 ? (
-            <EmptyState title="选择一个智能体" description="从左侧列表选择以查看和编辑配置。" />
-          ) : null}
-        </div>
-      </div>
+      <Sheet
+        open={selected !== null}
+        onOpenChange={(open, eventDetails) => {
+          if (open) return;
+          if (editorPending) {
+            eventDetails.cancel();
+            return;
+          }
+          if (dirtyRef.current) {
+            eventDetails.cancel();
+            setConfirmClose(true);
+            return;
+          }
+          closeEditor();
+        }}
+      >
+        <SheetContent
+          showCloseButton={false}
+          className="w-full! max-w-4xl! gap-0 sm:max-w-4xl!"
+          finalFocus={() =>
+            editorTriggerRef.current?.isConnected
+              ? editorTriggerRef.current
+              : createButtonRef.current
+          }
+        >
+          <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+            <div className="min-w-0">
+              <SheetTitle>{selected?.name}</SheetTitle>
+              <SheetDescription>管理专家的配置、能力绑定与版本。</SheetDescription>
+            </div>
+            <SheetClose
+              render={<Button variant="ghost" size="icon-sm" aria-label="关闭" className="-mr-1" />}
+            >
+              <X aria-hidden="true" />
+            </SheetClose>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
+            {selected ? (
+              <AgentEditor
+                key={selected.id}
+                agent={selected}
+                onDelete={() => setDeleting(selected)}
+                onDirtyChange={onDirtyChange}
+                onPendingChange={setEditorPending}
+              />
+            ) : null}
+          </div>
+          <ConfirmDialog
+            open={confirmClose}
+            onClose={() => setConfirmClose(false)}
+            title="放弃未保存的更改？"
+            description={`「${selected?.name ?? ''}」还有未保存的修改，关闭后会丢失。可以先取消、保存后再关闭。`}
+            confirmLabel="放弃并关闭"
+            onConfirm={async () => closeEditor()}
+          />
+          <ConfirmDialog
+            open={deleting !== null}
+            onClose={() => setDeleting(null)}
+            title={`删除专家「${deleting?.name ?? ''}」`}
+            description="它的会话、消息与绑定关系会一并删除，正在运行的任务不会被自动停止。此操作不可撤销。"
+            onConfirm={async () => {
+              if (!deleting) return;
+              await remove.mutateAsync(deleting.id);
+              closeEditor();
+            }}
+          />
+        </SheetContent>
+      </Sheet>
+      {selected === null && deleting ? (
+        <ConfirmDialog
+          open
+          onClose={() => setDeleting(null)}
+          title={`删除专家「${deleting.name}」`}
+          description="它的会话、消息与绑定关系会一并删除，正在运行的任务不会被自动停止。此操作不可撤销。"
+          finalFocus={() =>
+            editorTriggerRef.current?.isConnected
+              ? editorTriggerRef.current
+              : createButtonRef.current
+          }
+          onConfirm={async () => {
+            await remove.mutateAsync(deleting.id);
+          }}
+        />
+      ) : null}
 
       {creating ? (
         <CreateAgentDialog
@@ -388,30 +567,7 @@ export function AgentsPage() {
           }}
         />
       ) : null}
-
-      <ConfirmDialog
-        open={pendingSwitch !== null}
-        onClose={() => setPendingSwitch(null)}
-        title="放弃未保存的更改？"
-        description={`「${selected?.name ?? ''}」还有未保存的修改，切换后会丢失。可以先取消、保存后再切换。`}
-        confirmLabel="放弃并切换"
-        onConfirm={async () => {
-          if (pendingSwitch) setSelectedId(pendingSwitch);
-        }}
-      />
-
-      <ConfirmDialog
-        open={deleting !== null}
-        onClose={() => setDeleting(null)}
-        title={`删除智能体「${deleting?.name ?? ''}」`}
-        description="它的会话、消息与绑定关系会一并删除，正在运行的任务不会被自动停止。此操作不可撤销。"
-        onConfirm={async () => {
-          if (!deleting) return;
-          await remove.mutateAsync(deleting.id);
-          if (selectedId === deleting.id) setSelectedId(null);
-        }}
-      />
-    </Page>
+    </ResourcePage>
   );
 }
 
@@ -449,16 +605,6 @@ function FileTag({ children }: { children: ReactNode }) {
   return <span className="shrink-0 font-mono text-2xs text-subtle">{children}</span>;
 }
 
-/** 输入 36px / radius 9：表单密度跟着设计基准走，而不是沿用表格控件。 */
-function LineInput({ className, ...props }: ComponentProps<'input'>) {
-  return <Input className={cn('h-9 px-3', className)} {...props} />;
-}
-
-function CodeArea({ className, ...props }: ComponentProps<'textarea'>) {
-  // Keep relaxed code line spacing instead of the base text line height.
-  return <Textarea className={cn('px-3 leading-relaxed', className)} {...props} />;
-}
-
 function RuntimeTag() {
   return <FileTag>仅运行时</FileTag>;
 }
@@ -467,10 +613,12 @@ function AgentEditor({
   agent,
   onDelete,
   onDirtyChange,
+  onPendingChange,
 }: {
   agent: Agent;
   onDelete: () => void;
   onDirtyChange: (dirty: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const update = useUpdateAgent();
   const servers = useServers();
@@ -546,7 +694,7 @@ function AgentEditor({
     try {
       const data = await api.exportAgent(agent.id);
       const url = URL.createObjectURL(
-        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        new Blob([serializeAgentPackage(data)], { type: 'application/json' }),
       );
       const link = document.createElement('a');
       link.href = url;
@@ -563,20 +711,28 @@ function AgentEditor({
   };
 
   const initial = useMemo(() => toInput(agent), [agent]);
-  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initial), [form, initial]);
+  const dirty =
+    JSON.stringify(form) !== JSON.stringify(initial) ||
+    allowedText !== initial.allowedTools.join('\n') ||
+    thinkingText !==
+      (initial.maxThinkingTokens === undefined ? '' : String(initial.maxThinkingTokens));
 
-  const shouldBlock = useCallback(() => dirty, [dirty]);
-  // 站内切换路由同样会丢草稿；beforeunload 只管关标签页。
   const blocker = useBlocker({
-    shouldBlockFn: shouldBlock,
+    shouldBlockFn: ({ current, next }) =>
+      (dirty || update.isPending) && current.pathname !== next.pathname,
     withResolver: true,
     enableBeforeUnload: false,
   });
 
   useEffect(() => {
-    onDirtyChange(dirty);
-  }, [dirty, onDirtyChange]);
+    onDirtyChange(dirty || update.isPending);
+  }, [dirty, update.isPending, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
+
+  useEffect(() => {
+    onPendingChange(update.isPending);
+    return () => onPendingChange(false);
+  }, [update.isPending, onPendingChange]);
 
   const boundServers = useMemo(
     () => (servers.data ?? []).filter((server) => form.serverIds.includes(server.id)),
@@ -587,8 +743,20 @@ function AgentEditor({
     [skills.data, form.skillIds],
   );
   const boundSubAgents = useMemo(
-    () => (agents.data ?? []).filter((item) => form.subAgentIds.includes(item.id)),
-    [agents.data, form.subAgentIds],
+    () =>
+      (agents.data ?? [])
+        .filter((item) => item.enabled && form.subAgentIds.includes(item.id))
+        .map((item) => ({
+          ...item,
+          effort: item.effort ?? null,
+          skills: (skills.data ?? []).filter((skill) => item.skillIds.includes(skill.id)),
+        })),
+    [agents.data, form.subAgentIds, skills.data],
+  );
+  // 下载入口只能指向已落盘的配置，不能跟着未保存的草稿走。
+  const savedSubAgents = useMemo(
+    () => (agents.data ?? []).filter((item) => item.enabled && agent.subAgentIds.includes(item.id)),
+    [agents.data, agent.subAgentIds],
   );
 
   const serverOptions = (servers.data ?? []).map((server) => ({
@@ -702,10 +870,29 @@ function AgentEditor({
       return;
     }
     update.mutate(
-      { id: agent.id, input: parsed.data, expectedUpdatedAt: agent.updatedAt },
+      {
+        id: agent.id,
+        // 全量表单保存时显式发 null，才能清空已设为「默认」的字段。
+        input: {
+          ...parsed.data,
+          effort: parsed.data.effort ?? null,
+          maxThinkingTokens: parsed.data.maxThinkingTokens ?? null,
+        },
+        expectedUpdatedAt: agent.updatedAt,
+      },
       {
         onSuccess: () => {
           setErrors({});
+          setAllowedText((current) =>
+            current === allowedText ? parsed.data.allowedTools.join('\n') : current,
+          );
+          setThinkingText((current) =>
+            current !== thinkingText
+              ? current
+              : parsed.data.maxThinkingTokens === undefined
+                ? ''
+                : String(parsed.data.maxThinkingTokens),
+          );
           toastSuccess('智能体已保存');
         },
         onError: (error) => {
@@ -774,7 +961,7 @@ function AgentEditor({
             id="agent-enabled"
             checked={form.enabled}
             onCheckedChange={(enabled) => set('enabled', enabled)}
-            aria-label="启用智能体"
+            aria-label="启用专家"
             title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
           />
           {form.enabled ? '已启用' : '已停用'}
@@ -804,9 +991,6 @@ function AgentEditor({
             </span>
           ) : null}
           <Button
-            size="sm"
-            // Keep pill action corners instead of the small button's 7px radius.
-            className="h-8 rounded-full px-3.5"
             disabled={!dirty || update.isPending || invalidField !== null}
             aria-busy={update.isPending}
             aria-describedby={saveHint ? 'agent-save-hint' : undefined}
@@ -853,7 +1037,7 @@ function AgentEditor({
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 <DropdownMenuItem variant="destructive" onClick={onDelete}>
-                  <Trash2 className="size-4" /> 删除智能体
+                  <Trash2 className="size-4" /> 删除专家
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
@@ -921,43 +1105,50 @@ function AgentEditor({
                       </FieldLabel>
                       <FileTag>→ CLAUDE.md</FileTag>
                     </div>
-                    <LineInput
+                    <Input
                       id="agent-name"
                       value={form.name}
+                      aria-required="true"
                       aria-invalid={Boolean(errors.name)}
                       aria-describedby={errors.name ? 'agent-name-error' : undefined}
                       onChange={(event) => set('name', event.target.value)}
                     />
                     <FieldError id="agent-name-error">{errors.name}</FieldError>
                   </Field>
-                  <Field className="gap-1.5">
+                  <Field className="gap-1.5" data-disabled="true">
                     <div className="flex items-baseline justify-between gap-2">
                       <FieldLabel htmlFor="agent-slug">Slug</FieldLabel>
                       <FileTag>→ 工作区目录名</FileTag>
                     </div>
-                    <LineInput
+                    <Input
                       id="agent-slug"
                       value={form.slug}
                       // Keep monospace technical identifiers instead of the base sans-serif input.
                       className="font-mono"
-                      readOnly
+                      disabled
                       aria-describedby="agent-slug-hint"
                     />
                     <FieldDescription id="agent-slug-hint">
                       创建后不可修改；子智能体文件名也是 .claude/agents/&lt;slug&gt;.md。
                     </FieldDescription>
                   </Field>
-                  <Field className="gap-1.5 sm:col-span-2">
+                  <Field
+                    className="gap-1.5 sm:col-span-2"
+                    data-invalid={Boolean(errors.description)}
+                  >
                     <div className="flex items-baseline justify-between gap-2">
                       <FieldLabel htmlFor="agent-desc">描述</FieldLabel>
                       <FileTag>→ .claude/agents/&lt;slug&gt;.md · description</FileTag>
                     </div>
-                    <LineInput
+                    <Input
                       id="agent-desc"
                       value={form.description}
+                      aria-invalid={Boolean(errors.description)}
+                      aria-describedby={errors.description ? 'agent-desc-error' : undefined}
                       placeholder="一句话说明它擅长什么"
                       onChange={(event) => set('description', event.target.value)}
                     />
+                    <FieldError id="agent-desc-error">{errors.description}</FieldError>
                   </Field>
                 </FieldGroup>
               </Section>
@@ -976,7 +1167,7 @@ function AgentEditor({
                     <FieldLabel htmlFor="agent-prompt">系统提示词</FieldLabel>
                     <FileTag>→ CLAUDE.md</FileTag>
                   </div>
-                  <CodeArea
+                  <Textarea
                     id="agent-prompt"
                     rows={16}
                     value={form.systemPrompt}
@@ -995,7 +1186,7 @@ function AgentEditor({
                       <FieldLabel htmlFor="agent-model">模型</FieldLabel>
                       <FileTag>→ .claude/agents/&lt;slug&gt;.md</FileTag>
                     </div>
-                    <LineInput
+                    <Input
                       id="agent-model"
                       list="agent-models"
                       value={form.model}
@@ -1293,6 +1484,38 @@ function AgentEditor({
                       。
                     </p>
                   </div>
+
+                  {savedSubAgents.length > 0 ? (
+                    <div className="py-3">
+                      <h3 className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <FileText className="size-4 text-subtle" aria-hidden="true" />{' '}
+                        已保存的子智能体文件
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {savedSubAgents.map((child) => (
+                          <Button
+                            key={child.id}
+                            variant="outline"
+                            size="sm"
+                            nativeButton={false}
+                            render={
+                              <a href={`/api/agents/${agent.id}/subagents/${child.id}/file`} />
+                            }
+                          >
+                            <Download />
+                            {child.slug}.md
+                          </Button>
+                        ))}
+                      </div>
+                      <p className="mt-1.5 text-2xs text-subtle">
+                        下载已保存的子定义；其中声明的技能文件与 MCP 连接配置仍需来自同一工作区。
+                        {form.subAgentIds.length !== agent.subAgentIds.length ||
+                        form.subAgentIds.some((id) => !agent.subAgentIds.includes(id))
+                          ? '当前草稿的子智能体绑定尚未保存，这里仍是已保存版本。'
+                          : ''}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <DraftPreview title="将写入 .mcp.json 与 frontmatter" code={fileDraft} />
@@ -1325,7 +1548,7 @@ function AgentEditor({
                       }}
                       items={permissionOptions}
                     >
-                      <SelectTrigger id="agent-perm" className="h-9">
+                      <SelectTrigger id="agent-perm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1347,7 +1570,7 @@ function AgentEditor({
                       <FieldLabel htmlFor="agent-allowed-tools">自定义允许的工具</FieldLabel>
                       <FileTag>→ agent md · tools</FileTag>
                     </div>
-                    <CodeArea
+                    <Textarea
                       id="agent-allowed-tools"
                       rows={3}
                       value={allowedText}
@@ -1440,7 +1663,7 @@ function AgentEditor({
                       <FieldLabel htmlFor="agent-turns">最大轮次</FieldLabel>
                       <FileTag>→ agent md · maxTurns</FileTag>
                     </div>
-                    <LineInput
+                    <Input
                       id="agent-turns"
                       type="number"
                       min={1}
@@ -1457,7 +1680,7 @@ function AgentEditor({
                       <FieldLabel htmlFor="agent-budget">预算上限 (USD)</FieldLabel>
                       <RuntimeTag />
                     </div>
-                    <LineInput
+                    <Input
                       id="agent-budget"
                       type="number"
                       min={0.01}
@@ -1475,7 +1698,7 @@ function AgentEditor({
                       <FieldLabel htmlFor="agent-timeout">超时 (毫秒)</FieldLabel>
                       <RuntimeTag />
                     </div>
-                    <LineInput
+                    <Input
                       id="agent-timeout"
                       type="number"
                       min={1000}
@@ -1493,7 +1716,7 @@ function AgentEditor({
                       <FieldLabel htmlFor="agent-thinking">最大思考 tokens</FieldLabel>
                       <RuntimeTag />
                     </div>
-                    <LineInput
+                    <Input
                       id="agent-thinking"
                       type="number"
                       min={1}
@@ -1533,6 +1756,7 @@ function AgentEditor({
         title="放弃未保存的更改？"
         description={`「${agent.name}」还有未保存的修改，离开后会丢失。可以先取消、保存后再离开。`}
         confirmLabel="放弃并离开"
+        confirmDisabled={update.isPending}
         onConfirm={async () => {
           blocker.proceed?.();
         }}
@@ -1556,11 +1780,9 @@ function AgentEditor({
               </SheetDescription>
             </div>
             <SheetClose
-              aria-label="关闭"
-              // SheetClose is unstyled; keep the subdued icon, 7px corners, hover, and focus ring.
-              className="-mr-1 rounded-icon p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+              render={<Button variant="ghost" size="icon-sm" aria-label="关闭" className="-mr-1" />}
             >
-              <X className="size-4" />
+              <X aria-hidden="true" />
             </SheetClose>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -1654,7 +1876,7 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
   // Collapsible is unstyled; keep the draft border, 9px corners, and compact muted trigger.
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="rounded-item border">
-      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <ChevronRight
           className={cn(
             'size-3.5 shrink-0 text-subtle transition-transform duration-150',
@@ -1707,8 +1929,11 @@ function draftFiles(
     systemPrompt: string;
     maxTurns: number;
     timeoutMs: number;
+    permissionMode: string;
+    effort?: string | null;
     allowedTools: string[];
     disallowedTools: string[];
+    skills?: Array<{ slug: string; name: string; description: string; body: string }>;
   }>,
 ): WorkspaceFiles {
   return renderWorkspace({
@@ -1730,7 +1955,7 @@ function draftFiles(
       entry: previewEntry(server),
     })),
     skills,
-    subAgents: subAgents.map((sub) => ({ ...sub, effort: null })),
+    subAgents,
     ...(form.allowedTools.length > 0 ? { toolsAllow: form.allowedTools } : {}),
     ...(form.disallowedTools.length > 0 ? { toolsDeny: form.disallowedTools } : {}),
   });
@@ -1970,8 +2195,7 @@ function VersionRow({
             />
             {open ? '收起差异' : '查看差异'}
           </Button>
-          {/* Keep pill action corners instead of the small button's 7px radius. */}
-          <Button variant="outline" size="sm" className="rounded-full" onClick={onRollback}>
+          <Button variant="outline" size="sm" onClick={onRollback}>
             <RotateCcw className="size-4" /> 回滚
           </Button>
         </div>
@@ -2022,6 +2246,13 @@ function CreateAgentDialog({
   const create = useCreateAgent();
   const [form, setForm] = useState<AgentInput>(emptyInput);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const dirty = JSON.stringify(form) !== JSON.stringify(emptyInput);
+  const close = (): void => {
+    if (create.isPending) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
 
   const submit = (): void => {
     const parsed = agentInputSchema.safeParse({
@@ -2046,13 +2277,18 @@ function CreateAgentDialog({
   return (
     <Dialog
       open
-      onOpenChange={(next) => {
-        if (!next) onClose();
+      onOpenChange={(next, details) => {
+        if (create.isPending) {
+          details.cancel();
+          return;
+        }
+        if (!next) close();
       }}
     >
       <DialogShell
-        title="新建智能体"
-        description="创建后可继续配置提示词、绑定 server 与运行时限制。"
+        title="新建专家"
+        description="创建后可继续配置提示词、绑定连接器与运行限制。"
+        closeDisabled={create.isPending}
         finalFocus={returnFocusRef}
       >
         <form
@@ -2069,12 +2305,13 @@ function CreateAgentDialog({
                 Slug
                 <RequiredMark />
               </FieldLabel>
-              <LineInput
+              <Input
                 id="new-agent-slug"
                 value={form.slug}
                 placeholder="support-bot"
                 // Keep monospace for the technical slug instead of the base sans-serif input.
                 className="font-mono"
+                aria-required="true"
                 aria-invalid={Boolean(errors.slug)}
                 aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
                 onChange={(event) => setForm({ ...form, slug: event.target.value })}
@@ -2087,14 +2324,17 @@ function CreateAgentDialog({
                 </FieldDescription>
               )}
             </Field>
-            <Field className="gap-1.5">
+            <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
               <FieldLabel htmlFor="new-agent-name">名称</FieldLabel>
-              <LineInput
+              <Input
                 id="new-agent-name"
                 value={form.name}
+                aria-invalid={Boolean(errors.name)}
+                aria-describedby={errors.name ? 'new-agent-name-error' : undefined}
                 placeholder="客服助手"
                 onChange={(event) => setForm({ ...form, name: event.target.value })}
               />
+              <FieldError id="new-agent-name-error">{errors.name}</FieldError>
             </Field>
           </FieldGroup>
           <Field className="gap-1.5">
@@ -2124,7 +2364,7 @@ function CreateAgentDialog({
           </Field>
           <Field className="gap-1.5">
             <FieldLabel htmlFor="new-agent-prompt">系统提示词</FieldLabel>
-            <CodeArea
+            <Textarea
               id="new-agent-prompt"
               rows={5}
               // Keep compact monospace code text instead of the base prose typography.
@@ -2134,14 +2374,12 @@ function CreateAgentDialog({
             />
           </Field>
           <div className="flex justify-end gap-2 border-t pt-3">
-            <Button variant="ghost" size="sm" onClick={onClose}>
+            <Button variant="outline" size="sm" onClick={close} disabled={create.isPending}>
               取消
             </Button>
             <Button
               type="submit"
               size="sm"
-              // Keep pill action corners instead of the small button's 7px radius.
-              className="rounded-full px-3.5"
               disabled={create.isPending}
               aria-busy={create.isPending}
             >
@@ -2149,6 +2387,14 @@ function CreateAgentDialog({
             </Button>
           </div>
         </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后新专家的配置会丢失。"
+          confirmLabel="放弃并关闭"
+          onConfirm={async () => onClose()}
+        />
       </DialogShell>
     </Dialog>
   );

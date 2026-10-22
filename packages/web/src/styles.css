@@ -130,7 +130,7 @@
   --color-destructive-foreground: #fff;
   --color-border: var(--color-line);
   --color-input: var(--color-line);
-  --color-ring: var(--color-fg);
+  --color-ring: rgb(3 3 3 / 0.45);
   --secondary: var(--color-secondary); /* 次按钮悬停 color-mix 的原始 CSS 变量 */
   --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
 
@@ -175,9 +175,9 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* 焦点用实底黑环：无彩度体系里，黑就是强调 */
+  /* 无彩度焦点：中性 2px 外环，底座用 ring 的组件会覆盖这条 fallback */
   :focus-visible {
-    outline: 2px solid var(--color-fg);
+    outline: 2px solid var(--color-ring);
     outline-offset: 2px;
   }
 

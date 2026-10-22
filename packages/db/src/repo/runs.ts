@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, isNotNull, ne, type SQL, sql } from 'drizzle-orm';
+import { fail } from '@agentport/core';
+import { and, asc, desc, eq, isNotNull, isNull, ne, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -10,7 +11,7 @@ import {
   messages,
   servers,
 } from '../schema.js';
-import { messageText } from './chat.js';
+import { messageText, type Tx } from './chat.js';
 
 export const RUN_STATUSES = [
   'queued',
@@ -171,6 +172,16 @@ export function toStep(message: {
   return null;
 }
 
+/** run 是否还能执行：queued 尚未开始，running 进行中；其余均为终态。 */
+export async function isRunActive(db: Database, runId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ status: agentRuns.status })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  return row?.status === 'queued' || row?.status === 'running';
+}
+
 /**
  * run 必须存在，且其智能体确实绑定了该 server。外部传入的 run header 不可信，
  * 不满足时按「没有 run」处理，审批不会跨 agent/server 复用。
@@ -268,17 +279,22 @@ export interface ApprovalRequestRow {
   toolName: string;
   createdAt: Date;
   approvedAt: Date | null;
+  expiresAt: Date | null;
 }
 
-/** 被拒绝的工具调用落一条 pending 记录；同一三元组重复调用保持幂等。 */
+/** 被拒绝的工具调用落一条 pending 记录；重复调用只延后到期，不覆盖已有批准。 */
 export async function requestApproval(
   db: Database,
-  input: { runId: string; serverId: string; toolName: string },
+  input: { runId: string; serverId: string; toolName: string; expiresAt?: Date | null },
 ): Promise<void> {
   await db
     .insert(approvalRequests)
-    .values({ id: newId('approval'), ...input })
-    .onConflictDoNothing();
+    .values({ id: newId('approval'), ...input, expiresAt: input.expiresAt ?? null })
+    .onConflictDoUpdate({
+      target: [approvalRequests.runId, approvalRequests.serverId, approvalRequests.toolName],
+      set: { expiresAt: sql`greatest(${approvalRequests.expiresAt}, excluded.expires_at)` },
+      setWhere: isNull(approvalRequests.approvedAt),
+    });
 }
 
 /** MCP handler 每次调用前读取：只认该 run 在该 server 上已批准的工具。 */
@@ -313,6 +329,7 @@ export async function listApprovalRequests(
       toolName: approvalRequests.toolName,
       createdAt: approvalRequests.createdAt,
       approvedAt: approvalRequests.approvedAt,
+      expiresAt: approvalRequests.expiresAt,
     })
     .from(approvalRequests)
     .leftJoin(servers, eq(servers.id, approvalRequests.serverId))
@@ -326,7 +343,7 @@ export async function listApprovalRequests(
  * run id 是 uuidv7，按 id 倒序即按创建时间倒序；排除刚创建的本 run。
  */
 export async function inheritApprovals(
-  db: Database,
+  db: Database | Tx,
   input: { conversationId: string; runId: string },
 ): Promise<string[]> {
   const [previous] = await db
@@ -362,29 +379,47 @@ export async function inheritApprovals(
   return approved.map((row) => row.toolName);
 }
 
-/** 只批准已存在的请求；不存在的三元组返回 null，调用方据此拒绝。 */
+/**
+ * 只批准已存在且 run 仍在 running 的请求；run 不存在返回 null（调用方按找不到请求处理）。
+ * 锁 agent_runs 行再更新请求：与 cancelRun / worker 的 updateRun 串行，状态检查才不会被并发覆盖。
+ * waiting 表示批准后调用方是否还应等这个被挂起的调用：已过期则不追加等待。
+ */
 export async function approveTool(
   db: Database,
   runId: string,
   serverId: string,
   toolName: string,
-): Promise<{ serverId: string; toolName: string; approvedAt: Date } | null> {
-  const [row] = await db
-    .update(approvalRequests)
-    .set({ approvedAt: new Date() })
-    .where(
-      and(
-        eq(approvalRequests.runId, runId),
-        eq(approvalRequests.serverId, serverId),
-        eq(approvalRequests.toolName, toolName),
-      ),
-    )
-    .returning({
-      serverId: approvalRequests.serverId,
-      toolName: approvalRequests.toolName,
-      approvedAt: approvalRequests.approvedAt,
-    });
-  return row && row.approvedAt !== null ? { ...row, approvedAt: row.approvedAt } : null;
+): Promise<{ serverId: string; toolName: string; approvedAt: Date; waiting: boolean } | null> {
+  return db.transaction(async (tx) => {
+    const [run] = await tx
+      .select({ status: agentRuns.status })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId))
+      .limit(1)
+      .for('update');
+    if (!run) return null;
+    if (run.status !== 'running') {
+      fail('CONFLICT', '运行已结束或尚未开始，无法批准；请刷新运行状态');
+    }
+
+    const [row] = await tx
+      .update(approvalRequests)
+      .set({ approvedAt: sql`coalesce(${approvalRequests.approvedAt}, now())` })
+      .where(
+        and(
+          eq(approvalRequests.runId, runId),
+          eq(approvalRequests.serverId, serverId),
+          eq(approvalRequests.toolName, toolName),
+        ),
+      )
+      .returning({
+        serverId: approvalRequests.serverId,
+        toolName: approvalRequests.toolName,
+        approvedAt: approvalRequests.approvedAt,
+        waiting: sql<boolean>`coalesce(${approvalRequests.expiresAt} > now(), false)`,
+      });
+    return row && row.approvedAt !== null ? { ...row, approvedAt: row.approvedAt } : null;
+  });
 }
 
 export async function getRunDetail(db: Database, runId: string): Promise<RunDetail | null> {

@@ -1,7 +1,12 @@
+import { fail } from '@agentport/core';
 import { and, asc, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentRuns, agents, conversations, messages } from '../schema.js';
+import { inheritApprovals } from './runs.js';
+
+/** 事务句柄：准入逻辑在事务内复用同一批写函数。 */
+export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -40,7 +45,7 @@ export async function agentEnabled(db: Database, agentId: string): Promise<boole
 }
 
 export async function createConversation(
-  db: Database,
+  db: Database | Tx,
   input: { id: string; agentId: string; title: string },
 ): Promise<Conversation> {
   const [row] = await db
@@ -49,6 +54,20 @@ export async function createConversation(
     .returning();
   if (!row) throw new Error('conversation insert returned no row');
   return row;
+}
+
+/** 只改标题：lastMessageAt 由 messages 触发器维护，这里不动。 */
+export async function renameConversation(
+  db: Database,
+  conversationId: string,
+  title: string,
+): Promise<Conversation | null> {
+  const [row] = await db
+    .update(conversations)
+    .set({ title })
+    .where(eq(conversations.id, conversationId))
+    .returning();
+  return row ?? null;
 }
 
 export async function getConversation(
@@ -100,9 +119,22 @@ export async function listMessages(
   return rows.reverse();
 }
 
+/** 分页游标必须属于本会话；否则行值比较会静默取整段历史。 */
+export async function messageInConversation(
+  db: Database,
+  conversationId: string,
+  messageId: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(and(eq(messages.id, messageId), eq(messages.conversationId, conversationId)))
+    .limit(1);
+  return rows.length > 0;
+}
+
 const INSERT_CHUNK = 500;
 
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 export type MessageInsert = typeof messages.$inferInsert;
 
 /** 一个 run 的消息逐行 insert 会有上千次往返；按 500 行一条语句批量写。 */
@@ -126,7 +158,7 @@ export function messageText(content: unknown): string | null {
  * 只能把最近 N 条 user/assistant 文本拼进 prompt。tool 消息体积不可控，跳过。
  */
 export async function getHistoryForPrompt(
-  db: Database,
+  db: Database | Tx,
   conversationId: string,
 ): Promise<string | null> {
   const rows = await db
@@ -271,7 +303,7 @@ export async function listConversations(
 }
 
 export async function appendMessage(
-  db: Database,
+  db: Database | Tx,
   input: { id: string; conversationId: string; role: string; content: unknown; runId?: string },
 ): Promise<Message> {
   const [row] = await db
@@ -289,7 +321,7 @@ export async function appendMessage(
 }
 
 export async function createRun(
-  db: Database,
+  db: Database | Tx,
   input: { id: string; conversationId: string; agentId: string },
 ): Promise<AgentRun> {
   const [row] = await db
@@ -303,6 +335,76 @@ export async function createRun(
     .returning();
   if (!row) throw new Error('agent run insert returned no row');
   return row;
+}
+
+/** 先锁会话再检查活动运行，让后续入场看到前一个事务的提交。 */
+export async function admitChatRun(
+  db: Database,
+  input: { agentId: string; message: string; conversationId?: string },
+): Promise<{
+  run: AgentRun;
+  conversationId: string;
+  inherited: string[];
+  history: string | null;
+}> {
+  return db.transaction(async (tx) => {
+    // 锁序：先 agents 再 conversations；反向会和 agent_runs 的外键检查形成删除死锁。
+    const [owner] = await tx
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.id, input.agentId))
+      .limit(1)
+      .for('key share');
+    if (!owner) fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
+
+    let conversationId: string;
+    if (input.conversationId === undefined) {
+      conversationId = newId('conversation');
+      await createConversation(tx, {
+        id: conversationId,
+        agentId: input.agentId,
+        title: input.message.slice(0, 80),
+      });
+    } else {
+      conversationId = input.conversationId;
+      const [conversation] = await tx
+        .select({ agentId: conversations.agentId })
+        .from(conversations)
+        .where(eq(conversations.id, conversationId))
+        .limit(1)
+        .for('update');
+      if (!conversation || conversation.agentId !== input.agentId) {
+        fail('CONVERSATION_NOT_FOUND', '会话不存在或不属于该智能体；请从会话列表重新打开');
+      }
+    }
+
+    const [active] = await tx
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(
+        and(
+          eq(agentRuns.conversationId, conversationId),
+          inArray(agentRuns.status, ['queued', 'running']),
+        ),
+      )
+      .limit(1);
+    if (active) fail('CONFLICT', '该会话仍有运行未结束，请等待完成或取消后再发送');
+
+    const run = await createRun(tx, { id: newId('run'), conversationId, agentId: input.agentId });
+    // 批准原先绑定单次 run；重发消息会新建 run，这里把上一 run 的已批准工具带过来。
+    const inherited = await inheritApprovals(tx, { conversationId, runId: run.id });
+    // 在写入本条消息前取历史，避免把当前输入重复拼进上下文。
+    const history = await getHistoryForPrompt(tx, conversationId);
+    await appendMessage(tx, {
+      id: newId('message'),
+      conversationId,
+      role: 'user',
+      content: { type: 'text', text: input.message },
+      runId: run.id,
+    });
+
+    return { run, conversationId, inherited, history };
+  });
 }
 
 export async function getRun(db: Database, runId: string): Promise<AgentRun | null> {

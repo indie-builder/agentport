@@ -1,13 +1,14 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { useDeferredValue } from 'react';
+import { Download, RefreshCw } from 'lucide-react';
+import { useDeferredValue, useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
-import { Page, PageHeader, PageToolbar } from '../components/page.js';
+import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
+import { SearchInput } from '../components/search-input.js';
 import { ErrorState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
-import { Input } from '../components/ui/input.js';
-import type { AuditEntry, AuditStatus } from '../lib/api.js';
+import { type AuditEntry, type AuditStatus, api } from '../lib/api.js';
 import {
   auditStatusLabel,
   auditStatusVariant,
@@ -16,6 +17,7 @@ import {
   shortId,
 } from '../lib/format.js';
 import { useAudit } from '../lib/queries.js';
+import { toastError } from '../lib/toast.js';
 
 const statusOptions: Array<{ value: AuditStatus | 'all'; label: string }> = [
   { value: 'all', label: '全部状态' },
@@ -92,51 +94,106 @@ const columns: DataColumn<AuditEntry>[] = [
 
 export function AuditPage() {
   const navigate = useNavigate();
-  // 筛选放在 URL 里：刷新、分享、前进后退都保留条件。
   const search = useSearch({ from: '/shell/audit' });
   const action = search.action ?? '';
   const status = search.status ?? 'all';
-  // 低优先级更新：输入保持响应，查询用延迟后的值。
+  const target = search.target ?? '';
+  const [exporting, setExporting] = useState(false);
   const deferredAction = useDeferredValue(action.trim());
+  const deferredTarget = useDeferredValue(target.trim());
   const audit = useAudit({
     ...(deferredAction ? { action: deferredAction } : {}),
     ...(status === 'all' ? {} : { status }),
+    ...(deferredTarget ? { target: deferredTarget } : {}),
   });
 
   const rows = audit.data?.pages.flatMap((page) => page.items) ?? [];
+  const filtered = Boolean(deferredAction) || status !== 'all' || Boolean(deferredTarget);
+  const searchPending = action.trim() !== deferredAction || target.trim() !== deferredTarget;
+
+  const exportAudit = async (): Promise<void> => {
+    setExporting(true);
+    try {
+      // 与表格使用同一份延迟筛选值，避免刚输入就导出时导出旧条件。
+      const data = await api.exportAudit({
+        ...(deferredAction ? { action: deferredAction } : {}),
+        ...(status === 'all' ? {} : { status }),
+        ...(deferredTarget ? { target: deferredTarget } : {}),
+      });
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'audit.json';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <Page>
       <PageHeader
         title="审计"
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            // Keep audit actions pill-shaped instead of the compact button radius.
-            className="rounded-full"
-            onClick={() => void audit.refetch()}
-            disabled={audit.isFetching}
-          >
-            刷新
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              onClick={() => void exportAudit()}
+              disabled={exporting || searchPending}
+              title={searchPending ? '等待筛选生效后再导出' : undefined}
+            >
+              <Download data-icon="inline-start" aria-hidden="true" />
+              {exporting ? '导出中…' : '导出审计'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void audit.refetch()}
+              disabled={audit.isFetching}
+            >
+              <RefreshCw
+                data-icon="inline-start"
+                className={audit.isFetching ? 'animate-spin' : undefined}
+                aria-hidden="true"
+              />
+              {audit.isFetching ? '刷新中…' : '刷新'}
+            </Button>
+          </>
         }
       />
 
       <PageToolbar>
-        <Input
-          aria-label="按动作前缀过滤"
+        <SearchInput
+          label="按动作前缀过滤"
           placeholder="动作前缀，如 auth.login"
           value={action}
-          onChange={(event) =>
-            // replace：输入框每敲一个字不该在浏览历史里留一条记录。
+          onChange={(value) =>
             void navigate({
               to: '/audit',
-              search: { ...search, action: event.target.value || undefined },
+              search: { ...search, action: value || undefined },
               replace: true,
             })
           }
-          className="w-56"
+          className="w-full sm:w-56"
+        />
+        <SearchInput
+          label="按目标精确筛选"
+          placeholder="目标，如 agent:123"
+          value={target}
+          onChange={(value) =>
+            void navigate({
+              to: '/audit',
+              search: { ...search, target: value || undefined },
+              replace: true,
+            })
+          }
+          className="w-full sm:w-56"
         />
         <FilterSelect
           value={status}
@@ -148,33 +205,61 @@ export function AuditPage() {
           }
           options={statusOptions}
           label="按状态过滤"
-          className="w-32"
+          className="w-full sm:w-36"
         />
-        <span className="ml-auto hidden text-xs text-subtle md:block">
-          登录与配置变更的长期记录；输入只保存摘要，不落原文。
-        </span>
       </PageToolbar>
+      <p className="text-xs text-subtle">登录与配置变更的长期记录；输入只保存摘要，不落原文。</p>
 
-      {audit.isError ? (
-        <ErrorState error={audit.error} onRetry={() => void audit.refetch()} />
+      {audit.isError && !audit.data ? (
+        <ErrorState
+          error={audit.error}
+          onRetry={() => void audit.refetch()}
+          title="审计记录没有加载出来"
+        />
       ) : (
         <>
-          <DataTable
-            rows={rows}
-            columns={columns}
-            rowKey={(row) => row.id}
-            label="审计事件"
-            loading={audit.isPending}
-            empty="还没有审计记录。登录或修改配置后，这里会自动出现对应事件。"
-          />
-          {audit.hasNextPage ? (
+          {audit.isRefetchError ? (
+            <ErrorState
+              error={audit.error}
+              onRetry={() => void audit.refetch()}
+              title="刷新失败，保留已加载的审计记录"
+            />
+          ) : null}
+          {filtered && !audit.isPending && !searchPending && rows.length === 0 ? (
+            <PageNote
+              title="没有符合当前筛选条件的审计记录"
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void navigate({ to: '/audit', search: {} })}
+                >
+                  清除筛选
+                </Button>
+              }
+            />
+          ) : (
+            <DataTable
+              rows={rows}
+              columns={columns}
+              rowKey={(row) => row.id}
+              label="审计事件"
+              loading={audit.isPending || searchPending}
+              empty="还没有审计记录。登录或修改配置后，这里会自动出现对应事件。"
+            />
+          )}
+          {audit.isFetchNextPageError ? (
+            <ErrorState
+              error={audit.error}
+              onRetry={() => void audit.fetchNextPage()}
+              title="下一页加载失败，保留已加载的审计记录"
+            />
+          ) : audit.hasNextPage ? (
             <div className="flex justify-center">
               <Button
                 variant="outline"
                 size="sm"
-                // Keep audit actions pill-shaped instead of the compact button radius.
-                className="rounded-full"
-                disabled={audit.isFetchingNextPage}
+                disabled={audit.isFetching || searchPending}
                 onClick={() => void audit.fetchNextPage()}
               >
                 {audit.isFetchingNextPage ? '加载中…' : '加载更多'}

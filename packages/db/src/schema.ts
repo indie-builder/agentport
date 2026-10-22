@@ -290,6 +290,7 @@ export const approvalRequests = pgTable(
     toolName: text('tool_name').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
   },
   (t) => [uniqueIndex('approval_requests_run_server_tool_idx').on(t.runId, t.serverId, t.toolName)],
 );
@@ -309,6 +310,14 @@ export const evalCases = pgTable(
   (t) => [index('eval_cases_agent_idx').on(t.agentId)],
 );
 
+/** 评估用例快照：源用例删除后，历史跑批仍能展示当时测了什么。 */
+export type EvalCaseSnapshot = {
+  id: string;
+  name: string;
+  prompt: string;
+  expectation: string;
+};
+
 export const evalRuns = pgTable(
   'eval_runs',
   {
@@ -316,12 +325,13 @@ export const evalRuns = pgTable(
     agentId: text('agent_id')
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
-    status: text('status', { enum: ['running', 'succeeded', 'failed'] })
+    status: text('status', { enum: ['running', 'succeeded', 'failed', 'cancelled'] })
       .notNull()
       .default('running'),
     total: integer('total').notNull().default(0),
     passed: integer('passed').notNull().default(0),
     error: text('error'),
+    caseSnapshot: jsonb('case_snapshot').$type<EvalCaseSnapshot[]>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     /** 认领时刻：BullMQ 重复投递时，只有抢到认领的 worker 才执行。 */
     claimedAt: timestamp('claimed_at', { withTimezone: true }),
@@ -329,7 +339,10 @@ export const evalRuns = pgTable(
   },
   (t) => [
     index('eval_runs_agent_idx').on(t.agentId),
-    check('eval_runs_status_check', sql`${t.status} in ('running', 'succeeded', 'failed')`),
+    check(
+      'eval_runs_status_check',
+      sql`${t.status} in ('running', 'succeeded', 'failed', 'cancelled')`,
+    ),
     // 同一智能体同时最多一个在跑的评估；DB 层兜底 API 的 409 检查并发竞态。
     uniqueIndex('eval_runs_agent_running_idx').on(t.agentId).where(eq(t.status, 'running')),
   ],
@@ -343,6 +356,7 @@ export const evalResults = pgTable(
       .notNull()
       .references(() => evalRuns.id, { onDelete: 'cascade' }),
     caseId: text('case_id').references(() => evalCases.id, { onDelete: 'set null' }),
+    caseSnapshot: jsonb('case_snapshot').$type<EvalCaseSnapshot>(),
     runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     passed: boolean('passed').notNull(),
     output: text('output').notNull().default(''),

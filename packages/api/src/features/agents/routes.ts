@@ -1,4 +1,4 @@
-import { DEFAULT_DISALLOWED_TOOLS, fail } from '@agentport/core';
+import { fail, isAppError, parseAgentMd } from '@agentport/core';
 import { repo as allRepo } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { allowedToolsSchema, unsupportedAllowedTool } from './validation.js';
 import { renderAgentWorkspace } from './workspace.js';
 
 const versionParams = z.object({
@@ -21,6 +22,10 @@ const versionParams = z.object({
   version: z.coerce.number().int().positive(),
 });
 const rollbackBody = z.object({ version: z.number().int().positive() });
+const subAgentFileParams = z.object({
+  id: z.string().min(1),
+  childId: z.string().min(1),
+});
 
 /** default/acceptEdits 直接透传 SDK；auto 依赖无法审计的模型分类器，暂不开放。 */
 const unsupportedPermissionModes = new Set(['auto']);
@@ -31,24 +36,20 @@ function unsupportedPermissionMode(mode: string | undefined): string | undefined
     : undefined;
 }
 
-const blockedAllowedTools = new Set(
-  DEFAULT_DISALLOWED_TOOLS.filter(
-    (tool) => !['Agent', 'TaskStop', 'ListAgents', 'SendMessage'].includes(tool),
-  ),
-);
-
-function unsupportedAllowedTool(tools: string[]): string | undefined {
-  const tool = tools.find((rule) => blockedAllowedTools.has(rule.split('(')[0]?.trim() ?? rule));
-  return tool === undefined
-    ? undefined
-    : `allowedTools 中的「${tool}」被运行时固定禁用，无法放行；请移除该项`;
-}
-
-const allowedToolsSchema = z.array(z.string()).superRefine((tools, ctx) => {
-  const message = unsupportedAllowedTool(tools);
-  if (message) ctx.addIssue({ code: 'custom', message });
-});
 const createSchema = agentInputSchema.extend({ allowedTools: allowedToolsSchema.default([]) });
+
+// 解析（含 frontmatter / 字段校验）放在 schema 里：handler 只拿解析结果，不再 safeParse。
+const importFileSchema = z
+  .object({ agentMd: z.string().max(131072) })
+  .transform(({ agentMd }, ctx) => {
+    try {
+      return parseAgentMd(agentMd);
+    } catch (err) {
+      if (!isAppError(err)) throw err;
+      ctx.addIssue({ code: 'custom', path: ['agentMd'], message: err.message });
+      return z.NEVER;
+    }
+  });
 
 // 字段与 agentInputSchema 保持一致；PATCH 用显式可选字段，才能区分「没传」与「传了默认值」。
 const patchSchema = z.object({
@@ -66,8 +67,9 @@ const patchSchema = z.object({
   maxTurns: z.number().int().positive().optional(),
   maxBudgetUsd: z.number().positive().optional(),
   timeoutMs: z.number().int().positive().optional(),
-  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
-  maxThinkingTokens: z.number().int().positive().optional(),
+  // null 表示清除回「未配置」；undefined 保持不动，两者语义不同。
+  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
+  maxThinkingTokens: z.number().int().positive().nullable().optional(),
   enabled: z.boolean().optional(),
   /** 乐观锁：首次加载时的 updatedAt。 */
   expectedUpdatedAt: z.coerce.date().optional(),
@@ -219,6 +221,32 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     }
   });
 
+  // 导入只接受官方 .claude/agents/*.md；slug 即 frontmatter 的 name，冲突与手动创建一样返回 409。
+  app.post(
+    '/api/agents/import-file',
+    { ...auth, schema: { body: importFileSchema } },
+    async (request, reply) => {
+      const { agent: input, warnings } = request.body;
+      const { serverIds, skillIds, subAgentIds, ...rest } = input;
+      try {
+        const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds, subAgentIds);
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.imported',
+          target: row.id,
+          input: { slug: row.slug },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return reply
+          .status(201)
+          .send({ agent: repo.toAgent(row, serverIds, skillIds, subAgentIds), warnings });
+      } catch (err) {
+        rethrowConflict(err);
+      }
+    },
+  );
+
   app.get('/api/agents/:id', { ...auth, schema: { params: idParams } }, async (request, reply) => {
     const row = await repo.getAgent(app.db, request.params.id);
     if (!row) return notFound(reply);
@@ -251,22 +279,23 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         if (subAgentError) return invalid(reply, subAgentError);
       }
 
-      const patch: Partial<repo.AgentWrite> = {
-        name: input.name ?? current.name,
-        description: input.description ?? current.description,
-        model: input.model ?? current.model,
-        systemPromptMd: input.systemPrompt ?? current.systemPromptMd,
-        allowedTools: input.allowedTools ?? current.allowedTools,
-        disallowedTools: input.disallowedTools ?? current.disallowedTools,
-        permissionMode: input.permissionMode ?? current.permissionMode,
-        effort: input.effort ?? current.effort,
-        maxThinkingTokens: input.maxThinkingTokens ?? current.maxThinkingTokens,
-        enabled: input.enabled ?? current.enabled,
-        maxTurns: input.maxTurns ?? current.maxTurns,
-        maxBudgetUsd:
-          input.maxBudgetUsd === undefined ? current.maxBudgetUsd : String(input.maxBudgetUsd),
-        timeoutMs: input.timeoutMs ?? current.timeoutMs,
-      };
+      // 请求未提交的列必须留给数据库保留，避免并发的不同字段更新互相覆盖。
+      const patch: Partial<repo.AgentWrite> = {};
+      if (input.name !== undefined) patch.name = input.name;
+      if (input.description !== undefined) patch.description = input.description;
+      if (input.model !== undefined) patch.model = input.model;
+      if (input.systemPrompt !== undefined) patch.systemPromptMd = input.systemPrompt;
+      if (input.allowedTools !== undefined) patch.allowedTools = input.allowedTools;
+      if (input.disallowedTools !== undefined) patch.disallowedTools = input.disallowedTools;
+      if (input.permissionMode !== undefined) patch.permissionMode = input.permissionMode;
+      if (input.effort !== undefined) patch.effort = input.effort;
+      if (input.maxThinkingTokens !== undefined) {
+        patch.maxThinkingTokens = input.maxThinkingTokens;
+      }
+      if (input.enabled !== undefined) patch.enabled = input.enabled;
+      if (input.maxTurns !== undefined) patch.maxTurns = input.maxTurns;
+      if (input.maxBudgetUsd !== undefined) patch.maxBudgetUsd = String(input.maxBudgetUsd);
+      if (input.timeoutMs !== undefined) patch.timeoutMs = input.timeoutMs;
 
       try {
         const row = await repo.updateAgent(
@@ -334,6 +363,30 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       if (!files) return notFound(reply);
       if (request.query.reveal === '1') reply.header('Cache-Control', 'no-store');
       return files;
+    },
+  );
+
+  // 下载内容必须与 worker 落盘的 .claude/agents/<slug>.md 一致：先渲染父级工作区再取文件。
+  app.get(
+    '/api/agents/:id/subagents/:childId/file',
+    { ...auth, schema: { params: subAgentFileParams } },
+    async (request, reply) => {
+      const [parent, child] = await Promise.all([
+        repo.getAgent(app.db, request.params.id),
+        repo.getAgent(app.db, request.params.childId),
+      ]);
+      if (!parent || !child || child.parentId !== parent.id || child.id === parent.id) {
+        return notFound(reply);
+      }
+      const files = await renderAgentWorkspace(app, parent.id);
+      const rendered = files?.subAgents.find((subAgent) => subAgent.slug === child.slug);
+      if (!rendered) return notFound(reply);
+      return reply
+        .header('Content-Type', 'text/markdown; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="${child.slug}.md"`)
+        .header('Cache-Control', 'no-store')
+        .header('X-Content-Type-Options', 'nosniff')
+        .send(rendered.content);
     },
   );
 

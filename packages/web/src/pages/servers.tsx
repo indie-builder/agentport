@@ -7,7 +7,7 @@ import {
   type ServerTestResult,
   serverInputSchema,
 } from '@agentport/shared';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   CircleAlert,
   CircleCheck,
@@ -19,19 +19,30 @@ import {
   RefreshCw,
   Server as ServerIcon,
   Trash2,
+  Upload,
   Wrench,
 } from 'lucide-react';
-import { type ComponentProps, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { CodeBlock } from '../components/code-block.js';
+import { CodeBlock, JsonBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
-import { Page, PageHeader, PageNote } from '../components/page.js';
+import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
-import { SearchInput } from '../components/search-input.js';
+import { ResourcePage } from '../components/resource-page.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
+import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
@@ -68,6 +79,7 @@ import {
   TableRow,
 } from '../components/ui/table.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { ApiError } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
@@ -78,6 +90,7 @@ import {
   useCreateTool,
   useDeleteServer,
   useDeleteTool,
+  useImportMcpFile,
   useRotateServerToken,
   useServers,
   useServerToken,
@@ -90,7 +103,6 @@ import {
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 type Kind = ServerInput['kind'];
-type KindFilter = Kind | 'all';
 
 const kindMeta: Record<Kind, { label: string; hint: string; newHint: string }> = {
   stdio: {
@@ -109,16 +121,6 @@ const kindMeta: Record<Kind, { label: string; hint: string; newHint: string }> =
     newHint: '逐个声明上游 HTTP 端点，平台替你生成可调用的 MCP 工具。',
   },
 };
-
-/** Keep server form fields at 36px with 12px horizontal padding for configuration entry. */
-function LineInput({ className, ...props }: ComponentProps<'input'>) {
-  return <Input className={cn('h-9 px-3', className)} {...props} />;
-}
-
-function CodeArea({ className, ...props }: ComponentProps<'textarea'>) {
-  // Keep wider padding and relaxed leading so multiline configuration stays readable.
-  return <Textarea className={cn('px-3 leading-relaxed', className)} {...props} />;
-}
 
 /** 最近一次连接测试；只存在页面内存里，刷新或换设备后消失（后端没有持久化字段）。 */
 interface LastTest {
@@ -159,29 +161,55 @@ export function ServersPage() {
   const servers = useServers();
   const agents = useAgents();
   const test = useTestServer();
-  const [query, setQuery] = useState('');
-  const [kind, setKind] = useState<KindFilter>('all');
+  const importMcp = useImportMcpFile();
+  const search = useSearch({ from: '/shell/servers' });
+  const navigate = useNavigate();
+  const query = search.q ?? '';
+  const kind = search.kind ?? 'all';
+  const sort = search.sort ?? 'newest';
+  const setFilter = (
+    patch: {
+      q?: string | undefined;
+      kind?: Kind | undefined;
+      sort?: 'newest' | 'name' | undefined;
+    },
+    replace = false,
+  ): void => {
+    void navigate({ to: '/servers', search: (previous) => ({ ...previous, ...patch }), replace });
+  };
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Server | null>(null);
   const [deleting, setDeleting] = useState<Server | null>(null);
   const [connection, setConnection] = useState<Server | null>(null);
   const [toolServer, setToolServer] = useState<Server | null>(null);
+  const [catalogServer, setCatalogServer] = useState<Server | null>(null);
   const [tested, setTested] = useState<Map<string, LastTest>>(() => new Map());
   const createButtonRef = useRef<HTMLButtonElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  // 弹层关闭后焦点回到真正打开它的控件，而不是统一回到「新建」。
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const focusTrigger = (): HTMLElement | null =>
+    triggerRef.current?.isConnected ? triggerRef.current : createButtonRef.current;
 
+  const catalogTest = catalogServer ? tested.get(catalogServer.id) : undefined;
   const all = servers.data ?? [];
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return all.filter((server) => {
-      if (kind !== 'all' && server.kind !== kind) return false;
-      if (!needle) return true;
-      return [server.name, server.description, detailOf(server)]
-        .join(' ')
-        .toLowerCase()
-        .includes(needle);
-    });
-  }, [all, kind, query]);
+    return all
+      .filter((server) => {
+        if (kind !== 'all' && server.kind !== kind) return false;
+        return [server.name, server.description, detailOf(server)]
+          .join(' ')
+          .toLowerCase()
+          .includes(needle);
+      })
+      .sort((left, right) =>
+        sort === 'name'
+          ? left.name.localeCompare(right.name, 'zh-CN')
+          : Date.parse(right.createdAt) - Date.parse(left.createdAt),
+      );
+  }, [all, kind, query, sort]);
 
   const agentCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -193,12 +221,14 @@ export function ServersPage() {
     return counts;
   }, [agents.data]);
 
-  const openCreate = (): void => {
+  const openCreate = (trigger: HTMLElement | null): void => {
+    triggerRef.current = trigger;
     setEditing(null);
     setFormOpen(true);
   };
 
-  const openEdit = (server: Server): void => {
+  const openEdit = (server: Server, trigger: HTMLElement | null): void => {
+    triggerRef.current = trigger;
     setEditing(server);
     setFormOpen(true);
   };
@@ -220,6 +250,20 @@ export function ServersPage() {
     });
   };
 
+  const importFile = async (file: File): Promise<void> => {
+    if (file.size > 1_048_576) {
+      toastError(new Error('导入文件不能超过 1 MB，请精简后重试。'));
+      return;
+    }
+    try {
+      const result = await importMcp.mutateAsync(await file.text());
+      toastSuccess(`已导入 ${result.servers.length} 个连接器`);
+      for (const warning of result.warnings) toast.info(warning);
+    } catch (error) {
+      toastError(error);
+    }
+  };
+
   const kindOptions = [
     { value: 'all', label: '全部来源' },
     { value: 'stdio', label: kindMeta.stdio.label },
@@ -228,42 +272,52 @@ export function ServersPage() {
   ];
 
   return (
-    <Page>
-      <PageHeader
-        title="MCP Servers"
-        meta={<span className="font-mono text-xs tabular-nums text-subtle">{all.length}</span>}
-        actions={
-          <>
-            <FilterSelect
-              value={kind}
-              onValueChange={(next) => setKind(next as KindFilter)}
-              options={kindOptions}
-              label="按来源筛选"
-              // Keep the header filter borderless with a chip surface and hover feedback.
-              className="w-36 border-transparent bg-chip hover:bg-hover"
-            />
-            <SearchInput
-              label="搜索 server"
-              value={query}
-              onChange={setQuery}
-              placeholder="搜索名称、描述或地址…"
-              // Match the 9px header filter corners and its borderless chip surface.
-              className="w-56 [&_input]:rounded-item [&_input]:border-transparent [&_input]:bg-chip"
-            />
-            <Button
-              ref={createButtonRef}
-              size="sm"
-              // Keep the header action as a 32px pill with room for its label.
-              className="h-8 rounded-full px-3.5"
-              onClick={openCreate}
-            >
-              <Plus className="size-4" /> 新建 Server
-            </Button>
-          </>
-        }
-      />
-
-      {servers.isPending ? <LoadingState rows={4} /> : null}
+    <ResourcePage
+      section="servers"
+      query={query}
+      onQueryChange={(q) => setFilter({ q: q || undefined }, true)}
+      sort={sort}
+      onSortChange={(next) => setFilter({ sort: next === 'newest' ? undefined : next })}
+      count={filtered.length}
+      filters={
+        <FilterSelect
+          value={kind}
+          onValueChange={(next) => setFilter({ kind: next === 'all' ? undefined : (next as Kind) })}
+          options={kindOptions}
+          label="按来源筛选"
+          className="w-36"
+        />
+      }
+      actions={
+        <>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              // 先清空 value，同一个文件重试时才会再次触发 change。
+              event.target.value = '';
+              if (file) void importFile(file);
+            }}
+          />
+          <Button
+            variant="outline"
+            disabled={importMcp.isPending}
+            aria-busy={importMcp.isPending}
+            onClick={() => importInputRef.current?.click()}
+          >
+            <Upload data-icon="inline-start" aria-hidden="true" />{' '}
+            {importMcp.isPending ? '导入中…' : '导入 .mcp.json'}
+          </Button>
+          <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
+            <Plus data-icon="inline-start" /> 新建连接器
+          </Button>
+        </>
+      }
+    >
+      {servers.isPending ? <LoadingState rows={4} layout="cards" /> : null}
       {servers.isError ? (
         <ErrorState error={servers.error} onRetry={() => void servers.refetch()} />
       ) : null}
@@ -271,11 +325,11 @@ export function ServersPage() {
       {servers.data && all.length === 0 ? (
         <PageNote
           icon={<ServerIcon className="size-4" aria-hidden="true" />}
-          title="还没有 MCP Server"
+          title="还没有连接器"
           description="本地命令适合自建工具，远程 MCP 适合已有服务，HTTP API 转 MCP 适合把内部接口直接交给智能体。"
           action={
-            <Button size="sm" onClick={openCreate}>
-              <Plus className="size-3.5" /> 新建 Server
+            <Button onClick={(event) => openCreate(event.currentTarget)}>
+              <Plus data-icon="inline-start" /> 新建连接器
             </Button>
           }
         />
@@ -283,15 +337,14 @@ export function ServersPage() {
 
       {servers.data && all.length > 0 && filtered.length === 0 ? (
         <PageNote
-          title="没有匹配的 server"
+          title="没有匹配的连接器"
           description="换个关键词，或清除来源筛选。"
           action={
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                setQuery('');
-                setKind('all');
+                setFilter({ q: undefined, kind: undefined });
               }}
             >
               清除筛选
@@ -301,45 +354,45 @@ export function ServersPage() {
       ) : null}
 
       {filtered.length > 0 ? (
-        <Table>
-          <caption className="sr-only">MCP Server 列表</caption>
-          <TableHeader>
-            {/* Keep table headings static when the pointer crosses the header. */}
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="pl-2">名称</TableHead>
-              <TableHead className="w-36">来源</TableHead>
-              <TableHead>地址摘要</TableHead>
-              <TableHead className="w-20 text-right">工具数</TableHead>
-              <TableHead className="w-56">最近测试</TableHead>
-              <TableHead className="w-28 text-right">绑定智能体数</TableHead>
-              <TableHead className="w-10">
-                <span className="sr-only">操作</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((server) => (
-              <ServerRow
-                key={server.id}
+        <ul
+          aria-label="连接器列表"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+        >
+          {filtered.map((server) => (
+            <li key={server.id} className="min-w-0">
+              <ServerCard
                 server={server}
                 agentCount={agentCounts.get(server.id) ?? 0}
                 lastTest={tested.get(server.id) ?? null}
                 testing={test.isPending && test.variables === server.id}
                 onTest={() => runTest(server)}
-                onTools={() => setToolServer(server)}
-                onConnection={() => setConnection(server)}
-                onEdit={() => openEdit(server)}
-                onDelete={() => setDeleting(server)}
+                onTools={(trigger) => {
+                  triggerRef.current = trigger;
+                  setToolServer(server);
+                }}
+                onConnection={(trigger) => {
+                  triggerRef.current = trigger;
+                  setConnection(server);
+                }}
+                onCatalog={(trigger) => {
+                  triggerRef.current = trigger;
+                  setCatalogServer(server);
+                }}
+                onEdit={(trigger) => openEdit(server, trigger)}
+                onDelete={(trigger) => {
+                  triggerRef.current = trigger;
+                  setDeleting(server);
+                }}
               />
-            ))}
-          </TableBody>
-        </Table>
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       {formOpen ? (
         <ServerFormDialog
           key={editing?.id ?? 'new'}
-          returnFocusRef={createButtonRef}
+          getReturnFocus={focusTrigger}
           server={editing}
           onClose={() => {
             setFormOpen(false);
@@ -359,24 +412,53 @@ export function ServersPage() {
         />
       ) : null}
 
+      {catalogServer && catalogTest ? (
+        <ToolCatalogDialog
+          server={catalogServer}
+          lastTest={catalogTest}
+          pending={test.isPending}
+          testing={test.isPending && test.variables === catalogServer.id}
+          onRetest={() => runTest(catalogServer)}
+          getReturnFocus={focusTrigger}
+          onClose={() => setCatalogServer(null)}
+        />
+      ) : null}
+
       {toolServer ? (
         <ToolEditorDialog
           server={toolServer}
-          returnFocusRef={createButtonRef}
-          onClose={() => setToolServer(null)}
+          getReturnFocus={focusTrigger}
+          onClose={() => {
+            setTested((previous) => {
+              const next = new Map(previous);
+              next.delete(toolServer.id);
+              return next;
+            });
+            setToolServer(null);
+          }}
         />
       ) : null}
 
       {connection ? (
-        <ConnectionDialog server={connection} onClose={() => setConnection(null)} />
+        <ConnectionDialog
+          server={connection}
+          getReturnFocus={focusTrigger}
+          onClose={() => setConnection(null)}
+        />
       ) : null}
 
-      {deleting ? <DeleteServerDialog server={deleting} onClose={() => setDeleting(null)} /> : null}
-    </Page>
+      {deleting ? (
+        <DeleteServerDialog
+          server={deleting}
+          getReturnFocus={focusTrigger}
+          onClose={() => setDeleting(null)}
+        />
+      ) : null}
+    </ResourcePage>
   );
 }
 
-function ServerRow({
+function ServerCard({
   server,
   agentCount,
   lastTest,
@@ -384,6 +466,7 @@ function ServerRow({
   onTest,
   onTools,
   onConnection,
+  onCatalog,
   onEdit,
   onDelete,
 }: {
@@ -392,135 +475,286 @@ function ServerRow({
   lastTest: LastTest | null;
   testing: boolean;
   onTest: () => void;
-  onTools: () => void;
-  onConnection: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
+  onTools: (trigger: HTMLElement) => void;
+  onConnection: (trigger: HTMLElement) => void;
+  onCatalog: (trigger: HTMLElement) => void;
+  onEdit: (trigger: HTMLElement) => void;
+  onDelete: (trigger: HTMLElement) => void;
 }) {
   const generated = server.kind === 'generated';
-  // 工具数是这个列表的一等信息：server 有配置但零工具时，它其实还不能用。
-  const tools = useTools(generated ? server.id : null);
+  const toolCount = lastTest?.result.ok ? lastTest.result.tools.length : '连接后确定';
+  // 菜单项随菜单卸载，关闭后只能把焦点还给菜单触发器。
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
 
   return (
-    // Keep server rows on the lighter chip hover surface instead of muted/50.
-    <TableRow data-slot="server-row" className="h-14 hover:bg-chip">
-      <TableCell className="pl-2">
-        <div className="min-w-0">
-          <div className="truncate text-base text-fg">{server.name}</div>
-          {server.description ? (
-            <div className="max-w-[280px] truncate text-2xs text-subtle">{server.description}</div>
-          ) : null}
-        </div>
-      </TableCell>
-      <TableCell>
-        <span className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground">
-          {kindMeta[server.kind].label}
+    <Card data-slot="server-card" className="h-full">
+      <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
+        <span className="row-span-2 flex size-10 shrink-0 items-center justify-center rounded-item bg-muted text-muted-foreground">
+          <ServerIcon aria-hidden="true" />
         </span>
-      </TableCell>
-      <TableCell>
-        <code
-          className="block max-w-[300px] truncate font-mono text-2xs text-muted-foreground"
-          title={detailOf(server)}
-        >
+        <CardTitle className="col-start-2 min-w-0">
+          <h2>
+            <Button
+              variant="ghost"
+              className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium whitespace-normal"
+              onClick={(event) => onEdit(event.currentTarget)}
+            >
+              <span className="line-clamp-2 break-words" title={server.name}>
+                {server.name}
+              </span>
+            </Button>
+          </h2>
+        </CardTitle>
+        <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10 break-words">
+          {server.description || kindMeta[server.kind].hint}
+        </CardDescription>
+        <CardAction className="col-start-3">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  ref={menuTriggerRef}
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`操作 ${server.name}`}
+                >
+                  <MoreHorizontal />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+              <DropdownMenuGroup>
+                <DropdownMenuItem disabled={testing} onClick={onTest}>
+                  <Plug /> {testing ? '测试中…' : '测试连接'}
+                </DropdownMenuItem>
+                {generated ? (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => menuTriggerRef.current && onTools(menuTriggerRef.current)}
+                    >
+                      <Wrench /> 工具定义
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => menuTriggerRef.current && onConnection(menuTriggerRef.current)}
+                    >
+                      <KeyRound /> 连接信息
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => menuTriggerRef.current && onEdit(menuTriggerRef.current)}
+                >
+                  <Pencil /> 编辑
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => menuTriggerRef.current && onDelete(menuTriggerRef.current)}
+                >
+                  <Trash2 /> 删除
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-3">
+        <Badge variant="secondary">{kindMeta[server.kind].label}</Badge>
+        <code className="truncate font-mono text-xs text-muted-foreground" title={detailOf(server)}>
           {detailOf(server) || '—'}
         </code>
-      </TableCell>
-      <TableCell className="text-right">
-        <span className="font-mono text-xs tabular-nums text-fg">
-          {generated ? (tools.data ? tools.data.length : tools.isError ? '—' : '…') : 0}
+        <TestSummary
+          state={lastTest}
+          testing={testing}
+          serverName={server.name}
+          onOpen={(trigger) => onCatalog(trigger)}
+        />
+      </CardContent>
+      <CardFooter className="flex-wrap justify-between gap-2">
+        <span className="text-xs text-muted-foreground">
+          工具 {toolCount} · 绑定专家 {agentCount}
         </span>
-      </TableCell>
-      <TableCell>
-        <TestSummary state={lastTest} testing={testing} />
-      </TableCell>
-      <TableCell className="text-right">
-        <span className="font-mono text-xs tabular-nums text-fg">{agentCount}</span>
-      </TableCell>
-      <TableCell>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="ghost" size="icon-sm" aria-label={`操作 ${server.name}`}>
-                <MoreHorizontal className="size-4" />
-              </Button>
-            }
-          />
-          <DropdownMenuContent
-            align="end"
-            sideOffset={4}
-            // Keep 16px corners, the border, and the project shadow.
-            className="w-40 rounded-card border shadow-overlay"
-          >
-            <DropdownMenuGroup>
-              <DropdownMenuItem disabled={testing} onClick={onTest}>
-                <Plug className="size-4" /> {testing ? '测试中…' : '测试连接'}
-              </DropdownMenuItem>
-              {generated ? (
-                <>
-                  <DropdownMenuItem onClick={onTools}>
-                    <Wrench className="size-4" /> 工具定义
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onConnection}>
-                    <KeyRound className="size-4" /> 连接信息
-                  </DropdownMenuItem>
-                </>
-              ) : null}
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem onClick={onEdit}>
-                <Pencil className="size-4" /> 编辑
-              </DropdownMenuItem>
-              <DropdownMenuItem variant="destructive" onClick={onDelete}>
-                <Trash2 className="size-4" /> 删除
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </TableCell>
-    </TableRow>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={`编辑 ${server.name}`}
+          onClick={(event) => onEdit(event.currentTarget)}
+        >
+          <Pencil data-icon="inline-start" /> 编辑
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }
 
-function TestSummary({ state, testing }: { state: LastTest | null; testing: boolean }) {
+function TestSummary({
+  state,
+  testing,
+  serverName,
+  onOpen,
+}: {
+  state: LastTest | null;
+  testing: boolean;
+  serverName: string;
+  onOpen: (trigger: HTMLElement) => void;
+}) {
   if (testing) return <span className="text-xs text-muted-foreground">测试中…</span>;
   if (!state) return <span className="text-xs text-subtle">未测试</span>;
   const { result, at } = state;
   return (
-    <div className="max-w-[220px] flex flex-col gap-0.5">
-      <div className="flex items-center gap-1.5">
-        {result.ok ? (
-          <CircleCheck className="size-3.5 shrink-0 text-success" />
-        ) : (
-          <CircleAlert className="size-3.5 shrink-0 text-danger" />
-        )}
-        <span className={cn('text-xs font-medium', result.ok ? 'text-success' : 'text-danger')}>
-          {result.ok ? '连接成功' : '未能连接'}
-        </span>
-        <span className="font-mono text-2xs tabular-nums text-subtle">{formatDateTime(at)}</span>
+    <div className="flex flex-col gap-2">
+      <div className="max-w-[220px] flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
+          {result.ok ? (
+            <CircleCheck className="size-3.5 shrink-0 text-success" />
+          ) : (
+            <CircleAlert className="size-3.5 shrink-0 text-danger" />
+          )}
+          <span className={cn('text-xs font-medium', result.ok ? 'text-success' : 'text-danger')}>
+            {result.ok ? '连接成功' : '未能连接'}
+          </span>
+          <span className="font-mono text-2xs tabular-nums text-subtle">{formatDateTime(at)}</span>
+        </div>
+        <div className="font-mono text-2xs tabular-nums text-subtle">
+          耗时 {formatDuration(result.durationMs)} · 工具{' '}
+          {result.ok ? result.tools.length : '连接后确定'}
+        </div>
+        {/* 列出工具名：只给数量无法判断「连上了但工具没注册」这种情况。 */}
+        {result.ok && result.tools.length > 0 ? (
+          <p
+            className="truncate font-mono text-2xs text-muted-foreground"
+            title={result.tools.map((tool) => tool.name).join(', ')}
+          >
+            {result.tools.map((tool) => tool.name).join(' · ')}
+          </p>
+        ) : null}
+        {result.error ? (
+          <p className="truncate text-2xs text-danger" title={result.error}>
+            {result.error}
+          </p>
+        ) : null}
       </div>
-      <div className="font-mono text-2xs tabular-nums text-subtle">
-        耗时 {formatDuration(result.durationMs)} · 工具 {result.tools.length}
-      </div>
-      {/* 列出工具名：只给数量无法判断「连上了但工具没注册」这种情况。 */}
-      {result.ok && result.tools.length > 0 ? (
-        <p
-          className="truncate font-mono text-2xs text-muted-foreground"
-          title={result.tools.map((tool) => tool.name).join(', ')}
-        >
-          {result.tools.map((tool) => tool.name).join(' · ')}
-        </p>
-      ) : null}
-      {result.error ? (
-        <p className="truncate text-2xs text-danger" title={result.error}>
-          {result.error}
-        </p>
-      ) : null}
+      <Button
+        variant="outline"
+        size="sm"
+        className="self-start"
+        aria-label={`查看 ${serverName} 工具与测试详情`}
+        onClick={(event) => onOpen(event.currentTarget)}
+      >
+        查看工具与测试详情
+      </Button>
     </div>
   );
 }
 
-function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () => void }) {
+/** 只读最近测试返回的目录与脱敏错误摘要；打开时不发请求。 */
+function ToolCatalogDialog({
+  server,
+  lastTest,
+  pending,
+  testing,
+  onRetest,
+  onClose,
+  getReturnFocus,
+}: {
+  server: Server;
+  lastTest: LastTest;
+  pending: boolean;
+  testing: boolean;
+  onRetest: () => void;
+  onClose: () => void;
+  getReturnFocus: () => HTMLElement | null;
+}) {
+  const result = lastTest.result;
+  const tools = result.ok ? result.tools : [];
+
+  return (
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogShell
+        title={`工具与测试「${server.name}」`}
+        description="只读最近一次连接测试的结果；重新测试按当前配置重新连接。"
+        finalFocus={getReturnFocus}
+        className="max-w-2xl sm:max-w-2xl"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            {result?.serverInfo ? (
+              <span className="font-mono">
+                {result.serverInfo.name} {result.serverInfo.version}
+              </span>
+            ) : null}
+            {lastTest && result ? (
+              <span className="font-mono tabular-nums">
+                测试于 {formatDateTime(lastTest.at)} · 耗时 {formatDuration(result.durationMs)}
+              </span>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              disabled={pending}
+              aria-busy={testing}
+              onClick={onRetest}
+            >
+              <RefreshCw className="size-3.5" aria-hidden="true" />
+              {testing ? '测试中…' : '重新测试'}
+            </Button>
+          </div>
+
+          {!result.ok ? (
+            <Field className="gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">失败原因</span>
+              {/* 原文展示，不截断也不解析：这条文本是定位连不上问题的唯一线索。 */}
+              <p className="break-words rounded-item bg-danger-soft p-3 font-mono text-xs leading-relaxed text-danger">
+                {result.error ?? '服务没有返回原因。'}
+              </p>
+            </Field>
+          ) : null}
+
+          {tools.length === 0 && result?.ok ? (
+            <InlineEmpty>连接成功，但没有返回任何工具。</InlineEmpty>
+          ) : null}
+
+          {tools.length > 0 ? (
+            <ul aria-label="工具目录" className="flex flex-col divide-y border-y">
+              {tools.map((tool, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 上游工具没有稳定唯一键，同名工具也可能重复
+                <li key={`${tool.name}-${index}`} className="flex flex-col gap-2 py-3">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-mono text-xs text-fg">{tool.name}</span>
+                    {tool.title && tool.title !== tool.name ? (
+                      <span className="text-xs text-muted-foreground">{tool.title}</span>
+                    ) : null}
+                  </div>
+                  {tool.description ? (
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {tool.description}
+                    </p>
+                  ) : null}
+                  {tool.inputSchema ? (
+                    <JsonBlock value={tool.inputSchema} maxHeight="12rem" />
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </DialogShell>
+    </Dialog>
+  );
+}
+
+function DeleteServerDialog({
+  server,
+  onClose,
+  getReturnFocus,
+}: {
+  server: Server;
+  onClose: () => void;
+  getReturnFocus: () => HTMLElement | null;
+}) {
   const remove = useDeleteServer();
   const agents = useAgents();
   const tools = useTools(server.kind === 'generated' ? server.id : null);
@@ -537,6 +771,7 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
     <ConfirmDialog
       open
       onClose={onClose}
+      finalFocus={getReturnFocus}
       title={`删除 server「${server.name}」`}
       description="删除后无法恢复；绑定它的智能体会立即失去这个工具来源。"
       confirmLabel="删除"
@@ -593,10 +828,11 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
               输入 <span className="font-mono">{server.name}</span> 以确认
               <RequiredMark />
             </FieldLabel>
-            <LineInput
+            <Input
               id="delete-server-confirm"
               value={typed}
               autoComplete="off"
+              aria-required
               aria-describedby="delete-server-confirm-hint"
               onChange={(event) => setTyped(event.target.value)}
             />
@@ -610,7 +846,15 @@ function DeleteServerDialog({ server, onClose }: { server: Server; onClose: () =
   );
 }
 
-function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => void }) {
+function ConnectionDialog({
+  server,
+  onClose,
+  getReturnFocus,
+}: {
+  server: Server;
+  onClose: () => void;
+  getReturnFocus: () => HTMLElement | null;
+}) {
   const token = useServerToken(server.id);
   const rotate = useRotateServerToken(server.id);
   // 轮换后只在这里保留明文；关闭对话框即丢弃。
@@ -624,13 +868,21 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
   return (
     <Dialog
       open
-      onOpenChange={(next) => {
-        if (!next) onClose();
+      onOpenChange={(next, details) => {
+        if (next) return;
+        // 轮换进行中关闭会丢掉新 token；请求完成前不允许关闭。
+        if (rotate.isPending) {
+          details.cancel();
+          return;
+        }
+        onClose();
       }}
     >
       <DialogShell
         title={`连接「${server.name}」`}
         description="外部 Host 用这个端点与 Bearer token 访问；token 只在这里轮换时才显示明文。"
+        finalFocus={getReturnFocus}
+        closeDisabled={rotate.isPending}
       >
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
@@ -704,11 +956,11 @@ function ConnectionDialog({ server, onClose }: { server: Server; onClose: () => 
 function ToolEditorDialog({
   server,
   onClose,
-  returnFocusRef,
+  getReturnFocus,
 }: {
   server: Server;
   onClose: () => void;
-  returnFocusRef: { current: HTMLElement | null };
+  getReturnFocus: () => HTMLElement | null;
 }) {
   const tools = useTools(server.id);
   const remove = useDeleteTool(server.id);
@@ -717,6 +969,19 @@ function ToolEditorDialog({
   const [deleting, setDeleting] = useState<ApiTool | null>(null);
   // 只锁正在切换的那一行，其余行照常可点。
   const [pendingToolId, setPendingToolId] = useState<string | null>(null);
+  // 表单是弹层里唯一未保存的内容：关闭与「取消编辑」都走同一道确认。
+  const [formDirty, setFormDirty] = useState(false);
+  const [formPending, setFormPending] = useState(false);
+  const [discard, setDiscard] = useState<{ run: () => void } | null>(null);
+
+  const guarded = (run: () => void): void => {
+    if (formPending || setEnabled.isPending || remove.isPending) return;
+    if (formDirty) {
+      setDiscard({ run });
+      return;
+    }
+    run();
+  };
 
   const setTool = (vars: {
     toolId: string;
@@ -733,16 +998,19 @@ function ToolEditorDialog({
   return (
     <Dialog
       open
-      onOpenChange={(next) => {
-        if (!next) onClose();
+      onOpenChange={(next, details) => {
+        if (next) return;
+        // 未保存或请求中时由页面决定是否关闭，先撤销这次关闭请求。
+        if (formPending || formDirty || setEnabled.isPending || remove.isPending) details.cancel();
+        guarded(onClose);
       }}
     >
       <DialogShell
         title={`工具定义「${server.name}」`}
         description="每个上游 HTTP 端点对应一个 MCP 工具。路径里的 {param} 必须在 inputSchema.properties 中有同名属性。"
-        finalFocus={returnFocusRef}
-        // Keep the tool editor body's 24px padding for the dense configuration form.
-        className="max-w-3xl [&>div:last-child]:px-6 [&>div:last-child]:py-6"
+        finalFocus={getReturnFocus}
+        closeDisabled={formPending || setEnabled.isPending || remove.isPending}
+        className="max-w-3xl sm:max-w-3xl"
       >
         <div className="flex flex-col gap-5">
           {tools.isPending ? <LoadingState rows={2} /> : null}
@@ -827,7 +1095,8 @@ function ToolEditorDialog({
                           variant="ghost"
                           size="icon-sm"
                           aria-label={`编辑工具 ${tool.name}`}
-                          onClick={() => setEditing(tool)}
+                          disabled={formPending}
+                          onClick={() => guarded(() => setEditing(tool))}
                         >
                           <Pencil className="size-3.5" />
                         </Button>
@@ -853,7 +1122,10 @@ function ToolEditorDialog({
             key={editing?.id ?? 'new'}
             serverId={server.id}
             tool={editing}
+            onDirtyChange={setFormDirty}
+            onPendingChange={setFormPending}
             onDone={() => setEditing(null)}
+            onCancel={() => guarded(() => setEditing(null))}
           />
 
           <ConfirmDialog
@@ -865,6 +1137,16 @@ function ToolEditorDialog({
               if (!deleting) return;
               await remove.mutateAsync(deleting.id);
               if (editing?.id === deleting.id) setEditing(null);
+            }}
+          />
+          <ConfirmDialog
+            open={discard !== null}
+            onClose={() => setDiscard(null)}
+            title="放弃未保存的更改？"
+            description="关闭后这个工具的修改会丢失。"
+            confirmLabel="放弃"
+            onConfirm={async () => {
+              discard?.run();
             }}
           />
         </div>
@@ -901,11 +1183,17 @@ function toolToInput(tool: ApiTool): ApiToolInput {
 function ToolForm({
   serverId,
   tool,
+  onDirtyChange,
+  onPendingChange,
   onDone,
+  onCancel,
 }: {
   serverId: string;
   tool: ApiTool | null;
+  onDirtyChange: (dirty: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
   onDone: () => void;
+  onCancel: () => void;
 }) {
   const create = useCreateTool(serverId);
   const remove = useDeleteTool(serverId);
@@ -918,6 +1206,32 @@ function ToolForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const pending = create.isPending || update.isPending || remove.isPending || setEnabled.isPending;
+  // 只有这个表单自己的保存会改变可关闭状态；行内开关不算。
+  const formPending = create.isPending || update.isPending;
+  // 基线取挂载时的值；新建表单提交成功后会回到同一空白状态。
+  const baseline = useRef(
+    JSON.stringify(
+      tool
+        ? { form: toolToInput(tool), schemaText: JSON.stringify(tool.inputSchema, null, 2) }
+        : { form: blankTool, schemaText: blankSchemaText },
+    ),
+  );
+  const dirty = JSON.stringify({ form, schemaText }) !== baseline.current;
+
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    onPendingChange(formPending);
+  }, [formPending, onPendingChange]);
+  // 提交成功后父级会卸载本表单；卸载时清掉父级的脏/请求中状态。
+  useEffect(
+    () => () => {
+      onDirtyChange(false);
+      onPendingChange(false);
+    },
+    [onDirtyChange, onPendingChange],
+  );
 
   const submit = (): void => {
     const next: Record<string, string> = {};
@@ -1007,7 +1321,7 @@ function ToolForm({
       <div className="flex items-baseline justify-between gap-2 sm:col-span-6">
         <h3 className="text-xs text-subtle">{tool ? `编辑工具 ${tool.name}` : '添加工具'}</h3>
         {tool ? (
-          <Button variant="ghost" size="xs" onClick={onDone}>
+          <Button type="button" variant="outline" size="sm" onClick={onCancel}>
             取消编辑
           </Button>
         ) : null}
@@ -1017,17 +1331,18 @@ function ToolForm({
           名称
           <RequiredMark />
         </FieldLabel>
-        <LineInput
+        <Input
           id={`tool-name-${serverId}`}
           value={form.name}
           placeholder="list-users"
+          aria-required
           aria-invalid={Boolean(errors.name)}
           aria-describedby={errors.name ? `tool-name-error-${serverId}` : undefined}
           onChange={(event) => setForm({ ...form, name: event.target.value })}
         />
         <FieldError id={`tool-name-error-${serverId}`}>{errors.name}</FieldError>
       </Field>
-      <Field className="gap-1">
+      <Field className="gap-1.5">
         <FieldLabel htmlFor={`tool-method-${serverId}`}>方法</FieldLabel>
         <Select
           value={form.method}
@@ -1057,17 +1372,18 @@ function ToolForm({
           路径
           <RequiredMark />
         </FieldLabel>
-        <LineInput
+        <Input
           id={`tool-path-${serverId}`}
           value={form.pathTemplate}
           placeholder="/users/{id}"
+          aria-required
           aria-invalid={Boolean(errors.pathTemplate)}
           aria-describedby={errors.pathTemplate ? `tool-path-error-${serverId}` : undefined}
           onChange={(event) => setForm({ ...form, pathTemplate: event.target.value })}
         />
         <FieldError id={`tool-path-error-${serverId}`}>{errors.pathTemplate}</FieldError>
       </Field>
-      <Field className="gap-1">
+      <Field className="gap-1.5">
         <FieldLabel htmlFor={`tool-params-${serverId}`}>参数位置</FieldLabel>
         <Select
           value={form.paramsIn}
@@ -1094,7 +1410,7 @@ function ToolForm({
       </Field>
       <Field className="gap-1.5 sm:col-span-5">
         <FieldLabel htmlFor={`tool-desc-${serverId}`}>描述</FieldLabel>
-        <LineInput
+        <Input
           id={`tool-desc-${serverId}`}
           value={form.description}
           placeholder="告诉智能体这个工具做什么、何时用"
@@ -1103,11 +1419,10 @@ function ToolForm({
       </Field>
       <Field className="gap-1.5 sm:col-span-5" data-invalid={Boolean(errors.inputSchema)}>
         <FieldLabel htmlFor={`tool-schema-${serverId}`}>inputSchema (JSON)</FieldLabel>
-        <CodeArea
+        <Textarea
           id={`tool-schema-${serverId}`}
           rows={4}
           value={schemaText}
-          // Keep configuration values compact and monospaced for literal editing.
           className="font-mono text-xs"
           aria-invalid={Boolean(errors.inputSchema)}
           aria-describedby={errors.inputSchema ? `tool-schema-error-${serverId}` : undefined}
@@ -1125,13 +1440,7 @@ function ToolForm({
         <FieldLabel htmlFor={`tool-approval-${serverId}`}>调用前需要人工批准</FieldLabel>
       </Field>
       <div className="flex items-start pt-2">
-        <Button
-          type="submit"
-          size="sm"
-          // Keep the form action pill-shaped with the existing label padding.
-          className="rounded-full px-3.5"
-          disabled={pending || !form.name}
-        >
+        <Button type="submit" size="sm" disabled={pending || !form.name}>
           {pending ? (
             '保存中…'
           ) : tool ? (
@@ -1204,12 +1513,12 @@ function ServerFormDialog({
   server,
   onClose,
   onSaved,
-  returnFocusRef,
+  getReturnFocus,
 }: {
   server: Server | null;
   onClose: () => void;
   onSaved: (server: Server, created: boolean) => void;
-  returnFocusRef: { current: HTMLElement | null };
+  getReturnFocus: () => HTMLElement | null;
 }) {
   const creating = server === null;
   const create = useCreateServer();
@@ -1223,8 +1532,15 @@ function ServerFormDialog({
     JSON.stringify({ kind: server?.kind ?? null, form: server ? serverToForm(server) : emptyForm });
 
   const pending = create.isPending || update.isPending;
-  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认。
-  const close = dirty && !pending ? () => setConfirmDiscard(true) : onClose;
+  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中一律不能关闭。
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onClose();
+  };
 
   const buildInput = (selected: Kind): ServerInput => {
     const common = { name: form.name, description: form.description };
@@ -1266,8 +1582,7 @@ function ServerFormDialog({
           },
           onError: (error) => {
             if (error instanceof ApiError && error.status === 409) {
-              toast.error('配置已被修改，请刷新');
-              onClose();
+              toast.error('配置已被修改，请核对最新配置后重试；当前输入已保留。');
               return;
             }
             toastError(error);
@@ -1292,18 +1607,21 @@ function ServerFormDialog({
   return (
     <Dialog
       open
-      onOpenChange={(next) => {
-        if (!next) close();
+      onOpenChange={(next, details) => {
+        if (next) return;
+        if (pending || dirty) details.cancel();
+        close();
       }}
     >
       <DialogShell
-        title={creating ? '新建 MCP Server' : `编辑「${server.name}」`}
+        title={creating ? '新建连接器' : `编辑「${server.name}」`}
         description={
           creating
             ? '第一步选来源类型，然后只填写这种接入方式需要的字段。'
             : '来源类型不可修改；密钥保持 •••• 不变即沿用原值。'
         }
-        finalFocus={returnFocusRef}
+        finalFocus={getReturnFocus}
+        closeDisabled={pending}
       >
         <form
           className="flex flex-col gap-4"
@@ -1316,28 +1634,32 @@ function ServerFormDialog({
           {creating ? (
             <FieldSet className="gap-2.5">
               <FieldLegend className="mb-2.5 text-xs font-normal text-subtle">来源类型</FieldLegend>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <ToggleGroup
+                aria-label="来源类型"
+                variant="outline"
+                value={kind ? [kind] : []}
+                onValueChange={(values) => {
+                  const next = values[0];
+                  if (next === 'stdio' || next === 'http' || next === 'generated') {
+                    setKind(next);
+                    setErrors({});
+                  }
+                }}
+                className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3"
+              >
                 {(Object.keys(kindMeta) as Kind[]).map((value) => (
-                  <button
+                  <ToggleGroupItem
                     key={value}
-                    type="button"
-                    aria-pressed={kind === value}
-                    onClick={() => {
-                      setKind(value);
-                      setErrors({});
-                    }}
-                    className={cn(
-                      'rounded-item border px-3 py-2.5 text-left transition-colors',
-                      kind === value ? 'border-fg bg-chip' : 'hover:bg-hover',
-                    )}
+                    value={value}
+                    className="h-auto min-w-0 flex-col items-start gap-1 whitespace-normal px-3 py-2.5 text-left"
                   >
-                    <span className="block text-sm text-fg">{kindMeta[value].label}</span>
-                    <span className="mt-0.5 block text-2xs leading-snug text-subtle">
+                    <span>{kindMeta[value].label}</span>
+                    <span className="text-2xs font-normal leading-snug text-muted-foreground">
                       {kindMeta[value].newHint}
                     </span>
-                  </button>
+                  </ToggleGroupItem>
                 ))}
-              </div>
+              </ToggleGroup>
             </FieldSet>
           ) : null}
 
@@ -1345,15 +1667,16 @@ function ServerFormDialog({
             <p className="text-2xs text-subtle">先选一种来源类型，下面的字段会随类型变化。</p>
           ) : (
             <>
-              <Field className="gap-1" data-invalid={Boolean(errors.name)}>
+              <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
                 <FieldLabel htmlFor="server-name">
                   名称
                   <RequiredMark />
                 </FieldLabel>
-                <LineInput
+                <Input
                   id="server-name"
                   value={form.name}
                   placeholder="filesystem"
+                  aria-required
                   aria-invalid={Boolean(errors.name)}
                   aria-describedby={errors.name ? 'server-name-error' : 'server-name-hint'}
                   onChange={(event) => setForm({ ...form, name: event.target.value })}
@@ -1367,9 +1690,9 @@ function ServerFormDialog({
                 )}
               </Field>
 
-              <Field className="gap-1">
+              <Field className="gap-1.5">
                 <FieldLabel htmlFor="server-desc">描述</FieldLabel>
-                <LineInput
+                <Input
                   id="server-desc"
                   value={form.description}
                   placeholder="一句话说明它提供什么能力"
@@ -1379,26 +1702,26 @@ function ServerFormDialog({
 
               {kind === 'stdio' ? (
                 <>
-                  <Field className="gap-1" data-invalid={Boolean(errors.command)}>
+                  <Field className="gap-1.5" data-invalid={Boolean(errors.command)}>
                     <FieldLabel htmlFor="server-command">
                       命令
                       <RequiredMark />
                     </FieldLabel>
-                    <LineInput
+                    <Input
                       id="server-command"
                       value={form.command}
                       placeholder="npx"
-                      // Keep command syntax monospaced to make executable names easy to scan.
                       className="font-mono"
+                      aria-required
                       aria-invalid={Boolean(errors.command)}
                       aria-describedby={errors.command ? 'server-command-error' : undefined}
                       onChange={(event) => setForm({ ...form, command: event.target.value })}
                     />
                     <FieldError id="server-command-error">{errors.command}</FieldError>
                   </Field>
-                  <Field className="gap-1">
+                  <Field className="gap-1.5">
                     <FieldLabel htmlFor="server-args">参数（每行一个）</FieldLabel>
-                    <CodeArea
+                    <Textarea
                       id="server-args"
                       rows={2}
                       value={form.args}
@@ -1408,9 +1731,9 @@ function ServerFormDialog({
                       onChange={(event) => setForm({ ...form, args: event.target.value })}
                     />
                   </Field>
-                  <Field className="gap-1">
+                  <Field className="gap-1.5">
                     <FieldLabel htmlFor="server-env">环境变量（每行 KEY=value）</FieldLabel>
-                    <CodeArea
+                    <Textarea
                       id="server-env"
                       rows={2}
                       value={form.pairs}
@@ -1426,19 +1749,19 @@ function ServerFormDialog({
                 </>
               ) : (
                 <>
-                  <Field className="gap-1" data-invalid={Boolean(urlError)}>
+                  <Field className="gap-1.5" data-invalid={Boolean(urlError)}>
                     <FieldLabel htmlFor="server-url">
                       {urlLabel}
                       <RequiredMark />
                     </FieldLabel>
-                    <LineInput
+                    <Input
                       id="server-url"
                       value={urlValue}
                       placeholder={
                         kind === 'http' ? 'https://example.com/mcp' : 'https://api.example.com/v1'
                       }
-                      // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
+                      aria-required
                       aria-invalid={Boolean(urlError)}
                       aria-describedby={urlError ? 'server-url-error' : 'server-url-hint'}
                       onChange={(event) =>
@@ -1459,9 +1782,9 @@ function ServerFormDialog({
                       </FieldDescription>
                     )}
                   </Field>
-                  <Field className="gap-1">
+                  <Field className="gap-1.5">
                     <FieldLabel htmlFor="server-headers">Headers（每行 KEY=value）</FieldLabel>
-                    <CodeArea
+                    <Textarea
                       id="server-headers"
                       rows={2}
                       value={form.pairs}
@@ -1484,17 +1807,10 @@ function ServerFormDialog({
           {errors.form ? <FieldError>{errors.form}</FieldError> : null}
 
           <div className="flex justify-end gap-2 border-t pt-4">
-            <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
+            <Button type="button" variant="outline" size="sm" onClick={close} disabled={pending}>
               取消
             </Button>
-            <Button
-              type="submit"
-              size="sm"
-              // Keep the form action pill-shaped with the existing label padding.
-              className="rounded-full px-3.5"
-              disabled={pending || kind === null}
-              aria-busy={pending}
-            >
+            <Button type="submit" size="sm" disabled={pending || kind === null} aria-busy={pending}>
               {pending ? '保存中…' : creating ? '创建' : '保存更改'}
             </Button>
           </div>

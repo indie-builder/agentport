@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { AppError, fail } from '@agentport/core';
-import type { Database } from '@agentport/db';
+import { type Database, newId, schema } from '@agentport/db';
 import type { ServerRow } from '@agentport/db/repo/servers.js';
 import * as serverRepo from '@agentport/db/repo/servers.js';
 import type { ApiTool, ApiToolInput, Server, ServerInput } from '@agentport/shared';
+import { inArray } from 'drizzle-orm';
 import { decryptSecrets, encryptSecrets, maskServer, SECRET_MASK } from './secrets.js';
 
 type Db = Database;
@@ -118,6 +119,57 @@ export async function createServer(db: Db, input: ServerInput, key: string): Pro
   return maskServer(toApiServer(row, key));
 }
 
+/** 导入返回的最小形状：密钥只回键名，配置原文不出接口。 */
+export interface ImportedServerSummary {
+  id: string;
+  name: string;
+  kind: ServerInput['kind'];
+  secretKeys: string[];
+}
+
+/**
+ * 批量导入要么全部写入，要么一行都不写；同名预检在事务内完成，
+ * 并发下的唯一索引冲突由路由按 23505 映射成 409（事务整体回滚）。
+ */
+export async function createServers(
+  db: Db,
+  inputs: ServerInput[],
+  key: string,
+): Promise<ImportedServerSummary[]> {
+  const names = inputs.map((input) => input.name);
+  return db.transaction(async (tx) => {
+    const existing = await tx
+      .select({ name: schema.servers.name })
+      .from(schema.servers)
+      .where(inArray(schema.servers.name, names));
+    // 冲突时连已有的配置差异都不提示，避免在错误响应里带出任何凭据信息。
+    if (existing.length > 0) fail('CONFLICT', '已有同名连接器，未导入任何配置');
+
+    const rows = inputs.map((input) => {
+      const id = newId('server');
+      const split = splitInput(input, key);
+      return {
+        values: {
+          id,
+          name: input.name,
+          kind: input.kind,
+          description: input.description,
+          config: split.config,
+          secretsEncrypted: split.secretsEncrypted,
+        },
+        summary: {
+          id,
+          name: input.name,
+          kind: input.kind,
+          secretKeys: Object.keys(input.kind === 'stdio' ? input.env : input.headers),
+        } satisfies ImportedServerSummary,
+      };
+    });
+    await tx.insert(schema.servers).values(rows.map((row) => row.values));
+    return rows.map((row) => row.summary);
+  });
+}
+
 /** PATCH 是三种 kind 字段的并集：kind 只用于校验不可变，其余按当前 kind 取用。 */
 export interface ServerPatch {
   kind?: ServerInput['kind'] | undefined;
@@ -143,72 +195,79 @@ export async function updateServer(
   key: string,
   expectedUpdatedAt?: Date,
 ): Promise<Server | null> {
-  const row = await serverRepo.getServer(db, id);
-  if (!row) return null;
-  // 并发编辑：调用方带上首次加载的 updatedAt，不匹配就不写。
-  if (expectedUpdatedAt !== undefined && row.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
-    throw stale();
-  }
-  const current = toApiServer(row, key);
-  if (patch.kind !== undefined && patch.kind !== current.kind) {
-    fail('INVALID_INPUT', 'Server 类型创建后不能修改；需要其他类型请新建一个 Server');
-  }
+  // 整个「读 → 解密合并 → 加密写」放进一个事务并先锁行：否则并发 PATCH
+  // 会用各自的旧快照覆盖对方，rotate 也会把并发改过的 baseUrl 写回去。
+  return db.transaction(async (tx) => {
+    const row = await serverRepo.lockServer(tx, id);
+    if (!row) return null;
+    // 并发编辑：调用方带上首次加载的 updatedAt，不匹配就不写。
+    if (
+      expectedUpdatedAt !== undefined &&
+      row.updatedAt.getTime() !== expectedUpdatedAt.getTime()
+    ) {
+      throw stale();
+    }
+    const current = toApiServer(row, key);
+    if (patch.kind !== undefined && patch.kind !== current.kind) {
+      fail('INVALID_INPUT', 'Server 类型创建后不能修改；需要其他类型请新建一个 Server');
+    }
 
-  const mergedSecrets = (
-    next: Record<string, string> | undefined,
-    prev: Record<string, string>,
-  ) => {
-    if (!next) return prev;
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(next)) out[k] = v === SECRET_MASK ? (prev[k] ?? '') : v;
-    return out;
-  };
+    const mergedSecrets = (
+      next: Record<string, string> | undefined,
+      prev: Record<string, string>,
+    ) => {
+      if (!next) return prev;
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(next)) out[k] = v === SECRET_MASK ? (prev[k] ?? '') : v;
+      return out;
+    };
 
-  let next: ServerInput;
-  if (current.kind === 'stdio') {
-    next = {
-      kind: 'stdio',
-      name: patch.name ?? current.name,
-      description: patch.description ?? current.description,
-      command: patch.command ?? current.command,
-      args: patch.args ?? current.args,
-      env: mergedSecrets(patch.env, current.env),
-    };
-  } else if (current.kind === 'http') {
-    next = {
-      kind: 'http',
-      name: patch.name ?? current.name,
-      description: patch.description ?? current.description,
-      url: patch.url ?? current.url,
-      headers: mergedSecrets(patch.headers, current.headers),
-    };
-  } else {
-    next = {
-      kind: 'generated',
-      name: patch.name ?? current.name,
-      description: patch.description ?? current.description,
-      baseUrl: patch.baseUrl ?? current.baseUrl,
-      headers: mergedSecrets(patch.headers, current.headers),
-    };
-  }
+    let next: ServerInput;
+    if (current.kind === 'stdio') {
+      next = {
+        kind: 'stdio',
+        name: patch.name ?? current.name,
+        description: patch.description ?? current.description,
+        command: patch.command ?? current.command,
+        args: patch.args ?? current.args,
+        env: mergedSecrets(patch.env, current.env),
+      };
+    } else if (current.kind === 'http') {
+      next = {
+        kind: 'http',
+        name: patch.name ?? current.name,
+        description: patch.description ?? current.description,
+        url: patch.url ?? current.url,
+        headers: mergedSecrets(patch.headers, current.headers),
+      };
+    } else {
+      next = {
+        kind: 'generated',
+        name: patch.name ?? current.name,
+        description: patch.description ?? current.description,
+        baseUrl: patch.baseUrl ?? current.baseUrl,
+        headers: mergedSecrets(patch.headers, current.headers),
+      };
+    }
 
-  const split = splitInput(
-    next,
-    key,
-    typeof row.config.mcpToken === 'string' ? row.config.mcpToken : undefined,
-  );
-  const updated = await serverRepo.updateServer(
-    db,
-    id,
-    {
-      name: next.name,
-      description: next.description,
-      config: { ...row.config, ...split.config },
-      secretsEncrypted: split.secretsEncrypted,
-    },
-    expectedUpdatedAt,
-  );
-  return updated ? maskServer(toApiServer(updated, key)) : null;
+    const split = splitInput(
+      next,
+      key,
+      typeof row.config.mcpToken === 'string' ? row.config.mcpToken : undefined,
+    );
+    const updated = await serverRepo.updateServer(
+      tx,
+      id,
+      {
+        name: next.name,
+        description: next.description,
+        config: { ...row.config, ...split.config },
+        secretsEncrypted: split.secretsEncrypted,
+      },
+      expectedUpdatedAt,
+    );
+    return updated ? maskServer(toApiServer(updated, key)) : null;
+  });
 }
 
 export async function deleteServer(db: Db, id: string): Promise<boolean> {
@@ -273,11 +332,14 @@ export async function getMcpToken(db: Db, id: string): Promise<string | null> {
 
 /** 重新生成 mcpToken 并返回明文（仅此一次）；旧 token 立即失效。 */
 export async function rotateMcpToken(db: Db, id: string): Promise<string | null> {
-  const row = await serverRepo.getServer(db, id);
-  if (row?.kind !== 'generated') return null;
-  const token = randomToken();
-  const updated = await serverRepo.updateServer(db, id, {
-    config: { ...row.config, mcpToken: token },
+  // token 在锁内生成并写回：与并发 PATCH 串行化，不会出现「PATCH 又写回旧 token」。
+  return db.transaction(async (tx) => {
+    const row = await serverRepo.lockServer(tx, id);
+    if (row?.kind !== 'generated') return null;
+    const token = randomToken();
+    const updated = await serverRepo.updateServer(tx, id, {
+      config: { ...row.config, mcpToken: token },
+    });
+    return updated ? token : null;
   });
-  return updated ? token : null;
 }

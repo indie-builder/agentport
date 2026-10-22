@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn.js';
+import { Button } from './ui/button.js';
 import {
   DialogClose,
   DialogContent,
@@ -15,6 +16,7 @@ type DialogShellProps = Pick<
 > & {
   title: string;
   description?: string;
+  closeDisabled?: boolean;
 };
 
 export function DialogShell({
@@ -23,10 +25,14 @@ export function DialogShell({
   children,
   className,
   finalFocus,
+  closeDisabled = false,
 }: DialogShellProps) {
   return (
     <DialogContent
-      className={cn('top-[10vh]! max-w-[560px]! translate-y-0! sm:max-w-[560px]!', className)}
+      className={cn(
+        'top-[10vh]! w-[calc(100%-2rem)] max-w-[560px] translate-y-0! gap-0 p-0 sm:max-w-[560px]',
+        className,
+      )}
       showCloseButton={false}
       finalFocus={finalFocus}
     >
@@ -36,11 +42,10 @@ export function DialogShell({
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </div>
         <DialogClose
-          aria-label="关闭"
-          // DialogClose is unstyled; keep the subdued icon, 7px corners, hover, and focus ring.
-          className="-mr-1 rounded-icon p-1.5 text-subtle transition-colors hover:bg-sunken hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg"
+          disabled={closeDisabled}
+          render={<Button variant="ghost" size="icon-sm" aria-label="关闭" />}
         >
-          <X className="size-4" />
+          <X aria-hidden="true" />
         </DialogClose>
       </DialogHeader>
       <div className="max-h-[calc(80vh-4rem)] overflow-y-auto px-5 py-4">{children}</div>
