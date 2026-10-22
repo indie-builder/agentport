@@ -1,5 +1,18 @@
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
+import {
+  agentRuns,
+  agents,
+  conversations,
+  createDb,
+  messages,
+  newId,
+} from '../packages/db/dist/index.js';
+
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error('DATABASE_URL is required for regression fixtures');
+const database = createDb(databaseUrl);
+test.afterAll(() => database.pool.end());
 
 /**
  * 迁移自 e2e/regression.spec.ts 的其余 4 条。
@@ -11,18 +24,43 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
   screen,
   browser,
 }) => {
-  await app.open('/runs');
-  await expect(screen.getByRole('heading', '运行')).toBeVisible();
+  const agentId = newId('agent');
+  const conversationId = newId('conversation');
+  const runId = newId('run');
+  try {
+    await database.db.insert(agents).values({
+      id: agentId,
+      slug: `regression-${agentId}`,
+      name: 'Run navigation fixture',
+      model: 'test-model',
+    });
+    await database.db.insert(conversations).values({ id: conversationId, agentId });
+    await database.db.insert(agentRuns).values({
+      id: runId,
+      agentId,
+      conversationId,
+      status: 'succeeded',
+      prompt: 'Run navigation fixture',
+      startedAt: new Date(),
+      endedAt: new Date(),
+    });
+    await database.db.insert(messages).values({
+      id: newId('message'),
+      conversationId,
+      runId,
+      role: 'user',
+      content: { type: 'text', text: 'Run navigation fixture' },
+    });
 
-  // 有数据时是表格行；空库时是空态。e2e 没有 `or()`，分别取状态判断。
-  const empty = await screen.getByText('没有匹配的运行', { exact: false }).isVisible();
-  const table = await browser.locator('section[aria-label], table').first().isVisible();
-  expect(empty || table).toBe(true);
-  const row = browser.locator('button[data-row]').first();
-  if (await row.isVisible()) {
+    await app.open(`/runs?agent=${agentId}`);
+    await expect(screen.getByRole('heading', '运行')).toBeVisible();
+    const row = browser.locator('button[data-row]').first();
+    await expect(row).toBeVisible();
     await row.tap();
-    await expect(browser).toHaveURL(/\/runs\/run_[a-z0-9]+$/);
+    await expect(browser).toHaveURL(new RegExp(`/runs/${runId}$`));
     await expect(screen.getByRole('button', '重跑')).toBeVisible();
+  } finally {
+    await database.pool.query('delete from agents where id = $1', [agentId]);
   }
 });
 

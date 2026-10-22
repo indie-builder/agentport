@@ -1,5 +1,28 @@
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
+import { agents, createDb, newId } from '../packages/db/dist/index.js';
+
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error('DATABASE_URL is required for navigation fixtures');
+const database = createDb(databaseUrl);
+const agentId = newId('agent');
+
+test.beforeAll(async () => {
+  await database.db.insert(agents).values({
+    id: agentId,
+    slug: `navigation-${agentId}`,
+    name: 'Navigation fixture',
+    model: 'test-model',
+  });
+});
+
+test.afterAll(async () => {
+  try {
+    await database.pool.query('delete from agents where id = $1', [agentId]);
+  } finally {
+    await database.pool.end();
+  }
+});
 
 test('unknown agent link has no composer and can start a new conversation', {
   session: 'admin',
