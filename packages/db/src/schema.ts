@@ -62,6 +62,8 @@ export const agents = pgTable(
     id: text('id').primaryKey(),
     slug: text('slug').notNull(),
     name: text('name').notNull(),
+    /** 角色/岗位仅用于列表与详情展示。 */
+    role: text('role').notNull().default('通用助手'),
     model: text('model').notNull(),
     description: text('description').notNull().default(''),
     systemPromptMd: text('system_prompt_md').notNull().default(''),

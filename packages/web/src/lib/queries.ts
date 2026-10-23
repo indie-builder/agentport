@@ -20,6 +20,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 import {
   type AgentFiles,
   type AgentVersionDetail,
@@ -89,6 +90,12 @@ export function useServers() {
 
 export function useAgents() {
   return useQuery(agentsQuery);
+}
+
+/** 单个专家从列表缓存里取；配置页用它，slug 不存在时返回 null。 */
+export function useAgent(id: string) {
+  const query = useAgents();
+  return { ...query, data: (query.data ?? []).find((agent) => agent.id === id) ?? null };
 }
 
 export function useOverview() {
@@ -188,6 +195,8 @@ export function useConversation(conversationId: string | null) {
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextBefore ?? undefined,
     enabled: conversationId !== null,
+    staleTime: 0,
+    refetchOnMount: 'always',
     select: (data): ConversationDetail => {
       const first = data.pages[0];
       if (!first) throw new Error('会话分页为空');
@@ -228,6 +237,15 @@ export function useRun(runId: string) {
 
 /** 审批请求由 MCP 端点在工具被拒时写入；运行期间轮询，结束后停。 */
 export function useRunApprovals(runId: string | null, active = true) {
+  const client = useQueryClient();
+  const previous = useRef({ runId, active });
+  useEffect(() => {
+    const wasActive = previous.current.runId === runId && previous.current.active;
+    previous.current = { runId, active };
+    if (!runId || active || !wasActive) return;
+    const queryKey = ['run-approvals', runId];
+    void client.cancelQueries({ queryKey }).then(() => client.invalidateQueries({ queryKey }));
+  }, [runId, active, client]);
   return useQuery<ApprovalRequestList>({
     queryKey: ['run-approvals', runId],
     queryFn: () => api.runApprovals(runId ?? ''),

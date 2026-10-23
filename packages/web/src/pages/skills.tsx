@@ -45,7 +45,7 @@ import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { ApiError } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { fieldErrors } from '../lib/form.js';
+import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import {
   useCreateSkill,
   useDeleteSkill,
@@ -79,7 +79,7 @@ export function SkillsPage() {
   const actionTriggerRef = useRef<HTMLElement | null>(null);
   // 关闭后回到真实触发器；菜单项会随菜单卸载，所以记的是常驻的下拉触发器。
   const panelFocus = (): HTMLElement | null =>
-    actionTriggerRef.current?.isConnected ? actionTriggerRef.current : null;
+    actionTriggerRef.current?.isConnected ? actionTriggerRef.current : createButtonRef.current;
   const setFilter = (
     patch: { q?: string | undefined; usage?: 'bound' | 'unbound' | undefined },
     replace = false,
@@ -130,6 +130,7 @@ export function SkillsPage() {
         })
       }
       count={visibleSkills.length}
+      status={skills.status}
       filters={
         <FilterSelect
           value={usage}
@@ -165,7 +166,13 @@ export function SkillsPage() {
             <Upload data-icon="inline-start" aria-hidden="true" />{' '}
             {importSkill.isPending ? '导入中…' : '导入 SKILL.md'}
           </Button>
-          <Button ref={createButtonRef} onClick={() => setCreating(true)}>
+          <Button
+            ref={createButtonRef}
+            onClick={(event) => {
+              actionTriggerRef.current = event.currentTarget;
+              setCreating(true);
+            }}
+          >
             <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
           </Button>
         </>
@@ -181,7 +188,12 @@ export function SkillsPage() {
           title="还没有技能"
           description="把重复出现的步骤写成技能，多个专家可以共享它。"
           action={
-            <Button onClick={() => setCreating(true)}>
+            <Button
+              onClick={(event) => {
+                actionTriggerRef.current = event.currentTarget;
+                setCreating(true);
+              }}
+            >
               <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
             </Button>
           }
@@ -299,12 +311,7 @@ export function SkillsPage() {
         </ul>
       ) : null}
 
-      {creating ? (
-        <SkillDialog
-          finalFocus={() => (createButtonRef.current?.isConnected ? createButtonRef.current : null)}
-          onClose={() => setCreating(false)}
-        />
-      ) : null}
+      {creating ? <SkillDialog finalFocus={panelFocus} onClose={() => setCreating(false)} /> : null}
       {editing ? (
         <SkillDialog skill={editing} finalFocus={panelFocus} onClose={() => setEditing(null)} />
       ) : null}
@@ -363,6 +370,7 @@ function SkillDialog({
 
   const submit = (event: React.FormEvent): void => {
     event.preventDefault();
+    if (pending) return;
     const parsed = skillInputSchema.safeParse(form);
     if (!parsed.success) {
       setErrors(fieldErrors(parsed.error.issues));
@@ -399,6 +407,7 @@ function SkillDialog({
   };
 
   const pending = create.isPending || update.isPending;
+  const blocker = useFormBlocker(dirty, pending);
   // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中不能丢弃。
   const close = (): void => {
     if (pending) return;
@@ -419,18 +428,18 @@ function SkillDialog({
     >
       <DialogShell
         title={skill ? '编辑技能' : '新建技能'}
-        description="技能内容会写入 SKILL.md 的正文。"
         closeDisabled={pending}
         finalFocus={finalFocus}
       >
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <FieldGroup className="grid gap-3 sm:grid-cols-2">
-            <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
+            <Field data-disabled={pending} className="gap-1.5" data-invalid={Boolean(errors.name)}>
               <FieldLabel htmlFor="skill-name">
                 名称 <RequiredMark />
               </FieldLabel>
               <Input
                 id="skill-name"
+                disabled={pending}
                 value={form.name}
                 aria-required="true"
                 aria-invalid={Boolean(errors.name)}
@@ -442,7 +451,7 @@ function SkillDialog({
             <Field
               className="gap-1.5"
               data-invalid={Boolean(errors.slug)}
-              data-disabled={Boolean(skill)}
+              data-disabled={pending || Boolean(skill)}
             >
               <FieldLabel htmlFor="skill-slug">
                 Slug <RequiredMark />
@@ -450,7 +459,7 @@ function SkillDialog({
               <Input
                 id="skill-slug"
                 value={form.slug}
-                disabled={Boolean(skill)}
+                disabled={pending || Boolean(skill)}
                 aria-required="true"
                 aria-invalid={Boolean(errors.slug)}
                 aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
@@ -459,20 +468,23 @@ function SkillDialog({
                 className="font-mono"
               />
               {skill ? (
-                <FieldDescription id="skill-slug-hint">
-                  创建后不可修改：它对应目录名。
-                </FieldDescription>
+                <FieldDescription id="skill-slug-hint">创建后不可修改。</FieldDescription>
               ) : (
                 <FieldError id="skill-slug-error">{errors.slug}</FieldError>
               )}
             </Field>
           </FieldGroup>
-          <Field className="gap-1.5" data-invalid={Boolean(errors.description)}>
+          <Field
+            data-disabled={pending}
+            className="gap-1.5"
+            data-invalid={Boolean(errors.description)}
+          >
             <FieldLabel htmlFor="skill-desc">
               描述 <RequiredMark />
             </FieldLabel>
             <Input
               id="skill-desc"
+              disabled={pending}
               value={form.description}
               aria-required="true"
               aria-invalid={Boolean(errors.description)}
@@ -482,10 +494,11 @@ function SkillDialog({
             />
             <FieldError id="skill-desc-error">{errors.description}</FieldError>
           </Field>
-          <Field className="gap-1.5">
+          <Field data-disabled={pending} className="gap-1.5">
             <FieldLabel htmlFor="skill-body">步骤</FieldLabel>
             <Textarea
               id="skill-body"
+              disabled={pending}
               rows={10}
               value={form.body}
               onChange={(event) => set('body', event.target.value)}
@@ -493,7 +506,7 @@ function SkillDialog({
               className="font-mono text-xs leading-relaxed"
               placeholder="1. 先读取 …&#10;2. 再调用 mcp__…&#10;3. 最后汇总 …"
             />
-            <FieldDescription>支持 Markdown，渲染为 SKILL.md 正文。</FieldDescription>
+            <FieldDescription>支持 Markdown。</FieldDescription>
           </Field>
           <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
             <Button variant="outline" onClick={close} disabled={pending}>
@@ -510,9 +523,19 @@ function SkillDialog({
           title="放弃未保存的更改？"
           description="关闭后这段技能内容会丢失。"
           confirmLabel="放弃并关闭"
+          confirmDisabled={pending}
           onConfirm={async () => {
-            onClose();
+            if (!pending) onClose();
           }}
+        />
+        <ConfirmDialog
+          open={blocker.status === 'blocked'}
+          onClose={() => blocker.reset?.()}
+          title="放弃未保存的更改？"
+          description={pending ? '正在保存，请等待请求完成。' : '离开后技能内容的修改会丢失。'}
+          confirmLabel="放弃并离开"
+          confirmDisabled={pending}
+          onConfirm={async () => blocker.proceed()}
         />
       </DialogShell>
     </Dialog>

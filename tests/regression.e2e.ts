@@ -56,6 +56,9 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
     await expect(screen.getByRole('heading', '运行')).toBeVisible();
     const row = browser.locator('button[data-row]').first();
     await expect(row).toBeVisible();
+    const empty = await screen.getByText('没有匹配的运行', { exact: false }).isVisible();
+    const table = await browser.locator('section[aria-label], table').first().isVisible();
+    expect(empty || table).toBe(true);
     await row.tap();
     await expect(browser).toHaveURL(new RegExp(`/runs/${runId}$`));
     await expect(screen.getByRole('button', '重跑')).toBeVisible();

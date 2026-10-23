@@ -46,6 +46,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec biome ci .
+      - run: pnpm lint:focus
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm db:migrate

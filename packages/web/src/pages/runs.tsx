@@ -30,7 +30,7 @@ const columns: DataColumn<RunListItem>[] = [
     width: '148px',
     sortValue: (run) => run.id,
     cell: (run) => (
-      <code className="font-mono text-xs text-subtle" title={run.id}>
+      <code className="font-mono text-xs text-muted-foreground" title={run.id}>
         {shortId(run.id)}
       </code>
     ),
@@ -43,7 +43,7 @@ const columns: DataColumn<RunListItem>[] = [
     sortValue: (run) => run.agentName ?? '',
     cell: (run) => (
       <span className="truncate text-fg">
-        {run.agentName ?? <span className="text-subtle">已删除</span>}
+        {run.agentName ?? <span className="text-muted-foreground">已删除</span>}
       </span>
     ),
   },
@@ -111,7 +111,7 @@ const columns: DataColumn<RunListItem>[] = [
           {run.error}
         </span>
       ) : (
-        <span className="text-subtle">—</span>
+        <span className="text-muted-foreground">—</span>
       ),
   },
 ];
@@ -211,7 +211,15 @@ export function RunsPage() {
           label="按状态筛选"
           className="w-full sm:w-36"
         />
+        <p className="text-sm text-muted-foreground">
+          最多显示{filtered ? '符合筛选条件的最近 100 条运行' : '最近 100 条运行'}
+          ，按开始时间选取，未开始的排在最后；排序仅作用于当前显示的记录。
+        </p>
       </PageToolbar>
+
+      {agents.isError ? (
+        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+      ) : null}
 
       {runs.isError ? (
         <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
@@ -219,9 +227,7 @@ export function RunsPage() {
         <PageNote
           icon={<Activity className="size-4" aria-hidden="true" />}
           title={filtered ? '没有匹配的运行' : '还没有运行记录'}
-          description={
-            filtered ? '调整或清除筛选条件后重试。' : '在对话页发起一次运行后，这里会显示运行记录。'
-          }
+          description={filtered ? undefined : '在对话页发起一次运行。'}
           action={
             filtered ? (
               <Button

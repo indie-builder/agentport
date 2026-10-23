@@ -41,6 +41,7 @@ import {
   type EvalResult,
   type EvalRun,
 } from '../lib/api.js';
+import { useFormBlocker } from '../lib/form.js';
 import {
   evalComparisonStatusLabel,
   evalComparisonStatusVariant,
@@ -73,7 +74,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     width: '110px',
     sortValue: (run) => run.id,
     cell: (run) => (
-      <code className="font-mono text-xs text-subtle" title={run.id}>
+      <code className="font-mono text-xs text-muted-foreground" title={run.id}>
         {shortId(run.id)}
       </code>
     ),
@@ -128,7 +129,7 @@ const runColumns: DataColumn<EvalRun>[] = [
           {run.error}
         </span>
       ) : (
-        <span className="text-subtle">—</span>
+        <span className="text-muted-foreground">—</span>
       ),
   },
   {
@@ -170,7 +171,7 @@ export function EvalPage() {
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const [exporting, setExporting] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [creatingAgentId, setCreatingAgentId] = useState<string | null>(null);
   const [comparing, setComparing] = useState(false);
   const [editing, setEditing] = useState<EvalCase | null>(null);
   const [deleting, setDeleting] = useState<EvalCase | null>(null);
@@ -266,7 +267,6 @@ export function EvalPage() {
     }
   };
 
-  const latest = effectiveAgentId ? runs.data?.[0] : undefined;
   const terminalRuns = (runs.data ?? []).filter((run) => run.status !== 'running');
   const startDisabledReason = start.isPending
     ? '正在启动评估'
@@ -327,18 +327,18 @@ export function EvalPage() {
           className="w-full sm:w-36"
         />
         {startDisabledReason ? (
-          <span id="eval-start-reason" className="text-sm text-subtle">
+          <span id="eval-start-reason" className="text-sm text-muted-foreground">
             {startDisabledReason}
           </span>
         ) : null}
         {runningRun ? (
-          <span className="text-sm text-subtle">
+          <span className="text-sm text-muted-foreground">
             当前用例可能继续执行；停止后不再开始后续用例。
           </span>
         ) : null}
       </PageToolbar>
 
-      <p className="text-sm text-subtle">
+      <p className="text-sm text-muted-foreground">
         判定：期望非空时检查输出包含该文本（不区分大小写）；为空时只要求有文本输出。
       </p>
 
@@ -387,7 +387,7 @@ export function EvalPage() {
                 disabled={!effectiveAgentId}
                 onClick={(event) => {
                   dialogTriggerRef.current = event.currentTarget;
-                  setCreating(true);
+                  setCreatingAgentId(effectiveAgentId);
                 }}
               >
                 <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
@@ -413,7 +413,6 @@ export function EvalPage() {
           {agents.isSuccess && !missingAgent && !effectiveAgentId ? (
             <PageNote
               title="还没有专家"
-              description="先创建一个专家，才能为它编写评估用例。"
               action={
                 <Link to="/agents" className="text-sm text-fg underline underline-offset-4">
                   前往创建专家
@@ -435,7 +434,7 @@ export function EvalPage() {
                   variant="outline"
                   onClick={(event) => {
                     dialogTriggerRef.current = event.currentTarget;
-                    setCreating(true);
+                    setCreatingAgentId(effectiveAgentId);
                   }}
                 >
                   <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
@@ -451,11 +450,13 @@ export function EvalPage() {
                   className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-md font-medium text-fg">{testCase.name}</div>
+                    <div className="text-md font-medium text-fg [overflow-wrap:anywhere]">
+                      {testCase.name}
+                    </div>
                     <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
                       {testCase.prompt}
                     </p>
-                    <p className="mt-1 truncate text-xs text-subtle">
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
                       {testCase.expectation
                         ? `期望包含：${testCase.expectation}`
                         : '期望为空：只要求有文本输出'}
@@ -493,7 +494,6 @@ export function EvalPage() {
 
         <PageSection
           title="运行历史"
-          description={latest ? `最近：${latest.passed} / ${latest.total}` : '每次回归的通过情况'}
           actions={
             <Button
               variant="outline"
@@ -523,7 +523,7 @@ export function EvalPage() {
             <PageNote
               icon={<ClipboardCheck className="size-4" aria-hidden="true" />}
               title="还没有评估运行"
-              description="写好用例后点「运行评估」，这里会显示每次回归的通过情况。"
+              description="写好用例后点「运行评估」。"
             />
           ) : null}
           {effectiveAgentId && runs.data && runs.data.length > 0 ? (
@@ -539,11 +539,11 @@ export function EvalPage() {
         </PageSection>
       </div>
 
-      {creating && effectiveAgentId ? (
+      {creatingAgentId ? (
         <CaseDialog
-          agentId={effectiveAgentId}
+          agentId={creatingAgentId}
           finalFocus={finalFocus}
-          onClose={() => setCreating(false)}
+          onClose={() => setCreatingAgentId(null)}
         />
       ) : null}
       {editing ? (
@@ -603,7 +603,7 @@ function EvalRunResults({ id }: { id: string }) {
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
-        <p className="text-xs text-subtle">
+        <p className="text-xs text-muted-foreground">
           导出已记录结果；专家配置未固定，文件不构成完整复现包。
         </p>
         <Button
@@ -618,14 +618,27 @@ function EvalRunResults({ id }: { id: string }) {
           {exporting ? '导出中…' : '导出结果'}
         </Button>
       </div>
+      {evalRun.status === 'failed' ? (
+        <PageNote
+          tone="danger"
+          title={results.length === 0 ? '评估失败，未生成结果' : '评估失败'}
+          description={
+            <span className="[overflow-wrap:anywhere]">
+              {evalRun.error ?? '未提供失败原因。'} 请检查后重新运行评估。
+            </span>
+          }
+        />
+      ) : null}
       {results.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {evalRun.status === 'running'
-            ? '正在逐个执行用例…'
-            : evalRun.status === 'cancelled'
-              ? '后续用例已停止，还没有用例完成。'
-              : '还没有结果记录。这条运行可能仍在排队，稍后会自动刷新。'}
-        </p>
+        evalRun.status !== 'failed' ? (
+          <p className="text-sm text-muted-foreground">
+            {running
+              ? '正在逐个执行用例…'
+              : evalRun.status === 'cancelled'
+                ? '后续用例已停止，还没有用例完成。'
+                : '评估已完成，没有结果记录。'}
+          </p>
+        ) : null
       ) : (
         <ul>
           {results.map((result) => (
@@ -638,7 +651,9 @@ function EvalRunResults({ id }: { id: string }) {
                 <StatusBadge tone={result.passed ? 'success' : 'danger'}>
                   {result.passed ? '通过' : '未通过'}
                 </StatusBadge>
-                <span className="text-md font-medium text-fg">{result.name}</span>
+                <span className="min-w-0 text-md font-medium text-fg [overflow-wrap:anywhere]">
+                  {result.name}
+                </span>
                 {result.runId ? (
                   <Link
                     to="/runs/$runId"
@@ -651,20 +666,20 @@ function EvalRunResults({ id }: { id: string }) {
               </div>
               <div className="mt-2 grid gap-x-8 gap-y-2 text-sm leading-relaxed sm:grid-cols-2">
                 <div>
-                  <div className="text-xs text-subtle">Prompt</div>
+                  <div className="text-xs text-muted-foreground">Prompt</div>
                   <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">
                     {result.prompt}
                   </p>
                 </div>
                 <div>
-                  <div className="text-xs text-subtle">期望</div>
+                  <div className="text-xs text-muted-foreground">期望</div>
                   <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">
                     {result.expectation || '（只要求有文本输出）'}
                   </p>
                 </div>
               </div>
               <div className="mt-2">
-                <div className="text-xs text-subtle">输出</div>
+                <div className="text-xs text-muted-foreground">输出</div>
                 <CodeBlock
                   code={result.output || '（空）'}
                   maxHeight="12rem"
@@ -719,7 +734,7 @@ function CompareDialog({
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="text-xs text-subtle">基准运行</span>
+            <span className="text-xs text-muted-foreground">基准运行</span>
             <FilterSelect
               value={baseId}
               onValueChange={setBaseId}
@@ -729,7 +744,7 @@ function CompareDialog({
             />
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="text-xs text-subtle">对比运行</span>
+            <span className="text-xs text-muted-foreground">对比运行</span>
             <FilterSelect
               value={headId}
               onValueChange={setHeadId}
@@ -793,7 +808,7 @@ function CompareSide({
 }) {
   return (
     <div className="min-w-0">
-      <div className="flex min-h-5 items-center gap-2 text-xs text-subtle">
+      <div className="flex min-h-5 items-center gap-2 text-xs text-muted-foreground">
         {title}
         {showPass && result ? (
           <StatusBadge tone={result.passed ? 'success' : 'danger'}>
@@ -803,15 +818,15 @@ function CompareSide({
       </div>
       {result ? (
         <>
-          <div className="mt-2 text-xs text-subtle">Prompt</div>
+          <div className="mt-2 text-xs text-muted-foreground">Prompt</div>
           <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">
             {result.prompt}
           </p>
-          <div className="mt-2 text-xs text-subtle">期望</div>
+          <div className="mt-2 text-xs text-muted-foreground">期望</div>
           <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">
             {result.expectation || '（只要求有文本输出）'}
           </p>
-          <div className="mt-2 text-xs text-subtle">输出</div>
+          <div className="mt-2 text-xs text-muted-foreground">输出</div>
           <CodeBlock
             code={result.output || '（空）'}
             maxHeight="10rem"
@@ -820,7 +835,7 @@ function CompareSide({
           />
         </>
       ) : (
-        <p className="mt-2 text-sm text-subtle">
+        <p className="mt-2 text-sm text-muted-foreground">
           这次运行没有记录结果，可能未执行或用例不在批次中。
         </p>
       )}
@@ -870,6 +885,7 @@ function CaseDialog({
 
   const submit = (event: React.FormEvent): void => {
     event.preventDefault();
+    if (pending) return;
     const issues: Partial<Record<keyof CaseForm, string>> = {};
     if (!form.name.trim()) issues.name = '名称需要填写。';
     else if (form.name.trim().length > 128) issues.name = '名称不能超过 128 字。';
@@ -903,7 +919,12 @@ function CaseDialog({
   };
 
   const pending = create.isPending || update.isPending;
-  const close = dirty ? () => setConfirmDiscard(true) : onClose;
+  const blocker = useFormBlocker(dirty, pending);
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
 
   return (
     <Dialog
@@ -924,12 +945,13 @@ function CaseDialog({
       >
         <form noValidate onSubmit={submit} className="flex flex-col gap-4">
           <FieldGroup className="gap-4">
-            <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
+            <Field className="gap-1.5" data-invalid={Boolean(errors.name)} data-disabled={pending}>
               <FieldLabel htmlFor="eval-name">
                 名称 <RequiredMark />
               </FieldLabel>
               <Input
                 id="eval-name"
+                disabled={pending}
                 required
                 aria-required="true"
                 value={form.name}
@@ -940,12 +962,17 @@ function CaseDialog({
               />
               <FieldError id="eval-name-error">{errors.name}</FieldError>
             </Field>
-            <Field className="gap-1.5" data-invalid={Boolean(errors.prompt)}>
+            <Field
+              className="gap-1.5"
+              data-invalid={Boolean(errors.prompt)}
+              data-disabled={pending}
+            >
               <FieldLabel htmlFor="eval-prompt">
                 输入 <RequiredMark />
               </FieldLabel>
               <Textarea
                 id="eval-prompt"
+                disabled={pending}
                 required
                 aria-required="true"
                 rows={5}
@@ -957,10 +984,15 @@ function CaseDialog({
               />
               <FieldError id="eval-prompt-error">{errors.prompt}</FieldError>
             </Field>
-            <Field className="gap-1.5" data-invalid={Boolean(errors.expectation)}>
+            <Field
+              className="gap-1.5"
+              data-invalid={Boolean(errors.expectation)}
+              data-disabled={pending}
+            >
               <FieldLabel htmlFor="eval-expectation">期望包含</FieldLabel>
               <Textarea
                 id="eval-expectation"
+                disabled={pending}
                 rows={2}
                 value={form.expectation}
                 aria-invalid={Boolean(errors.expectation)}
@@ -993,9 +1025,19 @@ function CaseDialog({
           title="放弃未保存的更改？"
           description="关闭后这条用例的修改会丢失。"
           confirmLabel="放弃并关闭"
+          confirmDisabled={pending}
           onConfirm={async () => {
-            onClose();
+            if (!pending) onClose();
           }}
+        />
+        <ConfirmDialog
+          open={blocker.status === 'blocked'}
+          onClose={() => blocker.reset?.()}
+          title="放弃未保存的更改？"
+          description={pending ? '正在保存，请等待请求完成。' : '离开后这条用例的修改会丢失。'}
+          confirmLabel="放弃并离开"
+          confirmDisabled={pending}
+          onConfirm={async () => blocker.proceed()}
         />
       </DialogShell>
     </Dialog>

@@ -30,13 +30,13 @@ export function DialogShell({
   return (
     <DialogContent
       className={cn(
-        'top-[10vh]! w-[calc(100%-2rem)] max-w-[560px] translate-y-0! gap-0 p-0 sm:max-w-[560px]',
+        'top-[10dvh]! flex max-h-[80dvh] w-[calc(100%-2rem)] max-w-[560px] translate-y-0! flex-col gap-0 p-0 sm:max-w-[560px]',
         className,
       )}
       showCloseButton={false}
       finalFocus={finalFocus}
     >
-      <DialogHeader className="flex-row items-start justify-between gap-4 border-b px-5 py-3.5">
+      <DialogHeader className="shrink-0 flex-row items-start justify-between gap-4 border-b px-5 py-3.5">
         <div className="min-w-0">
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
@@ -48,7 +48,16 @@ export function DialogShell({
           <X aria-hidden="true" />
         </DialogClose>
       </DialogHeader>
-      <div className="max-h-[calc(80vh-4rem)] overflow-y-auto px-5 py-4">{children}</div>
+      <div
+        className="min-h-0 overflow-y-auto overscroll-contain px-5 py-4"
+        onSubmitCapture={({ currentTarget }) => {
+          requestAnimationFrame(() => {
+            currentTarget.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+          });
+        }}
+      >
+        {children}
+      </div>
     </DialogContent>
   );
 }

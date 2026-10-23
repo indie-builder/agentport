@@ -12,6 +12,7 @@ export type AgentRow = typeof agents.$inferSelect;
 export interface AgentWrite {
   slug: string;
   name: string;
+  role: string;
   description: string;
   model: string;
   systemPromptMd: string;
@@ -39,6 +40,7 @@ export function toAgent(
     id: row.id,
     slug: row.slug,
     name: row.name,
+    role: row.role,
     description: row.description,
     model: row.model,
     systemPrompt: row.systemPromptMd,

@@ -14,7 +14,6 @@ import {
   auditStatusVariant,
   formatDateTime,
   formatDuration,
-  shortId,
 } from '../lib/format.js';
 import { useAudit } from '../lib/queries.js';
 import { toastError } from '../lib/toast.js';
@@ -52,11 +51,11 @@ const columns: DataColumn<AuditEntry>[] = [
     width: 'minmax(120px,1fr)',
     cell: (row) =>
       row.target ? (
-        <span className="font-mono text-muted-foreground" title={row.target}>
-          {shortId(row.target)}
+        <span className="whitespace-normal [overflow-wrap:anywhere] font-mono text-muted-foreground">
+          {row.target}
         </span>
       ) : (
-        <span className="text-subtle">—</span>
+        <span className="text-muted-foreground">—</span>
       ),
   },
   {
@@ -83,11 +82,11 @@ const columns: DataColumn<AuditEntry>[] = [
     width: '130px',
     cell: (row) =>
       row.requestId ? (
-        <span className="font-mono text-muted-foreground" title={row.requestId}>
-          {shortId(row.requestId)}
+        <span className="whitespace-normal [overflow-wrap:anywhere] font-mono text-muted-foreground">
+          {row.requestId}
         </span>
       ) : (
-        <span className="text-subtle">—</span>
+        <span className="text-muted-foreground">—</span>
       ),
   },
 ];
@@ -208,7 +207,7 @@ export function AuditPage() {
           className="w-full sm:w-36"
         />
       </PageToolbar>
-      <p className="text-xs text-subtle">登录与配置变更的长期记录；输入只保存摘要，不落原文。</p>
+      <p className="text-xs text-muted-foreground">输入只保存摘要，不落原文。</p>
 
       {audit.isError && !audit.data ? (
         <ErrorState
@@ -245,7 +244,7 @@ export function AuditPage() {
               rowKey={(row) => row.id}
               label="审计事件"
               loading={audit.isPending || searchPending}
-              empty="还没有审计记录。登录或修改配置后，这里会自动出现对应事件。"
+              empty="登录或修改配置后会自动记录对应事件。"
             />
           )}
           {audit.isFetchNextPageError ? (
@@ -266,7 +265,7 @@ export function AuditPage() {
               </Button>
             </div>
           ) : rows.length > 0 ? (
-            <div className="text-center text-xs text-subtle">已到末尾</div>
+            <div className="text-center text-xs text-muted-foreground">已到末尾</div>
           ) : null}
         </>
       )}

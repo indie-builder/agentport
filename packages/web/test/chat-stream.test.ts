@@ -1,67 +1,311 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest';
+import type { ChatAccepted, RunDetail } from '../src/lib/api.js';
 
-/**
- * useChatStream 的生命周期测试：不挂 DOM，用最小 React 桩让 hook 可被直接调用。
- * 断言只落在真实 chat store 的可观察结果上，不镜像内部的 generation 计数。
- */
-
-const react = vi.hoisted(() => ({
-  useRef: (initial: unknown) => ({ current: initial }),
-  useCallback: (fn: unknown) => fn,
-  useEffect: () => {},
+let root: Root;
+let client: QueryClient;
+const harness = vi.hoisted(() => ({
+  sendChat: vi.fn(),
+  conversation: vi.fn(),
+  run: vi.fn(),
+  toastError: vi.fn(),
 }));
 
-vi.mock('react', () => ({
-  default: react,
-  useRef: react.useRef,
-  useCallback: react.useCallback,
-  useEffect: react.useEffect,
+vi.mock('@agentport/shared', async () => import('../../shared/src/index.js'));
+vi.mock('../src/lib/api.js', async (original) => ({
+  ...(await original<typeof import('../src/lib/api.js')>()),
+  api: { sendChat: harness.sendChat, conversation: harness.conversation, run: harness.run },
 }));
+vi.mock('../src/lib/toast.js', () => ({ toastError: harness.toastError }));
 
-const events = vi.hoisted(() => {
-  class FakeEventSource {
-    static instances: FakeEventSource[] = [];
-    url: string;
-    closed = false;
-    onopen: (() => void) | null = null;
-    onmessage: ((message: { data: string }) => void) | null = null;
-    onerror: (() => void) | null = null;
-    constructor(url: string) {
-      this.url = url;
-      FakeEventSource.instances.push(this);
-    }
-    close(): void {
-      this.closed = true;
-    }
-  }
-  return { FakeEventSource };
-});
-
-vi.stubGlobal('EventSource', events.FakeEventSource);
-vi.stubGlobal('window', {
-  setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-  clearTimeout: (id: number) => clearTimeout(id),
-});
-
-const invalidate = vi.hoisted(() => vi.fn());
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ invalidateQueries: invalidate }),
-}));
-
-const apiMock = vi.hoisted(() => ({ sendChat: vi.fn(), run: vi.fn() }));
-vi.mock('../src/lib/api.js', () => ({
-  api: apiMock,
-  errorMessage: (error: unknown) => (error instanceof Error ? error.message : '请求失败'),
-}));
-
-const toastMock = vi.hoisted(() => ({ toastError: vi.fn() }));
-vi.mock('../src/lib/toast.js', () => toastMock);
-
-import type { ChatAccepted } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
 import { useChatStream } from '../src/lib/use-chat-stream.js';
 
+class Source {
+  static instances: Source[] = [];
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  closed = false;
+  constructor(readonly url: string) {
+    Source.instances.push(this);
+  }
+  close() {
+    this.closed = true;
+  }
+  emit(event: unknown) {
+    this.onmessage?.({ data: JSON.stringify(event) });
+  }
+}
+
+function sourceAt(index: number) {
+  const source = Source.instances.at(index);
+  if (!source) throw new Error('Expected an open event source');
+  return source;
+}
+
+const accepted: ChatAccepted = { runId: 'run-a', conversationId: 'conversation-a' };
+let currentStream: ReturnType<typeof useChatStream>;
+function Probe({
+  agentId,
+  onAccepted,
+}: {
+  agentId: string;
+  onAccepted: (accepted: ChatAccepted, text: string) => void;
+}) {
+  currentStream = useChatStream({ agentId, onAccepted });
+  return null;
+}
+function render(agentId = 'agent-a', onAccepted = vi.fn()) {
+  act(() =>
+    root.render(
+      createElement(QueryClientProvider, { client }, createElement(Probe, { agentId, onAccepted })),
+    ),
+  );
+  return currentStream;
+}
+function unmount() {
+  act(() => root.unmount());
+}
+function deferredSend() {
+  let resolve!: (value: ChatAccepted) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<ChatAccepted>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  harness.sendChat.mockReturnValue(promise);
+  return { resolve, reject };
+}
+
+beforeEach(() => {
+  client = new QueryClient();
+  root = createRoot(document.createElement('div'));
+  harness.sendChat.mockReset().mockResolvedValue(accepted);
+  harness.conversation.mockReset().mockResolvedValue({
+    conversation: { id: 'conversation-a', agentId: 'agent-a', title: '', createdAt: '' },
+    messages: [],
+  });
+  harness.toastError.mockReset();
+  harness.run.mockReset();
+  invalidate = vi.spyOn(client, 'invalidateQueries');
+  Source.instances = [];
+  useChatStore.getState().reset();
+  useChatStore.getState().setInput('original message');
+  vi.useFakeTimers();
+  vi.stubGlobal('EventSource', Source);
+});
+afterEach(() => {
+  unmount();
+  client.clear();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+describe('chat request ownership', () => {
+  it.each(['switch', 'agent', 'unmount'])('ignores late acceptance after %s', async (action) => {
+    const pending = deferredSend();
+    const onAccepted = vi.fn();
+    const stream = render('agent-a', onAccepted);
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    if (action === 'unmount') unmount();
+    else if (action === 'agent') render('agent-b');
+    else stream.closeStream();
+    act(() => {
+      useChatStore.getState().resetConversation('conversation-b');
+      useChatStore.getState().setItems([{ kind: 'user', text: 'other history' }]);
+    });
+    const expected = useChatStore.getState();
+    await act(async () => {
+      pending.resolve(accepted);
+      await sending;
+    });
+    expect(useChatStore.getState()).toBe(expected);
+    expect(Source.instances).toHaveLength(0);
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
+  it('ignores a late rejection after a new conversation starts', async () => {
+    const pending = deferredSend();
+    const stream = render();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    stream.closeStream();
+    useChatStore.getState().resetConversation(null);
+    useChatStore.getState().setInput('new draft');
+    const expected = useChatStore.getState();
+    pending.reject(new Error('old request failed'));
+    await sending;
+    expect(useChatStore.getState()).toBe(expected);
+    expect(harness.toastError).not.toHaveBeenCalled();
+  });
+
+  it('ignores queued SSE callbacks after detachment', async () => {
+    const stream = render();
+    await act(async () => {
+      await stream.send();
+    });
+    const source = sourceAt(0);
+    stream.closeStream();
+    act(() => useChatStore.getState().resetConversation('conversation-b'));
+    const expected = useChatStore.getState();
+    source.emit({ type: 'text_delta', text: 'stale answer' });
+    source.emit({ type: 'run_finished', status: 'succeeded' });
+    source.onerror?.();
+    source.onopen?.();
+    expect(useChatStore.getState()).toBe(expected);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('blocks sending until the selected history has hydrated', async () => {
+    useChatStore.getState().resetConversation('history');
+    const stream = render();
+    await act(async () => {
+      await stream.send();
+    });
+    expect(useChatStore.getState().input).toBe('original message');
+    expect(useChatStore.getState().items).toEqual([]);
+    expect(useChatStore.getState().run).toBeNull();
+    expect(harness.sendChat).not.toHaveBeenCalled();
+  });
+});
+
+describe('disconnected runs', () => {
+  it('does not detach an in-flight request on ordinary rerenders', async () => {
+    const pending = deferredSend();
+    const stream = render();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    render();
+    await act(async () => {
+      pending.resolve(accepted);
+      await sending;
+    });
+    expect(useChatStore.getState().run?.runId).toBe('run-a');
+  });
+
+  it('keeps loaded history when sending and replaying a response', async () => {
+    const stream = render();
+    act(() => {
+      useChatStore.getState().resetConversation('conversation-a');
+      useChatStore.getState().setItems([
+        { kind: 'user', text: 'old prompt' },
+        { kind: 'text', text: 'old reply' },
+      ]);
+    });
+    stream.hydratedRef.current = 'conversation-a';
+    await act(async () => {
+      await stream.send();
+    });
+    sourceAt(0).emit({ type: 'text_delta', text: 'partial' });
+    sourceAt(0).onerror?.();
+    await vi.advanceTimersByTimeAsync(1500);
+    sourceAt(1).emit({ type: 'text_delta', text: 'complete' });
+    expect(useChatStore.getState().items).toEqual([
+      { kind: 'user', text: 'old prompt' },
+      { kind: 'text', text: 'old reply' },
+      { kind: 'user', text: 'original message' },
+      { kind: 'text', text: 'complete' },
+    ]);
+  });
+  it('keeps the run cancellable after retry exhaustion', async () => {
+    const stream = render();
+    await act(async () => {
+      await stream.send();
+    });
+    for (let i = 0; i < 4; i++) {
+      sourceAt(-1).onerror?.();
+      await vi.advanceTimersByTimeAsync(1500);
+    }
+    expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'detached' });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['succeeded', 'failed', 'cancelled', 'timeout'] as const)(
+    'reconciles disconnected %s runs from server state',
+    async (status) => {
+      const stream = render();
+      await act(async () => {
+        await stream.send();
+      });
+      sourceAt(0).emit({ type: 'error', message: 'connection lost' });
+      sourceAt(0).onerror?.();
+      const detail: RunDetail['run'] = {
+        id: 'run-a',
+        conversationId: 'conversation-a',
+        agentId: 'agent-a',
+        agentName: 'A',
+        status,
+        startedAt: null,
+        endedAt: null,
+        latencyMs: 1200,
+        turns: 2,
+        inputTokens: 10,
+        outputTokens: 20,
+        costUsd: '0.01',
+        error: null,
+        sessionId: null,
+        sandboxId: null,
+      };
+      expect(typeof stream.reconcileRun).toBe('function');
+      if (status === 'succeeded') {
+        useChatStore.getState().setRun((run) => run && { ...run, status: 'streaming' });
+        await stream.reconcileRun(detail);
+        expect(useChatStore.getState().run?.runId).toBe('run-a');
+        useChatStore.getState().setRun((run) => run && { ...run, status: 'detached' });
+      }
+      await stream.reconcileRun(detail);
+      expect(useChatStore.getState().run).toBeNull();
+      expect(useChatStore.getState().lastRun).toMatchObject({
+        runId: 'run-a',
+        status,
+        tokens: 30,
+        durationMs: 1200,
+      });
+      sourceAt(0).emit({ type: 'text_delta', text: 'late' });
+      expect(useChatStore.getState().items).not.toContainEqual({ kind: 'text', text: 'late' });
+    },
+  );
+
+  it('can explicitly retry a detached event stream', async () => {
+    const stream = render();
+    await act(async () => {
+      await stream.send();
+    });
+    sourceAt(0).emit({ type: 'error', message: 'connection lost' });
+    sourceAt(0).onerror?.();
+    expect(typeof stream.retryStream).toBe('function');
+    stream.retryStream();
+    expect(Source.instances).toHaveLength(2);
+    expect(useChatStore.getState().items).toEqual([{ kind: 'user', text: 'original message' }]);
+    expect(useChatStore.getState().run?.status).toBe('reconnecting');
+  });
+
+  it('keeps a server error cancellable until a confirmed terminal status', async () => {
+    const stream = render();
+    await act(async () => {
+      await stream.send();
+    });
+    sourceAt(0).emit({ type: 'error', message: 'connection lost' });
+    sourceAt(0).onerror?.();
+    expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'detached' });
+  });
+});
+
 const TRUNCATED_NOTICE = '较早事件已截断，运行结束后将读取已保存结果。';
+const apiMock = harness;
+const toastMock = harness;
+const events = { FakeEventSource: Source };
+let invalidate: ReturnType<typeof vi.spyOn>;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -78,35 +322,28 @@ function message(event: unknown): { data: string } {
 }
 
 async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 async function startRun(hook: ReturnType<typeof useChatStream>, text = 'hi'): Promise<void> {
   useChatStore.getState().setInput(text);
-  await hook.send();
+  await act(async () => {
+    await hook.send();
+  });
 }
 
-function source(): (typeof events.FakeEventSource.instances)[number] {
-  const latest = events.FakeEventSource.instances.at(-1);
-  if (!latest) throw new Error('no EventSource opened');
-  return latest;
+function source(): Source {
+  return sourceAt(-1);
 }
-
-beforeEach(() => {
-  useChatStore.getState().reset();
-  events.FakeEventSource.instances.length = 0;
-  apiMock.sendChat.mockReset();
-  apiMock.run.mockReset();
-  invalidate.mockClear();
-  toastMock.toastError.mockClear();
-});
 
 test('丢弃等待期间已离开的运行：不写 store、不回调、不开流', async () => {
   const pending = deferred<ChatAccepted>();
   apiMock.sendChat.mockReturnValue(pending.promise);
   useChatStore.getState().setInput('hello');
   const onAccepted = vi.fn();
-  const hook = useChatStream({ agentId: 'a1', onAccepted });
+  const hook = render('a1', onAccepted);
 
   const sending = hook.send();
   expect(useChatStore.getState().run?.status).toBe('queued');
@@ -133,7 +370,7 @@ test('正常接受：保留用户气泡，开流，run_finished 后失效缓存�
   apiMock.sendChat.mockReturnValue(pending.promise);
   useChatStore.getState().setInput('hi');
   const onAccepted = vi.fn();
-  const hook = useChatStream({ agentId: 'a1', onAccepted });
+  const hook = render('a1', onAccepted);
 
   const sending = hook.send();
   expect(apiMock.sendChat).toHaveBeenCalledWith({ agentId: 'a1', message: 'hi' });
@@ -158,7 +395,7 @@ test('正常接受：保留用户气泡，开流，run_finished 后失效缓存�
 
 test('replay_truncated 只追加 muted 通知，不改写回答文本，也不断流', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
@@ -186,7 +423,7 @@ test('terminal_missing 提示未收到结束事件，run_finished 后仍用已�
     run: {},
     conversation: {},
   });
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
@@ -227,7 +464,7 @@ test('截断后 run_finished 用已保存步骤重建尾部，不重复用户气
     conversation: { id: 'c1', agentId: 'a1', title: '' },
   });
   useChatStore.getState().setItems([{ kind: 'text', text: 'old' }]);
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
@@ -258,7 +495,7 @@ test('切换会话后迟到的恢复结果被丢弃', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   const recovery = deferred<unknown>();
   apiMock.run.mockReturnValue(recovery.promise);
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
@@ -287,7 +524,7 @@ test('新一轮发送开始后，上一轮的恢复结果不能改写当前会�
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   const recovery = deferred<unknown>();
   apiMock.run.mockReturnValue(recovery.promise);
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
@@ -318,7 +555,7 @@ test('恢复等待期间加载的更早历史不会被旧发送快照覆盖', as
   const recovery = deferred<unknown>();
   apiMock.run.mockReturnValue(recovery.promise);
   useChatStore.getState().setItems([{ id: 'old:0', kind: 'text', text: '已加载历史' }]);
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
   const opened = source();
   opened.onmessage?.(message({ type: 'replay_truncated', reason: 'retention' }));
@@ -350,7 +587,7 @@ test('恢复等待期间加载的更早历史不会被旧发送快照覆盖', as
 test('恢复失败保留部分输出，并明确提示无法读取已保存结果', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   apiMock.run.mockRejectedValue(new Error('boom'));
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
@@ -377,7 +614,7 @@ test('仅保存用户消息时保留部分回答并提示输出未保存', async
     run: {},
     conversation: {},
   });
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
   const opened = source();
   opened.onmessage?.(message({ type: 'replay_truncated', reason: 'retention' }));
@@ -399,7 +636,7 @@ test('仅保存用户消息时保留部分回答并提示输出未保存', async
 test('已保存步骤为空时保留部分输出，不冒充完整结果', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   apiMock.run.mockResolvedValue({ steps: [], run: {}, conversation: {} });
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
@@ -420,7 +657,7 @@ test('已关闭的流迟到的消息不能改写状态，也不能触发缓存�
   const pending = deferred<ChatAccepted>();
   apiMock.sendChat.mockReturnValue(pending.promise);
   useChatStore.getState().setInput('hi');
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
 
   const sending = hook.send();
   pending.resolve({ runId: 'r1', conversationId: 'c1' });
@@ -440,7 +677,7 @@ test('已关闭的流迟到的消息不能改写状态，也不能触发缓存�
 
 test('run_unavailable 结束本轮：保留部分输出并释放 run，不重连', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
@@ -471,7 +708,7 @@ test('run_unavailable 结束本轮：保留部分输出并释放 run，不重连
 
 test('run_unavailable 后可以继续发送，旧流迟到的事件不污染新一轮', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
   const first = source();
   first.onmessage?.(message({ type: 'text_delta', text: 'partial' }));
@@ -498,7 +735,7 @@ test('run_unavailable 后可以继续发送，旧流迟到的事件不污染新�
 
 test('error 事件仍只是通知：断流后标记 detached，不结束本轮', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
@@ -515,7 +752,7 @@ test('离开后请求失败：不恢复旧输入、不追加错误通知', async
   const pending = deferred<ChatAccepted>();
   apiMock.sendChat.mockReturnValue(pending.promise);
   useChatStore.getState().setInput('old');
-  const hook = useChatStream({ agentId: 'a1', onAccepted: vi.fn() });
+  const hook = render('a1');
 
   const sending = hook.send();
   hook.closeStream();

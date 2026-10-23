@@ -1,8 +1,22 @@
 import { type ConversationMessage, chatEventSchema } from '@agentport/shared';
+import type { UseQueryResult } from '@tanstack/react-query';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef } from 'react';
-import { api, type ChatAccepted, errorMessage, type RunStep } from './api.js';
-import { applyEvent, type ChatItem, historyToItems } from './chat-state.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  api,
+  type ChatAccepted,
+  type ConversationDetail,
+  errorMessage,
+  type RunDetail,
+  type RunStep,
+} from './api.js';
+import {
+  applyEvent,
+  type ChatItem,
+  type HistorySnapshot,
+  historyToItems,
+  snapshotHistory,
+} from './chat-state.js';
 import { useChatStore } from './chat-store.js';
 import { toastError } from './toast.js';
 
@@ -52,10 +66,18 @@ function runStepsToItems(runId: string, steps: RunStep[]): ChatItem[] {
 export function useChatStream({
   agentId,
   onAccepted,
+  history,
 }: {
   agentId: string | null;
   onAccepted: (accepted: ChatAccepted, text: string) => void;
+  history?: Pick<
+    UseQueryResult<ConversationDetail>,
+    'data' | 'isFetching' | 'isFetchedAfterMount' | 'isError'
+  >;
 }) {
+  const client = useQueryClient();
+  const conversationId = useChatStore((state) => state.conversationId);
+  const historyRequestRef = useRef<string | null>(null);
   // 服务端重连时从头回放事件流；保留发起前的消息（含用户气泡），避免文本重复或丢失。
   const baseItemsRef = useRef<ChatItem[]>([]);
   const sourceRef = useRef<EventSource | null>(null);
@@ -63,14 +85,21 @@ export function useChatStream({
   const startedAtRef = useRef(0);
   // 切换会话时才从服务端回填历史；否则流式结束瞬间的重新查询会覆盖刚收到的回答。
   const hydratedRef = useRef<string | null>(null);
-  // 每次关闭流都作废尚未返回的 send 与旧流的迟到事件。
-  const generationRef = useRef(0);
   // 回放被截断后重连可能不再收到该事件，只能在本轮内记住；下一次发送才重置。
   const replayTruncatedRef = useRef(false);
-  const queryClient = useQueryClient();
+  const [historyPrefix, setHistoryPrefix] = useState<HistorySnapshot | null>(null);
 
-  const closeStream = useCallback((): void => {
-    generationRef.current += 1;
+  const generationRef = useRef(0);
+  const mountedRef = useRef(true);
+  const requestRef = useRef(0);
+  const recoveryRef = useRef<number | null>(null);
+  const captureRequest = () => {
+    const request = ++requestRef.current;
+    const generation = generationRef.current;
+    return () =>
+      mountedRef.current && generationRef.current === generation && requestRef.current === request;
+  };
+  const closeSource = useCallback((): void => {
     if (retryRef.current !== null) {
       window.clearTimeout(retryRef.current);
       retryRef.current = null;
@@ -79,7 +108,21 @@ export function useChatStream({
     sourceRef.current = null;
   }, []);
 
-  useEffect(() => closeStream, [closeStream]);
+  const closeStream = useCallback(() => {
+    generationRef.current += 1;
+    recoveryRef.current = null;
+    historyRequestRef.current = null;
+    closeSource();
+  }, [closeSource]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: changing agents revokes ownership of pending HTTP and SSE work.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      closeStream();
+    };
+  }, [agentId, closeStream]);
 
   /** 截断后的异步补全：只在本轮仍是当前会话、没有新运行、也没切走时才落地。 */
   const recoverPersisted = useCallback(async (accepted: ChatAccepted): Promise<void> => {
@@ -123,26 +166,28 @@ export function useChatStream({
   }, []);
 
   const openStream = useCallback(
-    (accepted: ChatAccepted, attempt = 0): void => {
+    (accepted: ChatAccepted, generation: number, attempt = 0): void => {
+      if (!mountedRef.current || generationRef.current !== generation) return;
       const store = useChatStore.getState();
-      closeStream();
+      closeSource();
       if (attempt > 0) store.setItems(baseItemsRef.current);
       const source = new EventSource(`/api/chat/${accepted.runId}/events`);
       sourceRef.current = source;
+      const ownsStream = () =>
+        mountedRef.current && generationRef.current === generation && sourceRef.current === source;
       let finished = false;
       // 服务端收到 error 事件后会主动断流；此时 run 可能还在跑，不能重连也不能清状态。
       let errored = false;
 
       source.onopen = () => {
-        if (sourceRef.current !== source) return;
+        if (!ownsStream()) return;
         store.setRun((current) =>
           current?.runId === accepted.runId ? { ...current, status: 'streaming' } : current,
         );
       };
 
       source.onmessage = (message) => {
-        // 已关闭的旧流仍可能派发事件；先确认它还是当前流，再写 store。
-        if (sourceRef.current !== source) return;
+        if (!ownsStream()) return;
         let raw: unknown;
         try {
           raw = JSON.parse(message.data);
@@ -164,10 +209,10 @@ export function useChatStream({
           closeStream();
           store.setRun(null);
           store.setLastRunId(null);
-          void queryClient.invalidateQueries({
+          void client.invalidateQueries({
             queryKey: ['conversation', accepted.conversationId],
           });
-          void queryClient.invalidateQueries({ queryKey: ['conversations'] });
+          void client.invalidateQueries({ queryKey: ['conversations'] });
           return;
         }
         if (event.type === 'run_finished') {
@@ -185,10 +230,10 @@ export function useChatStream({
             ...(event.costUsd === undefined ? {} : { costUsd: event.costUsd }),
             ...(event.error === undefined ? {} : { error: event.error }),
           });
-          void queryClient.invalidateQueries({
+          void client.invalidateQueries({
             queryKey: ['conversation', accepted.conversationId],
           });
-          void queryClient.invalidateQueries({ queryKey: ['conversations'] });
+          void client.invalidateQueries({ queryKey: ['conversations'] });
           // 截断后流里只有部分事件：用落库的完整步骤替换本轮尾部。
           if (replayTruncatedRef.current) {
             void recoverPersisted(accepted);
@@ -199,7 +244,7 @@ export function useChatStream({
 
       source.onerror = () => {
         // 服务端在 run_finished 后主动结束流；此后重连没有意义。
-        if (finished || sourceRef.current !== source) return;
+        if (finished || !ownsStream()) return;
         source.close();
         sourceRef.current = null;
         if (errored && attempt === 0) {
@@ -211,27 +256,133 @@ export function useChatStream({
         }
         if (attempt < 3) {
           store.setRun({ ...accepted, status: 'reconnecting', startedAt: startedAtRef.current });
-          retryRef.current = window.setTimeout(() => openStream(accepted, attempt + 1), 1500);
+          retryRef.current = window.setTimeout(
+            () => openStream(accepted, generation, attempt + 1),
+            1500,
+          );
           return;
         }
-        store.setRun(null);
+        store.setRun({ ...accepted, status: 'detached', startedAt: startedAtRef.current });
         store.setItems((previous) => [
           ...previous,
           { kind: 'notice', tone: 'error', text: '事件流多次中断，已停止重连。' },
         ]);
       };
     },
-    [closeStream, queryClient, recoverPersisted],
+    [closeSource, closeStream, client, recoverPersisted],
   );
+
+  useEffect(() => {
+    const data = history?.data;
+    if (
+      !conversationId ||
+      !data ||
+      data.conversation.id !== conversationId ||
+      history.isFetching ||
+      !history.isFetchedAfterMount ||
+      history.isError ||
+      hydratedRef.current === conversationId ||
+      historyRequestRef.current === conversationId
+    )
+      return;
+    const generation = generationRef.current;
+    historyRequestRef.current = conversationId;
+    const ownsHistory = () =>
+      mountedRef.current &&
+      generationRef.current === generation &&
+      useChatStore.getState().conversationId === conversationId;
+    void (async () => {
+      const store = useChatStore.getState();
+      const latestRunId = data.messages.findLast((message) => message.runId !== null)?.runId;
+      if (latestRunId) {
+        // SSE 从头回放；保留本轮用户消息，将已有助手内容交给回放替换。
+        const first = data.messages.findIndex((message) => message.runId === latestRunId);
+        const beforeReply = first + (data.messages[first]?.role === 'user' ? 1 : 0);
+        baseItemsRef.current = historyToItems(data.messages.slice(0, beforeReply));
+      }
+      try {
+        const detail = latestRunId ? await api.run(latestRunId) : null;
+        if (!ownsHistory()) return;
+        if (
+          detail &&
+          (detail.run.id !== latestRunId || detail.run.conversationId !== conversationId)
+        ) {
+          throw new Error('运行记录与会话不匹配，请重新打开会话');
+        }
+        hydratedRef.current = conversationId;
+        store.setLastRunId(latestRunId ?? null);
+        const items = historyToItems(data.messages);
+        setHistoryPrefix(snapshotHistory(data, items));
+        store.setItems(items);
+        if (detail) {
+          if (detail.run.status === 'queued' || detail.run.status === 'running') {
+            startedAtRef.current = detail.run.startedAt
+              ? Date.parse(detail.run.startedAt)
+              : Date.now();
+            const accepted = { runId: detail.run.id, conversationId };
+            store.setRun({ ...accepted, status: 'reconnecting', startedAt: startedAtRef.current });
+            const first = data.messages.findIndex((message) => message.runId === latestRunId);
+            const beforeReply = first + (data.messages[first]?.role === 'user' ? 1 : 0);
+            const messages = data.messages.slice(0, beforeReply);
+            setHistoryPrefix(snapshotHistory({ ...data, messages }, baseItemsRef.current));
+            replayTruncatedRef.current = false;
+            openStream(accepted, generation, 1);
+          } else {
+            store.setLastRun({
+              runId: detail.run.id,
+              status: detail.run.status,
+              ...(detail.run.latencyMs === null ? {} : { durationMs: detail.run.latencyMs }),
+              ...(detail.run.turns === null ? {} : { turns: detail.run.turns }),
+              ...(detail.run.inputTokens === null && detail.run.outputTokens === null
+                ? {}
+                : { tokens: (detail.run.inputTokens ?? 0) + (detail.run.outputTokens ?? 0) }),
+              ...(detail.run.costUsd === null ? {} : { costUsd: Number(detail.run.costUsd) }),
+              ...(detail.run.error === null ? {} : { error: detail.run.error }),
+            });
+          }
+        }
+      } catch (error) {
+        if (!ownsHistory()) return;
+        toastError(error);
+        hydratedRef.current = conversationId;
+        const items = historyToItems(data.messages);
+        setHistoryPrefix(snapshotHistory(data, items));
+        store.setItems(items);
+        if (latestRunId) {
+          startedAtRef.current = Date.now();
+          store.setLastRunId(latestRunId);
+          store.setRun({
+            runId: latestRunId,
+            conversationId,
+            status: 'detached',
+            startedAt: startedAtRef.current,
+          });
+        }
+      } finally {
+        if (ownsHistory()) historyRequestRef.current = null;
+      }
+    })();
+  }, [
+    conversationId,
+    history?.data,
+    history?.isFetching,
+    history?.isFetchedAfterMount,
+    history?.isError,
+    openStream,
+  ]);
 
   const send = async (): Promise<void> => {
     const store = useChatStore.getState();
     const { input, items, run, conversationId } = store;
     const text = input.trim();
-    if (!text || !agentId || run) return;
+    if (!mountedRef.current || !text || !agentId || run) return;
+    if (conversationId !== null && hydratedRef.current !== conversationId) return;
+    const generation = ++generationRef.current;
+    const ownsRequest = () => mountedRef.current && generationRef.current === generation;
     replayTruncatedRef.current = false;
     store.setInput('');
     store.setLastRun(null);
+    store.setLastRunId(null);
     // base 必须包含刚追加的用户气泡：重连会整体回放事件，不能把它丢掉。
     const nextItems: ChatItem[] = [...items, { kind: 'user', text }];
     baseItemsRef.current = nextItems;
@@ -243,23 +394,22 @@ export function useChatStream({
       status: 'queued',
       startedAt: startedAtRef.current,
     });
-    const generation = generationRef.current;
     try {
       const accepted = await api.sendChat({
         agentId,
         message: text,
         ...(conversationId ? { conversationId } : {}),
       });
-      // 等待期间用户切换了会话：本次运行归旧会话，结果直接丢弃。
-      if (generation !== generationRef.current) return;
+      if (!ownsRequest()) return;
       store.setConversationId(accepted.conversationId);
       store.setLastRunId(accepted.runId);
       hydratedRef.current = accepted.conversationId;
       store.setRun({ ...accepted, status: 'streaming', startedAt: startedAtRef.current });
       onAccepted(accepted, text);
-      openStream(accepted);
+      void client.invalidateQueries({ queryKey: ['conversations', agentId] });
+      openStream(accepted, generation);
     } catch (error) {
-      if (generation !== generationRef.current) return;
+      if (!ownsRequest()) return;
       store.setRun(null);
       store.setInput(text);
       // 没有 run 产生任何回答：撤回本地用户气泡，只留一条错误通知。
@@ -268,5 +418,82 @@ export function useChatStream({
     }
   };
 
-  return { send, closeStream, hydratedRef };
+  const reconcileRun = useCallback(
+    async (detail: RunDetail['run']) => {
+      const store = useChatStore.getState();
+      const current = store.run;
+      if (!mountedRef.current || !current || current.runId !== detail.id) return;
+      if (detail.status === 'queued' || detail.status === 'running') return;
+      // A healthy stream can still have buffered text when the database becomes terminal.
+      if (current.status === 'streaming' && detail.status !== 'cancelled') return;
+      if (recoveryRef.current !== null) return;
+      closeStream();
+      const generation = generationRef.current;
+      recoveryRef.current = generation;
+      const ownsRecovery = () =>
+        mountedRef.current &&
+        generationRef.current === generation &&
+        useChatStore.getState().conversationId === current.conversationId &&
+        useChatStore.getState().run?.runId === current.runId;
+      try {
+        const history = await api.conversation(current.conversationId);
+        if (!ownsRecovery()) return;
+        if (history.conversation.id !== current.conversationId) {
+          throw new Error('会话历史不匹配，请重新打开会话');
+        }
+        const items = historyToItems(history.messages);
+        setHistoryPrefix(snapshotHistory(history, items));
+        store.setItems(items);
+      } catch (error) {
+        if (!ownsRecovery()) return;
+        toastError(new Error(`未能恢复完整会话，请重新打开会话重试：${errorMessage(error)}`));
+      }
+      if (!ownsRecovery()) return;
+      recoveryRef.current = null;
+      hydratedRef.current = current.conversationId;
+      const finished = { type: 'run_finished', status: detail.status } as const;
+      store.setItems((items) => applyEvent(items, finished));
+      store.setRun(null);
+      store.setLastRun({
+        runId: detail.id,
+        status: detail.status,
+        durationMs: detail.latencyMs ?? Date.now() - current.startedAt,
+        ...(detail.turns === null ? {} : { turns: detail.turns }),
+        ...(detail.inputTokens === null && detail.outputTokens === null
+          ? {}
+          : {
+              tokens: (detail.inputTokens ?? 0) + (detail.outputTokens ?? 0),
+            }),
+        ...(detail.costUsd === null ? {} : { costUsd: Number(detail.costUsd) }),
+        ...(detail.error === null ? {} : { error: detail.error }),
+      });
+      void client.invalidateQueries({ queryKey: ['conversations', agentId] });
+    },
+    [closeStream, client, agentId],
+  );
+
+  const retryStream = () => {
+    const run = useChatStore.getState().run;
+    if (
+      !run?.runId ||
+      run.status !== 'detached' ||
+      !mountedRef.current ||
+      recoveryRef.current !== null
+    )
+      return;
+    useChatStore.getState().setItems(baseItemsRef.current);
+    useChatStore.getState().setRun({ ...run, status: 'reconnecting' });
+    openStream(run, generationRef.current);
+  };
+
+  return {
+    send,
+    closeStream,
+    captureRequest,
+    hydratedRef,
+    reconcileRun,
+    retryStream,
+    historyPrefix,
+    setHistoryPrefix,
+  };
 }

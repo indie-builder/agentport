@@ -187,6 +187,7 @@ type AgentFields = Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds'>;
 function toAgentValues(input: AgentFields) {
   return {
     name: input.name,
+    role: input.role,
     description: input.description,
     model: input.model,
     systemPromptMd: input.systemPrompt,

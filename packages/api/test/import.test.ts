@@ -5,6 +5,7 @@ import {
   cleanup,
   createAgent,
   createServer,
+  expectProblem,
   infraReady,
   inject,
   loginCookie,
@@ -206,6 +207,7 @@ describe.skipIf(!ready)('import agents', () => {
       slug,
       name: `Imported ${slug}`,
       description: 'from a file',
+      role: '通用助手',
       model: 'claude-sonnet-5-5',
       maxTurns: 20,
       serverIds: [expect.any(String)],
@@ -218,6 +220,42 @@ describe.skipIf(!ready)('import agents', () => {
 
     const agents = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(agents.json<Agent[]>().some((agent) => agent.id === body.agent.id)).toBe(true);
+  });
+
+  it('persists a supported role from an imported agent', async () => {
+    const slug = unique('imp-role');
+    createdAgents.push(slug);
+
+    const res = await importAgent(
+      exportFile(slug, {
+        agent: { slug, name: `Imported ${slug}`, role: '数据分析师' },
+      }),
+    );
+    expect(res.statusCode).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.agent.role).toBe('数据分析师');
+
+    const saved = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${body.agent.id}`,
+      headers: auth(),
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json<Agent>().role).toBe('数据分析师');
+  });
+
+  it('rejects an unsupported historical role from an imported agent', async () => {
+    const slug = unique('imp-invalid-role');
+    createdAgents.push(slug);
+
+    const res = await importAgent(
+      exportFile(slug, {
+        agent: { slug, name: `Imported ${slug}`, role: '历史自定义岗位' },
+      }),
+    );
+    const body = expectProblem(res, 'INVALID_INPUT');
+    expect(body.path).toBe('/agent/role');
+    expect(body.message).toMatch(/角色|岗位|role/i);
   });
 
   it('reuses an existing server by name', async () => {

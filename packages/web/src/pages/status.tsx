@@ -51,7 +51,7 @@ function StatusPill({ state }: { state: CheckState }) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <div className="text-xs text-subtle">{label}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="break-words font-mono text-md tabular-nums text-fg">{value}</div>
     </div>
   );
@@ -190,49 +190,49 @@ function SmokeChecklist() {
         </Button>
       }
     >
-      {steps.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {running
-            ? '正在依次检查…'
-            : '依次请求 live、ready、metrics 三个端点，只在这个浏览器里执行，不会改动服务。'}
-        </p>
-      ) : (
-        <ul aria-live="polite">
-          {steps.map((step) => (
-            <li
-              key={step.label}
-              className="flex flex-wrap items-start gap-3 border-b py-3 text-sm last:border-b-0"
-            >
-              {step.state === 'ok' ? (
-                <CircleCheck className="size-4 shrink-0 text-success" aria-hidden="true" />
-              ) : (
-                <CircleX className="size-4 shrink-0 text-danger" aria-hidden="true" />
-              )}
-              <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:flex-wrap sm:gap-3">
-                <span className="min-w-0 break-all font-mono text-xs text-fg">{step.label}</span>
-                <span
-                  className={
-                    step.state === 'ok'
-                      ? 'min-w-0 break-words text-muted-foreground [overflow-wrap:anywhere]'
-                      : 'min-w-0 break-words text-danger [overflow-wrap:anywhere]'
-                  }
-                >
-                  {step.detail}
+      <div aria-live="polite" aria-relevant="additions text">
+        {steps.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {running
+              ? '正在依次检查…'
+              : '依次请求 live、ready、metrics 三个端点，只在这个浏览器里执行，不会改动服务。'}
+          </p>
+        ) : (
+          <ul>
+            {steps.map((step) => (
+              <li
+                key={step.label}
+                className="flex flex-wrap items-start gap-3 border-b py-3 text-sm last:border-b-0"
+              >
+                <StatusBadge tone={step.state === 'ok' ? 'success' : 'danger'}>
+                  {step.state === 'ok' ? '通过' : '失败'}
+                </StatusBadge>
+                <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:flex-wrap sm:gap-3">
+                  <span className="min-w-0 break-all font-mono text-xs text-fg">{step.label}</span>
+                  <span
+                    className={
+                      step.state === 'ok'
+                        ? 'min-w-0 break-words text-muted-foreground [overflow-wrap:anywhere]'
+                        : 'min-w-0 break-words text-danger [overflow-wrap:anywhere]'
+                    }
+                  >
+                    {step.detail}
+                  </span>
+                </div>
+                <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                  {formatDuration(step.ms)}
                 </span>
-              </div>
-              <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-subtle">
-                {formatDuration(step.ms)}
-              </span>
-            </li>
-          ))}
-          {running ? (
-            <li className="flex items-center gap-2 border-b py-3 text-sm text-subtle">
-              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-              下一项检查中…
-            </li>
-          ) : null}
-        </ul>
-      )}
+              </li>
+            ))}
+            {running ? (
+              <li className="flex items-center gap-2 border-b py-3 text-sm text-muted-foreground">
+                <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                下一项检查中…
+              </li>
+            ) : null}
+          </ul>
+        )}
+      </div>
     </PageSection>
   );
 }
@@ -312,26 +312,25 @@ export function StatusPage() {
           </Button>
         }
       />
-      <p className="text-xs text-subtle">
-        API 进程、队列、数据库连接池与 Redis，每 10 秒自动刷新。
-      </p>
+      <p className="text-xs text-muted-foreground">运行指标每 10 秒自动刷新。</p>
 
       <PageSection title="端点诊断">
         <div className="flex flex-wrap items-start gap-3 border-b pb-3">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <h3 className="text-sm text-fg">
-              存活检查 <code className="break-all font-mono text-xs text-subtle">/health/live</code>
+              存活检查{' '}
+              <code className="break-all font-mono text-xs text-muted-foreground">
+                /health/live
+              </code>
             </h3>
-            <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
-              {live.isPending
-                ? '正在请求…'
-                : live.isError
+            {liveState === 'error' ? (
+              <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                {live.isError
                   ? '存活检查请求失败。'
-                  : live.data.reachable && live.data.httpStatus === 200
-                    ? '进程能响应 HTTP 请求。'
-                    : (live.data.error ??
-                      `HTTP ${live.data.httpStatus ?? '未知'}，进程未返回 200。`)}
-            </p>
+                  : (live.data?.error ??
+                    `HTTP ${live.data?.httpStatus ?? '未知'}，进程未返回 200。`)}
+              </p>
+            ) : null}
           </div>
           <StatusPill state={liveState} />
         </div>
@@ -339,11 +338,15 @@ export function StatusPage() {
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <h3 className="text-sm text-fg">
               就绪检查{' '}
-              <code className="break-all font-mono text-xs text-subtle">/health/ready</code>
+              <code className="break-all font-mono text-xs text-muted-foreground">
+                /health/ready
+              </code>
             </h3>
-            <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
-              {ready.isPending ? '正在请求…' : (readyProblem ?? '数据库与 Redis 均可用。')}
-            </p>
+            {readyProblem ? (
+              <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                {readyProblem}
+              </p>
+            ) : null}
             {!ready.isPending && !ready.isError && ready.data?.body ? (
               <div className="flex flex-wrap gap-2">
                 <StatusBadge tone={ready.data.body.db === 'ok' ? 'success' : 'danger'}>

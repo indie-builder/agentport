@@ -25,9 +25,35 @@ export const BUILTIN_TOOLS = [
 
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 
+export const AGENT_ROLES = [
+  '通用助手',
+  '前端工程师',
+  '后端工程师',
+  '测试工程师',
+  '产品经理',
+  '数据分析师',
+  'UI 设计师',
+  '内容运营专员',
+  'DevOps 工程师',
+  '项目管理员',
+  '群聊答疑专员',
+  '运维工程师',
+  '数字分身',
+] as const;
+
+export const agentRoleSchema = z
+  .string()
+  .trim()
+  .transform((role) => role || AGENT_ROLES[0])
+  .pipe(z.enum(AGENT_ROLES, { error: `请选择支持的角色：${AGENT_ROLES.join('、')}` }))
+  .transform((role): string => role)
+  .default(AGENT_ROLES[0]);
+
 export const agentInputSchema = z.object({
   slug: slugSchema,
   name: z.string().min(1).max(128),
+  /** 角色/岗位的展示名（如「前端工程师」），仅用于展示与头像匹配。 */
+  role: agentRoleSchema,
   description: z.string().max(300).default(''),
   model: z.string().default('claude-sonnet-5-5'),
   systemPrompt: z.string().default(''),
@@ -55,7 +81,7 @@ export type AgentPatch = Omit<Partial<AgentInput>, 'effort' | 'maxThinkingTokens
   maxThinkingTokens?: number | null;
 };
 
-export const agentSchema = agentInputSchema.and(
+export const agentSchema = agentInputSchema.extend({ role: z.string().default('通用助手') }).and(
   z.object({
     id: z.string(),
     /** 单层委派：非空表示自己是某个主智能体的子智能体。 */

@@ -6,6 +6,7 @@ const WARNING = '仅导入角色定义；平台运行限制与权限采用默认
 
 const defaults = {
   name: 'release-helper',
+  role: '通用助手',
   description: 'Helps cut releases',
   model: 'claude-sonnet-5-5',
   serverIds: [],

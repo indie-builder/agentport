@@ -43,13 +43,13 @@ const agentColumns: DataColumn<OverviewAgentRow>[] = [
     cell: (row) => (
       <Link
         to="/agents"
-        className="flex items-center gap-2 font-medium text-fg hover:underline hover:underline-offset-4"
+        className="flex min-w-0 flex-wrap items-center gap-2 font-medium text-fg hover:underline hover:underline-offset-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <span
-          className={cn('size-1.5 shrink-0 rounded-full', row.enabled ? 'bg-success' : 'bg-subtle')}
-        />
-        <span className="truncate">{row.name}</span>
+        <span className="min-w-0 [overflow-wrap:anywhere]">{row.name}</span>
+        <StatusBadge tone={row.enabled ? 'success' : 'default'}>
+          {row.enabled ? '已启用' : '已停用'}
+        </StatusBadge>
       </Link>
     ),
   },
@@ -89,7 +89,7 @@ const agentColumns: DataColumn<OverviewAgentRow>[] = [
     sortValue: (row) => row.errorRate,
     cell: (row) =>
       row.runCount === 0 ? (
-        <span className="text-subtle">—</span>
+        <span className="text-muted-foreground">—</span>
       ) : (
         <span className={row.errorRate > 0 ? 'text-danger' : undefined}>
           {formatPercent(row.errorRate)}
@@ -137,7 +137,7 @@ const agentColumns: DataColumn<OverviewAgentRow>[] = [
     width: '120px',
     hiddenByDefault: true,
     cell: (row) => (
-      <code className="font-mono text-xs text-subtle" title={row.agentId}>
+      <code className="font-mono text-xs text-muted-foreground" title={row.agentId}>
         {shortId(row.agentId)}
       </code>
     ),
@@ -150,7 +150,7 @@ const runColumns: DataColumn<RecentRun>[] = [
     header: '运行',
     width: '110px',
     cell: (run) => (
-      <code className="font-mono text-xs text-subtle" title={run.id}>
+      <code className="font-mono text-xs text-muted-foreground" title={run.id}>
         {shortId(run.id)}
       </code>
     ),
@@ -162,8 +162,8 @@ const runColumns: DataColumn<RecentRun>[] = [
     width: 'minmax(140px,1fr)',
     sortValue: (run) => run.agentName ?? '',
     cell: (run) => (
-      <span className="truncate text-fg">
-        {run.agentName ?? <span className="text-subtle">已删除</span>}
+      <span className="min-w-0 text-fg [overflow-wrap:anywhere]">
+        {run.agentName ?? <span className="text-muted-foreground">已删除</span>}
       </span>
     ),
   },
@@ -222,21 +222,38 @@ const runColumns: DataColumn<RecentRun>[] = [
 ];
 
 function HealthLine() {
-  const { data } = useQuery(healthMetricsQuery);
+  const { data, isPending } = useQuery(healthMetricsQuery);
   if (!data) {
-    return <span className="text-2xs text-subtle">健康指标不可用</span>;
+    return (
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-2xs text-muted-foreground">
+        <span>{isPending ? '健康指标加载中…' : '健康指标不可用'}</span>
+        <Link
+          to="/status"
+          className="text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
+        >
+          详情
+        </Link>
+      </div>
+    );
   }
   const queue = data.queue;
   const degraded = (queue?.failed ?? 0) > 0 || (queue?.waiting ?? 0) > 5;
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-2xs tabular-nums text-muted-foreground">
-      <span>
-        队列 <span className={cn(degraded && 'text-warning')}>{queue?.waiting ?? 0}</span> 等待 /{' '}
-        {queue?.active ?? 0} 运行
-      </span>
+      {queue ? (
+        <span>
+          队列 <span className={cn(degraded && 'text-warning')}>{queue.waiting}</span> 等待 /{' '}
+          {queue.active} 运行
+        </span>
+      ) : (
+        <span>队列指标不可用</span>
+      )}
       <span>Redis {data.redis?.pingMs ?? '—'} ms</span>
       <span>RSS {(data.process.memoryRssBytes / 1024 / 1024).toFixed(0)} MB</span>
-      <Link to="/status" className="text-subtle underline-offset-2 hover:text-fg hover:underline">
+      <Link
+        to="/status"
+        className="text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
+      >
         详情
       </Link>
     </div>
@@ -256,7 +273,7 @@ function AttentionRow({ item }: { item: AttentionItem }) {
     <Link
       to="/runs/$runId"
       params={{ runId: item.runId }}
-      className="group flex h-14 items-center gap-3 border-b px-2.5 last:border-b-0 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex min-h-14 items-center gap-3 border-b px-2.5 py-3 last:border-b-0 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span
         aria-hidden="true"
@@ -266,12 +283,16 @@ function AttentionRow({ item }: { item: AttentionItem }) {
         )}
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-fg">{item.title}</span>
-        <span className="block truncate text-2xs text-subtle">{item.detail}</span>
+        <span className="block text-sm font-medium text-fg [overflow-wrap:anywhere]">
+          {item.title}
+        </span>
+        <span className="block text-2xs text-muted-foreground [overflow-wrap:anywhere]">
+          {item.detail}
+        </span>
       </span>
       <ArrowRight
         aria-hidden="true"
-        className="size-3.5 shrink-0 text-subtle group-hover:text-fg"
+        className="size-3.5 shrink-0 text-muted-foreground group-hover:text-fg"
       />
     </Link>
   );
@@ -305,7 +326,15 @@ export function OverviewPage() {
       ? (servers.error ?? agents.error)
       : null;
   const loading = overview.isPending || (fallback && (servers.isPending || agents.isPending));
-  const empty = !loading && !error && counts.servers === 0 && counts.agents === 0;
+  const empty =
+    !loading &&
+    !error &&
+    !runsError &&
+    counts.servers === 0 &&
+    counts.agents === 0 &&
+    (counts.runs ?? 0) === 0 &&
+    (counts.running ?? 0) === 0 &&
+    recent?.length === 0;
 
   const failures = (recent ?? []).filter(
     (run) => run.status === 'failed' || run.status === 'timeout',
@@ -352,7 +381,7 @@ export function OverviewPage() {
       {empty ? (
         <PageNote
           icon={<Bot className="size-4" aria-hidden="true" />}
-          title="平台还没有任何配置"
+          title="开始配置"
           description="三步开始：接入一个 MCP Server → 创建专家并绑定它 → 在对话里使用。"
           action={
             <Link to="/servers" className={cn(buttonVariants({ size: 'sm' }))}>
@@ -366,8 +395,8 @@ export function OverviewPage() {
         <>
           <section className="grid grid-cols-2 gap-4 xl:grid-cols-4" aria-label="平台概况">
             {[
-              { label: '专家', value: counts.agents, hint: '已配置的专家', icon: Bot },
-              { label: '连接器', value: counts.servers, hint: '已接入的工具服务', icon: Server },
+              { label: '专家', value: counts.agents, hint: null, icon: Bot },
+              { label: '连接器', value: counts.servers, hint: null, icon: Server },
               {
                 label: '运行次数',
                 value: counts.runs ?? '—',
@@ -396,7 +425,7 @@ export function OverviewPage() {
                 </CardHeader>
                 <CardContent className="flex flex-col gap-2">
                   <span className="text-lg font-medium tabular-nums text-fg">{value}</span>
-                  <CardDescription>{hint}</CardDescription>
+                  {hint ? <CardDescription>{hint}</CardDescription> : null}
                 </CardContent>
               </Card>
             ))}
@@ -406,12 +435,10 @@ export function OverviewPage() {
             <PageSection
               title="最近运行"
               divided={false}
-              description={
-                counts.running ? `${counts.running} 个正在运行` : '继续查看最近的执行结果'
-              }
+              {...(counts.running ? { description: `${counts.running} 个正在运行` } : {})}
               actions={
                 <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                  查看全部
+                  查看运行
                 </Link>
               }
             >
@@ -431,10 +458,7 @@ export function OverviewPage() {
                   }
                 />
               ) : (
-                <PageNote
-                  title="还没有运行记录"
-                  description="发起一次对话后，这里会显示执行结果。"
-                />
+                <PageNote title="还没有运行记录" description="发起一次对话以开始运行。" />
               )}
             </PageSection>
 
@@ -458,7 +482,7 @@ export function OverviewPage() {
                   <PageNote
                     tone="danger"
                     title={`窗口内有 ${failedCount} 次失败运行`}
-                    description="最近 20 条中没有失败；到运行列表查看全部"
+                    description="当前记录中没有失败；到运行列表查看其他记录"
                     action={
                       <Link
                         to="/runs"
@@ -469,7 +493,7 @@ export function OverviewPage() {
                     }
                   />
                 ) : (
-                  <PageNote title="暂无待处理的失败运行" />
+                  <PageNote title="暂无失败运行" />
                 )}
               </PageSection>
               <PageSection title="快捷入口">
@@ -478,32 +502,26 @@ export function OverviewPage() {
                     {
                       to: '/agents',
                       label: '管理专家',
-                      description: '配置角色、模型与能力',
                       icon: Bot,
                     },
                     {
                       to: '/skills',
                       label: '管理技能',
-                      description: '维护可复用的操作流程',
                       icon: Sparkles,
                     },
                     {
                       to: '/servers',
                       label: '管理连接器',
-                      description: '接入服务与管理工具',
                       icon: Server,
                     },
-                  ].map(({ to, label, description, icon: Icon }) => (
+                  ].map(({ to, label, icon: Icon }) => (
                     <Link
                       key={to}
                       to={to}
                       className="flex min-h-14 min-w-0 items-center gap-3 rounded-item px-2.5 hover:bg-hover"
                     >
                       <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                      <span className="flex min-w-0 flex-1 flex-col gap-1">
-                        <span className="text-sm font-medium">{label}</span>
-                        <span className="text-xs text-muted-foreground">{description}</span>
-                      </span>
+                      <span className="min-w-0 flex-1 text-sm font-medium">{label}</span>
                       <ArrowRight className="size-4 text-muted-foreground" aria-hidden="true" />
                     </Link>
                   ))}
@@ -522,7 +540,7 @@ export function OverviewPage() {
             }
           >
             {fallback ? (
-              <PageNote title="聚合指标暂不可用" description="可前往专家页查看和管理配置。" />
+              <PageNote title="聚合指标暂不可用" />
             ) : agentRows && agentRows.length > 0 ? (
               <DataTable
                 rows={agentRows}

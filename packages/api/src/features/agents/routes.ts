@@ -3,7 +3,9 @@ import { repo as allRepo } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
 import {
+  AGENT_ROLES,
   agentInputSchema,
+  agentRoleSchema,
   agentSchema,
   idParams,
   permissionModeSchema,
@@ -55,6 +57,7 @@ const importFileSchema = z
 const patchSchema = z.object({
   slug: slugSchema.optional(),
   name: z.string().min(1).max(128).optional(),
+  role: agentRoleSchema.removeDefault().optional(),
   description: z.string().max(300).optional(),
   model: z.string().min(1).optional(),
   systemPrompt: z.string().optional(),
@@ -97,6 +100,7 @@ function toWrite(
   return {
     slug: input.slug,
     name: input.name,
+    role: input.role,
     description: input.description,
     model: input.model,
     systemPromptMd: input.systemPrompt,
@@ -153,10 +157,12 @@ async function validateSubAgents(
 }
 
 /** 快照是共享 Agent（camelCase）；回滚时先转回 DB 写入形状，slug 保持不变。 */
-function snapshotToWrite(snapshot: Agent, slug: string): repo.AgentWrite {
+function snapshotToWrite(snapshot: Agent, slug: string, currentRole: string): repo.AgentWrite {
   return {
     slug,
     name: snapshot.name,
+    // 旧快照缺失或未使用标准角色时保留当前值，避免回滚丢失岗位信息。
+    role: AGENT_ROLES.some((role) => role === snapshot.role) ? snapshot.role : currentRole,
     description: snapshot.description,
     model: snapshot.model,
     systemPromptMd: snapshot.systemPrompt,
@@ -282,6 +288,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       // 请求未提交的列必须留给数据库保留，避免并发的不同字段更新互相覆盖。
       const patch: Partial<repo.AgentWrite> = {};
       if (input.name !== undefined) patch.name = input.name;
+      if (input.role !== undefined) patch.role = input.role;
       if (input.description !== undefined) patch.description = input.description;
       if (input.model !== undefined) patch.model = input.model;
       if (input.systemPrompt !== undefined) patch.systemPromptMd = input.systemPrompt;
@@ -453,7 +460,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         const row = await repo.updateAgent(
           app.db,
           current.id,
-          snapshotToWrite(snapshot, current.slug),
+          snapshotToWrite(snapshot, current.slug, current.role),
           snapshot.serverIds,
           snapshot.skillIds,
           `rollback to v${target.version}`,

@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "role" text DEFAULT '通用助手' NOT NULL;

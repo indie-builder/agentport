@@ -15,7 +15,7 @@ export interface RunMetrics {
   runId: string;
   status: RunOutcome;
   turns?: number;
-  durationMs: number;
+  durationMs?: number;
   tokens?: number;
   costUsd?: number;
   error?: string;
@@ -39,7 +39,6 @@ interface ChatWorkspaceState {
   setHistoryOpen: (open: boolean) => void;
   /** 切换会话：清空消息与本轮运行结果。输入框内容保留。 */
   resetConversation: (conversationId: string | null) => void;
-  /** 离开对话页时恢复初始状态，与页面重新挂载前一致。 */
   reset: () => void;
 }
 

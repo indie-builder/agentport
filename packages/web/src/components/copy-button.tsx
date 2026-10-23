@@ -1,5 +1,6 @@
 import { Check, Copy } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { toastError } from '../lib/toast.js';
 import { Button } from './ui/button.js';
 
 /**
@@ -32,7 +33,7 @@ export function CopyButton({
       setCopied(true);
       resetTimer.current = setTimeout(() => setCopied(false), 1500);
     } catch {
-      // 非安全上下文或权限被拒时静默失败，内容仍可手动选择。
+      toastError(new Error('无法复制，请选择内容后手动复制。'));
     }
   };
   const text = copied ? '已复制' : label;

@@ -80,6 +80,7 @@ const ALLOWED_SUB_AGENT_KEYS = [
   'model',
   'name',
   'permissionMode',
+  'role',
   'serverNames',
   'skillSlugs',
   'slug',
