@@ -93,6 +93,12 @@ export const agentSchema = agentInputSchema.extend({ role: z.string().default('�
 
 export type Agent = z.infer<typeof agentSchema>;
 
+export const agentDuplicateInputSchema = z.object({
+  slug: slugSchema,
+  name: z.string().trim().min(1).max(128),
+});
+export type AgentDuplicateInput = z.infer<typeof agentDuplicateInputSchema>;
+
 /** 技能：可复用的操作流程，渲染为 .claude/skills/<slug>/SKILL.md。 */
 export const skillInputSchema = z.object({
   slug: slugSchema,

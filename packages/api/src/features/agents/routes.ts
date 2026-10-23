@@ -4,6 +4,7 @@ import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
 import {
   AGENT_ROLES,
+  agentDuplicateInputSchema,
   agentInputSchema,
   agentRoleSchema,
   agentSchema,
@@ -264,6 +265,36 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       rethrowConflict(err);
     }
   });
+
+  // 克隆：配置、绑定、规则、输出风格一起复制；子智能体不复制，从 v1 重新计版本。
+  app.post(
+    '/api/agents/:id/duplicate',
+    {
+      ...auth,
+      schema: {
+        params: idParams,
+        body: agentDuplicateInputSchema,
+        response: { 201: agentSchema },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const row = await repo.duplicateAgent(app.db, request.params.id, request.body);
+        if (!row) return notFound(reply);
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.duplicated',
+          target: row.id,
+          input: { sourceId: request.params.id },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return reply.status(201).send(row);
+      } catch (err) {
+        rethrowConflict(err);
+      }
+    },
+  );
 
   // 导入只接受官方 .claude/agents/*.md；slug 即 frontmatter 的 name，冲突与手动创建一样返回 409。
   app.post(

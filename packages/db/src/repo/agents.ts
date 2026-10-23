@@ -1,9 +1,17 @@
 import { AppError } from '@agentport/core';
-import type { Agent, AgentInput } from '@agentport/shared';
+import type { Agent, AgentDuplicateInput, AgentInput } from '@agentport/shared';
 import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
-import { agentServers, agentSkills, agents, servers, skills } from '../schema.js';
+import {
+  agentOutputStyles,
+  agentRules,
+  agentServers,
+  agentSkills,
+  agents,
+  servers,
+  skills,
+} from '../schema.js';
 import { insertAgentVersion, retryOnVersionConflict, type Tx } from './agent-versions.js';
 import { notStale } from './freshness.js';
 
@@ -164,6 +172,125 @@ export async function createAgent(
   );
   if (!row) throw new Error('agent insert returned no row');
   return row;
+}
+
+/** SQLSTATE 40001：串行化失败，调用方可安全重试整段事务。 */
+function isSerializationFailure(err: unknown): boolean {
+  let cause: unknown = err;
+  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
+    if ('code' in cause && cause.code === '40001') return true;
+    cause = 'cause' in cause ? cause.cause : undefined;
+  }
+  return false;
+}
+
+/**
+ * 复制智能体配置：绑定、规则、输出风格一并复制，子智能体不复制（只支持一层，且源对象不变）。
+ * repeatable read + FOR SHARE 保证读到一致的源配置；版本从 v1 重新开始。
+ */
+export async function duplicateAgent(
+  db: Database,
+  sourceId: string,
+  input: AgentDuplicateInput,
+): Promise<Agent | null> {
+  try {
+    return await retryOnVersionConflict(() =>
+      db.transaction(
+        async (tx) => {
+          const [source] = await tx
+            .select()
+            .from(agents)
+            .where(eq(agents.id, sourceId))
+            .limit(1)
+            .for('share');
+          if (!source) return null;
+
+          const serverIds = await getAgentServerIds(tx, sourceId);
+          const skillIds = await getAgentSkillIds(tx, sourceId);
+          const ruleRows = await tx
+            .select()
+            .from(agentRules)
+            .where(eq(agentRules.agentId, sourceId));
+          const styleRows = await tx
+            .select()
+            .from(agentOutputStyles)
+            .where(eq(agentOutputStyles.agentId, sourceId));
+
+          const id = newId('agent');
+          const [created] = await tx
+            .insert(agents)
+            .values({
+              id,
+              slug: input.slug,
+              name: input.name,
+              role: source.role,
+              description: source.description,
+              model: source.model,
+              systemPromptMd: source.systemPromptMd,
+              allowedTools: source.allowedTools,
+              disallowedTools: source.disallowedTools,
+              permissionMode: source.permissionMode,
+              effort: source.effort,
+              maxThinkingTokens: source.maxThinkingTokens,
+              enabled: source.enabled,
+              maxTurns: source.maxTurns,
+              maxBudgetUsd: source.maxBudgetUsd,
+              timeoutMs: source.timeoutMs,
+              parentId: null,
+            })
+            .returning();
+          if (!created) throw new Error('agent insert returned no row');
+
+          if (serverIds.length > 0) {
+            await tx
+              .insert(agentServers)
+              .values(serverIds.map((serverId) => ({ agentId: id, serverId })));
+          }
+          if (skillIds.length > 0) {
+            await tx
+              .insert(agentSkills)
+              .values(skillIds.map((skillId) => ({ agentId: id, skillId })));
+          }
+          if (ruleRows.length > 0) {
+            await tx.insert(agentRules).values(
+              ruleRows.map((row) => ({
+                id: newId('rule'),
+                agentId: id,
+                slug: row.slug,
+                content: row.content,
+                globs: row.globs,
+              })),
+            );
+          }
+          if (styleRows.length > 0) {
+            await tx.insert(agentOutputStyles).values(
+              styleRows.map((row) => ({
+                id: newId('outputStyle'),
+                agentId: id,
+                slug: row.slug,
+                description: row.description,
+                keepCodingInstructions: row.keepCodingInstructions,
+                body: row.body,
+                isSelected: row.isSelected,
+              })),
+            );
+          }
+
+          const snapshot = toAgent(created, serverIds, skillIds, []);
+          await insertAgentVersion(tx, id, snapshot);
+          return snapshot;
+        },
+        { isolationLevel: 'repeatable read' },
+      ),
+    );
+  } catch (err) {
+    if (isSerializationFailure(err)) {
+      throw new AppError('CONFLICT', 'agent duplication conflict, retry later', {
+        retryable: true,
+      });
+    }
+    throw err;
+  }
 }
 
 export async function updateAgent(

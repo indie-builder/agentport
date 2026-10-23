@@ -11,6 +11,7 @@ import {
   AGENT_ROLES,
   type Agent,
   type AgentInput,
+  agentDuplicateInputSchema,
   agentInputSchema,
   BUILTIN_TOOLS,
   type Server,
@@ -25,6 +26,7 @@ import {
   Brain,
   Check,
   ChevronRight,
+  Copy,
   Download,
   Ellipsis,
   FileCode,
@@ -135,6 +137,7 @@ import {
   useAgentVersions,
   useCreateAgent,
   useDeleteAgent,
+  useDuplicateAgent,
   useRollbackAgent,
   useServers,
   useSkills,
@@ -763,6 +766,8 @@ export function AgentEditor({
   const pending = update.isPending || reloading || rollingBack;
   const [form, setForm] = useState<AgentInput>(() => toInput(agent));
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const duplicateTriggerRef = useRef<HTMLButtonElement>(null);
   const [mode, setMode] = useState<'config' | 'files' | 'memory' | 'rules' | 'styles' | 'stats'>(
     'config',
   );
@@ -1215,7 +1220,12 @@ export function AgentEditor({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <Button variant="ghost" size="icon-sm" aria-label="更多操作">
+                <Button
+                  ref={duplicateTriggerRef}
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="更多操作"
+                >
                   <Ellipsis className="size-4" />
                 </Button>
               }
@@ -1227,6 +1237,12 @@ export function AgentEditor({
               className="w-40 rounded-card border shadow-overlay"
             >
               <DropdownMenuGroup>
+                <DropdownMenuItem
+                  disabled={pending || dirty}
+                  onClick={() => setDuplicateOpen(true)}
+                >
+                  <Copy className="size-4" /> 克隆专家
+                </DropdownMenuItem>
                 <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
                   <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
                 </DropdownMenuItem>
@@ -2127,6 +2143,16 @@ export function AgentEditor({
           </div>
         </SheetContent>
       </Sheet>
+
+      {duplicateOpen ? (
+        <DuplicateAgentDialog
+          agent={agent}
+          onClose={() => setDuplicateOpen(false)}
+          getReturnFocus={() =>
+            duplicateTriggerRef.current?.isConnected ? duplicateTriggerRef.current : null
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -2830,6 +2856,176 @@ export function CreateAgentDialog({
           }
           confirmLabel="放弃并离开"
           confirmDisabled={create.isPending}
+          onConfirm={async () => blocker.proceed()}
+        />
+      </DialogShell>
+    </Dialog>
+  );
+}
+
+export function DuplicateAgentDialog({
+  agent,
+  onClose,
+  getReturnFocus,
+}: {
+  agent: Agent;
+  onClose: () => void;
+  getReturnFocus: () => HTMLElement | null;
+}) {
+  const navigate = useNavigate();
+  const duplicate = useDuplicateAgent();
+  const [initial] = useState(() => ({
+    name: `${agent.name} 副本`.slice(0, 128),
+    slug: `${agent.slug}-copy`.slice(0, 64),
+  }));
+  const [form, setForm] = useState(initial);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [created, setCreated] = useState<Agent | null>(null);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const blocker = useFormBlocker(!created && dirty, !created && duplicate.isPending);
+  // 先落成功状态再离开：blocker 下一次渲染才释放，直接 navigate 会被拦下。
+  useEffect(() => {
+    if (!created) return;
+    onClose();
+    void navigate({ to: '/agents/$agentId', params: { agentId: created.id } });
+  }, [created, navigate, onClose]);
+  const close = (): void => {
+    if (duplicate.isPending) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
+
+  const submit = (): void => {
+    if (duplicate.isPending) return;
+    const parsed = agentDuplicateInputSchema.safeParse(form);
+    if (!parsed.success) {
+      setErrors(fieldErrors(parsed.error.issues));
+      return;
+    }
+    duplicate.mutate(
+      { id: agent.id, ...parsed.data },
+      {
+        onSuccess: (createdAgent) => {
+          toastSuccess('已克隆专家');
+          setCreated(createdAgent);
+        },
+        onError: (error) => {
+          if (
+            error instanceof ApiError &&
+            error.status === 409 &&
+            error.code === 'CONFLICT' &&
+            !error.retryable
+          ) {
+            setErrors({ slug: '该 slug 已被占用' });
+            return;
+          }
+          toastError(error);
+        },
+      },
+    );
+  };
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(next, details) => {
+        if (duplicate.isPending) {
+          details.cancel();
+          return;
+        }
+        if (!next) close();
+      }}
+    >
+      <DialogShell
+        title="克隆专家"
+        description="不包含子专家、记忆与历史记录。"
+        closeDisabled={duplicate.isPending}
+        finalFocus={getReturnFocus}
+      >
+        <form
+          className="flex flex-col gap-3"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            submit();
+          }}
+        >
+          <FieldGroup className="grid gap-3 sm:grid-cols-2">
+            <Field
+              data-disabled={duplicate.isPending}
+              className="gap-1.5 sm:col-span-2"
+              data-invalid={Boolean(errors.name)}
+            >
+              <FieldLabel htmlFor="duplicate-agent-name">
+                名称
+                <RequiredMark />
+              </FieldLabel>
+              <Input
+                disabled={duplicate.isPending}
+                id="duplicate-agent-name"
+                value={form.name}
+                aria-required="true"
+                aria-invalid={Boolean(errors.name)}
+                aria-describedby={errors.name ? 'duplicate-agent-name-error' : undefined}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+              />
+              <FieldError id="duplicate-agent-name-error">{errors.name}</FieldError>
+            </Field>
+            <Field
+              data-disabled={duplicate.isPending}
+              className="gap-1.5 sm:col-span-2"
+              data-invalid={Boolean(errors.slug)}
+            >
+              <FieldLabel htmlFor="duplicate-agent-slug">
+                Slug
+                <RequiredMark />
+              </FieldLabel>
+              <Input
+                disabled={duplicate.isPending}
+                id="duplicate-agent-slug"
+                value={form.slug}
+                className="font-mono"
+                aria-required="true"
+                aria-invalid={Boolean(errors.slug)}
+                aria-describedby={errors.slug ? 'duplicate-agent-slug-error' : undefined}
+                onChange={(event) => setForm({ ...form, slug: event.target.value })}
+              />
+              <FieldError id="duplicate-agent-slug-error">{errors.slug}</FieldError>
+            </Field>
+          </FieldGroup>
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <Button variant="outline" size="sm" onClick={close} disabled={duplicate.isPending}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={duplicate.isPending}
+              aria-busy={duplicate.isPending}
+            >
+              {duplicate.isPending ? '克隆中…' : '克隆'}
+            </Button>
+          </div>
+        </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后克隆信息会丢失。"
+          confirmLabel="放弃并关闭"
+          confirmDisabled={duplicate.isPending}
+          onConfirm={async () => {
+            if (!duplicate.isPending) onClose();
+          }}
+        />
+        <ConfirmDialog
+          open={blocker.status === 'blocked'}
+          onClose={() => blocker.reset?.()}
+          title="放弃未保存的更改？"
+          description="离开后克隆信息会丢失。"
+          confirmLabel="放弃并离开"
+          confirmDisabled={duplicate.isPending}
           onConfirm={async () => blocker.proceed()}
         />
       </DialogShell>

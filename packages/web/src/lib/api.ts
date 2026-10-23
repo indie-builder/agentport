@@ -505,6 +505,8 @@ export const api = {
       ...input,
       ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
     }),
+  duplicateAgent: (id: string, input: { slug: string; name: string }): Promise<Agent> =>
+    request(`/agents/${id}/duplicate`, 'POST', input),
   deleteAgent: (id: string): Promise<void> => request(`/agents/${id}`, 'DELETE'),
   agentFiles: (id: string): Promise<AgentFiles> => request(`/agents/${id}/files`),
   agentVersions: (id: string): Promise<AgentVersionSummary[]> => request(`/agents/${id}/versions`),

@@ -555,6 +555,21 @@ export function useCreateAgent() {
   });
 }
 
+export function useDuplicateAgent() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; slug: string; name: string }) =>
+      api.duplicateAgent(vars.id, { slug: vars.slug, name: vars.name }),
+    onSuccess: (agent) => {
+      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: ['overview'] });
+      client.setQueryData(['agents'], (prev: Agent[] | undefined) =>
+        prev ? [...prev, agent] : prev,
+      );
+    },
+  });
+}
+
 export function useUpdateAgent() {
   const client = useQueryClient();
   return useMutation({
