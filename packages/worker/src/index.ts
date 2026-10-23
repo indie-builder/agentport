@@ -120,7 +120,13 @@ async function writeWorkspace(
   agent: AgentRow,
   runId: string,
   servers: Array<{ name: string; entry: McpJsonEntry }>,
-  skills: Array<{ slug: string; name: string; description: string; body: string }>,
+  skills: Array<{
+    slug: string;
+    name: string;
+    description: string;
+    body: string;
+    files?: Array<{ path: string; content: string }>;
+  }>,
   subAgents: SubAgentRow[],
 ): Promise<{ dir: string; hasSubAgents: boolean }> {
   const files = renderWorkspace(toWorkspaceInput({ agent, servers, skills, subAgents }));
@@ -155,6 +161,12 @@ async function writeWorkspace(
       encoding: 'utf8',
       mode: WORKSPACE_FILE_MODE,
     });
+    // 支持资源文件（scripts/、references/ 等）；path 已在写入时校验为安全相对路径。
+    for (const file of skill.files) {
+      const filePath = join(target, file.path);
+      await mkdir(join(filePath, '..'), { mode: WORKSPACE_DIR_MODE, recursive: true });
+      await writeFile(filePath, file.content, { encoding: 'utf8', mode: WORKSPACE_FILE_MODE });
+    }
   }
   // mode 只在创建时生效；已存在的工作区（BullMQ 重试复用）要再 chmod 一次。
   await chmod(dir, WORKSPACE_DIR_MODE);
@@ -337,6 +349,7 @@ const worker = new Worker(
 
       const skillRows = await db
         .select({
+          id: schema.skills.id,
           slug: schema.skills.slug,
           name: schema.skills.name,
           description: schema.skills.description,
@@ -345,6 +358,19 @@ const worker = new Worker(
         .from(schema.agentSkills)
         .innerJoin(schema.skills, eq(schema.agentSkills.skillId, schema.skills.id))
         .where(eq(schema.agentSkills.agentId, agentId));
+
+      // 技能的官方支持资源文件（scripts/、references/ 等）随技能一起铺到工作区。
+      const skillFileMap = await repo.skillFiles.getSkillFilesBySkillIds(
+        db,
+        skillRows.map((row) => row.id),
+      );
+      const skillsWithFiles = skillRows.map((row) => ({
+        slug: row.slug,
+        name: row.name,
+        description: row.description,
+        body: row.body,
+        files: (skillFileMap.get(row.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
+      }));
 
       // 单层委派：只取直接子智能体；enabled 过滤在 toWorkspaceInput 里统一做。
       const subAgentRows: SubAgentRow[] = await db
@@ -369,7 +395,7 @@ const worker = new Worker(
           name: server.name,
           entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId, runToken),
         })),
-        skillRows,
+        skillsWithFiles,
         subAgents,
       );
       workspaceDirForRun = workspaceDir;

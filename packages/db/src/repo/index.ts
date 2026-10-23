@@ -7,4 +7,5 @@ export * as maintenance from './maintenance.js';
 export * as ops from './ops.js';
 export * as runs from './runs.js';
 export * as servers from './servers.js';
+export * as skillFiles from './skill-files.js';
 export * as skills from './skills.js';

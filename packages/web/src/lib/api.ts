@@ -12,7 +12,6 @@ import type {
   EvalDataset,
   EvalDatasetImportResult,
   EvalRunExport,
-  MemoryFile,
   MemoryFileContent,
   MemoryFileList,
   Problem,
@@ -25,6 +24,7 @@ import type {
   ConversationDetail as SharedConversationDetail,
   EvalComparison as SharedEvalComparison,
   Skill,
+  SkillFile,
   SkillInput,
   SkillWithAgentCount,
   WorkspaceFiles,
@@ -535,6 +535,13 @@ export const api = {
       ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
     }),
   deleteSkill: (id: string): Promise<void> => request(`/skills/${id}`, 'DELETE'),
+  skillFiles: (id: string): Promise<SkillFile[]> => request(`/skills/${id}/files`),
+  writeSkillFile: (id: string, path: string, content: string): Promise<SkillFile> =>
+    request(`/skills/${id}/files/${path.split('/').map(encodeURIComponent).join('/')}`, 'PUT', {
+      content,
+    }),
+  deleteSkillFile: (id: string, path: string): Promise<void> =>
+    request(`/skills/${id}/files/${path.split('/').map(encodeURIComponent).join('/')}`, 'DELETE'),
 
   renameConversation: (id: string, title: string): Promise<ConversationDetail['conversation']> =>
     request(`/conversations/${id}`, 'PATCH', { title }),

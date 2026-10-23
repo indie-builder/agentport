@@ -10,6 +10,7 @@ export const idPrefixes = {
   agent: 'agt',
   agentVersion: 'av',
   skill: 'skl',
+  skillFile: 'skf',
   conversation: 'conv',
   message: 'msg',
   run: 'run',

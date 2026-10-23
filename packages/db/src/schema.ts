@@ -133,6 +133,28 @@ export const agentSkills = pgTable(
   ],
 );
 
+/**
+ * 技能的支持资源文件（官方 SKILL.md 目录里的 scripts/、references/ 等）。
+ * 每个文件落到工作区 `.claude/skills/<slug>/<path>`；path 是相对技能目录的安全相对路径。
+ */
+export const skillFiles = pgTable(
+  'skill_files',
+  {
+    id: text('id').primaryKey(),
+    skillId: text('skill_id')
+      .notNull()
+      .references(() => skills.id, { onDelete: 'cascade' }),
+    /** 相对技能目录的路径，如 `scripts/run.sh`、`references/api.md`。 */
+    path: text('path').notNull(),
+    content: text('content').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('skill_files_skill_path_idx').on(t.skillId, t.path),
+    index('skill_files_skill_idx').on(t.skillId),
+  ],
+);
+
 export const agentServers = pgTable(
   'agent_servers',
   {
@@ -443,6 +465,7 @@ export const schema = {
   agents,
   skills,
   agentSkills,
+  skillFiles,
   agentServers,
   agentVersions,
   conversations,

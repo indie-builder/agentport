@@ -113,6 +113,27 @@ export const skillSchema = skillInputSchema.and(
 
 export type Skill = z.infer<typeof skillSchema>;
 
+/** 技能支持资源文件：相对技能目录的安全路径 + 文本内容。 */
+export const skillFileInputSchema = z.object({
+  path: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(
+      /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._\-/]+$/,
+      '路径必须是相对路径，且不能包含 .. 或绝对路径',
+    ),
+  content: z.string().max(200_000).default(''),
+});
+
+export type SkillFileInput = z.infer<typeof skillFileInputSchema>;
+
+export const skillFileSchema = skillFileInputSchema.and(
+  z.object({ id: z.string(), createdAt: z.string() }),
+);
+
+export type SkillFile = z.infer<typeof skillFileSchema>;
+
 /** 技能列表项：附带引用它的智能体数量，用于「被 N 个智能体使用」。 */
 export const skillWithAgentCountSchema = skillSchema.and(
   z.object({ agentCount: z.number().int().nonnegative() }),

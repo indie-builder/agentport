@@ -4,7 +4,11 @@ export interface WorkspaceFiles {
   mcpJson: string;
   claudeMd: string;
   agentMd: string;
-  skills: Array<{ slug: string; content: string }>;
+  skills: Array<{
+    slug: string;
+    content: string;
+    files: Array<{ path: string; content: string }>;
+  }>;
   subAgents: Array<{ slug: string; content: string }>;
 }
 
@@ -30,6 +34,8 @@ export interface WorkspaceSkill {
   name: string;
   description: string;
   body: string;
+  /** 官方 SKILL.md 目录的支持资源文件，相对技能目录的路径。 */
+  files?: Array<{ path: string; content: string }>;
 }
 
 export interface WorkspaceInput {
@@ -325,6 +331,7 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
     skills: [...allSkills.values()].map((skill) => ({
       slug: skill.slug,
       content: renderSkillMd(skill),
+      files: skill.files ?? [],
     })),
     subAgents: (input.subAgents ?? []).map((subAgent) => ({
       slug: subAgent.slug,

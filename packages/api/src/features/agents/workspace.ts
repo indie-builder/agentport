@@ -1,5 +1,6 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
 import { renderWorkspace, toWorkspaceInput } from '@agentport/core';
+import { repo } from '@agentport/db';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import { maskUrlCredentials, SECRET_MASK } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
@@ -86,11 +87,24 @@ export async function renderAgentWorkspace(
     return { name: row.name, entry: toEntry(row, secretKeys) };
   });
 
+  // 技能的官方支持资源文件也纳入预览，保持与 worker 落盘一致。
+  const skillFiles = await repo.skillFiles.getSkillFilesBySkillIds(
+    app.db,
+    skills.map((s) => s.id),
+  );
+  const skillsWithFiles = skills.map((s) => ({
+    slug: s.slug,
+    name: s.name,
+    description: s.description,
+    body: s.body,
+    files: (skillFiles.get(s.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
+  }));
+
   return renderWorkspace(
     toWorkspaceInput({
       agent,
       servers,
-      skills,
+      skills: skillsWithFiles,
       subAgents,
     }),
   );

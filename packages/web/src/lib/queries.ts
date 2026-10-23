@@ -12,8 +12,6 @@ import type {
   MemoryFileContent,
   MemoryFileList,
   Schedule,
-  ScheduleInput,
-  SchedulePatch,
   Server,
   ServerInput,
   ServerTestResult,
