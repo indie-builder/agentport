@@ -15,6 +15,7 @@ import type {
   EvalRunExport,
   MemoryFileContent,
   MemoryFileList,
+  OutputStyle,
   Problem,
   Rule,
   Schedule,
@@ -514,6 +515,17 @@ export const api = {
   ): Promise<Rule> => request(`/agents/${id}/rules/${encodeURIComponent(slug)}`, 'PUT', input),
   deleteAgentRule: (id: string, slug: string): Promise<void> =>
     request(`/agents/${id}/rules/${encodeURIComponent(slug)}`, 'DELETE'),
+  agentOutputStyles: (id: string): Promise<OutputStyle[]> => request(`/agents/${id}/output-styles`),
+  writeAgentOutputStyle: (
+    id: string,
+    slug: string,
+    input: { description: string; keepCodingInstructions: boolean; body: string },
+  ): Promise<OutputStyle> =>
+    request(`/agents/${id}/output-styles/${encodeURIComponent(slug)}`, 'PUT', input),
+  unselectAgentOutputStyle: (id: string, slug: string): Promise<void> =>
+    request(`/agents/${id}/output-styles/${encodeURIComponent(slug)}/unselect`, 'POST'),
+  deleteAgentOutputStyle: (id: string, slug: string): Promise<void> =>
+    request(`/agents/${id}/output-styles/${encodeURIComponent(slug)}`, 'DELETE'),
   agentMemoryFile: (id: string, name: string): Promise<MemoryFileContent> =>
     request(`/agents/${id}/memory/${encodeURIComponent(name)}`),
   writeAgentMemoryFile: (id: string, name: string, content: string): Promise<MemoryFileContent> =>

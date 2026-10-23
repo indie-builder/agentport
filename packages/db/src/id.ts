@@ -12,6 +12,7 @@ export const idPrefixes = {
   skill: 'skl',
   skillFile: 'skf',
   rule: 'rule',
+  outputStyle: 'ost',
   conversation: 'conv',
   message: 'msg',
   run: 'run',

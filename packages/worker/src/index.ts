@@ -129,8 +129,25 @@ async function writeWorkspace(
   }>,
   subAgents: SubAgentRow[],
   rules: Array<{ slug: string; content: string; globs: string }>,
+  outputStyles: Array<{
+    slug: string;
+    description: string;
+    keepCodingInstructions: boolean;
+    body: string;
+  }>,
+  selectedOutputStyle: string | null,
 ): Promise<{ dir: string; hasSubAgents: boolean }> {
-  const files = renderWorkspace(toWorkspaceInput({ agent, servers, skills, subAgents, rules }));
+  const files = renderWorkspace(
+    toWorkspaceInput({
+      agent,
+      servers,
+      skills,
+      subAgents,
+      rules,
+      outputStyles,
+      selectedOutputStyle,
+    }),
+  );
 
   // 按 run 隔离：同一智能体并发运行时不能互相覆盖 .mcp.json / 技能 / 子智能体。
   const dir = join(workspacesDir, agent.slug, runId);
@@ -180,6 +197,31 @@ async function writeWorkspace(
         mode: WORKSPACE_FILE_MODE,
       });
     }
+  }
+  // 自定义输出风格：写到 .claude/output-styles/<slug>.md；选中者写进 .claude/settings.json。
+  const stylesDir = join(dir, '.claude', 'output-styles');
+  await rm(stylesDir, { recursive: true, force: true });
+  if (files.outputStyles.length > 0) {
+    await mkdir(stylesDir, { mode: WORKSPACE_DIR_MODE, recursive: true });
+    for (const style of files.outputStyles) {
+      await writeFile(join(stylesDir, `${style.slug}.md`), style.content, {
+        encoding: 'utf8',
+        mode: WORKSPACE_FILE_MODE,
+      });
+    }
+  }
+  // settings.json 每次重写（无选中则删除）。outputStyle 必须写进这里，因为 runner 的
+  // inline object-settings 优先级高于磁盘文件；runner 会把这里解析出的 outputStyle 一并带上，
+  // 否则磁盘上的 settings.json 会被 inline settings 遮蔽。
+  const settingsPath = join(dir, '.claude', 'settings.json');
+  if (files.selectedOutputStyle) {
+    await writeFile(
+      settingsPath,
+      `${JSON.stringify({ outputStyle: files.selectedOutputStyle }, null, 2)}\n`,
+      { encoding: 'utf8', mode: WORKSPACE_FILE_MODE },
+    );
+  } else {
+    await rm(settingsPath, { force: true });
   }
   // mode 只在创建时生效；已存在的工作区（BullMQ 重试复用）要再 chmod 一次。
   await chmod(dir, WORKSPACE_DIR_MODE);
@@ -404,6 +446,15 @@ const worker = new Worker(
       const ruleRows = await repo.rules.listRules(db, agentId);
       const rules = ruleRows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
 
+      const styleRows = await repo.outputStyles.listOutputStyles(db, agentId);
+      const outputStyles = styleRows.map((r) => ({
+        slug: r.slug,
+        description: r.description,
+        keepCodingInstructions: r.keepCodingInstructions,
+        body: r.body,
+      }));
+      const selectedOutputStyle = styleRows.find((r) => r.isSelected)?.slug ?? null;
+
       const { dir: workspaceDir, hasSubAgents } = await writeWorkspace(
         agent,
         runId,
@@ -414,6 +465,8 @@ const worker = new Worker(
         skillsWithFiles,
         subAgents,
         rules,
+        outputStyles,
+        selectedOutputStyle,
       );
       workspaceDirForRun = workspaceDir;
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');

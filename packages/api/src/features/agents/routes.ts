@@ -8,6 +8,7 @@ import {
   agentRoleSchema,
   agentSchema,
   idParams,
+  outputStyleInputSchema,
   permissionModeSchema,
   slugSchema,
 } from '@agentport/shared';
@@ -43,6 +44,27 @@ const ruleBody = z.object({
   content: z.string().max(100_000),
   globs: z.string().max(1000).default(''),
 });
+const outputStyleWriteBody = outputStyleInputSchema.pick({
+  description: true,
+  keepCodingInstructions: true,
+  body: true,
+});
+
+type OutputStyleRow = Awaited<ReturnType<typeof allRepo.outputStyles.listOutputStyles>>[number];
+
+function toOutputStyle(row: OutputStyleRow) {
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    slug: row.slug,
+    description: row.description,
+    keepCodingInstructions: row.keepCodingInstructions,
+    body: row.body,
+    isSelected: row.isSelected,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
 
 /** default/acceptEdits 直接透传 SDK；auto 依赖无法审计的模型分类器，暂不开放。 */
 const unsupportedPermissionModes = new Set(['auto']);
@@ -648,6 +670,92 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'agent.rule.deleted',
+        target: request.params.id,
+        input: { slug: request.params.slug },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(204).send();
+    },
+  );
+
+  // 输出风格：渲染到 .claude/output-styles/<slug>.md，选中者经 settings.outputStyle 激活。
+  app.get(
+    '/api/agents/:id/output-styles',
+    { ...auth, schema: { params: memoryParams } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const rows = await allRepo.outputStyles.listOutputStyles(app.db, request.params.id);
+      return rows.map(toOutputStyle);
+    },
+  );
+
+  app.put(
+    '/api/agents/:id/output-styles/:slug',
+    { ...auth, schema: { params: ruleParams, body: outputStyleWriteBody } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const slug = slugSchema.safeParse(request.params.slug);
+      if (!slug.success) {
+        return reject(reply, 'INVALID_INPUT', '风格 slug 非法：仅允许小写字母、数字、- 和 _');
+      }
+      const row = await allRepo.outputStyles.upsertOutputStyle(app.db, request.params.id, {
+        slug: slug.data,
+        ...request.body,
+      });
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.output_style.written',
+        target: request.params.id,
+        input: { slug: row.slug },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return toOutputStyle(row);
+    },
+  );
+
+  app.post(
+    '/api/agents/:id/output-styles/:slug/unselect',
+    { ...auth, schema: { params: ruleParams } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const ok = await allRepo.outputStyles.unselectOutputStyle(
+        app.db,
+        request.params.id,
+        request.params.slug,
+      );
+      if (!ok) return reject(reply, 'NOT_FOUND', '该输出风格不存在，可能已被删除');
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.output_style.unselected',
+        target: request.params.id,
+        input: { slug: request.params.slug },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(204).send();
+    },
+  );
+
+  app.delete(
+    '/api/agents/:id/output-styles/:slug',
+    { ...auth, schema: { params: ruleParams } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const removed = await allRepo.outputStyles.deleteOutputStyle(
+        app.db,
+        request.params.id,
+        request.params.slug,
+      );
+      if (!removed) return reject(reply, 'NOT_FOUND', '该输出风格不存在，可能已被删除');
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.output_style.deleted',
         target: request.params.id,
         input: { slug: request.params.slug },
         status: 'ok',

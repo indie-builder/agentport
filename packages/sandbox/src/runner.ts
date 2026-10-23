@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import {
   agentInputSchema,
@@ -196,6 +197,19 @@ const disallowedTools = baseDisallowed.filter((tool) => {
 
 log(`starting query (model=${task.model ?? 'default'})`);
 
+// 读取工作区 .claude/settings.json 的 outputStyle：inline settings 优先级高于磁盘文件，
+// 所以必须把它并进 inline settings 才能真正生效。读不到就用默认（不设该键）。
+let outputStyle: string | undefined;
+try {
+  const parsed = JSON.parse(readFileSync('/workspace/.claude/settings.json', 'utf8')) as {
+    outputStyle?: unknown;
+  };
+  if (typeof parsed.outputStyle === 'string' && parsed.outputStyle)
+    outputStyle = parsed.outputStyle;
+} catch {
+  // 文件不存在或非法：走默认输出风格。
+}
+
 let emittedTerminal = false;
 // run_finished 只能有一条：宿主按它落库并结束 SSE。
 function emit(event: RunnerEvent): void {
@@ -216,6 +230,7 @@ try {
         enableAllProjectMcpServers: true,
         autoMemoryEnabled: true,
         autoMemoryDirectory: '/mnt/agent-memory',
+        ...(outputStyle === undefined ? {} : { outputStyle }),
       },
       // 用户文本是纯文本：不要做 @路径展开或斜杠命令解析。
       verbatimPrompts: true,

@@ -179,6 +179,32 @@ export const agentRules = pgTable(
   ],
 );
 
+/**
+ * 智能体自定义输出风格（官方 `.claude/output-styles/*.md`）。至多一个 isSelected，
+ * 选中者写进 `.claude/settings.json` 的 `outputStyle`，由 project source 激活。
+ */
+export const agentOutputStyles = pgTable(
+  'agent_output_styles',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    description: text('description').notNull().default(''),
+    keepCodingInstructions: boolean('keep_coding_instructions').notNull().default(false),
+    body: text('body').notNull().default(''),
+    isSelected: boolean('is_selected').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('agent_output_styles_agent_slug_idx').on(t.agentId, t.slug),
+    // 每个智能体至多一个选中风格。
+    uniqueIndex('agent_output_styles_selected_idx').on(t.agentId).where(eq(t.isSelected, true)),
+  ],
+);
+
 export const agentServers = pgTable(
   'agent_servers',
   {
@@ -491,6 +517,7 @@ export const schema = {
   agentSkills,
   skillFiles,
   agentRules,
+  agentOutputStyles,
   agentServers,
   agentVersions,
   conversations,

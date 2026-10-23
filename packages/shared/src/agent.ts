@@ -154,6 +154,28 @@ export const ruleSchema = ruleInputSchema.and(
 
 export type Rule = z.infer<typeof ruleSchema>;
 
+/** 自定义输出风格：`.claude/output-styles/<slug>.md`，选中者经 settings.outputStyle 激活。 */
+export const outputStyleInputSchema = z.object({
+  slug: slugSchema,
+  description: z.string().max(500).default(''),
+  keepCodingInstructions: z.boolean().default(false),
+  body: z.string().max(50_000).default(''),
+});
+
+export type OutputStyleInput = z.infer<typeof outputStyleInputSchema>;
+
+export const outputStyleSchema = outputStyleInputSchema.and(
+  z.object({
+    id: z.string(),
+    agentId: z.string(),
+    isSelected: z.boolean(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+);
+
+export type OutputStyle = z.infer<typeof outputStyleSchema>;
+
 /** 技能列表项：附带引用它的智能体数量，用于「被 N 个智能体使用」。 */
 export const skillWithAgentCountSchema = skillSchema.and(
   z.object({ agentCount: z.number().int().nonnegative() }),

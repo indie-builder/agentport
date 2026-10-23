@@ -12,6 +12,7 @@ import type {
   EvalDataset,
   MemoryFileContent,
   MemoryFileList,
+  OutputStyle,
   Rule,
   Schedule,
   Server,
@@ -127,6 +128,12 @@ export const agentRulesQuery = (id: string) =>
   queryOptions<Rule[]>({
     queryKey: ['agent-rules', id],
     queryFn: () => api.agentRules(id),
+  });
+
+export const agentOutputStylesQuery = (id: string) =>
+  queryOptions<OutputStyle[]>({
+    queryKey: ['agent-output-styles', id],
+    queryFn: () => api.agentOutputStyles(id),
   });
 
 export const agentMemoryFileQuery = (id: string, name: string) =>

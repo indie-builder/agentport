@@ -103,6 +103,15 @@ export async function renderAgentWorkspace(
   const ruleRows = await repo.rules.listRules(app.db, agent.id);
   const rules = ruleRows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
 
+  const styleRows = await repo.outputStyles.listOutputStyles(app.db, agent.id);
+  const outputStyles = styleRows.map((r) => ({
+    slug: r.slug,
+    description: r.description,
+    keepCodingInstructions: r.keepCodingInstructions,
+    body: r.body,
+  }));
+  const selectedOutputStyle = styleRows.find((r) => r.isSelected)?.slug ?? null;
+
   return renderWorkspace(
     toWorkspaceInput({
       agent,
@@ -110,6 +119,8 @@ export async function renderAgentWorkspace(
       skills: skillsWithFiles,
       subAgents,
       rules,
+      outputStyles,
+      selectedOutputStyle,
     }),
   );
 }

@@ -30,6 +30,7 @@ import {
   FileCode,
   FileText,
   History,
+  Palette,
   Plug,
   Plus,
   RotateCcw,
@@ -132,7 +133,7 @@ import {
   useUpdateAgent,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
-import { MemoryPanel, RulesPanel } from './memory-panel.js';
+import { MemoryPanel, OutputStylesPanel, RulesPanel } from './memory-panel.js';
 import { AgentStatsPanel } from './ops.js';
 
 /**
@@ -754,7 +755,9 @@ export function AgentEditor({
   const pending = update.isPending || reloading || rollingBack;
   const [form, setForm] = useState<AgentInput>(() => toInput(agent));
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [mode, setMode] = useState<'config' | 'files' | 'memory' | 'rules' | 'stats'>('config');
+  const [mode, setMode] = useState<'config' | 'files' | 'memory' | 'rules' | 'styles' | 'stats'>(
+    'config',
+  );
   const [activeSection, setActiveSection] = useState<SectionId>('identity');
   const [activeFile, setActiveFile] = useState<(typeof fileTabs)[number][0]>('mcpJson');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -1292,6 +1295,18 @@ export function AgentEditor({
             <li>
               <button
                 type="button"
+                aria-current={mode === 'styles' ? 'true' : undefined}
+                onClick={() => setMode('styles')}
+                className={sectionButtonClass(mode === 'styles')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Palette aria-hidden="true" /> 输出风格
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
                 aria-current={mode === 'stats' ? 'true' : undefined}
                 onClick={() => setMode('stats')}
                 className={sectionButtonClass(mode === 'stats')}
@@ -1312,6 +1327,10 @@ export function AgentEditor({
           ) : mode === 'rules' ? (
             <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
               <RulesPanel agentId={agent.id} />
+            </div>
+          ) : mode === 'styles' ? (
+            <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+              <OutputStylesPanel agentId={agent.id} />
             </div>
           ) : mode === 'stats' ? (
             <AgentStatsPanel agentId={agent.id} />
