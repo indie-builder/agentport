@@ -22,6 +22,7 @@ import { typed } from '../../types.js';
 import {
   deleteMemoryFile,
   listMemoryFiles,
+  memoryFileNamePattern,
   readMemoryFile,
   writeMemoryFile,
 } from './memory-files.js';
@@ -38,8 +39,11 @@ const subAgentFileParams = z.object({
   childId: z.string().min(1),
 });
 const memoryParams = z.object({ id: z.string().min(1) });
-const memoryFileParams = z.object({ id: z.string().min(1), name: z.string().min(1) });
-const memoryWriteBody = z.object({ content: z.string().max(200_000) });
+const memoryFileParams = z.object({
+  id: z.string().min(1),
+  name: z.string().regex(memoryFileNamePattern, '记忆文件名非法：只允许 <name>.md'),
+});
+const memoryWriteBody = z.object({ content: z.string() });
 const ruleParams = z.object({ id: z.string().min(1), slug: z.string().min(1) });
 const outputStyleParams = z.object({ id: z.string().min(1), slug: slugSchema });
 const ruleBody = z.object({
@@ -590,25 +594,21 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const slug = await memorySlug(request.params.id);
       if (!slug) return notFound(reply);
-      try {
-        const file = await writeMemoryFile(
-          app.config.WORKSPACES_DIR,
-          slug,
-          request.params.name,
-          request.body.content,
-        );
-        await writeAudit(app.db, request.log, {
-          actor: 'admin',
-          action: 'agent.memory.write',
-          target: request.params.id,
-          input: { name: request.params.name },
-          status: 'ok',
-          requestId: request.id,
-        });
-        return file;
-      } catch {
-        return reject(reply, 'INVALID_INPUT', '记忆文件名非法：只允许 <name>.md');
-      }
+      const file = await writeMemoryFile(
+        app.config.WORKSPACES_DIR,
+        slug,
+        request.params.name,
+        request.body.content,
+      );
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.memory.write',
+        target: request.params.id,
+        input: { name: request.params.name },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return file;
     },
   );
 

@@ -1,4 +1,6 @@
+import type { Options } from '@anthropic-ai/claude-agent-sdk';
 import { describe, expect, it, vi } from 'vitest';
+import { renderWorkspace } from '../../core/src/workspace.js';
 
 // 外部 I/O 只有 SDK 与 stdin/stdout；runner 的 schema、选项组装和事件编码全走真实代码。
 const io = vi.hoisted(() => ({
@@ -70,7 +72,7 @@ describe('runner task wiring', () => {
 
     expect(io.options?.skills).toEqual(['demo-skill']);
     expect(io.options?.allowedTools).not.toContain('Skill');
-    expect(io.options?.disallowedTools).toEqual(expect.arrayContaining(['Read', 'Bash']));
+    expect(io.options?.disallowedTools).toContain('Bash');
     expect(events).toContainEqual(
       expect.objectContaining({ type: 'assistant_text', text: 'hello' }),
     );
@@ -82,6 +84,55 @@ describe('runner task wiring', () => {
         outputTokens: 4,
       }),
     );
+  });
+
+  it('keeps memory tools available under dontAsk and enforces a hook on every request', async () => {
+    await run({ extraAllowedTools: ['Read', 'Write', 'Edit'] });
+    const options = io.options as Options;
+    expect(options.permissionMode).toBe('dontAsk');
+    expect(options.settings).toMatchObject({
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: '/mnt/agent-memory',
+    });
+    expect(options.allowedTools).toEqual(
+      expect.arrayContaining(['Read(//mnt/agent-memory/**)', 'Edit(//mnt/agent-memory/**)']),
+    );
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      expect(options.allowedTools).not.toContain(tool);
+      expect(options.disallowedTools).not.toContain(tool);
+    }
+    const matchers = options.hooks?.PreToolUse;
+    expect(matchers).toHaveLength(1);
+    expect(matchers?.[0]?.matcher).toBeUndefined();
+    const hook = matchers?.[0]?.hooks[0];
+    expect(hook).toBeTypeOf('function');
+    const result = await hook?.(
+      {
+        hook_event_name: 'PreToolUse',
+        session_id: 's',
+        transcript_path: '/tmp/transcript',
+        cwd: '/workspace',
+        tool_name: 'Read',
+        tool_use_id: 't',
+        tool_input: { file_path: '/workspace/.mcp.json' },
+      },
+      't',
+      { signal: new AbortController().signal },
+    );
+    expect(result).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+  });
+
+  it('keeps file tools denied in generated child frontmatter', () => {
+    const child = { slug: 'child', name: 'Child', model: 'm', systemPrompt: 'p', maxTurns: 5 };
+    const files = renderWorkspace({
+      agent: { ...child, slug: 'parent' },
+      servers: [],
+      subAgents: [child],
+    });
+    const content = files.subAgents[0]?.content ?? '';
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      expect(content).toMatch(new RegExp(`disallowedTools: \\[[^\\]]*"${tool}"`));
+    }
   });
 
   it('defaults to no skills when the task omits them', async () => {

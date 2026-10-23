@@ -14,7 +14,6 @@
 
 - 开始并行前必须先固定接口契约（文件域、导出名、URL、Redis 键名），见 `docs/IMPL-CONTRACTS.md`。
 - 并行单元使用独立子 agent；**不使用 Workflow 编排**。
-- 在目标层面也要体现：LoopX 目标配置为 `multi_subagent` + `spawn-allowed`。
 - 每条线只改自己的文件；共享文件由主会话维护。
 - 并行结束后由主会话跑 typecheck / build / lint / 真实运行，再逐条关闭 todo。
 

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { McpJsonEntry, WorkspaceSkill } from '@agentport/core';
 import {
@@ -40,7 +40,7 @@ import {
   runInSandbox,
 } from './runner-client.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
-import { startScheduleTicker } from './scheduler.js';
+import { startScheduleScheduler } from './scheduler.js';
 
 const config = loadConfig();
 const logger = pino({ level: config.LOG_LEVEL });
@@ -483,12 +483,18 @@ const worker = new Worker(
       workspaceDirForRun = workspaceDir;
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');
 
-      // 长期记忆：宿主持久目录，跨 run 累积；挂到容器 CLAUDE_CONFIG_DIR/agent-memory，
-      // runner 用 settings.autoMemoryDirectory 指过去。API 侧也读写同一目录。
+      // 持久目录不在 run 清理范围。容器部署时 API/worker/sandbox 都是 uid 1000，
+      // 用 0700 只允许同用户访问；非容器（本地 pnpm dev，uid 非 1000）同样可行，
+      // 因为三者以同一宿主用户运行，跨 UID 不成立。真正的边界是文件权限与目录归属。
       const memoryHostDir = join(workspacesDir, agent.slug, 'agent-memory');
-      // 容器内以 uid 1000 运行并需读写记忆；跨 uid（Linux 下 worker 常为 root）要给足权限。
-      await mkdir(memoryHostDir, { recursive: true, mode: 0o777 });
-      await chmod(memoryHostDir, 0o777).catch(() => undefined);
+      await mkdir(memoryHostDir, { recursive: true, mode: 0o700 });
+      const memoryDir = await lstat(memoryHostDir);
+      if (!memoryDir.isDirectory() || memoryDir.isSymbolicLink()) {
+        throw new Error(
+          `Memory storage path must be a real directory: ${memoryHostDir}. See docs/OPERATIONS.md native memory storage.`,
+        );
+      }
+      await chmod(memoryHostDir, 0o700);
 
       runStartedAt = Date.now();
       outcome = await runInSandbox({
@@ -711,10 +717,14 @@ installProcessGuards(logger);
 
 logger.info('worker started');
 
-const scheduleTicker = startScheduleTicker({
+// 启动即对账一次：Redis 里的 Job Scheduler 以库为准补齐/清理。
+const scheduleScheduler = startScheduleScheduler({
   db,
   logger,
   redisUrl: config.REDIS_URL,
+});
+await scheduleScheduler.sync().catch((err: unknown) => {
+  logger.error({ err }, 'schedule reconcile failed');
 });
 
 const SHUTDOWN_WAIT_MS = 10_000;
@@ -738,7 +748,7 @@ const shutdown = async (): Promise<void> => {
   const closing = Promise.allSettled([worker.close(), evalWorker.close()]);
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
-  await scheduleTicker.stop();
+  await scheduleScheduler.close();
   await stopReconciler();
   await provider.destroyAll();
   await Promise.race([closing, sleep(POOL_WAIT_MS)]);

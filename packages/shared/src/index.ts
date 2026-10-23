@@ -7,4 +7,5 @@ export * from './mcp.js';
 export * from './ops.js';
 export * from './params.js';
 export * from './run-stream.js';
+export * from './schedules.js';
 export * from './schemas.js';
