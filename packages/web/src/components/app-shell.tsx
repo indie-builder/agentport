@@ -16,7 +16,8 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { meQuery, queryClient } from '../lib/queries.js';
@@ -81,6 +82,33 @@ const resourceLabels: Record<string, string> = {
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
 
+/**
+ * Motion 只能插值数值，读不到 `var()`；令牌仍是唯一来源，这里只取像素值。
+ * shortcut: 样式表尚未应用时回落到与令牌相同的常量，改令牌需同步这里。
+ */
+function sidebarMetrics() {
+  const style = getComputedStyle(document.documentElement);
+  const px = (name: string, fallback: number): number =>
+    Number.parseFloat(style.getPropertyValue(name)) || fallback;
+  const pad = (name: string, fallback: number[]): number[] =>
+    style
+      .getPropertyValue(name)
+      .trim()
+      .split(/\s+/)
+      .map((value) => Number.parseFloat(value) || 0)
+      .map((value, index) => value || (fallback[index] ?? 0));
+  const [padY = 0, padX = 0] = pad('--sidebar-pad', [16, 12]);
+  const [padYCollapsed = 0, padXCollapsed = 0] = pad('--sidebar-pad-collapsed', [16, 18]);
+  return {
+    width: px('--sidebar-width', 272),
+    collapsed: px('--sidebar-collapsed', 68),
+    padY,
+    padX,
+    padYCollapsed,
+    padXCollapsed,
+  };
+}
+
 function useCollapsed(): [boolean, (next: boolean) => void] {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1');
   const update = (next: boolean): void => {
@@ -103,9 +131,9 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
         <Link
           to="/"
           aria-label="返回首页"
-          className="group/logo absolute -left-0.5 top-0 flex size-8 items-center justify-center rounded-icon transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/nav:opacity-0 group-has-[:focus-visible]/nav:opacity-0"
+          className="group/logo absolute left-0 top-0 flex size-8 items-center justify-center rounded-icon transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:opacity-100 group-hover/nav:opacity-0 group-has-[button:focus-visible]/nav:opacity-0"
         >
-          <BrandMark className="size-8 rounded-icon object-cover" />
+          <BrandMark />
         </Link>
         <Button
           variant="ghost"
@@ -189,7 +217,7 @@ function SidebarLink({
             : 'size-4',
         )}
       >
-        <Icon className={collapsed ? 'size-5' : 'size-4'} aria-hidden="true" />
+        <Icon aria-hidden="true" />
       </span>
       {collapsed ? (
         <span className="sr-only">{label}</span>
@@ -277,6 +305,8 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
+  const reduce = useReducedMotion();
+  const metrics = useMemo(sidebarMetrics, []);
 
   useEffect(() => {
     if (me.data && !me.data.authenticated) void navigate({ to: '/login' });
@@ -335,18 +365,32 @@ export function AppShell() {
     );
   }
 
+  // §11：侧栏宽度与内边距一起过渡 160ms，宽度由 Motion 插值（CSS 变量读不到）。
+  const rail = collapsed
+    ? {
+        width: metrics.collapsed,
+        paddingTop: metrics.padYCollapsed,
+        paddingBottom: metrics.padYCollapsed,
+        paddingLeft: metrics.padXCollapsed,
+        paddingRight: metrics.padXCollapsed,
+      }
+    : {
+        width: metrics.width,
+        paddingTop: metrics.padY,
+        paddingBottom: metrics.padY,
+        paddingLeft: metrics.padX,
+        paddingRight: metrics.padX,
+      };
+
   const sidebar = (drawer: boolean) => (
-    <aside
+    <motion.aside
       className={cn(
         'group/nav flex h-full shrink-0 flex-col overflow-hidden',
-        // 实测：展开 272 / 收起 68，宽高与内边距一起过渡 160ms。
-        drawer
-          ? 'w-full px-3 py-4'
-          : collapsed
-            ? 'w-(--sidebar-collapsed) p-(--sidebar-pad-collapsed)'
-            : 'w-(--sidebar-width) p-(--sidebar-pad)',
+        drawer && 'px-3 py-4',
       )}
-      style={{ transition: 'width 160ms var(--ease-out-soft), padding 160ms var(--ease-out-soft)' }}
+      initial={false}
+      animate={drawer ? { width: '100%' } : rail}
+      transition={reduce ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
     >
       {drawer ? (
         <Link
@@ -413,7 +457,7 @@ export function AppShell() {
           </Tooltip>
         )}
       </div>
-    </aside>
+    </motion.aside>
   );
 
   return (
@@ -471,7 +515,7 @@ export function AppShell() {
               // Keep the 7px icon corners and translucent hover instead of the regular ghost defaults.
               className="-ml-1 rounded-icon p-1.5 hover:bg-hover"
             >
-              <Menu className="size-5" />
+              <Menu aria-hidden="true" />
             </Button>
           </header>
 

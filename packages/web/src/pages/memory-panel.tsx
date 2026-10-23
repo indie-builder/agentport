@@ -1,16 +1,18 @@
 import type { OutputStyle } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FilePlus2, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Checkbox } from '../components/ui/checkbox.js';
+import { Field, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Label } from '../components/ui/label.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { useFormBlocker } from '../lib/form.js';
 import {
   agentMemoryFileQuery,
   agentMemoryQuery,
@@ -27,6 +29,12 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [editorDirty, setEditorDirty] = useState(false);
+  const [editorPending, setEditorPending] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
+  const [pendingCreate, setPendingCreate] = useState(false);
+  // 草稿只存在于当前编辑器的本地状态，切换文件或离开路由都会丢失。
+  const blocker = useFormBlocker(editorDirty, editorPending);
   const files = memory.data?.files ?? [];
   // 选中项被删除或尚未确定时回落到 MEMORY.md。
   const active = files.some((file) => file.name === selected)
@@ -100,7 +108,12 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
               <button
                 type="button"
                 aria-current={file.name === active ? 'true' : undefined}
-                onClick={() => setSelected(file.name)}
+                disabled={editorPending}
+                onClick={() => {
+                  if (file.name === active) return;
+                  if (editorDirty) setPendingSwitch(file.name);
+                  else setSelected(file.name);
+                }}
                 className={cn(
                   'flex w-full min-w-0 items-center rounded-icon px-2 py-1.5 font-mono text-xs transition-colors md:text-left',
                   file.name === active
@@ -150,7 +163,11 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
             variant="ghost"
             size="sm"
             className="mt-2 justify-start text-muted-foreground"
-            onClick={() => setCreating(true)}
+            disabled={editorPending}
+            onClick={() => {
+              if (editorDirty) setPendingCreate(true);
+              else setCreating(true);
+            }}
           >
             <Plus data-icon="inline-start" aria-hidden="true" /> 新建记忆文件
           </Button>
@@ -163,8 +180,38 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
           agentId={agentId}
           name={active}
           onDelete={() => setDeleting(active)}
+          onDirtyChange={setEditorDirty}
+          onPendingChange={setEditorPending}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={pendingSwitch !== null || pendingCreate}
+        onClose={() => {
+          setPendingSwitch(null);
+          setPendingCreate(false);
+        }}
+        title="放弃未保存的修改？"
+        description={`「${active ?? ''}」还有未保存的内容，继续后会丢失。`}
+        confirmLabel="放弃并继续"
+        onConfirm={async () => {
+          if (pendingSwitch) setSelected(pendingSwitch);
+          else setCreating(true);
+          setPendingSwitch(null);
+          setPendingCreate(false);
+        }}
+      />
+
+      <ConfirmDialog
+        open={blocker.status === 'blocked'}
+        onClose={() => blocker.reset?.()}
+        title="放弃未保存的修改？"
+        description={`「${active ?? ''}」还有未保存的内容，离开后会丢失。`}
+        confirmLabel="放弃并离开"
+        onConfirm={async () => {
+          blocker.proceed();
+        }}
+      />
 
       <ConfirmDialog
         open={deleting !== null}
@@ -183,10 +230,14 @@ function MemoryFileEditor({
   agentId,
   name,
   onDelete,
+  onDirtyChange,
+  onPendingChange,
 }: {
   agentId: string;
   name: string;
   onDelete: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const client = useQueryClient();
   const file = useQuery(agentMemoryFileQuery(agentId, name));
@@ -203,6 +254,12 @@ function MemoryFileEditor({
     },
     onError: toastError,
   });
+
+  // 父级需要用脏状态拦截切换文件与路由离开。
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
+  useEffect(() => onPendingChange(save.isPending), [save.isPending, onPendingChange]);
+  useEffect(() => () => onPendingChange(false), [onPendingChange]);
 
   if (file.isPending) return <LoadingState rows={4} />;
   if (file.isError) {
@@ -227,6 +284,7 @@ function MemoryFileEditor({
             size="icon-sm"
             aria-label={`删除 ${name}`}
             title={`删除 ${name}`}
+            disabled={save.isPending}
             onClick={onDelete}
           >
             <Trash2 aria-hidden="true" />
@@ -237,6 +295,7 @@ function MemoryFileEditor({
         value={content}
         rows={18}
         aria-label={`${name} 内容`}
+        disabled={save.isPending}
         onChange={(event) => setDraft(event.target.value)}
         // Markdown 需要等宽与可读的行距。
         className="min-h-[18rem] font-mono text-xs leading-relaxed"
@@ -338,13 +397,16 @@ export function RulesPanel({ agentId }: { agentId: string }) {
         {creating || current ? (
           <>
             {creating ? (
-              <Input
-                value={slug}
-                placeholder="规则 slug，如 no-console"
-                aria-label="规则 slug"
-                className="font-mono text-xs"
-                onChange={(e) => setSlug(e.target.value)}
-              />
+              <Field className="gap-1.5">
+                <FieldLabel htmlFor="rule-slug">规则 slug</FieldLabel>
+                <Input
+                  id="rule-slug"
+                  value={slug}
+                  placeholder="no-console"
+                  className="font-mono text-xs"
+                  onChange={(e) => setSlug(e.target.value)}
+                />
+              </Field>
             ) : (
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-sm text-fg">{current?.slug}</span>
@@ -358,21 +420,26 @@ export function RulesPanel({ agentId }: { agentId: string }) {
                 </Button>
               </div>
             )}
-            <Input
-              value={globs}
-              placeholder="路径作用域（可选），如 src/**/*.ts, docs/**"
-              aria-label="路径作用域"
-              className="font-mono text-xs"
-              onChange={(e) => setGlobs(e.target.value)}
-            />
-            <Textarea
-              value={draft}
-              placeholder="规则内容（Markdown）"
-              aria-label="规则内容"
-              rows={12}
-              className="min-h-[16rem] font-mono text-xs leading-relaxed"
-              onChange={(e) => setDraft(e.target.value)}
-            />
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="rule-globs">路径作用域（可选）</FieldLabel>
+              <Input
+                id="rule-globs"
+                value={globs}
+                placeholder="src/**/*.ts, docs/**"
+                className="font-mono text-xs"
+                onChange={(e) => setGlobs(e.target.value)}
+              />
+            </Field>
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="rule-content">规则内容（Markdown）</FieldLabel>
+              <Textarea
+                id="rule-content"
+                value={draft}
+                rows={12}
+                className="min-h-[16rem] font-mono text-xs leading-relaxed"
+                onChange={(e) => setDraft(e.target.value)}
+              />
+            </Field>
             <div className="flex justify-end">
               <Button onClick={submit} disabled={save.isPending} aria-busy={save.isPending}>
                 {save.isPending ? '保存中…' : '保存规则'}

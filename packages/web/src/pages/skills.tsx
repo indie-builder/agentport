@@ -8,7 +8,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -187,8 +187,7 @@ export function SkillsPage() {
       {skills.data && skills.data.length === 0 ? (
         <PageNote
           icon={<Sparkles aria-hidden="true" />}
-          title="还没有技能"
-          description="把重复出现的步骤写成技能，多个专家可以共享它。"
+          title="把重复步骤写成可复用的技能"
           action={
             <Button
               onClick={(event) => {
@@ -351,6 +350,9 @@ function SkillDialog({
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // 支持文件编辑器有自己的草稿与请求，它们的未保存/在途状态也要保护弹层关闭。
+  const [filesDirty, setFilesDirty] = useState(false);
+  const [filesSaving, setFilesSaving] = useState(false);
   const initial = useMemo<SkillInput>(
     () =>
       skill
@@ -363,7 +365,7 @@ function SkillDialog({
         : emptySkill,
     [skill],
   );
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || filesDirty;
 
   const set = <K extends keyof SkillInput>(key: K, value: SkillInput[K]): void => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -408,7 +410,7 @@ function SkillDialog({
     }
   };
 
-  const pending = create.isPending || update.isPending;
+  const pending = create.isPending || update.isPending || filesSaving;
   const blocker = useFormBlocker(dirty, pending);
   // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中不能丢弃。
   const close = (): void => {
@@ -510,7 +512,13 @@ function SkillDialog({
             />
             <FieldDescription>支持 Markdown。</FieldDescription>
           </Field>
-          {skill ? <SkillFilesEditor skillId={skill.id} /> : null}
+          {skill ? (
+            <SkillFilesEditor
+              skillId={skill.id}
+              onDirtyChange={setFilesDirty}
+              onSavingChange={setFilesSaving}
+            />
+          ) : null}
           <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
             <Button variant="outline" onClick={close} disabled={pending}>
               取消
@@ -524,7 +532,7 @@ function SkillDialog({
           open={confirmDiscard}
           onClose={() => setConfirmDiscard(false)}
           title="放弃未保存的更改？"
-          description="关闭后这段技能内容会丢失。"
+          description="关闭后技能内容与未添加完的支持文件会丢失。"
           confirmLabel="放弃并关闭"
           confirmDisabled={pending}
           onConfirm={async () => {
@@ -535,7 +543,9 @@ function SkillDialog({
           open={blocker.status === 'blocked'}
           onClose={() => blocker.reset?.()}
           title="放弃未保存的更改？"
-          description={pending ? '正在保存，请等待请求完成。' : '离开后技能内容的修改会丢失。'}
+          description={
+            pending ? '正在保存，请等待请求完成。' : '离开后技能内容与支持文件草稿会丢失。'
+          }
           confirmLabel="放弃并离开"
           confirmDisabled={pending}
           onConfirm={async () => blocker.proceed()}
@@ -546,7 +556,15 @@ function SkillDialog({
 }
 
 /** 官方 SKILL.md 目录的支持资源文件（scripts/、references/ 等），随技能铺到工作区。 */
-function SkillFilesEditor({ skillId }: { skillId: string }) {
+function SkillFilesEditor({
+  skillId,
+  onDirtyChange,
+  onSavingChange,
+}: {
+  skillId: string;
+  onDirtyChange: (dirty: boolean) => void;
+  onSavingChange: (saving: boolean) => void;
+}) {
   const client = useQueryClient();
   const files = useQuery({
     queryKey: ['skill-files', skillId],
@@ -556,6 +574,13 @@ function SkillFilesEditor({ skillId }: { skillId: string }) {
   const [content, setContent] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // 草稿与在途请求交回父级弹层，Esc / 点遮罩 / 取消都要先确认。
+  useEffect(
+    () => onDirtyChange(path.trim() !== '' || content !== ''),
+    [path, content, onDirtyChange],
+  );
+  useEffect(() => onSavingChange(saving), [saving, onSavingChange]);
 
   const invalidate = (): void =>
     void client.invalidateQueries({ queryKey: ['skill-files', skillId] });
@@ -594,6 +619,10 @@ function SkillFilesEditor({ skillId }: { skillId: string }) {
   return (
     <Field className="gap-1.5">
       <FieldLabel htmlFor="skill-file-path">支持文件</FieldLabel>
+      {files.isPending ? <LoadingState rows={1} /> : null}
+      {files.isError ? (
+        <ErrorState error={files.error} onRetry={() => void files.refetch()} />
+      ) : null}
       {files.data && files.data.length > 0 ? (
         <ul className="flex flex-col gap-1">
           {files.data.map((f) => (
@@ -610,28 +639,34 @@ function SkillFilesEditor({ skillId }: { skillId: string }) {
             </li>
           ))}
         </ul>
-      ) : (
+      ) : null}
+      {files.data && files.data.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          添加 scripts/、references/ 等随技能一起加载的文件。
+          scripts/、references/ 等文件会随技能一起加载。
         </p>
-      )}
+      ) : null}
       <div className="flex flex-col gap-2 rounded-item border border-line p-2">
         <Input
           id="skill-file-path"
           value={path}
           placeholder="scripts/run.sh 或 references/api.md"
           aria-invalid={Boolean(error)}
+          aria-describedby={error ? 'skill-file-path-error' : undefined}
           onChange={(event) => setPath(event.target.value)}
           className="font-mono text-xs"
         />
+        <FieldLabel htmlFor="skill-file-content" className="sr-only">
+          文件内容
+        </FieldLabel>
         <Textarea
+          id="skill-file-content"
           rows={3}
           value={content}
           placeholder="文件内容"
           onChange={(event) => setContent(event.target.value)}
           className="font-mono text-xs leading-relaxed"
         />
-        {error ? <FieldError>{error}</FieldError> : null}
+        {error ? <FieldError id="skill-file-path-error">{error}</FieldError> : null}
         <div className="flex justify-end">
           <Button
             type="button"

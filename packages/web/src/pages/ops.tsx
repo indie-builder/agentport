@@ -2,7 +2,7 @@ import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentpo
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CalendarClock, CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useMemo, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
@@ -122,66 +122,92 @@ export function SchedulesPage() {
 
       {items.length > 0 ? (
         <PageSection divided={false}>
-          <div className="hidden border-t border-line py-2 text-2xs text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1.4fr)_150px_120px_120px_auto] sm:gap-4">
-            <span>名称</span>
-            <span>cron</span>
-            <span>下次触发</span>
-            <span>上次运行</span>
-            <span />
-          </div>
-          <ul className="flex flex-col">
-            {items.map((schedule) => (
-              <li
-                key={schedule.id}
-                className="grid min-w-0 items-center gap-2 border-b border-line py-3 sm:grid-cols-[minmax(0,1.4fr)_150px_120px_120px_auto] sm:gap-4"
-              >
-                <div className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm font-medium text-fg">{schedule.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {schedule.agentName ?? '已删除的专家'}
-                  </span>
-                </div>
-                <code className="font-mono text-xs text-muted-foreground">{schedule.cron}</code>
-                <span
-                  className="text-xs text-muted-foreground"
-                  title={formatDateTime(schedule.nextDueAt)}
+          <table className="w-full border-collapse text-sm">
+            <caption className="sr-only">定时任务列表</caption>
+            <thead>
+              <tr className="border-t border-line text-2xs text-muted-foreground">
+                <th scope="col" className="py-2 pr-2 text-left font-normal">
+                  名称
+                </th>
+                <th
+                  scope="col"
+                  className="hidden w-[150px] py-2 pr-2 text-left font-normal sm:table-cell"
                 >
-                  {formatDateTime(schedule.nextDueAt)}
-                </span>
-                <span
-                  className="text-xs text-muted-foreground"
-                  title={formatDateTime(schedule.lastRunAt)}
+                  cron
+                </th>
+                <th
+                  scope="col"
+                  className="hidden w-[120px] py-2 pr-2 text-left font-normal sm:table-cell"
                 >
-                  {formatRelative(schedule.lastRunAt)}
-                </span>
-                <div className="flex items-center justify-end gap-1.5">
-                  <Switch
-                    size="sm"
-                    checked={schedule.enabled}
-                    disabled={toggle.isPending && toggle.variables?.id === schedule.id}
-                    aria-label={`${schedule.enabled ? '暂停' : '启用'} ${schedule.name}`}
-                    onCheckedChange={(enabled) => toggle.mutate({ id: schedule.id, enabled })}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`编辑 ${schedule.name}`}
-                    onClick={() => setEditing(schedule)}
-                  >
-                    <Pencil />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`删除 ${schedule.name}`}
-                    onClick={() => setDeleting(schedule)}
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
+                  下次触发
+                </th>
+                <th
+                  scope="col"
+                  className="hidden w-[120px] py-2 pr-2 text-left font-normal sm:table-cell"
+                >
+                  上次运行
+                </th>
+                <th scope="col" className="w-px py-2">
+                  <span className="sr-only">操作</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((schedule) => (
+                <tr key={schedule.id} className="border-b border-line">
+                  <th scope="row" className="min-w-0 py-3 pr-2 text-left font-normal">
+                    <span className="block truncate text-sm font-medium text-fg">
+                      {schedule.name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {schedule.agentName ?? '已删除的专家'}
+                    </span>
+                    {/* 窄屏收起列，用可见标签保留每项数据。 */}
+                    <span className="block text-2xs text-muted-foreground sm:hidden">
+                      {schedule.cron} · 下次 {formatDateTime(schedule.nextDueAt)} · 上次{' '}
+                      {formatRelative(schedule.lastRunAt)}
+                    </span>
+                  </th>
+                  <td className="hidden py-3 pr-2 sm:table-cell">
+                    <code className="font-mono text-xs text-muted-foreground">{schedule.cron}</code>
+                  </td>
+                  <td className="hidden py-3 pr-2 text-xs text-muted-foreground sm:table-cell">
+                    {formatDateTime(schedule.nextDueAt)}
+                  </td>
+                  <td className="hidden py-3 pr-2 text-xs text-muted-foreground sm:table-cell">
+                    {formatRelative(schedule.lastRunAt)}
+                  </td>
+                  <td className="py-3">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Switch
+                        size="sm"
+                        checked={schedule.enabled}
+                        disabled={toggle.isPending && toggle.variables?.id === schedule.id}
+                        aria-label={`${schedule.enabled ? '暂停' : '启用'} ${schedule.name}`}
+                        onCheckedChange={(enabled) => toggle.mutate({ id: schedule.id, enabled })}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`编辑 ${schedule.name}`}
+                        onClick={() => setEditing(schedule)}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`删除 ${schedule.name}`}
+                        onClick={() => setDeleting(schedule)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </PageSection>
       ) : null}
 
@@ -232,6 +258,21 @@ function ScheduleDialog({
       : emptySchedule,
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const initial = useMemo<ScheduleInput>(
+    () =>
+      schedule
+        ? {
+            agentId: schedule.agentId,
+            name: schedule.name,
+            cron: schedule.cron,
+            prompt: schedule.prompt,
+            enabled: schedule.enabled,
+          }
+        : emptySchedule,
+    [schedule],
+  );
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const invalidate = (): void => {
     void client.invalidateQueries({ queryKey: ['schedules'] });
   };
@@ -255,6 +296,12 @@ function ScheduleDialog({
     onSettled: invalidate,
   });
   const pending = create.isPending || update.isPending;
+  // Esc、遮罩、取消和关闭按钮走同一路径：有未保存输入时先确认。
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
 
   const set = <K extends keyof ScheduleInput>(key: K, value: ScheduleInput[K]): void => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -297,13 +344,17 @@ function ScheduleDialog({
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) close();
       }}
     >
       <DialogShell title={schedule ? '编辑定时任务' : '新建定时任务'} closeDisabled={pending}>
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <FieldGroup className="gap-3">
-            <Field className="gap-1.5" data-disabled={pending || Boolean(schedule)}>
+            <Field
+              className="gap-1.5"
+              data-disabled={pending || Boolean(schedule)}
+              data-invalid={Boolean(errors.agentId)}
+            >
               <FieldLabel htmlFor="schedule-agent">
                 专家 <RequiredMark />
               </FieldLabel>
@@ -319,6 +370,7 @@ function ScheduleDialog({
                   id="schedule-agent"
                   className="w-full min-w-0"
                   aria-invalid={Boolean(errors.agentId)}
+                  aria-describedby={errors.agentId ? 'schedule-agent-error' : undefined}
                 >
                   <SelectValue />
                 </SelectTrigger>
@@ -332,7 +384,7 @@ function ScheduleDialog({
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <FieldError>{errors.agentId}</FieldError>
+              <FieldError id="schedule-agent-error">{errors.agentId}</FieldError>
             </Field>
 
             <FieldGroup className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
@@ -350,9 +402,10 @@ function ScheduleDialog({
                   value={form.name}
                   aria-required="true"
                   aria-invalid={Boolean(errors.name)}
+                  aria-describedby={errors.name ? 'schedule-name-error' : undefined}
                   onChange={(event) => set('name', event.target.value)}
                 />
-                <FieldError>{errors.name}</FieldError>
+                <FieldError id="schedule-name-error">{errors.name}</FieldError>
               </Field>
               <Field
                 className="gap-1.5"
@@ -370,9 +423,10 @@ function ScheduleDialog({
                   className="font-mono"
                   aria-required="true"
                   aria-invalid={Boolean(errors.cron)}
+                  aria-describedby={errors.cron ? 'schedule-cron-error' : undefined}
                   onChange={(event) => set('cron', event.target.value)}
                 />
-                <FieldError>{errors.cron}</FieldError>
+                <FieldError id="schedule-cron-error">{errors.cron}</FieldError>
               </Field>
             </FieldGroup>
 
@@ -391,9 +445,10 @@ function ScheduleDialog({
                 value={form.prompt}
                 aria-required="true"
                 aria-invalid={Boolean(errors.prompt)}
+                aria-describedby={errors.prompt ? 'schedule-prompt-error' : undefined}
                 onChange={(event) => set('prompt', event.target.value)}
               />
-              <FieldError>{errors.prompt}</FieldError>
+              <FieldError id="schedule-prompt-error">{errors.prompt}</FieldError>
             </Field>
 
             <Field orientation="horizontal" className="items-center gap-3" data-disabled={pending}>
@@ -408,7 +463,7 @@ function ScheduleDialog({
           </FieldGroup>
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
+            <Button variant="outline" onClick={close} disabled={pending}>
               取消
             </Button>
             <Button type="submit" aria-busy={pending} disabled={pending}>
@@ -416,6 +471,16 @@ function ScheduleDialog({
             </Button>
           </div>
         </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后这次填写的定时任务内容会丢失。"
+          confirmLabel="放弃并关闭"
+          onConfirm={async () => {
+            if (!pending) onClose();
+          }}
+        />
       </DialogShell>
     </Dialog>
   );
@@ -583,16 +648,38 @@ export function AgentStatsPanel({ agentId }: { agentId: string }) {
         {s.daily.length === 0 ? (
           <p className="text-sm text-muted-foreground">近 30 天没有运行记录。</p>
         ) : (
-          <div className="flex items-end gap-1" style={{ height: 64 }}>
-            {s.daily.map((d) => (
-              <div
-                key={d.day}
-                className="flex-1 rounded-t-sm bg-ink/80"
-                style={{ height: `${Math.max(4, Math.round((d.runs / maxRuns) * 64))}px` }}
-                title={`${d.day} · ${d.runs} 次 · ${formatCost(d.cost)}`}
-              />
-            ))}
-          </div>
+          <>
+            {/* 柱子只是视觉，数据由下方离屏表格提供，键盘与读屏都能读到。 */}
+            <div className="flex items-end gap-1" style={{ height: 64 }} aria-hidden="true">
+              {s.daily.map((d) => (
+                <div
+                  key={d.day}
+                  className="flex-1 rounded-t-sm bg-ink/80"
+                  style={{ height: `${Math.max(4, Math.round((d.runs / maxRuns) * 64))}px` }}
+                  title={`${d.day} · ${d.runs} 次 · ${formatCost(d.cost)}`}
+                />
+              ))}
+            </div>
+            <table className="sr-only">
+              <caption>近 30 天每日运行次数与成本</caption>
+              <thead>
+                <tr>
+                  <th scope="col">日期</th>
+                  <th scope="col">运行次数</th>
+                  <th scope="col">成本</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s.daily.map((d) => (
+                  <tr key={d.day}>
+                    <th scope="row">{d.day}</th>
+                    <td>{d.runs}</td>
+                    <td>{formatCost(d.cost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
     </div>

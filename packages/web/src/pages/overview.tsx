@@ -396,7 +396,10 @@ export function OverviewPage() {
         <>
           <BoardSummaryCards />
           <AttentionPanel />
-          <section className="grid grid-cols-2 gap-4 xl:grid-cols-4" aria-label="平台概况">
+          <section
+            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
+            aria-label="平台概况"
+          >
             {[
               { label: '专家', value: counts.agents, hint: null, icon: Bot },
               { label: '连接器', value: counts.servers, hint: null, icon: Server },
@@ -427,7 +430,9 @@ export function OverviewPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-2">
-                  <span className="text-lg font-medium tabular-nums text-fg">{value}</span>
+                  <span className="min-w-0 break-words text-lg font-medium tabular-nums text-fg [overflow-wrap:anywhere]">
+                    {value}
+                  </span>
                   {hint ? <CardDescription>{hint}</CardDescription> : null}
                 </CardContent>
               </Card>
@@ -461,7 +466,14 @@ export function OverviewPage() {
                   }
                 />
               ) : (
-                <PageNote title="还没有运行记录" description="发起一次对话以开始运行。" />
+                <PageNote
+                  title="运行记录会显示在这里"
+                  action={
+                    <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                      <Plus className="size-3.5" aria-hidden="true" /> 新建对话
+                    </Link>
+                  }
+                />
               )}
             </PageSection>
 

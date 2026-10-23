@@ -335,8 +335,8 @@ export function ServersPage() {
       {servers.data && all.length === 0 ? (
         <PageNote
           icon={<ServerIcon className="size-4" aria-hidden="true" />}
-          title="还没有连接器"
-          description="本地命令适合自建工具，远程 MCP 适合已有服务，HTTP API 转 MCP 适合把内部接口直接交给智能体。"
+          title="把外部服务接成专家可用的工具"
+          description="本地命令、远程 MCP 或 HTTP API 都可以。"
           action={
             <Button onClick={(event) => openCreate(event.currentTarget)}>
               <Plus data-icon="inline-start" /> 新建连接器
@@ -517,7 +517,9 @@ function ServerCard({
   onDelete: (trigger: HTMLElement) => void;
 }) {
   const generated = server.kind === 'generated';
-  const toolCount = lastTest?.result.ok ? lastTest.result.tools.length : '连接后确定';
+  const toolCount = lastTest?.result.ok
+    ? lastTest.result.tools.length
+    : (server.lastToolCount ?? '连接后确定');
   // 菜单项随菜单卸载，关闭后只能把焦点还给菜单触发器。
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -605,7 +607,7 @@ function ServerCard({
                 server.lastTestedAt ? `测试于 ${formatDateTime(server.lastTestedAt)}` : undefined
               }
             >
-              连接正常{server.lastToolCount != null ? ` · ${server.lastToolCount} 工具` : ''}
+              连接正常
             </span>
           ) : server.lastTestOk === false ? (
             <span className="text-xs text-danger">上次测试失败</span>

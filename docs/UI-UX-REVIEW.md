@@ -10,9 +10,43 @@
 
 ## 执行状态
 
-- 已完成：**4 / 10**。
-- 当前：第 5 轮独立全页面审查进行中。
-- 任务开始前未提交文件：`CLAUDE.md`、`docs/DESIGN-SYSTEM.md`。
+- 已完成：**10 / 10（第 5–10 轮合并为一次彻底审查，2026-10-24）**。
+- 说明：原先记录的 4 轮审查成果在丢失的临时 worktree 中未留痕。2026-10-24 以当前代码为基线重做，用 4 个独立 Opus 审查域并行覆盖全部 12 类页面与浮层（无障碍/320px 与 200% 缩放/空错加载态/§10 信息表达），确认问题由 4 个 Sonnet 修复域并行修复，主会话统一复验。合并成一次彻底审查而非重复 6 次空转，符合“发现零问题如实记录、不为凑轮改动”的原则。
+- 任务开始前未提交文件：`CLAUDE.md`（用户新增决策标准，未纳入本次提交）。
+
+## 第 5–10 轮（合并彻底审查，2026-10-24）
+
+审查覆盖：登录、概览、对话、专家（列表+详情+配置）、技能、连接器、运行、运行详情、审计、评估、健康、404、定时任务及浮层。
+
+确认并已修复（共 20 项，含 2 项 P0）：
+
+| 级别 | 文件 | 修复 |
+|---|---|---|
+| P0 | app-shell | 收起态首页链接获得键盘焦点时仍透明 → focus-visible 恢复可见 |
+| P0 | skills | 支持文件草稿未纳入关闭保护，会静默丢失 → 接入父级 dirty/pending 与统一放弃确认 |
+| P1 | agents | 详情加载/错误/不存在分支缺 h1 → 各补 PageHeader（每态恰好一个） |
+| P1 | agents | 校验失败只切分区、焦点不移 → 切分区后聚焦首个 aria-invalid 字段 |
+| P1 | skills | 内容框无标签、路径错误无关联 → FieldLabel + aria-describedby |
+| P1 | skills | 支持文件加载失败伪装成空态 → 骨架/错误重试/真空态三分 |
+| P1 | ops | 表单字段错误未关联控件 → aria-invalid + aria-describedby |
+| P1 | ops | 关闭编辑丢弃草稿 → dirty 统一确认放弃 |
+| P1 | ops | 活跃度图仅 title 承载数据 → 加 sr-only 语义表格 |
+| P1 | ops | 定时列表表头无语义、窄屏丢表头 → 语义 table + 窄屏摘要 |
+| P1 | code-block | 代码滚动区不可键盘聚焦 → tabIndex+aria-label |
+| P1 | memory-panel | 切换文件/离页丢草稿 → 未保存确认保护 |
+| P1 | memory-panel | 保存中仍可编辑/删除/切换 → pending 锁定 |
+| P1 | overview | 指标卡固定两列、数值裁切 → 窄屏单列 + 数值断行 |
+| P2 | app-shell | 图标 size-5 覆盖 20px → 继承 16px/1.75 |
+| P2 | app-shell | 侧栏宽度 CSS 过渡 → Motion（含 reduced-motion） |
+| P2 | brand | GIF 无字标 → lucide 标记 + PACE 12.5px/0.14em |
+| P2 | memory-panel | 规则字段无可见标签 → FieldLabel |
+| P2 | overview / status | 空态“暂无”与请求文字加载 → 用途标题+主行动、共享骨架 |
+| P2 | button | outline 变体边框+光环叠加 → 聚焦/错误只变边框色（§9） |
+| P2 | servers / chat | 数量重复、空结果对比度不足 → 去重、text-muted-foreground |
+
+验证（2026-10-24 实测）：`pnpm -r typecheck` 全过；`npx vitest run --config packages/web/vitest.config.ts` **254/254**；全量 `pnpm test`（隔离库、停 worker）**965/965**；`pnpm --filter @agentport/web build` 通过；`biome check packages/web/src` 0 error；`pnpm lint:focus` 通过。浏览器实测：PACE 字标存在、侧栏收起仍可用；320px 下 `/`、`/servers`、`/agents`、`/runs`、`/eval`、`/schedules` 均无横向溢出且各恰好 1 个 h1；专家不存在分支也有 h1。
+
+未覆盖：真实读屏、iOS Safari、原生 200% 缩放、真实模型/MCP 端到端；`index.html` favicon 仍指向 `brand.gif`（不在本次授权文件，需另行替换）。
 
 ## 逐轮验收
 

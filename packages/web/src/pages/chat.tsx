@@ -761,7 +761,7 @@ function HistoryPanel({
           <p className="px-2 py-6 text-xs leading-relaxed text-muted-foreground">还没有会话。</p>
         ) : null}
         {needle && filtered.length === 0 && !pending && !error ? (
-          <p className="px-2 py-6 text-xs leading-relaxed text-subtle">没有匹配的会话</p>
+          <p className="px-2 py-6 text-xs leading-relaxed text-muted-foreground">没有匹配的会话</p>
         ) : null}
         <ul className="flex flex-col gap-0.5">
           {filtered.map((conversation) => (

@@ -10,11 +10,10 @@
    - 结果：`pnpm test` 965/965 全绿；E2E 42/43（唯一失败为真实对话在停 worker 时无消费者，属套件设计冲突）；真实模型 API 链路 6s 成功。HANDOFF 已更新。
 2. ✅ **修复后重做空库部署演练（2026-10-24 完成）**
    - 结果：`pnpm run down --clean && pnpm run up` 从零建卷迁移启动，`pnpm smoke` = SMOKE OK。修正了 smoke 对空库 `tools/list` 的错误断言（空库返回 -32601 属 MCP 协议正确行为）。
-3. **完成 UI/UX 独立审查剩余 6 轮**（当前 4/10）
-   - 现状：`docs/UI-UX-REVIEW.md` 仅 4/10；读屏、iOS、200% 缩放未实测。
-   - 验收：每轮覆盖 12 类页面并留实机证据；最终 `pnpm exec e2e run tests/regression.e2e.ts`。
-   - 已发现的候选偏差（需先复核再修）：品牌为 GIF 而非 PACE 字标；侧栏宽度用 CSS 过渡而非 Motion。
-
+3. ✅ **UI/UX 全页面独立审查（2026-10-24 完成 10/10）**
+   - 原第 5–10 轮成果未留痕；本轮以当前代码重做：4 个 Opus 审查域并行覆盖 12 类页面与浮层，修 20 项（含 2 项 P0：收起态焦点隐形、技能支持文件草稿无保护），4 个 Sonnet 修复。
+   - 验证：typecheck 全过、web 254/254、全量 965/965、build 通过、biome 0 error、lint:focus 通过；浏览器 320px 六页无溢出且各 1 个 h1。详见 docs/UI-UX-REVIEW.md。
+   - 未覆盖：真实读屏/iOS/原生 200% 缩放；`index.html` favicon 仍为 brand.gif 待另换。
 ## P1
 
 4. **真实部署验证安全项 + 收敛沙盒出站**
