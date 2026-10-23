@@ -33,10 +33,10 @@
    - 删除 `components/ui/{input-group,popover,table,message}.tsx` 中无外部引用的具名导出：`InputGroupText`/`InputGroupTextarea`、`PopoverHeader`/`PopoverTitle`/`PopoverDescription`、`TableFooter`/`TableCaption`、`MessageAvatar`/`MessageHeader`/`MessageFooter`（连同定义与随之未使用的 import），净删 123 行。
    - 删除 `docs/OPERATIONS.md` 中幻影配置 `AGENT_DEFAULT_MODEL`、`AGENT_MAX_BUDGET_USD`（`packages/api/src/config.ts` schema 从未解析，文档“仅校验”说法有误）。
    - 验证：`pnpm -r typecheck` 全过；`pnpm test` 971/971；web 254/254；`biome check packages/*/src packages/*/test` 0 error；`pnpm build` 全过。
-8. **低优先/可延后**（当前数据量与单机定位下不阻塞，保持延后）
-   - 分支 UI 仅支持从最新消息分支（API 已支持 `fromMessageId`，UI 未暴露）。
-   - agents/skills/eval 列表分页与 overview 查询合并：当前数据量下单页返回可接受，暂不做。
-   - SDK 层子智能体深度硬限制：SDK 本身不提供深度参数；单层约束已由 API 父子校验 + 子智能体 `disallowedTools` 含 `Agent` 保证，硬限需自研，暂不做。
+8. **低优先/可延后**（已逐项复核；2026-10-24）
+   - ✅ **分支 UI 支持从任意已持久化用户消息分支（2026-10-24 完成）**：每条用户消息下方常显图标按钮，走 API `fromMessageId`；`ChatItem` 用户项新增 `messageId`（`id` 是合成 `${message.id}:0`，不可作锚点）；运行详情重建步骤（空 `conversationId`）不带锚点、不显示按钮；新发/流式消息无持久化 id 不显示入口。验证：web 257/257、全量 974/974、320px 无横向溢出，浏览器实测点第一条消息分支后新会话 `branch_of_message_id=msg_vb_u1` 且仅复制 1 条消息。
+   - **列表分页与 overview 查询合并**：当前数据量下单页返回可接受，保持延后。
+   - **SDK 层子智能体深度硬限制**：SDK 本身不提供深度参数；单层约束已由 API 父子校验 + 子智能体 `disallowedTools` 含 `Agent` 保证，硬限需自研，保持延后。
 
 ---
 

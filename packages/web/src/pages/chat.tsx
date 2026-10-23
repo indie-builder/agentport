@@ -337,7 +337,14 @@ function ChatWorkspace({
   });
 
   const branchMutation = useMutation({
-    mutationFn: ({ id }: { id: string; ownsRequest: () => boolean }) => api.branchConversation(id),
+    mutationFn: ({
+      id,
+      fromMessageId,
+    }: {
+      id: string;
+      fromMessageId?: string;
+      ownsRequest: () => boolean;
+    }) => api.branchConversation(id, fromMessageId),
     onSuccess: (conversation, { ownsRequest }) => {
       if (ownsRequest()) openConversation(conversation.id);
       void client.invalidateQueries({ queryKey: ['conversations'] });
@@ -391,8 +398,12 @@ function ChatWorkspace({
   };
 
   // 分支：服务端复制消息，前端切到新会话；列表由 query 失效后刷新。
-  const branch = (id: string): void =>
-    branchMutation.mutate({ id, ownsRequest: stream.captureRequest() });
+  const branch = (id: string, fromMessageId?: string): void =>
+    branchMutation.mutate({
+      id,
+      ...(fromMessageId === undefined ? {} : { fromMessageId }),
+      ownsRequest: stream.captureRequest(),
+    });
 
   // URL → store：只清掉属于别的会话的本地状态；自己发送时 store 已先于 URL 写入，这里不动。
   useEffect(() => {
@@ -494,6 +505,10 @@ function ChatWorkspace({
       onCancel={cancel}
       onOpenHistory={() => setHistoryOpen(true)}
       onPickSuggestion={setInput}
+      onBranchMessage={branch}
+      branchingMessageId={
+        branchMutation.isPending ? (branchMutation.variables?.fromMessageId ?? null) : null
+      }
       onLoadOlder={loadOlder}
       hasOlder={Boolean(historyPrefix?.conversationId === conversationId && detail.hasNextPage)}
       loadingOlder={detail.isFetchingNextPage}
@@ -868,6 +883,8 @@ function ChatColumn({
   onCancel,
   onOpenHistory,
   onPickSuggestion,
+  onBranchMessage,
+  branchingMessageId,
   onLoadOlder,
   hasOlder,
   loadingOlder,
@@ -897,6 +914,8 @@ function ChatColumn({
   onCancel: () => void;
   onOpenHistory: () => void;
   onPickSuggestion: (text: string) => void;
+  onBranchMessage: (conversationId: string, messageId: string) => void;
+  branchingMessageId: string | null;
   onLoadOlder: () => void;
   hasOlder: boolean;
   loadingOlder: boolean;
@@ -985,6 +1004,11 @@ function ChatColumn({
         approvals={approvals}
         approvalItems={pendingApprovals}
         lastRun={lastRun}
+        onBranchMessage={(messageId) => {
+          if (conversationId) onBranchMessage(conversationId, messageId);
+        }}
+        branchingMessageId={branchingMessageId}
+        running={Boolean(run)}
         welcome={
           showWelcome ? (
             <WelcomeState agent={agent} onPick={onPickSuggestion}>
@@ -1230,7 +1254,7 @@ function RunStatusBar({
   );
 }
 
-function MessagePane({
+export function MessagePane({
   items,
   loading,
   error,
@@ -1243,6 +1267,9 @@ function MessagePane({
   approvals,
   approvalItems,
   lastRun,
+  onBranchMessage,
+  branchingMessageId,
+  running,
 }: {
   items: ChatItem[];
   loading: boolean;
@@ -1259,6 +1286,9 @@ function MessagePane({
   };
   approvalItems: ApprovalRequest[];
   lastRun: RunMetrics | null;
+  onBranchMessage: (messageId: string) => void;
+  branchingMessageId: string | null;
+  running: boolean;
 }) {
   const reduce = useReducedMotion();
   const turns = useMemo(
@@ -1324,59 +1354,79 @@ function MessagePane({
               </MessageScrollerItem>
             ) : null}
             {!loading && !error && items.length > 0
-              ? turns.map((turn, turnIndex) => (
-                  <MessageScrollerItem key={turn.id} messageId={turn.id}>
-                    {/* Keep 15px conversation text instead of the base message's text-sm. */}
-                    <Message align={turn.user ? 'end' : 'start'} className="text-md">
-                      <MessageContent
-                        // Keep the user's pill surface; MessageContent supplies layout without a bubble appearance.
-                        className={cn(
-                          'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
-                          turn.user && 'w-fit max-w-[85%] rounded-pill bg-hover px-4 py-2',
-                        )}
-                      >
-                        <span className="sr-only">{turn.user ? '用户' : '助手'}</span>
-                        <MessageGroup className="min-w-0 gap-4">
-                          {turn.items.map((item, index) => {
-                            // 有归属的子调用由父行渲染，不在顶层重复出现。
-                            if (item.kind === 'tool') {
-                              if (structure.root.has(item.toolUseId)) return null;
+              ? turns.map((turn, turnIndex) => {
+                  const messageId = turn.user ? userMessageId(turn.items) : undefined;
+                  return (
+                    <MessageScrollerItem key={turn.id} messageId={turn.id}>
+                      {/* Keep 15px conversation text instead of the base message's text-sm. */}
+                      <Message align={turn.user ? 'end' : 'start'} className="text-md">
+                        <MessageContent
+                          // Keep the user's pill surface; MessageContent supplies layout without a bubble appearance.
+                          className={cn(
+                            'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
+                            turn.user && 'w-fit max-w-[85%] rounded-pill bg-hover px-4 py-2',
+                          )}
+                        >
+                          <span className="sr-only">{turn.user ? '用户' : '助手'}</span>
+                          <MessageGroup className="min-w-0 gap-4">
+                            {turn.items.map((item, index) => {
+                              // 有归属的子调用由父行渲染，不在顶层重复出现。
+                              if (item.kind === 'tool') {
+                                if (structure.root.has(item.toolUseId)) return null;
+                                return (
+                                  <ToolGroup
+                                    key={item.toolUseId}
+                                    tool={item}
+                                    kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
+                                    approvalItems={approvalItems}
+                                    pending={approvals.pending}
+                                    onApprove={approvals.onApprove}
+                                  />
+                                );
+                              }
                               return (
-                                <ToolGroup
-                                  key={item.toolUseId}
-                                  tool={item}
-                                  kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
-                                  approvalItems={approvalItems}
-                                  pending={approvals.pending}
-                                  onApprove={approvals.onApprove}
-                                />
+                                // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
+                                <MessagePart key={`${index}-${item.kind}`} item={item} />
                               );
-                            }
-                            return (
-                              // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
-                              <MessagePart key={`${index}-${item.kind}`} item={item} />
-                            );
-                          })}
-                        </MessageGroup>
-                        {!turn.user && turnIndex === turns.length - 1 ? (
-                          <>
-                            {lastRun ? <RunMetricsLine run={lastRun} /> : null}
-                            {approvalItems
-                              .filter((item) => !placed.has(item.id))
-                              .map((item) => (
-                                <ApprovalCard
-                                  key={item.id}
-                                  item={item}
-                                  pending={approvals.pending}
-                                  onApprove={approvals.onApprove}
-                                />
-                              ))}
-                          </>
-                        ) : null}
-                      </MessageContent>
-                    </Message>
-                  </MessageScrollerItem>
-                ))
+                            })}
+                          </MessageGroup>
+                          {!turn.user && turnIndex === turns.length - 1 ? (
+                            <>
+                              {lastRun ? <RunMetricsLine run={lastRun} /> : null}
+                              {approvalItems
+                                .filter((item) => !placed.has(item.id))
+                                .map((item) => (
+                                  <ApprovalCard
+                                    key={item.id}
+                                    item={item}
+                                    pending={approvals.pending}
+                                    onApprove={approvals.onApprove}
+                                  />
+                                ))}
+                            </>
+                          ) : null}
+                        </MessageContent>
+                      </Message>
+                      {messageId ? (
+                        <div className="mt-1 flex justify-end">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="从这条消息分支"
+                            disabled={branchingMessageId !== null || running}
+                            onClick={() => onBranchMessage(messageId)}
+                          >
+                            {branchingMessageId === messageId ? (
+                              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <GitBranch className="size-4" aria-hidden="true" />
+                            )}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </MessageScrollerItem>
+                  );
+                })
               : null}
           </MessageScrollerContent>
         </MessageScrollerViewport>
@@ -1394,6 +1444,14 @@ function MessagePane({
       </MessageScroller>
     </MessageScrollerProvider>
   );
+}
+
+/** 分支需要原始消息 id；新发/流式消息没有，按不可分支处理。 */
+function userMessageId(items: ChatItem[]): string | undefined {
+  for (const item of items) {
+    if (item.kind === 'user' && item.messageId) return item.messageId;
+  }
+  return undefined;
 }
 
 function messageTurns(items: ChatItem[], hasFooter: boolean) {
