@@ -80,8 +80,15 @@ if [ -n "${PLATFORM_MCP_TOKEN:-}" ]; then
   check POST /mcp 200 -H "authorization: Bearer $PLATFORM_MCP_TOKEN" \
     -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
     -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
-  # 空库时 tools 为空数组也算通过：部署成功不代表已经建过智能体。
-  grep -q '"tools"' "$BODY_FILE" || fail "tools/list 响应缺 tools：$(cat "$BODY_FILE")"
+  # 空库时零工具：MCP 不宣告 tools capability，tools/list 合法地返回 -32601。
+  # 有工具时必须返回 tools 数组。两者都算部署成功。
+  if grep -q '"tools"' "$BODY_FILE"; then
+    echo "ok  tools/list 返回 tools"
+  elif grep -q '"code":-32601' "$BODY_FILE"; then
+    echo "ok  tools/list 返回 -32601（空库无工具，符合 MCP 协议）"
+  else
+    fail "tools/list 响应既无 tools 也无 -32601：$(cat "$BODY_FILE")"
+  fi
 fi
 
 echo "SMOKE OK"

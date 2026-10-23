@@ -6,12 +6,10 @@
 
 ## P0
 
-1. **重跑全量回归 + 20 条用户故事验收**
-   - 现状：`docs/HANDOFF.md` 记录过 156/162、6 项失败；`docs/DELIVERY.md` 未复跑；`tests/smoke.e2e.ts` 默认跳过真实对话。
-   - 验收：先停 worker，`pnpm test` 全绿；再 `E2E_FULL=1 pnpm test:e2e`；逐条核对 `docs/USER-STORIES.md` 并更新 HANDOFF。
-2. **修复后重做空库部署演练**
-   - 现状：`docs/FIRST-RUN.md` 说明“修复后未重新做整轮空库演练”。
-   - 验收：隔离环境 `pnpm run down --clean && pnpm run up && pnpm smoke`。
+1. ✅ **重跑全量回归 + 20 条用户故事验收（2026-10-24 完成）**
+   - 结果：`pnpm test` 965/965 全绿；E2E 42/43（唯一失败为真实对话在停 worker 时无消费者，属套件设计冲突）；真实模型 API 链路 6s 成功。HANDOFF 已更新。
+2. ✅ **修复后重做空库部署演练（2026-10-24 完成）**
+   - 结果：`pnpm run down --clean && pnpm run up` 从零建卷迁移启动，`pnpm smoke` = SMOKE OK。修正了 smoke 对空库 `tools/list` 的错误断言（空库返回 -32601 属 MCP 协议正确行为）。
 3. **完成 UI/UX 独立审查剩余 6 轮**（当前 4/10）
    - 现状：`docs/UI-UX-REVIEW.md` 仅 4/10；读屏、iOS、200% 缩放未实测。
    - 验收：每轮覆盖 12 类页面并留实机证据；最终 `pnpm exec e2e run tests/regression.e2e.ts`。

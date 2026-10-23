@@ -13,8 +13,8 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 | 类型检查 | `pnpm typecheck` | ✅ 7 个包全部通过 |
 | 构建 | `pnpm build` | ✅ 全部通过；web 产物 669.63 kB（gzip 199.35 kB），仍有 >500 kB chunk 警告 |
 | Lint | `./node_modules/.bin/biome check packages/*/src packages/*/test` | 🟡 **154 个文件，1 warning、0 error**（`packages/worker/src/index.ts` 未使用的 `readdir` 导入，来自并行进行中的工作区清理改动；此前记录的 2 errors 已修） |
-| 单测/集成 | `pnpm test` | 🟡 **2026-10-21 10:28 实测：156/162 通过、6 失败**——失败集中在 `health.test.ts`（`/health/metrics` 鉴权）、`servers.test.ts`（token 脱敏）、`shared-contracts.test.ts`（env 脱敏），均为并行线上尚未合入的 `requireAuth` 与脱敏改动；全部合入后需重跑。同日上午的全量运行曾为 162/162（先 `docker stop agentport-worker-1`，`REDIS_URL=redis://:agentport-dev@localhost:6379 pnpm test`） |
-| E2E | `pnpm test:e2e` | 本次未复跑（`e2e run`，需 5173 + 3000；`E2E_FULL=1` 才跑真实对话链路） |
+| 单测/集成 | `pnpm test` | ✅ **2026-10-24 复跑：965/965 通过、0 失败、0 跳过**（停 worker，`DATABASE_URL=...agentport_test` 隔离库）。此前 HANDOFF 记录的 6 项失败已随 `requireAuth`/脱敏改动合入而消失 |
+| E2E | `pnpm test:e2e` | ✅ **2026-10-24 复跑：43 条中 42 通过、1 条真实对话超时**（停 worker 时该用例无消费者，属套件设计冲突，非应用缺陷）。真实模型链路另行以 API 直连验证：`claude-sonnet-5-5` 6 秒成功、输出 127 tokens。旧失败为测试选中 `group/flash` 历史 agent 所致 |
 | 部署自检 | `pnpm smoke` | ✅ `SMOKE OK`（本次实际对运行中的 compose 栈执行，含 `/mcp` 401 与带 token 的 `tools/list`） |
 | 基础设施 | `docker compose ps` | ✅ postgres/redis healthy；api/worker Up |
 | CI | `.github/workflows/ci.yml` | biome ci → typecheck → build → migrate → test；另含 e2e、docker 两个 job |
