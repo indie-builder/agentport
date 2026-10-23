@@ -2,14 +2,23 @@ import type {
   Agent,
   AgentInput,
   AgentPatch,
+  AgentStats,
   ApiTool,
   ApiToolInput,
+  Attention,
+  BoardSummary,
   ChatRequest,
   ConversationSummary,
   EvalDataset,
   EvalDatasetImportResult,
   EvalRunExport,
+  MemoryFile,
+  MemoryFileContent,
+  MemoryFileList,
   Problem,
+  Schedule,
+  ScheduleInput,
+  SchedulePatch,
   Server,
   ServerInput,
   ServerTestResult,
@@ -493,8 +502,17 @@ export const api = {
   deleteAgent: (id: string): Promise<void> => request(`/agents/${id}`, 'DELETE'),
   agentFiles: (id: string): Promise<AgentFiles> => request(`/agents/${id}/files`),
   agentVersions: (id: string): Promise<AgentVersionSummary[]> => request(`/agents/${id}/versions`),
+  agentMemory: (id: string): Promise<MemoryFileList> => request(`/agents/${id}/memory`),
+  agentMemoryFile: (id: string, name: string): Promise<MemoryFileContent> =>
+    request(`/agents/${id}/memory/${encodeURIComponent(name)}`),
+  writeAgentMemoryFile: (id: string, name: string, content: string): Promise<MemoryFileContent> =>
+    request(`/agents/${id}/memory/${encodeURIComponent(name)}`, 'PUT', { content }),
+  deleteAgentMemoryFile: (id: string, name: string): Promise<void> =>
+    request(`/agents/${id}/memory/${encodeURIComponent(name)}`, 'DELETE'),
   agentVersion: (id: string, version: number): Promise<AgentVersionDetail> =>
     request(`/agents/${id}/versions/${version}`),
+  agentStats: (id: string, days = 30): Promise<AgentStats> =>
+    request(`/agents/${id}/stats?days=${days}`),
   rollbackAgent: (id: string, version: number): Promise<Agent> =>
     request(`/agents/${id}/rollback`, 'POST', { version }),
   exportAgent: (id: string): Promise<AgentExport> => request(`/export/agents/${id}`),
@@ -569,6 +587,13 @@ export const api = {
     return request(`/runs/export${search}`);
   },
   run: (id: string): Promise<RunDetail> => request(`/runs/${id}`),
+  attention: (): Promise<Attention> => request('/attention'),
+  boardSummary: (days = 30): Promise<BoardSummary> => request(`/runs/board?days=${days}`),
+  schedules: (): Promise<Schedule[]> => request('/schedules'),
+  createSchedule: (input: ScheduleInput): Promise<Schedule> => request('/schedules', 'POST', input),
+  updateSchedule: (id: string, input: SchedulePatch): Promise<Schedule> =>
+    request(`/schedules/${id}`, 'PATCH', input),
+  deleteSchedule: (id: string): Promise<void> => request(`/schedules/${id}`, 'DELETE'),
 
   audit: (query: AuditQuery = {}): Promise<AuditList> => {
     const params = new URLSearchParams();

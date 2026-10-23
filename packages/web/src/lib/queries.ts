@@ -2,10 +2,18 @@ import type {
   Agent,
   AgentInput,
   AgentPatch,
+  AgentStats,
   ApiTool,
   ApiToolInput,
+  Attention,
+  BoardSummary,
   ChatRequest,
   EvalDataset,
+  MemoryFileContent,
+  MemoryFileList,
+  Schedule,
+  ScheduleInput,
+  SchedulePatch,
   Server,
   ServerInput,
   ServerTestResult,
@@ -79,6 +87,55 @@ export const overviewQuery = queryOptions<Overview | null>({
   queryFn: api.overview,
   staleTime: 15_000,
 });
+
+// ---- 以下为运营层（待办/看板/定时/统计/记忆）的查询与变更，集中在此供各页面复用 ----
+export const attentionQuery = queryOptions<Attention>({
+  queryKey: ['attention'],
+  queryFn: api.attention,
+  refetchInterval: 15_000,
+});
+
+export const boardSummaryQuery = (days = 30) =>
+  queryOptions<BoardSummary>({
+    queryKey: ['board-summary', days],
+    queryFn: () => api.boardSummary(days),
+    staleTime: 15_000,
+  });
+
+export const schedulesQuery = queryOptions<Schedule[]>({
+  queryKey: ['schedules'],
+  queryFn: api.schedules,
+});
+
+export const agentStatsQuery = (id: string, days = 30) =>
+  queryOptions<AgentStats>({
+    queryKey: ['agent-stats', id, days],
+    queryFn: () => api.agentStats(id, days),
+  });
+
+export const agentMemoryQuery = (id: string) =>
+  queryOptions<MemoryFileList>({
+    queryKey: ['agent-memory', id],
+    queryFn: () => api.agentMemory(id),
+  });
+
+export const agentMemoryFileQuery = (id: string, name: string) =>
+  queryOptions<MemoryFileContent>({
+    queryKey: ['agent-memory-file', id, name],
+    queryFn: () => api.agentMemoryFile(id, name),
+  });
+
+export function useAttention() {
+  return useQuery(attentionQuery);
+}
+
+export function useSchedules() {
+  return useQuery(schedulesQuery);
+}
+
+export function useAgentStats(id: string, days = 30) {
+  return useQuery(agentStatsQuery(id, days));
+}
 
 export function useMe() {
   return useQuery(meQuery);

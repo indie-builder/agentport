@@ -1,5 +1,5 @@
 import { fail, isAppError, parseAgentMd } from '@agentport/core';
-import { repo as allRepo } from '@agentport/db';
+import { repo as allRepo, schema } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
 import {
@@ -11,11 +11,18 @@ import {
   permissionModeSchema,
   slugSchema,
 } from '@agentport/shared';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import {
+  deleteMemoryFile,
+  listMemoryFiles,
+  readMemoryFile,
+  writeMemoryFile,
+} from './memory-files.js';
 import { allowedToolsSchema, unsupportedAllowedTool } from './validation.js';
 import { renderAgentWorkspace } from './workspace.js';
 
@@ -28,6 +35,9 @@ const subAgentFileParams = z.object({
   id: z.string().min(1),
   childId: z.string().min(1),
 });
+const memoryParams = z.object({ id: z.string().min(1) });
+const memoryFileParams = z.object({ id: z.string().min(1), name: z.string().min(1) });
+const memoryWriteBody = z.object({ content: z.string().max(200_000) });
 
 /** default/acceptEdits 直接透传 SDK；auto 依赖无法审计的模型分类器，暂不开放。 */
 const unsupportedPermissionModes = new Set(['auto']);
@@ -479,6 +489,87 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       } catch (err) {
         rethrowConflict(err);
       }
+    },
+  );
+
+  // 长期记忆：Claude Code 原生 auto-memory（MEMORY.md + 主题文件），平台只浏览/编辑。
+  // 目录是 WORKSPACES_DIR/<slug>/agent-memory/，worker 每次运行只读挂载进容器。
+  const memorySlug = async (agentId: string): Promise<string | null> => {
+    const [row] = await app.db
+      .select({ slug: schema.agents.slug })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, agentId))
+      .limit(1);
+    return row?.slug ?? null;
+  };
+
+  app.get(
+    '/api/agents/:id/memory',
+    { ...auth, schema: { params: memoryParams } },
+    async (request, reply) => {
+      const slug = await memorySlug(request.params.id);
+      if (!slug) return notFound(reply);
+      return listMemoryFiles(app.config.WORKSPACES_DIR, slug);
+    },
+  );
+
+  app.get(
+    '/api/agents/:id/memory/:name',
+    { ...auth, schema: { params: memoryFileParams } },
+    async (request, reply) => {
+      const slug = await memorySlug(request.params.id);
+      if (!slug) return notFound(reply);
+      const file = await readMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
+      if (!file) return notFound(reply);
+      return file;
+    },
+  );
+
+  app.put(
+    '/api/agents/:id/memory/:name',
+    { ...auth, schema: { params: memoryFileParams, body: memoryWriteBody } },
+    async (request, reply) => {
+      const slug = await memorySlug(request.params.id);
+      if (!slug) return notFound(reply);
+      try {
+        const file = await writeMemoryFile(
+          app.config.WORKSPACES_DIR,
+          slug,
+          request.params.name,
+          request.body.content,
+        );
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.memory.write',
+          target: request.params.id,
+          input: { name: request.params.name },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return file;
+      } catch {
+        return reject(reply, 'INVALID_INPUT', '记忆文件名非法：只允许 <name>.md');
+      }
+    },
+  );
+
+  app.delete(
+    '/api/agents/:id/memory/:name',
+    { ...auth, schema: { params: memoryFileParams } },
+    async (request, reply) => {
+      const slug = await memorySlug(request.params.id);
+      if (!slug) return notFound(reply);
+      const removed = await deleteMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
+      if (!removed) return notFound(reply);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.memory.delete',
+        target: request.params.id,
+        input: { name: request.params.name },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(204).send();
     },
   );
 }

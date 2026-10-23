@@ -32,6 +32,7 @@ import {
   useOverview,
   useRuns,
 } from '../lib/queries.js';
+import { AttentionPanel, BoardSummaryCards } from './ops.js';
 
 const agentColumns: DataColumn<OverviewAgentRow>[] = [
   {
@@ -393,6 +394,8 @@ export function OverviewPage() {
 
       {!loading && !error && !empty ? (
         <>
+          <BoardSummaryCards />
+          <AttentionPanel />
           <section className="grid grid-cols-2 gap-4 xl:grid-cols-4" aria-label="平台概况">
             {[
               { label: '专家', value: counts.agents, hint: null, icon: Bot },

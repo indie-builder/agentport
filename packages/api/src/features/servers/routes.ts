@@ -298,6 +298,12 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
         durationMs: result.durationMs,
         requestId: request.id,
       });
+      await repo.recordTestResult(
+        app.db,
+        server.id,
+        result.ok,
+        result.ok ? result.tools.length : null,
+      );
       return serverTestResultSchema.parse(result);
     },
   );

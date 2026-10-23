@@ -18,6 +18,16 @@ export function strArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
+/** 记录一次测试连接结果（连接健康度），供列表持久展示。 */
+export async function recordTestResult(
+  db: Db,
+  id: string,
+  ok: boolean,
+  toolCount: number | null,
+): Promise<void> {
+  await serverRepo.recordTestResult(db, id, ok, toolCount);
+}
+
 /** DB 行 + 解密后的 env/headers → 共享 Server 形状（仍含明文 secret）。 */
 export function toApiServer(row: ServerRow, keyB64url: string): Server {
   const secrets = row.secretsEncrypted ? decryptSecrets(row.secretsEncrypted, keyB64url) : {};
@@ -27,6 +37,9 @@ export function toApiServer(row: ServerRow, keyB64url: string): Server {
     description: row.description,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    lastTestedAt: row.lastTestedAt ? row.lastTestedAt.toISOString() : null,
+    lastTestOk: row.lastTestOk,
+    lastToolCount: row.lastToolCount,
   };
   const config = row.config;
   if (row.kind === 'stdio') {

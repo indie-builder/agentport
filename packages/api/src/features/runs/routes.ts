@@ -11,6 +11,7 @@ const runsRepo = repo.runs;
 const listQuery = z.object({
   agentId: z.string().min(1).optional(),
   status: runStatusSchema.optional(),
+  trigger: z.enum(['chat', 'mcp', 'schedule', 'event']).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
@@ -36,10 +37,11 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
     '/api/runs',
     { ...auth, schema: { querystring: listQuery, response: { 200: runListSchema } } },
     async (request) => {
-      const { agentId, status, limit } = request.query;
+      const { agentId, status, trigger, limit } = request.query;
       const items = await runsRepo.listRuns(app.db, {
         ...(agentId === undefined ? {} : { agentId }),
         ...(status === undefined ? {} : { status }),
+        ...(trigger === undefined ? {} : { trigger }),
         limit,
       });
 

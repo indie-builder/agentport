@@ -40,6 +40,7 @@ import {
   runInSandbox,
 } from './runner-client.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
+import { startScheduleTicker } from './scheduler.js';
 
 const config = loadConfig();
 const logger = pino({ level: config.LOG_LEVEL });
@@ -186,7 +187,6 @@ function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
     SANDBOX_API_URL: apiUrl,
     // 根文件系统只读；SDK 写会话缓存的目录是 tmpfs（见 docker.ts）。
     CLAUDE_CONFIG_DIR: '/home/node/.claude',
-    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
   };
   if (modelProxy) {
     env.ANTHROPIC_BASE_URL = modelProxy.url;
@@ -375,6 +375,13 @@ const worker = new Worker(
       workspaceDirForRun = workspaceDir;
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');
 
+      // 长期记忆：宿主持久目录，跨 run 累积；挂到容器 CLAUDE_CONFIG_DIR/agent-memory，
+      // runner 用 settings.autoMemoryDirectory 指过去。API 侧也读写同一目录。
+      const memoryHostDir = join(workspacesDir, agent.slug, 'agent-memory');
+      // 容器内以 uid 1000 运行并需读写记忆；跨 uid（Linux 下 worker 常为 root）要给足权限。
+      await mkdir(memoryHostDir, { recursive: true, mode: 0o777 });
+      await chmod(memoryHostDir, 0o777).catch(() => undefined);
+
       runStartedAt = Date.now();
       outcome = await runInSandbox({
         runId,
@@ -401,6 +408,13 @@ const worker = new Worker(
         workspaceDir: toHostWorkspacePath(workspaceDir),
         image: config.SANDBOX_IMAGE,
         env: sandboxEnv(sandboxApiUrl, runId),
+        extraMounts: [
+          {
+            hostPath: join(hostWorkspacesDir, agent.slug, 'agent-memory'),
+            containerPath: '/mnt/agent-memory',
+            readonly: false,
+          },
+        ],
         provider,
         logger: logger.child({ runId }),
       });
@@ -589,6 +603,12 @@ installProcessGuards(logger);
 
 logger.info('worker started');
 
+const scheduleTicker = startScheduleTicker({
+  db,
+  logger,
+  redisUrl: config.REDIS_URL,
+});
+
 const SHUTDOWN_WAIT_MS = 10_000;
 const POOL_WAIT_MS = 2_000;
 
@@ -610,6 +630,7 @@ const shutdown = async (): Promise<void> => {
   const closing = Promise.allSettled([worker.close(), evalWorker.close()]);
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
+  await scheduleTicker.stop();
   await stopReconciler();
   await provider.destroyAll();
   await Promise.race([closing, sleep(POOL_WAIT_MS)]);

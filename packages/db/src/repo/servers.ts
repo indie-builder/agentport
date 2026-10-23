@@ -47,6 +47,19 @@ export async function listServers(db: Database): Promise<ServerRow[]> {
   return db.select().from(servers).orderBy(asc(servers.createdAt), asc(servers.id));
 }
 
+/** 记录一次「测试连接」结果，供列表展示连接健康度；不影响配置本身。 */
+export async function recordTestResult(
+  db: Database,
+  id: string,
+  ok: boolean,
+  toolCount: number | null,
+): Promise<void> {
+  await db
+    .update(servers)
+    .set({ lastTestedAt: new Date(), lastTestOk: ok, lastToolCount: toolCount })
+    .where(eq(servers.id, id));
+}
+
 export async function getServer(db: Database | Tx, id: string): Promise<ServerRow | null> {
   const [row] = await db.select().from(servers).where(eq(servers.id, id)).limit(1);
   return row ?? null;

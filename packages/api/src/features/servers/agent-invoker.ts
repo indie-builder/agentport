@@ -52,6 +52,7 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
           id: newId('run'),
           conversationId: conversation.id,
           agentId: agent.id,
+          trigger: 'mcp',
         });
         await repo.chat.appendMessage(app.db, {
           id: newId('message'),

@@ -198,6 +198,7 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
         agentId: agent.id,
         agentName: agent.name,
         status: 'succeeded',
+        trigger: 'chat',
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
         latencyMs: 1500,

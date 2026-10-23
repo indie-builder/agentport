@@ -20,7 +20,9 @@ import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
+  BarChart3,
   Bot,
+  Brain,
   Check,
   ChevronRight,
   Download,
@@ -129,6 +131,8 @@ import {
   useUpdateAgent,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { MemoryPanel } from './memory-panel.js';
+import { AgentStatsPanel } from './ops.js';
 
 /**
  * 模型名由部署的网关决定，不是平台常量：直连 Anthropic 时是 claude-*，
@@ -749,7 +753,7 @@ export function AgentEditor({
   const pending = update.isPending || reloading || rollingBack;
   const [form, setForm] = useState<AgentInput>(() => toInput(agent));
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [mode, setMode] = useState<'config' | 'files'>('config');
+  const [mode, setMode] = useState<'config' | 'files' | 'memory' | 'stats'>('config');
   const [activeSection, setActiveSection] = useState<SectionId>('identity');
   const [activeFile, setActiveFile] = useState<(typeof fileTabs)[number][0]>('mcpJson');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -1257,11 +1261,44 @@ export function AgentEditor({
                 </button>
               </li>
             ))}
+            <li className="md:mt-3 md:border-t md:pt-1">
+              <p className="px-2 pt-1 pb-0.5 text-2xs text-subtle">记忆</p>
+            </li>
+            <li>
+              <button
+                type="button"
+                aria-current={mode === 'memory' ? 'true' : undefined}
+                onClick={() => setMode('memory')}
+                className={sectionButtonClass(mode === 'memory')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Brain aria-hidden="true" /> 长期记忆
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                aria-current={mode === 'stats' ? 'true' : undefined}
+                onClick={() => setMode('stats')}
+                className={sectionButtonClass(mode === 'stats')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <BarChart3 aria-hidden="true" /> 运行统计
+                </span>
+              </button>
+            </li>
           </ul>
         </nav>
 
         <div className="min-w-0">
-          {mode === 'config' ? (
+          {mode === 'memory' ? (
+            <div className="min-w-0">
+              <MemoryPanel agentId={agent.id} />
+            </div>
+          ) : mode === 'stats' ? (
+            <AgentStatsPanel agentId={agent.id} />
+          ) : mode === 'config' ? (
             <form
               noValidate
               onSubmit={(event) => {

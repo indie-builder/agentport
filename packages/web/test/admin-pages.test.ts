@@ -80,6 +80,10 @@ vi.mock('../src/lib/queries.js', () => ({
   useCreateEvalCase: () => ({ isPending: state.pending, mutate: state.mutate }),
   useUpdateEvalCase: () => ({ isPending: state.pending, mutate: state.mutate }),
   useDeleteEvalCase: () => ({}),
+  // 运营层组件（工作台里嵌入的看板/待办）依赖这些 hook；返回空数据即可。
+  useAttention: () => ({ data: { approvals: [], failedRuns: [], total: 0 }, isSuccess: true }),
+  attentionQuery: { queryKey: ['attention'] },
+  boardSummaryQuery: () => ({ queryKey: ['board-summary'] }),
 }));
 // Portals don't render on the server; keep the editor's actual fields and handlers.
 vi.mock('../src/components/dialog-shell.js', () => ({

@@ -565,7 +565,21 @@ function ServerCard({
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
-        <Badge variant="secondary">{kindMeta[server.kind].label}</Badge>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Badge variant="secondary">{kindMeta[server.kind].label}</Badge>
+          {server.lastTestOk === true ? (
+            <span
+              className="text-xs text-muted-foreground"
+              title={
+                server.lastTestedAt ? `测试于 ${formatDateTime(server.lastTestedAt)}` : undefined
+              }
+            >
+              连接正常{server.lastToolCount != null ? ` · ${server.lastToolCount} 工具` : ''}
+            </span>
+          ) : server.lastTestOk === false ? (
+            <span className="text-xs text-danger">上次测试失败</span>
+          ) : null}
+        </div>
         <code className="truncate font-mono text-xs text-muted-foreground" title={detailOf(server)}>
           {detailOf(server) || '—'}
         </code>

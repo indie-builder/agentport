@@ -464,6 +464,18 @@
 
 **边界**：页面保留的是已接收文本，不保证可持久化或恢复已删除记录；会话URL不主动重写。客户端与API独立复审均无阻塞；按复审补清空lastRunId，避免已删除运行详情入口和审批查询，新增断言先红后绿。该修正后的最终全量583/583及完整浏览器42通过1跳过，类型lint构建通过，worker恢复；第50轮已结算并停止循环。只删除本次验收自建行，不触及真实业务数据。
 
+## D-61 ✅ 长期记忆走 Claude Code 原生 auto-memory（2026-10-23）
+
+**采用**：不新建记忆表、不定义私有记忆格式。启用 SDK 原生 auto-memory（`settings.autoMemoryEnabled` + `autoMemoryDirectory`），目录是官方 `MEMORY.md` + 主题文件；宿主落到 `WORKSPACES_DIR/<slug>/agent-memory/`（跨 run 持久、0777 供容器 uid 1000 读写），每次运行以 rw 挂到容器 `/mnt/agent-memory`，runner 指向该目录。平台只做浏览/编辑（`/api/agents/:id/memory[/:name]`，PUT/DELETE，文件名白名单防穿越）。移除旧的 `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`。
+
+**边界**：记忆是机器本地、按 agent 的目录，不跨机同步；不得把项目级 `autoMemoryDirectory` 放进仓库 settings（受官方安全限制）。已用真实 dev 栈验证写/读/列表/删除与浏览器记忆页；未跑真实模型长会话以观察自动“保存记忆”。
+
+## D-62 ✅ 定时任务与任务看板走平台运营层，不进 `.claude/`（2026-10-23）
+
+**采用**：调度、任务看板、待办聚合是平台运营层，不进智能体定义文件。定时任务用新表 `agent_schedules` + worker 的 30s ticker（条件更新 `next_due_at` 去重领取），触发复用既有 BullMQ 运行队列起 `trigger='schedule'` 的运行；不引入第二套调度引擎。触发器列与看板统计基于 `agent_runs` 的 `trigger` 列（chat/mcp/schedule/event）。版本锁定新增 `agent_runs.agent_version`（建运行时不回填，按当前专家版本可追溯的后续工作保留）。
+
+**边界**：单机 ticker；多 worker 靠 claim 的条件更新去重但仍依赖单一 DB 时钟。cron 用极简 5 段 UTC 解析（分 时 日 月 周，支持 `* , - /`，不支持 L/W/#）。
+
 ## 决策记录格式
 
 决策后请在此处标注：

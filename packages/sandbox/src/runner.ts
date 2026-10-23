@@ -210,7 +210,13 @@ try {
       cwd: '/workspace',
       settingSources: ['project'],
       // .mcp.json 里的 server 默认需要审批；无人值守时不批准就等于零工具静默成功。
-      settings: { enableAllProjectMcpServers: true },
+      // 长期记忆用 Claude Code 原生 auto-memory：目录由 worker 从宿主持久卷挂到这里，
+      // 跨 run 累积；平台侧只做浏览/编辑，不另造记忆格式。
+      settings: {
+        enableAllProjectMcpServers: true,
+        autoMemoryEnabled: true,
+        autoMemoryDirectory: '/mnt/agent-memory',
+      },
       // 用户文本是纯文本：不要做 @路径展开或斜杠命令解析。
       verbatimPrompts: true,
       // 子智能体的文本也要流出来，否则前端看不到它们的回答。
@@ -226,7 +232,7 @@ try {
       ...(task.effort === undefined ? {} : { effort: task.effort }),
       ...(task.maxThinkingTokens === undefined
         ? {}
-        : { maxThinkingTokens: task.maxThinkingTokens }),
+        : { thinking: { type: 'enabled', budgetTokens: task.maxThinkingTokens } }),
       abortController,
       ...(task.model === undefined ? {} : { model: task.model }),
     },

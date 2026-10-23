@@ -178,7 +178,7 @@ data/workspaces/<agent-slug>/<run-id>/
 |---|---|---|
 | `CLAUDE.md` 或 `.claude/CLAUDE.md` | project source 加载上下文，与是否使用 claude_code systemPrompt preset 无关 | 已生成根文件 |
 | `.claude/rules/**/*.md` | project source；支持按路径组织规则，具体匹配按官方规则 | 尚未提供规则管理 |
-| `.claude/settings.json` | cwd 下 project settings；权限、环境、Hooks 等按该键允许的作用域生效 | 主要配置仍通过 query options；尚未完整文件往返 |
+| `.claude/settings.json` | cwd 下 project settings；权限、环境、Hooks 等按该键允许的作用域生效 | 主要配置仍通过 query options；尚未完整文件往返。**原生 auto-memory 已启用**：runner 通过 `settings.autoMemoryEnabled/autoMemoryDirectory` 指向挂载目录 |
 | `.claude/settings.local.json`、根 `CLAUDE.local.md` | local source；本地覆盖，不作为共享包默认内容 | 当前只启用 project，不默认加载 |
 | `.mcp.json`（工作区根） | project source；连接与工具权限需实际验证 | 已生成运行时配置；受限HTTP/stdio文件可事务导入且凭证加密，不执行命令/测试连接；不支持字段与模板明确拒绝，导出不含密钥 |
 | `.claude/skills/<name>/SKILL.md` 与其支持资源 | project source 发现；技能启用、可用工具由 SDK 配置控制 | 单文件生成、下载、受限导入已实现；真实CLI正负发现通过，绑定slug原生许可已接入；支持资源与实际模型调用待验收 |
@@ -187,7 +187,7 @@ data/workspaces/<agent-slug>/<run-id>/
 | `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 尚未接入 |
 | Hooks | 由 settings.json 的 hooks 配置或 SDK callbacks 注册；脚本目录本身不是自动发现入口 | 平台层回调与工作区文件Hooks需分别核对，不能仅创建hooks目录声称生效 |
 | 插件根中的 `.claude-plugin/plugin.json`、skills/agents/hooks/.mcp.json | SDK plugins 指定本地插件根；不是默认扫描项目 `.claude/plugins/` | 尚未接入本地插件包 |
-| `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 尚未接入；当前单层委派与不使用Workflow的既有决定继续有效 |
+| `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | **agent-memory 已接入（原生 auto-memory）**：宿主持久目录 `WORKSPACES_DIR/<slug>/agent-memory/` 以 rw 挂到容器 `/mnt/agent-memory`，runner 设 `autoMemoryDirectory=/mnt/agent-memory`；平台记忆页只浏览/编辑该目录的 `MEMORY.md` 与主题文件，不另造格式。Workflows 仍不接入 |
 
 会话恢复、预算、取消信号、消息流、宿主 callbacks 等还有 SDK 运行时参数，不能声称全部都可写入 settings.json。`~/.claude/` 的认证、缓存、会话记录等宿主状态不属于可分享项目定义，不复制进用户工作区包。
 

@@ -3,6 +3,7 @@ import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-route
 import {
   Activity,
   Cable,
+  CalendarClock,
   FlaskConical,
   HeartPulse,
   LayoutDashboard,
@@ -46,6 +47,7 @@ const nav = [
     items: [
       { to: '/chat', label: '对话', icon: MessagesSquare },
       { to: '/runs', label: '运行', icon: Activity },
+      { to: '/schedules', label: '定时任务', icon: CalendarClock },
     ],
   },
   {

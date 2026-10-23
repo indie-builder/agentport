@@ -104,6 +104,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       const { run, conversationId, inherited, history } = await chatRepo.admitChatRun(app.db, {
         agentId,
         message,
+        trigger: 'chat',
         ...(request.body.conversationId === undefined
           ? {}
           : { conversationId: request.body.conversationId }),
