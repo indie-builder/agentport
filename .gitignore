@@ -7,7 +7,6 @@ data/
 .DS_Store
 coverage/
 *.tsbuildinfo
-.loopx/
 .impeccable/
 
 backups/
@@ -25,6 +24,5 @@ packages/sandbox/shared/
 # 本地 worktree，不入库
 .claude/worktrees/
 
-# loopx 项目级安装生成物，含本机绝对路径，不入库（用 install.py --scope project 重装）
+# 本地 MCP 配置（含本机绝对路径），不入库
 .mcp.json
-.claude/commands/loopx.md

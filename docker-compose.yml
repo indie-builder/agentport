@@ -76,10 +76,13 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-agentport-dev}@redis:6379
       # web 构建产物在镜像里的位置（根 Dockerfile 复制 packages/web/dist 到 /app/web）
       WEB_DIST: /app/web
+      WORKSPACES_DIR: /workspaces
       # .env 里 development/debug 只用于本地进程；容器部署默认 info，需要时显式 export。
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - '3000:3000'
+    volumes:
+      - workspaces:/workspaces
     depends_on:
       init:
         condition: service_completed_successfully

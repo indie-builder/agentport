@@ -13,8 +13,28 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import {
+  getScheduleQueue,
+  isSchedulableCron,
+  removeScheduler,
+  schedulerNextRun,
+  upsertScheduler,
+} from './schedule-sync.js';
 
 const opsRepo = repo.ops;
+
+const INVALID_CRON = 'cron 表达式无法解析或不产生触发时间';
+
+/** 5 段之外还要真的能算出下一次触发；校验放在 schema 里，handler 不做业务 safeParse。 */
+const scheduleBodySchema = scheduleInputSchema.refine((value) => isSchedulableCron(value.cron), {
+  message: INVALID_CRON,
+  path: ['cron'],
+});
+
+const schedulePatchBodySchema = schedulePatchSchema.refine(
+  (value) => value.cron === undefined || isSchedulableCron(value.cron),
+  { message: INVALID_CRON, path: ['cron'] },
+);
 
 function iso(value: Date | string | null): string | null {
   if (value === null) return null;
@@ -25,7 +45,7 @@ type ScheduleLike = Awaited<ReturnType<typeof opsRepo.createSchedule>> & {
   agentName?: string | null;
 };
 
-function toSchedule(row: ScheduleLike) {
+function toSchedule(row: ScheduleLike, nextDueAt: string | null = null) {
   return {
     id: row.id,
     agentId: row.agentId,
@@ -35,7 +55,7 @@ function toSchedule(row: ScheduleLike) {
     prompt: row.prompt,
     enabled: row.enabled,
     lastRunAt: iso(row.lastRunAt),
-    nextDueAt: iso(row.nextDueAt),
+    nextDueAt,
     createdAt: iso(row.createdAt) ?? '',
     updatedAt: iso(row.updatedAt) ?? '',
   };
@@ -110,13 +130,16 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
     { ...auth, schema: { response: { 200: z.array(scheduleSchema) } } },
     async () => {
       const rows = await opsRepo.listSchedules(app.db);
-      return rows.map(toSchedule);
+      const queue = getScheduleQueue(app.config.REDIS_URL);
+      return Promise.all(
+        rows.map(async (row) => toSchedule(row, await schedulerNextRun(queue, row.id))),
+      );
     },
   );
 
   app.post(
     '/api/schedules',
-    { ...auth, schema: { body: scheduleInputSchema, response: { 201: scheduleSchema } } },
+    { ...auth, schema: { body: scheduleBodySchema, response: { 201: scheduleSchema } } },
     async (request, reply) => {
       const [agent] = await app.db
         .select({ id: schema.agents.id, name: schema.agents.name })
@@ -124,12 +147,7 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
         .where(eq(schema.agents.id, request.body.agentId))
         .limit(1);
       if (!agent) return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，无法创建定时任务');
-      let row: Awaited<ReturnType<typeof opsRepo.createSchedule>>;
-      try {
-        row = await opsRepo.createSchedule(app.db, request.body);
-      } catch {
-        return reject(reply, 'INVALID_INPUT', 'cron 表达式无法解析或不产生触发时间');
-      }
+      const row = await opsRepo.createSchedule(app.db, request.body);
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'schedule.created',
@@ -138,8 +156,26 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
         status: 'ok',
         requestId: request.id,
       });
+      // CRUD 已提交，同步失败只记审计：worker 的 reconcile 会把 scheduler 补上。
+      let nextDueAt: string | null = null;
+      if (row.enabled) {
+        const queue = getScheduleQueue(app.config.REDIS_URL);
+        try {
+          await upsertScheduler(queue, row);
+          nextDueAt = await schedulerNextRun(queue, row.id);
+        } catch (err) {
+          request.log.warn({ err, scheduleId: row.id }, 'schedule sync failed');
+          await writeAudit(app.db, request.log, {
+            actor: 'admin',
+            action: 'schedule.sync_failed',
+            target: row.id,
+            status: 'error',
+            requestId: request.id,
+          });
+        }
+      }
       reply.status(201);
-      return toSchedule({ ...row, agentName: agent.name });
+      return toSchedule({ ...row, agentName: agent.name }, nextDueAt);
     },
   );
 
@@ -149,30 +185,25 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
       ...auth,
       schema: {
         params: z.object({ id: z.string().min(1) }),
-        body: schedulePatchSchema,
+        body: schedulePatchBodySchema,
         response: { 200: scheduleSchema },
       },
     },
     async (request, reply) => {
       const existing = await opsRepo.getSchedule(app.db, request.params.id);
       if (!existing) return reject(reply, 'NOT_FOUND', '定时任务不存在');
-      let row: Awaited<ReturnType<typeof opsRepo.updateSchedule>>;
       const patch = {
         ...(request.body.name === undefined ? {} : { name: request.body.name }),
         ...(request.body.cron === undefined ? {} : { cron: request.body.cron }),
         ...(request.body.prompt === undefined ? {} : { prompt: request.body.prompt }),
         ...(request.body.enabled === undefined ? {} : { enabled: request.body.enabled }),
       };
-      try {
-        row = await opsRepo.updateSchedule(
-          app.db,
-          request.params.id,
-          patch,
-          request.body.expectedUpdatedAt,
-        );
-      } catch {
-        return reject(reply, 'INVALID_INPUT', 'cron 表达式无法解析或不产生触发时间');
-      }
+      const row = await opsRepo.updateSchedule(
+        app.db,
+        request.params.id,
+        patch,
+        request.body.expectedUpdatedAt,
+      );
       if (!row) return reject(reply, 'CONFLICT_STALE', '该定时任务已被修改，请刷新后重试');
       await writeAudit(app.db, request.log, {
         actor: 'admin',
@@ -182,7 +213,26 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
         status: 'ok',
         requestId: request.id,
       });
-      return toSchedule(row);
+      const queue = getScheduleQueue(app.config.REDIS_URL);
+      let nextDueAt: string | null = null;
+      try {
+        if (row.enabled) {
+          await upsertScheduler(queue, row);
+          nextDueAt = await schedulerNextRun(queue, row.id);
+        } else {
+          await removeScheduler(queue, row.id);
+        }
+      } catch (err) {
+        request.log.warn({ err, scheduleId: row.id }, 'schedule sync failed');
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'schedule.sync_failed',
+          target: row.id,
+          status: 'error',
+          requestId: request.id,
+        });
+      }
+      return toSchedule(row, nextDueAt);
     },
   );
 
@@ -199,6 +249,18 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
         status: 'ok',
         requestId: request.id,
       });
+      try {
+        await removeScheduler(getScheduleQueue(app.config.REDIS_URL), request.params.id);
+      } catch (err) {
+        request.log.warn({ err, scheduleId: request.params.id }, 'schedule sync failed');
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'schedule.sync_failed',
+          target: request.params.id,
+          status: 'error',
+          requestId: request.id,
+        });
+      }
       return reply.status(204).send();
     },
   );

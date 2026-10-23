@@ -1,8 +1,15 @@
-import { nextCronRun } from '@agentport/core';
 import { and, asc, desc, eq, getTableColumns, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
-import { agentRuns, agentSchedules, agents, approvalRequests } from '../schema.js';
+import {
+  agentRuns,
+  agentSchedules,
+  agents,
+  approvalRequests,
+  conversations,
+  messages,
+} from '../schema.js';
+import { latestAgentVersion } from './agent-versions.js';
 import { notStale } from './freshness.js';
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -17,12 +24,11 @@ export interface ScheduleWrite {
   enabled: boolean;
 }
 
-/** 创建定时任务：立即算出下一次触发时间，避免刚建好要等一个周期才调度。 */
+/** 创建定时任务；下次触发时间由 BullMQ 原生 scheduler 展示，不在库里自算。 */
 export async function createSchedule(db: Database, input: ScheduleWrite): Promise<ScheduleRow> {
-  const nextDueAt = input.enabled ? nextCronRun(input.cron) : null;
   const [row] = await db
     .insert(agentSchedules)
-    .values({ id: newId('schedule'), ...input, nextDueAt })
+    .values({ id: newId('schedule'), ...input })
     .returning();
   if (!row) throw new Error('schedule insert returned no row');
   return row;
@@ -43,19 +49,13 @@ export async function getSchedule(db: Database | Tx, id: string): Promise<Schedu
   return row ?? null;
 }
 
-/** 更新：cron 或 enabled 变化时重算 nextDueAt；带乐观锁。 */
+/** 更新：带乐观锁；调度同步由调用方在提交后完成。 */
 export async function updateSchedule(
   db: Database,
   id: string,
   patch: Partial<Omit<ScheduleWrite, 'agentId'>>,
   expectedUpdatedAt?: string,
 ): Promise<ScheduleRow | null> {
-  const current = await getSchedule(db, id);
-  if (!current) return null;
-  const enabled = patch.enabled ?? current.enabled;
-  const cron = patch.cron ?? current.cron;
-  const timesChanged = patch.cron !== undefined || patch.enabled !== undefined;
-  const nextDueAt = timesChanged ? (enabled ? nextCronRun(cron) : null) : current.nextDueAt;
   const [row] = await db
     .update(agentSchedules)
     .set({
@@ -63,7 +63,6 @@ export async function updateSchedule(
       ...(patch.cron === undefined ? {} : { cron: patch.cron }),
       ...(patch.prompt === undefined ? {} : { prompt: patch.prompt }),
       ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
-      nextDueAt,
       updatedAt: new Date(),
     })
     .where(
@@ -85,33 +84,70 @@ export async function deleteSchedule(db: Database, id: string): Promise<boolean>
   return rows.length > 0;
 }
 
+export interface ScheduleTriggerWrite {
+  scheduleId: string;
+  runId: string;
+  conversationId: string;
+  messageId: string;
+  /** job.timestamp：只允许比上次更新更晚的触发落库，重复投递自然被挡掉。 */
+  triggerAt: number;
+}
+
 /**
- * 领取到期的定时任务：条件更新 nextDueAt 并写入 lastRunAt，只有一个调度者能拿到。
- * 返回被领取的快照（agentId/prompt），调用方据此起一次运行。
+ * 原子地认领一次定时触发：条件更新 last_run_at 后建会话/运行/消息。
+ * 未命中说明同一触发已落地或任务刚被禁用，返回 duplicate，调用方不再补跑。
  */
-export async function claimDueSchedules(db: Database): Promise<ScheduleRow[]> {
-  const now = new Date();
-  const due = await db
-    .select()
-    .from(agentSchedules)
-    .where(and(eq(agentSchedules.enabled, true), sql`${agentSchedules.nextDueAt} <= ${now}`));
-  const claimed: ScheduleRow[] = [];
-  for (const row of due) {
-    const nextDueAt = nextCronRun(row.cron, now);
-    const updated = await db
+export async function claimScheduleTrigger(
+  db: Database,
+  input: ScheduleTriggerWrite,
+): Promise<'claimed' | 'duplicate' | 'agent_disabled'> {
+  return db.transaction(async (tx) => {
+    const claimedAt = new Date(input.triggerAt);
+    const claimed = await tx
       .update(agentSchedules)
-      .set({ lastRunAt: now, nextDueAt })
+      .set({ lastRunAt: claimedAt })
       .where(
         and(
-          eq(agentSchedules.id, row.id),
+          eq(agentSchedules.id, input.scheduleId),
           eq(agentSchedules.enabled, true),
-          sql`${agentSchedules.nextDueAt} <= ${now}`,
+          sql`(${agentSchedules.lastRunAt} is null or ${agentSchedules.lastRunAt} < ${claimedAt})`,
         ),
       )
       .returning();
-    if (updated[0]) claimed.push(updated[0]);
-  }
-  return claimed;
+    const schedule = claimed[0];
+    if (!schedule) return 'duplicate';
+
+    // 提交前再读一次：触发可能是几分钟前投递的，期间 agent 可能被停用。
+    const [agent] = await tx
+      .select({ enabled: agents.enabled })
+      .from(agents)
+      .where(eq(agents.id, schedule.agentId))
+      .limit(1);
+    if (!agent?.enabled) return 'agent_disabled';
+
+    const agentVersion = await latestAgentVersion(tx, schedule.agentId);
+    await tx.insert(conversations).values({
+      id: input.conversationId,
+      agentId: schedule.agentId,
+      title: `定时: ${schedule.name}`.slice(0, 80),
+    });
+    await tx.insert(agentRuns).values({
+      id: input.runId,
+      conversationId: input.conversationId,
+      agentId: schedule.agentId,
+      status: 'queued',
+      trigger: 'schedule',
+      agentVersion,
+    });
+    await tx.insert(messages).values({
+      id: input.messageId,
+      conversationId: input.conversationId,
+      role: 'user',
+      content: { type: 'text', text: schedule.prompt },
+      runId: input.runId,
+    });
+    return 'claimed';
+  });
 }
 
 /** 需要人处理的待批工具调用：未批准且未过期。 */

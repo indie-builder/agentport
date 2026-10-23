@@ -62,6 +62,14 @@
 | `SANDBOX_CPUS` | 否 | `1` | worker | CPU 核数上限 |
 | `SANDBOX_PIDS` | 否 | `128` | worker | PID 上限 |
 
+### 原生记忆存储（native memory storage）
+
+`WORKSPACES_DIR/<slug>/agent-memory/` 是原生 `MEMORY.md` 与主题 Markdown 的持久存储，独立于 `run_*` 工作区，run 结束与过期清理均保留。Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 和 worker；两者镜像及沙盒均使用 node（uid 1000），命名卷 init 保持 1000:1000。worker 创建目录为 0700 并收紧已有目录权限；创建目录或 chmod 失败会使 run 明确失败，不再吞错或改为 0777。
+
+沙盒及 API/worker 都以 uid 1000 运行时，才能对 0700 记忆目录读写一致：请用 Compose 启动 API/worker。本地 `pnpm dev` 以宿主 uid 运行时仍可正常跑智能体，但原生记忆跨宿主 uid 与容器内 uid 1000 的 0700 目录可能不可写，记忆功能不保证；需要持久记忆时用 Compose。不要递归 chown 未核对的宿主目录，也不要以 0777 绕过错误。已有外部数据卷应先备份并确认属主后再启用。
+
+runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`autoMemoryDirectory`，通过 Read/Edit 的绝对路径许可与 SDK PreToolUse 双重约束，仅主会话可读写目录内普通 `.md` 文件。子智能体、软链接、硬链接、非普通文件、相对路径及越界请求均在检查时点拒绝。API 与沙盒访问同一存储；请把该目录单独纳入文件备份。专项测试不调用付费模型，真实跨 run 的自动写入、主题读取仍需模型验收。
+
 ### 1.4 数据保留
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
@@ -216,7 +224,7 @@ pnpm backup
 15 3 * * * cd /path/to/agentport && set -a && . ./.env && set +a && pnpm backup >> backups/cron.log 2>&1
 ```
 
-备份含全部配置、会话、运行与审计，但**不含** `data/workspaces/`。工作区是每次 run 重建的派生物，无需备份；如果里面有手工放入的文件，需单独备份。
+备份含全部配置、会话、运行与审计，但**不含** `data/workspaces/`。其中 `run_*` 工作区是每次 run 重建的派生物，无需备份；`<slug>/agent-memory/` 是持久记忆，必须单独做文件备份，手工放入的文件也需单独备份。
 
 ### 3.2 恢复
 

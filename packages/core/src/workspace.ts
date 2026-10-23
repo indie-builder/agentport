@@ -213,8 +213,8 @@ function renderClaudeMd(input: WorkspaceInput): string {
     servers.length === 0
       ? [
           skills.length === 0
-            ? '当前没有绑定 MCP Server，也没有可用技能，你没有可调用的工具。'
-            : '当前没有绑定 MCP Server，你没有 MCP 工具；可用能力只有下方列出的技能。',
+            ? '当前没有绑定 MCP Server，也没有可用技能；主会话仍可使用下述原生记忆。'
+            : '当前没有绑定 MCP Server，你没有 MCP 工具；可用能力只有下方列出的技能与原生记忆。',
         ]
       : [
           '本工作区通过 `.mcp.json` 绑定以下 MCP Server：',
@@ -232,7 +232,7 @@ function renderClaudeMd(input: WorkspaceInput): string {
           ...skills.map((s) => `- \`${s.slug}\`：${inlineText(s.description)}`),
           '',
           '需要时用原生 `Skill` 工具调用对应技能，技能名就是上面的 slug。',
-          '不要用 `Read` 打开 `.claude/skills/` 下的文件：该工具已被禁用。',
+          '不要用 `Read` 打开 `.claude/skills/` 下的文件：文件工具仅供主会话访问原生记忆。',
         ];
 
   const subAgents = input.subAgents ?? [];
@@ -267,7 +267,8 @@ function renderClaudeMd(input: WorkspaceInput): string {
       ? ['', '内置的 `Agent` 工具已启用，仅用于委派给上面的子智能体。']
       : []),
     '',
-    '只使用 `mcp__*` MCP 工具；内置的 shell、文件与网络工具已被禁用。',
+    '业务能力使用 `mcp__*` MCP 工具；内置 shell 与网络工具已禁用。',
+    '主会话仅可用 `Read`、`Write`、`Edit` 访问 `/mnt/agent-memory/` 内的 Markdown 原生记忆；其他文件路径和子智能体文件访问均被拒绝。',
     '如需更多能力，请让管理员在平台中为智能体绑定对应的 MCP Server。',
     ...skillLines,
     ...delegationWaitSection(input),
@@ -313,7 +314,7 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
     `model: ${yamlString(agent.model)}`,
     // 子智能体不能声明 tools：SDK 在派生时先按主会话解析这些名字，MCP 工具此时尚未注册，
     // `mcp__<server>__*` 解析为空会被直接拒绝（"would be spawned with zero tools"）。
-    // 省略 tools 即继承父会话工具集，权限仍由父的 disallowedTools 收口。
+    // 省略 tools 即继承父会话工具集；子级 disallowedTools 保持禁用文件工具。
     ...(standalone ? [] : [`tools: ${yamlList(hasSubAgents ? [...tools, 'Agent'] : tools)}`]),
     `disallowedTools: ${yamlList(disallowed)}`,
     `maxTurns: ${agent.maxTurns}`,

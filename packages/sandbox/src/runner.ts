@@ -7,6 +7,7 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { createMemoryHook } from './memory-permissions.js';
 import { composePrompt } from './prompt.js';
 
 /**
@@ -157,9 +158,13 @@ const task = await readTask();
 const prompt = composePrompt(task.prompt, task.history);
 // allow 规则只支持 `mcp__<server>__` 之后通配；`mcp__*` 不匹配任何工具。
 // server 名来自挂载的 .mcp.json，逐个生成精确规则。
+const memoryDirectory = '/mnt/agent-memory';
 const allowedTools = [
+  `Read(/${memoryDirectory}/**)`,
+  // Edit(path) also authorizes Write; Write(path) is not a file permission rule.
+  `Edit(/${memoryDirectory}/**)`,
   ...(task.mcpServers ?? []).map((name) => `mcp__${name}__*`),
-  ...(task.extraAllowedTools ?? []),
+  ...(task.extraAllowedTools ?? []).filter((rule) => !/^(Read|Write|Edit)(\(|$)/.test(rule)),
   // dontAsk 下未预批准的工具会被拒绝；委派时需显式放行 Agent。
   ...(task.allowSubAgents ? ['Agent'] : []),
 ];
@@ -170,9 +175,6 @@ process.once('SIGTERM', () => abortController.abort());
 const allowedByConfig = new Set(task.extraAllowedTools ?? []);
 const baseDisallowed = [
   'Bash',
-  'Read',
-  'Write',
-  'Edit',
   'Glob',
   'Grep',
   'NotebookEdit',
@@ -230,7 +232,7 @@ try {
       settings: {
         enableAllProjectMcpServers: true,
         autoMemoryEnabled: true,
-        autoMemoryDirectory: '/mnt/agent-memory',
+        autoMemoryDirectory: memoryDirectory,
         ...(outputStyle === undefined ? {} : { outputStyle }),
       },
       // 用户文本是纯文本：不要做 @路径展开或斜杠命令解析。
@@ -240,6 +242,7 @@ try {
       permissionMode: task.permissionMode ?? 'dontAsk',
       allowedTools,
       disallowedTools: [...new Set(disallowedTools)],
+      hooks: { PreToolUse: [{ hooks: [createMemoryHook(memoryDirectory)] }] },
       // SDK 自己按名字补 Skill(name) 权限；这里不要放通配的 Skill。
       skills: task.skills ?? [],
       includePartialMessages: true,
