@@ -1,9 +1,11 @@
 import type {
   Agent,
   AgentInput,
+  AgentPatch,
   ApiTool,
   ApiToolInput,
   ChatRequest,
+  EvalDataset,
   Server,
   ServerInput,
   ServerTestResult,
@@ -23,6 +25,7 @@ import {
   type AgentFiles,
   type AgentVersionDetail,
   type AgentVersionSummary,
+  ApiError,
   type ApprovalRequestList,
   type AuditQuery,
   api,
@@ -30,6 +33,7 @@ import {
   type ConversationList,
   type EvalCase,
   type EvalCaseInput,
+  type EvalComparison,
   type EvalRun,
   type EvalRunDetail,
   type HealthLive,
@@ -177,21 +181,45 @@ export function useConversations(agentId: string | null) {
   });
 }
 
+const CONVERSATION_PAGE_SIZE = 50;
+
+/** 分页返回最新一页，select 再把「新→旧」的页面翻平成时间正序，调用方拿到的仍是 ConversationDetail。 */
 export function useConversation(conversationId: string | null) {
-  return useQuery<ConversationDetail>({
+  return useInfiniteQuery({
     queryKey: ['conversation', conversationId],
-    queryFn: () => api.conversation(conversationId ?? ''),
+    queryFn: ({ pageParam }) =>
+      api.conversation(conversationId ?? '', {
+        limit: CONVERSATION_PAGE_SIZE,
+        ...(pageParam === null ? {} : { before: pageParam }),
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextBefore ?? undefined,
     enabled: conversationId !== null,
     staleTime: 0,
     refetchOnMount: 'always',
+    select: (data): ConversationDetail => {
+      const first = data.pages[0];
+      if (!first) throw new Error('会话分页为空');
+      return {
+        conversation: first.conversation,
+        messages: data.pages.toReversed().flatMap((page) => page.messages),
+        nextBefore: data.pages.at(-1)?.nextBefore ?? null,
+      };
+    },
   });
 }
 
-export function useRuns(query: RunQuery = {}) {
+export function useRuns(query: RunQuery = {}, enabled = true) {
   return useQuery<RunList>({
     queryKey: ['runs', query.agentId ?? null, query.status ?? null, query.limit ?? 50],
     queryFn: () => api.runs(query),
+    enabled,
     staleTime: 5_000,
+    // 运行期间列表有变化，轮询跟进；全部结束后停止。
+    refetchInterval: (query) =>
+      query.state.data?.items.some((run) => run.status === 'queued' || run.status === 'running')
+        ? 5_000
+        : false,
   });
 }
 
@@ -238,6 +266,18 @@ export function useApproveRun() {
   });
 }
 
+/** 取消排队中/运行中的运行；详情轮询会接着显示终态。 */
+export function useCancelRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.cancelRun(runId),
+    onSuccess: (_data, runId) => {
+      void client.invalidateQueries({ queryKey: ['run', runId] });
+      void client.invalidateQueries({ queryKey: ['runs'] });
+    },
+  });
+}
+
 /** 重发一次运行：成功后跳转到新 run 并让运行列表失效。 */
 export function useRerun() {
   const client = useQueryClient();
@@ -248,20 +288,20 @@ export function useRerun() {
 }
 
 const AUDIT_PAGE_SIZE = 100;
-export function useAudit(query: Omit<AuditQuery, 'before' | 'limit'>) {
+export function useAudit(query: Omit<AuditQuery, 'before' | 'beforeId' | 'limit'>) {
   return useInfiniteQuery({
     queryKey: ['audit', query],
     queryFn: ({ pageParam }) =>
       api.audit({
         ...query,
         limit: AUDIT_PAGE_SIZE,
-        ...(pageParam === null ? {} : { before: pageParam }),
+        ...(pageParam === null ? {} : { beforeId: pageParam }),
       }),
     initialPageParam: null as string | null,
-    getNextPageParam: (last, _pages, before) => {
+    getNextPageParam: (last, _pages, beforeId) => {
       if (last.items.length < AUDIT_PAGE_SIZE) return undefined;
-      const next = last.items.at(-1)?.createdAt ?? null;
-      return next === before ? undefined : next;
+      const next = last.items.at(-1)?.id;
+      return next === undefined || next === beforeId ? undefined : next;
     },
     staleTime: 0,
   });
@@ -331,6 +371,14 @@ export function useDeleteServer() {
 
 export function useTestServer() {
   return useMutation({ mutationFn: (id: string): Promise<ServerTestResult> => api.testServer(id) });
+}
+
+export function useImportMcpFile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (content: string) => api.importMcpFile(content),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['servers'] }),
+  });
 }
 
 export function useServerToken(serverId: string) {
@@ -427,13 +475,22 @@ export function useCreateAgent() {
 export function useUpdateAgent() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { id: string; input: Partial<AgentInput>; expectedUpdatedAt?: string }) =>
+    mutationFn: (vars: { id: string; input: AgentPatch; expectedUpdatedAt?: string }) =>
       api.updateAgent(vars.id, vars.input, vars.expectedUpdatedAt),
     onMutate: async ({ id, input }) => {
       await client.cancelQueries({ queryKey: ['agents'] });
       const previous = client.getQueryData<Agent[]>(['agents']);
       client.setQueryData<Agent[]>(['agents'], (old) =>
-        old?.map((agent) => (agent.id === id ? ({ ...agent, ...input } as Agent) : agent)),
+        old?.map((agent) => {
+          if (agent.id !== id) return agent;
+          // PATCH 的 null 表示「清空」；本地缓存里缺省仍是 undefined。
+          const next = { ...agent, ...input };
+          return {
+            ...next,
+            effort: next.effort ?? undefined,
+            maxThinkingTokens: next.maxThinkingTokens ?? undefined,
+          };
+        }),
       );
       return { previous };
     },
@@ -479,12 +536,26 @@ export function useCreateSkill() {
   });
 }
 
+export function useImportSkillFile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (content: string) => api.importSkillFile(content),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
+  });
+}
+
 export function useUpdateSkill() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { id: string; input: Partial<SkillInput> }) =>
-      api.updateSkill(vars.id, vars.input),
+    mutationFn: (vars: { id: string; input: Partial<SkillInput>; expectedUpdatedAt?: string }) =>
+      api.updateSkill(vars.id, vars.input, vars.expectedUpdatedAt),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
+    // 冲突说明列表里是旧版本：重取一次，关闭重开后拿到最新数据。
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
+        void client.invalidateQueries({ queryKey: ['skills'] });
+      }
+    },
   });
 }
 
@@ -513,6 +584,16 @@ export function useCreateEvalCase() {
   return useMutation({
     mutationFn: (input: EvalCaseInput) => api.createEvalCase(input),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-cases'] }),
+  });
+}
+
+export function useImportEvalDataset() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { agentId: string; dataset: EvalDataset }) =>
+      api.importEvalDataset(input.agentId, input.dataset),
+    onSuccess: (_result, input) =>
+      void client.invalidateQueries({ queryKey: ['eval-cases', input.agentId] }),
   });
 }
 
@@ -552,11 +633,30 @@ export function useStartEvalRun() {
   });
 }
 
+export function useCancelEvalRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.cancelEvalRun(id),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['eval-runs'] });
+      void client.invalidateQueries({ queryKey: ['eval-run'] });
+    },
+  });
+}
+
 export function useEvalRun(id: string | null) {
   return useQuery<EvalRunDetail>({
     queryKey: ['eval-run', id],
     queryFn: () => api.evalRun(id ?? ''),
     enabled: id !== null,
     refetchInterval: (query) => (query.state.data?.evalRun.status === 'running' ? 2_000 : false),
+  });
+}
+
+export function useEvalComparison(baseId: string | null, headId: string | null) {
+  return useQuery<EvalComparison>({
+    queryKey: ['eval-comparison', baseId, headId],
+    queryFn: () => api.compareEvalRuns(baseId ?? '', headId ?? ''),
+    enabled: baseId !== null && headId !== null && baseId !== headId,
   });
 }

@@ -36,6 +36,8 @@ vi.mock('../src/lib/queries.js', () => {
     useUpdateServer: mutation,
     useDeleteServer: mutation,
     useTestServer: mutation,
+    useImportMcpFile: mutation,
+    useImportSkillFile: mutation,
     useCreateTool: mutation,
     useUpdateTool: mutation,
     useDeleteTool: mutation,

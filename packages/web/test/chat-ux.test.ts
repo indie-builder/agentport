@@ -11,6 +11,7 @@ import {
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { type ApprovalRequest, api, type ChatAccepted, type RunDetail } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
 import { ChatPage } from '../src/pages/chat.js';
@@ -59,9 +60,18 @@ async function flush() {
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
 }
-async function mount() {
+async function mount(initialEntry = '/chat') {
   const route = createRootRoute({ component: Outlet });
-  const chat = createRoute({ getParentRoute: () => route, path: '/', component: ChatPage });
+  const shell = createRoute({ getParentRoute: () => route, id: 'shell', component: Outlet });
+  const chat = createRoute({
+    getParentRoute: () => shell,
+    path: '/chat',
+    validateSearch: z.object({
+      agent: z.string().min(1).optional().catch(undefined),
+      conversation: z.string().min(1).optional().catch(undefined),
+    }),
+    component: ChatPage,
+  });
   const away = createRoute({ getParentRoute: () => route, path: '/away', component: () => null });
   const run = createRoute({
     getParentRoute: () => route,
@@ -69,8 +79,8 @@ async function mount() {
     component: () => null,
   });
   const router = createRouter({
-    routeTree: route.addChildren([chat, away, run]),
-    history: createMemoryHistory({ initialEntries: ['/'] }),
+    routeTree: route.addChildren([shell.addChildren([chat]), away, run]),
+    history: createMemoryHistory({ initialEntries: [initialEntry] }),
   });
   await act(async () => {
     await router.load();
@@ -114,6 +124,7 @@ beforeEach(() => {
   vi.spyOn(api, 'conversations').mockResolvedValue({ supported: true, items: [] });
   vi.spyOn(api, 'conversation').mockResolvedValue({
     conversation: { ...terminal.conversation, createdAt: '' },
+    nextBefore: null,
     messages: [
       {
         id: 'message-a',
@@ -170,7 +181,7 @@ describe('confirmed chat UX defects', () => {
       historyOpen: false,
     });
     await act(async () => {
-      await router.navigate({ to: '/' });
+      await router.navigate({ to: '/chat' });
     });
     await flush();
     expect(message().value).toBe('unfinished draft');
@@ -178,8 +189,7 @@ describe('confirmed chat UX defects', () => {
   });
 
   it('shows terminal history outcome and error without inventing missing metrics', async () => {
-    useChatStore.getState().resetConversation('conversation-a');
-    await mount();
+    await mount('/chat?agent=agent-a&conversation=conversation-a');
     expect(host.textContent).toContain('失败');
     expect(host.textContent).toContain('Connector refused the request');
     expect(host.querySelector('a[href="/runs/run-old"]')).not.toBeNull();
@@ -201,8 +211,7 @@ describe('confirmed chat UX defects', () => {
       approvedServer = serverId;
       return { ok: true };
     });
-    useChatStore.getState().resetConversation('conversation-a');
-    await mount();
+    await mount('/chat?agent=agent-a&conversation=conversation-a');
     const cards = [...host.querySelectorAll('[role="alert"]')];
     expect(cards).toHaveLength(2);
     for (const serverId of ['server-a', 'server-b']) {
@@ -230,8 +239,7 @@ describe('confirmed chat UX defects', () => {
           reject = no;
         }),
       );
-      useChatStore.getState().resetConversation('conversation-a');
-      await mount();
+      await mount('/chat?agent=agent-a&conversation=conversation-a');
       expect(runLink()?.getAttribute('href')).toBe('/runs/run-old');
       await type('follow-up');
       await act(async () =>

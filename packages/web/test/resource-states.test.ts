@@ -171,7 +171,7 @@ describe('resource async state regressions', () => {
           );
           (upload.props.onChange as (event: unknown) => void)({
             target: {
-              files: [{ text: () => new Promise(() => {}) }],
+              files: [{ name: 'expert.json', size: 10, text: () => new Promise(() => {}) }],
               value: '',
             },
           });

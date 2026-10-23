@@ -252,7 +252,8 @@ describe('expert editor regressions', () => {
 
   it('advances the baseline only to the successfully saved response', () => {
     state.mutate.mockImplementationOnce((input, callbacks) => {
-      callbacks.onSuccess({ ...parent, ...input.input, updatedAt: '2026-03-01' });
+      // 服务端把清除后的空值回读为 undefined，而不是 null。
+      callbacks.onSuccess({ ...parent, name: input.input.name, updatedAt: '2026-03-01' });
     });
     inspect(editor, (tree, pass) => {
       const name = tree.find((node) => node.props.id === 'agent-name');
@@ -274,7 +275,7 @@ describe('expert editor regressions', () => {
     });
   });
 
-  it('cannot clear a saved thinking limit or offer an unsupported default effort', () => {
+  it('offers a default effort and clears a saved thinking limit with an explicit null', () => {
     const configured = { ...parent, effort: 'high' as const, maxThinkingTokens: 1024 };
     inspect(
       () => AgentEditor({ agent: configured, onDirtyChange() {}, onPendingChange() {} }),
@@ -288,7 +289,7 @@ describe('expert editor regressions', () => {
           if (!effort) throw new Error('Missing effort field');
           expect(
             (effort.props.items as Array<{ value: string }>).some((item) => item.value === ''),
-          ).toBe(false);
+          ).toBe(true);
           selectSection(tree, '运行限制');
           return;
         }
@@ -297,20 +298,17 @@ describe('expert editor regressions', () => {
         if (pass === 2) {
           (thinking.props.onChange as (event: unknown) => void)({ target: { value: '' } });
         } else {
-          expect(thinking.props['aria-invalid']).toBe(true);
+          expect(thinking.props['aria-invalid']).toBe(false);
           if (pass !== 3) return;
           const form = tree.find((node) => node.type === 'form');
           if (!form) throw new Error('Missing editor form');
-          vi.stubGlobal('requestAnimationFrame', vi.fn());
-          try {
-            (form.props.onSubmit as (event: unknown) => void)({ preventDefault() {} });
-          } finally {
-            vi.unstubAllGlobals();
-          }
+          (form.props.onSubmit as (event: unknown) => void)({ preventDefault() {} });
         }
       },
     );
-    expect(state.mutate).not.toHaveBeenCalled();
+    expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+      input: { maxThinkingTokens: null },
+    });
   });
 
   it.each([false, true])(

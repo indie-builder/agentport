@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { ArrowLeft, Bot, CircleAlert, RotateCcw, User, Wrench } from 'lucide-react';
+import { ArrowLeft, Bot, CircleAlert, CircleStop, RotateCcw, User, Wrench } from 'lucide-react';
 import { type ReactNode, useRef } from 'react';
 import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
 import { CopyButton } from '../components/copy-button.js';
@@ -16,7 +16,7 @@ import {
   runStatusLabel,
   shortId,
 } from '../lib/format.js';
-import { useApproveRun, useRerun, useRun, useRunApprovals } from '../lib/queries.js';
+import { useApproveRun, useCancelRun, useRerun, useRun, useRunApprovals } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 function elapsed(at: string, start: string | null): number {
@@ -45,6 +45,7 @@ export function RunDetailPage() {
     !status || status === 'queued' || status === 'running',
   );
   const rerunMutation = useRerun();
+  const cancelMutation = useCancelRun();
   const approveMutation = useApproveRun();
   const approvalInFlight = useRef(false);
   // 选中的步骤由 URL 决定：刷新、分享、前进后退都保留。
@@ -86,13 +87,28 @@ export function RunDetailPage() {
         onSettled: () => {
           approvalInFlight.current = false;
         },
-        onSuccess: () => toastSuccess(`已批准 ${item.toolName}`),
+        onSuccess: (data) =>
+          toastSuccess(
+            data.waiting
+              ? '已批准工具；仍在等待的调用可继续，无需重发消息'
+              : '已记录后续调用许可；本次调用不会恢复。',
+          ),
         onError: (error) => toastError(error),
       },
     );
   };
 
   const hasPrompt = run.data?.steps.some((step) => step.kind === 'user') ?? false;
+  const cancellable = run.data?.run.status === 'queued' || run.data?.run.status === 'running';
+
+  const cancel = (): void => {
+    if (!run.data) return;
+    cancelMutation.mutate(run.data.run.id, {
+      onSuccess: () => toastSuccess('已请求取消运行'),
+      onError: (error) => toastError(error),
+    });
+  };
+
   const header = (
     <div className="flex min-w-0 items-end gap-3">
       <Button
@@ -110,14 +126,30 @@ export function RunDetailPage() {
         className="min-w-0 flex-1 [&_h1]:shrink"
         actions={
           run.data ? (
-            <Button
-              disabled={rerunMutation.isPending || !hasPrompt}
-              aria-busy={rerunMutation.isPending}
-              onClick={rerun}
-            >
-              <RotateCcw data-icon="inline-start" />
-              {rerunMutation.isPending ? '提交中…' : '重跑'}
-            </Button>
+            <>
+              {cancellable ? (
+                <Button
+                  variant="outline"
+                  disabled={cancelMutation.isPending}
+                  aria-busy={cancelMutation.isPending}
+                  aria-label="取消运行"
+                  onClick={cancel}
+                >
+                  <CircleStop data-icon="inline-start" />
+                  {cancelMutation.isPending ? '取消中…' : '取消'}
+                </Button>
+              ) : null}
+              {hasPrompt ? (
+                <Button
+                  disabled={rerunMutation.isPending}
+                  aria-busy={rerunMutation.isPending}
+                  onClick={rerun}
+                >
+                  <RotateCcw data-icon="inline-start" />
+                  {rerunMutation.isPending ? '提交中…' : '重跑'}
+                </Button>
+              ) : null}
+            </>
           ) : undefined
         }
       />
@@ -193,36 +225,53 @@ export function RunDetailPage() {
 
       {pending.length > 0 ? (
         <div
-          role="alert"
+          role={detail.status === 'running' ? 'alert' : undefined}
           className="flex flex-wrap items-center gap-3 border-y border-warning-line bg-warning-soft px-4 py-2.5"
         >
           <CircleAlert className="size-4 shrink-0 text-warning" />
           <span className="min-w-0 [overflow-wrap:anywhere] text-xs text-fg">
-            有 {pending.length} 个工具等待批准；批准后回到对话页重发上一条消息。
+            {detail.status === 'running'
+              ? `有 ${pending.length} 个工具待审批；请查看各项是否仍在等待。`
+              : '已结束运行的未批准请求不再生效，重新运行会重新请求批准。'}
           </span>
-          <div className="ml-auto flex min-w-0 max-w-full flex-wrap gap-2">
-            {pending.map((item) => {
-              // mutation 是全局状态：按当前 mutation 的变量判断是哪一条在批准。
-              const approving =
-                approveMutation.isPending &&
-                approveMutation.variables?.serverId === item.serverId &&
-                approveMutation.variables.toolName === item.toolName;
-              return (
-                <Button
-                  key={item.id}
-                  size="sm"
-                  className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
-                  disabled={approveMutation.isPending}
-                  aria-busy={approving}
-                  onClick={() => approve(item)}
-                >
-                  <span className="min-w-0 [overflow-wrap:anywhere]">
-                    {`${approving ? '批准中…' : '批准'} ${item.serverName ?? item.serverId} / ${item.toolName}`}
-                  </span>
-                </Button>
-              );
-            })}
-          </div>
+          {detail.status === 'running' ? (
+            <div className="ml-auto flex min-w-0 max-w-full flex-wrap gap-2">
+              {pending.map((item) => {
+                // mutation 是全局状态：按当前 mutation 的变量判断是哪一条在批准。
+                const approving =
+                  approveMutation.isPending &&
+                  approveMutation.variables?.serverId === item.serverId &&
+                  approveMutation.variables.toolName === item.toolName;
+                return (
+                  <div
+                    key={item.id}
+                    className="flex min-w-0 max-w-full flex-wrap items-center gap-2"
+                  >
+                    <span className="min-w-0 [overflow-wrap:anywhere] text-2xs text-muted-foreground">
+                      {item.waiting
+                        ? `等待至 ${formatDateTime(item.expiresAt)}`
+                        : '本次调用已结束等待'}
+                    </span>
+                    <Button
+                      size="sm"
+                      className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
+                      disabled={approveMutation.isPending}
+                      aria-busy={approving}
+                      onClick={() => approve(item)}
+                    >
+                      <span className="min-w-0 [overflow-wrap:anywhere]">
+                        {approving
+                          ? `批准中… ${item.serverName ?? item.serverId} / ${item.toolName}`
+                          : item.waiting
+                            ? `批准 ${item.serverName ?? item.serverId} / ${item.toolName}`
+                            : `批准后续 ${item.serverName ?? item.serverId} / ${item.toolName}`}
+                      </span>
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

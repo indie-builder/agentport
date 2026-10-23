@@ -74,6 +74,37 @@ async function readLatest(
   return { entries: newestFirst.reverse(), newestId, truncated };
 }
 
+/**
+ * XINFO STREAM 返回交替的字段/值数组；只取本模块需要的两个数值。
+ * entries-added 是累计写入数，length 是当前条数，前者更大说明流头已被裁掉。
+ */
+function infoNumber(info: unknown[], field: string): number {
+  const index = info.indexOf(field);
+  return Number(index >= 0 ? info[index + 1] : 0);
+}
+
+/** 流在读取与查询之间过期属于正常竞态；其他 Redis 错误照常抛出。 */
+function isMissingStream(err: unknown): boolean {
+  return err instanceof Error && /no such key/i.test(err.message);
+}
+
+async function trimmedBeforeReplay(
+  redis: Redis,
+  key: string,
+  entries: StreamEntry[],
+): Promise<boolean> {
+  // 空流没有可回放的内容，也就不用为可能不存在的 key 付一次 XINFO。
+  if (entries.length === 0) return false;
+  let info: unknown[];
+  try {
+    info = (await redis.xinfo('STREAM', key)) as unknown[];
+  } catch (err) {
+    if (isMissingStream(err)) return false;
+    throw err;
+  }
+  return infoNumber(info, 'entries-added') > infoNumber(info, 'length');
+}
+
 function logRedisError(err: Error): void {
   process.stderr.write(`[queue] redis error: ${err.message}\n`);
 }
@@ -270,9 +301,13 @@ export async function subscribeRun(
     redis.on('message', handler);
     const { entries, newestId, truncated } = await readLatest(reader, key);
     if (newestId !== undefined) lastId = newestId;
-    if (truncated && !closed) {
-      await cb({ type: 'text_delta', text: '[…较早事件已截断，仅回放最近 8MiB]\n' });
-    }
+    // 两种截断只报一条：保留上限裁掉流头比 8MiB 回放上限更值得先告诉观众。
+    const reason = (await trimmedBeforeReplay(reader, key, entries))
+      ? 'retention'
+      : truncated
+        ? 'bytes'
+        : undefined;
+    if (reason && !closed) await cb({ type: 'replay_truncated', reason });
     for (const [, fields] of entries) {
       if (closed) break;
       const event = parseEvent(payloadOf(fields) ?? '');

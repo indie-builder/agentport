@@ -23,7 +23,7 @@ export default {
         url: 'http://localhost:5173',
         command: {
           executable: 'pnpm',
-          args: ['dev'],
+          args: ['--filter', '@agentport/web', 'dev'],
           env: { RATE_LIMIT_DISABLED: '1' },
           log: '.e2e/logs/app.log',
           reuseExisting: true,

@@ -8,9 +8,30 @@ export type ServerKind = z.infer<typeof serverKindSchema>;
 export const SECRET_MASK = '••••';
 export const PREVIEW_SECRET = SECRET_MASK;
 
+// shared 不带 DOM/Node lib，这里声明跨运行时都可用的最小 URL 形状。
+type ParsedUrl = { username: string; password: string; toString(): string };
+
+function parseUrl(value: string): ParsedUrl | null {
+  try {
+    return new (globalThis as unknown as { URL: new (value: string) => ParsedUrl }).URL(value);
+  } catch {
+    return null;
+  }
+}
+
 /** 空值保留为空；已配置密钥不泄露长度或前缀。 */
 export function maskSecret(value: string | null | undefined): string {
   return value ? SECRET_MASK : '';
+}
+
+/** 仅用于展示：隐藏 URL 内嵌凭证；无 userinfo 时原样返回，不规范化。 */
+export function maskUrlCredentials(value: string): string {
+  const url = parseUrl(value);
+  if (!url) return '[无效URL]';
+  if (!url.username && !url.password) return value;
+  if (url.username) url.username = SECRET_MASK;
+  if (url.password) url.password = SECRET_MASK;
+  return url.toString();
 }
 
 /** Build an MCP entry with values supplied by the caller (masked, empty, or runtime secrets). */
@@ -29,7 +50,11 @@ export function previewMcpEntry(
     };
   }
   const url = server.kind === 'generated' ? config.baseUrl : config.url;
-  return { type: 'http' as const, url: typeof url === 'string' ? url : '', headers: values };
+  return {
+    type: 'http' as const,
+    url: typeof url === 'string' ? maskUrlCredentials(url) : '',
+    headers: values,
+  };
 }
 
 const baseServer = {
@@ -45,10 +70,14 @@ export const stdioServerSchema = z.object({
   env: z.record(z.string(), z.string()).default({}),
 });
 
-/** 只允许 http/https；ftp/file/javascript 等在 schema 层就被拦下。 */
+/** 只允许 http/https，且禁止内嵌账号密码；ftp/file/javascript 等在 schema 层就被拦下。 */
 export const httpUrlSchema = z
   .url()
-  .refine((value) => /^https?:\/\//i.test(value), '仅支持 http/https 地址');
+  .refine((value) => /^https?:\/\//i.test(value), '仅支持 http/https 地址')
+  .refine((value) => {
+    const url = parseUrl(value);
+    return url !== null && !url.username && !url.password;
+  }, 'URL不能包含账号密码，请通过加密headers配置凭证');
 
 export const httpServerSchema = z.object({
   ...baseServer,
@@ -115,7 +144,16 @@ export type ApiTool = z.infer<typeof apiToolSchema>;
 export const serverTestResultSchema = z.object({
   ok: z.boolean(),
   serverInfo: z.object({ name: z.string(), version: z.string() }).optional(),
-  tools: z.array(z.object({ name: z.string(), description: z.string().optional() })).default([]),
+  tools: z
+    .array(
+      z.object({
+        name: z.string(),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        inputSchema: z.record(z.string(), z.unknown()).optional(),
+      }),
+    )
+    .default([]),
   error: z.string().optional(),
   durationMs: z.number(),
 });

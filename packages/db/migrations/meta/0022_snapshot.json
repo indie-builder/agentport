@@ -1,5 +1,5 @@
 {
-  "id": "201e1eb9-4cb0-42ab-9f35-98089d82946d",
+  "id": "a9bc722c-182d-4147-aa13-bf0ec66163b9",
   "prevId": "4e0b3fe6-a4e0-407a-b06e-f7446c3f4453",
   "version": "7",
   "dialect": "postgresql",
@@ -573,13 +573,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
         },
         "model": {
           "name": "model",
@@ -1322,6 +1315,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "case_snapshot": {
+          "name": "case_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "run_id": {
           "name": "run_id",
           "type": "text",
@@ -1474,6 +1473,12 @@
         "error": {
           "name": "error",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "case_snapshot": {
+          "name": "case_snapshot",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

@@ -15,6 +15,10 @@ export type ChatRequest = z.infer<typeof chatRequestSchema>;
 /** SSE 事件：前端按 `type` 分派。 */
 export const chatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('run_started'), runId: z.string(), conversationId: z.string() }),
+  z.object({
+    type: z.literal('replay_truncated'),
+    reason: z.enum(['retention', 'bytes', 'terminal_missing']),
+  }),
   z.object({ type: z.literal('text_delta'), text: z.string() }),
   z.object({
     type: z.literal('tool_start'),
@@ -53,6 +57,7 @@ export const chatEventSchema = z.discriminatedUnion('type', [
     /** 失败分类，由沙盒 runner 给出；成功时缺省。宿主据此决定是否重试。 */
     failureKind: z.enum(['agent', 'infra', 'cancelled']).optional(),
   }),
+  z.object({ type: z.literal('run_unavailable'), message: z.string() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 
@@ -94,6 +99,10 @@ export function judge(output: string, expectation: string): boolean {
   return output.toLowerCase().includes(expectation.trim().toLowerCase());
 }
 
+export const conversationRenameSchema = z.object({
+  title: z.string().trim().min(1).max(128),
+});
+
 /** 会话列表项：按 agent 过滤，按最近消息倒序。 */
 export const conversationSummarySchema = z.object({
   id: z.string(),
@@ -129,6 +138,7 @@ export const conversationDetailSchema = z.object({
     createdAt: z.string(),
   }),
   messages: z.array(conversationMessageSchema),
+  nextBefore: z.string().nullable(),
 });
 
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;

@@ -14,6 +14,8 @@ export interface WorkspaceAgentRow {
   allowedTools: string[];
   disallowedTools: string[];
   enabled: boolean;
+  /** 子智能体自带技能；可选，由 DB 调用方补充子行时提供。 */
+  skills?: WorkspaceSkill[];
   /** 父智能体派生子智能体时等它多久；子智能体 md 里要写明，否则等待规则是空话。 */
   timeoutMs: number;
 }
@@ -31,6 +33,7 @@ function toAgent(row: WorkspaceAgentRow): WorkspaceAgent {
     allowedTools: row.allowedTools,
     disallowedTools: row.disallowedTools,
     timeoutMs: row.timeoutMs,
+    ...(row.skills ? { skills: row.skills } : {}),
   };
 }
 

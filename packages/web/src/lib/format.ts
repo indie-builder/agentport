@@ -1,4 +1,4 @@
-import type { AuditStatus, EvalRunStatus, RunStatus } from './api.js';
+import type { AuditStatus, EvalComparison, EvalRunStatus, RunStatus } from './api.js';
 
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
   month: '2-digit',
@@ -89,13 +89,40 @@ export const evalStatusLabel: Record<EvalRunStatus, string> = {
   running: '运行中',
   succeeded: '全部通过',
   failed: '有失败',
+  cancelled: '已取消',
 };
 
 export const evalStatusVariant = {
   running: 'warn',
   succeeded: 'success',
   failed: 'danger',
-} as const satisfies Record<EvalRunStatus, 'warn' | 'success' | 'danger'>;
+  cancelled: 'outline',
+} as const satisfies Record<EvalRunStatus, 'warn' | 'success' | 'danger' | 'outline'>;
+
+type EvalComparisonStatus = EvalComparison['rows'][number]['status'];
+
+export const evalComparisonStatusLabel: Record<EvalComparisonStatus, string> = {
+  improved: '改善',
+  regressed: '退步',
+  unchanged: '无变化',
+  changed_inputs: '输入已变更',
+  base_only: '仅基准',
+  head_only: '仅对比',
+  unverified: '无法核对历史输入',
+};
+
+export const evalComparisonStatusVariant = {
+  improved: 'success',
+  regressed: 'danger',
+  unchanged: 'default',
+  changed_inputs: 'warn',
+  base_only: 'outline',
+  head_only: 'outline',
+  unverified: 'warn',
+} as const satisfies Record<
+  EvalComparisonStatus,
+  'success' | 'danger' | 'default' | 'warn' | 'outline'
+>;
 
 export const auditStatusLabel: Record<AuditStatus, string> = {
   ok: '成功',

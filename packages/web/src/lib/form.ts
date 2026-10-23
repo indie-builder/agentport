@@ -52,6 +52,8 @@ function messageOf(issue: z.ZodIssue): string {
       return issue.format === 'url'
         ? '请填写完整地址，例如 https://example.com'
         : '格式不正确，请检查后重新填写';
+    case 'custom':
+      return issue.message;
     case 'invalid_type':
       return '请填写有效内容';
     default:

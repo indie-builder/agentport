@@ -163,7 +163,9 @@ export async function executeEvalRun(input: {
     if (!agent) return yield* Effect.fail(new Error(`agent ${evalRun.agentId} not found`));
     if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
 
-    const cases = yield* dbQuery(() => evalRepo.listCases(db, evalRun.agentId));
+    // 有快照就只跑快照：跑批期间改了用例也不能改变本次结果；[] 表示零条，不回读。
+    const cases =
+      evalRun.caseSnapshot ?? (yield* dbQuery(() => evalRepo.listCases(db, evalRun.agentId)));
     let passed = 0;
     let crashed: string | null = null;
 
@@ -204,17 +206,27 @@ export async function executeEvalRun(input: {
 
           yield* Effect.gen(function* () {
             yield* dbQuery(() =>
-              evalRepo.addResult(db, {
-                id: newId('evalResult'),
-                evalRunId,
-                caseId: testCase.id,
-                // 失败的 case 没有 run：外键要求 NULL 而不是空串。
-                runId: runId === '' ? null : runId,
-                passed: ok,
-                output,
-              }),
+              evalRepo.addResult(
+                db,
+                {
+                  id: newId('evalResult'),
+                  evalRunId,
+                  caseId: testCase.id,
+                  // 失败的 case 没有 run：外键要求 NULL 而不是空串。
+                  runId: runId === '' ? null : runId,
+                  passed: ok,
+                  output,
+                  // 用例行可能已被删除；报告要能独立于活表还原当时的问题与期望。
+                  caseSnapshot: {
+                    id: testCase.id,
+                    name: testCase.name,
+                    prompt: testCase.prompt,
+                    expectation: testCase.expectation,
+                  },
+                },
+                { recordProgress: true },
+              ),
             );
-            yield* dbQuery(() => evalRepo.updateProgress(db, evalRunId, passed));
           }).pipe(
             Effect.catch((err) =>
               Effect.sync(() => {

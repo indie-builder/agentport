@@ -50,6 +50,13 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   await expect(screen.getByText('连接成功')).toBeVisible();
   await expect(screen.getByText('get-user', { exact: false }).last()).toBeVisible();
 
+  // 4b. 只读工具目录：复用最近一次测试结果，打开不重新请求；看完关掉再继续。
+  await screen.getByRole('button', `查看 ${serverName} 工具与测试详情`).tap();
+  const catalog = browser.locator('[role="dialog"]');
+  await expect(catalog).toContainText('properties');
+  await expect(catalog).toContainText('integer');
+  await screen.getByRole('button', '关闭').tap();
+
   // 5. 建 agent、绑定 server、看渲染出的 .mcp.json
   await app.open('/agents');
   await screen.getByRole('button', '新建专家').first().tap();

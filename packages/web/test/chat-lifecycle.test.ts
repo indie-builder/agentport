@@ -25,6 +25,7 @@ class Source {
 
 const history: ConversationDetail = {
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'History', createdAt: '' },
+  nextBefore: null,
   messages: [
     {
       id: '1',
@@ -118,7 +119,10 @@ describe('history restoration', () => {
   it('waits for this opening to refresh cached history and blocks sending until run status is known', async () => {
     const pending = deferred<ConversationDetail>();
     vi.mocked(api.conversation).mockReturnValue(pending.promise);
-    client.setQueryData(['conversation', 'conversation-a'], { ...history, messages: [] });
+    client.setQueryData(['conversation', 'conversation-a'], {
+      pages: [{ ...history, messages: [] }],
+      pageParams: [null],
+    });
     useChatStore.getState().resetConversation('conversation-a');
     useChatStore.getState().setInput('next');
     const send = vi.spyOn(api, 'sendChat');
@@ -128,7 +132,11 @@ describe('history restoration', () => {
     expect(useChatStore.getState().items).toEqual([]);
     await act(async () => pending.resolve(history));
     await flush();
-    expect(useChatStore.getState().items).toContainEqual({ kind: 'user', text: 'prompt' });
+    expect(useChatStore.getState().items).toContainEqual({
+      id: '1:0',
+      kind: 'user',
+      text: 'prompt',
+    });
     expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'reconnecting' });
   });
 
@@ -162,9 +170,9 @@ describe('history restoration', () => {
       Source.instances[0]?.emit({ type: 'text_delta', text: 'complete reply' }),
     );
     expect(useChatStore.getState().items).toEqual([
-      { kind: 'user', text: 'old prompt' },
-      { kind: 'text', text: 'old reply' },
-      { kind: 'user', text: 'prompt' },
+      { id: 'old-u:0', kind: 'user', text: 'old prompt' },
+      { id: 'old-a:0', kind: 'text', text: 'old reply' },
+      { id: '1:0', kind: 'user', text: 'prompt' },
       { kind: 'text', text: 'complete reply' },
     ]);
   });
@@ -176,7 +184,11 @@ describe('history restoration', () => {
     expect(useChatStore.getState().lastRunId).toBe('run-a');
     expect(useChatStore.getState().run).toBeNull();
     expect(Source.instances).toHaveLength(0);
-    expect(useChatStore.getState().items).toContainEqual({ kind: 'text', text: 'partial' });
+    expect(useChatStore.getState().items).toContainEqual({
+      id: '2:0',
+      kind: 'text',
+      text: 'partial',
+    });
     expect(api.runApprovals).toHaveBeenCalledWith('run-a');
   });
 
@@ -271,7 +283,7 @@ describe('history restoration', () => {
     expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'detached' });
     await act(async () => stream.retryStream());
     expect(Source.instances).toHaveLength(1);
-    expect(useChatStore.getState().items).toEqual([{ kind: 'user', text: 'prompt' }]);
+    expect(useChatStore.getState().items).toEqual([{ id: '1:0', kind: 'user', text: 'prompt' }]);
   });
 
   it('restores history without a run and allows sending', async () => {

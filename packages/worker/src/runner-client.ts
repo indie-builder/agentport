@@ -30,6 +30,8 @@ export interface SandboxRunInput {
     permissionMode?: string;
     /** 绑定到工作区的 MCP server 名，runner 用它生成精确 allow 规则 */
     mcpServers: string[];
+    /** 绑定到工作区的技能 slug，runner 据此放行原生 Skill 工具。 */
+    skills?: string[];
     extraAllowedTools?: string[];
     extraDisallowedTools?: string[];
     effort?: string;

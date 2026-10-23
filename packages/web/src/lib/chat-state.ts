@@ -2,9 +2,10 @@ import type { ChatEvent, ConversationMessage } from '@agentport/shared';
 import type { Conversation, ConversationDetail } from './api.js';
 
 export type ChatItem =
-  | { kind: 'user'; text: string }
-  | { kind: 'text'; text: string }
+  | { id?: string; kind: 'user'; text: string }
+  | { id?: string; kind: 'text'; text: string }
   | {
+      id?: string;
       kind: 'tool';
       toolUseId: string;
       name: string;
@@ -16,7 +17,7 @@ export type ChatItem =
       startedAt?: number;
       endedAt?: number;
     }
-  | { kind: 'notice'; text: string; tone: 'ok' | 'error' | 'muted' };
+  | { id?: string; kind: 'notice'; text: string; tone: 'ok' | 'error' | 'muted' };
 
 /**
  * 事件流没有 isError 字段，沙盒只丢了文本。已知错误文案只能按前缀识别。
@@ -69,6 +70,19 @@ export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
           ? { ...item, result: event.content, endedAt: Date.now() }
           : item,
       );
+    case 'replay_truncated':
+      // 只是说明回放不完整；run_finished 后再用服务端已保存的步骤补全。
+      return [
+        ...items,
+        {
+          kind: 'notice',
+          tone: 'muted',
+          text:
+            event.reason === 'terminal_missing'
+              ? '结束事件未收到，正在读取已保存结果。'
+              : '较早事件已截断，运行结束后将读取已保存结果。',
+        },
+      ];
     case 'run_finished':
       return items.map((item) =>
         item.kind === 'tool' && item.result === undefined && item.endedAt === undefined
@@ -77,6 +91,9 @@ export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
       );
     case 'error':
       // 流可能仍然活着：只记录，不当作终态。
+      return [...items, { kind: 'notice', tone: 'error', text: event.message }];
+    case 'run_unavailable':
+      // 记录已被清理，服务端不会再补事件；已收到的部分输出比一句空话更有用。
       return [...items, { kind: 'notice', tone: 'error', text: event.message }];
     case 'run_started':
       return items;
@@ -102,7 +119,7 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
     if (role === 'user') {
       const text = blockText(content);
       if (text !== null) {
-        items.push({ kind: 'user', text });
+        items.push({ id: `${message.id}:0`, kind: 'user', text });
         continue;
       }
       if (Array.isArray(content)) {
@@ -110,22 +127,24 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
           .map(blockText)
           .filter((part): part is string => part !== null)
           .join('\n');
-        if (joined) items.push({ kind: 'user', text: joined });
+        if (joined) items.push({ id: `${message.id}:0`, kind: 'user', text: joined });
       }
       continue;
     }
 
     const blocks = Array.isArray(content) ? content : [content];
-    for (const block of blocks) {
+    for (const [blockIndex, block] of blocks.entries()) {
+      const id = `${message.id}:${blockIndex}`;
       const text = blockText(block);
       if (text !== null) {
-        items.push({ kind: 'text', text });
+        items.push({ id, kind: 'text', text });
         continue;
       }
       if (typeof block !== 'object' || block === null) continue;
       const record = block as Record<string, unknown>;
       if (record.type === 'tool_use' && (typeof record.name === 'string' || record.id)) {
         items.push({
+          id,
           kind: 'tool',
           toolUseId:
             typeof record.id === 'string'
@@ -135,10 +154,13 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
                 : crypto.randomUUID(),
           name: typeof record.name === 'string' ? record.name : '未知工具',
           input: JSON.stringify(record.input ?? {}, null, 2),
+          ...(typeof record.parentToolUseId === 'string'
+            ? { parentToolUseId: record.parentToolUseId }
+            : {}),
         });
       } else if (record.type === 'tool_result') {
         // worker 落库用 toolUseId，SDK 原始块用 tool_use_id；两种都要认。
-        const id =
+        const toolUseId =
           typeof record.toolUseId === 'string'
             ? record.toolUseId
             : typeof record.tool_use_id === 'string'
@@ -149,18 +171,85 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
           typeof record.parentToolUseId === 'string'
             ? { parentToolUseId: record.parentToolUseId }
             : {};
-        const index = items.findIndex((item) => item.kind === 'tool' && item.toolUseId === id);
+        const index = items.findIndex(
+          (item) => item.kind === 'tool' && item.toolUseId === toolUseId,
+        );
         const existing = items[index];
         if (existing?.kind === 'tool') {
           items[index] = { ...existing, result, ...parent };
         } else {
           // 找不到 tool_use 时也保留归属：否则子智能体卡片会被当成顶层调用。
-          items.push({ kind: 'tool', toolUseId: id, name: '未知工具', result, ...parent });
+          items.push({
+            id,
+            kind: 'tool',
+            toolUseId,
+            name: '未知工具',
+            result,
+            ...parent,
+          });
         }
       }
     }
   }
   return items;
+}
+
+/* ---------- 分页历史：已加载前缀 + 本轮流式尾部 ---------- */
+
+export interface HistorySnapshot {
+  conversationId: string;
+  /** 首次回填时最后一条消息的 id：分页只会在它之前补，尾部不会重复。 */
+  boundaryId: string | null;
+  /** 已加载历史中不晚于边界的原始消息，用于跨页合并与顺序判定。 */
+  messages: ConversationMessage[];
+  /** 前缀解析出的条数；其后都是本轮流式追加的尾部。 */
+  count: number;
+}
+
+export function snapshotHistory(data: ConversationDetail, items: ChatItem[]): HistorySnapshot {
+  return {
+    conversationId: data.conversation.id,
+    boundaryId: data.messages.at(-1)?.id ?? null,
+    messages: data.messages,
+    count: items.length,
+  };
+}
+
+function beforeBoundary(message: ConversationMessage, boundary: ConversationMessage): boolean {
+  if (message.createdAt !== boundary.createdAt) {
+    return message.createdAt < boundary.createdAt;
+  }
+  return message.id <= boundary.id;
+}
+
+/** 保留已加载的原始历史，避免最新页窗口前移时丢失旧消息；流式尾部独立保留。 */
+export function mergeOlderHistory(
+  snapshot: HistorySnapshot,
+  data: ConversationDetail,
+  items: ChatItem[],
+): { items: ChatItem[]; snapshot: HistorySnapshot } | null {
+  if (snapshot.conversationId !== data.conversation.id) return null;
+  if (snapshot.boundaryId === null || snapshot.count > items.length) return null;
+  const boundary = snapshot.messages.findLast((message) => message.id === snapshot.boundaryId);
+  if (!boundary) return null;
+
+  const messages = new Map(snapshot.messages.map((message) => [message.id, message]));
+  let added = false;
+  for (const message of data.messages) {
+    if (messages.has(message.id) || !beforeBoundary(message, boundary)) continue;
+    messages.set(message.id, message);
+    added = true;
+  }
+  if (!added) return null;
+
+  const ordered = [...messages.values()].sort(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+  );
+  const history = historyToItems(ordered);
+  return {
+    items: [...history, ...items.slice(snapshot.count)],
+    snapshot: { ...snapshot, messages: ordered, count: history.length },
+  };
 }
 
 /* ---------- 本地会话索引：历史列表接口上线前的兜底 ---------- */

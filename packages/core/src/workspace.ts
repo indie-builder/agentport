@@ -19,6 +19,8 @@ export interface WorkspaceAgent {
   effort?: string | null;
   allowedTools?: string[];
   disallowedTools?: string[];
+  /** 子智能体的技能；父智能体只声明自己的，子技能仅供子智能体原生加载。 */
+  skills?: WorkspaceSkill[];
   /** 子智能体超时；调用方会一直等到它返回或超时。 */
   timeoutMs?: number;
 }
@@ -147,7 +149,11 @@ function renderClaudeMd(input: WorkspaceInput): string {
   const { agent, servers, skills = [] } = input;
   const toolLines =
     servers.length === 0
-      ? ['当前没有绑定 MCP Server，你没有可调用的工具。']
+      ? [
+          skills.length === 0
+            ? '当前没有绑定 MCP Server，也没有可用技能，你没有可调用的工具。'
+            : '当前没有绑定 MCP Server，你没有 MCP 工具；可用能力只有下方列出的技能。',
+        ]
       : [
           '本工作区通过 `.mcp.json` 绑定以下 MCP Server：',
           '',
@@ -163,7 +169,8 @@ function renderClaudeMd(input: WorkspaceInput): string {
           '',
           ...skills.map((s) => `- \`${s.slug}\`：${inlineText(s.description)}`),
           '',
-          '需要时读取 `.claude/skills/<slug>/SKILL.md` 按步骤执行。',
+          '需要时用原生 `Skill` 工具调用对应技能，技能名就是上面的 slug。',
+          '不要用 `Read` 打开 `.claude/skills/` 下的文件：该工具已被禁用。',
         ];
 
   const subAgents = input.subAgents ?? [];
@@ -281,7 +288,7 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
   ].join('\n');
 }
 
-function renderSkillMd(skill: WorkspaceSkill): string {
+export function renderSkillMd(skill: WorkspaceSkill): string {
   return [
     '---',
     `name: ${yamlString(skill.slug)}`,
@@ -302,11 +309,20 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
     mcpServers[server.name] = server.entry;
   }
 
+  // 技能按 slug 去重：根智能体在前，子智能体按序补齐，先出现者胜。
+  const allSkills = new Map<string, WorkspaceSkill>();
+  for (const skill of [
+    ...(input.skills ?? []),
+    ...(input.subAgents ?? []).flatMap((subAgent) => subAgent.skills ?? []),
+  ]) {
+    if (!allSkills.has(skill.slug)) allSkills.set(skill.slug, skill);
+  }
+
   return {
     mcpJson: `${JSON.stringify({ mcpServers }, null, 2)}\n`,
     claudeMd: renderClaudeMd(input),
     agentMd: renderAgentMd(input),
-    skills: (input.skills ?? []).map((skill) => ({
+    skills: [...allSkills.values()].map((skill) => ({
       slug: skill.slug,
       content: renderSkillMd(skill),
     })),
@@ -316,6 +332,7 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
         {
           agent: subAgent,
           servers: input.servers,
+          skills: subAgent.skills ?? [],
           ...(subAgent.allowedTools && subAgent.allowedTools.length > 0
             ? { toolsAllow: subAgent.allowedTools }
             : {}),

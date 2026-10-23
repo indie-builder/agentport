@@ -86,6 +86,8 @@ export const overviewSchema = z.object({
     agents: z.number(),
     runs: z.number(),
     running: z.number(),
+    failed: z.number(),
+    tokens: z.number(),
     costUsd: z.number(),
     avgLatencyMs: z.number().nullable(),
   }),
@@ -108,11 +110,30 @@ export const overviewSchema = z.object({
   recent: z.array(recentRunSchema),
 });
 
+export const evalCaseFieldsSchema = z.object({
+  name: z.string().trim().min(1).max(128),
+  prompt: z.string().min(1).max(20_000),
+  expectation: z.string().max(5_000).default(''),
+});
+
+export const evalDatasetSchema = z.object({
+  format: z.literal('agentport/eval@1'),
+  exportedAt: z.iso.datetime(),
+  cases: z.array(evalCaseFieldsSchema).max(500),
+});
+
+export type EvalDataset = z.infer<typeof evalDatasetSchema>;
+export interface EvalDatasetImportResult {
+  imported: number;
+  skipped: number;
+  warnings: string[];
+}
+
 /** 评估运行：worker 崩溃时把原因写进 error；前端据此说明失败原因。 */
 export const evalRunSchema = z.object({
   id: z.string(),
   agentId: z.string(),
-  status: z.enum(['running', 'succeeded', 'failed']),
+  status: z.enum(['running', 'succeeded', 'failed', 'cancelled']),
   total: z.number(),
   passed: z.number(),
   error: z.string().nullable(),
@@ -132,6 +153,39 @@ export const evalResultSchema = z.object({
   output: z.string(),
   runId: z.string().nullable(),
 });
+
+export const evalRunExportSchema = z.object({
+  format: z.literal('agentport/eval-run@1'),
+  exportedAt: z.iso.datetime(),
+  configurationPinned: z.literal(false),
+  evalRun: evalRunSchema,
+  results: z.array(evalResultSchema).max(500),
+});
+
+export type EvalRunExport = z.infer<typeof evalRunExportSchema>;
+
+export const evalComparisonRowSchema = z.object({
+  key: z.string(),
+  status: z.enum([
+    'improved',
+    'regressed',
+    'unchanged',
+    'changed_inputs',
+    'base_only',
+    'head_only',
+    'unverified',
+  ]),
+  base: evalResultSchema.nullable(),
+  head: evalResultSchema.nullable(),
+});
+
+export const evalComparisonSchema = z.object({
+  baseRun: evalRunSchema,
+  headRun: evalRunSchema,
+  rows: z.array(evalComparisonRowSchema),
+});
+
+export type EvalComparison = z.infer<typeof evalComparisonSchema>;
 
 export const evalRunDetailSchema = z.object({
   evalRun: evalRunSchema,

@@ -41,6 +41,7 @@ const terminal: RunDetail['run'] = {
 };
 const history: ConversationDetail = {
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: '', createdAt: '' },
+  nextBefore: null,
   messages: [
     {
       id: '1',
@@ -116,8 +117,8 @@ describe('authoritative disconnected recovery', () => {
       vi.spyOn(api, 'conversation').mockResolvedValue(history);
       await stream.reconcileRun({ ...terminal, status });
       expect(useChatStore.getState().items).toEqual([
-        { kind: 'user', text: 'prompt' },
-        { kind: 'text', text: 'authoritative reply' },
+        { id: '1:0', kind: 'user', text: 'prompt' },
+        { id: '2:0', kind: 'text', text: 'authoritative reply' },
       ]);
       expect(useChatStore.getState().run).toBeNull();
       expect(useChatStore.getState().lastRun?.status).toBe(status);
@@ -178,6 +179,7 @@ describe('authoritative disconnected recovery', () => {
     await newRecovery;
     expect(useChatStore.getState().run).toBeNull();
     expect(useChatStore.getState().items).toContainEqual({
+      id: '2:0',
       kind: 'text',
       text: 'authoritative reply',
     });

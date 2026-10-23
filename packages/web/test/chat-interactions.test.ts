@@ -52,14 +52,21 @@ describe('approval placement', () => {
       createElement(
         'div',
         null,
-        createElement(ApprovalCard, { item: approval('A'), pending: 'A', onApprove() {} }),
+        createElement(ApprovalCard, {
+          item: { ...approval('A'), waiting: true },
+          pending: 'A',
+          onApprove() {},
+        }),
         createElement(ApprovalCard, { item: approval('B'), pending: 'A', onApprove() {} }),
       ),
     );
     expect(html.match(/<button\b[^>]*disabled/g)).toHaveLength(2);
     expect(html.match(/批准中…/g)).toHaveLength(1);
-    expect(html).not.toContain('批准并继续');
-    expect(html).toContain('>批准</button>');
+    expect(html).toContain('aria-label="批准 A / write"');
+    expect(html).toContain('aria-label="批准 B / write"');
+    expect(html).toContain('调用仍在等待，批准后可继续本次调用，无需重发');
+    expect(html).toContain('本次调用已结束等待，批准仅对后续调用生效，不会恢复已结束的调用。');
+    expect(html).toContain('>批准后续调用</button>');
   });
   it('matches the exact server when two servers share the tool name', () => {
     const a = approval('A');

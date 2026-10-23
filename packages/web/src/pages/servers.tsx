@@ -19,10 +19,12 @@ import {
   RefreshCw,
   Server as ServerIcon,
   Trash2,
+  Upload,
   Wrench,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CodeBlock } from '../components/code-block.js';
+import { toast } from 'sonner';
+import { CodeBlock, JsonBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
@@ -88,6 +90,7 @@ import {
   useCreateTool,
   useDeleteServer,
   useDeleteTool,
+  useImportMcpFile,
   useRotateServerToken,
   useServers,
   useServerToken,
@@ -147,6 +150,7 @@ export function ServersPage() {
   const servers = useServers();
   const agents = useAgents();
   const test = useTestServer();
+  const importMcp = useImportMcpFile();
   const search = useSearch({ from: '/shell/servers' });
   const navigate = useNavigate();
   const query = search.q ?? '';
@@ -167,13 +171,16 @@ export function ServersPage() {
   const [deleting, setDeleting] = useState<Server | null>(null);
   const [connection, setConnection] = useState<Server | null>(null);
   const [toolServer, setToolServer] = useState<Server | null>(null);
+  const [catalogServer, setCatalogServer] = useState<Server | null>(null);
   const [tested, setTested] = useState<Map<string, LastTest>>(() => new Map());
   const createButtonRef = useRef<HTMLButtonElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   // 弹层关闭后焦点回到真正打开它的控件，而不是统一回到「新建」。
   const triggerRef = useRef<HTMLElement | null>(null);
   const focusTrigger = (): HTMLElement | null =>
     triggerRef.current?.isConnected ? triggerRef.current : createButtonRef.current;
 
+  const catalogTest = catalogServer ? tested.get(catalogServer.id) : undefined;
   const all = servers.data ?? [];
 
   const filtered = useMemo(() => {
@@ -234,6 +241,20 @@ export function ServersPage() {
     });
   };
 
+  const importFile = async (file: File): Promise<void> => {
+    if (file.size > 1_048_576) {
+      toastError(new Error('导入文件不能超过 1 MB，请精简后重试。'));
+      return;
+    }
+    try {
+      const result = await importMcp.mutateAsync(await file.text());
+      toastSuccess(`已导入 ${result.servers.length} 个连接器`);
+      for (const warning of result.warnings) toast.info(warning);
+    } catch (error) {
+      toastError(error);
+    }
+  };
+
   const kindOptions = [
     { value: 'all', label: '全部来源' },
     { value: 'stdio', label: kindMeta.stdio.label },
@@ -260,9 +281,32 @@ export function ServersPage() {
         />
       }
       actions={
-        <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
-          <Plus data-icon="inline-start" /> 新建连接器
-        </Button>
+        <>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              // 先清空 value，同一个文件重试时才会再次触发 change。
+              event.target.value = '';
+              if (file) void importFile(file);
+            }}
+          />
+          <Button
+            variant="outline"
+            disabled={importMcp.isPending}
+            aria-busy={importMcp.isPending}
+            onClick={() => importInputRef.current?.click()}
+          >
+            <Upload data-icon="inline-start" aria-hidden="true" />{' '}
+            {importMcp.isPending ? '导入中…' : '导入 .mcp.json'}
+          </Button>
+          <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
+            <Plus data-icon="inline-start" /> 新建连接器
+          </Button>
+        </>
       }
     >
       {servers.isPending ? <LoadingState rows={4} layout="cards" /> : null}
@@ -332,6 +376,10 @@ export function ServersPage() {
                   triggerRef.current = trigger;
                   setConnection(server);
                 }}
+                onCatalog={(trigger) => {
+                  triggerRef.current = trigger;
+                  setCatalogServer(server);
+                }}
                 onEdit={(trigger) => openEdit(server, trigger)}
                 onDelete={(trigger) => {
                   triggerRef.current = trigger;
@@ -366,11 +414,30 @@ export function ServersPage() {
         />
       ) : null}
 
+      {catalogServer && catalogTest ? (
+        <ToolCatalogDialog
+          server={catalogServer}
+          lastTest={catalogTest}
+          pending={test.isPending}
+          testing={test.isPending && test.variables === catalogServer.id}
+          onRetest={() => runTest(catalogServer)}
+          getReturnFocus={focusTrigger}
+          onClose={() => setCatalogServer(null)}
+        />
+      ) : null}
+
       {toolServer ? (
         <ToolEditorDialog
           server={toolServer}
           getReturnFocus={focusTrigger}
-          onClose={() => setToolServer(null)}
+          onClose={() => {
+            setTested((previous) => {
+              const next = new Map(previous);
+              next.delete(toolServer.id);
+              return next;
+            });
+            setToolServer(null);
+          }}
         />
       ) : null}
 
@@ -402,6 +469,7 @@ function ServerCard({
   onTest,
   onTools,
   onConnection,
+  onCatalog,
   onEdit,
   onDelete,
 }: {
@@ -413,6 +481,7 @@ function ServerCard({
   onTest: () => void;
   onTools: (trigger: HTMLElement) => void;
   onConnection: (trigger: HTMLElement) => void;
+  onCatalog: (trigger: HTMLElement) => void;
   onEdit: (trigger: HTMLElement) => void;
   onDelete: (trigger: HTMLElement) => void;
 }) {
@@ -500,7 +569,12 @@ function ServerCard({
         <code className="truncate font-mono text-xs text-muted-foreground" title={detailOf(server)}>
           {detailOf(server) || '—'}
         </code>
-        <TestSummary state={lastTest} testing={testing} />
+        <TestSummary
+          state={lastTest}
+          testing={testing}
+          serverName={server.name}
+          onOpen={(trigger) => onCatalog(trigger)}
+        />
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-2">
         <span className="text-xs text-muted-foreground">
@@ -519,43 +593,161 @@ function ServerCard({
   );
 }
 
-function TestSummary({ state, testing }: { state: LastTest | null; testing: boolean }) {
+function TestSummary({
+  state,
+  testing,
+  serverName,
+  onOpen,
+}: {
+  state: LastTest | null;
+  testing: boolean;
+  serverName: string;
+  onOpen: (trigger: HTMLElement) => void;
+}) {
   if (testing) return <span className="text-xs text-muted-foreground">测试中…</span>;
   if (!state) return <span className="text-xs text-muted-foreground">未测试</span>;
   const { result, at } = state;
   return (
-    <div className="max-w-[220px] flex flex-col gap-0.5">
-      <div className="flex items-center gap-1.5">
-        {result.ok ? (
-          <CircleCheck className="size-3.5 shrink-0 text-success" />
-        ) : (
-          <CircleAlert className="size-3.5 shrink-0 text-danger" />
-        )}
-        <span className={cn('text-xs font-medium', result.ok ? 'text-success' : 'text-danger')}>
-          {result.ok ? '连接成功' : '未能连接'}
-        </span>
-        <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-          {formatDateTime(at)}
-        </span>
+    <div className="flex flex-col gap-2">
+      <div className="max-w-[220px] flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
+          {result.ok ? (
+            <CircleCheck className="size-3.5 shrink-0 text-success" />
+          ) : (
+            <CircleAlert className="size-3.5 shrink-0 text-danger" />
+          )}
+          <span className={cn('text-xs font-medium', result.ok ? 'text-success' : 'text-danger')}>
+            {result.ok ? '连接成功' : '未能连接'}
+          </span>
+          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+            {formatDateTime(at)}
+          </span>
+        </div>
+        <div className="font-mono text-2xs tabular-nums text-muted-foreground">
+          耗时 {formatDuration(result.durationMs)}
+        </div>
+        {/* 列出工具名：只给数量无法判断「连上了但工具没注册」这种情况。 */}
+        {result.ok && result.tools.length > 0 ? (
+          <p
+            className="truncate font-mono text-2xs text-muted-foreground"
+            title={result.tools.map((tool) => tool.name).join(', ')}
+          >
+            {result.tools.map((tool) => tool.name).join(' · ')}
+          </p>
+        ) : null}
+        {result.error ? (
+          <p className="truncate text-2xs text-danger" title={result.error}>
+            {result.error}
+          </p>
+        ) : null}
       </div>
-      <div className="font-mono text-2xs tabular-nums text-muted-foreground">
-        耗时 {formatDuration(result.durationMs)}
-      </div>
-      {/* 列出工具名：只给数量无法判断「连上了但工具没注册」这种情况。 */}
-      {result.ok && result.tools.length > 0 ? (
-        <p
-          className="truncate font-mono text-2xs text-muted-foreground"
-          title={result.tools.map((tool) => tool.name).join(', ')}
-        >
-          {result.tools.map((tool) => tool.name).join(' · ')}
-        </p>
-      ) : null}
-      {result.error ? (
-        <p className="truncate text-2xs text-danger" title={result.error}>
-          {result.error}
-        </p>
-      ) : null}
+      <Button
+        variant="outline"
+        size="sm"
+        className="self-start"
+        aria-label={`查看 ${serverName} 工具与测试详情`}
+        onClick={(event) => onOpen(event.currentTarget)}
+      >
+        查看工具与测试详情
+      </Button>
     </div>
+  );
+}
+
+/** 只读最近测试返回的目录与脱敏错误摘要；打开时不发请求。 */
+function ToolCatalogDialog({
+  server,
+  lastTest,
+  pending,
+  testing,
+  onRetest,
+  onClose,
+  getReturnFocus,
+}: {
+  server: Server;
+  lastTest: LastTest;
+  pending: boolean;
+  testing: boolean;
+  onRetest: () => void;
+  onClose: () => void;
+  getReturnFocus: () => HTMLElement | null;
+}) {
+  const result = lastTest.result;
+  const tools = result.ok ? result.tools : [];
+
+  return (
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogShell
+        title={`工具与测试「${server.name}」`}
+        description="只读最近一次连接测试的结果；重新测试按当前配置重新连接。"
+        finalFocus={getReturnFocus}
+        className="max-w-2xl sm:max-w-2xl"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            {result?.serverInfo ? (
+              <span className="font-mono">
+                {result.serverInfo.name} {result.serverInfo.version}
+              </span>
+            ) : null}
+            {lastTest && result ? (
+              <span className="font-mono tabular-nums">
+                测试于 {formatDateTime(lastTest.at)} · 耗时 {formatDuration(result.durationMs)}
+              </span>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              disabled={pending}
+              aria-busy={testing}
+              onClick={onRetest}
+            >
+              <RefreshCw className="size-3.5" aria-hidden="true" />
+              {testing ? '测试中…' : '重新测试'}
+            </Button>
+          </div>
+
+          {!result.ok ? (
+            <Field className="gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">失败原因</span>
+              {/* 原文展示，不截断也不解析：这条文本是定位连不上问题的唯一线索。 */}
+              <p className="break-words rounded-item bg-danger-soft p-3 font-mono text-xs leading-relaxed text-danger">
+                {result.error ?? '服务没有返回原因。'}
+              </p>
+            </Field>
+          ) : null}
+
+          {tools.length === 0 && result?.ok ? (
+            <InlineEmpty>连接成功，但没有返回任何工具。</InlineEmpty>
+          ) : null}
+
+          {tools.length > 0 ? (
+            <ul aria-label="工具目录" className="flex flex-col divide-y border-y">
+              {tools.map((tool, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 上游工具没有稳定唯一键，同名工具也可能重复
+                <li key={`${tool.name}-${index}`} className="flex flex-col gap-2 py-3">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-mono text-xs text-fg">{tool.name}</span>
+                    {tool.title && tool.title !== tool.name ? (
+                      <span className="text-xs text-muted-foreground">{tool.title}</span>
+                    ) : null}
+                  </div>
+                  {tool.description ? (
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {tool.description}
+                    </p>
+                  ) : null}
+                  {tool.inputSchema ? (
+                    <JsonBlock value={tool.inputSchema} maxHeight="12rem" />
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </DialogShell>
+    </Dialog>
   );
 }
 

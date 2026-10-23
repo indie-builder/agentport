@@ -1,5 +1,6 @@
+import { conversationRenameSchema } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   ArrowDown,
   ArrowUp,
@@ -11,6 +12,8 @@ import {
   GitBranch,
   LoaderCircle,
   MessageSquare,
+  MoreHorizontal,
+  Pencil,
   Plus,
   RefreshCw,
   Wrench,
@@ -18,6 +21,8 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
+  type ComponentProps,
+  type FormEvent,
   memo,
   type ReactNode,
   type RefObject,
@@ -29,14 +34,28 @@ import {
 } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { CodeBlock, CollapsibleText, JsonBlock } from '../components/code-block.js';
+import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { DialogShell } from '../components/dialog-shell.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
 import { Page, PageHeader } from '../components/page.js';
+import { RequiredMark } from '../components/required-mark.js';
+import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
+import { Dialog } from '../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
+import { Field, FieldError, FieldLabel } from '../components/ui/field.js';
+import { Input } from '../components/ui/input.js';
 import { Message, MessageContent, MessageGroup } from '../components/ui/message.js';
 import {
   MessageScroller,
@@ -62,6 +81,7 @@ import {
   type LocalConversation,
   loadLocalConversations,
   localConversation,
+  mergeOlderHistory,
   titleFromDetail,
   toolFailed,
   upsertLocalConversation,
@@ -73,6 +93,7 @@ import {
   useChatStore,
 } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
+import { fieldErrors } from '../lib/form.js';
 import { formatDuration, formatRelative } from '../lib/format.js';
 import {
   useAgents,
@@ -85,9 +106,29 @@ import { toastError, toastSuccess } from '../lib/toast.js';
 import { useChatStream } from '../lib/use-chat-stream.js';
 
 export function ChatPage() {
+  const search = useSearch({ from: '/shell/chat' });
+  const navigate = useNavigate();
   const agents = useAgents();
-  const [agentId, setAgentId] = useState<string | null>(null);
-  const activeAgentId = agentId ?? agents.data?.[0]?.id ?? null;
+  const conversationId = search.conversation ?? null;
+  const detail = useConversation(conversationId);
+
+  // 已打开会话时，服务端记录才是真相；URL 只是它的镜像。
+  const serverAgentId = detail.data?.conversation.agentId ?? null;
+  const activeAgentId = serverAgentId ?? search.agent ?? agents.data?.[0]?.id ?? null;
+
+  // URL 里的 agent 与会话不一致时，用会话的真实归属校正 URL（replace，不进历史）。
+  useEffect(() => {
+    if (!serverAgentId || serverAgentId === search.agent) return;
+    void navigate({
+      to: '/chat',
+      search: (previous) => ({ ...previous, agent: serverAgentId }),
+      replace: true,
+    });
+  }, [serverAgentId, search.agent, navigate]);
+
+  const clearSelection = (): void => {
+    void navigate({ to: '/chat', search: {}, replace: true });
+  };
 
   if (agents.isPending || agents.isError || agents.data.length === 0) {
     return (
@@ -113,11 +154,48 @@ export function ChatPage() {
     );
   }
 
+  // URL 指向的 agent 不存在：不静默改成第一个，免得把消息发给别的 agent。
+  if (!conversationId && search.agent && !agents.data.some((item) => item.id === search.agent)) {
+    return (
+      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
+        <EmptyState
+          icon={<Bot className="size-5" />}
+          title="找不到这个智能体"
+          description="链接里的智能体可能已被删除，或不属于当前工作区。"
+          action={
+            <Button variant="outline" onClick={clearSelection}>
+              开始新对话
+            </Button>
+          }
+        />
+      </Page>
+    );
+  }
+
+  // 深链会话的加载 / 失败状态在 ChatWorkspace 内处理：那里能区分「正在发送的本轮」，
+  // 不会因为新会话的数据刚到就卸载整个工作区、掐断事件流。
   return (
     <ChatWorkspace
       agents={agents.data ?? []}
       agentId={activeAgentId}
-      onAgentChange={(id) => setAgentId(id)}
+      conversationId={conversationId}
+      // 会话切换走 push：后退能回到上一条会话。新会话首次落 URL 用 replace。
+      onConversationChange={(id, replace = false) => {
+        void navigate({
+          to: '/chat',
+          search: {
+            ...(activeAgentId && agents.data.some((item) => item.id === activeAgentId)
+              ? { agent: activeAgentId }
+              : {}),
+            ...(id ? { conversation: id } : {}),
+          },
+          replace,
+        });
+      }}
+      onAgentChange={(id) => {
+        void navigate({ to: '/chat', search: { agent: id } });
+      }}
     />
   );
 }
@@ -150,14 +228,17 @@ function useDesktop(): boolean {
 function ChatWorkspace({
   agents,
   agentId,
+  conversationId,
+  onConversationChange,
   onAgentChange,
 }: {
   agents: NonNullable<ReturnType<typeof useAgents>['data']>;
   agentId: string | null;
-  onAgentChange: (id: string) => void;
+  conversationId: string | null;
+  onConversationChange: (conversationId: string | null, replace?: boolean) => void;
+  onAgentChange: (agentId: string) => void;
 }) {
   const agent = agents.find((item) => item.id === agentId) ?? null;
-  const conversationId = useChatStore((state) => state.conversationId);
   const items = useChatStore((state) => state.items);
   const run = useChatStore((state) => state.run);
   const lastRun = useChatStore((state) => state.lastRun);
@@ -171,12 +252,15 @@ function ChatWorkspace({
   const refreshLocal = useCallback(() => setLocal(loadLocalConversations()), []);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const historyTriggerRef = useRef<HTMLButtonElement>(null);
+  // 记下真正发起重命名的条目与菜单触发器：菜单卸载后，对话框关闭时焦点要回到它。
+  const [renaming, setRenaming] = useState<{ entry: HistoryEntry; trigger: HTMLElement } | null>(
+    null,
+  );
   const desktop = useDesktop();
 
   const conversations = useConversations(agentId);
   const detail = useConversation(conversationId);
-  const runApprovals = useRunApprovals(run?.runId || lastRunId, Boolean(run));
-
+  const runApprovals = useRunApprovals(run?.runId || lastRunId, Boolean(run?.runId));
   const historyLayout = useDefaultLayout({ id: 'chat-history' });
 
   // 空数组也要稳定：否则轮询之外的重渲染会给工具行换一个新身份。
@@ -186,6 +270,8 @@ function ChatWorkspace({
     agentId,
     history: detail,
     onAccepted: (accepted, text) => {
+      // 第一次发送才拿到会话 id：URL 镜像它，但这是同一次操作，用 replace 不留历史。
+      onConversationChange(accepted.conversationId, true);
       upsertLocalConversation({
         id: accepted.conversationId,
         agentId: agent?.id ?? agentId ?? '',
@@ -239,8 +325,12 @@ function ChatWorkspace({
     onSettled: () => {
       approvalInFlight.current = false;
     },
-    onSuccess: (_data, item) => {
-      toastSuccess(`已批准 ${item.toolName}；继续请在输入框重新发送消息`);
+    onSuccess: (data, item) => {
+      toastSuccess(
+        data.waiting
+          ? `已批准 ${item.toolName}；仍在等待的调用可继续，无需重发消息`
+          : '已记录后续调用许可；本次调用不会恢复。',
+      );
       void client.invalidateQueries({ queryKey: ['run-approvals'] });
     },
     onError: (error) => toastError(error),
@@ -257,13 +347,23 @@ function ChatWorkspace({
     },
   });
 
+  const renameMutation = useMutation({
+    mutationFn: (input: { id: string; title: string }) =>
+      api.renameConversation(input.id, input.title),
+    onSuccess: (_conversation, input) => {
+      void client.invalidateQueries({ queryKey: ['conversations'] });
+      void client.invalidateQueries({ queryKey: ['conversation', input.id] });
+      setRenaming(null);
+    },
+    onError: (error) => toastError(error),
+  });
+
   const cancel = (): void => {
     // 没有 runId 时后端还没有可取消的 run；按钮也不会显示。
     if (!run?.runId) return;
     cancelMutation.mutate(run.runId);
   };
 
-  /** 只记录批准；继续需要用户重新发送消息，也就是新一次运行。 */
   // 固定身份：工具行的 memo 依赖这个回调，每次渲染都换新函数会让整列重渲染。
   const approve = useCallback(
     (item: ApprovalRequest): void => {
@@ -275,11 +375,9 @@ function ChatWorkspace({
     [run?.runId, lastRunId, approveMutation.mutate],
   );
 
+  // URL 是选中的会话：历史、新建、切换 agent 都只改 URL，store 由下面的同步 effect 收敛。
   const openConversation = (id: string): void => {
-    stream.closeStream();
-    stream.hydratedRef.current = null;
-    useChatStore.getState().resetConversation(id);
-    void client.invalidateQueries({ queryKey: ['conversation', id] });
+    if (id !== conversationId) onConversationChange(id);
     setHistoryOpen(false);
   };
 
@@ -287,6 +385,7 @@ function ChatWorkspace({
     stream.closeStream();
     stream.hydratedRef.current = null;
     useChatStore.getState().resetConversation(null);
+    onConversationChange(null);
     setHistoryOpen(false);
     composerRef.current?.focus();
   };
@@ -295,7 +394,38 @@ function ChatWorkspace({
   const branch = (id: string): void =>
     branchMutation.mutate({ id, ownsRequest: stream.captureRequest() });
 
+  // URL → store：只清掉属于别的会话的本地状态；自己发送时 store 已先于 URL 写入，这里不动。
+  useEffect(() => {
+    const store = useChatStore.getState();
+    if (store.conversationId === conversationId) return;
+    if (store.run?.conversationId === conversationId) return;
+    stream.closeStream();
+    stream.hydratedRef.current = null;
+    store.resetConversation(conversationId);
+  }, [conversationId, stream.closeStream, stream.hydratedRef]);
+
   const hydrated = stream.hydratedRef;
+  const { historyPrefix, setHistoryPrefix } = stream;
+
+  // 更早的页面只会在历史前缀前插入：整段前缀重新解析（跨页工具调用合并），尾部原样保留。
+  // 加载期间开始新一轮时先等它结束，避免合并打断流式基准。
+  useEffect(() => {
+    const data = detail.data;
+    if (!data || run || !historyPrefix) return;
+    const items = useChatStore.getState().items;
+    const merged = mergeOlderHistory(historyPrefix, data, items);
+    if (!merged) return;
+    setHistoryPrefix(merged.snapshot);
+    useChatStore.getState().setItems(merged.items);
+  }, [detail.data, run, historyPrefix, setHistoryPrefix]);
+
+  const loadOlder = useCallback((): void => {
+    if (!detail.hasNextPage || detail.isFetching || run) return;
+    // fetchNextPage 默认吞掉错误（结果里带 isFetchNextPageError），重试按钮保持可见。
+    void detail.fetchNextPage().then((result) => {
+      if (result.isFetchNextPageError) toastError(result.error);
+    });
+  }, [detail.hasNextPage, detail.isFetching, detail.fetchNextPage, run]);
 
   useEffect(() => {
     if (!detail.data) return;
@@ -337,6 +467,7 @@ function ChatWorkspace({
       branching={branchMutation.isPending ? (branchMutation.variables?.id ?? null) : null}
       onOpen={openConversation}
       onBranch={branch}
+      onRename={(conversation, trigger) => setRenaming({ entry: conversation, trigger })}
     />
   );
 
@@ -363,12 +494,57 @@ function ChatWorkspace({
       onCancel={cancel}
       onOpenHistory={() => setHistoryOpen(true)}
       onPickSuggestion={setInput}
+      onLoadOlder={loadOlder}
+      hasOlder={Boolean(historyPrefix?.conversationId === conversationId && detail.hasNextPage)}
+      loadingOlder={detail.isFetchingNextPage}
       showWelcome={showWelcome}
       send={stream.send}
       composerRef={composerRef}
       historyTriggerRef={historyTriggerRef}
     />
   );
+
+  const renameDialog = renaming ? (
+    <RenameDialog
+      conversation={renaming.entry}
+      pending={renameMutation.isPending}
+      onClose={() => setRenaming(null)}
+      onRename={(title) => renameMutation.mutate({ id: renaming.entry.id, title })}
+      // 菜单项随菜单卸载；触发器还在就回到它，否则交给 Base UI 的默认落点。
+      finalFocus={() => (renaming.trigger.isConnected ? renaming.trigger : null)}
+    />
+  ) : null;
+
+  // 只有「静默的」深链失败才整页报错；正在跑的这一轮不能被卸载，否则事件流会被掐断。
+  if (conversationId && detail.isError && items.length === 0 && !run) {
+    return (
+      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
+        <div className="flex flex-col gap-3">
+          <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => onConversationChange(null)}
+          >
+            开始新对话
+          </Button>
+        </div>
+      </Page>
+    );
+  }
+
+  // 深链会话还没回填历史时不给输入框：此时还不知道会话属于哪个 agent。
+  // 自己发送时 store 已有本轮消息，不会闪这一屏。
+  if (conversationId && !run && items.length === 0 && hydrated.current !== conversationId) {
+    return (
+      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
+        <LoadingState rows={4} />
+      </Page>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 min-w-0">
@@ -384,6 +560,8 @@ function ChatWorkspace({
           <SheetTitle className="sr-only">会话历史</SheetTitle>
           <HistoryHeader onNew={newConversation} onClose={() => setHistoryOpen(false)} />
           {historyPanel}
+          {/* 必须挂在抽屉的 React 子树里：否则抽屉会把重命名对话框的 portal 当成外部节点隐藏。 */}
+          {desktop ? null : renameDialog}
         </SheetContent>
       </Sheet>
 
@@ -408,12 +586,105 @@ function ChatWorkspace({
               {column}
             </Panel>
           </Group>
+          {renameDialog}
         </div>
       ) : (
         // 窄屏没有分栏：主列直接占满整行。
         <div className="flex min-h-0 min-w-0 flex-1">{column}</div>
       )}
     </div>
+  );
+}
+
+function RenameDialog({
+  conversation,
+  pending,
+  onClose,
+  onRename,
+  finalFocus,
+}: {
+  conversation: HistoryEntry;
+  pending: boolean;
+  onClose: () => void;
+  onRename: (title: string) => void;
+  finalFocus: ComponentProps<typeof DialogShell>['finalFocus'];
+}) {
+  const [title, setTitle] = useState(conversation.title);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // 只加空格等同于没改：既不该提示丢弃，也不该允许保存。
+  const dirty = title.trim() !== conversation.title;
+  // 保存按钮在无效时禁用，所以错误要随输入即时给出，而不是只在提交后出现。
+  const parsed = conversationRenameSchema.safeParse({ title });
+  const error = parsed.success
+    ? null
+    : (fieldErrors(parsed.error.issues).title ?? '请检查标题后重试');
+  const saveDisabled = !parsed.success || !dirty || pending;
+  // 未改动、无效或请求中都不能提交；脏时关闭先确认，请求中一律不关。
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onClose();
+  };
+
+  const submit = (event: FormEvent): void => {
+    event.preventDefault();
+    if (saveDisabled || !parsed.success) return;
+    onRename(parsed.data.title);
+  };
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
+    >
+      <DialogShell
+        title="重命名会话"
+        description="标题用于区分历史会话，不会改动已有消息。"
+        closeDisabled={pending}
+        finalFocus={finalFocus}
+      >
+        <form noValidate onSubmit={submit} className="flex flex-col gap-4">
+          <Field className="gap-1.5" data-invalid={Boolean(error)}>
+            <FieldLabel htmlFor="conversation-title">
+              标题 <RequiredMark />
+            </FieldLabel>
+            <Input
+              id="conversation-title"
+              value={title}
+              disabled={pending}
+              aria-required="true"
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'conversation-title-error' : undefined}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+            <FieldError id="conversation-title-error">{error}</FieldError>
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={close} disabled={pending}>
+              取消
+            </Button>
+            <Button type="submit" size="sm" disabled={saveDisabled} aria-busy={pending}>
+              {pending ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后这次修改的标题会丢失。"
+          confirmLabel="放弃并关闭"
+          onConfirm={async () => {
+            onClose();
+          }}
+        />
+      </DialogShell>
+    </Dialog>
   );
 }
 
@@ -439,6 +710,11 @@ interface HistoryEntry {
   updatedAt: string;
 }
 
+function filterHistory(history: HistoryEntry[], query: string): HistoryEntry[] {
+  const needle = query.trim().toLowerCase();
+  return needle ? history.filter((item) => item.title.toLowerCase().includes(needle)) : history;
+}
+
 function HistoryPanel({
   history,
   pending,
@@ -449,6 +725,7 @@ function HistoryPanel({
   branching,
   onOpen,
   onBranch,
+  onRename,
 }: {
   history: HistoryEntry[];
   pending: boolean;
@@ -459,17 +736,35 @@ function HistoryPanel({
   branching: string | null;
   onOpen: (id: string) => void;
   onBranch: (id: string) => void;
+  onRename: (conversation: HistoryEntry, trigger: HTMLElement) => void;
 }) {
+  // 同一时刻只开一个菜单：触发器的 DOM 身份在点击时记下，菜单项卸载后仍能把焦点交还。
+  const menuTriggerRef = useRef<HTMLElement | null>(null);
+  const [query, setQuery] = useState('');
+  const needle = query.trim();
+  const filtered = useMemo(() => filterHistory(history, needle), [history, needle]);
   return (
     <>
+      <div className="shrink-0 px-3 pb-2">
+        <SearchInput
+          label="搜索会话"
+          placeholder="搜索会话标题"
+          value={query}
+          onChange={setQuery}
+          className="w-full"
+        />
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {pending ? <LoadingState rows={4} /> : null}
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
-        {history.length === 0 && !pending ? (
+        {history.length === 0 && !pending && !needle ? (
           <p className="px-2 py-6 text-xs leading-relaxed text-muted-foreground">还没有会话。</p>
         ) : null}
+        {needle && filtered.length === 0 && !pending && !error ? (
+          <p className="px-2 py-6 text-xs leading-relaxed text-subtle">没有匹配的会话</p>
+        ) : null}
         <ul className="flex flex-col gap-0.5">
-          {history.map((conversation) => (
+          {filtered.map((conversation) => (
             <li key={conversation.id} className="group relative">
               <Button
                 variant="ghost"
@@ -488,21 +783,56 @@ function HistoryPanel({
                   {formatRelative(conversation.updatedAt)}
                 </span>
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`从「${conversation.title}」分支`}
-                title="分支"
-                disabled={branching !== null}
-                className="absolute right-1 top-2.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
-                onClick={() => onBranch(conversation.id)}
-              >
-                {branching === conversation.id ? (
-                  <LoaderCircle className="size-3.5 animate-spin" />
-                ) : (
-                  <GitBranch className="size-3.5" />
-                )}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`操作「${conversation.title}」`}
+                      disabled={branching !== null}
+                      className="absolute right-1 top-2.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                      onClick={(event) => {
+                        menuTriggerRef.current = event.currentTarget;
+                      }}
+                    >
+                      {branching === conversation.id ? (
+                        <LoaderCircle className="size-3.5 animate-spin" />
+                      ) : (
+                        <MoreHorizontal className="size-3.5" />
+                      )}
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+                  <DropdownMenuGroup>
+                    {/* 后端没有列表接口时没有可写回的服务端会话，只保留分支。 */}
+                    {supported ? (
+                      <DropdownMenuItem
+                        onClick={() => {
+                          if (menuTriggerRef.current) {
+                            onRename(conversation, menuTriggerRef.current);
+                          }
+                        }}
+                      >
+                        <Pencil /> 重命名
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem
+                      aria-label={`从「${conversation.title}」分支`}
+                      disabled={branching !== null}
+                      onClick={() => onBranch(conversation.id)}
+                    >
+                      {branching === conversation.id ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <GitBranch />
+                      )}
+                      分支
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </li>
           ))}
         </ul>
@@ -538,6 +868,9 @@ function ChatColumn({
   onCancel,
   onOpenHistory,
   onPickSuggestion,
+  onLoadOlder,
+  hasOlder,
+  loadingOlder,
   showWelcome,
   send,
   composerRef,
@@ -564,6 +897,9 @@ function ChatColumn({
   onCancel: () => void;
   onOpenHistory: () => void;
   onPickSuggestion: (text: string) => void;
+  onLoadOlder: () => void;
+  hasOlder: boolean;
+  loadingOlder: boolean;
   showWelcome: boolean;
   send: () => Promise<void>;
   composerRef: RefObject<HTMLTextAreaElement | null>;
@@ -581,6 +917,7 @@ function ChatColumn({
   );
 
   // 两个入参直接来自 query 数据；缓存住身份，流式期间 WebSocket 增量不会让工具行的 memo 失效。
+  // 运行进入终态后仍需展示未批准的兜底审批，供用户批准后续调用，因此不按 run 过滤。
   const pendingApprovals = useMemo(
     () => approvalItems.filter((item) => item.approvedAt === null),
     [approvalItems],
@@ -641,6 +978,10 @@ function ChatColumn({
         loading={detail.isPending && conversationId !== null && !run}
         error={detail.isError ? detail.error : null}
         onRetry={() => void detail.refetch()}
+        hasOlder={hasOlder}
+        loadingOlder={loadingOlder}
+        onLoadOlder={onLoadOlder}
+        olderDisabled={detail.isFetching || Boolean(run)}
         approvals={approvals}
         approvalItems={pendingApprovals}
         lastRun={lastRun}
@@ -743,7 +1084,7 @@ export function Composer({
               aria-label="发送消息"
               title="运行中，结束后可发送"
               // Keep circular send controls and their quiet disabled surface instead of the base button appearance.
-              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover"
+              className="size-8 shrink-0 rounded-pill p-0 focus-visible:ring-0 disabled:bg-hover"
             >
               <ArrowUp className="size-4" />
             </Button>
@@ -753,7 +1094,7 @@ export function Composer({
               disabled={!agent || !input.trim() || !historyReady}
               aria-label="发送消息"
               // Keep circular send controls and subdued disabled text instead of the base button appearance.
-              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover disabled:text-subtle"
+              className="size-8 shrink-0 rounded-pill p-0 focus-visible:ring-0 disabled:bg-hover disabled:text-subtle"
             >
               <ArrowUp className="size-4" />
             </Button>
@@ -894,6 +1235,10 @@ function MessagePane({
   loading,
   error,
   onRetry,
+  hasOlder,
+  loadingOlder,
+  onLoadOlder,
+  olderDisabled,
   welcome,
   approvals,
   approvalItems,
@@ -903,6 +1248,10 @@ function MessagePane({
   loading: boolean;
   error: unknown;
   onRetry: () => void;
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  onLoadOlder: () => void;
+  olderDisabled: boolean;
   welcome: ReactNode;
   approvals: {
     pending: string | null;
@@ -946,6 +1295,19 @@ function MessagePane({
           <MessageScrollerContent
             className={cn('mx-auto w-full max-w-[760px] gap-4', !welcome && 'p-4')}
           >
+            {hasOlder || loadingOlder ? (
+              <MessageScrollerItem messageId="load-older" className="flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingOlder || olderDisabled}
+                  aria-busy={loadingOlder}
+                  onClick={onLoadOlder}
+                >
+                  {loadingOlder ? '加载中…' : '加载更早消息'}
+                </Button>
+              </MessageScrollerItem>
+            ) : null}
             {loading ? (
               <MessageScrollerItem messageId="loading">
                 <LoadingState rows={4} />
@@ -1041,7 +1403,8 @@ function messageTurns(items: ChatItem[], hasFooter: boolean) {
     if (item.kind !== 'user' && previous && !previous.user) {
       previous.items.push(item);
     } else {
-      turns.push({ id: `turn-${index}`, user: item.kind === 'user', items: [item] });
+      // 历史项自带稳定 id：补旧消息时前面整段不会换 key 重新挂载。
+      turns.push({ id: item.id ?? `turn-${index}`, user: item.kind === 'user', items: [item] });
     }
   }
   if (hasFooter && turns.at(-1)?.user) {
@@ -1346,7 +1709,7 @@ function RunMetricsLine({ run }: { run: RunMetrics }) {
   );
 }
 
-/** 审批只记录，不重试；文案必须和真实行为一致。 */
+/** 等待中的调用可继续，已结束的调用仅记录后续许可。 */
 export const ApprovalCard = memo(function ApprovalCard({
   item,
   pending,
@@ -1370,7 +1733,9 @@ export const ApprovalCard = memo(function ApprovalCard({
       <div className="min-w-0 flex-1 basis-48 text-xs leading-relaxed text-fg [overflow-wrap:anywhere]">
         工具 <code className="font-mono text-xs">{item.toolName}</code>
         <span className="text-muted-foreground"> @ {item.serverName ?? item.serverId}</span>{' '}
-        需要批准。批准只记录到该 server；继续请在输入框重新发送消息（新一次运行）。
+        {item.waiting
+          ? '调用仍在等待，批准后可继续本次调用，无需重发'
+          : '本次调用已结束等待，批准仅对后续调用生效，不会恢复已结束的调用。'}
       </div>
       <Button
         size="sm"
@@ -1380,7 +1745,7 @@ export const ApprovalCard = memo(function ApprovalCard({
         aria-label={`批准 ${item.serverName ?? item.serverId} / ${item.toolName}`}
         onClick={() => onApprove(item)}
       >
-        {busy ? '批准中…' : '批准'}
+        {busy ? '批准中…' : item.waiting ? '批准本次调用' : '批准后续调用'}
       </Button>
     </motion.div>
   );

@@ -1,4 +1,6 @@
+import { type Database, newId, repo, schema } from '@agentport/db';
 import type { ChatEvent } from '@agentport/shared';
+import { and, eq, ne } from 'drizzle-orm';
 import { redactSecrets } from './redact.js';
 
 /** 工具入参在事件里是 JSON 字符串；落库时还原成对象，前端与 trace 都按对象渲染。 */
@@ -66,4 +68,67 @@ export function buildMessageRows(events: ChatEvent[]): Array<{ role: string; con
   }
 
   return rows;
+}
+
+/** 按专家、会话、运行的顺序持锁，防止终态后追加输出或与删除形成反向锁等待。 */
+export async function persistRunMessages(
+  db: Database,
+  input: { agentId: string; conversationId: string; runId: string; events: ChatEvent[] },
+): Promise<boolean> {
+  const rows = buildMessageRows(input.events);
+
+  return db.transaction(async (tx) => {
+    const [agent] = await tx
+      .select({ id: schema.agents.id })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, input.agentId))
+      .limit(1)
+      .for('key share');
+    if (!agent) return false;
+
+    const [conversation] = await tx
+      .select({ id: schema.conversations.id })
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.id, input.conversationId),
+          eq(schema.conversations.agentId, input.agentId),
+        ),
+      )
+      .limit(1)
+      .for('update');
+    if (!conversation) return false;
+
+    const [run] = await tx
+      .select({ id: schema.agentRuns.id })
+      .from(schema.agentRuns)
+      .where(
+        and(
+          eq(schema.agentRuns.id, input.runId),
+          eq(schema.agentRuns.conversationId, input.conversationId),
+          eq(schema.agentRuns.agentId, input.agentId),
+          eq(schema.agentRuns.status, 'running'),
+        ),
+      )
+      .limit(1)
+      .for('update');
+    if (!run) return false;
+
+    // BullMQ 重试会重放同一 run：先删本 run 已落库的输出再写，避免重复消息。
+    // 用户消息也带 run_id，但由 API 写入，重试时不能删。
+    await tx
+      .delete(schema.messages)
+      .where(and(eq(schema.messages.runId, input.runId), ne(schema.messages.role, 'user')));
+    await repo.chat.insertMessages(
+      tx,
+      rows.map((row) => ({
+        id: newId('message'),
+        conversationId: input.conversationId,
+        role: row.role,
+        content: row.content,
+        runId: input.runId,
+      })),
+    );
+    return true;
+  });
 }

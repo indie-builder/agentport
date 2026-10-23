@@ -1,6 +1,6 @@
 {
-  "id": "0efbe6d9-bb57-4941-887f-cfe4bbdca94a",
-  "prevId": "201e1eb9-4cb0-42ab-9f35-98089d82946d",
+  "id": "c54b16b9-ec30-479c-9077-b2c4a935af7d",
+  "prevId": "a9bc722c-182d-4147-aa13-bf0ec66163b9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -573,13 +573,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'通用助手'"
         },
         "model": {
           "name": "model",
@@ -1322,6 +1315,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "case_snapshot": {
+          "name": "case_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "run_id": {
           "name": "run_id",
           "type": "text",
@@ -1477,6 +1476,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "case_snapshot": {
+          "name": "case_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1551,7 +1556,7 @@
       "checkConstraints": {
         "eval_runs_status_check": {
           "name": "eval_runs_status_check",
-          "value": "\"eval_runs\".\"status\" in ('running', 'succeeded', 'failed')"
+          "value": "\"eval_runs\".\"status\" in ('running', 'succeeded', 'failed', 'cancelled')"
         }
       },
       "isRLSEnabled": false

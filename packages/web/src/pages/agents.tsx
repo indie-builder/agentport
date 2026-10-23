@@ -7,12 +7,14 @@ import {
   type WorkspaceFiles,
 } from '@agentport/core/workspace';
 import {
+  AGENT_PACKAGE_MAX_BYTES,
   AGENT_ROLES,
   type Agent,
   type AgentInput,
   agentInputSchema,
   BUILTIN_TOOLS,
   type Server,
+  serializeAgentPackage,
 } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
@@ -208,8 +210,19 @@ export function AgentsPage() {
   const importFile = async (file: File): Promise<void> => {
     setImporting(true);
     try {
-      const data: unknown = JSON.parse(await file.text());
-      const result = await api.importAgent(data);
+      const isMarkdown = file.name.toLowerCase().endsWith('.md');
+      if (file.size > (isMarkdown ? 131072 : AGENT_PACKAGE_MAX_BYTES)) {
+        toastError(
+          new Error(
+            isMarkdown ? 'agent.md 不能超过 128 KB，请精简后重试。' : '导入文件不能超过 1 MiB。',
+          ),
+        );
+        return;
+      }
+      const text = await file.text();
+      const result = isMarkdown
+        ? await api.importAgentFile(text)
+        : await api.importAgent(JSON.parse(text));
       await Promise.all(
         ['agents', 'servers', 'skills', 'overview'].map((key) =>
           queryClient.invalidateQueries({ queryKey: [key] }),
@@ -313,7 +326,7 @@ export function AgentsPage() {
           <input
             ref={fileInput}
             type="file"
-            accept="application/json,.json"
+            accept="application/json,.json,text/markdown,.md"
             className="hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -323,6 +336,7 @@ export function AgentsPage() {
           />
           <Button
             variant="outline"
+            title="导入专家 JSON 或 agent.md"
             disabled={importing}
             aria-busy={importing}
             onClick={(event) => {
@@ -472,7 +486,14 @@ export function AgentsPage() {
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       render={
-                        <Button variant="ghost" size="icon-sm" aria-label={`操作 ${agent.name}`}>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`操作 ${agent.name}`}
+                          onClick={(event) => {
+                            editorTriggerRef.current = event.currentTarget;
+                          }}
+                        >
                           <Ellipsis />
                         </Button>
                       }
@@ -525,6 +546,9 @@ export function AgentsPage() {
         onClose={() => setDeleting(null)}
         title={`删除专家「${deleting?.name ?? ''}」`}
         description="它的会话、消息与绑定关系会一并删除，正在运行的任务不会被自动停止。此操作不可撤销。"
+        finalFocus={() =>
+          editorTriggerRef.current?.isConnected ? editorTriggerRef.current : createButtonRef.current
+        }
         onConfirm={async () => {
           if (!deleting) return;
           await remove.mutateAsync(deleting.id);
@@ -737,14 +761,12 @@ export function AgentEditor({
     .map((line) => line.trim())
     .filter(Boolean)
     .some((line) => /\s/.test(line));
-  // 后端 PATCH 会忽略 undefined，已保存的上限不能通过空字符串清除。
   const [thinkingText, setThinkingText] = useState(() =>
     agent.maxThinkingTokens === undefined ? '' : String(agent.maxThinkingTokens),
   );
   const thinkingNumber = thinkingText.trim() === '' ? undefined : Number(thinkingText);
   const thinkingInvalid =
-    (baseline.maxThinkingTokens !== undefined && thinkingNumber === undefined) ||
-    (thinkingNumber !== undefined && (!Number.isInteger(thinkingNumber) || thinkingNumber <= 0));
+    thinkingNumber !== undefined && (!Number.isInteger(thinkingNumber) || thinkingNumber <= 0);
 
   const set = <K extends keyof AgentInput>(key: K, value: AgentInput[K]): void => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -786,7 +808,7 @@ export function AgentEditor({
     try {
       const data = await api.exportAgent(agent.id);
       const url = URL.createObjectURL(
-        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        new Blob([serializeAgentPackage(data)], { type: 'application/json' }),
       );
       const link = document.createElement('a');
       link.href = url;
@@ -859,8 +881,20 @@ export function AgentEditor({
     [skills.data, form.skillIds],
   );
   const boundSubAgents = useMemo(
-    () => (agents.data ?? []).filter((item) => form.subAgentIds.includes(item.id)),
-    [agents.data, form.subAgentIds],
+    () =>
+      (agents.data ?? [])
+        .filter((item) => item.enabled && form.subAgentIds.includes(item.id))
+        .map((item) => ({
+          ...item,
+          effort: item.effort ?? null,
+          skills: (skills.data ?? []).filter((skill) => item.skillIds.includes(skill.id)),
+        })),
+    [agents.data, form.subAgentIds, skills.data],
+  );
+  // 下载入口只能指向已落盘的配置，不能跟着未保存的草稿走。
+  const savedSubAgents = useMemo(
+    () => (agents.data ?? []).filter((item) => item.enabled && agent.subAgentIds.includes(item.id)),
+    [agents.data, agent.subAgentIds],
   );
 
   const serverOptions = (servers.data ?? []).map((server) => ({
@@ -975,7 +1009,16 @@ export function AgentEditor({
       return;
     }
     update.mutate(
-      { id: baseline.id, input: parsed.data, expectedUpdatedAt: baseline.updatedAt },
+      {
+        id: baseline.id,
+        // 全量表单保存时显式发 null，才能清空已设为「默认」的字段。
+        input: {
+          ...parsed.data,
+          effort: parsed.data.effort ?? null,
+          maxThinkingTokens: parsed.data.maxThinkingTokens ?? null,
+        },
+        expectedUpdatedAt: baseline.updatedAt,
+      },
       {
         onSuccess: (saved) => {
           loadDraft(saved);
@@ -1040,7 +1083,7 @@ export function AgentEditor({
     );
 
   const effortOptions = [
-    ...(baseline.effort === undefined ? [{ value: '', label: '默认' }] : []),
+    { value: '', label: '默认' },
     { value: 'low', label: 'low' },
     { value: 'medium', label: 'medium' },
     { value: 'high', label: 'high' },
@@ -1370,7 +1413,7 @@ export function AgentEditor({
                           disabled={pending}
                           value={form.effort ?? ''}
                           onValueChange={(value) => {
-                            if (value !== null && (value !== '' || baseline.effort === undefined)) {
+                            if (value !== null) {
                               set(
                                 'effort',
                                 value === '' ? undefined : (value as AgentInput['effort']),
@@ -1392,11 +1435,6 @@ export function AgentEditor({
                             </SelectGroup>
                           </SelectContent>
                         </Select>
-                        {baseline.effort !== undefined ? (
-                          <FieldDescription>
-                            当前后端不支持清空已设置的推理强度；可以改为其他强度。
-                          </FieldDescription>
-                        ) : null}
                       </Field>
                     </FieldGroup>
                   </Section>
@@ -1659,6 +1697,38 @@ export function AgentEditor({
                           </Combobox>
                         )}
                       </div>
+                      {savedSubAgents.length > 0 ? (
+                        <div className="flex flex-col gap-2">
+                          <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                            <FileText className="size-4 text-subtle" aria-hidden="true" />{' '}
+                            已保存的子智能体文件
+                          </h3>
+                          <div className="flex flex-wrap gap-2">
+                            {savedSubAgents.map((child) => (
+                              <Button
+                                key={child.id}
+                                variant="outline"
+                                size="sm"
+                                nativeButton={false}
+                                render={
+                                  <a href={`/api/agents/${agent.id}/subagents/${child.id}/file`} />
+                                }
+                              >
+                                <Download />
+                                {child.slug}.md
+                              </Button>
+                            ))}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            下载已保存的子定义；其中声明的技能文件与 MCP
+                            连接配置仍需来自同一工作区。
+                            {form.subAgentIds.length !== agent.subAgentIds.length ||
+                            form.subAgentIds.some((id) => !agent.subAgentIds.includes(id))
+                              ? '当前草稿的子智能体绑定尚未保存，这里仍是已保存版本。'
+                              : ''}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
 
                     <DraftPreview title="将写入 .mcp.json 与 frontmatter" code={fileDraft} />
@@ -1862,15 +1932,13 @@ export function AgentEditor({
                         />
                         {thinkingInvalid ? (
                           <FieldError id="agent-thinking-error">
-                            {baseline.maxThinkingTokens === undefined
-                              ? '请输入大于 0 的整数，或留空表示不设置。'
-                              : '当前后端不支持清空已设置的上限，请填写大于 0 的整数。'}
+                            请输入大于 0 的整数，或留空表示不设置。
                           </FieldError>
-                        ) : baseline.maxThinkingTokens !== undefined ? (
+                        ) : (
                           <FieldDescription id="agent-thinking-hint">
-                            当前后端不支持清空已设置的上限，可改为其他正整数。
+                            留空表示不设置；只传给 SDK，不写文件。
                           </FieldDescription>
-                        ) : null}
+                        )}
                       </Field>
                     </FieldGroup>
                   </Section>
@@ -2026,8 +2094,11 @@ function draftFiles(
     systemPrompt: string;
     maxTurns: number;
     timeoutMs: number;
+    permissionMode: string;
+    effort?: string | null;
     allowedTools: string[];
     disallowedTools: string[];
+    skills?: Array<{ slug: string; name: string; description: string; body: string }>;
   }>,
 ): WorkspaceFiles {
   return renderWorkspace({
@@ -2049,7 +2120,7 @@ function draftFiles(
       entry: previewEntry(server),
     })),
     skills,
-    subAgents: subAgents.map((sub) => ({ ...sub, effort: null })),
+    subAgents,
     ...(form.allowedTools.length > 0 ? { toolsAllow: form.allowedTools } : {}),
     ...(form.disallowedTools.length > 0 ? { toolsDeny: form.disallowedTools } : {}),
   });

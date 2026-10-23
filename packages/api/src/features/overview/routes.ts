@@ -62,7 +62,7 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
             latencyP99: sql<
               number | null
             >`percentile_cont(0.99) within group (order by ${schema.agentRuns.latencyMs})`,
-            totalTokens: sql<number>`coalesce(sum(coalesce(${schema.agentRuns.inputTokens},0) + coalesce(${schema.agentRuns.outputTokens},0)), 0)::int`,
+            totalTokens: sql<number>`coalesce(sum(coalesce(${schema.agentRuns.inputTokens},0)::bigint + coalesce(${schema.agentRuns.outputTokens},0)::bigint), 0)::float8`,
           })
           .from(schema.agents)
           .leftJoin(
@@ -84,6 +84,8 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
         app.db
           .select({
             total: count(),
+            failed: sql<number>`count(*) filter (where ${schema.agentRuns.status} in ('failed','timeout'))::int`,
+            tokens: sql<number>`coalesce(sum(coalesce(${schema.agentRuns.inputTokens},0)::bigint + coalesce(${schema.agentRuns.outputTokens},0)::bigint), 0)::float8`,
             cost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}), 0)::float`,
             avgLatency: avg(schema.agentRuns.latencyMs),
           })
@@ -115,6 +117,8 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
           agents: agentCount?.value ?? 0,
           runs: Number(runAgg?.total ?? 0),
           running: runningCount?.value ?? 0,
+          failed: Number(runAgg?.failed ?? 0),
+          tokens: Number(runAgg?.tokens ?? 0),
           costUsd: Number(runAgg?.cost ?? 0),
           avgLatencyMs: runAgg?.avgLatency === null ? null : Number(runAgg?.avgLatency ?? 0),
         },

@@ -1,0 +1,2 @@
+ALTER TABLE "eval_runs" DROP CONSTRAINT "eval_runs_status_check";--> statement-breakpoint
+ALTER TABLE "eval_runs" ADD CONSTRAINT "eval_runs_status_check" CHECK ("eval_runs"."status" in ('running', 'succeeded', 'failed', 'cancelled'));

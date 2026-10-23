@@ -5,8 +5,9 @@ import {
   skillInputSchema,
 } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { MoreHorizontal, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Download, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
@@ -42,12 +43,20 @@ import {
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { ApiError } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
-import { useCreateSkill, useDeleteSkill, useSkills, useUpdateSkill } from '../lib/queries.js';
+import {
+  useCreateSkill,
+  useDeleteSkill,
+  useImportSkillFile,
+  useSkills,
+  useUpdateSkill,
+} from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 const emptySkill: SkillInput = { slug: '', name: '', description: '', body: '' };
+const maxSkillFileBytes = 131_072;
 const usageOptions = [
   { value: 'all', label: '全部技能' },
   { value: 'bound', label: '已绑定' },
@@ -65,6 +74,8 @@ export function SkillsPage() {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<SkillWithAgentCount | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const importSkill = useImportSkillFile();
   const actionTriggerRef = useRef<HTMLElement | null>(null);
   // 关闭后回到真实触发器；菜单项会随菜单卸载，所以记的是常驻的下拉触发器。
   const panelFocus = (): HTMLElement | null =>
@@ -74,6 +85,19 @@ export function SkillsPage() {
     replace = false,
   ): void => {
     void navigate({ to: '/skills', search: (previous) => ({ ...previous, ...patch }), replace });
+  };
+  const importSkillMd = async (file: File): Promise<void> => {
+    if (file.size > maxSkillFileBytes) {
+      toastError(new Error('SKILL.md 不能超过 128 KB，请精简后重试。'));
+      return;
+    }
+    try {
+      const result = await importSkill.mutateAsync(await file.text());
+      toastSuccess(`已导入「${result.skill.name}」`);
+      for (const warning of result.warnings) toast.info(warning);
+    } catch (error) {
+      toastError(error);
+    }
   };
   const visibleSkills = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
@@ -120,15 +144,38 @@ export function SkillsPage() {
         />
       }
       actions={
-        <Button
-          ref={createButtonRef}
-          onClick={(event) => {
-            actionTriggerRef.current = event.currentTarget;
-            setCreating(true);
-          }}
-        >
-          <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
-        </Button>
+        <>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".md,text/markdown,text/plain"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              // 先清空 value，同一个文件重试时才会再次触发 change。
+              event.target.value = '';
+              if (file) void importSkillMd(file);
+            }}
+          />
+          <Button
+            variant="outline"
+            disabled={importSkill.isPending}
+            aria-busy={importSkill.isPending}
+            onClick={() => importInputRef.current?.click()}
+          >
+            <Upload data-icon="inline-start" aria-hidden="true" />{' '}
+            {importSkill.isPending ? '导入中…' : '导入 SKILL.md'}
+          </Button>
+          <Button
+            ref={createButtonRef}
+            onClick={(event) => {
+              actionTriggerRef.current = event.currentTarget;
+              setCreating(true);
+            }}
+          >
+            <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
+          </Button>
+        </>
       }
     >
       {skills.isPending ? <LoadingState rows={4} layout="cards" /> : null}
@@ -210,10 +257,16 @@ export function SkillsPage() {
                           </Button>
                         }
                       />
-                      <DropdownMenuContent align="end" sideOffset={4} className="w-36">
+                      <DropdownMenuContent align="end" sideOffset={4} className="w-44">
                         <DropdownMenuGroup>
                           <DropdownMenuItem onClick={() => setEditing(skill)}>
                             <Pencil /> 编辑
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            nativeButton={false}
+                            render={<a href={`/api/skills/${skill.id}/file`} />}
+                          >
+                            <Download /> 导出 SKILL.md
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             variant="destructive"
@@ -324,11 +377,16 @@ function SkillDialog({
       return;
     }
     const onError = (error: unknown): void => {
+      // 冲突时保留当前草稿，让用户关闭后重开拿到最新版本再决定。
+      if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
+        toast.error('配置已被修改，请关闭并重新打开以加载最新版本。');
+        return;
+      }
       toastError(error);
     };
     if (skill) {
       update.mutate(
-        { id: skill.id, input: parsed.data },
+        { id: skill.id, input: parsed.data, expectedUpdatedAt: skill.updatedAt },
         {
           onSuccess: () => {
             toastSuccess('技能已更新');
