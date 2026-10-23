@@ -66,11 +66,15 @@ function runOneCase(
         title: input.title,
       }),
     );
+    const agentVersion = yield* dbQuery(() =>
+      repo.agentVersions.latestAgentVersion(db, input.agentId),
+    );
     const run = yield* dbQuery(() =>
       chatRepo.createRun(db, {
         id: newId('run'),
         conversationId: conversation.id,
         agentId: input.agentId,
+        ...(agentVersion === null ? {} : { agentVersion }),
       }),
     );
     yield* dbQuery(() =>

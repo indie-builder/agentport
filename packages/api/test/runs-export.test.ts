@@ -207,6 +207,7 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
         inputTokens: 12,
         outputTokens: 34,
         error: null,
+        agentVersion: null,
       },
     ]);
     expect(res.body).not.toContain('steps');

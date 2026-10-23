@@ -120,6 +120,8 @@ export interface RecentRun {
 export interface RunListItem extends RecentRun {
   inputTokens: number | null;
   outputTokens: number | null;
+  /** 入队时锁定的智能体配置版本号；未知/旧数据为 null。 */
+  agentVersion?: number | null;
 }
 
 export type RunStep =

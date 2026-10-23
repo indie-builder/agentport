@@ -353,6 +353,7 @@ export async function admitChatRun(
     message: string;
     conversationId?: string;
     trigger?: 'chat' | 'mcp' | 'schedule' | 'event';
+    agentVersion?: number;
   },
 ): Promise<{
   run: AgentRun;
@@ -408,6 +409,7 @@ export async function admitChatRun(
       conversationId,
       agentId: input.agentId,
       ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
+      ...(input.agentVersion === undefined ? {} : { agentVersion: input.agentVersion }),
     });
     // 批准原先绑定单次 run；重发消息会新建 run，这里把上一 run 的已批准工具带过来。
     const inherited = await inheritApprovals(tx, { conversationId, runId: run.id });

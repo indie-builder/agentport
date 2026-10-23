@@ -35,7 +35,15 @@ vi.mock('@agentport/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@agentport/db')>();
   return {
     ...actual,
-    repo: { ...actual.repo, evalRepo: mocks.evalRepo, chat: mocks.chat },
+    repo: {
+      ...actual.repo,
+      agentVersions: {
+        ...actual.repo.agentVersions,
+        latestAgentVersion: vi.fn().mockResolvedValue(null),
+      },
+      evalRepo: mocks.evalRepo,
+      chat: mocks.chat,
+    },
   };
 });
 

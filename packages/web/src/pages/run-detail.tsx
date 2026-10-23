@@ -384,6 +384,11 @@ export function RunDetailPage() {
         <div className="grid min-w-0 grid-cols-1 gap-x-4 sm:grid-cols-2">
           <ContextRow label="运行 ID" value={detail.id} mono copy />
           <ContextRow label="智能体" value={detail.agentName ?? detail.agentId} />
+          <ContextRow
+            label="入队时版本"
+            value={detail.agentVersion != null ? `v${detail.agentVersion}` : '—'}
+            mono
+          />
           <ContextRow label="开始" value={formatDateTime(detail.startedAt)} mono />
           <ContextRow label="结束" value={formatDateTime(detail.endedAt)} mono />
           <ContextRow label="Sandbox" value={detail.sandboxId ?? '—'} mono copy />

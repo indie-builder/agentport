@@ -344,7 +344,7 @@ const worker = new Worker(
     const { runId, agentId, conversationId, prompt, history } = parsed.data;
 
     const [run] = await db
-      .select({ status: schema.agentRuns.status })
+      .select({ status: schema.agentRuns.status, agentVersion: schema.agentRuns.agentVersion })
       .from(schema.agentRuns)
       .where(eq(schema.agentRuns.id, runId))
       .limit(1);
@@ -383,6 +383,20 @@ const worker = new Worker(
         .where(eq(schema.agents.id, agentId))
         .limit(1);
       if (!agent) throw new Error(`agent ${agentId} not found`);
+
+      // 版本只做 provenance：执行始终用当前配置，不一致仅告警。
+      try {
+        const pinnedVersion = run?.agentVersion ?? null;
+        const currentVersion = await repo.agentVersions.latestAgentVersion(db, agentId);
+        if (pinnedVersion !== null && currentVersion !== null && pinnedVersion !== currentVersion) {
+          logger.warn(
+            { runId, pinnedVersion, currentVersion },
+            'agent config changed since enqueue; executing current config',
+          );
+        }
+      } catch (err) {
+        logger.warn({ err, runId }, 'agent version drift check failed');
+      }
 
       const timeoutMs = agent.timeoutMs;
       // 按 run 签发短期 token：DB 只存 hash，明文只在本工作区的 .mcp.json 里。

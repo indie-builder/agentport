@@ -37,6 +37,7 @@ export interface RunListItem {
   inputTokens: number | null;
   outputTokens: number | null;
   error: string | null;
+  agentVersion: number | null;
 }
 
 export interface RunDetailRow extends RunListItem {
@@ -107,6 +108,7 @@ const runColumns = {
   inputTokens: agentRuns.inputTokens,
   outputTokens: agentRuns.outputTokens,
   error: agentRuns.error,
+  agentVersion: agentRuns.agentVersion,
 };
 
 /** 运行列表：join agents 取名字，按开始时间倒序（尚未开始的排在最后）。 */

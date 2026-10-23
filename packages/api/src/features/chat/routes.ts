@@ -101,9 +101,11 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         return reject(reply, 'SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
       }
 
+      const agentVersion = await repo.agentVersions.latestAgentVersion(app.db, agentId);
       const { run, conversationId, inherited, history } = await chatRepo.admitChatRun(app.db, {
         agentId,
         message,
+        ...(agentVersion === null ? {} : { agentVersion }),
         trigger: 'chat',
         ...(request.body.conversationId === undefined
           ? {}

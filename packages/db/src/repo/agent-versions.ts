@@ -84,6 +84,18 @@ export async function listAgentVersions(
   return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
 }
 
+/** 最新快照版本号；智能体尚无快照时返回 null。 */
+export async function latestAgentVersion(
+  db: Database | Tx,
+  agentId: string,
+): Promise<number | null> {
+  const [row] = await db
+    .select({ max: sql<number | null>`max(${agentVersions.version})` })
+    .from(agentVersions)
+    .where(eq(agentVersions.agentId, agentId));
+  return row?.max ?? null;
+}
+
 export async function getAgentVersion(
   db: Database,
   agentId: string,

@@ -40,11 +40,13 @@ export function startScheduleTicker(input: { db: Db; logger: Logger; redisUrl: s
       agentId: agent.id,
       title: `定时: ${schedule.name}`.slice(0, 80),
     });
+    const agentVersion = await repo.agentVersions.latestAgentVersion(input.db, agent.id);
     const run = await repo.chat.createRun(input.db, {
       id: newId('run'),
       conversationId: conversation.id,
       agentId: agent.id,
       trigger: 'schedule',
+      ...(agentVersion === null ? {} : { agentVersion }),
     });
     await repo.chat.appendMessage(input.db, {
       id: newId('message'),
