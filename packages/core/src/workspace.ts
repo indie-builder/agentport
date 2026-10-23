@@ -268,7 +268,7 @@ function renderClaudeMd(input: WorkspaceInput): string {
       : []),
     '',
     '业务能力使用 `mcp__*` MCP 工具；内置 shell 与网络工具已禁用。',
-    '主会话仅可用 `Read`、`Write`、`Edit` 访问 `/mnt/agent-memory/` 内的 Markdown 原生记忆；其他文件路径和子智能体文件访问均被拒绝。',
+    '主会话可用 `Read`、`Write`、`Edit` 访问 `/mnt/agent-memory/` 内的 Markdown 原生记忆；只读可用 `Read` 打开 `.claude/skills/<slug>/references/` 下的 Markdown；其他路径与子智能体文件访问均被拒绝。',
     '如需更多能力，请让管理员在平台中为智能体绑定对应的 MCP Server。',
     ...skillLines,
     ...delegationWaitSection(input),

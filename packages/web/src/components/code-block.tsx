@@ -94,29 +94,35 @@ export function CodeBlock({
               showLabel
               className="absolute right-2 top-2 z-10 bg-surface/90 opacity-0 backdrop-blur transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
             />
-            <pre
-              className="overflow-auto overscroll-contain py-3 font-mono text-xs leading-5"
+            {/* 滚动区可聚焦，键盘用户才能用方向键/PageDown 浏览超长内容。 */}
+            <section
+              // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
+              tabIndex={0}
+              aria-label="代码内容"
+              className="overflow-auto overscroll-contain"
               style={{ maxHeight }}
             >
-              <code className="block">
-                {code.split('\n').map((line, i) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 代码行没有稳定 id，行号即身份
-                  <span key={i} className="flex min-w-max px-3">
-                    {lineNumbers ? (
-                      <span
-                        aria-hidden="true"
-                        className="mr-3 inline-block w-8 shrink-0 select-none text-right text-subtle/50"
-                      >
-                        {i + 1}
+              <pre className="py-3 font-mono text-xs leading-5">
+                <code className="block">
+                  {code.split('\n').map((line, i) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 代码行没有稳定 id，行号即身份
+                    <span key={i} className="flex min-w-max px-3">
+                      {lineNumbers ? (
+                        <span
+                          aria-hidden="true"
+                          className="mr-3 inline-block w-8 shrink-0 select-none text-right text-subtle/50"
+                        >
+                          {i + 1}
+                        </span>
+                      ) : null}
+                      <span className="whitespace-pre text-fg/90">
+                        {json ? highlightJson(line) : line || ' '}
                       </span>
-                    ) : null}
-                    <span className="whitespace-pre text-fg/90">
-                      {json ? highlightJson(line) : line || ' '}
                     </span>
-                  </span>
-                ))}
-              </code>
-            </pre>
+                  ))}
+                </code>
+              </pre>
+            </section>
           </>
         )}
       </CollapsibleContent>

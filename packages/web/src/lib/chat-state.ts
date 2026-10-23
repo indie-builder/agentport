@@ -2,7 +2,7 @@ import type { ChatEvent, ConversationMessage } from '@agentport/shared';
 import type { Conversation, ConversationDetail } from './api.js';
 
 export type ChatItem =
-  | { id?: string; kind: 'user'; text: string }
+  | { id?: string; kind: 'user'; text: string; messageId?: string }
   | { id?: string; kind: 'text'; text: string }
   | {
       id?: string;
@@ -117,9 +117,11 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
     const { content, role } = message;
 
     if (role === 'user') {
+      // 运行详情重建的步骤没有真实 conversationId，id 是合成的，不能作为分支锚点。
+      const anchor = message.conversationId ? { messageId: message.id } : {};
       const text = blockText(content);
       if (text !== null) {
-        items.push({ id: `${message.id}:0`, kind: 'user', text });
+        items.push({ id: `${message.id}:0`, kind: 'user', text, ...anchor });
         continue;
       }
       if (Array.isArray(content)) {
@@ -127,7 +129,7 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
           .map(blockText)
           .filter((part): part is string => part !== null)
           .join('\n');
-        if (joined) items.push({ id: `${message.id}:0`, kind: 'user', text: joined });
+        if (joined) items.push({ id: `${message.id}:0`, kind: 'user', text: joined, ...anchor });
       }
       continue;
     }

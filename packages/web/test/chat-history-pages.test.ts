@@ -24,12 +24,12 @@ test('跨页的工具调用与结果合并成一行，历史 id 稳定且不受�
 
   // 只加载最新页时结果找不到调用；补上更早一页后应合并到同一工具行。
   expect(historyToItems(newer)).toEqual([
-    { id: 'm2:0', kind: 'user', text: '继续' },
+    { id: 'm2:0', kind: 'user', text: '继续', messageId: 'm2' },
     { id: 'm3:0', kind: 'tool', toolUseId: 'tu1', name: '未知工具', result: 'ok' },
   ]);
   expect(historyToItems([...older, ...newer])).toEqual([
     { id: 'm1:0', kind: 'tool', toolUseId: 'tu1', name: 'search', input: '{}', result: 'ok' },
-    { id: 'm2:0', kind: 'user', text: '继续' },
+    { id: 'm2:0', kind: 'user', text: '继续', messageId: 'm2' },
   ]);
 });
 
@@ -66,8 +66,8 @@ test('补旧消息只替换历史前缀，流式尾部原样保留', () => {
   );
 
   expect(merged?.items).toEqual([
-    { id: 'm1:0', kind: 'user', text: '更早' },
-    { id: 'm2:0', kind: 'user', text: '现在' },
+    { id: 'm1:0', kind: 'user', text: '更早', messageId: 'm1' },
+    { id: 'm2:0', kind: 'user', text: '现在', messageId: 'm2' },
     ...tail,
   ]);
 });

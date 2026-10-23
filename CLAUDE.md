@@ -24,6 +24,11 @@
 4. **零死代码。** 无人引用的组件、导出、样式、依赖、注释掉的代码块一律删除；不保留「以后可能用」的占位实现。删之前用 grep 确认引用，删之后跑 typecheck / 构建确认没断。注释只解释「代码看不出来的原因」，不写复述代码的废话。
 5. 其余按本文件后续条款执行。
 
+## 决策标准
+
+- **三赢：UX / DX / AX 同时提升。** 任何设计或技术决策，都要选能同时提升**用户体验（UX）、开发者体验（DX）、智能体体验（AX）**且不牺牲其一换另一个的最优解，并且**不破坏任何现有功能**（"Make the best decision that will elevate all three: the user experience (UX), developer experience (DX), and agent experience (AX) always, without breaking anything."）。逐条问「这对 UX / DX / AX 各是加分还是减分」，若某方案提升一个却伤害另一个，继续找更优解。
+- **不为理论风险加防护。** 加代码防假设性的竞态条件或安全边界之前，先用「10 岁小孩能听懂」的话说明三件事并**等用户明确同意**：① 到底会出什么问题；② 这有多大概率发生；③ 多加的代码带来多少复杂度。不得悄悄扩大范围去防只存在于理论中的问题（"Before adding complexity for a speculative or vanishingly unlikely race or security edge case, explain the concrete failure mode, likelihood, and complexity cost to the user and get their buy-in. Do not silently expand scope for theoretical robustness."）。真实可发生的边界（信任边界校验、防数据丢失、安全、无障碍）不在其列，照常做。
+
 ## 能力选型（硬性：先看现有 → 原生 → 开源 → 最后才自研）
 
 新增或改进任何功能/能力项前，必须按这个顺序调研，**不允许「缺什么就直接上手实现」**：
@@ -60,7 +65,7 @@
 
 ## 前端
 
-- **重要：让布局解释结构。** 避免不必要的次级标签和说明文字；优先用分组、对齐、间距与层级表达关系。**这是硬性设计规约，见 `docs/DESIGN-SYSTEM.md` §10「信息表达」——每次做/改 UI 前后都必须对照其中的反模式与提交前检查清单逐条过一遍。**
+- **重要：让布局解释结构。** 避免不必要的次级标签和说明文字；优先用分组、对齐、间距与层级表达关系。**删掉标语、辅助文字、次级标签；若一个界面需要靠它们才能看懂，就去修布局，而不是加文字**（"Cut taglines, helper text and secondary labels. If a screen needs them to make sense, fix the layout."）。**这是硬性设计规约，见 `docs/DESIGN-SYSTEM.md` §10「信息表达」——每次做/改 UI 前后都必须对照其中的反模式与提交前检查清单逐条过一遍。**
 - **设计基准固定为 https://www.openui.com/chat?form_factor=desktop。** 所有页面、组件、间距、圆角、字号、图标都以它为准，详见 `docs/DESIGN-SYSTEM.md`。改动前先读该文件；不要凭感觉发明视觉。
 - **无彩度体系**：黑白灰承担层级，没有品牌色。强调靠实底黑与透明度，不靠色相。
 - **结构靠 1px 线与留白。** 一般页面以行组织，资源中心允许约定的卡片网格；尺寸和例外统一查 `docs/DESIGN-SYSTEM.md`。

@@ -616,6 +616,7 @@ export function AgentDetailPage() {
     if (agent.isPending) {
       return (
         <Page>
+          <PageHeader title="专家" />
           <LoadingState rows={6} />
         </Page>
       );
@@ -623,12 +624,14 @@ export function AgentDetailPage() {
     if (agent.isError) {
       return (
         <Page>
+          <PageHeader title="专家" />
           <ErrorState error={agent.error} onRetry={() => void agent.refetch()} />
         </Page>
       );
     }
     return (
       <Page>
+        <PageHeader title="专家" />
         <PageNote
           icon={<Bot />}
           title="专家不存在"
@@ -1005,13 +1008,24 @@ export function AgentEditor({
         ? '「运行限制」里的最大思考 tokens 无效'
         : null;
 
-  /** 错误字段所在分区可能不是当前选中项：先切过去，下一帧再聚焦。 */
+  /** 错误字段所在分区可能不是当前选中项：先切过去，下一帧再聚焦真正出错的控件。 */
   const revealInvalidField = (): void => {
     const [section, id] =
       invalidField === 'limits'
         ? (['limits', 'agent-thinking'] as const)
         : (['permissions', 'agent-allowed-tools'] as const);
     focusSection(section, id);
+  };
+
+  const focusFirstInvalid = (section: SectionId): void => {
+    setMode('config');
+    setActiveSection(section);
+    requestAnimationFrame(() => {
+      const panel = document.getElementById(`agent-${section}`);
+      const target = panel?.querySelector<HTMLElement>('[aria-invalid="true"]');
+      target?.scrollIntoView({ block: 'center' });
+      target?.focus();
+    });
   };
 
   const save = (): void => {
@@ -1024,14 +1038,11 @@ export function AgentEditor({
     if (!parsed.success) {
       const issues = fieldErrors(parsed.error.issues);
       setErrors(issues);
-      // 错误可能不在当前分区：切到第一个出错的分区，错误本身由 role="alert" 播报。
+      // 错误可能不在当前分区：切到第一个出错的分区，再把焦点放到该字段上。
       const section = Object.keys(issues)
         .map((key) => errorSections[key])
         .find((item): item is SectionId => item !== undefined);
-      if (section) {
-        setMode('config');
-        setActiveSection(section);
-      }
+      if (section) focusFirstInvalid(section);
       return;
     }
     update.mutate(

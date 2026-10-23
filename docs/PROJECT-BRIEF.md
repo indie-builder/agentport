@@ -804,7 +804,7 @@ pnpm dev
 3. ~~测试~~：14 个 vitest 文件、82 个用例；Playwright E2E 在 `e2e/`。
 4. ~~CI~~：`.github/workflows/ci.yml` 已创建。
 5. ~~server 编辑 UI~~：servers 页已支持编辑（PATCH + 乐观锁）。
-6. **沙盒网络**：仍为 `bridge` + `host.docker.internal`，默认 `SANDBOX_EGRESS=proxy`（无代理时降级 open）；生产建议接受控出站代理。
+6. **沙盒网络**：仍为 `bridge` + `host.docker.internal`，默认 `SANDBOX_EGRESS=open`（不隔离出站）；`proxy` 必须配代理，否则 worker 启动 fail-closed；生产建议接受控出站代理。
 7. ~~SSE 丢事件~~：已改为 Redis Stream 从 0 回放。
 
 ---

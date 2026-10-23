@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
+import { LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
@@ -388,17 +389,15 @@ export function StatusPage() {
               <Metric label="内存 RSS" value={formatBytes(data.process.memoryRssBytes)} />
               <Metric label="Node" value={data.process.nodeVersion} />
             </div>
+          ) : metrics.isPending ? (
+            <LoadingState rows={2} />
           ) : (
             <>
-              <div className="text-sm text-muted-foreground">
-                {metrics.isPending ? '正在请求 /health/metrics…' : '读不到进程指标。'}
-              </div>
-              {!metrics.isPending ? (
-                <Reason>
-                  指标端点不可达或返回非 200；先确认 API 进程与反向代理，再看{' '}
-                  <code className="font-mono">docker compose logs api</code>。
-                </Reason>
-              ) : null}
+              <div className="text-sm text-muted-foreground">读不到进程指标。</div>
+              <Reason>
+                指标端点不可达或返回非 200；先确认 API 进程与反向代理，再看{' '}
+                <code className="font-mono">docker compose logs api</code>。
+              </Reason>
             </>
           )}
         </PageSection>
@@ -422,14 +421,12 @@ export function StatusPage() {
                 <Reason>有排队任务但没有运行中的任务：检查 worker 容器是否存活。</Reason>
               ) : null}
             </>
+          ) : metrics.isPending ? (
+            <LoadingState rows={2} />
           ) : (
             <>
-              <div className="text-sm text-muted-foreground">
-                {metrics.isPending ? '正在请求…' : '队列计数不可用。'}
-              </div>
-              {!metrics.isPending ? (
-                <Reason>BullMQ 查询失败或超过 1.5 秒：Redis 不可用，或队列键被阻塞。</Reason>
-              ) : null}
+              <div className="text-sm text-muted-foreground">队列计数不可用。</div>
+              <Reason>BullMQ 查询失败或超过 1.5 秒：Redis 不可用，或队列键被阻塞。</Reason>
             </>
           )}
         </PageSection>
@@ -448,10 +445,10 @@ export function StatusPage() {
                 </Reason>
               ) : null}
             </>
+          ) : metrics.isPending ? (
+            <LoadingState rows={2} />
           ) : (
-            <div className="text-sm text-muted-foreground">
-              {metrics.isPending ? '正在请求…' : '读不到连接池指标。'}
-            </div>
+            <div className="text-sm text-muted-foreground">读不到连接池指标。</div>
           )}
         </PageSection>
 
@@ -461,16 +458,14 @@ export function StatusPage() {
               <Metric label="Ping" value={`${redis.pingMs} ms`} />
               <Metric label="状态" value="PONG" />
             </div>
+          ) : metrics.isPending ? (
+            <LoadingState rows={2} />
           ) : (
             <>
-              <div className="text-sm text-muted-foreground">
-                {metrics.isPending ? '正在请求…' : 'Redis 不可用。'}
-              </div>
-              {!metrics.isPending ? (
-                <Reason>
-                  Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
-                </Reason>
-              ) : null}
+              <div className="text-sm text-muted-foreground">Redis 不可用。</div>
+              <Reason>
+                Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
+              </Reason>
             </>
           )}
         </PageSection>

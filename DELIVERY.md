@@ -1,13 +1,13 @@
 # 交付总结
 
-> 2026-10-20（最终同步）。本文按「能做什么 / 怎么验证 / 还缺什么」组织；详细交接见 [docs/HANDOFF.md](docs/HANDOFF.md)，故障处置见 [docs/RUNBOOK.md](docs/RUNBOOK.md)。
+> 2026-10-20（2026-10-24 按代码复核）。本文按「能做什么 / 怎么验证 / 还缺什么」组织；详细交接见 [docs/HANDOFF.md](docs/HANDOFF.md)，故障处置见 [docs/RUNBOOK.md](docs/RUNBOOK.md)。
 
 ## 一、项目是什么
 
 **PACE**（仓库名 `agentport`）：单机部署的智能体平台。
 
 - 把 **MCP Server**（stdio / 远程 HTTP / HTTP API 转 MCP）接进来；
-- 用**文件**定义智能体（`.mcp.json` / `CLAUDE.md` / `.claude/agents/*.md` / `.claude/skills/*/SKILL.md`）；
+- 用**文件**定义智能体（`.mcp.json` / `CLAUDE.md` / `.claude/agents/*.md` / `.claude/skills/*/SKILL.md` 及支持资源 / `.claude/rules/*.md` / `.claude/output-styles/*.md` / 原生 auto-memory）；
 - 在 **Docker 沙盒**里执行，事件经 **SSE** 实时回传；
 - 提供运行观测、评估回归、审计、版本回滚。
 
@@ -25,16 +25,16 @@ pnpm run up          # 生成 .env、起 Postgres/Redis、迁移、构建镜像�
 
 本地开发：`docker compose up -d postgres redis` → `pnpm dev`（api + worker + web）。
 
-## 三、质量基线（2026-10-21 实测）
+## 三、质量基线（2026-10-24 复核）
 
 | 项 | 结果 |
 |---|---|
 | `pnpm typecheck` | ✅ 7 个包全通过 |
 | `pnpm build` | ✅ 全通过；web 产物 669.63 kB（gzip 199.35 kB），有 >500 kB chunk 警告 |
-| `./node_modules/.bin/biome check packages/*/src packages/*/test` | 🟡 154 个文件，1 warning、0 error（`worker/src/index.ts` 未使用导入，来自并行进行中的改动） |
-| `pnpm test` | 🟡 2026-10-21 复跑：156/162 通过、6 失败（`health` / `servers` / shared 脱敏契约，属并行线未合入的改动）；合入后需重跑 |
-| `pnpm test:e2e` | 本次未复跑（`e2e run`，需 5173 与 3000 在跑；`E2E_FULL=1` 才跑真实对话链路） |
-| `pnpm smoke` | ✅ `SMOKE OK`（本次对运行中的 compose 栈实测） |
+| `./node_modules/.bin/biome check packages/*/src packages/*/test` | 🟡 297 个文件，0 error、2 warning（`core/src/skill-draft.ts` 的 non-null assertion），退出码 0 |
+| `pnpm test` | ✅ 971/971 通过、0 失败、0 跳过（停 worker、隔离测试库；见 [docs/HANDOFF.md](docs/HANDOFF.md)） |
+| `pnpm test:e2e` | 🟡 43 条中 42 通过；唯一失败为停 worker 时真实对话无消费者（套件设计冲突） |
+| `pnpm smoke` | ✅ `SMOKE OK`（对运行中的 compose 栈实测） |
 | 真实链路 | ✅ 浏览器 → API → 队列 → 沙盒 → 模型 → MCP 工具 → 上游 API → SSE |
 | 平台即 MCP | ✅ 外部 MCP 客户端可发现并调用智能体 |
 | 子智能体 | ✅ 真实模型 + 沙盒跑通，事件与落库序列见 [docs/SUBAGENTS-VERIFICATION.md](docs/SUBAGENTS-VERIFICATION.md) |
@@ -90,28 +90,28 @@ pnpm run up          # 生成 .env、起 Postgres/Redis、迁移、构建镜像�
 
 1. **单机部署**：worker 挂载 docker.sock，等价宿主 root；生产需 socket proxy 或独立节点（D-16）。
 2. **同一智能体并发仍共享宿主资源**：工作区已按 run 隔离，沙盒仍共享宿主 CPU/内存。
-3. **模型凭证未代理**：沙盒直接持有 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`（M12 剩余项）。
-4. **工具审批不是持久化暂停**：批准在同一会话的下次 run 继承，跨会话不继承；批准后需重发消息。
-5. **权限模式只有 `dontAsk` 与 `plan`**：`default` / `acceptEdits` / `auto` 未实现。
+3. **模型凭证已代理（D-17）**：worker 起仅监听回环的模型代理（`MODEL_PROXY_PORT`，默认 3426），沙盒只拿到代理地址与按 run 的短期 token，真实密钥只存在于 worker 内存；未配置任何凭证时才回退直接注入并在启动日志警告。剩余边界：代理只转发 `/v1/messages`、`/v1/models` 等白名单路径，沙盒的其它出站仍靠 `SANDBOX_EGRESS`。
+4. **工具审批是挂起式暂停（D-18）**：需要审批的工具调用挂起等待（`APPROVAL_WAIT_MS`，默认 300s），批准后同一次调用继续；超时按拒绝处理。批准在同一会话的下次 run 继承，跨会话不继承；进程重启会丢失等待中的调用，该 run 需重跑。
+5. **权限模式**：可保存 `dontAsk`、`plan`、`default`、`acceptEdits`；`auto` 依赖模型分类器、平台无法审计，API 返回 400（D-20）。`default` 在无人值守沙盒里实际接近 `dontAsk`。
 6. **会话上下文靠注入最近 20 条消息**，不是 SDK 原生 session resume；长对话会截断。
 7. **子智能体只支持单层**，且继承父会话工具集；子智能体自己的 server 绑定不参与渲染，SDK 层无深度限制。
 8. **MCP 明文密钥仍落在工作区** `.mcp.json`（0600/0700，run 结束删除）；Linux 宿主 uid 非 1000 时容器可读性未验证。
-9. **`/health/*` 无鉴权**：状态页与运维都依赖它，只应内网访问。
+9. **`/health/live`、`/health/ready` 不校验登录**（供容器探针）；`/health/metrics` 需要登录。不要把探针端点暴露到公网。
 10. **DNS 重绑定**：SSRF 校验与 fetch 之间仍有窗口，需网络层 allowlist 兜底。
 11. **评估跑批串行**：worker 重启会让进行中的跑批延迟；超过 1 小时才收敛。
 12. **SSE 每个观众一条 Redis 连接**，受 `maxclients` 约束；轮询兜底最多 2 秒延迟。
-13. **分支 UI** 只能从最新消息分支；API 支持 `fromMessageId`，UI 未暴露。
-14. **导入**不携带子智能体与工具审批标记。
-15. **读接口无限流**；Postgres 连接池是第一个瓶颈。
-16. **运行详情重跑**只重发第一条 user 消息，不带审批状态。
-17. **浅色主题、RAG、多用户、多机部署**：均未实现。
+13. **分支**：侧栏对整段会话分支（复制全部）；每条已持久化的用户消息下方也有分支入口（复制到该消息为止，走 `fromMessageId`）。新发/流式消息尚无持久化 id，不显示该入口。
+14. **导入**：`agentport/agent@2` 已携带根级/子级规则、输出风格与技能支持资源；同名 Server 复用已有配置、其工具不按文件覆盖（返回 warnings），被复用 Server 的密钥需重新填写。
+15. **全局 600/min 限流桶覆盖全部路由**（按 IP，`plugins/security.ts`），另有登录 10/min 等更严的按路由桶；高并发下 Postgres 连接池仍是第一个瓶颈。
+16. **运行详情重跑**只重发第一条 user 消息；重跑新建 run，工具审批按同会话上一 run 继承，历史审批不单独回放。
+17. **深色主题、RAG、多用户、多机部署**：均未实现（当前只有亮色主题）。
 
 ## 七、下一步建议
 
 1. 用真实业务 API 走一遍：建 server → 建 tool → 建 agent → 评估 → 看运行详情 → `/status`。
-2. 决定 M12 剩余项（模型凭证隔离）是否要现在做——这是剩余唯一 Medium 级安全问题。
-3. 修复 2 条 lint error，恢复 `biome check` 零错误基线。
-4. 如果要对外：先做按 agent 签发 token 与读接口限流，再考虑 microVM 沙盒。
+2. ~~决定 M12 剩余项（模型凭证隔离）是否要现在做~~ 已按 D-17 实现，剩余边界见第六节第 3 条。
+3. 清零 `core/src/skill-draft.ts` 的 2 条 non-null assertion warning，恢复零 warning 基线。
+4. 如果要对外：先做按 agent 签发 token 与更细粒度的读接口限额（当前只有全局 600/min 桶），再考虑 microVM 沙盒。
 
 ## 八、文档地图
 

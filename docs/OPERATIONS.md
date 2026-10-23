@@ -21,10 +21,8 @@
 | `JWT_SECRET` | 是 | — | api | 会话签名密钥，≥32 字符 |
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问地址（如 `https://agentport.example.com`），不要用 `*` |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
-| `AGENT_DEFAULT_MODEL` | 否 | `claude-sonnet-5-5` | api（仅校验，未使用） | 当前代码不使用；模型由每个 agent 的 `model` 字段决定 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | api、worker 均解析；worker 使用 | `agent-runs` 队列并发数（api 解析但不读） |
 | `AGENT_TIMEOUT_MS` | 否 | `600000` | api、worker | 单个 run 的默认超时；agent 自身 `timeoutMs` 优先 |
-| `AGENT_MAX_BUDGET_USD` | 否 | `2` | api（仅校验，未使用） | 当前代码不使用；预算由每个 agent 的 `maxBudgetUsd` 决定 |
 
 以下变量不在 schema 中，由代码直接读 `process.env` 或只由 compose 使用：
 
@@ -57,7 +55,7 @@
 | `WORKSPACES_DIR` | 否 | `./data/workspaces` | worker | 工作区根目录。compose 下为 `/workspaces`，必须与 api 同路径 |
 | `HOST_WORKSPACES_DIR` | 否 | 同 `WORKSPACES_DIR` | worker | 宿主视角的工作区路径，`docker -v` 的源路径；compose 默认 `/var/lib/docker/volumes/agentport_workspaces/_data` |
 | `SANDBOX_API_URL` | 否 | `http://host.docker.internal:3000` | worker、api（预览） | 沙盒视角的平台地址，写入 generated server 的 `.mcp.json` |
-| `SANDBOX_EGRESS` | 否 | `proxy` | worker | `proxy` = bridge + 容器内 `HTTPS_PROXY`；`none` = `--network none`；`open` = bridge 直连。默认 `proxy` 但未设置 `HTTPS_PROXY`/`HTTP_PROXY` 时，启动 warn 并**按 `open` 运行**（不阻塞本地开发） |
+| `SANDBOX_EGRESS` | 否 | `open` | worker | `open` = bridge 直连（不隔离出站）；`proxy` = bridge + 容器内 `HTTPS_PROXY`；`none` = `--network none`。**fail-closed**：`proxy` 未设置 `HTTPS_PROXY`/`HTTP_PROXY` 时启动直接报错退出，不会降级为 `open` |
 | `SANDBOX_MEMORY` | 否 | `1g` | worker | 容器内存上限（Docker 格式，如 `1g`、`512m`） |
 | `SANDBOX_CPUS` | 否 | `1` | worker | CPU 核数上限 |
 | `SANDBOX_PIDS` | 否 | `128` | worker | PID 上限 |
@@ -530,7 +528,6 @@ worker 通过模型凭证代理访问上游，代理监听 `MODEL_PROXY_PORT`（
 ```bash
 ANTHROPIC_BASE_URL=http://127.0.0.1:3425
 ANTHROPIC_AUTH_TOKEN=<网关的 key>
-AGENT_DEFAULT_MODEL=<网关 /v1/models 里的 id，例如 group/flash>
 ```
 
 要点：

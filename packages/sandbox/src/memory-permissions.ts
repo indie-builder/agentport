@@ -6,7 +6,16 @@ import type { HookCallback, PreToolUseHookSpecificOutput } from '@anthropic-ai/c
 const MEMORY_TOOLS = new Set(['Read', 'Write', 'Edit']);
 const OTHER_FILE_TOOLS = new Set(['Glob', 'Grep', 'NotebookEdit']);
 
-export function createMemoryHook(directory: string): HookCallback {
+export const createMemoryHook = createFileBoundaryHook;
+
+/**
+ * 文件工具边界：主会话可写记忆目录内的普通 .md；只读可及记忆目录与技能参考文件
+ * （技能目录下 `<slug>/references/` 里的 .md）。其余文件工具请求一律拒绝。
+ */
+export function createFileBoundaryHook(
+  memoryDir: string,
+  skillsDir = '/workspace/.claude/skills',
+): HookCallback {
   return async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};
     if (!MEMORY_TOOLS.has(input.tool_name) && !OTHER_FILE_TOOLS.has(input.tool_name)) return {};
@@ -15,7 +24,7 @@ export function createMemoryHook(directory: string): HookCallback {
       hookEventName: 'PreToolUse',
       permissionDecision: 'deny',
       permissionDecisionReason:
-        'Only the main agent may access ordinary Markdown files inside its memory directory.',
+        'File tools are limited to native memory and skill reference Markdown for the main agent.',
     };
     const deny = { hookSpecificOutput: output };
     const allow = (): { hookSpecificOutput: PreToolUseHookSpecificOutput } => {
@@ -36,23 +45,53 @@ export function createMemoryHook(directory: string): HookCallback {
       path.split(sep).some((part) => part === '..' || part === '.')
     )
       return deny;
-    const local = relative(directory, path);
+
+    // 记忆目录：主会话可读写。技能参考文件：只读、且必须落在 .claude/skills/<slug>/references/ 下。
+    let base = memoryDir;
+    let writable = true;
+    const memoryLocal = relative(memoryDir, path);
+    if (
+      !memoryLocal ||
+      memoryLocal.startsWith(`..${sep}`) ||
+      memoryLocal === '..' ||
+      isAbsolute(memoryLocal)
+    ) {
+      const skillLocal = relative(skillsDir, path);
+      const [slug, kind, ...rest] = skillLocal.split(sep);
+      // <slug>/references/<...>.md，slug 为小写字母数字开头；写入仍只在记忆目录。
+      if (
+        input.tool_name !== 'Read' ||
+        !slug ||
+        kind !== 'references' ||
+        rest.length === 0 ||
+        !/^[a-z0-9][a-z0-9_-]*$/.test(slug) ||
+        !path.endsWith('.md')
+      )
+        return deny;
+      base = skillsDir;
+      writable = false;
+    }
+    const local = relative(base, path);
     if (!local || local.startsWith(`..${sep}`) || local === '..' || isAbsolute(local)) return deny;
 
     try {
       // Recheck every call: neither a symlink nor a hard link may alias another agent's files.
-      const root = await lstat(directory);
-      if (!root.isDirectory() || root.isSymbolicLink() || (await realpath(directory)) !== directory)
+      const root = await lstat(base);
+      if (!root.isDirectory() || root.isSymbolicLink() || (await realpath(base)) !== base)
         return deny;
       const parts = local.split(sep);
-      let current = directory;
+      let current = base;
       for (const [index, part] of parts.entries()) {
         current = join(current, part);
         let entry: Stats;
         try {
           entry = await lstat(current);
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || input.tool_name !== 'Write')
+          if (
+            (error as NodeJS.ErrnoException).code !== 'ENOENT' ||
+            input.tool_name !== 'Write' ||
+            !writable
+          )
             return deny;
           // Write creates missing parents; all existing ancestors have already passed the boundary.
           return allow();

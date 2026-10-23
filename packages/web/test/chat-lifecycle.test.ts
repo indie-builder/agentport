@@ -136,6 +136,7 @@ describe('history restoration', () => {
       id: '1:0',
       kind: 'user',
       text: 'prompt',
+      messageId: '1',
     });
     expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'reconnecting' });
   });
@@ -170,9 +171,9 @@ describe('history restoration', () => {
       Source.instances[0]?.emit({ type: 'text_delta', text: 'complete reply' }),
     );
     expect(useChatStore.getState().items).toEqual([
-      { id: 'old-u:0', kind: 'user', text: 'old prompt' },
+      { id: 'old-u:0', kind: 'user', text: 'old prompt', messageId: 'old-u' },
       { id: 'old-a:0', kind: 'text', text: 'old reply' },
-      { id: '1:0', kind: 'user', text: 'prompt' },
+      { id: '1:0', kind: 'user', text: 'prompt', messageId: '1' },
       { kind: 'text', text: 'complete reply' },
     ]);
   });
@@ -283,7 +284,9 @@ describe('history restoration', () => {
     expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'detached' });
     await act(async () => stream.retryStream());
     expect(Source.instances).toHaveLength(1);
-    expect(useChatStore.getState().items).toEqual([{ id: '1:0', kind: 'user', text: 'prompt' }]);
+    expect(useChatStore.getState().items).toEqual([
+      { id: '1:0', kind: 'user', text: 'prompt', messageId: '1' },
+    ]);
   });
 
   it('restores history without a run and allows sending', async () => {

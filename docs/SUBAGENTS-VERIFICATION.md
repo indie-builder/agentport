@@ -118,7 +118,7 @@ SDK 侧确认：`initializationResult().agents` 在沙盒里能看到 `subverify
 ## 遗留问题与下一步
 
 1. **自我递归风险（已评估，已消除一部分）**：修复前父智能体自己的 md 也会写进 `.claude/agents/<父slug>.md`，实测父智能体可以 `Agent(subagent_type="subverify-parent")` 成功派生一个同名智能体（返回 `parent-ok`），即自我递归。现在主智能体 md 不落盘，直接消除。**残余风险**：手工把同名 md 放回该目录仍可复现；单层约束目前只靠「子智能体 md 的 `disallowedTools` 含 `Agent`」和 API 的父子校验，SDK 本身没有深度限制。
-2. **子智能体的 server 绑定仍被忽略**（HANDOFF 已知限制 2）：子智能体 md 继承父会话的 MCP 工具集。测试里父子绑定同一 server 所以看不出来；如果父没有绑定而子绑定了，子将拿不到工具。下一步可以在 `renderWorkspace` 里明确报错或把父的 server 集合并集传给子。
+2. **子智能体的 server 绑定仍被忽略**（现状，2026-10-24 复核）：子智能体 md 继承父会话的 MCP 工具集。测试里父子绑定同一 server 所以看不出来；如果父没有绑定而子绑定了，子将拿不到工具。官方文档确认子智能体**支持** frontmatter `mcpServers`（inline 声明或名称引用，`https://code.claude.com/docs/en/sub-agents`），但平台尚未接通：worker 仅查询父绑定，`renderWorkspace` 不写子级 `mcpServers`，run 也不对子 server 单独鉴权。当前行为已如实标注在 `docs/ARCHITECTURE.md`。下一步实现需：查询子绑定→渲染子 md inline `mcpServers`→runner 工具许可→按 run 的子绑定 token 鉴权（涉及目录信任、同名冲突、授权扩散）。
 3. **子智能体内部的工具调用是单条事件**：父侧只看到 `Agent` 的 `tool_input`/`tool_result`，子智能体的 `get-user` 调用也以 `tool_start` 形式出现在同一条流里（见上表 #5–#7），落库后前端会把它显示成父对话里的工具卡片，没有缩进/归属标识。若需要区分，可在事件里加 `agentId`/`parentToolUseId`。
 4. **轮询兜底是 2s 延迟**：正常 run 的 `run_finished` 由 pub/sub 唤醒即时送达，轮询只兜住极端竞态。下一步可改成 `XREAD BLOCK`，同时删掉轮询。
 5. **`permissionMode: dontAsk` 下子智能体继承父会话的权限**：本次配置可用；若以后给子智能体单独配 `permissionMode`，需要重新验证。

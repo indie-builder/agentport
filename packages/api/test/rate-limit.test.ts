@@ -7,6 +7,8 @@ const ready = await infraReady;
 /**
  * RATE_LIMIT_DISABLED=1 由 vitest.config.ts 注入。关闭路径若写成 `{}`，路由会落回
  * 全局 120/min；这里用超过两个上限的次数把这条回归打出来。
+ * 429 本身无法在本进程验证（plugins/security.ts 的开关是模块加载时的常量），
+ * 由部署验证脚本对运行中的实例连打 11 次错误登录覆盖。
  */
 describe.skipIf(!ready)('rate limiting', () => {
   let app: Awaited<ReturnType<typeof startApp>>;

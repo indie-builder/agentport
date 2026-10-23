@@ -1,13 +1,15 @@
-/**
- * 品牌：项目头像（public/brand.gif）。
- * 侧栏、登录页共用这一份；没有字标，强调靠头像本身。
- */
+import { Command } from 'lucide-react';
+
+/** 品牌：lucide 线框标记 + `PACE` 字标（12.5px / 0.14em，见 DESIGN-SYSTEM §5）。 */
 export function BrandMark({ className }: { className?: string }) {
-  return (
-    <img src="/brand.gif" alt="" aria-hidden="true" className={className} width={32} height={32} />
-  );
+  return <Command aria-hidden="true" className={className} />;
 }
 
 export function Brand() {
-  return <BrandMark className="size-7 shrink-0 rounded-icon object-cover" />;
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <BrandMark className="shrink-0" />
+      <span className="truncate text-[12.5px] font-medium tracking-[0.14em] text-fg">PACE</span>
+    </span>
+  );
 }
