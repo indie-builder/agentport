@@ -8,6 +8,7 @@ import type {
   Attention,
   BoardSummary,
   ChatRequest,
+  ConnectorCatalogItem,
   EvalDataset,
   MemoryFileContent,
   MemoryFileList,
@@ -70,7 +71,11 @@ export const serversQuery = queryOptions<Server[]>({
   queryKey: ['servers'],
   queryFn: api.servers,
 });
-
+export const connectorCatalogQuery = queryOptions<ConnectorCatalogItem[]>({
+  queryKey: ['connector-catalog'],
+  queryFn: api.connectorCatalog,
+  staleTime: 5 * 60_000,
+});
 export const agentsQuery = queryOptions<Agent[]>({
   queryKey: ['agents'],
   queryFn: api.agents,

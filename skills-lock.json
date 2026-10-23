@@ -7,6 +7,24 @@
       "skillPath": "skills/api-and-interface-design/SKILL.md",
       "computedHash": "8bdbf1fca81bef9258d7e0d9726f933f25677ec8537792e084a3fb7c54acf2ba"
     },
+    "api-error-design": {
+      "source": "samber/developer-platform-skills",
+      "sourceType": "github",
+      "skillPath": "skills/api-error-design/SKILL.md",
+      "computedHash": "3ec0d5f31d31c68cc7dcd6f84e59cdc52fe929c87d5a7d59d9a159bf1542012d"
+    },
+    "api-integration-surface-strategy": {
+      "source": "samber/developer-platform-skills",
+      "sourceType": "github",
+      "skillPath": "skills/api-integration-surface-strategy/SKILL.md",
+      "computedHash": "e3691e0ebb104bf905f0aea7895525595a81aa54b9e012af327bf2f46a39b4fd"
+    },
+    "cli-interface-design": {
+      "source": "samber/developer-platform-skills",
+      "sourceType": "github",
+      "skillPath": "skills/cli-interface-design/SKILL.md",
+      "computedHash": "029316672952d551d7187f8445efd15649eb816d392b1653a8c982a69239ab69"
+    },
     "frontend-design": {
       "source": "anthropics/skills",
       "sourceType": "github",
@@ -18,6 +36,12 @@
       "sourceType": "github",
       "skillPath": "skills/migrate-radix-to-base/SKILL.md",
       "computedHash": "e1f2030ee5059be3dff0812ca0e4b995ee9fa3132176f049ebe6c90346a6755e"
+    },
+    "public-api-design-review": {
+      "source": "samber/developer-platform-skills",
+      "sourceType": "github",
+      "skillPath": "skills/public-api-design-review/SKILL.md",
+      "computedHash": "7fdcf6a469087d667d6ea61315d319fdf1d7bb7291dcf3b81b398caf2ad805d3"
     },
     "shadcn": {
       "source": "shadcn-ui/ui",

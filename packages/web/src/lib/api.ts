@@ -8,6 +8,7 @@ import type {
   Attention,
   BoardSummary,
   ChatRequest,
+  ConnectorCatalogItem,
   ConversationSummary,
   EvalDataset,
   EvalDatasetImportResult,
@@ -447,6 +448,7 @@ export const api = {
   },
 
   servers: (): Promise<Server[]> => request('/servers'),
+  connectorCatalog: (): Promise<ConnectorCatalogItem[]> => request('/connector-catalog'),
   createServer: (input: ServerInput): Promise<Server> => request('/servers', 'POST', input),
   updateServer: (
     id: string,

@@ -106,6 +106,10 @@
 |---|---|---|---|
 | `frontend-design` | anthropics/skills | 1.0M | 整体 UI 方向与排版 |
 | `api-and-interface-design` | addyosmani/agent-skills | 60.7K | REST 接口契约、TypeScript 类型边界与错误语义 |
+| `cli-interface-design` | samber/developer-platform-skills | 7.2K | 在 API 之上设计 CLI：命令分层、`--json`/退出码冻结契约、agent 友好 |
+| `public-api-design-review` | samber/developer-platform-skills | 7.2K | REST 面检查表：命名、方法/状态码、分页、错误信封、Hyrum's Law 兼容 |
+| `api-error-design` | samber/developer-platform-skills | 7.2K | 错误码 taxonomy、RFC 9457 problem-details、retryable 信号 |
+| `api-integration-surface-strategy` | samber/developer-platform-skills | 7.2K | 按回滚成本与受众排序 REST/CLI/SDK/MCP 等各集成面的建设顺序 |
 | `vercel-react-best-practices` | vercel-labs/agent-skills | 818.5K | React 19 组件与性能 |
 | `supabase-postgres-best-practices` | supabase/agent-skills | 451.7K | PostgreSQL 18 查询、索引、RLS |
 | `test-driven-development` | obra/superpowers | 254.7K | Vitest 单元/集成测试 |
