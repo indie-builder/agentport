@@ -210,16 +210,15 @@ async function writeWorkspace(
       });
     }
   }
-  // settings.json 每次重写（无选中则删除）。outputStyle 必须写进这里，因为 runner 的
+  // settings.json 与预览同源（renderWorkspace）。outputStyle 必须写进这里，因为 runner 的
   // inline object-settings 优先级高于磁盘文件；runner 会把这里解析出的 outputStyle 一并带上，
   // 否则磁盘上的 settings.json 会被 inline settings 遮蔽。
   const settingsPath = join(dir, '.claude', 'settings.json');
-  if (files.selectedOutputStyle) {
-    await writeFile(
-      settingsPath,
-      `${JSON.stringify({ outputStyle: files.selectedOutputStyle }, null, 2)}\n`,
-      { encoding: 'utf8', mode: WORKSPACE_FILE_MODE },
-    );
+  if (files.settingsJson !== null) {
+    await writeFile(settingsPath, files.settingsJson, {
+      encoding: 'utf8',
+      mode: WORKSPACE_FILE_MODE,
+    });
   } else {
     await rm(settingsPath, { force: true });
   }

@@ -16,6 +16,8 @@ export interface WorkspaceFiles {
   outputStyles: Array<{ slug: string; content: string }>;
   /** 选中的输出风格名（写入 settings.outputStyle）；null 表示用默认。 */
   selectedOutputStyle: string | null;
+  /** 渲染出的 `.claude/settings.json` 内容；null 表示无该文件。 */
+  settingsJson: string | null;
 }
 
 export interface WorkspaceAgent {
@@ -413,5 +415,8 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
       content: renderOutputStyleMd(style),
     })),
     selectedOutputStyle: input.selectedOutputStyle ?? null,
+    settingsJson: input.selectedOutputStyle
+      ? `${JSON.stringify({ outputStyle: input.selectedOutputStyle }, null, 2)}\n`
+      : null,
   };
 }

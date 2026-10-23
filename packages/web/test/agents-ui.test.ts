@@ -61,6 +61,13 @@ vi.mock('../src/lib/queries.js', () => ({
     refetch: state.retry,
   }),
   useRollbackAgent: () => ({ mutateAsync: state.rollback }),
+  useAgentFiles: () => ({
+    data: undefined,
+    isPending: true,
+    isError: false,
+    error: null,
+    refetch: () => {},
+  }),
 }));
 vi.mock('@tanstack/react-query', () => ({ useQueries: () => [], useQueryClient: () => ({}) }));
 vi.mock('@tanstack/react-router', () => ({

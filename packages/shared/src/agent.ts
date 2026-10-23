@@ -183,13 +183,25 @@ export const skillWithAgentCountSchema = skillSchema.and(
 
 export type SkillWithAgentCount = z.infer<typeof skillWithAgentCountSchema>;
 
-/** 工作区文件预览：前端「文件」tab 用。 */
+/** 工作区文件预览：前端「完整文件」视图用；字段与 renderWorkspace 输出一致。 */
 export const workspaceFilesSchema = z.object({
   mcpJson: z.string(),
   claudeMd: z.string(),
   agentMd: z.string(),
-  skills: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  skills: z
+    .array(
+      z.object({
+        slug: z.string(),
+        content: z.string(),
+        files: z.array(z.object({ path: z.string(), content: z.string() })).default([]),
+      }),
+    )
+    .default([]),
   subAgents: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  rules: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  outputStyles: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  selectedOutputStyle: z.string().nullable().default(null),
+  settingsJson: z.string().nullable().default(null),
 });
 
 export type WorkspaceFiles = z.infer<typeof workspaceFilesSchema>;
