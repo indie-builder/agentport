@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createMemoryHook } from '../src/memory-permissions.js';
+import { createFileBoundaryHook, createMemoryHook } from '../src/memory-permissions.js';
 
 let dir: string;
 let memory: string;
@@ -147,5 +147,56 @@ describe('native memory filesystem boundary', () => {
     expect(await check('Read', { file_path: join(memory, 'outside.md') })).toMatchObject(
       decision('deny'),
     );
+  });
+});
+
+describe('skill reference read-only boundary', () => {
+  let skills: string;
+  let skillHook: ReturnType<typeof createFileBoundaryHook>;
+
+  beforeEach(async () => {
+    skills = join(dir, 'skills');
+    skillHook = createFileBoundaryHook(memory, skills);
+    await mkdir(join(skills, 'demo', 'references'), { recursive: true });
+    await writeFile(join(skills, 'demo', 'references', 'api.md'), '# api');
+    await writeFile(join(skills, 'demo', 'references', 'notes.json'), '{}');
+    await writeFile(join(skills, 'demo', 'SKILL.md'), '# skill');
+  });
+
+  const call = (tool: string, file_path: string) =>
+    skillHook(
+      {
+        hook_event_name: 'PreToolUse',
+        session_id: 's',
+        transcript_path: '/tmp/t',
+        cwd: memory,
+        tool_name: tool,
+        tool_input: { file_path },
+        tool_use_id: 't',
+      },
+      'tool',
+      { signal: new AbortController().signal },
+    );
+
+  it('allows Read under <slug>/references/*.md', async () => {
+    expect(await call('Read', join(skills, 'demo', 'references', 'api.md'))).toMatchObject(
+      decision('allow'),
+    );
+  });
+
+  it('denies Write/Edit even inside references, and denies non-.md or non-reference paths', async () => {
+    // 大写 slug 文件真实存在，确保拒绝来自 slug 正则而非文件不存在。
+    await mkdir(join(skills, 'Demo', 'references'), { recursive: true });
+    await writeFile(join(skills, 'Demo', 'references', 'api.md'), '# api');
+    for (const [tool, path] of [
+      ['Write', join(skills, 'demo', 'references', 'api.md')],
+      ['Edit', join(skills, 'demo', 'references', 'api.md')],
+      ['Read', join(skills, 'demo', 'references', 'notes.json')],
+      ['Read', join(skills, 'demo', 'SKILL.md')],
+      ['Read', join(skills, 'demo', 'references', 'missing.md')],
+      ['Read', join(skills, 'Demo', 'references', 'api.md')],
+    ] as const) {
+      expect(await call(tool, path), `${tool} ${path}`).toMatchObject(decision('deny'));
+    }
   });
 });

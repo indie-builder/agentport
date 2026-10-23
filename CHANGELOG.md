@@ -21,7 +21,7 @@
 
 ### 运行期加固（同批并行改动）
 
-- **限流覆盖全部路由**：`plugins/security.ts` 增加 `global: true` 的 120/min 桶；`/health/metrics` 改挂 `requireAuth`
+- **限流覆盖全部路由**：`plugins/security.ts` 增加 `global: true` 的 600/min 桶；`/health/metrics` 改挂 `requireAuth`
 - **API 优雅关停**：先关闭队列 producer 与 SSE 订阅，再 `app.close()`，与超时竞速后强制关闭残留 socket；compose 增加 `stop_grace_period: 30s`
 - **worker 退出时清扫遗留工作区目录**；孤儿 run 仍由 reconciler 收敛
 

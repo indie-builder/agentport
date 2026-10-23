@@ -63,22 +63,14 @@ if (config.SANDBOX_EGRESS === 'none') {
   logger.warn(
     'SANDBOX_EGRESS=none: 沙盒无网络，HTTP MCP server、平台 /mcp 端点与模型 API 都将不可用',
   );
-} else if (config.SANDBOX_EGRESS === 'proxy' && !config.HTTPS_PROXY && !config.HTTP_PROXY) {
-  logger.warn('SANDBOX_EGRESS=proxy but HTTPS_PROXY/HTTP_PROXY is unset: egress stays open');
 }
-
-/** proxy 模式没配代理时实际按 open 跑：别让日志声称在走代理。 */
-const sandboxEgress =
-  config.SANDBOX_EGRESS === 'proxy' && !config.HTTPS_PROXY && !config.HTTP_PROXY
-    ? 'open'
-    : config.SANDBOX_EGRESS;
 
 const { db, pool } = createDb(config.DATABASE_URL);
 const provider = new DockerSandboxProvider({
   memory: config.SANDBOX_MEMORY,
   cpus: config.SANDBOX_CPUS,
   pids: config.SANDBOX_PIDS,
-  egress: sandboxEgress,
+  egress: config.SANDBOX_EGRESS,
 });
 
 type ServerRow = typeof schema.servers.$inferSelect;
@@ -268,7 +260,7 @@ function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
   }
 
   // proxy 模式：把宿主上的代理地址传给沙盒，仍由容器自行出站。
-  if (sandboxEgress === 'proxy') {
+  if (config.SANDBOX_EGRESS === 'proxy') {
     for (const key of ['HTTPS_PROXY', 'HTTP_PROXY'] as const) {
       const value = config[key];
       if (value) env[key] = toHostUrl(value);

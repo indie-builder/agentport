@@ -212,7 +212,7 @@
 
 **问题**：单管理员、`/mcp` 单一全局 token、读接口限流较松、`/health/live` 与 `/health/ready` 无鉴权。
 
-> 现状更新（2026-10-21）：限流已改为全局 120/min（`plugins/security.ts` 的 `global: true`），`/health/metrics` 已挂 `requireAuth`；仍无鉴权的只剩供容器探针使用的 `/health/live`、`/health/ready`。
+> 现状更新（2026-10-21）：限流已改为全局 600/min（`plugins/security.ts` 的 `global: true`），`/health/metrics` 已挂 `requireAuth`；仍无鉴权的只剩供容器探针使用的 `/health/live`、`/health/ready`。
 
 **决定**：**暂不对外**。保持现状，但在文档里写清四项前置条件；一旦要对外，先做按 agent 发 token 与读接口限流。
 

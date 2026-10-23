@@ -161,6 +161,8 @@ const prompt = composePrompt(task.prompt, task.history);
 const memoryDirectory = '/mnt/agent-memory';
 const allowedTools = [
   `Read(/${memoryDirectory}/**)`,
+  // 技能参考文件只读：.claude/skills/<slug>/references/**；写入仍仅限原生记忆目录。
+  'Read(//workspace/.claude/skills/*/references/**)',
   // Edit(path) also authorizes Write; Write(path) is not a file permission rule.
   `Edit(/${memoryDirectory}/**)`,
   ...(task.mcpServers ?? []).map((name) => `mcp__${name}__*`),

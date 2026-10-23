@@ -44,7 +44,7 @@
 | M3 | CORS 显式 allowlist（`CORS_ORIGINS`）；`TRUST_PROXY` 支持 |
 | M7 | Agent/Server PATCH 乐观锁，冲突返回 409 `CONFLICT_STALE`；前端提示刷新 |
 | M8 | `agent_runs` / `messages.run_id` 外键（迁移先清理孤儿行） |
-| M13 | `SANDBOX_EGRESS` 默认 `proxy`，无代理时降级为 `open` 并告警 |
+| M13 | `SANDBOX_EGRESS` 三档显式选择：默认 `open`（bridge 直连，不隔离出站）；`proxy` 必须配 `HTTPS_PROXY`/`HTTP_PROXY`，否则 worker 启动 fail-closed 退出，不再静默降级 |
 | M14 | 文档记录 docker.sock 风险与替换方案；记入 D-16（已决定：自用保持，升级触发条件见该节） |
 
 ## 循环 10 已修复

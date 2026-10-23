@@ -13,7 +13,7 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 | 类型检查 | `pnpm typecheck` | ✅ 7 个包全部通过 |
 | 构建 | `pnpm build` | ✅ 全部通过；web 产物 669.63 kB（gzip 199.35 kB），仍有 >500 kB chunk 警告 |
 | Lint | `./node_modules/.bin/biome check packages/*/src packages/*/test` | 🟡 **154 个文件，1 warning、0 error**（`packages/worker/src/index.ts` 未使用的 `readdir` 导入，来自并行进行中的工作区清理改动；此前记录的 2 errors 已修） |
-| 单测/集成 | `pnpm test` | ✅ **2026-10-24 复跑：965/965 通过、0 失败、0 跳过**（停 worker，`DATABASE_URL=...agentport_test` 隔离库）。此前 HANDOFF 记录的 6 项失败已随 `requireAuth`/脱敏改动合入而消失 |
+| 单测/集成 | `pnpm test` | ✅ **2026-10-24 复跑：971/971 通过、0 失败、0 跳过**（停 worker，`DATABASE_URL=...agentport_test` 隔离库）。此前 HANDOFF 记录的 6 项失败已随 `requireAuth`/脱敏改动合入而消失；新增 worker config 6 项边界测试 |
 | E2E | `pnpm test:e2e` | ✅ **2026-10-24 复跑：43 条中 42 通过、1 条真实对话超时**（停 worker 时该用例无消费者，属套件设计冲突，非应用缺陷）。真实模型链路另行以 API 直连验证：`claude-sonnet-5-5` 6 秒成功、输出 127 tokens。旧失败为测试选中 `group/flash` 历史 agent 所致 |
 | 部署自检 | `pnpm smoke` | ✅ `SMOKE OK`（本次实际对运行中的 compose 栈执行，含 `/mcp` 401 与带 token 的 `tools/list`） |
 | 基础设施 | `docker compose ps` | ✅ postgres/redis healthy；api/worker Up |
@@ -35,7 +35,7 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 | 6 | 部署可移植（命名卷 + `HOST_WORKSPACES_DIR`）、`pnpm smoke`、工具审批最小闭环、禁用智能体 409、文档收口 |
 | 7 | 对抗性安全审查（1 Critical + 11 High）、9 条失败路径测试、性能索引、会话列表瘦身、SSE 引用计数修复 |
 | 8 | 预览脱敏、结构化审批表、日志/落库脱敏、沙盒与事件输出上限、导入 SSRF 校验、环境变量强度校验 |
-| 9 | 限流、CSP、可吊销会话、CORS/`TRUST_PROXY`、乐观锁、外键、`SANDBOX_EGRESS` 默认 proxy、压测基线 |
+| 9 | 限流、CSP、可吊销会话、CORS/`TRUST_PROXY`、乐观锁、外键、`SANDBOX_EGRESS` 出站开关、压测基线 |
 | 10 | 最终验收、按 run 隔离工作区、工具卡片持久化（`tool_use` 落库）、Redis 健康检查修复 |
 | 11 | 取消 SIGKILL 兜底与孤儿 run 收敛、Server URL 校验、审批跨 run 继承、权限模式诚实化 |
 | 12 | 预览与运行时共用 `workspace-input`、generated token 轮换、`pnpm run up` 一条命令部署 |
@@ -58,7 +58,7 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 11. **分支 UI 只能从最新消息分支**；API 支持 `fromMessageId`，UI 未暴露。
 12. **导入不携带子智能体与工具审批标记**；导入格式当前没有这两个字段。
 13. **Server 地址校验与连接之间的 DNS 重绑定窗口**仍靠网络层 allowlist 兜底。
-14. **限流已覆盖全部路由**：`plugins/security.ts` 注册 `global: true` 的 120/min 桶（按 IP），另有登录 10/min 等更严的按路由桶。高并发下 Postgres 连接池仍是第一个瓶颈（OPERATIONS §8）。
+14. **限流已覆盖全部路由**：`plugins/security.ts` 注册 `global: true` 的 600/min 桶（按 IP），另有登录 10/min 等更严的按路由桶。高并发下 Postgres 连接池仍是第一个瓶颈（OPERATIONS §8）。
 15. **`/health/live`、`/health/ready` 无鉴权**（供容器探针）；`/health/metrics` 需要登录。不要把前两者暴露到公网。
 16. **运行详情「重新运行」只重发该 run 的第一条 user 消息**，不带当时的工具审批状态。
 17. **未实现**：浅色主题、RAG/知识库、多用户/RBAC、多机部署。

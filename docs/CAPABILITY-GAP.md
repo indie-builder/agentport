@@ -272,7 +272,7 @@
 | CORS / 代理 | ✅ | `CORS_ORIGINS` allowlist；`TRUST_PROXY=1` 信任转发头 |
 | 乐观锁 | ✅ | Agent/Server PATCH 带 `expectedUpdatedAt`，冲突返回 409 `CONFLICT_STALE` |
 | 外键 | ✅ | `agent_runs`、`messages.run_id` 外键（迁移 0011 先清理孤儿行） |
-| 沙盒出站 | ✅ | `SANDBOX_EGRESS` 默认 `proxy`，无代理时降级为 `open` 并告警 |
+| 沙盒出站 | ✅ | `SANDBOX_EGRESS` 三档：默认 `open`（bridge 直连）；`proxy` 必须配代理否则启动 fail-closed；`none` 断网 |
 | 压测基线 | ✅ | 读/写/SSE/MCP/队列数据与第一瓶颈见 [OPERATIONS.md §8](OPERATIONS.md#8-压力测试结果) |
 
 ### 循环 10–12 已补齐（摘要）
