@@ -344,6 +344,15 @@ export function useRerun() {
   });
 }
 
+/** 「录制学习」：把一次运行沉淀为技能草稿，成功后刷新技能列表。 */
+export function useSkillDraftFromRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.skillDraftFromRun(runId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
+  });
+}
+
 const AUDIT_PAGE_SIZE = 100;
 export function useAudit(query: Omit<AuditQuery, 'before' | 'beforeId' | 'limit'>) {
   return useInfiniteQuery({

@@ -6,6 +6,7 @@ export * from './mcp-json.js';
 export * from './mcp-token.js';
 export * from './process-guards.js';
 export * from './secrets.js';
+export * from './skill-draft.js';
 export * from './skill-md.js';
 export * from './tools.js';
 export * from './workspace.js';

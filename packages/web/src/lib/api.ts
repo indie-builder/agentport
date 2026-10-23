@@ -587,6 +587,8 @@ export const api = {
     return request(`/runs/export${search}`);
   },
   run: (id: string): Promise<RunDetail> => request(`/runs/${id}`),
+  skillDraftFromRun: (runId: string): Promise<Skill> =>
+    request(`/runs/${runId}/skill-draft`, 'POST'),
   attention: (): Promise<Attention> => request('/attention'),
   boardSummary: (days = 30): Promise<BoardSummary> => request(`/runs/board?days=${days}`),
   schedules: (): Promise<Schedule[]> => request('/schedules'),

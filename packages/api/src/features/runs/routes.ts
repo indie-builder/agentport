@@ -1,9 +1,10 @@
+import { buildSkillDraft } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { idParams, runDetailSchema, runListSchema, runStatusSchema } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { reject } from '../../plugins/errors.js';
+import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 
 const runsRepo = repo.runs;
@@ -172,6 +173,50 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
         approvedAt: approved.approvedAt.toISOString(),
         waiting: approved.waiting,
       };
+    },
+  );
+
+  // 「录制学习」：把一个已完成的运行沉淀成技能草稿。只生成草稿并落库为技能（不自动绑定到专家）。
+  app.post(
+    '/api/runs/:id/skill-draft',
+    { ...auth, schema: { params: idParams } },
+    async (request, reply) => {
+      const detail = await runsRepo.getRunDetail(app.db, request.params.id);
+      if (!detail) return reject(reply, 'NOT_FOUND', '运行不存在，可能已被删除');
+      const steps = detail.steps.map((s) =>
+        s.kind === 'tool'
+          ? { kind: 'tool' as const, name: s.name }
+          : { kind: s.kind, text: s.text },
+      );
+      const draft = buildSkillDraft({
+        agentName: detail.run.agentName ?? '专家',
+        runId: detail.run.id,
+        steps,
+      });
+      try {
+        const row = await repo.skills.createSkill(app.db, draft);
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'skill.created',
+          target: row.id,
+          input: { fromRun: detail.run.id, slug: row.slug },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return reply.status(201).send({
+          id: row.id,
+          slug: row.slug,
+          name: row.name,
+          description: row.description,
+          body: row.body,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+        });
+      } catch (err) {
+        if (isPgCode(err, '23505'))
+          return reject(reply, 'CONFLICT', '同名技能已存在，请先重命名或删除后重试');
+        throw err;
+      }
     },
   );
 }
