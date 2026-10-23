@@ -197,8 +197,9 @@ const disallowedTools = baseDisallowed.filter((tool) => {
 
 log(`starting query (model=${task.model ?? 'default'})`);
 
-// 读取工作区 .claude/settings.json 的 outputStyle：inline settings 优先级高于磁盘文件，
-// 所以必须把它并进 inline settings 才能真正生效。读不到就用默认（不设该键）。
+// 读取工作区 .claude/settings.json 的 outputStyle，再以 inline settings 传入。
+// SDK 会按 key 优先级把项目 .claude/settings.json 与 inline settings 合并；
+// 这里额外 inline 传 outputStyle，保证跨 SDK 版本的合并语义下都能生效。
 let outputStyle: string | undefined;
 try {
   const parsed = JSON.parse(readFileSync('/workspace/.claude/settings.json', 'utf8')) as {

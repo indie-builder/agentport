@@ -40,6 +40,7 @@ const memoryParams = z.object({ id: z.string().min(1) });
 const memoryFileParams = z.object({ id: z.string().min(1), name: z.string().min(1) });
 const memoryWriteBody = z.object({ content: z.string().max(200_000) });
 const ruleParams = z.object({ id: z.string().min(1), slug: z.string().min(1) });
+const outputStyleParams = z.object({ id: z.string().min(1), slug: slugSchema });
 const ruleBody = z.object({
   content: z.string().max(100_000),
   globs: z.string().max(1000).default(''),
@@ -693,16 +694,12 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.put(
     '/api/agents/:id/output-styles/:slug',
-    { ...auth, schema: { params: ruleParams, body: outputStyleWriteBody } },
+    { ...auth, schema: { params: outputStyleParams, body: outputStyleWriteBody } },
     async (request, reply) => {
       const exists = await memorySlug(request.params.id);
       if (!exists) return notFound(reply);
-      const slug = slugSchema.safeParse(request.params.slug);
-      if (!slug.success) {
-        return reject(reply, 'INVALID_INPUT', '风格 slug 非法：仅允许小写字母、数字、- 和 _');
-      }
       const row = await allRepo.outputStyles.upsertOutputStyle(app.db, request.params.id, {
-        slug: slug.data,
+        slug: request.params.slug,
         ...request.body,
       });
       await writeAudit(app.db, request.log, {
@@ -719,7 +716,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/agents/:id/output-styles/:slug/unselect',
-    { ...auth, schema: { params: ruleParams } },
+    { ...auth, schema: { params: outputStyleParams } },
     async (request, reply) => {
       const exists = await memorySlug(request.params.id);
       if (!exists) return notFound(reply);
@@ -743,7 +740,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/agents/:id/output-styles/:slug',
-    { ...auth, schema: { params: ruleParams } },
+    { ...auth, schema: { params: outputStyleParams } },
     async (request, reply) => {
       const exists = await memorySlug(request.params.id);
       if (!exists) return notFound(reply);

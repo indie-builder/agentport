@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
-import { agentOutputStyles } from '../schema.js';
+import { agentOutputStyles, agents } from '../schema.js';
 
 export type OutputStyleRow = typeof agentOutputStyles.$inferSelect;
 
@@ -20,18 +20,6 @@ export async function listOutputStyles(db: Database, agentId: string): Promise<O
     .orderBy(asc(agentOutputStyles.slug));
 }
 
-export async function getSelectedOutputStyle(
-  db: Database,
-  agentId: string,
-): Promise<OutputStyleRow | null> {
-  const [row] = await db
-    .select()
-    .from(agentOutputStyles)
-    .where(and(eq(agentOutputStyles.agentId, agentId), eq(agentOutputStyles.isSelected, true)))
-    .limit(1);
-  return row ?? null;
-}
-
 /** 写入并选中指定风格；同一事务里先把该 agent 的其它风格取消选中。 */
 export async function upsertOutputStyle(
   db: Database,
@@ -39,6 +27,9 @@ export async function upsertOutputStyle(
   input: OutputStyleWrite,
 ): Promise<OutputStyleRow> {
   return db.transaction(async (tx) => {
+    // 锁住父 agent 行，让同一 agent 的并发保存在此串行化；
+    // 否则两个事务都先清空再插入 is_selected=true，会撞上部分唯一索引。
+    await tx.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId)).for('key share');
     await tx
       .update(agentOutputStyles)
       .set({ isSelected: false })

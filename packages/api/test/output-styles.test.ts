@@ -69,6 +69,18 @@ describe.skipIf(!ready)('output styles', () => {
     expect(rows.map((row) => row.slug)).toEqual(['verbose']);
   });
 
+  it('serializes concurrent saves to a single selected style', async () => {
+    const [a, b] = await Promise.all([
+      write('concurrent-a', 'Style A.'),
+      write('concurrent-b', 'Style B.'),
+    ]);
+    expect(a.statusCode, a.body).toBe(200);
+    expect(b.statusCode, b.body).toBe(200);
+
+    const rows = (await list()).json<OutputStyle[]>();
+    expect(rows.filter((row) => row.isSelected)).toHaveLength(1);
+  });
+
   it('returns 404 for an unknown agent', async () => {
     const res = await inject(app, {
       method: 'GET',
