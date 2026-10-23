@@ -19,7 +19,8 @@ export function highlightJson(text: string): ReactNode[] {
     let className = 'text-fg';
     if (key) className = 'text-code-key';
     else if (string) className = 'text-code-string';
-    else if (literal) className = literal === 'null' ? 'text-subtle' : 'text-code-literal';
+    else if (literal)
+      className = literal === 'null' ? 'text-muted-foreground' : 'text-code-literal';
     else if (number) className = 'text-code-number';
     nodes.push(
       <span key={index++} className={className}>
@@ -93,7 +94,10 @@ export function CodeBlock({
               showLabel
               className="absolute right-2 top-2 z-10 bg-surface/90 opacity-0 backdrop-blur transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
             />
-            <pre className="overflow-auto py-3 font-mono text-xs leading-5" style={{ maxHeight }}>
+            <pre
+              className="overflow-auto overscroll-contain py-3 font-mono text-xs leading-5"
+              style={{ maxHeight }}
+            >
               <code className="block">
                 {code.split('\n').map((line, i) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: 代码行没有稳定 id，行号即身份

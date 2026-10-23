@@ -53,6 +53,7 @@ function toServerConfig(input: ServerInput): Record<string, unknown> {
 function toAgentValues(input: AgentInput) {
   return {
     name: input.name,
+    role: input.role,
     description: input.description,
     model: input.model,
     systemPromptMd: input.systemPrompt,

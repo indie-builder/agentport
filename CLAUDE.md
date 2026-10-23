@@ -26,6 +26,7 @@
 - **无彩度体系**：黑白灰承担层级，没有品牌色。强调靠实底黑与透明度，不靠色相。
 - **结构靠 1px 线与留白。** 一般页面以行组织，资源中心允许约定的卡片网格；尺寸和例外统一查 `docs/DESIGN-SYSTEM.md`。
 - **图标统一 lucide，`strokeWidth={1.75}`，16px。**
+- **焦点/边框统一一套，不许每个组件各搞一套。** 有既有边框的输入类只把那条边框换成实色（聚焦=`ring`、错误=危险色），**不再叠 2px 光环**；无边框的按钮类用单层 `focus-visible:ring-2 ring-ring` 且带 `focus-visible:outline-none`。任何控件不得同时出现「边框 + 光环」两层。修改或新增控件前先查 `docs/DESIGN-SYSTEM.md` §9「焦点与边框（统一规则）」，不要另写覆盖样式。规则由 `pnpm lint:focus` 自动校验（CI 已接入）。
 - **组件库统一使用 shadcn/ui。** `components.json` 已配置，新增组件用 `pnpm dlx shadcn@latest add <name>` 生成，再改为本项目令牌；不要手写近似实现。 新增 UI 一律从 shadcn/ui 的组件出发（复制到 `packages/web/src/components/ui/`，按项目设计语言调整 token），不要另起一套控件、不要重复手写同类组件。
 - **底座先行，按官方方式自定义。** 先安装 shadcn + Base UI（`base-nova`）的官方组件，再应用项目设计系统。共享颜色、圆角和阴影优先走 `styles.css` 语义令牌；局部布局使用 `className`。
   - 定制顺序：内置 variant → 局部布局 → 源码中的语义 variant → 有实际复用需求的应用组合。shadcn 提供源码所有权，允许修改源码；保留原语的无障碍与交互契约，不把“源码必须永远原样”误称为官方要求。

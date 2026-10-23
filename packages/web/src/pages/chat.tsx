@@ -59,7 +59,6 @@ import { Textarea } from '../components/ui/textarea.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
 import {
   type ChatItem,
-  historyToItems,
   type LocalConversation,
   loadLocalConversations,
   localConversation,
@@ -75,7 +74,13 @@ import {
 } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
 import { formatDuration, formatRelative } from '../lib/format.js';
-import { useAgents, useConversation, useConversations, useRunApprovals } from '../lib/queries.js';
+import {
+  useAgents,
+  useConversation,
+  useConversations,
+  useRun,
+  useRunApprovals,
+} from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useChatStream } from '../lib/use-chat-stream.js';
 
@@ -170,7 +175,8 @@ function ChatWorkspace({
 
   const conversations = useConversations(agentId);
   const detail = useConversation(conversationId);
-  const runApprovals = useRunApprovals(run?.runId || lastRunId);
+  const runApprovals = useRunApprovals(run?.runId || lastRunId, Boolean(run));
+
   const historyLayout = useDefaultLayout({ id: 'chat-history' });
 
   // 空数组也要稳定：否则轮询之外的重渲染会给工具行换一个新身份。
@@ -178,6 +184,7 @@ function ChatWorkspace({
 
   const stream = useChatStream({
     agentId,
+    history: detail,
     onAccepted: (accepted, text) => {
       upsertLocalConversation({
         id: accepted.conversationId,
@@ -190,8 +197,15 @@ function ChatWorkspace({
     },
   });
 
-  // store 是模块级的：离开对话页时恢复到首次挂载的状态，避免下次进来看到上一次的会话。
-  useEffect(() => () => useChatStore.getState().reset(), []);
+  // 清空工作区，但保留尚未发送的输入。
+  useEffect(
+    () => () => {
+      const store = useChatStore.getState();
+      store.resetConversation(null);
+      store.setHistoryOpen(false);
+    },
+    [],
+  );
 
   // 空态或运行结束后把焦点交还输入框，键盘用户不用再找一次。
   useEffect(() => {
@@ -218,9 +232,13 @@ function ChatWorkspace({
     onSettled: (_data, _error, runId) => client.invalidateQueries({ queryKey: ['run', runId] }),
   });
 
+  const approvalInFlight = useRef(false);
   const approveMutation = useMutation({
     mutationFn: (item: ApprovalRequest & { runId: string }) =>
       api.approveRun(item.runId, item.serverId, item.toolName),
+    onSettled: () => {
+      approvalInFlight.current = false;
+    },
     onSuccess: (_data, item) => {
       toastSuccess(`已批准 ${item.toolName}；继续请在输入框重新发送消息`);
       void client.invalidateQueries({ queryKey: ['run-approvals'] });
@@ -229,13 +247,14 @@ function ChatWorkspace({
   });
 
   const branchMutation = useMutation({
-    mutationFn: (id: string) => api.branchConversation(id),
-    onSuccess: (conversation) => {
-      // 先切到新会话再失效列表：openConversation 会关闭流并清空当前消息。
-      openConversation(conversation.id);
+    mutationFn: ({ id }: { id: string; ownsRequest: () => boolean }) => api.branchConversation(id),
+    onSuccess: (conversation, { ownsRequest }) => {
+      if (ownsRequest()) openConversation(conversation.id);
       void client.invalidateQueries({ queryKey: ['conversations'] });
     },
-    onError: (error) => toastError(error),
+    onError: (error, { ownsRequest }) => {
+      if (ownsRequest()) toastError(error);
+    },
   });
 
   const cancel = (): void => {
@@ -249,7 +268,8 @@ function ChatWorkspace({
   const approve = useCallback(
     (item: ApprovalRequest): void => {
       const runId = run?.runId || lastRunId;
-      if (!runId) return;
+      if (!runId || approvalInFlight.current) return;
+      approvalInFlight.current = true;
       approveMutation.mutate({ ...item, runId });
     },
     [run?.runId, lastRunId, approveMutation.mutate],
@@ -259,6 +279,7 @@ function ChatWorkspace({
     stream.closeStream();
     stream.hydratedRef.current = null;
     useChatStore.getState().resetConversation(id);
+    void client.invalidateQueries({ queryKey: ['conversation', id] });
     setHistoryOpen(false);
   };
 
@@ -271,17 +292,10 @@ function ChatWorkspace({
   };
 
   // 分支：服务端复制消息，前端切到新会话；列表由 query 失效后刷新。
-  const branch = (id: string): void => branchMutation.mutate(id);
+  const branch = (id: string): void =>
+    branchMutation.mutate({ id, ownsRequest: stream.captureRequest() });
 
-  // 载入历史：每个会话只回填一次，之后由流式事件维护。
   const hydrated = stream.hydratedRef;
-  useEffect(() => {
-    const data = detail.data;
-    if (!data || run) return;
-    if (hydrated.current === data.conversation.id) return;
-    hydrated.current = data.conversation.id;
-    useChatStore.getState().setItems(historyToItems(data.messages));
-  }, [detail.data, run, hydrated]);
 
   useEffect(() => {
     if (!detail.data) return;
@@ -320,7 +334,7 @@ function ChatWorkspace({
       onRetry={() => void conversations.refetch()}
       supported={conversations.data?.supported === true}
       conversationId={conversationId}
-      branching={branchMutation.isPending ? branchMutation.variables : null}
+      branching={branchMutation.isPending ? (branchMutation.variables?.id ?? null) : null}
       onOpen={openConversation}
       onBranch={branch}
     />
@@ -334,6 +348,10 @@ function ChatWorkspace({
       onSwitchAgent={switchAgent}
       conversationId={conversationId}
       detail={detail}
+      historyReady={conversationId === null || hydrated.current === conversationId}
+      runApprovals={runApprovals}
+      onRetryStream={stream.retryStream}
+      reconcileRun={stream.reconcileRun}
       items={items}
       run={run}
       lastRun={lastRun}
@@ -448,9 +466,7 @@ function HistoryPanel({
         {pending ? <LoadingState rows={4} /> : null}
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
         {history.length === 0 && !pending ? (
-          <p className="px-2 py-6 text-xs leading-relaxed text-subtle">
-            还没有会话。发送第一条消息即可开始。
-          </p>
+          <p className="px-2 py-6 text-xs leading-relaxed text-muted-foreground">还没有会话。</p>
         ) : null}
         <ul className="flex flex-col gap-0.5">
           {history.map((conversation) => (
@@ -468,7 +484,7 @@ function HistoryPanel({
                 )}
               >
                 <span className="block w-full truncate text-sm">{conversation.title}</span>
-                <span className="mt-0.5 block text-xs text-subtle">
+                <span className="mt-0.5 block text-xs text-muted-foreground">
                   {formatRelative(conversation.updatedAt)}
                 </span>
               </Button>
@@ -492,8 +508,8 @@ function HistoryPanel({
         </ul>
       </div>
       {!supported && history.length > 0 ? (
-        <p className="border-t px-3 py-2 text-xs leading-relaxed text-subtle">
-          历史列表来自本浏览器；服务端列表接口上线后会自动切换。
+        <p className="border-t px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+          历史列表来自本浏览器。
         </p>
       ) : null}
     </>
@@ -507,6 +523,10 @@ function ChatColumn({
   onSwitchAgent,
   conversationId,
   detail,
+  historyReady,
+  runApprovals,
+  onRetryStream,
+  reconcileRun,
   items,
   run,
   lastRun,
@@ -529,6 +549,10 @@ function ChatColumn({
   onSwitchAgent: (id: string) => void;
   conversationId: string | null;
   detail: ReturnType<typeof useConversation>;
+  historyReady: boolean;
+  runApprovals: ReturnType<typeof useRunApprovals>;
+  onRetryStream: () => void;
+  reconcileRun: ReturnType<typeof useChatStream>['reconcileRun'];
   items: ChatItem[];
   run: RunState | null;
   lastRun: RunMetrics | null;
@@ -552,6 +576,7 @@ function ChatColumn({
       textareaRef={composerRef}
       lastRunId={lastRunId}
       welcome={showWelcome}
+      historyReady={historyReady}
     />
   );
 
@@ -639,7 +664,17 @@ function ChatColumn({
                 : `第 ${currentTurn(items)} 轮，${runningTool(items) ? `正在调用 ${runningTool(items)?.name}` : '等待模型响应'}`
           : ''}
       </div>
-      <RunStatusBar run={run} items={items} cancelling={cancelling} onCancel={onCancel} />
+      {run?.runId ? <RunReconciliation run={run} reconcileRun={reconcileRun} /> : null}
+      {runApprovals.isError ? (
+        <ErrorState error={runApprovals.error} onRetry={() => void runApprovals.refetch()} />
+      ) : null}
+      <RunStatusBar
+        run={run}
+        items={items}
+        cancelling={cancelling}
+        onCancel={onCancel}
+        onRetry={onRetryStream}
+      />
 
       {showWelcome ? null : composer}
     </Page>
@@ -647,18 +682,20 @@ function ChatColumn({
 }
 
 /** 输入胶囊：白底、28px 圆角、唯一带阴影的元素；发送是 32px 圆形黑底。 */
-function Composer({
+export function Composer({
   agent,
   send,
   textareaRef,
   lastRunId,
   welcome,
+  historyReady = true,
 }: {
   agent: AgentView | null;
   send: () => Promise<void>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   lastRunId: string | null;
   welcome: boolean;
+  historyReady?: boolean;
 }) {
   // 只订阅输入内容：打字不会重渲染消息列表所在的 ChatColumn。
   const input = useChatStore((state) => state.input);
@@ -669,7 +706,7 @@ function Composer({
       className={cn('w-full shrink-0', !welcome && 'mx-auto max-w-[760px] px-4 pb-5 pt-2')}
       onSubmit={(event) => {
         event.preventDefault();
-        void send();
+        if (historyReady) void send();
       }}
     >
       <div className="mx-auto w-full max-w-[728px]">
@@ -686,15 +723,16 @@ function Composer({
                 : 'Ask anything…'
             }
             title={run ? '本轮流式输出结束后即可继续输入，不会丢失当前内容' : undefined}
-            disabled={!agent || Boolean(run)}
+            disabled={!agent || Boolean(run) || !historyReady}
             value={input}
             // The capsule owns the border and focus surface; keep its larger 15px composer text.
             className="h-8 min-h-8 min-w-0 flex-1 resize-none rounded-none border-0 px-0 py-1.5 text-md leading-5 tracking-[-0.15px] shadow-none focus-visible:ring-0"
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                if (!run) void send();
+                if (!run && historyReady) void send();
               }
             }}
           />
@@ -705,23 +743,23 @@ function Composer({
               aria-label="发送消息"
               title="运行中，结束后可发送"
               // Keep circular send controls and their quiet disabled surface instead of the base button appearance.
-              className="size-8 shrink-0 rounded-pill p-0 focus-visible:ring-0 disabled:bg-hover"
+              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover"
             >
               <ArrowUp className="size-4" />
             </Button>
           ) : (
             <Button
               type="submit"
-              disabled={!agent || !input.trim()}
+              disabled={!agent || !input.trim() || !historyReady}
               aria-label="发送消息"
               // Keep circular send controls and subdued disabled text instead of the base button appearance.
-              className="size-8 shrink-0 rounded-pill p-0 focus-visible:ring-0 disabled:bg-hover disabled:text-subtle"
+              className="size-8 shrink-0 rounded-pill p-0 disabled:bg-hover disabled:text-subtle"
             >
               <ArrowUp className="size-4" />
             </Button>
           )}
         </div>
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-subtle">
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>Enter 发送 · Shift+Enter 换行</span>
           {lastRunId ? (
             <Link
@@ -764,16 +802,36 @@ function elapsed(ms: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
+function RunReconciliation({
+  run,
+  reconcileRun,
+}: {
+  run: RunState;
+  reconcileRun: ReturnType<typeof useChatStream>['reconcileRun'];
+}) {
+  const runQuery = useRun(run.runId);
+  useEffect(() => {
+    if (runQuery.data && (run.status !== 'streaming' || runQuery.data.run.status === 'cancelled')) {
+      reconcileRun(runQuery.data.run);
+    }
+  }, [runQuery.data, run.status, reconcileRun]);
+  return runQuery.isError ? (
+    <ErrorState error={runQuery.error} onRetry={() => void runQuery.refetch()} />
+  ) : null;
+}
+
 function RunStatusBar({
   run,
   items,
   cancelling,
   onCancel,
+  onRetry,
 }: {
   run: RunState | null;
   items: ChatItem[];
   cancelling: boolean;
   onCancel: () => void;
+  onRetry: () => void;
 }) {
   // 计时只在存在 run 时刷新；每秒一次，状态条以外的行不跟着重渲染。
   const [now, setNow] = useState(() => Date.now());
@@ -798,9 +856,9 @@ function RunStatusBar({
           : `第 ${turn} 轮 · ${tool ? `正在调用 ${tool.name}` : '等待模型响应'}`;
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t bg-surface px-3 py-1.5">
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-surface px-3 py-1.5">
       <span className="size-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate text-2xs text-fg">{text}</span>
+      <span className="min-w-0 flex-1 basis-32 break-words text-2xs text-fg">{text}</span>
       {run.status === 'reconnecting' || run.status === 'detached' ? (
         <RefreshCw
           className={cn('size-3 text-fg', run.status === 'reconnecting' && 'animate-spin')}
@@ -810,6 +868,11 @@ function RunStatusBar({
       <span className="shrink-0 font-mono text-2xs tabular-nums text-fg">
         {elapsed(now - run.startedAt)}
       </span>
+      {run.status === 'detached' ? (
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          重连
+        </Button>
+      ) : null}
       {run.runId ? (
         <Button
           variant="outline"
@@ -906,11 +969,12 @@ function MessagePane({
                       <MessageContent
                         // Keep the user's pill surface; MessageContent supplies layout without a bubble appearance.
                         className={cn(
-                          'gap-4',
+                          'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
                           turn.user && 'w-fit max-w-[85%] rounded-pill bg-hover px-4 py-2',
                         )}
                       >
-                        <MessageGroup className="gap-4">
+                        <span className="sr-only">{turn.user ? '用户' : '助手'}</span>
+                        <MessageGroup className="min-w-0 gap-4">
                           {turn.items.map((item, index) => {
                             // 有归属的子调用由父行渲染，不在顶层重复出现。
                             if (item.kind === 'tool') {
@@ -1027,16 +1091,21 @@ const ToolGroup = memo(function ToolGroup({
 });
 
 /** 审批卡放在被拒工具的原位置；匹配不上的兜底放在末尾，不能吞掉。 */
-function findApproval(
+export function findApproval(
   item: ToolItem,
   approvalItems: ApprovalRequest[],
 ): ApprovalRequest | undefined {
-  return approvalItems.find(
+  const exact = approvalItems.filter(
     (approval) =>
-      (approval.serverName
-        ? item.name === `mcp__${approval.serverName}__${approval.toolName}`
-        : false) || item.name.endsWith(`__${approval.toolName}`),
+      approval.serverName && item.name === `mcp__${approval.serverName}__${approval.toolName}`,
   );
+  if (exact.length > 0) return exact.length === 1 ? exact[0] : undefined;
+  const candidates = approvalItems.filter(
+    (approval) =>
+      !approval.serverName &&
+      (item.name === approval.toolName || item.name.endsWith(`__${approval.toolName}`)),
+  );
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>;
@@ -1156,12 +1225,12 @@ const MessagePart = memo(function MessagePart({
       return (
         <div
           className={cn(
-            'flex items-center gap-1.5 text-2xs',
+            'flex min-w-0 items-center gap-1.5 text-2xs [overflow-wrap:anywhere]',
             item.tone === 'ok'
               ? 'text-success'
               : item.tone === 'error'
                 ? 'text-danger'
-                : 'text-subtle',
+                : 'text-muted-foreground',
           )}
         >
           <span
@@ -1233,11 +1302,11 @@ function RunMetricsLine({ run }: { run: RunMetrics }) {
     run.status === 'succeeded'
       ? 'text-success'
       : run.status === 'cancelled'
-        ? 'text-subtle'
+        ? 'text-muted-foreground'
         : 'text-danger';
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-2xs tabular-nums text-subtle">
+      <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-2xs tabular-nums text-muted-foreground">
         <span className={tone}>{outcomeLabel[run.status]}</span>
         {run.turns !== undefined ? (
           <>
@@ -1245,8 +1314,12 @@ function RunMetricsLine({ run }: { run: RunMetrics }) {
             <span>{run.turns} 轮</span>
           </>
         ) : null}
-        <span aria-hidden="true">·</span>
-        <span>{(run.durationMs / 1000).toFixed(1)}s</span>
+        {run.durationMs !== undefined ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>{(run.durationMs / 1000).toFixed(1)}s</span>
+          </>
+        ) : null}
         {run.tokens !== undefined ? (
           <>
             <span aria-hidden="true">·</span>
@@ -1274,7 +1347,7 @@ function RunMetricsLine({ run }: { run: RunMetrics }) {
 }
 
 /** 审批只记录，不重试；文案必须和真实行为一致。 */
-const ApprovalCard = memo(function ApprovalCard({
+export const ApprovalCard = memo(function ApprovalCard({
   item,
   pending,
   onApprove,
@@ -1296,19 +1369,18 @@ const ApprovalCard = memo(function ApprovalCard({
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       <div className="min-w-0 flex-1 basis-48 text-xs leading-relaxed text-fg [overflow-wrap:anywhere]">
         工具 <code className="font-mono text-xs">{item.toolName}</code>
-        {item.serverName ? (
-          <span className="text-muted-foreground"> @ {item.serverName}</span>
-        ) : null}{' '}
+        <span className="text-muted-foreground"> @ {item.serverName ?? item.serverId}</span>{' '}
         需要批准。批准只记录到该 server；继续请在输入框重新发送消息（新一次运行）。
       </div>
       <Button
         size="sm"
         className="h-auto min-h-7 max-w-full whitespace-normal py-1"
-        disabled={busy}
+        disabled={pending !== null}
         aria-busy={busy}
+        aria-label={`批准 ${item.serverName ?? item.serverId} / ${item.toolName}`}
         onClick={() => onApprove(item)}
       >
-        {busy ? '批准中…' : '批准并继续（新一次运行）'}
+        {busy ? '批准中…' : '批准'}
       </Button>
     </motion.div>
   );
@@ -1323,8 +1395,11 @@ const ToolRow = memo(function ToolRow({
   nested: boolean;
   childCount: number;
 }) {
-  const running = item.result === undefined;
+  const running =
+    item.result === undefined && item.startedAt !== undefined && item.endedAt === undefined;
+  const missing = !running && item.result === undefined;
   const failed = toolFailed(item.result);
+  const status = running ? '运行中' : missing ? '未收到结果' : failed ? '失败' : '完成';
   const [open, setOpen] = useState(running);
   const reduce = useReducedMotion();
 
@@ -1348,19 +1423,21 @@ const ToolRow = memo(function ToolRow({
       <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
         <Wrench className="size-4 shrink-0 text-subtle" aria-hidden="true" />
         <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{item.name}</code>
-        <span className="sr-only">{running ? '运行中' : failed ? '失败' : '完成'}</span>
+        <span className="sr-only">{status}</span>
         {running ? (
           <LoaderCircle className="size-3 shrink-0 animate-spin text-fg" aria-hidden="true" />
+        ) : missing ? (
+          <CircleAlert className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
         ) : failed ? (
           <CircleAlert className="size-3 shrink-0 text-danger" aria-hidden="true" />
         ) : (
           <Check className="size-3 shrink-0 text-success" aria-hidden="true" />
         )}
         <span className="shrink-0 text-xs text-muted-foreground" aria-hidden="true">
-          {running ? '运行中' : failed ? '失败' : '完成'}
+          {status}
         </span>
         {duration !== undefined ? (
-          <span className="shrink-0 font-mono text-2xs tabular-nums text-subtle">
+          <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
             {formatDuration(duration)}
           </span>
         ) : null}
@@ -1388,23 +1465,27 @@ const ToolRow = memo(function ToolRow({
               ) : null}
               <div className="grid gap-2 border-t p-2">
                 <div className="min-w-0">
-                  <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
+                  <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-muted-foreground">
                     参数
                   </div>
                   {item.input !== undefined ? (
                     <JsonBlock value={item.input} maxHeight="16rem" />
                   ) : (
-                    <p className="px-1 text-2xs text-subtle">等待参数…</p>
+                    <p className="px-1 text-2xs text-muted-foreground">
+                      {running ? '等待参数…' : '未收到参数'}
+                    </p>
                   )}
                 </div>
                 <div className="min-w-0">
-                  <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-subtle">
+                  <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-muted-foreground">
                     结果
                   </div>
                   {item.result !== undefined ? (
                     <JsonBlock value={item.result} maxHeight="20rem" />
                   ) : (
-                    <p className="px-1 text-2xs text-subtle">等待结果…</p>
+                    <p className="px-1 text-2xs text-muted-foreground">
+                      {running ? '等待结果…' : '未收到结果'}
+                    </p>
                   )}
                 </div>
               </div>

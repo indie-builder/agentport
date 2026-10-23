@@ -450,6 +450,28 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 
 ## 9. 运行测试的前提
 
+### 9.1 仅运行 Web 单元测试
+
+```bash
+pnpm install --frozen-lockfile
+pnpm test:web
+# 按需输出机器可读结果（路径自行指定）
+pnpm test:web --reporter=json --outputFile=web-test-results.json
+pnpm --filter @agentport/web typecheck
+pnpm exec biome check package.json vitest.config.ts packages/web/vitest.config.ts packages/web/test
+pnpm --filter @agentport/web build
+```
+
+`test:web` 使用 `packages/web/vitest.config.ts`，只收集 `packages/web/test/**/*.test.ts`。配置基于自身文件定位仓库与 `@` → `packages/web/src` 别名，使用 Vitest 的 `jsdom` 环境与自动 JSX 转换；`packages/web/test/setup.ts` 开启 React `act` 环境。`jsdom` 是锁定版本的根开发依赖，安装时需包含 devDependencies。
+
+此命令禁用 `.env` 文件加载，不需要 API、worker、PostgreSQL 或 Redis，也不依赖机器上的临时配置。它仍会继承调用进程已有的环境变量。
+
+根 `pnpm test` / `pnpm test:watch` 使用 Vitest projects：`web` 项目加载上述独立配置；`backend` 项目维持 Node 环境、原有测试变量与超时，并排除 Web 目录。CI 现有 `pnpm test` 因此会运行两类测试，不需要单独追加 Web 步骤。根命令仍适用下方后端运行前提。
+
+只检查文件收集、不执行测试模块时，可运行 `pnpm exec vitest list --filesOnly`。此根命令仍解析后端配置并可能读取 `.env`；需要严格避免读取本地秘密时只用 `pnpm exec vitest list --config packages/web/vitest.config.ts --filesOnly`。
+
+### 9.2 后端集成测试与 E2E
+
 `pnpm test` 的集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。如果此时有 **worker 在消费 `agent-runs` 队列**（本地 `pnpm dev` 或 `docker compose` 的 worker 服务），它会立刻把这些 run 跑掉，导致测试失败。
 
 ```bash

@@ -24,6 +24,7 @@ export function ResourcePage({
   sort,
   onSortChange,
   count,
+  status,
   filters,
   actions,
   children,
@@ -34,6 +35,7 @@ export function ResourcePage({
   sort: 'newest' | 'name';
   onSortChange: (value: 'newest' | 'name') => void;
   count: number;
+  status: 'pending' | 'error' | 'success';
   filters?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
@@ -66,7 +68,11 @@ export function ResourcePage({
         <PageToolbar>
           {filters}
           <span role="status" className="text-xs text-muted-foreground">
-            共 {count} 个{label}
+            {status === 'pending'
+              ? '加载中…'
+              : status === 'error'
+                ? '数量不可用'
+                : `共 ${count} 个${label}`}
           </span>
           <FilterSelect
             label="资源排序"

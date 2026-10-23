@@ -16,11 +16,22 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowDown, ArrowUp, ChevronsUpDown, Columns3, GripVertical } from 'lucide-react';
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  ChevronsUpDown,
+  Columns3,
+  GripVertical,
+} from 'lucide-react';
+import {
+  Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useCallback,
+  useId,
   useMemo,
   useState,
 } from 'react';
@@ -29,6 +40,7 @@ import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
 import { Skeleton } from './ui/skeleton.js';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 
 export interface DataColumn<T> {
   id: string;
@@ -138,10 +150,14 @@ function ColumnRow({
   column,
   checked,
   onToggle,
+  onMoveUp,
+  onMoveDown,
 }: {
   column: { id: string; header: string };
   checked: boolean;
   onToggle: () => void;
+  onMoveUp: (() => void) | undefined;
+  onMoveDown: (() => void) | undefined;
 }) {
   const {
     attributes,
@@ -168,7 +184,7 @@ function ColumnRow({
         {...listeners}
         aria-label={`拖动调整「${column.header}」顺序`}
         // Keep the subdued drag handle, 6px corners, translucent hover, and focus ring.
-        className="cursor-grab touch-none rounded-tag border-0 p-1 text-subtle transition-none hover:bg-hover active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-2 focus-visible:ring-ring"
+        className="cursor-grab touch-none rounded-tag border-0 p-1 text-muted-foreground transition-none hover:bg-hover active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <GripVertical className="size-4" aria-hidden="true" />
       </Button>
@@ -176,6 +192,26 @@ function ColumnRow({
         <Checkbox checked={checked} onCheckedChange={() => onToggle()} />
         {column.header}
       </label>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label={`上移「${column.header}」`}
+        disabled={!onMoveUp}
+        onClick={onMoveUp}
+      >
+        <ArrowUp aria-hidden="true" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label={`下移「${column.header}」`}
+        disabled={!onMoveDown}
+        onClick={onMoveDown}
+      >
+        <ArrowDown aria-hidden="true" />
+      </Button>
     </div>
   );
 }
@@ -184,25 +220,44 @@ function ColumnPicker({
   columns,
   hidden,
   toggle,
+  move,
 }: {
   columns: { id: string; header: string }[];
   hidden: Set<string>;
   toggle: (id: string) => void;
+  move: (from: number, to: number) => void;
 }) {
   return (
     <SortableContext items={columns.map((c) => c.id)} strategy={verticalListSortingStrategy}>
       <fieldset aria-label="列顺序" className="m-0 min-w-0 border-0 p-0">
-        {columns.map((column) => (
+        {columns.map((column, index) => (
           <ColumnRow
             key={column.id}
             column={column}
             checked={!hidden.has(column.id)}
             onToggle={() => toggle(column.id)}
+            onMoveUp={index > 0 ? () => move(index, index - 1) : undefined}
+            onMoveDown={index < columns.length - 1 ? () => move(index, index + 1) : undefined}
           />
         ))}
       </fieldset>
     </SortableContext>
   );
+}
+
+export function reorderColumns(
+  columns: { id: string; locked?: boolean }[],
+  from: number,
+  to: number,
+): string[] {
+  const ids = columns.filter((c) => !c.locked).map((c) => c.id);
+  if (from < 0 || to < 0 || from >= ids.length || to >= ids.length) {
+    return columns.map((c) => c.id);
+  }
+  const next = arrayMove(ids, from, to);
+  let i = 0;
+  // 锁定列保持原位；拖动和上下移动共用同一顺序。
+  return columns.map((c) => (c.locked ? c.id : (next[i++] ?? c.id)));
 }
 
 export function DataTable<T>({
@@ -217,6 +272,7 @@ export function DataTable<T>({
   onRowClick,
   className,
 }: DataTableProps<T>) {
+  const tableId = useId();
   const { hidden, order, toggle, setOrder } = useColumnPrefs(
     storageKey,
     columns as DataColumn<unknown>[],
@@ -234,27 +290,27 @@ export function DataTable<T>({
   // 存储的顺序只记列 id；新增列（或旧顺序里没有的列）排到末尾。
   const orderedColumns = useMemo(() => {
     const byId = new Map(columns.map((c) => [c.id, c]));
-    const saved = order.flatMap((id) => byId.get(id) ?? []);
+    const saved = [...new Set(order)].flatMap((id) => byId.get(id) ?? []);
     const seen = new Set(saved.map((c) => c.id));
     return [...saved, ...columns.filter((c) => !seen.has(c.id))];
   }, [columns, order]);
 
   const hiddenSet = useMemo(() => new Set(hidden), [hidden]);
-  const visible = orderedColumns.filter((c) => !hiddenSet.has(c.id));
+  const visible = orderedColumns.filter((c) => c.locked || !hiddenSet.has(c.id));
   const draggable = orderedColumns.filter((c) => !c.locked);
+
+  const moveColumn = (from: number, to: number): void => {
+    setOrder(reorderColumns(orderedColumns, from, to));
+  };
 
   const onDragEnd = (event: DragEndEvent): void => {
     setDragging(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const ids = draggable.map((c) => c.id);
-    const from = ids.indexOf(String(active.id));
-    const to = ids.indexOf(String(over.id));
-    if (from < 0 || to < 0) return;
-    const next = arrayMove(ids, from, to);
-    let i = 0;
-    // 锁定列不参与拖动，保持原位；其余列按新顺序填回去。
-    setOrder(orderedColumns.map((c) => (c.locked ? c.id : (next[i++] ?? c.id))));
+    moveColumn(
+      draggable.findIndex((c) => c.id === String(active.id)),
+      draggable.findIndex((c) => c.id === String(over.id)),
+    );
   };
 
   const draggingColumn = orderedColumns.find((c) => c.id === dragging?.id);
@@ -303,18 +359,20 @@ export function DataTable<T>({
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     event.preventDefault();
     const buttons = Array.from(
-      event.currentTarget.parentElement?.parentElement?.querySelectorAll<HTMLButtonElement>(
-        'button[data-row]',
-      ) ?? [],
+      event.currentTarget
+        .closest('tbody')
+        ?.querySelectorAll<HTMLButtonElement>('button[data-row]') ?? [],
     );
     const index = buttons.indexOf(event.currentTarget);
     buttons[event.key === 'ArrowDown' ? index + 1 : index - 1]?.focus();
   };
 
   return (
-    <div className={cn('flex flex-col', className)}>
+    <div className={cn('flex min-w-0 max-w-full flex-col', className)}>
       <div className="flex h-8 items-center justify-between">
-        <div className="text-xs text-subtle">{loading ? '加载中…' : `${rows.length} 行`}</div>
+        <div className="text-xs text-muted-foreground">
+          {loading ? '加载中…' : `${rows.length} 行`}
+        </div>
         <div>
           <DndContext
             sensors={sensors}
@@ -349,8 +407,13 @@ export function DataTable<T>({
                   </Button>
                 }
               />
-              <PopoverContent align="end" aria-label="列设置" className="w-48 p-2">
-                <ColumnPicker columns={draggable} hidden={hiddenSet} toggle={toggle} />
+              <PopoverContent align="end" aria-label="列设置" className="w-64 p-2">
+                <ColumnPicker
+                  columns={draggable}
+                  hidden={hiddenSet}
+                  toggle={toggle}
+                  move={moveColumn}
+                />
               </PopoverContent>
             </Popover>
             {/* 浮层必须挂在弹层之外：Popper 容器的 transform 会成为 fixed 的包含块。 */}
@@ -364,119 +427,187 @@ export function DataTable<T>({
           </DndContext>
         </div>
       </div>
-      <section className="overflow-x-auto" aria-label={label}>
-        <div style={{ minWidth }}>
-          <div
-            className="grid items-center gap-3 border-b px-3 pb-2 text-xs text-subtle"
+      {/* Explicit roles preserve table semantics when CSS grid supplies the existing column widths. */}
+      <Table
+        role="table"
+        aria-label={label}
+        aria-busy={loading}
+        className="block"
+        style={{ minWidth }}
+      >
+        <TableHeader role="rowgroup" className="block">
+          <TableRow
+            role="row"
+            className="grid items-center gap-3 px-3 pb-2 hover:bg-transparent"
             style={{ gridTemplateColumns: template }}
           >
             {visible.map((col) => (
-              <div key={col.id}>
-                <button
-                  type="button"
-                  onClick={() => toggleSort(col)}
-                  disabled={!col.sortValue}
-                  aria-label={
-                    col.sortValue
-                      ? `${col.header}，按此列排序${sort?.id === col.id ? `（当前${sort.dir === 'asc' ? '升序' : '降序'}）` : ''}`
-                      : col.header
-                  }
-                  className={cn(
-                    'flex w-full items-center gap-1 text-left',
-                    col.numeric && 'justify-end',
-                    col.sortValue && 'cursor-pointer hover:text-fg',
-                  )}
-                >
-                  {col.header}
-                  {col.sortValue &&
-                    (sort?.id === col.id ? (
-                      sort.dir === 'asc' ? (
-                        <ArrowUp className="size-3" aria-hidden="true" />
-                      ) : (
-                        <ArrowDown className="size-3" aria-hidden="true" />
-                      )
-                    ) : (
-                      <ChevronsUpDown className="size-3 opacity-40" aria-hidden="true" />
-                    ))}
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {loading && rows.length === 0 ? (
-            <div>
-              {Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
-                <Skeleton key={key} className="h-14 border-b" />
-              ))}
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="py-16 text-center text-sm text-muted-foreground">
-              {empty ?? '暂无数据'}
-            </div>
-          ) : (
-            <div>
-              {sorted.map((row) => {
-                const key = rowKey(row);
-                const expandedContent = renderExpanded?.(row) ?? null;
-                const isOpen = expanded === key && expandedContent !== null;
-                const interactive = Boolean(renderExpanded || onRowClick);
-                const panelId = `row-panel-${key}`;
-                // 非交互行渲染成 div：button 的子元素在 disabled 时不可聚焦、也不可点击，
-                // 会连带废掉单元格里的链接，并且是无效的嵌套 HTML。
-                const cells = visible.map((col) => (
-                  <div
-                    key={col.id}
+              <TableHead
+                key={col.id}
+                role="columnheader"
+                scope="col"
+                aria-sort={
+                  sort?.id === col.id
+                    ? sort.dir === 'asc'
+                      ? 'ascending'
+                      : 'descending'
+                    : undefined
+                }
+                className={cn(
+                  'h-auto min-w-0 p-0 text-xs font-normal whitespace-normal text-muted-foreground',
+                  col.numeric && 'text-right',
+                )}
+              >
+                {col.sortValue ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => toggleSort(col)}
+                    aria-label={`${col.header}，按此列排序`}
                     className={cn(
-                      'truncate py-2',
-                      col.numeric && 'text-right font-mono tabular-nums text-muted-foreground',
+                      'h-auto w-full justify-start gap-1 rounded-none border-0 p-0 text-xs font-normal whitespace-normal',
+                      col.numeric && 'justify-end',
                     )}
                   >
-                    {col.cell
-                      ? col.cell(row)
-                      : String((row as Record<string, unknown>)[col.id] ?? '')}
-                  </div>
-                ));
-                const rowClass = cn(
-                  'grid min-h-14 w-full items-center gap-3 px-3 text-left text-base transition-colors duration-150',
-                  'rounded-item hover:bg-hover',
-                  interactive ? 'cursor-pointer' : 'cursor-default',
-                  isOpen && 'bg-hover',
-                );
-                return (
-                  <div key={key} className="group border-b last:border-b-0">
-                    {interactive ? (
-                      <button
-                        type="button"
-                        data-row=""
-                        aria-expanded={expandedContent !== null ? isOpen : undefined}
-                        aria-controls={expandedContent !== null ? panelId : undefined}
-                        onKeyDown={onRowKeyDown}
-                        onClick={() => {
-                          if (renderExpanded) setExpanded(isOpen ? null : key);
-                          onRowClick?.(row);
-                        }}
-                        className={rowClass}
-                        style={{ gridTemplateColumns: template }}
-                      >
-                        {cells}
-                      </button>
+                    {col.header}
+                    {sort?.id === col.id ? (
+                      sort.dir === 'asc' ? (
+                        <ArrowUp aria-hidden="true" />
+                      ) : (
+                        <ArrowDown aria-hidden="true" />
+                      )
                     ) : (
-                      <div className={rowClass} style={{ gridTemplateColumns: template }}>
-                        {cells}
-                      </div>
+                      <ChevronsUpDown className="opacity-40" aria-hidden="true" />
                     )}
-                    {isOpen && (
-                      <div id={panelId} className="border-t px-3 py-4">
-                        {expandedContent}
-                      </div>
+                  </Button>
+                ) : (
+                  col.header
+                )}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody role="rowgroup" className="block">
+          {loading && rows.length === 0 ? (
+            Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
+              <TableRow key={key} role="row" className="block">
+                <TableCell role="cell" colSpan={visible.length} className="block p-0">
+                  <Skeleton className="h-14" />
+                </TableCell>
+              </TableRow>
+            ))
+          ) : rows.length === 0 ? (
+            <TableRow role="row" className="block hover:bg-transparent">
+              <TableCell
+                role="cell"
+                colSpan={visible.length}
+                className="block py-16 text-center text-sm whitespace-normal text-muted-foreground"
+              >
+                {empty ?? '暂无数据'}
+              </TableCell>
+            </TableRow>
+          ) : (
+            sorted.map((row) => {
+              const key = rowKey(row);
+              const expandedContent = renderExpanded?.(row) ?? null;
+              const isOpen = expanded === key && expandedContent !== null;
+              const interactive = expandedContent !== null || Boolean(onRowClick);
+              const panelId = `${tableId}-row-panel-${key}`;
+              const activate = () => {
+                if (expandedContent !== null) setExpanded(isOpen ? null : key);
+                onRowClick?.(row);
+              };
+              return (
+                <Fragment key={key}>
+                  {/* Row clicks supplement the keyboard-accessible action button in the first cell. */}
+                  <TableRow
+                    role="row"
+                    onClick={
+                      interactive
+                        ? (event) => {
+                            if (
+                              (event.target as Element).closest(
+                                'a, button, input, select, textarea, label, [role="button"], [role="checkbox"], [contenteditable], [tabindex]',
+                              )
+                            )
+                              return;
+                            activate();
+                          }
+                        : undefined
+                    }
+                    className={cn(
+                      'grid min-h-14 w-full items-center gap-3 rounded-item px-3 text-left text-base duration-150 hover:bg-hover has-aria-expanded:bg-transparent',
+                      interactive ? 'cursor-pointer' : 'cursor-default',
+                      isOpen && 'bg-hover has-aria-expanded:bg-hover',
                     )}
-                  </div>
-                );
-              })}
-            </div>
+                    style={{ gridTemplateColumns: template }}
+                  >
+                    {visible.map((col, index) => (
+                      <TableCell
+                        key={col.id}
+                        role="cell"
+                        className={cn(
+                          'min-w-0 px-0 py-2 whitespace-normal wrap-anywhere [&_.truncate]:overflow-visible [&_.truncate]:whitespace-normal [&_.truncate]:text-clip',
+                          col.numeric && 'text-right font-mono tabular-nums text-muted-foreground',
+                        )}
+                      >
+                        <div
+                          className={cn(index === 0 && interactive && 'flex items-center gap-1')}
+                        >
+                          {index === 0 && interactive && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              data-row=""
+                              aria-label={`${expandedContent !== null ? (isOpen ? '收起' : '展开') : '打开'} ${key}`}
+                              aria-expanded={expandedContent !== null ? isOpen : undefined}
+                              aria-controls={expandedContent !== null ? panelId : undefined}
+                              onKeyDown={onRowKeyDown}
+                              onClick={activate}
+                            >
+                              {expandedContent !== null ? (
+                                isOpen ? (
+                                  <ChevronDown aria-hidden="true" />
+                                ) : (
+                                  <ChevronRight aria-hidden="true" />
+                                )
+                              ) : (
+                                <ArrowUpRight aria-hidden="true" />
+                              )}
+                            </Button>
+                          )}
+                          <div className="min-w-0">
+                            {col.cell
+                              ? col.cell(row)
+                              : String((row as Record<string, unknown>)[col.id] ?? '')}
+                          </div>
+                        </div>
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                  {expandedContent !== null && (
+                    <TableRow
+                      role="row"
+                      hidden={!isOpen}
+                      className={cn('hover:bg-transparent', isOpen ? 'block' : 'hidden')}
+                    >
+                      <TableCell
+                        role="cell"
+                        colSpan={visible.length}
+                        className="block px-3 py-4 whitespace-normal"
+                      >
+                        <div id={panelId}>{isOpen ? expandedContent : null}</div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
+              );
+            })
           )}
-        </div>
-      </section>
+        </TableBody>
+      </Table>
     </div>
   );
 }

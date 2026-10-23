@@ -1,3 +1,4 @@
+import { AGENT_ROLES } from '@agentport/shared';
 import { QueryClientProvider } from '@tanstack/react-query';
 import {
   createRootRoute,
@@ -15,6 +16,7 @@ import { queryClient } from './lib/queries.js';
 
 // 按路由拆包：首屏只加载外壳与登录页，其余页面点进来再取。
 const AgentsPage = lazyRouteComponent(() => import('./pages/agents.js'), 'AgentsPage');
+const AgentDetailPage = lazyRouteComponent(() => import('./pages/agents.js'), 'AgentDetailPage');
 const AuditPage = lazyRouteComponent(() => import('./pages/audit.js'), 'AuditPage');
 const ChatPage = lazyRouteComponent(() => import('./pages/chat.js'), 'ChatPage');
 const EvalPage = lazyRouteComponent(() => import('./pages/eval.js'), 'EvalPage');
@@ -60,8 +62,15 @@ const agentsRoute = createRoute({
   path: '/agents',
   validateSearch: resourceSearchSchema.extend({
     status: z.enum(['enabled', 'disabled']).optional().catch(undefined),
+    role: z.enum(AGENT_ROLES).optional().catch(undefined),
   }),
   component: AgentsPage,
+});
+
+const agentDetailRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/agents/$agentId',
+  component: AgentDetailPage,
 });
 
 const skillsRoute = createRoute({
@@ -149,6 +158,7 @@ const routeTree = rootRoute.addChildren([
     indexRoute,
     serversRoute,
     agentsRoute,
+    agentDetailRoute,
     skillsRoute,
     chatRoute,
     auditRoute,

@@ -22,7 +22,6 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -79,9 +78,9 @@ import {
 } from '../components/ui/table.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
-import { ApiError } from '../lib/api.js';
+import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { fieldErrors } from '../lib/form.js';
+import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatDuration } from '../lib/format.js';
 import {
   useAgents,
@@ -98,6 +97,7 @@ import {
   useUpdateServer,
   useUpdateTool,
 } from '../lib/queries.js';
+import { parsePairs, validateToolInput } from '../lib/resource-form.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 type Kind = ServerInput['kind'];
@@ -124,18 +124,6 @@ const kindMeta: Record<Kind, { label: string; hint: string; newHint: string }> =
 interface LastTest {
   at: string;
   result: ServerTestResult;
-}
-
-/** 一行一个 `KEY=value`，值里允许出现 `=`。 */
-function parsePairs(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const index = trimmed.indexOf('=');
-    if (index > 0) out[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1).trim();
-  }
-  return out;
 }
 
 function formatPairs(pairs: Record<string, string>): string {
@@ -235,8 +223,10 @@ export function ServersPage() {
           new Map(previous).set(server.id, { at: new Date().toISOString(), result }),
         );
         if (!result.ok) {
-          toast.error(
-            `没有连上 ${server.name}：${result.error ?? '服务没有返回原因，请检查地址与网络后重试'}`,
+          toastError(
+            new Error(
+              `没有连上 ${server.name}：${result.error ?? '服务没有返回原因，请检查地址与网络后重试'}`,
+            ),
           );
         }
       },
@@ -259,6 +249,7 @@ export function ServersPage() {
       sort={sort}
       onSortChange={(next) => setFilter({ sort: next === 'newest' ? undefined : next })}
       count={filtered.length}
+      status={servers.status}
       filters={
         <FilterSelect
           value={kind}
@@ -277,6 +268,9 @@ export function ServersPage() {
       {servers.isPending ? <LoadingState rows={4} layout="cards" /> : null}
       {servers.isError ? (
         <ErrorState error={servers.error} onRetry={() => void servers.refetch()} />
+      ) : null}
+      {agents.isError ? (
+        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
       ) : null}
 
       {servers.data && all.length === 0 ? (
@@ -319,9 +313,16 @@ export function ServersPage() {
             <li key={server.id} className="min-w-0">
               <ServerCard
                 server={server}
-                agentCount={agentCounts.get(server.id) ?? 0}
+                agentCount={
+                  agents.isError
+                    ? '未知'
+                    : agents.isPending
+                      ? '加载中…'
+                      : (agentCounts.get(server.id) ?? 0)
+                }
                 lastTest={tested.get(server.id) ?? null}
                 testing={test.isPending && test.variables === server.id}
+                testPending={test.isPending}
                 onTest={() => runTest(server)}
                 onTools={(trigger) => {
                   triggerRef.current = trigger;
@@ -397,6 +398,7 @@ function ServerCard({
   agentCount,
   lastTest,
   testing,
+  testPending,
   onTest,
   onTools,
   onConnection,
@@ -404,9 +406,10 @@ function ServerCard({
   onDelete,
 }: {
   server: Server;
-  agentCount: number;
+  agentCount: number | '未知' | '加载中…';
   lastTest: LastTest | null;
   testing: boolean;
+  testPending: boolean;
   onTest: () => void;
   onTools: (trigger: HTMLElement) => void;
   onConnection: (trigger: HTMLElement) => void;
@@ -456,7 +459,7 @@ function ServerCard({
             />
             <DropdownMenuContent align="end" sideOffset={4} className="w-40">
               <DropdownMenuGroup>
-                <DropdownMenuItem disabled={testing} onClick={onTest}>
+                <DropdownMenuItem disabled={testPending} onClick={onTest}>
                   <Plug /> {testing ? '测试中…' : '测试连接'}
                 </DropdownMenuItem>
                 {generated ? (
@@ -518,7 +521,7 @@ function ServerCard({
 
 function TestSummary({ state, testing }: { state: LastTest | null; testing: boolean }) {
   if (testing) return <span className="text-xs text-muted-foreground">测试中…</span>;
-  if (!state) return <span className="text-xs text-subtle">未测试</span>;
+  if (!state) return <span className="text-xs text-muted-foreground">未测试</span>;
   const { result, at } = state;
   return (
     <div className="max-w-[220px] flex flex-col gap-0.5">
@@ -531,11 +534,12 @@ function TestSummary({ state, testing }: { state: LastTest | null; testing: bool
         <span className={cn('text-xs font-medium', result.ok ? 'text-success' : 'text-danger')}>
           {result.ok ? '连接成功' : '未能连接'}
         </span>
-        <span className="font-mono text-2xs tabular-nums text-subtle">{formatDateTime(at)}</span>
+        <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+          {formatDateTime(at)}
+        </span>
       </div>
-      <div className="font-mono text-2xs tabular-nums text-subtle">
-        耗时 {formatDuration(result.durationMs)} · 工具{' '}
-        {result.ok ? result.tools.length : '连接后确定'}
+      <div className="font-mono text-2xs tabular-nums text-muted-foreground">
+        耗时 {formatDuration(result.durationMs)}
       </div>
       {/* 列出工具名：只给数量无法判断「连上了但工具没注册」这种情况。 */}
       {result.ok && result.tools.length > 0 ? (
@@ -726,7 +730,7 @@ function ConnectionDialog({
                 </Button>
               </p>
             ) : (
-              <p className="text-xs text-subtle">加载中…</p>
+              <p className="text-xs text-muted-foreground">加载中…</p>
             )}
             {revealed ? (
               <p role="status" className="text-2xs leading-relaxed text-warning">
@@ -776,8 +780,7 @@ function ToolEditorDialog({
   const setEnabled = useSetToolEnabled(server.id);
   const [editing, setEditing] = useState<ApiTool | null>(null);
   const [deleting, setDeleting] = useState<ApiTool | null>(null);
-  // 只锁正在切换的那一行，其余行照常可点。
-  const [pendingToolId, setPendingToolId] = useState<string | null>(null);
+  const switching = useRef(false);
   // 表单是弹层里唯一未保存的内容：关闭与「取消编辑」都走同一道确认。
   const [formDirty, setFormDirty] = useState(false);
   const [formPending, setFormPending] = useState(false);
@@ -792,16 +795,20 @@ function ToolEditorDialog({
     run();
   };
 
-  const setTool = (vars: {
+  const setTool = async (vars: {
     toolId: string;
     enabled?: boolean;
     requiresApproval?: boolean;
-  }): void => {
-    setPendingToolId(vars.toolId);
-    setEnabled.mutate(vars, {
-      onError: (error) => toastError(error),
-      onSettled: () => setPendingToolId(null),
-    });
+  }): Promise<void> => {
+    if (switching.current || formPending || remove.isPending) return;
+    switching.current = true;
+    try {
+      await setEnabled.mutateAsync(vars);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      switching.current = false;
+    }
   };
 
   return (
@@ -827,7 +834,7 @@ function ToolEditorDialog({
             <ErrorState error={tools.error} onRetry={() => void tools.refetch()} />
           ) : null}
           {tools.data && tools.data.length === 0 ? (
-            <InlineEmpty>还没有工具。在下方声明第一个端点，智能体才能调用它。</InlineEmpty>
+            <InlineEmpty>在下方声明第一个 HTTP 端点，供智能体调用。</InlineEmpty>
           ) : null}
           {tools.data && tools.data.length > 0 ? (
             <Table>
@@ -851,16 +858,9 @@ function ToolEditorDialog({
                   // Keep tool rows on the same light chip hover surface as server rows.
                   <TableRow key={tool.id} className="h-14 hover:bg-chip">
                     <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-xs text-fg">{tool.name}</span>
-                        {tool.requiresApproval ? (
-                          <span className="rounded-tag bg-warning-soft px-1.5 py-0.5 text-2xs text-warning">
-                            需审批
-                          </span>
-                        ) : null}
-                      </div>
+                      <span className="font-mono text-xs text-fg">{tool.name}</span>
                       {tool.description ? (
-                        <div className="max-w-xs truncate text-2xs text-subtle">
+                        <div className="max-w-xs truncate text-2xs text-muted-foreground">
                           {tool.description}
                         </div>
                       ) : null}
@@ -883,8 +883,8 @@ function ToolEditorDialog({
                         className="size-3.5"
                         aria-label={`启用工具 ${tool.name}`}
                         checked={tool.enabled}
-                        disabled={pendingToolId === tool.id}
-                        onCheckedChange={(enabled) => setTool({ toolId: tool.id, enabled })}
+                        disabled={setEnabled.isPending || formPending || remove.isPending}
+                        onCheckedChange={(enabled) => void setTool({ toolId: tool.id, enabled })}
                       />
                     </TableCell>
                     <TableCell>
@@ -892,9 +892,14 @@ function ToolEditorDialog({
                         className="size-3.5"
                         aria-label={`批准工具 ${tool.name}`}
                         checked={tool.requiresApproval}
-                        disabled={pendingToolId === tool.id}
+                        disabled={
+                          editing?.id === tool.id ||
+                          setEnabled.isPending ||
+                          formPending ||
+                          remove.isPending
+                        }
                         onCheckedChange={(requiresApproval) =>
-                          setTool({ toolId: tool.id, requiresApproval })
+                          void setTool({ toolId: tool.id, requiresApproval })
                         }
                       />
                     </TableCell>
@@ -904,7 +909,7 @@ function ToolEditorDialog({
                           variant="ghost"
                           size="icon-sm"
                           aria-label={`编辑工具 ${tool.name}`}
-                          disabled={formPending}
+                          disabled={formPending || setEnabled.isPending || remove.isPending}
                           onClick={() => guarded(() => setEditing(tool))}
                         >
                           <Pencil className="size-3.5" />
@@ -915,7 +920,11 @@ function ToolEditorDialog({
                           aria-label={`删除工具 ${tool.name}`}
                           // Signal deletion on hover while keeping the neutral ghost button at rest.
                           className="hover:text-danger"
-                          onClick={() => setDeleting(tool)}
+                          disabled={formPending || setEnabled.isPending || remove.isPending}
+                          onClick={() => {
+                            if (formPending || switching.current || remove.isPending) return;
+                            setDeleting(tool);
+                          }}
                         >
                           <Trash2 className="size-3.5" />
                         </Button>
@@ -931,6 +940,7 @@ function ToolEditorDialog({
             key={editing?.id ?? 'new'}
             serverId={server.id}
             tool={editing}
+            disabled={setEnabled.isPending || remove.isPending}
             onDirtyChange={setFormDirty}
             onPendingChange={setFormPending}
             onDone={() => setEditing(null)}
@@ -943,7 +953,7 @@ function ToolEditorDialog({
             title={`删除工具「${deleting?.name ?? ''}」`}
             description="智能体将无法再调用该工具。此操作不可撤销。"
             onConfirm={async () => {
-              if (!deleting) return;
+              if (!deleting || formPending || switching.current) return;
               await remove.mutateAsync(deleting.id);
               if (editing?.id === deleting.id) setEditing(null);
             }}
@@ -992,6 +1002,7 @@ function toolToInput(tool: ApiTool): ApiToolInput {
 function ToolForm({
   serverId,
   tool,
+  disabled,
   onDirtyChange,
   onPendingChange,
   onDone,
@@ -999,24 +1010,23 @@ function ToolForm({
 }: {
   serverId: string;
   tool: ApiTool | null;
+  disabled: boolean;
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
   onDone: () => void;
   onCancel: () => void;
 }) {
   const create = useCreateTool(serverId);
-  const remove = useDeleteTool(serverId);
   const update = useUpdateTool(serverId);
-  const setEnabled = useSetToolEnabled(serverId);
   const [form, setForm] = useState<ApiToolInput>(() => (tool ? toolToInput(tool) : blankTool));
   const [schemaText, setSchemaText] = useState(() =>
     tool ? JSON.stringify(tool.inputSchema, null, 2) : blankSchemaText,
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const pending = create.isPending || update.isPending || remove.isPending || setEnabled.isPending;
   // 只有这个表单自己的保存会改变可关闭状态；行内开关不算。
   const formPending = create.isPending || update.isPending;
+  const pending = disabled || formPending;
   // 基线取挂载时的值；新建表单提交成功后会回到同一空白状态。
   const baseline = useRef(
     JSON.stringify(
@@ -1026,6 +1036,7 @@ function ToolForm({
     ),
   );
   const dirty = JSON.stringify({ form, schemaText }) !== baseline.current;
+  const blocker = useFormBlocker(dirty, pending);
 
   useEffect(() => {
     onDirtyChange(dirty);
@@ -1043,46 +1054,14 @@ function ToolForm({
   );
 
   const submit = (): void => {
-    const next: Record<string, string> = {};
-    if (!/^[a-z0-9][a-z0-9-_]*$/.test(form.name)) {
-      next.name = '名称只能用小写字母、数字、- 和 _，例如 list-users';
-    }
-    if (!form.pathTemplate.trim()) next.pathTemplate = '路径不能为空，请填写例如 /users/{id}';
-
-    let schema: unknown = null;
-    try {
-      schema = JSON.parse(schemaText);
-    } catch {
-      next.inputSchema = '这里不是合法 JSON，请先修正语法再保存';
-    }
-    if (
-      schema !== null &&
-      (typeof schema !== 'object' || schema === null || Array.isArray(schema))
-    ) {
-      next.inputSchema = 'schema 必须是 JSON 对象，例如 {"type":"object"}';
-      schema = null;
-    }
-    if (schema !== null && typeof schema === 'object' && !next.pathTemplate) {
-      const properties = (schema as { properties?: unknown }).properties;
-      const keys =
-        properties && typeof properties === 'object' && !Array.isArray(properties)
-          ? Object.keys(properties)
-          : [];
-      const placeholders = [...form.pathTemplate.matchAll(/\{([^{}/]+)\}/g)].map(
-        (match) => match[1] ?? '',
-      );
-      const missing = placeholders.filter((name) => name && !keys.includes(name));
-      if (missing.length > 0) {
-        next.pathTemplate = `路径里的 ${missing.map((name) => `{${name}}`).join('、')} 在 inputSchema.properties 中没有同名属性，请补上后再保存`;
-      }
-    }
-    if (Object.keys(next).length > 0) {
-      setErrors(next);
+    if (pending) return;
+    const result = validateToolInput(form, schemaText);
+    if (!result.data) {
+      setErrors(result.errors);
       return;
     }
     setErrors({});
-
-    const payload: ApiToolInput = { ...form, inputSchema: schema as Record<string, unknown> };
+    const payload = result.data;
 
     if (!tool) {
       create.mutate(payload, {
@@ -1128,19 +1107,26 @@ function ToolForm({
       noValidate
     >
       <div className="flex items-baseline justify-between gap-2 sm:col-span-6">
-        <h3 className="text-xs text-subtle">{tool ? `编辑工具 ${tool.name}` : '添加工具'}</h3>
+        <h3 className="text-xs text-muted-foreground">
+          {tool ? `编辑工具 ${tool.name}` : '添加工具'}
+        </h3>
         {tool ? (
-          <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+          <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={pending}>
             取消编辑
           </Button>
         ) : null}
       </div>
-      <Field className="gap-1.5 sm:col-span-2" data-invalid={Boolean(errors.name)}>
+      <Field
+        data-disabled={pending}
+        className="gap-1.5 sm:col-span-2"
+        data-invalid={Boolean(errors.name)}
+      >
         <FieldLabel htmlFor={`tool-name-${serverId}`}>
           名称
           <RequiredMark />
         </FieldLabel>
         <Input
+          disabled={pending}
           id={`tool-name-${serverId}`}
           value={form.name}
           placeholder="list-users"
@@ -1151,9 +1137,10 @@ function ToolForm({
         />
         <FieldError id={`tool-name-error-${serverId}`}>{errors.name}</FieldError>
       </Field>
-      <Field className="gap-1.5">
+      <Field data-disabled={pending} className="gap-1.5">
         <FieldLabel htmlFor={`tool-method-${serverId}`}>方法</FieldLabel>
         <Select
+          disabled={pending}
           value={form.method}
           onValueChange={(next) => {
             if (next !== null) {
@@ -1176,12 +1163,17 @@ function ToolForm({
           </SelectContent>
         </Select>
       </Field>
-      <Field className="gap-1.5 sm:col-span-2" data-invalid={Boolean(errors.pathTemplate)}>
+      <Field
+        data-disabled={pending}
+        className="gap-1.5 sm:col-span-2"
+        data-invalid={Boolean(errors.pathTemplate)}
+      >
         <FieldLabel htmlFor={`tool-path-${serverId}`}>
           路径
           <RequiredMark />
         </FieldLabel>
         <Input
+          disabled={pending}
           id={`tool-path-${serverId}`}
           value={form.pathTemplate}
           placeholder="/users/{id}"
@@ -1192,9 +1184,10 @@ function ToolForm({
         />
         <FieldError id={`tool-path-error-${serverId}`}>{errors.pathTemplate}</FieldError>
       </Field>
-      <Field className="gap-1.5">
+      <Field data-disabled={pending} className="gap-1.5">
         <FieldLabel htmlFor={`tool-params-${serverId}`}>参数位置</FieldLabel>
         <Select
+          disabled={pending}
           value={form.paramsIn}
           onValueChange={(next) => {
             if (next !== null) {
@@ -1217,18 +1210,31 @@ function ToolForm({
           </SelectContent>
         </Select>
       </Field>
-      <Field className="gap-1.5 sm:col-span-5">
+      <Field
+        data-disabled={pending}
+        className="gap-1.5 sm:col-span-5"
+        data-invalid={Boolean(errors.description)}
+      >
         <FieldLabel htmlFor={`tool-desc-${serverId}`}>描述</FieldLabel>
         <Input
+          disabled={pending}
           id={`tool-desc-${serverId}`}
+          aria-invalid={Boolean(errors.description)}
+          aria-describedby={errors.description ? `tool-desc-error-${serverId}` : undefined}
           value={form.description}
           placeholder="告诉智能体这个工具做什么、何时用"
           onChange={(event) => setForm({ ...form, description: event.target.value })}
         />
+        <FieldError id={`tool-desc-error-${serverId}`}>{errors.description}</FieldError>
       </Field>
-      <Field className="gap-1.5 sm:col-span-5" data-invalid={Boolean(errors.inputSchema)}>
+      <Field
+        data-disabled={pending}
+        className="gap-1.5 sm:col-span-5"
+        data-invalid={Boolean(errors.inputSchema)}
+      >
         <FieldLabel htmlFor={`tool-schema-${serverId}`}>inputSchema (JSON)</FieldLabel>
         <Textarea
+          disabled={pending}
           id={`tool-schema-${serverId}`}
           rows={4}
           value={schemaText}
@@ -1239,8 +1245,9 @@ function ToolForm({
         />
         <FieldError id={`tool-schema-error-${serverId}`}>{errors.inputSchema}</FieldError>
       </Field>
-      <Field orientation="horizontal" className="pt-1 sm:col-span-6">
+      <Field data-disabled={pending} orientation="horizontal" className="pt-1 sm:col-span-6">
         <Checkbox
+          disabled={pending}
           id={`tool-approval-${serverId}`}
           className="size-3.5"
           checked={form.requiresApproval}
@@ -1261,6 +1268,15 @@ function ToolForm({
           )}
         </Button>
       </div>
+      <ConfirmDialog
+        open={blocker.status === 'blocked'}
+        onClose={() => blocker.reset?.()}
+        title="放弃未保存的更改？"
+        description={pending ? '正在保存，请等待请求完成。' : '离开后工具配置的修改会丢失。'}
+        confirmLabel="放弃并离开"
+        confirmDisabled={pending}
+        onConfirm={async () => blocker.proceed()}
+      />
     </form>
   );
 }
@@ -1336,11 +1352,37 @@ function ServerFormDialog({
   const [form, setForm] = useState<FormState>(() => (server ? serverToForm(server) : emptyForm));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [baseline, setBaseline] = useState(server);
+  const [conflict, setConflict] = useState(false);
+  const [confirmReload, setConfirmReload] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const dirty =
     JSON.stringify({ kind, form }) !==
-    JSON.stringify({ kind: server?.kind ?? null, form: server ? serverToForm(server) : emptyForm });
+    JSON.stringify({
+      kind: baseline?.kind ?? null,
+      form: baseline ? serverToForm(baseline) : emptyForm,
+    });
 
-  const pending = create.isPending || update.isPending;
+  const pending = create.isPending || update.isPending || reloading;
+  const blocker = useFormBlocker(dirty, pending);
+  const reload = async (): Promise<void> => {
+    if (!baseline || pending) return;
+    setReloading(true);
+    try {
+      const latest = (await api.servers()).find((item) => item.id === baseline.id);
+      if (!latest) throw new Error('该连接器已不存在，请关闭配置并刷新列表');
+      setBaseline(latest);
+      setKind(latest.kind);
+      setForm(serverToForm(latest));
+      setErrors({});
+      setConflict(false);
+      setConfirmReload(false);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setReloading(false);
+    }
+  };
   // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中一律不能关闭。
   const close = (): void => {
     if (pending) return;
@@ -1351,9 +1393,8 @@ function ServerFormDialog({
     onClose();
   };
 
-  const buildInput = (selected: Kind): ServerInput => {
+  const buildInput = (selected: Kind, pairs: Record<string, string>): ServerInput => {
     const common = { name: form.name, description: form.description };
-    const pairs = parsePairs(form.pairs);
     if (selected === 'stdio') {
       return {
         ...common,
@@ -1374,16 +1415,23 @@ function ServerFormDialog({
   };
 
   const submit = (): void => {
-    if (!kind) return;
-    const parsed = serverInputSchema.safeParse(buildInput(kind));
+    if (!kind || pending) return;
+    let pairs: Record<string, string>;
+    try {
+      pairs = parsePairs(form.pairs, kind === 'stdio' ? 'env' : 'headers');
+    } catch (error) {
+      setErrors({ pairs: error instanceof Error ? error.message : '请检查 KEY=value 格式' });
+      return;
+    }
+    const parsed = serverInputSchema.safeParse(buildInput(kind, pairs));
     if (!parsed.success) {
       setErrors(fieldErrors(parsed.error.issues));
       return;
     }
     setErrors({});
-    if (server) {
+    if (baseline) {
       update.mutate(
-        { id: server.id, input: parsed.data, expectedUpdatedAt: server.updatedAt },
+        { id: baseline.id, input: parsed.data, expectedUpdatedAt: baseline.updatedAt },
         {
           onSuccess: (saved) => {
             toastSuccess('Server 已更新');
@@ -1391,7 +1439,8 @@ function ServerFormDialog({
           },
           onError: (error) => {
             if (error instanceof ApiError && error.status === 409) {
-              toast.error('配置已被修改，请核对最新配置后重试；当前输入已保留。');
+              setConflict(true);
+              toastError(new Error('配置已被修改；当前草稿已保留，请加载最新配置后重新编辑。'));
               return;
             }
             toastError(error);
@@ -1424,14 +1473,34 @@ function ServerFormDialog({
     >
       <DialogShell
         title={creating ? '新建连接器' : `编辑「${server.name}」`}
-        description={
-          creating
-            ? '第一步选来源类型，然后只填写这种接入方式需要的字段。'
-            : '来源类型不可修改；密钥保持 •••• 不变即沿用原值。'
-        }
+        {...(!creating ? { description: '来源类型不可修改；密钥保持 •••• 不变即沿用原值。' } : {})}
         finalFocus={getReturnFocus}
         closeDisabled={pending}
       >
+        {conflict ? (
+          <div role="alert" className="flex flex-wrap items-center gap-2 text-sm">
+            <p>配置已被修改，当前草稿已保留。加载最新配置会放弃此草稿。</p>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() => setConfirmReload(true)}
+            >
+              加载最新配置
+            </Button>
+          </div>
+        ) : null}
+        <ConfirmDialog
+          open={confirmReload}
+          onClose={() => {
+            if (!pending) setConfirmReload(false);
+          }}
+          title="放弃草稿并加载最新配置？"
+          description="当前未保存的更改会丢失。加载失败时会保留当前草稿。"
+          confirmLabel="放弃并加载"
+          confirmDisabled={pending}
+          onConfirm={reload}
+        />
         <form
           className="flex flex-col gap-4"
           noValidate
@@ -1441,9 +1510,12 @@ function ServerFormDialog({
           }}
         >
           {creating ? (
-            <FieldSet className="gap-2.5">
-              <FieldLegend className="mb-2.5 text-xs font-normal text-subtle">来源类型</FieldLegend>
+            <FieldSet className="gap-2.5" disabled={pending} data-disabled={pending}>
+              <FieldLegend className="mb-2.5 text-xs font-normal text-muted-foreground">
+                来源类型
+              </FieldLegend>
               <ToggleGroup
+                disabled={pending}
                 aria-label="来源类型"
                 variant="outline"
                 value={kind ? [kind] : []}
@@ -1472,16 +1544,19 @@ function ServerFormDialog({
             </FieldSet>
           ) : null}
 
-          {kind === null ? (
-            <p className="text-2xs text-subtle">先选一种来源类型，下面的字段会随类型变化。</p>
-          ) : (
+          {kind === null ? null : (
             <>
-              <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
+              <Field
+                data-disabled={pending}
+                className="gap-1.5"
+                data-invalid={Boolean(errors.name)}
+              >
                 <FieldLabel htmlFor="server-name">
                   名称
                   <RequiredMark />
                 </FieldLabel>
                 <Input
+                  disabled={pending}
                   id="server-name"
                   value={form.name}
                   placeholder="filesystem"
@@ -1494,29 +1569,42 @@ function ServerFormDialog({
                   <FieldError id="server-name-error">{errors.name}</FieldError>
                 ) : (
                   <FieldDescription id="server-name-hint">
-                    小写字母、数字、- 和 _；会作为 .mcp.json 的 key。
+                    小写字母、数字、- 和 _。
                   </FieldDescription>
                 )}
               </Field>
 
-              <Field className="gap-1.5">
+              <Field
+                data-disabled={pending}
+                className="gap-1.5"
+                data-invalid={Boolean(errors.description)}
+              >
                 <FieldLabel htmlFor="server-desc">描述</FieldLabel>
                 <Input
+                  disabled={pending}
                   id="server-desc"
+                  aria-invalid={Boolean(errors.description)}
+                  aria-describedby={errors.description ? 'server-desc-error' : undefined}
                   value={form.description}
                   placeholder="一句话说明它提供什么能力"
                   onChange={(event) => setForm({ ...form, description: event.target.value })}
                 />
+                <FieldError id="server-desc-error">{errors.description}</FieldError>
               </Field>
 
               {kind === 'stdio' ? (
                 <>
-                  <Field className="gap-1.5" data-invalid={Boolean(errors.command)}>
+                  <Field
+                    data-disabled={pending}
+                    className="gap-1.5"
+                    data-invalid={Boolean(errors.command)}
+                  >
                     <FieldLabel htmlFor="server-command">
                       命令
                       <RequiredMark />
                     </FieldLabel>
                     <Input
+                      disabled={pending}
                       id="server-command"
                       value={form.command}
                       placeholder="npx"
@@ -1528,9 +1616,10 @@ function ServerFormDialog({
                     />
                     <FieldError id="server-command-error">{errors.command}</FieldError>
                   </Field>
-                  <Field className="gap-1.5">
+                  <Field data-disabled={pending} className="gap-1.5">
                     <FieldLabel htmlFor="server-args">参数（每行一个）</FieldLabel>
                     <Textarea
+                      disabled={pending}
                       id="server-args"
                       rows={2}
                       value={form.args}
@@ -1540,10 +1629,17 @@ function ServerFormDialog({
                       onChange={(event) => setForm({ ...form, args: event.target.value })}
                     />
                   </Field>
-                  <Field className="gap-1.5">
+                  <Field
+                    data-disabled={pending}
+                    className="gap-1.5"
+                    data-invalid={Boolean(errors.pairs)}
+                  >
                     <FieldLabel htmlFor="server-env">环境变量（每行 KEY=value）</FieldLabel>
                     <Textarea
+                      disabled={pending}
                       id="server-env"
+                      aria-invalid={Boolean(errors.pairs)}
+                      aria-describedby={errors.pairs ? 'server-env-error' : 'server-env-hint'}
                       rows={2}
                       value={form.pairs}
                       // Keep configuration values compact and monospaced for literal editing.
@@ -1551,19 +1647,25 @@ function ServerFormDialog({
                       placeholder="TOKEN=…"
                       onChange={(event) => setForm({ ...form, pairs: event.target.value })}
                     />
-                    <FieldDescription>
+                    <FieldError id="server-env-error">{errors.pairs}</FieldError>
+                    <FieldDescription id="server-env-hint">
                       保存后密钥只以 •••• 返回；保持 •••• 不动即沿用原值。
                     </FieldDescription>
                   </Field>
                 </>
               ) : (
                 <>
-                  <Field className="gap-1.5" data-invalid={Boolean(urlError)}>
+                  <Field
+                    data-disabled={pending}
+                    className="gap-1.5"
+                    data-invalid={Boolean(urlError)}
+                  >
                     <FieldLabel htmlFor="server-url">
                       {urlLabel}
                       <RequiredMark />
                     </FieldLabel>
                     <Input
+                      disabled={pending}
                       id="server-url"
                       value={urlValue}
                       placeholder={
@@ -1591,10 +1693,17 @@ function ServerFormDialog({
                       </FieldDescription>
                     )}
                   </Field>
-                  <Field className="gap-1.5">
+                  <Field
+                    data-disabled={pending}
+                    className="gap-1.5"
+                    data-invalid={Boolean(errors.pairs)}
+                  >
                     <FieldLabel htmlFor="server-headers">Headers（每行 KEY=value）</FieldLabel>
                     <Textarea
+                      disabled={pending}
                       id="server-headers"
+                      aria-invalid={Boolean(errors.pairs)}
+                      aria-describedby={errors.pairs ? 'server-headers-error' : undefined}
                       rows={2}
                       value={form.pairs}
                       // Keep configuration values compact and monospaced for literal editing.
@@ -1602,6 +1711,7 @@ function ServerFormDialog({
                       placeholder="Authorization=Bearer …"
                       onChange={(event) => setForm({ ...form, pairs: event.target.value })}
                     />
+                    <FieldError id="server-headers-error">{errors.pairs}</FieldError>
                   </Field>
                   {kind === 'generated' ? (
                     <p className="rounded-item bg-chip p-3 text-xs leading-relaxed text-muted-foreground">
@@ -1630,9 +1740,19 @@ function ServerFormDialog({
           title="放弃未保存的更改？"
           description="关闭后这个 Server 的修改会丢失，密钥需要重新填写。"
           confirmLabel="放弃并关闭"
+          confirmDisabled={pending}
           onConfirm={async () => {
-            onClose();
+            if (!pending) onClose();
           }}
+        />
+        <ConfirmDialog
+          open={blocker.status === 'blocked'}
+          onClose={() => blocker.reset?.()}
+          title="放弃未保存的更改？"
+          description={pending ? '正在保存，请等待请求完成。' : '离开后连接器配置的修改会丢失。'}
+          confirmLabel="放弃并离开"
+          confirmDisabled={pending}
+          onConfirm={async () => blocker.proceed()}
         />
       </DialogShell>
     </Dialog>

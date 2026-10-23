@@ -60,6 +60,147 @@ describe.skipIf(!ready)('agents', () => {
     expect(body.id.startsWith('agt_')).toBe(true);
   });
 
+  it('preserves canonical roles through list, partial updates, versions and rollback', async () => {
+    const slug = unique('role');
+    createdAgents.push(slug);
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: auth(),
+      payload: { slug, name: 'Role agent', role: '前端工程师' },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const agent = created.json<Agent>();
+    expect(agent.role).toBe('前端工程师');
+
+    const list = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
+    expect(list.statusCode, list.body).toBe(200);
+    expect(list.json<Agent[]>().find((item) => item.id === agent.id)?.role).toBe('前端工程师');
+
+    const changed = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { role: '数据分析师' },
+    });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(changed.json<Agent>().role).toBe('数据分析师');
+
+    const renamed = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { name: 'Renamed role agent' },
+    });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    expect(renamed.json<Agent>()).toMatchObject({
+      name: 'Renamed role agent',
+      role: '数据分析师',
+    });
+
+    const version = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${agent.id}/versions/3`,
+      headers: auth(),
+    });
+    expect(version.statusCode, version.body).toBe(200);
+    expect(version.json<{ snapshot: Agent }>().snapshot).toMatchObject({
+      name: 'Renamed role agent',
+      role: '数据分析师',
+    });
+
+    const rolledBack = await inject(app, {
+      method: 'POST',
+      url: `/api/agents/${agent.id}/rollback`,
+      headers: auth(),
+      payload: { version: 1 },
+    });
+    expect(rolledBack.statusCode, rolledBack.body).toBe(200);
+    expect(rolledBack.json<Agent>()).toMatchObject({ name: 'Role agent', role: '前端工程师' });
+  });
+
+  it.each(['POST', 'PATCH'] as const)(
+    'rejects an unknown role on %s with a role path',
+    async (method) => {
+      const slug = unique('invalid-role');
+      createdAgents.push(slug);
+      const agent = method === 'PATCH' ? (await newAgent(slug)).json<Agent>() : undefined;
+      const res = await inject(app, {
+        method,
+        url: agent ? `/api/agents/${agent.id}` : '/api/agents',
+        headers: auth(),
+        payload: agent
+          ? { role: '随意输入的岗位' }
+          : { slug, name: 'Invalid role', role: '随意输入的岗位' },
+      });
+      expect(expectProblem(res, 'INVALID_INPUT').path).toBe('/role');
+    },
+  );
+
+  it.each([
+    { label: 'missing', role: undefined },
+    { label: 'unsupported', role: '历史自定义岗位' },
+  ])('keeps the current role when rolling back a $label snapshot role', async ({ role }) => {
+    const agent = (await newAgent(unique('historical-role'))).json<Agent>();
+    const changed = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { name: 'Current name', role: '数据分析师' },
+    });
+    expect(changed.statusCode, changed.body).toBe(200);
+    const updated = await app.pool.query(
+      "update agent_versions set snapshot = (snapshot - 'role') || $2::jsonb where agent_id = $1 and version = 1",
+      [agent.id, JSON.stringify(role === undefined ? {} : { role })],
+    );
+    expect(updated.rowCount).toBe(1);
+
+    const rolledBack = await inject(app, {
+      method: 'POST',
+      url: `/api/agents/${agent.id}/rollback`,
+      headers: auth(),
+      payload: { version: 1 },
+    });
+    expect(rolledBack.statusCode, rolledBack.body).toBe(200);
+    expect(rolledBack.json<Agent>()).toMatchObject({ name: agent.name, role: '数据分析师' });
+  });
+
+  it('preserves a legacy freeform role on get, list and name-only PATCH', async () => {
+    const slug = unique('legacy-role');
+    const id = unique('agt-legacy');
+    const role = '  历史自由岗位：研究 / 交付  ';
+    createdAgents.push(slug);
+    await app.pool.query(
+      'insert into agents (id, slug, name, model, role) values ($1, $2, $3, $4, $5)',
+      [id, slug, 'Legacy role agent', 'claude-sonnet-5-5', role],
+    );
+
+    const detail = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${id}`,
+      headers: auth(),
+    });
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json<Agent>().role).toBe(role);
+
+    const list = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
+    expect(list.statusCode, list.body).toBe(200);
+    expect(list.json<Agent[]>().find((item) => item.id === id)?.role).toBe(role);
+
+    const renamed = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${id}`,
+      headers: auth(),
+      payload: { name: 'Renamed legacy agent' },
+    });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    expect(renamed.json<Agent>()).toMatchObject({ name: 'Renamed legacy agent', role });
+    const stored = await app.pool.query<{ role: string }>('select role from agents where id = $1', [
+      id,
+    ]);
+    expect(stored.rows[0]?.role).toBe(role);
+  });
+
   it('rejects a duplicate slug with 409', async () => {
     const slug = unique('dup');
     expect((await newAgent(slug)).statusCode).toBe(201);

@@ -70,8 +70,11 @@ export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
           : item,
       );
     case 'run_finished':
-      // 终态由页面渲染成答案下方的一行读数，不再追加一条 notice。
-      return items;
+      return items.map((item) =>
+        item.kind === 'tool' && item.result === undefined && item.endedAt === undefined
+          ? { ...item, endedAt: Date.now() }
+          : item,
+      );
     case 'error':
       // 流可能仍然活着：只记录，不当作终态。
       return [...items, { kind: 'notice', tone: 'error', text: event.message }];

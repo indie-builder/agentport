@@ -1,11 +1,16 @@
 import {
+  AGENT_ROLES,
+  type Agent,
+  type AgentInput,
+  agentInputSchema,
+  agentSchema,
   commonEnvSchema,
   idParams,
   PREVIEW_SECRET,
   parseEnv,
   previewMcpEntry,
 } from '@agentport/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
 import { loadConfig as workerConfig } from '../../worker/src/config.js';
 import { loadConfig as apiConfig } from '../src/config.js';
@@ -87,6 +92,47 @@ describe('shared MCP entry rendering', () => {
       url: 'https://mcp.test',
       headers: { Authorization: 'Bearer runtime' },
     });
+  });
+});
+
+describe('standard agent occupations', () => {
+  it('assigns a general assistant occupation to agents without a role', () => {
+    expect(agentInputSchema.parse({ slug: 'helper', name: 'Helper' }).role).toBe('通用助手');
+    expect(agentInputSchema.parse({ slug: 'helper', name: 'Helper', role: '' }).role).toBe(
+      '通用助手',
+    );
+    expect(agentInputSchema.parse({ slug: 'helper', name: 'Helper', role: ' \t\n' }).role).toBe(
+      '通用助手',
+    );
+  });
+
+  it('accepts standard occupations and digital twins, and rejects freeform titles', () => {
+    for (const role of ['前端工程师', '数据分析师', '数字分身']) {
+      expect(agentInputSchema.parse({ slug: 'helper', name: 'Helper', role }).role).toBe(role);
+    }
+    expect(
+      agentInputSchema.safeParse({ slug: 'helper', name: 'Helper', role: '随意输入的岗位' })
+        .success,
+    ).toBe(false);
+  });
+  it('keeps historical roles intact while enforcing the write catalog', () => {
+    for (const role of AGENT_ROLES) {
+      expect(agentInputSchema.parse({ slug: 'helper', name: 'Helper', role }).role).toBe(role);
+    }
+    const input = agentInputSchema.parse({ slug: 'helper', name: 'Helper' });
+    for (const role of ['旧岗位', '  旧岗位  ', '']) {
+      const agent = agentSchema.parse({
+        ...input,
+        role,
+        id: 'agt_helper',
+        parentId: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      });
+      expect(agent.role).toBe(role);
+    }
+    expectTypeOf<AgentInput['role']>().toEqualTypeOf<string>();
+    expectTypeOf<Agent['role']>().toEqualTypeOf<string>();
   });
 });
 

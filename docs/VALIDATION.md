@@ -61,6 +61,12 @@ zod 校验失败由 `plugins/errors.ts` 统一映射：
 - 不在 handler 里保留 `safeParse` 作为「兜底」——那会让唯一校验点重新变成可选项。
 - 不为旧响应格式保留 shim；前端与测试按新契约对齐。
 
+## 专家标准岗位
+
+`packages/shared/src/agent.ts` 的 `AGENT_ROLES` 是创建、编辑与导入共用的岗位目录；`agentRoleSchema` 在路由边界拒绝未登记岗位，空值或缺省值规范为「通用助手」。PATCH 未传角色时保持原值，不套用创建默认值。数字分身使用目录中的「数字分身」。扩展岗位需同步共享目录、头像映射及选择器验证。
+
+数据库继续使用 text 存储岗位，默认值为「通用助手」；迁移 `0023_round_black_widow.sql` 只补齐空白岗位，不推断已有专家的职业。读取历史岗位保持原文；回滚遇到缺失或未登记的历史角色时，保留当前岗位，避免旧版本抹掉新配置。旧导出缺少角色时仍可导入，含未登记岗位的文件会明确返回校验错误。
+
 ## 唯一例外：导入导出的 `config`
 
 `packages/api/src/features/import/routes.ts` 的 `toServerInput()` 会调用一次 `serverInputSchema.safeParse`。

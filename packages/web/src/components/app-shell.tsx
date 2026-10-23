@@ -15,11 +15,12 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { meQuery, queryClient } from '../lib/queries.js';
 import { Brand, BrandMark } from './brand.js';
+import { PageHeader } from './page.js';
 import { Button } from './ui/button.js';
 import {
   DropdownMenu,
@@ -240,7 +241,7 @@ function UserMenu({ username }: { username: string }) {
       >
         <div className="border-b px-2.5 py-2">
           <div className="truncate text-xs text-fg">{username}</div>
-          <div className="text-2xs text-subtle">管理员</div>
+          <div className="text-2xs text-muted-foreground">管理员</div>
         </div>
         <DropdownMenuGroup>
           <DropdownMenuItem
@@ -261,21 +262,31 @@ export function AppShell() {
   const me = useQuery(meQuery);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const currentPage = [
+    overviewNav,
+    ...nav.flatMap<{ to: string; label: string }>((group) => group.items),
+  ].find((item) => (item.to === '/' ? pathname === '/' : pathname.startsWith(item.to)));
+  const isNotFound = useRouterState({
+    select: (state) => state.matches.at(-1)?.routeId === '/shell/$',
+  });
+  const pageTitle = isNotFound
+    ? '页面不存在'
+    : (resourceLabels[pathname] ?? currentPage?.label ?? '页面不存在');
   const [collapsed, setCollapsed] = useCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const navigationTrigger = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (me.data && !me.data.authenticated) void navigate({ to: '/login' });
   }, [me.data, navigate]);
 
   useEffect(() => {
-    const flat: { to: string; label: string }[] = [overviewNav];
-    for (const group of nav) flat.push(...group.items);
-    const current = flat.find((item) =>
-      item.to === '/' ? pathname === '/' : pathname.startsWith(item.to),
-    );
-    const title = resourceLabels[pathname] ?? current?.label;
-    document.title = title ? `${title} · 控制台` : '控制台';
+    document.title = `${pageTitle} · 控制台`;
+  }, [pageTitle]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 每次路径变化都要把焦点移入新页面，即使标题相同。
+  useEffect(() => {
+    document.getElementById('main-content')?.focus();
   }, [pathname]);
 
   if (me.isPending) {
@@ -286,6 +297,7 @@ export function AppShell() {
         role="status"
         aria-label="加载中"
       >
+        <PageHeader title={pageTitle} className="sr-only" />
         <div className="hidden w-56 shrink-0 border-r p-3 sm:block">
           <Skeleton className="mb-3 h-8 w-full" />
           <div className="flex flex-col gap-2">
@@ -306,6 +318,7 @@ export function AppShell() {
   if (me.isError || !me.data?.authenticated) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-canvas text-sm text-muted-foreground">
+        <PageHeader title={pageTitle} className="sr-only" />
         {me.isError ? (
           <>
             <span>无法验证登录状态</span>
@@ -326,17 +339,25 @@ export function AppShell() {
         'group/nav flex h-full shrink-0 flex-col overflow-hidden',
         // 实测：展开 272 / 收起 68，宽高与内边距一起过渡 160ms。
         drawer
-          ? 'w-[294px] px-3'
+          ? 'w-full px-3 py-4'
           : collapsed
             ? 'w-(--sidebar-collapsed) p-(--sidebar-pad-collapsed)'
             : 'w-(--sidebar-width) p-(--sidebar-pad)',
       )}
       style={{ transition: 'width 160ms var(--ease-out-soft), padding 160ms var(--ease-out-soft)' }}
     >
-      <SidebarBrand
-        collapsed={drawer ? false : collapsed}
-        onToggle={() => setCollapsed(!collapsed)}
-      />
+      {drawer ? (
+        <Link
+          to="/"
+          aria-label="返回首页"
+          onClick={() => setMobileOpen(false)}
+          className="flex h-8 items-center rounded-icon"
+        >
+          <Brand />
+        </Link>
+      ) : (
+        <SidebarBrand collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+      )}
       <nav aria-label="主导航" className="mt-[18px] flex-1 overflow-y-auto">
         <SidebarLink
           to={overviewNav.to}
@@ -348,7 +369,7 @@ export function AppShell() {
         {nav.map((group) => (
           <div key={group.label} className="mt-3 first:mt-3">
             {drawer || !collapsed ? (
-              <div className="px-2.5 pb-1.5 pt-4 text-xs text-subtle">{group.label}</div>
+              <div className="px-2.5 pb-1.5 pt-4 text-xs text-muted-foreground">{group.label}</div>
             ) : (
               <div className="mx-auto mb-1 h-px w-6 bg-line" aria-hidden="true" />
             )}
@@ -399,7 +420,7 @@ export function AppShell() {
        * 实测结构：侧栏在外、白壳在内。壳的下/右留 4px，左侧紧贴侧栏。
        * 壳用 1px outline（.04）而不是 border，避免内边距被边框吃掉。
        */}
-      <div className="flex h-screen bg-canvas text-fg">
+      <div className="flex h-dvh bg-canvas text-fg">
         <a href="#main-content" className="skip-link">
           跳到主要内容
         </a>
@@ -409,6 +430,7 @@ export function AppShell() {
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent
             side="left"
+            finalFocus={navigationTrigger}
             showCloseButton={false}
             aria-describedby={undefined}
             // Keep the project shadow.
@@ -422,7 +444,7 @@ export function AppShell() {
                   size="icon-sm"
                   aria-label="关闭导航"
                   // Keep the subdued close icon and translucent hover instead of the ghost defaults.
-                  className="absolute right-3 top-4 z-10 text-subtle hover:bg-hover"
+                  className="absolute right-3 top-4 z-10 text-muted-foreground hover:bg-hover"
                 >
                   <X className="size-4" />
                 </Button>
@@ -440,6 +462,7 @@ export function AppShell() {
           <header className="flex h-11 shrink-0 items-center gap-3 px-3 lg:hidden">
             <Button
               variant="ghost"
+              ref={navigationTrigger}
               aria-label="打开导航"
               aria-expanded={mobileOpen}
               onClick={() => setMobileOpen(true)}

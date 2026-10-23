@@ -2,7 +2,7 @@ import { toast } from 'sonner';
 import { errorMessage } from './api.js';
 
 export function toastError(error: unknown): void {
-  toast.error(errorMessage(error));
+  toast.error(errorMessage(error), { duration: Number.POSITIVE_INFINITY });
 }
 
 export function toastSuccess(message: string): void {

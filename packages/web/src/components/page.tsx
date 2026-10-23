@@ -12,11 +12,16 @@ export function Page({ children, className }: { children: ReactNode; className?:
 export function PageHeader({
   title,
   description,
+  leading,
+  eyebrow,
   actions,
   className,
 }: {
   title: string;
   description?: string;
+  leading?: ReactNode;
+  /** 标题旁的小标签，如角色名、状态；单行、弱色。 */
+  eyebrow?: ReactNode;
   actions?: ReactNode;
   className?: string;
 }) {
@@ -25,11 +30,15 @@ export function PageHeader({
       data-slot="page-header"
       className={cn('flex min-h-11 flex-wrap items-center gap-4 pt-3', className)}
     >
-      <h1 className="shrink-0 text-[16px] font-medium leading-6 tracking-[-0.01em] text-fg">
-        {title}
-      </h1>
+      {leading ? <div className="shrink-0">{leading}</div> : null}
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <h1 className="min-w-0 break-words text-[16px] font-medium leading-6 tracking-[-0.01em] text-fg">
+          {title}
+        </h1>
+        {eyebrow ? <div className="shrink-0">{eyebrow}</div> : null}
+      </div>
       {description ? (
-        <p className="hidden min-w-0 max-w-[60ch] truncate text-sm text-muted-foreground md:block">
+        <p className="min-w-0 max-w-[60ch] break-words text-sm text-muted-foreground">
           {description}
         </p>
       ) : null}
@@ -79,7 +88,7 @@ export function PageSection({
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
             {title ? <h2 className="text-sm font-medium text-fg">{title}</h2> : null}
             {description ? (
-              <p className="min-w-0 truncate text-sm text-subtle">{description}</p>
+              <p className="min-w-0 break-words text-sm text-muted-foreground">{description}</p>
             ) : null}
           </div>
           {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
@@ -114,7 +123,9 @@ export function PageNote({
       <span className={cn('font-medium', tone === 'danger' ? 'text-danger' : 'text-fg')}>
         {title}
       </span>
-      {description ? <span className="min-w-0 text-muted-foreground">{description}</span> : null}
+      {description ? (
+        <span className="min-w-0 break-words text-muted-foreground">{description}</span>
+      ) : null}
       {action ? <div className="ml-auto shrink-0">{action}</div> : null}
     </div>
   );

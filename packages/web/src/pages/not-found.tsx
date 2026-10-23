@@ -7,8 +7,7 @@ export function NotFoundPage() {
     <Page>
       <PageHeader title="页面不存在" />
       <PageNote
-        title="找不到这个地址"
-        description="请检查地址，或返回工作台继续。"
+        title="请检查地址"
         action={
           <Button variant="outline" nativeButton={false} render={<Link to="/" />}>
             返回工作台
