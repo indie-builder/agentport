@@ -124,6 +124,7 @@ interface ExportBody {
 const ITEM_KEYS = [
   'agentId',
   'agentName',
+  'agentVersion',
   'costUsd',
   'endedAt',
   'error',
@@ -133,6 +134,7 @@ const ITEM_KEYS = [
   'outputTokens',
   'startedAt',
   'status',
+  'trigger',
   'turns',
 ];
 

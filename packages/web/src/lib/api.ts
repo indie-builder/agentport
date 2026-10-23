@@ -43,14 +43,24 @@ export interface AgentExport {
     serverNames: string[];
     skillSlugs: string[];
   };
+  rules: Array<{ slug: string; content: string; globs: string }>;
+  outputStyles: Array<{
+    slug: string;
+    description: string;
+    keepCodingInstructions: boolean;
+    body: string;
+    isSelected: boolean;
+  }>;
   subAgents: Array<
     Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds'> & {
       serverNames: string[];
       skillSlugs: string[];
+      rules: AgentExport['rules'];
+      outputStyles: AgentExport['outputStyles'];
     }
   >;
   servers: Array<Record<string, unknown>>;
-  skills: SkillInput[];
+  skills: Array<SkillInput & { files: Array<{ path: string; content: string }> }>;
   workspace: AgentFiles;
 }
 

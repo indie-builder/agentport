@@ -66,6 +66,7 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   await screen.getByRole('button', '创建').tap();
 
   // 底座 Combobox：点开是 role=combobox 的输入框，选项在 listbox 里点选。
+  await screen.getByRole('button', '能力', { exact: false }).tap();
   await screen.getByRole('combobox', 'MCP Server').tap();
   await browser.locator('[role="option"]').filter({ hasText: serverName }).first().click();
   await browser.keyboard.press('Escape');
@@ -76,22 +77,18 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   await expect(
     screen.getByText('将写入 .mcp.json 与 frontmatter', { exact: false }).first(),
   ).toBeVisible();
-  // 分段按钮用 aria-pressed，不再是 tablist 语义。
-  // 底座 Tabs 的触发器是 role=tab 的 button。
-  await screen.getByRole('tab', '完整文件').tap();
+  await screen.getByRole('button', '.mcp.json', { exact: true }).tap();
   await expect(screen.getByText('"mcpServers"', { exact: false }).first()).toBeVisible();
 
-  await screen.getByRole('tab', '配置', { exact: true }).tap();
-  const prompt = browser.locator(
-    'textarea[placeholder="描述角色、边界与工作方式；会写入 CLAUDE.md。"]',
-  );
+  await screen.getByRole('button', '行为', { exact: false }).tap();
+  const prompt = browser.locator('#agent-prompt');
   await prompt.fill('Unsaved expert draft');
-  await browser.keyboard.press('Escape');
+  await screen.getByRole('button', '返回列表', { exact: true }).tap();
   await expect(screen.getByRole('heading', '放弃未保存的更改？')).toBeVisible();
   await screen.getByRole('button', '取消', { exact: true }).tap();
   await expect(prompt).toHaveValue('Unsaved expert draft');
-  await browser.keyboard.press('Escape');
-  await screen.getByRole('button', '放弃并关闭').tap();
+  await screen.getByRole('button', '返回列表', { exact: true }).tap();
+  await screen.getByRole('button', '放弃并离开').tap();
   await expect(screen.getByRole('button', `配置 ${agentName}`)).toBeVisible();
 });
 

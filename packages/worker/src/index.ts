@@ -427,19 +427,6 @@ const worker = new Worker(
         .innerJoin(schema.skills, eq(schema.agentSkills.skillId, schema.skills.id))
         .where(eq(schema.agentSkills.agentId, agentId));
 
-      // 技能的官方支持资源文件（scripts/、references/ 等）随技能一起铺到工作区。
-      const skillFileMap = await repo.skillFiles.getSkillFilesBySkillIds(
-        db,
-        skillRows.map((row) => row.id),
-      );
-      const skillsWithFiles = skillRows.map((row) => ({
-        slug: row.slug,
-        name: row.name,
-        description: row.description,
-        body: row.body,
-        files: (skillFileMap.get(row.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
-      }));
-
       // 单层委派：只取直接子智能体；enabled 过滤在 toWorkspaceInput 里统一做。
       const subAgentRows: SubAgentRow[] = await db
         .select()
@@ -451,9 +438,21 @@ const worker = new Worker(
         db,
         subAgentRows.filter((row) => row.enabled).map((row) => row.id),
       );
+      // 根技能和启用子智能体的技能共用一次资源查询，根白名单仍只来自 skillRows。
+      const skillFileMap = await repo.skillFiles.getSkillFilesBySkillIds(db, [
+        ...new Set([...skillRows, ...[...childSkills.values()].flat()].map((row) => row.id)),
+      ]);
+      const withFiles = (row: (typeof skillRows)[number]) => ({
+        slug: row.slug,
+        name: row.name,
+        description: row.description,
+        body: row.body,
+        files: (skillFileMap.get(row.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
+      });
+      const skillsWithFiles = skillRows.map(withFiles);
       const subAgents = subAgentRows.map((row) => ({
         ...row,
-        skills: childSkills.get(row.id) ?? [],
+        skills: (childSkills.get(row.id) ?? []).map(withFiles),
       }));
 
       const ruleRows = await repo.rules.listRules(db, agentId);

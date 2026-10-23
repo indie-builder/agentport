@@ -174,17 +174,21 @@ data/workspaces/<agent-slug>/<run-id>/
 
 目录与字段以已安装 Claude Agent SDK/Claude Code 版本及官方文档为准；下表为能力清单，不表示所有目录已经生成。项目目录是 `.claude/`，技能入口文件区分大小写为 `SKILL.md`。仅有文件存在不代表能力已加载，需验证加载来源、权限及实际调用。
 
+`agentport/agent@2` 包含根级与子智能体的规则、输出风格及技能支持资源；`agentport/agent@1` 仍可导入。包内每个技能的资源路径按大小写不敏感比较，禁止占用 `SKILL.md` 及其后代、重复路径和文件/目录祖先冲突；仅目录大小写不同、文件不同的路径（如 `References/a.md` 与 `references/b.md`）允许共存。导入与导出只读校验路径，保留合法路径的原始拼写及 content，不通过改名或归一化修复冲突。
+
+子智能体自有 rules / outputStyles 已支持保存、以自身为根的文件预览、clone 与 @2 导入导出；父级委派时不会自动应用这些子级自有配置，父工作区只渲染根智能体的规则与输出风格。clone 复制源智能体自身配置与资源绑定，不复制其子智能体。
+
 | 官方文件/能力 | 加载方式 | 本项目当前状态 |
 |---|---|---|
 | `CLAUDE.md` 或 `.claude/CLAUDE.md` | project source 加载上下文，与是否使用 claude_code systemPrompt preset 无关 | 已生成根文件 |
-| `.claude/rules/**/*.md` | project source；支持按路径组织规则，具体匹配按官方规则 | 尚未提供规则管理 |
-| `.claude/settings.json` | cwd 下 project settings；权限、环境、Hooks 等按该键允许的作用域生效 | 主要配置仍通过 query options；尚未完整文件往返。**原生 auto-memory 已启用**：runner 通过 `settings.autoMemoryEnabled/autoMemoryDirectory` 指向挂载目录 |
+| `.claude/rules/**/*.md` | project source；支持按路径组织规则，具体匹配按官方规则 | 已有规则管理、文件预览与根级运行落盘，含 globs 路径匹配配置 |
+| `.claude/settings.json` | cwd 下 project settings；权限、环境、Hooks 等按该键允许的作用域生效 | 已生成选中输出风格的 outputStyle；其余主要通过 query options，尚未完整文件往返。**原生 auto-memory 已启用**：runner 通过 `settings.autoMemoryEnabled/autoMemoryDirectory` 指向挂载目录 |
 | `.claude/settings.local.json`、根 `CLAUDE.local.md` | local source；本地覆盖，不作为共享包默认内容 | 当前只启用 project，不默认加载 |
 | `.mcp.json`（工作区根） | project source；连接与工具权限需实际验证 | 已生成运行时配置；受限HTTP/stdio文件可事务导入且凭证加密，不执行命令/测试连接；不支持字段与模板明确拒绝，导出不含密钥 |
-| `.claude/skills/<name>/SKILL.md` 与其支持资源 | project source 发现；技能启用、可用工具由 SDK 配置控制 | 单文件生成、下载、受限导入已实现；真实CLI正负发现通过，绑定slug原生许可已接入；支持资源与实际模型调用待验收 |
+| `.claude/skills/<name>/SKILL.md` 与其支持资源 | project source 发现；技能启用、可用工具由 SDK 配置控制 | 单文件生成、下载、受限导入及支持资源增删改查已实现；@2 携带父子绑定技能的支持资源。真实CLI正负发现通过，绑定slug原生许可已接入；父子技能支持资源完整加载与实际模型调用仍待验收 |
 | `.claude/agents/*.md` | 文件子智能体定义；程序式同名定义优先 | 已生成子定义与子级skills字段，父编辑器可下载已保存且启用定义，预览与运行共用渲染器；依赖同工作区技能/MCP，非完整独立包；CLI发现通过，实际子级加载未验证；主定义预览不下载为子文件 |
 | `.claude/commands/*.md` | 官方保留的旧式命令文件；新能力优先 skills | 尚未接入，不另造命令引擎 |
-| `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 尚未接入 |
+| `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 已有输出风格管理、文件预览与根级运行落盘；选中者写入 settings.json 的 outputStyle |
 | Hooks | 由 settings.json 的 hooks 配置或 SDK callbacks 注册；脚本目录本身不是自动发现入口 | 平台层回调与工作区文件Hooks需分别核对，不能仅创建hooks目录声称生效 |
 | 插件根中的 `.claude-plugin/plugin.json`、skills/agents/hooks/.mcp.json | SDK plugins 指定本地插件根；不是默认扫描项目 `.claude/plugins/` | 尚未接入本地插件包 |
 | `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | **agent-memory 已接入（原生 auto-memory）**：宿主持久目录 `WORKSPACES_DIR/<slug>/agent-memory/` 以 rw 挂到容器 `/mnt/agent-memory`，runner 设 `autoMemoryDirectory=/mnt/agent-memory`；平台记忆页只浏览/编辑该目录的 `MEMORY.md` 与主题文件，不另造格式。Workflows 仍不接入 |
