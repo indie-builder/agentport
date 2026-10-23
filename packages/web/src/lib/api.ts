@@ -15,6 +15,7 @@ import type {
   MemoryFileContent,
   MemoryFileList,
   Problem,
+  Rule,
   Schedule,
   ScheduleInput,
   SchedulePatch,
@@ -503,6 +504,14 @@ export const api = {
   agentFiles: (id: string): Promise<AgentFiles> => request(`/agents/${id}/files`),
   agentVersions: (id: string): Promise<AgentVersionSummary[]> => request(`/agents/${id}/versions`),
   agentMemory: (id: string): Promise<MemoryFileList> => request(`/agents/${id}/memory`),
+  agentRules: (id: string): Promise<Rule[]> => request(`/agents/${id}/rules`),
+  writeAgentRule: (
+    id: string,
+    slug: string,
+    input: { content: string; globs: string },
+  ): Promise<Rule> => request(`/agents/${id}/rules/${encodeURIComponent(slug)}`, 'PUT', input),
+  deleteAgentRule: (id: string, slug: string): Promise<void> =>
+    request(`/agents/${id}/rules/${encodeURIComponent(slug)}`, 'DELETE'),
   agentMemoryFile: (id: string, name: string): Promise<MemoryFileContent> =>
     request(`/agents/${id}/memory/${encodeURIComponent(name)}`),
   writeAgentMemoryFile: (id: string, name: string, content: string): Promise<MemoryFileContent> =>

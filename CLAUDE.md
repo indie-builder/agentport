@@ -38,6 +38,10 @@
 
 ## 协作方式
 
+- **【基本执行原则】默认就是「先 Opus 探索/设计，再拆多个 Sonnet 子代理并行执行」——不需要用户每次交代。** 任何非平凡任务：
+  1. **探索与方案设计用 Opus**：读代码、定契约、拆任务、判断取舍、架构决策。
+  2. **落地执行拆成多个互不依赖的子代理并行，子代理用 Sonnet**；主会话只定共享契约、合并、跑全量校验（typecheck / test / lint / build / 真实验证）。
+  - 只有强依赖或需连续判断的工作留在主会话；能拆开就必须拆开并行，不要退化成主会话一个人顺序做完。
 - **任务执行尽量使用多智能体并行。** 只要工作可以拆成互不依赖的子任务（多个页面、多个包、多个独立调研），就派多个子代理并行执行，而不是串行做完一个再做下一个。
 - 分工原则：先由主会话确定共享契约（类型、schema、接口签名、设计令牌），再让子代理在各自范围内实现；子代理不互相等待。
 - 每个子代理必须有明确的产出边界（改哪些文件、不改哪些文件）与验收方式；主会话负责合并、跑全量校验（typecheck / test / lint / e2e）。
@@ -101,6 +105,7 @@
 | 技能 | 来源 | 安装量 | 对应项目技术栈 |
 |---|---|---|---|
 | `frontend-design` | anthropics/skills | 1.0M | 整体 UI 方向与排版 |
+| `api-and-interface-design` | addyosmani/agent-skills | 60.7K | REST 接口契约、TypeScript 类型边界与错误语义 |
 | `vercel-react-best-practices` | vercel-labs/agent-skills | 818.5K | React 19 组件与性能 |
 | `supabase-postgres-best-practices` | supabase/agent-skills | 451.7K | PostgreSQL 18 查询、索引、RLS |
 | `test-driven-development` | obra/superpowers | 254.7K | Vitest 单元/集成测试 |

@@ -128,8 +128,9 @@ async function writeWorkspace(
     files?: Array<{ path: string; content: string }>;
   }>,
   subAgents: SubAgentRow[],
+  rules: Array<{ slug: string; content: string; globs: string }>,
 ): Promise<{ dir: string; hasSubAgents: boolean }> {
-  const files = renderWorkspace(toWorkspaceInput({ agent, servers, skills, subAgents }));
+  const files = renderWorkspace(toWorkspaceInput({ agent, servers, skills, subAgents, rules }));
 
   // 按 run 隔离：同一智能体并发运行时不能互相覆盖 .mcp.json / 技能 / 子智能体。
   const dir = join(workspacesDir, agent.slug, runId);
@@ -166,6 +167,18 @@ async function writeWorkspace(
       const filePath = join(target, file.path);
       await mkdir(join(filePath, '..'), { mode: WORKSPACE_DIR_MODE, recursive: true });
       await writeFile(filePath, file.content, { encoding: 'utf8', mode: WORKSPACE_FILE_MODE });
+    }
+  }
+  // 项目规则每次重建：写到 .claude/rules/<slug>.md，由 project source 随会话加载。
+  const rulesDir = join(dir, '.claude', 'rules');
+  await rm(rulesDir, { recursive: true, force: true });
+  if (files.rules.length > 0) {
+    await mkdir(rulesDir, { mode: WORKSPACE_DIR_MODE, recursive: true });
+    for (const rule of files.rules) {
+      await writeFile(join(rulesDir, `${rule.slug}.md`), rule.content, {
+        encoding: 'utf8',
+        mode: WORKSPACE_FILE_MODE,
+      });
     }
   }
   // mode 只在创建时生效；已存在的工作区（BullMQ 重试复用）要再 chmod 一次。
@@ -388,6 +401,9 @@ const worker = new Worker(
         skills: childSkills.get(row.id) ?? [],
       }));
 
+      const ruleRows = await repo.rules.listRules(db, agentId);
+      const rules = ruleRows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
+
       const { dir: workspaceDir, hasSubAgents } = await writeWorkspace(
         agent,
         runId,
@@ -397,6 +413,7 @@ const worker = new Worker(
         })),
         skillsWithFiles,
         subAgents,
+        rules,
       );
       workspaceDirForRun = workspaceDir;
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');

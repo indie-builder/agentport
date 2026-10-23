@@ -134,6 +134,26 @@ export const skillFileSchema = skillFileInputSchema.and(
 
 export type SkillFile = z.infer<typeof skillFileSchema>;
 
+/** 项目规则：渲染为 `.claude/rules/<slug>.md`；globs 为空表示对全部文件生效。 */
+export const ruleInputSchema = z.object({
+  slug: slugSchema,
+  content: z.string().max(100_000).default(''),
+  globs: z.string().max(1000).default(''),
+});
+
+export type RuleInput = z.infer<typeof ruleInputSchema>;
+
+export const ruleSchema = ruleInputSchema.and(
+  z.object({
+    id: z.string(),
+    agentId: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+);
+
+export type Rule = z.infer<typeof ruleSchema>;
+
 /** 技能列表项：附带引用它的智能体数量，用于「被 N 个智能体使用」。 */
 export const skillWithAgentCountSchema = skillSchema.and(
   z.object({ agentCount: z.number().int().nonnegative() }),

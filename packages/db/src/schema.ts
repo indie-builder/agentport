@@ -155,6 +155,30 @@ export const skillFiles = pgTable(
   ],
 );
 
+/**
+ * 智能体项目规则。渲染到工作区 `.claude/rules/<slug>.md`，由 Claude Code
+ * project source 随会话加载；`globs` 写入 frontmatter 的 `paths` 做路径作用域。
+ */
+export const agentRules = pgTable(
+  'agent_rules',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    content: text('content').notNull().default(''),
+    /** 路径作用域（逗号分隔的 glob）；空表示对所有文件生效。 */
+    globs: text('globs').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('agent_rules_agent_slug_idx').on(t.agentId, t.slug),
+    index('agent_rules_agent_idx').on(t.agentId),
+  ],
+);
+
 export const agentServers = pgTable(
   'agent_servers',
   {
@@ -466,6 +490,7 @@ export const schema = {
   skills,
   agentSkills,
   skillFiles,
+  agentRules,
   agentServers,
   agentVersions,
   conversations,

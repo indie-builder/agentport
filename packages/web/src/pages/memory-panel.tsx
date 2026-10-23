@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { agentMemoryFileQuery, agentMemoryQuery } from '../lib/queries.js';
+import { agentMemoryFileQuery, agentMemoryQuery, agentRulesQuery } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 /** 浏览/编辑 Claude Code 原生 auto-memory：MEMORY.md 索引 + 主题 Markdown。 */
@@ -233,6 +233,151 @@ function MemoryFileEditor({
         // Markdown 需要等宽与可读的行距。
         className="min-h-[18rem] font-mono text-xs leading-relaxed"
       />
+    </div>
+  );
+}
+
+/** 项目规则：编辑 `.claude/rules/<slug>.md`，可选路径作用域（globs）。 */
+export function RulesPanel({ agentId }: { agentId: string }) {
+  const client = useQueryClient();
+  const rules = useQuery(agentRulesQuery(agentId));
+  const [selected, setSelected] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [slug, setSlug] = useState('');
+  const [draft, setDraft] = useState('');
+  const [globs, setGlobs] = useState('');
+
+  const invalidate = (): void =>
+    void client.invalidateQueries({ queryKey: ['agent-rules', agentId] });
+  const current = rules.data?.find((r) => r.slug === selected) ?? null;
+
+  const open = (rule: { slug: string; content: string; globs: string }): void => {
+    setSelected(rule.slug);
+    setDraft(rule.content);
+    setGlobs(rule.globs);
+    setCreating(false);
+  };
+
+  const startCreate = (): void => {
+    setCreating(true);
+    setSelected(null);
+    setSlug('');
+    setDraft('');
+    setGlobs('');
+  };
+
+  const save = useMutation({
+    mutationFn: (vars: { slug: string; content: string; globs: string }) =>
+      api.writeAgentRule(agentId, vars.slug, { content: vars.content, globs: vars.globs }),
+    onSuccess: (rule) => {
+      toastSuccess('规则已保存');
+      setSelected(rule.slug);
+      setCreating(false);
+      invalidate();
+    },
+    onError: (error) => toastError(error),
+  });
+
+  const remove = useMutation({
+    mutationFn: (s: string) => api.deleteAgentRule(agentId, s),
+    onSuccess: () => {
+      toastSuccess('规则已删除');
+      setSelected(null);
+      invalidate();
+    },
+    onError: (error) => toastError(error),
+  });
+
+  const submit = (): void => {
+    const target = creating ? slug.trim() : selected;
+    if (!target) return;
+    save.mutate({ slug: target, content: draft, globs });
+  };
+
+  if (rules.isPending) return <LoadingState rows={2} />;
+  if (rules.isError) return <ErrorState error={rules.error} onRetry={() => void rules.refetch()} />;
+
+  return (
+    <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="flex flex-col gap-2">
+        <Button variant="outline" size="sm" onClick={startCreate}>
+          <Plus data-icon="inline-start" /> 新建规则
+        </Button>
+        {rules.data.length === 0 ? (
+          <p className="px-1 text-xs text-muted-foreground">
+            规则会随工作区加载，用来约束专家的行为。
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-0.5">
+            {rules.data.map((rule) => (
+              <li key={rule.id}>
+                <button
+                  type="button"
+                  onClick={() => open(rule)}
+                  className={cn(
+                    'w-full truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
+                    selected === rule.slug && 'bg-selected text-fg',
+                  )}
+                >
+                  {rule.slug}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="flex min-w-0 flex-col gap-2">
+        {creating || current ? (
+          <>
+            {creating ? (
+              <Input
+                value={slug}
+                placeholder="规则 slug，如 no-console"
+                aria-label="规则 slug"
+                className="font-mono text-xs"
+                onChange={(e) => setSlug(e.target.value)}
+              />
+            ) : (
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-sm text-fg">{current?.slug}</span>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`删除规则 ${current?.slug}`}
+                  onClick={() => current && remove.mutate(current.slug)}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            )}
+            <Input
+              value={globs}
+              placeholder="路径作用域（可选），如 src/**/*.ts, docs/**"
+              aria-label="路径作用域"
+              className="font-mono text-xs"
+              onChange={(e) => setGlobs(e.target.value)}
+            />
+            <Textarea
+              value={draft}
+              placeholder="规则内容（Markdown）"
+              aria-label="规则内容"
+              rows={12}
+              className="min-h-[16rem] font-mono text-xs leading-relaxed"
+              onChange={(e) => setDraft(e.target.value)}
+            />
+            <div className="flex justify-end">
+              <Button onClick={submit} disabled={save.isPending} aria-busy={save.isPending}>
+                {save.isPending ? '保存中…' : '保存规则'}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <EmptyState
+            title="选择或新建规则"
+            description="规则按官方 .claude/rules 约定随会话加载。"
+          />
+        )}
+      </div>
     </div>
   );
 }

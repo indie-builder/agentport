@@ -100,12 +100,16 @@ export async function renderAgentWorkspace(
     files: (skillFiles.get(s.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
   }));
 
+  const ruleRows = await repo.rules.listRules(app.db, agent.id);
+  const rules = ruleRows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
+
   return renderWorkspace(
     toWorkspaceInput({
       agent,
       servers,
       skills: skillsWithFiles,
       subAgents,
+      rules,
     }),
   );
 }

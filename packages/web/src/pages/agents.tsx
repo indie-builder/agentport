@@ -33,6 +33,7 @@ import {
   Plug,
   Plus,
   RotateCcw,
+  ScrollText,
   Sparkles,
   Trash2,
   Upload,
@@ -131,7 +132,7 @@ import {
   useUpdateAgent,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
-import { MemoryPanel } from './memory-panel.js';
+import { MemoryPanel, RulesPanel } from './memory-panel.js';
 import { AgentStatsPanel } from './ops.js';
 
 /**
@@ -753,7 +754,7 @@ export function AgentEditor({
   const pending = update.isPending || reloading || rollingBack;
   const [form, setForm] = useState<AgentInput>(() => toInput(agent));
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [mode, setMode] = useState<'config' | 'files' | 'memory' | 'stats'>('config');
+  const [mode, setMode] = useState<'config' | 'files' | 'memory' | 'rules' | 'stats'>('config');
   const [activeSection, setActiveSection] = useState<SectionId>('identity');
   const [activeFile, setActiveFile] = useState<(typeof fileTabs)[number][0]>('mcpJson');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -1279,6 +1280,18 @@ export function AgentEditor({
             <li>
               <button
                 type="button"
+                aria-current={mode === 'rules' ? 'true' : undefined}
+                onClick={() => setMode('rules')}
+                className={sectionButtonClass(mode === 'rules')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <ScrollText aria-hidden="true" /> 项目规则
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
                 aria-current={mode === 'stats' ? 'true' : undefined}
                 onClick={() => setMode('stats')}
                 className={sectionButtonClass(mode === 'stats')}
@@ -1295,6 +1308,10 @@ export function AgentEditor({
           {mode === 'memory' ? (
             <div className="min-w-0">
               <MemoryPanel agentId={agent.id} />
+            </div>
+          ) : mode === 'rules' ? (
+            <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+              <RulesPanel agentId={agent.id} />
             </div>
           ) : mode === 'stats' ? (
             <AgentStatsPanel agentId={agent.id} />

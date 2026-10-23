@@ -10,6 +10,8 @@ export interface WorkspaceFiles {
     files: Array<{ path: string; content: string }>;
   }>;
   subAgents: Array<{ slug: string; content: string }>;
+  /** 项目规则：`.claude/rules/<slug>.md` 的完整内容。 */
+  rules: Array<{ slug: string; content: string }>;
 }
 
 export interface WorkspaceAgent {
@@ -44,8 +46,28 @@ export interface WorkspaceInput {
   skills?: WorkspaceSkill[];
   /** 单层委派：这些子智能体渲染到 .claude/agents/，主智能体获得 Agent 工具。 */
   subAgents?: WorkspaceAgent[];
+  /** 项目规则：{ slug, content, globs? }。 */
+  rules?: Array<{ slug: string; content: string; globs?: string }>;
   toolsAllow?: string[];
   toolsDeny?: string[];
+}
+
+/** 渲染一条规则文件：有 globs 时写入 frontmatter 的 paths；否则纯 Markdown。 */
+export function renderRuleMd(rule: { slug: string; content: string; globs?: string }): string {
+  const globs = (rule.globs ?? '')
+    .split(',')
+    .map((g) => g.trim())
+    .filter(Boolean);
+  if (globs.length === 0) return `${rule.content.trim()}\n`;
+  return [
+    '---',
+    'paths:',
+    ...globs.map((g) => `  - ${yamlString(g)}`),
+    '---',
+    '',
+    rule.content.trim(),
+    '',
+  ].join('\n');
 }
 
 /**
@@ -349,6 +371,10 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
         },
         true,
       ),
+    })),
+    rules: (input.rules ?? []).map((rule) => ({
+      slug: rule.slug,
+      content: renderRuleMd(rule),
     })),
   };
 }

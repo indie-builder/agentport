@@ -11,6 +11,7 @@ export const idPrefixes = {
   agentVersion: 'av',
   skill: 'skl',
   skillFile: 'skf',
+  rule: 'rule',
   conversation: 'conv',
   message: 'msg',
   run: 'run',

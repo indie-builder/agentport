@@ -38,6 +38,11 @@ const subAgentFileParams = z.object({
 const memoryParams = z.object({ id: z.string().min(1) });
 const memoryFileParams = z.object({ id: z.string().min(1), name: z.string().min(1) });
 const memoryWriteBody = z.object({ content: z.string().max(200_000) });
+const ruleParams = z.object({ id: z.string().min(1), slug: z.string().min(1) });
+const ruleBody = z.object({
+  content: z.string().max(100_000),
+  globs: z.string().max(1000).default(''),
+});
 
 /** default/acceptEdits 直接透传 SDK；auto 依赖无法审计的模型分类器，暂不开放。 */
 const unsupportedPermissionModes = new Set(['auto']);
@@ -566,6 +571,85 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         action: 'agent.memory.delete',
         target: request.params.id,
         input: { name: request.params.name },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(204).send();
+    },
+  );
+
+  // 项目规则：渲染到 .claude/rules/<slug>.md（官方 project source 加载）。
+  app.get(
+    '/api/agents/:id/rules',
+    { ...auth, schema: { params: memoryParams } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const rows = await allRepo.rules.listRules(app.db, request.params.id);
+      return rows.map((r) => ({
+        id: r.id,
+        agentId: r.agentId,
+        slug: r.slug,
+        content: r.content,
+        globs: r.globs,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      }));
+    },
+  );
+
+  app.put(
+    '/api/agents/:id/rules/:slug',
+    { ...auth, schema: { params: ruleParams, body: ruleBody } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      try {
+        const row = await allRepo.rules.upsertRule(app.db, request.params.id, {
+          slug: request.params.slug,
+          content: request.body.content,
+          globs: request.body.globs,
+        });
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.rule.written',
+          target: request.params.id,
+          input: { slug: row.slug },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return {
+          id: row.id,
+          agentId: row.agentId,
+          slug: row.slug,
+          content: row.content,
+          globs: row.globs,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+        };
+      } catch {
+        return reject(reply, 'INVALID_INPUT', '规则 slug 非法：仅允许小写字母、数字、- 和 _');
+      }
+    },
+  );
+
+  app.delete(
+    '/api/agents/:id/rules/:slug',
+    { ...auth, schema: { params: ruleParams } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const removed = await allRepo.rules.deleteRule(
+        app.db,
+        request.params.id,
+        request.params.slug,
+      );
+      if (!removed) return notFound(reply);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.rule.deleted',
+        target: request.params.id,
+        input: { slug: request.params.slug },
         status: 'ok',
         requestId: request.id,
       });
