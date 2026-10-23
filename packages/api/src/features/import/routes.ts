@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { fail } from '@agentport/core';
 import type { Database } from '@agentport/db';
 import {
+  agentOutputStyles,
+  agentRules,
   agentServers,
   agentSkills,
   agents,
@@ -9,6 +11,7 @@ import {
   newId,
   repo,
   servers,
+  skillFiles,
   skills,
 } from '@agentport/db';
 import * as agentRepo from '@agentport/db/repo/agents.js';
@@ -17,7 +20,10 @@ import {
   AGENT_PACKAGE_MAX_BYTES,
   agentInputSchema,
   apiToolInputSchema,
+  outputStyleInputSchema,
+  ruleInputSchema,
   serverInputSchema,
+  skillFileInputSchema,
   skillInputSchema,
   slugSchema,
 } from '@agentport/shared';
@@ -70,37 +76,149 @@ const importedServerSchema = z
 
 type ImportedServer = z.infer<typeof importedServerSchema>;
 
-const importBodySchema = z
-  .object({
-    format: z.literal('agentport/agent@1'),
-    agent: agentInputSchema.extend({
-      allowedTools: allowedToolsSchema.default([]),
-      permissionMode: z.enum(['dontAsk', 'plan', 'default', 'acceptEdits']).default('dontAsk'),
-      /** 缺省时沿用旧导出语义：绑定文件里的全部 server。 */
-      serverNames: z.array(slugSchema).optional(),
-      /** 缺省时沿用旧导出语义：绑定文件里的全部技能。 */
-      skillSlugs: z.array(slugSchema).optional(),
+const importedRulesSchema = z
+  .array(ruleInputSchema.extend({ content: z.string().default(''), globs: z.string().default('') }))
+  .max(50);
+const importedStylesSchema = z
+  .array(
+    outputStyleInputSchema.extend({
+      description: z.string().default(''),
+      body: z.string().default(''),
+      isSelected: z.boolean(),
     }),
-    servers: z.array(importedServerSchema).max(100).default([]),
-    skills: z.array(skillInputSchema).max(100).default([]),
-    subAgents: z
-      .array(
-        agentInputSchema
-          .omit({ serverIds: true, skillIds: true, subAgentIds: true })
-          .extend({
-            allowedTools: allowedToolsSchema.default([]),
-            permissionMode: z
-              .enum(['dontAsk', 'plan', 'default', 'acceptEdits'])
-              .default('dontAsk'),
-            serverNames: z.array(slugSchema).default([]),
-            skillSlugs: z.array(slugSchema).default([]),
-          })
-          .strict(),
-      )
-      .max(20)
-      .default([]),
-  })
+  )
+  .max(20);
+const importedFilesSchema = z
+  .array(
+    skillFileInputSchema.extend({
+      path: skillFileInputSchema.shape.path.refine(
+        (path) =>
+          !path.includes('\\') &&
+          path
+            .split('/')
+            .every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
+          path.toLowerCase().split('/')[0] !== 'skill.md',
+        '资源文件路径不能含空段、.、..、反斜杠，且不能占用 SKILL.md（不区分大小写）',
+      ),
+      content: z.string().default(''),
+    }),
+  )
+  .max(50);
+const importedSkillSchema = skillInputSchema.extend({ body: z.string().default('') });
+const importedChildSchema = agentInputSchema
+  .omit({ serverIds: true, skillIds: true, subAgentIds: true })
+  .extend({
+    allowedTools: allowedToolsSchema.default([]),
+    permissionMode: z.enum(['dontAsk', 'plan', 'default', 'acceptEdits']).default('dontAsk'),
+    serverNames: z.array(slugSchema).default([]),
+    skillSlugs: z.array(slugSchema).default([]),
+  });
+const commonBody = {
+  agent: agentInputSchema.extend({
+    allowedTools: allowedToolsSchema.default([]),
+    permissionMode: z.enum(['dontAsk', 'plan', 'default', 'acceptEdits']).default('dontAsk'),
+    /** 缺省时沿用旧导出语义：绑定文件里的全部资源。 */
+    serverNames: z.array(slugSchema).optional(),
+    skillSlugs: z.array(slugSchema).optional(),
+  }),
+  servers: z.array(importedServerSchema).max(100).default([]),
+};
+
+const importBodySchema = z
+  .discriminatedUnion('format', [
+    z.object({
+      ...commonBody,
+      format: z.literal('agentport/agent@1'),
+      rules: importedRulesSchema.default([]),
+      outputStyles: importedStylesSchema.default([]),
+      skills: z
+        .array(importedSkillSchema.extend({ files: importedFilesSchema.default([]) }))
+        .max(100)
+        .default([]),
+      subAgents: z
+        .array(
+          importedChildSchema
+            .extend({
+              rules: importedRulesSchema.default([]),
+              outputStyles: importedStylesSchema.default([]),
+            })
+            .strict(),
+        )
+        .max(20)
+        .default([]),
+    }),
+    z.object({
+      ...commonBody,
+      format: z.literal('agentport/agent@2'),
+      rules: importedRulesSchema,
+      outputStyles: importedStylesSchema,
+      skills: z
+        .array(importedSkillSchema.extend({ files: importedFilesSchema }))
+        .max(100)
+        .default([]),
+      subAgents: z
+        .array(
+          importedChildSchema
+            .extend({
+              rules: importedRulesSchema,
+              outputStyles: importedStylesSchema,
+            })
+            .strict(),
+        )
+        .max(20)
+        .default([]),
+    }),
+  ])
   .superRefine((body, ctx) => {
+    const checkFiles = (
+      owner: {
+        rules: z.infer<typeof importedRulesSchema>;
+        outputStyles: z.infer<typeof importedStylesSchema>;
+      },
+      path: Array<string | number>,
+    ) => {
+      for (const field of ['rules', 'outputStyles'] as const) {
+        const slugs = new Set<string>();
+        owner[field].forEach((entry, index) => {
+          if (slugs.has(entry.slug))
+            ctx.addIssue({
+              code: 'custom',
+              path: [...path, field, index, 'slug'],
+              message: `「${entry.slug}」重复；每个智能体的 ${field} slug 必须唯一`,
+            });
+          slugs.add(entry.slug);
+        });
+      }
+      if (owner.outputStyles.filter((style) => style.isSelected).length > 1) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [...path, 'outputStyles'],
+          message: '最多只能选中一个输出风格，请将其余 isSelected 设为 false',
+        });
+      }
+    };
+    checkFiles(body, []);
+    body.subAgents.forEach((child, index) => {
+      checkFiles(child, ['subAgents', index]);
+    });
+    body.skills.forEach((skill, index) => {
+      const paths = new Set<string>();
+      skill.files.forEach((file, fileIndex) => {
+        const foldedPath = file.path.toLowerCase();
+        const conflict = [...paths].find(
+          (path) => foldedPath.startsWith(`${path}/`) || path.startsWith(`${foldedPath}/`),
+        );
+        if (paths.has(foldedPath) || conflict)
+          ctx.addIssue({
+            code: 'custom',
+            path: ['skills', index, 'files', fileIndex, 'path'],
+            message: conflict
+              ? `资源路径「${file.path}」与「${conflict}」存在文件/目录冲突`
+              : `资源路径「${file.path}」重复`,
+          });
+        paths.add(foldedPath);
+      });
+    });
     // 同名条目无法无损合并，静默取最后一条会悄悄丢配置。
     const seenServers = new Set<string>();
     body.servers.forEach((entry, index) => {
@@ -168,6 +286,47 @@ const importBodySchema = z
       checkRefs(entry, ['subAgents', index]);
     });
   });
+
+/** 字段体积超限用 413，与整个包的 bodyLimit 保持一致。 */
+function checkSize(value: string, max: number, path: string): void {
+  if (value.length > max) {
+    fail('PAYLOAD_TOO_LARGE', `${path} 超过 ${max} 字符，请精简后重试`, { path });
+  }
+}
+
+type AgentFiles = Pick<z.infer<typeof importBodySchema>, 'rules' | 'outputStyles'>;
+
+function checkAgentFileSizes(input: AgentFiles, path: string): void {
+  input.rules.forEach((rule, index) => {
+    checkSize(rule.content, 100_000, `${path}/rules/${index}/content`);
+    checkSize(rule.globs, 1000, `${path}/rules/${index}/globs`);
+  });
+  input.outputStyles.forEach((style, index) => {
+    checkSize(style.body, 50_000, `${path}/outputStyles/${index}/body`);
+    checkSize(style.description, 500, `${path}/outputStyles/${index}/description`);
+  });
+}
+
+async function insertAgentFiles(tx: Tx, agentId: string, input: AgentFiles): Promise<void> {
+  if (input.rules.length > 0) {
+    await tx.insert(agentRules).values(
+      input.rules.map((rule) => ({
+        id: newId('rule'),
+        agentId,
+        ...rule,
+      })),
+    );
+  }
+  if (input.outputStyles.length > 0) {
+    await tx.insert(agentOutputStyles).values(
+      input.outputStyles.map((style) => ({
+        id: newId('outputStyle'),
+        agentId,
+        ...style,
+      })),
+    );
+  }
+}
 
 /** 密钥不入库；generated server 需要一个本机可用的新令牌。 */
 function toServerConfig(input: ServerInput): Record<string, unknown> {
@@ -255,6 +414,16 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
     { ...auth, bodyLimit: AGENT_PACKAGE_MAX_BYTES, schema: { body: importBodySchema } },
     async (request, reply) => {
       const { agent: input, servers: entries, skills: skillInputs, subAgents } = request.body;
+      checkAgentFileSizes(request.body, '');
+      subAgents.forEach((child, index) => {
+        checkAgentFileSizes(child, `/subAgents/${index}`);
+      });
+      skillInputs.forEach((skill, index) => {
+        checkSize(skill.body, 200_000, `/skills/${index}/body`);
+        skill.files.forEach((file, fileIndex) => {
+          checkSize(file.content, 200_000, `/skills/${index}/files/${fileIndex}/content`);
+        });
+      });
       const serverEntries = entries.map((entry) => ({
         input: toServerInput(entry),
         tools: entry.tools,
@@ -360,6 +529,19 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
                   );
           const existingSkillBySlug = new Map(existingSkills.map((row) => [row.slug, row]));
           const skillIdsBySlug = new Map(existingSkills.map((row) => [row.slug, row.id]));
+          const existingFiles =
+            existingSkills.length === 0
+              ? []
+              : await tx
+                  .select()
+                  .from(skillFiles)
+                  .where(
+                    inArray(
+                      skillFiles.skillId,
+                      existingSkills.map((skill) => skill.id),
+                    ),
+                  );
+          let createdFileCount = 0;
           for (const skillInput of skillInputs) {
             const existing = existingSkillBySlug.get(skillInput.slug);
             if (existing) {
@@ -372,13 +554,34 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
                   `已存在同名技能「${skillInput.slug}」，其内容与导入文件不同，已保留原配置`,
                 );
               }
+              const files = existingFiles.filter((file) => file.skillId === existing.id);
+              const contents = new Map(files.map((file) => [file.path, file.content]));
+              if (
+                files.length !== skillInput.files.length ||
+                skillInput.files.some((file) => contents.get(file.path) !== file.content)
+              ) {
+                warnings.push(
+                  `已存在同名技能「${skillInput.slug}」，其资源文件与导入文件不同，已保留原文件`,
+                );
+              }
               continue;
             }
+            const { files, ...skillValues } = skillInput;
             const [row] = await tx
               .insert(skills)
-              .values({ id: newId('skill'), ...skillInput })
+              .values({ id: newId('skill'), ...skillValues })
               .returning();
             if (!row) throw new Error('skill insert returned no row');
+            if (files.length > 0) {
+              await tx.insert(skillFiles).values(
+                files.map((file) => ({
+                  id: newId('skillFile'),
+                  skillId: row.id,
+                  ...file,
+                })),
+              );
+              createdFileCount += files.length;
+            }
             skillIdsBySlug.set(row.slug, row.id);
             createdSkills.push(row.slug);
           }
@@ -424,8 +627,10 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
               .values(skillIds.map((skillId) => ({ agentId: row.id, skillId })));
           }
 
+          await insertAgentFiles(tx, row.id, request.body);
           const createdSubAgents: string[] = [];
           const childIds: string[] = [];
+          const childSnapshots: ReturnType<typeof agentRepo.toAgent>[] = [];
           for (const childInput of subAgents) {
             // 子智能体始终是新建行：同名已有 agent（可能已属于别的父级）一律加后缀，不复用。
             const childSlug = await uniqueSlug(tx, childInput.slug);
@@ -462,11 +667,8 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
                 .insert(agentSkills)
                 .values(childSkillIds.map((skillId) => ({ agentId: childRow.id, skillId })));
             }
-            await repo.agentVersions.insertAgentVersion(
-              tx,
-              childRow.id,
-              agentRepo.toAgent(childRow, childServerIds, childSkillIds),
-            );
+            await insertAgentFiles(tx, childRow.id, childInput);
+            childSnapshots.push(agentRepo.toAgent(childRow, childServerIds, childSkillIds));
             childIds.push(childRow.id);
             createdSubAgents.push(childRow.slug);
           }
@@ -477,8 +679,12 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
             row.id,
             agentRepo.toAgent(row, serverIds, skillIds, childIds),
           );
+          for (const snapshot of childSnapshots) {
+            await repo.agentVersions.insertAgentVersion(tx, snapshot.id, snapshot);
+          }
 
           return {
+            createdFileCount,
             agent: agentRepo.toAgent(row, serverIds, skillIds, childIds),
             createdServers,
             reusedServers,
@@ -502,13 +708,21 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
           slug: result.agent.slug,
           servers: { created: result.createdServers.length, reused: result.reusedServers.length },
           skills: result.createdSkills.length,
+          files: result.createdFileCount,
+          rules:
+            request.body.rules.length +
+            subAgents.reduce((count, child) => count + child.rules.length, 0),
+          outputStyles:
+            request.body.outputStyles.length +
+            subAgents.reduce((count, child) => count + child.outputStyles.length, 0),
           subAgents: result.createdSubAgents.length,
         },
         status: 'ok',
         requestId: request.id,
       });
 
-      return reply.status(201).send({ ...result, warnings });
+      const { createdFileCount: _createdFileCount, ...response } = result;
+      return reply.status(201).send({ ...response, warnings });
     },
   );
 }

@@ -1,7 +1,7 @@
 import { fail, isAppError, parseSkillMd, renderSkillMd } from '@agentport/core';
 import { repo as skillRepo } from '@agentport/db';
 import type { Skill, SkillWithAgentCount } from '@agentport/shared';
-import { idParams, skillInputSchema, slugSchema } from '@agentport/shared';
+import { idParams, skillFileInputSchema, skillInputSchema, slugSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
@@ -9,7 +9,11 @@ import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 
 const repo = skillRepo.skills;
+const filesRepo = skillRepo.skillFiles;
 type SkillWrite = Parameters<typeof repo.createSkill>[1];
+
+// 通配路由用 '*' 捕获多段相对路径（scripts/run.sh 之类）。
+const skillFileParams = z.object({ id: z.string().min(1), '*': z.string().min(1) });
 
 // 解析（含 frontmatter / 字段校验）放在 schema 里：handler 只拿解析结果，不再 safeParse。
 const importSchema = z.object({ skillMd: z.string().max(131072) }).transform(({ skillMd }, ctx) => {
@@ -170,6 +174,82 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
         actor: 'admin',
         action: 'skill.deleted',
         target: request.params.id,
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(204).send();
+    },
+  );
+
+  // 技能支持资源文件（官方 SKILL.md 目录里的 scripts/、references/ 等）。
+  app.get(
+    '/api/skills/:id/files',
+    { ...auth, schema: { params: idParams } },
+    async (request, reply) => {
+      const skill = await repo.getSkill(app.db, request.params.id);
+      if (!skill) return notFound(reply);
+      const rows = await filesRepo.listSkillFiles(app.db, skill.id);
+      return rows.map((r) => ({
+        id: r.id,
+        path: r.path,
+        content: r.content,
+        createdAt: r.createdAt.toISOString(),
+      }));
+    },
+  );
+
+  app.put(
+    '/api/skills/:id/files/*',
+    {
+      ...auth,
+      schema: { params: skillFileParams, body: skillFileInputSchema.pick({ content: true }) },
+    },
+    async (request, reply) => {
+      const skill = await repo.getSkill(app.db, request.params.id);
+      if (!skill) return notFound(reply);
+      const check = skillFileInputSchema.safeParse({
+        path: request.params['*'],
+        content: request.body.content,
+      });
+      if (!check.success) {
+        return reject(reply, 'INVALID_INPUT', check.error.issues[0]?.message ?? '路径不合法');
+      }
+      const row = await filesRepo.upsertSkillFile(
+        app.db,
+        skill.id,
+        check.data.path,
+        check.data.content,
+      );
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'skill.file.written',
+        target: skill.id,
+        input: { path: check.data.path },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return {
+        id: row.id,
+        path: row.path,
+        content: row.content,
+        createdAt: row.createdAt.toISOString(),
+      };
+    },
+  );
+
+  app.delete(
+    '/api/skills/:id/files/*',
+    { ...auth, schema: { params: skillFileParams } },
+    async (request, reply) => {
+      const skill = await repo.getSkill(app.db, request.params.id);
+      if (!skill) return notFound(reply);
+      const ok = await filesRepo.deleteSkillFile(app.db, skill.id, request.params['*']);
+      if (!ok) return notFound(reply);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'skill.file.deleted',
+        target: skill.id,
+        input: { path: request.params['*'] },
         status: 'ok',
         requestId: request.id,
       });

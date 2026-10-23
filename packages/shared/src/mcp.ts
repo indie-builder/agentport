@@ -107,6 +107,10 @@ export const serverSchema = serverInputSchema.and(
     id: z.string(),
     createdAt: z.string(),
     updatedAt: z.string(),
+    /** 最近一次测试连接的结果；从未测试为 null。 */
+    lastTestedAt: z.string().nullable().optional(),
+    lastTestOk: z.boolean().nullable().optional(),
+    lastToolCount: z.number().int().nullable().optional(),
   }),
 );
 

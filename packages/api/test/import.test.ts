@@ -800,4 +800,246 @@ describe.skipIf(!ready)('import agents', () => {
     });
     expect(exported.statusCode).toBe(401);
   });
+
+  it('round-trips v2 rules, output styles and skill files for root and child agents', async () => {
+    const sourceSlug = unique('imp-v2-src');
+    const childSlug = unique('imp-v2-child');
+    const skillSlug = unique('imp-v2-skill');
+    const targetSlug = unique('imp-v2-dst');
+    const targetChildSlug = unique('imp-v2-dst-child');
+    const targetSkillSlug = unique('imp-v2-dst-skill');
+    createdAgents.push(sourceSlug, childSlug, targetSlug, targetChildSlug);
+    createdSkills.push(skillSlug, targetSkillSlug);
+    const fixture = {
+      ...exportFile(sourceSlug),
+      format: 'agentport/agent@2',
+      agent: { slug: sourceSlug, name: 'Portable root', skillSlugs: [] as string[] },
+      rules: [{ slug: 'root-rule', content: 'Keep root rules.', globs: 'src/**,test/**' }],
+      outputStyles: [
+        {
+          slug: 'brief',
+          description: 'Brief',
+          keepCodingInstructions: true,
+          body: 'Be brief.',
+          isSelected: true,
+        },
+        {
+          slug: 'verbose',
+          description: 'Verbose',
+          keepCodingInstructions: false,
+          body: 'Explain.',
+          isSelected: false,
+        },
+      ],
+      subAgents: [
+        {
+          slug: childSlug,
+          name: 'Portable child',
+          skillSlugs: [skillSlug],
+          rules: [{ slug: 'child-rule', content: 'Keep child rules.', globs: '' }],
+          outputStyles: [
+            {
+              slug: 'child-style',
+              description: 'Child',
+              keepCodingInstructions: false,
+              body: 'Child voice.',
+              isSelected: true,
+            },
+            {
+              slug: 'unused',
+              description: '',
+              keepCodingInstructions: true,
+              body: 'Unused voice.',
+              isSelected: false,
+            },
+          ],
+        },
+      ],
+      skills: [
+        {
+          slug: skillSlug,
+          name: 'Portable skill',
+          description: 'With resources',
+          body: '# Skill steps',
+          files: [
+            { path: 'references/guide.md', content: '# Guide' },
+            { path: 'scripts/run.sh', content: 'true\n' },
+          ],
+        },
+      ],
+    };
+    const source = await importAgent(fixture);
+    expect(source.statusCode, source.body).toBe(201);
+    const exported = await exportAgent(source.json<AgentImportResult>().agent.id);
+    expect(exported.statusCode, exported.body).toBe(200);
+    const file = exported.json<
+      typeof fixture & {
+        workspace: {
+          skills: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
+          rules: Array<{ slug: string; content: string }>;
+          outputStyles: Array<{ slug: string; content: string }>;
+          selectedOutputStyle: string | null;
+          settingsJson: string | null;
+        };
+      }
+    >();
+    expect(file.format).toBe('agentport/agent@2');
+    expect(file.rules).toEqual(fixture.rules);
+    expect(file.outputStyles).toEqual(fixture.outputStyles);
+    expect(file.subAgents[0]?.rules).toEqual(fixture.subAgents[0]?.rules);
+    expect(file.subAgents[0]?.outputStyles).toEqual(fixture.subAgents[0]?.outputStyles);
+    expect(file.skills).toEqual(fixture.skills);
+    expect(file.workspace.skills).toContainEqual({
+      slug: skillSlug,
+      content: expect.any(String),
+      files: fixture.skills[0]?.files,
+    });
+    expect(file.workspace.rules[0]?.content).toContain('Keep root rules.');
+    expect(file.workspace.outputStyles.map((style) => style.slug)).toEqual(['brief', 'verbose']);
+    expect(file.workspace.selectedOutputStyle).toBe('brief');
+    expect(JSON.parse(file.workspace.settingsJson ?? '{}')).toEqual({ outputStyle: 'brief' });
+
+    file.agent.slug = targetSlug;
+    const child = file.subAgents[0];
+    const exportedSkill = file.skills[0];
+    if (!child || !exportedSkill) throw new Error('missing portable child or skill');
+    child.slug = targetChildSlug;
+    child.skillSlugs = [targetSkillSlug];
+    exportedSkill.slug = targetSkillSlug;
+    const imported = await importAgent(file);
+    expect(imported.statusCode, imported.body).toBe(201);
+    const result = imported.json<AgentImportResult>();
+    expect(result.agent.slug).toBe(targetSlug);
+    expect(result.agent.id).not.toBe(source.json<AgentImportResult>().agent.id);
+    expect(result.agent.skillIds).toEqual([]);
+    expect(result.createdSkills).toEqual([targetSkillSlug]);
+    const reexported = await exportAgent(result.agent.id);
+    expect(reexported.statusCode, reexported.body).toBe(200);
+    const roundTrip = reexported.json<typeof file>();
+    expect(roundTrip.rules).toEqual(file.rules);
+    expect(roundTrip.outputStyles).toEqual(file.outputStyles);
+    expect(roundTrip.subAgents).toEqual(file.subAgents);
+    expect(roundTrip.skills).toEqual(file.skills);
+    expect(roundTrip.workspace.skills).toContainEqual({
+      slug: targetSkillSlug,
+      content: expect.any(String),
+      files: fixture.skills[0]?.files,
+    });
+    expect(roundTrip.workspace.rules).toEqual(file.workspace.rules);
+    expect(roundTrip.workspace.outputStyles).toEqual(file.workspace.outputStyles);
+    expect(roundTrip.workspace.selectedOutputStyle).toBe('brief');
+  });
+
+  it('imports legacy v1 root, child and skill definitions with empty v2 defaults', async () => {
+    const slug = unique('imp-v1-root');
+    const childSlug = unique('imp-v1-child');
+    const skillSlug = unique('imp-v1-skill');
+    createdAgents.push(slug, childSlug);
+    createdSkills.push(skillSlug);
+    const imported = await importAgent(
+      exportFile(slug, {
+        subAgents: [{ slug: childSlug, name: 'Legacy child', skillSlugs: [skillSlug] }],
+        skills: [
+          { slug: skillSlug, name: 'Legacy skill', description: 'Legacy', body: '# Legacy' },
+        ],
+      }),
+    );
+    expect(imported.statusCode, imported.body).toBe(201);
+    const exported = await exportAgent(imported.json<AgentImportResult>().agent.id);
+    expect(exported.statusCode, exported.body).toBe(200);
+    const file = exported.json<{
+      format: string;
+      rules: unknown[];
+      outputStyles: unknown[];
+      subAgents: Array<{
+        slug: string;
+        skillSlugs: string[];
+        rules: unknown[];
+        outputStyles: unknown[];
+      }>;
+      skills: Array<{ slug: string; body: string; files: unknown[] }>;
+    }>();
+    expect(file.format).toBe('agentport/agent@2');
+    expect(file.rules).toEqual([]);
+    expect(file.outputStyles).toEqual([]);
+    expect(file.subAgents).toMatchObject([
+      { slug: childSlug, skillSlugs: [skillSlug], rules: [], outputStyles: [] },
+    ]);
+    expect(file.skills).toMatchObject([{ slug: skillSlug, body: '# Legacy', files: [] }]);
+  });
+
+  it('preserves reused skill files with a warning and rejects invalid v2 resources before writes', async () => {
+    const sourceSlug = unique('imp-v2-keep-src');
+    const targetSlug = unique('imp-v2-keep-dst');
+    const skillSlug = unique('imp-v2-keep-skill');
+    createdAgents.push(sourceSlug, targetSlug);
+    createdSkills.push(skillSlug);
+    const skill = {
+      slug: skillSlug,
+      name: 'Keep skill',
+      description: 'Keep resources',
+      body: '# Keep body',
+      files: [{ path: 'references/keep.md', content: 'Destination content' }],
+    };
+    const source = await importAgent(
+      exportFile(sourceSlug, {
+        format: 'agentport/agent@2',
+        rules: [],
+        outputStyles: [],
+        skills: [skill],
+      }),
+    );
+    expect(source.statusCode, source.body).toBe(201);
+    const imported = await importAgent(
+      exportFile(targetSlug, {
+        format: 'agentport/agent@2',
+        rules: [],
+        outputStyles: [],
+        skills: [
+          { ...skill, files: [{ path: 'references/incoming.md', content: 'Incoming content' }] },
+        ],
+      }),
+    );
+    expect(imported.statusCode, imported.body).toBe(201);
+    const result = imported.json<AgentImportResult>();
+    expect(result.createdSkills).toEqual([]);
+    expect(result.warnings.some((warning) => warning.includes(skillSlug))).toBe(true);
+    const exported = await exportAgent(result.agent.id);
+    expect(exported.statusCode, exported.body).toBe(200);
+    expect(exported.json<{ skills: unknown[] }>().skills).toEqual([skill]);
+
+    const selected = { slug: 'first', body: 'Style', isSelected: true };
+    const invalid = [
+      { outputStyles: [selected, { ...selected, slug: 'second' }] },
+      { skills: [{ ...skill, files: [skill.files[0], skill.files[0]] }] },
+      { skills: [{ ...skill, files: [{ path: '../escape.md', content: '' }] }] },
+      { skills: [{ ...skill, files: [{ path: 'SKILL.md', content: '' }] }] },
+    ];
+    for (const [index, fields] of invalid.entries()) {
+      const slug = unique(`imp-v2-invalid-${index}`);
+      const freshSkillSlug = unique(`imp-v2-invalid-skill-${index}`);
+      createdAgents.push(slug);
+      createdSkills.push(freshSkillSlug);
+      const res = await importAgent(
+        exportFile(slug, {
+          format: 'agentport/agent@2',
+          rules: [],
+          outputStyles: [],
+          ...fields,
+          skills: [
+            {
+              ...skill,
+              slug: freshSkillSlug,
+              ...(fields.skills?.[0] ? { files: fields.skills[0].files } : {}),
+            },
+          ],
+        }),
+      );
+      expect(res.statusCode, res.body).toBe(400);
+      const agents = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
+      const skills = await inject(app, { method: 'GET', url: '/api/skills', headers: auth() });
+      expect(agents.json<Agent[]>().some((agent) => agent.slug === slug)).toBe(false);
+      expect(skills.json<Skill[]>().some((entry) => entry.slug === freshSkillSlug)).toBe(false);
+    }
+  });
 });

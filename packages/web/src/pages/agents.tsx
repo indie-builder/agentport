@@ -11,6 +11,7 @@ import {
   AGENT_ROLES,
   type Agent,
   type AgentInput,
+  agentDuplicateInputSchema,
   agentInputSchema,
   BUILTIN_TOOLS,
   type Server,
@@ -20,24 +21,37 @@ import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
+  BarChart3,
   Bot,
+  Brain,
   Check,
   ChevronRight,
+  Copy,
   Download,
   Ellipsis,
   FileCode,
   FileText,
   History,
+  Palette,
   Plug,
   Plus,
   RotateCcw,
+  ScrollText,
   Sparkles,
   Trash2,
   Upload,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { type ComponentProps, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ComponentProps,
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import digitalTwinPortrait from '../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../components/agent-avatar.js';
 import { CodeBlock } from '../components/code-block.js';
@@ -109,7 +123,7 @@ import {
 } from '../components/ui/sheet.js';
 import { Switch } from '../components/ui/switch.js';
 import { Textarea } from '../components/ui/textarea.js';
-import type { AgentVersionSummary } from '../lib/api.js';
+import type { AgentFiles, AgentVersionSummary } from '../lib/api.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
@@ -123,12 +137,15 @@ import {
   useAgentVersions,
   useCreateAgent,
   useDeleteAgent,
+  useDuplicateAgent,
   useRollbackAgent,
   useServers,
   useSkills,
   useUpdateAgent,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { MemoryPanel, OutputStylesPanel, RulesPanel } from './memory-panel.js';
+import { AgentStatsPanel } from './ops.js';
 
 /**
  * 模型名由部署的网关决定，不是平台常量：直连 Anthropic 时是 claude-*，
@@ -749,9 +766,18 @@ export function AgentEditor({
   const pending = update.isPending || reloading || rollingBack;
   const [form, setForm] = useState<AgentInput>(() => toInput(agent));
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [mode, setMode] = useState<'config' | 'files'>('config');
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const duplicateTriggerRef = useRef<HTMLButtonElement>(null);
+  const [mode, setMode] = useState<'config' | 'files' | 'memory' | 'rules' | 'styles' | 'stats'>(
+    'config',
+  );
   const [activeSection, setActiveSection] = useState<SectionId>('identity');
-  const [activeFile, setActiveFile] = useState<(typeof fileTabs)[number][0]>('mcpJson');
+  const [activeFile, setActiveFile] = useState('.mcp.json');
+  const files = useAgentFiles(agent.id);
+  const fileEntries = files.data ? listWorkspaceFiles(files.data) : baseFileEntries;
+  const resolvedEntry = fileEntries.find((entry) => entry.id === activeFile) ?? fileEntries[0];
+  const resolvedId = resolvedEntry?.id;
+  const fileGroups = [...new Set(fileEntries.map((entry) => entry.group))];
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [exporting, setExporting] = useState(false);
   // 多行文本按行解析为数组；草稿单独保留，输入换行时不会被 join 规范化掉。
@@ -1194,7 +1220,12 @@ export function AgentEditor({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <Button variant="ghost" size="icon-sm" aria-label="更多操作">
+                <Button
+                  ref={duplicateTriggerRef}
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="更多操作"
+                >
                   <Ellipsis className="size-4" />
                 </Button>
               }
@@ -1206,6 +1237,12 @@ export function AgentEditor({
               className="w-40 rounded-card border shadow-overlay"
             >
               <DropdownMenuGroup>
+                <DropdownMenuItem
+                  disabled={pending || dirty}
+                  onClick={() => setDuplicateOpen(true)}
+                >
+                  <Copy className="size-4" /> 克隆专家
+                </DropdownMenuItem>
                 <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
                   <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
                 </DropdownMenuItem>
@@ -1240,28 +1277,117 @@ export function AgentEditor({
             <li className="md:mt-3 md:border-t md:pt-1">
               <p className="px-2 pt-1 pb-0.5 text-2xs text-subtle">完整文件</p>
             </li>
-            {fileTabs.map(([value, label, Icon]) => (
-              <li key={value}>
-                <button
-                  type="button"
-                  aria-current={mode === 'files' && activeFile === value ? 'true' : undefined}
-                  onClick={() => {
-                    setMode('files');
-                    setActiveFile(value);
-                  }}
-                  className={sectionButtonClass(mode === 'files' && activeFile === value)}
-                >
-                  <span className="inline-flex items-center gap-1.5">
-                    <Icon aria-hidden="true" /> {label}
-                  </span>
-                </button>
-              </li>
+            {fileGroups.map((group) => (
+              <Fragment key={group}>
+                <li>
+                  <p className="px-2 pt-1 pb-0.5 text-2xs text-subtle">{group}</p>
+                </li>
+                {fileEntries
+                  .filter((entry) => entry.group === group)
+                  .map((entry) => (
+                    <li key={entry.id}>
+                      <button
+                        type="button"
+                        aria-current={
+                          mode === 'files' && resolvedId === entry.id ? 'true' : undefined
+                        }
+                        onClick={() => {
+                          setMode('files');
+                          setActiveFile(entry.id);
+                        }}
+                        className={sectionButtonClass(mode === 'files' && resolvedId === entry.id)}
+                      >
+                        <span className="inline-flex min-w-0 items-center gap-1.5">
+                          {entry.id === '.mcp.json' ? (
+                            <FileCode aria-hidden="true" />
+                          ) : (
+                            <FileText aria-hidden="true" />
+                          )}
+                          <span className="truncate" title={entry.path}>
+                            {entry.path}
+                            {entry.group === '输出风格' &&
+                            files.data?.selectedOutputStyle &&
+                            entry.id ===
+                              `.claude/output-styles/${files.data.selectedOutputStyle}.md`
+                              ? ' · 已启用'
+                              : ''}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+              </Fragment>
             ))}
+            <li className="md:mt-3 md:border-t md:pt-1">
+              <p className="px-2 pt-1 pb-0.5 text-2xs text-subtle">记忆</p>
+            </li>
+            <li>
+              <button
+                type="button"
+                aria-current={mode === 'memory' ? 'true' : undefined}
+                onClick={() => setMode('memory')}
+                className={sectionButtonClass(mode === 'memory')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Brain aria-hidden="true" /> 长期记忆
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                aria-current={mode === 'rules' ? 'true' : undefined}
+                onClick={() => setMode('rules')}
+                className={sectionButtonClass(mode === 'rules')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <ScrollText aria-hidden="true" /> 项目规则
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                aria-current={mode === 'styles' ? 'true' : undefined}
+                onClick={() => setMode('styles')}
+                className={sectionButtonClass(mode === 'styles')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Palette aria-hidden="true" /> 输出风格
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                aria-current={mode === 'stats' ? 'true' : undefined}
+                onClick={() => setMode('stats')}
+                className={sectionButtonClass(mode === 'stats')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <BarChart3 aria-hidden="true" /> 运行统计
+                </span>
+              </button>
+            </li>
           </ul>
         </nav>
 
         <div className="min-w-0">
-          {mode === 'config' ? (
+          {mode === 'memory' ? (
+            <div className="min-w-0">
+              <MemoryPanel agentId={agent.id} />
+            </div>
+          ) : mode === 'rules' ? (
+            <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+              <RulesPanel agentId={agent.id} />
+            </div>
+          ) : mode === 'styles' ? (
+            <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+              <OutputStylesPanel agentId={agent.id} />
+            </div>
+          ) : mode === 'stats' ? (
+            <AgentStatsPanel agentId={agent.id} />
+          ) : mode === 'config' ? (
             <form
               noValidate
               onSubmit={(event) => {
@@ -1950,7 +2076,7 @@ export function AgentEditor({
               id="agent-files-detail"
               className="min-w-0 scroll-mt-4 rounded-card bg-surface px-6 py-5 ring-1 ring-line"
             >
-              <FilesPreview agentId={agent.id} dirty={dirty} which={activeFile} />
+              <FilesPreview entry={resolvedEntry} dirty={dirty} files={files} />
             </div>
           )}
         </div>
@@ -2017,6 +2143,16 @@ export function AgentEditor({
           </div>
         </SheetContent>
       </Sheet>
+
+      {duplicateOpen ? (
+        <DuplicateAgentDialog
+          agent={agent}
+          onClose={() => setDuplicateOpen(false)}
+          getReturnFocus={() =>
+            duplicateTriggerRef.current?.isConnected ? duplicateTriggerRef.current : null
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -2149,26 +2285,77 @@ function previewEntry(server: Server): McpJsonEntry {
   };
 }
 
-const fileTabs = [
-  ['mcpJson', '.mcp.json', FileCode],
-  ['claudeMd', 'CLAUDE.md', FileText],
-  ['agentMd', 'agent md', FileText],
-] as const;
+type FileEntry = { id: string; path: string; group: string; content: string };
+
+/** 加载中或失败时也保留根文件入口，完整文件视图与重试界面才始终可达。 */
+const baseFileEntries: FileEntry[] = [
+  { id: '.mcp.json', path: '.mcp.json', group: '根文件', content: '' },
+  { id: 'CLAUDE.md', path: 'CLAUDE.md', group: '根文件', content: '' },
+  { id: 'preview:agent-md', path: 'agent md', group: '根文件', content: '' },
+];
+
+/** 完整文件视图的唯一清单来源：group 只承载导航结构，id 用作稳定选择键。 */
+function listWorkspaceFiles(files: AgentFiles): FileEntry[] {
+  return [
+    { id: '.mcp.json', path: '.mcp.json', group: '根文件', content: files.mcpJson },
+    { id: 'CLAUDE.md', path: 'CLAUDE.md', group: '根文件', content: files.claudeMd },
+    { id: 'preview:agent-md', path: 'agent md', group: '根文件', content: files.agentMd },
+    ...(files.settingsJson === null
+      ? []
+      : [
+          {
+            id: '.claude/settings.json',
+            path: '.claude/settings.json',
+            group: '根文件',
+            content: files.settingsJson,
+          },
+        ]),
+    ...(files.skills ?? []).flatMap((skill) => [
+      {
+        id: `.claude/skills/${skill.slug}/SKILL.md`,
+        path: `skills/${skill.slug}/SKILL.md`,
+        group: '技能',
+        content: skill.content,
+      },
+      ...(skill.files ?? []).map((file) => ({
+        id: `.claude/skills/${skill.slug}/${file.path}`,
+        path: `skills/${skill.slug}/${file.path}`,
+        group: '技能',
+        content: file.content,
+      })),
+    ]),
+    ...(files.subAgents ?? []).map((subAgent) => ({
+      id: `.claude/agents/${subAgent.slug}.md`,
+      path: `agents/${subAgent.slug}.md`,
+      group: '子智能体',
+      content: subAgent.content,
+    })),
+    ...(files.rules ?? []).map((rule) => ({
+      id: `.claude/rules/${rule.slug}.md`,
+      path: `rules/${rule.slug}.md`,
+      group: '规则',
+      content: rule.content,
+    })),
+    ...(files.outputStyles ?? []).map((style) => ({
+      id: `.claude/output-styles/${style.slug}.md`,
+      path: `output-styles/${style.slug}.md`,
+      group: '输出风格',
+      content: style.content,
+    })),
+  ];
+}
 
 /** 完整文件来自上次保存；编辑中的草稿在内联预览里。文件切换由外层的三栏布局承载。 */
 function FilesPreview({
-  agentId,
+  entry,
   dirty,
-  which,
+  files,
 }: {
-  agentId: string;
+  entry: FileEntry | undefined;
   dirty: boolean;
-  which: (typeof fileTabs)[number][0];
+  files: ReturnType<typeof useAgentFiles>;
 }) {
-  const files = useAgentFiles(agentId);
-
   const disabled = files.isPending || files.isError || !files.data;
-  const content = files.data?.[which] ?? '';
 
   return (
     <div className="flex flex-col gap-3">
@@ -2180,15 +2367,18 @@ function FilesPreview({
       {files.isError ? (
         <ErrorState error={files.error} onRetry={() => void files.refetch()} />
       ) : null}
-      {!disabled && content ? (
-        <CodeBlock code={content} lineNumbers maxHeight="calc(100vh - 22rem)" />
+      {!disabled && entry && entry.content ? (
+        <CodeBlock
+          key={entry.id}
+          code={entry.content}
+          lineNumbers
+          maxHeight="calc(100vh - 22rem)"
+        />
       ) : null}
-      {!disabled && !content ? (
-        <InlineEmpty>该文件当前为空。保存配置后会自动生成内容。</InlineEmpty>
-      ) : null}
+      {!disabled && entry && !entry.content ? <InlineEmpty>该文件当前为空。</InlineEmpty> : null}
       <p className="py-2 text-2xs text-muted-foreground">
-        主智能体自己的 agent md 仅供预览、不落盘；路径{' '}
-        <code className="font-mono">data/workspaces/{'{slug}'}/</code>
+        除根文件外，路径相对 <code className="font-mono">.claude/</code>；agent md
+        仅供预览，不落盘。
       </p>
     </div>
   );
@@ -2666,6 +2856,176 @@ export function CreateAgentDialog({
           }
           confirmLabel="放弃并离开"
           confirmDisabled={create.isPending}
+          onConfirm={async () => blocker.proceed()}
+        />
+      </DialogShell>
+    </Dialog>
+  );
+}
+
+export function DuplicateAgentDialog({
+  agent,
+  onClose,
+  getReturnFocus,
+}: {
+  agent: Agent;
+  onClose: () => void;
+  getReturnFocus: () => HTMLElement | null;
+}) {
+  const navigate = useNavigate();
+  const duplicate = useDuplicateAgent();
+  const [initial] = useState(() => ({
+    name: `${agent.name} 副本`.slice(0, 128),
+    slug: `${agent.slug}-copy`.slice(0, 64),
+  }));
+  const [form, setForm] = useState(initial);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [created, setCreated] = useState<Agent | null>(null);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const blocker = useFormBlocker(!created && dirty, !created && duplicate.isPending);
+  // 先落成功状态再离开：blocker 下一次渲染才释放，直接 navigate 会被拦下。
+  useEffect(() => {
+    if (!created) return;
+    onClose();
+    void navigate({ to: '/agents/$agentId', params: { agentId: created.id } });
+  }, [created, navigate, onClose]);
+  const close = (): void => {
+    if (duplicate.isPending) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
+
+  const submit = (): void => {
+    if (duplicate.isPending) return;
+    const parsed = agentDuplicateInputSchema.safeParse(form);
+    if (!parsed.success) {
+      setErrors(fieldErrors(parsed.error.issues));
+      return;
+    }
+    duplicate.mutate(
+      { id: agent.id, ...parsed.data },
+      {
+        onSuccess: (createdAgent) => {
+          toastSuccess('已克隆专家');
+          setCreated(createdAgent);
+        },
+        onError: (error) => {
+          if (
+            error instanceof ApiError &&
+            error.status === 409 &&
+            error.code === 'CONFLICT' &&
+            !error.retryable
+          ) {
+            setErrors({ slug: '该 slug 已被占用' });
+            return;
+          }
+          toastError(error);
+        },
+      },
+    );
+  };
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(next, details) => {
+        if (duplicate.isPending) {
+          details.cancel();
+          return;
+        }
+        if (!next) close();
+      }}
+    >
+      <DialogShell
+        title="克隆专家"
+        description="不包含子专家、记忆与历史记录。"
+        closeDisabled={duplicate.isPending}
+        finalFocus={getReturnFocus}
+      >
+        <form
+          className="flex flex-col gap-3"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            submit();
+          }}
+        >
+          <FieldGroup className="grid gap-3 sm:grid-cols-2">
+            <Field
+              data-disabled={duplicate.isPending}
+              className="gap-1.5 sm:col-span-2"
+              data-invalid={Boolean(errors.name)}
+            >
+              <FieldLabel htmlFor="duplicate-agent-name">
+                名称
+                <RequiredMark />
+              </FieldLabel>
+              <Input
+                disabled={duplicate.isPending}
+                id="duplicate-agent-name"
+                value={form.name}
+                aria-required="true"
+                aria-invalid={Boolean(errors.name)}
+                aria-describedby={errors.name ? 'duplicate-agent-name-error' : undefined}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+              />
+              <FieldError id="duplicate-agent-name-error">{errors.name}</FieldError>
+            </Field>
+            <Field
+              data-disabled={duplicate.isPending}
+              className="gap-1.5 sm:col-span-2"
+              data-invalid={Boolean(errors.slug)}
+            >
+              <FieldLabel htmlFor="duplicate-agent-slug">
+                Slug
+                <RequiredMark />
+              </FieldLabel>
+              <Input
+                disabled={duplicate.isPending}
+                id="duplicate-agent-slug"
+                value={form.slug}
+                className="font-mono"
+                aria-required="true"
+                aria-invalid={Boolean(errors.slug)}
+                aria-describedby={errors.slug ? 'duplicate-agent-slug-error' : undefined}
+                onChange={(event) => setForm({ ...form, slug: event.target.value })}
+              />
+              <FieldError id="duplicate-agent-slug-error">{errors.slug}</FieldError>
+            </Field>
+          </FieldGroup>
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <Button variant="outline" size="sm" onClick={close} disabled={duplicate.isPending}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={duplicate.isPending}
+              aria-busy={duplicate.isPending}
+            >
+              {duplicate.isPending ? '克隆中…' : '克隆'}
+            </Button>
+          </div>
+        </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后克隆信息会丢失。"
+          confirmLabel="放弃并关闭"
+          confirmDisabled={duplicate.isPending}
+          onConfirm={async () => {
+            if (!duplicate.isPending) onClose();
+          }}
+        />
+        <ConfirmDialog
+          open={blocker.status === 'blocked'}
+          onClose={() => blocker.reset?.()}
+          title="放弃未保存的更改？"
+          description="离开后克隆信息会丢失。"
+          confirmLabel="放弃并离开"
+          confirmDisabled={duplicate.isPending}
           onConfirm={async () => blocker.proceed()}
         />
       </DialogShell>

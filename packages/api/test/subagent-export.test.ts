@@ -79,8 +79,10 @@ const ALLOWED_SUB_AGENT_KEYS = [
   'maxTurns',
   'model',
   'name',
+  'outputStyles',
   'permissionMode',
   'role',
+  'rules',
   'serverNames',
   'skillSlugs',
   'slug',
@@ -241,7 +243,7 @@ describe.skipIf(!ready)('subagent export', () => {
     expect(res.statusCode, res.body).toBe(200);
     const file = res.json<AgentExportFile>();
 
-    expect(file.format).toBe('agentport/agent@1');
+    expect(file.format).toBe('agentport/agent@2');
     // 根智能体只声明自己的绑定；子智能体的资源不进根名称列表。
     expect(file.agent.serverNames).toEqual(
       [rootServer.name, sharedServer.name].sort((a, b) => a.localeCompare(b)),

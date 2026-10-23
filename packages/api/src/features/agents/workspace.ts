@@ -1,5 +1,6 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
 import { renderWorkspace, toWorkspaceInput } from '@agentport/core';
+import { repo } from '@agentport/db';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import { maskUrlCredentials, SECRET_MASK } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
@@ -74,10 +75,6 @@ export async function renderAgentWorkspace(
   // 停用的子智能体不渲染，也不查它们的技能。
   const enabledChildIds = subAgentRows.filter((row) => row.enabled).map((row) => row.id);
   const childSkills = await agentRepo.getBoundSkillsByAgentIds(app.db, enabledChildIds);
-  const subAgents = subAgentRows.map((row) => ({
-    ...row,
-    skills: childSkills.get(row.id) ?? [],
-  }));
   const servers = rows.map((row) => {
     // 只传键名，值没有离开过加密列的解密结果，更不会进 API 响应。
     const secretKeys = row.secretsEncrypted
@@ -86,12 +83,44 @@ export async function renderAgentWorkspace(
     return { name: row.name, entry: toEntry(row, secretKeys) };
   });
 
+  // 技能的官方支持资源文件也纳入预览，保持与 worker 落盘一致。
+  const skillFiles = await repo.skillFiles.getSkillFilesBySkillIds(app.db, [
+    ...new Set([...skills, ...[...childSkills.values()].flat()].map((s) => s.id)),
+  ]);
+  const withFiles = (s: (typeof skills)[number]) => ({
+    slug: s.slug,
+    name: s.name,
+    description: s.description,
+    body: s.body,
+    files: (skillFiles.get(s.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
+  });
+  const skillsWithFiles = skills.map(withFiles);
+  const subAgents = subAgentRows.map((row) => ({
+    ...row,
+    skills: (childSkills.get(row.id) ?? []).map(withFiles),
+  }));
+
+  const ruleRows = await repo.rules.listRules(app.db, agent.id);
+  const rules = ruleRows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
+
+  const styleRows = await repo.outputStyles.listOutputStyles(app.db, agent.id);
+  const outputStyles = styleRows.map((r) => ({
+    slug: r.slug,
+    description: r.description,
+    keepCodingInstructions: r.keepCodingInstructions,
+    body: r.body,
+  }));
+  const selectedOutputStyle = styleRows.find((r) => r.isSelected)?.slug ?? null;
+
   return renderWorkspace(
     toWorkspaceInput({
       agent,
       servers,
-      skills,
+      skills: skillsWithFiles,
       subAgents,
+      rules,
+      outputStyles,
+      selectedOutputStyle,
     }),
   );
 }

@@ -1,5 +1,14 @@
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { ArrowLeft, Bot, CircleAlert, CircleStop, RotateCcw, User, Wrench } from 'lucide-react';
+import {
+  ArrowLeft,
+  Bot,
+  CircleAlert,
+  CircleStop,
+  RotateCcw,
+  Sparkles,
+  User,
+  Wrench,
+} from 'lucide-react';
 import { type ReactNode, useRef } from 'react';
 import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
 import { CopyButton } from '../components/copy-button.js';
@@ -16,7 +25,14 @@ import {
   runStatusLabel,
   shortId,
 } from '../lib/format.js';
-import { useApproveRun, useCancelRun, useRerun, useRun, useRunApprovals } from '../lib/queries.js';
+import {
+  useApproveRun,
+  useCancelRun,
+  useRerun,
+  useRun,
+  useRunApprovals,
+  useSkillDraftFromRun,
+} from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 function elapsed(at: string, start: string | null): number {
@@ -46,6 +62,7 @@ export function RunDetailPage() {
   );
   const rerunMutation = useRerun();
   const cancelMutation = useCancelRun();
+  const draftMutation = useSkillDraftFromRun();
   const approveMutation = useApproveRun();
   const approvalInFlight = useRef(false);
   // 选中的步骤由 URL 决定：刷新、分享、前进后退都保留。
@@ -100,6 +117,15 @@ export function RunDetailPage() {
 
   const hasPrompt = run.data?.steps.some((step) => step.kind === 'user') ?? false;
   const cancellable = run.data?.run.status === 'queued' || run.data?.run.status === 'running';
+  const terminal = run.data ? !cancellable : false;
+
+  const saveAsSkill = (): void => {
+    if (!run.data) return;
+    draftMutation.mutate(run.data.run.id, {
+      onSuccess: (skill) => toastSuccess(`已生成技能草稿「${skill.name}」，可在技能页查看编辑`),
+      onError: (error) => toastError(error),
+    });
+  };
 
   const cancel = (): void => {
     if (!run.data) return;
@@ -147,6 +173,17 @@ export function RunDetailPage() {
                 >
                   <RotateCcw data-icon="inline-start" />
                   {rerunMutation.isPending ? '提交中…' : '重跑'}
+                </Button>
+              ) : null}
+              {terminal && hasPrompt ? (
+                <Button
+                  variant="outline"
+                  disabled={draftMutation.isPending}
+                  aria-busy={draftMutation.isPending}
+                  onClick={saveAsSkill}
+                >
+                  <Sparkles data-icon="inline-start" />
+                  {draftMutation.isPending ? '生成中…' : '存为技能'}
                 </Button>
               ) : null}
             </>
@@ -347,6 +384,11 @@ export function RunDetailPage() {
         <div className="grid min-w-0 grid-cols-1 gap-x-4 sm:grid-cols-2">
           <ContextRow label="运行 ID" value={detail.id} mono copy />
           <ContextRow label="智能体" value={detail.agentName ?? detail.agentId} />
+          <ContextRow
+            label="入队时版本"
+            value={detail.agentVersion != null ? `v${detail.agentVersion}` : '—'}
+            mono
+          />
           <ContextRow label="开始" value={formatDateTime(detail.startedAt)} mono />
           <ContextRow label="结束" value={formatDateTime(detail.endedAt)} mono />
           <ContextRow label="Sandbox" value={detail.sandboxId ?? '—'} mono copy />

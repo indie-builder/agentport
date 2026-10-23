@@ -27,6 +27,13 @@ vi.mock('../src/lib/queries.js', () => {
   const mutation = () => ({ isPending: state.pending, mutate: state.mutate });
   return {
     useAgents: () => ({ data: [] }),
+    useAgentFiles: () => ({
+      data: undefined,
+      isPending: true,
+      isError: false,
+      error: null,
+      refetch: () => {},
+    }),
     useSkills: () => ({ data: [] }),
     useServers: () => ({ data: [] }),
     useCreateSkill: mutation,

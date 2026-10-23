@@ -23,6 +23,7 @@ const EvalPage = lazyRouteComponent(() => import('./pages/eval.js'), 'EvalPage')
 const LoginPage = lazyRouteComponent(() => import('./pages/login.js'), 'LoginPage');
 const NotFoundPage = lazyRouteComponent(() => import('./pages/not-found.js'), 'NotFoundPage');
 const OverviewPage = lazyRouteComponent(() => import('./pages/overview.js'), 'OverviewPage');
+const SchedulesPage = lazyRouteComponent(() => import('./pages/ops.js'), 'SchedulesPage');
 const RunDetailPage = lazyRouteComponent(() => import('./pages/run-detail.js'), 'RunDetailPage');
 const RunsPage = lazyRouteComponent(() => import('./pages/runs.js'), 'RunsPage');
 const ServersPage = lazyRouteComponent(() => import('./pages/servers.js'), 'ServersPage');
@@ -146,6 +147,12 @@ const statusRoute = createRoute({
   component: StatusPage,
 });
 
+const schedulesRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/schedules',
+  component: SchedulesPage,
+});
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
@@ -171,6 +178,7 @@ const routeTree = rootRoute.addChildren([
     runDetailRoute,
     evalRoute,
     statusRoute,
+    schedulesRoute,
     notFoundRoute,
   ]),
   loginRoute,

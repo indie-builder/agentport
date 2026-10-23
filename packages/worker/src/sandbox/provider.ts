@@ -8,6 +8,11 @@ export interface SandboxCreateOptions {
   env: Record<string, string>;
   /** docker 容器名；取消时按名字强制清理。 */
   name?: string;
+  /**
+   * 额外挂载（宿主绝对路径 → 容器路径）。用于让 Claude Code 原生 auto-memory
+   * 落在跨 run 持久的宿主目录，而不是沙盒内被回收的 tmpfs。
+   */
+  extraMounts?: Array<{ hostPath: string; containerPath: string; readonly?: boolean }>;
 }
 
 export interface Sandbox {

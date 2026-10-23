@@ -89,6 +89,7 @@ async function openEditor(
 }
 
 async function chooseEffort(screen: Screen, label: string): Promise<void> {
+  await screen.getByRole('button', '行为', { exact: false }).tap();
   await screen.getByRole('combobox', '推理强度').tap();
   await screen.getByRole('option', label, { exact: true }).tap();
 }
@@ -103,11 +104,13 @@ test('setting and clearing reasoning on the page survives save and reload', {
   await openEditor(app, screen, fixture);
 
   // 默认夹具：两个字段都显示为未配置。
+  await screen.getByRole('button', '行为', { exact: false }).tap();
   await expect(screen.getByRole('combobox', '推理强度')).toHaveText('默认');
-  await browser.locator('#agent-limits-heading').tap();
+  await screen.getByRole('button', '运行限制', { exact: false }).tap();
   await expect(browser.locator('#agent-thinking')).toHaveValue('');
 
   await chooseEffort(screen, 'high');
+  await screen.getByRole('button', '运行限制', { exact: false }).tap();
   await browser.locator('#agent-thinking').fill('2048');
   const configured = agentResponse(browser, fixture.id);
   await screen.getByRole('button', '保存更改').tap();
@@ -121,6 +124,7 @@ test('setting and clearing reasoning on the page survives save and reload', {
 
   // 回到默认：选择「默认」并清空输入，保存必须显式发 null。
   await chooseEffort(screen, '默认');
+  await screen.getByRole('button', '运行限制', { exact: false }).tap();
   await browser.locator('#agent-thinking').clear();
   const cleared = agentResponse(browser, fixture.id);
   await screen.getByRole('button', '保存更改').tap();
@@ -133,7 +137,7 @@ test('setting and clearing reasoning on the page survives save and reload', {
 
   // 不相关字段的全量保存不能把清空后的值带回来。
   const renamed = `E2E 默认值改名 ${randomUUID().slice(0, 8)}`;
-  await browser.locator('#agent-identity-heading').tap();
+  await screen.getByRole('button', '身份', { exact: false }).tap();
   await browser.locator('#agent-name').fill(renamed);
   const saved = agentResponse(browser, fixture.id);
   await screen.getByRole('button', '保存更改').tap();
@@ -152,8 +156,9 @@ test('setting and clearing reasoning on the page survives save and reload', {
 
   await browser.reload();
   await openEditor(app, screen, fixture, renamed);
+  await screen.getByRole('button', '行为', { exact: false }).tap();
   await expect(screen.getByRole('combobox', '推理强度')).toHaveText('默认');
-  await browser.locator('#agent-limits-heading').tap();
+  await screen.getByRole('button', '运行限制', { exact: false }).tap();
   await expect(browser.locator('#agent-thinking')).toHaveValue('');
 });
 
@@ -162,8 +167,9 @@ test('PATCH without reasoning keeps configured values, null clears them', {
 }, async ({ app, screen, browser }) => {
   const fixture = await seed('high', 2048);
   await openEditor(app, screen, fixture);
+  await screen.getByRole('button', '行为', { exact: false }).tap();
   await expect(screen.getByRole('combobox', '推理强度')).toHaveText('high');
-  await browser.locator('#agent-limits-heading').tap();
+  await screen.getByRole('button', '运行限制', { exact: false }).tap();
   await expect(browser.locator('#agent-thinking')).toHaveValue('2048');
 
   const patch = (body: {

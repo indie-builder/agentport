@@ -1,21 +1,30 @@
 import { fail, isAppError, parseAgentMd } from '@agentport/core';
-import { repo as allRepo } from '@agentport/db';
+import { repo as allRepo, schema } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
 import {
   AGENT_ROLES,
+  agentDuplicateInputSchema,
   agentInputSchema,
   agentRoleSchema,
   agentSchema,
   idParams,
+  outputStyleInputSchema,
   permissionModeSchema,
   slugSchema,
 } from '@agentport/shared';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import {
+  deleteMemoryFile,
+  listMemoryFiles,
+  readMemoryFile,
+  writeMemoryFile,
+} from './memory-files.js';
 import { allowedToolsSchema, unsupportedAllowedTool } from './validation.js';
 import { renderAgentWorkspace } from './workspace.js';
 
@@ -28,6 +37,36 @@ const subAgentFileParams = z.object({
   id: z.string().min(1),
   childId: z.string().min(1),
 });
+const memoryParams = z.object({ id: z.string().min(1) });
+const memoryFileParams = z.object({ id: z.string().min(1), name: z.string().min(1) });
+const memoryWriteBody = z.object({ content: z.string().max(200_000) });
+const ruleParams = z.object({ id: z.string().min(1), slug: z.string().min(1) });
+const outputStyleParams = z.object({ id: z.string().min(1), slug: slugSchema });
+const ruleBody = z.object({
+  content: z.string().max(100_000),
+  globs: z.string().max(1000).default(''),
+});
+const outputStyleWriteBody = outputStyleInputSchema.pick({
+  description: true,
+  keepCodingInstructions: true,
+  body: true,
+});
+
+type OutputStyleRow = Awaited<ReturnType<typeof allRepo.outputStyles.listOutputStyles>>[number];
+
+function toOutputStyle(row: OutputStyleRow) {
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    slug: row.slug,
+    description: row.description,
+    keepCodingInstructions: row.keepCodingInstructions,
+    body: row.body,
+    isSelected: row.isSelected,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
 
 /** default/acceptEdits 直接透传 SDK；auto 依赖无法审计的模型分类器，暂不开放。 */
 const unsupportedPermissionModes = new Set(['auto']);
@@ -226,6 +265,36 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       rethrowConflict(err);
     }
   });
+
+  // 克隆：配置、绑定、规则、输出风格一起复制；子智能体不复制，从 v1 重新计版本。
+  app.post(
+    '/api/agents/:id/duplicate',
+    {
+      ...auth,
+      schema: {
+        params: idParams,
+        body: agentDuplicateInputSchema,
+        response: { 201: agentSchema },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const row = await repo.duplicateAgent(app.db, request.params.id, request.body);
+        if (!row) return notFound(reply);
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.duplicated',
+          target: row.id,
+          input: { sourceId: request.params.id },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return reply.status(201).send(row);
+      } catch (err) {
+        rethrowConflict(err);
+      }
+    },
+  );
 
   // 导入只接受官方 .claude/agents/*.md；slug 即 frontmatter 的 name，冲突与手动创建一样返回 409。
   app.post(
@@ -479,6 +548,248 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       } catch (err) {
         rethrowConflict(err);
       }
+    },
+  );
+
+  // 长期记忆：Claude Code 原生 auto-memory（MEMORY.md + 主题文件），平台只浏览/编辑。
+  // 目录是 WORKSPACES_DIR/<slug>/agent-memory/，worker 每次运行只读挂载进容器。
+  const memorySlug = async (agentId: string): Promise<string | null> => {
+    const [row] = await app.db
+      .select({ slug: schema.agents.slug })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, agentId))
+      .limit(1);
+    return row?.slug ?? null;
+  };
+
+  app.get(
+    '/api/agents/:id/memory',
+    { ...auth, schema: { params: memoryParams } },
+    async (request, reply) => {
+      const slug = await memorySlug(request.params.id);
+      if (!slug) return notFound(reply);
+      return listMemoryFiles(app.config.WORKSPACES_DIR, slug);
+    },
+  );
+
+  app.get(
+    '/api/agents/:id/memory/:name',
+    { ...auth, schema: { params: memoryFileParams } },
+    async (request, reply) => {
+      const slug = await memorySlug(request.params.id);
+      if (!slug) return notFound(reply);
+      const file = await readMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
+      if (!file) return notFound(reply);
+      return file;
+    },
+  );
+
+  app.put(
+    '/api/agents/:id/memory/:name',
+    { ...auth, schema: { params: memoryFileParams, body: memoryWriteBody } },
+    async (request, reply) => {
+      const slug = await memorySlug(request.params.id);
+      if (!slug) return notFound(reply);
+      try {
+        const file = await writeMemoryFile(
+          app.config.WORKSPACES_DIR,
+          slug,
+          request.params.name,
+          request.body.content,
+        );
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.memory.write',
+          target: request.params.id,
+          input: { name: request.params.name },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return file;
+      } catch {
+        return reject(reply, 'INVALID_INPUT', '记忆文件名非法：只允许 <name>.md');
+      }
+    },
+  );
+
+  app.delete(
+    '/api/agents/:id/memory/:name',
+    { ...auth, schema: { params: memoryFileParams } },
+    async (request, reply) => {
+      const slug = await memorySlug(request.params.id);
+      if (!slug) return notFound(reply);
+      const removed = await deleteMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
+      if (!removed) return notFound(reply);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.memory.delete',
+        target: request.params.id,
+        input: { name: request.params.name },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(204).send();
+    },
+  );
+
+  // 项目规则：渲染到 .claude/rules/<slug>.md（官方 project source 加载）。
+  app.get(
+    '/api/agents/:id/rules',
+    { ...auth, schema: { params: memoryParams } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const rows = await allRepo.rules.listRules(app.db, request.params.id);
+      return rows.map((r) => ({
+        id: r.id,
+        agentId: r.agentId,
+        slug: r.slug,
+        content: r.content,
+        globs: r.globs,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      }));
+    },
+  );
+
+  app.put(
+    '/api/agents/:id/rules/:slug',
+    { ...auth, schema: { params: ruleParams, body: ruleBody } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      try {
+        const row = await allRepo.rules.upsertRule(app.db, request.params.id, {
+          slug: request.params.slug,
+          content: request.body.content,
+          globs: request.body.globs,
+        });
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'agent.rule.written',
+          target: request.params.id,
+          input: { slug: row.slug },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return {
+          id: row.id,
+          agentId: row.agentId,
+          slug: row.slug,
+          content: row.content,
+          globs: row.globs,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+        };
+      } catch {
+        return reject(reply, 'INVALID_INPUT', '规则 slug 非法：仅允许小写字母、数字、- 和 _');
+      }
+    },
+  );
+
+  app.delete(
+    '/api/agents/:id/rules/:slug',
+    { ...auth, schema: { params: ruleParams } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const removed = await allRepo.rules.deleteRule(
+        app.db,
+        request.params.id,
+        request.params.slug,
+      );
+      if (!removed) return notFound(reply);
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.rule.deleted',
+        target: request.params.id,
+        input: { slug: request.params.slug },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(204).send();
+    },
+  );
+
+  // 输出风格：渲染到 .claude/output-styles/<slug>.md，选中者经 settings.outputStyle 激活。
+  app.get(
+    '/api/agents/:id/output-styles',
+    { ...auth, schema: { params: memoryParams } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const rows = await allRepo.outputStyles.listOutputStyles(app.db, request.params.id);
+      return rows.map(toOutputStyle);
+    },
+  );
+
+  app.put(
+    '/api/agents/:id/output-styles/:slug',
+    { ...auth, schema: { params: outputStyleParams, body: outputStyleWriteBody } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const row = await allRepo.outputStyles.upsertOutputStyle(app.db, request.params.id, {
+        slug: request.params.slug,
+        ...request.body,
+      });
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.output_style.written',
+        target: request.params.id,
+        input: { slug: row.slug },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return toOutputStyle(row);
+    },
+  );
+
+  app.post(
+    '/api/agents/:id/output-styles/:slug/unselect',
+    { ...auth, schema: { params: outputStyleParams } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const ok = await allRepo.outputStyles.unselectOutputStyle(
+        app.db,
+        request.params.id,
+        request.params.slug,
+      );
+      if (!ok) return reject(reply, 'NOT_FOUND', '该输出风格不存在，可能已被删除');
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.output_style.unselected',
+        target: request.params.id,
+        input: { slug: request.params.slug },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(204).send();
+    },
+  );
+
+  app.delete(
+    '/api/agents/:id/output-styles/:slug',
+    { ...auth, schema: { params: outputStyleParams } },
+    async (request, reply) => {
+      const exists = await memorySlug(request.params.id);
+      if (!exists) return notFound(reply);
+      const removed = await allRepo.outputStyles.deleteOutputStyle(
+        app.db,
+        request.params.id,
+        request.params.slug,
+      );
+      if (!removed) return reject(reply, 'NOT_FOUND', '该输出风格不存在，可能已被删除');
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.output_style.deleted',
+        target: request.params.id,
+        input: { slug: request.params.slug },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(204).send();
     },
   );
 }

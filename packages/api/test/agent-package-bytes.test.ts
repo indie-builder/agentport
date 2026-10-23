@@ -97,6 +97,7 @@ describe.skipIf(!ready)('agent package bytes', () => {
         name: '包技能',
         description: '包含 "引号"',
         body: '# 步骤\n\n第一行 "x"\n第二行',
+        files: [],
       },
     ]);
     // 工作区预览必须保留，不能为了压字节把它丢掉。

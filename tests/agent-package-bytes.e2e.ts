@@ -82,7 +82,7 @@ test('golden export downloads the exact pretty package and re-imports through th
   const prompt = '你是助手。\n包含 "引号"、\\反斜杠 与 🚀\n第二行';
   const fixture = await seed(prompt);
 
-  // 列表页按 slug 过滤，再点标题按钮打开编辑器；URL 不承载选中态。
+  // 列表页按 slug 过滤，再打开专家详情。
   await app.open(`/agents?q=${encodeURIComponent(fixture.slug)}`);
   const configure = screen.getByRole('button', `配置 ${fixture.name}`);
   await expect(configure).toBeVisible();
@@ -98,7 +98,7 @@ test('golden export downloads the exact pretty package and re-imports through th
   expect(Buffer.byteLength(raw, 'utf8')).toBeLessThanOrEqual(AGENT_PACKAGE_MAX_BYTES);
 
   const body = JSON.parse(raw) as AgentPackage;
-  expect(body.format).toBe('agentport/agent@1');
+  expect(body.format).toBe('agentport/agent@2');
   expect(body.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   expect(body.agent.slug).toBe(fixture.slug);
   expect(body.agent.name).toBe(fixture.name);
@@ -110,7 +110,8 @@ test('golden export downloads the exact pretty package and re-imports through th
   // 下载字节就是页面的序列化结果；二次排版不会生成导入端拒绝的包。
   expect(raw).toBe(serializeAgentPackage(body));
 
-  // 下载文件原样交给页面里的文件输入，走真实导入端点。
+  // 下载文件原样交给列表页里的文件输入，走真实导入端点。
+  await screen.getByRole('button', '返回列表', { exact: true }).tap();
   const responsePromise = browser.waitForResponse(/\/api\/import\/agents$/);
   await browser.locator('input[type="file"]').setInputFiles(download.absolutePath);
   const response = await responsePromise;
@@ -122,8 +123,10 @@ test('golden export downloads the exact pretty package and re-imports through th
   expect(result.agent.slug).toMatch(new RegExp(`^${fixture.slug}-\\d+$`));
   expect(result.agent.systemPrompt).toBe(prompt);
   await expect(screen.getByText('已导入「', { exact: false }).first()).toBeVisible();
-  // 页面留在专家页，编辑器切到副本。
-  await expect(browser).toHaveURL(/\/agents\?/);
+  // 导入后进入副本详情。
+  await expect(browser).toHaveURL(new RegExp(`/agents/${result.agent.id}$`));
+  await expect(screen.getByRole('dialog', '导入提示')).toBeVisible();
+  await screen.getByRole('button', '关闭', { exact: true }).tap();
   await expect(screen.getByRole('button', '更多操作')).toBeVisible();
 });
 
@@ -142,7 +145,7 @@ test('oversize export reports the 1 MiB error and keeps the editor usable', {
 
   await expect(screen.getByText('专家包超过 1 MiB', { exact: false }).first()).toBeVisible();
   // 失败不导航、不关闭编辑器；触发器恢复可再次点击。
-  await expect(browser).toHaveURL(/\/agents\?/);
+  await expect(browser).toHaveURL(new RegExp(`/agents/${fixture.id}$`));
   await expect(screen.getByRole('button', '更多操作')).toBeEnabled();
   await screen.getByRole('button', '更多操作').tap();
   await expect(screen.getByRole('menuitem', '导出 JSON')).toBeEnabled();

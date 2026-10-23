@@ -93,6 +93,12 @@ export const agentSchema = agentInputSchema.extend({ role: z.string().default('�
 
 export type Agent = z.infer<typeof agentSchema>;
 
+export const agentDuplicateInputSchema = z.object({
+  slug: slugSchema,
+  name: z.string().trim().min(1).max(128),
+});
+export type AgentDuplicateInput = z.infer<typeof agentDuplicateInputSchema>;
+
 /** 技能：可复用的操作流程，渲染为 .claude/skills/<slug>/SKILL.md。 */
 export const skillInputSchema = z.object({
   slug: slugSchema,
@@ -113,6 +119,69 @@ export const skillSchema = skillInputSchema.and(
 
 export type Skill = z.infer<typeof skillSchema>;
 
+/** 技能支持资源文件：相对技能目录的安全路径 + 文本内容。 */
+export const skillFileInputSchema = z.object({
+  path: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(
+      /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._\-/]+$/,
+      '路径必须是相对路径，且不能包含 .. 或绝对路径',
+    ),
+  content: z.string().max(200_000).default(''),
+});
+
+export type SkillFileInput = z.infer<typeof skillFileInputSchema>;
+
+export const skillFileSchema = skillFileInputSchema.and(
+  z.object({ id: z.string(), createdAt: z.string() }),
+);
+
+export type SkillFile = z.infer<typeof skillFileSchema>;
+
+/** 项目规则：渲染为 `.claude/rules/<slug>.md`；globs 为空表示对全部文件生效。 */
+export const ruleInputSchema = z.object({
+  slug: slugSchema,
+  content: z.string().max(100_000).default(''),
+  globs: z.string().max(1000).default(''),
+});
+
+export type RuleInput = z.infer<typeof ruleInputSchema>;
+
+export const ruleSchema = ruleInputSchema.and(
+  z.object({
+    id: z.string(),
+    agentId: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+);
+
+export type Rule = z.infer<typeof ruleSchema>;
+
+/** 自定义输出风格：`.claude/output-styles/<slug>.md`，选中者经 settings.outputStyle 激活。 */
+export const outputStyleInputSchema = z.object({
+  slug: slugSchema,
+  description: z.string().max(500).default(''),
+  keepCodingInstructions: z.boolean().default(false),
+  body: z.string().max(50_000).default(''),
+});
+
+export type OutputStyleInput = z.infer<typeof outputStyleInputSchema>;
+
+export const outputStyleSchema = outputStyleInputSchema.and(
+  z.object({
+    id: z.string(),
+    agentId: z.string(),
+    isSelected: z.boolean(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+);
+
+export type OutputStyle = z.infer<typeof outputStyleSchema>;
+
 /** 技能列表项：附带引用它的智能体数量，用于「被 N 个智能体使用」。 */
 export const skillWithAgentCountSchema = skillSchema.and(
   z.object({ agentCount: z.number().int().nonnegative() }),
@@ -120,13 +189,25 @@ export const skillWithAgentCountSchema = skillSchema.and(
 
 export type SkillWithAgentCount = z.infer<typeof skillWithAgentCountSchema>;
 
-/** 工作区文件预览：前端「文件」tab 用。 */
+/** 工作区文件预览：前端「完整文件」视图用；字段与 renderWorkspace 输出一致。 */
 export const workspaceFilesSchema = z.object({
   mcpJson: z.string(),
   claudeMd: z.string(),
   agentMd: z.string(),
-  skills: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  skills: z
+    .array(
+      z.object({
+        slug: z.string(),
+        content: z.string(),
+        files: z.array(z.object({ path: z.string(), content: z.string() })).default([]),
+      }),
+    )
+    .default([]),
   subAgents: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  rules: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  outputStyles: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  selectedOutputStyle: z.string().nullable().default(null),
+  settingsJson: z.string().nullable().default(null),
 });
 
 export type WorkspaceFiles = z.infer<typeof workspaceFilesSchema>;

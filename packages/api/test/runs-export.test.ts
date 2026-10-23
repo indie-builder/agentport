@@ -198,6 +198,7 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
         agentId: agent.id,
         agentName: agent.name,
         status: 'succeeded',
+        trigger: 'chat',
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
         latencyMs: 1500,
@@ -206,6 +207,7 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
         inputTokens: 12,
         outputTokens: 34,
         error: null,
+        agentVersion: null,
       },
     ]);
     expect(res.body).not.toContain('steps');

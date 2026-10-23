@@ -76,6 +76,10 @@ export class DockerSandboxProvider implements SandboxProvider {
       ...READ_ONLY_ARGS,
       '-v',
       `${workspace}:/workspace:ro`,
+      ...(options.extraMounts ?? []).flatMap((mount) => [
+        '-v',
+        `${resolve(mount.hostPath)}:${mount.containerPath}:${mount.readonly ? 'ro' : 'rw'}`,
+      ]),
       ...envArgs,
       '--name',
       name,

@@ -1,0 +1,601 @@
+{
+  "skill_name": "public-api-design-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "We're Harborlane, shipment-tracking SaaS. Our /v2 API has been live with 6 design-partner customers for about 9 months and we open it to anyone in 5 weeks. Roughly what it looks like:\n\n- GET /shipments returns created_at, updated_at, carrier_id\n- GET /carriers returns createdAt, updatedAt, shipmentCount\n- POST /shipments/{id}/cancel-shipment, and also POST /carriers/{id}/verify-carrier\n- DELETE /webhooks/{id} returns 200 with {\"ok\": false, \"message\": \"webhook attached to active subscription\"} when it can't delete\n- GET /shipments/{id}/events/{eventId}/attachments/{attachmentId}/thumbnails\n\nWe already know clients parse createdAt off /carriers because two of them emailed us about its timezone format. We've never adopted a style guide of any kind. Go through this and tell us what we have to fix before we open it up.",
+      "expected_output": "A scoped review report: public x beta-to-GA posture stated as blocking, findings bucketed Must-change vs Improvement with a cited rule each, the casing split flagged as a consistency Must-change without picking a winning casing, and its fix routed through deprecation machinery because clients already observe the field.",
+      "files": [],
+      "expectations": [
+        "Sorts findings into exactly two buckets, named Must-change and Improvement",
+        "Assigns no numeric score, letter grade, percentage, or Critical/High/Medium/Low severity scale to the surface or to any finding",
+        "States that the surface being publicly consumable and about to open makes this a blocking review rather than advisory feedback",
+        "Flags the created_at versus createdAt split across /shipments and /carriers as a Must-change",
+        "Declines to declare either snake_case or camelCase the correct convention, citing consistency of the choice as the rule instead",
+        "States that renaming createdAt is itself a breaking change because clients already observe that field",
+        "Routes the casing fix through deprecation or versioning machinery rather than prescribing a silent in-place rename",
+        "Names samber/developer-platform-skills@api-versioning-policy as the owner of scheduling that removal",
+        "Flags DELETE /webhooks/{id} returning 200 with an error body and prescribes 409 with the standard error envelope instead",
+        "Flags cancel-shipment and verify-carrier as verbs in the URI and proposes one custom-method convention applied across every action endpoint",
+        "Flags the /shipments/{id}/events/{eventId}/attachments/{attachmentId}/thumbnails path as exceeding a 2-3 level nesting limit",
+        "States that because the team has adopted no rule corpus, findings cite this skill's own checklist items by name",
+        "Attaches a cited rule or precedent to every finding placed in the Must-change bucket",
+        "Presents findings in a table carrying finding, dimension, bucket, cited rule, and proposed fix"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I'm the new head of platform at Verrill Systems. Two years ago we had 3 backend teams; we now have 31 and about 19 of them ship something external-facing. Every team invented its own pagination and its own error body. I want to stand up a proper API design review board: a monthly meeting where teams bring designs, staffed by 5 senior architects, growing to 10 as load increases. I have real budget and roughly two quarters to get it running. What should the process look like?",
+      "expected_output": "A program design that replaces the monthly calendar cadence with audience x lifecycle triggers, refuses the committee-growth plan, promotes the certified federated reviewer pool for this scale while naming the answers that promoted it, and states the ladder ordering per axis out loud.",
+      "files": [],
+      "expectations": [
+        "Rejects the proposed monthly meeting cadence and triggers review on audience and lifecycle stage instead of a calendar",
+        "States review is required at beta and at GA-if-changed, recommended at alpha, and skipped for internal-only surfaces",
+        "Rejects growing the architect group from 5 to 10 and states that growing a central committee is the one scaling move no studied company chose",
+        "Recommends the certified federated reviewer pool rung for this organization",
+        "Names the two-quarter runway, the budget, and the 31-team scale as the answers that promoted that rung above the default",
+        "States the maturity-ladder ordering explicitly in the text rather than leaving it implied by the order of a list",
+        "Gives separate orderings for efficiency and for effort or value, noting the federated pool loses every efficiency round while winning on value",
+        "Requires a shared, versioned rule corpus to exist before the reviewer pool grows",
+        "States that growing reviewers without a versioned corpus degrades turnaround time and guidance consistency together",
+        "Attributes the centralized-friction-point concession to Kenneth Auchenberg personally rather than to Stripe as a company",
+        "Requires publishing the escalation path and a named override authority up front",
+        "Places a spec linter first for mechanical checks and keeps semantic judgment with human reviewers",
+        "Gives turnaround guidance of under a week for small APIs, with a median past roughly 2 weeks signalling the program is too heavy",
+        "Recommends forking an existing public rule corpus rather than authoring one from a blank page"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Tessellate Health, 11 engineers across 2 backend teams, one public API for patient scheduling, about 40 endpoints. Our CTO read about Google's API readability certification and wants us to build the same thing: a written style guide, a certification process for reviewers, and embedded API champions per domain. I have maybe 3 days of my own time before the next sprint starts. Rank the options and tell me what to actually do.",
+      "expected_output": "A recommendation that steps down to a linter-only CI gate, removes the federated/certified rung from the menu outright rather than ranking it last, and supplies the concrete re-promotion trigger that would bring it back.",
+      "files": [],
+      "expectations": [
+        "Removes the certified federated reviewer pool from the option menu entirely rather than ranking it last or parking it as a later phase",
+        "Justifies removal over demotion by noting a parked rung reappears as roadmap work that consumes corpus-writing time nobody needs yet",
+        "Gives an explicit re-promotion trigger: a third team shipping its own API surface, or median review turnaround past roughly 2 weeks",
+        "Recommends a linter-only CI gate rather than the default linter-plus-two-named-reviewers rung",
+        "Names the two-team scope and the 3-day effort ceiling as the answers that moved the recommendation down from the default rung",
+        "States that the semantic conversation still happens inside ordinary code review at this scale",
+        "Recommends forking a published corpus such as Zalando, Adidas, or Microsoft rather than writing a style guide from scratch",
+        "States the corpus must be adapted to the team's own articulated intent before it is enforced",
+        "States the ranking of the options explicitly rather than implying it through the order of a list",
+        "Declines to propose reviewer certification or per-domain embedded champions for an 11-engineer, two-team organization",
+        "Keeps the Must-change versus Improvement two-bucket model rather than introducing a numeric severity score",
+        "Characterizes the corpus-plus-linter setup as roughly an afternoon of work rather than a multi-week program"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Quick one. At Northmark we have an internal service API, /billing-internal, consumed only by our own web app and one nightly batch job. Both live in our monorepo, both deployed by us. It's at alpha and we intend to keep it internal permanently. Our new architecture lead wants it to clear the same blocking design review as our public partner API before it can deploy. The team says that's overkill and we're deadlocked. Settle it: what review, if any, does this need?",
+      "expected_output": "A ruling that formal blocking review is not required for an internal-only single-consumer alpha, derived explicitly from the exposure and lifecycle axes, with advisory feedback offered and the condition that would make review mandatory later.",
+      "files": [],
+      "expectations": [
+        "Concludes that formal blocking review is not required for an internal-only surface with a single known consumer set",
+        "Names both axes that produce the conclusion: surface exposure (internal / partner / public) and lifecycle stage (alpha / beta / GA)",
+        "States that review is recommended but advisory at alpha, so an internal alpha gets advisory feedback rather than a blocking checklist",
+        "States that review becomes required at the beta gate if the surface ever becomes externally consumable",
+        "Attributes the audience-by-release-level keying to Google's AIP-100",
+        "Rejects the position that an internal API needs no contract, on the grounds that internal consumers are still consumers",
+        "Suggests tagging audience in the spec itself so the review trigger becomes mechanical, citing the x-api-audience convention",
+        "Notes that because the consumers are enumerable and deployed by the same team, defects can be fixed in place rather than routed through deprecation machinery",
+        "Declines to endorse the architecture lead's blocking gate as a compromise position",
+        "Keeps any findings it does raise in the Improvement bucket absent a cited rule",
+        "Assigns no numeric maturity score or readiness percentage to the internal API",
+        "Asks for the spec, reference docs, or sample requests and responses rather than reviewing from the endpoint name alone"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Coastline Retail here, reviewing our public /v1 before we publish it. Pagination situation:\n\n- GET /products uses ?page=3&per_page=50\n- GET /orders uses ?cursor=eyJpZCI6...&limit=50\n- GET /stores returns all 1,400 stores in one array, no params at all\n- Ask /products for per_page=5000 and we quietly hand back 100\n- GET /orders?statuss=shipped (note the typo) returns the full unfiltered list\n- Every list response carries a `total` computed with a COUNT; orders is 240M rows and that is our slowest query by a wide margin\n- /orders cursors are just base64'd row IDs, and ?sort=-created_at and ?sort=total_amount both happily accept the same cursor\n\nProduct insists on keeping offset on /products because the web admin has numbered pages and jump-to-page. What's the verdict?",
+      "expected_output": "A pagination and filtering review that flags the unbounded collection, the silent clamp, and the silently ignored filter as cited-rule findings, treats the retained offset as a recorded accepted deviation rather than an open failure, and requires the sort to be bound into the cursor.",
+      "files": [],
+      "expectations": [
+        "Flags the unpaginated GET /stores as a Must-change against the rule that every collection endpoint is paginated",
+        "Flags the silent clamp of per_page=5000 down to 100 and requires a 400 response instead of a silently clamped value",
+        "Flags the silently ignored `statuss` typo and requires 400 or 422 for a filter on an unknown field",
+        "Explains that silently ignoring unknown filters makes a client typo indistinguishable from a genuinely empty result set",
+        "Flags the mixed offset-and-cursor pagination as a cross-surface consistency finding rather than praising it as client flexibility",
+        "Handles the retained offset pagination on /products as an accepted deviation with a recorded rationale, not as an unresolved failure or a blanket rejection",
+        "States that the recorded deviation becomes binding precedent for future admin-facing collections rather than a silent inconsistency",
+        "Flags that a cursor minted under one sort must not be replayable under a different sort, and requires the sort to be encoded into the cursor",
+        "Treats the `total` COUNT as a deliberate cost decision and proposes making it opt-in, for example via ?include_total=true",
+        "Requires a has_more flag or equivalent so clients never infer completion from a short page",
+        "Requires the response shape for empty results, last page, and out-of-range page requests to be specified rather than left undefined",
+        "States that filters are applied before the page is computed",
+        "Buckets every finding as Must-change or Improvement with a cited rule, and uses no numeric severity scale"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Awkward situation at Quilsworth. A staff engineer left this on a teammate's API design PR and it has been stuck for 8 days:\n\n\"BLOCKING: snake_case is dated, switch the whole thing to camelCase. Also nest /refunds under /payments, reads better. And we settled the pagination question differently last year, so going back to cursors here.\"\n\nThe teammate's design is internally consistent snake_case throughout, /refunds is a top-level resource with a payment_id filter, and the pagination approach was explicitly signed off in a review 14 months ago. Two people have now escalated this to me. How do I unstick it, and how do I stop it happening again?",
+      "expected_output": "A ruling that an uncited block is not a valid block, downgrading each of the three objections, plus the standing mechanisms (deviation rationale convention, published escalation path and override authority) that prevent recurrence.",
+      "files": [],
+      "expectations": [
+        "States that a blocking objection carrying no cited written rule or precedent is not a valid block",
+        "Downgrades the camelCase demand to an Improvement at most, because the only citable rule is consistency of the choice",
+        "Confirms the teammate's internally consistent snake_case already satisfies that consistency rule",
+        "Rejects the /refunds nesting demand as a block, noting the existing structure sits within the 2-3 level depth limit",
+        "Treats reopening the pagination decision as re-litigation of a settled prior review and declines it absent a significant, still-consequential mistake",
+        "States that the burden of justification falls on the party deviating from a cited rule, not on the designer defending against an uncited objection",
+        "Names the aip.dev/not-precedent rationale convention as the mechanism for recording an accepted deviation",
+        "Recommends publishing the escalation path and a named override authority so disagreements resolve in days",
+        "Identifies taste-based blocking comments as a named failure mode that recreates both rubber-stamping and bottlenecking",
+        "Gives the calibration line: firm on decisions affecting clients or security, forgiving on stylistic preference",
+        "Proposes no numeric score, rubric, or severity rating as the means of settling the dispute",
+        "Notes the 8-day stall against the under-a-week turnaround target for a small API"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Brightfold, developer platform team. We're about to run our first formal design review. In scope: our REST /v1 (28 endpoints, OpenAPI 3.1 checked into the repo), a new GraphQL gateway a squad has been building for 6 weeks, and our internal gRPC services that partners will eventually reach through a transcoding gateway. I want one consolidated review covering all three so we get consistency across the board. Where do we start?",
+      "expected_output": "A scoping step that confirms the paradigm, keeps only the REST surface in this review, hands the other two to the named sibling skills, runs the linter before human judgment, and asks for real production responses rather than trusting the spec.",
+      "files": [],
+      "expectations": [
+        "Scopes the review to the REST surface only and declines to apply this checklist to the GraphQL and gRPC surfaces",
+        "Hands the GraphQL gateway to samber/developer-platform-skills@public-graphql-api-design",
+        "Hands the gRPC surface to samber/developer-platform-skills@public-grpc-api-design",
+        "Explains the handoff as a conventions mismatch that would make this checklist actively mislead, not as a convenience or a scope cut",
+        "Points at samber/developer-platform-skills@api-integration-surface-strategy for whether a surface belongs on the roadmap at all before it is reviewed",
+        "Runs a spec linter such as Spectral or Zally against the OpenAPI 3.1 file before any human-judgment check",
+        "States that linting owns the mechanical findings and human reviewers own the semantic ones, and does not invert that split",
+        "Cites the limitation that a linter cannot judge whether an operation makes sense to a consumer",
+        "Asks for 5-10 real production responses across endpoints rather than reviewing from the spec alone",
+        "Explains that a spec can claim a consistency the production traffic does not actually have",
+        "Inventories the endpoints and tags each as collection, mutating, or both",
+        "Asks its clarifying questions in one batch rather than one question per message"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Ardenway Labs. Public REST API, about 40 endpoints, documented in a Notion page a PM keeps updated by hand. No OpenAPI, no schema files, and honestly we'd rather write the spec after launch when things settle. Error bodies today: /v1/accounts throws {\"error\": \"...\"}, /v1/transfers returns {\"errors\": [{\"code\": 4012, \"detail\": \"...\"}]}, and a couple of endpoints return null with a 200 when the resource doesn't exist. We're ISO 27001 audited so we care a lot about not leaking internals. Give us the review.",
+      "expected_output": "A full checklist walk that logs the missing spec as a finding rather than refusing to proceed, treats mixed error envelopes as the top review-level error finding, stays at envelope-shape depth, and keeps the five sibling checks to one line each.",
+      "files": [],
+      "expectations": [
+        "Logs the absence of a machine-readable spec as an Improvement finding in its own right",
+        "Proceeds with the checklist walk rather than refusing to review without a spec",
+        "Flags the three different error shapes as the top review-level error finding, citing the rule against mixing patterns",
+        "Explains that mixed error patterns leave the consumer unable to predict behavior across endpoints",
+        "Flags returning null with a 200 for a missing resource and requires 404 with the surface's standard envelope",
+        "Names RFC 9457 rather than RFC 7807 when referring to the problem-details envelope",
+        "States that RFC 9457 obsoletes RFC 7807",
+        "Keeps the error review at envelope-shape level and defers code taxonomy, message wording, and retry signaling to samber/developer-platform-skills@api-error-design",
+        "Does not design an error-code catalog, subcode scheme, or retryability flag as part of this review",
+        "Checks that no 500 body leaks a stack trace, database error text, internal path, or config, and labels that a security finding rather than only a developer-experience one",
+        "Covers all five sibling-boundary checks - versioning, idempotency, auth model, rate-limit signaling, documentation - at roughly one line each",
+        "Rejects writing the spec after launch with the point that the schema is the documentation and is written first",
+        "Walks all eight checklist dimensions rather than only the dimensions the prompt raised"
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "Pellworth. GA launch of our public API is Thursday, 6 days out, press embargo already set. Engineering finished the implementation 3 weeks ago and we only just got the design review back. It lists 9 items. Four cite our internal style guide: two casing inconsistencies, one verb-in-URI, and one endpoint returning 200 with an error body. The other five are the reviewer's own suggestions with no rule behind them, things like \"consider adding a next link\" and \"I'd expose expand parameters\". The VP of Eng wants to know whether we can ship Thursday with all 9 open and clean them up in the first maintenance release.",
+      "expected_output": "A ship-gate ruling that splits the 9 by whether a rule is cited, holds the four cited items to zero-open-at-GA while letting the five uncited ones ship, offers a documented deviation as the alternative to fixing before the date, and names the late-review failure mode.",
+      "files": [],
+      "expectations": [
+        "Splits the 9 items into 4 Must-change and 5 Improvement strictly on whether a written rule is cited",
+        "States the ship gate as zero Must-change findings open at GA, with Improvement findings permitted to ship open",
+        "Allows the five uncited reviewer suggestions to ship open without a fix",
+        "Offers recording a documented deviation as a legitimate alternative to fixing a Must-change before the date",
+        "Names expediency - a deadline that cannot accommodate the better design - as one of the enumerated deviation reasons available",
+        "Requires any such deviation to carry a written rationale that leaves a trace, rather than a verbal or informal exception",
+        "Refuses to let the 200-with-error endpoint ship unresolved without either a fix or a recorded deviation",
+        "Identifies the review arriving three weeks after implementation was finished as a named failure mode of review programs",
+        "Attributes the late-review pattern to Google's documented pre-reform state, where teams were forced to start over",
+        "Prescribes triggering future reviews at design time against the spec, before the code exists",
+        "Assigns no numeric readiness score or percentage to the launch decision",
+        "Checks that the review walked every checklist dimension, treating a skipped dimension as an incomplete review rather than a lean one"
+      ]
+    }
+  ],
+  "trigger_queries": [
+    {
+      "query": "Can you do an API design review on our OpenAPI spec before we go public?",
+      "should_trigger": true
+    },
+    {
+      "query": "Our /v1 endpoints are all over the place - pagination works differently per resource and the error bodies don't match. What's must-fix versus nice-to-have?",
+      "should_trigger": true
+    },
+    {
+      "query": "review our REST API design",
+      "should_trigger": true
+    },
+    {
+      "query": "We're going from 3 teams to 30. Design an API design-review process that won't become a bottleneck.",
+      "should_trigger": true
+    },
+    {
+      "query": "Is /getUserOrders an acceptable endpoint name for a public API?",
+      "should_trigger": true
+    },
+    {
+      "query": "half our endpoints return created_at and half return createdAt, does that actually matter",
+      "should_trigger": true
+    },
+    {
+      "query": "Should we use offset or cursor pagination on our public API, and is it a problem that we already use both?",
+      "should_trigger": true
+    },
+    {
+      "query": "We're opening our API up to partners next quarter. What should we check before we do?",
+      "should_trigger": true
+    },
+    {
+      "query": "Who should sign off on a new public endpoint before it ships?",
+      "should_trigger": true
+    },
+    {
+      "query": "audit our endpoint naming conventions",
+      "should_trigger": true
+    },
+    {
+      "query": "One of our reviewers keeps blocking pull requests over personal style preferences. How do I fix that?",
+      "should_trigger": true
+    },
+    {
+      "query": "our API doesn't feel like it was built by one team and I can't articulate why",
+      "should_trigger": true
+    },
+    {
+      "query": "api design governance",
+      "should_trigger": true
+    },
+    {
+      "query": "What's the right process for reviewing API designs across multiple squads?",
+      "should_trigger": true
+    },
+    {
+      "query": "Some of our endpoints return 200 with an error object in the body. Is that a real problem?",
+      "should_trigger": true
+    },
+    {
+      "query": "Before we GA the API, what has to be clean and what can wait?",
+      "should_trigger": true
+    },
+    {
+      "query": "Can you look at these 12 endpoints and tell me what an external developer would find weird?",
+      "should_trigger": true
+    },
+    {
+      "query": "We want an API style guide and some way to enforce it. Where do we start?",
+      "should_trigger": true
+    },
+    {
+      "query": "Should we run Spectral in CI or have humans review every endpoint?",
+      "should_trigger": true
+    },
+    {
+      "query": "how deep is too deep for nested URLs",
+      "should_trigger": true
+    },
+    {
+      "query": "our filters silently ignore query params they don't recognise, is that fine",
+      "should_trigger": true
+    },
+    {
+      "query": "Give me a checklist for reviewing a public REST surface.",
+      "should_trigger": true
+    },
+    {
+      "query": "we never formalised who approves API changes and it's getting messy",
+      "should_trigger": true
+    },
+    {
+      "query": "We use PUT for every update endpoint including partial ones. Thoughts?",
+      "should_trigger": true
+    },
+    {
+      "query": "Do we need a review board for our API or is a linter enough?",
+      "should_trigger": true
+    },
+    {
+      "query": "I need to explain to my CTO why the API needs cleanup before launch",
+      "should_trigger": true
+    },
+    {
+      "query": "Which of these review findings actually block the launch?",
+      "should_trigger": true
+    },
+    {
+      "query": "api consistency audit",
+      "should_trigger": true
+    },
+    {
+      "query": "We forked Zalando's guidelines. How do we actually enforce them?",
+      "should_trigger": true
+    },
+    {
+      "query": "our internal API is about to go external - what changes about how we review it?",
+      "should_trigger": true
+    },
+    {
+      "query": "Two engineers are deadlocked over camelCase versus snake_case in our API. Settle it.",
+      "should_trigger": true
+    },
+    {
+      "query": "review this spec for anything a third-party developer would trip over",
+      "should_trigger": true
+    },
+    {
+      "query": "How long should an API review take before it counts as a bottleneck?",
+      "should_trigger": true
+    },
+    {
+      "query": "We have 40 public endpoints and no OpenAPI file. Does that block a review?",
+      "should_trigger": true
+    },
+    {
+      "query": "Our DELETE returns 200 with a success flag in the body. Is that right?",
+      "should_trigger": true
+    },
+    {
+      "query": "what should the report coming out of an API review actually contain",
+      "should_trigger": true
+    },
+    {
+      "query": "endpoint naming review",
+      "should_trigger": true
+    },
+    {
+      "query": "should reviewers be allowed to block on things that aren't written down anywhere",
+      "should_trigger": true
+    },
+    {
+      "query": "We're about to publish our API docs. Do a pass over the surface first.",
+      "should_trigger": true
+    },
+    {
+      "query": "pagination is cursors on one resource and page numbers on another - fix it or leave it?",
+      "should_trigger": true
+    },
+    {
+      "query": "Set up API design reviews for our platform team.",
+      "should_trigger": true
+    },
+    {
+      "query": "our API grew organically over 4 years and it shows. where do I start cleaning it up",
+      "should_trigger": true
+    },
+    {
+      "query": "How do Google, Stripe and Zalando actually run their API reviews?",
+      "should_trigger": true
+    },
+    {
+      "query": "Does an alpha API need to pass review before we ship it to 5 design partners?",
+      "should_trigger": true
+    },
+    {
+      "query": "I want a second opinion on this endpoint layout before we commit to it",
+      "should_trigger": true
+    },
+    {
+      "query": "Should our review board grow as more teams start shipping APIs?",
+      "should_trigger": true
+    },
+    {
+      "query": "What's a reasonable max page size, and what should happen if someone asks for more?",
+      "should_trigger": true
+    },
+    {
+      "query": "we keep arguing about API design in pull requests and nothing ever gets decided",
+      "should_trigger": true
+    },
+    {
+      "query": "Our /v2 is live with paying customers and I want to rename three response fields. How bad is that?",
+      "should_trigger": true
+    },
+    {
+      "query": "Rate the consistency of our public API surface for us.",
+      "should_trigger": true
+    },
+    {
+      "query": "Is it okay for one endpoint to return a different response shape depending on a query parameter?",
+      "should_trigger": true
+    },
+    {
+      "query": "Design an error code taxonomy for our API - flat catalog or code plus subcode?",
+      "should_trigger": false
+    },
+    {
+      "query": "Write actionable error messages for our 422 validation responses",
+      "should_trigger": false
+    },
+    {
+      "query": "How long a deprecation window should we give partners before we sunset v1?",
+      "should_trigger": false
+    },
+    {
+      "query": "Should we use URI path versioning or date-based account pinning?",
+      "should_trigger": false
+    },
+    {
+      "query": "Add RFC 8594 Sunset headers to our deprecated endpoints",
+      "should_trigger": false
+    },
+    {
+      "query": "Our API reference is missing Python and Go snippets - audit the documentation",
+      "should_trigger": false
+    },
+    {
+      "query": "Set up contract tests so our docs stop drifting from the spec",
+      "should_trigger": false
+    },
+    {
+      "query": "Review our GraphQL schema for nullability and Relay connection conventions",
+      "should_trigger": false
+    },
+    {
+      "query": "Should our GraphQL gateway enforce query depth and complexity limits?",
+      "should_trigger": false
+    },
+    {
+      "query": "Check our .proto files for breaking changes with buf",
+      "should_trigger": false
+    },
+    {
+      "query": "Should we expose gRPC publicly or transcode it to JSON at the edge?",
+      "should_trigger": false
+    },
+    {
+      "query": "Should we build a GraphQL layer before or after webhooks?",
+      "should_trigger": false
+    },
+    {
+      "query": "Which integration surface should we ship first - SDKs, an MCP server, or bulk export?",
+      "should_trigger": false
+    },
+    {
+      "query": "Design our rate limit tiers and the headers we return alongside a 429",
+      "should_trigger": false
+    },
+    {
+      "query": "What request quota should the free tier get per month?",
+      "should_trigger": false
+    },
+    {
+      "query": "Should we store customer API keys hashed or encrypted, and how do we scope them?",
+      "should_trigger": false
+    },
+    {
+      "query": "Rotate our customers' API keys with zero downtime",
+      "should_trigger": false
+    },
+    {
+      "query": "Design the OAuth 2 authorization server for our partner apps",
+      "should_trigger": false
+    },
+    {
+      "query": "Implement idempotency keys so client retries don't double-charge",
+      "should_trigger": false
+    },
+    {
+      "query": "What backoff and jitter should our SDK use by default on retries?",
+      "should_trigger": false
+    },
+    {
+      "query": "Design the information architecture for our developer portal",
+      "should_trigger": false
+    },
+    {
+      "query": "How do we cut time to first API call for new signups on the portal?",
+      "should_trigger": false
+    },
+    {
+      "query": "Design our webhook delivery retries and payload signature scheme",
+      "should_trigger": false
+    },
+    {
+      "query": "Which languages should we ship official SDKs for?",
+      "should_trigger": false
+    },
+    {
+      "query": "Build a sandbox test mode with deterministic fake card numbers",
+      "should_trigger": false
+    },
+    {
+      "query": "Write the incident update for our API status page",
+      "should_trigger": false
+    },
+    {
+      "query": "Design a bulk export to S3 for customers pulling 200M rows a night",
+      "should_trigger": false
+    },
+    {
+      "query": "Should we give customer analysts direct JDBC access to our warehouse?",
+      "should_trigger": false
+    },
+    {
+      "query": "Should we ship an MCP server for our product?",
+      "should_trigger": false
+    },
+    {
+      "query": "Our app got rejected during the marketplace listing review - what do we do now?",
+      "should_trigger": false
+    },
+    {
+      "query": "Write the listing copy and screenshots for our AppExchange entry",
+      "should_trigger": false
+    },
+    {
+      "query": "How should we price our marketplace app - revenue share or flat fee?",
+      "should_trigger": false
+    },
+    {
+      "query": "Build the onboarding flow for partners submitting apps to our marketplace",
+      "should_trigger": false
+    },
+    {
+      "query": "Which connectors should we build next for our ETL product?",
+      "should_trigger": false
+    },
+    {
+      "query": "How do we get partners to build connectors for us instead of building them ourselves?",
+      "should_trigger": false
+    },
+    {
+      "query": "Surface integration failures to customers so they can self-serve the fix",
+      "should_trigger": false
+    },
+    {
+      "query": "Optimize our Zapier listing so more people find and install it",
+      "should_trigger": false
+    },
+    {
+      "query": "Review this pull request for bugs and logic errors",
+      "should_trigger": false
+    },
+    {
+      "query": "Do a design review of our new dashboard UI - the spacing and hierarchy feel off",
+      "should_trigger": false
+    },
+    {
+      "query": "Run a security review of our API for BOLA and broken object-level authorization",
+      "should_trigger": false
+    },
+    {
+      "query": "Audit our Firestore security rules for over-permissive reads",
+      "should_trigger": false
+    },
+    {
+      "query": "Review this vendor contract before we sign it",
+      "should_trigger": false
+    },
+    {
+      "query": "Scaffold a FastAPI service with SQLAlchemy models and Alembic migrations",
+      "should_trigger": false
+    },
+    {
+      "query": "Set up Spring Boot REST controllers following our house standards",
+      "should_trigger": false
+    },
+    {
+      "query": "Write integration tests for our REST endpoints using WireMock",
+      "should_trigger": false
+    },
+    {
+      "query": "Generate a Postman collection from our OpenAPI file",
+      "should_trigger": false
+    },
+    {
+      "query": "Our /orders endpoint is slow - profile it and cut the p99 latency",
+      "should_trigger": false
+    },
+    {
+      "query": "Review our database schema design before we run the migration",
+      "should_trigger": false
+    },
+    {
+      "query": "Write the job description for an API platform engineer we're hiring",
+      "should_trigger": false
+    },
+    {
+      "query": "What skills do I need to move into a developer platform engineering role?",
+      "should_trigger": false
+    },
+    {
+      "query": "Review the accessibility of our documentation site against WCAG",
+      "should_trigger": false
+    }
+  ]
+}

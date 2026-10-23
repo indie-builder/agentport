@@ -455,4 +455,128 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(nested.statusCode).toBe(400);
   });
+
+  it('duplicates an agent with its bindings, rules and output styles', async () => {
+    const server = await createServer(app, cookie, {
+      name: unique('dup-srv'),
+      track: createdServers,
+    });
+    const source = (await newAgent(unique('dup-src'), [server.id])).json<Agent>();
+
+    const rule = await inject(app, {
+      method: 'PUT',
+      url: `/api/agents/${source.id}/rules/deploy`,
+      headers: auth(),
+      payload: { content: 'Deploy carefully.', globs: 'src/**' },
+    });
+    expect(rule.statusCode, rule.body).toBe(200);
+    const style = await inject(app, {
+      method: 'PUT',
+      url: `/api/agents/${source.id}/output-styles/concise`,
+      headers: auth(),
+      payload: { description: 'Short answers', keepCodingInstructions: true, body: 'Be brief.' },
+    });
+    expect(style.statusCode, style.body).toBe(200);
+
+    // 非默认配置也要被克隆，避免默认值相等掩盖漏拷。
+    const configured = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${source.id}`,
+      headers: auth(),
+      payload: { model: 'group/flash', maxTurns: 7 },
+    });
+    expect(configured.statusCode, configured.body).toBe(200);
+
+    const getRules = async (id: string) =>
+      (await inject(app, { method: 'GET', url: `/api/agents/${id}/rules`, headers: auth() })).json<
+        Array<{ slug: string; content: string; globs: string }>
+      >();
+    const getStyles = async (id: string) =>
+      (
+        await inject(app, {
+          method: 'GET',
+          url: `/api/agents/${id}/output-styles`,
+          headers: auth(),
+        })
+      ).json<
+        Array<{ id: string; slug: string; description: string; body: string; isSelected: boolean }>
+      >();
+
+    const sourceRulesBefore = await getRules(source.id);
+    const sourceStylesBefore = await getStyles(source.id);
+
+    const slug = unique('dup-copy');
+    createdAgents.push(slug);
+    const res = await inject(app, {
+      method: 'POST',
+      url: `/api/agents/${source.id}/duplicate`,
+      headers: auth(),
+      payload: { slug, name: 'Cloned agent' },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const copy = res.json<Agent>();
+    expect(copy.id).not.toBe(source.id);
+    expect(copy).toMatchObject({
+      slug,
+      name: 'Cloned agent',
+      role: source.role,
+      systemPrompt: source.systemPrompt,
+      model: 'group/flash',
+      maxTurns: 7,
+      serverIds: [server.id],
+      skillIds: [],
+      subAgentIds: [],
+      parentId: null,
+    });
+
+    const copyRules = await getRules(copy.id);
+    const copyStyles = await getStyles(copy.id);
+    expect(copyRules).toEqual([
+      expect.objectContaining({ slug: 'deploy', content: 'Deploy carefully.', globs: 'src/**' }),
+    ]);
+    expect(copyStyles).toEqual([
+      expect.objectContaining({
+        slug: 'concise',
+        description: 'Short answers',
+        body: 'Be brief.',
+        isSelected: true,
+      }),
+    ]);
+    expect(copyStyles[0]?.id).not.toBe(sourceStylesBefore[0]?.id);
+    // 源智能体的规则与风格不能被改动。
+    expect(await getRules(source.id)).toEqual(sourceRulesBefore);
+    expect(await getStyles(source.id)).toEqual(sourceStylesBefore);
+
+    const versions = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${copy.id}/versions`,
+      headers: auth(),
+    });
+    expect(versions.statusCode, versions.body).toBe(200);
+    expect(versions.json<Array<{ version: number }>>().map((v) => v.version)).toEqual([1]);
+  });
+
+  it('rejects duplicating into an existing slug with 409', async () => {
+    const source = (await newAgent(unique('dup-conflict-src'))).json<Agent>();
+    const taken = unique('dup-taken');
+    await newAgent(taken);
+    const res = await inject(app, {
+      method: 'POST',
+      url: `/api/agents/${source.id}/duplicate`,
+      headers: auth(),
+      payload: { slug: taken, name: 'Taken slug' },
+    });
+    expectProblem(res, 'CONFLICT');
+  });
+
+  it('returns 404 when duplicating a missing agent', async () => {
+    const res = await inject(app, {
+      method: 'POST',
+      url: '/api/agents/agt_missing/duplicate',
+      headers: auth(),
+      payload: { slug: unique('dup-missing'), name: 'Missing source' },
+    });
+    expect(res.statusCode).toBe(404);
+    expectProblem(res, 'AGENT_NOT_FOUND');
+  });
 });

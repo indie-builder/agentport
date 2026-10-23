@@ -2,20 +2,32 @@ import type {
   Agent,
   AgentInput,
   AgentPatch,
+  AgentStats,
   ApiTool,
   ApiToolInput,
+  Attention,
+  BoardSummary,
   ChatRequest,
+  ConnectorCatalogItem,
   ConversationSummary,
   EvalDataset,
   EvalDatasetImportResult,
   EvalRunExport,
+  MemoryFileContent,
+  MemoryFileList,
+  OutputStyle,
   Problem,
+  Rule,
+  Schedule,
+  ScheduleInput,
+  SchedulePatch,
   Server,
   ServerInput,
   ServerTestResult,
   ConversationDetail as SharedConversationDetail,
   EvalComparison as SharedEvalComparison,
   Skill,
+  SkillFile,
   SkillInput,
   SkillWithAgentCount,
   WorkspaceFiles,
@@ -31,14 +43,24 @@ export interface AgentExport {
     serverNames: string[];
     skillSlugs: string[];
   };
+  rules: Array<{ slug: string; content: string; globs: string }>;
+  outputStyles: Array<{
+    slug: string;
+    description: string;
+    keepCodingInstructions: boolean;
+    body: string;
+    isSelected: boolean;
+  }>;
   subAgents: Array<
     Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds'> & {
       serverNames: string[];
       skillSlugs: string[];
+      rules: AgentExport['rules'];
+      outputStyles: AgentExport['outputStyles'];
     }
   >;
   servers: Array<Record<string, unknown>>;
-  skills: SkillInput[];
+  skills: Array<SkillInput & { files: Array<{ path: string; content: string }> }>;
   workspace: AgentFiles;
 }
 
@@ -108,6 +130,8 @@ export interface RecentRun {
 export interface RunListItem extends RecentRun {
   inputTokens: number | null;
   outputTokens: number | null;
+  /** 入队时锁定的智能体配置版本号；未知/旧数据为 null。 */
+  agentVersion?: number | null;
 }
 
 export type RunStep =
@@ -437,6 +461,7 @@ export const api = {
   },
 
   servers: (): Promise<Server[]> => request('/servers'),
+  connectorCatalog: (): Promise<ConnectorCatalogItem[]> => request('/connector-catalog'),
   createServer: (input: ServerInput): Promise<Server> => request('/servers', 'POST', input),
   updateServer: (
     id: string,
@@ -490,11 +515,41 @@ export const api = {
       ...input,
       ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
     }),
+  duplicateAgent: (id: string, input: { slug: string; name: string }): Promise<Agent> =>
+    request(`/agents/${id}/duplicate`, 'POST', input),
   deleteAgent: (id: string): Promise<void> => request(`/agents/${id}`, 'DELETE'),
   agentFiles: (id: string): Promise<AgentFiles> => request(`/agents/${id}/files`),
   agentVersions: (id: string): Promise<AgentVersionSummary[]> => request(`/agents/${id}/versions`),
+  agentMemory: (id: string): Promise<MemoryFileList> => request(`/agents/${id}/memory`),
+  agentRules: (id: string): Promise<Rule[]> => request(`/agents/${id}/rules`),
+  writeAgentRule: (
+    id: string,
+    slug: string,
+    input: { content: string; globs: string },
+  ): Promise<Rule> => request(`/agents/${id}/rules/${encodeURIComponent(slug)}`, 'PUT', input),
+  deleteAgentRule: (id: string, slug: string): Promise<void> =>
+    request(`/agents/${id}/rules/${encodeURIComponent(slug)}`, 'DELETE'),
+  agentOutputStyles: (id: string): Promise<OutputStyle[]> => request(`/agents/${id}/output-styles`),
+  writeAgentOutputStyle: (
+    id: string,
+    slug: string,
+    input: { description: string; keepCodingInstructions: boolean; body: string },
+  ): Promise<OutputStyle> =>
+    request(`/agents/${id}/output-styles/${encodeURIComponent(slug)}`, 'PUT', input),
+  unselectAgentOutputStyle: (id: string, slug: string): Promise<void> =>
+    request(`/agents/${id}/output-styles/${encodeURIComponent(slug)}/unselect`, 'POST'),
+  deleteAgentOutputStyle: (id: string, slug: string): Promise<void> =>
+    request(`/agents/${id}/output-styles/${encodeURIComponent(slug)}`, 'DELETE'),
+  agentMemoryFile: (id: string, name: string): Promise<MemoryFileContent> =>
+    request(`/agents/${id}/memory/${encodeURIComponent(name)}`),
+  writeAgentMemoryFile: (id: string, name: string, content: string): Promise<MemoryFileContent> =>
+    request(`/agents/${id}/memory/${encodeURIComponent(name)}`, 'PUT', { content }),
+  deleteAgentMemoryFile: (id: string, name: string): Promise<void> =>
+    request(`/agents/${id}/memory/${encodeURIComponent(name)}`, 'DELETE'),
   agentVersion: (id: string, version: number): Promise<AgentVersionDetail> =>
     request(`/agents/${id}/versions/${version}`),
+  agentStats: (id: string, days = 30): Promise<AgentStats> =>
+    request(`/agents/${id}/stats?days=${days}`),
   rollbackAgent: (id: string, version: number): Promise<Agent> =>
     request(`/agents/${id}/rollback`, 'POST', { version }),
   exportAgent: (id: string): Promise<AgentExport> => request(`/export/agents/${id}`),
@@ -517,6 +572,13 @@ export const api = {
       ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
     }),
   deleteSkill: (id: string): Promise<void> => request(`/skills/${id}`, 'DELETE'),
+  skillFiles: (id: string): Promise<SkillFile[]> => request(`/skills/${id}/files`),
+  writeSkillFile: (id: string, path: string, content: string): Promise<SkillFile> =>
+    request(`/skills/${id}/files/${path.split('/').map(encodeURIComponent).join('/')}`, 'PUT', {
+      content,
+    }),
+  deleteSkillFile: (id: string, path: string): Promise<void> =>
+    request(`/skills/${id}/files/${path.split('/').map(encodeURIComponent).join('/')}`, 'DELETE'),
 
   renameConversation: (id: string, title: string): Promise<ConversationDetail['conversation']> =>
     request(`/conversations/${id}`, 'PATCH', { title }),
@@ -569,6 +631,15 @@ export const api = {
     return request(`/runs/export${search}`);
   },
   run: (id: string): Promise<RunDetail> => request(`/runs/${id}`),
+  skillDraftFromRun: (runId: string): Promise<Skill> =>
+    request(`/runs/${runId}/skill-draft`, 'POST'),
+  attention: (): Promise<Attention> => request('/attention'),
+  boardSummary: (days = 30): Promise<BoardSummary> => request(`/runs/board?days=${days}`),
+  schedules: (): Promise<Schedule[]> => request('/schedules'),
+  createSchedule: (input: ScheduleInput): Promise<Schedule> => request('/schedules', 'POST', input),
+  updateSchedule: (id: string, input: SchedulePatch): Promise<Schedule> =>
+    request(`/schedules/${id}`, 'PATCH', input),
+  deleteSchedule: (id: string): Promise<void> => request(`/schedules/${id}`, 'DELETE'),
 
   audit: (query: AuditQuery = {}): Promise<AuditList> => {
     const params = new URLSearchParams();

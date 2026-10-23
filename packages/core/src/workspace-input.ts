@@ -46,6 +46,14 @@ export function toWorkspaceInput(params: {
   servers: Array<{ name: string; entry: McpJsonEntry }>;
   skills: WorkspaceSkill[];
   subAgents: WorkspaceAgentRow[];
+  rules?: Array<{ slug: string; content: string; globs: string }>;
+  outputStyles?: Array<{
+    slug: string;
+    description: string;
+    keepCodingInstructions: boolean;
+    body: string;
+  }>;
+  selectedOutputStyle?: string | null;
 }): WorkspaceInput {
   const { agent } = params;
   return {
@@ -53,6 +61,11 @@ export function toWorkspaceInput(params: {
     servers: params.servers,
     skills: params.skills,
     subAgents: params.subAgents.filter((row) => row.enabled).map(toAgent),
+    ...(params.rules && params.rules.length > 0 ? { rules: params.rules } : {}),
+    ...(params.outputStyles && params.outputStyles.length > 0
+      ? { outputStyles: params.outputStyles }
+      : {}),
+    ...(params.selectedOutputStyle ? { selectedOutputStyle: params.selectedOutputStyle } : {}),
     ...(agent.allowedTools.length > 0 ? { toolsAllow: agent.allowedTools } : {}),
     ...(agent.disallowedTools.length > 0 ? { toolsDeny: agent.disallowedTools } : {}),
   };

@@ -2,8 +2,10 @@ import {
   type Skill,
   type SkillInput,
   type SkillWithAgentCount,
+  skillFileInputSchema,
   skillInputSchema,
 } from '@agentport/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
@@ -43,7 +45,7 @@ import {
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
-import { ApiError } from '../lib/api.js';
+import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import {
@@ -508,6 +510,7 @@ function SkillDialog({
             />
             <FieldDescription>支持 Markdown。</FieldDescription>
           </Field>
+          {skill ? <SkillFilesEditor skillId={skill.id} /> : null}
           <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
             <Button variant="outline" onClick={close} disabled={pending}>
               取消
@@ -539,6 +542,109 @@ function SkillDialog({
         />
       </DialogShell>
     </Dialog>
+  );
+}
+
+/** 官方 SKILL.md 目录的支持资源文件（scripts/、references/ 等），随技能铺到工作区。 */
+function SkillFilesEditor({ skillId }: { skillId: string }) {
+  const client = useQueryClient();
+  const files = useQuery({
+    queryKey: ['skill-files', skillId],
+    queryFn: () => api.skillFiles(skillId),
+  });
+  const [path, setPath] = useState('');
+  const [content, setContent] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const invalidate = (): void =>
+    void client.invalidateQueries({ queryKey: ['skill-files', skillId] });
+
+  const add = async (): Promise<void> => {
+    const parsed = skillFileInputSchema.safeParse({ path: path.trim(), content });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? '路径不合法');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.writeSkillFile(skillId, parsed.data.path, parsed.data.content);
+      setPath('');
+      setContent('');
+      setError('');
+      invalidate();
+      toastSuccess('已添加支持文件');
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (target: string): Promise<void> => {
+    try {
+      await api.deleteSkillFile(skillId, target);
+      invalidate();
+      toastSuccess('已删除支持文件');
+    } catch (err) {
+      toastError(err);
+    }
+  };
+
+  return (
+    <Field className="gap-1.5">
+      <FieldLabel htmlFor="skill-file-path">支持文件</FieldLabel>
+      {files.data && files.data.length > 0 ? (
+        <ul className="flex flex-col gap-1">
+          {files.data.map((f) => (
+            <li key={f.id} className="flex items-center justify-between gap-2">
+              <code className="truncate font-mono text-xs text-fg">{f.path}</code>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`删除支持文件 ${f.path}`}
+                onClick={() => void remove(f.path)}
+              >
+                <Trash2 />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          添加 scripts/、references/ 等随技能一起加载的文件。
+        </p>
+      )}
+      <div className="flex flex-col gap-2 rounded-item border border-line p-2">
+        <Input
+          id="skill-file-path"
+          value={path}
+          placeholder="scripts/run.sh 或 references/api.md"
+          aria-invalid={Boolean(error)}
+          onChange={(event) => setPath(event.target.value)}
+          className="font-mono text-xs"
+        />
+        <Textarea
+          rows={3}
+          value={content}
+          placeholder="文件内容"
+          onChange={(event) => setContent(event.target.value)}
+          className="font-mono text-xs leading-relaxed"
+        />
+        {error ? <FieldError>{error}</FieldError> : null}
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={saving}
+            onClick={() => void add()}
+          >
+            {saving ? '添加中…' : '添加文件'}
+          </Button>
+        </div>
+      </div>
+    </Field>
   );
 }
 

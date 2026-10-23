@@ -48,10 +48,13 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
           agentId: agent.id,
           title: `mcp: ${prompt.slice(0, 60)}`,
         });
+        const agentVersion = await repo.agentVersions.latestAgentVersion(app.db, agent.id);
         const run = await repo.chat.createRun(app.db, {
           id: newId('run'),
           conversationId: conversation.id,
           agentId: agent.id,
+          trigger: 'mcp',
+          ...(agentVersion === null ? {} : { agentVersion }),
         });
         await repo.chat.appendMessage(app.db, {
           id: newId('message'),

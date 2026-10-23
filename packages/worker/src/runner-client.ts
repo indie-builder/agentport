@@ -41,6 +41,8 @@ export interface SandboxRunInput {
   image: string;
   /** 注入容器的凭证等；不会落到工作区文件。 */
   env: Record<string, string>;
+  /** 额外挂载（宿主绝对路径），用于把原生 auto-memory 放到持久卷。 */
+  extraMounts?: Array<{ hostPath: string; containerPath: string; readonly?: boolean }>;
   provider: SandboxProvider;
   logger: Logger;
 }
@@ -414,6 +416,7 @@ function runInSandboxEffect(
                 workspaceDir: input.workspaceDir,
                 env: input.env,
                 name: `agentport-${runId.toLowerCase()}`,
+                ...(input.extraMounts ? { extraMounts: input.extraMounts } : {}),
               })
               .then((sandbox) => {
                 if (abandoning) {

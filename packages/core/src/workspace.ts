@@ -4,8 +4,20 @@ export interface WorkspaceFiles {
   mcpJson: string;
   claudeMd: string;
   agentMd: string;
-  skills: Array<{ slug: string; content: string }>;
+  skills: Array<{
+    slug: string;
+    content: string;
+    files: Array<{ path: string; content: string }>;
+  }>;
   subAgents: Array<{ slug: string; content: string }>;
+  /** 项目规则：`.claude/rules/<slug>.md` 的完整内容。 */
+  rules: Array<{ slug: string; content: string }>;
+  /** 自定义输出风格：`.claude/output-styles/<slug>.md` 的完整内容。 */
+  outputStyles: Array<{ slug: string; content: string }>;
+  /** 选中的输出风格名（写入 settings.outputStyle）；null 表示用默认。 */
+  selectedOutputStyle: string | null;
+  /** 渲染出的 `.claude/settings.json` 内容；null 表示无该文件。 */
+  settingsJson: string | null;
 }
 
 export interface WorkspaceAgent {
@@ -30,6 +42,8 @@ export interface WorkspaceSkill {
   name: string;
   description: string;
   body: string;
+  /** 官方 SKILL.md 目录的支持资源文件，相对技能目录的路径。 */
+  files?: Array<{ path: string; content: string }>;
 }
 
 export interface WorkspaceInput {
@@ -38,8 +52,56 @@ export interface WorkspaceInput {
   skills?: WorkspaceSkill[];
   /** 单层委派：这些子智能体渲染到 .claude/agents/，主智能体获得 Agent 工具。 */
   subAgents?: WorkspaceAgent[];
+  /** 项目规则：{ slug, content, globs? }。 */
+  rules?: Array<{ slug: string; content: string; globs?: string }>;
+  /** 自定义输出风格：{ slug, description, keepCodingInstructions, body }。 */
+  outputStyles?: Array<{
+    slug: string;
+    description: string;
+    keepCodingInstructions: boolean;
+    body: string;
+  }>;
+  /** 选中的输出风格名；undefined/null 表示默认。 */
+  selectedOutputStyle?: string | null;
   toolsAllow?: string[];
   toolsDeny?: string[];
+}
+
+/** 渲染一个输出风格 `.md`：官方 frontmatter（name/description/keep-coding-instructions）+ 正文。 */
+export function renderOutputStyleMd(style: {
+  slug: string;
+  description: string;
+  keepCodingInstructions: boolean;
+  body: string;
+}): string {
+  return [
+    '---',
+    `name: ${yamlString(style.slug)}`,
+    ...(style.description ? [`description: ${yamlString(style.description)}`] : []),
+    `keep-coding-instructions: ${style.keepCodingInstructions ? 'true' : 'false'}`,
+    '---',
+    '',
+    style.body.trim(),
+    '',
+  ].join('\n');
+}
+
+/** 渲染一条规则文件：有 globs 时写入 frontmatter 的 paths；否则纯 Markdown。 */
+export function renderRuleMd(rule: { slug: string; content: string; globs?: string }): string {
+  const globs = (rule.globs ?? '')
+    .split(',')
+    .map((g) => g.trim())
+    .filter(Boolean);
+  if (globs.length === 0) return `${rule.content.trim()}\n`;
+  return [
+    '---',
+    'paths:',
+    ...globs.map((g) => `  - ${yamlString(g)}`),
+    '---',
+    '',
+    rule.content.trim(),
+    '',
+  ].join('\n');
 }
 
 /**
@@ -325,6 +387,7 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
     skills: [...allSkills.values()].map((skill) => ({
       slug: skill.slug,
       content: renderSkillMd(skill),
+      files: skill.files ?? [],
     })),
     subAgents: (input.subAgents ?? []).map((subAgent) => ({
       slug: subAgent.slug,
@@ -343,5 +406,17 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
         true,
       ),
     })),
+    rules: (input.rules ?? []).map((rule) => ({
+      slug: rule.slug,
+      content: renderRuleMd(rule),
+    })),
+    outputStyles: (input.outputStyles ?? []).map((style) => ({
+      slug: style.slug,
+      content: renderOutputStyleMd(style),
+    })),
+    selectedOutputStyle: input.selectedOutputStyle ?? null,
+    settingsJson: input.selectedOutputStyle
+      ? `${JSON.stringify({ outputStyle: input.selectedOutputStyle }, null, 2)}\n`
+      : null,
   };
 }

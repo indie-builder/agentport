@@ -51,6 +51,7 @@ vi.mock('../src/lib/queries.js', () => ({
   }),
   useUpdateAgent: () => ({ isPending: state.saving, mutate: state.mutate }),
   useCreateAgent: () => ({ isPending: state.creating }),
+  useDuplicateAgent: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteAgent: () => ({ mutateAsync: state.remove }),
   useAgentVersions: () => ({
     data: [{ id: 'v1', version: 1, note: null, createdAt: '2026-01-01' }],
@@ -61,6 +62,13 @@ vi.mock('../src/lib/queries.js', () => ({
     refetch: state.retry,
   }),
   useRollbackAgent: () => ({ mutateAsync: state.rollback }),
+  useAgentFiles: () => ({
+    data: undefined,
+    isPending: true,
+    isError: false,
+    error: null,
+    refetch: () => {},
+  }),
 }));
 vi.mock('@tanstack/react-query', () => ({ useQueries: () => [], useQueryClient: () => ({}) }));
 vi.mock('@tanstack/react-router', () => ({

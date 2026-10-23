@@ -2,10 +2,19 @@ import type {
   Agent,
   AgentInput,
   AgentPatch,
+  AgentStats,
   ApiTool,
   ApiToolInput,
+  Attention,
+  BoardSummary,
   ChatRequest,
+  ConnectorCatalogItem,
   EvalDataset,
+  MemoryFileContent,
+  MemoryFileList,
+  OutputStyle,
+  Rule,
+  Schedule,
   Server,
   ServerInput,
   ServerTestResult,
@@ -63,7 +72,11 @@ export const serversQuery = queryOptions<Server[]>({
   queryKey: ['servers'],
   queryFn: api.servers,
 });
-
+export const connectorCatalogQuery = queryOptions<ConnectorCatalogItem[]>({
+  queryKey: ['connector-catalog'],
+  queryFn: api.connectorCatalog,
+  staleTime: 5 * 60_000,
+});
 export const agentsQuery = queryOptions<Agent[]>({
   queryKey: ['agents'],
   queryFn: api.agents,
@@ -79,6 +92,67 @@ export const overviewQuery = queryOptions<Overview | null>({
   queryFn: api.overview,
   staleTime: 15_000,
 });
+
+// ---- 以下为运营层（待办/看板/定时/统计/记忆）的查询与变更，集中在此供各页面复用 ----
+export const attentionQuery = queryOptions<Attention>({
+  queryKey: ['attention'],
+  queryFn: api.attention,
+  refetchInterval: 15_000,
+});
+
+export const boardSummaryQuery = (days = 30) =>
+  queryOptions<BoardSummary>({
+    queryKey: ['board-summary', days],
+    queryFn: () => api.boardSummary(days),
+    staleTime: 15_000,
+  });
+
+export const schedulesQuery = queryOptions<Schedule[]>({
+  queryKey: ['schedules'],
+  queryFn: api.schedules,
+});
+
+export const agentStatsQuery = (id: string, days = 30) =>
+  queryOptions<AgentStats>({
+    queryKey: ['agent-stats', id, days],
+    queryFn: () => api.agentStats(id, days),
+  });
+
+export const agentMemoryQuery = (id: string) =>
+  queryOptions<MemoryFileList>({
+    queryKey: ['agent-memory', id],
+    queryFn: () => api.agentMemory(id),
+  });
+
+export const agentRulesQuery = (id: string) =>
+  queryOptions<Rule[]>({
+    queryKey: ['agent-rules', id],
+    queryFn: () => api.agentRules(id),
+  });
+
+export const agentOutputStylesQuery = (id: string) =>
+  queryOptions<OutputStyle[]>({
+    queryKey: ['agent-output-styles', id],
+    queryFn: () => api.agentOutputStyles(id),
+  });
+
+export const agentMemoryFileQuery = (id: string, name: string) =>
+  queryOptions<MemoryFileContent>({
+    queryKey: ['agent-memory-file', id, name],
+    queryFn: () => api.agentMemoryFile(id, name),
+  });
+
+export function useAttention() {
+  return useQuery(attentionQuery);
+}
+
+export function useSchedules() {
+  return useQuery(schedulesQuery);
+}
+
+export function useAgentStats(id: string, days = 30) {
+  return useQuery(agentStatsQuery(id, days));
+}
 
 export function useMe() {
   return useQuery(meQuery);
@@ -287,6 +361,15 @@ export function useRerun() {
   });
 }
 
+/** 「录制学习」：把一次运行沉淀为技能草稿，成功后刷新技能列表。 */
+export function useSkillDraftFromRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.skillDraftFromRun(runId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
+  });
+}
+
 const AUDIT_PAGE_SIZE = 100;
 export function useAudit(query: Omit<AuditQuery, 'before' | 'beforeId' | 'limit'>) {
   return useInfiniteQuery({
@@ -468,6 +551,21 @@ export function useCreateAgent() {
     onSuccess: () => {
       invalidate('agents');
       invalidate('overview');
+    },
+  });
+}
+
+export function useDuplicateAgent() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; slug: string; name: string }) =>
+      api.duplicateAgent(vars.id, { slug: vars.slug, name: vars.name }),
+    onSuccess: (agent) => {
+      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: ['overview'] });
+      client.setQueryData(['agents'], (prev: Agent[] | undefined) =>
+        prev ? [...prev, agent] : prev,
+      );
     },
   });
 }

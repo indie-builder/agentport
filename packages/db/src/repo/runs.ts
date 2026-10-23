@@ -37,6 +37,7 @@ export interface RunListItem {
   inputTokens: number | null;
   outputTokens: number | null;
   error: string | null;
+  agentVersion: number | null;
 }
 
 export interface RunDetailRow extends RunListItem {
@@ -98,6 +99,7 @@ const runColumns = {
   agentId: agentRuns.agentId,
   agentName: agents.name,
   status: agentRuns.status,
+  trigger: agentRuns.trigger,
   startedAt: agentRuns.startedAt,
   endedAt: agentRuns.endedAt,
   latencyMs: agentRuns.latencyMs,
@@ -106,16 +108,23 @@ const runColumns = {
   inputTokens: agentRuns.inputTokens,
   outputTokens: agentRuns.outputTokens,
   error: agentRuns.error,
+  agentVersion: agentRuns.agentVersion,
 };
 
 /** 运行列表：join agents 取名字，按开始时间倒序（尚未开始的排在最后）。 */
 export async function listRuns(
   db: Database,
-  options: { agentId?: string; status?: RunStatus; limit?: number } = {},
+  options: {
+    agentId?: string;
+    status?: RunStatus;
+    trigger?: 'chat' | 'mcp' | 'schedule' | 'event';
+    limit?: number;
+  } = {},
 ): Promise<RunListItem[]> {
   const filters: SQL[] = [];
   if (options.agentId !== undefined) filters.push(eq(agentRuns.agentId, options.agentId));
   if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
+  if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
 
   // drizzle 0.45 的 ORDER BY 没有 nullsLast 构造器（只有索引列有），保留原始 sql。
   return db

@@ -25,6 +25,10 @@ export const servers = pgTable(
     config: jsonb('config').$type<Record<string, unknown>>().notNull(),
     // AES-256-GCM 加密后的 env / headers
     secretsEncrypted: text('secrets_encrypted'),
+    /** 最近一次「测试连接」的结果快照；刷新后仍能显示连接健康度。 */
+    lastTestedAt: timestamp('last_tested_at', { withTimezone: true }),
+    lastTestOk: boolean('last_test_ok'),
+    lastToolCount: integer('last_tool_count'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -129,6 +133,78 @@ export const agentSkills = pgTable(
   ],
 );
 
+/**
+ * 技能的支持资源文件（官方 SKILL.md 目录里的 scripts/、references/ 等）。
+ * 每个文件落到工作区 `.claude/skills/<slug>/<path>`；path 是相对技能目录的安全相对路径。
+ */
+export const skillFiles = pgTable(
+  'skill_files',
+  {
+    id: text('id').primaryKey(),
+    skillId: text('skill_id')
+      .notNull()
+      .references(() => skills.id, { onDelete: 'cascade' }),
+    /** 相对技能目录的路径，如 `scripts/run.sh`、`references/api.md`。 */
+    path: text('path').notNull(),
+    content: text('content').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('skill_files_skill_path_idx').on(t.skillId, t.path),
+    index('skill_files_skill_idx').on(t.skillId),
+  ],
+);
+
+/**
+ * 智能体项目规则。渲染到工作区 `.claude/rules/<slug>.md`，由 Claude Code
+ * project source 随会话加载；`globs` 写入 frontmatter 的 `paths` 做路径作用域。
+ */
+export const agentRules = pgTable(
+  'agent_rules',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    content: text('content').notNull().default(''),
+    /** 路径作用域（逗号分隔的 glob）；空表示对所有文件生效。 */
+    globs: text('globs').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('agent_rules_agent_slug_idx').on(t.agentId, t.slug),
+    index('agent_rules_agent_idx').on(t.agentId),
+  ],
+);
+
+/**
+ * 智能体自定义输出风格（官方 `.claude/output-styles/*.md`）。至多一个 isSelected，
+ * 选中者写进 `.claude/settings.json` 的 `outputStyle`，由 project source 激活。
+ */
+export const agentOutputStyles = pgTable(
+  'agent_output_styles',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    description: text('description').notNull().default(''),
+    keepCodingInstructions: boolean('keep_coding_instructions').notNull().default(false),
+    body: text('body').notNull().default(''),
+    isSelected: boolean('is_selected').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('agent_output_styles_agent_slug_idx').on(t.agentId, t.slug),
+    // 每个智能体至多一个选中风格。
+    uniqueIndex('agent_output_styles_selected_idx').on(t.agentId).where(eq(t.isSelected, true)),
+  ],
+);
+
 export const agentServers = pgTable(
   'agent_servers',
   {
@@ -226,6 +302,12 @@ export const agentRuns = pgTable(
     })
       .notNull()
       .default('queued'),
+    /** 本次运行由谁发起：对话 / 外部 MCP / 定时 / 事件。 */
+    trigger: text('trigger', { enum: ['chat', 'mcp', 'schedule', 'event'] })
+      .notNull()
+      .default('chat'),
+    /** 入队时锁定的智能体版本号，让「用什么配置跑的」可追溯。 */
+    agentVersion: integer('agent_version'),
     sessionId: text('session_id'),
     sandboxId: text('sandbox_id'),
     /** 入队时刻：queued 从未启动时 startedAt 为 NULL，只能靠它判断陈旧。 */
@@ -254,6 +336,9 @@ export const agentRuns = pgTable(
       'agent_runs_status_check',
       sql`${t.status} in ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout')`,
     ),
+    check('agent_runs_trigger_check', sql`${t.trigger} in ('chat', 'mcp', 'schedule', 'event')`),
+    // 任务看板按 trigger 过滤并统计各来源的运行量。
+    index('agent_runs_trigger_idx').on(t.trigger),
     // 模型代理每个请求都按 hash 查一次；只索引仍持有 token 的行。
     index('agent_runs_model_token_idx').on(t.modelTokenHash).where(isNotNull(t.modelTokenHash)),
     // 列表与概览都按 started_at desc nulls last 排序；agentId 过滤时走复合索引。
@@ -295,6 +380,34 @@ export const approvalRequests = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }),
   },
   (t) => [uniqueIndex('approval_requests_run_server_tool_idx').on(t.runId, t.serverId, t.toolName)],
+);
+
+/**
+ * 自主工作的定时任务。每行是一个 cron 触发：到点由 worker 用 admitChatRun 起一条
+ * trigger='schedule' 的运行。多 worker 部署时靠 nextDueAt 条件更新抢占，避免重复触发。
+ */
+export const agentSchedules = pgTable(
+  'agent_schedules',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** 5 段 cron（分 时 日 月 周），UTC。 */
+    cron: text('cron').notNull(),
+    /** 每次触发时作为用户消息发给智能体的提示词。 */
+    prompt: text('prompt').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+    nextDueAt: timestamp('next_due_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('agent_schedules_due_idx').on(t.nextDueAt).where(eq(t.enabled, true)),
+    index('agent_schedules_agent_idx').on(t.agentId),
+  ],
 );
 
 export const evalCases = pgTable(
@@ -402,12 +515,16 @@ export const schema = {
   agents,
   skills,
   agentSkills,
+  skillFiles,
+  agentRules,
+  agentOutputStyles,
   agentServers,
   agentVersions,
   conversations,
   messages,
   agentRuns,
   approvalRequests,
+  agentSchedules,
   evalCases,
   evalRuns,
   evalResults,

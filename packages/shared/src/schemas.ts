@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { runTriggerSchema } from './ops.js';
 
 /**
  * 前端真正解析的响应形状。路由声明 `response` 后，Fastify 会按 schema 序列化：
@@ -29,6 +30,9 @@ export const runListItemSchema = z.object({
   inputTokens: z.number().nullable(),
   outputTokens: z.number().nullable(),
   error: z.string().nullable(),
+  trigger: runTriggerSchema.optional(),
+  /** 入队时的智能体配置版本（provenance；执行使用当前配置，不做快照回放）。 */
+  agentVersion: z.number().nullable().optional(),
 });
 
 export type RunListItem = z.infer<typeof runListItemSchema>;

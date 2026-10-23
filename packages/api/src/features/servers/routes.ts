@@ -2,6 +2,7 @@ import { fail, isAppError, parseMcpJson } from '@agentport/core';
 import type { ApiToolPatch } from '@agentport/db/repo/servers.js';
 import {
   apiToolInputSchema,
+  connectorCatalogSchema,
   httpUrlSchema,
   idParams,
   maskSecret,
@@ -15,6 +16,7 @@ import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { serverTestRateLimit } from '../../plugins/security.js';
 import { typed } from '../../types.js';
+import { connectorCatalog } from './connector-catalog-data.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
 import { assertSafeUrl } from './ssrf.js';
@@ -98,6 +100,11 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
   const key = (): string => app.config.APP_SECRET_KEY;
 
   app.get('/api/servers', auth, async () => repo.listServers(app.db, key()));
+
+  // 连接器目录（策划清单）：只读，用于浏览并预填创建表单，绝不执行任何命令。
+  app.get('/api/connector-catalog', auth, async () =>
+    connectorCatalogSchema.parse(connectorCatalog),
+  );
 
   app.post(
     '/api/servers',
@@ -298,6 +305,12 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
         durationMs: result.durationMs,
         requestId: request.id,
       });
+      await repo.recordTestResult(
+        app.db,
+        server.id,
+        result.ok,
+        result.ok ? result.tools.length : null,
+      );
       return serverTestResultSchema.parse(result);
     },
   );

@@ -40,6 +40,7 @@ import {
   runInSandbox,
 } from './runner-client.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
+import { startScheduleTicker } from './scheduler.js';
 
 const config = loadConfig();
 const logger = pino({ level: config.LOG_LEVEL });
@@ -119,10 +120,34 @@ async function writeWorkspace(
   agent: AgentRow,
   runId: string,
   servers: Array<{ name: string; entry: McpJsonEntry }>,
-  skills: Array<{ slug: string; name: string; description: string; body: string }>,
+  skills: Array<{
+    slug: string;
+    name: string;
+    description: string;
+    body: string;
+    files?: Array<{ path: string; content: string }>;
+  }>,
   subAgents: SubAgentRow[],
+  rules: Array<{ slug: string; content: string; globs: string }>,
+  outputStyles: Array<{
+    slug: string;
+    description: string;
+    keepCodingInstructions: boolean;
+    body: string;
+  }>,
+  selectedOutputStyle: string | null,
 ): Promise<{ dir: string; hasSubAgents: boolean }> {
-  const files = renderWorkspace(toWorkspaceInput({ agent, servers, skills, subAgents }));
+  const files = renderWorkspace(
+    toWorkspaceInput({
+      agent,
+      servers,
+      skills,
+      subAgents,
+      rules,
+      outputStyles,
+      selectedOutputStyle,
+    }),
+  );
 
   // 按 run 隔离：同一智能体并发运行时不能互相覆盖 .mcp.json / 技能 / 子智能体。
   const dir = join(workspacesDir, agent.slug, runId);
@@ -154,6 +179,48 @@ async function writeWorkspace(
       encoding: 'utf8',
       mode: WORKSPACE_FILE_MODE,
     });
+    // 支持资源文件（scripts/、references/ 等）；path 已在写入时校验为安全相对路径。
+    for (const file of skill.files) {
+      const filePath = join(target, file.path);
+      await mkdir(join(filePath, '..'), { mode: WORKSPACE_DIR_MODE, recursive: true });
+      await writeFile(filePath, file.content, { encoding: 'utf8', mode: WORKSPACE_FILE_MODE });
+    }
+  }
+  // 项目规则每次重建：写到 .claude/rules/<slug>.md，由 project source 随会话加载。
+  const rulesDir = join(dir, '.claude', 'rules');
+  await rm(rulesDir, { recursive: true, force: true });
+  if (files.rules.length > 0) {
+    await mkdir(rulesDir, { mode: WORKSPACE_DIR_MODE, recursive: true });
+    for (const rule of files.rules) {
+      await writeFile(join(rulesDir, `${rule.slug}.md`), rule.content, {
+        encoding: 'utf8',
+        mode: WORKSPACE_FILE_MODE,
+      });
+    }
+  }
+  // 自定义输出风格：写到 .claude/output-styles/<slug>.md；选中者写进 .claude/settings.json。
+  const stylesDir = join(dir, '.claude', 'output-styles');
+  await rm(stylesDir, { recursive: true, force: true });
+  if (files.outputStyles.length > 0) {
+    await mkdir(stylesDir, { mode: WORKSPACE_DIR_MODE, recursive: true });
+    for (const style of files.outputStyles) {
+      await writeFile(join(stylesDir, `${style.slug}.md`), style.content, {
+        encoding: 'utf8',
+        mode: WORKSPACE_FILE_MODE,
+      });
+    }
+  }
+  // settings.json 与预览同源（renderWorkspace）。outputStyle 必须写进这里，因为 runner 的
+  // inline object-settings 优先级高于磁盘文件；runner 会把这里解析出的 outputStyle 一并带上，
+  // 否则磁盘上的 settings.json 会被 inline settings 遮蔽。
+  const settingsPath = join(dir, '.claude', 'settings.json');
+  if (files.settingsJson !== null) {
+    await writeFile(settingsPath, files.settingsJson, {
+      encoding: 'utf8',
+      mode: WORKSPACE_FILE_MODE,
+    });
+  } else {
+    await rm(settingsPath, { force: true });
   }
   // mode 只在创建时生效；已存在的工作区（BullMQ 重试复用）要再 chmod 一次。
   await chmod(dir, WORKSPACE_DIR_MODE);
@@ -186,7 +253,6 @@ function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
     SANDBOX_API_URL: apiUrl,
     // 根文件系统只读；SDK 写会话缓存的目录是 tmpfs（见 docker.ts）。
     CLAUDE_CONFIG_DIR: '/home/node/.claude',
-    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
   };
   if (modelProxy) {
     env.ANTHROPIC_BASE_URL = modelProxy.url;
@@ -277,7 +343,7 @@ const worker = new Worker(
     const { runId, agentId, conversationId, prompt, history } = parsed.data;
 
     const [run] = await db
-      .select({ status: schema.agentRuns.status })
+      .select({ status: schema.agentRuns.status, agentVersion: schema.agentRuns.agentVersion })
       .from(schema.agentRuns)
       .where(eq(schema.agentRuns.id, runId))
       .limit(1);
@@ -317,6 +383,20 @@ const worker = new Worker(
         .limit(1);
       if (!agent) throw new Error(`agent ${agentId} not found`);
 
+      // 版本只做 provenance：执行始终用当前配置，不一致仅告警。
+      try {
+        const pinnedVersion = run?.agentVersion ?? null;
+        const currentVersion = await repo.agentVersions.latestAgentVersion(db, agentId);
+        if (pinnedVersion !== null && currentVersion !== null && pinnedVersion !== currentVersion) {
+          logger.warn(
+            { runId, pinnedVersion, currentVersion },
+            'agent config changed since enqueue; executing current config',
+          );
+        }
+      } catch (err) {
+        logger.warn({ err, runId }, 'agent version drift check failed');
+      }
+
       const timeoutMs = agent.timeoutMs;
       // 按 run 签发短期 token：DB 只存 hash，明文只在本工作区的 .mcp.json 里。
       // 过期时间比 run 超时多 5 分钟，避免收尾阶段请求被截断。
@@ -337,6 +417,7 @@ const worker = new Worker(
 
       const skillRows = await db
         .select({
+          id: schema.skills.id,
           slug: schema.skills.slug,
           name: schema.skills.name,
           description: schema.skills.description,
@@ -357,10 +438,34 @@ const worker = new Worker(
         db,
         subAgentRows.filter((row) => row.enabled).map((row) => row.id),
       );
+      // 根技能和启用子智能体的技能共用一次资源查询，根白名单仍只来自 skillRows。
+      const skillFileMap = await repo.skillFiles.getSkillFilesBySkillIds(db, [
+        ...new Set([...skillRows, ...[...childSkills.values()].flat()].map((row) => row.id)),
+      ]);
+      const withFiles = (row: (typeof skillRows)[number]) => ({
+        slug: row.slug,
+        name: row.name,
+        description: row.description,
+        body: row.body,
+        files: (skillFileMap.get(row.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
+      });
+      const skillsWithFiles = skillRows.map(withFiles);
       const subAgents = subAgentRows.map((row) => ({
         ...row,
-        skills: childSkills.get(row.id) ?? [],
+        skills: (childSkills.get(row.id) ?? []).map(withFiles),
       }));
+
+      const ruleRows = await repo.rules.listRules(db, agentId);
+      const rules = ruleRows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
+
+      const styleRows = await repo.outputStyles.listOutputStyles(db, agentId);
+      const outputStyles = styleRows.map((r) => ({
+        slug: r.slug,
+        description: r.description,
+        keepCodingInstructions: r.keepCodingInstructions,
+        body: r.body,
+      }));
+      const selectedOutputStyle = styleRows.find((r) => r.isSelected)?.slug ?? null;
 
       const { dir: workspaceDir, hasSubAgents } = await writeWorkspace(
         agent,
@@ -369,11 +474,21 @@ const worker = new Worker(
           name: server.name,
           entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId, runToken),
         })),
-        skillRows,
+        skillsWithFiles,
         subAgents,
+        rules,
+        outputStyles,
+        selectedOutputStyle,
       );
       workspaceDirForRun = workspaceDir;
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');
+
+      // 长期记忆：宿主持久目录，跨 run 累积；挂到容器 CLAUDE_CONFIG_DIR/agent-memory，
+      // runner 用 settings.autoMemoryDirectory 指过去。API 侧也读写同一目录。
+      const memoryHostDir = join(workspacesDir, agent.slug, 'agent-memory');
+      // 容器内以 uid 1000 运行并需读写记忆；跨 uid（Linux 下 worker 常为 root）要给足权限。
+      await mkdir(memoryHostDir, { recursive: true, mode: 0o777 });
+      await chmod(memoryHostDir, 0o777).catch(() => undefined);
 
       runStartedAt = Date.now();
       outcome = await runInSandbox({
@@ -401,6 +516,13 @@ const worker = new Worker(
         workspaceDir: toHostWorkspacePath(workspaceDir),
         image: config.SANDBOX_IMAGE,
         env: sandboxEnv(sandboxApiUrl, runId),
+        extraMounts: [
+          {
+            hostPath: join(hostWorkspacesDir, agent.slug, 'agent-memory'),
+            containerPath: '/mnt/agent-memory',
+            readonly: false,
+          },
+        ],
         provider,
         logger: logger.child({ runId }),
       });
@@ -589,6 +711,12 @@ installProcessGuards(logger);
 
 logger.info('worker started');
 
+const scheduleTicker = startScheduleTicker({
+  db,
+  logger,
+  redisUrl: config.REDIS_URL,
+});
+
 const SHUTDOWN_WAIT_MS = 10_000;
 const POOL_WAIT_MS = 2_000;
 
@@ -610,6 +738,7 @@ const shutdown = async (): Promise<void> => {
   const closing = Promise.allSettled([worker.close(), evalWorker.close()]);
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
+  await scheduleTicker.stop();
   await stopReconciler();
   await provider.destroyAll();
   await Promise.race([closing, sleep(POOL_WAIT_MS)]);

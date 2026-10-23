@@ -322,7 +322,13 @@ export async function appendMessage(
 
 export async function createRun(
   db: Database | Tx,
-  input: { id: string; conversationId: string; agentId: string },
+  input: {
+    id: string;
+    conversationId: string;
+    agentId: string;
+    trigger?: 'chat' | 'mcp' | 'schedule' | 'event';
+    agentVersion?: number | null;
+  },
 ): Promise<AgentRun> {
   const [row] = await db
     .insert(agentRuns)
@@ -331,6 +337,8 @@ export async function createRun(
       conversationId: input.conversationId,
       agentId: input.agentId,
       status: 'queued',
+      ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
+      ...(input.agentVersion === undefined ? {} : { agentVersion: input.agentVersion }),
     })
     .returning();
   if (!row) throw new Error('agent run insert returned no row');
@@ -340,7 +348,13 @@ export async function createRun(
 /** 先锁会话再检查活动运行，让后续入场看到前一个事务的提交。 */
 export async function admitChatRun(
   db: Database,
-  input: { agentId: string; message: string; conversationId?: string },
+  input: {
+    agentId: string;
+    message: string;
+    conversationId?: string;
+    trigger?: 'chat' | 'mcp' | 'schedule' | 'event';
+    agentVersion?: number;
+  },
 ): Promise<{
   run: AgentRun;
   conversationId: string;
@@ -390,7 +404,13 @@ export async function admitChatRun(
       .limit(1);
     if (active) fail('CONFLICT', '该会话仍有运行未结束，请等待完成或取消后再发送');
 
-    const run = await createRun(tx, { id: newId('run'), conversationId, agentId: input.agentId });
+    const run = await createRun(tx, {
+      id: newId('run'),
+      conversationId,
+      agentId: input.agentId,
+      ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
+      ...(input.agentVersion === undefined ? {} : { agentVersion: input.agentVersion }),
+    });
     // 批准原先绑定单次 run；重发消息会新建 run，这里把上一 run 的已批准工具带过来。
     const inherited = await inheritApprovals(tx, { conversationId, runId: run.id });
     // 在写入本条消息前取历史，避免把当前输入重复拼进上下文。

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import {
   agentInputSchema,
@@ -196,6 +197,20 @@ const disallowedTools = baseDisallowed.filter((tool) => {
 
 log(`starting query (model=${task.model ?? 'default'})`);
 
+// 读取工作区 .claude/settings.json 的 outputStyle，再以 inline settings 传入。
+// SDK 会按 key 优先级把项目 .claude/settings.json 与 inline settings 合并；
+// 这里额外 inline 传 outputStyle，保证跨 SDK 版本的合并语义下都能生效。
+let outputStyle: string | undefined;
+try {
+  const parsed = JSON.parse(readFileSync('/workspace/.claude/settings.json', 'utf8')) as {
+    outputStyle?: unknown;
+  };
+  if (typeof parsed.outputStyle === 'string' && parsed.outputStyle)
+    outputStyle = parsed.outputStyle;
+} catch {
+  // 文件不存在或非法：走默认输出风格。
+}
+
 let emittedTerminal = false;
 // run_finished 只能有一条：宿主按它落库并结束 SSE。
 function emit(event: RunnerEvent): void {
@@ -210,7 +225,14 @@ try {
       cwd: '/workspace',
       settingSources: ['project'],
       // .mcp.json 里的 server 默认需要审批；无人值守时不批准就等于零工具静默成功。
-      settings: { enableAllProjectMcpServers: true },
+      // 长期记忆用 Claude Code 原生 auto-memory：目录由 worker 从宿主持久卷挂到这里，
+      // 跨 run 累积；平台侧只做浏览/编辑，不另造记忆格式。
+      settings: {
+        enableAllProjectMcpServers: true,
+        autoMemoryEnabled: true,
+        autoMemoryDirectory: '/mnt/agent-memory',
+        ...(outputStyle === undefined ? {} : { outputStyle }),
+      },
       // 用户文本是纯文本：不要做 @路径展开或斜杠命令解析。
       verbatimPrompts: true,
       // 子智能体的文本也要流出来，否则前端看不到它们的回答。
@@ -226,7 +248,7 @@ try {
       ...(task.effort === undefined ? {} : { effort: task.effort }),
       ...(task.maxThinkingTokens === undefined
         ? {}
-        : { maxThinkingTokens: task.maxThinkingTokens }),
+        : { thinking: { type: 'enabled', budgetTokens: task.maxThinkingTokens } }),
       abortController,
       ...(task.model === undefined ? {} : { model: task.model }),
     },

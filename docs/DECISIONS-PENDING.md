@@ -464,6 +464,30 @@
 
 **边界**：页面保留的是已接收文本，不保证可持久化或恢复已删除记录；会话URL不主动重写。客户端与API独立复审均无阻塞；按复审补清空lastRunId，避免已删除运行详情入口和审批查询，新增断言先红后绿。该修正后的最终全量583/583及完整浏览器42通过1跳过，类型lint构建通过，worker恢复；第50轮已结算并停止循环。只删除本次验收自建行，不触及真实业务数据。
 
+## D-61 ✅ 长期记忆走 Claude Code 原生 auto-memory（2026-10-23）
+
+**采用**：不新建记忆表、不定义私有记忆格式。启用 SDK 原生 auto-memory（`settings.autoMemoryEnabled` + `autoMemoryDirectory`），目录是官方 `MEMORY.md` + 主题文件；宿主落到 `WORKSPACES_DIR/<slug>/agent-memory/`（跨 run 持久、0777 供容器 uid 1000 读写），每次运行以 rw 挂到容器 `/mnt/agent-memory`，runner 指向该目录。平台只做浏览/编辑（`/api/agents/:id/memory[/:name]`，PUT/DELETE，文件名白名单防穿越）。移除旧的 `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`。
+
+**边界**：记忆是机器本地、按 agent 的目录，不跨机同步；不得把项目级 `autoMemoryDirectory` 放进仓库 settings（受官方安全限制）。已用真实 dev 栈验证写/读/列表/删除与浏览器记忆页；未跑真实模型长会话以观察自动“保存记忆”。
+
+## D-62 ✅ 定时任务与任务看板走平台运营层，不进 `.claude/`（2026-10-23）
+
+**采用**：调度、任务看板、待办聚合是平台运营层，不进智能体定义文件。定时任务用新表 `agent_schedules` + worker 的 30s ticker（条件更新 `next_due_at` 去重领取），触发复用既有 BullMQ 运行队列起 `trigger='schedule'` 的运行；不引入第二套调度引擎。触发器列与看板统计基于 `agent_runs` 的 `trigger` 列（chat/mcp/schedule/event）。版本锁定新增 `agent_runs.agent_version`（建运行时不回填，按当前专家版本可追溯的后续工作保留）。
+
+**边界**：单机 ticker；多 worker 靠 claim 的条件更新去重但仍依赖单一 DB 时钟。cron 用极简 5 段 UTC 解析（分 时 日 月 周，支持 `* , - /`，不支持 L/W/#）。
+
+## D-63 ✅ 运行记录 agent_version 的语义（2026-10-23）
+
+**采用**：`agent_runs.agent_version` 记录**入队时**的智能体配置版本，用于追溯"入队时是哪一版"，不是执行快照回放。执行仍使用运行时的当前配置；worker 在两者不一致时记录一条 warn（不改变执行）。
+
+**边界**：真正"按版本快照回放执行"需要从 `agent_versions.snapshot` 重建智能体定义与绑定，属后续项，未实现也不声称支持。
+
+## D-64 专家包升级为官方文件的可移植传输封装（2026-10-24）
+
+**采用**：新导出使用 `agentport/agent@2`，取代D-37中的新导出格式约定；既有 `@1` 决策保留为历史，导入兼容 `@1` 与 `@2`。`@2` 携带根与直接子定义的 `rules`、`outputStyles`（含 `isSelected`）及 `skills.files`，派生 `workspace` 不作为权威来源；它是官方文件的可移植传输封装，不是另一套Harness。包≤1MiB，每个根/子定义≤50条规则、≤20个输出样式，每个技能≤50个支持文件；同slug共享技能复用时保持已有内容并告警。连接器密钥明文与服务令牌不随包传递，导入不调用模型、不测试连接或执行工具。
+
+**边界**：旧版应用可能拒绝 `@2`；子定义所属规则与输出样式随包保留，不承诺子定义在父工作区内运行时自动应用。
+
 ## 决策记录格式
 
 决策后请在此处标注：

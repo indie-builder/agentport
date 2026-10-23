@@ -2,6 +2,19 @@
 
 > 这些规则对本仓库的所有改动生效。与个人偏好冲突时，以本文件为准。
 
+## 0. 第一性原则：文件系统即智能体定义（最高约束）
+
+**智能体平台的全部定义，都用 Claude Agent SDK / Claude Code 官方那套文件系统来表达。** 一个智能体 = 一个 `.claude/` 目录（`.mcp.json`、`CLAUDE.md`、`.claude/skills/<name>/SKILL.md`、`.claude/agents/*.md`、`.claude/settings.json`、hooks、以及官方支持的其他文件）下的文件集合；平台只负责**把这些文件渲染到工作区、只读挂载进沙盒、交给 SDK 加载**，不再另造一套 JSON 定义格式或数据库专属结构去替代它。
+
+由此派生（必须遵守）：
+
+1. **文件是唯一投影，DB 是编辑来源。** 界面上的一切编辑都最终落成官方文件；判断"平台是否支持某能力"以"能否生成并加载对应官方文件、并被 SDK 真正加载/调用"为准，而非界面上是否有个开关。
+2. **只用官方文件约定。** 目录名、文件名、frontmatter 字段（`SKILL.md` 大小写、`.claude/agents/*.md`、`.claude/settings.json` 的 hooks/permissions/env、`.claude/agent-memory/`、插件根 `.claude-plugin/plugin.json` 等）一律照官方文档，不自创目录或字段。范围见 `docs/ARCHITECTURE.md`「官方文件能力与接入状态」。
+3. **能力扩展 = 补齐文件能力。** 新增功能优先想"这是官方文件系统的哪个文件/目录能力"，把它做成"可编辑 + 可渲染 + 可加载 + 可导出"的闭环，而不是新增一张表配一套私有语义。
+4. **可移植。** 一个智能体目录能原样导出、导入、跨平台复用（`.claude/` 目录本身就是交付物）。
+
+> 依据：用户明确该项目基本原则——「用 Claude Agent SDK，通过文件系统的方式来构建智能体；每个智能体就是把定义好的 `.claude` 目录下所有文件，用 Claude Code 官方那套文件系统定义方式来做」。
+
 ## 优先级（冲突时自上而下裁决）
 
 0. **官方最佳实践优先。** 项目引用的每个技术栈（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Fastify、Vitest…）如果官方文档给出了做法，**以官方为准**。用户的口头偏好、我的判断、项目历史习惯，都不高于官方文档。用户明确说过「我可能说的也不对」——遇到分歧先去查官方文档，再决定。
@@ -11,8 +24,26 @@
 4. **零死代码。** 无人引用的组件、导出、样式、依赖、注释掉的代码块一律删除；不保留「以后可能用」的占位实现。删之前用 grep 确认引用，删之后跑 typecheck / 构建确认没断。注释只解释「代码看不出来的原因」，不写复述代码的废话。
 5. 其余按本文件后续条款执行。
 
+## 能力选型（硬性：先看现有 → 原生 → 开源 → 最后才自研）
+
+新增或改进任何功能/能力项前，必须按这个顺序调研，**不允许「缺什么就直接上手实现」**：
+
+0. **先看现有项目有没有。** 先 grep / 读代码确认本仓库是否已有该功能或近似能力。有 → 优先复用或整合；即使不整合，也要**针对现有这块功能按最佳实践改造**，而不是并排再造一份。
+1. **再看原生能力。** 平台底座（Claude Agent SDK / Claude Code）、已选技术栈或已装依赖，官方是否已提供该能力？有就评估它能否很好地适配现有诉求。
+2. **能适配就用原生。** 官方能力满足诉求时一律用原生，以**最小代价**实现，不自造平台侧等价实现、不引入第二套。
+3. **原生不适配，才找热门开源方案。** 到 GitHub 找成熟、活跃、许可合规的开源实现（看 star / 维护活跃度 / 许可证 / SDK 契合度），仍以**最小代价**落地，记录候选与取舍理由。
+4. **只有以上都不行，才自研**，并在 PR/文档说明为什么现有、原生、开源都不适用。
+
+> 依据：用户明确要求——功能探索时先看现有项目有没有、有就整合或按最佳实践改造；没有再看原生能力、以最小代价实现；最后才考虑引入开源或自研。
+
 ## 协作方式
 
+- **【基本执行原则】默认就是「先 Opus 探索/设计，再拆多个 Sonnet 子代理并行执行」——不需要用户每次交代。** 任何非平凡任务：
+  1. **探索与方案设计用 Opus**：读代码、定契约、拆任务、判断取舍、架构决策。
+  2. **落地执行拆成多个互不依赖的子代理并行，子代理用 Sonnet**；主会话只定共享契约、合并、跑全量校验（typecheck / test / lint / build / 真实验证）。
+  - 只有强依赖或需连续判断的工作留在主会话；能拆开就必须拆开并行，不要退化成主会话一个人顺序做完。
+- **所有执行动作都通过子代理完成，主会话只编排。** 编码/打包/写测试等**执行**交给 **Sonnet 子代理**；设计、评审、审计（含包与审计类核对）交给 **Opus 子代理**；主会话只定共享契约、派发、合并、跑全量校验与提交，不亲自写实现代码（除极小的共享契约片段）。
+- **代码写完后必须先由 Opus 子代理做 code review，再提交。** 标准流水线：Opus 设计 → Sonnet 编码 → **Opus code review（子代理，查正确性/安全/死代码/契约一致性）** →（有问题交 Sonnet 修复）→ 主会话跑全量校验 → commit/PR。review 未过不提交。
 - **任务执行尽量使用多智能体并行。** 只要工作可以拆成互不依赖的子任务（多个页面、多个包、多个独立调研），就派多个子代理并行执行，而不是串行做完一个再做下一个。
 - 分工原则：先由主会话确定共享契约（类型、schema、接口签名、设计令牌），再让子代理在各自范围内实现；子代理不互相等待。
 - 每个子代理必须有明确的产出边界（改哪些文件、不改哪些文件）与验收方式；主会话负责合并、跑全量校验（typecheck / test / lint / e2e）。
@@ -21,7 +52,8 @@
 
 ## 智能体运行底座
 
-- 智能体运行统一使用官方 `@anthropic-ai/claude-agent-sdk`。新增工具、会话、子智能体和审批能力先核对 SDK 官方接口，再用项目已有栈补齐平台部分。
+- **Claude Agent SDK / Claude Code 相关内容，一律先查官方文档再动手（硬性规则）。** 涉及 SDK 的选项、能力、默认行为、环境变量、文件与目录约定时，不得凭记忆或猜测下结论，必须先核对 https://code.claude.com/docs 与已安装的 `@anthropic-ai/claude-agent-sdk` 类型定义（`sdk.d.ts`）；官方与本地实现不一致时以官方文档为准。能用官方原生能力（如 memory、plugins、hooks、session resume、skill 目录）解决的，不另造平台侧等价实现。
+- 智能体运行统一使用官方 `@anthropic-ai/claude-agent-sdk`。新增工具、会话、子智能体和审批能力先核对 SDK 官方接口，再用项目已有栈补齐平台部分。**选型顺序见上文「能力选型（硬性）」：原生优先，其次 GitHub 热门开源，最后才自研。**
 - 文件工作区是平台的核心交互契约；目录、字段及加载方式按 Claude Agent SDK/Claude Code 官方文档与已安装版本维护，完整能力与接入状态统一见 `docs/ARCHITECTURE.md`「官方文件能力与接入状态」。界面与存储围绕官方文件提供编辑、导入导出和沙盒执行，不以手列的少数目录作为能力上限，也不另造独立运行定义格式。
 - AI Harness 只保留 Claude Agent SDK 一套；Dify、LangGraph、n8n 等用于产品能力对标，不引入第二套智能体执行循环或编排底座。测试工具的模型适配器不作为产品运行底座，也不扩散到业务代码。
 - 有价值的功能可以引入额外技术栈：先核对现有依赖，按能力选择一种实现；更换同类技术时完成调用方迁移与旧依赖清理，避免长期并存多套等价实现。
@@ -75,6 +107,11 @@
 | 技能 | 来源 | 安装量 | 对应项目技术栈 |
 |---|---|---|---|
 | `frontend-design` | anthropics/skills | 1.0M | 整体 UI 方向与排版 |
+| `api-and-interface-design` | addyosmani/agent-skills | 60.7K | REST 接口契约、TypeScript 类型边界与错误语义 |
+| `cli-interface-design` | samber/developer-platform-skills | 7.2K | 在 API 之上设计 CLI：命令分层、`--json`/退出码冻结契约、agent 友好 |
+| `public-api-design-review` | samber/developer-platform-skills | 7.2K | REST 面检查表：命名、方法/状态码、分页、错误信封、Hyrum's Law 兼容 |
+| `api-error-design` | samber/developer-platform-skills | 7.2K | 错误码 taxonomy、RFC 9457 problem-details、retryable 信号 |
+| `api-integration-surface-strategy` | samber/developer-platform-skills | 7.2K | 按回滚成本与受众排序 REST/CLI/SDK/MCP 等各集成面的建设顺序 |
 | `vercel-react-best-practices` | vercel-labs/agent-skills | 818.5K | React 19 组件与性能 |
 | `supabase-postgres-best-practices` | supabase/agent-skills | 451.7K | PostgreSQL 18 查询、索引、RLS |
 | `test-driven-development` | obra/superpowers | 254.7K | Vitest 单元/集成测试 |

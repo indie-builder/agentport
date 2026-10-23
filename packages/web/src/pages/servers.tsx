@@ -1,17 +1,20 @@
 import {
   type ApiTool,
   type ApiToolInput,
+  type ConnectorCatalogItem,
   SECRET_MASK,
   type Server,
   type ServerInput,
   type ServerTestResult,
   serverInputSchema,
 } from '@agentport/shared';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   CircleAlert,
   CircleCheck,
   KeyRound,
+  LibraryBig,
   MoreHorizontal,
   Pencil,
   Plug,
@@ -85,6 +88,7 @@ import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatDuration } from '../lib/format.js';
 import {
+  connectorCatalogQuery,
   useAgents,
   useCreateServer,
   useCreateTool,
@@ -172,6 +176,8 @@ export function ServersPage() {
   const [connection, setConnection] = useState<Server | null>(null);
   const [toolServer, setToolServer] = useState<Server | null>(null);
   const [catalogServer, setCatalogServer] = useState<Server | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogInitial, setCatalogInitial] = useState<ConnectorCatalogItem | null>(null);
   const [tested, setTested] = useState<Map<string, LastTest>>(() => new Map());
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -303,6 +309,15 @@ export function ServersPage() {
             <Upload data-icon="inline-start" aria-hidden="true" />{' '}
             {importMcp.isPending ? '导入中…' : '导入 .mcp.json'}
           </Button>
+          <Button
+            variant="outline"
+            onClick={(event) => {
+              triggerRef.current = event.currentTarget;
+              setCatalogOpen(true);
+            }}
+          >
+            <LibraryBig data-icon="inline-start" aria-hidden="true" /> 浏览目录
+          </Button>
           <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
             <Plus data-icon="inline-start" /> 新建连接器
           </Button>
@@ -391,18 +406,34 @@ export function ServersPage() {
         </ul>
       ) : null}
 
+      {catalogOpen ? (
+        <ConnectorCatalogDialog
+          getReturnFocus={focusTrigger}
+          onClose={() => setCatalogOpen(false)}
+          onPick={(item) => {
+            setCatalogOpen(false);
+            setEditing(null);
+            setCatalogInitial(item);
+            setFormOpen(true);
+          }}
+        />
+      ) : null}
+
       {formOpen ? (
         <ServerFormDialog
-          key={editing?.id ?? 'new'}
+          key={editing?.id ?? (catalogInitial ? `catalog-${catalogInitial.slug}` : 'new')}
           getReturnFocus={focusTrigger}
           server={editing}
+          initial={catalogInitial}
           onClose={() => {
             setFormOpen(false);
             setEditing(null);
+            setCatalogInitial(null);
           }}
           onSaved={(saved, created) => {
             setFormOpen(false);
             setEditing(null);
+            setCatalogInitial(null);
             setTested((previous) => {
               const next = new Map(previous);
               next.delete(saved.id);
@@ -565,7 +596,21 @@ function ServerCard({
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
-        <Badge variant="secondary">{kindMeta[server.kind].label}</Badge>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Badge variant="secondary">{kindMeta[server.kind].label}</Badge>
+          {server.lastTestOk === true ? (
+            <span
+              className="text-xs text-muted-foreground"
+              title={
+                server.lastTestedAt ? `测试于 ${formatDateTime(server.lastTestedAt)}` : undefined
+              }
+            >
+              连接正常{server.lastToolCount != null ? ` · ${server.lastToolCount} 工具` : ''}
+            </span>
+          ) : server.lastTestOk === false ? (
+            <span className="text-xs text-danger">上次测试失败</span>
+          ) : null}
+        </div>
         <code className="truncate font-mono text-xs text-muted-foreground" title={detailOf(server)}>
           {detailOf(server) || '—'}
         </code>
@@ -651,6 +696,77 @@ function TestSummary({
         查看工具与测试详情
       </Button>
     </div>
+  );
+}
+
+/** 只读策划目录；选中只预填创建表单，不创建、不执行任何命令。 */
+function ConnectorCatalogDialog({
+  onClose,
+  onPick,
+  getReturnFocus,
+}: {
+  onClose: () => void;
+  onPick: (item: ConnectorCatalogItem) => void;
+  getReturnFocus: () => HTMLElement | null;
+}) {
+  const catalog = useQuery(connectorCatalogQuery);
+
+  return (
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogShell
+        title="连接器目录"
+        description="策划清单，仅用于预填创建表单；不会自动执行任何命令。"
+        finalFocus={getReturnFocus}
+        className="max-w-2xl sm:max-w-2xl"
+      >
+        {catalog.isPending ? <LoadingState rows={3} /> : null}
+        {catalog.isError ? (
+          <ErrorState error={catalog.error} onRetry={() => void catalog.refetch()} />
+        ) : null}
+        {catalog.data ? (
+          <ul aria-label="连接器目录" className="flex flex-col divide-y border-y">
+            {catalog.data.map((item) => (
+              <li key={item.slug} className="flex flex-col gap-2 py-3">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-sm font-medium text-fg">{item.name}</span>
+                  <Badge variant="secondary">{item.kind === 'http' ? 'HTTP' : 'stdio'}</Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto"
+                    onClick={() => onPick(item)}
+                  >
+                    使用
+                  </Button>
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">{item.description}</p>
+                {item.kind === 'stdio' ? (
+                  <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                    <code className="break-words font-mono text-fg">
+                      {[item.command, ...(item.args ?? [])].filter(Boolean).join(' ')}
+                    </code>
+                    {item.envKeys?.length ? (
+                      <p className="break-words font-mono">
+                        需要环境变量：{item.envKeys.join('、')}
+                      </p>
+                    ) : null}
+                    <p className="text-danger">保存并测试时会在宿主执行上述命令。</p>
+                  </div>
+                ) : null}
+                <a
+                  href={item.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-fit text-xs text-muted-foreground underline underline-offset-4 hover:text-fg"
+                >
+                  来源
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </DialogShell>
+    </Dialog>
   );
 }
 
@@ -1526,22 +1642,45 @@ function serverToForm(server: Server): FormState {
   }
 }
 
+function catalogToForm(item: ConnectorCatalogItem): { kind: Kind; form: FormState } {
+  // 名称用 slug：目录里的展示名可能含大写或括号，过不了 name 的 slug 校验。
+  const common = { name: item.slug, description: item.description };
+  if (item.kind === 'stdio') {
+    return {
+      kind: 'stdio',
+      form: {
+        ...emptyForm,
+        ...common,
+        command: item.command ?? '',
+        args: (item.args ?? []).join('\n'),
+      },
+    };
+  }
+  return { kind: 'http', form: { ...emptyForm, ...common, url: item.url ?? '' } };
+}
+
 function ServerFormDialog({
   server,
+  initial = null,
   onClose,
   onSaved,
   getReturnFocus,
 }: {
   server: Server | null;
+  initial?: ConnectorCatalogItem | null;
   onClose: () => void;
   onSaved: (server: Server, created: boolean) => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
   const creating = server === null;
+  const prefill = creating && initial ? catalogToForm(initial) : null;
   const create = useCreateServer();
   const update = useUpdateServer();
-  const [kind, setKind] = useState<Kind | null>(server?.kind ?? null);
-  const [form, setForm] = useState<FormState>(() => (server ? serverToForm(server) : emptyForm));
+  const [kind, setKind] = useState<Kind | null>(server?.kind ?? prefill?.kind ?? null);
+  const [form, setForm] = useState<FormState>(() => {
+    if (server) return serverToForm(server);
+    return prefill?.form ?? emptyForm;
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [baseline, setBaseline] = useState(server);
@@ -1551,8 +1690,8 @@ function ServerFormDialog({
   const dirty =
     JSON.stringify({ kind, form }) !==
     JSON.stringify({
-      kind: baseline?.kind ?? null,
-      form: baseline ? serverToForm(baseline) : emptyForm,
+      kind: baseline?.kind ?? prefill?.kind ?? null,
+      form: baseline ? serverToForm(baseline) : (prefill?.form ?? emptyForm),
     });
 
   const pending = create.isPending || update.isPending || reloading;
