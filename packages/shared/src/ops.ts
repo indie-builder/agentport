@@ -2,7 +2,6 @@ import { z } from 'zod';
 
 /** 运行来源：对话 / 外部 MCP / 定时 / 事件。 */
 export const runTriggerSchema = z.enum(['chat', 'mcp', 'schedule', 'event']);
-export type RunTrigger = z.infer<typeof runTriggerSchema>;
 
 /** 极简 5 段 cron 校验（分 时 日 月 周，UTC）。完整解析在 core/worker 侧。 */
 export const cronSchema = z
@@ -36,10 +35,12 @@ export const scheduleSchema = z.object({
 
 export type Schedule = z.infer<typeof scheduleSchema>;
 
+// 不派生自 scheduleInputSchema：它的 enabled 默认值会在 PATCH 时空对象也填成 true，
+// 从而把已停用的任务重新启用。
 export const schedulePatchSchema = scheduleInputSchema
-  .omit({ agentId: true })
+  .omit({ agentId: true, enabled: true })
   .partial()
-  .extend({ expectedUpdatedAt: z.string().optional() });
+  .extend({ enabled: z.boolean().optional(), expectedUpdatedAt: z.string().optional() });
 
 export type SchedulePatch = z.infer<typeof schedulePatchSchema>;
 

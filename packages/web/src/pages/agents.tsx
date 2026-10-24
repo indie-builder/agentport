@@ -20,6 +20,7 @@ import {
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
+  Archive,
   ArrowLeft,
   BarChart3,
   Bot,
@@ -227,8 +228,11 @@ export function AgentsPage() {
   const importFile = async (file: File): Promise<void> => {
     setImporting(true);
     try {
-      const isMarkdown = file.name.toLowerCase().endsWith('.md');
-      if (file.size > (isMarkdown ? 131072 : AGENT_PACKAGE_MAX_BYTES)) {
+      const name = file.name.toLowerCase();
+      const isArchive = name.endsWith('.zip');
+      const isMarkdown = name.endsWith('.md');
+      // zip 的大小上限由 api.importAgentArchive 校验并给出归档专用文案。
+      if (!isArchive && file.size > (isMarkdown ? 131072 : AGENT_PACKAGE_MAX_BYTES)) {
         toastError(
           new Error(
             isMarkdown ? 'agent.md 不能超过 128 KB，请精简后重试。' : '导入文件不能超过 1 MiB。',
@@ -236,10 +240,11 @@ export function AgentsPage() {
         );
         return;
       }
-      const text = await file.text();
-      const result = isMarkdown
-        ? await api.importAgentFile(text)
-        : await api.importAgent(JSON.parse(text));
+      const result = isArchive
+        ? await api.importAgentArchive(file)
+        : isMarkdown
+          ? await api.importAgentFile(await file.text())
+          : await api.importAgent(JSON.parse(await file.text()));
       await Promise.all(
         ['agents', 'servers', 'skills', 'overview'].map((key) =>
           queryClient.invalidateQueries({ queryKey: [key] }),
@@ -343,7 +348,7 @@ export function AgentsPage() {
           <input
             ref={fileInput}
             type="file"
-            accept="application/json,.json,text/markdown,.md"
+            accept="application/json,.json,text/markdown,.md,application/zip,.zip"
             className="hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -353,7 +358,7 @@ export function AgentsPage() {
           />
           <Button
             variant="outline"
-            title="导入专家 JSON 或 agent.md"
+            title="导入专家 JSON、agent.md 或归档 zip"
             disabled={importing}
             aria-busy={importing}
             onClick={(event) => {
@@ -782,7 +787,7 @@ export function AgentEditor({
   const resolvedId = resolvedEntry?.id;
   const fileGroups = [...new Set(fileEntries.map((entry) => entry.group))];
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<'json' | 'archive' | null>(null);
   // 多行文本按行解析为数组；草稿单独保留，输入换行时不会被 join 规范化掉。
   const [allowedText, setAllowedText] = useState(() => agent.allowedTools.join('\n'));
   const allowedInvalid = allowedText
@@ -832,24 +837,33 @@ export function AgentEditor({
     );
   };
 
-  const download = async (): Promise<void> => {
-    setExporting(true);
+  const saveBlob = (blob: Blob, filename: string): void => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  const download = async (format: 'json' | 'archive'): Promise<void> => {
+    setExporting(format);
     try {
-      const data = await api.exportAgent(agent.id);
-      const url = URL.createObjectURL(
-        new Blob([serializeAgentPackage(data)], { type: 'application/json' }),
-      );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${agent.slug}.agent.json`;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      if (format === 'json') {
+        const data = await api.exportAgent(agent.id);
+        saveBlob(
+          new Blob([serializeAgentPackage(data)], { type: 'application/json' }),
+          `${agent.slug}.agent.json`,
+        );
+      } else {
+        saveBlob(await api.exportAgentArchive(agent.id), `${agent.slug}.zip`);
+      }
     } catch (error) {
       toastError(error);
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   };
 
@@ -1254,8 +1268,17 @@ export function AgentEditor({
                 >
                   <Copy className="size-4" /> 克隆专家
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
-                  <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
+                <DropdownMenuItem
+                  disabled={exporting !== null}
+                  onClick={() => void download('json')}
+                >
+                  <Download className="size-4" /> {exporting === 'json' ? '导出中…' : '导出 JSON'}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={exporting !== null}
+                  onClick={() => void download('archive')}
+                >
+                  <Archive className="size-4" /> {exporting === 'archive' ? '导出中…' : '导出目录'}
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
@@ -2197,7 +2220,6 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
           aria-hidden="true"
         />
         {title}
-        <span className="ml-auto font-mono text-2xs text-muted-foreground">草稿 · 实时</span>
       </CollapsibleTrigger>
       {/* 高度动画由 motion 管，Radix 负责 open 状态和 trigger/content 的 aria 关联。 */}
       <CollapsibleContent keepMounted>

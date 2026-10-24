@@ -3,7 +3,6 @@ import { Pool } from 'pg';
 import { schema } from './schema.js';
 
 export type Database = ReturnType<typeof createDb>['db'];
-export type DbPool = Pool;
 
 export function createDb(connectionString: string) {
   // 池大小可配：压测显示 10 在高并发下成为第一瓶颈（db.waiting 峰值 115）。

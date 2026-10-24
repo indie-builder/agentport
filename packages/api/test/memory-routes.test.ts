@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadConfig } from '../src/config.js';
 import { registerAgentRoutes } from '../src/features/agents/routes.js';
 import { registerErrorHandler } from '../src/plugins/errors.js';
 
@@ -16,10 +17,10 @@ beforeEach(async () => {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('requireAuth', async () => {});
-  app.decorate('config', { WORKSPACES_DIR: root });
+  app.decorate('config', loadConfig({ ...process.env, WORKSPACES_DIR: root }));
   app.decorate('db', {
     select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ slug: 'agent' }] }) }) }),
-  });
+  } as unknown as FastifyInstance['db']);
   registerErrorHandler(app);
   registerAgentRoutes(app);
   await app.ready();

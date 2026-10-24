@@ -169,7 +169,7 @@ describe('confirmed chat UX defects', () => {
         lastRunId: 'run-old',
         historyOpen: true,
       });
-      await router.navigate({ to: '/away' });
+      await router.navigate({ to: '/away' as never });
     });
     expect(useChatStore.getState()).toMatchObject({
       input: 'unfinished draft',
@@ -204,12 +204,14 @@ describe('confirmed chat UX defects', () => {
       toolName: 'write',
       approvedAt: null,
       createdAt: '',
+      expiresAt: null,
+      waiting: true,
     }));
     vi.mocked(api.runApprovals).mockResolvedValue({ items: approvals });
     let approvedServer: string | undefined;
-    vi.spyOn(api, 'approveRun').mockImplementation(async (_runId, serverId) => {
+    vi.spyOn(api, 'approveRun').mockImplementation(async (_runId, serverId, toolName) => {
       approvedServer = serverId;
-      return { ok: true };
+      return { serverId, toolName, approvedAt: new Date().toISOString(), waiting: false };
     });
     await mount('/chat?agent=agent-a&conversation=conversation-a');
     const cards = [...host.querySelectorAll('[role="alert"]')];

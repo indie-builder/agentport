@@ -32,6 +32,7 @@ import type {
   SkillWithAgentCount,
   WorkspaceFiles,
 } from '@agentport/shared';
+import { AGENT_PACKAGE_MAX_BYTES } from '@agentport/shared';
 
 export type AgentFiles = WorkspaceFiles;
 
@@ -437,6 +438,30 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   return (await res.json()) as T;
 }
 
+async function requestBlob(path: string): Promise<Blob> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, { credentials: 'include' });
+  } catch {
+    throw new ApiError(0, '连不上 API 服务，请确认它已启动并检查网络后重试。');
+  }
+  if (res.status === 401 && !location.pathname.startsWith('/login')) {
+    location.assign('/login');
+    throw new ApiError(401, '登录已失效，请重新登录后再试。');
+  }
+  if (!res.ok) throw new ApiError(res.status, res.statusText || `HTTP ${res.status}`);
+  return res.blob();
+}
+
+/** 归档转 base64 时分块，避免把整个文件摊进一次函数调用。 */
+function toBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
 export const api = {
   me: (): Promise<Me> => request<Me>('/auth/me'),
   /** 指标端点不在 /api 下；不可用时返回 null，页面显示「不可用」。 */
@@ -553,8 +578,17 @@ export const api = {
   rollbackAgent: (id: string, version: number): Promise<Agent> =>
     request(`/agents/${id}/rollback`, 'POST', { version }),
   exportAgent: (id: string): Promise<AgentExport> => request(`/export/agents/${id}`),
+  exportAgentArchive: (id: string): Promise<Blob> => requestBlob(`/export/agents/${id}/archive`),
   importAgent: (data: unknown): Promise<AgentImportResult> =>
     request('/import/agents', 'POST', data),
+  importAgentArchive: async (file: File): Promise<AgentImportResult> => {
+    if (file.size > AGENT_PACKAGE_MAX_BYTES) throw new Error('归档文件不能超过 1 MiB。');
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return request('/import/agents/archive', 'POST', {
+      filename: file.name,
+      dataBase64: toBase64(bytes),
+    });
+  },
   importAgentFile: (agentMd: string): Promise<Pick<AgentImportResult, 'agent' | 'warnings'>> =>
     request('/agents/import-file', 'POST', { agentMd }),
 

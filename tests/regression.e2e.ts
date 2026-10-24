@@ -39,8 +39,7 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
       id: runId,
       agentId,
       conversationId,
-      status: 'succeeded',
-      prompt: 'Run navigation fixture',
+      status: 'succeeded' as const,
       startedAt: new Date(),
       endedAt: new Date(),
     });

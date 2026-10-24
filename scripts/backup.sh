@@ -48,7 +48,8 @@ fi
 mv "$TMP" "$OUT"
 echo "backup written: $OUT ($(wc -c <"$OUT" | tr -d ' ') bytes)"
 
-# 只清理本脚本产出的文件名，避免误删 backups/ 里的其他文件。
-# pre-restore-*.sql.gz 是 restore.sh 的安全副本，不参与保留数量与删除。
+# 只清理本脚本产出的 YYYYMMDD-HHMMSS.sql.gz；外部文件与 restore.sh 的
+# pre-restore-*.sql.gz 不参与保留数量与删除。
 # BSD xargs 没有 -r，用 while 读入；为空时循环不执行。
-ls -1t "$DIR"/*.sql.gz 2>/dev/null | grep -v '/pre-restore-' | tail -n +8 | while IFS= read -r old; do rm -f "$old"; done || true
+ls -1t "$DIR"/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].sql.gz 2>/dev/null |
+  tail -n +8 | while IFS= read -r old; do rm -f "$old"; done || true

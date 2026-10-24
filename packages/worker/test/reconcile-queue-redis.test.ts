@@ -58,8 +58,11 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
   const runMissing = newId('run');
   const ownedRuns = [runWaiting, runDelayed, runMissing];
   // 队列名按测试唯一：真实 worker 只消费 agent-runs，不会把这里的 job 跑掉。
-  const queue = new Queue<AgentRunJob>(`reconcile-${randomUUID()}`, {
-    connection: { url: process.env.REDIS_URL, maxRetriesPerRequest: null },
+  const queue = new Queue<AgentRunJob, void, string>(`reconcile-${randomUUID()}`, {
+    connection: {
+      url: process.env.REDIS_URL ?? 'redis://localhost:6379',
+      maxRetriesPerRequest: null,
+    },
   });
   const logger = {
     info: () => undefined,
@@ -85,7 +88,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
         id,
         conversationId,
         agentId,
-        status: 'queued',
+        status: 'queued' as const,
         createdAt: stale,
       })),
     );
@@ -260,7 +263,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
         id,
         conversationId,
         agentId: index === 0 ? shortAgent : longAgent,
-        status: 'running',
+        status: 'running' as const,
         createdAt: startedAt,
         startedAt,
       })),

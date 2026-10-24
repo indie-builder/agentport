@@ -4,6 +4,32 @@ import type { FastifyInstance } from 'fastify';
 /** 测试与本地关闭限流；预设保留显式 `rateLimit: false`，避免落回全局默认。 */
 const limitsOff = process.env.RATE_LIMIT_DISABLED === '1';
 
+type RateLimitSubmit = (
+  key: string,
+  timeWindow: number,
+  max: number,
+  continueExceeding: boolean,
+  exponentialBackoff: boolean,
+  callback: (err: Error | null, result: [number, number]) => void,
+) => void;
+
+/**
+ * 限流存储故障必须走统一错误信封的 503，而不是被当成未知异常返回 500。
+ * RedisStore 通过客户端上 defineCommand 生成的 rateLimit 命令写计数。
+ */
+export function failFastRateLimitStore(client: { rateLimit: RateLimitSubmit }): void {
+  const submit = client.rateLimit.bind(client);
+  client.rateLimit = (key, timeWindow, max, continueExceeding, exponentialBackoff, callback) =>
+    submit(key, timeWindow, max, continueExceeding, exponentialBackoff, (err, result) =>
+      callback(
+        err
+          ? new AppError('SERVICE_UNAVAILABLE', '限流服务暂时不可用，请稍后重试', { cause: err })
+          : null,
+        result,
+      ),
+    );
+}
+
 /**
  * 安全与限流插件集中注册，避免散落在各 feature 里。
  * 限流用 Redis 存储：多进程/多 worker 部署时计数才一致。
@@ -30,7 +56,12 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
   });
   await app.register(compress, { global: true });
 
-  const redis = new Redis(app.config.REDIS_URL, { maxRetriesPerRequest: null });
+  // 限流在请求路径上：连接与命令都必须有界，否则 Redis 拒连时请求会挂住数秒。
+  const redis = new Redis(app.config.REDIS_URL, {
+    connectTimeout: 2_000,
+    commandTimeout: 2_000,
+    maxRetriesPerRequest: 1,
+  });
   redis.on('error', (err: Error) => app.log.warn({ err }, 'rate-limit redis error'));
 
   if (limitsOff) app.log.warn('rate limiting disabled by RATE_LIMIT_DISABLED=1');
@@ -52,6 +83,8 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
     // allowList 在计数前跳过全局限流；预设另以 rateLimit: false 显式关闭。
     ...(limitsOff ? { allowList: () => true } : {}),
   });
+
+  failFastRateLimitStore(redis as unknown as { rateLimit: RateLimitSubmit });
 
   app.addHook('onClose', async () => {
     await redis.quit();

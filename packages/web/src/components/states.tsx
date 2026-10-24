@@ -86,7 +86,7 @@ export function EmptyState({
       )}
     >
       <div className="flex size-10 items-center justify-center rounded-full bg-sunken text-subtle">
-        {icon ?? <Inbox className="size-5" />}
+        {icon ?? <Inbox className="size-4" />}
       </div>
       <div className="mt-1 text-sm font-medium text-fg">{title}</div>
       {description ? (

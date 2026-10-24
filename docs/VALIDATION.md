@@ -44,7 +44,15 @@ app.post('/api/servers', {
 zod 校验失败由 `plugins/errors.ts` 统一映射：
 
 ```json
-{ "code": "INVALID_INPUT", "message": "<zod issue message>", "requestId": "req-1", "path": "name" }
+{
+  "code": "INVALID_INPUT",
+  "message": "<zod issue message>",
+  "status": 400,
+  "requestId": "req-1",
+  "retryable": false,
+  "path": "/name",
+  "errors": [{ "path": "/name", "message": "<zod issue message>" }]
+}
 ```
 
 这条规则是**唯一**的校验失败出口，handler 里不再出现手工 400（业务规则冲突仍用 4xx，但那是业务错误，不是格式错误）。
@@ -67,7 +75,7 @@ zod 校验失败由 `plugins/errors.ts` 统一映射：
 
 数据库继续使用 text 存储岗位，默认值为「通用助手」；迁移 `0023_round_black_widow.sql` 只补齐空白岗位，不推断已有专家的职业。读取历史岗位保持原文；回滚遇到缺失或未登记的历史角色时，保留当前岗位，避免旧版本抹掉新配置。旧导出缺少角色时仍可导入，含未登记岗位的文件会明确返回校验错误。
 
-## 唯一例外：导入导出的 `config`
+## 导入入口的开放 JSON 收窄
 
 `packages/api/src/features/import/routes.ts` 的 `toServerInput()` 会调用一次 `serverInputSchema.safeParse`。
 原因：导入条目的 `config` 是用户提交的**开放 JSON 记录**（远端 MCP server 的 JSON Schema），
@@ -75,6 +83,14 @@ zod 校验失败由 `plugins/errors.ts` 统一映射：
 解析失败等价于「格式不合法」，用 `fail('INVALID_INPUT', …)` 返回，仍由 `plugins/errors.ts` 转成统一的
 `INVALID_INPUT` Problem，不产生第二种错误格式。
 
+同一入口的 zip 归档路由（`POST /api/import/agents/archive`）有第二个同类边界：
+`archiveImportBody()` 把 core `parseWorkspaceArchive` 的结果映射成 `agentport/agent@2` 后，
+用 `importBodySchema.parse` 收窄一次（再交给同一个导入事务）。归档同样是用户可控输入，
+因此不能仅靠 TypeScript 断言；失败统一转成 `INVALID_INPUT`。base64 由路由 schema 限制为
+1,500,000 字符，解码必须是标准、规范的 base64（长度 4 的倍数、无空白/URL-safe 字符、
+重新编码后与原文一致），否则 `INVALID_INPUT`。压缩包限额与错误语义见 `docs/ARCHITECTURE.md`
+「智能体归档（zip）导入导出」。
+
 规则因此仍然成立：**路由层面没有 `safeParse`**，唯一的前置校验点仍是路由 `schema`；handler 内的
-`safeParse` 只用于把开放 JSON 收窄成已知类型，而不是补路由漏写的校验。新增类似场景时，同样需要
-在类型层无法表达的前提下才允许，并在代码注释里写明原因。
+`safeParse` / `parse` 只用于把开放 JSON 或文件内容收窄成已知类型，而不是补路由漏写的校验。
+新增类似场景时，同样需要在类型层无法表达的前提下才允许，并在代码注释里写明原因。

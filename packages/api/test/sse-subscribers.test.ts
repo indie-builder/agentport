@@ -17,7 +17,9 @@ describe.skipIf(!ready)('run subscribers', () => {
     const runId = unique('sse-run');
     const types: string[] = [];
     const first = await subscribeRun(runId, () => undefined);
-    const second = await subscribeRun(runId, (event) => types.push(event.type));
+    const second = await subscribeRun(runId, (event) => {
+      types.push(event.type);
+    });
 
     first.close();
     await delay(100);
@@ -135,7 +137,9 @@ describe.skipIf(!ready)('run subscribers', () => {
       const stale = await subscribeRun(runId, () => undefined);
       // 模拟进程内重建 producer（热重载 / 测试多次 buildApp）后旧订阅仍存活。
       await closeProducer();
-      const live = await subscribeRun(runId, (event) => types.push(event.type));
+      const live = await subscribeRun(runId, (event) => {
+        types.push(event.type);
+      });
 
       stale.close();
       await delay(100);

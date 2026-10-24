@@ -26,7 +26,16 @@ vi.mock('react', async (original) => ({
 }));
 
 function approval(serverName: string | null, id = serverName ?? 'unknown'): ApprovalRequest {
-  return { id, serverId: id, serverName, toolName: 'write', approvedAt: null, createdAt: '' };
+  return {
+    id,
+    serverId: id,
+    serverName,
+    toolName: 'write',
+    approvedAt: null,
+    createdAt: '',
+    expiresAt: null,
+    waiting: false,
+  };
 }
 const tool = { kind: 'tool', toolUseId: 'call-b', name: 'mcp__B__write' } as const;
 

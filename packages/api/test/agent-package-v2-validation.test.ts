@@ -241,13 +241,15 @@ describe.skipIf(!ready)('agent package v2 validation', () => {
     const imported = await importAgent(file);
     expect(imported.statusCode, imported.body).toBe(201);
     const skill = await app.pool.query<{ id: string }>('select id from skills where slug = $1', [
-      file.skills[0].slug,
+      file.skills[0]?.slug,
     ]);
-    await app.pool.query('delete from skill_files where skill_id = $1', [skill.rows[0].id]);
+    const skillRow = skill.rows[0];
+    if (!skillRow) throw new Error('imported skill missing');
+    await app.pool.query('delete from skill_files where skill_id = $1', [skillRow.id]);
     for (const path of paths) {
       await app.pool.query(
         'insert into skill_files (id, skill_id, path, content) values ($1, $2, $3, $4)',
-        [unique('collision-file'), skill.rows[0].id, path, 'Conflicting resource.'],
+        [unique('collision-file'), skillRow.id, path, 'Conflicting resource.'],
       );
     }
     const exported = await inject(app, {

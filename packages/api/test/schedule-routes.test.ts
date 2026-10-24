@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { writeAudit, upsertScheduler, removeScheduler, schedulerNextRun } = vi.hoisted(() => ({
   writeAudit: vi.fn(async () => undefined),
-  upsertScheduler: vi.fn(async () => undefined),
-  removeScheduler: vi.fn(async () => undefined),
+  upsertScheduler: vi.fn(
+    async (_queue: unknown, _schedule: { id: string; cron: string }) => undefined,
+  ),
+  removeScheduler: vi.fn(async (_queue: unknown, _id: string) => undefined),
   schedulerNextRun: vi.fn(async () => new Date(1_800_000_000_000).toISOString()),
 }));
 
@@ -21,6 +23,7 @@ vi.mock('../src/features/ops/schedule-sync.js', async (importOriginal) => ({
 
 const { registerOpsRoutes } = await import('../src/features/ops/routes.js');
 const { registerErrorHandler } = await import('../src/plugins/errors.js');
+const { loadConfig } = await import('../src/config.js');
 
 const agent = { id: 'agent_1', name: 'Agent' };
 let app: FastifyInstance;
@@ -64,8 +67,8 @@ beforeEach(async () => {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('requireAuth', async () => {});
-  app.decorate('config', { REDIS_URL: 'redis://localhost:6379' });
-  app.decorate('db', db);
+  app.decorate('config', loadConfig({ ...process.env, REDIS_URL: 'redis://localhost:6379' }));
+  app.decorate('db', db as unknown as FastifyInstance['db']);
   registerErrorHandler(app);
   registerOpsRoutes(app);
   await app.ready();

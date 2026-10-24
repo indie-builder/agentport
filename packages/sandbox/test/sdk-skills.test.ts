@@ -72,14 +72,13 @@ await exited;
   const entries = (await readFile(record, 'utf8'))
     .trim()
     .split('\n')
-    .map((line) => JSON.parse(line) as { argv?: string[]; stdin?: Record<string, unknown> });
+    .map(
+      (line) =>
+        JSON.parse(line) as { argv?: string[]; stdin?: { request?: Record<string, unknown> } },
+    );
   const argv = entries.find((entry) => entry.argv)?.argv ?? [];
   const initialize =
-    entries.find(
-      (entry) =>
-        (entry.stdin as { request?: { subtype?: string } } | undefined)?.request?.subtype ===
-        'initialize',
-    )?.stdin?.request ?? {};
+    entries.find((entry) => entry.stdin?.request?.subtype === 'initialize')?.stdin?.request ?? {};
   return { argv, initialize };
 }
 

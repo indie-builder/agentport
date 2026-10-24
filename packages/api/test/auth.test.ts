@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Redis } from 'ioredis';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AUTH_COOKIE } from '../src/features/auth/types.js';
 import { expectProblem, infraReady, inject, startApp, testConfig } from './helpers.js';
 
@@ -93,6 +94,41 @@ describe.skipIf(!ready)('auth', () => {
     expect(res.json()).toEqual({ ok: true });
     const cookie = res.cookies.find((c) => c.name === AUTH_COOKIE);
     expect(cookie?.value).toBe('');
+  });
+
+  it('logout is idempotent for an invalid or expired token', async () => {
+    const res = await inject(app, {
+      method: 'POST',
+      url: '/api/auth/logout',
+      cookies: { [AUTH_COOKIE]: 'not-a-jwt' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+  });
+
+  it('logout returns 503 when the session store fails', async () => {
+    const ip = '127.0.0.201';
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      remoteAddress: ip,
+      payload: { username: config.ADMIN_USER, password: config.ADMIN_PASSWORD },
+    });
+    const token = loginRes.cookies.find((c) => c.name === AUTH_COOKIE)?.value ?? '';
+    const del = vi.spyOn(Redis.prototype, 'del').mockRejectedValueOnce(new Error('redis down'));
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/logout',
+        remoteAddress: ip,
+        cookies: { [AUTH_COOKIE]: token },
+      });
+      expectProblem(res, 'SERVICE_UNAVAILABLE');
+      // 未撤销成功时不清 cookie，客户端可以重试。
+      expect(res.cookies.find((c) => c.name === AUTH_COOKIE)?.value).not.toBe('');
+    } finally {
+      del.mockRestore();
+    }
   });
 
   it('revokes the token on logout: the old cookie stops working', async () => {

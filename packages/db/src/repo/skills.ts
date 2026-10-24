@@ -14,6 +14,9 @@ export interface SkillWrite {
   name: string;
   description: string;
   body: string;
+  license?: string | undefined;
+  compatibility?: string | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 /** 列表附带绑定的智能体数量；分组依据是主键，其余列在 PG 中函数依赖于它。 */
@@ -25,6 +28,9 @@ export async function listSkills(db: Database): Promise<SkillWithAgentCount[]> {
       name: skills.name,
       description: skills.description,
       body: skills.body,
+      license: skills.license,
+      compatibility: skills.compatibility,
+      metadata: skills.metadata,
       createdAt: skills.createdAt,
       updatedAt: skills.updatedAt,
       agentCount: count(agentSkills.agentId),

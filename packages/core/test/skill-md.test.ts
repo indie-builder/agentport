@@ -98,7 +98,7 @@ describe('parseSkillMd', () => {
     expect(parseSkillMd(markdown).skill.description).toBe('line one\nline two');
   });
 
-  it('warns about descriptive fields without persisting them', () => {
+  it('keeps license, compatibility and metadata through a round trip', () => {
     const markdown = [
       '---',
       'name: described',
@@ -107,21 +107,39 @@ describe('parseSkillMd', () => {
       'compatibility: claude-code',
       'metadata:',
       '  version: 1',
+      '  owners: [docs, release]',
+      '  nested:',
+      '    team: platform',
       '---',
       '',
       '# Described',
     ].join('\n');
 
     const { skill, warnings } = parseSkillMd(markdown);
+    expect(warnings).toEqual([]);
     expect(skill).toEqual({
       slug: 'described',
       name: 'Described',
       description: 'Has provenance metadata',
       body: '',
+      license: 'MIT',
+      compatibility: 'claude-code',
+      metadata: { version: 1, owners: ['docs', 'release'], nested: { team: 'platform' } },
     });
-    expect(warnings).toHaveLength(3);
-    expect(warnings.join('\n')).toMatch(/license/);
-    expect(warnings.join('\n')).toMatch(/metadata/);
+    expect(parseSkillMd(renderSkillMd(skill))).toEqual({ skill, warnings: [] });
+  });
+
+  it('rejects metadata that is not a YAML map', () => {
+    const markdown = [
+      '---',
+      'name: bad-metadata',
+      'description: d',
+      'metadata: just-a-string',
+      '---',
+      '',
+      '# X',
+    ].join('\n');
+    expect(invalidWith(markdown).path).toBe('/metadata');
   });
 
   it('rejects files without a frontmatter header', () => {

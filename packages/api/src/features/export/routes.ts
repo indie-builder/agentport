@@ -1,5 +1,12 @@
-import type { McpJsonEntry, WorkspaceSkill } from '@agentport/core';
-import { decryptSecrets, fail, renderWorkspace, toWorkspaceInput } from '@agentport/core';
+import type { McpJsonEntry, WorkspaceFiles, WorkspaceSkill } from '@agentport/core';
+import {
+  ARCHIVE_LIMITS,
+  buildWorkspaceArchive,
+  decryptSecrets,
+  fail,
+  renderWorkspace,
+  toWorkspaceInput,
+} from '@agentport/core';
 import type { Database } from '@agentport/db';
 import {
   agentOutputStyles,
@@ -89,7 +96,15 @@ function toEntry(row: ServerRow): McpJsonEntry {
 }
 
 function toWorkspaceSkill(row: SkillRow): WorkspaceSkill {
-  return { slug: row.slug, name: row.name, description: row.description, body: row.body };
+  return {
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    body: row.body,
+    ...(row.license ? { license: row.license } : {}),
+    ...(row.compatibility ? { compatibility: row.compatibility } : {}),
+    ...(Object.keys(row.metadata).length > 0 ? { metadata: row.metadata } : {}),
+  };
 }
 
 /** 多个 agent 的绑定一次性查回：导出整个委派树时不按子智能体逐条发 SQL。 */
@@ -282,151 +297,230 @@ function unionById<T extends { id: string }>(lists: T[][]): T[] {
   return [...out.values()];
 }
 
+/**
+ * 压缩后的字节数掩盖不了解压总量。这里按 buildWorkspaceArchive 的条目清单复算一次，
+ * 让导出和导入使用同一组 ARCHIVE_LIMITS，不产出自己导不回来的包。
+ */
+function archiveEntries(
+  files: WorkspaceFiles,
+  agent: { name: string; systemPrompt: string },
+): Array<{ path: string; bytes: number }> {
+  const contents: Array<[string, string]> = [
+    ['CLAUDE.md', `# ${agent.name}\n\n${agent.systemPrompt.trim()}\n`],
+    ['.mcp.json', files.mcpJson],
+    ...files.subAgents.map(
+      (sub) => [`.claude/agents/${sub.slug}.md`, sub.content] as [string, string],
+    ),
+    ...files.skills.flatMap((skill) => [
+      [`.claude/skills/${skill.slug}/SKILL.md`, skill.content] as [string, string],
+      ...skill.files.map(
+        (file) => [`.claude/skills/${skill.slug}/${file.path}`, file.content] as [string, string],
+      ),
+    ]),
+    ...files.rules.map(
+      (rule) => [`.claude/rules/${rule.slug}.md`, rule.content] as [string, string],
+    ),
+    ...files.outputStyles.map(
+      (style) => [`.claude/output-styles/${style.slug}.md`, style.content] as [string, string],
+    ),
+    ...(files.settingsJson === null
+      ? []
+      : [['.claude/settings.json', files.settingsJson] as [string, string]]),
+  ];
+  return contents.map(([path, content]) => ({ path, bytes: Buffer.byteLength(content, 'utf8') }));
+}
+
+function archiveLimitError(
+  files: WorkspaceFiles,
+  agent: { name: string; systemPrompt: string },
+): string | undefined {
+  const entries = archiveEntries(files, agent);
+  if (entries.length > ARCHIVE_LIMITS.entries) {
+    return `工作区归档条目数超过 ${ARCHIVE_LIMITS.entries} 上限，请减少技能或资源文件后重试`;
+  }
+  let total = 0;
+  for (const entry of entries) {
+    if (entry.bytes > ARCHIVE_LIMITS.fileBytes) {
+      return `工作区归档中的文件「${entry.path}」超过 ${ARCHIVE_LIMITS.fileBytes} 字节上限，请精简后重试`;
+    }
+    total += entry.bytes;
+    if (total > ARCHIVE_LIMITS.unpackedBytes) {
+      return `工作区归档解压后超过 ${ARCHIVE_LIMITS.unpackedBytes} 字节上限，请减少技能或资源文件后重试`;
+    }
+  }
+  return undefined;
+}
+
 export function registerExportRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   const auth = { preHandler: [rawApp.requireAuth] };
+
+  /** JSON 专家包与 zip 归档共用同一份数据准备，避免两条导出路径漂移。 */
+  async function loadExport(id: string) {
+    const row = await agentRepo.getAgent(app.db, id);
+    if (!row) {
+      return {
+        ok: false as const,
+        code: 'AGENT_NOT_FOUND' as const,
+        message: '智能体不存在，可能已被删除；请刷新后重试',
+      };
+    }
+
+    const children = await agentRepo.listSubAgents(app.db, row.id);
+    if (children.length > MAX_SUB_AGENTS) {
+      return {
+        ok: false as const,
+        code: 'CONFLICT' as const,
+        message: `该智能体有 ${children.length} 个子智能体，超过导出上限 ${MAX_SUB_AGENTS} 个；请先减少子智能体`,
+      };
+    }
+
+    const agentIds = [row.id, ...children.map((child) => child.id)];
+    const [serversByAgent, skillsByAgent, rulesMap, stylesMap] = await Promise.all([
+      boundServersByAgent(app.db, agentIds),
+      boundSkillsByAgent(app.db, agentIds),
+      rulesByAgent(app.db, agentIds),
+      outputStylesByAgent(app.db, agentIds),
+    ]);
+    const rootServers = serversByAgent.get(row.id) ?? [];
+    const rootSkills = skillsByAgent.get(row.id) ?? [];
+    // 子智能体定义无论启停都要带；停用状态本身是配置的一部分。
+    const allServers = unionById([
+      rootServers,
+      ...children.map((c) => serversByAgent.get(c.id) ?? []),
+    ]);
+    const allSkills = unionById([
+      rootSkills,
+      ...children.map((c) => skillsByAgent.get(c.id) ?? []),
+    ]);
+    if (allServers.length > MAX_RESOURCES || allSkills.length > MAX_RESOURCES) {
+      return {
+        ok: false as const,
+        code: 'CONFLICT' as const,
+        message: `导出包含 ${allServers.length} 个 Server、${allSkills.length} 个技能，超过单项上限 ${MAX_RESOURCES}；请先减少绑定`,
+      };
+    }
+
+    const skillFiles = await repo.skillFiles.getSkillFilesBySkillIds(
+      app.db,
+      allSkills.map((skill) => skill.id),
+    );
+    const withFiles = (skill: SkillRow): WorkspaceSkill => ({
+      ...toWorkspaceSkill(skill),
+      files: (skillFiles.get(skill.id) ?? []).map((file) => ({
+        path: file.path,
+        content: file.content,
+      })),
+    });
+    const rootRules = rulesMap.get(row.id) ?? [];
+    const rootStyles = stylesMap.get(row.id) ?? [];
+
+    checkAgentFiles(rootRules, rootStyles, '');
+    children.forEach((child, index) => {
+      checkAgentFiles(
+        rulesMap.get(child.id) ?? [],
+        stylesMap.get(child.id) ?? [],
+        `/subAgents/${index}`,
+      );
+    });
+    allSkills.forEach((skill, index) => {
+      checkSize(skill.body, 200_000, `/skills/${index}/body`);
+      checkSkillFiles(skillFiles.get(skill.id) ?? [], `/skills/${index}/files`);
+    });
+
+    const generatedIds = allServers
+      .filter((server) => server.kind === 'generated')
+      .map((server) => server.id);
+    const toolRows =
+      generatedIds.length === 0
+        ? []
+        : await app.db
+            .select()
+            .from(apiTools)
+            .where(inArray(apiTools.serverId, generatedIds))
+            .orderBy(asc(apiTools.createdAt), asc(apiTools.id));
+    const toolsByServerId = new Map<string, ToolRow[]>();
+    for (const tool of toolRows) {
+      const tools = toolsByServerId.get(tool.serverId);
+      if (tools) tools.push(tool);
+      else toolsByServerId.set(tool.serverId, [tool]);
+    }
+
+    // 根智能体只声明自己的绑定；子智能体的资源通过子定义里的名称引用带走。
+    const agent = {
+      ...toPortableAgent(
+        row,
+        rootServers.map((s) => s.name),
+        rootSkills.map((s) => s.slug),
+      ),
+      serverIds: [],
+      skillIds: [],
+      subAgentIds: [],
+    };
+    const subAgents = children.map((child) => ({
+      ...toPortableAgent(
+        child,
+        (serversByAgent.get(child.id) ?? []).map((s) => s.name),
+        (skillsByAgent.get(child.id) ?? []).map((s) => s.slug),
+      ),
+      rules: toExportedRules(rulesMap.get(child.id) ?? []),
+      outputStyles: toExportedStyles(stylesMap.get(child.id) ?? []),
+    }));
+    const rootWorkspaceSkills = rootSkills.map(withFiles);
+    const subAgentRows = children.map((child) => ({
+      ...child,
+      skills: (skillsByAgent.get(child.id) ?? []).map(withFiles),
+    }));
+
+    const workspaceInput = {
+      agent: row,
+      servers: rootServers.map((server) => ({ name: server.name, entry: toEntry(server) })),
+      skills: rootWorkspaceSkills,
+      subAgents: subAgentRows,
+      rules: toExportedRules(rootRules),
+      outputStyles: toExportedStyles(rootStyles),
+      selectedOutputStyle: rootStyles.find((style) => style.isSelected)?.slug ?? null,
+    };
+    // JSON 预览沿用运行时投影（过滤停用子智能体）；归档必须带走全部子定义。
+    const workspace = renderWorkspace(toWorkspaceInput(workspaceInput));
+    const archiveWorkspace = children.every((child) => child.enabled)
+      ? workspace
+      : renderWorkspace(
+          toWorkspaceInput({
+            ...workspaceInput,
+            subAgents: subAgentRows.map((subAgent) => ({ ...subAgent, enabled: true })),
+          }),
+        );
+
+    const payload = {
+      format: 'agentport/agent@2',
+      exportedAt: new Date().toISOString(),
+      agent,
+      rules: toExportedRules(rootRules),
+      outputStyles: toExportedStyles(rootStyles),
+      subAgents,
+      servers: allServers.map((server) =>
+        toExportedServer(
+          server,
+          app.config.APP_SECRET_KEY,
+          server.kind === 'generated' ? (toolsByServerId.get(server.id) ?? []) : undefined,
+        ),
+      ),
+      skills: allSkills.map(withFiles),
+      // 预览只含根智能体的 server 与技能；子技能随子定义渲染，不扩给父级。
+      workspace,
+    };
+
+    return { ok: true as const, row, payload, archiveWorkspace };
+  }
 
   app.get(
     '/api/export/agents/:id',
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
-      const row = await agentRepo.getAgent(app.db, request.params.id);
-      if (!row) return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重试');
-
-      const children = await agentRepo.listSubAgents(app.db, row.id);
-      if (children.length > MAX_SUB_AGENTS) {
-        return reject(
-          reply,
-          'CONFLICT',
-          `该智能体有 ${children.length} 个子智能体，超过导出上限 ${MAX_SUB_AGENTS} 个；请先减少子智能体`,
-        );
-      }
-
-      const agentIds = [row.id, ...children.map((child) => child.id)];
-      const [serversByAgent, skillsByAgent, rulesMap, stylesMap] = await Promise.all([
-        boundServersByAgent(app.db, agentIds),
-        boundSkillsByAgent(app.db, agentIds),
-        rulesByAgent(app.db, agentIds),
-        outputStylesByAgent(app.db, agentIds),
-      ]);
-      const rootServers = serversByAgent.get(row.id) ?? [];
-      const rootSkills = skillsByAgent.get(row.id) ?? [];
-      // 子智能体定义无论启停都要带；停用状态本身是配置的一部分。
-      const allServers = unionById([
-        rootServers,
-        ...children.map((c) => serversByAgent.get(c.id) ?? []),
-      ]);
-      const allSkills = unionById([
-        rootSkills,
-        ...children.map((c) => skillsByAgent.get(c.id) ?? []),
-      ]);
-      if (allServers.length > MAX_RESOURCES || allSkills.length > MAX_RESOURCES) {
-        return reject(
-          reply,
-          'CONFLICT',
-          `导出包含 ${allServers.length} 个 Server、${allSkills.length} 个技能，超过单项上限 ${MAX_RESOURCES}；请先减少绑定`,
-        );
-      }
-
-      const skillFiles = await repo.skillFiles.getSkillFilesBySkillIds(
-        app.db,
-        allSkills.map((skill) => skill.id),
-      );
-      const withFiles = (skill: SkillRow): WorkspaceSkill => ({
-        ...toWorkspaceSkill(skill),
-        files: (skillFiles.get(skill.id) ?? []).map((file) => ({
-          path: file.path,
-          content: file.content,
-        })),
-      });
-      const rootRules = rulesMap.get(row.id) ?? [];
-      const rootStyles = stylesMap.get(row.id) ?? [];
-
-      checkAgentFiles(rootRules, rootStyles, '');
-      children.forEach((child, index) => {
-        checkAgentFiles(
-          rulesMap.get(child.id) ?? [],
-          stylesMap.get(child.id) ?? [],
-          `/subAgents/${index}`,
-        );
-      });
-      allSkills.forEach((skill, index) => {
-        checkSize(skill.body, 200_000, `/skills/${index}/body`);
-        checkSkillFiles(skillFiles.get(skill.id) ?? [], `/skills/${index}/files`);
-      });
-
-      const generatedIds = allServers
-        .filter((server) => server.kind === 'generated')
-        .map((server) => server.id);
-      const toolRows =
-        generatedIds.length === 0
-          ? []
-          : await app.db
-              .select()
-              .from(apiTools)
-              .where(inArray(apiTools.serverId, generatedIds))
-              .orderBy(asc(apiTools.createdAt), asc(apiTools.id));
-      const toolsByServerId = new Map<string, ToolRow[]>();
-      for (const tool of toolRows) {
-        const tools = toolsByServerId.get(tool.serverId);
-        if (tools) tools.push(tool);
-        else toolsByServerId.set(tool.serverId, [tool]);
-      }
-
-      // 根智能体只声明自己的绑定；子智能体的资源通过子定义里的名称引用带走。
-      const agent = {
-        ...toPortableAgent(
-          row,
-          rootServers.map((s) => s.name),
-          rootSkills.map((s) => s.slug),
-        ),
-        serverIds: [],
-        skillIds: [],
-        subAgentIds: [],
-      };
-      const subAgents = children.map((child) => ({
-        ...toPortableAgent(
-          child,
-          (serversByAgent.get(child.id) ?? []).map((s) => s.name),
-          (skillsByAgent.get(child.id) ?? []).map((s) => s.slug),
-        ),
-        rules: toExportedRules(rulesMap.get(child.id) ?? []),
-        outputStyles: toExportedStyles(stylesMap.get(child.id) ?? []),
-      }));
-      const rootWorkspaceSkills = rootSkills.map(withFiles);
-      const subAgentRows = children.map((child) => ({
-        ...child,
-        skills: (skillsByAgent.get(child.id) ?? []).map(withFiles),
-      }));
-
-      const payload = {
-        format: 'agentport/agent@2',
-        exportedAt: new Date().toISOString(),
-        agent,
-        rules: toExportedRules(rootRules),
-        outputStyles: toExportedStyles(rootStyles),
-        subAgents,
-        servers: allServers.map((server) =>
-          toExportedServer(
-            server,
-            app.config.APP_SECRET_KEY,
-            server.kind === 'generated' ? (toolsByServerId.get(server.id) ?? []) : undefined,
-          ),
-        ),
-        skills: allSkills.map(withFiles),
-        // 预览只含根智能体的 server 与技能；子技能随子定义渲染，不扩给父级。
-        workspace: renderWorkspace(
-          toWorkspaceInput({
-            agent: row,
-            servers: rootServers.map((server) => ({ name: server.name, entry: toEntry(server) })),
-            skills: rootWorkspaceSkills,
-            subAgents: subAgentRows,
-            rules: toExportedRules(rootRules),
-            outputStyles: toExportedStyles(rootStyles),
-            selectedOutputStyle: rootStyles.find((style) => style.isSelected)?.slug ?? null,
-          }),
-        ),
-      };
+      const loaded = await loadExport(request.params.id);
+      if (!loaded.ok) return reject(reply, loaded.code, loaded.message);
+      const { row, payload } = loaded;
 
       // 按浏览器实际下载的字节判断：截断会得到一个导入不回来的文件。
       const body = serializeAgentPackage(payload);
@@ -440,6 +534,65 @@ export function registerExportRoutes(rawApp: FastifyInstance): void {
         .header('x-content-type-options', 'nosniff')
         .type('application/json')
         .send(body);
+    },
+  );
+
+  app.get(
+    '/api/export/agents/:id/archive',
+    { ...auth, schema: { params: idParams } },
+    async (request, reply) => {
+      const loaded = await loadExport(request.params.id);
+      if (!loaded.ok) return reject(reply, loaded.code, loaded.message);
+      const { row, archiveWorkspace } = loaded;
+
+      // 根级 model/permissionMode/tools/effort 只有写进官方 settings.json 才能随归档往返。
+      // effortLevel 的官方持久化取值不含 max（max 仅限会话内），不写进去。
+      const baseSettings =
+        archiveWorkspace.settingsJson === null
+          ? {}
+          : (JSON.parse(archiveWorkspace.settingsJson) as Record<string, unknown>);
+      const permissions =
+        typeof baseSettings.permissions === 'object' &&
+        baseSettings.permissions !== null &&
+        !Array.isArray(baseSettings.permissions)
+          ? (baseSettings.permissions as Record<string, unknown>)
+          : {};
+      const settingsJson = `${JSON.stringify(
+        {
+          ...baseSettings,
+          ...(row.effort && row.effort !== 'max' ? { effortLevel: row.effort } : {}),
+          model: row.model,
+          permissions: {
+            ...permissions,
+            defaultMode: row.permissionMode,
+            ...(row.allowedTools.length > 0 ? { allow: row.allowedTools } : {}),
+            ...(row.disallowedTools.length > 0 ? { deny: row.disallowedTools } : {}),
+          },
+        },
+        null,
+        2,
+      )}\n`;
+
+      const files = { ...archiveWorkspace, settingsJson };
+      const agent = { name: row.name, systemPrompt: row.systemPromptMd };
+      const limitError = archiveLimitError(files, agent);
+      if (limitError) return reject(reply, 'CONFLICT', limitError);
+
+      const archive = buildWorkspaceArchive({ files, agent });
+      if (archive.byteLength > ARCHIVE_LIMITS.archiveBytes) {
+        return reject(
+          reply,
+          'CONFLICT',
+          `工作区归档超过 ${ARCHIVE_LIMITS.archiveBytes} 字节上限，请减少提示词、技能或资源文件后重试`,
+        );
+      }
+
+      return reply
+        .header('content-disposition', `attachment; filename="${row.slug}.zip"`)
+        .header('cache-control', 'no-store')
+        .header('x-content-type-options', 'nosniff')
+        .type('application/zip')
+        .send(Buffer.from(archive));
     },
   );
 }

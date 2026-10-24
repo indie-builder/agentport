@@ -13,6 +13,7 @@
     "down": "bash scripts/down.sh",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
+    "typecheck:test": "pnpm -r --if-present typecheck:test && tsc -p tsconfig.e2e.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "lint:focus": "node scripts/check-focus-contract.mjs",
@@ -30,6 +31,7 @@
     "clean": "pnpm -r exec rm -rf dist node_modules && rm -rf node_modules"
   },
   "devDependencies": {
+    "@ai-sdk/anthropic": "^4.0.87",
     "@ai-sdk/openai-compatible": "^3.0.71",
     "@biomejs/biome": "2.5.15",
     "@e2e-dev/web": "0.15.2",

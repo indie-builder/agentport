@@ -46,9 +46,10 @@ describe.skipIf(!ready)('db repo guards', () => {
     const page = await chat.listMessages(db, conversationId, { limit: 2 });
     expect(page.map((row) => row.content)).toEqual([{ text: 'm3' }, { text: 'm4' }]);
 
+    const [first] = page;
     const older = await chat.listMessages(db, conversationId, {
       limit: 2,
-      before: page[0]?.id,
+      ...(first ? { before: first.id } : {}),
     });
     expect(older.map((row) => row.content)).toEqual([{ text: 'm1' }, { text: 'm2' }]);
   });

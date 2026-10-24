@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { parseAgentMd } from '../src/agent-md.js';
 import { AppError } from '../src/errors.js';
+import { renderWorkspace } from '../src/workspace.js';
 
-const WARNING = '仅导入角色定义；平台运行限制与权限采用默认值，请检查后运行。';
+const WARNING = '已按官方智能体字段导入；MCP Server 与子智能体需在平台重新绑定。';
 
 const defaults = {
   name: 'release-helper',
@@ -183,15 +184,76 @@ describe('parseAgentMd', () => {
     expect(invalidWith(content).message).toMatch(/上限/);
   });
 
-  it('rejects runtime fields and lists every key', () => {
+  it('accepts the official runtime fields its own exporter writes', () => {
     const content = [
       '---',
-      'name: with-runtime',
+      'name: exported-child',
+      'description: d',
+      'model: opus',
+      'tools: mcp__docs__*, ListAgents',
+      'disallowedTools:',
+      '  - Bash',
+      '  - WebFetch',
+      'permissionMode: plan',
+      'skills: ["release-notes"]',
+      'effort: high',
+      'maxTurns: 9',
+      '---',
+      '',
+      'x',
+    ].join('\n');
+
+    const { agent, warnings } = parseAgentMd(content);
+    expect(agent.allowedTools).toEqual(['mcp__docs__*', 'ListAgents']);
+    expect(agent.disallowedTools).toEqual(['Bash', 'WebFetch']);
+    expect(agent.permissionMode).toBe('plan');
+    expect(agent.effort).toBe('high');
+    expect(agent.maxTurns).toBe(9);
+    expect(warnings.join('\n')).toMatch(/skills/);
+  });
+
+  it('round-trips a subagent file rendered by the exporter', () => {
+    const files = renderWorkspace({
+      agent: {
+        slug: 'lead',
+        name: 'Lead',
+        model: 'claude-sonnet-4-5',
+        systemPrompt: 'Lead the work.',
+        maxTurns: 20,
+      },
+      servers: [],
+      subAgents: [
+        {
+          slug: 'researcher',
+          name: 'Researcher',
+          description: '查资料',
+          model: 'opus',
+          systemPrompt: '# Researcher\n\nFind sources.',
+          maxTurns: 9,
+          permissionMode: 'plan',
+          effort: 'high',
+          skills: [{ slug: 'release-notes', name: 'Release Notes', description: 'd', body: 'b' }],
+        },
+      ],
+    });
+
+    const { agent, warnings } = parseAgentMd(files.subAgents[0]?.content ?? '');
+    expect(agent.slug).toBe('researcher');
+    expect(agent.model).toBe('opus');
+    expect(agent.maxTurns).toBe(9);
+    expect(agent.permissionMode).toBe('plan');
+    expect(agent.effort).toBe('high');
+    // 子文件按官方约定省略 tools：派生时继承父会话工具集。
+    expect(agent.allowedTools).toEqual([]);
+    expect(agent.disallowedTools).toContain('Bash');
+    expect(warnings.join('\n')).toMatch(/skills/);
+  });
+
+  it('rejects unknown fields and invalid permission modes', () => {
+    const content = [
+      '---',
+      'name: with-unknown',
       'description: tries to add behavior',
-      'tools: Read',
-      'disallowedTools: Write',
-      'permissionMode: acceptEdits',
-      'skills: [release]',
       'hooks: {}',
       'memory: user',
       '---',
@@ -200,9 +262,47 @@ describe('parseAgentMd', () => {
     ].join('\n');
 
     const error = invalidWith(content);
-    for (const key of ['tools', 'disallowedTools', 'permissionMode', 'skills', 'hooks', 'memory']) {
-      expect(error.message).toContain(key);
-    }
+    for (const key of ['hooks', 'memory']) expect(error.message).toContain(key);
+    expect(error.message).not.toContain('permissionMode');
+
+    const mode = [
+      '---',
+      'name: bad-mode',
+      'description: d',
+      'permissionMode: nope',
+      '---',
+      '',
+      'x',
+    ].join('\n');
+    expect(invalidWith(mode).path).toBe('/permissionMode');
+  });
+
+  it('rejects the auto permission mode and runtime-blocked tools, like the API does', () => {
+    const auto = [
+      '---',
+      'name: auto-mode',
+      'description: d',
+      'permissionMode: auto',
+      '---',
+      '',
+      'x',
+    ].join('\n');
+    const modeError = invalidWith(auto);
+    expect(modeError.path).toBe('/permissionMode');
+    expect(modeError.message).toContain('auto');
+
+    const tool = [
+      '---',
+      'name: blocked-tool',
+      'description: d',
+      'tools: ListAgents, Monitor',
+      '---',
+      '',
+      'x',
+    ].join('\n');
+    const toolError = invalidWith(tool);
+    expect(toolError.path).toBe('/allowedTools');
+    expect(toolError.message).toContain('Monitor');
   });
 
   it('rejects invalid maxTurns and effort values', () => {

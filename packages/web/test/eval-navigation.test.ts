@@ -134,7 +134,7 @@ describe('evaluation draft navigation', () => {
       expect(unloadPrevented()).toBe(true);
       let navigation: Promise<unknown> | undefined;
       await act(async () => {
-        navigation = router.navigate({ to: '/away' });
+        navigation = router.navigate({ to: '/away' as never });
       });
       expect(document.body.textContent).toContain('放弃未保存的更改？');
       expect(router.state.location.pathname).toBe('/eval');
@@ -144,7 +144,7 @@ describe('evaluation draft navigation', () => {
         'Unsaved draft',
       );
       await act(async () => {
-        navigation = router.navigate({ to: '/away' });
+        navigation = router.navigate({ to: '/away' as never });
       });
       await click('放弃并离开');
       await act(async () => {
@@ -158,7 +158,7 @@ describe('evaluation draft navigation', () => {
   it('allows a clean creation dialog to leave without confirmation', async () => {
     const router = await mount();
     await act(async () => {
-      await router.navigate({ to: '/away' });
+      await router.navigate({ to: '/away' as never });
     });
     expect(container.textContent).toBe('Destination');
   });
@@ -179,7 +179,7 @@ describe('evaluation draft navigation', () => {
     expect(button('保存中…').disabled).toBe(true);
     expect(unloadPrevented()).toBe(true);
     await act(async () => {
-      void router.navigate({ to: '/away' });
+      void router.navigate({ to: '/away' as never });
     });
     expect(document.body.textContent).toContain('正在保存，请等待请求完成。');
     expect(button('放弃并离开').disabled).toBe(true);
@@ -198,7 +198,7 @@ describe('evaluation draft navigation', () => {
       let finish!: (value: EvalCase) => void;
       const save = vi.spyOn(api, editing ? 'updateEvalCase' : 'createEvalCase').mockImplementation(
         () =>
-          new Promise((resolve) => {
+          new Promise<EvalCase>((resolve) => {
             finish = resolve;
           }),
       );

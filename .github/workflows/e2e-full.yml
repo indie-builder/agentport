@@ -1,0 +1,165 @@
+name: E2E (real model)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每日 03:17 UTC 跑一次真实模型链路，避免整点拥堵。
+    - cron: '17 3 * * *'
+
+concurrency:
+  group: e2e-full
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      # 一次性数据库，固定口令即可；与 e2e.config.ts 读取的凭据保持一致。
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: ci-e2e-admin-password-2026
+      E2E_ADMIN_USER: admin
+      E2E_ADMIN_PASSWORD: ci-e2e-admin-password-2026
+      E2E_FULL: '1'
+      RATE_LIMIT_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      # job 级 if 读不到 secrets，先落成 step output 供后续步骤判断。
+      - name: Detect model credentials
+        id: creds
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        run: |
+          # 未配置的 secret 展开成空串；去掉空白后再判断，避免把空串当凭据。
+          key="$(printf '%s' "${ANTHROPIC_API_KEY:-}" | tr -d '[:space:]')"
+          token="$(printf '%s' "${ANTHROPIC_AUTH_TOKEN:-}" | tr -d '[:space:]')"
+          if [ -n "$key" ] || [ -n "$token" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=E2E skipped::ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN 未配置，跳过真实模型 E2E。"
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.creds.outputs.present == 'true'
+        with:
+          version: 12.14.0
+
+      - uses: actions/setup-node@v4
+        if: steps.creds.outputs.present == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+        if: steps.creds.outputs.present == 'true'
+
+      - run: pnpm build
+        if: steps.creds.outputs.present == 'true'
+
+      # 从 .env.example 生成一次性 .env（不打印内容），并固定管理员口令。
+      - name: Prepare .env
+        if: steps.creds.outputs.present == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL || vars.ANTHROPIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          node --input-type=commonjs <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+
+          const secret = () => crypto.randomBytes(32).toString('base64url');
+          const redisPassword = crypto.randomBytes(18).toString('base64url');
+          // 空串/纯空白按未设置处理：不写进 .env，避免下游把空串当凭据。
+          const envValue = (name) => {
+            const value = process.env[name]?.trim();
+            return value ? value : '';
+          };
+          const values = {
+            ADMIN_USER: process.env.ADMIN_USER,
+            ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
+            APP_SECRET_KEY: secret(),
+            JWT_SECRET: secret(),
+            PLATFORM_MCP_TOKEN: secret(),
+            REDIS_PASSWORD: redisPassword,
+            REDIS_URL: `redis://:${redisPassword}@localhost:6379`,
+            RATE_LIMIT_DISABLED: '1',
+            ANTHROPIC_API_KEY: envValue('ANTHROPIC_API_KEY'),
+            ANTHROPIC_AUTH_TOKEN: envValue('ANTHROPIC_AUTH_TOKEN'),
+            ANTHROPIC_BASE_URL: envValue('ANTHROPIC_BASE_URL'),
+          };
+
+          let text = fs.readFileSync('.env.example', 'utf8');
+          for (const [key, value] of Object.entries(values)) {
+            const pattern = new RegExp(`^${key}=.*\\n?`, 'm');
+            if (!pattern.test(text)) {
+              if (value) text = `${text.replace(/\s*$/, '')}\n${key}=${value}\n`;
+              continue;
+            }
+            const line = value ? `${key}=${value}\n` : '';
+            // 用函数替换，避免密钥里的 $& 等被当成替换模式。
+            text = text.replace(pattern, () => line);
+          }
+          fs.writeFileSync('.env', text, { mode: 0o600 });
+          NODE
+
+          # worker 通过宿主 docker.sock 起沙盒：socket 的组 GID 随 runner 变化。
+          # 命名卷的宿主目录也随 data-root 变化，显式传给 compose 更稳。
+          docker volume create agentport_workspaces >/dev/null
+          # compose 默认把模型代理只发布到宿主回环；沙盒经 host-gateway 访问不到
+          # 回环地址，Linux 上需改绑所有接口（runner 是一次性的，不暴露到局域网）。
+          cat > "$RUNNER_TEMP/e2e-compose.override.yml" <<'YAML'
+          services:
+            worker:
+              ports: !override
+                - '0.0.0.0:3426:3426'
+          YAML
+          {
+            echo "DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)"
+            echo "HOST_WORKSPACES_DIR=$(docker volume inspect -f '{{ .Mountpoint }}' agentport_workspaces)"
+            echo "COMPOSE_FILE=$GITHUB_WORKSPACE/docker-compose.yml:$RUNNER_TEMP/e2e-compose.override.yml"
+          } >> "$GITHUB_ENV"
+
+      - name: Install Chromium
+        if: steps.creds.outputs.present == 'true'
+        run: pnpm exec e2e-web install chromium --with-deps
+
+      # up.sh 自己会迁移、构建沙盒镜像、启动 api/worker，并跑 deploy smoke（非阻塞测试套件）。
+      - name: Start stack
+        if: steps.creds.outputs.present == 'true'
+        run: bash scripts/up.sh
+
+      - name: Run real-model smoke E2E
+        if: steps.creds.outputs.present == 'true'
+        env:
+          # e2e.config.ts 的断言 agent 也从这些变量构造模型客户端。
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL || vars.ANTHROPIC_BASE_URL }}
+        run: pnpm exec e2e run tests/smoke.e2e.ts --reporter=list,junit
+
+      - name: Collect container logs
+        if: failure()
+        run: |
+          mkdir -p .e2e/logs
+          docker compose ps --all > .e2e/logs/compose-ps.txt 2>&1 || true
+          docker compose logs --no-color api worker migrate > .e2e/logs/containers.log 2>&1 || true
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-full-failure
+          path: |
+            .e2e/results/
+            .e2e/junit.xml
+            .e2e/logs/
+          retention-days: 7
+          if-no-files-found: ignore

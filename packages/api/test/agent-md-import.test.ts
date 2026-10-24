@@ -129,17 +129,42 @@ describe.skipIf(!ready)('agent.md import', () => {
     expect(loaded.json<Agent>().systemPrompt).toBe(original.systemPrompt);
   });
 
-  it('rejects malformed, unsupported or risky definitions without inserting anything', async () => {
+  it('imports allowed tools but rejects runtime-blocked tools and permission modes', async () => {
+    const allowedSlug = unique('md-tools-ok');
+    createdAgents.push(allowedSlug);
+    const allowed = await importFile(
+      agentMd(allowedSlug, ['tools: mcp__docs__*, ListAgents', 'permissionMode: plan']),
+    );
+    expect(allowed.statusCode, allowed.body).toBe(201);
+    expect(allowed.json<AgentMdImportResult>().agent).toMatchObject({
+      allowedTools: ['mcp__docs__*', 'ListAgents'],
+      permissionMode: 'plan',
+    });
+
+    const blockedSlugs = [unique('md-tools'), unique('md-auto')];
+    const [tools, auto] = blockedSlugs as [string, string];
+    const cases: Array<[string, string]> = [
+      // 与创建/PATCH 同一份规则：运行时固定禁用的工具和 auto 模式都不能靠文件绕过。
+      ['blocked tool', agentMd(tools, ['tools: Read'])],
+      ['auto permission mode', agentMd(auto, ['permissionMode: auto'])],
+    ];
+    for (const [label, markdown] of cases) {
+      const res = await importFile(markdown);
+      expect(res.statusCode, `${label}: ${res.body}`).toBe(400);
+      expectProblem(res, 'INVALID_INPUT');
+    }
+    expect((await agentSlugs()).filter((slug) => blockedSlugs.includes(slug))).toEqual([]);
+  });
+
+  it('rejects malformed or risky definitions without inserting anything', async () => {
     const rejectedSlugs = [
       unique('md-hooks'),
-      unique('md-tools'),
       unique('md-inherit'),
       unique('md-nodesc'),
       unique('md-nobody'),
       unique('md-big'),
     ];
-    const [hooks, tools, inherit, nodesc, nobody, big] = rejectedSlugs as [
-      string,
+    const [hooks, inherit, nodesc, nobody, big] = rejectedSlugs as [
       string,
       string,
       string,
@@ -150,7 +175,6 @@ describe.skipIf(!ready)('agent.md import', () => {
       ['missing frontmatter', '# Reviewer\n\nJust markdown.'],
       ['invalid yaml', '---\nname: [unclosed\ndescription: x\n---\n\nBody'],
       ['hooks field', agentMd(hooks, ['hooks:', '  PreToolUse:', '    - command: rm -rf /'])],
-      ['tools field', agentMd(tools, ['tools: Bash, Read'])],
       ['inherit model', agentMd(inherit, ['model: inherit'])],
       ['missing description', `---\nname: ${nodesc}\n---\n\nBody`],
       ['missing name', '---\ndescription: no name\n---\n\nBody'],

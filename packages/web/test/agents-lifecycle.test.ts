@@ -105,6 +105,20 @@ function dialog(title: string): HTMLElement {
   if (!element) throw new Error(`Missing dialog: ${title}`);
   return element;
 }
+function menuItem(text: string): HTMLElement {
+  const element = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent?.trim() === text,
+  );
+  if (!element) throw new Error(`Missing menu item: ${text}`);
+  return element;
+}
+async function chooseFile(file: File) {
+  const input = host.querySelector<HTMLInputElement>('input[type="file"]');
+  if (!input) throw new Error('Missing import input');
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  await flush();
+}
 async function mount() {
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: 'shell', component: Outlet });
@@ -156,14 +170,11 @@ async function importFile(warnings: string[]) {
     createdServers: [],
     reusedServers: [],
     createdSkills: [],
+    createdSubAgents: [],
   });
-  const input = host.querySelector<HTMLInputElement>('input[type="file"]');
-  if (!input) throw new Error('Missing import input');
   const file = new File(['{}'], 'expert.json', { type: 'application/json' });
   Object.defineProperty(file, 'text', { value: async () => '{}' });
-  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
-  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
-  await flush();
+  await chooseFile(file);
   await waitFor(() => document.querySelector('#agent-name'));
 }
 
@@ -288,7 +299,7 @@ describe('expert creation lifecycle', () => {
     await click(button('创建数字分身'));
     await editInput('new-agent-slug', 'twin');
     await act(async () => {
-      void router.navigate({ to: '/away' });
+      void router.navigate({ to: '/away' as never });
     });
     await flush();
     expect(router.state.location.pathname).toBe('/agents');
@@ -390,7 +401,7 @@ describe('expert rollback lifecycle', () => {
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(true);
     await act(async () => {
-      void router.navigate({ to: '/away' });
+      void router.navigate({ to: '/away' as never });
     });
     await flush();
     expect(router.state.location.pathname).toBe('/agents/expert');
@@ -407,7 +418,7 @@ describe('expert rollback lifecycle', () => {
     expect(after.defaultPrevented).toBe(false);
     await click(button('返回列表'));
     await flush();
-    await act(async () => router.navigate({ to: '/away' }));
+    await act(async () => router.navigate({ to: '/away' as never }));
     expect(host.textContent).toBe('Away');
   });
 
@@ -506,5 +517,66 @@ describe('expert review details', () => {
     await importFile([]);
     expect(field().value).toBe('Expert');
     expect(document.body.textContent).not.toContain('导入提示');
+  });
+});
+
+describe('expert archive exchange', () => {
+  const importResult = {
+    agent,
+    warnings: [],
+    createdServers: [],
+    reusedServers: [],
+    createdSkills: [],
+    createdSubAgents: [],
+  };
+
+  it('routes zip files to the archive import endpoint', async () => {
+    const archive = vi.spyOn(api, 'importAgentArchive').mockResolvedValue(importResult);
+    const json = vi.spyOn(api, 'importAgent');
+    await mount();
+    const file = new File(['zip'], 'expert.zip', { type: 'application/zip' });
+    await chooseFile(file);
+    await waitFor(() => document.querySelector('#agent-name'));
+    expect(archive).toHaveBeenCalledWith(file);
+    expect(json).not.toHaveBeenCalled();
+  });
+
+  it('keeps JSON files on the existing import endpoint', async () => {
+    const json = vi.spyOn(api, 'importAgent').mockResolvedValue(importResult);
+    const archive = vi.spyOn(api, 'importAgentArchive');
+    await mount();
+    const file = new File(['{}'], 'expert.json', { type: 'application/json' });
+    Object.defineProperty(file, 'text', { value: async () => '{}' });
+    await chooseFile(file);
+    await waitFor(() => document.querySelector('#agent-name'));
+    expect(json).toHaveBeenCalledTimes(1);
+    expect(archive).not.toHaveBeenCalled();
+  });
+
+  it('rejects archives over 1 MiB before any request', async () => {
+    const request = vi.spyOn(globalThis, 'fetch');
+    const file = new File([new Uint8Array(1024 * 1024 + 1)], 'expert.zip');
+    await expect(api.importAgentArchive(file)).rejects.toThrow('归档文件不能超过 1 MiB');
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('downloads the agent directory archive', async () => {
+    const createObjectURL = vi.fn(() => 'blob:expert');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const archive = vi
+      .spyOn(api, 'exportAgentArchive')
+      .mockResolvedValue(new Blob(['zip'], { type: 'application/zip' }));
+    await mount();
+    await click(button('配置 Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    await click(button('更多操作'));
+    await waitFor(() => menuItem('导出目录'));
+    await click(menuItem('导出目录'));
+    await waitFor(() => (createObjectURL.mock.calls.length > 0 ? true : null));
+    expect(archive).toHaveBeenCalledWith('expert');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect((anchor.mock.instances[0] as HTMLAnchorElement).download).toBe('expert.zip');
   });
 });

@@ -105,8 +105,9 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
         <ul className="flex flex-wrap gap-1 md:flex-col md:flex-nowrap md:gap-0.5">
           {files.map((file) => (
             <li key={file.name} className="min-w-0">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 aria-current={file.name === active ? 'true' : undefined}
                 disabled={editorPending}
                 onClick={() => {
@@ -115,16 +116,16 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
                   else setSelected(file.name);
                 }}
                 className={cn(
-                  'flex w-full min-w-0 items-center rounded-icon px-2 py-1.5 font-mono text-xs transition-colors md:text-left',
+                  'h-auto w-full min-w-0 justify-start rounded-icon px-2 py-1.5 font-mono text-xs md:text-left',
                   file.name === active
-                    ? 'bg-selected font-medium text-fg'
+                    ? 'bg-selected font-medium text-fg hover:bg-selected'
                     : 'text-muted-foreground hover:bg-hover',
                 )}
               >
                 <span className="truncate" title={file.name}>
                   {file.name}
                 </span>
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

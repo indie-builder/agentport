@@ -68,7 +68,6 @@ const tool: ApiTool = {
   requiresApproval: false,
   enabled: true,
   createdAt: '2026-01-01',
-  updatedAt: '2026-01-01',
 };
 
 type Element = ReactElement<Record<string, unknown>>;
@@ -117,7 +116,6 @@ function inspect(
 function editor() {
   return AgentEditor({
     agent,
-    onDelete: () => {},
     onDirtyChange: () => {},
     onPendingChange: () => {},
   });

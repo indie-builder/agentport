@@ -71,6 +71,7 @@
   --radius-icon: 7px; /* 图标按钮、logo、折叠按钮 */
   --radius-tag: 6px; /* 小标签、侧栏图标底 */
   --radius-pill: 9999px;
+  --radius-composer: 28px; /* 对话输入胶囊（§6 实测） */
 
   /* base-nova 语义圆角映射；Badge 的 4xl 保留项目的小标签圆角。 */
   /*
@@ -84,6 +85,9 @@
   --radius-xl: var(--radius-card); /* 卡片与弹层容器 */
   /* 底座 Badge 用 rounded-4xl；项目里它是最小的标签圆角，不是最大。 */
   --radius-4xl: var(--radius-tag); /* Badge 小标签 */
+
+  /* 对话输入胶囊上下内边距（§6 实测 11px） */
+  --spacing-composer-y: 11px;
 
   /* 侧栏：实测 272 展开 / 68 收起，过渡 160ms */
   --sidebar-width: 272px;

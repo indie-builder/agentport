@@ -155,7 +155,10 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     const { runId } = await seedRun(app, agent.id, { runId: unique('run') });
     runIds.push(runId);
 
-    const call = async (): Promise<{ isError?: boolean; content: Array<{ text?: string }> }> => {
+    const call = async (): Promise<{
+      isError?: boolean | undefined;
+      content: Array<{ text?: string | undefined } & Record<string, unknown>>;
+    }> => {
       const client = new Client({ name: 'agentport-test', version: '0.0.0' });
       const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp/${server.id}`), {
         requestInit: {

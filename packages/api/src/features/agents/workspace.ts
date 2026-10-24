@@ -92,6 +92,9 @@ export async function renderAgentWorkspace(
     name: s.name,
     description: s.description,
     body: s.body,
+    ...(s.license ? { license: s.license } : {}),
+    ...(s.compatibility ? { compatibility: s.compatibility } : {}),
+    ...(Object.keys(s.metadata).length > 0 ? { metadata: s.metadata } : {}),
     files: (skillFiles.get(s.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
   });
   const skillsWithFiles = skills.map(withFiles);

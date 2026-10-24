@@ -519,6 +519,44 @@ describe.skipIf(!ready)('import agents', () => {
     expect(skills.json<Skill[]>().filter((skill) => skill.slug === skillSlug)).toHaveLength(1);
   });
 
+  it('warns when an existing skill differs in license or metadata', async () => {
+    const slug = unique('imp-skill-license');
+    const skillSlug = unique('imp-license-skill');
+    createdAgents.push(slug);
+    createdSkills.push(skillSlug);
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/skills',
+      headers: auth(),
+      payload: { slug: skillSlug, name: 'Existing', description: 'already here', license: 'MIT' },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+
+    const res = await importAgent(
+      exportFile(slug, {
+        skills: [
+          {
+            slug: skillSlug,
+            name: 'Existing',
+            description: 'already here',
+            license: 'Apache-2.0',
+            metadata: { owners: ['docs'] },
+          },
+        ],
+      }),
+    );
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.createdSkills).toEqual([]);
+    expect(body.warnings.join('\n')).toContain(skillSlug);
+
+    // 无损：库里仍是原配置，没有被导入文件覆盖。
+    const skills = await inject(app, { method: 'GET', url: '/api/skills', headers: auth() });
+    const reused = skills.json<Skill[]>().find((skill) => skill.slug === skillSlug);
+    expect(reused?.license).toBe('MIT');
+    expect(reused?.metadata).toBeUndefined();
+  });
+
   it('round-trips generated tools with portable fields and fresh ids', async () => {
     const sourceName = unique('imp-port-src');
     const importedName = unique('imp-port-dst');

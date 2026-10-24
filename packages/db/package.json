@@ -26,7 +26,8 @@
     "dev": "tsc -b --watch --preserveWatchOutput",
     "typecheck": "tsc -b",
     "generate": "drizzle-kit generate",
-    "migrate": "node --env-file-if-exists=../../.env scripts/migrate.js"
+    "migrate": "node --env-file-if-exists=../../.env scripts/migrate.js",
+    "typecheck:test": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@agentport/core": "workspace:*",

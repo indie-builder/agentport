@@ -110,6 +110,10 @@ export const skills = pgTable(
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     body: text('body').notNull().default(''),
+    /** 官方 SKILL.md 的描述性 frontmatter；空串表示未提供。 */
+    license: text('license').notNull().default(''),
+    compatibility: text('compatibility').notNull().default(''),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

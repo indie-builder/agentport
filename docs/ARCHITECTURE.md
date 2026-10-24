@@ -178,6 +178,14 @@ data/workspaces/<agent-slug>/<run-id>/
 
 子智能体自有 rules / outputStyles 已支持保存、以自身为根的文件预览、clone 与 @2 导入导出；父级委派时不会自动应用这些子级自有配置，父工作区只渲染根智能体的规则与输出风格。clone 复制源智能体自身配置与资源绑定，不复制其子智能体。
 
+### 智能体归档（zip）导入导出
+
+- `GET /api/export/agents/:id/archive`：复用 JSON 专家包同一份数据准备（同一个 `loadExport`），把 `renderWorkspace` 的结果交给 core 的 `buildWorkspaceArchive`，直接输出官方 `.claude/` 目录结构（`CLAUDE.md`、`.mcp.json`、`.claude/agents|skills|rules|output-styles|settings.json`）。响应 `application/zip`、`Content-Disposition: attachment; filename="<slug>.zip"`、`Cache-Control: no-store`。
+- `POST /api/import/agents/archive`：body 为 `{ filename, dataBase64 }`；filename 只用于推导新 slug（必须 `.zip`），base64 上限 1,500,000 字符。严格按标准 base64 解码后调用 core `parseWorkspaceArchive`，再映射成 `agentport/agent@2` 输入，复用 `/api/import/agents` 的同一事务（server/skill 复用、冲突、warning、版本快照、审计）。非幂等，不做自动重试；成功返回现有 201 结构 + warnings。
+- `.mcp.json` 只含脱敏配置：export 用空 `env`/`headers` 渲染，明文密钥、加密凭据与 URL 内嵌账号密码都不进入归档；import 不落库 env/headers 值，只把键名作为 `secretKeys` 提示重新填写。
+- 限额（core `ARCHIVE_LIMITS`）：压缩包 1 MiB、解压总大小 8 MiB、单文件 1 MiB、条目 1000；超限返回 `PAYLOAD_TOO_LARGE`，损坏、非 zip、路径穿越、未知文件返回 `INVALID_INPUT`，均使用统一 Problem 信封。
+- 有损字段：归档是「工作区文件」而不是完整平台配置——① 仅根级 rules / outputStyles 进包，子智能体自有规则与风格丢失；② generated server 导出为 http，工具定义与生成的 `mcpToken` 不随包；③ 根 `.mcp.json` 只对应根绑定，子智能体的独立 server 绑定、根/子技能归属无法精确还原（导入时被子定义声明的技能归子级，其余归根级）；④ 凭据、URL 内嵌账号密码不迁移；⑤ 平台专属字段用默认值：`role=通用助手`、`maxTurns=20`、`maxBudgetUsd=2`、`timeoutMs=600000`、`enabled=true`；根 `maxTurns`/`effort` 也不在官方文件中往返；⑥ 停用子智能体按现有工作区语义不落盘（`renderWorkspace` 只渲染启用的子智能体）。根 `model` 与 `permissionMode` 显式写入 `.claude/settings.json` 的 `model` / `permissions.defaultMode` 以便往返；`auto` 等平台不支持的模式会降级为 `dontAsk` 并产生 warning。
+
 | 官方文件/能力 | 加载方式 | 本项目当前状态 |
 |---|---|---|
 | `CLAUDE.md` 或 `.claude/CLAUDE.md` | project source 加载上下文，与是否使用 claude_code systemPrompt preset 无关 | 已生成根文件 |

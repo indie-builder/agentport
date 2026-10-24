@@ -76,9 +76,37 @@ export const agentInputSchema = z.object({
 });
 
 export type AgentInput = z.infer<typeof agentInputSchema>;
-export type AgentPatch = Omit<Partial<AgentInput>, 'effort' | 'maxThinkingTokens'> & {
-  effort?: AgentInput['effort'] | null;
-  maxThinkingTokens?: number | null;
+
+/** PATCH 的显式可选字段：区分「没传」与「传了默认值」，null 表示清除可空字段。 */
+export const agentPatchSchema = z.object({
+  slug: slugSchema.optional(),
+  name: z.string().min(1).max(128).optional(),
+  role: agentRoleSchema.removeDefault().optional(),
+  description: z.string().max(300).optional(),
+  model: z.string().min(1).optional(),
+  systemPrompt: z.string().optional(),
+  serverIds: z.array(z.string()).optional(),
+  skillIds: z.array(z.string()).optional(),
+  subAgentIds: z.array(z.string()).optional(),
+  // 运行时禁用工具判定依赖 core，由 API 路由在共享规则上叠加。
+  allowedTools: z.array(z.string()).optional(),
+  disallowedTools: z.array(z.string()).optional(),
+  permissionMode: permissionModeSchema.optional(),
+  maxTurns: z.number().int().positive().optional(),
+  maxBudgetUsd: z.number().positive().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
+  maxThinkingTokens: z.number().int().positive().nullable().optional(),
+  enabled: z.boolean().optional(),
+  /** 乐观锁：首次加载时的 updatedAt。 */
+  expectedUpdatedAt: z.coerce.date().optional(),
+});
+
+// z.infer 的可选字段带显式 `| undefined`，在 exactOptionalPropertyTypes 下展开到缓存对象时
+// 会把 Agent 的必填字段也变成可空；这里去掉 undefined，保持「缺省即不改动」的语义。
+type AgentPatchOutput = z.infer<typeof agentPatchSchema>;
+export type AgentPatch = {
+  [K in keyof AgentPatchOutput]?: Exclude<AgentPatchOutput[K], undefined>;
 };
 
 export const agentSchema = agentInputSchema.extend({ role: z.string().default('通用助手') }).and(
@@ -105,6 +133,10 @@ export const skillInputSchema = z.object({
   name: z.string().min(1).max(128),
   description: z.string().min(1).max(500),
   body: z.string().default(''),
+  /** 官方 SKILL.md 描述性 frontmatter；导入后原样保留，导出时重渲染。 */
+  license: z.string().optional(),
+  compatibility: z.string().max(500).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type SkillInput = z.infer<typeof skillInputSchema>;
@@ -119,20 +151,25 @@ export const skillSchema = skillInputSchema.and(
 
 export type Skill = z.infer<typeof skillSchema>;
 
-/** 技能支持资源文件：相对技能目录的安全路径 + 文本内容。 */
+/** 技能资源文件的相对路径；写入、导入与导出共用同一条规则。 */
+export const skillFilePathSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^[A-Za-z0-9._\-/]+$/, '路径只能包含字母、数字、. _ - 和 /')
+  .refine((path) => {
+    const lower = path.toLowerCase();
+    return (
+      path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
+      lower !== 'skill.md' &&
+      !lower.startsWith('skill.md/')
+    );
+  }, '路径必须是技能目录内的相对路径，且不能包含 . / .. 或覆盖 SKILL.md');
+
 export const skillFileInputSchema = z.object({
-  path: z
-    .string()
-    .min(1)
-    .max(200)
-    .regex(
-      /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._\-/]+$/,
-      '路径必须是相对路径，且不能包含 .. 或绝对路径',
-    ),
+  path: skillFilePathSchema,
   content: z.string().max(200_000).default(''),
 });
-
-export type SkillFileInput = z.infer<typeof skillFileInputSchema>;
 
 export const skillFileSchema = skillFileInputSchema.and(
   z.object({ id: z.string(), createdAt: z.string() }),
@@ -146,8 +183,6 @@ export const ruleInputSchema = z.object({
   content: z.string().max(100_000).default(''),
   globs: z.string().max(1000).default(''),
 });
-
-export type RuleInput = z.infer<typeof ruleInputSchema>;
 
 export const ruleSchema = ruleInputSchema.and(
   z.object({
@@ -167,8 +202,6 @@ export const outputStyleInputSchema = z.object({
   keepCodingInstructions: z.boolean().default(false),
   body: z.string().max(50_000).default(''),
 });
-
-export type OutputStyleInput = z.infer<typeof outputStyleInputSchema>;
 
 export const outputStyleSchema = outputStyleInputSchema.and(
   z.object({

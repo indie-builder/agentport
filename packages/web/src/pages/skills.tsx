@@ -341,6 +341,7 @@ function SkillDialog({
   const [form, setForm] = useState<SkillInput>(
     skill
       ? {
+          // license/compatibility/metadata 不在编辑器里：PATCH 只提交这些字段，其余原样保留。
           slug: skill.slug,
           name: skill.name,
           description: skill.description,

@@ -7,7 +7,8 @@
     "dev": "tsx watch --clear-screen=false --env-file-if-exists=../../.env src/index.ts",
     "build": "tsc -b",
     "start": "node dist/index.js",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "typecheck:test": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@agentport/core": "workspace:*",
@@ -36,6 +37,8 @@
   },
   "devDependencies": {
     "@types/node": "24.10.1",
+    "@types/pg": "8.15.6",
+    "pg": "8.23.1",
     "tsx": "4.23.15"
   }
 }

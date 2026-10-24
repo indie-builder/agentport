@@ -95,9 +95,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `pnpm typecheck` | 全量类型检查（`pnpm -r typecheck`） |
 | `pnpm lint` | Biome 检查 |
 | `pnpm lint:fix` | Biome 检查并写入修复 |
-| `pnpm test` | Vitest 测试（需要 PostgreSQL 与 Redis；不可用时集成用例自动跳过）。**先停 worker**（`docker compose stop worker api`），否则集成用例的 run 会被真实消费而失败/跳过。vitest 不读 `.env`；用 compose 的 Redis 时需 `REDIS_URL=redis://:agentport-dev@localhost:6379 pnpm test` |
+| `pnpm test` | Vitest 测试（需要 PostgreSQL 与 Redis；不可用时集成用例自动跳过）。**先停 worker**（`docker compose stop worker api`），否则集成用例的 run 会被真实消费而失败/跳过。根 `vitest.config.ts` 会加载 `.env`（已存在的环境变量优先，缺失时回退到本地默认的 PostgreSQL/Redis 地址）；用 compose 的 Redis 时需显式 `REDIS_URL=redis://:agentport-dev@localhost:6379 pnpm test` |
 | `pnpm test:watch` | Vitest watch |
-| `pnpm test:e2e` | e2e 端到端测试（`e2e run`，用例在 `tests/*.e2e.ts`）；需要 5173 与 3000 在跑，`E2E_FULL=1` 才跑真实对话链路 |
+| `pnpm test:e2e` | e2e 端到端测试（`e2e run`，用例在 `tests/*.e2e.ts`）；需要 5173 与 3000 在跑，且必须设置 `E2E_WORKER_PAUSED=1`（`tests/chat-replay.e2e.ts` 在 worker 未暂停时直接失败）；`E2E_FULL=1` 才跑真实对话链路 |
 | `pnpm db:generate` | 修改 Drizzle schema 后生成迁移 |
 | `pnpm db:migrate` | 在宿主机应用迁移（`pnpm run up` 部署时由 compose 的 `migrate` 服务自动执行） |
 | `pnpm backup` | `pg_dump` → `backups/<timestamp>.sql.gz`，保留最近 7 份；需先 export `DATABASE_URL` |
