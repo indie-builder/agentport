@@ -16,6 +16,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "lint:focus": "node scripts/check-focus-contract.mjs",
+    "lint:contract": "node scripts/check-project-contract.mjs",
     "test": "vitest run",
     "test:web": "vitest run --config packages/web/vitest.config.ts",
     "test:watch": "vitest",
