@@ -78,7 +78,7 @@
 
 ## 测试
 
-- E2E 统一使用 `e2e`（`e2e@0.21.2` + `@e2e-dev/web`）。Playwright 已退役，不再新增其用例。
+- E2E 统一使用 `e2e`（`e2e` + `@e2e-dev/web`）。Playwright 已退役，不再新增其用例。
 - 登录等共享前置用 `test.setup` + session，不要在每条用例里重复登录。
 - 单元/集成测试用 Vitest；涉及队列的用例需先停掉本地 worker（见 `docs/OPERATIONS.md`）。
 
