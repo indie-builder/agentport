@@ -1,8 +1,17 @@
-import { Command } from 'lucide-react';
+import { cn } from '../lib/cn.js';
 
-/** 品牌：lucide 线框标记 + `PACE` 字标（12.5px / 0.14em，见 DESIGN-SYSTEM §5）。 */
+/** 品牌：原创小狗标记 + `PACE` 字标（见 DESIGN-SYSTEM §5）。 */
 export function BrandMark({ className }: { className?: string }) {
-  return <Command aria-hidden="true" className={className} />;
+  return (
+    <img
+      src="/brand/pace-puppy.webp"
+      alt=""
+      aria-hidden="true"
+      width={32}
+      height={32}
+      className={cn('size-8 shrink-0 object-contain', className)}
+    />
+  );
 }
 
 export function Brand() {
