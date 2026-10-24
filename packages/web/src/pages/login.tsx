@@ -19,7 +19,7 @@ const loginSchema = z.object({
 export function LoginPage() {
   const navigate = useNavigate();
   useEffect(() => {
-    document.title = '登录 · 控制台';
+    document.title = 'PACE';
   }, []);
   const [error, setError] = useState<string | null>(null);
   const {
@@ -45,10 +45,10 @@ export function LoginPage() {
   });
 
   return (
-    <main className="flex min-h-dvh min-w-0 items-center justify-center bg-canvas p-3">
-      <Page className="w-full max-w-sm rounded-shell border border-line bg-surface p-5">
-        <Brand />
-        <PageHeader title="登录" />
+    <main className="flex min-h-dvh min-w-0 items-center justify-center bg-surface px-6 py-10">
+      <Page className="w-full max-w-xs gap-8">
+        <PageHeader title="进入 PACE" className="sr-only" />
+        <Brand className="h-24 self-center" />
         <form
           aria-label="登录"
           aria-busy={login.isPending}
@@ -60,11 +60,12 @@ export function LoginPage() {
             login.mutate(values);
           })}
         >
-          <FieldGroup>
+          <FieldGroup className="gap-5">
             <Field data-disabled={login.isPending} data-invalid={Boolean(errors.username)}>
               <FieldLabel htmlFor="username">用户名</FieldLabel>
               <Input
                 id="username"
+                className="h-11"
                 required
                 autoComplete="username"
                 disabled={login.isPending}
@@ -78,6 +79,7 @@ export function LoginPage() {
               <FieldLabel htmlFor="password">密码</FieldLabel>
               <Input
                 id="password"
+                className="h-11"
                 required
                 type="password"
                 autoComplete="current-password"
@@ -94,11 +96,11 @@ export function LoginPage() {
             </FieldError>
             <Button
               type="submit"
-              className="w-full"
+              className="h-11 w-full"
               disabled={login.isPending}
               aria-busy={login.isPending}
             >
-              {login.isPending ? '登录中…' : error ? '重试登录' : '登录'}
+              {login.isPending ? '正在进入…' : error ? '重试' : '进入工作台'}
             </Button>
           </FieldGroup>
         </form>

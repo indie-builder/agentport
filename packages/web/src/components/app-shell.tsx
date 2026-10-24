@@ -119,7 +119,7 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
 }
 
 /**
- * 品牌区（实测参考页侧栏头部，32px 高）：
+ * 品牌区：展开使用 48px 完整组合，收起使用 32px 独立标记。
  * - 展开：字标在左，折叠按钮贴右（x=228）。按钮是 32×32、radius 7。
  * - 收起：整行缩成 32×32，logo 与按钮重叠在同一位置。默认露 logo，
  *   悬停或内部有焦点时 logo 淡出、换成展开按钮（140ms），布局不跳动。
@@ -150,11 +150,11 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
   }
 
   return (
-    <div className="flex h-8 shrink-0 items-center gap-2">
+    <div className="flex h-12 shrink-0 items-center gap-2">
       <Link
         to="/"
         aria-label="返回首页"
-        className="flex h-8 min-w-0 flex-1 items-center rounded-icon"
+        className="flex h-12 min-w-0 flex-1 items-center rounded-icon"
       >
         <Brand />
       </Link>
@@ -204,7 +204,7 @@ function SidebarLink({
         collapsed
           ? ''
           : active
-            ? 'bg-hover font-medium text-fg'
+            ? 'bg-selected font-medium text-fg'
             : 'text-muted-foreground hover:bg-hover hover:text-fg',
         collapsed && (active ? 'text-fg' : 'text-muted-foreground'),
       )}
@@ -397,7 +397,7 @@ export function AppShell() {
           to="/"
           aria-label="返回首页"
           onClick={() => setMobileOpen(false)}
-          className="flex h-8 items-center rounded-icon"
+          className="flex h-12 items-center rounded-icon"
         >
           <Brand />
         </Link>
@@ -490,7 +490,7 @@ export function AppShell() {
                   size="icon-sm"
                   aria-label="关闭导航"
                   // Keep the subdued close icon and translucent hover instead of the ghost defaults.
-                  className="absolute right-3 top-4 z-10 text-muted-foreground hover:bg-hover"
+                  className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-hover"
                 >
                   <X className="size-4" />
                 </Button>

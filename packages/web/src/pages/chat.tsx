@@ -57,6 +57,12 @@ import {
 } from '../components/ui/dropdown-menu.js';
 import { Field, FieldError, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupTextarea,
+} from '../components/ui/input-group.js';
 import { Message, MessageContent, MessageGroup } from '../components/ui/message.js';
 import {
   MessageScroller,
@@ -75,7 +81,6 @@ import {
   SelectValue,
 } from '../components/ui/select.js';
 import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
-import { Textarea } from '../components/ui/textarea.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
 import {
   type ChatItem,
@@ -142,11 +147,11 @@ export function ChatPage() {
         ) : (
           <EmptyState
             icon={<Bot className="size-5" />}
-            title="还没有智能体"
-            description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
+            title="先创建一位专家"
+            description="创建后即可在这里开始对话。"
             action={
               <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
-                前往创建
+                前往专家
               </Link>
             }
           />
@@ -162,7 +167,7 @@ export function ChatPage() {
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <EmptyState
           icon={<Bot className="size-5" />}
-          title="找不到这个智能体"
+          title="找不到这位专家"
           description="链接里的智能体可能已被删除，或不属于当前工作区。"
           action={
             <Button variant="outline" onClick={clearSelection}>
@@ -505,7 +510,10 @@ function ChatWorkspace({
       onApprove={approve}
       onCancel={cancel}
       onOpenHistory={() => setHistoryOpen(true)}
-      onPickSuggestion={setInput}
+      onPickSuggestion={(text) => {
+        setInput(text);
+        composerRef.current?.focus();
+      }}
       onBranchMessage={branch}
       branchingMessageId={
         branchMutation.isPending ? (branchMutation.variables?.fromMessageId ?? null) : null
@@ -588,9 +596,9 @@ function ChatWorkspace({
             defaultLayout={historyLayout.defaultLayout}
             onLayoutChanged={historyLayout.onLayoutChanged}
           >
-            <Panel id="history" defaultSize={272} minSize={220} maxSize={420}>
+            <Panel id="history" defaultSize={240} minSize={200} maxSize={360}>
               <aside
-                className="flex h-full min-w-0 flex-col gap-5 overflow-hidden"
+                className="flex h-full min-w-0 flex-col gap-3 overflow-hidden bg-canvas/40"
                 aria-label="会话历史"
               >
                 <HistoryHeader onNew={newConversation} />
@@ -701,13 +709,26 @@ function RenameDialog({
 
 function HistoryHeader({ onNew, onClose }: { onNew: () => void; onClose?: () => void }) {
   return (
-    <div className="flex min-h-11 shrink-0 items-center gap-2 px-3 pt-3">
-      <span className="text-sm font-medium text-fg">会话</span>
-      <Button variant="ghost" size="icon" aria-label="新建会话" className="ml-auto" onClick={onNew}>
-        <Plus className="size-4" />
+    <div className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
+      <span className="text-sm font-medium text-fg">对话记录</span>
+      <Button
+        variant="outline"
+        size="sm"
+        aria-label="新建会话"
+        className="ml-auto min-h-11 lg:min-h-0"
+        onClick={onNew}
+      >
+        <Plus data-icon="inline-start" />
+        新对话
       </Button>
       {onClose ? (
-        <Button variant="ghost" size="icon" aria-label="关闭会话列表" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-11"
+          aria-label="关闭会话列表"
+          onClick={onClose}
+        >
           <X className="size-4" />
         </Button>
       ) : null}
@@ -756,10 +777,10 @@ function HistoryPanel({
   const filtered = useMemo(() => filterHistory(history, needle), [history, needle]);
   return (
     <>
-      <div className="shrink-0 px-3 pb-2">
+      <div className="shrink-0 px-3">
         <SearchInput
           label="搜索会话"
-          placeholder="搜索会话标题"
+          placeholder="搜索对话"
           value={query}
           onChange={setQuery}
           className="w-full"
@@ -769,7 +790,9 @@ function HistoryPanel({
         {pending ? <LoadingState rows={4} /> : null}
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
         {history.length === 0 && !pending && !needle ? (
-          <p className="px-2 py-6 text-xs leading-relaxed text-muted-foreground">还没有会话。</p>
+          <p className="px-2 py-5 text-xs leading-relaxed text-muted-foreground">
+            开始对话后，记录会出现在这里。
+          </p>
         ) : null}
         {needle && filtered.length === 0 && !pending && !error ? (
           <p className="px-2 py-6 text-xs leading-relaxed text-muted-foreground">没有匹配的会话</p>
@@ -942,10 +965,10 @@ function ChatColumn({
   const agentOptions = agents.map((item) => ({ value: item.id, label: item.name }));
 
   return (
-    <Page className="h-full min-h-0 flex-1 overflow-hidden">
+    <Page className="h-full min-h-0 flex-1 gap-0 overflow-hidden">
       <PageHeader
         title="对话"
-        className="shrink-0 px-3 [&_h1]:sr-only [&>div]:ml-0 [&>div]:min-w-0 [&>div>div]:min-w-0"
+        className="min-h-14 shrink-0 gap-3 border-b px-4 pb-1.5 pt-1.5 lg:pb-3 lg:pt-3 [&_h1]:sr-only [&>div]:ml-0 [&>div]:min-w-0 [&>div>div]:min-w-0"
         actions={
           <>
             <Button
@@ -953,13 +976,13 @@ function ChatColumn({
               variant="outline"
               size="icon"
               aria-label="打开会话列表"
-              className="lg:hidden"
+              className="size-11 lg:hidden"
               onClick={onOpenHistory}
             >
               <MessageSquare />
             </Button>
             <label className="sr-only" htmlFor="chat-agent">
-              选择智能体
+              选择专家
             </label>
             <Select
               value={agentId ?? ''}
@@ -1017,12 +1040,12 @@ function ChatColumn({
       <div aria-live="polite" role="status" className="sr-only">
         {run
           ? run.status === 'queued'
-            ? '已提交，等待沙盒'
+            ? '任务已提交，正在准备'
             : run.status === 'reconnecting'
-              ? '事件流断开，正在重连'
+              ? '连接已中断，正在重连'
               : run.status === 'detached'
-                ? '事件流已中断，运行状态未知'
-                : `第 ${currentTurn(items)} 轮，${runningTool(items) ? `正在调用 ${runningTool(items)?.name}` : '等待模型响应'}`
+                ? '连接已中断，运行状态未知'
+                : `第 ${currentTurn(items)} 轮，${runningTool(items) ? `正在调用 ${runningTool(items)?.name}` : '等待回复'}`
           : ''}
       </div>
       {run?.runId ? <RunReconciliation run={run} reconcileRun={reconcileRun} /> : null}
@@ -1042,7 +1065,7 @@ function ChatColumn({
   );
 }
 
-/** 输入胶囊：白底、28px 圆角、唯一带阴影的元素；发送是 32px 圆形黑底。 */
+/** 输入与底部操作共用 InputGroup 的一层焦点边框。 */
 export function Composer({
   agent,
   send,
@@ -1064,30 +1087,26 @@ export function Composer({
   const run = useChatStore((state) => state.run);
   return (
     <form
-      className={cn('w-full shrink-0', !welcome && 'mx-auto max-w-[760px] px-4 pb-5 pt-2')}
+      className={cn('w-full shrink-0', !welcome && 'mx-auto max-w-[760px] px-4 pb-4 pt-3')}
       onSubmit={(event) => {
         event.preventDefault();
         if (historyReady) void send();
       }}
     >
       <div className="mx-auto w-full max-w-[728px]">
-        <div className="flex h-14 items-center gap-3 rounded-[28px] border border-transparent bg-surface py-[11px] pl-6 pr-3 shadow-composer focus-within:ring-2 focus-within:ring-ring">
-          <Textarea
+        <InputGroup className="h-auto rounded-card">
+          <InputGroupTextarea
             ref={textareaRef}
             aria-label="消息"
-            rows={1}
-            placeholder={
-              run
-                ? run.runId
-                  ? '运行中 · 结束后可继续输入'
-                  : '已提交，等待沙盒…'
-                : 'Ask anything…'
-            }
-            title={run ? '本轮流式输出结束后即可继续输入，不会丢失当前内容' : undefined}
+            rows={2}
+            placeholder={run ? '本轮结束后可继续输入…' : '描述你想完成的事…'}
+            title={run ? '本轮结束后即可继续输入，不会丢失当前内容' : undefined}
             disabled={!agent || Boolean(run) || !historyReady}
             value={input}
-            // The capsule owns the border and focus surface; keep its larger 15px composer text.
-            className="h-8 min-h-8 min-w-0 flex-1 resize-none rounded-none border-0 px-0 py-1.5 text-md leading-5 tracking-[-0.15px] shadow-none focus-visible:ring-0"
+            className={cn(
+              'max-h-40 min-w-0 px-4 pb-2 pt-4 text-mobile-input md:text-md',
+              welcome ? 'min-h-20' : 'min-h-14',
+            )}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
@@ -1097,41 +1116,32 @@ export function Composer({
               }
             }}
           />
-          {run ? (
-            <Button
-              type="button"
-              disabled
-              aria-label="发送消息"
-              title="运行中，结束后可发送"
-              // Keep circular send controls and their quiet disabled surface instead of the base button appearance.
-              className="size-8 shrink-0 rounded-pill p-0 focus-visible:ring-0 disabled:bg-hover"
-            >
-              <ArrowUp className="size-4" />
-            </Button>
-          ) : (
-            <Button
+          <InputGroupAddon align="block-end" className="justify-between gap-3 px-4 pb-3 pt-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs font-normal text-muted-foreground">
+              <span className="hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>
+              {lastRunId ? (
+                <Link
+                  to="/runs/$runId"
+                  params={{ runId: lastRunId }}
+                  className="inline-flex min-h-11 items-center underline-offset-2 hover:text-fg hover:underline sm:min-h-0"
+                >
+                  查看本次运行
+                </Link>
+              ) : null}
+            </div>
+            <InputGroupButton
               type="submit"
-              disabled={!agent || !input.trim() || !historyReady}
+              variant="default"
+              size="icon-sm"
+              disabled={!agent || Boolean(run) || !input.trim() || !historyReady}
               aria-label="发送消息"
-              // Keep circular send controls and subdued disabled text instead of the base button appearance.
-              className="size-8 shrink-0 rounded-pill p-0 focus-visible:ring-0 disabled:bg-hover disabled:text-subtle"
+              title={run ? '本轮结束后可发送' : undefined}
+              className="ml-auto size-11 sm:size-8"
             >
-              <ArrowUp className="size-4" />
-            </Button>
-          )}
-        </div>
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>Enter 发送 · Shift+Enter 换行</span>
-          {lastRunId ? (
-            <Link
-              to="/runs/$runId"
-              params={{ runId: lastRunId }}
-              className="underline-offset-2 hover:text-fg hover:underline"
-            >
-              查看本次运行
-            </Link>
-          ) : null}
-        </div>
+              <ArrowUp />
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
       </div>
     </form>
   );
@@ -1209,12 +1219,12 @@ function RunStatusBar({
   const turn = currentTurn(items);
   const text =
     run.status === 'queued'
-      ? '已提交，等待沙盒'
+      ? '任务已提交，正在准备'
       : run.status === 'reconnecting'
-        ? '事件流断开，正在重连'
+        ? '连接已中断，正在重连'
         : run.status === 'detached'
-          ? '事件流已中断 · 运行状态未知'
-          : `第 ${turn} 轮 · ${tool ? `正在调用 ${tool.name}` : '等待模型响应'}`;
+          ? '连接已中断 · 运行状态未知'
+          : `第 ${turn} 轮 · ${tool ? `正在调用 ${tool.name}` : '等待回复'}`;
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-surface px-3 py-1.5">
@@ -1577,7 +1587,26 @@ function buildStructure(tools: ToolItem[]): {
   return { root, kids };
 }
 
-/** 空态共用 728px 轴线：两行问候语、输入胶囊、建议卡。 */
+const welcomeSuggestions = [
+  {
+    label: '梳理思路',
+    icon: MessageSquare,
+    prompt: '帮我梳理一个想法，先通过提问了解我的目标，再整理出重点。',
+  },
+  {
+    label: '制定计划',
+    icon: Check,
+    prompt: '帮我把一个目标拆成可执行的步骤，先询问我需要完成什么。',
+  },
+  {
+    label: '整理内容',
+    icon: Pencil,
+    prompt: '帮我整理一段内容，先询问我需要整理的材料和期望的输出。',
+  },
+  { label: '分析问题', icon: Wrench, prompt: '帮我分析一个问题，先了解背景、现象和已有尝试。' },
+] as const;
+
+/** 欢迎区共用 728px 轴线：小幅角色插画、单行标题、多行输入与简短任务入口。 */
 function WelcomeState({
   agent,
   onPick,
@@ -1587,35 +1616,37 @@ function WelcomeState({
   onPick: (text: string) => void;
   children: ReactNode;
 }) {
-  const suggestions = agent
-    ? [
-        `用 ${agent.name} 总结一下最近的运行`,
-        `检查 ${agent.name} 绑定的工具是否可用`,
-        '帮我把一个 HTTP API 转成 MCP 工具',
-        '解释一次失败运行的错误',
-      ]
-    : [];
-
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center gap-5 px-4 pb-5 pt-3">
-      <div className="flex flex-col items-center gap-1 text-center tracking-[-0.24px]">
-        <h2 className="text-lg font-normal leading-[30px] text-fg">你好</h2>
-        <p className="text-lg font-medium leading-[26.4px] text-muted-foreground">今天想做什么？</p>
+    <div className="mx-auto flex min-h-fit w-full max-w-[760px] flex-1 flex-col justify-center gap-6 px-4 py-10 sm:py-12">
+      <div className="flex items-center gap-4 sm:gap-5">
+        <img
+          src="/brand/pace-chat-woodworker.svg"
+          alt=""
+          aria-hidden="true"
+          width={916}
+          height={637}
+          className="h-auto w-20 shrink-0 object-contain sm:w-24"
+        />
+        <h2 className="min-w-0 text-[20px] font-medium leading-7 tracking-[-0.02em] text-fg sm:text-lg">
+          今天想完成什么？
+        </h2>
       </div>
 
       {children}
 
-      {suggestions.length > 0 ? (
-        <div className="flex flex-wrap justify-center gap-3">
-          {suggestions.map((text) => (
+      {agent ? (
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          {welcomeSuggestions.map(({ label, icon: Icon, prompt }) => (
             <Button
-              key={text}
-              variant="ghost"
+              key={label}
+              variant="outline"
+              size="sm"
               type="button"
-              onClick={() => onPick(text)}
-              className="h-[72px] w-[136px] items-start justify-start overflow-hidden whitespace-normal rounded-card border-0 bg-chip p-4 text-left text-base font-normal leading-5 text-muted-foreground hover:bg-hover"
+              className="min-h-11 sm:min-h-0"
+              onClick={() => onPick(prompt)}
             >
-              <span className="line-clamp-2">{text}</span>
+              <Icon data-icon="inline-start" />
+              {label}
             </Button>
           ))}
         </div>

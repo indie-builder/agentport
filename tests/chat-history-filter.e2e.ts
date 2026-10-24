@@ -143,7 +143,7 @@ test('history search stays scoped to the agent after switching agents', {
     await expect(aside.getByText(TITLES.beta, { exact: true })).toHaveCount(0);
 
     // 用页面内的切换器换 agent：HistoryPanel 不卸载，过滤状态会留下来。
-    await screen.getByRole('combobox', '选择智能体').tap();
+    await screen.getByRole('combobox', '选择专家').tap();
     await screen.getByRole('option', fixture.names[1] ?? '').tap();
     await expect(browser).toHaveURL(new RegExp(`/chat\\?agent=${fixture.agents[1]}$`));
 

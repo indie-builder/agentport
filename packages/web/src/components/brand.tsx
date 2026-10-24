@@ -1,10 +1,10 @@
 import { cn } from '../lib/cn.js';
 
-/** 品牌：原创小狗标记 + `PACE` 字标（见 DESIGN-SYSTEM §5）。 */
+/** 木工小狗品牌标记；与对话欢迎区共用形象。 */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <img
-      src="/brand/pace-puppy.webp"
+      src="/brand/pace-mark.svg"
       alt=""
       aria-hidden="true"
       width={32}
@@ -14,11 +14,14 @@ export function BrandMark({ className }: { className?: string }) {
   );
 }
 
-export function Brand() {
+export function Brand({ className }: { className?: string }) {
   return (
-    <span className="flex min-w-0 items-center gap-2">
-      <BrandMark className="shrink-0" />
-      <span className="truncate text-[12.5px] font-medium tracking-[0.14em] text-fg">PACE</span>
-    </span>
+    <img
+      src="/brand/pace-wordmark.webp"
+      alt="PACE"
+      width={768}
+      height={568}
+      className={cn('h-12 w-auto max-w-full shrink-0 self-start object-contain', className)}
+    />
   );
 }

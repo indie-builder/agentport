@@ -1,16 +1,22 @@
 import type { Agent } from '@agentport/shared';
-import backendEngineer from '../assets/agents/puppies/backend-engineer.png';
-import contentOps from '../assets/agents/puppies/content-ops.png';
-import dataAnalyst from '../assets/agents/puppies/data-analyst.png';
-import devopsEngineer from '../assets/agents/puppies/devops-engineer.png';
-import digitalTwin from '../assets/agents/puppies/digital-twin.png';
-import frontendEngineer from '../assets/agents/puppies/frontend-engineer.png';
-import opsEngineer from '../assets/agents/puppies/ops-engineer.png';
-import productManager from '../assets/agents/puppies/product-manager.png';
-import projectAdmin from '../assets/agents/puppies/project-admin.png';
-import qaEngineer from '../assets/agents/puppies/qa-engineer.png';
-import supportBot from '../assets/agents/puppies/support-bot.png';
-import uiDesigner from '../assets/agents/puppies/ui-designer.png';
+import backendEngineer from '../assets/agents/backend-engineer.png';
+import contentOps from '../assets/agents/content-ops.png';
+import createBackend from '../assets/agents/create-backend.png';
+import createData from '../assets/agents/create-data.png';
+import createDevops from '../assets/agents/create-devops.png';
+import createFrontend from '../assets/agents/create-frontend.png';
+import createQa from '../assets/agents/create-qa.png';
+import createUi from '../assets/agents/create-ui.png';
+import dataAnalyst from '../assets/agents/data-analyst.jpg';
+import devopsEngineer from '../assets/agents/devops-engineer.jpg';
+import digitalTwin from '../assets/agents/digital-twin.png';
+import frontendEngineer from '../assets/agents/frontend-engineer.png';
+import opsEngineer from '../assets/agents/ops-engineer.jpg';
+import productManager from '../assets/agents/product-manager.jpg';
+import projectAdmin from '../assets/agents/project-admin.jpg';
+import qaEngineer from '../assets/agents/qa-engineer.png';
+import supportBot from '../assets/agents/support-bot.jpg';
+import uiDesigner from '../assets/agents/ui-designer.jpg';
 import { cn } from '../lib/cn.js';
 
 /**
@@ -47,12 +53,12 @@ const roleAvatars: ReadonlyArray<readonly [RegExp, string]> = [
 
 /** 「新建」卡展开用的六张插画，顺序决定叠放的左右次序。 */
 export const createShowcaseAvatars: readonly string[] = [
-  frontendEngineer,
-  qaEngineer,
-  uiDesigner,
-  dataAnalyst,
-  devopsEngineer,
-  backendEngineer,
+  createFrontend,
+  createQa,
+  createUi,
+  createData,
+  createDevops,
+  createBackend,
 ];
 
 function hash(value: string): number {
@@ -62,7 +68,7 @@ function hash(value: string): number {
 }
 
 const occupationAvatars: Record<string, string> = {
-  通用助手: '/brand/pace-puppy.webp',
+  通用助手: supportBot,
   前端工程师: frontendEngineer,
   后端工程师: backendEngineer,
   测试工程师: qaEngineer,
@@ -87,7 +93,7 @@ export function agentAvatar(
   return avatars[hash(agent.slug) % avatars.length] ?? frontendEngineer;
 }
 
-/** 透明小狗插画；完整展示耳朵与道具，默认 40px。 */
+/** 圆形插画头像；尺寸由外部用 size-* 决定，默认 40px。 */
 export function AgentAvatar({
   agent,
   className,
@@ -100,7 +106,7 @@ export function AgentAvatar({
       src={agentAvatar(agent)}
       alt=""
       aria-hidden="true"
-      className={cn('size-10 shrink-0 object-contain', className)}
+      className={cn('size-10 shrink-0 rounded-full bg-muted object-cover', className)}
     />
   );
 }

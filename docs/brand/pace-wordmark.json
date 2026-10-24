@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-24",
+  "generator": "built-in imagegen",
+  "direction": "Approved concept A: woodworker puppy builds the outlined uppercase PACE wordmark.",
+  "master": "docs/brand/pace-logo-master.png",
+  "production": "packages/web/public/brand/pace-wordmark.webp",
+  "compactMark": "packages/web/public/brand/pace-mark.svg",
+  "format": "Transparent raster master and optimized WebP; compact mascot remains vector SVG.",
+  "exports": {
+    "width": 768,
+    "height": 568,
+    "quality": 92,
+    "alphaQuality": 100,
+    "displayHeights": {
+      "login": 96,
+      "expandedSidebar": 48,
+      "collapsedMark": 32
+    }
+  },
+  "prompts": [
+    {
+      "purpose": "Finalize approved A",
+      "prompt": "Use case: precise-object-edit / logo-brand. FINALIZE ONLY OPTION A (TOP LEFT) of the supplied four-concept board as ONE standalone production PACE logo. Image 1 is the APPROVED COMPOSITION to extract: the woodworker puppy behind the custom outlined PACE letters, both paws resting naturally on the top edges while holding its hammer and pencil. Image 2 is the original approved WOODWORKER PUPPY IDENTITY reference, for keeping the curly tuft, floppy ears, small black eyes with tiny highlights, black nose, friendly black mouth and WHITE tongue, and tool details recognizable.\nKeep the approved A composition and clearly readable uppercase letters P A C E. Do not include B, C, D or the small option-label A. No extra words or labels. One complete compact integrated mascot-and-artistic-lettering logo, not a separate icon beside stock text. PACE is a single row beneath the head; paws connect the puppy to the lettering. Lettering has white interiors and confident rounded black contours with large open counters, friendly hand-crafted geometry, restrained little irregularities, and good optical spacing.\nREFINE A FOR PRODUCTION: reduce the heavy black outer contour and large black patches between the dog and letters by about 15–20 percent compared with the concept board; create cleaner white negative space and remove little decorative black shine marks inside the letters. Keep all letter outlines thick enough for small-size readability. No woodgrain or texture. Preserve the dog face identity and the exact visual idea. The letter height should be roughly 65–75% of the puppy head height. Don't enlarge the typography until it overpowers the puppy. Keep the picture charming and capable rather than babyish.\nPalette: white fur and white lettering, solid black contours and mouth, original cool gray hammer, small wood-brown handle, small pencil yellow. The tongue must remain opaque WHITE; NO red or pink in the mouth or tongue, NO red hat, NO red lettering accent. Keep tools and paws fully visible. No confetti, sparkle, frames, drop shadows, gradients, gray background or checkerboard pattern.\nCanvas: one landscape 3:2 image, artwork centered and filling approximately 84% of the canvas, at least 7% clear safety margin around all tools, letters, fur and paws. Entire exterior GENUINELY TRANSPARENT. WHITE fur, WHITE tongue and WHITE letter interiors must be opaque, not cut-outs. Crisp smooth clean flat illustration, polished outlines, no raster noise, no texture, no 3D. Ready to export as a compact app brand logo."
+    },
+    {
+      "purpose": "Transparent exterior cleanup",
+      "prompt": "Use case: precise-object-edit / background-extraction. Make a TECHNICAL CLEANUP of this approved final PACE mascot logo, preserving all existing letter shapes, face, tools, paws, exact composition, colors and proportions. Do not redesign or redraw the wordmark or puppy. Remove ONLY the soft gray/white halo, glow, background haze, shadows and stray semi-transparent pixels OUTSIDE the illustrated black outer contour. The transparent exterior must have alpha zero immediately outside the anti-aliased edge, with no soft fog or drop shadow around the logo. Keep all white fur, white mouth/tongue and white letter interiors FULLY OPAQUE. Keep the inner black outlines crisp and unchanged. Keep the hammer gray/brown and pencil yellow. No red or pink tongue. Keep the full logo and every stroke comfortably inside the same landscape canvas, with at least 7 percent genuinely transparent margin on all sides; do not let any shadow or artwork touch a canvas edge. No caption or option label. The final must look like a flat polished mascot logo cutout with clean transparent surroundings, NOT an image with lighting or a glow."
+    }
+  ],
+  "sourceImage": "exec-8ef0ebd8-9a74-4a98-ae78-6dd94f36f7e8.png"
+}
