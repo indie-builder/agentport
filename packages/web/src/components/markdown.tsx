@@ -144,8 +144,22 @@ const components: Components = {
   },
 };
 
+/**
+ * 高频 text_delta 下逐字走 Markdown 解析会把流式回放拖慢一个数量级。
+ * 只有出现常见 Markdown 标记时才交给 Streamdown；纯文本直接渲染。
+ */
+const MARKDOWN_HINT =
+  /(^|\n)\s*(#{1,6}\s|[-*+]\s|\d+\.\s|>|\||```|---|\*\*\*|___)|`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\[[^\]\n]+\]\([^)\n]+\)|!\[[^\]\n]*\]\([^)\n]+\)/;
+
 /** 助手文本的流式 Markdown；半截语法由 Streamdown/remend 自行补齐。 */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
+  if (!MARKDOWN_HINT.test(text)) {
+    return (
+      <p className="min-w-0 whitespace-pre-wrap break-words text-md leading-[1.7] text-fg">
+        {text}
+      </p>
+    );
+  }
   return (
     <Streamdown
       className="min-w-0 text-md leading-[1.7] text-fg [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-line [&_[data-streamdown=code-block]]:bg-code [&_[data-streamdown=code-block-body]]:bg-transparent"

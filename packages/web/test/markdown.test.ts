@@ -12,4 +12,12 @@ describe('Markdown', () => {
     expect(html).toContain('<h2');
     expect(html).toContain('<h3');
   });
+
+  it('renders marker-free streaming text without the Markdown parser', () => {
+    const html = renderToStaticMarkup(
+      createElement(Markdown, { text: '完整保存的回答：缺失前缀和尾部' }),
+    );
+    expect(html).toContain('<p');
+    expect(html).not.toContain('data-streamdown');
+  });
 });
