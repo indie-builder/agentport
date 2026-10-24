@@ -23,6 +23,53 @@ describe('loadConfig', () => {
   });
 });
 
+describe('ALLOW_WEAK_ADMIN_PASSWORD', () => {
+  const weak = { ...base, ADMIN_PASSWORD: 'admin' };
+
+  it('rejects a weak password when the switch is absent', () => {
+    expect(() => loadConfig(weak)).toThrow(/ADMIN_PASSWORD/);
+  });
+
+  it('rejects a weak password when the switch is false', () => {
+    expect(() => loadConfig({ ...weak, ALLOW_WEAK_ADMIN_PASSWORD: 'false' })).toThrow(
+      /ADMIN_PASSWORD/,
+    );
+  });
+
+  it.each(['admin', 'admin-change-me'])('accepts %s when the switch is true', (password) => {
+    expect(
+      loadConfig({ ...base, ADMIN_PASSWORD: password, ALLOW_WEAK_ADMIN_PASSWORD: 'true' })
+        .ADMIN_PASSWORD,
+    ).toBe(password);
+  });
+
+  it.each([
+    ['empty', ''],
+    ['overlong', 'a'.repeat(129)],
+  ])('still rejects an %s password when the switch is true', (_label, password) => {
+    expect(() =>
+      loadConfig({ ...base, ADMIN_PASSWORD: password, ALLOW_WEAK_ADMIN_PASSWORD: 'true' }),
+    ).toThrow(/ADMIN_PASSWORD/);
+  });
+
+  it.each(['TRUE', '1', 'yes'])('rejects invalid switch value %s', (value) => {
+    expect(() => loadConfig({ ...base, ALLOW_WEAK_ADMIN_PASSWORD: value })).toThrow(
+      /ALLOW_WEAK_ADMIN_PASSWORD/,
+    );
+  });
+
+  it('accepts admin/admin in production when explicitly enabled', () => {
+    expect(
+      loadConfig({
+        ...base,
+        NODE_ENV: 'production',
+        ADMIN_PASSWORD: 'admin',
+        ALLOW_WEAK_ADMIN_PASSWORD: 'true',
+      }).ADMIN_PASSWORD,
+    ).toBe('admin');
+  });
+});
+
 describe('trusted origins', () => {
   const split = getTrustedOrigins({
     CORS_ORIGINS:

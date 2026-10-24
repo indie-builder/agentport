@@ -1323,7 +1323,7 @@ export function AgentEditor({
         <nav aria-label="配置导航" className="min-w-0">
           <ul className="flex flex-wrap gap-1 md:flex-col md:flex-nowrap md:gap-0.5">
             <li>
-              <p className="px-2 pt-1 pb-0.5 text-2xs text-subtle">配置分区</p>
+              <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">配置分区</p>
             </li>
             {sectionItems.map((item) => (
               <li key={item.id}>
@@ -1341,12 +1341,12 @@ export function AgentEditor({
               </li>
             ))}
             <li className="md:mt-3 md:border-t md:pt-1">
-              <p className="px-2 pt-1 pb-0.5 text-2xs text-subtle">完整文件</p>
+              <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">完整文件</p>
             </li>
             {fileGroups.map((group) => (
               <Fragment key={group}>
                 <li>
-                  <p className="px-2 pt-1 pb-0.5 text-2xs text-subtle">{group}</p>
+                  <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">{group}</p>
                 </li>
                 {fileEntries
                   .filter((entry) => entry.group === group)
@@ -1385,7 +1385,7 @@ export function AgentEditor({
               </Fragment>
             ))}
             <li className="md:mt-3 md:border-t md:pt-1">
-              <p className="px-2 pt-1 pb-0.5 text-2xs text-subtle">记忆</p>
+              <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">记忆</p>
             </li>
             <li>
               <button
@@ -2020,7 +2020,7 @@ export function AgentEditor({
                               className={cn(
                                 'h-auto border-0 px-2 py-1 font-mono text-2xs font-normal transition-colors active:not-aria-[haspopup]:translate-y-0 [&]:rounded-tag',
                                 enabled
-                                  ? 'bg-warning-soft text-warning hover:bg-warning-soft hover:text-warning'
+                                  ? 'bg-selected text-fg hover:bg-selected hover:text-fg'
                                   : 'bg-chip text-muted-foreground hover:bg-hover hover:text-muted-foreground',
                                 fixed && 'cursor-default opacity-80 disabled:opacity-80',
                               )}

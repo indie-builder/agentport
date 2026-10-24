@@ -3,11 +3,11 @@
 > 跨任务反复出现的坑统一记在这里，由 `CLAUDE.md` 指向。主会话与执行子代理动手前先读，落实相关规避方式；任务范围变化或报错时重新核对，不只在踩坑后追加。
 > 不限定类别：遇到值得留存、能避免以后重复犯错的教训就及时整理，运行、实现、沟通、测试只是例子。每条固定「现象 → 原因 → 规避」，不把任务流水账和已有操作说明复制进来。
 
-## Worktree 是干净 checkout，`.env` 不会自动带过去
+## Worktree 是干净 checkout，`.env` 与依赖产物不会自动带过去
 
-- **现象**：新 worktree 里起服务直接失败，报缺 `APP_SECRET_KEY` / `ANTHROPIC_API_KEY` 等。
-- **原因**：worktree 只含受版本控制的文件，`.env` 被 gitignore，不会被复制。
-- **规避**：项目根 `.worktreeinclude` 已列 `.env`、`.env.local`，Claude Code 建树时自动复制。新增必填的 env 文件时同步加进去。
+- **现象**：新 worktree 里起服务直接失败，报缺 `APP_SECRET_KEY` / `ANTHROPIC_API_KEY` 等；装好依赖后前端也可能无法解析 `@agentport/shared`。
+- **原因**：worktree 只含受版本控制的文件，`.env`、`node_modules` 和 workspace 的 `dist` 都不会自动复制。
+- **规避**：项目根 `.worktreeinclude` 已列 `.env`、`.env.local`，Claude Code 建树时自动复制；然后 `pnpm install --frozen-lockfile`，前端预览前构建 shared/core。新增必填的 env 文件时同步加进 `.worktreeinclude`。
 
 ## 多个 worktree 同时跑全栈 compose 会互相踩
 
