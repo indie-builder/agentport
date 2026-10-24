@@ -180,9 +180,12 @@ docker build -t agentport/sandbox:dev packages/sandbox
 pnpm dev
 ```
 
-- api: http://localhost:3000
-- web: http://localhost:5173（Vite 代理 `/api`、`/health`）
-- worker 与 api 同机；沙盒通过 `host.docker.internal:3000` 访问 api，因此 api 必须监听 3000。
+- web: https://agentport.localhost（Portless 分配随机端口，Vite 代理 `/api`、`/health` 到 `http://localhost:3000`）
+- api: http://localhost:3000（不变）
+- worker、沙盒与 Docker 网络不变；沙盒仍通过 `host.docker.internal:3000` 回连 API
+- 首次运行 `pnpm dev` 会请求 sudo 安装本地 CA 并绑定 443，状态在 `~/.portless`，之后无感
+- Postgres/Redis 的 5432/6379 与 worker 的 `MODEL_PROXY_PORT=3426` 仍是固定端口
+- `pnpm up`（compose）路径不变；Portless 只在本地 `pnpm dev` 启动 web 时使用
 
 也可以先 `pnpm run up` 完成部署，再停掉 compose 的 api/worker（`docker compose stop api worker`）后 `pnpm dev`；依赖保持运行。
 

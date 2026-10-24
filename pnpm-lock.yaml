@@ -184,6 +184,9 @@ importers:
       jsdom:
         specifier: 27.4.0
         version: 27.4.0(@noble/hashes@2.4.0)
+      portless:
+        specifier: 0.15.11
+        version: 0.15.11
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -4003,6 +4006,12 @@ packages:
   pngjs@7.0.0:
     resolution: {integrity: sha512-LKWqWJRhstyYo9pGvgor/ivk2w94eSjE3RGVuzLGlr3NmD8bf7RcYGze1mNdEHRP6TRP6rMuDHk5t44hnTRyow==}
     engines: {node: '>=14.19.0'}
+
+  portless@0.15.11:
+    resolution: {integrity: sha512-2qjRJ0CG3zPOJ3mUVPdEZjivd7KV/ldiUwhYGI0fdxPVKDjv77GFVmioLQFWoDqNz5paG+4yk+Tibmgtil3Otg==}
+    engines: {node: '>=24'}
+    os: [darwin, linux, win32]
+    hasBin: true
 
   postcss@8.5.30:
     resolution: {integrity: sha512-zkd+e9S1AQHhmaBKye9zlFHWjOwVgqXl1q3ECYy8561K7qxR2cREf/STLskulBFd78k6AOFeA+ff1TtEzk9bAA==}
@@ -7923,6 +7932,8 @@ snapshots:
   playwright-core@1.64.0: {}
 
   pngjs@7.0.0: {}
+
+  portless@0.15.11: {}
 
   postcss@8.5.30:
     dependencies:
