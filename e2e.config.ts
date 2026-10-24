@@ -23,7 +23,8 @@ export default {
         url: 'http://localhost:5173',
         command: {
           executable: 'pnpm',
-          args: ['--filter', '@agentport/web', 'dev'],
+          // 直接跑 vite：Portless 只用于本地启动，CI 非 TTY 环境起不了代理
+          args: ['--filter', '@agentport/web', 'exec', 'vite'],
           env: { RATE_LIMIT_DISABLED: '1' },
           log: '.e2e/logs/app.log',
           reuseExisting: true,
