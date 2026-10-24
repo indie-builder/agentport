@@ -324,7 +324,7 @@ export function AppShell() {
   if (me.isPending) {
     return (
       <div
-        className="app-canvas-wash flex min-h-screen"
+        className="flex min-h-screen bg-canvas"
         aria-busy="true"
         role="status"
         aria-label="加载中"
@@ -349,7 +349,7 @@ export function AppShell() {
 
   if (me.isError || !me.data?.authenticated) {
     return (
-      <div className="app-canvas-wash flex min-h-screen flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-canvas text-sm text-muted-foreground">
         <PageHeader title={pageTitle} className="sr-only" />
         {me.isError ? (
           <>
@@ -466,7 +466,7 @@ export function AppShell() {
        * 实测结构：侧栏在外、白壳在内。壳的下/右留 4px，左侧紧贴侧栏。
        * 壳用 1px outline（.04）而不是 border，避免内边距被边框吃掉。
        */}
-      <div className="app-canvas-wash flex h-dvh text-fg">
+      <div className="flex h-dvh bg-canvas text-fg">
         <a href="#main-content" className="skip-link">
           跳到主要内容
         </a>
