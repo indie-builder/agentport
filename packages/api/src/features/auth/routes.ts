@@ -1,6 +1,7 @@
 import { fromNodeHeaders } from 'better-auth/node';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { getTrustedOrigins, isTrustedOrigin } from '../../config.js';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { authRateLimit } from '../../plugins/security.js';
@@ -28,12 +29,7 @@ function forwardSetCookie(headers: Headers, reply: FastifyReply): void {
 
 export async function registerAuth(app: FastifyInstance): Promise<void> {
   const auth = createAuth(app.config, app.db);
-  const trustedOrigins = new Set([
-    ...app.config.CORS_ORIGINS.split(',')
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0),
-    app.config.SELF_URL,
-  ]);
+  const trustedOrigins = getTrustedOrigins(app.config);
 
   /**
    * 写入口的 CSRF 防线：内部 auth.api 不经过 better-auth 的 origin check。
@@ -43,11 +39,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     const origin = request.headers.origin;
     if (!origin) return true;
     if (origin === `${request.protocol}://${request.headers.host}`) return true;
-    try {
-      return trustedOrigins.has(new URL(origin).origin);
-    } catch {
-      return false;
-    }
+    return isTrustedOrigin(origin, trustedOrigins);
   };
 
   // 播种依赖数据库；放到首次登录时做，数据库不可达时应用仍能启动并走统一的 500 路径。

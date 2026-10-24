@@ -19,7 +19,7 @@
 | `ADMIN_USER` | 否 | `admin` | api | 唯一管理员用户名 |
 | `ADMIN_PASSWORD` | 是 | — | api | 管理员密码，≥12 字符，且不能是 `admin-change-me` / `changeme` / `password`；每次登录用 scrypt 比对 |
 | `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥，≥32 字符 |
-| `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问地址（如 `https://agentport.example.com`），不要用 `*` |
+| `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问域名（如 `https://agentport.example.com`），不要用 `*`。本机 Portless 可加通配符 `https://*.agentport.localhost`（仅 HTTPS 默认端口），一次覆盖变化的 worktree 子域名，精确的 `https://agentport.localhost` 仍保留；生产只有确实要覆盖子域名时才用通配符 |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | api、worker 均解析；worker 使用 | `agent-runs` 队列并发数（api 解析但不读） |
 | `AGENT_TIMEOUT_MS` | 否 | `600000` | api、worker | 单个 run 的默认超时；agent 自身 `timeoutMs` 优先 |
@@ -181,6 +181,7 @@ pnpm dev
 ```
 
 - web: https://agentport.localhost（Portless 分配随机端口，Vite 代理 `/api`、`/health` 到 `http://localhost:3000`）
+- 在 worktree 中运行时 Origin 是 `https://<worktree>.agentport.localhost`：`CORS_ORIGINS` 同时保留精确基地址与 `https://*.agentport.localhost` 通配符即可，一次配置覆盖后续变化的子域名；通配符仅匹配 HTTPS 默认端口
 - api: http://localhost:3000（不变）
 - worker、沙盒与 Docker 网络不变；沙盒仍通过 `host.docker.internal:3000` 回连 API
 - 首次运行 `pnpm dev` 会请求 sudo 安装本地 CA 并绑定 443，状态在 `~/.portless`，之后无感
