@@ -253,15 +253,17 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       expect(await processScheduleTrigger({ db, logger, runsQueue }, job)).toBe('fired');
       const runs = await runsOf(agentId);
       expect(runs).toHaveLength(1);
-      expect(runs[0]?.trigger).toBe('schedule');
-      expect(await messagesOf(runs[0]?.conversationId)).toHaveLength(1);
-      expect(job.data.runId).toBe(runs[0]?.id);
+      const [run] = runs;
+      if (!run) throw new Error('expected a run');
+      expect(run.trigger).toBe('schedule');
+      expect(await messagesOf(run.conversationId)).toHaveLength(1);
+      expect(job.data.runId).toBe(run.id);
       const [stored] = await db
         .select({ lastRunAt: schema.agentSchedules.lastRunAt })
         .from(schema.agentSchedules)
         .where(eq(schema.agentSchedules.id, scheduleId));
       expect(stored?.lastRunAt?.getTime()).toBe(job.timestamp);
-      expect(await runsQueue.getJob(runs[0]?.id)).toBeDefined();
+      expect(await runsQueue.getJob(run.id)).toBeDefined();
     });
 
     it('creates only one run when the same trigger is delivered twice', async () => {
@@ -271,7 +273,9 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       expect(await processScheduleTrigger({ db, logger, runsQueue }, job)).toBe('fired');
       const runs = await runsOf(agentId);
       expect(runs).toHaveLength(1);
-      expect(await messagesOf(runs[0]?.conversationId)).toHaveLength(1);
+      const [run] = runs;
+      if (!run) throw new Error('expected a run');
+      expect(await messagesOf(run.conversationId)).toHaveLength(1);
     });
 
     it('only re-enqueues the existing run after a crash before enqueue', async () => {

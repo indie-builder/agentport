@@ -12,8 +12,11 @@ const repo = skillRepo.skills;
 const filesRepo = skillRepo.skillFiles;
 type SkillWrite = Parameters<typeof repo.createSkill>[1];
 
-// 通配路由用 '*' 捕获多段相对路径（scripts/run.sh 之类）。
-const skillFileParams = z.object({ id: z.string().min(1), '*': z.string().min(1) });
+// 通配路由用 '*' 捕获多段相对路径（scripts/run.sh 之类）；路径规则与导入导出共用。
+const skillFileParams = z.object({
+  id: z.string().min(1),
+  '*': skillFileInputSchema.shape.path,
+});
 
 // 解析（含 frontmatter / 字段校验）放在 schema 里：handler 只拿解析结果，不再 safeParse。
 const importSchema = z.object({ skillMd: z.string().max(131072) }).transform(({ skillMd }, ctx) => {
@@ -31,6 +34,9 @@ const patchSchema = z.object({
   name: z.string().min(1).max(128).optional(),
   description: z.string().min(1).max(500).optional(),
   body: z.string().optional(),
+  license: skillInputSchema.shape.license,
+  compatibility: skillInputSchema.shape.compatibility,
+  metadata: skillInputSchema.shape.metadata,
   expectedUpdatedAt: z.iso.datetime().optional(),
 });
 
@@ -53,6 +59,9 @@ function toApi(row: SkillRow): Skill {
     name: row.name,
     description: row.description,
     body: row.body,
+    ...(row.license ? { license: row.license } : {}),
+    ...(row.compatibility ? { compatibility: row.compatibility } : {}),
+    ...(Object.keys(row.metadata).length > 0 ? { metadata: row.metadata } : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -140,6 +149,9 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
         ...(input.name === undefined ? {} : { name: input.name }),
         ...(input.description === undefined ? {} : { description: input.description }),
         ...(input.body === undefined ? {} : { body: input.body }),
+        ...(input.license === undefined ? {} : { license: input.license }),
+        ...(input.compatibility === undefined ? {} : { compatibility: input.compatibility }),
+        ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       };
       try {
         const row = await repo.updateSkill(
@@ -207,24 +219,17 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const skill = await repo.getSkill(app.db, request.params.id);
       if (!skill) return notFound(reply);
-      const check = skillFileInputSchema.safeParse({
-        path: request.params['*'],
-        content: request.body.content,
-      });
-      if (!check.success) {
-        return reject(reply, 'INVALID_INPUT', check.error.issues[0]?.message ?? '路径不合法');
-      }
       const row = await filesRepo.upsertSkillFile(
         app.db,
         skill.id,
-        check.data.path,
-        check.data.content,
+        request.params['*'],
+        request.body.content,
       );
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'skill.file.written',
         target: skill.id,
-        input: { path: check.data.path },
+        input: { path: request.params['*'] },
         status: 'ok',
         requestId: request.id,
       });

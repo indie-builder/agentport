@@ -1,3 +1,4 @@
+import { isAbsolute } from 'node:path';
 import type { Readable } from 'node:stream';
 import type { Server, ServerTestResult } from '@agentport/shared';
 import type { Transport } from '@modelcontextprotocol/client';
@@ -13,12 +14,93 @@ const STDERR_MAX_BYTES = 8192;
 /**
  * 「测试连接」在 API 主机上 spawn 进程，而 server 的 command/args 完全由用户提供：
  * 不设限就是一个已认证用户的任意命令执行。运行时本身在沙盒里跑，这里只做试连，
- * 没有理由允许 shell 与绝对路径的任意二进制。
+ * 没有理由允许 shell、内联代码与绝对路径的任意二进制。
  *
- * shortcut: 白名单只覆盖常见的 MCP 启动方式；要支持任意命令，应改为在沙盒镜像里
- * 执行测试，而不是放宽这里。
+ * shortcut: 残余上限是 npx/uvx 仍会拉取并执行第三方代码（这正是正常的 MCP 启动
+ * 方式），且被允许的脚本本身可信度由用户负责；彻底方案是把试连放进沙盒执行。
+ * 解释器参数按白名单处理（只允许子命令 + 脚本路径），不在这里继续堆 denylist。
  */
 const ALLOWED_COMMANDS = new Set(['npx', 'uvx', 'node', 'python', 'python3', 'deno', 'bun']);
+
+/**
+ * 解释器只允许「可选子命令 + 脚本路径 + 脚本自身参数」。脚本之前的解释器参数
+ * 一律不放行，因此 -c/-m/-e、-cCODE、--eval=...、--import/--require/-r、
+ * --loader/--experimental-loader、--input-type 等内联与模块注入形式都被挡住。
+ * 脚本路径要求像路径（含 . 或 /），避免把 deno eval、bun x 这类子命令当成脚本。
+ */
+const INTERPRETER_SUBCOMMANDS: Record<string, readonly string[]> = {
+  node: [],
+  python: [],
+  python3: [],
+  bun: ['run'],
+  deno: ['run'],
+};
+
+const SCRIPT_HINT = '解释器只能直接执行相对路径的脚本文件。运行时的执行在沙盒内，不受此限制。';
+
+function assertInterpreterArgs(command: string, args: readonly string[]): void {
+  const subcommands = INTERPRETER_SUBCOMMANDS[command] ?? [];
+  const script = subcommands.includes(args[0] ?? '') ? args[1] : args[0];
+  if (script === undefined) {
+    throw new Error(`不支持测试该命令（${command}）：需要提供脚本路径。${SCRIPT_HINT}`);
+  }
+  if (script.startsWith('-')) {
+    throw new Error(`不支持测试内联代码或加载器参数（${script}）：${SCRIPT_HINT}`);
+  }
+  if (!/[.\\/]/.test(script)) {
+    throw new Error(`不支持测试该参数（${script}）：${SCRIPT_HINT}`);
+  }
+}
+
+/**
+ * 白名单内的命令仍可借参数读到宿主文件，因此在 spawn 前拒绝内联代码与绝对/上级路径。
+ * 抛出的错误与命令白名单同一条降级路径（变成 ok:false 的试连结果）。
+ */
+export function assertStdioLaunchAllowed(command: string, args: readonly string[]): void {
+  if (!ALLOWED_COMMANDS.has(command)) {
+    throw new Error(
+      `不支持测试该命令（${command}）：只允许 ${[...ALLOWED_COMMANDS].join('、')}。运行时的执行在沙盒内，不受此限制。`,
+    );
+  }
+  if (command in INTERPRETER_SUBCOMMANDS) assertInterpreterArgs(command, args);
+  const outside = args.find((arg) => isAbsolute(arg) || arg.split(/[\\/]/).includes('..'));
+  if (outside !== undefined) {
+    throw new Error(
+      `不支持测试该参数（${outside}）：不能使用绝对路径或 .. 路径。运行时的执行在沙盒内，不受此限制。`,
+    );
+  }
+}
+
+/**
+ * 用户 env 在 spawn 时最后展开，能覆盖 PATH 或借 NODE_OPTIONS=--import=data:... 直接执行代码。
+ * 这里只挡注入与加载路径变量；普通 env（API token 等）照常允许，避免破坏 MCP 试连。
+ */
+const BLOCKED_ENV_KEYS = new Set([
+  'PATH',
+  'NODE_OPTIONS',
+  'NODE_PATH',
+  'PYTHONSTARTUP',
+  'PYTHONPATH',
+  'PYTHONHOME',
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'ELECTRON_RUN_AS_NODE',
+]);
+const BLOCKED_ENV_PREFIXES = ['DENO_', 'BUN_', 'DYLD_'];
+
+export function assertStdioEnvAllowed(env: Record<string, string> | undefined): void {
+  for (const key of Object.keys(env ?? {})) {
+    const upper = key.toUpperCase();
+    if (
+      BLOCKED_ENV_KEYS.has(upper) ||
+      BLOCKED_ENV_PREFIXES.some((prefix) => upper.startsWith(prefix))
+    ) {
+      throw new Error(
+        `不支持测试该环境变量（${key}）：它可注入代码或改变加载路径。运行时的执行在沙盒内，不受此限制。`,
+      );
+    }
+  }
+}
 
 /**
  * 只依赖 warn 的形状，`request.log` 与 pino 都满足。
@@ -39,11 +121,8 @@ function transportFor(
   onStderr?: (stream: Readable) => void,
 ): Transport {
   if (server.kind === 'stdio') {
-    if (!ALLOWED_COMMANDS.has(server.command)) {
-      throw new Error(
-        `不支持测试该命令（${server.command}）：只允许 ${[...ALLOWED_COMMANDS].join('、')}。运行时的执行在沙盒内，不受此限制。`,
-      );
-    }
+    assertStdioLaunchAllowed(server.command, server.args);
+    assertStdioEnvAllowed(server.env);
     const transport = new StdioClientTransport({
       command: server.command,
       args: server.args,

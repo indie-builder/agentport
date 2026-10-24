@@ -148,18 +148,25 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
   app.post('/api/auth/logout', async (request, reply) => {
     const token = request.cookies[AUTH_COOKIE];
     let username = 'anonymous';
+    let payload: { username: string; sid?: unknown } | undefined;
     if (token) {
       try {
-        const payload = app.jwt.verify<{ username: string; sid?: unknown }>(token);
+        payload = app.jwt.verify<{ username: string; sid?: unknown }>(token);
         username = payload.username;
-        // 伪造/过期 token 里可能没有 sid；有才删，删除本身幂等。
-        if (typeof payload.sid === 'string') {
-          await redis.del(sessionKey(payload.sid));
-          forgetSession(payload.sid);
-        }
       } catch {
         // 过期或伪造的 token 也允许登出，审计里记为 anonymous。
       }
+    }
+    // 已失效的 token / 无会话没有可撤销的东西，保持幂等 200。
+    if (typeof payload?.sid === 'string') {
+      try {
+        await redis.del(sessionKey(payload.sid));
+      } catch (err) {
+        // 存储故障不等于已撤销：返回 503 并保留 cookie，客户端可重试。
+        request.log.error({ err }, 'logout session revoke failed');
+        return reject(reply, 'SERVICE_UNAVAILABLE', '会话撤销失败，请稍后重试');
+      }
+      forgetSession(payload.sid);
     }
     await writeAudit(app.db, request.log, {
       actor: username,

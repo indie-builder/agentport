@@ -24,11 +24,13 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch --preserveWatchOutput",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "typecheck:test": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@agentport/shared": "workspace:*",
     "effect": "4.0.5",
+    "fflate": "0.8.3",
     "yaml": "2.9.1",
     "zod": "4.6.7"
   },

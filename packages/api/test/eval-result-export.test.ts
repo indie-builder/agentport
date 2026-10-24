@@ -97,7 +97,7 @@ describe.skipIf(!ready)('eval result export', () => {
       id: newId('evalResult'),
       evalRunId,
       caseId: options.caseId,
-      caseSnapshot: options.snapshot,
+      ...(options.snapshot ? { caseSnapshot: options.snapshot } : {}),
       runId: null,
       passed: options.passed,
       output: options.output,

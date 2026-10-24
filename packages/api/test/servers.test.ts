@@ -3,6 +3,10 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import {
+  assertStdioEnvAllowed,
+  assertStdioLaunchAllowed,
+} from '../src/features/servers/test-connection.js';
+import {
   cleanup,
   expectProblem,
   infraReady,
@@ -14,6 +18,83 @@ import {
 } from './helpers.js';
 
 const ready = await infraReady;
+
+describe('stdio 试连参数校验', () => {
+  it('拒绝 node -e 内联代码', () => {
+    expect(() => assertStdioLaunchAllowed('node', ['-e', 'process.exit(0)'])).toThrow(/内联代码/);
+    expect(() => assertStdioLaunchAllowed('node', ['--eval=process.exit(0)'])).toThrow(/内联代码/);
+  });
+
+  it('拒绝 python -c 与 stdin 执行', () => {
+    expect(() => assertStdioLaunchAllowed('python3', ['-c', 'import os'])).toThrow(/内联代码/);
+    expect(() => assertStdioLaunchAllowed('python', ['-'])).toThrow(/内联代码/);
+  });
+
+  it('拒绝绝对路径与 .. 路径', () => {
+    expect(() => assertStdioLaunchAllowed('node', ['/etc/passwd'])).toThrow(/绝对路径/);
+    expect(() => assertStdioLaunchAllowed('bun', ['../../secret.ts'])).toThrow(/绝对路径/);
+  });
+
+  it('拒绝连写内联代码与 -m 模块执行', () => {
+    expect(() => assertStdioLaunchAllowed('python3', ['-cimport os'])).toThrow(/内联代码/);
+    expect(() => assertStdioLaunchAllowed('python3', ['-m', 'http.server'])).toThrow(/内联代码/);
+  });
+
+  it('拒绝 Node 的模块注入与加载器参数', () => {
+    expect(() => assertStdioLaunchAllowed('node', ['--import=data:text/javascript,0'])).toThrow(
+      /内联代码/,
+    );
+    expect(() => assertStdioLaunchAllowed('node', ['--require=./x.js'])).toThrow(/内联代码/);
+    expect(() => assertStdioLaunchAllowed('node', ['-r', './x.js'])).toThrow(/内联代码/);
+    expect(() => assertStdioLaunchAllowed('node', ['--loader', './x.js'])).toThrow(/内联代码/);
+    expect(() => assertStdioLaunchAllowed('node', ['--experimental-loader=./x.js'])).toThrow(
+      /内联代码/,
+    );
+    expect(() => assertStdioLaunchAllowed('node', ['--input-type=module'])).toThrow(/内联代码/);
+  });
+
+  it('拒绝把解释器子命令当成脚本', () => {
+    expect(() => assertStdioLaunchAllowed('deno', ['eval', 'console.log(1)'])).toThrow(/脚本/);
+    expect(() => assertStdioLaunchAllowed('bun', ['x', 'some-pkg'])).toThrow(/脚本/);
+  });
+
+  it('允许解释器直接执行相对路径脚本', () => {
+    expect(() => assertStdioLaunchAllowed('node', ['server.js'])).not.toThrow();
+    expect(() => assertStdioLaunchAllowed('node', ['server.js', '--port', '3000'])).not.toThrow();
+    expect(() => assertStdioLaunchAllowed('node', ['--', 'server.js'])).toThrow(/内联代码/);
+    expect(() => assertStdioLaunchAllowed('python3', ['server.py', '--verbose'])).not.toThrow();
+    expect(() => assertStdioLaunchAllowed('bun', ['run', 'src/server.ts'])).not.toThrow();
+    expect(() => assertStdioLaunchAllowed('deno', ['run', 'server.ts'])).not.toThrow();
+  });
+
+  it('允许 npx 启动包', () => {
+    expect(() => assertStdioLaunchAllowed('npx', ['-y', 'some-mcp'])).not.toThrow();
+    expect(() => assertStdioLaunchAllowed('uvx', ['some-mcp'])).not.toThrow();
+  });
+});
+
+describe('stdio 试连环境变量校验', () => {
+  it('拒绝代码注入、加载路径与 PATH 覆盖', () => {
+    for (const key of [
+      'NODE_OPTIONS',
+      'PYTHONPATH',
+      'PATH',
+      'PythonHome',
+      'LD_PRELOAD',
+      'DENO_DIR',
+      'BUN_INSTALL',
+      'DYLD_INSERT_LIBRARIES',
+      'ELECTRON_RUN_AS_NODE',
+    ]) {
+      expect(() => assertStdioEnvAllowed({ [key]: 'x' }), key).toThrow(/不支持测试该环境变量/);
+    }
+  });
+
+  it('允许普通环境变量，如 API token', () => {
+    expect(() => assertStdioEnvAllowed(undefined)).not.toThrow();
+    expect(() => assertStdioEnvAllowed({ API_TOKEN: 'x', LOG_LEVEL: 'debug' })).not.toThrow();
+  });
+});
 
 describe.skipIf(!ready)('servers', () => {
   let app: FastifyInstance;

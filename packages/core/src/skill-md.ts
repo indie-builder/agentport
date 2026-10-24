@@ -2,11 +2,20 @@ import { type SkillInput, skillInputSchema } from '@agentport/shared';
 import { fail } from './errors.js';
 import { parseMarkdownFrontmatter } from './markdown-frontmatter.js';
 
-/** 这三个字段只描述技能来源，导入时给出警告但不落库。 */
+/** 官方描述性字段：原样保留，导出时重新写回 frontmatter。 */
 const DESCRIPTIVE_KEYS = new Set(['license', 'compatibility', 'metadata']);
 
 function invalid(message: string, path = '/skillMd'): never {
   fail('INVALID_INPUT', message, { path });
+}
+
+/** YAML 映射在 parse 时是 Map；转成普通对象才能落库并按 JSON 重渲染。 */
+function plainValue(value: unknown): unknown {
+  if (value instanceof Map) {
+    return Object.fromEntries([...value].map(([key, entry]) => [String(key), plainValue(entry)]));
+  }
+  if (Array.isArray(value)) return value.map(plainValue);
+  return value;
 }
 
 /** 首个非空行是 H1 时作为显示名，并且只移除这一行。 */
@@ -34,15 +43,19 @@ export function parseSkillMd(content: string): { skill: SkillInput; warnings: st
   const warnings: string[] = [];
   const unknown: string[] = [];
   for (const key of fields.keys()) {
-    if (key === 'name' || key === 'description') continue;
-    if (DESCRIPTIVE_KEYS.has(key)) {
-      warnings.push(`忽略描述性前置字段 ${key}（不会保存）`);
-      continue;
-    }
+    if (key === 'name' || key === 'description' || DESCRIPTIVE_KEYS.has(key)) continue;
     unknown.push(key);
   }
   if (unknown.length > 0) {
     invalid(`不支持的 SKILL.md 前置字段：${unknown.join('、')}（可能改变运行时行为）`);
+  }
+
+  const metadata = plainValue(fields.get('metadata'));
+  if (
+    metadata !== undefined &&
+    (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata))
+  ) {
+    invalid('SKILL.md 的 metadata 必须是 YAML 映射', '/metadata');
   }
 
   const { body, displayName } = splitHeading(rawBody);
@@ -52,6 +65,9 @@ export function parseSkillMd(content: string): { skill: SkillInput; warnings: st
     name: displayName ?? rawName,
     description: fields.get('description'),
     body,
+    license: fields.get('license'),
+    compatibility: fields.get('compatibility'),
+    metadata,
   });
   if (!parsed.success) {
     const issue = parsed.error.issues[0];

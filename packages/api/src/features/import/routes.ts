@@ -1,5 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { fail } from '@agentport/core';
+import { isDeepStrictEqual } from 'node:util';
+import {
+  fail,
+  type ParsedArchive,
+  parseWorkspaceArchive,
+  unsupportedAllowedTool,
+} from '@agentport/core';
 import type { Database } from '@agentport/db';
 import {
   agentOutputStyles,
@@ -28,11 +34,11 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import { eq, inArray } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode } from '../../plugins/errors.js';
-import { typed } from '../../types.js';
+import { type TypedApp, typed } from '../../types.js';
 import { allowedToolsSchema } from '../agents/validation.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
 
@@ -405,6 +411,537 @@ function toServerInput(entry: ImportedServer): ServerInput {
   return parsed.data;
 }
 
+type ImportBody = z.infer<typeof importBodySchema>;
+
+const archiveBodySchema = z.object({
+  filename: z.string().min(1).max(200),
+  dataBase64: z.string().min(1).max(1_500_000),
+});
+
+/** 平台导入只接受这几种权限模式；归档里的 auto 会削弱平台约束。 */
+const IMPORT_PERMISSION_MODES = new Set(['dontAsk', 'plan', 'default', 'acceptEdits']);
+
+function stringRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** 文件名只用于推导新 slug；路径部分一律丢弃，避免借文件名影响落盘位置。 */
+function slugFromFilename(filename: string): string {
+  const base = filename.replace(/^.*[\\/]/, '');
+  if (!base.toLowerCase().endsWith('.zip')) {
+    fail('INVALID_INPUT', '归档文件名必须以 .zip 结尾', { path: '/filename' });
+  }
+  return base
+    .slice(0, -4)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+/** base64 标准编码；非规范输入（空白、URL-safe、多余填充）一律拒绝，不做宽容解码。 */
+function decodeArchiveBase64(value: string): Uint8Array {
+  if (value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+    fail('INVALID_INPUT', 'dataBase64 不是合法的 base64 编码', { path: '/dataBase64' });
+  }
+  const data = Buffer.from(value, 'base64');
+  if (data.toString('base64') !== value) {
+    fail('INVALID_INPUT', 'dataBase64 不是合法的 base64 编码', { path: '/dataBase64' });
+  }
+  return new Uint8Array(data);
+}
+
+/** `.mcp.json` 只有 command 与 url 两种形态；generated 导出后就是 http，无法还原。 */
+function archiveServers(parsed: ParsedArchive) {
+  return Object.entries(parsed.mcp).map(([name, raw]) => {
+    const entry = stringRecord(raw);
+    if (typeof entry.command === 'string') {
+      return {
+        name,
+        kind: 'stdio' as const,
+        config: {
+          command: entry.command,
+          args: Array.isArray(entry.args)
+            ? entry.args.filter((arg): arg is string => typeof arg === 'string')
+            : [],
+        },
+        // 值与加密凭据都不属于可移植内容，只把键名带出去提示重新填写。
+        secretKeys: Object.keys(stringRecord(entry.env)).sort(),
+      };
+    }
+    if (typeof entry.url === 'string') {
+      return {
+        name,
+        kind: 'http' as const,
+        config: { url: entry.url },
+        secretKeys: Object.keys(stringRecord(entry.headers)).sort(),
+      };
+    }
+    return fail('INVALID_INPUT', `.mcp.json 的 Server「${name}」缺少 command 或 url`, {
+      path: `/mcp/${name}`,
+    });
+  });
+}
+
+/** 平台工具名：MCP 名（可带 * 通配）或裸工具名；带 (specifier) 的权限规则无法映射。 */
+const TOOL_NAME = /^(?:mcp__[A-Za-z0-9_-]+(?:__[A-Za-z0-9_*-]+)?|[A-Za-z][A-Za-z0-9_]*)$/;
+
+/** 官方 settings.effortLevel 只持久化这四档；max 仅限会话内，不写文件。 */
+const SETTINGS_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh']);
+
+function mappedToolRules(value: unknown, field: string, warnings: string[]): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((rule) => typeof rule === 'string')) {
+    warnings.push(`settings.permissions.${field} 不是字符串列表，已忽略`);
+    return [];
+  }
+  const kept: string[] = [];
+  for (const rule of value) {
+    if (!TOOL_NAME.test(rule)) {
+      warnings.push(
+        `settings.permissions.${field} 中的「${rule}」不是平台工具名（含 specifier 的规则无法映射），已忽略`,
+      );
+      continue;
+    }
+    if (field === 'allow' && unsupportedAllowedTool([rule]) !== undefined) {
+      warnings.push(`settings.permissions.allow 中的「${rule}」被运行时固定禁用，已忽略`);
+      continue;
+    }
+    kept.push(rule);
+  }
+  return kept;
+}
+
+function settingsAgentDefaults(settings: Record<string, unknown>, warnings: string[]) {
+  const model = typeof settings.model === 'string' ? settings.model.trim() : '';
+  const permissions = stringRecord(settings.permissions);
+  const mode = permissions.defaultMode;
+  const effort = settings.effortLevel;
+  if (effort !== undefined && !(typeof effort === 'string' && SETTINGS_EFFORT_LEVELS.has(effort))) {
+    warnings.push(`settings.effortLevel「${String(effort)}」不是官方持久化支持的推理强度，已忽略`);
+  }
+  const allowedTools = mappedToolRules(permissions.allow, 'allow', warnings);
+  if (allowedTools.length > 0) {
+    // 官方 allow 是自动批准规则；平台只把它当工具启用白名单，语义不等价，必须提示。
+    warnings.push(
+      'settings.permissions.allow 在官方语义中是「自动批准」，平台按「工具启用白名单」解释；如需自动批准请在平台权限设置中配置',
+    );
+  }
+  const disallowedTools = mappedToolRules(permissions.deny, 'deny', warnings);
+  return {
+    ...(model !== '' && model !== 'inherit' ? { model } : {}),
+    ...(typeof mode === 'string' && IMPORT_PERMISSION_MODES.has(mode)
+      ? { permissionMode: mode }
+      : {}),
+    ...(typeof effort === 'string' && SETTINGS_EFFORT_LEVELS.has(effort) ? { effort } : {}),
+    ...(allowedTools.length > 0 ? { allowedTools } : {}),
+    ...(disallowedTools.length > 0 ? { disallowedTools } : {}),
+  };
+}
+
+/** 归档 → 现有 @2 导入事务的输入；写入仍只走 registerImportRoutes 里那一条事务。 */
+function archiveImportBody(
+  parsed: ParsedArchive,
+  slug: string,
+): { body: ImportBody; warnings: string[] } {
+  const warnings: string[] = [];
+  const servers = archiveServers(parsed);
+  const knownSkills = new Set(parsed.skills.map((skill) => skill.slug));
+  // 归档只按目录携带技能，不记录绑定归属；根级保留全部可映射技能，父子共享时不扣除。
+  const childSkills = new Set(parsed.subAgents.flatMap((child) => child.skills));
+  const skillSlugs = [...knownSkills];
+  for (const slug of childSkills) {
+    if (knownSkills.has(slug)) {
+      warnings.push(`归档不记录技能挂载归属，技能「${slug}」已同时绑定到根智能体与子智能体`);
+    }
+  }
+  // 官方文件没有这三项的归宿，不塞私有字段；用平台默认值并让用户知道。
+  warnings.push(
+    '归档不携带根智能体的 maxTurns / maxBudgetUsd / timeoutMs，导入后使用默认值（20 轮 / $2 / 600 秒）',
+  );
+  if (parsed.subAgents.length > 0) {
+    warnings.push('归档不携带子智能体的启停状态，导入后全部启用');
+    warnings.push('归档不携带子智能体的 maxBudgetUsd / timeoutMs，导入后使用默认值（$2 / 600 秒）');
+  }
+
+  const candidate = {
+    format: 'agentport/agent@2' as const,
+    agent: {
+      slug,
+      name: parsed.agent.name,
+      systemPrompt: parsed.agent.systemPrompt,
+      role: '通用助手',
+      // 归档把根级 model/permissionMode/tools/effort 写在 settings.json；缺省时用平台默认。
+      ...settingsAgentDefaults(parsed.settings, warnings),
+      serverNames: servers.map((server) => server.name),
+      skillSlugs,
+    },
+    servers,
+    rules: parsed.rules,
+    outputStyles: parsed.outputStyles,
+    skills: parsed.skills,
+    subAgents: parsed.subAgents.map((child) => {
+      const supported = IMPORT_PERMISSION_MODES.has(child.permissionMode);
+      if (!supported) {
+        warnings.push(
+          `子智能体「${child.slug}」的权限模式「${child.permissionMode}」不受平台支持，已改为 dontAsk`,
+        );
+      }
+      const childSkillSlugs = child.skills.filter((skill) => {
+        if (knownSkills.has(skill)) return true;
+        warnings.push(`子智能体「${child.slug}」引用的技能「${skill}」不在归档中，已忽略`);
+        return false;
+      });
+      return {
+        slug: child.slug,
+        name: child.name,
+        description: child.description,
+        model: child.model,
+        systemPrompt: child.systemPrompt,
+        role: '通用助手',
+        permissionMode: supported ? child.permissionMode : 'dontAsk',
+        maxTurns: child.maxTurns,
+        ...(child.effort === undefined ? {} : { effort: child.effort }),
+        allowedTools: child.allowedTools,
+        disallowedTools: child.disallowedTools,
+        // 子定义文件不携带平台资源绑定；根级 .mcp.json 只对应根绑定。
+        serverNames: [],
+        skillSlugs: childSkillSlugs,
+        rules: [],
+        outputStyles: [],
+      };
+    }),
+  };
+
+  try {
+    return { body: importBodySchema.parse(candidate), warnings };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      fail(
+        'INVALID_INPUT',
+        `归档内容无法映射为智能体定义：${error.issues[0]?.message ?? '字段不合法'}`,
+      );
+    }
+    throw error;
+  }
+}
+
+/** 导入事务的唯一入口：JSON 专家包与 zip 归档都走这里。 */
+async function runImport(app: TypedApp, body: ImportBody, request: FastifyRequest) {
+  const { agent: input, servers: entries, skills: skillInputs, subAgents } = body;
+  checkAgentFileSizes(body, '');
+  subAgents.forEach((child, index) => {
+    checkAgentFileSizes(child, `/subAgents/${index}`);
+  });
+  skillInputs.forEach((skill, index) => {
+    checkSize(skill.body, 200_000, `/skills/${index}/body`);
+    skill.files.forEach((file, fileIndex) => {
+      checkSize(file.content, 200_000, `/skills/${index}/files/${fileIndex}/content`);
+    });
+  });
+  const serverEntries = entries.map((entry) => ({
+    input: toServerInput(entry),
+    tools: entry.tools,
+    secretKeys: entry.secretKeys,
+  }));
+
+  // 导入文件同样不可信：http/generated 的地址与手动创建走同一个 SSRF 校验。
+  for (const { input: serverInput } of serverEntries) {
+    if (serverInput.kind === 'http') {
+      await assertSafeUrl(serverInput.url, app.config.NODE_ENV);
+    } else if (serverInput.kind === 'generated') {
+      await assertSafeUrl(serverInput.baseUrl, app.config.NODE_ENV);
+    }
+  }
+  const warnings: string[] = [];
+  // 源实例的子智能体 ID 在目标库里没有意义；不绑定，但要让用户知道。
+  // 新格式带 subAgents 时由文件内容重建关系，旧的 ID 不再是有效输入。
+  if (input.subAgentIds.length > 0 && subAgents.length === 0) {
+    warnings.push(`导入文件中的 ${input.subAgentIds.length} 个子智能体未绑定，需手动重新选择`);
+  }
+
+  const result = await app.db
+    .transaction(async (tx) => {
+      const createdServers: string[] = [];
+      const reusedServers: string[] = [];
+      const createdSkills: string[] = [];
+
+      const existingServers =
+        serverEntries.length === 0
+          ? []
+          : await tx
+              .select()
+              .from(servers)
+              .where(
+                inArray(
+                  servers.name,
+                  serverEntries.map((s) => s.input.name),
+                ),
+              );
+      const existingByName = new Map(existingServers.map((row) => [row.name, row]));
+      const serverIdsByName = new Map(existingServers.map((row) => [row.name, row.id]));
+      for (const { input: serverInput, tools, secretKeys } of serverEntries) {
+        const existing = existingByName.get(serverInput.name);
+        if (existing !== undefined) {
+          // 同名不同 kind 的配置结构不同，复用会得到行为不符的 server。
+          if (existing.kind !== serverInput.kind) {
+            fail(
+              'INVALID_INPUT',
+              `已存在同名 Server「${serverInput.name}」，但类型不同（${existing.kind} / ${serverInput.kind}），无法复用；请先在导入文件中改名`,
+            );
+          }
+          reusedServers.push(serverInput.name);
+          // 复用不改写已有配置，只提示差异，由用户决定是否手动同步。
+          if (configDiffers(serverInput, existing.config)) {
+            warnings.push(
+              `已存在同名 Server「${serverInput.name}」，其配置与导入文件不同，已保留原配置`,
+            );
+          }
+          // 复用不合并工具，必须让用户知道文件里的工具没有被导入。
+          if (tools !== undefined && tools.length > 0) {
+            warnings.push(
+              `已存在同名 Server「${serverInput.name}」，其 ${tools.length} 个工具保留原配置，未按导入文件覆盖`,
+            );
+          }
+          continue;
+        }
+        const [row] = await tx
+          .insert(servers)
+          .values({
+            id: newId('server'),
+            name: serverInput.name,
+            kind: serverInput.kind,
+            description: serverInput.description,
+            config: toServerConfig(serverInput),
+            secretsEncrypted: null,
+          })
+          .returning();
+        if (!row) throw new Error('server insert returned no row');
+        // 只有新建的 server 需要填密钥；已存在的不重复提示。
+        if (secretKeys.length > 0) {
+          warnings.push(`「${serverInput.name}」的密钥需要重新填写：${secretKeys.join(', ')}`);
+        }
+        serverIdsByName.set(row.name, row.id);
+        createdServers.push(row.name);
+        if (tools && tools.length > 0) {
+          await tx
+            .insert(apiTools)
+            .values(tools.map((tool) => ({ id: newId('tool'), serverId: row.id, ...tool })));
+        }
+      }
+
+      const existingSkills =
+        skillInputs.length === 0
+          ? []
+          : await tx
+              .select()
+              .from(skills)
+              .where(
+                inArray(
+                  skills.slug,
+                  skillInputs.map((s) => s.slug),
+                ),
+              );
+      const existingSkillBySlug = new Map(existingSkills.map((row) => [row.slug, row]));
+      const skillIdsBySlug = new Map(existingSkills.map((row) => [row.slug, row.id]));
+      const existingFiles =
+        existingSkills.length === 0
+          ? []
+          : await tx
+              .select()
+              .from(skillFiles)
+              .where(
+                inArray(
+                  skillFiles.skillId,
+                  existingSkills.map((skill) => skill.id),
+                ),
+              );
+      let createdFileCount = 0;
+      for (const skillInput of skillInputs) {
+        const existing = existingSkillBySlug.get(skillInput.slug);
+        if (existing) {
+          // license/compatibility 在库里是 '' 表示未设置；metadata 的 jsonb 键序不稳定，按值比较。
+          if (
+            existing.name !== skillInput.name ||
+            existing.description !== skillInput.description ||
+            existing.body !== skillInput.body ||
+            (existing.license ?? '') !== (skillInput.license ?? '') ||
+            (existing.compatibility ?? '') !== (skillInput.compatibility ?? '') ||
+            !isDeepStrictEqual(existing.metadata, skillInput.metadata ?? {})
+          ) {
+            warnings.push(
+              `已存在同名技能「${skillInput.slug}」，其内容与导入文件不同，已保留原配置`,
+            );
+          }
+          const files = existingFiles.filter((file) => file.skillId === existing.id);
+          const contents = new Map(files.map((file) => [file.path, file.content]));
+          if (
+            files.length !== skillInput.files.length ||
+            skillInput.files.some((file) => contents.get(file.path) !== file.content)
+          ) {
+            warnings.push(
+              `已存在同名技能「${skillInput.slug}」，其资源文件与导入文件不同，已保留原文件`,
+            );
+          }
+          continue;
+        }
+        const { files, ...skillValues } = skillInput;
+        const [row] = await tx
+          .insert(skills)
+          .values({ id: newId('skill'), ...skillValues })
+          .returning();
+        if (!row) throw new Error('skill insert returned no row');
+        if (files.length > 0) {
+          await tx.insert(skillFiles).values(
+            files.map((file) => ({
+              id: newId('skillFile'),
+              skillId: row.id,
+              ...file,
+            })),
+          );
+          createdFileCount += files.length;
+        }
+        skillIdsBySlug.set(row.slug, row.id);
+        createdSkills.push(row.slug);
+      }
+
+      const slug = await uniqueSlug(tx, input.slug);
+      if (slug !== input.slug) {
+        warnings.push(`slug "${input.slug}" 已存在，导入为 "${slug}"`);
+      }
+      /** 旧导出没有 serverNames/skillSlugs：沿用「绑定文件里的全部资源」语义。 */
+      const resolve = (
+        names: string[] | undefined,
+        all: string[],
+        ids: Map<string, string>,
+      ): string[] =>
+        (names ?? all).map((name) => ids.get(name)).filter((id): id is string => id !== undefined);
+
+      const serverIds = resolve(
+        input.serverNames,
+        serverEntries.map((s) => s.input.name),
+        serverIdsByName,
+      );
+      const skillIds = resolve(
+        input.skillSlugs,
+        skillInputs.map((s) => s.slug),
+        skillIdsBySlug,
+      );
+
+      const [row] = await tx
+        .insert(agents)
+        .values({ id: newId('agent'), slug, ...toAgentValues(input) })
+        .returning();
+      if (!row) throw new Error('agent insert returned no row');
+      if (serverIds.length > 0) {
+        await tx
+          .insert(agentServers)
+          .values(serverIds.map((serverId) => ({ agentId: row.id, serverId })));
+      }
+      if (skillIds.length > 0) {
+        await tx
+          .insert(agentSkills)
+          .values(skillIds.map((skillId) => ({ agentId: row.id, skillId })));
+      }
+
+      await insertAgentFiles(tx, row.id, body);
+      const createdSubAgents: string[] = [];
+      const childIds: string[] = [];
+      const childSnapshots: ReturnType<typeof agentRepo.toAgent>[] = [];
+      for (const childInput of subAgents) {
+        // 子智能体始终是新建行：同名已有 agent（可能已属于别的父级）一律加后缀，不复用。
+        const childSlug = await uniqueSlug(tx, childInput.slug);
+        if (childSlug !== childInput.slug) {
+          warnings.push(`子智能体 slug "${childInput.slug}" 已存在，导入为 "${childSlug}"`);
+        }
+        const childServerIds = resolve(
+          childInput.serverNames,
+          serverEntries.map((s) => s.input.name),
+          serverIdsByName,
+        );
+        const childSkillIds = resolve(
+          childInput.skillSlugs,
+          skillInputs.map((s) => s.slug),
+          skillIdsBySlug,
+        );
+        const [childRow] = await tx
+          .insert(agents)
+          .values({
+            id: newId('agent'),
+            slug: childSlug,
+            parentId: row.id,
+            ...toAgentValues(childInput),
+          })
+          .returning();
+        if (!childRow) throw new Error('sub-agent insert returned no row');
+        if (childServerIds.length > 0) {
+          await tx
+            .insert(agentServers)
+            .values(childServerIds.map((serverId) => ({ agentId: childRow.id, serverId })));
+        }
+        if (childSkillIds.length > 0) {
+          await tx
+            .insert(agentSkills)
+            .values(childSkillIds.map((skillId) => ({ agentId: childRow.id, skillId })));
+        }
+        await insertAgentFiles(tx, childRow.id, childInput);
+        childSnapshots.push(agentRepo.toAgent(childRow, childServerIds, childSkillIds));
+        childIds.push(childRow.id);
+        createdSubAgents.push(childRow.slug);
+      }
+
+      // 父级快照必须等到子智能体落库后写，才能记录最终 ID。
+      await repo.agentVersions.insertAgentVersion(
+        tx,
+        row.id,
+        agentRepo.toAgent(row, serverIds, skillIds, childIds),
+      );
+      for (const snapshot of childSnapshots) {
+        await repo.agentVersions.insertAgentVersion(tx, snapshot.id, snapshot);
+      }
+
+      return {
+        createdFileCount,
+        agent: agentRepo.toAgent(row, serverIds, skillIds, childIds),
+        createdServers,
+        reusedServers,
+        createdSkills,
+        createdSubAgents,
+      };
+    })
+    .catch((err: unknown): never => {
+      // 并发导入撞上同名 server/skill/agent 的唯一索引：只映射成 409，不重试。
+      if (isPgCode(err, '23505')) {
+        fail('CONFLICT', '导入期间同名 Server、技能或智能体被其他请求占用，请重试');
+      }
+      throw err;
+    });
+
+  await writeAudit(app.db, request.log, {
+    actor: 'admin',
+    action: 'agent.imported',
+    target: result.agent.id,
+    input: {
+      slug: result.agent.slug,
+      servers: { created: result.createdServers.length, reused: result.reusedServers.length },
+      skills: result.createdSkills.length,
+      files: result.createdFileCount,
+      rules: body.rules.length + subAgents.reduce((count, child) => count + child.rules.length, 0),
+      outputStyles:
+        body.outputStyles.length +
+        subAgents.reduce((count, child) => count + child.outputStyles.length, 0),
+      subAgents: result.createdSubAgents.length,
+    },
+    status: 'ok',
+    requestId: request.id,
+  });
+
+  const { createdFileCount: _createdFileCount, ...response } = result;
+  return { ...response, warnings };
+}
+
 export function registerImportRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   const auth = { preHandler: [rawApp.requireAuth] };
@@ -413,316 +950,24 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
     '/api/import/agents',
     { ...auth, bodyLimit: AGENT_PACKAGE_MAX_BYTES, schema: { body: importBodySchema } },
     async (request, reply) => {
-      const { agent: input, servers: entries, skills: skillInputs, subAgents } = request.body;
-      checkAgentFileSizes(request.body, '');
-      subAgents.forEach((child, index) => {
-        checkAgentFileSizes(child, `/subAgents/${index}`);
+      return reply.status(201).send(await runImport(app, request.body, request));
+    },
+  );
+
+  app.post(
+    '/api/import/agents/archive',
+    { ...auth, bodyLimit: 1_600_000, schema: { body: archiveBodySchema } },
+    async (request, reply) => {
+      const parsed = parseWorkspaceArchive(decodeArchiveBase64(request.body.dataBase64));
+      const { body, warnings: mappingWarnings } = archiveImportBody(
+        parsed,
+        slugFromFilename(request.body.filename),
+      );
+      const result = await runImport(app, body, request);
+      return reply.status(201).send({
+        ...result,
+        warnings: [...parsed.warnings, ...mappingWarnings, ...result.warnings],
       });
-      skillInputs.forEach((skill, index) => {
-        checkSize(skill.body, 200_000, `/skills/${index}/body`);
-        skill.files.forEach((file, fileIndex) => {
-          checkSize(file.content, 200_000, `/skills/${index}/files/${fileIndex}/content`);
-        });
-      });
-      const serverEntries = entries.map((entry) => ({
-        input: toServerInput(entry),
-        tools: entry.tools,
-        secretKeys: entry.secretKeys,
-      }));
-
-      // 导入文件同样不可信：http/generated 的地址与手动创建走同一个 SSRF 校验。
-      for (const { input: serverInput } of serverEntries) {
-        if (serverInput.kind === 'http') {
-          await assertSafeUrl(serverInput.url, app.config.NODE_ENV);
-        } else if (serverInput.kind === 'generated') {
-          await assertSafeUrl(serverInput.baseUrl, app.config.NODE_ENV);
-        }
-      }
-      const warnings: string[] = [];
-      // 源实例的子智能体 ID 在目标库里没有意义；不绑定，但要让用户知道。
-      // 新格式带 subAgents 时由文件内容重建关系，旧的 ID 不再是有效输入。
-      if (input.subAgentIds.length > 0 && subAgents.length === 0) {
-        warnings.push(`导入文件中的 ${input.subAgentIds.length} 个子智能体未绑定，需手动重新选择`);
-      }
-
-      const result = await app.db
-        .transaction(async (tx) => {
-          const createdServers: string[] = [];
-          const reusedServers: string[] = [];
-          const createdSkills: string[] = [];
-
-          const existingServers =
-            serverEntries.length === 0
-              ? []
-              : await tx
-                  .select()
-                  .from(servers)
-                  .where(
-                    inArray(
-                      servers.name,
-                      serverEntries.map((s) => s.input.name),
-                    ),
-                  );
-          const existingByName = new Map(existingServers.map((row) => [row.name, row]));
-          const serverIdsByName = new Map(existingServers.map((row) => [row.name, row.id]));
-          for (const { input: serverInput, tools, secretKeys } of serverEntries) {
-            const existing = existingByName.get(serverInput.name);
-            if (existing !== undefined) {
-              // 同名不同 kind 的配置结构不同，复用会得到行为不符的 server。
-              if (existing.kind !== serverInput.kind) {
-                fail(
-                  'INVALID_INPUT',
-                  `已存在同名 Server「${serverInput.name}」，但类型不同（${existing.kind} / ${serverInput.kind}），无法复用；请先在导入文件中改名`,
-                );
-              }
-              reusedServers.push(serverInput.name);
-              // 复用不改写已有配置，只提示差异，由用户决定是否手动同步。
-              if (configDiffers(serverInput, existing.config)) {
-                warnings.push(
-                  `已存在同名 Server「${serverInput.name}」，其配置与导入文件不同，已保留原配置`,
-                );
-              }
-              // 复用不合并工具，必须让用户知道文件里的工具没有被导入。
-              if (tools !== undefined && tools.length > 0) {
-                warnings.push(
-                  `已存在同名 Server「${serverInput.name}」，其 ${tools.length} 个工具保留原配置，未按导入文件覆盖`,
-                );
-              }
-              continue;
-            }
-            const [row] = await tx
-              .insert(servers)
-              .values({
-                id: newId('server'),
-                name: serverInput.name,
-                kind: serverInput.kind,
-                description: serverInput.description,
-                config: toServerConfig(serverInput),
-                secretsEncrypted: null,
-              })
-              .returning();
-            if (!row) throw new Error('server insert returned no row');
-            // 只有新建的 server 需要填密钥；已存在的不重复提示。
-            if (secretKeys.length > 0) {
-              warnings.push(`「${serverInput.name}」的密钥需要重新填写：${secretKeys.join(', ')}`);
-            }
-            serverIdsByName.set(row.name, row.id);
-            createdServers.push(row.name);
-            if (tools && tools.length > 0) {
-              await tx
-                .insert(apiTools)
-                .values(tools.map((tool) => ({ id: newId('tool'), serverId: row.id, ...tool })));
-            }
-          }
-
-          const existingSkills =
-            skillInputs.length === 0
-              ? []
-              : await tx
-                  .select()
-                  .from(skills)
-                  .where(
-                    inArray(
-                      skills.slug,
-                      skillInputs.map((s) => s.slug),
-                    ),
-                  );
-          const existingSkillBySlug = new Map(existingSkills.map((row) => [row.slug, row]));
-          const skillIdsBySlug = new Map(existingSkills.map((row) => [row.slug, row.id]));
-          const existingFiles =
-            existingSkills.length === 0
-              ? []
-              : await tx
-                  .select()
-                  .from(skillFiles)
-                  .where(
-                    inArray(
-                      skillFiles.skillId,
-                      existingSkills.map((skill) => skill.id),
-                    ),
-                  );
-          let createdFileCount = 0;
-          for (const skillInput of skillInputs) {
-            const existing = existingSkillBySlug.get(skillInput.slug);
-            if (existing) {
-              if (
-                existing.name !== skillInput.name ||
-                existing.description !== skillInput.description ||
-                existing.body !== skillInput.body
-              ) {
-                warnings.push(
-                  `已存在同名技能「${skillInput.slug}」，其内容与导入文件不同，已保留原配置`,
-                );
-              }
-              const files = existingFiles.filter((file) => file.skillId === existing.id);
-              const contents = new Map(files.map((file) => [file.path, file.content]));
-              if (
-                files.length !== skillInput.files.length ||
-                skillInput.files.some((file) => contents.get(file.path) !== file.content)
-              ) {
-                warnings.push(
-                  `已存在同名技能「${skillInput.slug}」，其资源文件与导入文件不同，已保留原文件`,
-                );
-              }
-              continue;
-            }
-            const { files, ...skillValues } = skillInput;
-            const [row] = await tx
-              .insert(skills)
-              .values({ id: newId('skill'), ...skillValues })
-              .returning();
-            if (!row) throw new Error('skill insert returned no row');
-            if (files.length > 0) {
-              await tx.insert(skillFiles).values(
-                files.map((file) => ({
-                  id: newId('skillFile'),
-                  skillId: row.id,
-                  ...file,
-                })),
-              );
-              createdFileCount += files.length;
-            }
-            skillIdsBySlug.set(row.slug, row.id);
-            createdSkills.push(row.slug);
-          }
-
-          const slug = await uniqueSlug(tx, input.slug);
-          if (slug !== input.slug) {
-            warnings.push(`slug "${input.slug}" 已存在，导入为 "${slug}"`);
-          }
-          /** 旧导出没有 serverNames/skillSlugs：沿用「绑定文件里的全部资源」语义。 */
-          const resolve = (
-            names: string[] | undefined,
-            all: string[],
-            ids: Map<string, string>,
-          ): string[] =>
-            (names ?? all)
-              .map((name) => ids.get(name))
-              .filter((id): id is string => id !== undefined);
-
-          const serverIds = resolve(
-            input.serverNames,
-            serverEntries.map((s) => s.input.name),
-            serverIdsByName,
-          );
-          const skillIds = resolve(
-            input.skillSlugs,
-            skillInputs.map((s) => s.slug),
-            skillIdsBySlug,
-          );
-
-          const [row] = await tx
-            .insert(agents)
-            .values({ id: newId('agent'), slug, ...toAgentValues(input) })
-            .returning();
-          if (!row) throw new Error('agent insert returned no row');
-          if (serverIds.length > 0) {
-            await tx
-              .insert(agentServers)
-              .values(serverIds.map((serverId) => ({ agentId: row.id, serverId })));
-          }
-          if (skillIds.length > 0) {
-            await tx
-              .insert(agentSkills)
-              .values(skillIds.map((skillId) => ({ agentId: row.id, skillId })));
-          }
-
-          await insertAgentFiles(tx, row.id, request.body);
-          const createdSubAgents: string[] = [];
-          const childIds: string[] = [];
-          const childSnapshots: ReturnType<typeof agentRepo.toAgent>[] = [];
-          for (const childInput of subAgents) {
-            // 子智能体始终是新建行：同名已有 agent（可能已属于别的父级）一律加后缀，不复用。
-            const childSlug = await uniqueSlug(tx, childInput.slug);
-            if (childSlug !== childInput.slug) {
-              warnings.push(`子智能体 slug "${childInput.slug}" 已存在，导入为 "${childSlug}"`);
-            }
-            const childServerIds = resolve(
-              childInput.serverNames,
-              serverEntries.map((s) => s.input.name),
-              serverIdsByName,
-            );
-            const childSkillIds = resolve(
-              childInput.skillSlugs,
-              skillInputs.map((s) => s.slug),
-              skillIdsBySlug,
-            );
-            const [childRow] = await tx
-              .insert(agents)
-              .values({
-                id: newId('agent'),
-                slug: childSlug,
-                parentId: row.id,
-                ...toAgentValues(childInput),
-              })
-              .returning();
-            if (!childRow) throw new Error('sub-agent insert returned no row');
-            if (childServerIds.length > 0) {
-              await tx
-                .insert(agentServers)
-                .values(childServerIds.map((serverId) => ({ agentId: childRow.id, serverId })));
-            }
-            if (childSkillIds.length > 0) {
-              await tx
-                .insert(agentSkills)
-                .values(childSkillIds.map((skillId) => ({ agentId: childRow.id, skillId })));
-            }
-            await insertAgentFiles(tx, childRow.id, childInput);
-            childSnapshots.push(agentRepo.toAgent(childRow, childServerIds, childSkillIds));
-            childIds.push(childRow.id);
-            createdSubAgents.push(childRow.slug);
-          }
-
-          // 父级快照必须等到子智能体落库后写，才能记录最终 ID。
-          await repo.agentVersions.insertAgentVersion(
-            tx,
-            row.id,
-            agentRepo.toAgent(row, serverIds, skillIds, childIds),
-          );
-          for (const snapshot of childSnapshots) {
-            await repo.agentVersions.insertAgentVersion(tx, snapshot.id, snapshot);
-          }
-
-          return {
-            createdFileCount,
-            agent: agentRepo.toAgent(row, serverIds, skillIds, childIds),
-            createdServers,
-            reusedServers,
-            createdSkills,
-            createdSubAgents,
-          };
-        })
-        .catch((err: unknown): never => {
-          // 并发导入撞上同名 server/skill/agent 的唯一索引：只映射成 409，不重试。
-          if (isPgCode(err, '23505')) {
-            fail('CONFLICT', '导入期间同名 Server、技能或智能体被其他请求占用，请重试');
-          }
-          throw err;
-        });
-
-      await writeAudit(app.db, request.log, {
-        actor: 'admin',
-        action: 'agent.imported',
-        target: result.agent.id,
-        input: {
-          slug: result.agent.slug,
-          servers: { created: result.createdServers.length, reused: result.reusedServers.length },
-          skills: result.createdSkills.length,
-          files: result.createdFileCount,
-          rules:
-            request.body.rules.length +
-            subAgents.reduce((count, child) => count + child.rules.length, 0),
-          outputStyles:
-            request.body.outputStyles.length +
-            subAgents.reduce((count, child) => count + child.outputStyles.length, 0),
-          subAgents: result.createdSubAgents.length,
-        },
-        status: 'ok',
-        requestId: request.id,
-      });
-
-      const { createdFileCount: _createdFileCount, ...response } = result;
-      return reply.status(201).send({ ...response, warnings });
     },
   );
 }

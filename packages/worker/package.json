@@ -8,7 +8,8 @@
     "build": "tsc -b",
     "start": "node dist/index.js",
     "maintenance": "node --env-file-if-exists=../../.env --import tsx src/maintenance.ts",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "typecheck:test": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@agentport/core": "workspace:*",

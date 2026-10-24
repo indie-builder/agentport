@@ -44,7 +44,8 @@ const server: Server = {
   description: '',
   kind: 'stdio',
   command: 'node',
-  args: [],
+  // stdio 传输已被 mock；这里只需满足试连的参数白名单（解释器要一个相对脚本路径）。
+  args: ['server.js'],
   env: {},
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',

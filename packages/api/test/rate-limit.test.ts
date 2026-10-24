@@ -1,8 +1,54 @@
+import { AppError } from '@agentport/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { authRateLimit } from '../src/plugins/security.js';
+import { authRateLimit, failFastRateLimitStore } from '../src/plugins/security.js';
 import { infraReady, inject, startApp } from './helpers.js';
 
 const ready = await infraReady;
+
+describe('rate-limit store failures', () => {
+  type Callback = (err: Error | null, result: [number, number]) => void;
+
+  it('turns a Redis failure into SERVICE_UNAVAILABLE (503)', async () => {
+    const store = {
+      rateLimit: (
+        _key: string,
+        _timeWindow: number,
+        _max: number,
+        _continueExceeding: boolean,
+        _exponentialBackoff: boolean,
+        callback: Callback,
+      ) => callback(new Error('redis down'), [0, 0]),
+    };
+    failFastRateLimitStore(store);
+
+    const err = await new Promise<unknown>((resolve) => {
+      store.rateLimit('k', 60_000, 600, false, false, (e) => resolve(e));
+    });
+    expect(err).toBeInstanceOf(AppError);
+    expect((err as AppError).code).toBe('SERVICE_UNAVAILABLE');
+    expect((err as AppError).status).toBe(503);
+    expect((err as AppError).retryable).toBe(true);
+  });
+
+  it('passes successful counts through unchanged', async () => {
+    const store = {
+      rateLimit: (
+        _key: string,
+        _timeWindow: number,
+        _max: number,
+        _continueExceeding: boolean,
+        _exponentialBackoff: boolean,
+        callback: Callback,
+      ) => callback(null, [1, 60_000]),
+    };
+    failFastRateLimitStore(store);
+
+    const result = await new Promise<[number, number] | undefined>((resolve) => {
+      store.rateLimit('k', 60_000, 600, false, false, (_e, r) => resolve(r));
+    });
+    expect(result).toEqual([1, 60_000]);
+  });
+});
 
 /**
  * RATE_LIMIT_DISABLED=1 由 vitest.config.ts 注入。关闭路径若写成 `{}`，路由会落回

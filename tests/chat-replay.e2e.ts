@@ -152,8 +152,8 @@ function installChatGate(browser: Browser): Promise<unknown> {
       __agentportChatHeld?: boolean;
       __agentportChatStatus?: number | undefined;
     };
-    if (!w.__agentportOriginalFetch) w.__agentportOriginalFetch = window.fetch.bind(window);
-    const original = w.__agentportOriginalFetch;
+    const original = w.__agentportOriginalFetch ?? window.fetch.bind(window);
+    if (!w.__agentportOriginalFetch) w.__agentportOriginalFetch = original;
     w.__agentportChatHeld = false;
     w.__agentportChatStatus = undefined;
     window.fetch = async (

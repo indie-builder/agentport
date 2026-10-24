@@ -77,7 +77,7 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
   const createdAgents: string[] = [];
   const runIds: string[] = [];
   const upstreamCalls = { count: 0 };
-  const upstream = { close: () => undefined };
+  const upstream: { close: () => void } = { close: () => undefined };
 
   beforeAll(async () => {
     // 等待窗口必须足够长：旧实现下 4 个挂起调用会一直占住整个 MCP 并发名额。

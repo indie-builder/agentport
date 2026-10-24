@@ -1,4 +1,10 @@
-import { fail, isAppError, parseAgentMd } from '@agentport/core';
+import {
+  fail,
+  isAppError,
+  parseAgentMd,
+  unsupportedAgentRuntime,
+  unsupportedAllowedTool,
+} from '@agentport/core';
 import { repo as allRepo, schema } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
@@ -6,11 +12,10 @@ import {
   AGENT_ROLES,
   agentDuplicateInputSchema,
   agentInputSchema,
-  agentRoleSchema,
+  agentPatchSchema,
   agentSchema,
   idParams,
   outputStyleInputSchema,
-  permissionModeSchema,
   slugSchema,
 } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
@@ -26,7 +31,6 @@ import {
   readMemoryFile,
   writeMemoryFile,
 } from './memory-files.js';
-import { allowedToolsSchema, unsupportedAllowedTool } from './validation.js';
 import { renderAgentWorkspace } from './workspace.js';
 
 const versionParams = z.object({
@@ -44,7 +48,7 @@ const memoryFileParams = z.object({
   name: z.string().regex(memoryFileNamePattern, '记忆文件名非法：只允许 <name>.md'),
 });
 const memoryWriteBody = z.object({ content: z.string() });
-const ruleParams = z.object({ id: z.string().min(1), slug: z.string().min(1) });
+const ruleParams = z.object({ id: z.string().min(1), slug: slugSchema });
 const outputStyleParams = z.object({ id: z.string().min(1), slug: slugSchema });
 const ruleBody = z.object({
   content: z.string().max(100_000),
@@ -72,16 +76,8 @@ function toOutputStyle(row: OutputStyleRow) {
   };
 }
 
-/** default/acceptEdits 直接透传 SDK；auto 依赖无法审计的模型分类器，暂不开放。 */
-const unsupportedPermissionModes = new Set(['auto']);
-
-function unsupportedPermissionMode(mode: string | undefined): string | undefined {
-  return mode !== undefined && unsupportedPermissionModes.has(mode)
-    ? `permissionMode "${mode}" 依赖模型分类器，平台暂不开放；可用 dontAsk、plan、default、acceptEdits`
-    : undefined;
-}
-
-const createSchema = agentInputSchema.extend({ allowedTools: allowedToolsSchema.default([]) });
+const createSchema = agentInputSchema;
+const patchSchema = agentPatchSchema;
 
 // 解析（含 frontmatter / 字段校验）放在 schema 里：handler 只拿解析结果，不再 safeParse。
 const importFileSchema = z
@@ -95,31 +91,6 @@ const importFileSchema = z
       return z.NEVER;
     }
   });
-
-// 字段与 agentInputSchema 保持一致；PATCH 用显式可选字段，才能区分「没传」与「传了默认值」。
-const patchSchema = z.object({
-  slug: slugSchema.optional(),
-  name: z.string().min(1).max(128).optional(),
-  role: agentRoleSchema.removeDefault().optional(),
-  description: z.string().max(300).optional(),
-  model: z.string().min(1).optional(),
-  systemPrompt: z.string().optional(),
-  serverIds: z.array(z.string()).optional(),
-  skillIds: z.array(z.string()).optional(),
-  subAgentIds: z.array(z.string()).optional(),
-  allowedTools: allowedToolsSchema.optional(),
-  disallowedTools: z.array(z.string()).optional(),
-  permissionMode: permissionModeSchema.optional(),
-  maxTurns: z.number().int().positive().optional(),
-  maxBudgetUsd: z.number().positive().optional(),
-  timeoutMs: z.number().int().positive().optional(),
-  // null 表示清除回「未配置」；undefined 保持不动，两者语义不同。
-  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
-  maxThinkingTokens: z.number().int().positive().nullable().optional(),
-  enabled: z.boolean().optional(),
-  /** 乐观锁：首次加载时的 updatedAt。 */
-  expectedUpdatedAt: z.coerce.date().optional(),
-});
 
 function invalid(reply: FastifyReply, message: string) {
   return reject(reply, 'INVALID_INPUT', message);
@@ -249,8 +220,8 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.post('/api/agents', { ...auth, schema: { body: createSchema } }, async (request, reply) => {
     const input = request.body;
-    const modeError = unsupportedPermissionMode(input.permissionMode);
-    if (modeError) return invalid(reply, modeError);
+    const runtimeError = unsupportedAgentRuntime(input);
+    if (runtimeError) return invalid(reply, runtimeError.message);
     const { serverIds, skillIds, subAgentIds, ...rest } = input;
     const subAgentError = await validateSubAgents(app, null, subAgentIds);
     if (subAgentError) return invalid(reply, subAgentError);
@@ -342,8 +313,8 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     { ...auth, schema: { params: idParams, body: patchSchema } },
     async (request, reply) => {
       const input = request.body;
-      const modeError = unsupportedPermissionMode(input.permissionMode);
-      if (modeError) return invalid(reply, modeError);
+      const runtimeError = unsupportedAgentRuntime(input);
+      if (runtimeError) return invalid(reply, runtimeError.message);
 
       const current = await repo.getAgent(app.db, request.params.id);
       if (!current) return notFound(reply);
@@ -658,32 +629,28 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const exists = await memorySlug(request.params.id);
       if (!exists) return notFound(reply);
-      try {
-        const row = await allRepo.rules.upsertRule(app.db, request.params.id, {
-          slug: request.params.slug,
-          content: request.body.content,
-          globs: request.body.globs,
-        });
-        await writeAudit(app.db, request.log, {
-          actor: 'admin',
-          action: 'agent.rule.written',
-          target: request.params.id,
-          input: { slug: row.slug },
-          status: 'ok',
-          requestId: request.id,
-        });
-        return {
-          id: row.id,
-          agentId: row.agentId,
-          slug: row.slug,
-          content: row.content,
-          globs: row.globs,
-          createdAt: row.createdAt.toISOString(),
-          updatedAt: row.updatedAt.toISOString(),
-        };
-      } catch {
-        return reject(reply, 'INVALID_INPUT', '规则 slug 非法：仅允许小写字母、数字、- 和 _');
-      }
+      const row = await allRepo.rules.upsertRule(app.db, request.params.id, {
+        slug: request.params.slug,
+        content: request.body.content,
+        globs: request.body.globs,
+      });
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.rule.written',
+        target: request.params.id,
+        input: { slug: row.slug },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return {
+        id: row.id,
+        agentId: row.agentId,
+        slug: row.slug,
+        content: row.content,
+        globs: row.globs,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+      };
     },
   );
 

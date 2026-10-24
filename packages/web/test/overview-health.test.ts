@@ -23,20 +23,22 @@ function renderHealth(state: 'pending' | 'unavailable' | 'error' | 'ready' | 'mi
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, retryOnMount: false, gcTime: Infinity } },
   });
-  client.setQueryData(overviewQuery.queryKey, {
+  const overview: Overview = {
     counts: { agents: 1, servers: 1, runs: 0, running: 0 },
     recent: [],
     agents: [],
-  } satisfies Overview);
+  };
+  client.setQueryData(overviewQuery.queryKey, overview);
   if (state === 'unavailable') client.setQueryData(healthMetricsQuery.queryKey, null);
   if (state === 'ready') client.setQueryData(healthMetricsQuery.queryKey, metrics);
   if (state === 'missing-queue') {
-    client.setQueryData(healthMetricsQuery.queryKey, { ...metrics, queue: null });
+    const missingQueue: HealthMetrics = { ...metrics, queue: null };
+    client.setQueryData(healthMetricsQuery.queryKey, missingQueue);
   }
   if (state === 'error') {
     client
       .getQueryCache()
-      .build(client, healthMetricsQuery)
+      .build(client, { queryKey: healthMetricsQuery.queryKey })
       .setState({
         status: 'error',
         error: new Error('Offline'),

@@ -140,7 +140,7 @@ export function ChatPage() {
           <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
         ) : (
           <EmptyState
-            icon={<Bot className="size-5" />}
+            icon={<Bot className="size-4" />}
             title="还没有智能体"
             description="先在「智能体」页面创建一个 agent，并给它绑定 MCP Server。"
             action={
@@ -160,7 +160,7 @@ export function ChatPage() {
       <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <EmptyState
-          icon={<Bot className="size-5" />}
+          icon={<Bot className="size-4" />}
           title="找不到这个智能体"
           description="链接里的智能体可能已被删除，或不属于当前工作区。"
           action={
@@ -1075,7 +1075,7 @@ export function Composer({
       }}
     >
       <div className="mx-auto w-full max-w-[728px]">
-        <div className="flex h-14 items-center gap-3 rounded-[28px] border border-transparent bg-surface py-[11px] pl-6 pr-3 shadow-composer focus-within:ring-2 focus-within:ring-ring">
+        <div className="flex h-14 items-center gap-3 rounded-composer border border-transparent bg-surface py-composer-y pl-6 pr-3 shadow-composer focus-within:ring-2 focus-within:ring-ring">
           <Textarea
             ref={textareaRef}
             aria-label="消息"

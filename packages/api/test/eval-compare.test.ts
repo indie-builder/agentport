@@ -107,7 +107,7 @@ describe.skipIf(!ready)('eval run comparison', () => {
       id: newId('evalResult'),
       evalRunId,
       caseId: options.caseId,
-      caseSnapshot: options.snapshot,
+      ...(options.snapshot ? { caseSnapshot: options.snapshot } : {}),
       runId: null,
       passed: options.passed,
       output: options.output ?? '',

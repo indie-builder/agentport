@@ -361,6 +361,8 @@ describe('approval final refresh', () => {
       toolName: 'write',
       approvedAt: null,
       createdAt: '',
+      expiresAt: null,
+      waiting: true,
     };
     vi.mocked(api.runApprovals).mockResolvedValue({ items: [approval] });
     let active = true;
@@ -390,6 +392,8 @@ describe('approval final refresh', () => {
       toolName: 'write',
       approvedAt: null,
       createdAt: '',
+      expiresAt: null,
+      waiting: true,
     };
     vi.mocked(api.runApprovals).mockResolvedValue({ items: [approval] });
     await act(async () => {
@@ -410,6 +414,8 @@ describe('approval final refresh', () => {
       toolName: 'write',
       approvedAt: null,
       createdAt: '',
+      expiresAt: null,
+      waiting: true,
     };
     vi.spyOn(api, 'sendChat').mockResolvedValue({
       runId: 'run-a',
@@ -417,7 +423,7 @@ describe('approval final refresh', () => {
     });
     vi.mocked(api.conversations).mockResolvedValue({
       supported: true,
-      items: [{ ...history.conversation, updatedAt: 'now' }],
+      items: [{ ...history.conversation, updatedAt: 'now', lastMessage: null }],
     });
     await act(async () => {
       useChatStore.getState().setInput('prompt');

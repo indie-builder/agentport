@@ -96,6 +96,52 @@ describe('toWorkspaceInput', () => {
     expect(files.agentMd).toContain('tools: [');
   });
 
+  it('always writes the sub-agent permission mode, including the dontAsk default', () => {
+    const render = (permissionMode: string) =>
+      renderWorkspace(
+        toWorkspaceInput({
+          agent: agentRow(),
+          servers: servers('<已配置>'),
+          skills: [],
+          subAgents: [agentRow({ slug: 'planner', permissionMode })],
+        }),
+      );
+
+    // 省略 permissionMode 时官方语义是继承主会话权限，子智能体会被放大成父会话的模式。
+    for (const mode of ['dontAsk', 'plan', 'default', 'acceptEdits']) {
+      const content = render(mode).subAgents[0]?.content ?? '';
+      expect(content).toContain(`permissionMode: "${mode}"`);
+    }
+    // 输出只能是平台允许的四种模式，不能出现 undefined 或其他值。
+    const line = render('dontAsk').subAgents[0]?.content.match(/permissionMode: (\S+)/)?.[1];
+    expect(line).toBe('"dontAsk"');
+    // 根文件不是官方子智能体定义，不写 permissionMode。
+    expect(render('plan').agentMd).not.toContain('permissionMode');
+  });
+
+  it('falls back to dontAsk when a sub-agent row has no permission mode', () => {
+    const files = renderWorkspace({
+      agent: {
+        slug: 'lead',
+        name: 'Lead',
+        model: 'claude-sonnet-4-5',
+        systemPrompt: 'Lead the work.',
+        maxTurns: 20,
+      },
+      servers: [],
+      subAgents: [
+        {
+          slug: 'planner',
+          name: 'Planner',
+          model: 'opus',
+          systemPrompt: 'Plan.',
+          maxTurns: 9,
+        },
+      ],
+    });
+    expect(files.subAgents[0]?.content).toContain('permissionMode: "dontAsk"');
+  });
+
   it('states the synchronous wait contract for the parent', () => {
     const files = renderWorkspace(
       toWorkspaceInput({
@@ -139,6 +185,8 @@ describe('toWorkspaceInput', () => {
     expect(files.claudeMd).toContain('`Skill` 工具');
     expect(files.claudeMd).toContain('`release-notes`');
     expect(files.claudeMd).not.toContain('读取 `.claude/skills/');
+    // 旧禁读指令已删除：references 只读放行保留。
+    expect(files.claudeMd).toContain('`.claude/skills/<slug>/references/`');
     // 技能文件内容不变：渲染只影响说明文字。
     expect(files.skills[0]?.content).toContain('步骤');
     // 没有 MCP server 但有技能时，不能声称「没有可调用的工具」。
@@ -230,7 +278,8 @@ describe('toWorkspaceInput', () => {
     expect(files.subAgents[0]?.content).not.toContain('skills:');
   });
 
-  it('always disallows Agent/TaskStop in sub-agent files, even if the DB value omits them', () => {
+  // 父会话为 acceptEdits 时 SDK 会忽略子级 permissionMode，disallowedTools 才是子智能体的真实隔离。
+  it('always disallows file, shell and delegation tools in sub-agent files, even if the DB value omits them', () => {
     const files = renderWorkspace(
       toWorkspaceInput({
         agent: agentRow(),
@@ -241,8 +290,11 @@ describe('toWorkspaceInput', () => {
     );
     const content = files.subAgents[0]?.content ?? '';
     expect(content).toContain('disallowedTools: [');
-    expect(content).toMatch(/disallowedTools: \[[^\]]*"Agent"/);
-    expect(content).toMatch(/disallowedTools: \[[^\]]*"TaskStop"/);
+    for (const tool of ['Bash', 'Read', 'Write', 'Edit', 'Agent', 'TaskStop']) {
+      expect(content).toMatch(new RegExp(`disallowedTools: \\[[^\\]]*"${tool}"`));
+    }
+    // standalone 子文件必须写出 permissionMode（默认 dontAsk）。
+    expect(content).toMatch(/^permissionMode: "/m);
     // 主智能体有子智能体时仍可委派。
     expect(files.agentMd).not.toMatch(/disallowedTools: \[[^\]]*"Agent"/);
   });

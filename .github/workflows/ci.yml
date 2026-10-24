@@ -45,10 +45,13 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # 仓库默认 registry 是镜像源，没有 audit 端点；显式走 npmjs 才能拿到漏洞数据。
+      - run: pnpm audit --audit-level=high --registry=https://registry.npmjs.org
       - run: pnpm exec biome ci .
       - run: pnpm lint:focus
       - run: pnpm typecheck
       - run: pnpm build
+      - run: pnpm typecheck:test
       - run: pnpm db:migrate
       - run: pnpm test
 

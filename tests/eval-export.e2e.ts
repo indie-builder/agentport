@@ -3,8 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) throw new Error('DATABASE_URL is required for evaluation export fixtures');
+const envDatabaseUrl = process.env.DATABASE_URL;
+if (!envDatabaseUrl) throw new Error('DATABASE_URL is required for evaluation export fixtures');
+const DATABASE_URL: string = envDatabaseUrl;
 
 function connectDb() {
   return import('../packages/db/dist/index.js').then(({ createDb }) => createDb(DATABASE_URL));

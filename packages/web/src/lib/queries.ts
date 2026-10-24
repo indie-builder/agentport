@@ -150,14 +150,6 @@ export function useSchedules() {
   return useQuery(schedulesQuery);
 }
 
-export function useAgentStats(id: string, days = 30) {
-  return useQuery(agentStatsQuery(id, days));
-}
-
-export function useMe() {
-  return useQuery(meQuery);
-}
-
 export function useServers() {
   return useQuery(serversQuery);
 }

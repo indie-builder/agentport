@@ -7,8 +7,9 @@ import { createDb, newId } from '../packages/db/dist/index.js';
  * 会话历史分页的真实浏览器验收：真实页面、真实 API、数据库直写 fixture，
  * 不经过队列或模型。DATABASE_URL 必须显式给出，并且与页面背后的 API 指向同一个库。
  */
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) throw new Error('DATABASE_URL is required for chat history fixtures');
+const envDatabaseUrl = process.env.DATABASE_URL;
+if (!envDatabaseUrl) throw new Error('DATABASE_URL is required for chat history fixtures');
+const DATABASE_URL: string = envDatabaseUrl;
 
 let dbPromise: ReturnType<typeof createDb> | undefined;
 function db() {

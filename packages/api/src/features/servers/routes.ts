@@ -88,8 +88,11 @@ const importFileSchema = z
 const IMPORT_WARNINGS = ['仅导入连接配置；未测试连接或执行命令，请检查后再使用。'];
 
 /** server 名有唯一索引（23505）→ 409。 */
-function rethrowConflict(err: unknown): never {
-  if (isPgCode(err, '23505')) fail('CONFLICT', '该名称已被其他 MCP Server 占用，请换一个');
+function rethrowConflict(
+  err: unknown,
+  message = '该名称已被其他 MCP Server 占用，请换一个',
+): never {
+  if (isPgCode(err, '23505')) fail('CONFLICT', message);
   throw err;
 }
 
@@ -371,7 +374,12 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       if (body.paramsIn !== undefined) patch.paramsIn = body.paramsIn;
       if (body.requiresApproval !== undefined) patch.requiresApproval = body.requiresApproval;
       if (body.enabled !== undefined) patch.enabled = body.enabled;
-      const tool = await repo.updateTool(app.db, id, toolId, patch);
+      let tool: Awaited<ReturnType<typeof repo.updateTool>>;
+      try {
+        tool = await repo.updateTool(app.db, id, toolId, patch);
+      } catch (err) {
+        rethrowConflict(err, '该工具名称已被占用，请换一个');
+      }
       if (!tool) return notFound(reply, 'tool');
       await writeAudit(app.db, request.log, {
         actor: 'admin',

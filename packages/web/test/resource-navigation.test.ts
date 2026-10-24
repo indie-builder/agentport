@@ -214,7 +214,7 @@ describe('conflict recovery', () => {
         kind === 'server' ? openDialog(ServersPage, ' 新建连接器', 'getReturnFocus') : undefined;
       const render = dialog
         ? renderDialog(dialog, { ...dialog.props, server })
-        : () => AgentEditor({ agent, onDelete() {}, onDirtyChange() {}, onPendingChange() {} });
+        : () => AgentEditor({ agent, onDirtyChange() {}, onPendingChange() {} });
       inspect(render, (tree, pass) => {
         if (pass === 0) {
           const name = required(

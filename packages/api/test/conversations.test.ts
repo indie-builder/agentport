@@ -52,8 +52,11 @@ describe.skipIf(!ready)('conversations', () => {
     return id;
   };
 
-  const rename = (id: string, payload: unknown, headers: Record<string, string> = auth()) =>
-    inject(app, { method: 'PATCH', url: `/api/conversations/${id}`, headers, payload });
+  const rename = (
+    id: string,
+    payload: Record<string, unknown>,
+    headers: Record<string, string> = auth(),
+  ) => inject(app, { method: 'PATCH', url: `/api/conversations/${id}`, headers, payload });
 
   it('requires auth', async () => {
     const agent = await newAgent();

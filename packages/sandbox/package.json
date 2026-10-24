@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b",
-    "image": "docker build -t agentport/sandbox:dev ."
+    "image": "docker build -t agentport/sandbox:dev .",
+    "typecheck:test": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@agentport/shared": "workspace:*",

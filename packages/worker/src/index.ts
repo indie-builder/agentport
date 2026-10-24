@@ -414,6 +414,9 @@ const worker = new Worker(
           name: schema.skills.name,
           description: schema.skills.description,
           body: schema.skills.body,
+          license: schema.skills.license,
+          compatibility: schema.skills.compatibility,
+          metadata: schema.skills.metadata,
         })
         .from(schema.agentSkills)
         .innerJoin(schema.skills, eq(schema.agentSkills.skillId, schema.skills.id))
@@ -439,6 +442,9 @@ const worker = new Worker(
         name: row.name,
         description: row.description,
         body: row.body,
+        ...(row.license ? { license: row.license } : {}),
+        ...(row.compatibility ? { compatibility: row.compatibility } : {}),
+        ...(Object.keys(row.metadata).length > 0 ? { metadata: row.metadata } : {}),
         files: (skillFileMap.get(row.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
       });
       const skillsWithFiles = skillRows.map(withFiles);

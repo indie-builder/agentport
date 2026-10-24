@@ -95,12 +95,12 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
 /**
  * 迁移自 e2e/smoke.spec.ts 第 5 步。需要 worker + 模型凭据；
  * 未设置 E2E_FULL=1 时跳过，与 Playwright 版行为一致。
+ * 终态本身不算通过：必须成功，并留下一条真实的助手回复。
  */
-test('smoke: chat runs to a terminal state', { session: 'admin' }, async ({
-  app,
-  screen,
-  agent,
-}) => {
+test('smoke: chat succeeds with an assistant reply', {
+  session: 'admin',
+  timeout: 180_000,
+}, async ({ app, screen, browser }) => {
   test.skip(process.env.E2E_FULL !== '1', '需要 worker 与模型凭据，设置 E2E_FULL=1 才跑');
 
   await app.open('/chat');
@@ -108,8 +108,42 @@ test('smoke: chat runs to a terminal state', { session: 'admin' }, async ({
   await agentSelect.tap();
   await screen.getByRole('option').first().tap();
   await screen.getByRole('textbox', '消息').fill('hello');
-  await screen.getByRole('button', '发送消息').tap();
 
-  // 等待运行进入终态；用语义等待，避免依赖具体状态文案。
-  await agent.waitFor('the chat shows a finished, failed, timed-out or stopped run');
+  // POST /api/chat 返回 runId；后续读取真实运行记录，不靠页面终态猜测成败。
+  const accepted = browser.waitForResponse(/\/api\/chat$/);
+  await screen.getByRole('button', '发送消息').tap();
+  const response = await accepted;
+  expect(response.status).toBe(202);
+  const { runId } = await response.json<{ runId: string }>();
+
+  const readRun = () =>
+    browser.evaluate(async (id: string) => {
+      const res = await fetch(`/api/runs/${id}`);
+      if (!res.ok) throw new Error(`GET /api/runs/${id} -> ${res.status}: ${await res.text()}`);
+      return (await res.json()) as {
+        run: { status: string };
+        steps: Array<{ kind: string; text?: string }>;
+      };
+    }, runId);
+
+  const terminal = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
+  await expect
+    .poll(async () => terminal.has((await readRun()).run.status), { timeout: 120_000 })
+    .toBe(true);
+
+  const detail = await readRun();
+  expect(detail.run.status, '真实模型运行必须成功').toBe('succeeded');
+
+  const assistantIndex = detail.steps.findIndex(
+    (step) => step.kind === 'assistant' && Boolean(step.text?.trim()),
+  );
+  expect(assistantIndex, '运行必须落库一条非空助手回复').toBeGreaterThanOrEqual(0);
+  const reply = detail.steps[assistantIndex]?.text?.trim() ?? '';
+  expect(reply.length).toBeGreaterThan(0);
+
+  // 用落库回复的真实文本核对页面，不依赖模型会说什么。
+  await app.open(`/runs/${runId}?step=${assistantIndex}`);
+  await expect(
+    screen.getByText(reply.slice(0, 200).trim(), { exact: false }).first(),
+  ).toBeVisible();
 });

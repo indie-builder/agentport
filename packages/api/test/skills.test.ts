@@ -316,14 +316,58 @@ describe.skipIf(!ready)('skills', () => {
     expectProblem(res, 'UNAUTHORIZED');
   });
 
-  it('warns about unknown frontmatter metadata but still imports', async () => {
-    const slug = unique('import-meta');
+  it('keeps license, compatibility and metadata across an edit', async () => {
+    const slug = unique('import-described');
     createdSkills.push(slug);
+    const markdown = [
+      '---',
+      `name: ${slug}`,
+      'description: Imported from an official SKILL.md',
+      'license: MIT',
+      'compatibility: claude-code',
+      'metadata:',
+      '  owners: [docs, release]',
+      '---',
+      '',
+      '# Imported Skill',
+    ].join('\n');
 
-    const res = await importSkill(skillMd(slug, ['license: MIT']));
-    expect(res.statusCode, res.body).toBe(201);
-    const { skill, warnings } = res.json<ImportResult>();
-    expect(skill.slug).toBe(slug);
-    expect(warnings.length).toBeGreaterThan(0);
+    const imported = await importSkill(markdown);
+    expect(imported.statusCode, imported.body).toBe(201);
+    const { skill, warnings } = imported.json<ImportResult>();
+    expect(warnings).toEqual([]);
+    expect(skill).toMatchObject({
+      license: 'MIT',
+      compatibility: 'claude-code',
+      metadata: { owners: ['docs', 'release'] },
+    });
+
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/skills/${skill.id}`,
+      headers: auth(),
+      payload: { body: '## Updated', expectedUpdatedAt: skill.updatedAt },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+
+    const loaded = await inject(app, {
+      method: 'GET',
+      url: `/api/skills/${skill.id}`,
+      headers: auth(),
+    });
+    expect(loaded.statusCode, loaded.body).toBe(200);
+    expect(loaded.json<Skill>()).toMatchObject({
+      body: '## Updated',
+      license: 'MIT',
+      compatibility: 'claude-code',
+      metadata: { owners: ['docs', 'release'] },
+    });
+  });
+
+  it('rejects unknown frontmatter fields without importing', async () => {
+    const slug = unique('import-meta');
+    const res = await importSkill(skillMd(slug, ['runtime: node']));
+    expectProblem(res, 'INVALID_INPUT');
+    expect(res.body).toMatch(/runtime/);
   });
 });

@@ -1,3 +1,4 @@
+import type { SkillInput } from '@agentport/shared';
 import type { McpJsonEntry } from './tools.js';
 
 export interface WorkspaceFiles {
@@ -42,6 +43,10 @@ export interface WorkspaceSkill {
   name: string;
   description: string;
   body: string;
+  /** 官方 SKILL.md 的描述性 frontmatter；导入后原样保留。 */
+  license?: string;
+  compatibility?: string;
+  metadata?: Record<string, unknown>;
   /** 官方 SKILL.md 目录的支持资源文件，相对技能目录的路径。 */
   files?: Array<{ path: string; content: string }>;
 }
@@ -86,12 +91,27 @@ export function renderOutputStyleMd(style: {
   ].join('\n');
 }
 
+// 只在顶层逗号处拆分：花括号里的逗号属于 glob 展开，必须原样保留。
+export function splitGlobs(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    const char = value[i];
+    if (char === '{') depth += 1;
+    else if (char === '}') depth = Math.max(0, depth - 1);
+    else if (char === ',' && depth === 0) {
+      parts.push(value.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(value.slice(start));
+  return parts.map((glob) => glob.trim()).filter(Boolean);
+}
+
 /** 渲染一条规则文件：有 globs 时写入 frontmatter 的 paths；否则纯 Markdown。 */
 export function renderRuleMd(rule: { slug: string; content: string; globs?: string }): string {
-  const globs = (rule.globs ?? '')
-    .split(',')
-    .map((g) => g.trim())
-    .filter(Boolean);
+  const globs = splitGlobs(rule.globs ?? '');
   if (globs.length === 0) return `${rule.content.trim()}\n`;
   return [
     '---',
@@ -159,22 +179,6 @@ function yamlList(values: string[]): string {
   return `[${values.map(yamlString).join(', ')}]`;
 }
 
-/**
- * 智能体间沟通的等待语义。
- *
- * 平台里只有三种形式，调用方都必须等到对方给出结果：
- * 1. 委派给子智能体（Agent 工具）
- * 2. 调用平台内其他智能体（/mcp 暴露的 run_<slug> 工具）
- * 3. 调用外部 HTTP→MCP 工具（可能需要人工审批，批准前调用方挂起）
- *
- * SDK 的 `Agent` 默认后台运行（run_in_background 缺省 true），与「等待」相反。
- * 这里把 run_in_background: false 写成硬约束，否则父智能体会在子智能体
- * 返回前结束本轮，最终文本里没有结果。
- */
-export const DELEGATION_WAIT_RULE =
-  '委派时必须传 `run_in_background: false`：平台要求你等到子智能体返回结果后再继续。' +
-  '默认的后台模式会让本轮在结果回来前结束。';
-
 export function delegationWaitSection(input: WorkspaceInput): string[] {
   const subAgents = input.subAgents ?? [];
   const lines: string[] = [];
@@ -232,7 +236,6 @@ function renderClaudeMd(input: WorkspaceInput): string {
           ...skills.map((s) => `- \`${s.slug}\`：${inlineText(s.description)}`),
           '',
           '需要时用原生 `Skill` 工具调用对应技能，技能名就是上面的 slug。',
-          '不要用 `Read` 打开 `.claude/skills/` 下的文件：文件工具仅供主会话访问原生记忆。',
         ];
 
   const subAgents = input.subAgents ?? [];
@@ -319,6 +322,9 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
     `disallowedTools: ${yamlList(disallowed)}`,
     `maxTurns: ${agent.maxTurns}`,
     ...(skills.length > 0 ? [`skills: ${yamlList(skills.map((s) => s.slug))}`] : []),
+    // 必须始终显式写：省略时官方语义是「继承主会话权限」，主会话为 acceptEdits 时会
+    // 把默认的子智能体一起放大，破坏平台「子智能体默认 dontAsk」的契约。
+    ...(standalone ? [`permissionMode: ${yamlString(agent.permissionMode ?? 'dontAsk')}`] : []),
     ...(agent.effort ? [`effort: ${yamlString(agent.effort)}`] : []),
     '---',
   ];
@@ -351,11 +357,16 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
   ].join('\n');
 }
 
-export function renderSkillMd(skill: WorkspaceSkill): string {
+export function renderSkillMd(skill: SkillInput): string {
   return [
     '---',
     `name: ${yamlString(skill.slug)}`,
     `description: ${yamlString(skill.description)}`,
+    ...(skill.license ? [`license: ${yamlString(skill.license)}`] : []),
+    ...(skill.compatibility ? [`compatibility: ${yamlString(skill.compatibility)}`] : []),
+    ...(skill.metadata && Object.keys(skill.metadata).length > 0
+      ? [`metadata: ${JSON.stringify(skill.metadata)}`]
+      : []),
     '---',
     '',
     `# ${skill.name}`,

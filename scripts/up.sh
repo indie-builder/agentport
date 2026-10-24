@@ -30,6 +30,12 @@ env_get() {
 command -v docker >/dev/null 2>&1 || fail "未找到 docker"
 docker compose version >/dev/null 2>&1 || fail "未找到 docker compose"
 
+# .env 含密钥：生成期间只允许属主读写；已存在的也收紧，不改变内容。
+# 只包住这一步，避免 077 影响随后复制进沙盒镜像的 dist 权限。
+umask_restore="$(umask)"
+umask 077
+if [ -f .env ]; then chmod 600 .env; fi
+
 if [ ! -f .env ]; then
   cp .env.example .env
   ENV_FILE=.env node --input-type=commonjs <<'NODE'
@@ -63,6 +69,7 @@ NODE
   echo "已从 .env.example 生成 .env（APP_SECRET_KEY / JWT_SECRET / REDIS_PASSWORD / PLATFORM_MCP_TOKEN / ADMIN_PASSWORD 已随机填充）"
   echo "提示：请按需修改 .env 中的 ADMIN_PASSWORD 后重新部署；运行智能体还需填写 ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN"
 fi
+umask "$umask_restore"
 
 ADMIN_PASSWORD="$(env_get ADMIN_PASSWORD)"
 [ -n "$ADMIN_PASSWORD" ] ||

@@ -9,8 +9,9 @@ import { AGENT_PACKAGE_MAX_BYTES, serializeAgentPackage } from '../packages/shar
  * 专家包字节上限的真实浏览器验收：真实页面、真实 API、数据库直写 fixture。
  * DATABASE_URL 必须显式给出（无默认值），且与页面背后 API 指向同一个库。
  */
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) throw new Error('DATABASE_URL is required for agent package fixtures');
+const envDatabaseUrl = process.env.DATABASE_URL;
+if (!envDatabaseUrl) throw new Error('DATABASE_URL is required for agent package fixtures');
+const DATABASE_URL: string = envDatabaseUrl;
 
 let dbPromise: ReturnType<typeof createDb> | undefined;
 function db(): ReturnType<typeof createDb> {

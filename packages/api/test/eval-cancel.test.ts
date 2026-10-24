@@ -48,6 +48,8 @@ describe.skipIf(!ready)('eval run cancellation', () => {
     const caseSnapshot = [
       { id: evalCase.id, name: 'hello', prompt: 'say hello', expectation: 'hello' },
     ];
+    const [snapshot] = caseSnapshot;
+    if (!snapshot) throw new Error('missing case snapshot');
     const run = await repo.evalRepo.createEvalRun(app.db, {
       id: newId('evalRun'),
       agentId: agent.id,
@@ -55,7 +57,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
       caseSnapshot,
     });
     evalRunIds.push(run.id);
-    return { agent, evalCase, caseSnapshot, run };
+    return { agent, evalCase, caseSnapshot, snapshot, run };
   };
 
   const cancel = (id: string, withCookie = true) =>
@@ -127,7 +129,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
   });
 
   it('keeps result counts consistent when recording races with cancellation', async () => {
-    const { run, evalCase, caseSnapshot } = await seedRun();
+    const { run, evalCase, snapshot } = await seedRun();
     await Promise.all([
       cancel(run.id),
       repo.evalRepo.addResult(
@@ -136,7 +138,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
           id: newId('evalResult'),
           evalRunId: run.id,
           caseId: evalCase.id,
-          caseSnapshot: caseSnapshot[0],
+          caseSnapshot: snapshot,
           runId: null,
           passed: true,
           output: 'concurrent answer',
@@ -164,7 +166,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
   });
 
   it('rejects a worker result after cancellation without changing the count', async () => {
-    const { run, evalCase, caseSnapshot } = await seedRun();
+    const { run, evalCase, snapshot } = await seedRun();
     await cancel(run.id);
     await repo.evalRepo.addResult(
       app.db,
@@ -172,7 +174,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
         id: newId('evalResult'),
         evalRunId: run.id,
         caseId: evalCase.id,
-        caseSnapshot: caseSnapshot[0],
+        caseSnapshot: snapshot,
         runId: null,
         passed: true,
         output: 'late answer',
@@ -185,7 +187,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
   });
 
   it('ignores late finish, progress and claim while keeping recorded results', async () => {
-    const { run, evalCase, caseSnapshot } = await seedRun();
+    const { run, evalCase, snapshot } = await seedRun();
     // 取消前已写下的结果属于这次跑批，取消不该抹掉它。
     await repo.evalRepo.addResult(
       app.db,
@@ -193,7 +195,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
         id: newId('evalResult'),
         evalRunId: run.id,
         caseId: evalCase.id,
-        caseSnapshot: caseSnapshot[0],
+        caseSnapshot: snapshot,
         runId: null,
         passed: true,
         output: 'answer hello',

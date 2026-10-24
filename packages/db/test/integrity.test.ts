@@ -1,11 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createDb } from '../client.js';
-import { newId } from '../id.js';
-import * as chat from '../repo/chat.js';
-import * as evalRepo from '../repo/eval.js';
-import * as maintenance from '../repo/maintenance.js';
-import { agents } from '../schema.js';
+import { createDb } from '../src/client.js';
+import { newId } from '../src/id.js';
+import * as chat from '../src/repo/chat.js';
+import * as evalRepo from '../src/repo/eval.js';
+import * as maintenance from '../src/repo/maintenance.js';
+import { agents } from '../src/schema.js';
 
 const { db, pool } = createDb(
   process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport',
