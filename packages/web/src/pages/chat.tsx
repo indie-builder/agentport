@@ -658,12 +658,7 @@ function RenameDialog({
         if (!next) close();
       }}
     >
-      <DialogShell
-        title="重命名会话"
-        description="标题用于区分历史会话，不会改动已有消息。"
-        closeDisabled={pending}
-        finalFocus={finalFocus}
-      >
+      <DialogShell title="重命名会话" closeDisabled={pending} finalFocus={finalFocus}>
         <form noValidate onSubmit={submit} className="flex flex-col gap-4">
           <Field className="gap-1.5" data-invalid={Boolean(error)}>
             <FieldLabel htmlFor="conversation-title">

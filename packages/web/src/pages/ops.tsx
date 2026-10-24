@@ -133,8 +133,7 @@ export function SchedulesPage() {
       {schedules.data && items.length === 0 ? (
         <PageNote
           icon={<CalendarClock className="size-4" aria-hidden="true" />}
-          title="还没有定时任务"
-          description="定时任务按 cron 自动发起运行，适合每天固定的巡检、汇总。"
+          title="按 cron 自动发起运行"
           action={
             <Button size="sm" onClick={() => setCreating(true)}>
               <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务

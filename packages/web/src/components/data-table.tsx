@@ -396,7 +396,7 @@ export function DataTable<T extends RowData>({
     <div className={cn('flex min-w-0 max-w-full flex-col', className)}>
       <div className="flex h-8 items-center justify-between">
         <div className="text-xs text-muted-foreground">
-          {loading ? '加载中…' : `${rows.length} 行`}
+          {loading ? '加载中…' : rows.length > 0 ? `${rows.length} 行` : null}
         </div>
         <div>
           <DndContext

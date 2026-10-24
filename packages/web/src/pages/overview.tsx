@@ -366,7 +366,7 @@ function RunTrendCard() {
             </AreaChart>
           </ChartContainer>
         ) : (
-          <EmptyState title="运行趋势会显示在这里" />
+          <EmptyState title="发起对话后生成趋势" />
         )}
       </CardContent>
     </Card>
@@ -542,20 +542,17 @@ export function OverviewPage() {
                   }
                 />
               ) : (
-                <PageNote
-                  title="运行记录会显示在这里"
-                  action={
-                    <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
-                      <Plus className="size-3.5" aria-hidden="true" /> 新建对话
-                    </Link>
-                  }
-                />
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-5 text-sm">
+                  <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                    <Plus className="size-3.5" aria-hidden="true" /> 新建对话
+                  </Link>
+                </div>
               )}
             </PageSection>
 
             <div className="flex min-w-0 flex-col gap-5">
               <PageSection
-                title="需要处理"
+                title="最近失败运行"
                 divided={false}
                 description={recent ? `最近 ${recent.length} 条运行` : ''}
               >
@@ -642,10 +639,7 @@ export function OverviewPage() {
                 className="max-h-96 overflow-y-auto"
               />
             ) : (
-              <PageNote
-                title="还没有专家"
-                description="创建专家并绑定技能或连接器后，即可开始对话。"
-              />
+              <PageNote title="创建专家后开始对话" />
             )}
           </PageSection>
           <HealthLine />

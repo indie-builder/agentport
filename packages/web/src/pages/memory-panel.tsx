@@ -370,28 +370,22 @@ export function RulesPanel({ agentId }: { agentId: string }) {
         <Button variant="outline" size="sm" onClick={startCreate}>
           <Plus data-icon="inline-start" /> 新建规则
         </Button>
-        {rules.data.length === 0 ? (
-          <p className="px-1 text-xs text-muted-foreground">
-            规则会随工作区加载，用来约束专家的行为。
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-0.5">
-            {rules.data.map((rule) => (
-              <li key={rule.id}>
-                <button
-                  type="button"
-                  onClick={() => open(rule)}
-                  className={cn(
-                    'w-full truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
-                    selected === rule.slug && 'bg-selected text-fg',
-                  )}
-                >
-                  {rule.slug}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="flex flex-col gap-0.5">
+          {rules.data.map((rule) => (
+            <li key={rule.id}>
+              <button
+                type="button"
+                onClick={() => open(rule)}
+                className={cn(
+                  'w-full truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
+                  selected === rule.slug && 'bg-selected text-fg',
+                )}
+              >
+                {rule.slug}
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
       <div className="flex min-w-0 flex-col gap-2">
         {creating || current ? (
@@ -447,10 +441,7 @@ export function RulesPanel({ agentId }: { agentId: string }) {
             </div>
           </>
         ) : (
-          <EmptyState
-            title="选择或新建规则"
-            description="规则按官方 .claude/rules 约定随会话加载。"
-          />
+          <EmptyState title="选择或新建规则" />
         )}
       </div>
     </div>
@@ -546,29 +537,25 @@ export function OutputStylesPanel({ agentId }: { agentId: string }) {
         <Button variant="outline" size="sm" onClick={startCreate}>
           <Plus data-icon="inline-start" /> 新建风格
         </Button>
-        {styles.data.length === 0 ? (
-          <p className="px-1 text-xs text-muted-foreground">新建风格后会随会话加载。</p>
-        ) : (
-          <ul className="flex flex-col gap-0.5">
-            {styles.data.map((style) => (
-              <li key={style.id}>
-                <button
-                  type="button"
-                  onClick={() => open(style)}
-                  className={cn(
-                    'flex w-full items-center gap-1.5 truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
-                    selected === style.slug && 'bg-selected text-fg',
-                  )}
-                >
-                  <span className="truncate">{style.slug}</span>
-                  {style.isSelected ? (
-                    <span className="ml-auto shrink-0 text-2xs text-muted-foreground">已启用</span>
-                  ) : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="flex flex-col gap-0.5">
+          {styles.data.map((style) => (
+            <li key={style.id}>
+              <button
+                type="button"
+                onClick={() => open(style)}
+                className={cn(
+                  'flex w-full items-center gap-1.5 truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
+                  selected === style.slug && 'bg-selected text-fg',
+                )}
+              >
+                <span className="truncate">{style.slug}</span>
+                {style.isSelected ? (
+                  <span className="ml-auto shrink-0 text-2xs text-muted-foreground">已启用</span>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
       <div className="flex min-w-0 flex-col gap-2">
         {creating || current ? (

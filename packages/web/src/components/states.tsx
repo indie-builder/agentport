@@ -53,7 +53,6 @@ export function ErrorState({
         <div className="font-medium text-fg">{title}</div>
         <div className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
           {errorMessage(error)}
-          {onRetry ? ' 可以点右侧「重试」，或在网络恢复后再试一次。' : null}
         </div>
       </div>
       {onRetry ? (

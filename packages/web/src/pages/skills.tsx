@@ -48,8 +48,8 @@ import {
   FieldLabel,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
-import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
@@ -73,11 +73,15 @@ const usageOptions = [
   { value: 'bound', label: '已绑定' },
   { value: 'unbound', label: '未绑定' },
 ];
+const scopeOptions = [
+  { value: 'internal', label: '内部' },
+  { value: 'market', label: '市场' },
+] as const;
 const marketViewOptions = [
   { value: 'all-time', label: '总榜' },
   { value: 'trending', label: '趋势' },
   { value: 'hot', label: '新热' },
-];
+] as const;
 
 const skillFormSchema = skillInputSchema.extend({
   slug: z
@@ -175,32 +179,34 @@ export function SkillsPage() {
       }
       count={visibleSkills.length}
       status={skills.status}
+      leadingFilters={
+        <SegmentedToggle
+          label="技能来源"
+          value="internal"
+          options={scopeOptions}
+          onChange={() =>
+            void navigate({
+              to: '/skills',
+              search: (previous) => ({
+                scope: 'market',
+                ...(previous.sort ? { sort: previous.sort } : {}),
+                ...(previous.marketView ? { marketView: previous.marketView } : {}),
+              }),
+            })
+          }
+        />
+      }
       filters={
-        <>
-          <ScopeTabs
-            value="internal"
-            onChange={() =>
-              void navigate({
-                to: '/skills',
-                search: (previous) => ({
-                  scope: 'market',
-                  ...(previous.sort ? { sort: previous.sort } : {}),
-                  ...(previous.marketView ? { marketView: previous.marketView } : {}),
-                }),
-              })
-            }
-          />
-          <FilterSelect
-            value={usage}
-            onValueChange={(next) => {
-              if (next !== 'all' && next !== 'bound' && next !== 'unbound') return;
-              setFilter({ usage: next === 'all' ? undefined : next });
-            }}
-            options={usageOptions}
-            label="按使用情况筛选"
-            className="w-36"
-          />
-        </>
+        <FilterSelect
+          value={usage}
+          onValueChange={(next) => {
+            if (next !== 'all' && next !== 'bound' && next !== 'unbound') return;
+            setFilter({ usage: next === 'all' ? undefined : next });
+          }}
+          options={usageOptions}
+          label="按使用情况筛选"
+          className="w-36"
+        />
       }
       actions={
         <>
@@ -375,25 +381,39 @@ export function SkillsPage() {
   );
 }
 
-function ScopeTabs({
+function SegmentedToggle<T extends string>({
+  label,
   value,
+  options,
   onChange,
 }: {
-  value: 'internal' | 'market';
-  onChange: (value: 'internal' | 'market') => void;
+  label: string;
+  value: T;
+  options: readonly { value: T; label: string }[];
+  onChange: (value: T) => void;
 }) {
   return (
-    <Tabs
-      value={value}
-      onValueChange={(next) => {
-        if (next === 'internal' || next === 'market') onChange(next);
+    <ToggleGroup
+      aria-label={label}
+      multiple={false}
+      spacing={0}
+      className="rounded-lg bg-muted text-muted-foreground"
+      value={[value]}
+      onValueChange={(values) => {
+        const next = options.find((option) => option.value === values[0])?.value;
+        if (next) onChange(next);
       }}
     >
-      <TabsList variant="line" aria-label="技能来源">
-        <TabsTrigger value="internal">内部</TabsTrigger>
-        <TabsTrigger value="market">市场</TabsTrigger>
-      </TabsList>
-    </Tabs>
+      {options.map((option) => (
+        <ToggleGroupItem
+          key={option.value}
+          value={option.value}
+          className="aria-pressed:bg-background aria-pressed:text-foreground"
+        >
+          {option.label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   );
 }
 
@@ -450,36 +470,38 @@ function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) 
       count={market.data?.length ?? 0}
       status={tooShort ? 'success' : market.status}
       hideSort
+      leadingFilters={
+        <SegmentedToggle
+          label="技能来源"
+          value="market"
+          options={scopeOptions}
+          onChange={() =>
+            void navigate({
+              to: '/skills',
+              search: (previous) => ({
+                ...(previous.sort ? { sort: previous.sort } : {}),
+              }),
+            })
+          }
+        />
+      }
       filters={
-        <>
-          <ScopeTabs
-            value="market"
-            onChange={() =>
-              void navigate({
-                to: '/skills',
-                search: (previous) => ({
-                  ...(previous.sort ? { sort: previous.sort } : {}),
-                }),
-              })
-            }
-          />
-          <FilterSelect
+        query.trim() === '' ? (
+          <SegmentedToggle
+            label="榜单"
             value={view}
-            onValueChange={(next) => {
-              if (next !== 'all-time' && next !== 'trending' && next !== 'hot') return;
+            options={marketViewOptions}
+            onChange={(next) =>
               void navigate({
                 to: '/skills',
                 search: (previous) => ({
                   ...previous,
                   marketView: next === 'all-time' ? undefined : next,
                 }),
-              });
-            }}
-            options={marketViewOptions}
-            label="按榜单筛选"
-            className="w-32"
+              })
+            }
           />
-        </>
+        ) : null
       }
     >
       {tooShort ? (
@@ -536,7 +558,7 @@ function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) 
                     </span>
                     <Button
                       size="sm"
-                      variant={installed ? 'outline' : 'default'}
+                      variant="outline"
                       disabled={installed || install.isPending}
                       aria-busy={pending}
                       aria-label={installed ? `${item.name} 已安装` : `安装 ${item.name}`}
@@ -880,11 +902,6 @@ function SkillFilesEditor({
           ))}
         </ul>
       ) : null}
-      {files.data && files.data.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          scripts/、references/ 等文件会随技能一起加载。
-        </p>
-      ) : null}
       <div className="flex flex-col gap-2 rounded-item border border-line p-2">
         <Input
           {...rhf.register('path', { setValueAs: (value: string) => value.trim() })}
@@ -938,7 +955,7 @@ function DeleteSkillDialog({
       description={
         skill.agentCount > 0
           ? `将删除「${skill.name}」。${skill.agentCount} 个智能体将失去该技能，需要重新绑定。`
-          : `将删除「${skill.name}」。目前没有智能体绑定它。`
+          : `将删除「${skill.name}」。此操作不可撤销。`
       }
       confirmLabel="删除"
       finalFocus={finalFocus}
