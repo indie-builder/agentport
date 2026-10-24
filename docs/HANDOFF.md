@@ -1,5 +1,6 @@
 # 交接摘要（2026-10-20，最终状态）
 
+> 只读历史：本文件是某时间点的状态快照，非待办来源；未完成项以 [REMAINING-TODOS.md](REMAINING-TODOS.md) 为准。
 > 当前状态快照。能力清单见根 [CHANGELOG.md](../CHANGELOG.md)，待决策见 [DECISIONS-PENDING.md](DECISIONS-PENDING.md)，安全状态见 [SECURITY.md](SECURITY.md)，故障处置见 [RUNBOOK.md](RUNBOOK.md)。
 
 ## 一句话现状

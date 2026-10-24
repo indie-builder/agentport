@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.1] - 2026-10-24
+
+### 文档剪枝与单一真相收敛
+
+- 删除 `docs/README.md` 中关于 `docs/tasks/` 目录「目前无任务时为空」的过期描述
+- `CLAUDE.md` 的 E2E 行去掉固定版本号（版本以 `package.json` 为准，属环境而非规则）
+- `CAPABILITY-GAP.md`、`HANDOFF.md` 顶部标注为只读历史，未完成项统一以 `REMAINING-TODOS.md` 为准
+
 ## [0.13.0] - 2026-10-21
 
 ### 前端技术栈对齐

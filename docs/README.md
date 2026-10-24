@@ -18,7 +18,7 @@
 | [RUNBOOK.md](RUNBOOK.md) | 故障处置手册 |
 | [FIRST-RUN.md](FIRST-RUN.md) | 首次跑起来的步骤 |
 | [SKILLS.md](SKILLS.md) | 已装技能清单与用途 |
-| `tasks/<slug>.md` | 单个任务的执行记录（按 `DEV-WORKFLOW.md` 模板创建，目前无任务时为空的约定目录） |
+| `tasks/<slug>.md` | 单个任务的执行记录（按 `DEV-WORKFLOW.md` 模板创建） |
 
 ## 仓库根文档
 
