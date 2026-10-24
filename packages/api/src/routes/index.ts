@@ -6,6 +6,7 @@ import { registerChatRoutes } from '../features/chat/routes.js';
 import { registerEvalRoutes } from '../features/eval/routes.js';
 import { registerExportRoutes } from '../features/export/routes.js';
 import { registerImportRoutes } from '../features/import/routes.js';
+import { registerMarketRoutes } from '../features/market/routes.js';
 import { registerOpsRoutes } from '../features/ops/routes.js';
 import { registerOverviewRoutes } from '../features/overview/routes.js';
 import { registerRunRoutes } from '../features/runs/routes.js';
@@ -26,6 +27,7 @@ export async function registerRoutes(app: FastifyInstance) {
   registerAgentToolsEndpoint(app, createInvoker(app));
   await registerAgentRoutes(app);
   await registerSkillRoutes(app);
+  registerMarketRoutes(app);
   registerExportRoutes(app);
   registerImportRoutes(app);
   await registerAuditRoutes(app);

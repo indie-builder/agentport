@@ -1,12 +1,13 @@
-import { fail, isAppError, parseSkillMd, renderSkillMd } from '@agentport/core';
+import { isAppError, parseSkillMd, renderSkillMd } from '@agentport/core';
 import { repo as skillRepo } from '@agentport/db';
-import type { Skill, SkillWithAgentCount } from '@agentport/shared';
+import type { SkillWithAgentCount } from '@agentport/shared';
 import { idParams, skillFileInputSchema, skillInputSchema, slugSchema } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { isPgCode, reject } from '../../plugins/errors.js';
+import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { rethrowConflict, toApi } from './api.js';
 
 const repo = skillRepo.skills;
 const filesRepo = skillRepo.skillFiles;
@@ -36,26 +37,6 @@ const patchSchema = z.object({
 
 function notFound(reply: FastifyReply) {
   return reject(reply, 'NOT_FOUND', '技能不存在，可能已被删除；请刷新后重试');
-}
-
-/** skills.slug 有唯一索引（23505）→ 409。 */
-function rethrowConflict(err: unknown): never {
-  if (isPgCode(err, '23505')) fail('CONFLICT', '该 slug 已被其他技能占用，请换一个');
-  throw err;
-}
-
-type SkillRow = NonNullable<Awaited<ReturnType<typeof repo.getSkill>>>;
-
-function toApi(row: SkillRow): Skill {
-  return {
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    description: row.description,
-    body: row.body,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
 }
 
 export function registerSkillRoutes(rawApp: FastifyInstance): void {

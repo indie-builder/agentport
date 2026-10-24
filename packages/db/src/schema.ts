@@ -110,10 +110,16 @@ export const skills = pgTable(
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     body: text('body').notNull().default(''),
+    /** skills.sh 来源 `owner/repo/skill`；内部自建为 null。 */
+    sourceId: text('source_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('skills_slug_idx').on(t.slug)],
+  (t) => [
+    uniqueIndex('skills_slug_idx').on(t.slug),
+    // 同一市场技能只允许装一次；Postgres 唯一索引允许多个 NULL，内部技能不受影响。
+    uniqueIndex('skills_source_id_idx').on(t.sourceId),
+  ],
 );
 
 export const agentSkills = pgTable(

@@ -10,6 +10,8 @@ import type {
   ChatRequest,
   ConnectorCatalogItem,
   EvalDataset,
+  MarketInstallInput,
+  MarketView,
   MemoryFileContent,
   MemoryFileList,
   OutputStyle,
@@ -650,6 +652,25 @@ export function useImportSkillFile() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (content: string) => api.importSkillFile(content),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
+  });
+}
+
+/** 市场搜索要求至少 2 个字符；空查询走 skills.sh 榜单。 */
+export function useMarketSkills(view: MarketView, query: string) {
+  const term = query.trim();
+  return useQuery({
+    queryKey: ['market-skills', view, term],
+    queryFn: () => api.marketSkills({ view, ...(term === '' ? {} : { q: term }) }),
+    enabled: term.length === 0 || term.length >= 2,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useInstallMarketSkill() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: MarketInstallInput) => api.installMarketSkill(input),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
   });
 }
