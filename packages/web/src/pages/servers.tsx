@@ -929,7 +929,7 @@ function DeleteServerDialog({
                 </li>
               </ul>
               {bound.length > 0 ? (
-                <ul className="mt-2 flex flex-col gap-0.5 border-t border-danger-line pt-2 text-xs text-fg">
+                <ul className="mt-2 flex flex-col gap-0.5 border-t border-line pt-2 text-xs text-fg">
                   {bound.map((agent) => (
                     <li key={agent.id}>· {agent.name}</li>
                   ))}

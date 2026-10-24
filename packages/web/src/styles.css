@@ -40,31 +40,24 @@
   --color-muted: var(--color-sunken);
   --color-subtle: rgb(37 40 44 / 0.38);
 
-  /* 图表保留深浅中性序列，不借用品牌黄色表达运行状态。 */
+  /* 运行用石墨色，失败用独立状态色；不借用品牌黄色。 */
   --color-chart-runs: var(--color-fg);
-  --color-chart-failed: var(--color-muted-foreground);
+  --color-chart-failed: var(--color-danger);
 
   /* 石墨实底：主按钮与发送保持清楚、安静的视觉重量。 */
   --color-ink: #303236;
 
   /* 状态：只用于小面积 */
-  --color-success: #1a7f4b;
-  --color-success-soft: #eaf4ee;
-  --color-success-line: #bfdccd;
+  /* 成功色需同时满足纸白、画布、选中底上的文字对比度。 */
+  --color-success: #187646;
   --color-warning: #8a5600;
   --color-warning-soft: #fbf3e4;
-  --color-warning-line: #e8d2a8;
   --color-danger: #b42318;
   --color-danger-soft: #fcebe9;
-  --color-danger-line: #f0c2bd;
 
   /* 代码 */
   --color-code: #f3f2ed;
   --color-code-line: var(--color-line);
-  --color-code-key: #1f4fa8;
-  --color-code-string: #1f6b47;
-  --color-code-literal: #8a5a00;
-  --color-code-number: #6b3fa0;
 
   --color-scrim: rgb(0 0 0 / 0.4);
 
@@ -167,7 +160,7 @@
     --shiki-token-constant: #4a4a4a;
     --shiki-token-keyword: #111111;
     --shiki-token-function: #1f1f1f;
-    --shiki-token-parameter: #555555;
+    --shiki-token-parameter: var(--color-muted-foreground);
     --shiki-token-punctuation: var(--color-muted-foreground);
     --shiki-token-link: var(--color-fg);
   }
