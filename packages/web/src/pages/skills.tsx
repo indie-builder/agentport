@@ -212,22 +212,6 @@ export function SkillsPage() {
       {skills.isError ? (
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
       ) : null}
-      {skills.data && skills.data.length === 0 ? (
-        <PageNote
-          icon={<Sparkles aria-hidden="true" />}
-          title="把重复步骤写成可复用的技能"
-          action={
-            <Button
-              onClick={(event) => {
-                actionTriggerRef.current = event.currentTarget;
-                setCreating(true);
-              }}
-            >
-              <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
-            </Button>
-          }
-        />
-      ) : null}
       {skills.data && skills.data.length > 0 && visibleSkills.length === 0 ? (
         <PageNote
           icon={<Sparkles aria-hidden="true" />}
