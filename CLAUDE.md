@@ -62,6 +62,7 @@
 ## 前端
 
 - **一切视觉以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 为准**，设计基准是 https://www.openui.com/chat?form_factor=desktop。无彩度（黑白灰 + 透明度）、1px 线与留白、lucide 图标 `strokeWidth={1.75}` 16px、焦点/边框统一（§9）、信息表达「让布局解释结构」（§10，做 UI 前后逐条过）。
+- **布局优先。** "Cut taglines, helper text and secondary labels. If a screen needs them to make sense, fix the layout." 删掉标语、用于解释结构的辅助文案和重复的次级标签；若界面要靠这些文字才看得懂，先改分组/对齐/间距/层级，而不是加字。表单字段标签、约束提示、错误、风险与无障碍说明仍按 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) §10 保留。
 - **组件库只用 shadcn/ui**（`components.json` 已配；`pnpm dlx shadcn@latest add <name>` 后可改源码 token）；交互原语只用 Base UI（`@base-ui/react`），Radix 已移除不再引入；样式只用 Tailwind 4，颜色/间距/字体/圆角只从 `styles.css` 的 `@theme` token 取，禁止硬编码 hex。先看 `components/ui/` 有无可复用再新增。
 - 页面骨架统一用 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`），每个渲染状态恰好一个 `h1`；不写页面级 `mt-*`/`mb-*`。
 - 焦点/边框与项目契约由 `pnpm lint:focus` / `pnpm lint:contract` 校验（review 阶段按需跑，不装钩子、不阻塞）。
@@ -75,6 +76,7 @@
   业务规则冲突（409/404）仍在 handler 内显式返回。详见 `docs/VALIDATION.md`。
 - 所有 `/api/*` 路由除明确公开项外必须挂 `requireAuth`。
 - schema 变更后必须 `pnpm db:generate` + `pnpm db:migrate`，并同步 `docs/` 中的相关说明。
+- **业务实体 ID：** 常规业务实体主键统一通过 `@agentport/db` 的 `newId(entity)` 在应用层生成 TypeID；UI 实体列表复用实体主键作为行标识，关联表、认证、幂等派生标识、外部资源及其他 UI 行标识按 [ID 约定](docs/PROJECT-BRIEF.md#162-id-约定) 处理。
 
 ## 测试
 
