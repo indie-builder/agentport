@@ -112,6 +112,8 @@ export type SkillInput = z.infer<typeof skillInputSchema>;
 export const skillSchema = skillInputSchema.and(
   z.object({
     id: z.string(),
+    /** skills.sh 来源 `owner/repo/skill`；内部自建为 null。 */
+    sourceId: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   }),
@@ -188,6 +190,32 @@ export const skillWithAgentCountSchema = skillSchema.and(
 );
 
 export type SkillWithAgentCount = z.infer<typeof skillWithAgentCountSchema>;
+
+/** skills.sh 市场榜单视图。 */
+export const marketViewSchema = z.enum(['all-time', 'trending', 'hot']);
+export type MarketView = z.infer<typeof marketViewSchema>;
+
+/** skills.sh 市场条目；id 为 `owner/repo/skill`，name 是 CLI `--skill` 匹配用的显示名。 */
+export const marketSkillSchema = z.object({
+  id: z.string().min(1),
+  source: z.string().min(1),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  installs: z.number().int().nonnegative(),
+});
+
+export type MarketSkill = z.infer<typeof marketSkillSchema>;
+
+export const marketInstallInputSchema = z.object({
+  id: z
+    .string()
+    .regex(
+      /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9][A-Za-z0-9._-]*$/,
+      '市场技能 id 必须是 owner/repo/skill',
+    ),
+});
+
+export type MarketInstallInput = z.infer<typeof marketInstallInputSchema>;
 
 /** 工作区文件预览：前端「完整文件」视图用；字段与 renderWorkspace 输出一致。 */
 export const workspaceFilesSchema = z.object({

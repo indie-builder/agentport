@@ -155,3 +155,52 @@ describe.skipIf(!ready)('auth', () => {
     expect(after.statusCode).toBe(401);
   });
 });
+
+describe.skipIf(!ready)('auth wildcard origins', () => {
+  const config = testConfig();
+  const origin = 'https://worktree-skills-toolbar-layout.agentport.localhost';
+  let app: FastifyInstance;
+  let strictApp: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await startApp({ CORS_ORIGINS: 'http://localhost:5173,https://*.agentport.localhost' });
+    strictApp = await startApp({ CORS_ORIGINS: 'http://localhost:5173' });
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await strictApp.close();
+  });
+
+  it('logs in and out from an arbitrary worktree subdomain', async () => {
+    const login = await inject(app, {
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: { origin },
+      payload: { username: config.ADMIN_USER, password: config.ADMIN_PASSWORD },
+    });
+    expect(login.statusCode, login.body).toBe(200);
+
+    const cookie = login.cookies.find((c) => c.name === AUTH_COOKIE);
+    expect(cookie?.httpOnly).toBe(true);
+    expect(cookie?.sameSite).toBe('Lax');
+
+    const logout = await inject(app, {
+      method: 'POST',
+      url: '/api/auth/logout',
+      headers: { origin, cookie: `${AUTH_COOKIE}=${cookie?.value ?? ''}` },
+    });
+    expect(logout.statusCode, logout.body).toBe(200);
+    expect(logout.cookies.find((c) => c.name === AUTH_COOKIE)?.value).toBe('');
+  });
+
+  it('rejects a subdomain login when the wildcard is not configured', async () => {
+    const res = await inject(strictApp, {
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: { origin },
+      payload: { username: config.ADMIN_USER, password: config.ADMIN_PASSWORD },
+    });
+    expect(expectProblem(res, 'FORBIDDEN')).toBeTruthy();
+  });
+});

@@ -367,7 +367,7 @@ export function StatusPage() {
         <PageNote
           tone="danger"
           title="指标刷新失败"
-          description={data ? '以下保留上次成功读取的指标。' : '暂时无法读取运行指标。'}
+          description={data ? '以下保留上次成功读取的指标。' : undefined}
           action={
             <Button
               variant="outline"
@@ -392,13 +392,10 @@ export function StatusPage() {
           ) : metrics.isPending ? (
             <LoadingState rows={2} />
           ) : (
-            <>
-              <div className="text-sm text-muted-foreground">读不到进程指标。</div>
-              <Reason>
-                指标端点不可达或返回非 200；先确认 API 进程与反向代理，再看{' '}
-                <code className="font-mono">docker compose logs api</code>。
-              </Reason>
-            </>
+            <Reason>
+              指标端点不可达或返回非 200；先确认 API 进程与反向代理，再看{' '}
+              <code className="font-mono">docker compose logs api</code>。
+            </Reason>
           )}
         </PageSection>
 
@@ -424,10 +421,7 @@ export function StatusPage() {
           ) : metrics.isPending ? (
             <LoadingState rows={2} />
           ) : (
-            <>
-              <div className="text-sm text-muted-foreground">队列计数不可用。</div>
-              <Reason>BullMQ 查询失败或超过 1.5 秒：Redis 不可用，或队列键被阻塞。</Reason>
-            </>
+            <Reason>BullMQ 查询失败或超过 1.5 秒：Redis 不可用，或队列键被阻塞。</Reason>
           )}
         </PageSection>
 
@@ -461,12 +455,9 @@ export function StatusPage() {
           ) : metrics.isPending ? (
             <LoadingState rows={2} />
           ) : (
-            <>
-              <div className="text-sm text-muted-foreground">Redis 不可用。</div>
-              <Reason>
-                Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
-              </Reason>
-            </>
+            <Reason>
+              Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
+            </Reason>
           )}
         </PageSection>
       </div>

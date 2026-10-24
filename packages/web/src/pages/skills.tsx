@@ -1,4 +1,6 @@
 import {
+  type MarketSkill,
+  type MarketView,
   type Skill,
   type SkillInput,
   type SkillWithAgentCount,
@@ -8,7 +10,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { Path, PathValue } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -47,13 +49,17 @@ import {
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
+import { formatTokens } from '../lib/format.js';
 import {
   useCreateSkill,
   useDeleteSkill,
   useImportSkillFile,
+  useInstallMarketSkill,
+  useMarketSkills,
   useSkills,
   useUpdateSkill,
 } from '../lib/queries.js';
@@ -67,6 +73,15 @@ const usageOptions = [
   { value: 'bound', label: '已绑定' },
   { value: 'unbound', label: '未绑定' },
 ];
+const scopeOptions = [
+  { value: 'internal', label: '内部' },
+  { value: 'market', label: '市场' },
+] as const;
+const marketViewOptions = [
+  { value: 'all-time', label: '总榜' },
+  { value: 'trending', label: '趋势' },
+  { value: 'hot', label: '新热' },
+] as const;
 
 const skillFormSchema = skillInputSchema.extend({
   slug: z
@@ -97,6 +112,7 @@ export function SkillsPage() {
   const skills = useSkills();
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/skills' });
+  const scope = search.scope ?? 'internal';
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
   const usage = search.usage ?? 'all';
@@ -147,6 +163,8 @@ export function SkillsPage() {
       );
   }, [skills.data, query, sort, usage]);
 
+  if (scope === 'market') return <MarketSkillsPage skills={skills} />;
+
   return (
     <ResourcePage
       section="skills"
@@ -161,6 +179,23 @@ export function SkillsPage() {
       }
       count={visibleSkills.length}
       status={skills.status}
+      leadingFilters={
+        <SegmentedToggle
+          label="技能来源"
+          value="internal"
+          options={scopeOptions}
+          onChange={() =>
+            void navigate({
+              to: '/skills',
+              search: (previous) => ({
+                scope: 'market',
+                ...(previous.sort ? { sort: previous.sort } : {}),
+                ...(previous.marketView ? { marketView: previous.marketView } : {}),
+              }),
+            })
+          }
+        />
+      }
       filters={
         <FilterSelect
           value={usage}
@@ -211,22 +246,6 @@ export function SkillsPage() {
       {skills.isPending ? <LoadingState rows={4} layout="cards" /> : null}
       {skills.isError ? (
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
-      ) : null}
-      {skills.data && skills.data.length === 0 ? (
-        <PageNote
-          icon={<Sparkles aria-hidden="true" />}
-          title="把重复步骤写成可复用的技能"
-          action={
-            <Button
-              onClick={(event) => {
-                actionTriggerRef.current = event.currentTarget;
-                setCreating(true);
-              }}
-            >
-              <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
-            </Button>
-          }
-        />
       ) : null}
       {skills.data && skills.data.length > 0 && visibleSkills.length === 0 ? (
         <PageNote
@@ -315,6 +334,13 @@ export function SkillsPage() {
                   <Badge variant="secondary" className="max-w-full font-mono">
                     <span className="truncate">{skill.slug}</span>
                   </Badge>
+                  {skill.sourceId ? (
+                    <Badge variant="outline" className="max-w-full font-mono">
+                      <span className="truncate" title={skill.sourceId}>
+                        来自 {skill.sourceId.split('/').slice(0, 2).join('/')}
+                      </span>
+                    </Badge>
+                  ) : null}
                 </CardContent>
                 <CardFooter className="mt-auto justify-between gap-2">
                   <span className="text-xs text-muted-foreground">
@@ -350,6 +376,202 @@ export function SkillsPage() {
           finalFocus={panelFocus}
           onClose={() => setDeleting(null)}
         />
+      ) : null}
+    </ResourcePage>
+  );
+}
+
+function SegmentedToggle<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <ToggleGroup
+      aria-label={label}
+      multiple={false}
+      spacing={0}
+      className="rounded-lg bg-muted text-muted-foreground"
+      value={[value]}
+      onValueChange={(values) => {
+        const next = options.find((option) => option.value === values[0])?.value;
+        if (next) onChange(next);
+      }}
+    >
+      {options.map((option) => (
+        <ToggleGroupItem
+          key={option.value}
+          value={option.value}
+          className="aria-pressed:bg-background aria-pressed:text-foreground"
+        >
+          {option.label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  );
+}
+
+function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) {
+  const navigate = useNavigate();
+  const search = useSearch({ from: '/_shell/skills' });
+  const view: MarketView = search.marketView ?? 'all-time';
+  const query = search.q ?? '';
+  const deferredQuery = useDeferredValue(query);
+  const term = deferredQuery.trim();
+  const tooShort = term.length === 1;
+  const market = useMarketSkills(view, deferredQuery);
+  const install = useInstallMarketSkill();
+  const [installingId, setInstallingId] = useState<string | null>(null);
+  const installedIds = new Set(
+    (skills.data ?? []).map((skill) => skill.sourceId).filter((id): id is string => id !== null),
+  );
+  const clearSearch = (): void => {
+    void navigate({
+      to: '/skills',
+      search: (previous) => ({ ...previous, q: undefined }),
+      replace: true,
+    });
+  };
+  const installSkill = (item: MarketSkill): void => {
+    if (install.isPending) return;
+    setInstallingId(item.id);
+    install.mutate(
+      { id: item.id },
+      {
+        onSuccess: ({ skill, warnings }) => {
+          toastSuccess(`已安装「${skill.name}」`);
+          for (const warning of warnings) toast.info(warning);
+        },
+        onError: toastError,
+        onSettled: () => setInstallingId(null),
+      },
+    );
+  };
+
+  return (
+    <ResourcePage
+      section="skills"
+      query={query}
+      onQueryChange={(next) =>
+        void navigate({
+          to: '/skills',
+          search: (previous) => ({ ...previous, q: next || undefined }),
+          replace: true,
+        })
+      }
+      sort="newest"
+      onSortChange={() => {}}
+      count={market.data?.length ?? 0}
+      status={tooShort ? 'success' : market.status}
+      hideSort
+      leadingFilters={
+        <SegmentedToggle
+          label="技能来源"
+          value="market"
+          options={scopeOptions}
+          onChange={() =>
+            void navigate({
+              to: '/skills',
+              search: (previous) => ({
+                ...(previous.sort ? { sort: previous.sort } : {}),
+              }),
+            })
+          }
+        />
+      }
+      filters={
+        query.trim() === '' ? (
+          <SegmentedToggle
+            label="榜单"
+            value={view}
+            options={marketViewOptions}
+            onChange={(next) =>
+              void navigate({
+                to: '/skills',
+                search: (previous) => ({
+                  ...previous,
+                  marketView: next === 'all-time' ? undefined : next,
+                }),
+              })
+            }
+          />
+        ) : null
+      }
+    >
+      {tooShort ? (
+        <PageNote
+          icon={<Sparkles aria-hidden="true" />}
+          title="至少输入 2 个字符"
+          description="再多输入一个字符即可搜索市场。"
+        />
+      ) : null}
+      {!tooShort && market.isPending ? <LoadingState rows={4} layout="cards" /> : null}
+      {!tooShort && market.isError ? (
+        <ErrorState error={market.error} onRetry={() => void market.refetch()} />
+      ) : null}
+      {!tooShort && market.data && market.data.length === 0 ? (
+        <PageNote
+          icon={<Sparkles aria-hidden="true" />}
+          title={term ? '没有匹配的技能' : '榜单为空'}
+          description={term ? '试试其他关键词。' : 'skills.sh 暂时没有返回榜单数据。'}
+          action={
+            term ? (
+              <Button variant="outline" size="sm" onClick={clearSearch}>
+                清除搜索
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : null}
+      {!tooShort && market.data && market.data.length > 0 ? (
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {market.data.map((item, index) => {
+            const installed = installedIds.has(item.id);
+            const pending = installingId === item.id;
+            return (
+              <li key={item.id} className="min-w-0">
+                <Card className="h-full">
+                  <CardHeader className="grid-cols-[auto_minmax(0,1fr)]!">
+                    <span className="flex size-10 shrink-0 items-center justify-center self-center rounded-item bg-muted font-mono text-sm text-muted-foreground">
+                      #{index + 1}
+                    </span>
+                    <CardTitle className="col-start-2 min-w-0">
+                      <h2 className="truncate" title={item.name}>
+                        {item.name}
+                      </h2>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-1 flex-col gap-3">
+                    <Badge variant="secondary" className="max-w-full font-mono">
+                      <span className="truncate">{item.source}</span>
+                    </Badge>
+                  </CardContent>
+                  <CardFooter className="mt-auto justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {formatTokens(item.installs)} 次安装
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={installed || install.isPending}
+                      aria-busy={pending}
+                      aria-label={installed ? `${item.name} 已安装` : `安装 ${item.name}`}
+                      onClick={() => installSkill(item)}
+                    >
+                      {installed ? '已安装' : pending ? '安装中…' : '安装'}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
     </ResourcePage>
   );
@@ -680,11 +902,6 @@ function SkillFilesEditor({
           ))}
         </ul>
       ) : null}
-      {files.data && files.data.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          scripts/、references/ 等文件会随技能一起加载。
-        </p>
-      ) : null}
       <div className="flex flex-col gap-2 rounded-item border border-line p-2">
         <Input
           {...rhf.register('path', { setValueAs: (value: string) => value.trim() })}
@@ -738,7 +955,7 @@ function DeleteSkillDialog({
       description={
         skill.agentCount > 0
           ? `将删除「${skill.name}」。${skill.agentCount} 个智能体将失去该技能，需要重新绑定。`
-          : `将删除「${skill.name}」。目前没有智能体绑定它。`
+          : `将删除「${skill.name}」。此操作不可撤销。`
       }
       confirmLabel="删除"
       finalFocus={finalFocus}

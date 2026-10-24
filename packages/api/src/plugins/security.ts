@@ -1,5 +1,6 @@
 import { AppError } from '@agentport/core';
 import type { FastifyInstance } from 'fastify';
+import { getTrustedOrigins, isTrustedOrigin } from '../config.js';
 
 /** 测试与本地关闭限流；预设保留显式 `rateLimit: false`，避免落回全局默认。 */
 const limitsOff = process.env.RATE_LIMIT_DISABLED === '1';
@@ -22,10 +23,12 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
       directives: { styleSrc: ["'self'", "'unsafe-inline'"] },
     },
   });
+  const trustedOrigins = getTrustedOrigins(app.config);
   await app.register(cors, {
-    origin: app.config.CORS_ORIGINS.split(',')
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0),
+    // 拒绝时返回 []：不写 allow-origin，但保留预检 204（与数组 allowlist 行为一致）。
+    origin: (origin, cb) => {
+      cb(null, origin && isTrustedOrigin(origin, trustedOrigins) ? origin : []);
+    },
     credentials: true,
   });
   await app.register(compress, { global: true });

@@ -2,7 +2,7 @@ import { AppError } from '@agentport/core';
 import { and, asc, count, eq, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
-import { agentSkills, skills } from '../schema.js';
+import { agentSkills, skillFiles, skills } from '../schema.js';
 import { notStale } from './freshness.js';
 
 export type SkillRow = typeof skills.$inferSelect;
@@ -14,6 +14,7 @@ export interface SkillWrite {
   name: string;
   description: string;
   body: string;
+  sourceId?: string | null;
 }
 
 /** 列表附带绑定的智能体数量；分组依据是主键，其余列在 PG 中函数依赖于它。 */
@@ -25,6 +26,7 @@ export async function listSkills(db: Database): Promise<SkillWithAgentCount[]> {
       name: skills.name,
       description: skills.description,
       body: skills.body,
+      sourceId: skills.sourceId,
       createdAt: skills.createdAt,
       updatedAt: skills.updatedAt,
       agentCount: count(agentSkills.agentId),
@@ -40,13 +42,44 @@ export async function getSkill(db: Database, id: string): Promise<SkillRow | nul
   return row ?? null;
 }
 
+export async function getSkillBySourceId(db: Database, sourceId: string): Promise<SkillRow | null> {
+  const [row] = await db.select().from(skills).where(eq(skills.sourceId, sourceId)).limit(1);
+  return row ?? null;
+}
+
 export async function createSkill(db: Database, input: SkillWrite): Promise<SkillRow> {
   const [row] = await db
     .insert(skills)
-    .values({ id: newId('skill'), ...input })
+    .values({ id: newId('skill'), ...input, sourceId: input.sourceId ?? null })
     .returning();
   if (!row) throw new Error('skill insert returned no row');
   return row;
+}
+
+/** 市场安装：技能行与资源文件同一事务落库，避免只留下半套技能。 */
+export async function createSkillWithFiles(
+  db: Database,
+  input: SkillWrite,
+  files: Array<{ path: string; content: string }>,
+): Promise<SkillRow> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(skills)
+      .values({ id: newId('skill'), ...input, sourceId: input.sourceId ?? null })
+      .returning();
+    if (!row) throw new Error('skill insert returned no row');
+    if (files.length > 0) {
+      await tx.insert(skillFiles).values(
+        files.map((file) => ({
+          id: newId('skillFile'),
+          skillId: row.id,
+          path: file.path,
+          content: file.content,
+        })),
+      );
+    }
+    return row;
+  });
 }
 
 export async function updateSkill(

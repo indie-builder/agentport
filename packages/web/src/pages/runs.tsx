@@ -227,7 +227,6 @@ export function RunsPage() {
         <PageNote
           icon={<Activity className="size-4" aria-hidden="true" />}
           title={filtered ? '没有匹配的运行' : '还没有运行记录'}
-          description={filtered ? undefined : '在对话页发起一次运行。'}
           action={
             filtered ? (
               <Button

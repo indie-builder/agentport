@@ -26,7 +26,9 @@ export function ResourcePage({
   count,
   status,
   filters,
+  leadingFilters,
   actions,
+  hideSort = false,
   children,
 }: {
   section: 'agents' | 'skills' | 'servers';
@@ -37,7 +39,9 @@ export function ResourcePage({
   count: number;
   status: 'pending' | 'error' | 'success';
   filters?: ReactNode;
+  leadingFilters?: ReactNode;
   actions?: ReactNode;
+  hideSort?: boolean;
   children: ReactNode;
 }) {
   const label = { agents: '专家', skills: '技能', servers: '连接器' }[section];
@@ -54,7 +58,20 @@ export function ResourcePage({
               </TabsTrigger>
             ))}
           </TabsList>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        </div>
+        <PageToolbar>
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            {leadingFilters}
+            <span role="status" className="text-xs text-muted-foreground">
+              {status === 'pending'
+                ? '加载中…'
+                : status === 'error'
+                  ? '数量不可用'
+                  : `共 ${count} 个${label}`}
+            </span>
+          </div>
+          <div className="ml-auto flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
             <SearchInput
               label={`搜索${label}`}
               placeholder={`搜索${label}…`}
@@ -62,27 +79,19 @@ export function ResourcePage({
               onChange={onQueryChange}
               className="min-w-40 flex-1 sm:w-56 sm:flex-none"
             />
-            {actions}
+            {filters}
+            {hideSort ? null : (
+              <FilterSelect
+                label="资源排序"
+                value={sort}
+                onValueChange={(next) => {
+                  if (next === 'newest' || next === 'name') onSortChange(next);
+                }}
+                options={sortOptions}
+                className="w-32"
+              />
+            )}
           </div>
-        </div>
-        <PageToolbar>
-          {filters}
-          <span role="status" className="text-xs text-muted-foreground">
-            {status === 'pending'
-              ? '加载中…'
-              : status === 'error'
-                ? '数量不可用'
-                : `共 ${count} 个${label}`}
-          </span>
-          <FilterSelect
-            label="资源排序"
-            value={sort}
-            onValueChange={(next) => {
-              if (next === 'newest' || next === 'name') onSortChange(next);
-            }}
-            options={sortOptions}
-            className="ml-auto w-32"
-          />
         </PageToolbar>
         <TabsContent value={section}>{children}</TabsContent>
       </Tabs>

@@ -800,7 +800,7 @@ function ToolCatalogDialog({
     <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogShell
         title={`工具与测试「${server.name}」`}
-        description="只读最近一次连接测试的结果；重新测试按当前配置重新连接。"
+        description="最近一次测试结果"
         finalFocus={getReturnFocus}
         className="max-w-2xl sm:max-w-2xl"
       >
@@ -813,7 +813,7 @@ function ToolCatalogDialog({
             ) : null}
             {lastTest && result ? (
               <span className="font-mono tabular-nums">
-                测试于 {formatDateTime(lastTest.at)} · 耗时 {formatDuration(result.durationMs)}
+                {formatDateTime(lastTest.at)} · {formatDuration(result.durationMs)}
               </span>
             ) : null}
             <Button
@@ -1871,7 +1871,7 @@ export function ServerFormDialog({
     >
       <DialogShell
         title={creating ? '新建连接器' : `编辑「${server.name}」`}
-        {...(!creating ? { description: '来源类型不可修改；密钥保持 •••• 不变即沿用原值。' } : {})}
+        {...(!creating ? { description: '来源类型不可修改。' } : {})}
         finalFocus={getReturnFocus}
         closeDisabled={pending}
       >
@@ -2097,13 +2097,18 @@ export function ServerFormDialog({
                       disabled={pending}
                       id="server-headers"
                       aria-invalid={Boolean(errors.pairs)}
-                      aria-describedby={errors.pairs ? 'server-headers-error' : undefined}
+                      aria-describedby={
+                        errors.pairs ? 'server-headers-error' : 'server-headers-hint'
+                      }
                       rows={2}
                       // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       placeholder="Authorization=Bearer …"
                     />
                     <FieldError id="server-headers-error">{errors.pairs?.message}</FieldError>
+                    <FieldDescription id="server-headers-hint">
+                      保存后密钥只以 •••• 返回；保持 •••• 不动即沿用原值。
+                    </FieldDescription>
                   </Field>
                   {kind === 'generated' ? (
                     <p className="rounded-item bg-chip p-3 text-xs leading-relaxed text-muted-foreground">

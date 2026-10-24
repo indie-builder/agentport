@@ -430,7 +430,6 @@ export function EvalPage() {
             <PageNote
               icon={<FlaskConical className="size-4" aria-hidden="true" />}
               title="还没有用例"
-              description="把线上出过问题的输入写成用例，下次改动前先跑一遍。"
               action={
                 <Button
                   variant="outline"
@@ -525,7 +524,7 @@ export function EvalPage() {
             <PageNote
               icon={<ClipboardCheck className="size-4" aria-hidden="true" />}
               title="还没有评估运行"
-              description="写好用例后点「运行评估」。"
+              description="点「运行评估」开始。"
             />
           ) : null}
           {effectiveAgentId && runs.data && runs.data.length > 0 ? (

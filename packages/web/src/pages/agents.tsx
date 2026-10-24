@@ -1585,7 +1585,7 @@ export function AgentEditor({
                       />
                     </Field>
 
-                    <DraftPreview title="将写入 CLAUDE.md 的内容" code={claudeDraft} />
+                    <DraftPreview title="CLAUDE.md 草稿" code={claudeDraft} />
 
                     <FieldGroup className="grid gap-5 sm:grid-cols-2">
                       <Field data-disabled={pending} className="gap-1.5">
@@ -1719,12 +1719,7 @@ export function AgentEditor({
                               <ComboboxList>
                                 {(option: (typeof serverOptions)[number]) => (
                                   <ComboboxItem key={option.id} value={option}>
-                                    <span className="min-w-0 flex-1">
-                                      <span className="block truncate">{option.label}</span>
-                                      <span className="block truncate text-xs text-muted-foreground">
-                                        {option.hint}
-                                      </span>
-                                    </span>
+                                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
                                     <StatusBadge tone="mono">{option.tag}</StatusBadge>
                                   </ComboboxItem>
                                 )}
@@ -1750,11 +1745,7 @@ export function AgentEditor({
                         ) : null}
                         {skills.data && skills.data.length === 0 ? (
                           <p className="text-xs text-muted-foreground">
-                            还没有技能。技能是可复用的操作流程，会渲染为
-                            <code className="mx-1 font-mono text-muted-foreground">
-                              .claude/skills/&lt;slug&gt;/SKILL.md
-                            </code>
-                            供智能体按需读取。
+                            前往技能页创建或安装技能。
                           </p>
                         ) : null}
                         {skills.data && skills.data.length > 0 ? (
@@ -1916,18 +1907,19 @@ export function AgentEditor({
                             ))}
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            下载已保存的子定义；其中声明的技能文件与 MCP
-                            连接配置仍需来自同一工作区。
-                            {form.subAgentIds.length !== agent.subAgentIds.length ||
-                            form.subAgentIds.some((id) => !agent.subAgentIds.includes(id))
-                              ? '当前草稿的子智能体绑定尚未保存，这里仍是已保存版本。'
-                              : ''}
+                            技能文件与 MCP 连接配置需来自同一工作区。
                           </p>
+                          {form.subAgentIds.length !== agent.subAgentIds.length ||
+                          form.subAgentIds.some((id) => !agent.subAgentIds.includes(id)) ? (
+                            <p className="text-xs text-muted-foreground">
+                              绑定未保存 · 下载的是已保存版本。
+                            </p>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
 
-                    <DraftPreview title="将写入 .mcp.json 与 frontmatter" code={fileDraft} />
+                    <DraftPreview title=".mcp.json 与 frontmatter 草稿" code={fileDraft} />
                   </Section>
                 ) : null}
 
@@ -2143,7 +2135,7 @@ export function AgentEditor({
                           </FieldError>
                         ) : (
                           <FieldDescription id="agent-thinking-hint">
-                            留空表示不设置；只传给 SDK，不写文件。
+                            留空表示不设置。
                           </FieldDescription>
                         )}
                       </Field>
@@ -2267,7 +2259,6 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
           aria-hidden="true"
         />
         {title}
-        <span className="ml-auto font-mono text-2xs text-muted-foreground">草稿 · 实时</span>
       </CollapsibleTrigger>
       {/* 高度动画由 motion 管，Radix 负责 open 状态和 trigger/content 的 aria 关联。 */}
       <CollapsibleContent keepMounted>
@@ -2440,10 +2431,16 @@ function FilesPreview({
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="rounded-item bg-chip px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-        密钥在运行时注入，此处显示为占位符。
-        {dirty ? ' 这里是上次保存后的完整文件；编辑中的草稿请回「配置」看内联预览。' : ''}
-      </p>
+      {entry?.id === '.mcp.json' ? (
+        <p className="rounded-item bg-chip px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+          密钥在运行时注入，此处显示为占位符。
+        </p>
+      ) : null}
+      {dirty ? (
+        <p className="rounded-item bg-chip px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+          显示上次保存的文件；未保存内容见配置草稿。
+        </p>
+      ) : null}
       {files.isPending ? <LoadingState rows={6} /> : null}
       {files.isError ? (
         <ErrorState error={files.error} onRetry={() => void files.refetch()} />

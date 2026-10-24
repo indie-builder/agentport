@@ -380,10 +380,10 @@ export function RunDetailPage() {
         </section>
       </div>
 
-      <PageSection title="运行上下文" description="专家名称显示当前配置名称。">
+      <PageSection title="运行上下文">
         <div className="grid min-w-0 grid-cols-1 gap-x-4 sm:grid-cols-2">
           <ContextRow label="运行 ID" value={detail.id} mono copy />
-          <ContextRow label="智能体" value={detail.agentName ?? detail.agentId} />
+          <ContextRow label="专家（当前）" value={detail.agentName ?? detail.agentId} />
           <ContextRow
             label="入队时版本"
             value={detail.agentVersion != null ? `v${detail.agentVersion}` : '—'}

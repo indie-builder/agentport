@@ -11,6 +11,7 @@ import { hashPassword } from 'better-auth/crypto';
 import { username } from 'better-auth/plugins/username';
 import { eq } from 'drizzle-orm';
 import type { Config } from '../../config.js';
+import { getTrustedOrigins } from '../../config.js';
 import { isPgCode } from '../../plugins/errors.js';
 import { AUTH_COOKIE, AUTH_MAX_AGE_SECONDS } from './types.js';
 
@@ -22,12 +23,7 @@ export function createAuth(config: Config, db: Database) {
   return betterAuth({
     baseURL: config.SELF_URL,
     secret: config.JWT_SECRET,
-    trustedOrigins: [
-      ...config.CORS_ORIGINS.split(',')
-        .map((origin) => origin.trim())
-        .filter((origin) => origin.length > 0),
-      config.SELF_URL,
-    ],
+    trustedOrigins: getTrustedOrigins(config),
     database: drizzleAdapter(db, {
       provider: 'pg',
       schema: {

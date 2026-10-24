@@ -75,7 +75,7 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
 
   // 预览分两块：内联草稿（配置页）与完整文件（保存后的快照）。
   await expect(
-    screen.getByText('将写入 .mcp.json 与 frontmatter', { exact: false }).first(),
+    screen.getByRole('button', '.mcp.json 与 frontmatter 草稿', { exact: true }),
   ).toBeVisible();
   await screen.getByRole('button', '.mcp.json', { exact: true }).tap();
   await expect(screen.getByText('"mcpServers"', { exact: false }).first()).toBeVisible();

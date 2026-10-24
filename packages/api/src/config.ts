@@ -33,6 +33,61 @@ const envSchema = z.object({
 
 export type Config = z.infer<typeof envSchema>;
 
+/** 浏览器 Origin allowlist：逗号分隔的 CORS_ORIGINS 加上平台自身地址。 */
+export function getTrustedOrigins(config: Pick<Config, 'CORS_ORIGINS' | 'SELF_URL'>): string[] {
+  return [
+    ...config.CORS_ORIGINS.split(',')
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0),
+    config.SELF_URL,
+  ];
+}
+
+/**
+ * 通配符只支持 `protocol://*.hostname[:port]`：协议与端口必须一致，
+ * 主机名必须比基域多至少一个标签。精确条目保持原有的字符串语义。
+ */
+export function isTrustedOrigin(origin: string, trustedOrigins: readonly string[]): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  // Origin 只能是纯 origin；带凭据、路径、查询或 fragment 的一律拒绝。
+  if (
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== '/' ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    return false;
+  }
+
+  return trustedOrigins.some((entry) => {
+    if (entry === '*' || !entry.includes('://*.')) return parsed.origin === entry;
+
+    let pattern: URL;
+    try {
+      pattern = new URL(entry);
+    } catch {
+      return false;
+    }
+    if (pattern.username || pattern.password || pattern.pathname !== '/' || pattern.search) {
+      return false;
+    }
+    const base = pattern.hostname.slice(2);
+    return (
+      parsed.protocol === pattern.protocol &&
+      parsed.port === pattern.port &&
+      base.length > 0 &&
+      parsed.hostname.length > base.length + 1 &&
+      parsed.hostname.endsWith(`.${base}`)
+    );
+  });
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return parseEnv(envSchema, env);
 }

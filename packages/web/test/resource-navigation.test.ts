@@ -12,11 +12,12 @@ import { SkillsPage } from '../src/pages/skills.js';
 const state = vi.hoisted(() => ({
   pending: false,
   mutate: vi.fn(),
+  search: {} as Record<string, string>,
   blocker: undefined as { shouldBlockFn: () => boolean; enableBeforeUnload: boolean } | undefined,
 }));
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
-  useSearch: () => ({}),
+  useSearch: () => state.search,
   Link: 'a',
   useBlocker: (options: typeof state.blocker) => {
     state.blocker = options;
@@ -36,6 +37,14 @@ vi.mock('../src/lib/queries.js', () => {
       refetch: () => {},
     }),
     useSkills: () => ({ data: [] }),
+    useMarketSkills: () => ({
+      data: [],
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: () => {},
+    }),
+    useInstallMarketSkill: mutation,
     useServers: () => ({ data: [] }),
     useCreateSkill: mutation,
     useUpdateSkill: mutation,
@@ -64,6 +73,8 @@ function elements(node: ReactNode): Element[] {
     ...elements(node.props.children as ReactNode),
     ...elements(node.props.action as ReactNode),
     ...elements(node.props.actions as ReactNode),
+    ...elements(node.props.filters as ReactNode),
+    ...elements(node.props.leadingFilters as ReactNode),
   ];
 }
 function inspect(render: () => ReactNode, visit: (tree: Element[], pass: number) => void) {
@@ -123,8 +134,37 @@ const agent: Agent = {
 
 beforeEach(() => {
   state.pending = false;
+  state.search = {};
   state.blocker = undefined;
   vi.clearAllMocks();
+});
+
+describe('skills toolbar', () => {
+  it('hides market ranking controls only while a market search is active', () => {
+    const rankingCount = (): number => {
+      let market: Element | undefined;
+      inspect(SkillsPage, (tree) => {
+        market ??= tree.find(
+          (node) =>
+            typeof node.type === 'function' &&
+            (node.type as { name?: string }).name === 'MarketSkillsPage',
+        );
+      });
+      if (!market) throw new Error('Missing market page');
+      let count = 0;
+      inspect(
+        () => (market.type as (props: Record<string, unknown>) => ReactNode)(market.props),
+        (tree) => {
+          count = tree.filter((node) => node.props.label === '榜单').length;
+        },
+      );
+      return count;
+    };
+    state.search = { scope: 'market', marketView: 'trending' };
+    expect(rankingCount()).toBe(1);
+    state.search = { scope: 'market', marketView: 'trending', q: 'react' };
+    expect(rankingCount()).toBe(0);
+  });
 });
 
 describe('resource draft navigation', () => {
