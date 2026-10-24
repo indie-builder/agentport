@@ -6,12 +6,6 @@ license: Complete terms in LICENSE.txt
 
 # Frontend Design
 
-## PACE project palette
-
-When working in this repository, read [the project design rules](../../../docs/DESIGN-SYSTEM.md), especially §2, before choosing UI colors. The current theme is **paper white and tool gray**: slightly warm stone surfaces, graphite text and primary actions, steel-gray secondary text and focus, and low-saturation gray selection. Keep the approved maker logo; its pencil yellow stays in the illustration rather than becoming a page, button, or navigation accent. Success, warning, and danger keep their own semantic colors.
-
-Exact color values and roles are maintained in that document and implemented centrally in [styles.css](../../../packages/web/src/styles.css). Reuse semantic utilities such as `bg-surface`, `text-fg`, `text-muted-foreground`, `bg-selected`, and `ring-ring`; update the central tokens and design rules together rather than scattering per-page colors. Check required text at ≥4.5:1 and focus indicators at ≥3:1 against their actual surfaces. These project choices take precedence over the generic exploration guidance below.
-
 Approach this as the design lead at a design studio known for giving every client a distinct visual identity that is not mistaken for anyone else's. This client has already rejected proposals that felt cliché or templated, and is paying for a distinctive point of view: make deliberate, opinionated choices about palette, typography, and layout that are specific to this brief, and take aesthetic risk if justified.
 
 ## Ground your designs in the subject matter
