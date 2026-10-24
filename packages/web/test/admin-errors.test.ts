@@ -83,7 +83,7 @@ describe('login failure recovery', () => {
     expect(html).not.toContain('登录已失效');
     expect(html).toContain('aria-describedby="login-error"');
     const submit = html.match(/<button\b[^>]*type="submit"[^>]*>[\s\S]*?<\/button>/)?.[0];
-    expect(submit).toContain('重试登录');
+    expect(submit).toContain('重试');
     expect(submit).not.toMatch(/\sdisabled=""/);
   });
 

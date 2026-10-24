@@ -14,42 +14,38 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * PACE 设计令牌。基准：https://www.openui.com/chat?form_factor=desktop
- * 数值来自 CDP 读取的计算样式（见 docs/DESIGN-SYSTEM.md）。
- *
- * 核心判断：这是**无彩度**体系。黑白灰承担全部层级，没有品牌色。
- * 强调靠透明度与实底黑，不靠色相。
+ * PACE 纸白与工具灰主题：沿用既有布局，配色呼应 Logo 的木色和钢灰。
+ * 界面强调保持低饱和度，铅笔黄留在品牌插画中，状态色独立表达结果。
  */
 @theme {
-  /* 表面：页面暖白 < 外壳近白 < 悬停浅灰（2026-10-21 CDP 实测） */
-  --color-canvas: #f5f5f5;
-  --color-surface: #fdfdfd;
-  --color-panel: #fdfdfd;
-  --color-sunken: #f2f2f0;
-  --color-hover: rgb(3 3 3 / 0.04);
-  --color-chip: rgb(3 3 3 / 0.02);
-  /* 选中态：比悬停更深一档（实测 --openui-sunk-deep） */
-  --color-selected: rgb(3 3 3 / 0.08);
+  /* 暖石灰画布、纸白工作区，深一档的石灰表达选中态。 */
+  --color-canvas: #f3f2ee;
+  --color-surface: #fdfcfa;
+  --color-panel: #fdfcfa;
+  --color-sunken: #eeede7;
+  --color-hover: rgb(37 40 44 / 0.045);
+  --color-chip: rgb(37 40 44 / 0.025);
+  --color-selected: #e8e7e2;
 
   /* 线与文本 */
-  --color-line: rgb(3 3 3 / 0.06);
-  --color-line-strong: rgb(3 3 3 / 0.12);
+  --color-line: rgb(37 40 44 / 0.09);
+  --color-line-strong: rgb(37 40 44 / 0.16);
   /* 外壳的 1px outline 比常规分隔线更淡 */
-  --color-shell-line: rgb(3 3 3 / 0.04);
-  --color-fg: #030303;
+  --color-shell-line: rgb(37 40 44 / 0.055);
+  --color-fg: #25282c;
   /*
    * base-nova 把 muted 当「表面色」（bg-muted = 浅灰底），
    * 文字色走 muted-foreground。两者不能共用同一个变量。
    */
   --color-muted: var(--color-sunken);
-  --color-subtle: rgb(3 3 3 / 0.38);
+  --color-subtle: rgb(37 40 44 / 0.38);
 
-  /* 图表序列：无彩度，主序列实底、异常序列中灰 */
+  /* 图表保留深浅中性序列，不借用品牌黄色表达运行状态。 */
   --color-chart-runs: var(--color-fg);
   --color-chart-failed: var(--color-muted-foreground);
 
-  /* 实底（主按钮、发送、选中） */
-  --color-ink: #030303;
+  /* 石墨实底：主按钮与发送保持清楚、安静的视觉重量。 */
+  --color-ink: #303236;
 
   /* 状态：只用于小面积 */
   --color-success: #1a7f4b;
@@ -63,8 +59,8 @@
   --color-danger-line: #f0c2bd;
 
   /* 代码 */
-  --color-code: #f6f6f4;
-  --color-code-line: rgb(15 15 15 / 0.07);
+  --color-code: #f3f2ed;
+  --color-code-line: var(--color-line);
   --color-code-key: #1f4fa8;
   --color-code-string: #1f6b47;
   --color-code-literal: #8a5a00;
@@ -120,7 +116,7 @@
   --text-lg--line-height: 1.875rem;
 
   /*
-   * shadcn 原语用的语义别名，全部映射到同一套无彩度令牌。
+   * shadcn 原语映射到统一的低饱和度语义令牌。
    * 组件保持库的原始类名，外观仍由这里决定——不要在组件里改色值。
    */
   --color-background: var(--color-surface);
@@ -135,12 +131,12 @@
   --color-secondary-foreground: var(--color-fg);
   --color-accent: var(--color-hover);
   --color-accent-foreground: var(--color-fg);
-  --color-muted-foreground: rgb(3 3 3 / 0.6);
+  --color-muted-foreground: #5f6770;
   --color-destructive: var(--color-danger);
   --color-destructive-foreground: #fff;
   --color-border: var(--color-line);
   --color-input: var(--color-line);
-  --color-ring: rgb(3 3 3 / 0.45);
+  --color-ring: #78818a;
   --secondary: var(--color-secondary); /* 次按钮悬停 color-mix 的原始 CSS 变量 */
   --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
 
@@ -165,14 +161,14 @@
   [data-streamdown] {
     --shiki-background: transparent;
     --shiki-foreground: var(--color-fg);
-    --shiki-token-comment: rgb(3 3 3 / 0.42);
+    --shiki-token-comment: var(--color-muted-foreground);
     --shiki-token-string: #3d3d3d;
     --shiki-token-string-expression: #2f2f2f;
     --shiki-token-constant: #4a4a4a;
     --shiki-token-keyword: #111111;
     --shiki-token-function: #1f1f1f;
     --shiki-token-parameter: #555555;
-    --shiki-token-punctuation: rgb(3 3 3 / 0.55);
+    --shiki-token-punctuation: var(--color-muted-foreground);
     --shiki-token-link: var(--color-fg);
   }
 
@@ -203,14 +199,14 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* 无彩度焦点：中性 2px 外环，底座用 ring 的组件会覆盖这条 fallback */
+  /* 钢灰焦点兜底；底座用 ring 的组件会覆盖这条 fallback。 */
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
   }
 
   ::selection {
-    background-color: rgb(15 15 15 / 0.12);
+    background-color: var(--color-selected);
     color: var(--color-fg);
   }
 
@@ -302,7 +298,6 @@
     overflow: hidden;
     border: 1px solid var(--color-line);
     border-radius: var(--radius-tag);
-    background-color: var(--color-surface);
     box-shadow: 0 1px 2px rgb(12 12 13 / 0.05);
     transform-origin: center bottom;
     transition:
@@ -312,8 +307,7 @@
   .agent-create-fan__chip img {
     width: 100%;
     height: 100%;
-    padding: 4px;
-    object-fit: contain;
+    object-fit: cover;
   }
   .agent-create-fan__chip:nth-child(1) {
     transform: translate(calc(-50% - 4px), calc(-50% + 4px)) rotate(-5deg);

@@ -54,7 +54,7 @@ import {
 } from 'react';
 import { type Path, type PathValue, useController } from 'react-hook-form';
 import { z } from 'zod';
-import digitalTwinPortrait from '../assets/agents/puppies/digital-twin.png';
+import digitalTwinPortrait from '../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../components/agent-avatar.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
@@ -501,7 +501,11 @@ export function AgentsPage() {
           <li className="min-w-0">
             <Card className="h-full">
               <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
-                <img src={digitalTwinPortrait} alt="" className="size-20 object-contain" />
+                <img
+                  src={digitalTwinPortrait}
+                  alt=""
+                  className="size-20 rounded-full object-cover"
+                />
                 <Button
                   variant="outline"
                   disabled={importing}
@@ -2808,7 +2812,7 @@ export function CreateAgentDialog({
                 <img
                   src={digitalTwinPortrait}
                   alt=""
-                  className="row-span-3 size-16 object-contain"
+                  className="row-span-3 size-16 rounded-full object-cover"
                 />
               ) : null}
               <FieldLabel htmlFor="new-agent-name">名称</FieldLabel>

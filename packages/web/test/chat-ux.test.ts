@@ -150,6 +150,31 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+it('shows the woodworker only in the conversation welcome state', async () => {
+  await mount();
+  const artwork = () => host.querySelector('img[src="/brand/pace-chat-woodworker.svg"]');
+  expect(artwork()).not.toBeNull();
+  expect(artwork()?.getAttribute('alt')).toBe('');
+  await act(async () => {
+    useChatStore.setState({ items: [{ kind: 'user', text: 'Help me plan a task' }] });
+  });
+  expect(artwork()).toBeNull();
+  expect(host.textContent).toContain('Help me plan a task');
+});
+
+it('fills a suggested task and returns focus to the composer without sending', async () => {
+  await mount();
+  const suggestion = [...host.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === '制定计划',
+  );
+  if (!suggestion) throw new Error('Missing task suggestion');
+  await act(async () => suggestion.click());
+  expect(message().value).toBe('帮我把一个目标拆成可执行的步骤，先询问我需要完成什么。');
+  expect(document.activeElement).toBe(message());
+  expect(useChatStore.getState().run).toBeNull();
+  expect(useChatStore.getState().items).toEqual([]);
+});
+
 describe('confirmed chat UX defects', () => {
   it('preserves the unsent draft across route teardown while clearing workspace state', async () => {
     const router = await mount();
