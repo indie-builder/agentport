@@ -30,18 +30,6 @@
   --color-chip: rgb(3 3 3 / 0.02);
   /* 选中态：比悬停更深一档（实测 --openui-sunk-deep） */
   --color-selected: rgb(3 3 3 / 0.08);
-  /*
-   * 画布护理色：页面底（侧栏区域）一条竖向渐变，顶部暖橄榄、底部冷蓝，
-   * 颜色取自参考站点实测像素；主区仍由白壳覆盖，不引入品牌色。
-   */
-  --canvas-wash: linear-gradient(
-    180deg,
-    rgb(247 247 230) 0%,
-    rgb(244 245 233) 25%,
-    rgb(240 242 236) 50%,
-    rgb(237 240 240) 75%,
-    rgb(235 239 242) 100%
-  );
 
   /* 线与文本 */
   --color-line: rgb(3 3 3 / 0.06);
@@ -213,13 +201,6 @@
     color: var(--color-fg);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-  }
-
-  /* 侧栏/表单所在的画布层：加一层极低饱和冷色渐变，白壳仍覆盖主区。 */
-  .app-canvas-wash {
-    background-color: var(--color-canvas);
-    background-image: var(--canvas-wash);
-    background-attachment: fixed;
   }
 
   /* 无彩度焦点：中性 2px 外环，底座用 ring 的组件会覆盖这条 fallback */

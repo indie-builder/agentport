@@ -45,7 +45,7 @@ export function LoginPage() {
   });
 
   return (
-    <main className="app-canvas-wash flex min-h-dvh min-w-0 items-center justify-center p-3">
+    <main className="flex min-h-dvh min-w-0 items-center justify-center bg-canvas p-3">
       <Page className="w-full max-w-sm rounded-shell border border-line bg-surface p-5">
         <Brand />
         <PageHeader title="登录" />
