@@ -1,16 +1,11 @@
-import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import cookie from '@fastify/cookie';
-import jwt from '@fastify/jwt';
+import { fromNodeHeaders } from 'better-auth/node';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { Redis } from 'ioredis';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { authRateLimit } from '../../plugins/security.js';
 import { typed } from '../../types.js';
-import { AUTH_COOKIE, AUTH_MAX_AGE_SECONDS } from './types.js';
-
-const SCRYPT_KEYLEN = 32;
+import { createAuth, ensureAdmin } from './better-auth.js';
 
 /** 登录是唯一未认证的写入口：用户名进审计表，所以长度有上限。 */
 const loginBody = z.object({
@@ -18,95 +13,64 @@ const loginBody = z.object({
     .string({ error: '请输入用户名' })
     .min(1, '请输入用户名')
     .max(128, '用户名不能超过 128 个字符'),
-  password: z.string({ error: '请输入密码' }).min(1, '请输入密码'),
+  // better-auth 对超过 128 的密码直接返回 400；在入口拦住并给出可读提示。
+  password: z
+    .string({ error: '请输入密码' })
+    .min(1, '请输入密码')
+    .max(128, '密码不能超过 128 个字符'),
 });
 
-function sessionKey(sid: string): string {
-  return `session:${sid}`;
-}
-
-/**
- * 登录时在 Redis 写 sid，logout 删除；JWT 本身不能撤销，靠这个键让 token 立即失效。
- * Redis 不可用时拒绝请求，而不是当成「没有会话」放行或拦截所有请求。
- */
-/**
- * 短期本地缓存：每个请求都打一次 Redis 会把吞吐压在约 1.6k rps。
- * 缓存 5 秒，撤销的生效延迟有界；logout 会主动清掉本进程的缓存。
- */
-const SESSION_TTL_MS = 5_000;
-const sessionCache = new Map<string, { alive: boolean; expiresAt: number }>();
-
-function forgetSession(sid: string): void {
-  sessionCache.delete(sid);
-}
-
-async function sessionAlive(redis: Redis, sid: unknown): Promise<boolean> {
-  if (typeof sid !== 'string' || sid.length === 0) return false;
-  const now = Date.now();
-  const cached = sessionCache.get(sid);
-  if (cached && cached.expiresAt > now) return cached.alive;
-  try {
-    const alive = (await redis.exists(sessionKey(sid))) === 1;
-    // 只缓存在量有界，避免被随机 sid 撑爆。
-    if (sessionCache.size > 1000) sessionCache.clear();
-    sessionCache.set(sid, { alive, expiresAt: now + SESSION_TTL_MS });
-    return alive;
-  } catch {
-    return false;
-  }
-}
-
-function scryptAsync(password: string, salt: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    scrypt(password, salt, SCRYPT_KEYLEN, (err, key) => (err ? reject(err) : resolve(key)));
-  });
-}
-
-/** 每次随机 salt 派生后做常量时间比较；两边等长，timingSafeEqual 不会因长度提前返回。 */
-async function passwordMatches(input: string, expected: string): Promise<boolean> {
-  const salt = randomBytes(16).toString('hex');
-  const [a, b] = await Promise.all([scryptAsync(input, salt), scryptAsync(expected, salt)]);
-  return timingSafeEqual(a, b);
+/** better-auth 一次可能下发多条 Set-Cookie；数组会被 Fastify 序列成多个同名头。 */
+function forwardSetCookie(headers: Headers, reply: FastifyReply): void {
+  const cookies = headers.getSetCookie();
+  if (cookies.length > 0) reply.header('set-cookie', cookies);
 }
 
 export async function registerAuth(app: FastifyInstance): Promise<void> {
-  // 不能 await：root 上 await register 会立刻 boot，后续 feature 的 register 就再也挂不上去。
-  // 插件与 route 都在 listen 前完成 boot，装饰器在请求期才被读取，所以这里只登记不等待。
-  void app.register(cookie);
-  void app.register(jwt, { secret: app.config.JWT_SECRET });
+  const auth = createAuth(app.config, app.db);
+  const trustedOrigins = new Set([
+    ...app.config.CORS_ORIGINS.split(',')
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0),
+    app.config.SELF_URL,
+  ]);
 
-  const redis = new Redis(app.config.REDIS_URL, { maxRetriesPerRequest: 2 });
-  redis.on('error', (err: Error) => app.log.warn({ err }, 'auth session redis error'));
-  app.addHook('onClose', async () => {
-    await redis.quit();
-  });
-
-  const cookieOptions = {
-    httpOnly: true,
-    sameSite: 'lax',
-    path: '/',
-    secure: app.config.NODE_ENV === 'production',
-  } as const;
-
-  const unauthorized = (reply: FastifyReply, message: string): void => {
-    reject(reply, 'UNAUTHORIZED', message);
+  /**
+   * 写入口的 CSRF 防线：内部 auth.api 不经过 better-auth 的 origin check。
+   * 同源请求由 Host 自动放行；带 Origin 的跨站/子域请求必须在 allowlist 内。
+   */
+  const originAllowed = (request: FastifyRequest): boolean => {
+    const origin = request.headers.origin;
+    if (!origin) return true;
+    if (origin === `${request.protocol}://${request.headers.host}`) return true;
+    try {
+      return trustedOrigins.has(new URL(origin).origin);
+    } catch {
+      return false;
+    }
   };
 
+  // 播种依赖数据库；放到首次登录时做，数据库不可达时应用仍能启动并走统一的 500 路径。
+  let adminReady: Promise<void> | undefined;
+  const ensureAdminReady = () => {
+    adminReady ??= ensureAdmin(app.db, app.config).catch((error) => {
+      adminReady = undefined;
+      throw error;
+    });
+    return adminReady;
+  };
+
+  const currentSession = (request: FastifyRequest) =>
+    auth.api.getSession({
+      headers: fromNodeHeaders(request.headers),
+      returnHeaders: true,
+    });
+
   app.decorate('requireAuth', async (request: FastifyRequest, reply: FastifyReply) => {
-    const token = request.cookies[AUTH_COOKIE];
-    if (!token) {
-      unauthorized(reply, 'not logged in');
-      return;
-    }
-    let payload: { sid?: unknown };
-    try {
-      payload = app.jwt.verify<{ sid?: unknown }>(token);
-    } catch {
-      unauthorized(reply, 'invalid or expired token');
-      return;
-    }
-    if (!(await sessionAlive(redis, payload.sid))) {
-      unauthorized(reply, 'session expired or revoked');
+    const { response, headers } = await currentSession(request);
+    forwardSetCookie(headers, reply);
+    if (!response || response.user.username !== app.config.ADMIN_USER) {
+      reject(reply, 'UNAUTHORIZED', 'not logged in');
     }
   });
 
@@ -114,12 +78,18 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     '/api/auth/login',
     { ...authRateLimit, schema: { body: loginBody } },
     async (request, reply) => {
+      if (!originAllowed(request)) {
+        return reject(reply, 'FORBIDDEN', 'origin not allowed');
+      }
       const { username, password } = request.body;
+      await ensureAdminReady();
+      const result = await auth.api.signInUsername({
+        body: { username, password },
+        headers: fromNodeHeaders(request.headers),
+        asResponse: true,
+      });
 
-      const userOk = username === app.config.ADMIN_USER;
-      // 用户名错也照样算一次 scrypt，避免响应时间泄露「用户名对不对」。
-      const passOk = await passwordMatches(password, app.config.ADMIN_PASSWORD);
-      if (!userOk || !passOk) {
+      if (!result.ok) {
         request.log.warn({ username }, 'login failed');
         // 安全审计：失败也要落库，actor 用提交的用户名。
         await writeAudit(app.db, request.log, {
@@ -128,58 +98,57 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
           status: 'denied',
           requestId: request.id,
         });
-        return reject(reply, 'UNAUTHORIZED', 'invalid credentials');
+        if (result.status >= 400 && result.status < 500) {
+          return reject(reply, 'UNAUTHORIZED', 'invalid credentials');
+        }
+        throw new Error(`better-auth sign-in failed with status ${result.status}`);
       }
 
+      forwardSetCookie(result.headers, reply);
       await writeAudit(app.db, request.log, {
         actor: username,
         action: 'auth.login.succeeded',
         status: 'ok',
         requestId: request.id,
       });
-      const sid = randomBytes(16).toString('base64url');
-      const token = await reply.jwtSign({ username, sid }, { expiresIn: AUTH_MAX_AGE_SECONDS });
-      await redis.set(sessionKey(sid), username, 'EX', AUTH_MAX_AGE_SECONDS);
-      reply.setCookie(AUTH_COOKIE, token, { ...cookieOptions, maxAge: AUTH_MAX_AGE_SECONDS });
       return { ok: true };
     },
   );
 
   app.post('/api/auth/logout', async (request, reply) => {
-    const token = request.cookies[AUTH_COOKIE];
-    let username = 'anonymous';
-    if (token) {
-      try {
-        const payload = app.jwt.verify<{ username: string; sid?: unknown }>(token);
-        username = payload.username;
-        // 伪造/过期 token 里可能没有 sid；有才删，删除本身幂等。
-        if (typeof payload.sid === 'string') {
-          await redis.del(sessionKey(payload.sid));
-          forgetSession(payload.sid);
-        }
-      } catch {
-        // 过期或伪造的 token 也允许登出，审计里记为 anonymous。
-      }
+    if (!originAllowed(request)) {
+      return reject(reply, 'FORBIDDEN', 'origin not allowed');
     }
+    const headers = fromNodeHeaders(request.headers);
+    // 先读会话拿审计 actor；退化到 anonymous 与旧行为一致（伪造/过期 cookie 也允许登出）。
+    const session = await auth.api.getSession({ headers });
+    const username = session?.user.username ?? 'anonymous';
+
+    const result = await auth.api.signOut({ headers, asResponse: true });
+    if (!result.ok) {
+      throw new Error(`better-auth sign-out failed with status ${result.status}`);
+    }
+    // 库返回成功不代表会话已删；用原始 cookie 再查一次，避免「登出成功但旧 cookie 仍可用」。
+    if (await auth.api.getSession({ headers })) {
+      throw new Error('better-auth session revocation failed');
+    }
+    forwardSetCookie(result.headers, reply);
+
     await writeAudit(app.db, request.log, {
       actor: username,
       action: 'auth.logout',
       status: 'ok',
       requestId: request.id,
     });
-    reply.clearCookie(AUTH_COOKIE, cookieOptions);
     return { ok: true };
   });
 
-  app.get('/api/auth/me', async (request) => {
-    const token = request.cookies[AUTH_COOKIE];
-    if (!token) return { authenticated: false };
-    try {
-      const payload = app.jwt.verify<{ username: string; sid?: unknown }>(token);
-      if (!(await sessionAlive(redis, payload.sid))) return { authenticated: false };
-      return { authenticated: true, username: payload.username };
-    } catch {
+  app.get('/api/auth/me', async (request, reply) => {
+    const { response, headers } = await currentSession(request);
+    forwardSetCookie(headers, reply);
+    if (!response || response.user.username !== app.config.ADMIN_USER) {
       return { authenticated: false };
     }
+    return { authenticated: true, username: response.user.username };
   });
 }

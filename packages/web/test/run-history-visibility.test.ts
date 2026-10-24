@@ -65,11 +65,11 @@ afterEach(async () => {
 
 async function mount(path = '/') {
   const rootRoute = createRootRoute({ component: Outlet });
-  const shell = createRoute({ getParentRoute: () => rootRoute, id: 'shell', component: Outlet });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const overview = createRoute({ getParentRoute: () => shell, path: '/', component: OverviewPage });
   const runs = createRoute({
     getParentRoute: () => shell,
-    path: '/runs',
+    path: '/runs/',
     component: RunsPage,
     validateSearch: (search: Record<string, unknown>) => ({
       agent: typeof search.agent === 'string' ? search.agent : undefined,

@@ -2,7 +2,9 @@ import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentpo
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CalendarClock, CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
-import { type FormEvent, useMemo, useState } from 'react';
+import { useState } from 'react';
+import { Controller } from 'react-hook-form';
+import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
@@ -42,6 +44,7 @@ import {
   useSchedules,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 
 const emptySchedule: ScheduleInput = {
   agentId: '',
@@ -50,6 +53,26 @@ const emptySchedule: ScheduleInput = {
   prompt: '',
   enabled: true,
 };
+
+const scheduleFormSchema = z
+  .object({
+    agentId: z.string(),
+    name: z.string(),
+    cron: z.string().trim(),
+    prompt: z.string(),
+    enabled: z.boolean(),
+  })
+  .superRefine((values, ctx) => {
+    const parsed = scheduleInputSchema.safeParse(values);
+    if (parsed.success) return;
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({
+        code: 'custom',
+        path: issue.path as (string | number)[],
+        message: Object.values(fieldErrors([issue]))[0] ?? issue.message,
+      });
+    }
+  });
 
 export function SchedulesPage() {
   const schedules = useSchedules();
@@ -246,8 +269,9 @@ function ScheduleDialog({
   onClose: () => void;
 }) {
   const client = useQueryClient();
-  const [form, setForm] = useState<ScheduleInput>(
-    schedule
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const { register, control, handleSubmit, watch, formState } = useZodForm(scheduleFormSchema, {
+    defaultValues: schedule
       ? {
           agentId: schedule.agentId,
           name: schedule.name,
@@ -256,23 +280,10 @@ function ScheduleDialog({
           enabled: schedule.enabled,
         }
       : emptySchedule,
-  );
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const initial = useMemo<ScheduleInput>(
-    () =>
-      schedule
-        ? {
-            agentId: schedule.agentId,
-            name: schedule.name,
-            cron: schedule.cron,
-            prompt: schedule.prompt,
-            enabled: schedule.enabled,
-          }
-        : emptySchedule,
-    [schedule],
-  );
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  });
+  const { errors, isDirty } = formState;
+  const watched = watch();
+  const dirty = isDirty;
   const invalidate = (): void => {
     void client.invalidateQueries({ queryKey: ['schedules'] });
   };
@@ -303,11 +314,6 @@ function ScheduleDialog({
     else onClose();
   };
 
-  const set = <K extends keyof ScheduleInput>(key: K, value: ScheduleInput[K]): void => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    setErrors((prev) => ({ ...prev, [key]: '' }));
-  };
-
   const agentOptions = [
     ...(schedule && !agents.some((agent) => agent.id === schedule.agentId)
       ? [{ value: schedule.agentId, label: schedule.agentName ?? '已删除的专家' }]
@@ -315,26 +321,20 @@ function ScheduleDialog({
     ...agents.map((agent) => ({ value: agent.id, label: agent.name })),
   ];
 
-  const submit = (event: FormEvent): void => {
-    event.preventDefault();
+  const submit = handleSubmit((values) => {
     if (pending) return;
-    const parsed = scheduleInputSchema.safeParse(form);
-    if (!parsed.success) {
-      setErrors(fieldErrors(parsed.error.issues));
-      return;
-    }
     if (schedule) {
       update.mutate({
-        name: parsed.data.name,
-        cron: parsed.data.cron,
-        prompt: parsed.data.prompt,
-        enabled: parsed.data.enabled,
+        name: values.name,
+        cron: values.cron,
+        prompt: values.prompt,
+        enabled: values.enabled,
         expectedUpdatedAt: schedule.updatedAt,
       });
     } else {
-      create.mutate(parsed.data);
+      create.mutate(values);
     }
-  };
+  });
 
   return (
     <Dialog
@@ -358,33 +358,41 @@ function ScheduleDialog({
               <FieldLabel htmlFor="schedule-agent">
                 专家 <RequiredMark />
               </FieldLabel>
-              <Select
-                disabled={pending || Boolean(schedule)}
-                value={form.agentId}
-                items={agentOptions}
-                onValueChange={(next) => {
-                  if (next !== null) set('agentId', next);
-                }}
-              >
-                <SelectTrigger
-                  id="schedule-agent"
-                  className="w-full min-w-0"
-                  aria-invalid={Boolean(errors.agentId)}
-                  aria-describedby={errors.agentId ? 'schedule-agent-error' : undefined}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {agentOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <FieldError id="schedule-agent-error">{errors.agentId}</FieldError>
+              <Controller
+                control={control}
+                name="agentId"
+                render={({ field }) => (
+                  <Select
+                    disabled={pending || Boolean(schedule)}
+                    value={field.value}
+                    items={agentOptions}
+                    onValueChange={(next) => {
+                      if (next !== null) field.onChange(next);
+                    }}
+                  >
+                    <SelectTrigger
+                      id="schedule-agent"
+                      className="w-full min-w-0"
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                      aria-invalid={Boolean(errors.agentId)}
+                      aria-describedby={errors.agentId ? 'schedule-agent-error' : undefined}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {agentOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <FieldError id="schedule-agent-error">{errors.agentId?.message}</FieldError>
             </Field>
 
             <FieldGroup className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
@@ -397,15 +405,15 @@ function ScheduleDialog({
                   名称 <RequiredMark />
                 </FieldLabel>
                 <Input
+                  {...register('name')}
+                  value={watched.name}
                   id="schedule-name"
                   disabled={pending}
-                  value={form.name}
                   aria-required="true"
                   aria-invalid={Boolean(errors.name)}
                   aria-describedby={errors.name ? 'schedule-name-error' : undefined}
-                  onChange={(event) => set('name', event.target.value)}
                 />
-                <FieldError id="schedule-name-error">{errors.name}</FieldError>
+                <FieldError id="schedule-name-error">{errors.name?.message}</FieldError>
               </Field>
               <Field
                 className="gap-1.5"
@@ -416,17 +424,17 @@ function ScheduleDialog({
                   cron <RequiredMark />
                 </FieldLabel>
                 <Input
+                  {...register('cron')}
+                  value={watched.cron}
                   id="schedule-cron"
                   disabled={pending}
-                  value={form.cron}
                   placeholder="0 9 * * *"
                   className="font-mono"
                   aria-required="true"
                   aria-invalid={Boolean(errors.cron)}
                   aria-describedby={errors.cron ? 'schedule-cron-error' : undefined}
-                  onChange={(event) => set('cron', event.target.value)}
                 />
-                <FieldError id="schedule-cron-error">{errors.cron}</FieldError>
+                <FieldError id="schedule-cron-error">{errors.cron?.message}</FieldError>
               </Field>
             </FieldGroup>
 
@@ -439,25 +447,33 @@ function ScheduleDialog({
                 提示词 <RequiredMark />
               </FieldLabel>
               <Textarea
+                {...register('prompt')}
+                value={watched.prompt}
                 id="schedule-prompt"
                 disabled={pending}
                 rows={6}
-                value={form.prompt}
                 aria-required="true"
                 aria-invalid={Boolean(errors.prompt)}
                 aria-describedby={errors.prompt ? 'schedule-prompt-error' : undefined}
-                onChange={(event) => set('prompt', event.target.value)}
               />
-              <FieldError id="schedule-prompt-error">{errors.prompt}</FieldError>
+              <FieldError id="schedule-prompt-error">{errors.prompt?.message}</FieldError>
             </Field>
 
             <Field orientation="horizontal" className="items-center gap-3" data-disabled={pending}>
               <FieldLabel htmlFor="schedule-enabled">启用</FieldLabel>
-              <Switch
-                id="schedule-enabled"
-                checked={form.enabled}
-                disabled={pending}
-                onCheckedChange={(enabled) => set('enabled', enabled)}
+              <Controller
+                control={control}
+                name="enabled"
+                render={({ field }) => (
+                  <Switch
+                    ref={field.ref}
+                    id="schedule-enabled"
+                    checked={field.value}
+                    disabled={pending}
+                    onCheckedChange={(enabled) => field.onChange(enabled)}
+                    onBlur={field.onBlur}
+                  />
+                )}
               />
             </Field>
           </FieldGroup>

@@ -211,6 +211,13 @@
       "when": 1792766678864,
       "tag": "0029_dear_wild_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1792806841124,
+      "tag": "0030_pale_thunderbolts",
+      "breakpoints": true
     }
   ]
 }

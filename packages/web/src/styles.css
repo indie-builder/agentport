@@ -3,6 +3,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Streamdown 渲染 Markdown 时用到的 Tailwind 类需要被扫描到。 */
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
+
 /*
  * 项目只有亮色主题。Tailwind 4 默认的 dark: 跟随系统偏好，
  * 会让深色 OS 的用户看到组件里的 dark:bg-* 生效；显式绑定到 .dark 类即彻底关闭。
@@ -39,6 +43,10 @@
    */
   --color-muted: var(--color-sunken);
   --color-subtle: rgb(3 3 3 / 0.38);
+
+  /* 图表序列：无彩度，主序列实底、异常序列中灰 */
+  --color-chart-runs: var(--color-fg);
+  --color-chart-failed: var(--color-muted-foreground);
 
   /* 实底（主按钮、发送、选中） */
   --color-ink: #030303;
@@ -150,6 +158,24 @@
 }
 
 @layer base {
+  /*
+   * Shiki 的 css-variables 主题在这里收口：所有 token 一律黑白灰。
+   * 背景透明，代码块表面由容器的 bg-code 决定。
+   */
+  [data-streamdown] {
+    --shiki-background: transparent;
+    --shiki-foreground: var(--color-fg);
+    --shiki-token-comment: rgb(3 3 3 / 0.42);
+    --shiki-token-string: #3d3d3d;
+    --shiki-token-string-expression: #2f2f2f;
+    --shiki-token-constant: #4a4a4a;
+    --shiki-token-keyword: #111111;
+    --shiki-token-function: #1f1f1f;
+    --shiki-token-parameter: #555555;
+    --shiki-token-punctuation: rgb(3 3 3 / 0.55);
+    --shiki-token-link: var(--color-fg);
+  }
+
   /*
    * 底座组件大量使用裸 `border`（不带颜色），Tailwind 会回落到 currentColor，
    * 在本项目里就是近黑的文字色。这里统一给一个默认边框色，

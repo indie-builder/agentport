@@ -3,6 +3,7 @@ import Fastify, { LogController } from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { Config } from './config.js';
 import { registerMetrics } from './plugins/metrics.js';
+import { registerOpenApi } from './plugins/openapi.js';
 import { registerSecurityPlugins } from './plugins/security.js';
 import { registerRoutes } from './routes/index.js';
 
@@ -45,6 +46,7 @@ export async function buildApp(config: Config) {
 
   registerMetrics(app);
   await registerSecurityPlugins(app);
+  await registerOpenApi(app);
   registerRoutes(app);
 
   return app;

@@ -120,7 +120,7 @@ export function RunsPage() {
   const navigate = useNavigate();
   const agents = useAgents();
   // 筛选放在 URL 里：刷新、分享、前进后退都保留条件。
-  const search = useSearch({ from: '/shell/runs' });
+  const search = useSearch({ from: '/_shell/runs/' });
   const agentId = search.agent ?? '';
   const status = search.status ?? '';
   const setFilter = (patch: {

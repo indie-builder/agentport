@@ -52,6 +52,8 @@ import {
   useRef,
   useState,
 } from 'react';
+import { type Path, type PathValue, useController } from 'react-hook-form';
+import { z } from 'zod';
 import digitalTwinPortrait from '../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../components/agent-avatar.js';
 import { CodeBlock } from '../components/code-block.js';
@@ -144,6 +146,7 @@ import {
   useUpdateAgent,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 import { MemoryPanel, OutputStylesPanel, RulesPanel } from './memory-panel.js';
 import { AgentStatsPanel } from './ops.js';
 
@@ -206,11 +209,55 @@ function toInput(agent: Agent): AgentInput {
   };
 }
 
+const positiveIntMessage = '必须大于 0，请调整后再保存';
+const invalidNumberMessage = '请填写有效内容';
+const thinkingMessage = '请输入大于 0 的整数，或留空表示不设置。';
+
+const agentFormSchema = agentInputSchema
+  .extend({
+    name: z.string().min(1, '不能为空，请填写后再保存').max(128, '最多 128 个字符，请精简后再保存'),
+    description: z.string().max(300, '最多 300 个字符，请精简后再保存').default(''),
+    maxTurns: z
+      .number({ error: invalidNumberMessage })
+      .int(invalidNumberMessage)
+      .positive(positiveIntMessage)
+      .default(20),
+    maxBudgetUsd: z.number({ error: invalidNumberMessage }).positive(positiveIntMessage).default(2),
+    timeoutMs: z
+      .number({ error: invalidNumberMessage })
+      .int(invalidNumberMessage)
+      .positive(positiveIntMessage)
+      .default(600_000),
+    maxThinkingTokens: z
+      .custom<number>(
+        (value) => typeof value === 'number' && Number.isInteger(value) && value > 0,
+        { message: thinkingMessage },
+      )
+      .optional(),
+  })
+  .refine((value) => value.allowedTools.every((tool) => !/\s/.test(tool)), {
+    path: ['allowedTools'],
+    message: '每行只能有一个工具名或模式，不能包含空格。',
+  });
+
+const duplicateFormSchema = agentDuplicateInputSchema.extend({
+  slug: z
+    .string()
+    .min(1, '不能为空，请填写后再保存')
+    .max(64, '最多 64 个字符，请精简后再保存')
+    .regex(/^[a-z0-9][a-z0-9-_]*$/, '格式不正确，请检查后重新填写'),
+  name: z
+    .string()
+    .trim()
+    .min(1, '不能为空，请填写后再保存')
+    .max(128, '最多 128 个字符，请精简后再保存'),
+});
+
 export function AgentsPage() {
   const agents = useAgents();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const search = useSearch({ from: '/shell/agents' });
+  const search = useSearch({ from: '/_shell/agents/' });
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
   const status = search.status ?? '';
@@ -594,7 +641,7 @@ export function AgentsPage() {
 
 /** 专家配置的整页形态：头像 + 名称/描述在页头，编辑与版本历史仍由 AgentEditor 承载。 */
 export function AgentDetailPage() {
-  const params = useParams({ from: '/shell/agents/$agentId' });
+  const params = useParams({ from: '/_shell/agents/$agentId' });
   const navigate = useNavigate();
   const agent = useAgent(params.agentId);
   const remove = useDeleteAgent();
@@ -781,30 +828,32 @@ export function AgentEditor({
   const resolvedEntry = fileEntries.find((entry) => entry.id === activeFile) ?? fileEntries[0];
   const resolvedId = resolvedEntry?.id;
   const fileGroups = [...new Set(fileEntries.map((entry) => entry.group))];
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [exporting, setExporting] = useState(false);
   // 多行文本按行解析为数组；草稿单独保留，输入换行时不会被 join 规范化掉。
   const [allowedText, setAllowedText] = useState(() => agent.allowedTools.join('\n'));
-  const allowedInvalid = allowedText
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .some((line) => /\s/.test(line));
   const [thinkingText, setThinkingText] = useState(() =>
     agent.maxThinkingTokens === undefined ? '' : String(agent.maxThinkingTokens),
   );
-  const thinkingNumber = thinkingText.trim() === '' ? undefined : Number(thinkingText);
-  const thinkingInvalid =
-    thinkingNumber !== undefined && (!Number.isInteger(thinkingNumber) || thinkingNumber <= 0);
+  const rhf = useZodForm(agentFormSchema, { defaultValues: toInput(agent) });
+  const errors = rhf.formState.errors;
+  const allowedInvalid = Boolean(errors.allowedTools);
+  const thinkingInvalid = Boolean(errors.maxThinkingTokens);
+  const roleField = useController({ control: rhf.control, name: 'role' }).field;
+  const effortField = useController({ control: rhf.control, name: 'effort' }).field;
+  const serverIdsField = useController({ control: rhf.control, name: 'serverIds' }).field;
+  const skillIdsField = useController({ control: rhf.control, name: 'skillIds' }).field;
+  const subAgentIdsField = useController({ control: rhf.control, name: 'subAgentIds' }).field;
+  const permissionModeField = useController({ control: rhf.control, name: 'permissionMode' }).field;
+  const enabledField = useController({ control: rhf.control, name: 'enabled' }).field;
+
+  const setDraft = <K extends keyof AgentInput>(key: K, value: AgentInput[K]): void => {
+    setForm((current) => ({ ...current, [key]: value }));
+    rhf.clearErrors(key);
+  };
 
   const set = <K extends keyof AgentInput>(key: K, value: AgentInput[K]): void => {
-    setForm((current) => ({ ...current, [key]: value }));
-    setErrors((current) => {
-      if (!(key in current)) return current;
-      const next = { ...current };
-      delete next[key as string];
-      return next;
-    });
+    setDraft(key, value);
+    rhf.setValue(key as Path<AgentInput>, value as PathValue<AgentInput, Path<AgentInput>>);
   };
 
   const setAllowedArray = (next: string[]): void => {
@@ -828,7 +877,11 @@ export function AgentEditor({
     const number = value.trim() === '' ? undefined : Number(value);
     set(
       'maxThinkingTokens',
-      number !== undefined && Number.isInteger(number) && number > 0 ? number : undefined,
+      number === undefined
+        ? undefined
+        : Number.isInteger(number) && number > 0
+          ? number
+          : Number.NaN,
     );
   };
 
@@ -860,7 +913,7 @@ export function AgentEditor({
     setForm(toInput(next));
     setAllowedText(next.allowedTools.join('\n'));
     setThinkingText(next.maxThinkingTokens === undefined ? '' : String(next.maxThinkingTokens));
-    setErrors({});
+    rhf.reset(toInput(next));
     setConflict(false);
   };
   const reload = async (): Promise<void> => {
@@ -995,7 +1048,7 @@ export function AgentEditor({
     );
   };
 
-  // 这两项不经过 zod：按钮禁用前要说明是哪一项、在哪个折叠分区里。
+  // 这两项也由 zod 校验；保存被拦下时，按钮上的提示要指向所在分区。
   const invalidField = allowedInvalid
     ? ('permissions' as const)
     : thinkingInvalid
@@ -1030,14 +1083,13 @@ export function AgentEditor({
 
   const save = (): void => {
     if (pending) return;
-    if (allowedInvalid || thinkingInvalid) {
-      revealInvalidField();
-      return;
-    }
-    const parsed = agentInputSchema.safeParse(form);
+    const parsed = agentFormSchema.safeParse(form);
     if (!parsed.success) {
       const issues = fieldErrors(parsed.error.issues);
-      setErrors(issues);
+      rhf.clearErrors();
+      for (const [path, message] of Object.entries(issues)) {
+        rhf.setError(path as keyof AgentInput, { type: 'validation', message });
+      }
       // 错误可能不在当前分区：切到第一个出错的分区，再把焦点放到该字段上。
       const section = Object.keys(issues)
         .map((key) => errorSections[key])
@@ -1172,7 +1224,10 @@ export function AgentEditor({
             disabled={pending}
             id="agent-enabled"
             checked={form.enabled}
-            onCheckedChange={(enabled) => set('enabled', enabled)}
+            onCheckedChange={(enabled) => {
+              enabledField.onChange(enabled);
+              setDraft('enabled', enabled);
+            }}
             aria-label="启用专家"
             title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
           />
@@ -1420,6 +1475,7 @@ export function AgentEditor({
                           <RequiredMark />
                         </FieldLabel>
                         <Input
+                          {...rhf.register('name')}
                           disabled={pending}
                           id="agent-name"
                           value={form.name}
@@ -1428,7 +1484,7 @@ export function AgentEditor({
                           aria-describedby={errors.name ? 'agent-name-error' : undefined}
                           onChange={(event) => set('name', event.target.value)}
                         />
-                        <FieldError id="agent-name-error">{errors.name}</FieldError>
+                        <FieldError id="agent-name-error">{errors.name?.message}</FieldError>
                       </Field>
                       <Field
                         data-disabled={pending}
@@ -1445,7 +1501,10 @@ export function AgentEditor({
                               : [{ value: form.role, label: form.role }, ...roleOptions]
                           }
                           onValueChange={(role) => {
-                            if (role !== null) set('role', role);
+                            if (role !== null) {
+                              roleField.onChange(role);
+                              setDraft('role', role);
+                            }
                           }}
                         >
                           <SelectTrigger
@@ -1471,7 +1530,7 @@ export function AgentEditor({
                             </SelectGroup>
                           </SelectContent>
                         </Select>
-                        <FieldError id="agent-role-error">{errors.role}</FieldError>
+                        <FieldError id="agent-role-error">{errors.role?.message}</FieldError>
                       </Field>
                       <Field className="gap-1.5 sm:col-span-2" data-disabled="true">
                         <FieldLabel htmlFor="agent-slug">Slug</FieldLabel>
@@ -1492,6 +1551,7 @@ export function AgentEditor({
                       >
                         <FieldLabel htmlFor="agent-desc">描述</FieldLabel>
                         <Input
+                          {...rhf.register('description')}
                           disabled={pending}
                           id="agent-desc"
                           value={form.description}
@@ -1500,7 +1560,7 @@ export function AgentEditor({
                           placeholder="一句话说明它擅长什么"
                           onChange={(event) => set('description', event.target.value)}
                         />
-                        <FieldError id="agent-desc-error">{errors.description}</FieldError>
+                        <FieldError id="agent-desc-error">{errors.description?.message}</FieldError>
                       </Field>
                     </FieldGroup>
                   </Section>
@@ -1513,6 +1573,7 @@ export function AgentEditor({
                         {form.role === '数字分身' ? '工作背景与表达方式' : '系统提示词'}
                       </FieldLabel>
                       <Textarea
+                        {...rhf.register('systemPrompt')}
                         disabled={pending}
                         id="agent-prompt"
                         rows={16}
@@ -1530,6 +1591,7 @@ export function AgentEditor({
                       <Field data-disabled={pending} className="gap-1.5">
                         <FieldLabel htmlFor="agent-model">模型</FieldLabel>
                         <Input
+                          {...rhf.register('model')}
                           disabled={pending}
                           id="agent-model"
                           list="agent-models"
@@ -1551,10 +1613,10 @@ export function AgentEditor({
                           value={form.effort ?? ''}
                           onValueChange={(value) => {
                             if (value !== null) {
-                              set(
-                                'effort',
-                                value === '' ? undefined : (value as AgentInput['effort']),
-                              );
+                              const effort =
+                                value === '' ? undefined : (value as AgentInput['effort']);
+                              effortField.onChange(effort);
+                              setDraft('effort', effort);
                             }
                           }}
                           items={effortOptions}
@@ -1619,12 +1681,11 @@ export function AgentEditor({
                             value={serverOptions.filter((option) =>
                               form.serverIds.includes(option.id),
                             )}
-                            onValueChange={(picked) =>
-                              set(
-                                'serverIds',
-                                picked.map((option) => option.id),
-                              )
-                            }
+                            onValueChange={(picked) => {
+                              const ids = picked.map((option) => option.id);
+                              serverIdsField.onChange(ids);
+                              setDraft('serverIds', ids);
+                            }}
                             itemToStringLabel={(option) => option.label}
                             itemToStringValue={(option) => option.id}
                             isItemEqualToValue={(a, b) => a.id === b.id}
@@ -1704,12 +1765,11 @@ export function AgentEditor({
                             value={skillOptions.filter((option) =>
                               form.skillIds.includes(option.id),
                             )}
-                            onValueChange={(picked) =>
-                              set(
-                                'skillIds',
-                                picked.map((option) => option.id),
-                              )
-                            }
+                            onValueChange={(picked) => {
+                              const ids = picked.map((option) => option.id);
+                              skillIdsField.onChange(ids);
+                              setDraft('skillIds', ids);
+                            }}
                             itemToStringLabel={(option) => option.label}
                             itemToStringValue={(option) => option.id}
                             isItemEqualToValue={(a, b) => a.id === b.id}
@@ -1782,12 +1842,11 @@ export function AgentEditor({
                             value={subAgentOptions.filter((option) =>
                               form.subAgentIds.includes(option.id),
                             )}
-                            onValueChange={(picked) =>
-                              set(
-                                'subAgentIds',
-                                picked.map((option) => option.id),
-                              )
-                            }
+                            onValueChange={(picked) => {
+                              const ids = picked.map((option) => option.id);
+                              subAgentIdsField.onChange(ids);
+                              setDraft('subAgentIds', ids);
+                            }}
                             itemToStringLabel={(option) => option.label}
                             itemToStringValue={(option) => option.id}
                             isItemEqualToValue={(a, b) => a.id === b.id}
@@ -1885,7 +1944,9 @@ export function AgentEditor({
                           value={form.permissionMode}
                           onValueChange={(next) => {
                             if (next !== null) {
-                              set('permissionMode', next as AgentInput['permissionMode']);
+                              const mode = next as AgentInput['permissionMode'];
+                              permissionModeField.onChange(mode);
+                              setDraft('permissionMode', mode);
                             }
                           }}
                           items={permissionOptions}
@@ -1911,6 +1972,7 @@ export function AgentEditor({
                       >
                         <FieldLabel htmlFor="agent-allowed-tools">自定义允许的工具</FieldLabel>
                         <Textarea
+                          {...rhf.register('allowedTools')}
                           disabled={pending}
                           id="agent-allowed-tools"
                           rows={3}
@@ -1928,7 +1990,7 @@ export function AgentEditor({
                         />
                         {allowedInvalid ? (
                           <FieldError id="agent-allowed-tools-error">
-                            每行只能有一个工具名或模式，不能包含空格。
+                            {errors.allowedTools?.message}
                           </FieldError>
                         ) : (
                           <FieldDescription id="agent-allowed-tools-hint">
@@ -1994,6 +2056,7 @@ export function AgentEditor({
                       >
                         <FieldLabel htmlFor="agent-turns">最大轮次</FieldLabel>
                         <Input
+                          {...rhf.register('maxTurns')}
                           disabled={pending}
                           id="agent-turns"
                           type="number"
@@ -2004,7 +2067,7 @@ export function AgentEditor({
                           aria-describedby={errors.maxTurns ? 'agent-turns-error' : undefined}
                           onChange={(event) => set('maxTurns', Number(event.target.value))}
                         />
-                        <FieldError id="agent-turns-error">{errors.maxTurns}</FieldError>
+                        <FieldError id="agent-turns-error">{errors.maxTurns?.message}</FieldError>
                       </Field>
                       <Field
                         data-disabled={pending}
@@ -2013,6 +2076,7 @@ export function AgentEditor({
                       >
                         <FieldLabel htmlFor="agent-budget">预算上限 (USD)</FieldLabel>
                         <Input
+                          {...rhf.register('maxBudgetUsd')}
                           disabled={pending}
                           id="agent-budget"
                           type="number"
@@ -2024,7 +2088,9 @@ export function AgentEditor({
                           aria-describedby={errors.maxBudgetUsd ? 'agent-budget-error' : undefined}
                           onChange={(event) => set('maxBudgetUsd', Number(event.target.value))}
                         />
-                        <FieldError id="agent-budget-error">{errors.maxBudgetUsd}</FieldError>
+                        <FieldError id="agent-budget-error">
+                          {errors.maxBudgetUsd?.message}
+                        </FieldError>
                       </Field>
                       <Field
                         data-disabled={pending}
@@ -2033,6 +2099,7 @@ export function AgentEditor({
                       >
                         <FieldLabel htmlFor="agent-timeout">超时 (毫秒)</FieldLabel>
                         <Input
+                          {...rhf.register('timeoutMs')}
                           disabled={pending}
                           id="agent-timeout"
                           type="number"
@@ -2044,7 +2111,9 @@ export function AgentEditor({
                           aria-describedby={errors.timeoutMs ? 'agent-timeout-error' : undefined}
                           onChange={(event) => set('timeoutMs', Number(event.target.value))}
                         />
-                        <FieldError id="agent-timeout-error">{errors.timeoutMs}</FieldError>
+                        <FieldError id="agent-timeout-error">
+                          {errors.timeoutMs?.message}
+                        </FieldError>
                       </Field>
                       <Field
                         data-disabled={pending}
@@ -2053,6 +2122,7 @@ export function AgentEditor({
                       >
                         <FieldLabel htmlFor="agent-thinking">最大思考 tokens</FieldLabel>
                         <Input
+                          {...rhf.register('maxThinkingTokens')}
                           disabled={pending}
                           id="agent-thinking"
                           type="number"
@@ -2069,7 +2139,7 @@ export function AgentEditor({
                         />
                         {thinkingInvalid ? (
                           <FieldError id="agent-thinking-error">
-                            请输入大于 0 的整数，或留空表示不设置。
+                            {errors.maxThinkingTokens?.message}
                           </FieldError>
                         ) : (
                           <FieldDescription id="agent-thinking-hint">
@@ -2629,7 +2699,10 @@ export function CreateAgentDialog({
   }));
   const [form, setForm] = useState<AgentInput>(initial);
   const isTwin = form.role === '数字分身';
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const rhf = useZodForm(agentFormSchema, { defaultValues: initial });
+  const errors = rhf.formState.errors;
+  const roleField = useController({ control: rhf.control, name: 'role' }).field;
+  const modelField = useController({ control: rhf.control, name: 'model' }).field;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [created, setCreated] = useState<Agent | null>(null);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
@@ -2643,14 +2716,23 @@ export function CreateAgentDialog({
     else onClose();
   };
 
+  const set = <K extends keyof AgentInput>(key: K, value: AgentInput[K]): void => {
+    setForm((previous) => ({ ...previous, [key]: value }));
+    rhf.setValue(key as Path<AgentInput>, value as PathValue<AgentInput, Path<AgentInput>>);
+    rhf.clearErrors(key);
+  };
+
   const submit = (): void => {
     if (create.isPending) return;
-    const parsed = agentInputSchema.safeParse({
+    const parsed = agentFormSchema.safeParse({
       ...form,
       name: form.name.trim() || form.slug,
     });
     if (!parsed.success) {
-      setErrors(fieldErrors(parsed.error.issues));
+      rhf.clearErrors();
+      for (const [path, message] of Object.entries(fieldErrors(parsed.error.issues))) {
+        rhf.setError(path as keyof AgentInput, { type: 'validation', message });
+      }
       return;
     }
     create.mutate(parsed.data, {
@@ -2700,6 +2782,7 @@ export function CreateAgentDialog({
                 <RequiredMark />
               </FieldLabel>
               <Input
+                {...rhf.register('slug')}
                 disabled={create.isPending}
                 id="new-agent-slug"
                 value={form.slug}
@@ -2709,10 +2792,10 @@ export function CreateAgentDialog({
                 aria-required="true"
                 aria-invalid={Boolean(errors.slug)}
                 aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
-                onChange={(event) => setForm({ ...form, slug: event.target.value })}
+                onChange={(event) => set('slug', event.target.value)}
               />
               {errors.slug ? (
-                <FieldError id="new-agent-slug-error">{errors.slug}</FieldError>
+                <FieldError id="new-agent-slug-error">{errors.slug?.message}</FieldError>
               ) : (
                 <FieldDescription id="new-agent-slug-hint">
                   小写字母、数字、- 和 _；创建后不可修改。
@@ -2737,15 +2820,16 @@ export function CreateAgentDialog({
               ) : null}
               <FieldLabel htmlFor="new-agent-name">名称</FieldLabel>
               <Input
+                {...rhf.register('name')}
                 disabled={create.isPending}
                 id="new-agent-name"
                 value={form.name}
                 aria-invalid={Boolean(errors.name)}
                 aria-describedby={errors.name ? 'new-agent-name-error' : undefined}
                 placeholder="客服助手"
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
+                onChange={(event) => set('name', event.target.value)}
               />
-              <FieldError id="new-agent-name-error">{errors.name}</FieldError>
+              <FieldError id="new-agent-name-error">{errors.name?.message}</FieldError>
             </Field>
             {isTwin ? (
               <div className="sm:col-span-2">
@@ -2763,12 +2847,15 @@ export function CreateAgentDialog({
                   value={form.role}
                   items={roleOptions}
                   onValueChange={(role) => {
-                    if (role !== null)
-                      setForm({
-                        ...form,
+                    if (role !== null) {
+                      roleField.onChange(role);
+                      setForm((previous) => ({
+                        ...previous,
                         role,
-                        name: role === '数字分身' ? form.name || '我的分身' : form.name,
-                      });
+                        name: role === '数字分身' ? previous.name || '我的分身' : previous.name,
+                      }));
+                      rhf.clearErrors('role');
+                    }
                   }}
                 >
                   <SelectTrigger
@@ -2789,7 +2876,7 @@ export function CreateAgentDialog({
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-                <FieldError id="new-agent-role-error">{errors.role}</FieldError>
+                <FieldError id="new-agent-role-error">{errors.role?.message}</FieldError>
               </Field>
             )}
           </FieldGroup>
@@ -2800,7 +2887,8 @@ export function CreateAgentDialog({
               value={form.model}
               onValueChange={(model) => {
                 if (model !== null) {
-                  setForm({ ...form, model });
+                  modelField.onChange(model);
+                  set('model', model);
                 }
               }}
               items={newModelOptions}
@@ -2824,13 +2912,14 @@ export function CreateAgentDialog({
               {isTwin ? '工作背景与表达方式' : '系统提示词'}
             </FieldLabel>
             <Textarea
+              {...rhf.register('systemPrompt')}
               disabled={create.isPending}
               id="new-agent-prompt"
               rows={5}
               // Keep compact monospace code text instead of the base prose typography.
               className="font-mono text-xs"
               value={form.systemPrompt}
-              onChange={(event) => setForm({ ...form, systemPrompt: event.target.value })}
+              onChange={(event) => set('systemPrompt', event.target.value)}
             />
           </Field>
           <div className="flex justify-end gap-2 border-t pt-3">
@@ -2890,7 +2979,8 @@ export function DuplicateAgentDialog({
     slug: `${agent.slug}-copy`.slice(0, 64),
   }));
   const [form, setForm] = useState(initial);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const rhf = useZodForm(duplicateFormSchema, { defaultValues: initial });
+  const errors = rhf.formState.errors;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [created, setCreated] = useState<Agent | null>(null);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
@@ -2907,11 +2997,20 @@ export function DuplicateAgentDialog({
     else onClose();
   };
 
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]): void => {
+    setForm((previous) => ({ ...previous, [key]: value }));
+    rhf.setValue(key as Path<typeof form>, value as PathValue<typeof form, Path<typeof form>>);
+    rhf.clearErrors(key);
+  };
+
   const submit = (): void => {
     if (duplicate.isPending) return;
-    const parsed = agentDuplicateInputSchema.safeParse(form);
+    const parsed = duplicateFormSchema.safeParse(form);
     if (!parsed.success) {
-      setErrors(fieldErrors(parsed.error.issues));
+      rhf.clearErrors();
+      for (const [path, message] of Object.entries(fieldErrors(parsed.error.issues))) {
+        rhf.setError(path as keyof typeof form, { type: 'validation', message });
+      }
       return;
     }
     duplicate.mutate(
@@ -2928,7 +3027,7 @@ export function DuplicateAgentDialog({
             error.code === 'CONFLICT' &&
             !error.retryable
           ) {
-            setErrors({ slug: '该 slug 已被占用' });
+            rhf.setError('slug', { type: 'server', message: '该 slug 已被占用' });
             return;
           }
           toastError(error);
@@ -2973,15 +3072,16 @@ export function DuplicateAgentDialog({
                 <RequiredMark />
               </FieldLabel>
               <Input
+                {...rhf.register('name')}
                 disabled={duplicate.isPending}
                 id="duplicate-agent-name"
                 value={form.name}
                 aria-required="true"
                 aria-invalid={Boolean(errors.name)}
                 aria-describedby={errors.name ? 'duplicate-agent-name-error' : undefined}
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
+                onChange={(event) => set('name', event.target.value)}
               />
-              <FieldError id="duplicate-agent-name-error">{errors.name}</FieldError>
+              <FieldError id="duplicate-agent-name-error">{errors.name?.message}</FieldError>
             </Field>
             <Field
               data-disabled={duplicate.isPending}
@@ -2993,6 +3093,7 @@ export function DuplicateAgentDialog({
                 <RequiredMark />
               </FieldLabel>
               <Input
+                {...rhf.register('slug')}
                 disabled={duplicate.isPending}
                 id="duplicate-agent-slug"
                 value={form.slug}
@@ -3000,9 +3101,9 @@ export function DuplicateAgentDialog({
                 aria-required="true"
                 aria-invalid={Boolean(errors.slug)}
                 aria-describedby={errors.slug ? 'duplicate-agent-slug-error' : undefined}
-                onChange={(event) => setForm({ ...form, slug: event.target.value })}
+                onChange={(event) => set('slug', event.target.value)}
               />
-              <FieldError id="duplicate-agent-slug-error">{errors.slug}</FieldError>
+              <FieldError id="duplicate-agent-slug-error">{errors.slug?.message}</FieldError>
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2 border-t pt-3">

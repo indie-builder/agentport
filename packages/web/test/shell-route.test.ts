@@ -20,7 +20,7 @@ async function inspectRoute(path: string, auth: 'success' | 'pending' | 'error')
       auth === 'error' ? Promise.reject(new Error('offline')) : new Promise(() => {}),
   });
   const rootRoute = createRootRoute();
-  const shell = createRoute({ getParentRoute: () => rootRoute, id: 'shell', component: AppShell });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: AppShell });
   const missing = createRoute({
     getParentRoute: () => shell,
     path: '$',

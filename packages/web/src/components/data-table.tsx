@@ -17,6 +17,19 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  type ColumnDef,
+  type ColumnOrderState,
+  type ColumnVisibilityState,
+  columnOrderingFeature,
+  columnVisibilityFeature,
+  createSortedRowModel,
+  functionalUpdate,
+  type RowData,
+  rowSortingFeature,
+  tableFeatures,
+  useTable,
+} from '@tanstack/react-table';
+import {
   ArrowDown,
   ArrowUp,
   ArrowUpRight,
@@ -30,7 +43,7 @@ import {
   Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
-  useCallback,
+  useEffect,
   useId,
   useMemo,
   useState,
@@ -74,75 +87,62 @@ interface DataTableProps<T> {
   className?: string;
 }
 
-/** 列偏好持久化到 localStorage：可见性 + 顺序。 */
 interface ColumnPrefs {
   hidden: string[];
   order: string[];
 }
 
+const features = tableFeatures({
+  columnOrderingFeature,
+  columnVisibilityFeature,
+  rowSortingFeature,
+  sortedRowModel: createSortedRowModel(),
+});
+
+type Features = typeof features;
+
 function asIds(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : [];
 }
 
-function useColumnPrefs(storageKey: string | undefined, columns: DataColumn<unknown>[]) {
-  const [prefs, setPrefs] = useState<ColumnPrefs>(() => {
-    const fallback: ColumnPrefs = {
-      hidden: columns.filter((c) => c.hiddenByDefault && !c.locked).map((c) => c.id),
-      order: columns.map((c) => c.id),
-    };
-    if (!storageKey) return fallback;
+/** 兼容旧格式（裸数组只记隐藏列）与 { hidden, order }。 */
+function readPrefs(
+  storageKey: string | undefined,
+  columns: { id: string; locked?: boolean; hiddenByDefault?: boolean }[],
+): { visibility: ColumnVisibilityState; order: ColumnOrderState } {
+  const locked = new Set(columns.filter((c) => c.locked).map((c) => c.id));
+  let hidden = columns.filter((c) => c.hiddenByDefault && !c.locked).map((c) => c.id);
+  let order = columns.map((c) => c.id);
+
+  if (storageKey) {
     try {
       const parsed: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
-      // 旧格式是裸数组（只记隐藏列）；新格式是 { hidden, order }。
-      if (Array.isArray(parsed)) return { ...fallback, hidden: asIds(parsed) };
-      if (parsed && typeof parsed === 'object') {
-        const { hidden, order } = parsed as Partial<ColumnPrefs>;
-        return {
-          hidden: Array.isArray(hidden) ? asIds(hidden) : fallback.hidden,
-          order: asIds(order),
-        };
+      if (Array.isArray(parsed)) {
+        hidden = asIds(parsed);
+      } else if (parsed && typeof parsed === 'object') {
+        const prefs = parsed as Partial<ColumnPrefs>;
+        hidden = Array.isArray(prefs.hidden) ? asIds(prefs.hidden) : hidden;
+        order = asIds(prefs.order);
       }
     } catch {
-      // 损坏的偏好直接丢弃，回到默认。
+      // 损坏的偏好（或 SSR 没有 localStorage）直接丢弃，回到默认。
     }
-    return fallback;
-  });
+  }
 
-  const update = useCallback(
-    (fn: (prev: ColumnPrefs) => ColumnPrefs) => {
-      setPrefs((prev) => {
-        const next = fn(prev);
-        if (storageKey) {
-          try {
-            localStorage.setItem(storageKey, JSON.stringify(next));
-          } catch {
-            // 隐私模式下 localStorage 不可写，忽略。
-          }
-        }
-        return next;
-      });
-    },
-    [storageKey],
-  );
+  return {
+    // 锁定列永远可见，旧偏好里记录了也忽略。
+    visibility: Object.fromEntries(hidden.filter((id) => !locked.has(id)).map((id) => [id, false])),
+    order,
+  };
+}
 
-  const toggle = useCallback(
-    (id: string) => {
-      update((prev) => ({
-        ...prev,
-        hidden: prev.hidden.includes(id)
-          ? prev.hidden.filter((x) => x !== id)
-          : [...prev.hidden, id],
-      }));
-    },
-    [update],
-  );
-
-  const setOrder = useCallback(
-    (next: string[]) => update((prev) => ({ ...prev, order: next })),
-    [update],
-  );
-
-  return { hidden: prefs.hidden, order: prefs.order, toggle, setOrder };
+function compareValues(av: string | number | null, bv: string | number | null): number {
+  if (av === null && bv === null) return 0;
+  if (av === null) return 1;
+  if (bv === null) return -1;
+  return typeof av === 'number' && typeof bv === 'number'
+    ? av - bv
+    : String(av).localeCompare(String(bv));
 }
 
 /** 列设置里的一行：拖动手柄负责排序，复选框负责显隐。 */
@@ -260,7 +260,7 @@ export function reorderColumns(
   return columns.map((c) => (c.locked ? c.id : (next[i++] ?? c.id)));
 }
 
-export function DataTable<T>({
+export function DataTable<T extends RowData>({
   rows,
   columns,
   rowKey,
@@ -273,11 +273,7 @@ export function DataTable<T>({
   className,
 }: DataTableProps<T>) {
   const tableId = useId();
-  const { hidden, order, toggle, setOrder } = useColumnPrefs(
-    storageKey,
-    columns as DataColumn<unknown>[],
-  );
-  const [sort, setSort] = useState<{ id: string; dir: 'asc' | 'desc' } | null>(null);
+  const [prefs, setPrefs] = useState(() => readPrefs(storageKey, columns));
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [dragging, setDragging] = useState<{ id: string; keyboard: boolean } | null>(null);
@@ -287,20 +283,75 @@ export function DataTable<T>({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // 存储的顺序只记列 id；新增列（或旧顺序里没有的列）排到末尾。
-  const orderedColumns = useMemo(() => {
-    const byId = new Map(columns.map((c) => [c.id, c]));
-    const saved = [...new Set(order)].flatMap((id) => byId.get(id) ?? []);
-    const seen = new Set(saved.map((c) => c.id));
-    return [...saved, ...columns.filter((c) => !seen.has(c.id))];
-  }, [columns, order]);
+  const sourceById = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns]);
 
-  const hiddenSet = useMemo(() => new Set(hidden), [hidden]);
-  const visible = orderedColumns.filter((c) => c.locked || !hiddenSet.has(c.id));
+  const tableColumns = useMemo(
+    () =>
+      columns.map((col): ColumnDef<Features, T> => {
+        const sortValue = col.sortValue;
+        return {
+          id: col.id,
+          header: col.header,
+          enableHiding: !col.locked,
+          ...(sortValue
+            ? {
+                // null 用 undefined 表达，交给 TanStack 的 sortUndefined，升降序都排在最后。
+                accessorFn: (row: T) => sortValue(row) ?? undefined,
+                enableSorting: true,
+                sortUndefined: 'last' as const,
+                sortFn: (a, b) => compareValues(sortValue(a.original), sortValue(b.original)),
+              }
+            : { enableSorting: false }),
+          cell: ({ row }) =>
+            col.cell
+              ? col.cell(row.original)
+              : String((row.original as Record<string, unknown>)[col.id] ?? ''),
+        };
+      }),
+    [columns],
+  );
+
+  const table = useTable<Features, T>({
+    features,
+    columns: tableColumns,
+    data: rows,
+    getRowId: rowKey,
+    initialState: { columnVisibility: prefs.visibility, columnOrder: prefs.order },
+    state: { columnVisibility: prefs.visibility, columnOrder: prefs.order },
+    onColumnVisibilityChange: (updater) =>
+      setPrefs((prev) => ({
+        ...prev,
+        visibility: functionalUpdate(updater, prev.visibility),
+      })),
+    onColumnOrderChange: (updater) =>
+      setPrefs((prev) => ({ ...prev, order: functionalUpdate(updater, prev.order) })),
+  });
+
+  useEffect(() => {
+    if (!storageKey) return;
+    const hidden = Object.entries(prefs.visibility)
+      .filter(([, visible]) => !visible)
+      .map(([id]) => id);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ hidden, order: prefs.order }));
+    } catch {
+      // 隐私模式下 localStorage 不可写，忽略。
+    }
+  }, [storageKey, prefs]);
+
+  const orderedColumns = table
+    .getAllLeafColumns()
+    .flatMap((column) => sourceById.get(column.id) ?? []);
   const draggable = orderedColumns.filter((c) => !c.locked);
+  const visible = table.getVisibleLeafColumns();
+  const hiddenSet = new Set(
+    Object.entries(prefs.visibility)
+      .filter(([, isVisible]) => !isVisible)
+      .map(([id]) => id),
+  );
 
   const moveColumn = (from: number, to: number): void => {
-    setOrder(reorderColumns(orderedColumns, from, to));
+    table.setColumnOrder(reorderColumns(orderedColumns, from, to));
   };
 
   const onDragEnd = (event: DragEndEvent): void => {
@@ -315,44 +366,18 @@ export function DataTable<T>({
 
   const draggingColumn = orderedColumns.find((c) => c.id === dragging?.id);
 
-  const sorted = useMemo(() => {
-    if (!sort) return rows;
-    const col = columns.find((c) => c.id === sort.id);
-    if (!col?.sortValue) return rows;
-    const get = col.sortValue;
-    return [...rows].sort((a, b) => {
-      const av = get(a);
-      const bv = get(b);
-      if (av === null && bv === null) return 0;
-      if (av === null) return 1;
-      if (bv === null) return -1;
-      const cmp =
-        typeof av === 'number' && typeof bv === 'number'
-          ? av - bv
-          : String(av).localeCompare(String(bv));
-      return sort.dir === 'asc' ? cmp : -cmp;
-    });
-  }, [rows, sort, columns]);
-
-  const template = visible.map((c) => c.width ?? 'minmax(120px,1fr)').join(' ');
+  const template = visible
+    .map((column) => sourceById.get(column.id)?.width ?? 'minmax(120px,1fr)')
+    .join(' ');
 
   // 窄屏保底宽度，让容器横向滚动而不是把文字截成省略号。
   const minWidth =
-    visible.reduce((sum, c) => {
-      const match = c.width?.match(/^(minmax\()?(\d+)px/);
+    visible.reduce((sum, column) => {
+      const match = sourceById.get(column.id)?.width?.match(/^(minmax\()?(\d+)px/);
       return sum + (match?.[2] ? Number(match[2]) : 140);
     }, 0) +
     visible.length * 12 +
     32;
-
-  const toggleSort = (col: DataColumn<T>): void => {
-    if (!col.sortValue) return;
-    setSort((prev) =>
-      prev?.id === col.id
-        ? { id: col.id, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-        : { id: col.id, dir: 'desc' },
-    );
-  };
 
   // 行用方向键上下移动；Enter/Space 由原生 button 激活，不重复处理。
   const onRowKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
@@ -411,7 +436,7 @@ export function DataTable<T>({
                 <ColumnPicker
                   columns={draggable}
                   hidden={hiddenSet}
-                  toggle={toggle}
+                  toggle={(id) => table.getColumn(id)?.toggleVisibility()}
                   move={moveColumn}
                 />
               </PopoverContent>
@@ -441,51 +466,49 @@ export function DataTable<T>({
             className="grid items-center gap-3 px-3 pb-2 hover:bg-transparent"
             style={{ gridTemplateColumns: template }}
           >
-            {visible.map((col) => (
-              <TableHead
-                key={col.id}
-                role="columnheader"
-                scope="col"
-                aria-sort={
-                  sort?.id === col.id
-                    ? sort.dir === 'asc'
-                      ? 'ascending'
-                      : 'descending'
-                    : undefined
-                }
-                className={cn(
-                  'h-auto min-w-0 p-0 text-xs font-normal whitespace-normal text-muted-foreground',
-                  col.numeric && 'text-right',
-                )}
-              >
-                {col.sortValue ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => toggleSort(col)}
-                    aria-label={`${col.header}，按此列排序`}
-                    className={cn(
-                      'h-auto w-full justify-start gap-1 rounded-none border-0 p-0 text-xs font-normal whitespace-normal',
-                      col.numeric && 'justify-end',
-                    )}
-                  >
-                    {col.header}
-                    {sort?.id === col.id ? (
-                      sort.dir === 'asc' ? (
+            {visible.map((column) => {
+              const source = sourceById.get(column.id);
+              const dir = column.getIsSorted();
+              return (
+                <TableHead
+                  key={column.id}
+                  role="columnheader"
+                  scope="col"
+                  aria-sort={
+                    dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : undefined
+                  }
+                  className={cn(
+                    'h-auto min-w-0 p-0 text-xs font-normal whitespace-normal text-muted-foreground',
+                    source?.numeric && 'text-right',
+                  )}
+                >
+                  {column.getCanSort() ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => column.toggleSorting(dir !== 'desc')}
+                      aria-label={`${source?.header ?? column.id}，按此列排序`}
+                      className={cn(
+                        'h-auto w-full justify-start gap-1 rounded-none border-0 p-0 text-xs font-normal whitespace-normal',
+                        source?.numeric && 'justify-end',
+                      )}
+                    >
+                      {source?.header ?? column.id}
+                      {dir === 'asc' ? (
                         <ArrowUp aria-hidden="true" />
-                      ) : (
+                      ) : dir === 'desc' ? (
                         <ArrowDown aria-hidden="true" />
-                      )
-                    ) : (
-                      <ChevronsUpDown className="opacity-40" aria-hidden="true" />
-                    )}
-                  </Button>
-                ) : (
-                  col.header
-                )}
-              </TableHead>
-            ))}
+                      ) : (
+                        <ChevronsUpDown className="opacity-40" aria-hidden="true" />
+                      )}
+                    </Button>
+                  ) : (
+                    (source?.header ?? column.id)
+                  )}
+                </TableHead>
+              );
+            })}
           </TableRow>
         </TableHeader>
         <TableBody role="rowgroup" className="block">
@@ -508,15 +531,15 @@ export function DataTable<T>({
               </TableCell>
             </TableRow>
           ) : (
-            sorted.map((row) => {
-              const key = rowKey(row);
-              const expandedContent = renderExpanded?.(row) ?? null;
+            table.getRowModel().rows.map((row) => {
+              const key = row.id;
+              const expandedContent = renderExpanded?.(row.original) ?? null;
               const isOpen = expanded === key && expandedContent !== null;
               const interactive = expandedContent !== null || Boolean(onRowClick);
               const panelId = `${tableId}-row-panel-${key}`;
               const activate = () => {
                 if (expandedContent !== null) setExpanded(isOpen ? null : key);
-                onRowClick?.(row);
+                onRowClick?.(row.original);
               };
               return (
                 <Fragment key={key}>
@@ -543,49 +566,51 @@ export function DataTable<T>({
                     )}
                     style={{ gridTemplateColumns: template }}
                   >
-                    {visible.map((col, index) => (
-                      <TableCell
-                        key={col.id}
-                        role="cell"
-                        className={cn(
-                          'min-w-0 px-0 py-2 whitespace-normal wrap-anywhere [&_.truncate]:overflow-visible [&_.truncate]:whitespace-normal [&_.truncate]:text-clip',
-                          col.numeric && 'text-right font-mono tabular-nums text-muted-foreground',
-                        )}
-                      >
-                        <div
-                          className={cn(index === 0 && interactive && 'flex items-center gap-1')}
-                        >
-                          {index === 0 && interactive && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              data-row=""
-                              aria-label={`${expandedContent !== null ? (isOpen ? '收起' : '展开') : '打开'} ${key}`}
-                              aria-expanded={expandedContent !== null ? isOpen : undefined}
-                              aria-controls={expandedContent !== null ? panelId : undefined}
-                              onKeyDown={onRowKeyDown}
-                              onClick={activate}
-                            >
-                              {expandedContent !== null ? (
-                                isOpen ? (
-                                  <ChevronDown aria-hidden="true" />
-                                ) : (
-                                  <ChevronRight aria-hidden="true" />
-                                )
-                              ) : (
-                                <ArrowUpRight aria-hidden="true" />
-                              )}
-                            </Button>
+                    {row.getVisibleCells().map((cell, index) => {
+                      const source = sourceById.get(cell.column.id);
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          role="cell"
+                          className={cn(
+                            'min-w-0 px-0 py-2 whitespace-normal wrap-anywhere [&_.truncate]:overflow-visible [&_.truncate]:whitespace-normal [&_.truncate]:text-clip',
+                            source?.numeric &&
+                              'text-right font-mono tabular-nums text-muted-foreground',
                           )}
-                          <div className="min-w-0">
-                            {col.cell
-                              ? col.cell(row)
-                              : String((row as Record<string, unknown>)[col.id] ?? '')}
+                        >
+                          <div
+                            className={cn(index === 0 && interactive && 'flex items-center gap-1')}
+                          >
+                            {index === 0 && interactive && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-xs"
+                                data-row=""
+                                aria-label={`${expandedContent !== null ? (isOpen ? '收起' : '展开') : '打开'} ${key}`}
+                                aria-expanded={expandedContent !== null ? isOpen : undefined}
+                                aria-controls={expandedContent !== null ? panelId : undefined}
+                                onKeyDown={onRowKeyDown}
+                                onClick={activate}
+                              >
+                                {expandedContent !== null ? (
+                                  isOpen ? (
+                                    <ChevronDown aria-hidden="true" />
+                                  ) : (
+                                    <ChevronRight aria-hidden="true" />
+                                  )
+                                ) : (
+                                  <ArrowUpRight aria-hidden="true" />
+                                )}
+                              </Button>
+                            )}
+                            <div className="min-w-0">
+                              <table.FlexRender cell={cell} />
+                            </div>
                           </div>
-                        </div>
-                      </TableCell>
-                    ))}
+                        </TableCell>
+                      );
+                    })}
                   </TableRow>
                   {expandedContent !== null && (
                     <TableRow

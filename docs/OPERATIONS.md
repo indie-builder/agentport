@@ -18,7 +18,7 @@
 | `APP_SECRET_KEY` | 是 | — | api、worker | MCP 密钥加密主密钥，≥32 字符。**api 与 worker 必须一致**，否则 worker 无法解密 |
 | `ADMIN_USER` | 否 | `admin` | api | 唯一管理员用户名 |
 | `ADMIN_PASSWORD` | 是 | — | api | 管理员密码，≥12 字符，且不能是 `admin-change-me` / `changeme` / `password`；每次登录用 scrypt 比对 |
-| `JWT_SECRET` | 是 | — | api | 会话签名密钥，≥32 字符 |
+| `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥，≥32 字符 |
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问地址（如 `https://agentport.example.com`），不要用 `*` |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | api、worker 均解析；worker 使用 | `agent-runs` 队列并发数（api 解析但不读） |
@@ -362,7 +362,7 @@ pnpm --filter @agentport/worker maintenance
 ```bash
 docker compose logs -f api worker
 docker compose ps
-curl -s -b "agentport_token=<登录后的 JWT>" localhost:3000/health/metrics   # 需要登录
+curl -s -b "agentport_token=<登录后的会话 cookie>" localhost:3000/health/metrics   # 需要登录
 set -a; . ./.env; set +a
 redis-cli -u "$REDIS_URL" llen bull:agent-runs:wait
 redis-cli -u "$REDIS_URL" xlen run:<runId>:events

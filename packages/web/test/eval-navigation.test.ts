@@ -45,7 +45,7 @@ async function mount(editing = false) {
     ],
   );
   const rootRoute = createRootRoute({ component: Outlet });
-  const shell = createRoute({ getParentRoute: () => rootRoute, id: 'shell', component: Outlet });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const evalRoute = createRoute({
     getParentRoute: () => shell,
     path: '/eval',

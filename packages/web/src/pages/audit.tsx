@@ -93,7 +93,7 @@ const columns: DataColumn<AuditEntry>[] = [
 
 export function AuditPage() {
   const navigate = useNavigate();
-  const search = useSearch({ from: '/shell/audit' });
+  const search = useSearch({ from: '/_shell/audit' });
   const action = search.action ?? '';
   const status = search.status ?? 'all';
   const target = search.target ?? '';

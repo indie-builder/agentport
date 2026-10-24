@@ -50,8 +50,8 @@ function stepName(step: RunStep): string {
 }
 
 export function RunDetailPage() {
-  const params = useParams({ from: '/shell/runs/$runId' });
-  const search = useSearch({ from: '/shell/runs/$runId' });
+  const params = useParams({ from: '/_shell/runs/$runId' });
+  const search = useSearch({ from: '/_shell/runs/$runId' });
   const run = useRun(params.runId);
   const navigate = useNavigate();
   // 状态尚未读取或仍在排队时也轮询，终态转换负责最后刷新。

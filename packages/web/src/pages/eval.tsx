@@ -12,8 +12,9 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { type ComponentProps, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { z } from 'zod';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
@@ -65,6 +66,7 @@ import {
   useUpdateEvalCase,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 
 const runColumns: DataColumn<EvalRun>[] = [
   {
@@ -149,7 +151,7 @@ export function EvalPage() {
   const agents = useAgents();
   const navigate = useNavigate();
   // 选中的专家放在 URL 里：刷新、分享、前进后退都保留。
-  const search = useSearch({ from: '/shell/eval' });
+  const search = useSearch({ from: '/_shell/eval' });
   const agentId = search.agent ?? '';
   const selectedAgent = agentId
     ? agents.data?.find((agent) => agent.id === agentId)
@@ -843,11 +845,11 @@ function CompareSide({
   );
 }
 
-interface CaseForm {
-  name: string;
-  prompt: string;
-  expectation: string;
-}
+const evalCaseFormSchema = z.object({
+  name: z.string().trim().min(1, '名称需要填写。').max(128, '名称不能超过 128 字。'),
+  prompt: z.string().min(1, '输入需要填写。').max(20_000, '输入不能超过 20,000 字。'),
+  expectation: z.string().max(5_000, '期望不能超过 5,000 字。'),
+});
 
 function CaseDialog({
   agentId,
@@ -862,44 +864,21 @@ function CaseDialog({
 }) {
   const create = useCreateEvalCase();
   const update = useUpdateEvalCase();
-  const [form, setForm] = useState<CaseForm>(
-    testCase
+  const { register, handleSubmit, watch, formState } = useZodForm(evalCaseFormSchema, {
+    defaultValues: testCase
       ? { name: testCase.name, prompt: testCase.prompt, expectation: testCase.expectation }
       : { name: '', prompt: '', expectation: '' },
-  );
-  const [errors, setErrors] = useState<Partial<Record<keyof CaseForm, string>>>({});
+  });
+  const { errors, isDirty } = formState;
+  const values = watch();
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const initial = useMemo<CaseForm>(
-    () =>
-      testCase
-        ? { name: testCase.name, prompt: testCase.prompt, expectation: testCase.expectation }
-        : { name: '', prompt: '', expectation: '' },
-    [testCase],
-  );
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const dirty = isDirty;
 
-  const set = <K extends keyof CaseForm>(key: K, value: CaseForm[K]): void => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    setErrors((prev) => ({ ...prev, [key]: undefined }));
-  };
-
-  const submit = (event: React.FormEvent): void => {
-    event.preventDefault();
+  const submit = handleSubmit((form) => {
     if (pending) return;
-    const issues: Partial<Record<keyof CaseForm, string>> = {};
-    if (!form.name.trim()) issues.name = '名称需要填写。';
-    else if (form.name.trim().length > 128) issues.name = '名称不能超过 128 字。';
-    if (!form.prompt.length) issues.prompt = '输入需要填写。';
-    else if (form.prompt.length > 20_000) issues.prompt = '输入不能超过 20,000 字。';
-    if (form.expectation.length > 5_000) issues.expectation = '期望不能超过 5,000 字。';
-    if (Object.keys(issues).length > 0) {
-      setErrors(issues);
-      return;
-    }
     const input: EvalCaseInput = {
       agentId: agentId ?? testCase?.agentId ?? '',
       ...form,
-      name: form.name.trim(),
     };
     const done = (): void => {
       toastSuccess(testCase ? '用例已更新' : '用例已创建');
@@ -916,7 +895,7 @@ function CaseDialog({
     } else {
       create.mutate(input, { onSuccess: done, onError: toastError });
     }
-  };
+  });
 
   const pending = create.isPending || update.isPending;
   const blocker = useFormBlocker(dirty, pending);
@@ -950,17 +929,17 @@ function CaseDialog({
                 名称 <RequiredMark />
               </FieldLabel>
               <Input
+                {...register('name')}
+                value={values.name}
                 id="eval-name"
                 disabled={pending}
                 required
                 aria-required="true"
-                value={form.name}
                 aria-invalid={Boolean(errors.name)}
                 aria-describedby={errors.name ? 'eval-name-error' : undefined}
-                onChange={(event) => set('name', event.target.value)}
                 placeholder="例如：拒绝编造不存在的工具"
               />
-              <FieldError id="eval-name-error">{errors.name}</FieldError>
+              <FieldError id="eval-name-error">{errors.name?.message}</FieldError>
             </Field>
             <Field
               className="gap-1.5"
@@ -971,18 +950,18 @@ function CaseDialog({
                 输入 <RequiredMark />
               </FieldLabel>
               <Textarea
+                {...register('prompt')}
+                value={values.prompt}
                 id="eval-prompt"
                 disabled={pending}
                 required
                 aria-required="true"
                 rows={5}
-                value={form.prompt}
                 aria-invalid={Boolean(errors.prompt)}
                 aria-describedby={errors.prompt ? 'eval-prompt-error' : undefined}
-                onChange={(event) => set('prompt', event.target.value)}
                 placeholder="发送给专家的完整输入"
               />
-              <FieldError id="eval-prompt-error">{errors.prompt}</FieldError>
+              <FieldError id="eval-prompt-error">{errors.prompt?.message}</FieldError>
             </Field>
             <Field
               className="gap-1.5"
@@ -991,23 +970,23 @@ function CaseDialog({
             >
               <FieldLabel htmlFor="eval-expectation">期望包含</FieldLabel>
               <Textarea
+                {...register('expectation')}
+                value={values.expectation}
                 id="eval-expectation"
                 disabled={pending}
                 rows={2}
-                value={form.expectation}
                 aria-invalid={Boolean(errors.expectation)}
                 aria-describedby={
                   errors.expectation
                     ? 'eval-expectation-error eval-expectation-description'
                     : 'eval-expectation-description'
                 }
-                onChange={(event) => set('expectation', event.target.value)}
                 placeholder="输出中应出现的文本（不区分大小写）；留空则只要求有文本输出"
               />
               <FieldDescription id="eval-expectation-description">
                 最小判定，不做语义判断；需要更严格时写更具体的片段。
               </FieldDescription>
-              <FieldError id="eval-expectation-error">{errors.expectation}</FieldError>
+              <FieldError id="eval-expectation-error">{errors.expectation?.message}</FieldError>
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2">

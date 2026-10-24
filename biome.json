@@ -12,6 +12,7 @@
       "**/*.json",
       "!**/.agents",
       "!**/dist",
+      "!**/routeTree.gen.ts",
       "!**/migrations/meta"
     ]
   },
@@ -48,6 +49,19 @@
     }
   },
   "overrides": [
+    {
+      "includes": ["packages/web/src/components/ui/chart.tsx"],
+      "linter": {
+        "rules": {
+          "security": {
+            "noDangerouslySetInnerHtml": "off"
+          },
+          "suspicious": {
+            "noArrayIndexKey": "off"
+          }
+        }
+      }
+    },
     {
       "includes": ["packages/web/src/components/ui/field.tsx"],
       "linter": {

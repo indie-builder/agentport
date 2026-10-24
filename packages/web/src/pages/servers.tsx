@@ -26,7 +26,9 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Controller } from 'react-hook-form';
 import { toast } from 'sonner';
+import { z } from 'zod';
 import { CodeBlock, JsonBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -106,6 +108,7 @@ import {
 } from '../lib/queries.js';
 import { parsePairs, validateToolInput } from '../lib/resource-form.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 
 type Kind = ServerInput['kind'];
 
@@ -155,7 +158,7 @@ export function ServersPage() {
   const agents = useAgents();
   const test = useTestServer();
   const importMcp = useImportMcpFile();
-  const search = useSearch({ from: '/shell/servers' });
+  const search = useSearch({ from: '/_shell/servers' });
   const navigate = useNavigate();
   const query = search.q ?? '';
   const kind = search.kind ?? 'all';
@@ -1284,25 +1287,66 @@ function ToolEditorDialog({
   );
 }
 
-const blankTool: ApiToolInput = {
+interface ToolFormValues {
+  name: string;
+  description: string;
+  method: ApiToolInput['method'];
+  pathTemplate: string;
+  inputSchema: string;
+  paramsIn: ApiToolInput['paramsIn'];
+  requiresApproval: boolean;
+}
+
+const blankSchemaText = '{\n  "type": "object",\n  "properties": {}\n}';
+
+const blankToolForm: ToolFormValues = {
   name: '',
   description: '',
   method: 'GET',
   pathTemplate: '/',
-  inputSchema: { type: 'object', properties: {} },
+  inputSchema: blankSchemaText,
   paramsIn: 'query',
   requiresApproval: false,
 };
 
-const blankSchemaText = '{\n  "type": "object",\n  "properties": {}\n}';
+/** validateToolInput 只读 form 的标量字段，schema 文本单独传入。 */
+function toolPayload(values: ToolFormValues): ApiToolInput {
+  return {
+    name: values.name,
+    description: values.description,
+    method: values.method,
+    pathTemplate: values.pathTemplate,
+    inputSchema: {},
+    paramsIn: values.paramsIn,
+    requiresApproval: values.requiresApproval,
+  };
+}
 
-function toolToInput(tool: ApiTool): ApiToolInput {
+const toolFormSchema = z
+  .object({
+    name: z.string(),
+    description: z.string(),
+    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+    pathTemplate: z.string(),
+    inputSchema: z.string(),
+    paramsIn: z.enum(['query', 'body']),
+    requiresApproval: z.boolean(),
+  })
+  .superRefine((values, ctx) => {
+    const result = validateToolInput(toolPayload(values), values.inputSchema);
+    if (result.data) return;
+    for (const [key, message] of Object.entries(result.errors)) {
+      ctx.addIssue({ code: 'custom', path: [key], message });
+    }
+  });
+
+function toolToForm(tool: ApiTool): ToolFormValues {
   return {
     name: tool.name,
     description: tool.description,
     method: tool.method,
     pathTemplate: tool.pathTemplate,
-    inputSchema: tool.inputSchema,
+    inputSchema: JSON.stringify(tool.inputSchema, null, 2),
     paramsIn: tool.paramsIn,
     requiresApproval: tool.requiresApproval,
   };
@@ -1328,24 +1372,16 @@ function ToolForm({
 }) {
   const create = useCreateTool(serverId);
   const update = useUpdateTool(serverId);
-  const [form, setForm] = useState<ApiToolInput>(() => (tool ? toolToInput(tool) : blankTool));
-  const [schemaText, setSchemaText] = useState(() =>
-    tool ? JSON.stringify(tool.inputSchema, null, 2) : blankSchemaText,
-  );
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { register, control, handleSubmit, reset, watch, formState } = useZodForm(toolFormSchema, {
+    defaultValues: tool ? toolToForm(tool) : blankToolForm,
+  });
+  const { errors, isDirty } = formState;
+  const watched = watch();
 
   // 只有这个表单自己的保存会改变可关闭状态；行内开关不算。
   const formPending = create.isPending || update.isPending;
   const pending = disabled || formPending;
-  // 基线取挂载时的值；新建表单提交成功后会回到同一空白状态。
-  const baseline = useRef(
-    JSON.stringify(
-      tool
-        ? { form: toolToInput(tool), schemaText: JSON.stringify(tool.inputSchema, null, 2) }
-        : { form: blankTool, schemaText: blankSchemaText },
-    ),
-  );
-  const dirty = JSON.stringify({ form, schemaText }) !== baseline.current;
+  const dirty = isDirty;
   const blocker = useFormBlocker(dirty, pending);
 
   useEffect(() => {
@@ -1363,21 +1399,16 @@ function ToolForm({
     [onDirtyChange, onPendingChange],
   );
 
-  const submit = (): void => {
+  const submit = handleSubmit((values) => {
     if (pending) return;
-    const result = validateToolInput(form, schemaText);
-    if (!result.data) {
-      setErrors(result.errors);
-      return;
-    }
-    setErrors({});
+    const result = validateToolInput(toolPayload(values), values.inputSchema);
+    if (!result.data) return;
     const payload = result.data;
 
     if (!tool) {
       create.mutate(payload, {
         onSuccess: () => {
-          setForm(blankTool);
-          setSchemaText(blankSchemaText);
+          reset(blankToolForm);
           toastSuccess('工具已添加');
         },
         onError: (error) => toastError(error),
@@ -1396,7 +1427,7 @@ function ToolForm({
         onError: (error) => toastError(error),
       },
     );
-  };
+  });
 
   const methodOptions = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => ({
     value: method,
@@ -1436,42 +1467,46 @@ function ToolForm({
           <RequiredMark />
         </FieldLabel>
         <Input
+          {...register('name')}
+          value={watched.name}
           disabled={pending}
           id={`tool-name-${serverId}`}
-          value={form.name}
           placeholder="list-users"
           aria-required
           aria-invalid={Boolean(errors.name)}
           aria-describedby={errors.name ? `tool-name-error-${serverId}` : undefined}
-          onChange={(event) => setForm({ ...form, name: event.target.value })}
         />
-        <FieldError id={`tool-name-error-${serverId}`}>{errors.name}</FieldError>
+        <FieldError id={`tool-name-error-${serverId}`}>{errors.name?.message}</FieldError>
       </Field>
       <Field data-disabled={pending} className="gap-1.5">
         <FieldLabel htmlFor={`tool-method-${serverId}`}>方法</FieldLabel>
-        <Select
-          disabled={pending}
-          value={form.method}
-          onValueChange={(next) => {
-            if (next !== null) {
-              setForm({ ...form, method: next as ApiToolInput['method'] });
-            }
-          }}
-          items={methodOptions}
-        >
-          <SelectTrigger id={`tool-method-${serverId}`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {methodOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+        <Controller
+          control={control}
+          name="method"
+          render={({ field }) => (
+            <Select
+              disabled={pending}
+              value={field.value}
+              onValueChange={(next) => {
+                if (next !== null) field.onChange(next);
+              }}
+              items={methodOptions}
+            >
+              <SelectTrigger id={`tool-method-${serverId}`} ref={field.ref} onBlur={field.onBlur}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {methodOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
+        />
       </Field>
       <Field
         data-disabled={pending}
@@ -1483,42 +1518,46 @@ function ToolForm({
           <RequiredMark />
         </FieldLabel>
         <Input
+          {...register('pathTemplate')}
+          value={watched.pathTemplate}
           disabled={pending}
           id={`tool-path-${serverId}`}
-          value={form.pathTemplate}
           placeholder="/users/{id}"
           aria-required
           aria-invalid={Boolean(errors.pathTemplate)}
           aria-describedby={errors.pathTemplate ? `tool-path-error-${serverId}` : undefined}
-          onChange={(event) => setForm({ ...form, pathTemplate: event.target.value })}
         />
-        <FieldError id={`tool-path-error-${serverId}`}>{errors.pathTemplate}</FieldError>
+        <FieldError id={`tool-path-error-${serverId}`}>{errors.pathTemplate?.message}</FieldError>
       </Field>
       <Field data-disabled={pending} className="gap-1.5">
         <FieldLabel htmlFor={`tool-params-${serverId}`}>参数位置</FieldLabel>
-        <Select
-          disabled={pending}
-          value={form.paramsIn}
-          onValueChange={(next) => {
-            if (next !== null) {
-              setForm({ ...form, paramsIn: next as ApiToolInput['paramsIn'] });
-            }
-          }}
-          items={paramsOptions}
-        >
-          <SelectTrigger id={`tool-params-${serverId}`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {paramsOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+        <Controller
+          control={control}
+          name="paramsIn"
+          render={({ field }) => (
+            <Select
+              disabled={pending}
+              value={field.value}
+              onValueChange={(next) => {
+                if (next !== null) field.onChange(next);
+              }}
+              items={paramsOptions}
+            >
+              <SelectTrigger id={`tool-params-${serverId}`} ref={field.ref} onBlur={field.onBlur}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {paramsOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
+        />
       </Field>
       <Field
         data-disabled={pending}
@@ -1527,15 +1566,15 @@ function ToolForm({
       >
         <FieldLabel htmlFor={`tool-desc-${serverId}`}>描述</FieldLabel>
         <Input
+          {...register('description')}
+          value={watched.description}
           disabled={pending}
           id={`tool-desc-${serverId}`}
           aria-invalid={Boolean(errors.description)}
           aria-describedby={errors.description ? `tool-desc-error-${serverId}` : undefined}
-          value={form.description}
           placeholder="告诉智能体这个工具做什么、何时用"
-          onChange={(event) => setForm({ ...form, description: event.target.value })}
         />
-        <FieldError id={`tool-desc-error-${serverId}`}>{errors.description}</FieldError>
+        <FieldError id={`tool-desc-error-${serverId}`}>{errors.description?.message}</FieldError>
       </Field>
       <Field
         data-disabled={pending}
@@ -1544,29 +1583,37 @@ function ToolForm({
       >
         <FieldLabel htmlFor={`tool-schema-${serverId}`}>inputSchema (JSON)</FieldLabel>
         <Textarea
+          {...register('inputSchema')}
+          value={watched.inputSchema}
           disabled={pending}
           id={`tool-schema-${serverId}`}
           rows={4}
-          value={schemaText}
           className="font-mono text-xs"
           aria-invalid={Boolean(errors.inputSchema)}
           aria-describedby={errors.inputSchema ? `tool-schema-error-${serverId}` : undefined}
-          onChange={(event) => setSchemaText(event.target.value)}
         />
-        <FieldError id={`tool-schema-error-${serverId}`}>{errors.inputSchema}</FieldError>
+        <FieldError id={`tool-schema-error-${serverId}`}>{errors.inputSchema?.message}</FieldError>
       </Field>
       <Field data-disabled={pending} orientation="horizontal" className="pt-1 sm:col-span-6">
-        <Checkbox
-          disabled={pending}
-          id={`tool-approval-${serverId}`}
-          className="size-3.5"
-          checked={form.requiresApproval}
-          onCheckedChange={(requiresApproval) => setForm({ ...form, requiresApproval })}
+        <Controller
+          control={control}
+          name="requiresApproval"
+          render={({ field }) => (
+            <Checkbox
+              ref={field.ref}
+              disabled={pending}
+              id={`tool-approval-${serverId}`}
+              className="size-3.5"
+              checked={field.value}
+              onCheckedChange={(requiresApproval) => field.onChange(requiresApproval)}
+              onBlur={field.onBlur}
+            />
+          )}
         />
         <FieldLabel htmlFor={`tool-approval-${serverId}`}>调用前需要人工批准</FieldLabel>
       </Field>
       <div className="flex items-start pt-2">
-        <Button type="submit" size="sm" disabled={pending || !form.name}>
+        <Button type="submit" size="sm" disabled={pending || !watched.name}>
           {pending ? (
             '保存中…'
           ) : tool ? (
@@ -1591,7 +1638,8 @@ function ToolForm({
   );
 }
 
-interface FormState {
+interface ServerFormValues {
+  kind: Kind | null;
   name: string;
   description: string;
   command: string;
@@ -1601,7 +1649,8 @@ interface FormState {
   pairs: string;
 }
 
-const emptyForm: FormState = {
+const emptyForm: ServerFormValues = {
+  kind: null,
   name: '',
   description: '',
   command: '',
@@ -1611,8 +1660,65 @@ const emptyForm: FormState = {
   pairs: '',
 };
 
-function serverToForm(server: Server): FormState {
-  const common = { name: server.name, description: server.description };
+/** 校验与 payload 构造共用同一份扁平表单值，先解析 KEY=value 再交给共享 schema。 */
+function buildServerInput(values: ServerFormValues, pairs: Record<string, string>): ServerInput {
+  const common = { name: values.name, description: values.description };
+  if (values.kind === 'stdio') {
+    return {
+      ...common,
+      kind: 'stdio',
+      command: values.command,
+      args: values.args
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean),
+      env: pairs,
+    };
+  }
+  // http 与 generated 的地址属于不同字段：PATCH 与表单都按 kind 取用，不能互相顶替。
+  if (values.kind === 'http') {
+    return { ...common, kind: 'http', url: values.url, headers: pairs };
+  }
+  return { ...common, kind: 'generated', baseUrl: values.baseUrl, headers: pairs };
+}
+
+const serverFormSchema = z
+  .object({
+    kind: z.enum(['stdio', 'http', 'generated']).nullable(),
+    name: z.string(),
+    description: z.string(),
+    command: z.string(),
+    args: z.string(),
+    url: z.string(),
+    baseUrl: z.string(),
+    pairs: z.string(),
+  })
+  .superRefine((values, ctx) => {
+    if (!values.kind) return;
+    let pairs: Record<string, string>;
+    try {
+      pairs = parsePairs(values.pairs, values.kind === 'stdio' ? 'env' : 'headers');
+    } catch (error) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['pairs'],
+        message: error instanceof Error ? error.message : '请检查 KEY=value 格式',
+      });
+      return;
+    }
+    const parsed = serverInputSchema.safeParse(buildServerInput(values, pairs));
+    if (parsed.success) return;
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({
+        code: 'custom',
+        path: issue.path as (string | number)[],
+        message: Object.values(fieldErrors([issue]))[0] ?? issue.message,
+      });
+    }
+  });
+
+function serverToForm(server: Server): ServerFormValues {
+  const common = { kind: server.kind, name: server.name, description: server.description };
   switch (server.kind) {
     case 'stdio':
       return {
@@ -1644,24 +1750,21 @@ function serverToForm(server: Server): FormState {
   }
 }
 
-function catalogToForm(item: ConnectorCatalogItem): { kind: Kind; form: FormState } {
+function catalogToForm(item: ConnectorCatalogItem): ServerFormValues {
   // 名称用 slug：目录里的展示名可能含大写或括号，过不了 name 的 slug 校验。
-  const common = { name: item.slug, description: item.description };
+  const common = { kind: item.kind, name: item.slug, description: item.description };
   if (item.kind === 'stdio') {
     return {
-      kind: 'stdio',
-      form: {
-        ...emptyForm,
-        ...common,
-        command: item.command ?? '',
-        args: (item.args ?? []).join('\n'),
-      },
+      ...emptyForm,
+      ...common,
+      command: item.command ?? '',
+      args: (item.args ?? []).join('\n'),
     };
   }
-  return { kind: 'http', form: { ...emptyForm, ...common, url: item.url ?? '' } };
+  return { ...emptyForm, ...common, url: item.url ?? '' };
 }
 
-function ServerFormDialog({
+export function ServerFormDialog({
   server,
   initial = null,
   onClose,
@@ -1678,23 +1781,19 @@ function ServerFormDialog({
   const prefill = creating && initial ? catalogToForm(initial) : null;
   const create = useCreateServer();
   const update = useUpdateServer();
-  const [kind, setKind] = useState<Kind | null>(server?.kind ?? prefill?.kind ?? null);
-  const [form, setForm] = useState<FormState>(() => {
-    if (server) return serverToForm(server);
-    return prefill?.form ?? emptyForm;
-  });
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { register, handleSubmit, reset, setValue, clearErrors, watch, formState } = useZodForm(
+    serverFormSchema,
+    { defaultValues: server ? serverToForm(server) : (prefill ?? emptyForm) },
+  );
+  const { errors, isDirty } = formState;
+  const kind = watch('kind');
+  const watched = watch();
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [baseline, setBaseline] = useState(server);
   const [conflict, setConflict] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [reloading, setReloading] = useState(false);
-  const dirty =
-    JSON.stringify({ kind, form }) !==
-    JSON.stringify({
-      kind: baseline?.kind ?? prefill?.kind ?? null,
-      form: baseline ? serverToForm(baseline) : (prefill?.form ?? emptyForm),
-    });
+  const dirty = isDirty;
 
   const pending = create.isPending || update.isPending || reloading;
   const blocker = useFormBlocker(dirty, pending);
@@ -1705,9 +1804,7 @@ function ServerFormDialog({
       const latest = (await api.servers()).find((item) => item.id === baseline.id);
       if (!latest) throw new Error('该连接器已不存在，请关闭配置并刷新列表');
       setBaseline(latest);
-      setKind(latest.kind);
-      setForm(serverToForm(latest));
-      setErrors({});
+      reset(serverToForm(latest));
       setConflict(false);
       setConfirmReload(false);
     } catch (error) {
@@ -1726,42 +1823,11 @@ function ServerFormDialog({
     onClose();
   };
 
-  const buildInput = (selected: Kind, pairs: Record<string, string>): ServerInput => {
-    const common = { name: form.name, description: form.description };
-    if (selected === 'stdio') {
-      return {
-        ...common,
-        kind: 'stdio',
-        command: form.command,
-        args: form.args
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean),
-        env: pairs,
-      };
-    }
-    // http 与 generated 的地址属于不同字段：PATCH 与表单都按 kind 取用，不能互相顶替。
-    if (selected === 'http') {
-      return { ...common, kind: 'http', url: form.url, headers: pairs };
-    }
-    return { ...common, kind: 'generated', baseUrl: form.baseUrl, headers: pairs };
-  };
-
-  const submit = (): void => {
-    if (!kind || pending) return;
-    let pairs: Record<string, string>;
-    try {
-      pairs = parsePairs(form.pairs, kind === 'stdio' ? 'env' : 'headers');
-    } catch (error) {
-      setErrors({ pairs: error instanceof Error ? error.message : '请检查 KEY=value 格式' });
-      return;
-    }
-    const parsed = serverInputSchema.safeParse(buildInput(kind, pairs));
-    if (!parsed.success) {
-      setErrors(fieldErrors(parsed.error.issues));
-      return;
-    }
-    setErrors({});
+  const submit = handleSubmit((values) => {
+    if (!values.kind || pending) return;
+    const pairs = parsePairs(values.pairs, values.kind === 'stdio' ? 'env' : 'headers');
+    const parsed = serverInputSchema.safeParse(buildServerInput(values, pairs));
+    if (!parsed.success) return;
     if (baseline) {
       update.mutate(
         { id: baseline.id, input: parsed.data, expectedUpdatedAt: baseline.updatedAt },
@@ -1789,11 +1855,10 @@ function ServerFormDialog({
         onError: (error) => toastError(error),
       });
     }
-  };
+  });
 
   const urlLabel = kind === 'http' ? 'URL' : 'Base URL';
-  const urlValue = kind === 'http' ? form.url : form.baseUrl;
-  const urlError = errors.url ?? errors.baseUrl;
+  const urlError = errors.url?.message ?? errors.baseUrl?.message;
 
   return (
     <Dialog
@@ -1855,8 +1920,8 @@ function ServerFormDialog({
                 onValueChange={(values) => {
                   const next = values[0];
                   if (next === 'stdio' || next === 'http' || next === 'generated') {
-                    setKind(next);
-                    setErrors({});
+                    setValue('kind', next, { shouldDirty: true });
+                    clearErrors();
                   }
                 }}
                 className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3"
@@ -1889,17 +1954,17 @@ function ServerFormDialog({
                   <RequiredMark />
                 </FieldLabel>
                 <Input
+                  {...register('name')}
+                  value={watched.name}
                   disabled={pending}
                   id="server-name"
-                  value={form.name}
                   placeholder="filesystem"
                   aria-required
                   aria-invalid={Boolean(errors.name)}
                   aria-describedby={errors.name ? 'server-name-error' : 'server-name-hint'}
-                  onChange={(event) => setForm({ ...form, name: event.target.value })}
                 />
                 {errors.name ? (
-                  <FieldError id="server-name-error">{errors.name}</FieldError>
+                  <FieldError id="server-name-error">{errors.name.message}</FieldError>
                 ) : (
                   <FieldDescription id="server-name-hint">
                     小写字母、数字、- 和 _。
@@ -1914,15 +1979,15 @@ function ServerFormDialog({
               >
                 <FieldLabel htmlFor="server-desc">描述</FieldLabel>
                 <Input
+                  {...register('description')}
+                  value={watched.description}
                   disabled={pending}
                   id="server-desc"
                   aria-invalid={Boolean(errors.description)}
                   aria-describedby={errors.description ? 'server-desc-error' : undefined}
-                  value={form.description}
                   placeholder="一句话说明它提供什么能力"
-                  onChange={(event) => setForm({ ...form, description: event.target.value })}
                 />
-                <FieldError id="server-desc-error">{errors.description}</FieldError>
+                <FieldError id="server-desc-error">{errors.description?.message}</FieldError>
               </Field>
 
               {kind === 'stdio' ? (
@@ -1937,29 +2002,29 @@ function ServerFormDialog({
                       <RequiredMark />
                     </FieldLabel>
                     <Input
+                      {...register('command')}
+                      value={watched.command}
                       disabled={pending}
                       id="server-command"
-                      value={form.command}
                       placeholder="npx"
                       className="font-mono"
                       aria-required
                       aria-invalid={Boolean(errors.command)}
                       aria-describedby={errors.command ? 'server-command-error' : undefined}
-                      onChange={(event) => setForm({ ...form, command: event.target.value })}
                     />
-                    <FieldError id="server-command-error">{errors.command}</FieldError>
+                    <FieldError id="server-command-error">{errors.command?.message}</FieldError>
                   </Field>
                   <Field data-disabled={pending} className="gap-1.5">
                     <FieldLabel htmlFor="server-args">参数（每行一个）</FieldLabel>
                     <Textarea
+                      {...register('args')}
+                      value={watched.args}
                       disabled={pending}
                       id="server-args"
                       rows={2}
-                      value={form.args}
                       // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       placeholder={'-y\n@modelcontextprotocol/server-filesystem\n/tmp'}
-                      onChange={(event) => setForm({ ...form, args: event.target.value })}
                     />
                   </Field>
                   <Field
@@ -1969,18 +2034,18 @@ function ServerFormDialog({
                   >
                     <FieldLabel htmlFor="server-env">环境变量（每行 KEY=value）</FieldLabel>
                     <Textarea
+                      {...register('pairs')}
+                      value={watched.pairs}
                       disabled={pending}
                       id="server-env"
                       aria-invalid={Boolean(errors.pairs)}
                       aria-describedby={errors.pairs ? 'server-env-error' : 'server-env-hint'}
                       rows={2}
-                      value={form.pairs}
                       // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       placeholder="TOKEN=…"
-                      onChange={(event) => setForm({ ...form, pairs: event.target.value })}
                     />
-                    <FieldError id="server-env-error">{errors.pairs}</FieldError>
+                    <FieldError id="server-env-error">{errors.pairs?.message}</FieldError>
                     <FieldDescription id="server-env-hint">
                       保存后密钥只以 •••• 返回；保持 •••• 不动即沿用原值。
                     </FieldDescription>
@@ -1998,9 +2063,10 @@ function ServerFormDialog({
                       <RequiredMark />
                     </FieldLabel>
                     <Input
+                      {...register(kind === 'http' ? 'url' : 'baseUrl')}
+                      value={kind === 'http' ? watched.url : watched.baseUrl}
                       disabled={pending}
                       id="server-url"
-                      value={urlValue}
                       placeholder={
                         kind === 'http' ? 'https://example.com/mcp' : 'https://api.example.com/v1'
                       }
@@ -2008,13 +2074,6 @@ function ServerFormDialog({
                       aria-required
                       aria-invalid={Boolean(urlError)}
                       aria-describedby={urlError ? 'server-url-error' : 'server-url-hint'}
-                      onChange={(event) =>
-                        setForm(
-                          kind === 'http'
-                            ? { ...form, url: event.target.value }
-                            : { ...form, baseUrl: event.target.value },
-                        )
-                      }
                     />
                     {urlError ? (
                       <FieldError id="server-url-error">{urlError}</FieldError>
@@ -2033,18 +2092,18 @@ function ServerFormDialog({
                   >
                     <FieldLabel htmlFor="server-headers">Headers（每行 KEY=value）</FieldLabel>
                     <Textarea
+                      {...register('pairs')}
+                      value={watched.pairs}
                       disabled={pending}
                       id="server-headers"
                       aria-invalid={Boolean(errors.pairs)}
                       aria-describedby={errors.pairs ? 'server-headers-error' : undefined}
                       rows={2}
-                      value={form.pairs}
                       // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       placeholder="Authorization=Bearer …"
-                      onChange={(event) => setForm({ ...form, pairs: event.target.value })}
                     />
-                    <FieldError id="server-headers-error">{errors.pairs}</FieldError>
+                    <FieldError id="server-headers-error">{errors.pairs?.message}</FieldError>
                   </Field>
                   {kind === 'generated' ? (
                     <p className="rounded-item bg-chip p-3 text-xs leading-relaxed text-muted-foreground">
@@ -2055,8 +2114,6 @@ function ServerFormDialog({
               )}
             </>
           )}
-
-          {errors.form ? <FieldError>{errors.form}</FieldError> : null}
 
           <div className="flex justify-end gap-2 border-t pt-4">
             <Button type="button" variant="outline" size="sm" onClick={close} disabled={pending}>

@@ -4,7 +4,7 @@ import { errorCode } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isPgCode, toAppError } from '../src/plugins/errors.js';
-import { expectProblem, inject, loginCookie, startApp } from './helpers.js';
+import { expectProblem, inject, startApp } from './helpers.js';
 
 /**
  * 错误契约的边界测试：每个出口都必须给出同一形状。
@@ -55,14 +55,13 @@ describe('problem responses', () => {
 
 describe('AppError contract', () => {
   it('never leaks internal details on a real 500', async () => {
-    // 登录只依赖 Redis（审计写失败会被吞掉），之后打库的读路径才可以制造真实 500。
+    // better-auth 的登录要读用户表；数据库不可达时登录本身就是一次真实的 500。
     const broken = await startApp({ DATABASE_URL: 'postgres://u:hunter2@127.0.0.1:1/nope' });
     try {
-      const cookie = await loginCookie(broken);
       const res = await inject(broken, {
-        method: 'GET',
-        url: '/api/servers',
-        headers: { cookie },
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { username: 'admin', password: 'irrelevant-password' },
       });
       const body = expectProblem(res, 'INTERNAL_ERROR');
       expect(body).toMatchObject({ message: 'Internal server error', retryable: true });
