@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Activity, ArrowRight, Bot, Plus, Server, Sparkles } from 'lucide-react';
+import { Area, AreaChart, CartesianGrid, XAxis } from 'recharts';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
-import { ErrorState, LoadingState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { buttonVariants } from '../components/ui/button.js';
 import {
@@ -14,6 +15,14 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/ui/card.js';
+import {
+  type ChartConfig,
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+} from '../components/ui/chart.js';
 import type { OverviewAgentRow, RecentRun } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
@@ -30,6 +39,7 @@ import {
   healthMetricsQuery,
   serversQuery,
   useOverview,
+  useOverviewTimeseries,
   useRuns,
 } from '../lib/queries.js';
 import { AttentionPanel, BoardSummaryCards } from './ops.js';
@@ -299,6 +309,70 @@ function AttentionRow({ item }: { item: AttentionItem }) {
   );
 }
 
+const trendConfig = {
+  runs: { label: '运行', color: 'var(--color-chart-runs)' },
+  failed: { label: '失败', color: 'var(--color-chart-failed)' },
+} satisfies ChartConfig;
+
+function RunTrendCard() {
+  const { data, isPending, isError, error, refetch } = useOverviewTimeseries();
+  const points = data ?? [];
+  const hasRuns = points.some((point) => point.runs > 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-normal text-muted-foreground">运行趋势</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isError ? (
+          <ErrorState error={error} onRetry={() => void refetch()} />
+        ) : isPending ? (
+          <LoadingState rows={4} />
+        ) : hasRuns ? (
+          <ChartContainer config={trendConfig} className="aspect-auto h-56 w-full">
+            <AreaChart
+              accessibilityLayer
+              data={points}
+              margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
+            >
+              <CartesianGrid vertical={false} />
+              <XAxis
+                dataKey="date"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                minTickGap={24}
+                tickFormatter={(value: string) => value.slice(5)}
+              />
+              <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
+              <ChartLegend content={<ChartLegendContent />} />
+              <Area
+                dataKey="runs"
+                type="monotone"
+                fill="var(--color-runs)"
+                fillOpacity={0.08}
+                stroke="var(--color-runs)"
+                strokeWidth={1.5}
+              />
+              <Area
+                dataKey="failed"
+                type="monotone"
+                fill="var(--color-failed)"
+                fillOpacity={0.16}
+                stroke="var(--color-failed)"
+                strokeWidth={1.5}
+              />
+            </AreaChart>
+          </ChartContainer>
+        ) : (
+          <EmptyState title="运行趋势会显示在这里" />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function OverviewPage() {
   const navigate = useNavigate();
   const overview = useOverview();
@@ -438,6 +512,8 @@ export function OverviewPage() {
               </Card>
             ))}
           </section>
+
+          <RunTrendCard />
 
           <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
             <PageSection

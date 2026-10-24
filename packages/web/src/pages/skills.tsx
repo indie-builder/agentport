@@ -9,7 +9,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Path, PathValue } from 'react-hook-form';
 import { toast } from 'sonner';
+import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
@@ -56,6 +58,7 @@ import {
   useUpdateSkill,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 
 const emptySkill: SkillInput = { slug: '', name: '', description: '', body: '' };
 const maxSkillFileBytes = 131_072;
@@ -65,10 +68,35 @@ const usageOptions = [
   { value: 'unbound', label: '未绑定' },
 ];
 
+const skillFormSchema = skillInputSchema.extend({
+  slug: z
+    .string()
+    .min(1, '不能为空，请填写后再保存')
+    .max(64, '最多 64 个字符，请精简后再保存')
+    .regex(/^[a-z0-9][a-z0-9-_]*$/, '格式不正确，请检查后重新填写'),
+  name: z.string().min(1, '不能为空，请填写后再保存').max(128, '最多 128 个字符，请精简后再保存'),
+  description: z
+    .string()
+    .min(1, '不能为空，请填写后再保存')
+    .max(500, '最多 500 个字符，请精简后再保存'),
+});
+
+const skillFileFormSchema = skillFileInputSchema.extend({
+  path: z
+    .string()
+    .min(1, '不能为空，请填写后再保存')
+    .max(200, '最多 200 个字符，请精简后再保存')
+    .regex(
+      /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._\-/]+$/,
+      '路径必须是相对路径，且不能包含 .. 或绝对路径',
+    ),
+  content: z.string().max(200_000, '最多 200000 个字符，请精简后再保存').default(''),
+});
+
 export function SkillsPage() {
   const skills = useSkills();
   const navigate = useNavigate();
-  const search = useSearch({ from: '/shell/skills' });
+  const search = useSearch({ from: '/_shell/skills' });
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
   const usage = search.usage ?? 'all';
@@ -348,7 +376,6 @@ function SkillDialog({
         }
       : emptySkill,
   );
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 支持文件编辑器有自己的草稿与请求，它们的未保存/在途状态也要保护弹层关闭。
   const [filesDirty, setFilesDirty] = useState(false);
@@ -365,19 +392,25 @@ function SkillDialog({
         : emptySkill,
     [skill],
   );
+  const rhf = useZodForm(skillFormSchema, { defaultValues: initial });
+  const errors = rhf.formState.errors;
   const dirty = JSON.stringify(form) !== JSON.stringify(initial) || filesDirty;
 
   const set = <K extends keyof SkillInput>(key: K, value: SkillInput[K]): void => {
     setForm((prev) => ({ ...prev, [key]: value }));
-    setErrors((prev) => ({ ...prev, [key]: '' }));
+    rhf.setValue(key as Path<SkillInput>, value as PathValue<SkillInput, Path<SkillInput>>);
+    rhf.clearErrors(key);
   };
 
   const submit = (event: React.FormEvent): void => {
     event.preventDefault();
     if (pending) return;
-    const parsed = skillInputSchema.safeParse(form);
+    const parsed = skillFormSchema.safeParse(form);
     if (!parsed.success) {
-      setErrors(fieldErrors(parsed.error.issues));
+      rhf.clearErrors();
+      for (const [path, message] of Object.entries(fieldErrors(parsed.error.issues))) {
+        rhf.setError(path as keyof SkillInput, { type: 'validation', message });
+      }
       return;
     }
     const onError = (error: unknown): void => {
@@ -442,6 +475,7 @@ function SkillDialog({
                 名称 <RequiredMark />
               </FieldLabel>
               <Input
+                {...rhf.register('name')}
                 id="skill-name"
                 disabled={pending}
                 value={form.name}
@@ -450,7 +484,7 @@ function SkillDialog({
                 aria-describedby={errors.name ? 'skill-name-error' : undefined}
                 onChange={(event) => set('name', event.target.value)}
               />
-              <FieldError id="skill-name-error">{errors.name}</FieldError>
+              <FieldError id="skill-name-error">{errors.name?.message}</FieldError>
             </Field>
             <Field
               className="gap-1.5"
@@ -461,6 +495,7 @@ function SkillDialog({
                 Slug <RequiredMark />
               </FieldLabel>
               <Input
+                {...rhf.register('slug')}
                 id="skill-slug"
                 value={form.slug}
                 disabled={pending || Boolean(skill)}
@@ -474,7 +509,7 @@ function SkillDialog({
               {skill ? (
                 <FieldDescription id="skill-slug-hint">创建后不可修改。</FieldDescription>
               ) : (
-                <FieldError id="skill-slug-error">{errors.slug}</FieldError>
+                <FieldError id="skill-slug-error">{errors.slug?.message}</FieldError>
               )}
             </Field>
           </FieldGroup>
@@ -487,6 +522,7 @@ function SkillDialog({
               描述 <RequiredMark />
             </FieldLabel>
             <Input
+              {...rhf.register('description')}
               id="skill-desc"
               disabled={pending}
               value={form.description}
@@ -496,11 +532,12 @@ function SkillDialog({
               onChange={(event) => set('description', event.target.value)}
               placeholder="一句话说明这个技能解决什么问题"
             />
-            <FieldError id="skill-desc-error">{errors.description}</FieldError>
+            <FieldError id="skill-desc-error">{errors.description?.message}</FieldError>
           </Field>
           <Field data-disabled={pending} className="gap-1.5">
             <FieldLabel htmlFor="skill-body">步骤</FieldLabel>
             <Textarea
+              {...rhf.register('body')}
               id="skill-body"
               disabled={pending}
               rows={10}
@@ -570,9 +607,10 @@ function SkillFilesEditor({
     queryKey: ['skill-files', skillId],
     queryFn: () => api.skillFiles(skillId),
   });
-  const [path, setPath] = useState('');
-  const [content, setContent] = useState('');
-  const [error, setError] = useState('');
+  const rhf = useZodForm(skillFileFormSchema, { defaultValues: { path: '', content: '' } });
+  const path = rhf.watch('path');
+  const content = rhf.watch('content');
+  const error = rhf.formState.errors.path?.message ?? '';
   const [saving, setSaving] = useState(false);
 
   // 草稿与在途请求交回父级弹层，Esc / 点遮罩 / 取消都要先确认。
@@ -586,17 +624,19 @@ function SkillFilesEditor({
     void client.invalidateQueries({ queryKey: ['skill-files', skillId] });
 
   const add = async (): Promise<void> => {
-    const parsed = skillFileInputSchema.safeParse({ path: path.trim(), content });
+    const parsed = skillFileFormSchema.safeParse({ path, content });
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? '路径不合法');
+      rhf.clearErrors();
+      rhf.setError('path', {
+        type: 'validation',
+        message: parsed.error.issues[0]?.message ?? '路径不合法',
+      });
       return;
     }
     setSaving(true);
     try {
       await api.writeSkillFile(skillId, parsed.data.path, parsed.data.content);
-      setPath('');
-      setContent('');
-      setError('');
+      rhf.reset();
       invalidate();
       toastSuccess('已添加支持文件');
     } catch (err) {
@@ -647,23 +687,21 @@ function SkillFilesEditor({
       ) : null}
       <div className="flex flex-col gap-2 rounded-item border border-line p-2">
         <Input
+          {...rhf.register('path', { setValueAs: (value: string) => value.trim() })}
           id="skill-file-path"
-          value={path}
           placeholder="scripts/run.sh 或 references/api.md"
           aria-invalid={Boolean(error)}
           aria-describedby={error ? 'skill-file-path-error' : undefined}
-          onChange={(event) => setPath(event.target.value)}
           className="font-mono text-xs"
         />
         <FieldLabel htmlFor="skill-file-content" className="sr-only">
           文件内容
         </FieldLabel>
         <Textarea
+          {...rhf.register('content')}
           id="skill-file-content"
           rows={3}
-          value={content}
           placeholder="文件内容"
-          onChange={(event) => setContent(event.target.value)}
           className="font-mono text-xs leading-relaxed"
         />
         {error ? <FieldError id="skill-file-path-error">{error}</FieldError> : null}

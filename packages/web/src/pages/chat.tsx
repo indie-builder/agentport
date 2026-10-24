@@ -33,9 +33,10 @@ import {
   useState,
 } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
-import { CodeBlock, CollapsibleText, JsonBlock } from '../components/code-block.js';
+import { CollapsibleText, JsonBlock, LARGE_CONTENT_CHARS } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { Markdown } from '../components/markdown.js';
 import {
   Collapsible,
   CollapsibleContent,
@@ -106,7 +107,7 @@ import { toastError, toastSuccess } from '../lib/toast.js';
 import { useChatStream } from '../lib/use-chat-stream.js';
 
 export function ChatPage() {
-  const search = useSearch({ from: '/shell/chat' });
+  const search = useSearch({ from: '/_shell/chat' });
   const navigate = useNavigate();
   const agents = useAgents();
   const conversationId = search.conversation ?? null;
@@ -1667,9 +1668,9 @@ const MessagePart = memo(function MessagePart({
   }
 });
 
-/** 助手文本不用气泡；围栏代码交给 CodeBlock，其余保留换行与空白。 */
+/** 助手文本走流式 Markdown；超大内容仍折叠成原文，避免一次排版整篇。 */
 function renderAssistantText(text: string) {
-  if (!text.includes('```')) {
+  if (text.length > LARGE_CONTENT_CHARS) {
     return (
       <CollapsibleText
         text={text}
@@ -1678,43 +1679,7 @@ function renderAssistantText(text: string) {
       />
     );
   }
-  const parts: ReactNode[] = [];
-  let last = 0;
-  let index = 0;
-  for (const match of text.matchAll(/```([^\n]*)\n?([\s\S]*?)```/g)) {
-    const start = match.index;
-    const prose = text.slice(last, start);
-    if (prose) {
-      parts.push(
-        <div
-          key={index++}
-          className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg"
-        >
-          {prose}
-        </div>,
-      );
-    }
-    const language = match[1]?.trim() ?? '';
-    const code = (match[2] ?? '').replace(/\n$/, '');
-    parts.push(
-      <CodeBlock
-        key={index++}
-        code={code}
-        className="my-2"
-        {...(language ? { copyLabel: `复制 ${language}` } : {})}
-      />,
-    );
-    last = start + match[0].length;
-  }
-  const tail = text.slice(last);
-  if (tail) {
-    parts.push(
-      <div key={index++} className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg">
-        {tail}
-      </div>,
-    );
-  }
-  return <div className="flex flex-col gap-1">{parts}</div>;
+  return <Markdown text={text} />;
 }
 
 /** 一行读数：完成 · 轮次 · 耗时 · token · 成本 · 查看详情。 */

@@ -1,4 +1,5 @@
-import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
+import { act, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type EvalRun, type HealthMetrics, type Overview } from '../src/lib/api.js';
@@ -68,6 +69,7 @@ vi.mock('../src/lib/queries.js', () => ({
   healthLiveQuery: {},
   healthReadyQuery: {},
   useOverview: () => ({ data: state.overview }),
+  useOverviewTimeseries: () => ({ data: [], isPending: false }),
   useRuns: () => ({ data: { items: [] } }),
   useAgents: () => ({ data: [{ id: 'agent', name: 'Expert' }], isSuccess: true }),
   useEvalCases: () => ({ data: [], isSuccess: true }),
@@ -167,53 +169,91 @@ beforeEach(() => {
 });
 
 describe('login validation', () => {
-  it('allows an empty submission so required errors can be shown', () => {
-    const html = mount(LoginPage).render();
-    expect(html.match(/<button\b[^>]*type="submit"[^>]*>/)?.[0]).not.toMatch(/\sdisabled=""/);
-    expect(html).toMatch(/<input\b[^>]*id="username"[^>]*required/);
-    expect(html).toMatch(/<input\b[^>]*id="password"[^>]*required/);
+  async function renderLogin() {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(createElement(LoginPage));
+    });
+    return {
+      container,
+      root,
+      cleanup: async () => {
+        await act(async () => {
+          root.unmount();
+        });
+        container.remove();
+      },
+    };
+  }
+
+  function setInput(input: HTMLInputElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  async function submit(container: HTMLElement) {
+    const form = container.querySelector('form');
+    if (!form) throw new Error('Missing login form');
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+  }
+
+  it('allows an empty submission so required errors can be shown', async () => {
+    const page = await renderLogin();
+    expect(page.container.querySelector('button[type="submit"]')?.hasAttribute('disabled')).toBe(
+      false,
+    );
+    expect(page.container.querySelector('#username')?.hasAttribute('required')).toBe(true);
+    expect(page.container.querySelector('#password')?.hasAttribute('required')).toBe(true);
+    await page.cleanup();
   });
 
   it.each([
     ['', '', 'username'],
     ['admin', '', 'password'],
-  ])('reports missing fields and focuses %s / %s', (username, password, first) => {
-    state.values = [username, password];
-    const page = mount(LoginPage);
-    page.render();
-    const focus = vi.fn();
-    const querySelector = vi.fn(() => ({ focus }));
-    const form = page.find((el) => el.type === 'form');
-    (form.props.onSubmit as (event: unknown) => void)({
-      preventDefault() {},
-      currentTarget: { querySelector },
+  ])('reports missing fields and focuses %s / %s', async (username, password, first) => {
+    const page = await renderLogin();
+    const usernameInput = page.container.querySelector<HTMLInputElement>('#username');
+    const passwordInput = page.container.querySelector<HTMLInputElement>('#password');
+    if (!usernameInput || !passwordInput) throw new Error('Missing login inputs');
+    await act(async () => {
+      setInput(usernameInput, username);
+      setInput(passwordInput, password);
     });
-    const html = page.render();
-    expect(html).toMatch(
-      /id="password"[^>]*aria-invalid="true"[^>]*aria-describedby="password-error"/,
-    );
-    expect(html).toContain('id="password-error"');
-    if (!username) expect(html).toContain('id="username-error"');
-    expect(querySelector).toHaveBeenCalledWith(`#${first}`);
-    expect(focus).toHaveBeenCalledOnce();
+    await submit(page.container);
+    expect(page.container.querySelector(`#${first}`)?.getAttribute('aria-invalid')).toBe('true');
+    expect(page.container.querySelector(`#${first}-error`)?.textContent).toBeTruthy();
+    expect(document.activeElement?.id).toBe(first);
     expect(state.mutate).not.toHaveBeenCalled();
+    await page.cleanup();
   });
 
-  it('submits valid credentials and blocks pending submission', () => {
-    state.values = ['admin', 'secret'];
-    const page = mount(LoginPage);
-    page.render();
-    const submit = () =>
-      (page.find((el) => el.type === 'form').props.onSubmit as (event: unknown) => void)({
-        preventDefault() {},
-      });
-    submit();
-    expect(state.mutate).toHaveBeenCalledOnce();
+  it('submits valid credentials and blocks pending submission', async () => {
+    const page = await renderLogin();
+    const usernameInput = page.container.querySelector<HTMLInputElement>('#username');
+    const passwordInput = page.container.querySelector<HTMLInputElement>('#password');
+    if (!usernameInput || !passwordInput) throw new Error('Missing login inputs');
+    await act(async () => {
+      setInput(usernameInput, 'admin');
+      setInput(passwordInput, 'secret');
+    });
+    await submit(page.container);
+    expect(state.mutate).toHaveBeenCalledWith({ username: 'admin', password: 'secret' });
+
     state.pending = true;
-    const html = page.render();
-    submit();
+    await act(async () => {
+      page.root.render(createElement(LoginPage));
+    });
+    expect(page.container.querySelector<HTMLInputElement>('#username')?.disabled).toBe(true);
+    expect(page.container.querySelector<HTMLInputElement>('#password')?.disabled).toBe(true);
+
+    await submit(page.container);
     expect(state.mutate).toHaveBeenCalledOnce();
-    expect(html.match(/<input\b[^>]*disabled=""/g)).toHaveLength(2);
+    await page.cleanup();
   });
 });
 

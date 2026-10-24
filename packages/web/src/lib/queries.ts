@@ -51,6 +51,7 @@ import {
   type HealthReady,
   type Me,
   type Overview,
+  type OverviewTimeseriesPoint,
   type RunDetail,
   type RunList,
   type RunQuery,
@@ -92,6 +93,13 @@ export const overviewQuery = queryOptions<Overview | null>({
   queryFn: api.overview,
   staleTime: 15_000,
 });
+
+export const overviewTimeseriesQuery = (days = 14) =>
+  queryOptions<OverviewTimeseriesPoint[]>({
+    queryKey: ['overview', 'timeseries', days],
+    queryFn: () => api.overviewTimeseries(days),
+    staleTime: 15_000,
+  });
 
 // ---- 以下为运营层（待办/看板/定时/统计/记忆）的查询与变更，集中在此供各页面复用 ----
 export const attentionQuery = queryOptions<Attention>({
@@ -174,6 +182,10 @@ export function useAgent(id: string) {
 
 export function useOverview() {
   return useQuery(overviewQuery);
+}
+
+export function useOverviewTimeseries(days = 14) {
+  return useQuery(overviewTimeseriesQuery(days));
 }
 
 export const healthMetricsQuery = queryOptions<HealthMetrics | null>({

@@ -297,7 +297,7 @@ export function AppShell() {
     ...nav.flatMap<{ to: string; label: string }>((group) => group.items),
   ].find((item) => (item.to === '/' ? pathname === '/' : pathname.startsWith(item.to)));
   const isNotFound = useRouterState({
-    select: (state) => state.matches.at(-1)?.routeId === '/shell/$',
+    select: (state) => state.matches.at(-1)?.routeId === '/_shell/$',
   });
   const pageTitle = isNotFound
     ? '页面不存在'

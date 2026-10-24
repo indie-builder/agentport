@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
+import { z } from 'zod';
 import { Brand } from '../components/brand.js';
 import { Page, PageHeader } from '../components/page.js';
 import { Button } from '../components/ui/button.js';
@@ -8,22 +9,28 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/fiel
 import { Input } from '../components/ui/input.js';
 import { ApiError, api, errorMessage } from '../lib/api.js';
 import { queryClient } from '../lib/queries.js';
+import { useZodForm } from '../lib/use-zod-form.js';
+
+const loginSchema = z.object({
+  username: z.string().min(1, '请填写用户名。'),
+  password: z.string().min(1, '请填写密码。'),
+});
 
 export function LoginPage() {
   const navigate = useNavigate();
   useEffect(() => {
     document.title = '登录 · 控制台';
   }, []);
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [errors, setErrors] = useState<{
-    username?: string | undefined;
-    password?: string | undefined;
-  }>({});
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useZodForm(loginSchema, { defaultValues: { username: 'admin', password: '' } });
 
   const login = useMutation({
-    mutationFn: () => api.login(username, password),
+    mutationFn: ({ username, password }: z.infer<typeof loginSchema>) =>
+      api.login(username, password),
     onSuccess: async () => {
       // 必须等 /me 刷新完成，否则 AppShell 会拿着旧的未登录缓存把人弹回登录页。
       await queryClient.refetchQueries({ queryKey: ['me'] });
@@ -47,23 +54,11 @@ export function LoginPage() {
           aria-busy={login.isPending}
           aria-describedby={error ? 'login-error' : undefined}
           noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
+          onSubmit={handleSubmit((values) => {
             if (login.isPending) return;
-            const issues = {
-              username: username ? undefined : '请填写用户名。',
-              password: password ? undefined : '请填写密码。',
-            };
-            setErrors(issues);
             setError(null);
-            if (issues.username || issues.password) {
-              event.currentTarget
-                .querySelector<HTMLInputElement>(issues.username ? '#username' : '#password')
-                ?.focus();
-              return;
-            }
-            login.mutate();
-          }}
+            login.mutate(values);
+          })}
         >
           <FieldGroup>
             <Field data-disabled={login.isPending} data-invalid={Boolean(errors.username)}>
@@ -72,16 +67,12 @@ export function LoginPage() {
                 id="username"
                 required
                 autoComplete="username"
-                value={username}
                 disabled={login.isPending}
                 aria-invalid={Boolean(errors.username)}
                 aria-describedby={errors.username ? 'username-error' : undefined}
-                onChange={(event) => {
-                  setUsername(event.target.value);
-                  setErrors((previous) => ({ ...previous, username: undefined }));
-                }}
+                {...register('username')}
               />
-              <FieldError id="username-error">{errors.username}</FieldError>
+              <FieldError id="username-error">{errors.username?.message}</FieldError>
             </Field>
             <Field data-disabled={login.isPending} data-invalid={Boolean(errors.password)}>
               <FieldLabel htmlFor="password">密码</FieldLabel>
@@ -91,16 +82,12 @@ export function LoginPage() {
                 type="password"
                 autoComplete="current-password"
                 autoFocus
-                value={password}
                 disabled={login.isPending}
                 aria-invalid={Boolean(errors.password)}
                 aria-describedby={errors.password ? 'password-error' : undefined}
-                onChange={(event) => {
-                  setPassword(event.target.value);
-                  setErrors((previous) => ({ ...previous, password: undefined }));
-                }}
+                {...register('password')}
               />
-              <FieldError id="password-error">{errors.password}</FieldError>
+              <FieldError id="password-error">{errors.password?.message}</FieldError>
             </Field>
             <FieldError id="login-error" className="break-words">
               {error ?? undefined}

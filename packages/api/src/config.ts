@@ -19,6 +19,7 @@ const envSchema = z.object({
   ADMIN_PASSWORD: z
     .string()
     .min(12)
+    .max(128)
     .refine((value) => !WEAK_PASSWORDS.has(value), 'must not be a well-known default password'),
   JWT_SECRET: z.string().min(32),
   /** 逗号分隔的浏览器 Origin allowlist；开发默认 Vite dev server。 */

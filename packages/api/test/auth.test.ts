@@ -55,6 +55,31 @@ describe.skipIf(!ready)('auth', () => {
     expect(expectProblem(res, 'INVALID_INPUT').path).toBe('/username');
   });
 
+  it('rejects an over-long password before better-auth turns it into a 500', async () => {
+    const res = await login(config.ADMIN_USER, 'x'.repeat(129));
+    expect(expectProblem(res, 'INVALID_INPUT').path).toBe('/password');
+  });
+
+  it('rejects a cross-origin login without touching credentials', async () => {
+    const res = await inject(app, {
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: { origin: 'https://evil.example' },
+      payload: { username: config.ADMIN_USER, password: config.ADMIN_PASSWORD },
+    });
+    expect(expectProblem(res, 'FORBIDDEN')).toBeTruthy();
+  });
+
+  it('allows a login from a configured origin', async () => {
+    const res = await inject(app, {
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: { origin: 'http://localhost:5173' },
+      payload: { username: config.ADMIN_USER, password: config.ADMIN_PASSWORD },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   it('logs in with the right credentials and sets an httpOnly cookie', async () => {
     const res = await login(config.ADMIN_USER, config.ADMIN_PASSWORD);
     expect(res.statusCode).toBe(200);

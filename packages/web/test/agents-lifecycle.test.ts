@@ -107,10 +107,10 @@ function dialog(title: string): HTMLElement {
 }
 async function mount() {
   const rootRoute = createRootRoute({ component: Outlet });
-  const shell = createRoute({ getParentRoute: () => rootRoute, id: 'shell', component: Outlet });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const experts = createRoute({
     getParentRoute: () => shell,
-    path: '/agents',
+    path: '/agents/',
     component: AgentsPage,
   });
   const expertDetail = createRoute({

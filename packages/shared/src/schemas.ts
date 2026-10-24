@@ -114,6 +114,19 @@ export const overviewSchema = z.object({
   recent: z.array(recentRunSchema),
 });
 
+/** /api/overview/timeseries：按天分桶，空白天由 SQL 补 0；date 为 YYYY-MM-DD。 */
+export const overviewTimeseriesSchema = z.array(
+  z.object({
+    date: z.string(),
+    runs: z.number(),
+    failed: z.number(),
+    costUsd: z.number(),
+    tokens: z.number(),
+  }),
+);
+
+export type OverviewTimeseriesPoint = z.infer<typeof overviewTimeseriesSchema>[number];
+
 export const evalCaseFieldsSchema = z.object({
   name: z.string().trim().min(1).max(128),
   prompt: z.string().min(1).max(20_000),

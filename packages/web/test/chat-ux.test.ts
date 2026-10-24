@@ -62,7 +62,7 @@ async function flush() {
 }
 async function mount(initialEntry = '/chat') {
   const route = createRootRoute({ component: Outlet });
-  const shell = createRoute({ getParentRoute: () => route, id: 'shell', component: Outlet });
+  const shell = createRoute({ getParentRoute: () => route, id: '_shell', component: Outlet });
   const chat = createRoute({
     getParentRoute: () => shell,
     path: '/chat',

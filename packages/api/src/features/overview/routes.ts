@@ -1,5 +1,5 @@
 import { schema } from '@agentport/db';
-import { overviewSchema } from '@agentport/shared';
+import { overviewSchema, overviewTimeseriesSchema } from '@agentport/shared';
 import { and, avg, count, desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -135,6 +135,56 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
           endedAt: toIso(row.endedAt),
         })),
       };
+    },
+  );
+
+  // 运行趋势：单条查询用 generate_series 补齐没有运行的日期，避免前端补洞。
+  app.get(
+    '/api/overview/timeseries',
+    {
+      ...auth,
+      schema: {
+        querystring: z.object({
+          days: z.coerce.number().int().min(1).max(3650).default(14),
+        }),
+        response: { 200: overviewTimeseriesSchema },
+      },
+    },
+    async (request) => {
+      const { days } = request.query;
+      const since = daysAgo(days);
+
+      const result = await app.db.execute(sql`
+        with days as (
+          select generate_series(
+            date_trunc('day', ${since}::timestamptz),
+            date_trunc('day', now()),
+            interval '1 day'
+          ) as day
+        )
+        select
+          to_char(d.day, 'YYYY-MM-DD') as date,
+          count(r.id)::int as runs,
+          count(r.id) filter (where r.status in ('failed', 'timeout'))::int as failed,
+          coalesce(sum(r.cost_usd), 0)::float as "costUsd",
+          coalesce(
+            sum(coalesce(r.input_tokens, 0)::bigint + coalesce(r.output_tokens, 0)::bigint), 0
+          )::float8 as tokens
+        from days d
+        left join ${schema.agentRuns} r
+          on date_trunc('day', r.started_at) = d.day
+         and r.started_at >= ${since}
+        group by d.day
+        order by d.day
+      `);
+
+      return result.rows.map((row) => ({
+        date: String(row.date),
+        runs: Number(row.runs),
+        failed: Number(row.failed),
+        costUsd: Number(row.costUsd),
+        tokens: Number(row.tokens),
+      }));
     },
   );
 }

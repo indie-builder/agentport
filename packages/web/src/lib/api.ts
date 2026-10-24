@@ -16,6 +16,7 @@ import type {
   MemoryFileContent,
   MemoryFileList,
   OutputStyle,
+  OverviewTimeseriesPoint,
   Problem,
   Rule,
   Schedule,
@@ -34,6 +35,8 @@ import type {
 } from '@agentport/shared';
 
 export type AgentFiles = WorkspaceFiles;
+
+export type { OverviewTimeseriesPoint };
 
 /** 导出文件的前端视图；页面只取 agent.slug 生成文件名，其余原样写盘。 */
 export interface AgentExport {
@@ -459,6 +462,8 @@ export const api = {
       throw error;
     }
   },
+  overviewTimeseries: (days = 14): Promise<OverviewTimeseriesPoint[]> =>
+    request(`/overview/timeseries?days=${days}`),
 
   servers: (): Promise<Server[]> => request('/servers'),
   connectorCatalog: (): Promise<ConnectorCatalogItem[]> => request('/connector-catalog'),

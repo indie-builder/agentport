@@ -1,4 +1,5 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type DataColumn, DataTable, reorderColumns } from '../src/components/data-table.js';
@@ -76,4 +77,47 @@ describe('DataTable accessibility', () => {
       expect(html).toMatch(/<tbody\b[\s\S]*?<tr\b[\s\S]*?<td\b[^>]*colSpan="2"/);
     },
   );
+
+  it('keeps null sort values last in both directions', async () => {
+    const sortable = [
+      { id: 'two', value: 2 },
+      { id: 'none', value: null },
+      { id: 'one', value: 1 },
+    ];
+    const sortableColumns: DataColumn<(typeof sortable)[number]>[] = [
+      { id: 'value', header: '值', sortValue: (row) => row.value },
+    ];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          createElement(DataTable<(typeof sortable)[number]>, {
+            rows: sortable,
+            columns: sortableColumns,
+            rowKey: (row) => row.id,
+            label: '排序测试',
+            onRowClick: () => {},
+          }),
+        );
+      });
+      const button = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="值，按此列排序"]',
+      );
+      if (!button) throw new Error('Missing sort button');
+      const order = () =>
+        [...container.querySelectorAll('button[data-row]')].map((row) =>
+          row.getAttribute('aria-label')?.replace('打开 ', ''),
+        );
+
+      await act(async () => button.click());
+      expect(order()).toEqual(['two', 'one', 'none']);
+      await act(async () => button.click());
+      expect(order()).toEqual(['one', 'two', 'none']);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
 });
