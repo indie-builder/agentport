@@ -27,6 +27,7 @@ export function ResourcePage({
   status,
   filters,
   actions,
+  hideSort = false,
   children,
 }: {
   section: 'agents' | 'skills' | 'servers';
@@ -38,6 +39,7 @@ export function ResourcePage({
   status: 'pending' | 'error' | 'success';
   filters?: ReactNode;
   actions?: ReactNode;
+  hideSort?: boolean;
   children: ReactNode;
 }) {
   const label = { agents: '专家', skills: '技能', servers: '连接器' }[section];
@@ -74,16 +76,18 @@ export function ResourcePage({
                 ? '数量不可用'
                 : `共 ${count} 个${label}`}
           </span>
-          <FilterSelect
-            label="资源排序"
-            value={sort}
-            onValueChange={(next) => {
-              if (next === 'newest' || next === 'name') onSortChange(next);
-            }}
-            options={sortOptions}
-            className="ml-auto w-32"
-          />
-        </PageToolbar>
+          {hideSort ? null : (
+            <FilterSelect
+              label="资源排序"
+              value={sort}
+              onValueChange={(next) => {
+                if (next === 'newest' || next === 'name') onSortChange(next);
+              }}
+              options={sortOptions}
+              className="ml-auto w-32"
+            />
+          )}
+        </PageToolbar>{' '}
         <TabsContent value={section}>{children}</TabsContent>
       </Tabs>
     </Page>

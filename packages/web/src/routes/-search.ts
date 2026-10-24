@@ -17,6 +17,8 @@ export const agentsSearchSchema = resourceSearchSchema.extend({
 
 export const skillsSearchSchema = resourceSearchSchema.extend({
   usage: z.enum(['bound', 'unbound']).optional().catch(undefined),
+  scope: z.enum(['internal', 'market']).optional().catch(undefined),
+  marketView: z.enum(['all-time', 'trending', 'hot']).optional().catch(undefined),
 });
 
 export const chatSearchSchema = z.object({

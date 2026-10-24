@@ -1,4 +1,6 @@
 import {
+  type MarketSkill,
+  type MarketView,
   type Skill,
   type SkillInput,
   type SkillWithAgentCount,
@@ -8,7 +10,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { Path, PathValue } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -46,14 +48,18 @@ import {
   FieldLabel,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
+import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
+import { formatTokens } from '../lib/format.js';
 import {
   useCreateSkill,
   useDeleteSkill,
   useImportSkillFile,
+  useInstallMarketSkill,
+  useMarketSkills,
   useSkills,
   useUpdateSkill,
 } from '../lib/queries.js';
@@ -66,6 +72,11 @@ const usageOptions = [
   { value: 'all', label: '全部技能' },
   { value: 'bound', label: '已绑定' },
   { value: 'unbound', label: '未绑定' },
+];
+const marketViewOptions = [
+  { value: 'all-time', label: '总榜' },
+  { value: 'trending', label: '趋势' },
+  { value: 'hot', label: '新热' },
 ];
 
 const skillFormSchema = skillInputSchema.extend({
@@ -97,6 +108,7 @@ export function SkillsPage() {
   const skills = useSkills();
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/skills' });
+  const scope = search.scope ?? 'internal';
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
   const usage = search.usage ?? 'all';
@@ -147,6 +159,8 @@ export function SkillsPage() {
       );
   }, [skills.data, query, sort, usage]);
 
+  if (scope === 'market') return <MarketSkillsPage skills={skills} />;
+
   return (
     <ResourcePage
       section="skills"
@@ -162,16 +176,31 @@ export function SkillsPage() {
       count={visibleSkills.length}
       status={skills.status}
       filters={
-        <FilterSelect
-          value={usage}
-          onValueChange={(next) => {
-            if (next !== 'all' && next !== 'bound' && next !== 'unbound') return;
-            setFilter({ usage: next === 'all' ? undefined : next });
-          }}
-          options={usageOptions}
-          label="按使用情况筛选"
-          className="w-36"
-        />
+        <>
+          <ScopeTabs
+            value="internal"
+            onChange={() =>
+              void navigate({
+                to: '/skills',
+                search: (previous) => ({
+                  scope: 'market',
+                  ...(previous.sort ? { sort: previous.sort } : {}),
+                  ...(previous.marketView ? { marketView: previous.marketView } : {}),
+                }),
+              })
+            }
+          />
+          <FilterSelect
+            value={usage}
+            onValueChange={(next) => {
+              if (next !== 'all' && next !== 'bound' && next !== 'unbound') return;
+              setFilter({ usage: next === 'all' ? undefined : next });
+            }}
+            options={usageOptions}
+            label="按使用情况筛选"
+            className="w-36"
+          />
+        </>
       }
       actions={
         <>
@@ -211,22 +240,6 @@ export function SkillsPage() {
       {skills.isPending ? <LoadingState rows={4} layout="cards" /> : null}
       {skills.isError ? (
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
-      ) : null}
-      {skills.data && skills.data.length === 0 ? (
-        <PageNote
-          icon={<Sparkles aria-hidden="true" />}
-          title="把重复步骤写成可复用的技能"
-          action={
-            <Button
-              onClick={(event) => {
-                actionTriggerRef.current = event.currentTarget;
-                setCreating(true);
-              }}
-            >
-              <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
-            </Button>
-          }
-        />
       ) : null}
       {skills.data && skills.data.length > 0 && visibleSkills.length === 0 ? (
         <PageNote
@@ -315,6 +328,13 @@ export function SkillsPage() {
                   <Badge variant="secondary" className="max-w-full font-mono">
                     <span className="truncate">{skill.slug}</span>
                   </Badge>
+                  {skill.sourceId ? (
+                    <Badge variant="outline" className="max-w-full font-mono">
+                      <span className="truncate" title={skill.sourceId}>
+                        来自 {skill.sourceId.split('/').slice(0, 2).join('/')}
+                      </span>
+                    </Badge>
+                  ) : null}
                 </CardContent>
                 <CardFooter className="mt-auto justify-between gap-2">
                   <span className="text-xs text-muted-foreground">
@@ -350,6 +370,186 @@ export function SkillsPage() {
           finalFocus={panelFocus}
           onClose={() => setDeleting(null)}
         />
+      ) : null}
+    </ResourcePage>
+  );
+}
+
+function ScopeTabs({
+  value,
+  onChange,
+}: {
+  value: 'internal' | 'market';
+  onChange: (value: 'internal' | 'market') => void;
+}) {
+  return (
+    <Tabs
+      value={value}
+      onValueChange={(next) => {
+        if (next === 'internal' || next === 'market') onChange(next);
+      }}
+    >
+      <TabsList variant="line" aria-label="技能来源">
+        <TabsTrigger value="internal">内部</TabsTrigger>
+        <TabsTrigger value="market">市场</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
+}
+
+function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) {
+  const navigate = useNavigate();
+  const search = useSearch({ from: '/_shell/skills' });
+  const view: MarketView = search.marketView ?? 'all-time';
+  const query = search.q ?? '';
+  const deferredQuery = useDeferredValue(query);
+  const term = deferredQuery.trim();
+  const tooShort = term.length === 1;
+  const market = useMarketSkills(view, deferredQuery);
+  const install = useInstallMarketSkill();
+  const [installingId, setInstallingId] = useState<string | null>(null);
+  const installedIds = new Set(
+    (skills.data ?? []).map((skill) => skill.sourceId).filter((id): id is string => id !== null),
+  );
+  const clearSearch = (): void => {
+    void navigate({
+      to: '/skills',
+      search: (previous) => ({ ...previous, q: undefined }),
+      replace: true,
+    });
+  };
+  const installSkill = (item: MarketSkill): void => {
+    if (install.isPending) return;
+    setInstallingId(item.id);
+    install.mutate(
+      { id: item.id },
+      {
+        onSuccess: ({ skill, warnings }) => {
+          toastSuccess(`已安装「${skill.name}」`);
+          for (const warning of warnings) toast.info(warning);
+        },
+        onError: toastError,
+        onSettled: () => setInstallingId(null),
+      },
+    );
+  };
+
+  return (
+    <ResourcePage
+      section="skills"
+      query={query}
+      onQueryChange={(next) =>
+        void navigate({
+          to: '/skills',
+          search: (previous) => ({ ...previous, q: next || undefined }),
+          replace: true,
+        })
+      }
+      sort="newest"
+      onSortChange={() => {}}
+      count={market.data?.length ?? 0}
+      status={tooShort ? 'success' : market.status}
+      hideSort
+      filters={
+        <>
+          <ScopeTabs
+            value="market"
+            onChange={() =>
+              void navigate({
+                to: '/skills',
+                search: (previous) => ({
+                  ...(previous.sort ? { sort: previous.sort } : {}),
+                }),
+              })
+            }
+          />
+          <FilterSelect
+            value={view}
+            onValueChange={(next) => {
+              if (next !== 'all-time' && next !== 'trending' && next !== 'hot') return;
+              void navigate({
+                to: '/skills',
+                search: (previous) => ({
+                  ...previous,
+                  marketView: next === 'all-time' ? undefined : next,
+                }),
+              });
+            }}
+            options={marketViewOptions}
+            label="按榜单筛选"
+            className="w-32"
+          />
+        </>
+      }
+    >
+      {tooShort ? (
+        <PageNote
+          icon={<Sparkles aria-hidden="true" />}
+          title="至少输入 2 个字符"
+          description="再多输入一个字符即可搜索市场。"
+        />
+      ) : null}
+      {!tooShort && market.isPending ? <LoadingState rows={4} layout="cards" /> : null}
+      {!tooShort && market.isError ? (
+        <ErrorState error={market.error} onRetry={() => void market.refetch()} />
+      ) : null}
+      {!tooShort && market.data && market.data.length === 0 ? (
+        <PageNote
+          icon={<Sparkles aria-hidden="true" />}
+          title={term ? '没有匹配的技能' : '榜单为空'}
+          description={term ? '试试其他关键词。' : 'skills.sh 暂时没有返回榜单数据。'}
+          action={
+            term ? (
+              <Button variant="outline" size="sm" onClick={clearSearch}>
+                清除搜索
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : null}
+      {!tooShort && market.data && market.data.length > 0 ? (
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {market.data.map((item, index) => {
+            const installed = installedIds.has(item.id);
+            const pending = installingId === item.id;
+            return (
+              <li key={item.id} className="min-w-0">
+                <Card className="h-full">
+                  <CardHeader className="grid-cols-[auto_minmax(0,1fr)]!">
+                    <span className="flex size-10 shrink-0 items-center justify-center self-center rounded-item bg-muted font-mono text-sm text-muted-foreground">
+                      #{index + 1}
+                    </span>
+                    <CardTitle className="col-start-2 min-w-0">
+                      <h2 className="truncate" title={item.name}>
+                        {item.name}
+                      </h2>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-1 flex-col gap-3">
+                    <Badge variant="secondary" className="max-w-full font-mono">
+                      <span className="truncate">{item.source}</span>
+                    </Badge>
+                  </CardContent>
+                  <CardFooter className="mt-auto justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {formatTokens(item.installs)} 次安装
+                    </span>
+                    <Button
+                      size="sm"
+                      variant={installed ? 'outline' : 'default'}
+                      disabled={installed || install.isPending}
+                      aria-busy={pending}
+                      aria-label={installed ? `${item.name} 已安装` : `安装 ${item.name}`}
+                      onClick={() => installSkill(item)}
+                    >
+                      {installed ? '已安装' : pending ? '安装中…' : '安装'}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
     </ResourcePage>
   );

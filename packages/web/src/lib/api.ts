@@ -13,6 +13,9 @@ import type {
   EvalDataset,
   EvalDatasetImportResult,
   EvalRunExport,
+  MarketInstallInput,
+  MarketSkill,
+  MarketView,
   MemoryFileContent,
   MemoryFileList,
   OutputStyle,
@@ -584,6 +587,16 @@ export const api = {
     }),
   deleteSkillFile: (id: string, path: string): Promise<void> =>
     request(`/skills/${id}/files/${path.split('/').map(encodeURIComponent).join('/')}`, 'DELETE'),
+
+  marketSkills: (query: { view?: MarketView; q?: string } = {}): Promise<MarketSkill[]> => {
+    const params = new URLSearchParams();
+    if (query.view) params.set('view', query.view);
+    if (query.q) params.set('q', query.q);
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/market/skills${search}`);
+  },
+  installMarketSkill: (input: MarketInstallInput): Promise<SkillImportResult> =>
+    request('/market/skills/install', 'POST', input),
 
   renameConversation: (id: string, title: string): Promise<ConversationDetail['conversation']> =>
     request(`/conversations/${id}`, 'PATCH', { title }),

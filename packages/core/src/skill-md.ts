@@ -29,7 +29,10 @@ function fieldOf(path: PropertyKey | undefined): string {
  * 解析官方 SKILL.md（YAML frontmatter + markdown 正文）。
  * 纯函数：不执行脚本、不落盘，也不接受会改变运行时行为的未声明字段。
  */
-export function parseSkillMd(content: string): { skill: SkillInput; warnings: string[] } {
+export function parseSkillMd(
+  content: string,
+  options?: { slug?: string },
+): { skill: SkillInput; warnings: string[] } {
   const { fields, body: rawBody } = parseMarkdownFrontmatter(content, 'SKILL.md', '/skillMd');
   const warnings: string[] = [];
   const unknown: string[] = [];
@@ -48,7 +51,7 @@ export function parseSkillMd(content: string): { skill: SkillInput; warnings: st
   const { body, displayName } = splitHeading(rawBody);
   const rawName = fields.get('name');
   const parsed = skillInputSchema.safeParse({
-    slug: rawName,
+    slug: options?.slug ?? rawName,
     name: displayName ?? rawName,
     description: fields.get('description'),
     body,
