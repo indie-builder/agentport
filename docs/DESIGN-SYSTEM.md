@@ -267,6 +267,7 @@ body #F5F5F5
 - 项目圆角：外壳与卡片 16 / 行与常规控件 9 / 图标按钮 7 / 标签 6。底座内部细节沿用官方结构；`--radius` 为 9px，InputGroup 的内部按钮经 `calc()` 推导为 6px。共享映射见 `styles.css`。
 - 动画类（`animate-in` / `fade-in-0` / `zoom-in-95`）由 `tw-animate-css` 提供，已在 `styles.css` 引入。
 - shadcn 原语的语义色（`bg-popover`、`text-muted-foreground`、`bg-accent` 等）已全部映射到无彩度令牌，**不要在组件里改回具体色值**。
+- shadcn 定制顺序：内置 variant → 局部布局 → 源码中的语义 variant → 有实际复用需求的应用组合。底座组件放 `components/ui/`，应用组合放 `src/components/`（如 `ConfirmDialog`）。允许改源码，但保留原语的 `aria-*`、焦点管理与键盘交互，只改外观 token；安装/更新前对比 git diff，`--overwrite` 会覆盖既有定制。
 
 ## 13. 禁止
 
