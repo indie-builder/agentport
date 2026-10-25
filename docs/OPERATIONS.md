@@ -60,6 +60,7 @@
 | `SANDBOX_MEMORY` | 否 | `1g` | worker | 容器内存上限（Docker 格式，如 `1g`、`512m`） |
 | `SANDBOX_CPUS` | 否 | `1` | worker | CPU 核数上限 |
 | `SANDBOX_PIDS` | 否 | `128` | worker | PID 上限 |
+| `SANDBOX_MAX_FIELD_BYTES` | 否 | `1048576` | worker | 沙盒单块文本/工具负载上限（字节）。超限只截断该块并随事件标 `truncated`，不再静默丢尾部。最坏 JSON 转义约 6 倍，宿主单行上限 8MiB；调到 1MiB 以上必须同步调高 `runner-client` 的 `MAX_LINE_BYTES`，否则整块会被丢弃 |
 
 ### 原生记忆存储（native memory storage）
 
@@ -83,7 +84,8 @@ runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`a
 
 ### 2.1 前置
 
-- Node.js 24、pnpm 12.14.0
+- Node.js 24、pnpm 12.15.0
+- pnpm 12 默认不跑依赖的安装脚本，决定写在根 `pnpm-workspace.yaml` 的 `allowBuilds`：放行 `esbuild`、`msgpackr-extract`，拒绝 `@openuidev/lang-core`（其 postinstall 只上报匿名安装遥测）。新增带安装脚本的依赖时在这里补决定，否则 `pnpm install` / `deploy` 以 `ERR_PNPM_IGNORED_BUILDS` 失败。
 - Docker Engine + Compose
 - 宿主有 `pg_dump` / `psql`（备份与恢复）
 - 至少一个模型凭证（`ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`）

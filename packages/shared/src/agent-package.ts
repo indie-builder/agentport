@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { agentRoleSchema } from './agent.js';
+import { agentRoleSchema, uiFormatSchema } from './agent.js';
 import { apiToolInputSchema, httpUrlSchema } from './mcp.js';
 import { slugSchema } from './params.js';
 
@@ -112,6 +112,7 @@ export const packageServerSchema = z.discriminatedUnion('kind', [
 
 const platformFields = {
   permissionMode: packagePermissionModeSchema.default('dontAsk'),
+  uiFormat: uiFormatSchema.default('markdown'),
   maxTurns: z.number().int().positive().default(20),
   maxBudgetUsd: z.number().positive().default(2),
   timeoutMs: z.number().int().positive().default(600_000),

@@ -56,6 +56,7 @@ export interface AgentSpec {
   model?: string;
   systemPrompt?: string;
   permissionMode?: 'dontAsk' | 'plan' | 'default' | 'acceptEdits';
+  uiFormat?: 'markdown' | 'openui';
   maxTurns?: number;
   maxBudgetUsd?: number;
   timeoutMs?: number;
@@ -162,6 +163,7 @@ export function packageFiles(spec: PackageSpec): Record<string, string> {
         description: agent.description ?? '',
         model: agent.model ?? 'claude-sonnet-5-5',
         permissionMode: agent.permissionMode ?? 'dontAsk',
+        uiFormat: agent.uiFormat ?? 'markdown',
         maxTurns: agent.maxTurns ?? 20,
         maxBudgetUsd: agent.maxBudgetUsd ?? 2,
         timeoutMs: agent.timeoutMs ?? 600_000,

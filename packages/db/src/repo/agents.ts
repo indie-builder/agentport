@@ -27,6 +27,7 @@ export interface AgentWrite {
   allowedTools: string[];
   disallowedTools: string[];
   permissionMode: string;
+  uiFormat: string;
   effort: string | null;
   maxThinkingTokens: number | null;
   enabled: boolean;
@@ -59,6 +60,7 @@ export function toAgent(
     allowedTools: row.allowedTools,
     disallowedTools: row.disallowedTools,
     permissionMode: row.permissionMode as AgentInput['permissionMode'],
+    uiFormat: row.uiFormat as AgentInput['uiFormat'],
     maxTurns: row.maxTurns,
     maxBudgetUsd: Number(row.maxBudgetUsd),
     timeoutMs: row.timeoutMs,
@@ -230,6 +232,7 @@ export async function duplicateAgent(
               allowedTools: source.allowedTools,
               disallowedTools: source.disallowedTools,
               permissionMode: source.permissionMode,
+              uiFormat: source.uiFormat,
               effort: source.effort,
               maxThinkingTokens: source.maxThinkingTokens,
               enabled: source.enabled,

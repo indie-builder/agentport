@@ -32,8 +32,9 @@ import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
 import { readForkUuidMap } from './fork-uuids.js';
 import { startMaintenanceWorker } from './maintenance.js';
-import { persistRunMessages } from './messages.js';
+import { type PersistedMessage, persistRunMessages } from './messages.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
+import { promptWithOpenUiAction } from './openui-action.js';
 import { startReconciler } from './reconcile.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
@@ -135,6 +136,9 @@ async function writeWorkspace(
   }>,
   selectedOutputStyle: string | null,
 ): Promise<{ dir: string; hasSubAgents: boolean }> {
+  // 生成式 UI 的工具目录与提示词、执行桥同源：这里查一次，渲染时写进 CLAUDE.md。
+  const openuiTools =
+    agent.uiFormat === 'openui' ? await repo.openui.listOpenUiTools(db, agent.id) : [];
   const files = renderWorkspace(
     toWorkspaceInput({
       agent,
@@ -144,6 +148,7 @@ async function writeWorkspace(
       rules,
       outputStyles,
       selectedOutputStyle,
+      openuiTools,
     }),
   );
 
@@ -375,6 +380,8 @@ const worker = new Worker(
     let runLatencyMs: number | null = null;
     let workspaceDirForRun: string | null = null;
     let sessionsDirForRun: string | null = null;
+    /** 本轮智能体的回复格式；在 try 内读取，收尾落库时仍要用。 */
+    let runUiFormat: 'markdown' | 'openui' = 'markdown';
     try {
       const [agent] = await db
         .select()
@@ -382,6 +389,8 @@ const worker = new Worker(
         .where(eq(schema.agents.id, agentId))
         .limit(1);
       if (!agent) throw new Error(`agent ${agentId} not found`);
+      // 消息级快照：历史渲染按这一轮落库的格式，切换开关不影响已存消息。
+      runUiFormat = agent.uiFormat === 'openui' ? 'openui' : 'markdown';
 
       // 版本只做 provenance：执行始终用当前配置，不一致仅告警。
       try {
@@ -403,7 +412,11 @@ const worker = new Worker(
       if (!sdkState) throw new Error(`conversation ${conversationId} not found`);
       // 本轮用户消息在准入时已落库；runner 用它（或这里补生成的 uuid）发首条消息。
       const [userMessage] = await db
-        .select({ id: schema.messages.id, sdkMessageUuid: schema.messages.sdkMessageUuid })
+        .select({
+          id: schema.messages.id,
+          content: schema.messages.content,
+          sdkMessageUuid: schema.messages.sdkMessageUuid,
+        })
         .from(schema.messages)
         .where(
           and(
@@ -414,6 +427,8 @@ const worker = new Worker(
         )
         .limit(1);
       if (!userMessage) throw new Error(`user message for run ${runId} not found`);
+      // 动作回传要把上下文与表单值一起交给模型；纯文本消息仍是原文。
+      const taskPrompt = promptWithOpenUiAction(userMessage.content, prompt);
       // 非浏览器入口（定时、评估、外部调用）不经过准入；uuid 由平台生成后显式发给 SDK，
       // 因此它仍是真实 transcript 身份，不是事后拼的映射。
       const userMessageUuid = userMessage.sdkMessageUuid ?? randomUUID();
@@ -553,7 +568,7 @@ const worker = new Worker(
 
       runStartedAt = Date.now();
       const task: SandboxTaskInput = {
-        prompt,
+        prompt: taskPrompt,
         model: agent.model,
         maxTurns: agent.maxTurns,
         maxBudgetUsd: Number(agent.maxBudgetUsd),
@@ -565,6 +580,7 @@ const worker = new Worker(
         ...(agent.effort === null ? {} : { effort: effortSchema.parse(agent.effort) }),
         ...(agent.maxThinkingTokens === null ? {} : { maxThinkingTokens: agent.maxThinkingTokens }),
         allowSubAgents: hasSubAgents,
+        maxFieldBytes: config.SANDBOX_MAX_FIELD_BYTES,
         subAgents: enabledChildren.map((row) => ({
           slug: row.slug,
           servers: serverNamesByAgent.get(row.id) ?? [],
@@ -621,6 +637,7 @@ const worker = new Worker(
     // 写库失败不能抛出：抛出会让 BullMQ 重跑整个沙盒并最终只留 reconcile 的
     // "worker lost track of this run"，真实原因反而被覆盖。记日志，继续写终态。
     const forked = outcome.events.find((event) => event.type === 'session_forked');
+    let persistedMessages: PersistedMessage[] = [];
     try {
       // 分支首轮：从宿主 transcript 的 forkedFrom 算新旧 uuid 映射，再与消息同事务写入。
       const uuidMap =
@@ -631,14 +648,16 @@ const worker = new Worker(
               new Set(await repo.chat.listConversationMessageUuids(db, conversationId)),
             )
           : undefined;
-      await persistRunMessages(db, {
+      const persisted = await persistRunMessages(db, {
         agentId,
         conversationId,
         runId,
         events: outcome.events,
         ...(outcome.sessionId === undefined ? {} : { sdkSessionId: outcome.sessionId }),
         ...(uuidMap === undefined ? {} : { uuidMap }),
+        uiFormat: runUiFormat,
       });
+      persistedMessages = persisted.messages;
     } catch (err) {
       // agent_runs.error 说明的是沙盒失败原因；消息丢失是另一件事，只进日志。
       logger.error({ err, runId }, 'failed to persist run messages');
@@ -699,6 +718,7 @@ const worker = new Worker(
       {
         type: 'run_finished',
         status: outcome.status,
+        ...(persistedMessages.length === 0 ? {} : { messageIds: persistedMessages }),
         ...(outcome.costUsd === undefined ? {} : { costUsd: outcome.costUsd }),
         ...(outcome.turns === undefined ? {} : { turns: outcome.turns }),
         ...(outcome.error === undefined ? {} : { error: outcome.error }),

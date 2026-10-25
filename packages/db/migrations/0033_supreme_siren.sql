@@ -1,0 +1,2 @@
+ALTER TABLE "agents" ADD COLUMN "ui_format" text DEFAULT 'markdown' NOT NULL;--> statement-breakpoint
+ALTER TABLE "agents" ADD CONSTRAINT "agents_ui_format_check" CHECK ("agents"."ui_format" in ('markdown', 'openui'));

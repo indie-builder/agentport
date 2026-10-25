@@ -18,6 +18,8 @@
 | [RUNBOOK.md](RUNBOOK.md) | 故障处置手册 |
 | [FIRST-RUN.md](FIRST-RUN.md) | 首次跑起来的步骤 |
 | [SKILLS.md](SKILLS.md) | 已装技能清单、项目适配、技能与插件更新 SOP |
+| [OPENUI-UPGRADE.md](OPENUI-UPGRADE.md) | OpenUI 组件契约、官方 spec 生成与升级行为回归 |
+| [OPENUI-UI-ADAPTATION.md](OPENUI-UI-ADAPTATION.md) | 官方 shadcn UI 来源、Base UI 适配边界与项目令牌映射 |
 | `tasks/<slug>.md` | 单个任务的执行记录（按 `DEV-WORKFLOW.md` 模板创建） |
 
 ## 仓库根文档

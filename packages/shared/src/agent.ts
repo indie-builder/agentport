@@ -50,6 +50,10 @@ export const agentRoleSchema = z
 export const effortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 export type Effort = z.infer<typeof effortSchema>;
 
+/** 助手回复的渲染格式：Markdown（默认）或生成式 UI（围栏内的 OpenUI Lang）。 */
+export const uiFormatSchema = z.enum(['markdown', 'openui']);
+export type UiFormat = z.infer<typeof uiFormatSchema>;
+
 export const agentInputSchema = z.object({
   slug: slugSchema,
   name: z.string().min(1).max(128),
@@ -67,6 +71,8 @@ export const agentInputSchema = z.object({
   /** 额外禁用的工具；内置工具默认全部禁用，这里是补充项。 */
   disallowedTools: z.array(z.string()).default([]),
   permissionMode: permissionModeSchema.default('dontAsk'),
+  /** 助手回复格式；openui 时系统提示词追加 OpenUI Lang 约定，前端按生成式 UI 渲染。 */
+  uiFormat: uiFormatSchema.default('markdown'),
   maxTurns: z.number().int().positive().default(20),
   maxBudgetUsd: z.number().positive().default(2),
   timeoutMs: z.number().int().positive().default(600_000),

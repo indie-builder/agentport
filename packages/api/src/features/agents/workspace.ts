@@ -111,6 +111,9 @@ export async function renderAgentWorkspace(
     body: r.body,
   }));
   const selectedOutputStyle = styleRows.find((r) => r.isSelected)?.slug ?? null;
+  // 预览与 worker 渲染同一份 CLAUDE.md：生成式 UI 的工具目录也要一致。
+  const openuiTools =
+    agent.uiFormat === 'openui' ? await repo.openui.listOpenUiTools(app.db, agent.id) : [];
 
   return renderWorkspace(
     toWorkspaceInput({
@@ -121,6 +124,7 @@ export async function renderAgentWorkspace(
       rules,
       outputStyles,
       selectedOutputStyle,
+      openuiTools,
     }),
   );
 }

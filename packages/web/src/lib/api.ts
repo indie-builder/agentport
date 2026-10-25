@@ -17,6 +17,7 @@ import type {
   MarketView,
   MemoryFileContent,
   MemoryFileList,
+  OpenUiToolResult,
   OutputStyle,
   OverviewTimeseriesPoint,
   Problem,
@@ -597,7 +598,32 @@ export const api = {
       ...(fromMessageId === undefined ? {} : { fromMessageId }),
     }),
 
+  /** 生成式 UI 的 Query/Mutation：工具目录由服务端授权，未授权会 403。 */
+  callOpenUiTool: (
+    conversationId: string,
+    toolName: string,
+    input: { args: Record<string, unknown>; messageId: string; blockKey: string },
+  ): Promise<OpenUiToolResult> =>
+    request(`/chat/${conversationId}/openui/tools/${encodeURIComponent(toolName)}`, 'POST', input),
+
+  /** 会话级审批：202 返回的 approvalId 在这里批准；同一工具调用重试即执行。 */
+  approveOpenUiTool: (
+    conversationId: string,
+    approvalId: string,
+  ): Promise<{ approvalId: string; approvedAt: string | null }> =>
+    request(
+      `/chat/${conversationId}/openui/approvals/${encodeURIComponent(approvalId)}/approve`,
+      'POST',
+    ),
+
   sendChat: (input: ChatRequest): Promise<ChatAccepted> => request('/chat', 'POST', input),
+  /** 生成式 UI 的表单/绑定快照；按 block 合并，不覆盖同消息其他段。 */
+  saveOpenUiState: (
+    conversationId: string,
+    messageId: string,
+    input: { blockKey: string; state: Record<string, unknown> },
+  ): Promise<{ version: number; blockKey: string }> =>
+    request(`/conversations/${conversationId}/messages/${messageId}/openui-state`, 'PUT', input),
   cancelRun: (runId: string): Promise<void> => request(`/chat/${runId}/cancel`, 'POST'),
 
   runs: (query: RunQuery = {}): Promise<RunList> => {

@@ -107,10 +107,10 @@
 3. worker 消费 job：若 run 已被取消则跳过；置为 `running` 并发布 `run_started`。
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 生成文件并写入 `WORKSPACES_DIR/<slug>/<runId>/`。
 5. worker 通过 `DockerSandboxProvider` 执行 `docker run`，把任务 JSON 写入容器 stdin。
-6. 容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`text_delta`、`tool_start`、`tool_input`、`tool_result`、`assistant_text`、`run_finished`），日志写 stderr。
+6. 容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
 7. worker 逐行解析并转发到 Redis Stream；工具调用经 `.mcp.json` 中的地址访问 api。
 8. 取消：api 写 `run:<runId>:cancel` 键并 publish；worker 订阅后向容器发 SIGTERM；超时由 worker 计时；两者最终都 `docker rm -f`。
-9. 结束后 worker 把 `assistant_text` 与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。
+9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。
 10. 只有基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会抛出以触发 BullMQ 重试；业务失败不重试，避免重复计费。
 
 ## 4. HTTP → MCP 与平台 → MCP
@@ -180,6 +180,38 @@ data/workspaces/<agent-slug>/
 专家包是官方 `.claude/` 目录的 ZIP：`CLAUDE.md`、`.mcp.json`、`.claude/settings.json`、`.claude/agents/*.md`、`.claude/skills/**`、`.claude/rules/*.md`、`.claude/output-styles/*.md` 保存全部定义正文；根 `agentport.json` 只保存平台元数据（显示名、slug、预算/超时、密钥键名、generated 连接器定义、子定义自有规则等），不复制正文。旧 `agent@1`/`agent@2` JSON 已删除。包内每个技能的资源路径按大小写不敏感比较，禁止占用 `SKILL.md` 及其后代、重复路径和文件/目录祖先冲突；仅目录大小写不同、文件不同的路径（如 `References/a.md` 与 `references/b.md`）允许共存。导入与导出只读校验路径，保留合法路径的原始拼写及 content，不通过改名或归一化修复冲突。
 
 子智能体自有 rules / outputStyles 已支持保存、以自身为根的文件预览、clone 与目录包导入导出；父级委派时不会自动应用这些子级自有配置，父工作区只渲染根智能体的规则与输出风格。clone 复制源智能体自身配置与资源绑定，不复制其子智能体。
+
+### 生成式 UI（OpenUI）接入
+
+> 官方契约重调及独立评审已完成，验证见 `docs/tasks/openui-integration.md`。当前继续按官方 shadcn 示例调整 UI 呈现，范围和本轮验收见 `docs/tasks/openui-official-shadcn-ui.md`；适配来源见 `docs/OPENUI-UI-ADAPTATION.md`，升级见 `docs/OPENUI-UPGRADE.md`。
+
+智能体的 `uiFormat` 决定助手回复的格式：`markdown`（默认）或 `openui`。选 `openui` 时，平台在 CLAUDE.md 的平台生成段末尾追加一段组件签名提示词，模型把 OpenUI Lang 程序放进 ```openui-lang 围栏；浏览器用同一个组件库解析并渲染围栏内容，围栏外的散文仍按 Markdown 显示。
+
+| 位置 | 作用 |
+|---|---|
+| `packages/shared/src/openui/` | 唯一组件契约：纯 zod 定义 + 提示词规则 + 跨端协议（动作、状态信封、工具描述），不 import 任何 OpenUI 包 |
+| `packages/core/src/openui-prompt.ts` | 从官方 CLI 生成的 `generated/openui.spec.json` 生成提示词，按工具目录缓存；不导入浏览器组件 |
+| `packages/core/src/openui-response.ts` | 流结束后用官方解析器与 `mergeStatements` 合并对应段，保存完整混合响应；缺基线/非法程序保留原文并提供诊断 |
+| `packages/db/src/repo/openui.ts` | OpenUI 工具目录（提示词与执行桥同源）、消息状态原子更新、会话级审批 |
+| `packages/api/src/features/chat/openui-state.ts` | `PUT /api/conversations/:conversationId/messages/:messageId/openui-state`：按 blockKey 合并表单/绑定快照 |
+| `packages/api/src/features/chat/openui-actions.ts` | 动作回传协议：`continue_conversation` 存成 `[{type:'text'},{type:'openui_action',…}]`，`open_url` 不入库 |
+| `packages/api/src/features/chat/openui-tools.ts` | `POST /api/chat/:conversationId/openui/tools/:toolName`：Query/Mutation 执行桥；`POST /api/chat/:conversationId/openui/approvals/:approvalId/approve`：会话级批准 |
+| `packages/worker/src/openui-action.ts` | 将已校验动作上下文/表单值完整追加给模型；大小应在 API 边界拒绝，不能在 worker 静默省略 |
+| `packages/web/src/openui/library.tsx` | 真实 Zod/reactive 定义配上 shadcn 组件实现，官方 CLI 和浏览器共享同一个 library |
+| `packages/web/src/openui/renderer.tsx`、`components/openui-message.tsx` | 按围栏分段、状态恢复、原生工具错误/重试及完整动作回传 |
+
+要点：
+
+- **运行底座保持 Claude Agent SDK**：OpenUI Lang 支持接入现有模型与智能体框架。Gateway 是官方推荐的托管推理/纠错路径，并不是使用 Renderer 的前提；当前 SDK 路径保留现有推理方式。Autofix 可在既有推理之后修复输出，属于可选外部服务，当前未接入。
+- **业务运行时不引入 `@openuidev/react-ui` 的视觉层**：项目用真实 Zod/reactive 组件定义和 shadcn/Base UI 实现。该包仅作为开发期的官方契约对照，不能以其 JSON Schema 反编译出等价的 Zod（会丢绑定标记等语义）。
+- **输出模式由宿主选择**：当前选择 `inlineMode:true` 支持 Markdown 与 UI 混合；这属于产品行为，不是所有 OpenUI 接入都必须使用的选项。`editMode` 必须与跨轮 previous/完成后合并的存储路径同时验收。
+- **消息级格式快照**：`messages.ui_format` 固定消息生成时的渲染模式；`content` 保留原始模型输出与 SDK transcript 对应，`ui_program` 保存完成后按段合并的完整混合响应，`ui_state` 原样保存官方渲染器状态。历史优先读已存快照，不在浏览器二次合并。
+- **段归属**：消息的每个UI围栏按`s0/s1…`编号，Markdown段不占编号；状态保存在`ui_state.blocks[sN]`。外部请求另带真实conversationId/messageId，不能把messageId编码到state键，也不能从全局store倒找最后一条消息。分支复制快照后不需重写段键。
+- **工具目录单一来源**：`repo.openui.listOpenUiTools(agentId)` 同时喂提示词（worker 渲染 CLAUDE.md）和执行桥（API 校验）。只收已绑定且启用的 http / generated server 工具；stdio 由用户提供任意命令，仅沙盒内可见。http server 的目录来自最近一次「测试连接」写入 `servers.config.toolCatalog` 的快照——worker 没有 MCP client。
+- **审批与会话绑定**：生成式UI的工具需要批准时返回202与approvalId，由当前UI段提供批准及重试；会话级批准8小时有效，重放不能续期，过期须重新请求并批准。Query可显式重试，Mutation不自动重放。它与run级审批分开：`approval_requests.run_id` 可空，UI来源使用 `conversation_id/message_id/source` 和会话工具部分唯一索引；run审批行为不变。
+- 提示词进 CLAUDE.md 而不是 `.claude/rules/`：该段位于 `parseClaudeMd` 的截断标记之后，不污染用户可编辑正文，导出包也不会丢失。
+- `pnpm-workspace.yaml` 的 `allowBuilds` 明确拒绝 `@openuidev/lang-core` 的构建脚本：否则每次 `pnpm install --frozen-lockfile` 因 `ERR_PNPM_IGNORED_BUILDS` 失败；该脚本只发匿名安装遥测。`.npmrc` 的变量**不会**作为进程环境传给 postinstall，因此不靠它关闭遥测。
+
 
 | 官方文件/能力 | 加载方式 | 本项目当前状态 |
 |---|---|---|

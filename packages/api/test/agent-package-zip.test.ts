@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   cleanup,
   createAgent,
+  createServer,
   expectProblem,
   infraReady,
   inject,
@@ -791,6 +792,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
         skillSlugs: [skillSlug],
         effort: 'high' as const,
         maxThinkingTokens: 2048,
+        uiFormat: 'openui' as const,
       },
       rules: [{ slug: 'root-rule', content: 'Keep root rules.', globs: 'src/**,test/**' }],
       outputStyles: [
@@ -854,7 +856,11 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(files.get(`.claude/skills/${skillSlug}/scripts/run.sh`)).toBe('true\n');
     expect(files.get(`.claude/agents/${childSlug}.md`)).toContain('CHILD-PROMPT');
     const exported = sidecarOf(files);
-    expect(exported.agent).toMatchObject({ effort: 'high', maxThinkingTokens: 2048 });
+    expect(exported.agent).toMatchObject({
+      effort: 'high',
+      maxThinkingTokens: 2048,
+      uiFormat: 'openui',
+    });
     expect(exported.subAgents[0]).toMatchObject({
       slug: childSlug,
       rules: [{ slug: 'child-rule', content: 'Keep child rules.', globs: '' }],
@@ -894,7 +900,211 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(roundTrip.get(`.claude/skills/${skillSlug}/references/guide.md`)).toBe('# Guide');
     const roundTripSidecar = sidecarOf(roundTrip);
     expect(roundTripSidecar.subAgents[0]?.rules).toEqual(exported.subAgents[0]?.rules);
-    expect(roundTripSidecar.agent).toMatchObject({ effort: 'high', maxThinkingTokens: 2048 });
+    expect(roundTripSidecar.agent).toMatchObject({
+      effort: 'high',
+      maxThinkingTokens: 2048,
+      uiFormat: 'openui',
+    });
+  });
+
+  it('round-trips OpenUI packages without polluting the prompt or duplicating the section', async () => {
+    const sourceSlug = unique('pkg-openui-src');
+    const targetSlug = unique('pkg-openui-dst');
+    createdAgents.push(sourceSlug, targetSlug);
+
+    const sourceAgent = (
+      await createAgent(app, cookie, { slug: sourceSlug, track: createdAgents })
+    ).json<Agent>();
+    const prompt = '你是看板助手。\n\n## 规则\n\n1. 先查再答。';
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${sourceAgent.id}`,
+      headers: { cookie },
+      payload: { systemPrompt: prompt, uiFormat: 'openui' },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+
+    const files = await exportFiles(sourceAgent.id);
+    const exportedClaude = files.get('CLAUDE.md') ?? '';
+    // 生成段只出现一次；正文边界仍是渲染器的 `## 工具使用`。
+    expect(exportedClaude.split('## 生成式 UI')).toHaveLength(2);
+    expect(exportedClaude.split('## 工具使用')).toHaveLength(2);
+    expect(exportedClaude).toContain(prompt);
+
+    const copy = new Map(files);
+    const exported = sidecarOf(copy);
+    exported.agent.slug = targetSlug;
+    exported.agent.name = `Imported ${targetSlug}`;
+    copy.set(AGENT_PACKAGE_SIDECAR, `${JSON.stringify(exported, null, 2)}\n`);
+    const imported = await importZip(
+      rawZip([...copy].map(([name, content]) => ({ name, content }))),
+    );
+    expect(imported.statusCode, imported.body).toBe(201);
+    const result = imported.json<AgentImportResult>();
+    createdAgents.push(result.agent.slug);
+    // 生成段属于渲染产物，不能回流成用户 systemPrompt。
+    expect(result.agent.uiFormat).toBe('openui');
+    expect(result.agent.systemPrompt).toBe(prompt);
+    expect(result.agent.systemPrompt).not.toContain('## 生成式 UI');
+    expect(result.agent.systemPrompt).not.toContain('## 工具使用');
+
+    const reexported = await exportFiles(result.agent.id);
+    expect(reexported.get('CLAUDE.md')?.split('## 生成式 UI')).toHaveLength(2);
+    expect(sidecarOf(reexported).agent.uiFormat).toBe('openui');
+  });
+
+  it('keeps uiFormat through clone and version rollback', async () => {
+    const slug = unique('pkg-openui-ver');
+    createdAgents.push(slug);
+    const agent = (await createAgent(app, cookie, { slug, track: createdAgents })).json<Agent>();
+    const toOpenUi = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: { cookie },
+      payload: { uiFormat: 'openui' },
+    });
+    expect(toOpenUi.statusCode, toOpenUi.body).toBe(200);
+
+    // 当前版本是 openui；回滚到仍为 markdown 的 v1 必须显式变回 markdown。
+    const back = await inject(app, {
+      method: 'POST',
+      url: `/api/agents/${agent.id}/rollback`,
+      headers: { cookie },
+      payload: { version: 1 },
+    });
+    expect(back.statusCode, back.body).toBe(200);
+    expect(back.json<Agent>().uiFormat).toBe('markdown');
+
+    const again = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: { cookie },
+      payload: { uiFormat: 'openui' },
+    });
+    expect(again.statusCode, again.body).toBe(200);
+
+    const copySlug = unique('pkg-openui-copy');
+    createdAgents.push(copySlug);
+    const copy = await inject(app, {
+      method: 'POST',
+      url: `/api/agents/${agent.id}/duplicate`,
+      headers: { cookie },
+      payload: { slug: copySlug, name: 'Cloned OpenUI agent' },
+    });
+    expect(copy.statusCode, copy.body).toBe(201);
+    expect(copy.json<Agent>().uiFormat).toBe('openui');
+
+    // 回到 openui 版本（v2 = 第一次 PATCH 后），回滚后导出仍是生成式 UI。
+    const restored = await inject(app, {
+      method: 'POST',
+      url: `/api/agents/${agent.id}/rollback`,
+      headers: { cookie },
+      payload: { version: 2 },
+    });
+    expect(restored.statusCode, restored.body).toBe(200);
+    expect(restored.json<Agent>().uiFormat).toBe('openui');
+    expect((await exportFiles(agent.id)).get('CLAUDE.md')).toContain('## 生成式 UI');
+  });
+
+  it('rebinds the OpenUI tool catalog on import and previews the imported names', async () => {
+    const sourceSlug = unique('pkg-openui-rebind-src');
+    const importedSlug = unique('pkg-openui-rebind-dst');
+    const sourceName = unique('pkg-openui-rebind-srv');
+    const importedName = unique('pkg-openui-rebind-srv');
+    const toolName = unique('openui-rebind-tool');
+    createdAgents.push(sourceSlug, importedSlug);
+    createdServers.push(sourceName, importedName);
+
+    const sourceServer = await createServer(app, cookie, {
+      name: sourceName,
+      track: createdServers,
+    });
+    const tool = await createToolFor(sourceServer.id, makeTool({ name: toolName }));
+    const sourceAgent = (
+      await createAgent(app, cookie, {
+        slug: sourceSlug,
+        serverIds: [sourceServer.id],
+        track: createdAgents,
+      })
+    ).json<Agent>();
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${sourceAgent.id}`,
+      headers: { cookie },
+      payload: { uiFormat: 'openui' },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+
+    const files = await exportFiles(sourceAgent.id);
+    const exported = sidecarOf(files);
+    exported.agent.slug = importedSlug;
+    exported.agent.name = `Imported ${importedSlug}`;
+    exported.agent.serverNames = [importedName];
+    const entry = exported.servers.find((server) => server.name === sourceName);
+    if (entry === undefined) throw new Error('export did not include the bound server');
+    entry.name = importedName;
+    const imported = await importZip(
+      rawZip(
+        [...files].map(([name, content]) => ({
+          name,
+          content:
+            name === AGENT_PACKAGE_SIDECAR ? `${JSON.stringify(exported, null, 2)}\n` : content,
+        })),
+      ),
+    );
+    expect(imported.statusCode, imported.body).toBe(201);
+    const result = imported.json<AgentImportResult>();
+    createdAgents.push(result.agent.slug);
+
+    // 预览与运行时同源：换绑后的 server 名与工具名必须出现在新智能体的提示词里。
+    const preview = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${result.agent.id}/files`,
+      headers: { cookie },
+    });
+    expect(preview.statusCode, preview.body).toBe(200);
+    const claudeMd = preview.json<{ claudeMd: string }>().claudeMd;
+    expect(claudeMd).toContain(`mcp__${importedName}__${tool.name}`);
+    expect(claudeMd).not.toContain(`mcp__${sourceName}__`);
+    expect(claudeMd.split('## 生成式 UI')).toHaveLength(2);
+  });
+
+  it('imports a CRLF-encoded export without leaking the generated OpenUI section', async () => {
+    const sourceSlug = unique('pkg-openui-crlf');
+    const targetSlug = unique('pkg-openui-crlf-dst');
+    createdAgents.push(sourceSlug, targetSlug);
+
+    const sourceAgent = (
+      await createAgent(app, cookie, { slug: sourceSlug, track: createdAgents })
+    ).json<Agent>();
+    const prompt = '你是报表助手。\n\n## 步骤\n\n1. 汇总。';
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${sourceAgent.id}`,
+      headers: { cookie },
+      payload: { systemPrompt: prompt, uiFormat: 'openui' },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+
+    // Windows 编辑器 / git autocrlf 会把导出的目录存成 CRLF；这是真实的文件格式，不是私人变体。
+    const files = new Map(
+      [...(await exportFiles(sourceAgent.id))].map(([name, content]) => [
+        name,
+        content.replace(/\n/g, '\r\n'),
+      ]),
+    );
+    const exported = sidecarOf(files);
+    exported.agent.slug = targetSlug;
+    exported.agent.name = `Imported ${targetSlug}`;
+    files.set(AGENT_PACKAGE_SIDECAR, `${JSON.stringify(exported, null, 2)}\r\n`);
+    const imported = await importZip(
+      rawZip([...files].map(([name, content]) => ({ name, content }))),
+    );
+    expect(imported.statusCode, imported.body).toBe(201);
+    const result = imported.json<AgentImportResult>();
+    createdAgents.push(result.agent.slug);
+    expect(result.agent.uiFormat).toBe('openui');
+    expect(result.agent.systemPrompt).toBe(prompt);
   });
 
   it('rejects invalid skill resource paths and unknown frontmatter before writes', async () => {

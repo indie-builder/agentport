@@ -1,3 +1,4 @@
+import type { OpenUiToolDescriptor } from '@agentport/shared';
 import type { McpJsonEntry } from './tools.js';
 import type { WorkspaceAgent, WorkspaceInput, WorkspaceSkill } from './workspace.js';
 
@@ -10,6 +11,7 @@ export interface WorkspaceAgentRow {
   systemPromptMd: string;
   maxTurns: number;
   permissionMode: string;
+  uiFormat: string;
   effort: string | null;
   allowedTools: string[];
   disallowedTools: string[];
@@ -31,6 +33,7 @@ function toAgent(row: WorkspaceAgentRow): WorkspaceAgent {
     systemPrompt: row.systemPromptMd,
     maxTurns: row.maxTurns,
     permissionMode: row.permissionMode,
+    uiFormat: row.uiFormat,
     effort: row.effort,
     allowedTools: row.allowedTools,
     disallowedTools: row.disallowedTools,
@@ -62,6 +65,8 @@ export function toWorkspaceInput(params: {
     body: string;
   }>;
   selectedOutputStyle?: string | null;
+  /** 生成式 UI 工具目录；与提示词同源，调用方查一次后两侧共用。 */
+  openuiTools?: OpenUiToolDescriptor[];
 }): WorkspaceInput {
   const { agent } = params;
   return {
@@ -76,5 +81,8 @@ export function toWorkspaceInput(params: {
     ...(params.selectedOutputStyle ? { selectedOutputStyle: params.selectedOutputStyle } : {}),
     ...(agent.allowedTools.length > 0 ? { toolsAllow: agent.allowedTools } : {}),
     ...(agent.disallowedTools.length > 0 ? { toolsDeny: agent.disallowedTools } : {}),
+    ...(params.openuiTools && params.openuiTools.length > 0
+      ? { openuiTools: params.openuiTools }
+      : {}),
   };
 }

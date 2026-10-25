@@ -3,7 +3,35 @@ import type { ConversationDetail } from './api.js';
 
 export type ChatItem =
   | { id?: string; kind: 'user'; text: string; messageId?: string }
-  | { id?: string; kind: 'text'; text: string; runId?: string }
+  | {
+      id?: string;
+      kind: 'text';
+      text: string;
+      runId?: string;
+      /** 助手消息内的块序号；同一消息的不同块不能合并，但会被 SDK 的后续消息重用。 */
+      blockIndex?: number;
+      /** run 内稳定的块身份；有它时按它对齐，不再用 blockIndex 判等。 */
+      streamBlockId?: string;
+      /** 产生该块的 SDK 消息 uuid；同一条消息的所有块共享。 */
+      sdkUuid?: string;
+      /** 子智能体产生的文本：父侧 Agent 的 tool_use id。 */
+      parentToolUseId?: string;
+      /** 超过单块上限被截断：text 只是保留的前缀。 */
+      truncated?: boolean;
+      /** 该块已结束；重用的块序号不能并进这一段。 */
+      closed?: boolean;
+      /** 落库后的消息 id：run_finished 回填，历史重建时直接给。 */
+      messageId?: string;
+      /**
+       * 生成该消息时智能体的回复格式。历史按消息自身渲染：
+       * 智能体之后把 `uiFormat` 改回 markdown，也不能把已存的 UI 显示成源码。
+       */
+      uiFormat?: 'markdown' | 'openui';
+      /** editMode 合并后的完整程序；流式期间没有，只有原文。 */
+      uiProgram?: string;
+      /** 该消息 UI 段的表单/绑定快照，键是 blockKey。 */
+      uiState?: unknown;
+    }
   | {
       id?: string;
       kind: 'tool';
@@ -35,17 +63,145 @@ export function toolFailed(result: string | undefined): boolean {
   );
 }
 
+/** shared 事件类型加上 worker 补发的运行内块身份；shared 定稿前先按存在性读取。 */
+function streamBlockIdOf(event: ChatEvent): string | undefined {
+  if (!('streamBlockId' in event)) return undefined;
+  return typeof event.streamBlockId === 'string' ? event.streamBlockId : undefined;
+}
+
+/**
+ * 本轮的起点：最后一条用户消息之后。streamBlockId 只在一次运行内唯一，
+ * 跨运行会从 b0 重新发号，查找必须限制在本轮，不能并进上一轮的同号段。
+ */
+function runStart(items: ChatItem[]): number {
+  return items.findLastIndex((item) => item.kind === 'user') + 1;
+}
+
+/** 按稳定块身份找本轮已有的文本段；interleaved 的父子文本也会命中中间的段。 */
+function findStreamBlock(
+  items: ChatItem[],
+  streamBlockId: string,
+  parentToolUseId: string | undefined,
+): number {
+  const start = runStart(items);
+  for (let index = items.length - 1; index >= start; index--) {
+    const item = items[index];
+    if (item?.kind !== 'text' || item.streamBlockId !== streamBlockId) continue;
+    if (item.parentToolUseId === parentToolUseId) return index;
+  }
+  return -1;
+}
+
+function textItem(
+  event: Extract<ChatEvent, { type: 'assistant_text' }>,
+  text: string,
+  streamBlockId: string | undefined,
+): ChatItem {
+  return {
+    kind: 'text',
+    text,
+    // 完整块本身即段尾：后续异常 delta 不能重开这一段。
+    closed: true,
+    ...(event.blockIndex === undefined ? {} : { blockIndex: event.blockIndex }),
+    ...(streamBlockId === undefined ? {} : { streamBlockId }),
+    ...(event.sdkUuid === undefined ? {} : { sdkUuid: event.sdkUuid }),
+    ...(event.parentToolUseId === undefined ? {} : { parentToolUseId: event.parentToolUseId }),
+    ...(event.truncated === true ? { truncated: true } : {}),
+  };
+}
+
 export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
+  const streamBlockId = streamBlockIdOf(event);
   switch (event.type) {
     case 'text_delta': {
+      // 同一段 = 同一个 run 内块身份，且归属同一层（子智能体文本的 parentToolUseId 不同）。
+      // 不能用 sdkUuid 判等：真实 SDK 的 stream_event.uuid 每帧都变，拿它比较会把一段拆成碎片。
+      // 有稳定身份时按它查已有段（父子交错时会命中中间的段），没有时退回末尾块的边界规则。
+      if (streamBlockId !== undefined) {
+        const index = findStreamBlock(items, streamBlockId, event.parentToolUseId);
+        const previous = index >= 0 ? items[index] : undefined;
+        if (previous?.kind === 'text') {
+          // 完整块已封口这一段：之后迟到的 delta 不能再改文本。
+          if (previous.closed === true) return items;
+          return items.with(index, { ...previous, text: previous.text + event.text });
+        }
+        return [
+          ...items,
+          {
+            kind: 'text',
+            text: event.text,
+            ...(event.blockIndex === undefined ? {} : { blockIndex: event.blockIndex }),
+            streamBlockId,
+            ...(event.sdkUuid === undefined ? {} : { sdkUuid: event.sdkUuid }),
+            ...(event.parentToolUseId === undefined
+              ? {}
+              : { parentToolUseId: event.parentToolUseId }),
+          },
+        ];
+      }
       const last = items[items.length - 1];
-      if (last?.kind === 'text') {
+      const previous = last?.kind === 'text' ? last : undefined;
+      if (
+        previous !== undefined &&
+        previous.closed !== true &&
+        previous.blockIndex === event.blockIndex &&
+        previous.parentToolUseId === event.parentToolUseId
+      ) {
         // 仍是 O(n) 复制（store 必须有新数组身份），但 with() 省掉 slice 的中间数组；
         // 500 项实测 0.18µs/次，相对一次 React 提交可忽略。
-        return items.with(-1, { kind: 'text', text: last.text + event.text });
+        return items.with(-1, { ...previous, text: previous.text + event.text });
       }
-      return [...items, { kind: 'text', text: event.text }];
+      return [
+        ...items,
+        {
+          kind: 'text',
+          text: event.text,
+          ...(event.blockIndex === undefined ? {} : { blockIndex: event.blockIndex }),
+          ...(event.sdkUuid === undefined ? {} : { sdkUuid: event.sdkUuid }),
+          ...(event.parentToolUseId === undefined
+            ? {}
+            : { parentToolUseId: event.parentToolUseId }),
+        },
+      ];
     }
+    /**
+     * 完整块是落库内容，也是最终文本：替换增量拼出的文本（截断时更短，并带可见提示）。
+     * 没有对应增量段时直接追加——只有完整块的子智能体文本以前完全看不见。
+     */
+    case 'assistant_text': {
+      const index =
+        streamBlockId === undefined
+          ? (() => {
+              const last = items[items.length - 1];
+              return last?.kind === 'text' &&
+                last.closed !== true &&
+                last.blockIndex === event.blockIndex &&
+                last.parentToolUseId === event.parentToolUseId
+                ? items.length - 1
+                : -1;
+            })()
+          : findStreamBlock(items, streamBlockId, event.parentToolUseId);
+      if (index >= 0) {
+        const previous = items[index];
+        if (previous?.kind === 'text') {
+          return items.with(index, {
+            ...previous,
+            ...textItem(event, event.text, streamBlockId),
+          });
+        }
+      }
+      return [...items, textItem(event, event.text, streamBlockId)];
+    }
+    // 块边界只解释流的结构：不同块本就不合并，边界事件负责封口被重用的块身份。
+    case 'assistant_block_start': {
+      // 没有 streamBlockId 的旧事件只能按块序号封口；有稳定身份时新 delta 自带新身份，无需封口。
+      if (streamBlockId !== undefined) return items;
+      const last = items[items.length - 1];
+      if (last?.kind !== 'text' || last.blockIndex !== event.blockIndex) return items;
+      return items.with(-1, { ...last, closed: true });
+    }
+    case 'assistant_block_stop':
+      return items;
     case 'tool_start':
       return [
         ...items,
@@ -138,11 +294,33 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
     const blocks = Array.isArray(content) ? content : [content];
     // 回复上挂着产生它的 run；渲染时据此给这一轮补读数行。
     const run = message.runId ? { runId: message.runId } : {};
+    // 运行步骤重建的步骤没有真实 conversationId，id 是合成的，不能当动作来源；
+    // 只有 UI 消息需要显式 messageId（动作与状态归属），纯文本历史仍用块 id。
+    const anchor =
+      message.conversationId && message.uiFormat === 'openui' ? { messageId: message.id } : {};
     for (const [blockIndex, block] of blocks.entries()) {
       const id = `${message.id}:${blockIndex}`;
       const text = blockText(block);
       if (text !== null) {
-        items.push({ id, kind: 'text', text, ...run });
+        const record = typeof block === 'object' && block !== null ? block : {};
+        const extra = record as Record<string, unknown>;
+        items.push({
+          id,
+          kind: 'text',
+          text,
+          ...run,
+          ...anchor,
+          // 落库时保留了块身份；按块重建时原样带回，子智能体文本与截断标记不丢。
+          ...(typeof extra.blockIndex === 'number' ? { blockIndex: extra.blockIndex } : {}),
+          ...(typeof extra.parentToolUseId === 'string'
+            ? { parentToolUseId: extra.parentToolUseId }
+            : {}),
+          ...(extra.truncated === true ? { truncated: true } : {}),
+          // 消息级格式快照：有没有这三个字段决定历史怎么渲染，缺省沿用智能体设置。
+          ...(message.uiFormat ? { uiFormat: message.uiFormat } : {}),
+          ...(typeof message.uiProgram === 'string' ? { uiProgram: message.uiProgram } : {}),
+          ...(message.uiState == null ? {} : { uiState: message.uiState }),
+        });
         continue;
       }
       if (typeof block !== 'object' || block === null) continue;

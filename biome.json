@@ -50,7 +50,10 @@
   },
   "overrides": [
     {
-      "includes": ["packages/*/test/**", "tests/**"],
+      "includes": [
+        "packages/*/test/**",
+        "tests/**"
+      ],
       "linter": {
         "rules": {
           "correctness": {
@@ -60,7 +63,9 @@
       }
     },
     {
-      "includes": ["packages/web/src/components/ui/chart.tsx"],
+      "includes": [
+        "packages/web/src/components/ui/chart.tsx"
+      ],
       "linter": {
         "rules": {
           "security": {
@@ -73,7 +78,9 @@
       }
     },
     {
-      "includes": ["packages/web/src/components/ui/field.tsx"],
+      "includes": [
+        "packages/web/src/components/ui/field.tsx"
+      ],
       "linter": {
         "rules": {
           "a11y": {
@@ -96,6 +103,42 @@
           "a11y": {
             "noLabelWithoutControl": "off",
             "useSemanticElements": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/web/src/components/ui/carousel.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useSemanticElements": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/web/src/components/ui/calendar.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noComponentHookFactories": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/web/src/components/ui/slider.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noArrayIndexKey": "off"
           }
         }
       }

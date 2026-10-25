@@ -65,13 +65,75 @@ export function escalateKill(child: Killable, delayMs: number = KILL_GRACE_MS): 
   setTimeout(() => child.kill('SIGKILL'), delayMs).unref();
 }
 
-/** 单行 NDJSON 上限；超过即丢弃，避免一行把内存吃穿。 */
-const MAX_LINE_BYTES = 1024 * 1024;
+/**
+ * 单行 NDJSON 上限；超过即丢弃，避免一行把内存吃穿。
+ * 必须能盛住 runner 的单块上限：1MiB 字段最坏被 JSON 转义成 6 倍，取 8MiB 才有余量；
+ * 两个上限要一起改，否则整块 assistant_text 会被这里静默丢掉。
+ */
+const MAX_LINE_BYTES = 8 * 1024 * 1024;
 /** 单 run 收集上限：超出后只保留终态，不再转发事件。 */
 const MAX_EVENTS = 2_000;
 const MAX_EVENT_BYTES = 32 * 1024 * 1024;
 /** 失败时保留的 stderr 上限：2KB 常常只剩最后一行，16KB 才能看到启动错误。 */
 const STDERR_KEEP_CHARS = 16 * 1024;
+
+/** shared 事件类型加上本轮补发的字段；shared 定稿前先在这里收窄。 */
+type StreamEvent = ChatEvent & { streamBlockId?: string };
+
+/**
+ * run 内稳定的文本块身份。`blockIndex` 会被 SDK 的后续消息重用（每条 assistant 消息都从 0 起），
+ * 每帧 `sdkUuid` 又各不相同，二者都不能当段身份；这里按块边界发号。
+ * `assistant_text` 只有完整消息里的 `blockIndex`，用「最近开启且未关闭」的块对齐。
+ */
+export function createStreamBlockIds(): (event: ChatEvent) => StreamEvent {
+  const open = new Map<string, string>();
+  const lastOpen = new Map<string, string>();
+  let issued = 0;
+  // 全局单调：主线程与子智能体可能同时用 blockIndex 0，身份必须在整个 run 内唯一。
+  const next = (): string => `b${issued++}`;
+  const slot = (parentToolUseId: string | undefined, blockIndex: number) =>
+    `${parentToolUseId ?? ''}:${blockIndex}`;
+
+  return (event) => {
+    const parentToolUseId =
+      'parentToolUseId' in event && typeof event.parentToolUseId === 'string'
+        ? event.parentToolUseId
+        : undefined;
+    if (event.type === 'assistant_block_start') {
+      const id = next();
+      open.set(slot(parentToolUseId, event.blockIndex), id);
+      lastOpen.set(slot(parentToolUseId, event.blockIndex), id);
+      return { ...event, streamBlockId: id };
+    }
+    if (event.type === 'assistant_block_stop') {
+      const id = open.get(slot(parentToolUseId, event.blockIndex));
+      if (id !== undefined) open.delete(slot(parentToolUseId, event.blockIndex));
+      return { ...event, ...(id === undefined ? {} : { streamBlockId: id }) };
+    }
+    if (event.type !== 'text_delta' && event.type !== 'assistant_text') return event;
+    if (event.blockIndex === undefined) {
+      // 旧 runner 不带块序号：整条消息一段。不能用 sdkUuid，text_delta 上的是每帧都变的 uuid。
+      const key = `legacy:${parentToolUseId ?? ''}`;
+      const id = open.get(key) ?? next();
+      // 完整消息到达即封口，下一条消息重新起号。
+      if (event.type === 'assistant_text') open.delete(key);
+      else open.set(key, id);
+      return { ...event, streamBlockId: id };
+    }
+    const id =
+      open.get(slot(parentToolUseId, event.blockIndex)) ??
+      lastOpen.get(slot(parentToolUseId, event.blockIndex)) ??
+      next();
+    if (event.type === 'assistant_text') {
+      // 完整块即消费完这一段：没有块边界的子智能体下一条消息会重用同号，
+      // 必须封口 lastOpen 另起身份；stop 稍后到达，仍从 open 里取同一个 id。
+      lastOpen.delete(slot(parentToolUseId, event.blockIndex));
+    } else {
+      lastOpen.set(slot(parentToolUseId, event.blockIndex), id);
+    }
+    return { ...event, streamBlockId: id };
+  };
+}
 
 interface StderrTap {
   text: string;
@@ -237,6 +299,7 @@ function runInSandboxEffect(
     let child: Sandbox['child'] | undefined;
     let abandoning = false;
     let runnerStarted = false;
+    const assignStreamBlockId = createStreamBlockIds();
 
     // 同一连接上的命令按序排队；不 await 也能保证事件顺序。
     const publish = (event: ChatEvent): void => {
@@ -246,8 +309,10 @@ function runInSandboxEffect(
     };
 
     const onEvent = (line: string): void => {
-      const event = parseLine(line, logger);
-      if (!event) return;
+      const parsed = parseLine(line, logger);
+      if (!parsed) return;
+      // 流式增量先补运行内稳定块身份，再分发给页面与落库。
+      const event = assignStreamBlockId(parsed);
       runnerStarted = true;
 
       if (event.type === 'run_finished') {
@@ -358,7 +423,7 @@ function runInSandboxEffect(
               if (Buffer.byteLength(pending) > MAX_LINE_BYTES) {
                 discarding = true;
                 pending = '';
-                logger.warn({ runId }, 'sandbox event line exceeded 1MiB, dropped');
+                logger.warn({ runId }, 'sandbox event line exceeded the 8MiB cap, dropped');
               }
             }
             return;
@@ -374,7 +439,7 @@ function runInSandboxEffect(
           const line = pending + piece;
           pending = '';
           if (Buffer.byteLength(line) > MAX_LINE_BYTES) {
-            logger.warn({ runId }, 'sandbox event line exceeded 1MiB, dropped');
+            logger.warn({ runId }, 'sandbox event line exceeded the 8MiB cap, dropped');
             continue;
           }
           if (line.trim().length > 0) onEvent(line);

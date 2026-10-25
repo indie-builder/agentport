@@ -1,4 +1,5 @@
 import { fail, isAppError, parseMcpJson } from '@agentport/core';
+import { repo as dbRepo } from '@agentport/db';
 import type { ApiToolPatch } from '@agentport/db/repo/servers.js';
 import {
   apiToolInputSchema,
@@ -318,6 +319,11 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
         result.ok,
         result.ok ? result.tools.length : null,
       );
+      // http 工具目录落到 servers.config：worker 渲染生成式 UI 提示词时无法连 MCP，
+      // 与执行桥共用这份快照。stdio 用不到（不进 UI 目录），失败也不覆盖旧目录。
+      if (result.ok && server.kind === 'http') {
+        await dbRepo.openui.cacheServerToolCatalog(app.db, server.id, result.tools);
+      }
       return serverTestResultSchema.parse(result);
     },
   );

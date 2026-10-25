@@ -38,6 +38,20 @@ const envSchema = z
     RETAIN_MESSAGE_DAYS: z.coerce.number().int().positive().default(30),
     RETAIN_AGENT_VERSIONS: z.coerce.number().int().positive().default(50),
     AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
+    /**
+     * 沙盒单块文本/工具负载上限（字节）。超限只截断该块并标记 truncated，默认 1MiB。
+     * 最坏 JSON 转义约为原值的 6 倍：1MiB 对应约 6MiB，仍在宿主 8MiB 单行上限内；
+     * 因此这里封顶 1MiB，避免调到会产生「整块被宿主静默丢弃」的值。
+     */
+    SANDBOX_MAX_FIELD_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(
+        1024 * 1024,
+        'SANDBOX_MAX_FIELD_BYTES 不能超过 1MiB：JSON 转义后要落在宿主 8MiB 单行上限内',
+      )
+      .default(1024 * 1024),
     SANDBOX_API_URL: z.string().min(1).default('http://host.docker.internal:3000'),
     /** 与 API 相同的密钥派生源：用来解密 server 的 env/headers 并注入工作区。 */
     APP_SECRET_KEY: z.string().min(32),

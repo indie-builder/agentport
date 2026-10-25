@@ -176,6 +176,7 @@ const emptyInput: AgentInput = {
   allowedTools: [],
   disallowedTools: [],
   permissionMode: 'dontAsk',
+  uiFormat: 'markdown',
   maxTurns: 20,
   maxBudgetUsd: 2,
   timeoutMs: 600_000,
@@ -196,6 +197,7 @@ function toInput(agent: Agent): AgentInput {
     allowedTools: agent.allowedTools,
     disallowedTools: agent.disallowedTools,
     permissionMode: agent.permissionMode,
+    uiFormat: agent.uiFormat,
     maxTurns: agent.maxTurns,
     maxBudgetUsd: agent.maxBudgetUsd,
     timeoutMs: agent.timeoutMs,
@@ -836,6 +838,7 @@ const errorSections: Record<string, SectionId> = {
   permissionMode: 'permissions',
   allowedTools: 'permissions',
   disallowedTools: 'permissions',
+  uiFormat: 'limits',
   maxTurns: 'limits',
   maxBudgetUsd: 'limits',
   timeoutMs: 'limits',
@@ -916,6 +919,7 @@ export function AgentEditor({
   const skillIdsField = useController({ control: rhf.control, name: 'skillIds' }).field;
   const subAgentIdsField = useController({ control: rhf.control, name: 'subAgentIds' }).field;
   const permissionModeField = useController({ control: rhf.control, name: 'permissionMode' }).field;
+  const uiFormatField = useController({ control: rhf.control, name: 'uiFormat' }).field;
   const enabledField = useController({ control: rhf.control, name: 'enabled' }).field;
 
   const set = <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]): void => {
@@ -1228,6 +1232,10 @@ export function AgentEditor({
     { value: 'plan', label: 'plan — 只规划不执行' },
     { value: 'default', label: 'default — 标准权限' },
     { value: 'acceptEdits', label: 'acceptEdits — 自动接受编辑' },
+  ];
+  const uiFormatOptions = [
+    { value: 'markdown', label: 'Markdown' },
+    { value: 'openui', label: '生成式 UI' },
   ];
 
   return (
@@ -2068,6 +2076,32 @@ export function AgentEditor({
                             留空表示不设置。
                           </FieldDescription>
                         )}
+                      </Field>
+                      <Field data-disabled={pending} className="gap-1.5">
+                        <FieldLabel htmlFor="agent-ui-format">回复格式</FieldLabel>
+                        <Select
+                          disabled={pending}
+                          value={form.uiFormat}
+                          onValueChange={(value) => {
+                            if (value !== null) {
+                              uiFormatField.onChange(value as AgentInput['uiFormat']);
+                            }
+                          }}
+                          items={uiFormatOptions}
+                        >
+                          <SelectTrigger id="agent-ui-format" className="w-full min-w-0">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {uiFormatOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                       </Field>
                     </FieldGroup>
                   </Section>

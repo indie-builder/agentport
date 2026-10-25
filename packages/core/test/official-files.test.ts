@@ -113,6 +113,20 @@ describe('official workspace file parsing', () => {
     expectInvalid(() => parseClaudeMd('没有标题'), '/CLAUDE.md');
   });
 
+  it('reads a CRLF-encoded CLAUDE.md without absorbing the generated OpenUI section', () => {
+    // Windows 编辑器 / git autocrlf 会把导出的 CLAUDE.md 存成 CRLF；生成段边界必须同样识别。
+    const { claudeMd } = renderWorkspace({
+      agent: { ...agent, uiFormat: 'openui' },
+      servers: [],
+      skills: [],
+    });
+    expect(claudeMd).toContain('## 生成式 UI');
+    expect(parseClaudeMd(claudeMd.replace(/\n/g, '\r\n'))).toEqual({
+      name: '调研员',
+      systemPrompt: agent.systemPrompt,
+    });
+  });
+
   it('keeps skill rendering unchanged for export reuse', () => {
     expect(renderSkillMd({ slug: 's', name: 'S', description: 'd', body: 'step' })).toBe(
       '---\nname: "s"\ndescription: "d"\n---\n\n# S\n\nstep\n',
