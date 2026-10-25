@@ -1,22 +1,76 @@
-# 项目技能清单（skills.sh）
+# 项目技能与插件维护
 
-> 已安装到 `.agents/skills/`，Claude Code 经 `.claude/skills/` 符号链接读取，版本锁定在 `skills-lock.json`。
-> 本表说明各技能用途；增删以 `skills-lock.json` 为准。
+> 本文件是本项目技能与插件维护的唯一 SOP：已装技能清单、项目适配、更新与删除流程。
+> 技能装在 `.agents/skills/`，Claude Code 经 `.claude/skills/` 相对符号链接读取，版本锁定在 `skills-lock.json`。命令均在仓库或当前 worktree 根执行。
 
-| 技能 | 来源 | 安装量 | 对应项目技术栈 |
-|---|---|---|---|
-| `frontend-design` | anthropics/skills | 1.0M | 整体 UI 方向与排版 |
-| `api-and-interface-design` | addyosmani/agent-skills | 60.7K | REST 接口契约、TypeScript 类型边界与错误语义 |
-| `cli-interface-design` | samber/developer-platform-skills | 7.2K | 在 API 之上设计 CLI：命令分层、`--json`/退出码冻结契约、agent 友好 |
-| `public-api-design-review` | samber/developer-platform-skills | 7.2K | REST 面检查表：命名、方法/状态码、分页、错误信封、Hyrum's Law 兼容 |
-| `api-error-design` | samber/developer-platform-skills | 7.2K | 错误码 taxonomy、RFC 9457 problem-details、retryable 信号 |
-| `api-integration-surface-strategy` | samber/developer-platform-skills | 7.2K | 按回滚成本与受众排序 REST/CLI/SDK/MCP 等各集成面的建设顺序 |
-| `vercel-react-best-practices` | vercel-labs/agent-skills | 818.5K | React 19 组件与性能 |
-| `supabase-postgres-best-practices` | supabase/agent-skills | 451.7K | PostgreSQL 18 查询、索引、RLS |
-| `test-driven-development` | obra/superpowers | 254.7K | Vitest 单元/集成测试 |
-| `verification-before-completion` | obra/superpowers | 246.1K | 交付前的验证纪律 |
-| `shadcn` | shadcn-ui/ui | 115.4K | 组件库（本项目唯一 UI 组件来源） |
-| `tailwind-design-system` | wshobson/agents | 69.4K | Tailwind 4 token 与设计系统 |
+## 清单
 
-- 新增/更新：`npx skills add <repo> --skill <name> -y`，之后把 `skills-lock.json` 一起提交。
-- 不安装与本项目栈冲突的技能（例如以 Playwright 为主的 `webapp-testing`，本项目 E2E 已统一为 `e2e`）。
+| 技能 | 来源 | 对应项目技术栈 |
+|---|---|---|
+| `frontend-design` | anthropics/skills | 整体 UI 方向与排版 |
+| `api-and-interface-design` | addyosmani/agent-skills | REST 接口契约、TypeScript 类型边界与错误语义 |
+| `cli-interface-design` | samber/developer-platform-skills | 在 API 之上设计 CLI：命令分层、`--json`/退出码冻结契约、agent 友好 |
+| `public-api-design-review` | samber/developer-platform-skills | REST 面检查表：命名、方法/状态码、分页、错误信封、Hyrum's Law 兼容 |
+| `api-error-design` | samber/developer-platform-skills | 错误码 taxonomy、RFC 9457 problem-details、retryable 信号 |
+| `api-integration-surface-strategy` | samber/developer-platform-skills | 按回滚成本与受众排序 REST/CLI/SDK/MCP 等各集成面的建设顺序 |
+| `vercel-react-best-practices` | vercel-labs/agent-skills | React 19 组件与性能 |
+| `supabase-postgres-best-practices` | supabase/agent-skills | PostgreSQL 18 查询、索引、RLS |
+| `test-driven-development` | obra/superpowers | Vitest 单元/集成测试 |
+| `verification-before-completion` | obra/superpowers | 交付前的验证纪律 |
+| `shadcn` | shadcn-ui/ui | 组件库（本项目唯一 UI 组件来源） |
+| `migrate-radix-to-base` | shadcn-ui/ui | Radix 组件迁移到 Base UI（交互原语已统一 Base UI） |
+| `tailwind-design-system` | wshobson/agents | Tailwind 4 token 与设计系统 |
+
+## 范围
+
+- 技能：`.agents/skills/`、`.claude/skills/`、`skills-lock.json`；同步 `docs/SKILLS.md` 与任务记录。
+- 插件：只处理本项目实际生效或继承的插件（以当次 `claude plugin list` 或插件配置为准），排除禁用项与其他项目专属项。
+- user scope 插件更新会同时影响其他项目：按当次请求和既有明确授权确定范围，已覆盖的操作不重复确认，交付中说明该跨项目影响。
+- 技能与插件数量以当次 CLI 发现结果为准，不在文档或命令里写死条目数。
+- 不安装与项目栈冲突的技能（例如 Playwright 类；本项目 E2E 已统一为 `e2e`）。
+
+## 开始前
+
+1. 读 `docs/DEV-WORKFLOW.md`、`docs/PITFALLS.md`，进入 worktree 并记录基线；先写 `docs/tasks/<slug>.md`。
+2. 核对当次 CLI 版本与帮助：`npx --yes skills@latest --version`/`--help`、`claude --version`、`claude plugin update --help`、`claude plugin marketplace update --help`；插件行为以 <https://code.claude.com/docs/en/discover-plugins>、<https://code.claude.com/docs/en/plugins/loading.md> 为准。
+3. 记录现状：lock 中的来源、上游 hash、技能目录与链接、本地已有差异；插件 id、scope、版本与发布 pin。
+4. 保存差异证据与可恢复的项目适配补丁（含 shadcn 规则），路径记入任务记录，完成后才能执行 `update`/`add`/`remove`。`git diff` 不够——适配已在 HEAD，须比本地与旧上游；旧上游不可得时保存完整适配文件及规则。三方比对确认差异是适配还是漂移后再动，不得直接覆盖。
+
+## 技能更新
+
+- 先跑原生 `npx --yes skills@latest update --project --yes`（CLI 1.7.4 实测，后续按当次核对）：只比较上游 hash 与 lock，非交互不删技能；输出 up to date 不代表本地与上游一致，必须再核验完整目录。
+- 无新版且本地无文件变化时不重装。
+- 需与上游对齐时定向重装：`npx --yes skills@latest add <repo> --skill <name> --agent claude-code --agent universal -y`。两个 agent 缺一不可（只给 `claude-code` 会退化成 copy 模式，canonical 不更新、入口变成真实目录）。整目录替换，只排除 `metadata.json`、`.git`、`__pycache__`、`__pypackages__`；重装前保留差异证据，装后逐项补回项目适配。
+- 确凿的上游整技能删除才执行 `npx --yes skills@latest remove <name> -y`，并清理 lock、链接与文档；网络或鉴权失败不等于删除。上游只删单文件时，同步删除本地对应文件。
+- lock 存的是上游 hash，不是带项目适配的本地内容 hash；不要为了“匹配”改 lock。
+
+## shadcn 项目适配（必须保留）
+
+- 一律 `pnpm dlx`；项目内命令从当前 worktree 根加 `-c packages/web`（`info`、`docs`、`add`、`search`、`view`、`apply`、已有项目的 `init`、`preset resolve`），相对路径保证不出 worktree。
+- `preset decode`、`preset url`、`preset open` 不接受 cwd，不加 `-c`；新建项目用其实际新目录。
+- 所有更新（`add`/`update`，含整目录替换）完成后都要补回本节规则。历史背景见 `docs/tasks/shadcn-worktree-context.md`，执行规则以技能内 Project convention 为准。
+- 实物验证：适配补回后运行 `pnpm dlx shadcn@latest info --json -c packages/web`，须退出 0 且返回路径位于当前 worktree 的 `packages/web`；只改文字不算完成。
+
+## 插件更新
+
+- 先 `claude plugin marketplace update <marketplace>` 刷新目录（只刷新 catalog），再逐插件 `claude plugin update <id> --scope <scope> --json`。
+- 保持原 marketplace 发布 pin，不绕过或改指其他来源；同版本号可能不替换文件，必须对比安装缓存与发布来源。
+- 不卸载重装，不删除 runtime、历史缓存或插件持久数据。
+- 有实际差异未能解决时如实列为未完成，不写成已更新。
+
+## 并发
+
+- 只读核验（上游快照、目录比对、插件只读检查）可并行；`skills-lock.json` 写入与插件注册表写入串行。
+
+## 完成核验
+
+- 文件集合：lock 条目 = 技能目录 = 有效相对链接（指向当前 worktree）；`skills list` 与 lock、本文清单一致，无残留。
+- 内容：逐文件与上游来源对比；只允许列明的项目适配与官方排除项不同（`metadata.json` 是否排除按当次 CLI 确认），无多余或缺失文件。
+- 适配：`pnpm dlx shadcn@latest info --json -c packages/web` 退出 0 且路径在当次 worktree。
+- 插件：当次全部生效插件 `outcome: ok`、无失败；缓存与发布来源一致，无缺失的活动组件。
+- 未解决差异与范围外问题如实列出。
+
+## 交付
+
+- 按 `docs/DEV-WORKFLOW.md` 交独立 Opus 审查；只有当次授权才 commit/push/merge。
+- 报告：已更新 / 已最新 / 已删除 / 保留的适配 / 限制 / 是否合入 main / 是否需要重载会话。

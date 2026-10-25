@@ -17,7 +17,7 @@
 | [OPERATIONS.md](OPERATIONS.md) | 部署、备份恢复、维护任务、故障排查、观测入口、压测 |
 | [RUNBOOK.md](RUNBOOK.md) | 故障处置手册 |
 | [FIRST-RUN.md](FIRST-RUN.md) | 首次跑起来的步骤 |
-| [SKILLS.md](SKILLS.md) | 已装技能清单与用途 |
+| [SKILLS.md](SKILLS.md) | 已装技能清单、项目适配、技能与插件更新 SOP |
 | `tasks/<slug>.md` | 单个任务的执行记录（按 `DEV-WORKFLOW.md` 模板创建） |
 
 ## 仓库根文档

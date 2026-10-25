@@ -116,3 +116,9 @@
 - **现象**：会话重开后凭「继续」「撤销刚才的」直接按历史扫描日志推断目标，花时间猜错方向，被用户中断。
 - **原因**：上下文丢失后用历史推断代替确认。
 - **规避**：指代不明先确认目标，不翻历史猜（`docs/DEV-WORKFLOW.md` §2「会话恢复」）。
+
+## 技能：`skills update` 报告最新，不等于本地与上游一致
+
+- **现象**：`npx --yes skills@latest update --project --yes` 输出 `All project skills are up to date`，但本地被改过的技能文件、上游已删除的技能目录都原样保留。
+- **原因**（CLI 1.7.4 实测，后续按当次核对）：update 只比较上游 hash 与 `skills-lock.json` 的记录，不读本地文件，因此本地漂移不会触发覆盖；非交互 `--yes` 遇到上游删除时只输出 `Skipping deletion in non-interactive mode` 而不删。
+- **规避**：不把 up to date 当作已完成；按 `docs/SKILLS.md` 的定向重装与完整目录核验流程对齐，上游删除项同样按该流程清理。
