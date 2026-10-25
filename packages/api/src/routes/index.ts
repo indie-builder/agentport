@@ -9,6 +9,7 @@ import { registerImportRoutes } from '../features/import/routes.js';
 import { registerMarketRoutes } from '../features/market/routes.js';
 import { registerOpsRoutes } from '../features/ops/routes.js';
 import { registerOverviewRoutes } from '../features/overview/routes.js';
+import { registerPluginRoutes } from '../features/plugins/routes.js';
 import { registerRunRoutes } from '../features/runs/routes.js';
 import { createInvoker } from '../features/servers/agent-invoker.js';
 import { registerAgentToolsEndpoint } from '../features/servers/agent-tools-endpoint.js';
@@ -30,6 +31,8 @@ export async function registerRoutes(app: FastifyInstance) {
   registerMarketRoutes(app);
   registerExportRoutes(app);
   registerImportRoutes(app);
+  // 插件 ZIP 复用 import 路由注册的 application/zip 解析器，必须在其后注册。
+  await registerPluginRoutes(app);
   await registerAuditRoutes(app);
   await registerChatRoutes(app);
   registerEvalRoutes(app);

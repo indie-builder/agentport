@@ -55,6 +55,7 @@ vi.mock('../src/lib/queries.js', () => ({
   useAgents: () => ({ data: state.agents }),
   useAgent: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
   useServers: () => ({ data: [] }),
+  usePlugins: () => ({ data: [], isPending: false, isError: false, status: 'success' }),
   useSkills: () => ({
     isError: state.skillsError,
     error: new Error('Skills unavailable'),
@@ -88,8 +89,8 @@ vi.mock('@tanstack/react-router', () => ({
     return { status: state.blockerStatus, proceed: state.proceed, reset: state.reset };
   },
   useNavigate: () => (options: { search?: (current: Record<string, unknown>) => object }) => {
-    const next = options.search?.(state.search) ?? {};
-    Object.assign(state.search, next);
+    // 真实 router 把回调返回值整体作为新 search，这里保持一致以暴露过期闭包。
+    state.search = { ...(options.search?.(state.search) ?? {}) };
   },
   useSearch: () => state.search,
   useParams: () => ({ agentId: state.agents[0]?.id ?? 'parent' }),
@@ -106,6 +107,7 @@ const parent = {
   systemPrompt: '',
   serverIds: [],
   skillIds: [],
+  pluginBindings: [],
   subAgentIds: ['child'],
   allowedTools: [],
   disallowedTools: [],
@@ -588,6 +590,18 @@ describe('expert editor regressions', () => {
       const files = tree.find((node) => node.props['aria-label'] === '工作区文件');
       expect(files).toBeDefined();
     });
+  });
+
+  it('keeps a section change when the task changes in the same render', async () => {
+    state.search = { tab: 'config' };
+    await inspect(editor, (tree, pass) => {
+      if (pass !== 0) return;
+      const tabs = tree.find((node) => node.type === Tabs);
+      if (!tabs) throw new Error('Missing task tabs');
+      (tabs.props.onValueChange as (value: string) => void)('styles');
+      selectSection(tree, '行为');
+    });
+    expect(state.search).toMatchObject({ tab: 'styles', section: 'behavior' });
   });
 
   it('switches tasks immediately when nothing is unsaved', async () => {

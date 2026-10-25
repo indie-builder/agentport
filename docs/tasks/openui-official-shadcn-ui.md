@@ -116,7 +116,7 @@
 
 ## 下一步
 
-无。本轮UI适配、独立评审、实屏验收和最终受影响回归已完成；当前worktree未提交、未push、未合入main。后续上游升级按`docs/OPENUI-UI-ADAPTATION.md`与`docs/OPENUI-UPGRADE.md`执行。
+用户已明确授权“提交PR并合并”。OpenUI成果已提交667e984；origin/main d9c5a45插件能力已整合，共享/执行、Markdown与迁移独立Opus均Approve。合并后7包typecheck、build、web57文件589项、openui:check11项及focus/contract通过。main0033/0034原样保留，新0035_pretty_tana_nile空库/main升级路径独立复跑PASS。旧固定库测试已改唯一隔离库，最终完整回归199文件1645/1645、0失败0跳过；最后失败清理补丁正在定向验证与复核。通过后提交合并记录、推送、建PR并合并，不等待CI、不监控。
 
 ## 最终结论与验证
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createDb } from '@agentport/db';
 import { Client } from '@modelcontextprotocol/client';
@@ -8,40 +9,57 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createInvoker } from '../src/features/servers/agent-invoker.js';
 import { buildAgentServer } from '../src/features/servers/agent-tools.js';
 
-// 固定的一次性库：只验证 invoke 的取消路径，不读其他用例数据。
-const ADMIN_DATABASE_URL =
-  process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport';
-const ISOLATED_DB_NAME = 'agentport_capability_test_20261022';
+// 每次运行建独立库：只验证 invoke 的取消路径，也能并跑多条回归。
+const ADMIN_DATABASE_URL = process.env.DATABASE_URL ?? '';
+const ISOLATED_DB_NAME = `agentport_agent_tools_cancel_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
 const ISOLATED_DATABASE_URL = (() => {
+  if (ADMIN_DATABASE_URL === '') return 'postgres://unused:unused@127.0.0.1:1/cancel_unconfigured';
   const url = new URL(ADMIN_DATABASE_URL);
   url.pathname = `/${ISOLATED_DB_NAME}`;
   return url.toString();
 })();
 process.env.DATABASE_URL = ISOLATED_DATABASE_URL;
 
-async function prepareIsolatedDatabase(): Promise<boolean> {
+let createdIsolatedDb = false;
+
+async function dropIsolatedDatabase(): Promise<void> {
+  if (!createdIsolatedDb) return;
+  createdIsolatedDb = false;
+  const admin = createDb(ADMIN_DATABASE_URL);
   try {
-    const admin = createDb(ADMIN_DATABASE_URL);
-    try {
-      await admin.pool.query(`create database "${ISOLATED_DB_NAME}"`);
-    } catch (error) {
-      // 42P04：并发重试已创建，复用即可。
-      if ((error as { code?: string }).code !== '42P04') throw error;
-    } finally {
-      await admin.pool.end();
-    }
-    const target = createDb(ISOLATED_DATABASE_URL);
-    try {
-      await migrate(target.db, {
-        migrationsFolder: fileURLToPath(new URL('../../db/migrations', import.meta.url)),
-      });
-    } finally {
-      await target.pool.end();
-    }
-    return true;
-  } catch {
-    return false;
+    await admin.pool.query(`drop database if exists "${ISOLATED_DB_NAME}" with (force)`);
+  } finally {
+    await admin.pool.end();
   }
+}
+
+async function prepareIsolatedDatabase(): Promise<boolean> {
+  if (ADMIN_DATABASE_URL === '') return false;
+  const admin = createDb(ADMIN_DATABASE_URL);
+  try {
+    try {
+      await admin.pool.query('select 1');
+    } catch {
+      // 基础设施不可达交给 infraReady 统一跳过；连上之后的建库/迁移失败必须显式报错。
+      return false;
+    }
+    await admin.pool.query(`create database "${ISOLATED_DB_NAME}"`);
+    createdIsolatedDb = true;
+  } finally {
+    await admin.pool.end();
+  }
+  const target = createDb(ISOLATED_DATABASE_URL);
+  try {
+    await migrate(target.db, {
+      migrationsFolder: fileURLToPath(new URL('../../db/migrations', import.meta.url)),
+    });
+  } catch (error) {
+    await dropIsolatedDatabase();
+    throw error;
+  } finally {
+    await target.pool.end().catch(() => undefined);
+  }
+  return true;
 }
 
 const isolated = await prepareIsolatedDatabase();
@@ -49,6 +67,8 @@ const isolated = await prepareIsolatedDatabase();
 const helpers = await import('./helpers.js');
 const { cleanup, createAgent, loginCookie, startApp, unique, waitFor } = helpers;
 const ready = await helpers.infraReady;
+// skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
+if (!ready && isolated) await dropIsolatedDatabase();
 
 describe.skipIf(!(ready && isolated))('platform agent tools: cancellation', () => {
   let app: FastifyInstance;
@@ -62,8 +82,17 @@ describe.skipIf(!(ready && isolated))('platform agent tools: cancellation', () =
   });
 
   afterAll(async () => {
-    await cleanup(app, { agentSlugs: createdAgents, runIds });
-    await app.close();
+    try {
+      if (app) {
+        try {
+          await cleanup(app, { agentSlugs: createdAgents, runIds });
+        } finally {
+          await app.close();
+        }
+      }
+    } finally {
+      await dropIsolatedDatabase();
+    }
   });
 
   it('passes the MCP request abort signal to the invoker', async () => {

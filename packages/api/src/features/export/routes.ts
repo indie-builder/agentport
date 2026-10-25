@@ -24,12 +24,16 @@ export function registerExportRoutes(rawApp: FastifyInstance): void {
         row,
       );
       const body = packAgentPackage(pkg);
-      return reply
-        .header('content-disposition', `attachment; filename="${pkg.slug}.zip"`)
-        .header('cache-control', 'no-store')
-        .header('x-content-type-options', 'nosniff')
-        .type('application/zip')
-        .send(body);
+      return (
+        reply
+          .header('content-disposition', `attachment; filename="${pkg.slug}.zip"`)
+          .header('cache-control', 'no-store')
+          .header('x-content-type-options', 'nosniff')
+          // ZIP 里没有插件代码：用响应头把提示带给调用方，页面 toast 直接展示。
+          .header('x-package-warnings', encodeURIComponent(JSON.stringify(pkg.warnings)))
+          .type('application/zip')
+          .send(body)
+      );
     },
   );
 }

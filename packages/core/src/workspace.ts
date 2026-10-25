@@ -18,6 +18,14 @@ export interface WorkspaceFiles {
   outputStyles: Array<{ slug: string; content: string }>;
   /** 选中的输出风格名（写入 settings.outputStyle）；null 表示用默认。 */
   selectedOutputStyle: string | null;
+  /**
+   * 插件根目录树：渲染到 `.claude/plugins/<slug>/<path>`，运行时整目录交给 SDK `plugins`。
+   * 只含本次运行要加载的插件（受绑定的 hooks/MCP 授权过滤）。
+   */
+  plugins: Array<{
+    slug: string;
+    files: Array<{ path: string; content: string; executable: boolean }>;
+  }>;
   /** 渲染出的 `.claude/settings.json` 内容；null 表示无该文件。 */
   settingsJson: string | null;
 }
@@ -69,10 +77,25 @@ export interface WorkspaceInput {
   }>;
   /** 选中的输出风格名；undefined/null 表示默认。 */
   selectedOutputStyle?: string | null;
+  /** 本次运行要加载的插件；调用方已按绑定授权过滤完 hooks/MCP。 */
+  plugins?: WorkspacePlugin[];
   toolsAllow?: string[];
   toolsDeny?: string[];
   /** 生成式 UI 可调用的工具；必须与执行桥的工具目录同源，提示词里没有的调用一律拒绝。 */
   openuiTools?: OpenUiToolDescriptor[];
+}
+
+/** 插件的已授权形态：文件树已按授权裁剪，manifest 未授权组件不会再出现在里面。 */
+export interface WorkspacePlugin {
+  slug: string;
+  /** SDK 看到的插件名，技能命名空间 `plugin:<runtimeName>`。 */
+  runtimeName: string;
+  /** 插件技能在本插件内的目录名（不含 `plugin:` 前缀）。 */
+  skillNames: string[];
+  /** 已授权 MCP server 的原始名（不含 `plugin:<plugin>:` 前缀）。 */
+  mcpServerNames: string[];
+  hasAgents: boolean;
+  files: Array<{ path: string; content: string; executable: boolean }>;
 }
 
 /** 渲染一个输出风格 `.md`：官方 frontmatter（name/description/keep-coding-instructions）+ 正文。 */
@@ -453,6 +476,10 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
       content: renderOutputStyleMd(style),
     })),
     selectedOutputStyle: input.selectedOutputStyle ?? null,
+    plugins: (input.plugins ?? []).map((plugin) => ({
+      slug: plugin.slug,
+      files: plugin.files,
+    })),
     settingsJson: `${JSON.stringify(
       {
         env: SANDBOX_RUNTIME_ENV,

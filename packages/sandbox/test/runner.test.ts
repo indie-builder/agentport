@@ -11,6 +11,9 @@ const io = vi.hoisted(() => ({
   sessions: new Set<string>(),
   /** 自定义 SDK 消息序列；为 null 时用默认的单文本块回合。 */
   messages: null as unknown[] | null,
+  /** init 消息里报告已加载的插件；undefined 表示按任务里的 path 全部加载。 */
+  initPlugins: undefined as Array<{ name: string; path: string }> | undefined,
+  pluginErrors: undefined as Array<{ plugin: string; type: string; message: string }> | undefined,
 }));
 
 vi.mock('node:readline', () => ({
@@ -47,12 +50,24 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   },
   query: ({ options }: { options: Record<string, unknown> }) => {
     io.options = options;
+    const loaded =
+      io.initPlugins ??
+      ((options.plugins as Array<{ path: string }> | undefined) ?? []).map((plugin) => ({
+        name: plugin.path.split('/').pop() ?? plugin.path,
+        path: plugin.path,
+      }));
     return (async function* () {
       if (io.messages !== null) {
         yield* io.messages as AsyncIterable<unknown>;
         return;
       }
-      yield { type: 'system', subtype: 'init', mcp_servers: [] };
+      yield {
+        type: 'system',
+        subtype: 'init',
+        mcp_servers: [],
+        plugins: loaded,
+        ...(io.pluginErrors === undefined ? {} : { plugin_errors: io.pluginErrors }),
+      };
       yield {
         type: 'assistant',
         parent_tool_use_id: null,
@@ -92,6 +107,10 @@ interface Event {
 async function run(
   task: Record<string, unknown>,
   messages?: unknown[],
+  init: {
+    plugins?: Array<{ name: string; path: string }>;
+    pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
+  } = {},
 ): Promise<{ events: Event[]; stderr: string }> {
   io.line = JSON.stringify({
     prompt: 'hi',
@@ -105,6 +124,8 @@ async function run(
   io.options = undefined;
   io.messages = messages ?? null;
   io.sessions = new Set(['existing-session', 'source-session']);
+  io.initPlugins = init.plugins;
+  io.pluginErrors = init.pluginErrors;
   vi.resetModules();
   const events: Event[] = [];
   let stderr = '';
@@ -267,6 +288,114 @@ describe('runner task wiring', () => {
   it('defaults to no skills when the task omits them', async () => {
     await run({});
     expect(io.options?.skills).toEqual([]);
+  });
+
+  it('omits the plugins option entirely when no plugin is bound', async () => {
+    await run({});
+    expect(io.options).not.toHaveProperty('plugins');
+    expect(io.options?.allowedTools).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('mcp__plugin_')]),
+    );
+  });
+
+  it('loads bound plugins and namespaces their skills and MCP tools', async () => {
+    await run({
+      skills: ['demo-skill'],
+      plugins: [
+        {
+          path: '/workspace/.claude/plugins/demo',
+          runtimeName: 'demo.plugin',
+          skills: ['review'],
+          mcpServers: ['fs.main'],
+          hasAgents: false,
+        },
+      ],
+    });
+    const options = io.options as Options;
+
+    expect(options.plugins).toEqual([{ type: 'local', path: '/workspace/.claude/plugins/demo' }]);
+    expect(options.skills).toEqual(['demo-skill', 'demo.plugin:review']);
+    // 插件 server 的 scoped 名非 [A-Za-z0-9_-] 字符替换成 _。
+    expect(options.allowedTools).toContain('mcp__plugin_demo_plugin_fs_main__*');
+    // 有插件子智能体时才放行 Agent。
+    expect(options.allowedTools).not.toContain('Agent');
+    expect(options.disallowedTools).toContain('Agent');
+  });
+
+  it('allows Agent when a plugin ships its own sub-agents', async () => {
+    await run({
+      subAgents: [{ slug: 'child', servers: [], skills: [] }],
+      plugins: [
+        {
+          path: '/workspace/.claude/plugins/demo',
+          runtimeName: 'demo',
+          skills: [],
+          mcpServers: [],
+          hasAgents: true,
+        },
+      ],
+    });
+    const options = io.options as Options;
+    expect(options.allowedTools).toContain('Agent');
+    expect(options.disallowedTools).not.toContain('Agent');
+  });
+
+  it('fails as infra when bound plugins never load', async () => {
+    const { events } = await run(
+      {
+        plugins: [
+          {
+            path: '/workspace/.claude/plugins/demo',
+            runtimeName: 'demo',
+            skills: [],
+            mcpServers: [],
+            hasAgents: false,
+          },
+        ],
+      },
+      undefined,
+      { plugins: [] },
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'run_finished',
+        status: 'failed',
+        failureKind: 'infra',
+      }),
+    );
+  });
+
+  it('reports plugin load errors without failing the run', async () => {
+    const { events } = await run(
+      {
+        plugins: [
+          {
+            path: '/workspace/.claude/plugins/demo',
+            runtimeName: 'demo',
+            skills: [],
+            mcpServers: [],
+            hasAgents: false,
+          },
+        ],
+      },
+      undefined,
+      {
+        pluginErrors: [
+          { plugin: 'inline[0]', type: 'path-not-found', message: 'Path not found: /x' },
+        ],
+      },
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        message: expect.stringContaining('Path not found: /x'),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'run_finished', status: 'succeeded' }),
+    );
   });
 
   it('rejects a task without a user message uuid', async () => {

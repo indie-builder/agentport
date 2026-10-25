@@ -9,11 +9,11 @@
 - **原因**：模型代理无条件把上游 loopback 改写成 `host.docker.internal`；该别名只在容器内可解析，宿主进程访问同一网关会失败。
 - **规避**：只有 worker 自身在容器内时才改写（`packages/worker/src/upstream.ts`，用 `/.dockerenv` 判定）；沙盒侧地址仍必须改写。改到这里时不要把它和沙盒的 `toHostUrl` 混用。
 
-## Worktree 是干净 checkout，`.env` 与依赖产物不会自动带过去
+## 复制到 worktree 的 `.env` 可能比刚确认的配置旧
 
-- **现象**：新 worktree 里起服务直接失败，报缺 `APP_SECRET_KEY` / `ANTHROPIC_API_KEY` 等；装好依赖后前端也可能无法解析 `@agentport/shared`。
-- **原因**：worktree 只含受版本控制的文件，`.env`、`node_modules` 和 workspace 的 `dist` 都不会自动复制。
-- **规避**：项目根 `.worktreeinclude` 已列 `.env`、`.env.local`，Claude Code 建树时自动复制；然后 `pnpm install --frozen-lockfile`，前端预览前构建 shared/core。新增必填的 env 文件时同步加进 `.worktreeinclude`。
+- **现象**：新 worktree 起了服务，但用户刚确认的管理员密码失效；或 `.env` 缺 `APP_SECRET_KEY` / `ANTHROPIC_API_KEY` 起不来，装好依赖后前端也可能无法解析 `@agentport/shared`。
+- **原因**：`.env` 不受 Git 管理；`.worktreeinclude` 只在建树时复制一次，来源是发起建树的那棵树（可能是旧 worktree），结果不代表最新。主 checkout 的 `.env` 也可能是旧残留。worktree 还不带 `node_modules` 与 workspace `dist`。各树共用数据库，API 首次登录时 `ensureAdmin` 会按当时的 `ADMIN_PASSWORD` 重播管理员，旧配置一登录就把用户刚设的密码覆盖掉。
+- **规避**：配置默认取主 checkout `.env` 的绝对路径，启动前核对 `ADMIN_USER`/`ADMIN_PASSWORD`/`ALLOW_WEAK_ADMIN_PASSWORD` 等改动过的关键项；用户最新明确决定优先于磁盘上的值，不以「来自 main 的 `.env`」当成用户决定。登录验证使用用户确认的配置，不拿测试或调试任务改掉用户登录态。然后 `pnpm install --frozen-lockfile`，前端预览前构建 shared/core。新增必填 env 文件时同步加进 `.worktreeinclude`（仅作初始化副本，仍不保证最新）。规则集中在 `docs/DEV-WORKFLOW.md`「配置与启动」。
 
 ## 多个 worktree 同时跑全栈 compose 会互相踩
 
@@ -57,11 +57,11 @@
 - **原因**：Docker API 与 Portless 前端是两个独立进程；旧页面壳还能显示，但后续请求已没有对应路由。
 - **规避**：先确认用户正在用的完整 URL，再启动对应服务；按那个 URL 检查一次页面请求，不把另一个端口可用当作同一结果。
 
-## 实现：新 worktree 不一定基于当前本地 main
+## 实现：新 worktree 不一定基于最新 `origin/main`
 
-- **现象**：进入新 worktree 后，刚在本地 main 合并的功能消失。
-- **原因**：EnterWorktree 默认可能从远端默认分支建树；本地尚未推送的提交不在起点里。
-- **规避**：编辑前比较 worktree HEAD 与本地 main；需要沿用本地功能时，在新树未产生冲突改动前用 `git merge --ff-only main` 对齐。
+- **现象**：进入新 worktree 后，刚合并的功能消失；或从旧 worktree 下套娃建树，起点更旧。
+- **原因**：本地 main 常落后于远端；从旧 worktree 或本地 main 建树都会继承旧提交。
+- **规避**：先 `git fetch origin main`，再从主仓库用绝对路径以 `origin/main` 建树；本地 main 与旧 worktree 都不作最新依据（`docs/DEV-WORKFLOW.md` §2）。已确认合并的功能才能作为运行源。
 
 ## 实现：更换集成方案前，核对原有授权和平台原则
 
@@ -164,3 +164,9 @@
 - **现象**：轮播有正确的 `basis` 类但卡面少12px；流式基准读到约1秒帧间隔，或未抓到中间态。
 - **原因**：Carousel item 的内距计入 border-box；浏览器后台页会节流RAF；回放先启动、浏览器后导航会错过增量。空输入发送按钮本来就禁用，不能用“可发送”等待终态。
 - **规避**：分别测item和卡面矩形、轨道gap；浏览器就绪后用信号触发回放，在固定前台记录明确的流式窗口，并记录空闲对照。终态用真实run状态/最终内容判定，不把探针超时直接归为产品失败。
+
+## 测试：固定日期数据库会绕过外层隔离与新迁移
+
+- **现象**：外层已注入临时数据库，但创建智能体仍500，取消测试静默跳过。
+- **原因**：测试模块把DATABASE_URL路径重写回固定历史库，复用的旧迁移账本不含后来合入的插件表；迁移异常又被吞成infra不可用。
+- **规避**：尊重外层隔离地址；确需独立库的套件使用每次唯一名称并在关闭连接后只删自己创建的库。连接可用后的迁移失败应报错，不伪装成跳过。

@@ -1,6 +1,6 @@
 {
-  "id": "3f64d836-eb2c-4e6a-9173-d8447e8492e3",
-  "prevId": "e4cf0eea-f4c3-40cc-af5d-055519a92040",
+  "id": "bbfa76c1-f6db-47a3-8548-53669becb9be",
+  "prevId": "0654a27e-1f4c-4373-97d8-bd23f3cf0e74",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -115,6 +115,109 @@
           "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.agent_plugins": {
+      "name": "agent_plugins",
+      "schema": "",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "plugin_id": {
+          "name": "plugin_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "allow_hooks": {
+          "name": "allow_hooks",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "allow_mcp": {
+          "name": "allow_mcp",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {
+        "agent_plugins_pk": {
+          "name": "agent_plugins_pk",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "plugin_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agent_plugins_plugin_idx": {
+          "name": "agent_plugins_plugin_idx",
+          "columns": [
+            {
+              "expression": "plugin_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "agent_plugins_agent_id_agents_id_fk": {
+          "name": "agent_plugins_agent_id_agents_id_fk",
+          "tableFrom": "agent_plugins",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "agent_plugins_plugin_id_plugins_id_fk": {
+          "name": "agent_plugins_plugin_id_plugins_id_fk",
+          "tableFrom": "agent_plugins",
+          "tableTo": "plugins",
+          "columnsFrom": [
+            "plugin_id"
           ],
           "columnsTo": [
             "id"
@@ -1011,13 +1114,6 @@
           "notNull": true,
           "default": "'dontAsk'"
         },
-        "ui_format": {
-          "name": "ui_format",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'markdown'"
-        },
         "effort": {
           "name": "effort",
           "type": "text",
@@ -1133,10 +1229,6 @@
         "agents_permission_mode_check": {
           "name": "agents_permission_mode_check",
           "value": "\"agents\".\"permission_mode\" in ('dontAsk', 'plan', 'default', 'acceptEdits')"
-        },
-        "agents_ui_format_check": {
-          "name": "agents_ui_format_check",
-          "value": "\"agents\".\"ui_format\" in ('markdown', 'openui')"
         },
         "agents_allowed_tools_check": {
           "name": "agents_allowed_tools_check",
@@ -2428,25 +2520,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "ui_format": {
-          "name": "ui_format",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'markdown'"
-        },
-        "ui_program": {
-          "name": "ui_program",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ui_state": {
-          "name": "ui_state",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "run_id": {
           "name": "run_id",
           "type": "text",
@@ -2546,12 +2619,235 @@
         "messages_role_check": {
           "name": "messages_role_check",
           "value": "\"messages\".\"role\" in ('user', 'assistant', 'tool')"
-        },
-        "messages_ui_format_check": {
-          "name": "messages_ui_format_check",
-          "value": "\"messages\".\"ui_format\" in ('markdown', 'openui')"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.plugin_files": {
+      "name": "plugin_files",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "plugin_id": {
+          "name": "plugin_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "executable": {
+          "name": "executable",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "plugin_files_plugin_path_idx": {
+          "name": "plugin_files_plugin_path_idx",
+          "columns": [
+            {
+              "expression": "plugin_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "path",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "plugin_files_plugin_idx": {
+          "name": "plugin_files_plugin_idx",
+          "columns": [
+            {
+              "expression": "plugin_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "plugin_files_plugin_id_plugins_id_fk": {
+          "name": "plugin_files_plugin_id_plugins_id_fk",
+          "tableFrom": "plugin_files",
+          "tableTo": "plugins",
+          "columnsFrom": [
+            "plugin_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.plugins": {
+      "name": "plugins",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "runtime_name": {
+          "name": "runtime_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "version": {
+          "name": "version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "manifest": {
+          "name": "manifest",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "plugins_slug_idx": {
+          "name": "plugins_slug_idx",
+          "columns": [
+            {
+              "expression": "slug",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "plugins_runtime_name_idx": {
+          "name": "plugins_runtime_name_idx",
+          "columns": [
+            {
+              "expression": "runtime_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "plugins_source_id_idx": {
+          "name": "plugins_source_id_idx",
+          "columns": [
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.servers": {

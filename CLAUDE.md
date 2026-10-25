@@ -31,6 +31,9 @@
 - **三赢：UX / DX / AX 同时提升。** 任何设计或技术决策，都要选能同时提升**用户体验（UX）、开发者体验（DX）、智能体体验（AX）**且不牺牲其一换另一个的最优解，并且**不破坏任何现有功能**（"Make the best decision that will elevate all three: the user experience (UX), developer experience (DX), and agent experience (AX) always, without breaking anything."）。逐条问「这对 UX / DX / AX 各是加分还是减分」，若某方案提升一个却伤害另一个，继续找更优解。
 - **个人项目不考虑向后兼容。** 永远按当前最佳实践设计，不为旧数据、旧格式、旧接口保留兼容层、迁移分支或双写路径；字段、表结构、接口可以直接改到最干净的样子，旧数据不迁移、不做兜底。需要重置时直接重建库或用脚本一次性重灌。判断「要不要兼容」的答案默认是否。
 - **不为理论风险加防护。** 加代码防假设性的竞态条件或安全边界之前，先用「10 岁小孩能听懂」的话说明三件事并**等用户明确同意**：① 到底会出什么问题；② 这有多大概率发生；③ 多加的代码带来多少复杂度。不得悄悄扩大范围去防只存在于理论中的问题（"Before adding complexity for a speculative or vanishingly unlikely race or security edge case, explain the concrete failure mode, likelihood, and complexity cost to the user and get their buy-in. Do not silently expand scope for theoretical robustness."）。真实可发生的边界（信任边界校验、防数据丢失、安全、无障碍）不在其列，照常做。
+- **入口校验一次。** 外部数据在入口信任边界完成校验，内部使用校验后确定的类型，不逐层重复校验或判断。后端入口沿用下文 Fastify schema 规则。
+- **单次逻辑就地写。** 仅使用一次的逻辑直接写在使用处；只有会复用或封装真正复杂逻辑时才提取抽象。
+- **保持直接控制流。** 能用一个清晰函数完成就不拆分；仅在需要恢复、清理或转换错误时使用 `try/catch`，其余错误交由现有统一机制处理。保留必要错误处理，不吞错。
 
 ## 能力选型（硬性：先看现有 → 原生 → 开源 → 最后才自研）
 
@@ -50,7 +53,7 @@
 - **代码写完后先经 Opus 子代理 code review 再提交**；review 未过不提交。
 - 能拆成互不依赖的子任务就并行，不要串行做完一个再下一个；每个子代理要有明确产出边界（改哪些文件、不改哪些文件）与验收方式。
 - 模型选择遵循 `pstack-models.md` 的 per-role 配置，不为并行而降低判断质量。
-- **完整研发流程、review 轮次做法、验证与撤销规则统一见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**；开工前读 [docs/PITFALLS.md](docs/PITFALLS.md)，踩坑记入该文件不散落。产出只落在 worktree，主 checkout 保持干净。
+- **完整研发流程（含建树、配置与启动规则）、review 轮次做法、验证与撤销规则统一见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**；开工前读 [docs/PITFALLS.md](docs/PITFALLS.md)，踩坑记入该文件不散落。产出只落在 worktree，主 checkout 保持干净。
 
 ## 智能体运行底座
 

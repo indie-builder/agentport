@@ -9,12 +9,14 @@ const OTHER_FILE_TOOLS = new Set(['Glob', 'Grep', 'NotebookEdit']);
 export const createMemoryHook = createFileBoundaryHook;
 
 /**
- * 文件工具边界：主会话可写记忆目录内的普通 .md；只读可及记忆目录与技能参考文件
- * （技能目录下 `<slug>/references/` 里的 .md）。其余文件工具请求一律拒绝。
+ * 文件工具边界：主会话可写记忆目录内的普通 .md；只读可及记忆目录、
+ * 技能参考文件（`.claude/skills/<slug>/references/`）以及插件技能资源
+ * （`.claude/plugins/<slug>/skills/<name>/`）。其余文件工具请求一律拒绝。
  */
 export function createFileBoundaryHook(
   memoryDir: string,
   skillsDir = '/workspace/.claude/skills',
+  pluginsDir = '/workspace/.claude/plugins',
 ): HookCallback {
   return async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};
@@ -58,17 +60,26 @@ export function createFileBoundaryHook(
     ) {
       const skillLocal = relative(skillsDir, path);
       const [slug, kind, ...rest] = skillLocal.split(sep);
-      // <slug>/references/<...>.md，slug 为小写字母数字开头；写入仍只在记忆目录。
-      if (
-        input.tool_name !== 'Read' ||
-        !slug ||
-        kind !== 'references' ||
-        rest.length === 0 ||
-        !/^[a-z0-9][a-z0-9_-]*$/.test(slug) ||
-        !path.endsWith('.md')
-      )
-        return deny;
-      base = skillsDir;
+      const insideSkillRefs =
+        input.tool_name === 'Read' &&
+        Boolean(slug) &&
+        kind === 'references' &&
+        rest.length > 0 &&
+        /^[a-z0-9][a-z0-9_-]*$/.test(slug ?? '') &&
+        path.endsWith('.md');
+      // 插件技能资源：Read 打开技能正文或它的 references 时，CLI 给的是真实路径。
+      const pluginLocal = relative(pluginsDir, path);
+      const [pluginSlug, skillsSegment, skillName] = pluginLocal.split(sep);
+      const insidePluginSkill =
+        input.tool_name === 'Read' &&
+        Boolean(pluginSlug) &&
+        skillsSegment === 'skills' &&
+        Boolean(skillName) &&
+        /^[a-z0-9][a-z0-9_-]*$/.test(pluginSlug ?? '') &&
+        /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(skillName ?? '') &&
+        path.endsWith('.md');
+      if (!insideSkillRefs && !insidePluginSkill) return deny;
+      base = insideSkillRefs ? skillsDir : pluginsDir;
       writable = false;
     }
     const local = relative(base, path);

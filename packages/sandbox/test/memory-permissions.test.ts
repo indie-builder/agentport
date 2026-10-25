@@ -200,3 +200,70 @@ describe('skill reference read-only boundary', () => {
     }
   });
 });
+
+describe('plugin skill read-only boundary', () => {
+  let pluginHook: ReturnType<typeof createFileBoundaryHook>;
+  let plugRoot: string;
+  let skillsDirForPlugin: string;
+
+  beforeEach(async () => {
+    skillsDirForPlugin = join(dir, 'skills');
+    plugRoot = join(dir, 'plugins');
+    pluginHook = createFileBoundaryHook(memory, skillsDirForPlugin, plugRoot);
+    await mkdir(join(plugRoot, 'demo', 'skills', 'review', 'references'), { recursive: true });
+    await writeFile(join(plugRoot, 'demo', 'skills', 'review', 'SKILL.md'), '# review');
+    await writeFile(join(plugRoot, 'demo', 'skills', 'review', 'references', 'a.md'), '# a');
+    await mkdir(join(plugRoot, 'demo', '.claude-plugin'), { recursive: true });
+    await writeFile(join(plugRoot, 'demo', '.claude-plugin', 'plugin.json'), '{}');
+    await writeFile(join(plugRoot, 'demo', 'private.md'), '# private');
+  });
+
+  const read = (tool: string, file_path: string, agentId?: string) =>
+    pluginHook(
+      {
+        hook_event_name: 'PreToolUse',
+        session_id: 's',
+        transcript_path: '/tmp/t',
+        cwd: memory,
+        tool_name: tool,
+        tool_input: { file_path },
+        tool_use_id: 't',
+        ...(agentId === undefined ? {} : { agent_id: agentId }),
+      },
+      'tool',
+      { signal: new AbortController().signal },
+    );
+
+  it('lets the main session read a plugin skill body and its resources', async () => {
+    expect(
+      await read('Read', join(plugRoot, 'demo', 'skills', 'review', 'SKILL.md')),
+    ).toMatchObject(decision('allow'));
+    expect(
+      await read('Read', join(plugRoot, 'demo', 'skills', 'review', 'references', 'a.md')),
+    ).toMatchObject(decision('allow'));
+  });
+
+  it('rejects sub-agent reads and linked plugin resources', async () => {
+    const skillRoot = join(plugRoot, 'demo', 'skills', 'review');
+    expect(await read('Read', join(skillRoot, 'SKILL.md'), 'child')).toMatchObject(
+      decision('deny'),
+    );
+    await symlink(join(dir, 'outside.md'), join(skillRoot, 'linked.md'));
+    await link(join(dir, 'outside.md'), join(skillRoot, 'hardlinked.md'));
+    for (const name of ['linked.md', 'hardlinked.md']) {
+      expect(await read('Read', join(skillRoot, name))).toMatchObject(decision('deny'));
+    }
+  });
+
+  it('keeps plugin files read-only and out of the plugin root itself', async () => {
+    for (const [tool, path] of [
+      ['Write', join(plugRoot, 'demo', 'skills', 'review', 'SKILL.md')],
+      ['Edit', join(plugRoot, 'demo', 'skills', 'review', 'SKILL.md')],
+      ['Read', join(plugRoot, 'demo', '.claude-plugin', 'plugin.json')],
+      ['Read', join(plugRoot, 'demo', 'private.md')],
+      ['Read', join(plugRoot, 'demo', 'skills', 'review', 'notes.json')],
+    ] as const) {
+      expect(await read(tool, path), `${tool} ${path}`).toMatchObject(decision('deny'));
+    }
+  });
+});

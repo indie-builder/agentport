@@ -1,20 +1,75 @@
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { inspect } from 'node:util';
+import { createDb } from '@agentport/db';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { getQueue } from '../src/queue/producer.js';
 
-// 固定的一次性库；只覆盖 URL 路径，凭证仍由外部环境提供。
-const ISOLATED_DB_NAME = 'agentport_capability_test_20261022';
-const databaseUrl = new URL(process.env.DATABASE_URL as string);
-databaseUrl.pathname = `/${ISOLATED_DB_NAME}`;
-process.env.DATABASE_URL = databaseUrl.toString();
+// 每次运行建独立库：固定名的残留库迁移账本会与新迁移错位（缺插件表），导致建智能体 500。
+const ADMIN_DATABASE_URL = process.env.DATABASE_URL ?? '';
+const ISOLATED_DB_NAME = `agentport_chat_enqueue_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+const ISOLATED_DATABASE_URL = (() => {
+  if (ADMIN_DATABASE_URL === '')
+    return 'postgres://unused:unused@127.0.0.1:1/chat_enqueue_unconfigured';
+  const url = new URL(ADMIN_DATABASE_URL);
+  url.pathname = `/${ISOLATED_DB_NAME}`;
+  return url.toString();
+})();
+process.env.DATABASE_URL = ISOLATED_DATABASE_URL;
 
-// helpers 在模块求值时读取 DATABASE_URL，必须等覆盖完成再加载。
+let createdIsolatedDb = false;
+
+async function dropIsolatedDatabase(): Promise<void> {
+  if (!createdIsolatedDb) return;
+  createdIsolatedDb = false;
+  const admin = createDb(ADMIN_DATABASE_URL);
+  try {
+    await admin.pool.query(`drop database if exists "${ISOLATED_DB_NAME}" with (force)`);
+  } finally {
+    await admin.pool.end();
+  }
+}
+
+async function prepareIsolatedDatabase(): Promise<boolean> {
+  if (ADMIN_DATABASE_URL === '') return false;
+  const admin = createDb(ADMIN_DATABASE_URL);
+  try {
+    try {
+      await admin.pool.query('select 1');
+    } catch {
+      // 基础设施不可达交给 infraReady 统一跳过；连上之后的建库/迁移失败必须显式报错。
+      return false;
+    }
+    await admin.pool.query(`create database "${ISOLATED_DB_NAME}"`);
+    createdIsolatedDb = true;
+  } finally {
+    await admin.pool.end();
+  }
+  const target = createDb(ISOLATED_DATABASE_URL);
+  try {
+    await migrate(target.db, {
+      migrationsFolder: fileURLToPath(new URL('../../db/migrations', import.meta.url)),
+    });
+  } catch (error) {
+    await dropIsolatedDatabase();
+    throw error;
+  } finally {
+    await target.pool.end().catch(() => undefined);
+  }
+  return true;
+}
+
+const isolated = await prepareIsolatedDatabase();
+// helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const { cleanup, createAgent, expectProblem, infraReady, inject, loginCookie, testConfig, unique } =
   await import('./helpers.js');
 
 const ready = await infraReady;
+// skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
+if (!ready && isolated) await dropIsolatedDatabase();
 
 // 故意带上连接串与密码：日志和响应都不能回显它们。
 const DOWN = 'redis://:hunter2-secret@127.0.0.1:6379 refused';
@@ -28,7 +83,7 @@ interface RunRow {
   ended_at: Date | null;
 }
 
-describe.skipIf(!ready)('chat enqueue failure', () => {
+describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
   let app: FastifyInstance;
   let cookie: string;
   const agentSlugs: string[] = [];
@@ -46,8 +101,17 @@ describe.skipIf(!ready)('chat enqueue failure', () => {
   });
 
   afterAll(async () => {
-    await cleanup(app, { agentSlugs });
-    await app.close();
+    try {
+      if (app) {
+        try {
+          await cleanup(app, { agentSlugs });
+        } finally {
+          await app.close();
+        }
+      }
+    } finally {
+      await dropIsolatedDatabase();
+    }
   });
 
   const newAgent = async (): Promise<string> =>

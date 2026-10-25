@@ -198,6 +198,23 @@ export const sandboxTaskSchema = z.object({
    */
   maxFieldBytes: z.number().int().positive().optional(),
   /**
+   * 本次运行加载的插件根；runner 直接传给 SDK `plugins`。
+   * `skills` 是插件内的技能目录名，runner 拼成 `<runtimeName>:<技能>` 追加进 `skills`；
+   * `mcpServers` 只在绑定处授权后才出现，runner 生成 `mcp__plugin_<p>_<s>__*` 规则。
+   */
+  plugins: z
+    .array(
+      z.object({
+        /** 容器内绝对路径，如 `/workspace/.claude/plugins/<slug>`。 */
+        path: z.string().min(1),
+        runtimeName: z.string().min(1),
+        skills: z.array(z.string()).default([]),
+        mcpServers: z.array(z.string()).default([]),
+        hasAgents: z.boolean().default(false),
+      }),
+    )
+    .default([]),
+  /**
    * 子智能体的绑定：runner 据此在 PreToolUse 里拒绝越界的 MCP 工具与技能。
    * 官方 frontmatter 只能预加载技能、按名引用 server，运行时边界由这里补齐。
    */

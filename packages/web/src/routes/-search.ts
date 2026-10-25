@@ -31,6 +31,15 @@ export const skillsSearchSchema = resourceSearchSchema.extend({
   marketView: z.enum(['all-time', 'trending', 'hot']).optional().catch(undefined),
 });
 
+export const pluginsSearchSchema = resourceSearchSchema;
+
+/** 插件详情：简介/内容、选中文件与阅读/源码模式进 URL，刷新和分享后回到同一视图。 */
+export const pluginDetailSearchSchema = z.object({
+  tab: z.enum(['intro', 'content']).optional().catch(undefined),
+  file: z.string().optional().catch(undefined),
+  mode: z.enum(['read', 'source']).optional().catch(undefined),
+});
+
 export const chatSearchSchema = z.object({
   agent: z.string().min(1).optional().catch(undefined),
   conversation: z.string().min(1).optional().catch(undefined),

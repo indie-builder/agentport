@@ -64,6 +64,19 @@ export const agentInputSchema = z.object({
   systemPrompt: z.string().default(''),
   serverIds: z.array(z.string()).default([]),
   skillIds: z.array(z.string()).default([]),
+  /**
+   * 绑定的插件。插件是会话级能力（SDK `plugins` 无法按子智能体隔离），仅顶层智能体可绑定。
+   * hooks / MCP 默认关闭，需要逐个显式授权。
+   */
+  pluginBindings: z
+    .array(
+      z.object({
+        pluginId: z.string(),
+        allowHooks: z.boolean().default(false),
+        allowMcp: z.boolean().default(false),
+      }),
+    )
+    .default([]),
   /** 可委派的子智能体（最多一层，子智能体不能再委派）。 */
   subAgentIds: z.array(z.string()).default([]),
   /** 允许的 MCP 工具模式；留空表示「所有已绑定 server 的全部工具」。 */
@@ -242,6 +255,17 @@ export const workspaceFilesSchema = z.object({
   rules: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
   outputStyles: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
   selectedOutputStyle: z.string().nullable().default(null),
+  /** 渲染到 `.claude/plugins/<slug>/` 的插件目录树；与运行时同一份裁剪结果。 */
+  plugins: z
+    .array(
+      z.object({
+        slug: z.string(),
+        files: z
+          .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean() }))
+          .default([]),
+      }),
+    )
+    .default([]),
   settingsJson: z.string().nullable().default(null),
 });
 

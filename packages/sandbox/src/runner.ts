@@ -179,18 +179,42 @@ async function findSessionFile(sessionId: string): Promise<string | null> {
 const task = await readTask();
 const maxFieldBytes = task.maxFieldBytes ?? DEFAULT_MAX_FIELD_BYTES;
 
+/**
+ * 插件 MCP 工具名是 `mcp__plugin_<plugin>_<server>__<tool>`，插件名与 server 名里
+ * 非 `[A-Za-z0-9_-]` 的字符都被 SDK 替换成 `_`；平台按原始名授权，这里换算出实名。
+ */
+function pluginScope(name: string): string {
+  return name.replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+const pluginServers = task.plugins.flatMap((plugin) =>
+  plugin.mcpServers.map(
+    (server) => `plugin_${pluginScope(plugin.runtimeName)}_${pluginScope(server)}`,
+  ),
+);
+// 插件技能在 SDK 里是 `<manifest name>:<skill 目录名>`；`plugin:<skill>` 不是合法写法。
+const pluginSkills = task.plugins.flatMap((plugin) =>
+  plugin.skills.map((skill) => `${plugin.runtimeName}:${skill}`),
+);
+// 插件自带的子智能体也需要 Agent 工具，否则它们只是被发现了却无法调用。
+const hasPluginAgents = task.plugins.some((plugin) => plugin.hasAgents);
+
 // allow 规则只支持 `mcp__<server>__` 之后通配；`mcp__*` 不匹配任何工具。
 // server 名来自挂载的 .mcp.json，逐个生成精确规则。
 const allowedTools = [
   `Read(/${memoryDirectory}/**)`,
   // 技能参考文件只读：.claude/skills/<slug>/references/**；写入仍仅限原生记忆目录。
   'Read(//workspace/.claude/skills/*/references/**)',
+  // 插件技能的支持资源同样在只读挂载内：.claude/plugins/<slug>/skills/<name>/**。
+  ...(task.plugins.length === 0 ? [] : ['Read(//workspace/.claude/plugins/*/skills/*/**)']),
   // Edit(path) also authorizes Write; Write(path) is not a file permission rule.
   `Edit(/${memoryDirectory}/**)`,
   ...task.mcpServers.map((name) => `mcp__${name}__*`),
+  // 插件 MCP 只在绑定方显式授权后才出现在 task.plugins 里。
+  ...pluginServers.map((server) => `mcp__${server}__*`),
   ...task.extraAllowedTools.filter((rule) => !/^(Read|Write|Edit)(\(|$)/.test(rule)),
   // dontAsk 下未预批准的工具会被拒绝；委派时需显式放行 Agent。
-  ...(task.allowSubAgents ? ['Agent'] : []),
+  ...(task.allowSubAgents || hasPluginAgents ? ['Agent'] : []),
 ];
 const abortController = new AbortController();
 process.once('SIGTERM', () => abortController.abort());
@@ -219,7 +243,7 @@ const baseDisallowed = [
   ...task.extraDisallowedTools,
 ];
 const disallowedTools = baseDisallowed.filter((tool) => {
-  if (tool === 'Agent' || tool === 'TaskStop') return !task.allowSubAgents;
+  if (tool === 'Agent' || tool === 'TaskStop') return !(task.allowSubAgents || hasPluginAgents);
   if (tool === 'ListAgents' || tool === 'SendMessage') return !allowedByConfig.has(tool);
   return true;
 });
@@ -350,8 +374,11 @@ if (session.error !== undefined) {
               hooks: [
                 createFileBoundaryHook(memoryDirectory),
                 createSubAgentBoundaryHook({
-                  servers: new Set(task.mcpServers),
+                  // 插件 MCP 的 scoped 名（plugin_<plugin>_<server>）与普通 server 同名空间，
+                  // 主会话放行自己绑定的插件 server，子智能体保持一律拒绝。
+                  servers: new Set([...task.mcpServers, ...pluginServers]),
                   skills: new Set(task.skills),
+                  ...(task.plugins.length === 0 ? {} : { pluginSkills: new Set(pluginSkills) }),
                   subAgents: new Map(
                     task.subAgents.map((sub) => [
                       sub.slug,
@@ -364,7 +391,16 @@ if (session.error !== undefined) {
           ],
         },
         // SDK 自己按名字补 Skill(name) 权限；这里不要放通配的 Skill。
-        skills: task.skills,
+        // 插件技能名带 `<plugin>:` 前缀，必须把完整名一并列出，否则会被当成未启用的技能。
+        skills: [...task.skills, ...pluginSkills],
+        ...(task.plugins.length === 0
+          ? {}
+          : {
+              plugins: task.plugins.map((plugin) => ({
+                type: 'local' as const,
+                path: plugin.path,
+              })),
+            }),
         includePartialMessages: true,
         maxTurns: task.maxTurns,
         maxBudgetUsd: task.maxBudgetUsd,
@@ -389,6 +425,27 @@ if (session.error !== undefined) {
               .map((s) => s.name)
               .join('、')}`,
           });
+        }
+        // 插件加载失败时 CLI 仍会跑完，只是少了这些组件；必须显式暴露，不能当成功。
+        const pluginErrors = message.plugin_errors ?? [];
+        if (pluginErrors.length > 0) {
+          log(`plugin errors: ${pluginErrors.map((e) => `${e.plugin}:${e.type}`).join(', ')}`);
+          emit({
+            type: 'error',
+            message: `这些插件没有完全加载：${pluginErrors
+              .map((e) => `${e.plugin}（${e.message}）`)
+              .join('、')}`,
+          });
+        }
+        // init 的 plugins 里始终有内置插件行，按路径核对本次绑定的插件是否真的加载。
+        if (
+          task.plugins.length > 0 &&
+          !task.plugins.some((plugin) =>
+            message.plugins.some((loaded) => loaded.path === plugin.path),
+          )
+        ) {
+          failRun('infra', '本次运行绑定了插件，但没有任何插件被加载；请检查插件目录挂载');
+          break;
         }
         continue;
       }
