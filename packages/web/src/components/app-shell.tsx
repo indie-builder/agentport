@@ -299,9 +299,13 @@ export function AppShell() {
   const isNotFound = useRouterState({
     select: (state) => state.matches.at(-1)?.routeId === '/_shell/$',
   });
+  // 插件不在主导航里，按实际命中的路由命名，列表与详情共用「插件」。
+  const matchedRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
   const pageTitle = isNotFound
     ? '页面不存在'
-    : (resourceLabels[pathname] ?? currentPage?.label ?? '页面不存在');
+    : matchedRoute?.startsWith('/_shell/plugins')
+      ? '插件'
+      : (resourceLabels[pathname] ?? currentPage?.label ?? '页面不存在');
   const [collapsed, setCollapsed] = useCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);

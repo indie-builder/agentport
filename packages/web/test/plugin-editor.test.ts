@@ -1,6 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api } from '../src/lib/api.js';
 import { toastError } from '../src/lib/toast.js';
 import { PluginsPage } from '../src/pages/plugins.js';
 
@@ -53,11 +54,18 @@ vi.mock('../src/lib/queries.js', () => ({
   useImportNativePlugin: () => ({ isPending: state.importingNative, mutate: state.importNative }),
 }));
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
-vi.mock('@tanstack/react-router', () => ({
-  Link: 'a',
-  useNavigate: () => () => {},
-  useSearch: () => ({}),
-}));
+vi.mock('@tanstack/react-router', async () => {
+  const { createElement } = await import('react');
+  return {
+    Link: ({ to, params, ...rest }: { to: string; params?: Record<string, string> }) =>
+      createElement('a', {
+        href: params ? to.replace('$pluginId', params.pluginId ?? '') : to,
+        ...rest,
+      }),
+    useNavigate: () => () => {},
+    useSearch: () => ({}),
+  };
+});
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
@@ -137,6 +145,28 @@ afterEach(async () => {
 });
 
 describe('plugin editor dialog', () => {
+  it('shares the plugins query prefix so list invalidations reach the detail', async () => {
+    const actual =
+      await vi.importActual<typeof import('../src/lib/queries.js')>('../src/lib/queries.js');
+    const fetchPlugin = vi.spyOn(api, 'plugin').mockResolvedValue(plugin as never);
+    const query = actual.pluginQuery('plugin');
+    expect(query.queryKey).toEqual(['plugins', 'plugin']);
+    await query.queryFn?.({} as never);
+    expect(fetchPlugin).toHaveBeenCalledWith('plugin');
+  });
+
+  it('opens the detail page from the card title and footer', async () => {
+    mount();
+
+    const titleLink = document.querySelector<HTMLAnchorElement>('h2 a[href="/plugins/plugin"]');
+    expect(titleLink?.textContent).toContain('Demo 插件');
+    const footerLink = [...document.querySelectorAll<HTMLAnchorElement>('a')].find(
+      (link) => link.textContent?.trim() === '查看详情',
+    );
+    expect(footerLink?.getAttribute('href')).toBe('/plugins/plugin');
+    expect(document.body.textContent).not.toContain('编辑插件');
+  });
+
   it('opens from the card action and closes when untouched', async () => {
     await openEditor();
 

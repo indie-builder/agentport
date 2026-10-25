@@ -594,6 +594,7 @@ export const api = {
   deleteSkill: (id: string): Promise<void> => request(`/skills/${id}`, 'DELETE'),
 
   plugins: (): Promise<PluginWithAgentCount[]> => request('/plugins'),
+  plugin: (id: string): Promise<Plugin> => request(`/plugins/${id}`),
   updatePlugin: (
     id: string,
     input: Partial<PluginInput>,

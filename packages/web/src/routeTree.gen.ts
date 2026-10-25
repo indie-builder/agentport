@@ -16,13 +16,14 @@ import { Route as ShellSplatRouteImport } from './routes/_shell/$'
 import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
 import { Route as ShellChatRouteImport } from './routes/_shell/chat'
 import { Route as ShellEvalRouteImport } from './routes/_shell/eval'
-import { Route as ShellPluginsRouteImport } from './routes/_shell/plugins'
 import { Route as ShellSchedulesRouteImport } from './routes/_shell/schedules'
 import { Route as ShellServersRouteImport } from './routes/_shell/servers'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
 import { Route as ShellStatusRouteImport } from './routes/_shell/status'
 import { Route as ShellAgentsIndexRouteImport } from './routes/_shell/agents.index'
 import { Route as ShellAgentsAgentIdRouteImport } from './routes/_shell/agents.$agentId'
+import { Route as ShellPluginsIndexRouteImport } from './routes/_shell/plugins.index'
+import { Route as ShellPluginsPluginIdRouteImport } from './routes/_shell/plugins.$pluginId'
 import { Route as ShellRunsIndexRouteImport } from './routes/_shell/runs.index'
 import { Route as ShellRunsRunIdRouteImport } from './routes/_shell/runs.$runId'
 
@@ -60,11 +61,6 @@ const ShellEvalRoute = ShellEvalRouteImport.update({
   path: '/eval',
   getParentRoute: () => ShellRoute,
 } as any)
-const ShellPluginsRoute = ShellPluginsRouteImport.update({
-  id: '/plugins',
-  path: '/plugins',
-  getParentRoute: () => ShellRoute,
-} as any)
 const ShellSchedulesRoute = ShellSchedulesRouteImport.update({
   id: '/schedules',
   path: '/schedules',
@@ -95,6 +91,16 @@ const ShellAgentsAgentIdRoute = ShellAgentsAgentIdRouteImport.update({
   path: '/agents/$agentId',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellPluginsIndexRoute = ShellPluginsIndexRouteImport.update({
+  id: '/plugins/',
+  path: '/plugins/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellPluginsPluginIdRoute = ShellPluginsPluginIdRouteImport.update({
+  id: '/plugins/$pluginId',
+  path: '/plugins/$pluginId',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellRunsIndexRoute = ShellRunsIndexRouteImport.update({
   id: '/runs/',
   path: '/runs/',
@@ -113,14 +119,15 @@ export interface FileRoutesByFullPath {
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
-  '/plugins': typeof ShellPluginsRoute
   '/schedules': typeof ShellSchedulesRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
   '/status': typeof ShellStatusRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
+  '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/agents/': typeof ShellAgentsIndexRoute
+  '/plugins/': typeof ShellPluginsIndexRoute
   '/runs/': typeof ShellRunsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -129,15 +136,16 @@ export interface FileRoutesByTo {
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
-  '/plugins': typeof ShellPluginsRoute
   '/schedules': typeof ShellSchedulesRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
   '/status': typeof ShellStatusRoute
   '/': typeof ShellIndexRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
+  '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/agents': typeof ShellAgentsIndexRoute
+  '/plugins': typeof ShellPluginsIndexRoute
   '/runs': typeof ShellRunsIndexRoute
 }
 export interface FileRoutesById {
@@ -148,15 +156,16 @@ export interface FileRoutesById {
   '/_shell/audit': typeof ShellAuditRoute
   '/_shell/chat': typeof ShellChatRoute
   '/_shell/eval': typeof ShellEvalRoute
-  '/_shell/plugins': typeof ShellPluginsRoute
   '/_shell/schedules': typeof ShellSchedulesRoute
   '/_shell/servers': typeof ShellServersRoute
   '/_shell/skills': typeof ShellSkillsRoute
   '/_shell/status': typeof ShellStatusRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/agents/$agentId': typeof ShellAgentsAgentIdRoute
+  '/_shell/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/_shell/runs/$runId': typeof ShellRunsRunIdRoute
   '/_shell/agents/': typeof ShellAgentsIndexRoute
+  '/_shell/plugins/': typeof ShellPluginsIndexRoute
   '/_shell/runs/': typeof ShellRunsIndexRoute
 }
 export interface FileRouteTypes {
@@ -168,14 +177,15 @@ export interface FileRouteTypes {
     | '/audit'
     | '/chat'
     | '/eval'
-    | '/plugins'
     | '/schedules'
     | '/servers'
     | '/skills'
     | '/status'
     | '/agents/$agentId'
+    | '/plugins/$pluginId'
     | '/runs/$runId'
     | '/agents/'
+    | '/plugins/'
     | '/runs/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -184,15 +194,16 @@ export interface FileRouteTypes {
     | '/audit'
     | '/chat'
     | '/eval'
-    | '/plugins'
     | '/schedules'
     | '/servers'
     | '/skills'
     | '/status'
     | '/'
     | '/agents/$agentId'
+    | '/plugins/$pluginId'
     | '/runs/$runId'
     | '/agents'
+    | '/plugins'
     | '/runs'
   id:
     | '__root__'
@@ -202,15 +213,16 @@ export interface FileRouteTypes {
     | '/_shell/audit'
     | '/_shell/chat'
     | '/_shell/eval'
-    | '/_shell/plugins'
     | '/_shell/schedules'
     | '/_shell/servers'
     | '/_shell/skills'
     | '/_shell/status'
     | '/_shell/'
     | '/_shell/agents/$agentId'
+    | '/_shell/plugins/$pluginId'
     | '/_shell/runs/$runId'
     | '/_shell/agents/'
+    | '/_shell/plugins/'
     | '/_shell/runs/'
   fileRoutesById: FileRoutesById
 }
@@ -270,13 +282,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellEvalRouteImport
       parentRoute: typeof ShellRoute
     }
-    '/_shell/plugins': {
-      id: '/_shell/plugins'
-      path: '/plugins'
-      fullPath: '/plugins'
-      preLoaderRoute: typeof ShellPluginsRouteImport
-      parentRoute: typeof ShellRoute
-    }
     '/_shell/schedules': {
       id: '/_shell/schedules'
       path: '/schedules'
@@ -319,6 +324,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAgentsAgentIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/plugins/': {
+      id: '/_shell/plugins/'
+      path: '/plugins'
+      fullPath: '/plugins/'
+      preLoaderRoute: typeof ShellPluginsIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/plugins/$pluginId': {
+      id: '/_shell/plugins/$pluginId'
+      path: '/plugins/$pluginId'
+      fullPath: '/plugins/$pluginId'
+      preLoaderRoute: typeof ShellPluginsPluginIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/runs/': {
       id: '/_shell/runs/'
       path: '/runs'
@@ -341,15 +360,16 @@ interface ShellRouteChildren {
   ShellAuditRoute: typeof ShellAuditRoute
   ShellChatRoute: typeof ShellChatRoute
   ShellEvalRoute: typeof ShellEvalRoute
-  ShellPluginsRoute: typeof ShellPluginsRoute
   ShellSchedulesRoute: typeof ShellSchedulesRoute
   ShellServersRoute: typeof ShellServersRoute
   ShellSkillsRoute: typeof ShellSkillsRoute
   ShellStatusRoute: typeof ShellStatusRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellAgentsAgentIdRoute: typeof ShellAgentsAgentIdRoute
+  ShellPluginsPluginIdRoute: typeof ShellPluginsPluginIdRoute
   ShellRunsRunIdRoute: typeof ShellRunsRunIdRoute
   ShellAgentsIndexRoute: typeof ShellAgentsIndexRoute
+  ShellPluginsIndexRoute: typeof ShellPluginsIndexRoute
   ShellRunsIndexRoute: typeof ShellRunsIndexRoute
 }
 
@@ -358,15 +378,16 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellAuditRoute: ShellAuditRoute,
   ShellChatRoute: ShellChatRoute,
   ShellEvalRoute: ShellEvalRoute,
-  ShellPluginsRoute: ShellPluginsRoute,
   ShellSchedulesRoute: ShellSchedulesRoute,
   ShellServersRoute: ShellServersRoute,
   ShellSkillsRoute: ShellSkillsRoute,
   ShellStatusRoute: ShellStatusRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellAgentsAgentIdRoute: ShellAgentsAgentIdRoute,
+  ShellPluginsPluginIdRoute: ShellPluginsPluginIdRoute,
   ShellRunsRunIdRoute: ShellRunsRunIdRoute,
   ShellAgentsIndexRoute: ShellAgentsIndexRoute,
+  ShellPluginsIndexRoute: ShellPluginsIndexRoute,
   ShellRunsIndexRoute: ShellRunsIndexRoute,
 }
 
