@@ -33,6 +33,7 @@ function pane(items: ReturnType<typeof historyToItems>) {
       approvals: { pending: null, onApprove() {} },
       approvalItems: [],
       lastRun: null,
+      historyMetrics: new Map(),
       onBranchMessage() {},
       branchingMessageId: null,
       running: false,

@@ -41,6 +41,7 @@ const terminal: RunDetail['run'] = {
 };
 const history: ConversationDetail = {
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: '', createdAt: '' },
+  runMetrics: [],
   nextBefore: null,
   messages: [
     {
@@ -118,7 +119,7 @@ describe('authoritative disconnected recovery', () => {
       await stream.reconcileRun({ ...terminal, status });
       expect(useChatStore.getState().items).toEqual([
         { id: '1:0', kind: 'user', text: 'prompt', messageId: '1' },
-        { id: '2:0', kind: 'text', text: 'authoritative reply' },
+        { id: '2:0', kind: 'text', text: 'authoritative reply', runId: 'run-a' },
       ]);
       expect(useChatStore.getState().run).toBeNull();
       expect(useChatStore.getState().lastRun?.status).toBe(status);
@@ -182,6 +183,7 @@ describe('authoritative disconnected recovery', () => {
       id: '2:0',
       kind: 'text',
       text: 'authoritative reply',
+      runId: 'run-a',
     });
   });
 

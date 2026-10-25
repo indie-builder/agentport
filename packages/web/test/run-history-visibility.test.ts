@@ -103,7 +103,11 @@ describe('overview retained run history', () => {
       expect(host.querySelector('table[aria-label="最近运行"]')?.textContent).toContain('已删除');
       expect(host.querySelector('[title="run_retained"]')).not.toBeNull();
       expect(host.textContent).not.toContain('开始配置');
-      if (status === 'failed') expect(host.textContent).toContain('Retained execution failed');
+      if (status === 'failed') {
+        // 失败运行仍可从「最近运行」的状态与错误标记辨认；详情入口在「需要处理」。
+        expect(host.querySelector('table[aria-label="最近运行"]')?.textContent).toContain('失败');
+        expect(host.querySelector('[title="Retained execution failed"]')).not.toBeNull();
+      }
     },
   );
 

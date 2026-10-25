@@ -121,14 +121,3 @@ export const agentStatsSchema = z.object({
 });
 
 export type AgentStats = z.infer<typeof agentStatsSchema>;
-
-/** 任务看板汇总。 */
-export const boardSummarySchema = z.object({
-  total: z.number(),
-  running: z.number(),
-  needsAction: z.number(),
-  finished: z.number(),
-  byTrigger: z.record(runTriggerSchema, z.number()),
-});
-
-export type BoardSummary = z.infer<typeof boardSummarySchema>;

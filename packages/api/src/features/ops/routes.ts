@@ -2,7 +2,6 @@ import { repo, schema } from '@agentport/db';
 import {
   agentStatsSchema,
   attentionSchema,
-  boardSummarySchema,
   scheduleInputSchema,
   schedulePatchSchema,
   scheduleSchema,
@@ -99,28 +98,6 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
         approvals: approvalItems,
         failedRuns: failedItems,
         total: approvalItems.length + failedItems.length,
-      };
-    },
-  );
-
-  // 任务看板汇总（按状态与来源）。
-  app.get(
-    '/api/runs/board',
-    { ...auth, schema: { querystring: daysQuery, response: { 200: boardSummarySchema } } },
-    async (request) => {
-      const since = new Date(Date.now() - request.query.days * 86_400_000);
-      const row = await opsRepo.boardSummary(app.db, since);
-      return {
-        total: row.total,
-        running: row.running,
-        needsAction: row.needsAction,
-        finished: row.finished,
-        byTrigger: {
-          chat: row.chat,
-          mcp: row.mcp,
-          schedule: row.schedule,
-          event: row.event,
-        },
       };
     },
   );

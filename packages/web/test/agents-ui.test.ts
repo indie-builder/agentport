@@ -6,9 +6,11 @@ import { ConfirmDialog } from '../src/components/confirm-dialog.js';
 import { PageHeader } from '../src/components/page.js';
 import { ErrorState } from '../src/components/states.js';
 import { Combobox } from '../src/components/ui/combobox.js';
+import { DropdownMenuTrigger } from '../src/components/ui/dropdown-menu.js';
 import { Field } from '../src/components/ui/field.js';
 import { Input } from '../src/components/ui/input.js';
 import { Select, SelectItem } from '../src/components/ui/select.js';
+import { Tabs } from '../src/components/ui/tabs.js';
 import { Textarea } from '../src/components/ui/textarea.js';
 import {
   AgentDetailPage,
@@ -39,6 +41,7 @@ const state = vi.hoisted(() => ({
   proceed: vi.fn(),
   reset: vi.fn(),
   remove: vi.fn(),
+  search: {} as Record<string, string | undefined>,
 }));
 vi.mock('../src/lib/queries.js', () => ({
   useAgents: () => ({ data: state.agents }),
@@ -76,8 +79,11 @@ vi.mock('@tanstack/react-router', () => ({
     state.blockerOptions.push(options);
     return { status: state.blockerStatus, proceed: state.proceed, reset: state.reset };
   },
-  useNavigate: () => vi.fn(),
-  useSearch: () => ({}),
+  useNavigate: () => (options: { search?: (current: Record<string, unknown>) => object }) => {
+    const next = options.search?.(state.search) ?? {};
+    Object.assign(state.search, next);
+  },
+  useSearch: () => state.search,
   useParams: () => ({ agentId: state.agents[0]?.id ?? 'parent' }),
   useLocation: () => ({ state: undefined }),
 }));
@@ -127,6 +133,7 @@ function editor() {
     agent: parent,
     onDirtyChange: () => {},
     onPendingChange: () => {},
+    onDeleteRequest: () => {},
   });
 }
 // 三栏布局一次只挂载一个分区：探针先点中栏的分区按钮把它切出来。
@@ -160,6 +167,7 @@ beforeEach(() => {
   state.detail = { isPending: false, isError: false };
   state.blockerOptions = [];
   state.blockerStatus = 'idle';
+  state.search = {};
   vi.clearAllMocks();
 });
 
@@ -177,7 +185,13 @@ describe('expert editor regressions', () => {
   it('keeps a legacy role visible until the user selects a standard occupation', () => {
     const legacy = { ...parent, role: '历史顾问' };
     inspect(
-      () => AgentEditor({ agent: legacy, onDirtyChange() {}, onPendingChange() {} }),
+      () =>
+        AgentEditor({
+          agent: legacy,
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
       (tree, pass) => {
         const picker = tree.find(
           (node) =>
@@ -208,6 +222,7 @@ describe('expert editor regressions', () => {
           agent: { ...parent, role: '数字分身' },
           onDirtyChange() {},
           onPendingChange() {},
+          onDeleteRequest() {},
         }),
       (tree, pass) => {
         if (pass === 0) {
@@ -238,7 +253,13 @@ describe('expert editor regressions', () => {
   it('keeps the draft timestamp when background refetch changes the expert', () => {
     let current = parent;
     inspect(
-      () => AgentEditor({ agent: current, onDirtyChange() {}, onPendingChange() {} }),
+      () =>
+        AgentEditor({
+          agent: current,
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
       (tree, pass) => {
         if (pass === 0) {
           current = { ...parent, name: 'Someone else', updatedAt: '2026-02-01' };
@@ -286,7 +307,13 @@ describe('expert editor regressions', () => {
   it('offers a default effort and clears a saved thinking limit with an explicit null', () => {
     const configured = { ...parent, effort: 'high' as const, maxThinkingTokens: 1024 };
     inspect(
-      () => AgentEditor({ agent: configured, onDirtyChange() {}, onPendingChange() {} }),
+      () =>
+        AgentEditor({
+          agent: configured,
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
       (tree, pass) => {
         if (pass === 0) {
           selectSection(tree, '行为');
@@ -399,19 +426,83 @@ describe('expert editor regressions', () => {
     });
   });
 
-  it('disables deletion on the config page while a save is in flight', () => {
-    inspect(AgentDetailPage, (tree, pass) => {
-      const editor = tree.find((node) => node.type === AgentEditor);
+  it('switches away from the config task without asking, because the config draft is kept', () => {
+    inspect(editor, (tree, pass) => {
       if (pass === 0) {
-        if (!editor) throw new Error('Missing editor');
-        (editor.props.onPendingChange as (pending: boolean) => void)(true);
+        const name = tree.find((node) => node.props.id === 'agent-name');
+        if (!name) throw new Error('Missing name field');
+        (name.props.onChange as (event: unknown) => void)({
+          target: { value: 'Kept draft' },
+        });
         return;
       }
-      const header = tree.find((node) => node.type === PageHeader);
-      const actions = elements(header?.props.actions as ReactNode);
-      expect(actions.find((node) => node.props['aria-label'] === '删除专家')?.props.disabled).toBe(
-        true,
-      );
+      if (pass !== 1) return;
+      const tabs = tree.find((node) => node.type === Tabs);
+      if (!tabs) throw new Error('Missing task tabs');
+      (tabs.props.onValueChange as (value: string) => void)('memory');
+    });
+    expect(state.search.tab).toBe('memory');
+  });
+
+  it('does not let the route blocker treat a task switch as leaving the page', () => {
+    inspect(editor, (tree, pass) => {
+      if (pass === 0) {
+        const name = tree.find((node) => node.props.id === 'agent-name');
+        if (!name) throw new Error('Missing name field');
+        (name.props.onChange as (event: unknown) => void)({ target: { value: 'draft' } });
+        return;
+      }
+      if (pass !== 1) return;
+      const options = state.blockerOptions.at(-1) as unknown as {
+        shouldBlockFn: (args: {
+          current: { pathname: string };
+          next: { pathname: string };
+        }) => boolean;
+      };
+      expect(
+        options.shouldBlockFn({
+          current: { pathname: '/agents/parent' },
+          next: { pathname: '/agents/parent' },
+        }),
+      ).toBe(false);
+      expect(
+        options.shouldBlockFn({
+          current: { pathname: '/agents/parent' },
+          next: { pathname: '/agents' },
+        }),
+      ).toBe(true);
+    });
+  });
+
+  it('reads the task and section from the URL', () => {
+    state.search = { tab: 'files', file: '.mcp.json' };
+    inspect(editor, (tree) => {
+      const files = tree.find((node) => node.props['aria-label'] === '工作区文件');
+      expect(files).toBeDefined();
+    });
+  });
+
+  it('switches tasks immediately when nothing is unsaved', () => {
+    inspect(editor, (tree, pass) => {
+      if (pass === 0) {
+        const tabs = tree.find((node) => node.type === Tabs);
+        if (!tabs) throw new Error('Missing task tabs');
+        (tabs.props.onValueChange as (value: string) => void)('rules');
+        return;
+      }
+      const confirmation = tree.find((node) => node.type === ConfirmDialog && node.props.open);
+      expect(confirmation).toBeUndefined();
+    });
+    expect(state.search.tab).toBe('rules');
+  });
+
+  it('disables the more menu while a save is in flight', () => {
+    state.saving = true;
+    inspect(editor, (tree) => {
+      const trigger = tree.find((node) => node.type === DropdownMenuTrigger);
+      const rendered = trigger?.props.render as Element | undefined;
+      expect(rendered?.props['aria-label']).toBe('更多操作');
+      expect(rendered?.props.disabled).toBe(true);
     });
   });
 
@@ -533,15 +624,15 @@ describe('expert editor regressions', () => {
       expect(index).toBeGreaterThanOrEqual(0);
       if (pass === 0) {
         position = index;
-        const header = tree.find((node) => node.type === PageHeader);
-        const trigger = elements(header?.props.actions as ReactNode).find(
-          (node) => node.props['aria-label'] === '删除专家',
-        );
-        if (!trigger) throw new Error('Missing delete action');
-        (trigger.props.onClick as () => void)();
+        const editor = tree.find((node) => node.type === AgentEditor);
+        if (!editor) throw new Error('Missing editor');
+        (editor.props.onDeleteRequest as () => void)();
         return;
       }
-      expect(children[index]?.props.open).toBe(true);
+      const confirmation = tree.find(
+        (node) => node.type === ConfirmDialog && String(node.props.title).startsWith('删除专家'),
+      );
+      expect(confirmation?.props.open).toBe(true);
       expect(index).toBe(position);
     });
   });

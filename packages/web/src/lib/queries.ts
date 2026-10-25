@@ -6,7 +6,6 @@ import type {
   ApiTool,
   ApiToolInput,
   Attention,
-  BoardSummary,
   ChatRequest,
   ConnectorCatalogItem,
   EvalDataset,
@@ -109,13 +108,6 @@ export const attentionQuery = queryOptions<Attention>({
   queryFn: api.attention,
   refetchInterval: 15_000,
 });
-
-export const boardSummaryQuery = (days = 30) =>
-  queryOptions<BoardSummary>({
-    queryKey: ['board-summary', days],
-    queryFn: () => api.boardSummary(days),
-    staleTime: 15_000,
-  });
 
 export const schedulesQuery = queryOptions<Schedule[]>({
   queryKey: ['schedules'],
@@ -291,6 +283,7 @@ export function useConversation(conversationId: string | null) {
       return {
         conversation: first.conversation,
         messages: data.pages.toReversed().flatMap((page) => page.messages),
+        runMetrics: data.pages.flatMap((page) => page.runMetrics),
         nextBefore: data.pages.at(-1)?.nextBefore ?? null,
       };
     },

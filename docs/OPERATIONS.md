@@ -391,7 +391,7 @@ docker ps --filter name=agentport-
 | api 日志 | pino JSON（生产）/ pino-pretty（开发）；按路由模板记录，>2s 记 `slow request`，SSE 不打慢请求 | stdout |
 | worker 日志 | 结构化 JSON；每步带 `runId`，容器 stderr 以 `sandbox` 字段转发 | stdout |
 
-审计动作包括：`auth.login.succeeded`、`auth.login.failed`、`auth.logout`、`server.created/updated/deleted`、`mcp.server.tested`、`server.tool.created/updated/deleted`、`agent.created/updated/deleted/rolled_back/imported`、`skill.created/updated/deleted/imported`、`agent.run.requested/approved/cancelled/finished`、`conversation.branched/renamed`、`eval.case.created/updated/deleted`、`eval.cases.imported`、`eval.run.requested/cancelled`、`maintenance.pruned`。审计只存输入摘要（SHA-256 前 32 位），不存原文。
+审计动作包括：`auth.login.succeeded`、`auth.login.failed`、`auth.logout`、`server.created/updated/deleted`、`mcp.server.tested`、`server.tool.created/updated/deleted`、`agent.created/updated/deleted/rolled_back/imported`、`skill.created/updated/deleted/imported`、`agent.run.requested/approved/cancelled/finished`、`conversation.branched/renamed/deleted`、`eval.case.created/updated/deleted`、`eval.cases.imported`、`eval.run.requested/cancelled`、`maintenance.pruned`。审计只存输入摘要（SHA-256 前 32 位），不存原文。
 
 ## 7. 性能备注
 

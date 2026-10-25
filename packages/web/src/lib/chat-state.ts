@@ -3,7 +3,7 @@ import type { Conversation, ConversationDetail } from './api.js';
 
 export type ChatItem =
   | { id?: string; kind: 'user'; text: string; messageId?: string }
-  | { id?: string; kind: 'text'; text: string }
+  | { id?: string; kind: 'text'; text: string; runId?: string }
   | {
       id?: string;
       kind: 'tool';
@@ -16,6 +16,7 @@ export type ChatItem =
       /** 前端收到的时刻，用于显示耗时；历史消息没有。 */
       startedAt?: number;
       endedAt?: number;
+      runId?: string;
     }
   | { id?: string; kind: 'notice'; text: string; tone: 'ok' | 'error' | 'muted' };
 
@@ -135,11 +136,13 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
     }
 
     const blocks = Array.isArray(content) ? content : [content];
+    // 回复上挂着产生它的 run；渲染时据此给这一轮补读数行。
+    const run = message.runId ? { runId: message.runId } : {};
     for (const [blockIndex, block] of blocks.entries()) {
       const id = `${message.id}:${blockIndex}`;
       const text = blockText(block);
       if (text !== null) {
-        items.push({ id, kind: 'text', text });
+        items.push({ id, kind: 'text', text, ...run });
         continue;
       }
       if (typeof block !== 'object' || block === null) continue;
@@ -156,6 +159,7 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
                 : crypto.randomUUID(),
           name: typeof record.name === 'string' ? record.name : '未知工具',
           input: JSON.stringify(record.input ?? {}, null, 2),
+          ...run,
           ...(typeof record.parentToolUseId === 'string'
             ? { parentToolUseId: record.parentToolUseId }
             : {}),
@@ -294,6 +298,15 @@ export function upsertLocalConversation(conversation: LocalConversation): void {
     localStorage.setItem(STORE_KEY, JSON.stringify(next.slice(0, 100)));
   } catch {
     // 隐私模式或配额已满：历史索引只是便利功能，不阻断对话。
+  }
+}
+
+export function removeLocalConversation(id: string): void {
+  const next = loadLocalConversations().filter((conversation) => conversation.id !== id);
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(next));
+  } catch {
+    // 隐私模式或配额已满：索引清理失败不影响服务端删除结果。
   }
 }
 

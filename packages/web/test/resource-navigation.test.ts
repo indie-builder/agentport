@@ -16,7 +16,9 @@ const state = vi.hoisted(() => ({
   blocker: undefined as { shouldBlockFn: () => boolean; enableBeforeUnload: boolean } | undefined,
 }));
 vi.mock('@tanstack/react-router', () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => (options: { search?: (current: Record<string, unknown>) => object }) => {
+    Object.assign(state.search, options.search?.(state.search) ?? {});
+  },
   useSearch: () => state.search,
   Link: 'a',
   useBlocker: (options: typeof state.blocker) => {
@@ -250,7 +252,12 @@ describe('conflict recovery', () => {
       callbacks.onError(new ApiError(409, 'Changed')),
     );
     const render = () =>
-      AgentEditor({ agent, onDelete() {}, onDirtyChange() {}, onPendingChange() {} });
+      AgentEditor({
+        agent,
+        onDirtyChange() {},
+        onPendingChange() {},
+        onDeleteRequest() {},
+      });
     inspect(render, (tree, pass) => {
       if (pass === 0) {
         const name = required(tree, (node) => node.props.id === 'agent-name');

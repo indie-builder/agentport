@@ -10,6 +10,7 @@ import { Input } from '../src/components/ui/input.js';
 import { Select } from '../src/components/ui/select.js';
 import { Switch } from '../src/components/ui/switch.js';
 import { Textarea } from '../src/components/ui/textarea.js';
+import { Toggle } from '../src/components/ui/toggle.js';
 import { AgentEditor, AgentsPage } from '../src/pages/agents.js';
 import { ServersPage } from '../src/pages/servers.js';
 
@@ -22,12 +23,17 @@ vi.mock('@/components/ui/label', () => import('../src/components/ui/label.js'));
 vi.mock('@/components/ui/separator', () => import('../src/components/ui/separator.js'));
 vi.mock('@tanstack/react-router', () => ({
   useBlocker: () => ({ status: 'idle' }),
-  useNavigate: () => () => {},
-  useSearch: () => ({}),
+  useNavigate: () => (options: { search?: (current: Record<string, unknown>) => object }) => {
+    Object.assign(state.search, options.search?.(state.search) ?? {});
+  },
+  useSearch: () => state.search,
   Link: 'a',
 }));
 
-const state = vi.hoisted(() => ({ saving: false }));
+const state = vi.hoisted(() => ({
+  saving: false,
+  search: {} as Record<string, string | undefined>,
+}));
 vi.mock('../src/lib/queries.js', async (original) => {
   const queries = await original<typeof import('../src/lib/queries.js')>();
   return {
@@ -117,9 +123,9 @@ function inspect(
 function editor() {
   return AgentEditor({
     agent,
-    onDelete: () => {},
     onDirtyChange: () => {},
     onPendingChange: () => {},
+    onDeleteRequest: () => {},
   });
 }
 // 三栏布局一次只挂载一个分区：探针先点中栏的分区按钮把它切出来。
@@ -154,6 +160,7 @@ function text(tree: Element[]) {
 afterEach(() => {
   for (const queryClient of clients.splice(0)) queryClient.clear();
   state.saving = false;
+  state.search = {};
   vi.restoreAllMocks();
 });
 
@@ -224,7 +231,9 @@ describe('resource async state regressions', () => {
               node.props['data-disabled'] === true || node.props['data-disabled'] === 'true',
           ),
       ).toBe(true);
-      const permissions = tree.filter((node) => node.props['aria-pressed'] !== undefined);
+      const permissions = tree.filter(
+        (node) => node.type === Toggle && node.props.pressed !== undefined,
+      );
       expect(permissions.length).toBeGreaterThan(0);
       expect(permissions.every((node) => node.props.disabled === true)).toBe(true);
     });

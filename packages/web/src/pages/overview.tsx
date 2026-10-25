@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Activity, ArrowRight, Bot, Plus, Server, Sparkles } from 'lucide-react';
+import { Activity, Bot, Plus, Server, Sparkles } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, XAxis } from 'recharts';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
@@ -42,7 +42,7 @@ import {
   useOverviewTimeseries,
   useRuns,
 } from '../lib/queries.js';
-import { AttentionPanel, BoardSummaryCards } from './ops.js';
+import { AttentionPanel } from './ops.js';
 
 const agentColumns: DataColumn<OverviewAgentRow>[] = [
   {
@@ -248,64 +248,28 @@ function HealthLine() {
     );
   }
   const queue = data.queue;
-  const degraded = (queue?.failed ?? 0) > 0 || (queue?.waiting ?? 0) > 5;
+  // 正常的运维数字不占首页；只有积压、失败或指标缺失才需要在这里出现。
+  const queueIssue = queue === null || (queue?.failed ?? 0) > 0 || (queue?.waiting ?? 0) > 5;
+  const redisIssue = data.redis === null || data.redis === undefined;
+  if (!queueIssue && !redisIssue) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-2xs tabular-nums text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-2xs tabular-nums text-warning">
       {queue ? (
         <span>
-          队列 <span className={cn(degraded && 'text-warning')}>{queue.waiting}</span> 等待 /{' '}
-          {queue.active} 运行
+          队列 {queue.waiting} 等待 / {queue.active} 运行
+          {queue.failed ? ` / ${queue.failed} 失败` : ''}
         </span>
       ) : (
         <span>队列指标不可用</span>
       )}
-      <span>Redis {data.redis?.pingMs ?? '—'} ms</span>
-      <span>RSS {(data.process.memoryRssBytes / 1024 / 1024).toFixed(0)} MB</span>
+      {redisIssue ? <span>Redis 指标不可用</span> : null}
       <Link
         to="/status"
         className="text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
       >
-        详情
+        查看健康
       </Link>
     </div>
-  );
-}
-
-interface AttentionItem {
-  id: string;
-  tone: 'danger' | 'warning';
-  title: string;
-  detail: string;
-  runId: string;
-}
-
-function AttentionRow({ item }: { item: AttentionItem }) {
-  return (
-    <Link
-      to="/runs/$runId"
-      params={{ runId: item.runId }}
-      className="group flex min-h-14 items-center gap-3 border-b px-2.5 py-3 last:border-b-0 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          'size-1.5 shrink-0 rounded-full',
-          item.tone === 'danger' ? 'bg-danger' : 'bg-warning',
-        )}
-      />
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-fg [overflow-wrap:anywhere]">
-          {item.title}
-        </span>
-        <span className="block text-2xs text-muted-foreground [overflow-wrap:anywhere]">
-          {item.detail}
-        </span>
-      </span>
-      <ArrowRight
-        aria-hidden="true"
-        className="size-3.5 shrink-0 text-muted-foreground group-hover:text-fg"
-      />
-    </Link>
   );
 }
 
@@ -411,17 +375,6 @@ export function OverviewPage() {
     (counts.running ?? 0) === 0 &&
     recent?.length === 0;
 
-  const failures = (recent ?? []).filter(
-    (run) => run.status === 'failed' || run.status === 'timeout',
-  );
-  const attention: AttentionItem[] = failures.slice(0, 5).map((run) => ({
-    id: run.id,
-    tone: run.status === 'timeout' ? 'warning' : 'danger',
-    title: `${run.agentName ?? '已删除的专家'} · ${run.status === 'timeout' ? '超时' : '失败'}`,
-    detail: run.error ?? `${formatRelative(run.startedAt)} · ${shortId(run.id)}`,
-    runId: run.id,
-  }));
-
   const windowLabel = overview.data?.window
     ? `最近 ${overview.data.window.days} 天`
     : '统计窗口未提供';
@@ -468,159 +421,94 @@ export function OverviewPage() {
 
       {!loading && !error && !empty ? (
         <>
-          <BoardSummaryCards />
-          <AttentionPanel />
-          <section
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
-            aria-label="平台概况"
-          >
-            {[
-              { label: '专家', value: counts.agents, hint: null, icon: Bot },
-              { label: '连接器', value: counts.servers, hint: null, icon: Server },
-              {
-                label: '运行次数',
-                value: counts.runs ?? '—',
-                hint:
-                  counts.runs === null || counts.runs === undefined
-                    ? windowLabel
-                    : `${windowLabel} · ${failedCount} 次失败`,
-                icon: Activity,
-              },
-              {
-                label: '运行成本',
-                value: counts.costUsd === undefined ? '—' : formatCost(counts.costUsd),
-                hint:
-                  counts.tokens === undefined
-                    ? windowLabel
-                    : `${windowLabel} · ${formatTokens(counts.tokens)} tokens`,
-                icon: Sparkles,
-              },
-            ].map(({ label, value, hint, icon: Icon }) => (
-              <Card key={label}>
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-normal text-muted-foreground">{label}</span>
-                    <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2">
-                  <span className="min-w-0 break-words text-lg font-medium tabular-nums text-fg [overflow-wrap:anywhere]">
-                    {value}
-                  </span>
-                  {hint ? <CardDescription>{hint}</CardDescription> : null}
-                </CardContent>
-              </Card>
-            ))}
+          <section className="flex flex-col gap-3" aria-label="平台概况">
+            <p className="text-xs text-muted-foreground">{windowLabel}</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                {
+                  label: '运行次数',
+                  value: counts.runs ?? '—',
+                  hint:
+                    counts.runs === null || counts.runs === undefined
+                      ? null
+                      : failedCount > 0
+                        ? `${failedCount} 次失败`
+                        : null,
+                  icon: Activity,
+                },
+                {
+                  label: '运行成本',
+                  value: counts.costUsd === undefined ? '—' : formatCost(counts.costUsd),
+                  hint:
+                    counts.tokens === undefined || counts.tokens === 0
+                      ? null
+                      : `${formatTokens(counts.tokens)} tokens`,
+                  icon: Sparkles,
+                },
+                { label: '专家', value: counts.agents, hint: null, icon: Bot },
+                { label: '连接器', value: counts.servers, hint: null, icon: Server },
+              ].map(({ label, value, hint, icon: Icon }) => (
+                <Card key={label}>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-normal text-muted-foreground">{label}</span>
+                      <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-2">
+                    <span className="min-w-0 break-words text-3xl font-medium tabular-nums text-fg [overflow-wrap:anywhere]">
+                      {value}
+                    </span>
+                    {hint ? <CardDescription>{hint}</CardDescription> : null}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </section>
 
           <RunTrendCard />
 
-          <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-            <PageSection
-              title="最近运行"
-              divided={false}
-              {...(counts.running ? { description: `${counts.running} 个正在运行` } : {})}
-              actions={
-                <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                  查看运行
-                </Link>
-              }
-            >
-              {runsError ? (
-                <ErrorState error={runsError} onRetry={() => void runs.refetch()} />
-              ) : runsSource && runs.isPending ? (
-                <LoadingState rows={3} />
-              ) : recent && recent.length > 0 ? (
-                <DataTable
-                  rows={recent.slice(0, 6)}
-                  columns={runColumns}
-                  rowKey={(run) => run.id}
-                  label="最近运行"
-                  storageKey="pace.overview.run-columns"
-                  onRowClick={(run) =>
-                    void navigate({ to: '/runs/$runId', params: { runId: run.id } })
-                  }
-                />
-              ) : (
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-5 text-sm">
-                  <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
-                    <Plus className="size-3.5" aria-hidden="true" /> 新建对话
-                  </Link>
-                </div>
-              )}
-            </PageSection>
-
-            <div className="flex min-w-0 flex-col gap-5">
-              <PageSection
-                title="最近失败运行"
-                divided={false}
-                description={recent ? `最近 ${recent.length} 条运行` : ''}
-              >
-                {runsError ? (
-                  <ErrorState error={runsError} onRetry={() => void runs.refetch()} />
-                ) : runsSource && runs.isPending ? (
-                  <LoadingState rows={2} />
-                ) : attention.length > 0 ? (
-                  <div>
-                    {attention.slice(0, 3).map((item) => (
-                      <AttentionRow key={item.id} item={item} />
-                    ))}
-                  </div>
-                ) : failedCount > 0 && recent ? (
-                  <PageNote
-                    tone="danger"
-                    title={`窗口内有 ${failedCount} 次失败运行`}
-                    description="当前记录中没有失败；到运行列表查看其他记录"
-                    action={
-                      <Link
-                        to="/runs"
-                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                      >
-                        查看运行
-                      </Link>
-                    }
-                  />
-                ) : (
-                  <PageNote title="暂无失败运行" />
-                )}
-              </PageSection>
-              <PageSection title="快捷入口">
-                <div className="flex flex-col">
-                  {[
-                    {
-                      to: '/agents',
-                      label: '管理专家',
-                      icon: Bot,
-                    },
-                    {
-                      to: '/skills',
-                      label: '管理技能',
-                      icon: Sparkles,
-                    },
-                    {
-                      to: '/servers',
-                      label: '管理连接器',
-                      icon: Server,
-                    },
-                  ].map(({ to, label, icon: Icon }) => (
-                    <Link
-                      key={to}
-                      to={to}
-                      className="flex min-h-14 min-w-0 items-center gap-3 rounded-item px-2.5 hover:bg-hover"
-                    >
-                      <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                      <span className="min-w-0 flex-1 text-sm font-medium">{label}</span>
-                      <ArrowRight className="size-4 text-muted-foreground" aria-hidden="true" />
-                    </Link>
-                  ))}
-                </div>
-              </PageSection>
-            </div>
-          </div>
+          <PageSection title="需要处理" divided={false}>
+            <AttentionPanel hideTitle />
+          </PageSection>
 
           <PageSection
-            title="专家运行概况"
-            description={windowLabel}
+            title="最近运行"
+            divided={false}
+            {...(counts.running ? { description: `${counts.running} 个正在运行` } : {})}
+            actions={
+              <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                查看运行
+              </Link>
+            }
+          >
+            {runsError ? (
+              <ErrorState error={runsError} onRetry={() => void runs.refetch()} />
+            ) : runsSource && runs.isPending ? (
+              <LoadingState rows={3} />
+            ) : recent && recent.length > 0 ? (
+              <DataTable
+                rows={recent.slice(0, 6)}
+                columns={runColumns}
+                rowKey={(run) => run.id}
+                label="最近运行"
+                storageKey="pace.overview.run-columns"
+                onRowClick={(run) =>
+                  void navigate({ to: '/runs/$runId', params: { runId: run.id } })
+                }
+              />
+            ) : (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-5 text-sm">
+                <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                  <Plus className="size-3.5" aria-hidden="true" /> 新建对话
+                </Link>
+              </div>
+            )}
+          </PageSection>
+
+          <PageSection
+            title="专家运行"
+            divided={false}
             actions={
               <Link to="/agents" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
                 管理专家

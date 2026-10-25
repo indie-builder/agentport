@@ -13,9 +13,12 @@ import {
   LoaderCircle,
   MessageSquare,
   MoreHorizontal,
+  PanelLeftDashed,
+  PanelRightDashed,
   Pencil,
   Plus,
   RefreshCw,
+  Trash2,
   Wrench,
   X,
 } from 'lucide-react';
@@ -32,7 +35,8 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
+import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
+import { AgentAvatar } from '../components/agent-avatar.js';
 import { CollapsibleText, JsonBlock, LARGE_CONTENT_CHARS } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -47,6 +51,15 @@ import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+} from '../components/ui/combobox.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   DropdownMenu,
@@ -71,15 +84,8 @@ import {
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
+  useMessageScroller,
 } from '../components/ui/message-scroller.js';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select.js';
 import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
 import {
@@ -88,6 +94,7 @@ import {
   loadLocalConversations,
   localConversation,
   mergeOlderHistory,
+  removeLocalConversation,
   titleFromDetail,
   toolFailed,
   upsertLocalConversation,
@@ -100,7 +107,7 @@ import {
 } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
-import { formatDuration, formatRelative } from '../lib/format.js';
+import { formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
 import {
   useAgents,
   useConversation,
@@ -219,16 +226,18 @@ const STILL = { duration: 0 } as const;
 
 /** 与 Tailwind 的 lg 断点一致：只有这一侧需要可拖拽分栏。 */
 const DESKTOP = '(min-width: 64rem)';
+/** 与 Tailwind 的 xl 断点一致：更窄时右侧工作区改走抽屉，不挤压对话。 */
+const WIDE = '(min-width: 80rem)';
 
-function useDesktop(): boolean {
-  const [desktop, setDesktop] = useState(() => window.matchMedia(DESKTOP).matches);
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
-    const query = window.matchMedia(DESKTOP);
-    const onChange = (): void => setDesktop(query.matches);
-    query.addEventListener('change', onChange);
-    return () => query.removeEventListener('change', onChange);
-  }, []);
-  return desktop;
+    const media = window.matchMedia(query);
+    const onChange = (): void => setMatches(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, [query]);
+  return matches;
 }
 
 function ChatWorkspace({
@@ -245,6 +254,11 @@ function ChatWorkspace({
   onAgentChange: (agentId: string) => void;
 }) {
   const agent = agents.find((item) => item.id === agentId) ?? null;
+  const agentOptions = agents.map((item) => ({
+    value: item.id,
+    label: item.name,
+    agent: item,
+  }));
   const items = useChatStore((state) => state.items);
   const run = useChatStore((state) => state.run);
   const lastRun = useChatStore((state) => state.lastRun);
@@ -257,17 +271,34 @@ function ChatWorkspace({
   // 本地索引只有两条写路径（新会话被接收、历史会话被打开），统一走这里刷新。
   const refreshLocal = useCallback(() => setLocal(loadLocalConversations()), []);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const historyTriggerRef = useRef<HTMLButtonElement>(null);
-  // 记下真正发起重命名的条目与菜单触发器：菜单卸载后，对话框关闭时焦点要回到它。
+  const workspaceToggleRef = useRef<HTMLButtonElement>(null);
+  // 记下真正发起操作的菜单触发器：菜单与对话框卸载后，焦点要回到它。
   const [renaming, setRenaming] = useState<{ entry: HistoryEntry; trigger: HTMLElement } | null>(
     null,
   );
-  const desktop = useDesktop();
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    title: string;
+    trigger: HTMLElement;
+  } | null>(null);
+  const desktop = useMediaQuery(DESKTOP);
+  const wide = useMediaQuery(WIDE);
 
   const conversations = useConversations(agentId);
   const detail = useConversation(conversationId);
   const runApprovals = useRunApprovals(run?.runId || lastRunId, Boolean(run?.runId));
-  const historyLayout = useDefaultLayout({ id: 'chat-history' });
+  const historyLayout = useDefaultLayout({ id: 'chat-history-v2' });
+  const historyPanelRef = usePanelRef();
+  // 历史默认隐藏：每次进入都从折叠态开始。
+  const [historyCollapsed, setHistoryCollapsed] = useState(true);
+  // 零宽面板没有「上次宽度」可恢复，自己记住最后一个正宽度。
+  // 存储里是百分比（随分组宽度自适应），首次进入没有存储时按设计规范的 240px。
+  const storedHistoryPct = historyLayout.defaultLayout?.history ?? 0;
+  const lastHistorySize = useRef(
+    storedHistoryPct > 0 ? (`${storedHistoryPct}%` as const) : ('240px' as const),
+  );
+  // 右侧工作区展示会话成果，与历史列表互相独立。
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
 
   // 空数组也要稳定：否则轮询之外的重渲染会给工具行换一个新身份。
   const approvalData = useMemo(() => runApprovals.data?.items ?? [], [runApprovals.data]);
@@ -371,6 +402,22 @@ function ChatWorkspace({
     onError: (error) => toastError(error),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteConversation(id),
+    onSuccess: (_data, id) => {
+      void client.invalidateQueries({ queryKey: ['conversations'] });
+      void client.invalidateQueries({ queryKey: ['conversation', id] });
+      // 级联删除了该会话的运行记录，运行列表与概况跟着刷新。
+      void client.invalidateQueries({ queryKey: ['runs'] });
+      void client.invalidateQueries({ queryKey: ['overview'] });
+      removeLocalConversation(id);
+      refreshLocal();
+      if (id === conversationId) newConversation();
+      toastSuccess('会话已删除');
+    },
+    // 失败交给 ConfirmDialog 统一提示：保留当前会话与草稿，对话框可重试。
+  });
+
   const cancel = (): void => {
     // 没有 runId 时后端还没有可取消的 run；按钮也不会显示。
     if (!run?.runId) return;
@@ -464,6 +511,7 @@ function ChatWorkspace({
   }, [detail.data, refreshLocal]);
 
   const switchAgent = (id: string): void => {
+    if (id === agentId) return;
     stream.closeStream();
     stream.hydratedRef.current = null;
     useChatStore.getState().resetConversation(null);
@@ -488,12 +536,29 @@ function ChatWorkspace({
     />
   );
 
+  const title = conversationId && detail.data ? titleFromDetail(detail.data) : '未命名会话';
+
   const column = (
     <ChatColumn
       agent={agent}
-      agentId={agentId}
-      agents={agents}
-      onSwitchAgent={switchAgent}
+      workspaceOpen={workspaceOpen}
+      workspacePanelId="chat-workspace"
+      onToggleWorkspace={() => {
+        if (workspaceOpen) workspaceToggleRef.current?.focus();
+        setWorkspaceOpen(!workspaceOpen);
+      }}
+      workspaceToggleRef={workspaceToggleRef}
+      historyVisible={!historyCollapsed}
+      historyPanelId="chat-history"
+      onToggleHistory={() => {
+        if (desktop) {
+          if (historyCollapsed) historyPanelRef.current?.resize(lastHistorySize.current);
+          else historyPanelRef.current?.collapse();
+          setHistoryCollapsed(!historyCollapsed);
+        } else {
+          setHistoryOpen(!historyOpen);
+        }
+      }}
       conversationId={conversationId}
       detail={detail}
       historyReady={conversationId === null || hydrated.current === conversationId}
@@ -509,7 +574,6 @@ function ChatWorkspace({
       approvalItems={approvalData}
       onApprove={approve}
       onCancel={cancel}
-      onOpenHistory={() => setHistoryOpen(true)}
       onPickSuggestion={(text) => {
         setInput(text);
         composerRef.current?.focus();
@@ -524,7 +588,18 @@ function ChatWorkspace({
       showWelcome={showWelcome}
       send={stream.send}
       composerRef={composerRef}
-      historyTriggerRef={historyTriggerRef}
+      title={title}
+      deleting={deleteMutation.isPending}
+      onRename={(trigger) => {
+        if (conversationId)
+          setRenaming({ entry: { id: conversationId, title, updatedAt: '' }, trigger });
+      }}
+      onFork={() => {
+        if (conversationId) branch(conversationId);
+      }}
+      onDelete={(trigger) => {
+        if (conversationId) setDeleteTarget({ id: conversationId, title, trigger });
+      }}
     />
   );
 
@@ -536,6 +611,24 @@ function ChatWorkspace({
       onRename={(title) => renameMutation.mutate({ id: renaming.entry.id, title })}
       // 菜单项随菜单卸载；触发器还在就回到它，否则交给 Base UI 的默认落点。
       finalFocus={() => (renaming.trigger.isConnected ? renaming.trigger : null)}
+    />
+  ) : null;
+
+  // ConfirmDialog 自己处理 pending 与失败提示；成功后关闭对话框。
+  const deleteDialog = deleteTarget ? (
+    <ConfirmDialog
+      open
+      onClose={() => setDeleteTarget(null)}
+      title="删除会话？"
+      description={`「${deleteTarget.title}」及其消息、运行记录会被永久删除，无法恢复。`}
+      confirmLabel="删除会话"
+      onConfirm={() => deleteMutation.mutateAsync(deleteTarget.id)}
+      // 删除成功后会话已切换，触发器随之禁用：焦点交给输入框，其余情况回菜单按钮。
+      finalFocus={() =>
+        deleteTarget.trigger.isConnected && !deleteTarget.trigger.matches(':disabled')
+          ? deleteTarget.trigger
+          : composerRef.current
+      }
     />
   ) : null;
 
@@ -578,14 +671,40 @@ function ChatWorkspace({
           side="left"
           showCloseButton={false}
           aria-describedby={undefined}
-          finalFocus={historyTriggerRef}
           className="w-[294px]! max-w-full! gap-5 p-0"
         >
           <SheetTitle className="sr-only">会话历史</SheetTitle>
-          <HistoryHeader onNew={newConversation} onClose={() => setHistoryOpen(false)} />
+          <HistoryHeader
+            onNew={newConversation}
+            onClose={() => setHistoryOpen(false)}
+            agent={agent}
+            agentId={agentId}
+            agentOptions={agentOptions}
+            onSwitchAgent={switchAgent}
+          />
           {historyPanel}
           {/* 必须挂在抽屉的 React 子树里：否则抽屉会把重命名对话框的 portal 当成外部节点隐藏。 */}
           {desktop ? null : renameDialog}
+        </SheetContent>
+      </Sheet>
+
+      {/* 右工作区：宽屏内联旁栏，窄屏走抽屉；与历史互不影响。 */}
+      <Sheet
+        open={workspaceOpen && !wide}
+        onOpenChange={(open) => {
+          // 关闭时立刻把焦点交回开关，不等退场动画（finalFocus 在动画后才生效）。
+          if (!open) workspaceToggleRef.current?.focus();
+          setWorkspaceOpen(open);
+        }}
+      >
+        <SheetContent
+          side="right"
+          aria-describedby={undefined}
+          finalFocus={workspaceToggleRef}
+          className="w-[320px]! max-w-full! gap-0 p-0"
+        >
+          <SheetTitle className="sr-only">会话成果</SheetTitle>
+          <WorkspacePanel />
         </SheetContent>
       </Sheet>
 
@@ -593,28 +712,69 @@ function ChatWorkspace({
         <div className="flex min-h-0 w-full">
           <Group
             orientation="horizontal"
-            defaultLayout={historyLayout.defaultLayout}
-            onLayoutChanged={historyLayout.onLayoutChanged}
+            defaultLayout={{ ...historyLayout.defaultLayout, history: 0, chat: 100 }}
+            // 折叠/展开是程序化改尺寸，写回存储只会把宽度记成 0；只持久化用户拖拽的结果。
+            onLayoutChanged={(layout, meta) => {
+              if (meta.isUserInteraction) historyLayout.onLayoutChanged(layout, meta);
+            }}
           >
-            <Panel id="history" defaultSize={240} minSize={200} maxSize={360}>
-              <aside
-                className="flex h-full min-w-0 flex-col gap-3 overflow-hidden bg-canvas/40"
-                aria-label="会话历史"
-              >
-                <HistoryHeader onNew={newConversation} />
-                {historyPanel}
-              </aside>
+            <Panel
+              id="history"
+              defaultSize={0}
+              minSize={200}
+              maxSize={360}
+              collapsible
+              collapsedSize={0}
+              panelRef={historyPanelRef}
+              onResize={(size) => {
+                if (size.asPercentage > 0 && !historyCollapsed) {
+                  lastHistorySize.current = `${size.asPercentage}%`;
+                }
+                setHistoryCollapsed(size.inPixels === 0);
+              }}
+            >
+              {/* 隐藏时整块不渲染：零宽面板不该留下可聚焦内容，也避免出现第二个 h1。 */}
+              {historyCollapsed ? null : (
+                <aside
+                  id="chat-history"
+                  // 与对话内容同属一个工作区：纸白底，只用分隔线区分，不做成独立面板。
+                  className="flex h-full min-w-0 flex-col gap-3 overflow-hidden bg-surface"
+                  aria-label="会话历史"
+                >
+                  <HistoryHeader
+                    onNew={newConversation}
+                    agent={agent}
+                    agentId={agentId}
+                    agentOptions={agentOptions}
+                    onSwitchAgent={switchAgent}
+                  />
+                  {historyPanel}
+                </aside>
+              )}
             </Panel>
-            <Separator className="w-px border-r" aria-label="调整会话列表宽度" />
+            <Separator
+              disabled={historyCollapsed}
+              className={historyCollapsed ? 'hidden' : 'w-px border-r'}
+              aria-label="调整会话列表宽度"
+            />
             <Panel id="chat" minSize={400}>
-              {column}
+              <div className="flex h-full min-h-0">
+                <div className="relative min-w-0 flex-1">{column}</div>
+                {workspaceOpen && wide ? <WorkspacePanel inline /> : null}
+              </div>
             </Panel>
           </Group>
           {renameDialog}
+          {deleteDialog}
         </div>
       ) : (
-        // 窄屏没有分栏：主列直接占满整行。
-        <div className="flex min-h-0 min-w-0 flex-1">{column}</div>
+        // 窄屏没有分栏：标题与开关由内容区的 56px 头部承担，这里不再重复可见标题。
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {column}
+          {/* 抽屉打开时重命名由抽屉子树渲染，避免门户被遮挡；这里补上头部触发的对话框。 */}
+          {historyOpen ? null : renameDialog}
+          {deleteDialog}
+        </div>
       )}
     </div>
   );
@@ -707,19 +867,37 @@ function RenameDialog({
   );
 }
 
-function HistoryHeader({ onNew, onClose }: { onNew: () => void; onClose?: () => void }) {
+function HistoryHeader({
+  onNew,
+  onClose,
+  agent,
+  agentId,
+  agentOptions,
+  onSwitchAgent,
+}: {
+  onNew: () => void;
+  onClose?: () => void;
+  agent?: AgentView | null;
+  agentId?: string | null;
+  agentOptions?: Array<{ value: string; label: string; agent?: AgentView }>;
+  onSwitchAgent?: (id: string) => void;
+}) {
   return (
-    <div className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
-      <span className="text-sm font-medium text-fg">对话记录</span>
-      <Button
-        variant="outline"
-        size="sm"
-        aria-label="新建会话"
-        className="ml-auto min-h-11 lg:min-h-0"
-        onClick={onNew}
-      >
-        <Plus data-icon="inline-start" />
-        新对话
+    <div className="flex h-14 shrink-0 items-center gap-1 px-3">
+      {agentOptions && onSwitchAgent ? (
+        <div className="min-w-0 flex-1">
+          <AgentPicker
+            agent={agent ?? null}
+            agentId={agentId ?? null}
+            agentOptions={agentOptions}
+            onSwitchAgent={onSwitchAgent}
+          />
+        </div>
+      ) : (
+        <div className="flex-1" />
+      )}
+      <Button variant="ghost" size="icon" aria-label="新建会话" title="新建会话" onClick={onNew}>
+        <Plus />
       </Button>
       {onClose ? (
         <Button
@@ -733,6 +911,105 @@ function HistoryHeader({ onNew, onClose }: { onNew: () => void; onClose?: () => 
         </Button>
       ) : null}
     </div>
+  );
+}
+
+/** 专家选择：在会话历史面板内；触发器是头像+名称+箭头的按钮，弹层内搜索。 */
+function AgentPicker({
+  agent,
+  agentId,
+  agentOptions,
+  onSwitchAgent,
+}: {
+  agent: AgentView | null;
+  agentId?: string | null;
+  agentOptions: Array<{ value: string; label: string; agent?: AgentView }>;
+  onSwitchAgent: (id: string) => void;
+}) {
+  return (
+    <Combobox
+      items={agentOptions}
+      value={agentOptions.find((option) => option.value === agentId) ?? null}
+      onValueChange={(next: (typeof agentOptions)[number] | null) => {
+        if (next) onSwitchAgent(next.value);
+      }}
+      itemToStringLabel={(option: (typeof agentOptions)[number]) => option.label}
+      itemToStringValue={(option: (typeof agentOptions)[number]) => option.value}
+      isItemEqualToValue={(a: (typeof agentOptions)[number], b: (typeof agentOptions)[number]) =>
+        a.value === b.value
+      }
+      filter={(option: (typeof agentOptions)[number], query: string) => {
+        const needle = query.trim().toLowerCase();
+        return `${option.label} ${option.agent?.role ?? ''}`.toLowerCase().includes(needle);
+      }}
+    >
+      <ComboboxTrigger
+        render={
+          <Button
+            variant="ghost"
+            aria-label="选择专家"
+            title="切换专家"
+            className="h-8 w-full min-w-0 justify-start gap-2 px-2 font-normal"
+          >
+            {agent ? (
+              <AgentAvatar agent={agent} className="size-5" />
+            ) : (
+              <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
+            )}
+            <span className="min-w-0 flex-1 truncate text-left text-sm text-fg">
+              {agent?.name ?? '选择专家'}
+            </span>
+          </Button>
+        }
+      />{' '}
+      <ComboboxContent className="min-w-[16rem]">
+        <ComboboxInput
+          aria-label="搜索专家"
+          placeholder="搜索名称或角色…"
+          showTrigger={false}
+          className="w-full"
+        />
+        <ComboboxEmpty>没有匹配的专家</ComboboxEmpty>
+        <ComboboxList>
+          {(option: (typeof agentOptions)[number]) => (
+            <ComboboxItem key={option.value} value={option} className="items-start gap-2 py-1.5">
+              {option.agent ? (
+                <AgentAvatar agent={option.agent} className="mt-0.5 size-6" />
+              ) : (
+                <Bot className="mt-1 size-4 text-muted-foreground" aria-hidden="true" />
+              )}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm text-fg">{option.label}</span>
+                <span className="truncate text-2xs text-muted-foreground">
+                  {option.agent?.role?.trim() || '通用助手'}
+                </span>
+              </span>
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  );
+}
+
+/** 右侧工作区：会话成果的查看位置。目前会话还没有产出文件能力，先给空态。 */
+function WorkspacePanel({ inline = false }: { inline?: boolean }) {
+  return (
+    <aside
+      id={inline ? 'chat-workspace' : undefined}
+      aria-label="会话成果"
+      className={cn(
+        'flex h-full flex-col overflow-y-auto bg-surface',
+        inline ? 'w-[min(320px,40%)] shrink-0 border-l' : 'min-h-0 flex-1',
+      )}
+    >
+      <div className="flex shrink-0 items-center border-b px-3 py-2.5">
+        <h2 className="min-w-0 truncate text-sm font-medium text-fg">会话成果</h2>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <EmptyState title="当前会话没有成果文件" description="此处用于查看报告等会话成果。" />
+      </div>
+    </aside>
   );
 }
 
@@ -882,9 +1159,14 @@ function HistoryPanel({
 
 function ChatColumn({
   agent,
-  agentId,
-  agents,
-  onSwitchAgent,
+  title,
+  workspaceOpen,
+  workspacePanelId,
+  onToggleWorkspace,
+  workspaceToggleRef,
+  historyVisible,
+  historyPanelId,
+  onToggleHistory,
   conversationId,
   detail,
   historyReady,
@@ -900,7 +1182,6 @@ function ChatColumn({
   approvalItems,
   onApprove,
   onCancel,
-  onOpenHistory,
   onPickSuggestion,
   onBranchMessage,
   branchingMessageId,
@@ -910,12 +1191,20 @@ function ChatColumn({
   showWelcome,
   send,
   composerRef,
-  historyTriggerRef,
+  deleting,
+  onRename,
+  onFork,
+  onDelete,
 }: {
   agent: AgentView | null;
-  agentId: string | null;
-  agents: NonNullable<ReturnType<typeof useAgents>['data']>;
-  onSwitchAgent: (id: string) => void;
+  title: string;
+  workspaceOpen: boolean;
+  workspacePanelId: string;
+  onToggleWorkspace: () => void;
+  workspaceToggleRef: RefObject<HTMLButtonElement | null>;
+  historyVisible: boolean;
+  historyPanelId: string;
+  onToggleHistory: () => void;
   conversationId: string | null;
   detail: ReturnType<typeof useConversation>;
   historyReady: boolean;
@@ -931,7 +1220,6 @@ function ChatColumn({
   approvalItems: ApprovalRequest[];
   onApprove: (item: ApprovalRequest) => void;
   onCancel: () => void;
-  onOpenHistory: () => void;
   onPickSuggestion: (text: string) => void;
   onBranchMessage: (conversationId: string, messageId: string) => void;
   branchingMessageId: string | null;
@@ -941,8 +1229,12 @@ function ChatColumn({
   showWelcome: boolean;
   send: () => Promise<void>;
   composerRef: RefObject<HTMLTextAreaElement | null>;
-  historyTriggerRef: RefObject<HTMLButtonElement | null>;
+  deleting: boolean;
+  onRename: (trigger: HTMLElement) => void;
+  onFork: () => void;
+  onDelete: (trigger: HTMLElement) => void;
 }) {
+  const headerTriggerRef = useRef<HTMLElement | null>(null);
   const composer = (
     <Composer
       agent={agent}
@@ -951,6 +1243,8 @@ function ChatColumn({
       lastRunId={lastRunId}
       welcome={showWelcome}
       historyReady={historyReady}
+      cancelling={cancelling}
+      onCancel={onCancel}
     />
   );
 
@@ -961,106 +1255,154 @@ function ChatColumn({
     [approvalItems],
   );
   const approvals = useMemo(() => ({ pending: approving, onApprove }), [approving, onApprove]);
-
-  const agentOptions = agents.map((item) => ({ value: item.id, label: item.name }));
+  const runFooter = run ? <RunFooter run={run} items={items} onRetry={onRetryStream} /> : null;
+  // 历史轮次的读数由会话详情一次带回；运行中的 run 交给 runFooter，不在这里显示。
+  const historyMetrics = useMemo(() => {
+    const map = new Map<string, RunMetrics>();
+    for (const run of detail.data?.runMetrics ?? []) {
+      if (run.status === 'queued' || run.status === 'running') continue;
+      map.set(run.runId, {
+        runId: run.runId,
+        status: run.status,
+        ...(run.turns === null ? {} : { turns: run.turns }),
+        ...(run.durationMs === null ? {} : { durationMs: run.durationMs }),
+        ...(run.tokens === null ? {} : { tokens: run.tokens }),
+        ...(run.costUsd === null ? {} : { costUsd: run.costUsd }),
+        ...(run.error === null ? {} : { error: run.error }),
+        ...(run.endedAt === null ? {} : { endedAt: run.endedAt }),
+      });
+    }
+    return map;
+  }, [detail.data]);
 
   return (
-    <Page className="h-full min-h-0 flex-1 gap-0 overflow-hidden">
-      <PageHeader
-        title="对话"
-        className="min-h-14 shrink-0 gap-3 border-b px-4 pb-1.5 pt-1.5 lg:pb-3 lg:pt-3 [&_h1]:sr-only [&>div]:ml-0 [&>div]:min-w-0 [&>div>div]:min-w-0"
-        actions={
-          <>
-            <Button
-              ref={historyTriggerRef}
-              variant="outline"
-              size="icon"
-              aria-label="打开会话列表"
-              className="size-11 lg:hidden"
-              onClick={onOpenHistory}
+    <Page className="h-full min-h-0 flex-1 gap-0 overflow-hidden bg-surface">
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* 一条 56px 头部：左为历史开关，中间是当前会话标题与操作，右为工作区开关。 */}
+        <div className="flex h-14 shrink-0 items-center gap-2 px-4">
+          {/* 会话内的面板开关比导航折叠更轻：虚线面板图标，保持 32px 点击区与同一中心线。 */}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={historyVisible ? '隐藏会话历史' : '显示会话历史'}
+            title={historyVisible ? '隐藏会话历史' : '显示会话历史'}
+            aria-expanded={historyVisible}
+            aria-controls={historyPanelId}
+            onClick={onToggleHistory}
+            className="shrink-0 text-muted-foreground hover:text-fg"
+          >
+            <PanelLeftDashed />
+          </Button>
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <h1
+              title={title}
+              className="min-w-0 max-w-[60vw] truncate text-lg font-medium tracking-[-0.01em] text-fg lg:max-w-[8em]"
             >
-              <MessageSquare />
-            </Button>
-            <label className="sr-only" htmlFor="chat-agent">
-              选择专家
-            </label>
-            <Select
-              value={agentId ?? ''}
-              onValueChange={(next) => {
-                if (next !== null) onSwitchAgent(next);
-              }}
-              items={agentOptions}
-            >
-              <SelectTrigger
-                id="chat-agent"
-                className="min-w-0 max-w-56 [&>span:first-child]:truncate"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {agentOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </>
-        }
-      />
+              {title}
+            </h1>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="会话操作"
+                    title={conversationId ? '会话操作' : '先发送消息，保存会话后可操作'}
+                    disabled={!conversationId || deleting}
+                    // 菜单在 mousedown 打开；键盘打开时也要记下触发器以便对话框关闭后回焦。
+                    onMouseDown={(event) => {
+                      headerTriggerRef.current = event.currentTarget;
+                    }}
+                    onKeyDown={(event) => {
+                      headerTriggerRef.current = event.currentTarget;
+                    }}
+                    className="size-7 shrink-0 text-muted-foreground hover:text-fg"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="start" sideOffset={4} className="w-40">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    disabled={deleting}
+                    onClick={() => {
+                      const trigger = headerTriggerRef.current;
+                      if (trigger) onRename(trigger);
+                    }}
+                  >
+                    <Pencil /> 重命名
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={deleting} onClick={onFork}>
+                    <GitBranch /> Fork 会话
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={deleting}
+                    onClick={() => {
+                      const trigger = headerTriggerRef.current;
+                      if (trigger) onDelete(trigger);
+                    }}
+                  >
+                    <Trash2 /> 删除会话
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <Button
+            ref={workspaceToggleRef}
+            variant="ghost"
+            size="icon"
+            aria-label={workspaceOpen ? '隐藏工作区' : '显示工作区'}
+            title={workspaceOpen ? '隐藏工作区' : '显示工作区'}
+            aria-expanded={workspaceOpen}
+            aria-controls={workspacePanelId}
+            onClick={onToggleWorkspace}
+            className="shrink-0 text-muted-foreground hover:text-fg"
+          >
+            <PanelRightDashed />
+          </Button>
+        </div>
+        <MessagePane
+          items={items}
+          loading={detail.isPending && conversationId !== null && !run}
+          error={detail.isError ? detail.error : null}
+          onRetry={() => void detail.refetch()}
+          hasOlder={hasOlder}
+          loadingOlder={loadingOlder}
+          onLoadOlder={onLoadOlder}
+          olderDisabled={detail.isFetching || Boolean(run)}
+          approvals={approvals}
+          approvalItems={pendingApprovals}
+          lastRun={lastRun}
+          historyMetrics={historyMetrics}
+          runFooter={runFooter}
+          onBranchMessage={(messageId) => {
+            if (conversationId) onBranchMessage(conversationId, messageId);
+          }}
+          branchingMessageId={branchingMessageId}
+          running={Boolean(run)}
+          welcome={
+            showWelcome ? (
+              <WelcomeState agent={agent} onPick={onPickSuggestion}>
+                {composer}
+              </WelcomeState>
+            ) : null
+          }
+        />
 
-      <MessagePane
-        items={items}
-        loading={detail.isPending && conversationId !== null && !run}
-        error={detail.isError ? detail.error : null}
-        onRetry={() => void detail.refetch()}
-        hasOlder={hasOlder}
-        loadingOlder={loadingOlder}
-        onLoadOlder={onLoadOlder}
-        olderDisabled={detail.isFetching || Boolean(run)}
-        approvals={approvals}
-        approvalItems={pendingApprovals}
-        lastRun={lastRun}
-        onBranchMessage={(messageId) => {
-          if (conversationId) onBranchMessage(conversationId, messageId);
-        }}
-        branchingMessageId={branchingMessageId}
-        running={Boolean(run)}
-        welcome={
-          showWelcome ? (
-            <WelcomeState agent={agent} onPick={onPickSuggestion}>
-              {composer}
-            </WelcomeState>
-          ) : null
-        }
-      />
+        {/* 运行状态跟着最后一轮走，不再单独占一条横栏；对屏幕阅读器仍播报同一句。 */}
+        <div aria-live="polite" role="status" className="sr-only">
+          {run ? runStatusText(run, items) : ''}
+        </div>
+        {run?.runId ? <RunReconciliation run={run} reconcileRun={reconcileRun} /> : null}
+        {runApprovals.isError ? (
+          <ErrorState error={runApprovals.error} onRetry={() => void runApprovals.refetch()} />
+        ) : null}
 
-      <div aria-live="polite" role="status" className="sr-only">
-        {run
-          ? run.status === 'queued'
-            ? '任务已提交，正在准备'
-            : run.status === 'reconnecting'
-              ? '连接已中断，正在重连'
-              : run.status === 'detached'
-                ? '连接已中断，运行状态未知'
-                : `第 ${currentTurn(items)} 轮，${runningTool(items) ? `正在调用 ${runningTool(items)?.name}` : '等待回复'}`
-          : ''}
+        {showWelcome ? null : composer}
       </div>
-      {run?.runId ? <RunReconciliation run={run} reconcileRun={reconcileRun} /> : null}
-      {runApprovals.isError ? (
-        <ErrorState error={runApprovals.error} onRetry={() => void runApprovals.refetch()} />
-      ) : null}
-      <RunStatusBar
-        run={run}
-        items={items}
-        cancelling={cancelling}
-        onCancel={onCancel}
-        onRetry={onRetryStream}
-      />
-
-      {showWelcome ? null : composer}
     </Page>
   );
 }
@@ -1073,6 +1415,8 @@ export function Composer({
   lastRunId,
   welcome,
   historyReady = true,
+  cancelling = false,
+  onCancel,
 }: {
   agent: AgentView | null;
   send: () => Promise<void>;
@@ -1080,6 +1424,8 @@ export function Composer({
   lastRunId: string | null;
   welcome: boolean;
   historyReady?: boolean;
+  cancelling?: boolean;
+  onCancel?: () => void;
 }) {
   // 只订阅输入内容：打字不会重渲染消息列表所在的 ChatColumn。
   const input = useChatStore((state) => state.input);
@@ -1099,9 +1445,9 @@ export function Composer({
             ref={textareaRef}
             aria-label="消息"
             rows={2}
-            placeholder={run ? '本轮结束后可继续输入…' : '描述你想完成的事…'}
-            title={run ? '本轮结束后即可继续输入，不会丢失当前内容' : undefined}
-            disabled={!agent || Boolean(run) || !historyReady}
+            placeholder="描述你想完成的事…"
+            title={run ? '本轮结束后才能发送；现在可以先把下一条写好' : undefined}
+            disabled={!agent || !historyReady}
             value={input}
             className={cn(
               'max-h-40 min-w-0 px-4 pb-2 pt-4 text-mobile-input md:text-md',
@@ -1129,17 +1475,33 @@ export function Composer({
                 </Link>
               ) : null}
             </div>
-            <InputGroupButton
-              type="submit"
-              variant="default"
-              size="icon-sm"
-              disabled={!agent || Boolean(run) || !input.trim() || !historyReady}
-              aria-label="发送消息"
-              title={run ? '本轮结束后可发送' : undefined}
-              className="ml-auto size-11 sm:size-8"
-            >
-              <ArrowUp />
-            </InputGroupButton>
+            {run?.runId && onCancel ? (
+              // 运行中发送位换成停止：动作在用户正在打字的地方，不用到消息流里找。
+              <InputGroupButton
+                variant="outline"
+                size="icon-sm"
+                onClick={onCancel}
+                disabled={cancelling}
+                aria-busy={cancelling}
+                aria-label="停止运行"
+                title="停止本轮运行"
+                className="ml-auto size-11 sm:size-8"
+              >
+                {cancelling ? <LoaderCircle className="animate-spin" /> : <CircleStop />}
+              </InputGroupButton>
+            ) : (
+              <InputGroupButton
+                type="submit"
+                variant="default"
+                size="icon-sm"
+                disabled={!agent || Boolean(run) || !input.trim() || !historyReady}
+                aria-label="发送消息"
+                title={run ? '本轮结束后可发送' : undefined}
+                className="ml-auto size-11 sm:size-8"
+              >
+                <ArrowUp />
+              </InputGroupButton>
+            )}
           </InputGroupAddon>
         </InputGroup>
       </div>
@@ -1153,10 +1515,6 @@ function currentRunItems(items: ChatItem[]): ChatItem[] {
     if (items[index]?.kind === 'user') return items.slice(index + 1);
   }
   return items;
-}
-
-function currentTurn(items: ChatItem[]): number {
-  return Math.max(1, currentRunItems(items).filter((item) => item.kind === 'text').length);
 }
 
 function runningTool(items: ChatItem[]): Extract<ChatItem, { kind: 'tool' }> | undefined {
@@ -1191,73 +1549,60 @@ function RunReconciliation({
   ) : null;
 }
 
-function RunStatusBar({
+/** 运行中的临时读数：跟着本轮回复走，与完成后的读数行同一位置、同一行高。 */
+function RunFooter({
   run,
   items,
-  cancelling,
-  onCancel,
   onRetry,
 }: {
-  run: RunState | null;
+  run: RunState;
   items: ChatItem[];
-  cancelling: boolean;
-  onCancel: () => void;
   onRetry: () => void;
 }) {
-  // 计时只在存在 run 时刷新；每秒一次，状态条以外的行不跟着重渲染。
+  // 计时只在运行期间刷新；每秒一次，状态行以外的消息不跟着重渲染。
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!run) return;
     setNow(Date.now());
     if (!run.runId) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [run]);
 
-  if (!run) return null;
-  const tool = runningTool(items);
-  const turn = currentTurn(items);
-  const text =
-    run.status === 'queued'
-      ? '任务已提交，正在准备'
-      : run.status === 'reconnecting'
-        ? '连接已中断，正在重连'
-        : run.status === 'detached'
-          ? '连接已中断 · 运行状态未知'
-          : `第 ${turn} 轮 · ${tool ? `正在调用 ${tool.name}` : '等待回复'}`;
+  const broken = run.status === 'reconnecting' || run.status === 'detached';
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-surface px-3 py-1.5">
-      <span className="size-1.5 shrink-0 rounded-full bg-ink" aria-hidden="true" />
-      <span className="min-w-0 flex-1 basis-32 break-words text-2xs text-fg">{text}</span>
-      {run.status === 'reconnecting' || run.status === 'detached' ? (
+    <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-2xs tabular-nums text-muted-foreground">
+      <span
+        className={cn(
+          'size-1.5 shrink-0 rounded-full',
+          run.status === 'detached' ? 'bg-danger' : 'bg-fg motion-safe:animate-pulse',
+        )}
+        aria-hidden="true"
+      />
+      <span className="min-w-0 break-words text-fg">{runStatusText(run, items)}</span>
+      <span aria-hidden="true">·</span>
+      <span>{elapsed(now - run.startedAt)}</span>
+      {broken ? (
         <RefreshCw
-          className={cn('size-3 text-fg', run.status === 'reconnecting' && 'animate-spin')}
+          className={cn('size-3', run.status === 'reconnecting' && 'animate-spin')}
           aria-hidden="true"
         />
       ) : null}
-      <span className="shrink-0 font-mono text-2xs tabular-nums text-fg">
-        {elapsed(now - run.startedAt)}
-      </span>
       {run.status === 'detached' ? (
-        <Button variant="outline" size="sm" onClick={onRetry}>
+        <Button variant="link" size="xs" className="h-auto p-0 text-2xs" onClick={onRetry}>
           重连
-        </Button>
-      ) : null}
-      {run.runId ? (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onCancel}
-          disabled={cancelling}
-          aria-busy={cancelling}
-          aria-label="停止运行"
-        >
-          <CircleStop className="size-3" /> {cancelling ? '停止中…' : '停止'}
         </Button>
       ) : null}
     </div>
   );
+}
+
+function runStatusText(run: RunState, items: ChatItem[]): string {
+  if (run.status === 'queued') return '任务已提交，正在准备';
+  if (run.status === 'reconnecting') return '连接已中断，正在重连';
+  if (run.status === 'detached') return '连接已中断 · 运行状态未知';
+  const tool = runningTool(items);
+  return tool ? `正在调用 ${tool.name}` : '等待回复';
 }
 
 export function MessagePane({
@@ -1273,6 +1618,8 @@ export function MessagePane({
   approvals,
   approvalItems,
   lastRun,
+  historyMetrics,
+  runFooter,
   onBranchMessage,
   branchingMessageId,
   running,
@@ -1292,14 +1639,16 @@ export function MessagePane({
   };
   approvalItems: ApprovalRequest[];
   lastRun: RunMetrics | null;
+  historyMetrics: ReadonlyMap<string, RunMetrics>;
+  runFooter?: ReactNode;
   onBranchMessage: (messageId: string) => void;
   branchingMessageId: string | null;
   running: boolean;
 }) {
   const reduce = useReducedMotion();
   const turns = useMemo(
-    () => messageTurns(items, Boolean(lastRun) || approvalItems.length > 0),
-    [items, lastRun, approvalItems],
+    () => messageTurns(items, Boolean(lastRun) || running || approvalItems.length > 0),
+    [items, lastRun, running, approvalItems],
   );
   // 上一次的工具子集：文本增量不改工具对象，复用它就不会惊动下游 memo。
   const prevTools = useRef<ToolItem[]>([]);
@@ -1323,6 +1672,11 @@ export function MessagePane({
     for (const approval of matches.values()) if (approval) ids.add(approval.id);
     return ids;
   }, [matches]);
+
+  // 发送是明确动作：新的一轮用户消息出现就把视图拉回最新，即使此前往上翻过。
+  // 认「末尾那个用户项对象」而不是轮次 id：旧消息前插会让索引兜底 id 整体后移，误判成新轮。
+  const tailItem = items.at(-1);
+  const appendedUser = tailItem?.kind === 'user' ? tailItem : null;
 
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollEdgeThreshold={80}>
@@ -1362,74 +1716,113 @@ export function MessagePane({
             {!loading && !error && items.length > 0
               ? turns.map((turn, turnIndex) => {
                   const messageId = turn.user ? userMessageId(turn.items) : undefined;
+                  const latest = turnIndex === turns.length - 1;
+                  // 历史轮次按消息上的 run_id 取读数；读数默认藏起来，指到这一轮才浮出。
+                  let turnRunId: string | undefined;
+                  if (!turn.user) {
+                    const produced = turn.items.find(
+                      (item) => item.kind === 'text' || item.kind === 'tool',
+                    );
+                    turnRunId =
+                      produced?.kind === 'text' || produced?.kind === 'tool'
+                        ? produced.runId
+                        : undefined;
+                  }
+                  const historyRun =
+                    turn.user || latest
+                      ? undefined
+                      : turnRunId
+                        ? historyMetrics.get(turnRunId)
+                        : undefined;
+                  // 每个 item 自带 content-visibility（绘制隔离），越界的悬浮层会被裁掉。
                   return (
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
-                      {/* Keep 15px conversation text instead of the base message's text-sm. */}
-                      <Message align={turn.user ? 'end' : 'start'} className="text-md">
-                        <MessageContent
-                          // Keep the user's pill surface; MessageContent supplies layout without a bubble appearance.
-                          className={cn(
-                            'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
-                            turn.user && 'w-fit max-w-[85%] rounded-pill bg-hover px-4 py-2',
-                          )}
-                        >
-                          <span className="sr-only">{turn.user ? '用户' : '助手'}</span>
-                          <MessageGroup className="min-w-0 gap-4">
-                            {turn.items.map((item, index) => {
-                              // 有归属的子调用由父行渲染，不在顶层重复出现。
-                              if (item.kind === 'tool') {
-                                if (structure.root.has(item.toolUseId)) return null;
-                                return (
-                                  <ToolGroup
-                                    key={item.toolUseId}
-                                    tool={item}
-                                    kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
-                                    approvalItems={approvalItems}
-                                    pending={approvals.pending}
-                                    onApprove={approvals.onApprove}
-                                  />
-                                );
-                              }
-                              return (
-                                // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
-                                <MessagePart key={`${index}-${item.kind}`} item={item} />
-                              );
-                            })}
-                          </MessageGroup>
-                          {!turn.user && turnIndex === turns.length - 1 ? (
-                            <>
-                              {lastRun ? <RunMetricsLine run={lastRun} /> : null}
-                              {approvalItems
-                                .filter((item) => !placed.has(item.id))
-                                .map((item) => (
-                                  <ApprovalCard
-                                    key={item.id}
-                                    item={item}
-                                    pending={approvals.pending}
-                                    onApprove={approvals.onApprove}
-                                  />
-                                ))}
-                            </>
-                          ) : null}
-                        </MessageContent>
-                      </Message>
-                      {messageId ? (
-                        <div className="mt-1 flex justify-end">
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label="从这条消息分支"
-                            disabled={branchingMessageId !== null || running}
-                            onClick={() => onBranchMessage(messageId)}
-                          >
-                            {branchingMessageId === messageId ? (
-                              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-                            ) : (
-                              <GitBranch className="size-4" aria-hidden="true" />
+                      {/* 一轮一组：只靠拉开间距划出轮次边界，不加横线。 */}
+                      <div className={cn('group/turn', turnIndex > 0 && 'pt-5')}>
+                        {/* Keep 15px conversation text instead of the base message's text-sm. */}
+                        <Message align={turn.user ? 'end' : 'start'} className="text-md">
+                          <MessageContent
+                            // Keep the user's pill surface; MessageContent supplies layout without a bubble appearance.
+                            className={cn(
+                              'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
+                              turn.user && 'w-fit max-w-[85%] rounded-pill bg-hover px-4 py-2',
                             )}
-                          </Button>
-                        </div>
-                      ) : null}
+                          >
+                            <span className="sr-only">{turn.user ? '用户' : '助手'}</span>
+                            <MessageGroup className="min-w-0 gap-4">
+                              {turn.items.length === 0 && !runFooter ? (
+                                <span className="text-sm text-muted-foreground">等待回复…</span>
+                              ) : null}
+                              {turn.items.map((item, index) => {
+                                // 有归属的子调用由父行渲染，不在顶层重复出现。
+                                if (item.kind === 'tool') {
+                                  if (structure.root.has(item.toolUseId)) return null;
+                                  return (
+                                    <ToolGroup
+                                      key={item.toolUseId}
+                                      tool={item}
+                                      kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
+                                      approvalItems={approvalItems}
+                                      pending={approvals.pending}
+                                      onApprove={approvals.onApprove}
+                                    />
+                                  );
+                                }
+                                return (
+                                  // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
+                                  <MessagePart key={`${index}-${item.kind}`} item={item} />
+                                );
+                              })}
+                            </MessageGroup>
+                            {!turn.user && latest ? (
+                              <>
+                                {runFooter}
+                                {lastRun ? <RunMetricsLine run={lastRun} /> : null}
+                                {approvalItems
+                                  .filter((item) => !placed.has(item.id))
+                                  .map((item) => (
+                                    <ApprovalCard
+                                      key={item.id}
+                                      item={item}
+                                      pending={approvals.pending}
+                                      onApprove={approvals.onApprove}
+                                    />
+                                  ))}
+                              </>
+                            ) : null}
+                          </MessageContent>
+                        </Message>
+                        {/* 历史读数常驻占位、默认透明：指到或聚焦这一轮才显影。
+                            不用绝对定位——item 的 content-visibility 会裁掉越界内容。
+                            invisible 同时把隐藏态里的「查看详情」移出 Tab 序，避免长会话堆积焦点位。 */}
+                        {historyRun ? (
+                          <div className="mt-1 invisible opacity-0 transition-[opacity,visibility] duration-150 group-focus-within/turn:visible group-focus-within/turn:opacity-100 group-hover/turn:visible group-hover/turn:opacity-100 pointer-coarse:visible pointer-coarse:opacity-100 motion-reduce:transition-none">
+                            <RunMetricsLine
+                              run={historyRun}
+                              {...(historyRun.endedAt
+                                ? { title: `完成于 ${formatDateTime(historyRun.endedAt)}` }
+                                : {})}
+                            />
+                          </div>
+                        ) : null}
+                        {messageId ? (
+                          <div className="mt-1 flex justify-end">
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label="从这条消息分支"
+                              disabled={branchingMessageId !== null || running}
+                              onClick={() => onBranchMessage(messageId)}
+                            >
+                              {branchingMessageId === messageId ? (
+                                <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                              ) : (
+                                <GitBranch className="size-4" aria-hidden="true" />
+                              )}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
                     </MessageScrollerItem>
                   );
                 })
@@ -1447,9 +1840,25 @@ export function MessagePane({
             <ArrowDown className="size-3" /> 回到底部
           </MessageScrollerButton>
         ) : null}
+        <ScrollToLatest userItem={appendedUser} />
       </MessageScroller>
     </MessageScrollerProvider>
   );
+}
+
+/**
+ * 新用户轮出现时回到底部；必须挂在 Provider 内才能拿到滚动控制。
+ * 用对象身份而不是轮次 id：补旧消息时索引兜底 id 会整体后移，导致误判。
+ */
+function ScrollToLatest({ userItem }: { userItem: ChatItem | null }) {
+  const { scrollToEnd } = useMessageScroller();
+  const seen = useRef(userItem);
+  useEffect(() => {
+    if (userItem === null || userItem === seen.current) return;
+    seen.current = userItem;
+    scrollToEnd();
+  }, [userItem, scrollToEnd]);
+  return null;
 }
 
 /** 分支需要原始消息 id；新发/流式消息没有，按不可分支处理。 */
@@ -1627,7 +2036,7 @@ function WelcomeState({
           height={637}
           className="h-auto w-20 shrink-0 object-contain sm:w-24"
         />
-        <h2 className="min-w-0 text-[20px] font-medium leading-7 tracking-[-0.02em] text-fg sm:text-lg">
+        <h2 className="min-w-0 text-2xl font-medium tracking-[-0.02em] text-fg sm:text-3xl">
           今天想完成什么？
         </h2>
       </div>
@@ -1666,7 +2075,8 @@ const MessagePart = memo(function MessagePart({
 }) {
   switch (item.kind) {
     case 'user':
-      return <p className="whitespace-pre-wrap break-words leading-relaxed">{item.text}</p>;
+      // 不覆盖行高：气泡与助手正文共用 md 的阅读行高。
+      return <p className="whitespace-pre-wrap break-words">{item.text}</p>;
     case 'text':
       return renderAssistantText(item.text);
     case 'notice':
@@ -1701,7 +2111,7 @@ function renderAssistantText(text: string) {
       <CollapsibleText
         text={text}
         // Keep readable message typography when large text is forwarded to the unstyled Collapsible.
-        className="whitespace-pre-wrap break-words text-md leading-[1.7] text-fg"
+        className="whitespace-pre-wrap break-words text-md text-fg"
       />
     );
   }
@@ -1709,7 +2119,7 @@ function renderAssistantText(text: string) {
 }
 
 /** 一行读数：完成 · 轮次 · 耗时 · token · 成本 · 查看详情。 */
-function RunMetricsLine({ run }: { run: RunMetrics }) {
+function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
   const tone =
     run.status === 'succeeded'
       ? 'text-success'
@@ -1717,7 +2127,7 @@ function RunMetricsLine({ run }: { run: RunMetrics }) {
         ? 'text-muted-foreground'
         : 'text-danger';
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1" title={title}>
       <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-2xs tabular-nums text-muted-foreground">
         <span className={tone}>{outcomeLabel[run.status]}</span>
         {run.turns !== undefined ? (

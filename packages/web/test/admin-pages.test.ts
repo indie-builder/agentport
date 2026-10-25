@@ -82,10 +82,9 @@ vi.mock('../src/lib/queries.js', () => ({
   useCreateEvalCase: () => ({ isPending: state.pending, mutate: state.mutate }),
   useUpdateEvalCase: () => ({ isPending: state.pending, mutate: state.mutate }),
   useDeleteEvalCase: () => ({}),
-  // 运营层组件（工作台里嵌入的看板/待办）依赖这些 hook；返回空数据即可。
+  // 运营层组件（工作台里嵌入的待办）依赖这些 hook；返回空数据即可。
   useAttention: () => ({ data: { approvals: [], failedRuns: [], total: 0 }, isSuccess: true }),
   attentionQuery: { queryKey: ['attention'] },
-  boardSummaryQuery: () => ({ queryKey: ['board-summary'] }),
 }));
 // Portals don't render on the server; keep the editor's actual fields and handlers.
 vi.mock('../src/components/dialog-shell.js', () => ({
@@ -263,13 +262,13 @@ describe('overview summaries', () => {
     expect(html).toContain('队列指标不可用');
     expect(html).not.toContain(' 等待 / ');
   });
-  it('preserves a real zero queue count', () => {
+  it('stays quiet on the home page when the queue is healthy', () => {
     state.metrics = {
       ...metrics,
       queue: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 },
     };
     const html = mount(OverviewPage).render();
-    expect(html).toContain(' 等待 / 0 运行');
+    expect(html).not.toContain('等待 /');
     expect(html).not.toContain('队列指标不可用');
   });
   it.each([true, false])('labels enabled=%s visibly', (enabled) => {
