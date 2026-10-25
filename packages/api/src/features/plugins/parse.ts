@@ -3,25 +3,13 @@ import { pluginFilePathSchema, pluginInputSchema } from '@agentport/shared';
 import { z } from 'zod';
 
 /**
- * 插件根目录的解析：只接受官方布局里能被 SDK 加载的组件，其余（LSP、workflows、
- * monitors、bin、userConfig、channels、dependencies、settings）在导入阶段明确拒绝，
- * 而不是让运行时出现「加载了但一半不可用」，或出现「管理员以为关掉却仍生效」。
+ * 插件根目录的解析：普通支持文件（LICENSE、CHANGELOG、references/、assets/ 等）
+ * 原样保存；已知无法在运行时生效的组件（LSP、workflows、monitors、bin、settings 等）
+ * 在导入阶段明确拒绝，而不是让运行时出现「加载了但一半不可用」，
+ * 或出现「管理员以为关掉却仍生效」。
  */
 
-/** 插件根内允许出现的顶层路径；`.claude-plugin/` 是 manifest 目录。 */
-const ALLOWED_TOP_LEVEL = new Set([
-  '.claude-plugin',
-  'skills',
-  'agents',
-  'commands',
-  'hooks',
-  // hooks 的 command 通常是 `${CLAUDE_PLUGIN_ROOT}/scripts/x.sh`，拒了等于 hooks 不可用。
-  'scripts',
-  'output-styles',
-  '.mcp.json',
-  'README.md',
-]);
-
+/** 官方组件里平台尚未支持的顶层目录/文件；其余合法相对路径按支持文件保存。 */
 const UNSUPPORTED_TOP_LEVEL: Record<string, string> = {
   '.lsp.json': 'LSP server 暂不支持',
   lsp: 'LSP server 暂不支持',
@@ -30,6 +18,8 @@ const UNSUPPORTED_TOP_LEVEL: Record<string, string> = {
   bin: 'bin/ 可执行目录暂不支持',
   themes: '主题暂不支持',
   'settings.json': '插件根 settings.json（可用 agent 接管主会话）暂不支持',
+  // 插件根里的 `.claude/` 不是官方组件，settings 却可能接管会话；沿用原来的明确拒绝。
+  '.claude': '插件内的 .claude/ 配置暂不支持',
 };
 
 const UNSUPPORTED_MANIFEST_KEYS: Record<string, string> = {
@@ -41,7 +31,13 @@ const UNSUPPORTED_MANIFEST_KEYS: Record<string, string> = {
   experimental: '实验性组件暂不支持',
   // 官方 manifest 的 settings 里 `agent` 会接管主会话，与拒绝根 settings.json 同理。
   settings: '插件的 settings 暂不支持（可用 agent 接管主会话）',
+  // 自定义 skills/commands 目录需要加载器理解 manifest 里的路径，平台只按默认目录渲染。
+  skills: 'manifest 自定义 skills 目录暂不支持，请使用默认 skills/',
+  commands: 'manifest 自定义 commands 目录暂不支持，请使用默认 commands/',
 };
+
+/** package.json 的运行时依赖无法只靠文本快照搬运；有依赖就必须明确拒绝。 */
+const RUNTIME_DEPENDENCY_FIELDS = ['dependencies', 'optionalDependencies'] as const;
 
 const UNSUPPORTED_MCP_PLACEHOLDERS = /\$\{user_config\./;
 
@@ -64,8 +60,6 @@ interface ManifestShape {
   description?: unknown;
   hooks?: unknown;
   mcpServers?: unknown;
-  skills?: unknown;
-  commands?: unknown;
 }
 
 function topLevelOf(path: string): string {
@@ -82,8 +76,32 @@ function assertCleanPath(path: string): void {
 }
 
 function rejectUnsupported(path: string): void {
+  if (path.split('/').includes('node_modules')) {
+    fail('INVALID_INPUT', '插件不能包含 node_modules；运行时依赖暂不支持', { path });
+  }
   const reason = UNSUPPORTED_TOP_LEVEL[topLevelOf(path)];
   if (reason !== undefined) fail('INVALID_INPUT', `插件包含不支持的组件：${reason}`, { path });
+}
+
+/** 根 package.json 只作为支持文件保留；声明运行时依赖时无法只搬文本，明确拒绝。 */
+function assertNoRuntimeDependencies(files: PluginImportFile[]): void {
+  const pkg = files.find((file) => file.path === 'package.json');
+  if (pkg === undefined) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(pkg.content);
+  } catch {
+    fail('INVALID_INPUT', 'package.json 不是合法 JSON', { path: pkg.path });
+  }
+  if (typeof parsed !== 'object' || parsed === null) return;
+  for (const field of RUNTIME_DEPENDENCY_FIELDS) {
+    const value = (parsed as Record<string, unknown>)[field];
+    if (typeof value === 'object' && value !== null && Object.keys(value).length > 0) {
+      fail('INVALID_INPUT', `插件 package.json 声明了 ${field}，运行依赖暂不支持`, {
+        path: pkg.path,
+      });
+    }
+  }
 }
 
 function slugify(value: string): string {
@@ -175,7 +193,7 @@ function agentNamesOf(files: PluginImportFile[]): string[] {
 }
 
 /**
- * 把插件目录文件整理成可入库的形态：校验路径与组件白名单、解析 manifest、
+ * 把插件目录文件整理成可入库的形态：校验路径与不支持的组件、解析 manifest、
  * 汇总组件清单。调用方只负责落库，不执行任何插件内容。
  */
 export function parsePluginFiles(params: {
@@ -192,14 +210,8 @@ export function parsePluginFiles(params: {
     seen.add(file.path);
     assertCleanPath(file.path);
     rejectUnsupported(file.path);
-    if (!ALLOWED_TOP_LEVEL.has(topLevelOf(file.path))) {
-      fail(
-        'INVALID_INPUT',
-        `插件包含未知的顶层路径：${topLevelOf(file.path)}；请把插件根目录的内容打平到 ZIP 顶层`,
-        { path: file.path },
-      );
-    }
   }
+  assertNoRuntimeDependencies(params.files);
 
   const manifest = parseManifest(params.files, warnings);
   const manifestName = typeof manifest.name === 'string' ? manifest.name : undefined;
@@ -217,10 +229,6 @@ export function parsePluginFiles(params: {
   const agents = agentNamesOf(params.files);
   const hasHooks =
     params.files.some((file) => file.path === 'hooks/hooks.json') || manifest.hooks !== undefined;
-  // 官方语义：skills 追加默认目录，commands 替换默认目录；两者都不按默认处理。
-  if (manifest.skills !== undefined)
-    warnings.push('manifest 的 skills 额外目录按默认 skills/ 处理');
-  if (manifest.commands !== undefined) warnings.push('manifest 的 commands 按默认 commands/ 处理');
 
   const description =
     params.name ?? (typeof manifest.description === 'string' ? manifest.description : '');

@@ -44,8 +44,42 @@ describe('plugin import parsing', () => {
   });
 
   it('rejects manifest keys that could take over the session', () => {
-    for (const key of ['settings', 'userConfig', 'channels', 'dependencies', 'lspServers']) {
+    for (const key of [
+      'settings',
+      'userConfig',
+      'channels',
+      'dependencies',
+      'lspServers',
+      'skills',
+      'commands',
+    ]) {
       expect(() => parse([manifest({ name: 'demo', [key]: {} })])).toThrow();
+    }
+  });
+
+  it('keeps ordinary support files that official plugins ship', () => {
+    const { input } = parse([
+      manifest({ name: 'demo' }),
+      file('skills/review/SKILL.md'),
+      file('LICENSE'),
+      file('CHANGELOG.md'),
+      file('references/usage.md'),
+      file('assets/logo.txt'),
+      file('package.json', JSON.stringify({ name: 'demo', peerDependencies: { x: '1' } })),
+    ]);
+    expect(input.files.map((item) => item.path)).toContain('LICENSE');
+    expect(input.files.map((item) => item.path)).toContain('references/usage.md');
+  });
+
+  it('rejects node_modules and package.json runtime dependencies', () => {
+    expect(() => parse([manifest({ name: 'demo' }), file('node_modules/x/index.js')])).toThrow();
+    for (const field of ['dependencies', 'optionalDependencies']) {
+      expect(() =>
+        parse([
+          manifest({ name: 'demo' }),
+          file('package.json', JSON.stringify({ [field]: { left: '1.0.0' } })),
+        ]),
+      ).toThrow();
     }
   });
 

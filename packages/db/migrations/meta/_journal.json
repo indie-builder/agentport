@@ -239,6 +239,13 @@
       "when": 1792917422698,
       "tag": "0033_slim_cyclops",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792925482623,
+      "tag": "0034_wealthy_ikaris",
+      "breakpoints": true
     }
   ]
 }

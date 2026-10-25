@@ -1,0 +1,120 @@
+{
+  "native-plugin-real-summary": {
+    "ok": true,
+    "plugin": {
+      "pluginId": "commit-commands@claude-plugins-official",
+      "version": "58267944f921"
+    },
+    "files": [
+      {
+        "path": ".claude-plugin/plugin.json",
+        "executable": false
+      },
+      {
+        "path": "commands/clean_gone.md",
+        "executable": false
+      },
+      {
+        "path": "commands/commit-push-pr.md",
+        "executable": false
+      },
+      {
+        "path": "commands/commit.md",
+        "executable": false
+      },
+      {
+        "path": "LICENSE",
+        "executable": false
+      },
+      {
+        "path": "README.md",
+        "executable": false
+      }
+    ]
+  },
+  "native-plugin-offline-summary": {
+    "network": "none",
+    "installed": [
+      {
+        "pluginId": "commit-commands@claude-plugins-official",
+        "version": "58267944f921"
+      }
+    ],
+    "read": {
+      "plugin": {
+        "pluginId": "commit-commands@claude-plugins-official",
+        "version": "58267944f921"
+      },
+      "files": [
+        ".claude-plugin/plugin.json",
+        "commands/clean_gone.md",
+        "commands/commit-push-pr.md",
+        "commands/commit.md",
+        "LICENSE",
+        "README.md"
+      ]
+    },
+    "passed": true
+  },
+  "native-plugin-api-verification": {
+    "marketplaceList": {
+      "installed": [
+        {
+          "pluginId": "commit-commands@claude-plugins-official",
+          "version": "58267944f921",
+          "imported": false
+        }
+      ]
+    },
+    "firstImport": {
+      "status": 201,
+      "sourceId": "commit-commands@claude-plugins-official",
+      "files": [
+        ".claude-plugin/plugin.json",
+        "commands/clean_gone.md",
+        "commands/commit-push-pr.md",
+        "commands/commit.md",
+        "LICENSE",
+        "README.md"
+      ]
+    },
+    "reuse": {
+      "status": 200,
+      "reused": true,
+      "samePlugin": true
+    },
+    "agents": [
+      {
+        "id": "agt_01m5sbxn0yeh383nyv48de7cq1",
+        "slug": "native-copy-a",
+        "pluginFiles": [
+          ".claude-plugin/plugin.json",
+          "LICENSE",
+          "README.md",
+          "commands/clean_gone.md",
+          "commands/commit-push-pr.md",
+          "commands/commit.md"
+        ]
+      },
+      {
+        "id": "agt_01m5sbxn4ceh383nzqne3aw2n1",
+        "slug": "native-copy-b",
+        "pluginFiles": [
+          ".claude-plugin/plugin.json",
+          "LICENSE",
+          "README.md",
+          "commands/clean_gone.md",
+          "commands/commit-push-pr.md",
+          "commands/commit.md"
+        ]
+      }
+    ],
+    "passed": true
+  },
+  "native-plugin-install-repeat": {
+    "status": 200,
+    "reused": true,
+    "sourceId": "commit-commands@claude-plugins-official",
+    "pluginId": "plg_01m5sbxmzfeh383nwynqfcmwtv"
+  }
+}

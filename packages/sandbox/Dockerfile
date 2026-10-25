@@ -10,6 +10,9 @@ COPY package.docker.json ./package.json
 COPY package.docker-lock.json ./package-lock.json
 RUN npm ci --no-audit --no-fund
 
+# 原生插件安装由官方 CLI 克隆市场仓库，需要 git；不装其余工具。
+RUN apk add --no-cache git
+
 COPY dist/ ./dist/
 
 # runner 在 stdin 边界用 @agentport/shared 的 schema 校验任务，shared 必须进镜像。

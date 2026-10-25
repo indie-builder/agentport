@@ -17,6 +17,8 @@ import type {
   MarketView,
   MemoryFileContent,
   MemoryFileList,
+  NativePluginImportInput,
+  NativePluginInstallInput,
   OutputStyle,
   OverviewTimeseriesPoint,
   Plugin,
@@ -32,6 +34,7 @@ import type {
   ServerTestResult,
   ConversationDetail as SharedConversationDetail,
   EvalComparison as SharedEvalComparison,
+  NativeInstalledPlugin as SharedNativeInstalledPlugin,
   Skill,
   SkillFile,
   SkillInput,
@@ -46,6 +49,18 @@ export interface PluginImportResult {
   plugin: Plugin;
   warnings: string[];
 }
+
+/** 官方 CLI 缓存里的插件；imported 表示同一来源已经加入平台插件库。 */
+export interface NativeInstalledPlugin extends SharedNativeInstalledPlugin {
+  imported: boolean;
+}
+
+export interface NativePlugins {
+  installed: NativeInstalledPlugin[];
+}
+
+/** 原生安装/纳入结果；reused 表示库里已有同一来源，未覆盖原对象。 */
+export type NativePluginImportResult = PluginImportResult & { reused: boolean };
 
 export type { OverviewTimeseriesPoint };
 
@@ -591,6 +606,11 @@ export const api = {
   deletePlugin: (id: string): Promise<void> => request(`/plugins/${id}`, 'DELETE'),
   importPlugin: (file: Blob, slug: string, signal?: AbortSignal): Promise<PluginImportResult> =>
     request(`/plugins/import?slug=${encodeURIComponent(slug)}`, 'POST', file, signal),
+  nativePlugins: (): Promise<NativePlugins> => request('/plugins/native'),
+  installNativePlugin: (input: NativePluginInstallInput): Promise<NativePluginImportResult> =>
+    request('/plugins/install', 'POST', input),
+  importNativePlugin: (input: NativePluginImportInput): Promise<NativePluginImportResult> =>
+    request('/plugins/native/import', 'POST', input),
   skillFiles: (id: string): Promise<SkillFile[]> => request(`/skills/${id}/files`),
   writeSkillFile: (id: string, path: string, content: string): Promise<SkillFile> =>
     request(`/skills/${id}/files/${path.split('/').map(encodeURIComponent).join('/')}`, 'PUT', {

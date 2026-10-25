@@ -75,4 +75,39 @@ describe.skipIf(!ready)('plugin repo', () => {
     expect(await pluginsRepo.getPlugin(db, missing)).toBeNull();
     expect(await pluginsRepo.deletePlugin(db, missing)).toBe(false);
   });
+
+  it('dedupes native sources by name@marketplace and leaves ZIP rows null', async () => {
+    const sourceId = `${slug}@test-market`;
+    await db.update(plugins).set({ sourceId }).where(eq(plugins.id, pluginId));
+
+    expect((await pluginsRepo.getPluginBySourceId(db, sourceId))?.id).toBe(pluginId);
+    expect(await pluginsRepo.getPluginBySourceId(db, `${slug}@other`)).toBeNull();
+    expect((await pluginsRepo.listPlugins(db)).find((row) => row.id === pluginId)?.sourceId).toBe(
+      sourceId,
+    );
+
+    // ZIP 插件 sourceId 为 null，多个 null 不冲突。
+    const zip = await pluginsRepo.createPluginWithFiles(
+      db,
+      { slug: `${slug}-zip`, runtimeName: `${slug}-zip`, name: 'ZIP plugin' },
+      [],
+    );
+    try {
+      expect(zip.sourceId).toBeNull();
+      await expect(
+        pluginsRepo.createPluginWithFiles(
+          db,
+          {
+            slug: `${slug}-dup`,
+            runtimeName: `${slug}-dup`,
+            name: 'Duplicate source',
+            sourceId,
+          },
+          [],
+        ),
+      ).rejects.toMatchObject({ cause: { code: '23505' } });
+    } finally {
+      await db.delete(plugins).where(eq(plugins.id, zip.id));
+    }
+  });
 });

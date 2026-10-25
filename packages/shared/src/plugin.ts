@@ -62,6 +62,8 @@ export const pluginSchema = pluginInputSchema.and(
   z.object({
     id: z.string(),
     runtimeName: z.string(),
+    /** 原生市场来源 `name@marketplace`；ZIP 导入为 null。只输出，客户端不能改写。 */
+    sourceId: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   }),

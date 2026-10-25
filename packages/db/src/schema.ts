@@ -179,12 +179,16 @@ export const plugins = pgTable(
     version: text('version').notNull().default(''),
     /** 解析出的组件清单，供列表与详情展示，避免每次重扫文件。 */
     manifest: jsonb('manifest').$type<Record<string, unknown>>().notNull().default({}),
+    /** 原生市场来源 `name@marketplace`；ZIP 导入为 null。 */
+    sourceId: text('source_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('plugins_slug_idx').on(t.slug),
     uniqueIndex('plugins_runtime_name_idx').on(t.runtimeName),
+    // 同一市场插件只纳入一次；多个 NULL（ZIP）不受影响。
+    uniqueIndex('plugins_source_id_idx').on(t.sourceId),
   ],
 );
 

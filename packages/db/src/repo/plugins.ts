@@ -18,7 +18,7 @@ export interface PluginFileWrite {
 }
 
 export type PluginWrite = Pick<PluginRow, 'slug' | 'runtimeName' | 'name'> &
-  Partial<Pick<PluginRow, 'description' | 'version' | 'manifest'>>;
+  Partial<Pick<PluginRow, 'description' | 'version' | 'manifest' | 'sourceId'>>;
 
 export interface AgentPluginBinding {
   plugin: PluginRow;
@@ -34,6 +34,7 @@ const pluginColumns = {
   description: plugins.description,
   version: plugins.version,
   manifest: plugins.manifest,
+  sourceId: plugins.sourceId,
   createdAt: plugins.createdAt,
   updatedAt: plugins.updatedAt,
 };
@@ -53,6 +54,14 @@ export async function listPlugins(db: Database): Promise<PluginWithAgentCount[]>
 
 export async function getPlugin(db: Database, id: string): Promise<PluginRow | null> {
   const [row] = await db.select().from(plugins).where(eq(plugins.id, id)).limit(1);
+  return row ?? null;
+}
+
+export async function getPluginBySourceId(
+  db: Database,
+  sourceId: string,
+): Promise<PluginRow | null> {
+  const [row] = await db.select().from(plugins).where(eq(plugins.sourceId, sourceId)).limit(1);
   return row ?? null;
 }
 

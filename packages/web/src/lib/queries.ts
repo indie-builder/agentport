@@ -13,6 +13,8 @@ import type {
   MarketView,
   MemoryFileContent,
   MemoryFileList,
+  NativePluginImportInput,
+  NativePluginInstallInput,
   OutputStyle,
   PluginInput,
   PluginWithAgentCount,
@@ -53,6 +55,7 @@ import {
   type HealthProbe,
   type HealthReady,
   type Me,
+  type NativePlugins,
   type Overview,
   type OverviewTimeseriesPoint,
   type RunDetail,
@@ -79,6 +82,10 @@ export const serversQuery = queryOptions<Server[]>({
 export const pluginsQuery = queryOptions<PluginWithAgentCount[]>({
   queryKey: ['plugins'],
   queryFn: api.plugins,
+});
+export const nativePluginsQuery = queryOptions<NativePlugins>({
+  queryKey: ['plugins-native'],
+  queryFn: api.nativePlugins,
 });
 export const connectorCatalogQuery = queryOptions<ConnectorCatalogItem[]>({
   queryKey: ['connector-catalog'],
@@ -172,6 +179,11 @@ export function useServers() {
 
 export function usePlugins() {
   return useQuery(pluginsQuery);
+}
+
+export function useNativePlugins(enabled = true) {
+  // 列表要起一次沙盒，只在「已安装」页签可见时请求。
+  return useQuery({ ...nativePluginsQuery, enabled });
 }
 
 export function useAgents() {
@@ -736,6 +748,29 @@ export function useImportPlugin() {
   return useMutation({
     mutationFn: (vars: { file: Blob; slug: string }) => api.importPlugin(vars.file, vars.slug),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['plugins'] }),
+  });
+}
+
+/** 安装与纳入都不要草稿缓存，只让两份列表失效。 */
+export function useInstallNativePlugin() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: NativePluginInstallInput) => api.installNativePlugin(input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['plugins-native'] });
+      void client.invalidateQueries({ queryKey: ['plugins'] });
+    },
+  });
+}
+
+export function useImportNativePlugin() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: NativePluginImportInput) => api.importNativePlugin(input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['plugins-native'] });
+      void client.invalidateQueries({ queryKey: ['plugins'] });
+    },
   });
 }
 

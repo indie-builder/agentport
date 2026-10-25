@@ -55,6 +55,7 @@ vi.mock('../src/lib/queries.js', () => ({
   useAgents: () => ({ data: state.agents }),
   useAgent: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
   useServers: () => ({ data: [] }),
+  usePlugins: () => ({ data: [], isPending: false, isError: false, status: 'success' }),
   useSkills: () => ({
     isError: state.skillsError,
     error: new Error('Skills unavailable'),
@@ -106,6 +107,7 @@ const parent = {
   systemPrompt: '',
   serverIds: [],
   skillIds: [],
+  pluginBindings: [],
   subAgentIds: ['child'],
   allowedTools: [],
   disallowedTools: [],
