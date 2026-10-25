@@ -4,7 +4,7 @@ import {
   pluginInputSchema,
   slugSchema,
 } from '@agentport/shared';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   Download,
   MoreHorizontal,
@@ -70,7 +70,7 @@ const installFormSchema = nativePluginInstallInputSchema.extend({
 export function PluginsPage() {
   const plugins = usePlugins();
   const navigate = useNavigate();
-  const search = useSearch({ from: '/_shell/plugins' });
+  const search = useSearch({ from: '/_shell/plugins/' });
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
   const [editing, setEditing] = useState<PluginWithAgentCount | null>(null);
@@ -229,11 +229,9 @@ export function PluginsPage() {
                     <h2 className="min-w-0">
                       <Button
                         variant="ghost"
+                        nativeButton={false}
+                        render={<Link to="/plugins/$pluginId" params={{ pluginId: plugin.id }} />}
                         className="h-auto w-full min-w-0 justify-start p-0 text-base leading-snug font-medium"
-                        onClick={(event) => {
-                          actionTriggerRef.current = event.currentTarget;
-                          setEditing(plugin);
-                        }}
                       >
                         <span className="truncate" title={plugin.name}>
                           {plugin.name}
@@ -316,18 +314,28 @@ export function PluginsPage() {
                   <span className="text-xs text-muted-foreground">
                     被 {plugin.agentCount} 个专家使用
                   </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    aria-label={`编辑 ${plugin.name}`}
-                    aria-haspopup="dialog"
-                    onClick={(event) => {
-                      actionTriggerRef.current = event.currentTarget;
-                      setEditing(plugin);
-                    }}
-                  >
-                    编辑
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      nativeButton={false}
+                      render={<Link to="/plugins/$pluginId" params={{ pluginId: plugin.id }} />}
+                    >
+                      查看详情
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`编辑 ${plugin.name}`}
+                      aria-haspopup="dialog"
+                      onClick={(event) => {
+                        actionTriggerRef.current = event.currentTarget;
+                        setEditing(plugin);
+                      }}
+                    >
+                      编辑
+                    </Button>
+                  </div>
                 </CardFooter>
               </Card>
             </li>

@@ -871,7 +871,8 @@ export function AgentEditor({
   const skills = useSkills();
   const plugins = usePlugins();
   const agents = useAgents();
-  const navigate = useNavigate();
+  // 绑定来源路由后，navigate 的 current 只含本路由 search，不会被其他路由的联合类型污染。
+  const navigate = useNavigate({ from: '/agents/$agentId' });
   const search = useSearch({ from: '/_shell/agents/$agentId' });
   const serverAnchor = useComboboxAnchor();
   const skillAnchor = useComboboxAnchor();
@@ -899,6 +900,7 @@ export function AgentEditor({
     void navigate({
       to: '/agents/$agentId',
       params: { agentId: agent.id },
+      // 以 router 最新 search 为基底，连续两次更新不会互相覆盖。
       search: (current) => ({ ...current, ...next }),
       replace: true,
     });

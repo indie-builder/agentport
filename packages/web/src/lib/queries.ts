@@ -16,6 +16,7 @@ import type {
   NativePluginImportInput,
   NativePluginInstallInput,
   OutputStyle,
+  Plugin,
   PluginInput,
   PluginWithAgentCount,
   Rule,
@@ -87,6 +88,12 @@ export const nativePluginsQuery = queryOptions<NativePlugins>({
   queryKey: ['plugins-native'],
   queryFn: api.nativePlugins,
 });
+/** 详情挂在 `['plugins']` 前缀下，列表与详情的失效一次覆盖。 */
+export const pluginQuery = (id: string) =>
+  queryOptions<Plugin>({
+    queryKey: ['plugins', id],
+    queryFn: () => api.plugin(id),
+  });
 export const connectorCatalogQuery = queryOptions<ConnectorCatalogItem[]>({
   queryKey: ['connector-catalog'],
   queryFn: api.connectorCatalog,
@@ -179,6 +186,10 @@ export function useServers() {
 
 export function usePlugins() {
   return useQuery(pluginsQuery);
+}
+
+export function usePlugin(id: string) {
+  return useQuery(pluginQuery(id));
 }
 
 export function useNativePlugins(enabled = true) {

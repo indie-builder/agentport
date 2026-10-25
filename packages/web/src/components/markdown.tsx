@@ -1,6 +1,11 @@
 import { code, type ThemeInput } from '@streamdown/code';
-import { type ComponentProps, memo } from 'react';
-import { type Components, Streamdown } from 'streamdown';
+import { type ComponentProps, memo, useMemo } from 'react';
+import {
+  type Components,
+  defaultRehypePlugins,
+  defaultRemarkPlugins,
+  Streamdown,
+} from 'streamdown';
 
 /**
  * Shiki 的 css-variables 主题：颜色全部落在 styles.css 的 --shiki-* 变量上，
@@ -153,15 +158,238 @@ const components: Components = {
 const MARKDOWN_HINT =
   /(^|\n)\s*(#{1,6}\s|[-*+]\s|\d+\.\s|>|\||```|---|\*\*\*|___)|`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\[[^\]\n]+\]\([^)\n]+\)|!\[[^\]\n]*\]\([^)\n]+\)/;
 
-/** 助手文本的流式 Markdown；半截语法由 Streamdown/remend 自行补齐。 */
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+type MarkdownNode = {
+  type: string;
+  value?: string;
+  url?: string;
+  identifier?: string;
+  children?: MarkdownNode[];
+};
+
+/** 移除 raw 后，remark 阶段把 HTML 节点换成文本，HTML 只作为字面量出现。 */
+const htmlAsText = () => (tree: MarkdownNode) => {
+  const walk = (nodes: MarkdownNode[]) => {
+    for (let index = 0; index < nodes.length; index += 1) {
+      const node = nodes[index];
+      if (!node) continue;
+      if (node.type === 'html') {
+        nodes[index] = { type: 'text', value: node.value ?? '' };
+      } else if (node.children) {
+        walk(node.children);
+      }
+    }
+  };
+  walk(tree.children ?? []);
+};
+
+/** 静态正文：明确移除 raw，保留 sanitize / harden；本地链接先改写成本项目可识别的 fragment。 */
+const STATIC_REHYPE_PLUGINS = Object.entries(defaultRehypePlugins)
+  .filter(([name]) => name !== 'raw')
+  .map(([, plugin]) => plugin);
+const STATIC_REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), htmlAsText];
+type RemarkPlugins = NonNullable<Parameters<typeof Streamdown>[0]['remarkPlugins']>;
+
+const LINK_CLASS =
+  'break-words font-medium text-fg underline decoration-line-strong underline-offset-2';
+
+/** 本地文件链接的 fragment 前缀；harden 放行纯 fragment，且不会改写其中的路径。 */
+const PLUGIN_FILE_PREFIX = '#plugin-file=';
+/** 任何带 scheme 的地址（http:/mailto:/javascript: 等）都不属于本地文件。 */
+const URL_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+
+export interface MarkdownFileLinks {
+  /** 当前 Markdown 文件路径，相对链接以它所在目录为基准。 */
+  from: string;
+  /** 插件内真实存在的文件路径；只有命中这里的链接才可点击。 */
+  files: ReadonlySet<string>;
+  onSelect: (path: string) => void;
+}
+
+/** `./`、`../` 与裸路径按当前目录解析一次，`/` 按插件根；其余越界或不存在返回 undefined。 */
+function resolvePluginFile(
+  from: string,
+  href: string,
+  files: ReadonlySet<string>,
+): string | undefined {
+  let clean = href.split(/[?#]/, 1)[0] ?? '';
+  try {
+    clean = decodeURIComponent(clean);
+  } catch {
+    return undefined;
+  }
+  const segments = href.startsWith('/') ? [] : from.split('/').slice(0, -1);
+  for (const segment of clean.split('/')) {
+    if (segment === '' || segment === '.') continue;
+    if (segment === '..') {
+      if (segments.length === 0) return undefined;
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  const path = segments.join('/');
+  return files.has(path) ? path : undefined;
+}
+
+function pluginFilePath(href: string): string | undefined {
+  if (!href.startsWith(PLUGIN_FILE_PREFIX)) return undefined;
+  try {
+    return decodeURIComponent(href.slice(PLUGIN_FILE_PREFIX.length));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 本地文件链接在 harden 之前换成只含 fragment 的 token：harden 会重写相对 URL
+ * （裸路径被拦、`..` 被塌到根、`//host` 丢 host），原始语义只有 mdast 阶段还完整。
+ * 引用式链接在这里按 definition 解析成普通 link，才能和行内链接走同一套规则。
+ * 参数走插件 options，流式解析器按插件名 + options 缓存处理器，闭包会让不同文件复用旧映射。
+ */
+const rewriteLinks = (options: { from: string; files: string[] }) => (tree: MarkdownNode) => {
+  const files = new Set(options.files);
+  /** 改写单个地址：外链原样（协议相对补全），本地文件换成 token，不可点击返回 undefined。 */
+  const rewriteUrl = (url: string): string | undefined => {
+    if (url.startsWith('//')) {
+      // harden 会把协议相对地址塌成本地路径；显式补成外链。
+      return `https:${url}`;
+    }
+    if (url.startsWith('#') || URL_SCHEME.test(url)) return url;
+    const path = resolvePluginFile(options.from, url, files);
+    return path === undefined ? undefined : `${PLUGIN_FILE_PREFIX}${encodeURIComponent(path)}`;
+  };
+  // definition 可以出现在文档任意位置，先整体收集；identifier 已由解析器规范化，按库的惯例忽略大小写。
+  const definitions = new Map<string, string | undefined>();
+  const collect = (nodes: MarkdownNode[]) => {
+    for (const node of nodes) {
+      if (node.type === 'definition') {
+        definitions.set(String(node.identifier).toUpperCase(), rewriteUrl(node.url ?? ''));
+      } else if (node.children) {
+        collect(node.children);
+      }
+    }
+  };
+  collect(tree.children ?? []);
+  const walk = (nodes: MarkdownNode[]) => {
+    for (let index = 0; index < nodes.length; index += 1) {
+      const node = nodes[index];
+      if (!node) continue;
+      if (node.type === 'link') {
+        const url = rewriteUrl(node.url ?? '');
+        if (url === undefined) {
+          // 没有对应真实文件的本地链接退回文字，不交给 harden 误判成本地路由。
+          nodes.splice(index, 1, ...(node.children ?? []));
+        } else {
+          nodes[index] = { ...node, url };
+        }
+      } else if (node.type === 'linkReference') {
+        const identifier = String(node.identifier).toUpperCase();
+        // 无 definition 的引用保持原样，交给 to-hast 按字面输出；目标不存在的退回文字。
+        if (definitions.has(identifier)) {
+          const url = definitions.get(identifier);
+          if (url === undefined) {
+            nodes.splice(index, 1, ...(node.children ?? []));
+          } else {
+            nodes[index] = { ...node, type: 'link', url };
+          }
+        }
+      } else if (node.children) {
+        walk(node.children);
+      }
+    }
+  };
+  walk(tree.children ?? []);
+};
+
+function isSafeExternal(href: string): boolean {
+  return /^(https?:|mailto:)/i.test(href) || href.startsWith('//');
+}
+
+/** 静态正文的链接：只打开安全外链、页内 fragment 或插件内真实文件，其余按文字呈现。 */
+const staticAnchor =
+  (fileLinks?: MarkdownFileLinks) =>
+  ({ href, children, node: _node, ...props }: ComponentProps<'a'> & { node?: unknown }) => {
+    const url = href ?? '';
+    const path = pluginFilePath(url);
+    if (path !== undefined) {
+      // token 也可能来自正文直接书写，只有白名单里的真实文件才可点击。
+      if (fileLinks === undefined || !fileLinks.files.has(path)) {
+        return <span className={LINK_CLASS}>{children}</span>;
+      }
+      return (
+        <button type="button" onClick={() => fileLinks.onSelect(path)} className={LINK_CLASS}>
+          {children}
+        </button>
+      );
+    }
+    if (!url.startsWith('#') && !isSafeExternal(url)) {
+      return <span className={LINK_CLASS}>{children}</span>;
+    }
+    const external = /^https?:|^\/\//i.test(url);
+    // 页内 fragment 不能沿用 harden 加的 target=_blank，否则跳转落在新标签页。
+    const browsing = url.startsWith('#') ? { target: undefined, rel: undefined } : {};
+    return (
+      <a
+        {...props}
+        href={url}
+        className={`${LINK_CLASS} hover:decoration-fg`}
+        {...browsing}
+        {...(external ? { target: '_blank', rel: 'noreferrer noopener' } : {})}
+      >
+        {children}
+      </a>
+    );
+  };
+
+function staticComponents(fileLinks?: MarkdownFileLinks): Components {
+  return { ...components, a: staticAnchor(fileLinks) };
+}
+
+/**
+ * 助手文本的流式 Markdown；半截语法由 Streamdown/remend 自行补齐。
+ * `staticContent` 用于只读文件正文：静态解析、HTML 字面量、链接不落到不存在的应用路由。
+ */
+export const Markdown = memo(function Markdown({
+  text,
+  staticContent = false,
+  fileLinks,
+}: {
+  text: string;
+  staticContent?: boolean;
+  fileLinks?: MarkdownFileLinks;
+}) {
+  const resolvedComponents = useMemo(
+    () => (staticContent ? staticComponents(fileLinks) : components),
+    [staticContent, fileLinks],
+  );
+  const remarkPlugins = useMemo<RemarkPlugins>(() => {
+    if (!staticContent) return STATIC_REMARK_PLUGINS;
+    // 插件与其 options 以元组传入，解析器据此缓存处理器；options 必须完整描述映射。
+    return [
+      ...STATIC_REMARK_PLUGINS,
+      [
+        rewriteLinks,
+        {
+          from: fileLinks?.from ?? '',
+          files: fileLinks === undefined ? [] : [...fileLinks.files].sort(),
+        },
+      ],
+    ];
+  }, [staticContent, fileLinks]);
   if (!MARKDOWN_HINT.test(text)) {
     return <p className="min-w-0 whitespace-pre-wrap break-words text-md text-fg">{text}</p>;
   }
   return (
     <Streamdown
+      {...(staticContent
+        ? {
+            mode: 'static' as const,
+            rehypePlugins: STATIC_REHYPE_PLUGINS,
+            remarkPlugins,
+          }
+        : {})}
       className="min-w-0 text-md text-fg [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-line [&_[data-streamdown=code-block]]:bg-code [&_[data-streamdown=code-block-body]]:bg-transparent"
-      components={components}
+      components={resolvedComponents}
       plugins={PLUGINS}
       shikiTheme={SHIKI_THEMES}
     >
