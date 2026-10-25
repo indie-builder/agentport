@@ -20,6 +20,7 @@
 | `shadcn` | shadcn-ui/ui | 组件库（本项目唯一 UI 组件来源） |
 | `migrate-radix-to-base` | shadcn-ui/ui | Radix 组件迁移到 Base UI（交互原语已统一 Base UI） |
 | `tailwind-design-system` | wshobson/agents | Tailwind 4 token 与设计系统 |
+| `openui` | thesysdev/skills | 明确涉及 OpenUI / OpenUI Lang / `@openuidev/*` / Gateway / Autofix / CLI 的生成式 UI 任务；不用于普通 chat/dashboard，也不替代本项目 UI 实现 |
 
 ## 范围
 
@@ -34,7 +35,7 @@
 1. 读 `docs/DEV-WORKFLOW.md`、`docs/PITFALLS.md`，进入 worktree 并记录基线；先写 `docs/tasks/<slug>.md`。
 2. 核对当次 CLI 版本与帮助：`npx --yes skills@latest --version`/`--help`、`claude --version`、`claude plugin update --help`、`claude plugin marketplace update --help`；插件行为以 <https://code.claude.com/docs/en/discover-plugins>、<https://code.claude.com/docs/en/plugins/loading.md> 为准。
 3. 记录现状：lock 中的来源、上游 hash、技能目录与链接、本地已有差异；插件 id、scope、版本与发布 pin。
-4. 保存差异证据与可恢复的项目适配补丁（含 shadcn 规则），路径记入任务记录，完成后才能执行 `update`/`add`/`remove`。`git diff` 不够——适配已在 HEAD，须比本地与旧上游；旧上游不可得时保存完整适配文件及规则。三方比对确认差异是适配还是漂移后再动，不得直接覆盖。
+4. 保存差异证据与可恢复的项目适配补丁（含 shadcn / openui 规则），路径记入任务记录，完成后才能执行 `update`/`add`/`remove`。`git diff` 不够——适配已在 HEAD，须比本地与旧上游；旧上游不可得时保存完整适配文件及规则。三方比对确认差异是适配还是漂移后再动，不得直接覆盖。
 
 ## 技能更新
 
@@ -44,12 +45,22 @@
 - 确凿的上游整技能删除才执行 `npx --yes skills@latest remove <name> -y`，并清理 lock、链接与文档；网络或鉴权失败不等于删除。上游只删单文件时，同步删除本地对应文件。
 - lock 存的是上游 hash，不是带项目适配的本地内容 hash；不要为了“匹配”改 lock。
 
-## shadcn 项目适配（必须保留）
+## 项目适配（必须保留）
+
+### shadcn
 
 - 一律 `pnpm dlx`；项目内命令从当前 worktree 根加 `-c packages/web`（`info`、`docs`、`add`、`search`、`view`、`apply`、已有项目的 `init`、`preset resolve`），相对路径保证不出 worktree。
 - `preset decode`、`preset url`、`preset open` 不接受 cwd，不加 `-c`；新建项目用其实际新目录。
 - 所有更新（`add`/`update`，含整目录替换）完成后都要补回本节规则。历史背景见 `docs/tasks/shadcn-worktree-context.md`，执行规则以技能内 Project convention 为准。
 - 实物验证：适配补回后运行 `pnpm dlx shadcn@latest info --json -c packages/web`，须退出 0 且返回路径位于当前 worktree 的 `packages/web`；只改文字不算完成。
+
+### openui
+
+`openui` 只对 `SKILL.md` 做两处适配，`references/` 与其余文件保持上游原样；`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。
+
+- `description` 收窄：仅用于明确涉及 OpenUI、OpenUI Lang、`@openuidev/*` 包、OpenUI Gateway、Autofix、`@openuidev/cli` 的任务；不用于普通 chat / agent / dashboard 需求，也不用于只借 openui.com 做视觉参考的场景。
+- 正文 Project convention：UI 一律 shadcn/Base UI、Tailwind 4 现有 `@theme` token 与 `docs/DESIGN-SYSTEM.md`，不新建 app；运行底座只有 Claude Agent SDK，不默认切换 Gateway / OpenAI / LangGraph，也不引入外部存储或部署。
+- 更新（`add`/`update`）后同样要补回这两处；以本地版与上游 `SKILL.md` 的差异为准，适配副本路径记入当次任务记录。
 
 ## 插件更新
 
@@ -65,8 +76,8 @@
 ## 完成核验
 
 - 文件集合：lock 条目 = 技能目录 = 有效相对链接（指向当前 worktree）；`skills list` 与 lock、本文清单一致，无残留。
-- 内容：逐文件与上游来源对比；只允许列明的项目适配与官方排除项不同（`metadata.json` 是否排除按当次 CLI 确认），无多余或缺失文件。
-- 适配：`pnpm dlx shadcn@latest info --json -c packages/web` 退出 0 且路径在当次 worktree。
+- 内容：逐文件与上游来源对比；只允许列明的项目适配与官方排除项不同（`metadata.json` 是否排除按当次 CLI 确认），无多余或缺失文件。`openui` 只应有 `SKILL.md` 的两处适配。
+- 适配：`pnpm dlx shadcn@latest info --json -c packages/web` 退出 0 且路径在当次 worktree；`openui` 的 `description` 与 Project convention 与本文一致。
 - 插件：当次全部生效插件 `outcome: ok`、无失败；缓存与发布来源一致，无缺失的活动组件。
 - 未解决差异与范围外问题如实列出。
 
