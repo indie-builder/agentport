@@ -18,34 +18,34 @@
  * 界面强调保持低饱和度，铅笔黄留在品牌插画中，状态色独立表达结果。
  */
 @theme {
-  /* 暖石灰画布、纸白工作区，深一档的石灰表达选中态。 */
-  --color-canvas: #f3f2ee;
-  --color-surface: #fdfcfa;
-  --color-panel: #fdfcfa;
-  --color-sunken: #eeede7;
-  --color-hover: rgb(37 40 44 / 0.045);
-  --color-chip: rgb(37 40 44 / 0.025);
-  --color-selected: #e8e7e2;
+  /* OpenUI 同款中性灰：画布 0.97、外壳 0.994、内层容器 0.9844，无暖色相。 */
+  --color-canvas: #f5f5f5;
+  --color-surface: #fdfdfd;
+  --color-panel: #fdfdfd;
+  --color-sunken: #f0f0f0;
+  --color-hover: rgb(15 15 15 / 0.045);
+  --color-chip: rgb(15 15 15 / 0.025);
+  --color-selected: #ebebeb;
 
   /* 线与文本 */
-  --color-line: rgb(37 40 44 / 0.09);
-  --color-line-strong: rgb(37 40 44 / 0.16);
+  --color-line: rgb(15 15 15 / 0.09);
+  --color-line-strong: rgb(15 15 15 / 0.16);
   /* 外壳的 1px outline 比常规分隔线更淡 */
-  --color-shell-line: rgb(37 40 44 / 0.055);
-  --color-fg: #25282c;
+  --color-shell-line: rgb(15 15 15 / 0.06);
+  --color-fg: #171717;
   /*
    * base-nova 把 muted 当「表面色」（bg-muted = 浅灰底），
    * 文字色走 muted-foreground。两者不能共用同一个变量。
    */
   --color-muted: var(--color-sunken);
-  --color-subtle: rgb(37 40 44 / 0.38);
+  --color-subtle: rgb(15 15 15 / 0.38);
 
   /* 运行用石墨色，失败用独立状态色；不借用品牌黄色。 */
   --color-chart-runs: var(--color-fg);
   --color-chart-failed: var(--color-danger);
 
   /* 石墨实底：主按钮与发送保持清楚、安静的视觉重量。 */
-  --color-ink: #303236;
+  --color-ink: #171717;
 
   /* 状态：只用于小面积 */
   /* 成功色需同时满足纸白、画布、选中底上的文字对比度。 */
@@ -56,7 +56,7 @@
   --color-danger-soft: #fcebe9;
 
   /* 代码 */
-  --color-code: #f3f2ed;
+  --color-code: #f5f5f5;
   --color-code-line: var(--color-line);
 
   --color-scrim: rgb(0 0 0 / 0.4);
@@ -92,7 +92,7 @@
   --font-sans: "Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Geist Mono", monospace;
 
-  /* 字号：固定 rem，不用 clamp */
+  /* 字号阶梯：每档至少差 1px 且语义唯一，不做视觉上分不出的相邻尺寸。 */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
   --text-xs: 0.75rem;
@@ -100,13 +100,21 @@
   --text-sm: 0.8125rem;
   --text-sm--line-height: 1.25rem;
   --text-base: 0.875rem;
-  --text-base--line-height: 1.5rem;
+  --text-base--line-height: 1.375rem;
   --text-mobile-input: 1rem;
   --text-mobile-input--line-height: 1.5rem;
   --text-md: 0.9375rem;
-  --text-md--line-height: 1.5rem;
-  --text-lg: 1.5rem;
-  --text-lg--line-height: 1.875rem;
+  /* 26px ≈ 1.73：阅读正文需要比控件更松的行高，气泡与助手正文共用同一个值。 */
+  --text-md--line-height: 1.625rem;
+  /* 16px：页面标题与对话标题共用同一档。 */
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.125rem;
+  --text-xl--line-height: 1.625rem;
+  --text-2xl: 1.25rem;
+  --text-2xl--line-height: 1.75rem;
+  --text-3xl: 1.5rem;
+  --text-3xl--line-height: 2rem;
 
   /*
    * shadcn 原语映射到统一的低饱和度语义令牌。
@@ -124,12 +132,12 @@
   --color-secondary-foreground: var(--color-fg);
   --color-accent: var(--color-hover);
   --color-accent-foreground: var(--color-fg);
-  --color-muted-foreground: #5f6770;
+  --color-muted-foreground: #666666;
   --color-destructive: var(--color-danger);
   --color-destructive-foreground: #fff;
   --color-border: var(--color-line);
   --color-input: var(--color-line);
-  --color-ring: #78818a;
+  --color-ring: #8a8a8a;
   --secondary: var(--color-secondary); /* 次按钮悬停 color-mix 的原始 CSS 变量 */
   --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
 

@@ -15,6 +15,16 @@ export const agentsSearchSchema = resourceSearchSchema.extend({
   role: z.enum(AGENT_ROLES).optional().catch(undefined),
 });
 
+const agentTabs = ['config', 'memory', 'rules', 'styles', 'files', 'stats'] as const;
+const agentSections = ['identity', 'behavior', 'capability', 'permissions', 'limits'] as const;
+
+/** 专家详情：任务、配置分区与选中文件都进 URL，刷新和分享后回到同一视图。 */
+export const agentDetailSearchSchema = z.object({
+  tab: z.enum(agentTabs).optional().catch(undefined),
+  section: z.enum(agentSections).optional().catch(undefined),
+  file: z.string().optional().catch(undefined),
+});
+
 export const skillsSearchSchema = resourceSearchSchema.extend({
   usage: z.enum(['bound', 'unbound']).optional().catch(undefined),
   scope: z.enum(['internal', 'market']).optional().catch(undefined),

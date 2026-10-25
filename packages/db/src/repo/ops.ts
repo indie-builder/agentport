@@ -192,35 +192,6 @@ export async function listRecentFailedRuns(db: Database, limit = 20) {
     .limit(limit);
 }
 
-/** 任务看板汇总：按 status 与 trigger 统计窗口内的运行。 */
-export async function boardSummary(db: Database, since: Date) {
-  const [row] = await db
-    .select({
-      total: sql<number>`count(*)::int`,
-      running: sql<number>`count(*) filter (where ${agentRuns.status} = 'running')::int`,
-      needsAction: sql<number>`count(*) filter (where ${agentRuns.status} in ('failed','timeout'))::int`,
-      finished: sql<number>`count(*) filter (where ${agentRuns.status} in ('succeeded'))::int`,
-      chat: sql<number>`count(*) filter (where ${agentRuns.trigger} = 'chat')::int`,
-      mcp: sql<number>`count(*) filter (where ${agentRuns.trigger} = 'mcp')::int`,
-      schedule: sql<number>`count(*) filter (where ${agentRuns.trigger} = 'schedule')::int`,
-      event: sql<number>`count(*) filter (where ${agentRuns.trigger} = 'event')::int`,
-    })
-    .from(agentRuns)
-    .where(sql`${agentRuns.createdAt} >= ${since}`);
-  return (
-    row ?? {
-      total: 0,
-      running: 0,
-      needsAction: 0,
-      finished: 0,
-      chat: 0,
-      mcp: 0,
-      schedule: 0,
-      event: 0,
-    }
-  );
-}
-
 /** 单个智能体的运行统计（含按天分布，供热力图/工龄页）。 */
 export async function agentStats(db: Database, agentId: string, since: Date) {
   const [[agg], daily] = await Promise.all([

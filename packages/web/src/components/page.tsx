@@ -32,7 +32,7 @@ export function PageHeader({
     >
       {leading ? <div className="shrink-0">{leading}</div> : null}
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <h1 className="min-w-0 break-words text-[16px] font-medium leading-6 tracking-[-0.01em] text-fg">
+        <h1 className="min-w-0 break-words text-lg font-medium tracking-[-0.01em] text-fg">
           {title}
         </h1>
         {eyebrow ? <div className="shrink-0">{eyebrow}</div> : null}

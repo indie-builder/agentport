@@ -174,9 +174,12 @@ packages/db/src/repo/chat.ts
 ```
 POST   /api/chat           body ChatRequest -> 202 {runId, conversationId}
 GET    /api/chat/:runId/events   -> text/event-stream
-GET    /api/conversations/:id    -> {conversation, messages}
+GET    /api/conversations/:id    -> {conversation, messages, runMetrics, nextBefore}
+DELETE /api/conversations/:id    -> 204（排队/运行中返回 409）
 POST   /api/chat/:runId/cancel   -> 202
 ```
+- `GET /api/conversations/:id`：`runMetrics` 是本页消息涉及的 run 读数（按 `runId` 去重后一次 `inArray` 查询），用于给每条历史回复回填读数行；`nextBefore` 为向前分页游标。
+- `DELETE /api/conversations/:id`：事务内先锁 agent（KEY SHARE）再锁会话（UPDATE），与 `admitChatRun` 同序；会话仍有 queued/running 运行时返回 409 `CONFLICT` 并保留数据；成功后级联删除消息与运行记录，Fork 子会话的 `parent_id` 置空保留，并写 `conversation.deleted` 审计。
 - `POST /api/chat`：创建/复用 conversation，写 user message，创建 `agentRuns` 行（status `queued`），投递 `agent-runs` 队列（BullMQ，`Queue` + `connection: { url: REDIS_URL }`），返回。
 - `GET .../events`：订阅 Redis pub/sub 频道 `run:<runId>`，把 JSON 事件以 `data: <json>\n\n` 写出；收到 `run_finished` 后结束。实现方式：每个订阅用独立 `ioredis` 连接（`producer.ts` 导出 `subscribeRun(runId, cb)` / `publishRun(runId, event)`；worker 用同一 Redis 但通过 **publish** 发送，API 用 subscribe）；`close()` 时 `quit()` 该连接，因此多标签页互不影响。
 - `POST .../cancel`：往频道发 `{type:'cancel'}`，并把 run 标记为 `cancelled`。

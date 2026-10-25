@@ -6,13 +6,19 @@ import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Checkbox } from '../components/ui/checkbox.js';
-import { Field, FieldLabel } from '../components/ui/field.js';
+import { Field, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
-import { Label } from '../components/ui/label.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { useFormBlocker } from '../lib/form.js';
 import {
   agentMemoryFileQuery,
   agentMemoryQuery,
@@ -21,8 +27,17 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
+interface DraftCallbacks {
+  onDirtyChange?: (dirty: boolean) => void;
+  onPendingChange?: (pending: boolean) => void;
+}
+
 /** 浏览/编辑 Claude Code 原生 auto-memory：MEMORY.md 索引 + 主题 Markdown。 */
-export function MemoryPanel({ agentId }: { agentId: string }) {
+export function MemoryPanel({
+  agentId,
+  onDirtyChange,
+  onPendingChange,
+}: { agentId: string } & DraftCallbacks) {
   const client = useQueryClient();
   const memory = useQuery(agentMemoryQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
@@ -33,8 +48,6 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
   const [editorPending, setEditorPending] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
   const [pendingCreate, setPendingCreate] = useState(false);
-  // 草稿只存在于当前编辑器的本地状态，切换文件或离开路由都会丢失。
-  const blocker = useFormBlocker(editorDirty, editorPending);
   const files = memory.data?.files ?? [];
   // 选中项被删除或尚未确定时回落到 MEMORY.md。
   const active = files.some((file) => file.name === selected)
@@ -64,8 +77,18 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
     },
   });
 
+  // 创建中的文件名也属于离开会丢失的输入；创建请求同样要锁住切换与离开。
+  const dirty = editorDirty || (creating && name.trim() !== '');
+  const pending = editorPending || remove.isPending || create.isPending;
+  // 路由离开与任务切换由父级用合并后的状态统一保护。
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+  useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
+  useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+
   const submitNewFile = (event: React.FormEvent): void => {
     event.preventDefault();
+    if (pending) return;
     const trimmed = name.trim();
     if (!trimmed) return;
     const fileName = trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
@@ -100,22 +123,22 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
   }
 
   return (
-    <div className="grid min-w-0 items-start gap-6 md:grid-cols-[220px_minmax(0,1fr)]">
+    <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
       <div className="min-w-0">
-        <ul className="flex flex-wrap gap-1 md:flex-col md:flex-nowrap md:gap-0.5">
+        <ul className="hidden flex-col gap-0.5 md:flex">
           {files.map((file) => (
-            <li key={file.name} className="min-w-0">
+            <li key={file.name} className="min-w-0 max-w-full">
               <button
                 type="button"
                 aria-current={file.name === active ? 'true' : undefined}
-                disabled={editorPending}
+                disabled={pending}
                 onClick={() => {
                   if (file.name === active) return;
-                  if (editorDirty) setPendingSwitch(file.name);
+                  if (dirty) setPendingSwitch(file.name);
                   else setSelected(file.name);
                 }}
                 className={cn(
-                  'flex w-full min-w-0 items-center rounded-icon px-2 py-1.5 font-mono text-xs transition-colors md:text-left',
+                  'flex w-full max-w-full min-w-0 items-center rounded-icon px-2 py-1.5 text-left font-mono text-xs transition-colors',
                   file.name === active
                     ? 'bg-selected font-medium text-fg'
                     : 'text-muted-foreground hover:bg-hover',
@@ -129,6 +152,30 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
           ))}
         </ul>
 
+        <Select
+          value={active}
+          disabled={pending}
+          items={files.map((file) => ({ value: file.name, label: file.name }))}
+          onValueChange={(next) => {
+            if (next === null || next === active) return;
+            if (dirty) setPendingSwitch(next);
+            else setSelected(next);
+          }}
+        >
+          <SelectTrigger className="w-full min-w-0 md:hidden" aria-label="记忆文件">
+            <SelectValue className="truncate" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {files.map((file) => (
+                <SelectItem key={file.name} value={file.name}>
+                  {file.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
         {creating ? (
           <form onSubmit={submitNewFile} className="mt-2 flex flex-col gap-2">
             <Input
@@ -138,19 +185,18 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
               placeholder="主题.md"
               disabled={create.isPending}
               onChange={(event) => setName(event.target.value)}
-              className="font-mono text-xs"
+              className="font-mono"
               onKeyDown={(event) => {
                 if (event.key === 'Escape') setCreating(false);
               }}
             />
             <div className="flex gap-2">
-              <Button type="submit" size="sm" disabled={create.isPending || !name.trim()}>
+              <Button type="submit" disabled={create.isPending || !name.trim()}>
                 {create.isPending ? '创建中…' : '创建'}
               </Button>
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
                 disabled={create.isPending}
                 onClick={() => setCreating(false)}
               >
@@ -160,12 +206,11 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
           </form>
         ) : (
           <Button
-            variant="ghost"
-            size="sm"
-            className="mt-2 justify-start text-muted-foreground"
-            disabled={editorPending}
+            variant="outline"
+            className="mt-2 justify-start"
+            disabled={pending}
             onClick={() => {
-              if (editorDirty) setPendingCreate(true);
+              if (dirty) setPendingCreate(true);
               else setCreating(true);
             }}
           >
@@ -188,12 +233,14 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
       <ConfirmDialog
         open={pendingSwitch !== null || pendingCreate}
         onClose={() => {
+          if (pending) return;
           setPendingSwitch(null);
           setPendingCreate(false);
         }}
         title="放弃未保存的修改？"
         description={`「${active ?? ''}」还有未保存的内容，继续后会丢失。`}
         confirmLabel="放弃并继续"
+        confirmDisabled={pending}
         onConfirm={async () => {
           if (pendingSwitch) setSelected(pendingSwitch);
           else setCreating(true);
@@ -203,21 +250,14 @@ export function MemoryPanel({ agentId }: { agentId: string }) {
       />
 
       <ConfirmDialog
-        open={blocker.status === 'blocked'}
-        onClose={() => blocker.reset?.()}
-        title="放弃未保存的修改？"
-        description={`「${active ?? ''}」还有未保存的内容，离开后会丢失。`}
-        confirmLabel="放弃并离开"
-        onConfirm={async () => {
-          blocker.proceed();
-        }}
-      />
-
-      <ConfirmDialog
         open={deleting !== null}
-        onClose={() => setDeleting(null)}
+        onClose={() => {
+          if (pending) return;
+          setDeleting(null);
+        }}
         title="删除记忆文件"
         description={`将删除「${deleting ?? ''}」，此操作不可撤销。`}
+        confirmDisabled={pending}
         onConfirm={async () => {
           if (deleting) await remove.mutateAsync(deleting);
         }}
@@ -267,21 +307,13 @@ function MemoryFileEditor({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{name}</span>
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="min-w-0 truncate font-mono text-md font-semibold text-fg">{name}</h2>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <Button
-            size="sm"
-            disabled={!dirty || save.isPending}
-            aria-busy={save.isPending}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? '保存中…' : '保存'}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
+            variant="destructive"
+            size="icon"
             aria-label={`删除 ${name}`}
             title={`删除 ${name}`}
             disabled={save.isPending}
@@ -289,23 +321,42 @@ function MemoryFileEditor({
           >
             <Trash2 aria-hidden="true" />
           </Button>
+          <Button
+            disabled={!dirty || save.isPending}
+            aria-busy={save.isPending}
+            onClick={() => save.mutate()}
+          >
+            {save.isPending ? '保存中…' : '记忆保存'}
+          </Button>
         </div>
       </div>
-      <Textarea
-        value={content}
-        rows={18}
-        aria-label={`${name} 内容`}
-        disabled={save.isPending}
-        onChange={(event) => setDraft(event.target.value)}
-        // Markdown 需要等宽与可读的行距。
-        className="min-h-[18rem] font-mono text-xs leading-relaxed"
-      />
+      <Field data-disabled={save.isPending} className="gap-1.5">
+        <FieldLabel htmlFor="memory-content">{name} 内容</FieldLabel>
+        <Textarea
+          id="memory-content"
+          value={content}
+          rows={18}
+          disabled={save.isPending}
+          onChange={(event) => setDraft(event.target.value)}
+          // Markdown 需要等宽与可读的行距。
+          className="min-h-[18rem] font-mono leading-relaxed"
+        />
+      </Field>
     </div>
   );
 }
 
+type RuleAction =
+  | { type: 'open'; rule: { slug: string; content: string; globs: string } }
+  | { type: 'create' }
+  | { type: 'delete'; slug: string };
+
 /** 项目规则：编辑 `.claude/rules/<slug>.md`，可选路径作用域（globs）。 */
-export function RulesPanel({ agentId }: { agentId: string }) {
+export function RulesPanel({
+  agentId,
+  onDirtyChange,
+  onPendingChange,
+}: { agentId: string } & DraftCallbacks) {
   const client = useQueryClient();
   const rules = useQuery(agentRulesQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
@@ -313,15 +364,21 @@ export function RulesPanel({ agentId }: { agentId: string }) {
   const [slug, setSlug] = useState('');
   const [draft, setDraft] = useState('');
   const [globs, setGlobs] = useState('');
+  const [baseline, setBaseline] = useState<{ content: string; globs: string } | null>(null);
+  const [confirming, setConfirming] = useState<RuleAction | null>(null);
 
   const invalidate = (): void =>
     void client.invalidateQueries({ queryKey: ['agent-rules', agentId] });
   const current = rules.data?.find((r) => r.slug === selected) ?? null;
+  const dirty = creating
+    ? slug.trim() !== '' || draft !== '' || globs !== ''
+    : baseline !== null && (draft !== baseline.content || globs !== baseline.globs);
 
   const open = (rule: { slug: string; content: string; globs: string }): void => {
     setSelected(rule.slug);
     setDraft(rule.content);
     setGlobs(rule.globs);
+    setBaseline({ content: rule.content, globs: rule.globs });
     setCreating(false);
   };
 
@@ -331,6 +388,7 @@ export function RulesPanel({ agentId }: { agentId: string }) {
     setSlug('');
     setDraft('');
     setGlobs('');
+    setBaseline(null);
   };
 
   const save = useMutation({
@@ -339,6 +397,9 @@ export function RulesPanel({ agentId }: { agentId: string }) {
     onSuccess: (rule) => {
       toastSuccess('规则已保存');
       setSelected(rule.slug);
+      setDraft(rule.content);
+      setGlobs(rule.globs);
+      setBaseline({ content: rule.content, globs: rule.globs });
       setCreating(false);
       invalidate();
     },
@@ -350,12 +411,34 @@ export function RulesPanel({ agentId }: { agentId: string }) {
     onSuccess: () => {
       toastSuccess('规则已删除');
       setSelected(null);
+      setBaseline(null);
       invalidate();
     },
-    onError: (error) => toastError(error),
   });
 
+  const pending = save.isPending || remove.isPending;
+
+  const apply = (action: RuleAction): void => {
+    if (pending) return;
+    if (action.type === 'open') open(action.rule);
+    else if (action.type === 'create') startCreate();
+    else remove.mutate(action.slug);
+  };
+
+  const guard = (action: RuleAction): void => {
+    if (pending) return;
+    // 删除始终二次确认；其余动作只有当前草稿会丢时才确认。
+    if (dirty || action.type === 'delete') setConfirming(action);
+    else apply(action);
+  };
+
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+  useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
+  useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+
   const submit = (): void => {
+    if (pending) return;
     const target = creating ? slug.trim() : selected;
     if (!target) return;
     save.mutate({ slug: target, content: draft, globs });
@@ -365,19 +448,20 @@ export function RulesPanel({ agentId }: { agentId: string }) {
   if (rules.isError) return <ErrorState error={rules.error} onRetry={() => void rules.refetch()} />;
 
   return (
-    <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-      <div className="flex flex-col gap-2">
-        <Button variant="outline" size="sm" onClick={startCreate}>
+    <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="flex min-w-0 flex-col gap-2">
+        <Button variant="outline" disabled={pending} onClick={() => guard({ type: 'create' })}>
           <Plus data-icon="inline-start" /> 新建规则
         </Button>
-        <ul className="flex flex-col gap-0.5">
+        <ul className="hidden flex-col gap-0.5 md:flex">
           {rules.data.map((rule) => (
-            <li key={rule.id}>
+            <li key={rule.id} className="min-w-0 max-w-full">
               <button
                 type="button"
-                onClick={() => open(rule)}
+                disabled={pending}
+                onClick={() => guard({ type: 'open', rule })}
                 className={cn(
-                  'w-full truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
+                  'w-full max-w-full truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
                   selected === rule.slug && 'bg-selected text-fg',
                 )}
               >
@@ -386,70 +470,156 @@ export function RulesPanel({ agentId }: { agentId: string }) {
             </li>
           ))}
         </ul>
+        <Select
+          value={selected}
+          disabled={pending}
+          items={rules.data.map((rule) => ({ value: rule.slug, label: rule.slug }))}
+          onValueChange={(next) => {
+            const rule = rules.data.find((item) => item.slug === next);
+            if (rule) guard({ type: 'open', rule });
+          }}
+        >
+          <SelectTrigger className="w-full min-w-0 md:hidden" aria-label="项目规则">
+            <SelectValue className="truncate" placeholder="选择规则" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {rules.data.map((rule) => (
+                <SelectItem key={rule.id} value={rule.slug}>
+                  {rule.slug}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </div>
-      <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-3">
         {creating || current ? (
           <>
-            {creating ? (
-              <Field className="gap-1.5">
-                <FieldLabel htmlFor="rule-slug">规则 slug</FieldLabel>
-                <Input
-                  id="rule-slug"
-                  value={slug}
-                  placeholder="no-console"
-                  className="font-mono text-xs"
-                  onChange={(e) => setSlug(e.target.value)}
-                />
-              </Field>
-            ) : (
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-sm text-fg">{current?.slug}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="min-w-0 truncate font-mono text-md font-semibold text-fg">
+                {creating ? '新建规则' : current?.slug}
+              </h2>
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                {current ? (
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    aria-label={`删除规则 ${current.slug}`}
+                    title={`删除规则 ${current.slug}`}
+                    disabled={pending}
+                    onClick={() => guard({ type: 'delete', slug: current.slug })}
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </Button>
+                ) : null}
                 <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`删除规则 ${current?.slug}`}
-                  onClick={() => current && remove.mutate(current.slug)}
+                  onClick={submit}
+                  disabled={save.isPending || !dirty || (creating && !slug.trim())}
+                  aria-busy={save.isPending}
                 >
-                  <Trash2 />
+                  {save.isPending ? '保存中…' : '保存规则'}
                 </Button>
               </div>
-            )}
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="rule-globs">路径作用域（可选）</FieldLabel>
-              <Input
-                id="rule-globs"
-                value={globs}
-                placeholder="src/**/*.ts, docs/**"
-                className="font-mono text-xs"
-                onChange={(e) => setGlobs(e.target.value)}
-              />
-            </Field>
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="rule-content">规则内容（Markdown）</FieldLabel>
-              <Textarea
-                id="rule-content"
-                value={draft}
-                rows={12}
-                className="min-h-[16rem] font-mono text-xs leading-relaxed"
-                onChange={(e) => setDraft(e.target.value)}
-              />
-            </Field>
-            <div className="flex justify-end">
-              <Button onClick={submit} disabled={save.isPending} aria-busy={save.isPending}>
-                {save.isPending ? '保存中…' : '保存规则'}
-              </Button>
             </div>
+            <FieldGroup>
+              {creating ? (
+                <Field className="gap-1.5" data-disabled={pending}>
+                  <FieldLabel htmlFor="rule-slug">规则 slug</FieldLabel>
+                  <Input
+                    id="rule-slug"
+                    value={slug}
+                    placeholder="no-console"
+                    className="font-mono"
+                    disabled={pending}
+                    onChange={(e) => setSlug(e.target.value)}
+                  />
+                </Field>
+              ) : null}
+              <Field className="gap-1.5" data-disabled={pending}>
+                <FieldLabel htmlFor="rule-globs">路径作用域（可选）</FieldLabel>
+                <Input
+                  id="rule-globs"
+                  value={globs}
+                  placeholder="src/**/*.ts, docs/**"
+                  className="font-mono"
+                  disabled={pending}
+                  onChange={(e) => setGlobs(e.target.value)}
+                />
+              </Field>
+              <Field className="gap-1.5" data-disabled={pending}>
+                <FieldLabel htmlFor="rule-content">规则内容（Markdown）</FieldLabel>
+                <Textarea
+                  id="rule-content"
+                  value={draft}
+                  rows={12}
+                  className="min-h-[16rem] font-mono leading-relaxed"
+                  disabled={pending}
+                  onChange={(e) => setDraft(e.target.value)}
+                />
+              </Field>
+            </FieldGroup>
           </>
         ) : (
           <EmptyState title="选择或新建规则" />
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirming !== null}
+        onClose={() => {
+          if (pending) return;
+          setConfirming(null);
+        }}
+        title={
+          confirming?.type === 'delete'
+            ? dirty
+              ? '放弃修改并删除？'
+              : '删除规则？'
+            : '放弃未保存的修改？'
+        }
+        description={
+          confirming?.type === 'delete'
+            ? dirty
+              ? `「${current?.slug ?? ''}」还有未保存的内容，继续会放弃这些修改并删除该规则，此操作不可撤销。`
+              : `将删除「${current?.slug ?? ''}」，此操作不可撤销。`
+            : `「${current?.slug ?? '新建规则'}」还有未保存的内容，继续后会丢失。`
+        }
+        confirmLabel={
+          confirming?.type === 'delete' && !dirty
+            ? '删除'
+            : confirming?.type === 'delete'
+              ? '放弃并删除'
+              : '放弃并继续'
+        }
+        confirmDisabled={pending}
+        onConfirm={async () => {
+          const action = confirming;
+          if (action?.type === 'delete') {
+            // 删除成功后再关确认框；失败保留草稿，错误由 ConfirmDialog 统一提示。
+            await remove.mutateAsync(action.slug);
+            setConfirming(null);
+          } else {
+            setConfirming(null);
+            if (action) apply(action);
+          }
+        }}
+      />
     </div>
   );
 }
 
+type StyleAction =
+  | { type: 'open'; style: OutputStyle }
+  | { type: 'create' }
+  | { type: 'delete'; slug: string };
+
 /** 自定义输出风格：选中项经 settings.outputStyle 生效。 */
-export function OutputStylesPanel({ agentId }: { agentId: string }) {
+export function OutputStylesPanel({
+  agentId,
+  onDirtyChange,
+  onPendingChange,
+}: { agentId: string } & DraftCallbacks) {
   const client = useQueryClient();
   const styles = useQuery(agentOutputStylesQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
@@ -459,16 +629,33 @@ export function OutputStylesPanel({ agentId }: { agentId: string }) {
   const [keepCodingInstructions, setKeepCodingInstructions] = useState(false);
   const [body, setBody] = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [baseline, setBaseline] = useState<{
+    description: string;
+    keepCodingInstructions: boolean;
+    body: string;
+  } | null>(null);
+  const [confirming, setConfirming] = useState<StyleAction | null>(null);
 
   const invalidate = (): void =>
     void client.invalidateQueries({ queryKey: ['agent-output-styles', agentId] });
   const current = styles.data?.find((style) => style.slug === selected) ?? null;
+  const dirty = creating
+    ? slug.trim() !== '' || description !== '' || keepCodingInstructions || body !== ''
+    : baseline !== null &&
+      (description !== baseline.description ||
+        keepCodingInstructions !== baseline.keepCodingInstructions ||
+        body !== baseline.body);
 
   const open = (style: OutputStyle): void => {
     setSelected(style.slug);
     setDescription(style.description);
     setKeepCodingInstructions(style.keepCodingInstructions);
     setBody(style.body);
+    setBaseline({
+      description: style.description,
+      keepCodingInstructions: style.keepCodingInstructions,
+      body: style.body,
+    });
     setCreating(false);
   };
 
@@ -479,6 +666,7 @@ export function OutputStylesPanel({ agentId }: { agentId: string }) {
     setDescription('');
     setKeepCodingInstructions(false);
     setBody('');
+    setBaseline(null);
   };
 
   const save = useMutation({
@@ -496,6 +684,14 @@ export function OutputStylesPanel({ agentId }: { agentId: string }) {
     onSuccess: (style) => {
       toastSuccess('输出风格已保存');
       setSelected(style.slug);
+      setDescription(style.description);
+      setKeepCodingInstructions(style.keepCodingInstructions);
+      setBody(style.body);
+      setBaseline({
+        description: style.description,
+        keepCodingInstructions: style.keepCodingInstructions,
+        body: style.body,
+      });
       setCreating(false);
       invalidate();
     },
@@ -516,12 +712,33 @@ export function OutputStylesPanel({ agentId }: { agentId: string }) {
     onSuccess: () => {
       toastSuccess('输出风格已删除');
       setSelected(null);
+      setBaseline(null);
       invalidate();
     },
-    onError: (error) => toastError(error),
   });
 
+  const pending = save.isPending || unselect.isPending || remove.isPending;
+
+  const apply = (action: StyleAction): void => {
+    if (pending) return;
+    if (action.type === 'open') open(action.style);
+    else if (action.type === 'create') startCreate();
+    else setDeleting(action.slug);
+  };
+
+  const guard = (action: StyleAction): void => {
+    if (pending) return;
+    if (dirty) setConfirming(action);
+    else apply(action);
+  };
+
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+  useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
+  useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+
   const submit = (): void => {
+    if (pending) return;
     const target = creating ? slug.trim() : selected;
     if (!target) return;
     save.mutate({ slug: target, description, keepCodingInstructions, body });
@@ -532,19 +749,20 @@ export function OutputStylesPanel({ agentId }: { agentId: string }) {
     return <ErrorState error={styles.error} onRetry={() => void styles.refetch()} />;
 
   return (
-    <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-      <div className="flex flex-col gap-2">
-        <Button variant="outline" size="sm" onClick={startCreate}>
+    <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="flex min-w-0 flex-col gap-2">
+        <Button variant="outline" disabled={pending} onClick={() => guard({ type: 'create' })}>
           <Plus data-icon="inline-start" /> 新建风格
         </Button>
-        <ul className="flex flex-col gap-0.5">
+        <ul className="hidden flex-col gap-0.5 md:flex">
           {styles.data.map((style) => (
-            <li key={style.id}>
+            <li key={style.id} className="min-w-0 max-w-full">
               <button
                 type="button"
-                onClick={() => open(style)}
+                disabled={pending}
+                onClick={() => guard({ type: 'open', style })}
                 className={cn(
-                  'flex w-full items-center gap-1.5 truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
+                  'flex w-full max-w-full items-center gap-1.5 truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
                   selected === style.slug && 'bg-selected text-fg',
                 )}
               >
@@ -556,62 +774,111 @@ export function OutputStylesPanel({ agentId }: { agentId: string }) {
             </li>
           ))}
         </ul>
+        <Select
+          value={selected}
+          disabled={pending}
+          items={styles.data.map((style) => ({ value: style.slug, label: style.slug }))}
+          onValueChange={(next) => {
+            const style = styles.data.find((item) => item.slug === next);
+            if (style) guard({ type: 'open', style });
+          }}
+        >
+          <SelectTrigger className="w-full min-w-0 md:hidden" aria-label="输出风格">
+            <SelectValue className="truncate" placeholder="选择输出风格" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {styles.data.map((style) => (
+                <SelectItem key={style.id} value={style.slug}>
+                  {style.slug}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </div>
-      <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-3">
         {creating || current ? (
           <>
-            <Input
-              value={creating ? slug : (current?.slug ?? '')}
-              placeholder="风格 slug，如 concise"
-              aria-label="风格 slug"
-              className="font-mono text-xs"
-              disabled={!creating}
-              onChange={(e) => setSlug(e.target.value)}
-            />
-            <Input
-              value={description}
-              placeholder="描述"
-              aria-label="风格描述"
-              onChange={(e) => setDescription(e.target.value)}
-            />
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="output-style-keep-coding"
-                className="size-3.5"
-                checked={keepCodingInstructions}
-                onCheckedChange={setKeepCodingInstructions}
-              />
-              <Label htmlFor="output-style-keep-coding" className="text-xs font-normal">
-                保留编码指令
-              </Label>
-            </div>
-            <Textarea
-              value={body}
-              placeholder="风格说明（Markdown）"
-              aria-label="风格内容"
-              rows={12}
-              className="min-h-[16rem] font-mono text-xs leading-relaxed"
-              onChange={(e) => setBody(e.target.value)}
-            />
-            <div className="flex justify-end gap-2">
-              {current?.isSelected ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="min-w-0 truncate font-mono text-md font-semibold text-fg">
+                {creating ? '新建风格' : current?.slug}
+              </h2>
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                {current?.isSelected ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => unselect.mutate(current.slug)}
+                    disabled={pending}
+                  >
+                    取消启用
+                  </Button>
+                ) : null}
+                {current ? (
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    aria-label={`删除风格 ${current.slug}`}
+                    title={`删除风格 ${current.slug}`}
+                    disabled={pending}
+                    onClick={() => guard({ type: 'delete', slug: current.slug })}
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </Button>
+                ) : null}
                 <Button
-                  variant="ghost"
-                  onClick={() => unselect.mutate(current.slug)}
-                  disabled={unselect.isPending}
+                  onClick={submit}
+                  disabled={save.isPending || !dirty || (creating && !slug.trim())}
+                  aria-busy={save.isPending}
                 >
-                  取消启用
+                  {save.isPending ? '保存中…' : '风格保存'}
                 </Button>
-              ) : null}
-              {current ? (
-                <Button variant="destructive" onClick={() => setDeleting(current.slug)}>
-                  <Trash2 /> 删除
-                </Button>
-              ) : null}
-              <Button onClick={submit} disabled={save.isPending} aria-busy={save.isPending}>
-                {save.isPending ? '保存中…' : '保存'}
-              </Button>
+              </div>
             </div>
+            <FieldGroup>
+              <Field className="gap-1.5" data-disabled={pending}>
+                <FieldLabel htmlFor="output-style-slug">风格 slug</FieldLabel>
+                <Input
+                  id="output-style-slug"
+                  value={creating ? slug : (current?.slug ?? '')}
+                  placeholder="风格 slug，如 concise"
+                  className="font-mono"
+                  disabled={!creating || pending}
+                  onChange={(e) => setSlug(e.target.value)}
+                />
+              </Field>
+              <Field className="gap-1.5" data-disabled={pending}>
+                <FieldLabel htmlFor="output-style-description">风格描述</FieldLabel>
+                <Input
+                  id="output-style-description"
+                  value={description}
+                  placeholder="描述"
+                  disabled={pending}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </Field>
+              <Field orientation="horizontal" data-disabled={pending}>
+                <Checkbox
+                  id="output-style-keep-coding"
+                  checked={keepCodingInstructions}
+                  disabled={pending}
+                  onCheckedChange={setKeepCodingInstructions}
+                />
+                <FieldLabel htmlFor="output-style-keep-coding">保留编码指令</FieldLabel>
+              </Field>
+              <Field className="gap-1.5" data-disabled={pending}>
+                <FieldLabel htmlFor="output-style-body">风格内容</FieldLabel>
+                <Textarea
+                  id="output-style-body"
+                  value={body}
+                  placeholder="风格说明（Markdown）"
+                  rows={12}
+                  className="min-h-[16rem] font-mono leading-relaxed"
+                  disabled={pending}
+                  onChange={(e) => setBody(e.target.value)}
+                />
+              </Field>
+            </FieldGroup>
           </>
         ) : (
           <EmptyState title="选择或新建输出风格" description="启用后会替换专家默认的输出风格。" />
@@ -619,10 +886,35 @@ export function OutputStylesPanel({ agentId }: { agentId: string }) {
       </div>
 
       <ConfirmDialog
+        open={confirming !== null}
+        onClose={() => {
+          if (pending) return;
+          setConfirming(null);
+        }}
+        title={confirming?.type === 'delete' ? '放弃修改并删除？' : '放弃未保存的修改？'}
+        description={
+          confirming?.type === 'delete'
+            ? `「${current?.slug ?? ''}」还有未保存的内容，继续会放弃这些修改，并进入删除确认。`
+            : `「${current?.slug ?? '新建风格'}」还有未保存的内容，继续后会丢失。`
+        }
+        confirmLabel="放弃并继续"
+        confirmDisabled={pending}
+        onConfirm={async () => {
+          const action = confirming;
+          setConfirming(null);
+          if (action) apply(action);
+        }}
+      />
+
+      <ConfirmDialog
         open={deleting !== null}
-        onClose={() => setDeleting(null)}
+        onClose={() => {
+          if (pending) return;
+          setDeleting(null);
+        }}
         title="删除输出风格"
         description={`将删除「${deleting ?? ''}」，此操作不可撤销。`}
+        confirmDisabled={pending}
         onConfirm={async () => {
           if (deleting) await remove.mutateAsync(deleting);
         }}

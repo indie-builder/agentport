@@ -130,6 +130,21 @@ export const conversationMessageSchema = z.object({
 
 export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
 
+/** 一条消息所属运行的读数；只含前端读数行需要的字段。 */
+export const conversationRunMetricsSchema = z.object({
+  runId: z.string(),
+  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout']),
+  turns: z.number().nullable().default(null),
+  durationMs: z.number().nullable().default(null),
+  /** 结束时刻；历史轮次用它标出「这轮是什么时候跑完的」。 */
+  endedAt: z.string().nullable().default(null),
+  tokens: z.number().nullable().default(null),
+  costUsd: z.number().nullable().default(null),
+  error: z.string().nullable().default(null),
+});
+
+export type ConversationRunMetrics = z.infer<typeof conversationRunMetricsSchema>;
+
 export const conversationDetailSchema = z.object({
   conversation: z.object({
     id: z.string(),
@@ -138,6 +153,8 @@ export const conversationDetailSchema = z.object({
     createdAt: z.string(),
   }),
   messages: z.array(conversationMessageSchema),
+  /** 本页消息涉及的 run 读数，按 runId 索引；前端用它给每条历史回复补上读数行。 */
+  runMetrics: z.array(conversationRunMetricsSchema).default([]),
   nextBefore: z.string().nullable(),
 });
 

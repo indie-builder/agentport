@@ -115,12 +115,14 @@ const heading = (tag: 'h2' | 'h3' | 'h4' | 'h5' | 'h6', className: string) => {
 /** 外链新开页并补齐 noopener；Streamdown 默认只给 noreferrer。 */
 const components: Components = {
   // 消息内标题整体下移一级：页面本身已有 h1，不能再出现第二个 h1。
-  h1: heading('h2', 'mt-4 mb-2 text-base font-medium text-fg'),
-  h2: heading('h3', 'mt-3 mb-1.5 text-sm font-medium text-fg'),
-  h3: heading('h4', 'mt-3 mb-1 text-sm font-medium text-fg'),
-  h4: heading('h5', 'mt-3 mb-1 text-sm font-medium text-fg'),
-  h5: heading('h6', 'mt-3 mb-1 text-sm font-medium text-fg'),
-  h6: heading('h6', 'mt-3 mb-1 text-sm font-medium text-fg'),
+  // 正文只有一级（md 15px），任何标题都不小于它：H1 18、H2 16 靠字号递进，
+  // H3–H6 收成一级 15/600，靠字重区分。小于正文的标题会比它概括的内容还弱。
+  h1: heading('h2', 'mt-5 mb-2 text-xl font-semibold text-fg'),
+  h2: heading('h3', 'mt-4 mb-2 text-lg font-semibold text-fg'),
+  h3: heading('h4', 'mt-3.5 mb-1.5 text-md font-semibold text-fg'),
+  h4: heading('h5', 'mt-3 mb-1 text-md font-semibold text-fg'),
+  h5: heading('h6', 'mt-3 mb-1 text-md font-semibold text-fg'),
+  h6: heading('h6', 'mt-3 mb-1 text-md font-semibold text-fg'),
   a: ({ href, children, node: _node, ...props }: ComponentProps<'a'> & { node?: unknown }) => {
     // 流式中的未闭合链接由 remend 标成哨兵值，不能变成可点击的相对地址。
     if (href === 'streamdown:incomplete-link') {
@@ -154,15 +156,11 @@ const MARKDOWN_HINT =
 /** 助手文本的流式 Markdown；半截语法由 Streamdown/remend 自行补齐。 */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   if (!MARKDOWN_HINT.test(text)) {
-    return (
-      <p className="min-w-0 whitespace-pre-wrap break-words text-md leading-[1.7] text-fg">
-        {text}
-      </p>
-    );
+    return <p className="min-w-0 whitespace-pre-wrap break-words text-md text-fg">{text}</p>;
   }
   return (
     <Streamdown
-      className="min-w-0 text-md leading-[1.7] text-fg [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-line [&_[data-streamdown=code-block]]:bg-code [&_[data-streamdown=code-block-body]]:bg-transparent"
+      className="min-w-0 text-md text-fg [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-line [&_[data-streamdown=code-block]]:bg-code [&_[data-streamdown=code-block-body]]:bg-transparent"
       components={components}
       plugins={PLUGINS}
       shikiTheme={SHIKI_THEMES}

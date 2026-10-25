@@ -82,6 +82,51 @@ export async function getConversation(
   return row ?? null;
 }
 
+/**
+ * 删除会话及其消息/运行（FK 级联）；Fork 出来的子会话靠 parent_id set null 保留。
+ * 锁序与 admitChatRun 一致（agents key share → conversations update），否则外键检查会和准入死锁。
+ */
+export async function deleteConversation(db: Database, conversationId: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ agentId: conversations.agentId })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1);
+    if (!row) return false;
+
+    await tx
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.id, row.agentId))
+      .limit(1)
+      .for('key share');
+
+    const [locked] = await tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1)
+      .for('update');
+    if (!locked) return false;
+
+    const [active] = await tx
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(
+        and(
+          eq(agentRuns.conversationId, conversationId),
+          inArray(agentRuns.status, ['queued', 'running']),
+        ),
+      )
+      .limit(1);
+    if (active) fail('CONFLICT', '该会话仍有运行未结束，请等待完成或取消后再删除');
+
+    await tx.delete(conversations).where(eq(conversations.id, conversationId));
+    return true;
+  });
+}
+
 export interface ListMessagesOptions {
   /** 只取最新 N 条（按 created_at, id 倒序取，仍按正序返回）。 */
   limit?: number;
@@ -117,6 +162,38 @@ export async function listMessages(
     .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(options.limit);
   return rows.reverse();
+}
+
+/** 一组 run 的读数：会话历史里每条回复都按 run_id 回填同一行读数。 */
+export interface RunMetricsRow {
+  id: string;
+  status: RunStatus;
+  turns: number | null;
+  latencyMs: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: string | null;
+  error: string | null;
+  endedAt: Date | null;
+}
+
+/** 历史消息只带 run_id，读数要按 id 批量取，不能逐条查。 */
+export async function listRunMetrics(db: Database, runIds: string[]): Promise<RunMetricsRow[]> {
+  if (runIds.length === 0) return [];
+  return db
+    .select({
+      id: agentRuns.id,
+      status: agentRuns.status,
+      turns: agentRuns.turns,
+      latencyMs: agentRuns.latencyMs,
+      inputTokens: agentRuns.inputTokens,
+      outputTokens: agentRuns.outputTokens,
+      costUsd: agentRuns.costUsd,
+      error: agentRuns.error,
+      endedAt: agentRuns.endedAt,
+    })
+    .from(agentRuns)
+    .where(inArray(agentRuns.id, runIds));
 }
 
 /** 分页游标必须属于本会话；否则行值比较会静默取整段历史。 */

@@ -19,6 +19,8 @@ export interface RunMetrics {
   tokens?: number;
   costUsd?: number;
   error?: string;
+  /** 结束时刻（历史轮次才有）；用作读数行的完整时间提示。 */
+  endedAt?: string;
 }
 
 interface ChatWorkspaceState {

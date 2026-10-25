@@ -6,7 +6,6 @@ import type {
   ApiTool,
   ApiToolInput,
   Attention,
-  BoardSummary,
   ChatRequest,
   ConnectorCatalogItem,
   ConversationSummary,
@@ -600,6 +599,7 @@ export const api = {
 
   renameConversation: (id: string, title: string): Promise<ConversationDetail['conversation']> =>
     request(`/conversations/${id}`, 'PATCH', { title }),
+  deleteConversation: (id: string): Promise<void> => request(`/conversations/${id}`, 'DELETE'),
 
   conversations: async (agentId?: string): Promise<ConversationList> => {
     const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
@@ -652,7 +652,6 @@ export const api = {
   skillDraftFromRun: (runId: string): Promise<Skill> =>
     request(`/runs/${runId}/skill-draft`, 'POST'),
   attention: (): Promise<Attention> => request('/attention'),
-  boardSummary: (days = 30): Promise<BoardSummary> => request(`/runs/board?days=${days}`),
   schedules: (): Promise<Schedule[]> => request('/schedules'),
   createSchedule: (input: ScheduleInput): Promise<Schedule> => request('/schedules', 'POST', input),
   updateSchedule: (id: string, input: SchedulePatch): Promise<Schedule> =>

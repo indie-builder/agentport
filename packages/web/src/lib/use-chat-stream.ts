@@ -219,6 +219,19 @@ export function useChatStream({
           finished = true;
           closeStream();
           store.setRun(null);
+          // 本轮回复落库后都带同一个 run_id；补到流式项上，下一轮开始后它也能按 id 取读数。
+          store.setItems((previous) => {
+            const userIndex = previous.findLastIndex((item) => item.kind === 'user');
+            // 没有用户项时无从判断本轮起点，宁可什么都不补，也不能给整段历史打上本轮 id。
+            if (userIndex < 0) return previous;
+            return previous.map((item, index) =>
+              index > userIndex &&
+              (item.kind === 'text' || item.kind === 'tool') &&
+              item.runId === undefined
+                ? { ...item, runId: accepted.runId }
+                : item,
+            );
+          });
           store.setLastRun({
             runId: accepted.runId,
             status: event.status,

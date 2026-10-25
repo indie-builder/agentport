@@ -65,9 +65,9 @@ describe('overview health summary', () => {
     expect(html).toMatch(/<a\b[^>]*href="\/status"/);
   });
 
-  it('preserves zero queue counts', () => {
+  it('stays quiet on the home page when the queue is healthy', () => {
     const html = renderHealth('ready');
-    expect(html).toContain(' 等待 / 0 运行');
+    expect(html).not.toContain('等待 /');
     expect(html).not.toContain('指标不可用');
   });
 
@@ -75,5 +75,29 @@ describe('overview health summary', () => {
     const html = renderHealth('missing-queue');
     expect(html).toContain('队列指标不可用');
     expect(html).not.toContain(' 等待 / ');
+  });
+
+  it('surfaces a queue backlog on the home page', () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, retryOnMount: false, gcTime: Infinity } },
+    });
+    client.setQueryData(overviewQuery.queryKey, {
+      counts: { agents: 1, servers: 1, runs: 1, running: 0 },
+      recent: [],
+      agents: [],
+    } satisfies Overview);
+    client.setQueryData(healthMetricsQuery.queryKey, {
+      ...metrics,
+      queue: { waiting: 9, active: 1, completed: 0, failed: 0, delayed: 0 },
+    });
+    try {
+      const html = renderToStaticMarkup(
+        createElement(QueryClientProvider, { client }, createElement(OverviewPage)),
+      );
+      expect(html).toContain('9 等待 / 1 运行');
+      expect(html).toContain('查看健康');
+    } finally {
+      client.clear();
+    }
   });
 });

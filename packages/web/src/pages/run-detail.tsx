@@ -466,7 +466,7 @@ function StepInspector({ step, index }: { step: RunStep; index: number }) {
       {step.kind === 'assistant' || step.kind === 'user' ? (
         <CollapsibleText
           text={step.text}
-          className="whitespace-pre-wrap [overflow-wrap:anywhere] text-md leading-relaxed text-fg"
+          className="whitespace-pre-wrap [overflow-wrap:anywhere] text-md text-fg"
         />
       ) : (
         <>

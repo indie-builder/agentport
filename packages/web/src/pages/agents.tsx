@@ -18,12 +18,10 @@ import {
   serializeAgentPackage,
 } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { useBlocker, useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
-  BarChart3,
   Bot,
-  Brain,
   Check,
   ChevronRight,
   Copy,
@@ -32,11 +30,9 @@ import {
   FileCode,
   FileText,
   History,
-  Palette,
   Plug,
   Plus,
   RotateCcw,
-  ScrollText,
   Sparkles,
   Trash2,
   Upload,
@@ -113,6 +109,7 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select.js';
@@ -124,7 +121,9 @@ import {
   SheetTitle,
 } from '../components/ui/sheet.js';
 import { Switch } from '../components/ui/switch.js';
+import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { Toggle } from '../components/ui/toggle.js';
 import type { AgentFiles, AgentVersionSummary } from '../lib/api.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
@@ -684,7 +683,7 @@ export function AgentDetailPage() {
           title="专家不存在"
           description="它可能已被删除，返回列表重新选择。"
           action={
-            <Button variant="outline" size="sm" onClick={backToList}>
+            <Button variant="outline" onClick={backToList}>
               <ArrowLeft data-icon="inline-start" /> 返回列表
             </Button>
           }
@@ -696,38 +695,33 @@ export function AgentDetailPage() {
   const current = agent.data;
   return (
     <Page>
-      <PageHeader
-        leading={<AgentAvatar agent={current} className="size-11" />}
-        title={current.name}
-        eyebrow={
-          <StatusBadge className="max-w-full whitespace-normal break-words">
-            {current.role?.trim() || '通用助手'}
-          </StatusBadge>
-        }
-        {...(current.description ? { description: current.description } : {})}
-        actions={
-          <>
-            <Button variant="ghost" size="sm" onClick={backToList} disabled={pending}>
+      <div className="flex min-w-0 flex-col gap-2">
+        <PageHeader
+          leading={<AgentAvatar agent={current} className="size-11" />}
+          title={current.name}
+          eyebrow={
+            <StatusBadge className="max-w-full whitespace-normal break-words">
+              {current.role?.trim() || '通用助手'}
+            </StatusBadge>
+          }
+          actions={
+            <Button variant="outline" onClick={backToList} disabled={pending}>
               <ArrowLeft data-icon="inline-start" /> 返回列表
             </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="删除专家"
-              title="删除专家"
-              disabled={pending}
-              onClick={() => setDeleting(true)}
-            >
-              <Trash2 />
-            </Button>
-          </>
-        }
-      />
+          }
+        />
+        {current.description ? (
+          <p className="max-w-[70ch] break-words text-sm text-muted-foreground">
+            {current.description}
+          </p>
+        ) : null}
+      </div>
       <AgentEditor
         key={current.id}
         agent={current}
         onDirtyChange={() => {}}
         onPendingChange={setPending}
+        onDeleteRequest={() => setDeleting(true)}
       />
       <ConfirmDialog
         open={deleting}
@@ -763,6 +757,7 @@ export function AgentDetailPage() {
 }
 
 type SectionId = 'identity' | 'behavior' | 'capability' | 'permissions' | 'limits';
+type TabId = 'config' | 'memory' | 'rules' | 'styles' | 'files' | 'stats';
 
 const sectionItems: ReadonlyArray<{ id: SectionId; label: string }> = [
   { id: 'identity', label: '身份' },
@@ -771,6 +766,17 @@ const sectionItems: ReadonlyArray<{ id: SectionId; label: string }> = [
   { id: 'permissions', label: '权限' },
   { id: 'limits', label: '运行限制' },
 ];
+
+const tabItems: ReadonlyArray<{ id: TabId; label: string }> = [
+  { id: 'config', label: '配置' },
+  { id: 'memory', label: '长期记忆' },
+  { id: 'rules', label: '项目规则' },
+  { id: 'styles', label: '输出风格' },
+  { id: 'files', label: '完整文件' },
+  { id: 'stats', label: '运行统计' },
+];
+
+const tabOptions = tabItems.map((item) => ({ value: item.id, label: item.label }));
 
 const errorSections: Record<string, SectionId> = {
   slug: 'identity',
@@ -796,15 +802,19 @@ export function AgentEditor({
   agent,
   onDirtyChange,
   onPendingChange,
+  onDeleteRequest,
 }: {
   agent: Agent;
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
+  onDeleteRequest: () => void;
 }) {
   const update = useUpdateAgent();
   const servers = useServers();
   const skills = useSkills();
   const agents = useAgents();
+  const navigate = useNavigate();
+  const search = useSearch({ from: '/_shell/agents/$agentId' });
   const serverAnchor = useComboboxAnchor();
   const skillAnchor = useComboboxAnchor();
   const subAgentAnchor = useComboboxAnchor();
@@ -818,11 +828,32 @@ export function AgentEditor({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const duplicateTriggerRef = useRef<HTMLButtonElement>(null);
-  const [mode, setMode] = useState<'config' | 'files' | 'memory' | 'rules' | 'styles' | 'stats'>(
-    'config',
-  );
-  const [activeSection, setActiveSection] = useState<SectionId>('identity');
-  const [activeFile, setActiveFile] = useState('.mcp.json');
+  const tabFromUrl = search.tab ?? 'config';
+  const sectionFromUrl = search.section ?? 'identity';
+  // 本地状态负责即时渲染，URL 负责刷新与分享；浏览器前进后退时再同步回来。
+  const [tab, setTabState] = useState<TabId>(tabFromUrl);
+  const [activeSection, setActiveSectionState] = useState<SectionId>(sectionFromUrl);
+  const activeFile = search.file ?? '.mcp.json';
+  useEffect(() => setTabState(tabFromUrl), [tabFromUrl]);
+  useEffect(() => setActiveSectionState(sectionFromUrl), [sectionFromUrl]);
+  // 任务、分区与文件都进 URL：刷新或分享后回到同一视图。
+  const navigateSearch = (next: { tab?: TabId; section?: SectionId; file?: string }): void => {
+    void navigate({
+      to: '/agents/$agentId',
+      params: { agentId: agent.id },
+      search: (current) => ({ ...current, ...next }),
+      replace: true,
+    });
+  };
+  const setTab = (next: TabId): void => {
+    setTabState(next);
+    navigateSearch({ tab: next });
+  };
+  const setActiveSection = (next: SectionId): void => {
+    setActiveSectionState(next);
+    navigateSearch({ section: next });
+  };
+  const setActiveFile = (next: string): void => navigateSearch({ file: next });
   const files = useAgentFiles(agent.id);
   const fileEntries = files.data ? listWorkspaceFiles(files.data) : baseFileEntries;
   const resolvedEntry = fileEntries.find((entry) => entry.id === activeFile) ?? fileEntries[0];
@@ -935,24 +966,56 @@ export function AgentEditor({
     thinkingText !==
       (initial.maxThinkingTokens === undefined ? '' : String(initial.maxThinkingTokens));
 
-  const blocker = useFormBlocker(dirty, pending);
+  // 子面板（记忆 / 规则 / 输出风格）的草稿也要算进离开和任务切换保护。
+  const [childDirty, setChildDirty] = useState(false);
+  const [childPending, setChildPending] = useState(false);
+  const [pendingTabState, setPendingTabState] = useState<TabId | null>(null);
+  const guarded = dirty || childDirty;
+  const locked = pending || childPending;
+
+  const blocker = useBlocker({
+    // 任务切换只改同页 search，由 changeTab 单独处理；这里只拦真正离开页面。
+    shouldBlockFn: (args) => {
+      if (args && args.current.pathname === args.next.pathname) return false;
+      return guarded || locked;
+    },
+    withResolver: true,
+    enableBeforeUnload: guarded || locked,
+  });
+  // 保存或子面板请求在途时，已打开的离开确认也不能继续。
+  const proceedLeave = (): void => {
+    if (!locked) blocker.proceed?.();
+  };
 
   useEffect(() => {
-    onDirtyChange(dirty || pending);
-  }, [dirty, pending, onDirtyChange]);
+    onDirtyChange(guarded || locked);
+  }, [guarded, locked, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
   useEffect(() => {
-    onPendingChange(pending);
+    onPendingChange(locked);
     return () => onPendingChange(false);
-  }, [pending, onPendingChange]);
+  }, [locked, onPendingChange]);
+
+  /**
+   * 主配置随 AgentEditor 常驻，切任务不丢草稿；子面板卸载会丢，有草稿时先确认。
+   * 保存中不允许切走。
+   */
+  const changeTab = (next: TabId): void => {
+    if (next === tab || locked) return;
+    if (childDirty) {
+      setPendingTabState(next);
+      return;
+    }
+    setTab(next);
+  };
 
   // 进入「完整文件」时滚回该栏顶部，避免停在上一份长文件的中段。
   useEffect(() => {
-    if (mode !== 'files') return;
+    if (tab !== 'files') return;
     const el = document.getElementById('agent-files-detail');
     el?.scrollIntoView({ block: 'start' });
-  }, [mode]);
+  }, [tab]);
 
   const boundServers = useMemo(
     () => (servers.data ?? []).filter((server) => form.serverIds.includes(server.id)),
@@ -1071,8 +1134,8 @@ export function AgentEditor({
   };
 
   const focusFirstInvalid = (section: SectionId): void => {
-    setMode('config');
-    setActiveSection(section);
+    if (tab !== 'config') setTab('config');
+    if (activeSection !== section) setActiveSection(section);
     requestAnimationFrame(() => {
       const panel = document.getElementById(`agent-${section}`);
       const target = panel?.querySelector<HTMLElement>('[aria-invalid="true"]');
@@ -1144,32 +1207,22 @@ export function AgentEditor({
       : []),
   ].join('\n');
 
-  const sectionSummary: Record<SectionId, string> = {
-    identity: form.slug || '未命名',
-    behavior: form.model,
-    capability: `${form.serverIds.length} server · ${form.skillIds.length} 技能 · ${form.subAgentIds.length} 子智能体`,
-    permissions: `${form.permissionMode} · 放行 ${
-      BUILTIN_TOOLS.filter((tool) => builtinEnabled(tool)).length
-    } 个内置工具`,
-    limits: `${form.maxTurns} 轮 · $${form.maxBudgetUsd}`,
-  };
+  const sectionButtonClass = (active: boolean): string =>
+    cn(
+      'flex w-full items-center rounded-icon px-2 py-1.5 text-sm transition-colors md:text-left',
+      active ? 'bg-selected font-medium text-fg' : 'text-muted-foreground hover:bg-hover',
+    );
 
   /** 分区详情只挂载当前选中项：出错时先切分区，下一帧再聚焦字段。 */
   const focusSection = (section: SectionId, fieldId?: string): void => {
-    setMode('config');
-    setActiveSection(section);
+    if (tab !== 'config') setTab('config');
+    if (activeSection !== section) setActiveSection(section);
     requestAnimationFrame(() => {
       const target = document.getElementById(fieldId ?? `agent-${section}`);
       target?.scrollIntoView({ block: fieldId ? 'center' : 'start' });
       if (fieldId) (target as HTMLElement | null)?.focus();
     });
   };
-
-  const sectionButtonClass = (active: boolean): string =>
-    cn(
-      'flex w-full flex-col gap-0.5 rounded-icon px-2 py-1.5 text-sm transition-colors md:text-left',
-      active ? 'bg-selected font-medium text-fg' : 'text-muted-foreground hover:bg-hover',
-    );
 
   const effortOptions = [
     { value: '', label: '默认' },
@@ -1187,7 +1240,7 @@ export function AgentEditor({
   ];
 
   return (
-    <div className="min-w-0">
+    <div className="flex min-w-0 flex-col gap-5">
       {conflict ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 py-2 text-sm">
           <p>配置已被修改，当前草稿已保留。加载最新配置会放弃此草稿。</p>
@@ -1214,246 +1267,169 @@ export function AgentEditor({
           if (!pending) await reload();
         }}
       />
-      <div className="flex min-h-14 flex-wrap items-center gap-2.5 py-2">
-        <label
-          data-disabled={pending}
-          htmlFor="agent-enabled"
-          className="inline-flex items-center gap-2 rounded-item p-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-fg"
+      <div className="flex min-w-0 flex-wrap items-center gap-3 border-b pb-3">
+        <Tabs
+          value={tab}
+          onValueChange={(next) => changeTab(next as TabId)}
+          className="hidden min-w-0 md:flex"
         >
-          <Switch
-            disabled={pending}
-            id="agent-enabled"
-            checked={form.enabled}
-            onCheckedChange={(enabled) => {
-              enabledField.onChange(enabled);
-              setDraft('enabled', enabled);
-            }}
-            aria-label="启用专家"
-            title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
-          />
-          {form.enabled ? '已启用' : '已停用'}
-        </label>
-        <div className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5">
-          {dirty ? (
-            <span className="mr-1 inline-flex items-center gap-1.5 text-2xs text-warning">
-              <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
-              未保存
-            </span>
-          ) : null}
-          {saveHint ? (
-            <span className="mr-1 flex items-center gap-1.5 text-2xs text-danger">
-              <span id="agent-save-hint" role="alert">
-                {saveHint}
-              </span>
-              <Button
-                type="button"
-                variant="link"
-                size="xs"
-                onClick={revealInvalidField}
-                // Keep a small inline warning link instead of the base primary-colored, medium-weight link.
-                className="h-auto rounded-none border-0 p-0 text-2xs font-normal text-inherit underline underline-offset-2 hover:text-fg active:not-aria-[haspopup]:translate-y-0"
-              >
-                去修正
-              </Button>
-            </span>
-          ) : null}
-          <Button
-            disabled={!dirty || pending || invalidField !== null}
-            aria-busy={pending}
-            aria-describedby={saveHint ? 'agent-save-hint' : undefined}
-            onClick={save}
-          >
-            {pending ? (
-              '保存中…'
-            ) : dirty ? (
-              '保存更改'
-            ) : (
-              <>
-                <Check className="size-3.5" /> 已保存
-              </>
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="版本历史"
-            title="版本历史"
-            disabled={pending}
-            onClick={() => setHistoryOpen(true)}
-          >
-            <History className="size-4" />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  ref={duplicateTriggerRef}
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="更多操作"
-                >
-                  <Ellipsis className="size-4" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent
-              align="end"
-              sideOffset={4}
-              // Keep the 16px menu corners, explicit border, and project overlay shadow.
-              className="w-40 rounded-card border shadow-overlay"
+          <TabsList variant="line" aria-label="配置任务">
+            {tabItems.map((item) => (
+              <TabsTrigger key={item.id} value={item.id} disabled={locked}>
+                {item.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <Select
+          value={tab}
+          disabled={locked}
+          items={tabOptions}
+          onValueChange={(next) => {
+            if (next !== null) changeTab(next as TabId);
+          }}
+        >
+          <SelectTrigger className="w-full md:hidden" aria-label="配置任务">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {tabItems.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        {tab === 'config' ? (
+          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
+            <label
+              data-disabled={pending}
+              htmlFor="agent-enabled"
+              className="inline-flex items-center gap-2 rounded-item p-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-fg"
             >
-              <DropdownMenuGroup>
-                <DropdownMenuItem
-                  disabled={pending || dirty}
-                  onClick={() => setDuplicateOpen(true)}
+              <Switch
+                disabled={pending}
+                id="agent-enabled"
+                checked={form.enabled}
+                onCheckedChange={(enabled) => {
+                  enabledField.onChange(enabled);
+                  setDraft('enabled', enabled);
+                }}
+                aria-label="启用专家"
+                title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
+              />
+              {form.enabled ? '已启用' : '已停用'}
+            </label>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {dirty ? (
+                <span className="mr-1 inline-flex items-center gap-1.5 text-2xs text-warning">
+                  <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+                  未保存
+                </span>
+              ) : null}
+              {saveHint ? (
+                <span className="mr-1 flex items-center gap-1.5 text-2xs text-danger">
+                  <span id="agent-save-hint" role="alert">
+                    {saveHint}
+                  </span>
+                  <Button type="button" variant="link" size="xs" onClick={revealInvalidField}>
+                    去修正
+                  </Button>
+                </span>
+              ) : null}
+              <Button
+                disabled={!dirty || pending || invalidField !== null}
+                aria-busy={pending}
+                aria-describedby={saveHint ? 'agent-save-hint' : undefined}
+                onClick={save}
+              >
+                {pending ? (
+                  '保存中…'
+                ) : dirty ? (
+                  '保存更改'
+                ) : (
+                  <>
+                    <Check data-icon="inline-start" /> 已保存
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="版本历史"
+                title="配置版本历史"
+                disabled={pending}
+                onClick={() => setHistoryOpen(true)}
+              >
+                <History />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      ref={duplicateTriggerRef}
+                      variant="ghost"
+                      size="icon"
+                      aria-label="更多操作"
+                      disabled={pending}
+                    >
+                      <Ellipsis />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={4}
+                  // Keep the 16px menu corners, explicit border, and project overlay shadow.
+                  className="w-40 rounded-card border shadow-overlay"
                 >
-                  <Copy className="size-4" /> 克隆专家
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
-                  <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem
+                      disabled={pending || dirty}
+                      onClick={() => setDuplicateOpen(true)}
+                    >
+                      <Copy className="size-4" /> 克隆专家
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
+                      <Download className="size-4" /> {exporting ? '导出中…' : '导出 JSON'}
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={pending}
+                    onClick={onDeleteRequest}
+                  >
+                    <Trash2 className="size-4" /> 删除专家
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-[220px_minmax(0,1fr)]">
-        {/* 导航栏：一个分组菜单承载「配置分区」与「完整文件」，不再有独立的顶层页签。 */}
-        <nav aria-label="配置导航" className="min-w-0">
-          <ul className="flex flex-wrap gap-1 md:flex-col md:flex-nowrap md:gap-0.5">
-            <li>
-              <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">配置分区</p>
-            </li>
-            {sectionItems.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  aria-current={mode === 'config' && activeSection === item.id ? 'true' : undefined}
-                  onClick={() => focusSection(item.id)}
-                  className={sectionButtonClass(mode === 'config' && activeSection === item.id)}
-                >
-                  {item.label}
-                  <span className="hidden truncate font-mono text-2xs tabular-nums text-muted-foreground md:block">
-                    {sectionSummary[item.id]}
-                  </span>
-                </button>
-              </li>
-            ))}
-            <li className="md:mt-3 md:border-t md:pt-1">
-              <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">完整文件</p>
-            </li>
-            {fileGroups.map((group) => (
-              <Fragment key={group}>
-                <li>
-                  <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">{group}</p>
+      {tab === 'config' ? (
+        <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
+          <nav aria-label="配置分区" className="min-w-0">
+            <ul className="flex flex-wrap gap-1 md:flex-col md:flex-nowrap md:gap-0.5">
+              {sectionItems.map((item) => (
+                <li key={item.id} className="min-w-0">
+                  <button
+                    type="button"
+                    aria-current={activeSection === item.id ? 'true' : undefined}
+                    onClick={() => focusSection(item.id)}
+                    className={sectionButtonClass(activeSection === item.id)}
+                  >
+                    {item.label}
+                  </button>
                 </li>
-                {fileEntries
-                  .filter((entry) => entry.group === group)
-                  .map((entry) => (
-                    <li key={entry.id}>
-                      <button
-                        type="button"
-                        aria-current={
-                          mode === 'files' && resolvedId === entry.id ? 'true' : undefined
-                        }
-                        onClick={() => {
-                          setMode('files');
-                          setActiveFile(entry.id);
-                        }}
-                        className={sectionButtonClass(mode === 'files' && resolvedId === entry.id)}
-                      >
-                        <span className="inline-flex min-w-0 items-center gap-1.5">
-                          {entry.id === '.mcp.json' ? (
-                            <FileCode aria-hidden="true" />
-                          ) : (
-                            <FileText aria-hidden="true" />
-                          )}
-                          <span className="truncate" title={entry.path}>
-                            {entry.path}
-                            {entry.group === '输出风格' &&
-                            files.data?.selectedOutputStyle &&
-                            entry.id ===
-                              `.claude/output-styles/${files.data.selectedOutputStyle}.md`
-                              ? ' · 已启用'
-                              : ''}
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-              </Fragment>
-            ))}
-            <li className="md:mt-3 md:border-t md:pt-1">
-              <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">记忆</p>
-            </li>
-            <li>
-              <button
-                type="button"
-                aria-current={mode === 'memory' ? 'true' : undefined}
-                onClick={() => setMode('memory')}
-                className={sectionButtonClass(mode === 'memory')}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <Brain aria-hidden="true" /> 长期记忆
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                aria-current={mode === 'rules' ? 'true' : undefined}
-                onClick={() => setMode('rules')}
-                className={sectionButtonClass(mode === 'rules')}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <ScrollText aria-hidden="true" /> 项目规则
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                aria-current={mode === 'styles' ? 'true' : undefined}
-                onClick={() => setMode('styles')}
-                className={sectionButtonClass(mode === 'styles')}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <Palette aria-hidden="true" /> 输出风格
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                aria-current={mode === 'stats' ? 'true' : undefined}
-                onClick={() => setMode('stats')}
-                className={sectionButtonClass(mode === 'stats')}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <BarChart3 aria-hidden="true" /> 运行统计
-                </span>
-              </button>
-            </li>
-          </ul>
-        </nav>
+              ))}
+            </ul>
+          </nav>
 
-        <div className="min-w-0">
-          {mode === 'memory' ? (
-            <div className="min-w-0">
-              <MemoryPanel agentId={agent.id} />
-            </div>
-          ) : mode === 'rules' ? (
-            <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
-              <RulesPanel agentId={agent.id} />
-            </div>
-          ) : mode === 'styles' ? (
-            <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
-              <OutputStylesPanel agentId={agent.id} />
-            </div>
-          ) : mode === 'stats' ? (
-            <AgentStatsPanel agentId={agent.id} />
-          ) : mode === 'config' ? (
+          <div className="min-w-0">
             <form
               noValidate
               onSubmit={(event) => {
@@ -1532,18 +1508,6 @@ export function AgentEditor({
                         </Select>
                         <FieldError id="agent-role-error">{errors.role?.message}</FieldError>
                       </Field>
-                      <Field className="gap-1.5 sm:col-span-2" data-disabled="true">
-                        <FieldLabel htmlFor="agent-slug">Slug</FieldLabel>
-                        <Input
-                          id="agent-slug"
-                          value={form.slug}
-                          // Keep monospace technical identifiers instead of the base sans-serif input.
-                          className="font-mono"
-                          disabled
-                          aria-describedby="agent-slug-hint"
-                        />
-                        <FieldDescription id="agent-slug-hint">创建后不可修改</FieldDescription>
-                      </Field>
                       <Field
                         data-disabled={pending}
                         className="gap-1.5 sm:col-span-2"
@@ -1562,31 +1526,24 @@ export function AgentEditor({
                         />
                         <FieldError id="agent-desc-error">{errors.description?.message}</FieldError>
                       </Field>
+                      <Field className="gap-1.5 sm:col-span-2" data-disabled="true">
+                        <FieldLabel htmlFor="agent-slug">Slug</FieldLabel>
+                        <Input
+                          id="agent-slug"
+                          value={form.slug}
+                          // Keep monospace technical identifiers instead of the base sans-serif input.
+                          className="font-mono"
+                          disabled
+                          aria-describedby="agent-slug-hint"
+                        />
+                        <FieldDescription id="agent-slug-hint">创建后不可修改</FieldDescription>
+                      </Field>
                     </FieldGroup>
                   </Section>
                 ) : null}
 
                 {activeSection === 'behavior' ? (
                   <Section id="behavior" title="行为">
-                    <Field data-disabled={pending} className="gap-1.5">
-                      <FieldLabel htmlFor="agent-prompt">
-                        {form.role === '数字分身' ? '工作背景与表达方式' : '系统提示词'}
-                      </FieldLabel>
-                      <Textarea
-                        {...rhf.register('systemPrompt')}
-                        disabled={pending}
-                        id="agent-prompt"
-                        rows={16}
-                        value={form.systemPrompt}
-                        // Keep compact monospace code text instead of the base prose typography.
-                        className="font-mono text-xs leading-relaxed"
-                        placeholder="描述角色、边界与工作方式"
-                        onChange={(event) => set('systemPrompt', event.target.value)}
-                      />
-                    </Field>
-
-                    <DraftPreview title="CLAUDE.md 草稿" code={claudeDraft} />
-
                     <FieldGroup className="grid gap-5 sm:grid-cols-2">
                       <Field data-disabled={pending} className="gap-1.5">
                         <FieldLabel htmlFor="agent-model">模型</FieldLabel>
@@ -1621,7 +1578,7 @@ export function AgentEditor({
                           }}
                           items={effortOptions}
                         >
-                          <SelectTrigger id="agent-effort">
+                          <SelectTrigger id="agent-effort" className="w-full min-w-0">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1636,12 +1593,31 @@ export function AgentEditor({
                         </Select>
                       </Field>
                     </FieldGroup>
+
+                    <Field data-disabled={pending} className="gap-1.5">
+                      <FieldLabel htmlFor="agent-prompt">
+                        {form.role === '数字分身' ? '工作背景与表达方式' : '系统提示词'}
+                      </FieldLabel>
+                      <Textarea
+                        {...rhf.register('systemPrompt')}
+                        disabled={pending}
+                        id="agent-prompt"
+                        rows={16}
+                        value={form.systemPrompt}
+                        // Keep monospace code text instead of the base prose typography.
+                        className="font-mono leading-relaxed"
+                        placeholder="描述角色、边界与工作方式"
+                        onChange={(event) => set('systemPrompt', event.target.value)}
+                      />
+                    </Field>
+
+                    <DraftPreview title="CLAUDE.md 草稿" code={claudeDraft} />
                   </Section>
                 ) : null}
 
                 {activeSection === 'capability' ? (
                   <Section id="capability" title="能力">
-                    <div className="flex flex-col gap-6">
+                    <div className="flex flex-col gap-4">
                       <div>
                         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                           <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
@@ -1887,7 +1863,7 @@ export function AgentEditor({
                       {savedSubAgents.length > 0 ? (
                         <div className="flex flex-col gap-2">
                           <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                            <FileText className="size-4 text-subtle" aria-hidden="true" />{' '}
+                            <FileText className="size-4 text-muted-foreground" aria-hidden="true" />{' '}
                             已保存的子智能体文件
                           </h3>
                           <div className="flex flex-wrap gap-2">
@@ -1943,7 +1919,7 @@ export function AgentEditor({
                           }}
                           items={permissionOptions}
                         >
-                          <SelectTrigger id="agent-perm">
+                          <SelectTrigger id="agent-perm" className="w-full min-w-0">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1969,8 +1945,8 @@ export function AgentEditor({
                           id="agent-allowed-tools"
                           rows={3}
                           value={allowedText}
-                          // Keep compact monospace code text instead of the base prose typography.
-                          className="font-mono text-xs leading-relaxed"
+                          // Keep monospace code text instead of the base prose typography.
+                          className="font-mono leading-relaxed"
                           placeholder={'mcp__jsonplaceholder__get_user\nmcp__crm__*'}
                           aria-invalid={allowedInvalid}
                           aria-describedby={
@@ -1994,19 +1970,18 @@ export function AgentEditor({
 
                     <div>
                       <h3 className="mb-2 text-sm font-medium text-fg">内置工具</h3>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap gap-2">
                         {BUILTIN_TOOLS.map((tool) => {
                           const enabled = builtinEnabled(tool);
                           const fixed = tool === 'Agent' || tool === 'TaskStop';
                           return (
-                            <Button
+                            <Toggle
                               key={tool}
-                              type="button"
-                              variant="ghost"
-                              size="xs"
-                              aria-pressed={enabled}
+                              variant="outline"
+                              size="sm"
+                              pressed={enabled}
+                              onPressedChange={() => toggleBuiltin(tool)}
                               disabled={fixed || pending}
-                              onClick={() => toggleBuiltin(tool)}
                               title={
                                 fixed
                                   ? enabled
@@ -2016,21 +1991,14 @@ export function AgentEditor({
                                     ? '已放行：点击禁用'
                                     : '已禁用：点击放行'
                               }
-                              // Keep compact monospace permission chips and their enabled/disabled status colors.
-                              className={cn(
-                                'h-auto border-0 px-2 py-1 font-mono text-2xs font-normal transition-colors active:not-aria-[haspopup]:translate-y-0 [&]:rounded-tag',
-                                enabled
-                                  ? 'bg-selected text-fg hover:bg-selected hover:text-fg'
-                                  : 'bg-chip text-muted-foreground hover:bg-hover hover:text-muted-foreground',
-                                fixed && 'cursor-default opacity-80 disabled:opacity-80',
-                              )}
+                              className="font-mono"
                             >
                               {tool}
                               <span className="sr-only">
                                 {enabled ? '：已启用' : '：已禁用'}
                                 {fixed ? '，由子智能体绑定决定' : ''}
                               </span>
-                            </Button>
+                            </Toggle>
                           );
                         })}
                       </div>
@@ -2144,16 +2112,132 @@ export function AgentEditor({
                 ) : null}
               </div>
             </form>
-          ) : (
-            <div
-              id="agent-files-detail"
-              className="min-w-0 scroll-mt-4 rounded-card bg-surface px-6 py-5 ring-1 ring-line"
-            >
-              <FilesPreview entry={resolvedEntry} dirty={dirty} files={files} />
-            </div>
-          )}
+          </div>
         </div>
-      </div>
+      ) : null}
+
+      {tab === 'files' ? (
+        <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
+          <nav aria-label="工作区文件" className="hidden min-w-0 md:block">
+            <ul className="flex flex-col gap-0.5">
+              {fileGroups.map((group) => (
+                <Fragment key={group}>
+                  <li className="min-w-0">
+                    <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">{group}</p>
+                  </li>
+                  {fileEntries
+                    .filter((entry) => entry.group === group)
+                    .map((entry) => (
+                      <li key={entry.id} className="min-w-0">
+                        <button
+                          type="button"
+                          aria-current={resolvedId === entry.id ? 'true' : undefined}
+                          onClick={() => setActiveFile(entry.id)}
+                          className={sectionButtonClass(resolvedId === entry.id)}
+                        >
+                          <span className="inline-flex min-w-0 items-center gap-1.5">
+                            {entry.id === '.mcp.json' ? (
+                              <FileCode aria-hidden="true" />
+                            ) : (
+                              <FileText aria-hidden="true" />
+                            )}
+                            <span className="truncate" title={entry.path}>
+                              {entry.path}
+                              {entry.group === '输出风格' &&
+                              files.data?.selectedOutputStyle &&
+                              entry.id ===
+                                `.claude/output-styles/${files.data.selectedOutputStyle}.md`
+                                ? ' · 已启用'
+                                : ''}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                </Fragment>
+              ))}
+            </ul>
+          </nav>
+          <div className="flex min-w-0 flex-col gap-3 md:hidden">
+            <Select
+              value={resolvedId}
+              items={fileEntries.map((entry) => ({ value: entry.id, label: entry.path }))}
+              onValueChange={(next) => {
+                if (next !== null) setActiveFile(next);
+              }}
+            >
+              <SelectTrigger className="w-full min-w-0" aria-label="当前文件">
+                <SelectValue className="truncate" placeholder="选择文件" />
+              </SelectTrigger>
+              <SelectContent>
+                {fileGroups.map((group) => (
+                  <SelectGroup key={group}>
+                    <SelectLabel>{group}</SelectLabel>
+                    {fileEntries
+                      .filter((entry) => entry.group === group)
+                      .map((entry) => (
+                        <SelectItem key={entry.id} value={entry.id}>
+                          {entry.path}
+                        </SelectItem>
+                      ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div
+            id="agent-files-detail"
+            className="min-w-0 scroll-mt-4 rounded-card bg-surface px-6 py-5 ring-1 ring-line"
+          >
+            <FilesPreview entry={resolvedEntry} dirty={dirty} files={files} />
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'memory' ? (
+        <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+          <MemoryPanel
+            agentId={agent.id}
+            onDirtyChange={setChildDirty}
+            onPendingChange={setChildPending}
+          />
+        </div>
+      ) : null}
+
+      {tab === 'rules' ? (
+        <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+          <RulesPanel
+            agentId={agent.id}
+            onDirtyChange={setChildDirty}
+            onPendingChange={setChildPending}
+          />
+        </div>
+      ) : null}
+
+      {tab === 'styles' ? (
+        <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+          <OutputStylesPanel
+            agentId={agent.id}
+            onDirtyChange={setChildDirty}
+            onPendingChange={setChildPending}
+          />
+        </div>
+      ) : null}
+
+      {tab === 'stats' ? <AgentStatsPanel agentId={agent.id} /> : null}
+
+      <ConfirmDialog
+        open={pendingTabState !== null}
+        onClose={() => setPendingTabState(null)}
+        title="放弃未保存的修改并切换？"
+        description="当前记忆、规则或输出风格还有未保存的内容，切换任务后会丢失。配置草稿会保留。"
+        confirmLabel="放弃并切换"
+        confirmDisabled={locked}
+        onConfirm={async () => {
+          if (pendingTabState) setTab(pendingTabState);
+          setPendingTabState(null);
+        }}
+      />
 
       <ConfirmDialog
         open={blocker.status === 'blocked'}
@@ -2161,9 +2245,9 @@ export function AgentEditor({
         title="放弃未保存的更改？"
         description={`「${agent.name}」还有未保存的修改，离开后会丢失。可以先取消、保存后再离开。`}
         confirmLabel="放弃并离开"
-        confirmDisabled={pending}
+        confirmDisabled={locked}
         onConfirm={async () => {
-          blocker.proceed?.();
+          proceedLeave();
         }}
       />
 
@@ -2237,7 +2321,7 @@ function Section({ id, title, children }: { id: SectionId; title: string; childr
       <h2 id={headingId} className="text-md font-semibold tracking-[-0.01em] text-fg">
         {title}
       </h2>
-      <div className="mt-5 flex flex-col gap-5">{children}</div>
+      <div className="mt-4 flex flex-col gap-4">{children}</div>
     </section>
   );
 }

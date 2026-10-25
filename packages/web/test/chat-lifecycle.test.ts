@@ -25,6 +25,7 @@ class Source {
 
 const history: ConversationDetail = {
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'History', createdAt: '' },
+  runMetrics: [],
   nextBefore: null,
   messages: [
     {
@@ -172,7 +173,7 @@ describe('history restoration', () => {
     );
     expect(useChatStore.getState().items).toEqual([
       { id: 'old-u:0', kind: 'user', text: 'old prompt', messageId: 'old-u' },
-      { id: 'old-a:0', kind: 'text', text: 'old reply' },
+      { id: 'old-a:0', kind: 'text', text: 'old reply', runId: 'old-run' },
       { id: '1:0', kind: 'user', text: 'prompt', messageId: '1' },
       { kind: 'text', text: 'complete reply' },
     ]);
@@ -189,6 +190,7 @@ describe('history restoration', () => {
       id: '2:0',
       kind: 'text',
       text: 'partial',
+      runId: 'run-a',
     });
     expect(api.runApprovals).toHaveBeenCalledWith('run-a');
   });

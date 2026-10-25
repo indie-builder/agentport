@@ -349,7 +349,25 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       const hasMore = rows.length > limit;
       // listMessages 按正序返回，多出来的那条是最早的。
       const messages = hasMore ? rows.slice(1) : rows;
-      return { conversation, messages, nextBefore: hasMore ? messages[0]?.id : null };
+      // 每条回复都靠 run_id 回填读数；一次批量查，不按消息逐条取。
+      const runMetrics = (
+        await chatRepo.listRunMetrics(app.db, [
+          ...new Set(messages.flatMap((message) => (message.runId ? [message.runId] : []))),
+        ])
+      ).map((run) => ({
+        runId: run.id,
+        status: run.status,
+        turns: run.turns,
+        durationMs: run.latencyMs,
+        tokens:
+          run.inputTokens === null && run.outputTokens === null
+            ? null
+            : (run.inputTokens ?? 0) + (run.outputTokens ?? 0),
+        costUsd: run.costUsd === null ? null : Number(run.costUsd),
+        error: run.error,
+        endedAt: run.endedAt?.toISOString() ?? null,
+      }));
+      return { conversation, messages, runMetrics, nextBefore: hasMore ? messages[0]?.id : null };
     },
   );
 
@@ -387,6 +405,31 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         title: conversation.title,
         createdAt: conversation.createdAt,
       };
+    },
+  );
+
+  app.delete(
+    '/api/conversations/:id',
+    { preHandler: [rawApp.requireAuth], schema: { params: idParams } },
+    async (request, reply) => {
+      const ok = await chatRepo.deleteConversation(app.db, request.params.id);
+      if (!ok) {
+        return reject(
+          reply,
+          'CONVERSATION_NOT_FOUND',
+          '会话不存在，可能已被删除；请从会话列表重新打开',
+        );
+      }
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'conversation.deleted',
+        target: request.params.id,
+        // 删除不回写会话原文，只记目标 id。
+        input: { fields: [] },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return reply.status(204).send();
     },
   );
 

@@ -11,8 +11,7 @@ import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../compone
 import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
-import { Button } from '../components/ui/button.js';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
@@ -27,6 +26,7 @@ import {
 import { Switch } from '../components/ui/switch.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { api } from '../lib/api.js';
+import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
 import {
   formatCost,
@@ -36,13 +36,7 @@ import {
   formatRelative,
   formatTokens,
 } from '../lib/format.js';
-import {
-  agentStatsQuery,
-  boardSummaryQuery,
-  useAgents,
-  useAttention,
-  useSchedules,
-} from '../lib/queries.js';
+import { agentStatsQuery, useAgents, useAttention, useSchedules } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
@@ -501,14 +495,14 @@ function ScheduleDialog({
   );
 }
 
-export function AttentionPanel() {
+export function AttentionPanel({ hideTitle = false }: { hideTitle?: boolean } = {}) {
   const attention = useAttention();
   const data = attention.data;
 
   return (
     <PageSection
       divided={false}
-      title="需要处理"
+      {...(hideTitle ? {} : { title: '需要处理' })}
       actions={
         data && data.total > 0 ? <StatusBadge tone="danger">{data.total} 项</StatusBadge> : null
       }
@@ -517,7 +511,17 @@ export function AttentionPanel() {
       {attention.isError ? (
         <ErrorState error={attention.error} onRetry={() => void attention.refetch()} />
       ) : null}
-      {data && data.total === 0 ? <PageNote title="没有需要处理的运行" /> : null}
+      {data && data.total === 0 ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-5 text-sm">
+          <span className="text-muted-foreground">没有等待批准的调用或失败的运行</span>
+          <Link
+            to="/runs"
+            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'ml-auto')}
+          >
+            查看运行
+          </Link>
+        </div>
+      ) : null}
       {data && data.total > 0 ? (
         <ul className="flex flex-col">
           {data.approvals.map((item) =>
@@ -571,62 +575,6 @@ export function AttentionPanel() {
   );
 }
 
-const triggerLabels = [
-  ['chat', '对话'],
-  ['mcp', '外部调用'],
-  ['schedule', '定时'],
-  ['event', '事件'],
-] as const;
-
-export function BoardSummaryCards() {
-  const summary = useQuery(boardSummaryQuery(30));
-
-  if (summary.isError) {
-    return <ErrorState error={summary.error} onRetry={() => void summary.refetch()} />;
-  }
-
-  const data = summary.data;
-  const cards = [
-    { label: '任务总数', value: data?.total },
-    { label: '进行中', value: data?.running },
-    { label: '需要操作', value: data?.needsAction },
-    { label: '已结束', value: data?.finished },
-  ];
-
-  return (
-    <section className="flex flex-col gap-3" aria-label="任务概况">
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        {cards.map(({ label, value }) => (
-          <Card key={label}>
-            <CardHeader>
-              <CardTitle className="text-sm font-normal text-muted-foreground">{label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <span
-                className={`text-lg font-medium tabular-nums ${
-                  label === '需要操作' && value ? 'text-danger' : 'text-fg'
-                }`}
-              >
-                {value ?? '—'}
-              </span>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        {triggerLabels.map(([key, label]) => (
-          <span key={key}>
-            {label}{' '}
-            <span className="tabular-nums text-fg">
-              {data ? (data.byTrigger?.[key] ?? 0) : '—'}
-            </span>
-          </span>
-        ))}
-      </p>
-    </section>
-  );
-}
-
 /** 单个智能体的运行统计与活跃度热力图（对标 QoderWake 的概览/工作日志）。 */
 export function AgentStatsPanel({ agentId }: { agentId: string }) {
   const stats = useQuery(agentStatsQuery(agentId, 30));
@@ -654,7 +602,7 @@ export function AgentStatsPanel({ agentId }: { agentId: string }) {
         {cells.map((c) => (
           <div key={c.label} className="rounded-card bg-surface px-4 py-3 ring-1 ring-line">
             <div className="text-xs text-muted-foreground">{c.label}</div>
-            <div className="mt-1 text-lg font-medium tabular-nums text-fg">{c.value}</div>
+            <div className="mt-1 text-3xl font-medium tabular-nums text-fg">{c.value}</div>
           </div>
         ))}
       </div>

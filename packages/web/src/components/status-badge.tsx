@@ -3,8 +3,9 @@ import type { ComponentProps } from 'react';
 import { cn } from '../lib/cn.js';
 import { Badge } from './ui/badge.js';
 
-// Project tones stay separate so registry updates preserve the status palette.
-const statusBadgeVariants = cva('rounded-tag px-1.5 text-2xs leading-none', {
+// 字号继承 Badge 的 xs：状态与普通徽章同一档，不再单独缩到 11px。
+// 行高不覆盖：Badge 的 h-5 固定高度已保证垂直居中，leading-none 会让 12px 文本挤在 12px 行盒里。
+const statusBadgeVariants = cva('rounded-tag px-1.5', {
   variants: {
     tone: {
       default: 'border-line bg-sunken text-muted-foreground',
