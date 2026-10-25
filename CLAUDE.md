@@ -50,7 +50,7 @@
 - **代码写完后先经 Opus 子代理 code review 再提交**；review 未过不提交。
 - 能拆成互不依赖的子任务就并行，不要串行做完一个再下一个；每个子代理要有明确产出边界（改哪些文件、不改哪些文件）与验收方式。
 - 模型选择遵循 `pstack-models.md` 的 per-role 配置，不为并行而降低判断质量。
-- **完整研发流程见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**：需求澄清在主 checkout → 方案定了 `EnterWorktree` → 写 `docs/tasks/<slug>.md` → 实现 → review → 验证 → 提交。要点：产出只落在 worktree、主 checkout 保持干净；踩坑记 `docs/PITFALLS.md`，不散落。
+- **完整研发流程、review 轮次做法、验证与撤销规则统一见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**；开工前读 [docs/PITFALLS.md](docs/PITFALLS.md)，踩坑记入该文件不散落。产出只落在 worktree，主 checkout 保持干净。
 
 ## 智能体运行底座
 
@@ -66,7 +66,7 @@
 - **布局优先。** "Cut taglines, helper text and secondary labels. If a screen needs them to make sense, fix the layout." 删掉标语、用于解释结构的辅助文案和重复的次级标签；若界面要靠这些文字才看得懂，先改分组/对齐/间距/层级，而不是加字。表单字段标签、约束提示、错误、风险与无障碍说明仍按 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) §10 保留。
 - **组件库只用 shadcn/ui**（`components.json` 已配；`pnpm dlx shadcn@latest add <name>` 后可改源码 token）；交互原语只用 Base UI（`@base-ui/react`），Radix 已移除不再引入；样式只用 Tailwind 4，颜色/间距/字体/圆角只从 `styles.css` 的 `@theme` token 取，禁止硬编码 hex。先看 `components/ui/` 有无可复用再新增。
 - 页面骨架统一用 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`），每个渲染状态恰好一个 `h1`；不写页面级 `mt-*`/`mb-*`。
-- 焦点/边框与项目契约由 `pnpm lint:focus` / `pnpm lint:contract` 校验（review 阶段按需跑，不装钩子、不阻塞）。
+- 机械检查命令与门禁策略见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) §5（不装钩子、不阻塞）。
 
 ## 后端
 
@@ -91,7 +91,7 @@
 
 ## 交付
 
-- CI 只手动触发；按改动范围本地验证，不固定跑全套。用户要求提交/合并时不等待 CI、不自动开启 PR 监控或冷却等待；仅在用户明确要求时监控。发布工作流独立保留。
+- 只有用户在本任务明确授权时才 commit/push/merge；未授权时以「验证完成、未提交差异」交付，并说明成果是否已合入。CI 只手动触发；按改动范围本地验证，不固定跑全套。用户要求提交/合并时不等待 CI、不自动开启 PR 监控或冷却等待；仅在用户明确要求时监控。发布工作流独立保留。
 - 每个能力都要有可执行的验证命令与真实结果，不以「应该能跑」代替。
 - 并发/安全相关改动必须附测试或实测记录。
 - 文档与代码不一致时，以代码为准并修正文档；待决策项记录在 `docs/DECISIONS-PENDING.md`。

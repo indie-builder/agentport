@@ -181,15 +181,17 @@ docker build -t agentport/sandbox:dev packages/sandbox
 pnpm dev
 ```
 
-- web: https://agentport.localhost（Portless 分配随机端口，Vite 代理 `/api`、`/health` 到 `http://localhost:3000`）
+- web: [https://agentport.localhost](https://agentport.localhost)（Portless 分配随机端口，实际 URL 以启动输出为准；Vite 代理 `/api`、`/health` 到 [http://localhost:3000](http://localhost:3000)）
 - 在 worktree 中运行时 Origin 是 `https://<worktree>.agentport.localhost`：`CORS_ORIGINS` 同时保留精确基地址与 `https://*.agentport.localhost` 通配符即可，一次配置覆盖后续变化的子域名；通配符仅匹配 HTTPS 默认端口
-- api: http://localhost:3000（不变）
+- api: [http://localhost:3000](http://localhost:3000)（不变）
 - worker、沙盒与 Docker 网络不变；沙盒仍通过 `host.docker.internal:3000` 回连 API
 - 首次运行 `pnpm dev` 会请求 sudo 安装本地 CA 并绑定 443，状态在 `~/.portless`，之后无感
 - Postgres/Redis 的 5432/6379 与 worker 的 `MODEL_PROXY_PORT=3426` 仍是固定端口
-- `pnpm up`（compose）路径不变；Portless 只在本地 `pnpm dev` 启动 web 时使用
+- `pnpm run up`（compose，生产地址仍为 3000）路径不变；Portless 只在本地 `pnpm dev` 启动 web 时使用
 
-也可以先 `pnpm run up` 完成部署，再停掉 compose 的 api/worker（`docker compose stop api worker`）后 `pnpm dev`；依赖保持运行。
+按所需最小进程启动：只验收前端、且后端已在运行（compose 或另一 worktree）时，在当前 worktree 运行 `pnpm --filter @agentport/web dev` 即可（web 引用 shared/core 的 `dist`，先 `pnpm install` 并构建这两个包），地址同样取 Portless 输出；不必重复起 api/worker。后端尚未运行时仍需停掉 compose 的 api/worker（`docker compose stop api worker`）后跑完整 `pnpm dev`；依赖（postgres/redis）保持运行。
+
+多 worktree 共用同一套 API、数据库与 Redis，前端单独启动不提供后端隔离；不同任务的数据会互相可见（见 [PITFALLS.md](PITFALLS.md)）。
 
 ### 2.4 升级
 
@@ -512,7 +514,9 @@ pnpm --filter @agentport/web build
 
 ### 9.2 后端集成测试与 E2E
 
-`pnpm test` 的集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。如果此时有 **worker 在消费 `agent-runs` 队列**（本地 `pnpm dev` 或 `docker compose` 的 worker 服务），它会立刻把这些 run 跑掉，导致测试失败。
+根 `pnpm test` 的 `backend` 项目（`vitest.config.ts`）会用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，未设置时回落到 `postgres://agentport:agentport@localhost:5432/agentport` 与 `redis://:agentport-dev@localhost:6379`，所以后端用例需要可用的 PostgreSQL 与 Redis；连不上时相应 describe 自动跳过。`pnpm test:web` 不走这条路径（见 §9.1）。
+
+集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。如果此时有 **worker 在消费 `agent-runs` 队列**（本地 `pnpm dev` 或 `docker compose` 的 worker 服务），它会立刻把这些 run 跑掉，导致测试失败。
 
 ```bash
 docker compose stop worker api   # 或在本地 pnpm dev 里停掉 worker
@@ -520,7 +524,7 @@ pnpm test
 docker compose start api worker  # 测完恢复
 ```
 
-E2E（`pnpm test:e2e`）相反：它需要 api + web，但不需要 worker（除非 `E2E_FULL=1`）。
+E2E（`pnpm test:e2e`）的地址与启动方式以 `e2e.config.ts` 为准：web 目标固定为 [http://localhost:5173](http://localhost:5173)，未就绪时由 e2e 自动执行 `pnpm --filter @agentport/web exec vite` 启动，已就绪则复用（`reuseExisting`）——它不走 Portless，也不使用 Portless 分配的地址。API 不会被自动启动，需另行在 [http://localhost:3000](http://localhost:3000) 运行。多数用例直写数据库：先 `pnpm build` 产出 `packages/db/dist`，并显式导出与 API 同库的 `DATABASE_URL`。登录凭据取自 `e2e.config.ts` 的 `credentials.admin`（默认 `admin` / `admin-local-dev-2026`，可用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖），须与服务端实际生效的管理员一致；个别文件另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `pnpm test:e2e` 要停 worker。`tests/smoke.e2e.ts` 中的真实对话用例需要 worker 与模型凭据，仅在 `E2E_FULL=1` 时运行，与回放用例前提相反；要跑它应单独选择该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。
 
 
 ## 本地模型网关
