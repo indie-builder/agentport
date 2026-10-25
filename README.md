@@ -78,9 +78,11 @@ pnpm dev
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 ```
 
-打开 http://localhost:5173，用 `ADMIN_USER` / `ADMIN_PASSWORD` 登录。
+打开 Portless 输出的地址（本机基地址 [https://agentport.localhost](https://agentport.localhost)，worktree 下带分支前缀；实际 URL 以终端输出为准），用 `ADMIN_USER` / `ADMIN_PASSWORD` 登录。配置与端口说明见 [docs/OPERATIONS.md §2.3](docs/OPERATIONS.md#23-本地开发)。
 
-`pnpm dev` 并行启动 api、worker、web，以及 shared/core/db 的 TypeScript watch。web 的 Vite 开发服务器把 `/api`、`/health` 代理到 `localhost:3000`。
+`pnpm dev` 并行启动 api、worker、web，以及 shared/core/db 的 TypeScript watch。web 的 Vite 开发服务器把 `/api`、`/health` 代理到 [http://localhost:3000](http://localhost:3000)。
+
+后端已在 [http://localhost:3000](http://localhost:3000) 运行时，只验收前端可在当前 worktree 单独启动 web：`pnpm --filter @agentport/web dev`（需先 `pnpm install` 并构建 shared/core 的 dist），地址同样取 Portless 输出。它复用同一 API、数据库与 Redis，不隔离其他 worktree 的数据。
 
 ## 常用命令
 
@@ -95,9 +97,10 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `pnpm typecheck` | 全量类型检查（`pnpm -r typecheck`） |
 | `pnpm lint` | Biome 检查 |
 | `pnpm lint:fix` | Biome 检查并写入修复 |
-| `pnpm test` | Vitest 测试（需要 PostgreSQL 与 Redis；不可用时集成用例自动跳过）。**先停 worker**（`docker compose stop worker api`），否则集成用例的 run 会被真实消费而失败/跳过。vitest 不读 `.env`；用 compose 的 Redis 时需 `REDIS_URL=redis://:agentport-dev@localhost:6379 pnpm test` |
+| `pnpm test` | 同时跑 `web` 与 `backend` 两个 Vitest 项目。web 项目不依赖后端；`backend` 项目会加载 `.env`，默认连 `DATABASE_URL` / `REDIS_URL` 指向的 PostgreSQL 与 Redis，集成用例在连不上时自动跳过。**队列相关用例先停 worker**（`docker compose stop worker api`），否则测试建的 run 会被真实消费 |
+| `pnpm test:web` | 只跑 `packages/web/test`（jsdom，不加载 `.env`，不需要 API、worker、PostgreSQL、Redis） |
 | `pnpm test:watch` | Vitest watch |
-| `pnpm test:e2e` | e2e 端到端测试（`e2e run`，用例在 `tests/*.e2e.ts`）；需要 5173 与 3000 在跑，`E2E_FULL=1` 才跑真实对话链路 |
+| `pnpm test:e2e` | e2e 端到端测试（`e2e run`，用例在 `tests/*.e2e.ts`）。自动启动或复用 [http://localhost:5173](http://localhost:5173) 的 Vite（不经过 Portless）；API 需另行在 [http://localhost:3000](http://localhost:3000) 运行。前置与凭据见下方说明；配置收全部 `tests/**/*.e2e.ts`，普通套件含要求停 worker 的回放用例，真实对话用例需单独跑（见下） |
 | `pnpm db:generate` | 修改 Drizzle schema 后生成迁移 |
 | `pnpm db:migrate` | 在宿主机应用迁移（`pnpm run up` 部署时由 compose 的 `migrate` 服务自动执行） |
 | `pnpm backup` | `pg_dump` → `backups/<timestamp>.sql.gz`，保留最近 7 份；需先 export `DATABASE_URL` |
@@ -112,7 +115,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `pnpm --filter @agentport/api start` | 以构建产物启动 api（需先 `pnpm build`） |
 | `pnpm --filter @agentport/web preview` | 预览 web 构建产物 |
 
-E2E 不读取 `.env`，默认管理员为 `admin` / `admin-local-dev-2026`（`e2e.config.ts` 的默认值；服务端不会接受该口令作为 `ADMIN_PASSWORD`）。如与 `.env` 不同，用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。
+E2E 配置（`e2e.config.ts`）不主动加载 `.env`，浏览器用例连的是 [http://localhost:5173](http://localhost:5173)，不走 Portless。`e2e.config.ts` 的默认凭据是 `admin` / `admin-local-dev-2026`，必须与服务端实际生效的 `ADMIN_USER` / `ADMIN_PASSWORD` 一致，否则用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。多数用例还会直写数据库：先 `pnpm build` 产出 `packages/db/dist`，并显式导出与 API 同库的 `DATABASE_URL`；个别用例另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `pnpm test:e2e` 要停 worker；`tests/smoke.e2e.ts` 里的真实对话用例需要 worker 与模型凭据，只在 `E2E_FULL=1` 时运行，与回放用例前提相反——应单独运行该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。其他前置以各文件与 `e2e.config.ts` 的实际配置为准。
 
 ## 版本与发布
 

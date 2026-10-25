@@ -66,4 +66,4 @@ docker run --rm -v agentport_workspaces:/w alpine chown -R 1000:1000 /w
 2. 执行 `pnpm run up` 前准备好 `.env`（至少模型凭据），其余由脚本完成。
 3. （历史）`UP FAIL: 冒烟测试失败` + `Method not found` 属于已修复的问题 1；现在空库冒烟应直接通过。
 4. 首次对话前可确认工作区卷属主：`docker run --rm -v agentport_workspaces:/w alpine ls -ld /w`，`up.sh` 已自动 chown 到 1000。
-5. 需要完整验证时运行 `pnpm test:e2e`（真实对话链路需要模型凭据），并保证 api+web 在跑（`pnpm dev` 或生产容器 + 5173）。
+5. 需要完整验证时运行 `pnpm test:e2e`，按 [OPERATIONS.md §9.2](OPERATIONS.md#92-后端集成测试与-e2e) 准备 API/数据库/凭据，web 由 E2E 自动启动或复用；真实对话链路需要模型凭据。
