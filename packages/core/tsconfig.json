@@ -5,7 +5,7 @@
     "rootDir": "src",
     "types": ["node"]
   },
-  "include": ["src"],
+  "include": ["src", "src/generated/*.json"],
   "references": [
     {
       "path": "../shared"

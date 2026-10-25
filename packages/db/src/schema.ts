@@ -75,6 +75,8 @@ export const agents = pgTable(
     allowedTools: jsonb('allowed_tools').$type<string[]>().notNull().default([]),
     disallowedTools: jsonb('disallowed_tools').$type<string[]>().notNull().default([]),
     permissionMode: text('permission_mode').notNull().default('dontAsk'),
+    /** 助手回复格式：markdown 或生成式 UI（OpenUI Lang 围栏）。 */
+    uiFormat: text('ui_format').notNull().default('markdown'),
     effort: text('effort'),
     maxThinkingTokens: integer('max_thinking_tokens'),
     enabled: boolean('enabled').notNull().default(true),
@@ -95,6 +97,7 @@ export const agents = pgTable(
       'agents_permission_mode_check',
       sql`${t.permissionMode} in ('dontAsk', 'plan', 'default', 'acceptEdits')`,
     ),
+    check('agents_ui_format_check', sql`${t.uiFormat} in ('markdown', 'openui')`),
     check(
       'agents_allowed_tools_check',
       sql`jsonb_typeof(${t.allowedTools}) = 'array' and not jsonb_path_exists(${t.allowedTools}, '$[*] ? (@.type() != "string")')`,
@@ -362,6 +365,12 @@ export const messages = pgTable(
       .references(() => conversations.id, { onDelete: 'cascade' }),
     role: text('role').notNull(),
     content: jsonb('content').$type<unknown>().notNull(),
+    /** 落下这条消息时智能体的回复格式；历史渲染按它而不是当前开关。 */
+    uiFormat: text('ui_format').notNull().default('markdown'),
+    /** OpenUI editMode 合并后的程序文本；null 表示用原始文本围栏。 */
+    uiProgram: text('ui_program'),
+    /** 消息级表单/绑定快照：`{ version: 1, blocks: { [blockKey]: state } }`。 */
+    uiState: jsonb('ui_state').$type<unknown>(),
     /** 可空：用户输入或分支副本；分支副本由会话级保留规则保护。 */
     runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     /** SDK transcript 里的消息 uuid；用于按历史点 fork，缺失表示这条还没进 transcript。 */
@@ -373,6 +382,7 @@ export const messages = pgTable(
     index('messages_conversation_idx').on(t.conversationId, t.createdAt, t.id),
     index('messages_run_idx').on(t.runId),
     check('messages_role_check', sql`${t.role} in ('user', 'assistant', 'tool')`),
+    check('messages_ui_format_check', sql`${t.uiFormat} in ('markdown', 'openui')`),
   ],
 );
 
@@ -452,14 +462,22 @@ export const agentRuns = pgTable(
 /**
  * 结构化的工具审批。行在工具被拒绝时由 MCP 端点写入（pending），用户批准后置 approved_at。
  * (run_id, server_id, tool_name) 唯一，审批因此不会跨 server 复用。
+ * 生成式 UI 的工具调用没有 run：这些行 run_id 为空，改挂 conversation_id。
  */
 export const approvalRequests = pgTable(
   'approval_requests',
   {
     id: text('id').primaryKey(),
-    runId: text('run_id')
-      .notNull()
-      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    /** 沙盒内调用所属的 run；生成式 UI 的调用没有 run。 */
+    runId: text('run_id').references(() => agentRuns.id, { onDelete: 'cascade' }),
+    /** 生成式 UI 调用的会话归属；run 级审批为空。 */
+    conversationId: text('conversation_id').references(() => conversations.id, {
+      onDelete: 'cascade',
+    }),
+    /** 触发这次调用的助手消息，供 UI 回到原位置展示。 */
+    messageId: text('message_id'),
+    /** 审批来源：openui 表示 UI 按钮/工具桥发起。 */
+    source: text('source', { enum: ['openui'] }),
     serverId: text('server_id')
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
@@ -468,7 +486,14 @@ export const approvalRequests = pgTable(
     approvedAt: timestamp('approved_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
   },
-  (t) => [uniqueIndex('approval_requests_run_server_tool_idx').on(t.runId, t.serverId, t.toolName)],
+  (t) => [
+    uniqueIndex('approval_requests_run_server_tool_idx').on(t.runId, t.serverId, t.toolName),
+    // 同一会话对同一 server 工具只保留一条待批/已批记录；run 级行不受影响。
+    uniqueIndex('approval_requests_openui_idx')
+      .on(t.conversationId, t.serverId, t.toolName)
+      .where(sql`${t.runId} is null`),
+    index('approval_requests_conversation_idx').on(t.conversationId).where(sql`${t.runId} is null`),
+  ],
 );
 
 /**

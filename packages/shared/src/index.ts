@@ -6,6 +6,7 @@ export * from './connector-catalog.js';
 export * from './errors.js';
 export * from './mcp.js';
 export * from './native-plugins.js';
+export * from './openui/index.js';
 export * from './ops.js';
 export * from './params.js';
 export * from './plugin.js';

@@ -130,6 +130,10 @@ describe.skipIf(!ready)('conversations', () => {
         role: 'user',
         content: { type: 'text', text: '保留我' },
         runId: null,
+        // 消息级渲染快照：历史按它渲染，不再跟随当前智能体的开关。
+        uiFormat: 'markdown',
+        uiProgram: null,
+        uiState: null,
         createdAt: beforeBody.messages[0]?.createdAt,
       },
     ]);

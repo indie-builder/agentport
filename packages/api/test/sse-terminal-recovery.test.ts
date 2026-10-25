@@ -133,14 +133,30 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
     expect(text.indexOf('replay_truncated')).toBeLessThan(text.indexOf('run_finished'));
   });
 
-  it('finishes immediately when connecting to an already-terminal run with no stream', async () => {
+  it('marks terminal_missing when reconnecting to a terminal run whose stream has no terminal', async () => {
     const runId = await seed();
     await setTerminal(runId);
     const sse = await openSse(runId);
     const { text, closed } = await sse.readUntilClosed(1_000);
     expect(closed).toBe(true);
+    expect(text).toContain('"reason":"terminal_missing"');
     expect(text.match(/"type":"run_finished"/g)).toHaveLength(1);
-    expect(text).not.toContain('replay_truncated');
+    expect(text.indexOf('replay_truncated')).toBeLessThan(text.indexOf('run_finished'));
+  });
+
+  it('marks terminal_missing when the stream only has partial events', async () => {
+    const runId = await seed();
+    // worker 已经发过部分事件，但没能发出 run_finished：订阅能回放到半段输出。
+    await publishRun(runId, { type: 'text_delta', text: 'partial answer' });
+    await setTerminal(runId);
+    const sse = await openSse(runId);
+    const { text, closed } = await sse.readUntilClosed(2_000);
+
+    expect(closed).toBe(true);
+    expect(text).toContain('"text":"partial answer"');
+    expect(text).toContain('"reason":"terminal_missing"');
+    expect(text.match(/"type":"run_finished"/g)).toHaveLength(1);
+    expect(text.indexOf('replay_truncated')).toBeLessThan(text.indexOf('run_finished'));
   });
 
   it('keeps a queued run open past the first recheck', async () => {

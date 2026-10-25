@@ -499,6 +499,7 @@ export async function buildAgentPackage(
       description: row.description,
       model: row.model,
       permissionMode: row.permissionMode,
+      uiFormat: row.uiFormat,
       maxTurns: row.maxTurns,
       maxBudgetUsd: Number(row.maxBudgetUsd),
       timeoutMs: row.timeoutMs,
@@ -752,6 +753,7 @@ export function parseAgentPackage(
     // v1 的专家包不携带插件代码；导入后由用户在本机插件库绑定。
     pluginBindings: [],
     permissionMode: sidecar.agent.permissionMode,
+    uiFormat: sidecar.agent.uiFormat,
     maxTurns: sidecar.agent.maxTurns,
     maxBudgetUsd: sidecar.agent.maxBudgetUsd,
     timeoutMs: sidecar.agent.timeoutMs,
@@ -885,6 +887,8 @@ export function parseAgentPackage(
         // 插件是会话级能力，专家包里的子智能体不携带插件绑定。
         pluginBindings: [],
         permissionMode: meta?.permissionMode ?? 'dontAsk',
+        // 子智能体只把文本交回父级，渲染格式只对根智能体有意义。
+        uiFormat: 'markdown',
         maxTurns: parsed.maxTurns,
         maxBudgetUsd: meta?.maxBudgetUsd ?? 2,
         timeoutMs: meta?.timeoutMs ?? 600_000,
@@ -1005,6 +1009,7 @@ function toAgentValues(input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAg
     allowedTools: input.allowedTools,
     disallowedTools: input.disallowedTools,
     permissionMode: input.permissionMode,
+    uiFormat: input.uiFormat,
     effort: input.effort ?? null,
     maxThinkingTokens: input.maxThinkingTokens ?? null,
     enabled: input.enabled,

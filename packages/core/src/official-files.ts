@@ -15,8 +15,9 @@ const DELEGATION_NOTE = '你是被父智能体同步调用的：直接执行任�
  * shortcut: 以渲染器自己的 `## 工具使用` 作为正文边界，手写目录若没有该段落就整篇当提示词。
  */
 export function parseClaudeMd(content: string): { name: string; systemPrompt: string } {
-  const text = content.replace(/^﻿/, '');
-  const firstLine = text.split('\n', 1)[0]?.replace(/\r$/, '') ?? '';
+  // 导出的文件会被 Windows 编辑器/autocrlf 存成 CRLF，生成段边界与子定义解析统一按 LF 判定。
+  const text = content.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const firstLine = text.split('\n', 1)[0] ?? '';
   const heading = /^#[ \t]+(.+?)[ \t]*$/.exec(firstLine);
   if (!heading?.[1]) {
     fail('INVALID_INPUT', 'CLAUDE.md 必须以一行 `# 智能体名称` 开头', { path: '/CLAUDE.md' });

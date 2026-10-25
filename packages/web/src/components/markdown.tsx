@@ -1,11 +1,12 @@
 import { code, type ThemeInput } from '@streamdown/code';
-import { type ComponentProps, memo, useMemo } from 'react';
+import { type ComponentProps, type CSSProperties, memo, useDeferredValue, useMemo } from 'react';
 import {
   type Components,
   defaultRehypePlugins,
   defaultRemarkPlugins,
   Streamdown,
 } from 'streamdown';
+import { cn } from '../lib/cn.js';
 
 /**
  * Shiki 的 css-variables 主题：颜色全部落在 styles.css 的 --shiki-* 变量上，
@@ -108,10 +109,18 @@ const SHIKI_THEMES: [ThemeInput, ThemeInput] = [
 ];
 const PLUGINS = { code };
 
-const heading = (tag: 'h2' | 'h3' | 'h4' | 'h5' | 'h6', className: string) => {
+// H3–H6 固定 15px 在大字号容器（TextContent large 的 16px 正文）里会倒挂。
+// 1em 下限跟随父级字号；默认 15px 正文下仍是原档位。
+const SUBHEADING_STYLE: CSSProperties = { fontSize: 'max(1em, var(--text-md))' };
+
+const heading = (
+  tag: 'h2' | 'h3' | 'h4' | 'h5' | 'h6',
+  className: string,
+  style?: CSSProperties,
+) => {
   const Heading = tag;
   return ({ children, node: _node, ...props }: ComponentProps<'h2'> & { node?: unknown }) => (
-    <Heading {...props} className={className}>
+    <Heading {...props} className={className} style={style}>
       {children}
     </Heading>
   );
@@ -122,12 +131,13 @@ const components: Components = {
   // 消息内标题整体下移一级：页面本身已有 h1，不能再出现第二个 h1。
   // 正文只有一级（md 15px），任何标题都不小于它：H1 18、H2 16 靠字号递进，
   // H3–H6 收成一级 15/600，靠字重区分。小于正文的标题会比它概括的内容还弱。
-  h1: heading('h2', 'mt-5 mb-2 text-xl font-semibold text-fg'),
-  h2: heading('h3', 'mt-4 mb-2 text-lg font-semibold text-fg'),
-  h3: heading('h4', 'mt-3.5 mb-1.5 text-md font-semibold text-fg'),
-  h4: heading('h5', 'mt-3 mb-1 text-md font-semibold text-fg'),
-  h5: heading('h6', 'mt-3 mb-1 text-md font-semibold text-fg'),
-  h6: heading('h6', 'mt-3 mb-1 text-md font-semibold text-fg'),
+  // 标题不写 text-fg：颜色跟随所在容器，Callout 与 TextContent 的语义色才能生效。
+  h1: heading('h2', 'mt-5 mb-2 text-xl font-semibold'),
+  h2: heading('h3', 'mt-4 mb-2 text-lg font-semibold'),
+  h3: heading('h4', 'mt-3.5 mb-1.5 text-md font-semibold', SUBHEADING_STYLE),
+  h4: heading('h5', 'mt-3 mb-1 text-md font-semibold', SUBHEADING_STYLE),
+  h5: heading('h6', 'mt-3 mb-1 text-md font-semibold', SUBHEADING_STYLE),
+  h6: heading('h6', 'mt-3 mb-1 text-md font-semibold', SUBHEADING_STYLE),
   a: ({ href, children, node: _node, ...props }: ComponentProps<'a'> & { node?: unknown }) => {
     // 流式中的未闭合链接由 remend 标成哨兵值，不能变成可点击的相对地址。
     if (href === 'streamdown:incomplete-link') {
@@ -151,12 +161,14 @@ const components: Components = {
   },
 };
 
-/**
- * 高频 text_delta 下逐字走 Markdown 解析会把流式回放拖慢一个数量级。
- * 只有出现常见 Markdown 标记时才交给 Streamdown；纯文本直接渲染。
- */
-const MARKDOWN_HINT =
-  /(^|\n)\s*(#{1,6}\s|[-*+]\s|\d+\.\s|>|\||```|---|\*\*\*|___)|`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\[[^\]\n]+\]\([^)\n]+\)|!\[[^\]\n]*\]\([^)\n]+\)/;
+// 代码块沿用消息同一套灰度主题与圆角；类名保持常量，Streamdown 的 memo 才能命中。
+const CODE_BLOCK_CLASS =
+  '[&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-line [&_[data-streamdown=code-block]]:bg-code [&_[data-streamdown=code-block-body]]:bg-transparent';
+// 单换行保留：模型常按行生成纯文本，折叠成空格会改变原意（与旧的纯文本路径一致）。
+const PARAGRAPH_CLASS = '[&_p]:whitespace-pre-wrap';
+const BODY_CLASS = `min-w-0 text-md text-fg ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;
+// 父级决定字号与颜色：OpenUI 的 TextContent/Callout 等容器自己带排版。
+const INHERIT_CLASS = `min-w-0 ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;
 
 type MarkdownNode = {
   type: string;
@@ -345,19 +357,35 @@ function staticComponents(fileLinks?: MarkdownFileLinks): Components {
   return { ...components, a: staticAnchor(fileLinks) };
 }
 
+export interface MarkdownProps {
+  text: string;
+  /** 真实流式状态：开 remend 补齐半截语法，并禁用代码/表格的复制按钮。 */
+  streaming?: boolean;
+  className?: string;
+  /** `body`（默认）承载 15/26 阅读正文；`inherit` 完全沿用父级字号与颜色。 */
+  presentation?: 'body' | 'inherit';
+  /** 只读文件正文：静态解析、HTML 字面量、链接不落到不存在的应用路由。 */
+  staticContent?: boolean;
+  fileLinks?: MarkdownFileLinks;
+}
+
 /**
- * 助手文本的流式 Markdown；半截语法由 Streamdown/remend 自行补齐。
- * `staticContent` 用于只读文件正文：静态解析、HTML 字面量、链接不落到不存在的应用路由。
+ * 助手文本始终走同一棵 Streamdown 树：从纯文本到插入粗体、列表、代码块都只更新块内容，
+ * 不会在“现在是 Markdown 了吗”之间整段换根。半截语法由 Streamdown/remend 自行补齐。
+ *
+ * streaming 时增量更新走 useDeferredValue：每个 delta 仍是一次真实输入，
+ * 但低优先级渲染可以合并掉中间帧，避免高频事件逐个同步跑完整解析。
+ * 这不会减少总解析量，只把每次事件的同步阻塞让给调度器；结束态立即用原 text。
  */
 export const Markdown = memo(function Markdown({
   text,
+  streaming = false,
+  className,
+  presentation = 'body',
   staticContent = false,
   fileLinks,
-}: {
-  text: string;
-  staticContent?: boolean;
-  fileLinks?: MarkdownFileLinks;
-}) {
+}: MarkdownProps) {
+  const deferred = useDeferredValue(text);
   const resolvedComponents = useMemo(
     () => (staticContent ? staticComponents(fileLinks) : components),
     [staticContent, fileLinks],
@@ -376,9 +404,7 @@ export const Markdown = memo(function Markdown({
       ],
     ];
   }, [staticContent, fileLinks]);
-  if (!MARKDOWN_HINT.test(text)) {
-    return <p className="min-w-0 whitespace-pre-wrap break-words text-md text-fg">{text}</p>;
-  }
+  const live = streaming && !staticContent;
   return (
     <Streamdown
       {...(staticContent
@@ -388,12 +414,15 @@ export const Markdown = memo(function Markdown({
             remarkPlugins,
           }
         : {})}
-      className="min-w-0 text-md text-fg [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-line [&_[data-streamdown=code-block]]:bg-code [&_[data-streamdown=code-block-body]]:bg-transparent"
+      className={cn(presentation === 'inherit' ? INHERIT_CLASS : BODY_CLASS, className)}
       components={resolvedComponents}
       plugins={PLUGINS}
       shikiTheme={SHIKI_THEMES}
+      mode={live ? 'streaming' : 'static'}
+      isAnimating={live}
+      animated={false}
     >
-      {text}
+      {live ? deferred : text}
     </Streamdown>
   );
 });

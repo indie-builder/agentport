@@ -123,8 +123,50 @@
 - **原因**：上下文丢失后用历史推断代替确认。
 - **规避**：指代不明先确认目标，不翻历史猜（`docs/DEV-WORKFLOW.md` §2「会话恢复」）。
 
+## 验证：从 SSE 日志用宽松正则拼文本会造出「重复内容」的假象
+
+- **现象**：真实模型跑完一轮生成式 UI，用 `/\"text\":\"(…)\"/g` 从事件日志拼出的文本里，`root = Card` 出现两次，看起来像重复渲染。
+- **原因**：`assistant_text` 事件也含 `text` 字段，正则把「增量 delta」和「整块文本」一起匹配进去，拼接后自然有两份。
+- **规避**：只匹配 `"type":"text_delta"` 的 text；判断渲染结果时以**前端分段函数的实际输出**为准，不靠日志字符串计数。
+
+## 实现：OpenUI 补丁合并会移除 root 不可达的语句
+
+- **现象**：`mergeStatements(existing, 'x = TextContent("…")')` 之后新语句消失，看起来像合并没生效。
+- **原因**：官方语义是「从 root 可达的语句才保留」，只加语句不改 `root` 就是孤立语句，会被清掉。
+- **规避**：editMode 的补丁若新增节点，必须同时更新 `root = Card([...])` 的引用；测试要覆盖这条，不要按「追加即保留」写断言。
+
+## 流程：worktree 内的 shell 守卫会拒绝拼接运行时密钥与复杂复合命令
+
+- **现象**：`docker exec … $(grep …)`、`env $(grep …) node …`、`set -a; . ./.env` 被拒绝执行，提示命令无法确认停留在 worktree 内。
+- **原因**：worktree 隔离守卫只允许能静态解析的简单命令，运行时取值与 `source` 无法校验。
+- **规避**：把逻辑写进脚本文件，由脚本自己读 `.env`（不在命令行出现密钥）；单条简单命令分开执行。
+
+## 验证：`chat-admission` 失败常是别的 worktree 的 worker 在消费同一队列
+
+- **现象**：`pnpm test` 里 `packages/api/test/chat-admission.test.ts` 整组 suite 失败，报 `worker must be stopped before chat admission tests`，11 个用例全部 skip。
+- **原因**：该文件在 `beforeAll` 里断言「Redis 上没有阻塞消费者」。这台机器上可能有其他 worktree 的宿主 worker（例如别的会话跑的 `node .verify-start.mjs worker`）连着同一个 Redis 的 db0 消费 `agent-runs`，与被测代码无关。
+- **规避**：用带认证的连接串检查真实消费者，禁止把NOAUTH后的空输出当作没有消费者。`CLIENT LIST` 是Redis实例级，不受 `/1` 等db index隔离；测试要用独立Redis实例及临时数据库（本任务 `.tmp/oui-isolated-env.mjs` 已验证）。不杀其他会话进程，不启停共享compose来凑测试通过。
+
+## OpenUI：JSON Schema 不能反推等价的真实组件库
+
+- **现象**：组件名字/版本号自检都通过，绑定输入后 `$filter` 却不更新，省略默认参数的程序被当成缺字段。
+- **原因**：`reactive()` 的标记不在 JSON Schema 里，反编译还会漏 Zod 的 default、record 值类型和最小项数；名称相同不代表组件契约等价。
+- **规避**：维护真实 Zod/reactive 定义，由官方 CLI 从浏览器实际 library 生成后端 LibrarySpec；用绑定回写、默认参数和约束的行为对照测试验升级，不用manifest自比或组件数量代替。
+
 ## 技能：`skills update` 报告最新，不等于本地与上游一致
 
 - **现象**：`npx --yes skills@latest update --project --yes` 输出 `All project skills are up to date`，但本地被改过的技能文件、上游已删除的技能目录都原样保留。
 - **原因**（CLI 1.7.4 实测，后续按当次核对）：update 只比较上游 hash 与 `skills-lock.json` 的记录，不读本地文件，因此本地漂移不会触发覆盖；非交互 `--yes` 遇到上游删除时只输出 `Skipping deletion in non-interactive mode` 而不删。
 - **规避**：不把 up to date 当作已完成；按 `docs/SKILLS.md` 的定向重装与完整目录核验流程对齐，上游删除项同样按该流程清理。
+
+## UI 验证：类名和采样时序不能代替真实几何与性能
+
+- **现象**：轮播有正确的 `basis` 类但卡面少12px；流式基准读到约1秒帧间隔，或未抓到中间态。
+- **原因**：Carousel item 的内距计入 border-box；浏览器后台页会节流RAF；回放先启动、浏览器后导航会错过增量。空输入发送按钮本来就禁用，不能用“可发送”等待终态。
+- **规避**：分别测item和卡面矩形、轨道gap；浏览器就绪后用信号触发回放，在固定前台记录明确的流式窗口，并记录空闲对照。终态用真实run状态/最终内容判定，不把探针超时直接归为产品失败。
+
+## 测试：固定日期数据库会绕过外层隔离与新迁移
+
+- **现象**：外层已注入临时数据库，但创建智能体仍500，取消测试静默跳过。
+- **原因**：测试模块把DATABASE_URL路径重写回固定历史库，复用的旧迁移账本不含后来合入的插件表；迁移异常又被吞成infra不可用。
+- **规避**：尊重外层隔离地址；确需独立库的套件使用每次唯一名称并在关闭连接后只删自己创建的库。连接可用后的迁移失败应报错，不伪装成跳过。

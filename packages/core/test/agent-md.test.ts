@@ -16,6 +16,7 @@ const defaults = {
   allowedTools: [],
   disallowedTools: [],
   permissionMode: 'dontAsk',
+  uiFormat: 'markdown',
   maxTurns: 20,
   maxBudgetUsd: 2,
   timeoutMs: 600_000,

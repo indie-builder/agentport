@@ -69,12 +69,17 @@ function persist(
   events: ChatEvent[],
   overrides: Partial<Fixture> = {},
 ): Promise<boolean> {
-  return messages.persistRunMessages(db, {
-    agentId: overrides.agentId ?? fixture.agentId,
-    conversationId: overrides.conversationId ?? fixture.conversationId,
-    runId,
-    events,
-  });
+  return (
+    messages
+      .persistRunMessages(db, {
+        agentId: overrides.agentId ?? fixture.agentId,
+        conversationId: overrides.conversationId ?? fixture.conversationId,
+        runId,
+        events,
+      })
+      // 这些用例只关心「有没有写进去」；落库消息 id 由 openui 相关用例覆盖。
+      .then((result) => result.written)
+  );
 }
 
 const text = (value: string): ChatEvent => ({ type: 'assistant_text', text: value });
@@ -149,6 +154,48 @@ async function withLockedTx(
   }
 }
 
+describe.skipIf(!ready)('buildMessageRows keeps assistant block identity', () => {
+  it('stores one text row per block with its blockIndex and parent', () => {
+    const rows = messages.buildMessageRows([
+      { type: 'assistant_text', text: 'first', blockIndex: 0, sdkUuid: 'u1' },
+      { type: 'assistant_text', text: 'child', blockIndex: 4, parentToolUseId: 'toolu_p' },
+      { type: 'assistant_text', text: 'legacy' },
+    ]);
+    expect(rows).toEqual([
+      {
+        role: 'assistant',
+        content: { type: 'text', text: 'first', blockIndex: 0 },
+        sdkMessageUuid: 'u1',
+      },
+      {
+        role: 'assistant',
+        content: { type: 'text', text: 'child', blockIndex: 4, parentToolUseId: 'toolu_p' },
+      },
+      { role: 'assistant', content: { type: 'text', text: 'legacy' } },
+    ]);
+  });
+
+  it('marks truncated blocks so the reader knows the text is incomplete', () => {
+    const rows = messages.buildMessageRows([
+      { type: 'assistant_text', text: 'cut', blockIndex: 2, truncated: true },
+    ]);
+    expect(rows[0]?.content).toEqual({ type: 'text', text: 'cut', blockIndex: 2, truncated: true });
+  });
+
+  it('does not let streamed deltas create duplicate rows', () => {
+    const rows = messages.buildMessageRows([
+      { type: 'assistant_block_start', blockIndex: 0, kind: 'text' },
+      { type: 'text_delta', text: 'hel', blockIndex: 0 },
+      { type: 'text_delta', text: 'lo', blockIndex: 0 },
+      { type: 'assistant_block_stop', blockIndex: 0 },
+      { type: 'assistant_text', text: 'hello', blockIndex: 0 },
+    ]);
+    expect(rows).toEqual([
+      { role: 'assistant', content: { type: 'text', text: 'hello', blockIndex: 0 } },
+    ]);
+  });
+});
+
 describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
   afterAll(async () => {
     // 删 agent 级联清掉会话、run、消息；被测试删除的 agent 已是 no-op。
@@ -170,14 +217,16 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     });
 
     expect(
-      await messages.persistRunMessages(db, {
-        agentId: fixture.agentId,
-        conversationId: fixture.conversationId,
-        runId,
-        events: [text('answer')],
-        sdkSessionId: '66666666-7777-4888-8999-000000000000',
-        uuidMap: [{ from, to: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }],
-      }),
+      (
+        await messages.persistRunMessages(db, {
+          agentId: fixture.agentId,
+          conversationId: fixture.conversationId,
+          runId,
+          events: [text('answer')],
+          sdkSessionId: '66666666-7777-4888-8999-000000000000',
+          uuidMap: [{ from, to: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }],
+        })
+      ).written,
     ).toBe(true);
 
     expect(await repo.chat.getConversationSdkState(db, fixture.conversationId)).toMatchObject({
@@ -189,6 +238,58 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
       .filter((uuid) => uuid !== null);
     expect(uuids).toContain('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
     expect(uuids).not.toContain(from);
+  });
+
+  it('returns persisted assistant message ids keyed by block index', async () => {
+    const fixture = await newFixture();
+    const runId = await seedRun(fixture);
+
+    const result = await messages.persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events: [
+        { type: 'assistant_text', text: '第一段', blockIndex: 0 },
+        { type: 'assistant_text', text: '第二段', blockIndex: 1 },
+      ],
+    });
+
+    // 前端要靠这些 id 回填流式项，长度与块序号必须与落库行一致。
+    expect(result.written).toBe(true);
+    expect(result.messages.map((m) => m.blockIndex)).toEqual([0, 1]);
+    const rows = await db
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(eq(schema.messages.runId, runId));
+    for (const message of result.messages) {
+      expect(rows.some((row) => row.id === message.id)).toBe(true);
+    }
+  });
+
+  it('snapshots the agent uiFormat on assistant rows only', async () => {
+    const fixture = await newFixture();
+    const runId = await seedRun(fixture);
+    expect(
+      (
+        await messages.persistRunMessages(db, {
+          agentId: fixture.agentId,
+          conversationId: fixture.conversationId,
+          runId,
+          events: [text('ui answer'), { type: 'tool_start', toolUseId: 't1', name: 'X' }],
+          uiFormat: 'openui',
+        })
+      ).written,
+    ).toBe(true);
+
+    const rows = await db
+      .select({ role: schema.messages.role, uiFormat: schema.messages.uiFormat })
+      .from(schema.messages)
+      .where(eq(schema.messages.runId, runId));
+    expect(
+      rows.filter((row) => row.role === 'assistant').every((r) => r.uiFormat === 'openui'),
+    ).toBe(true);
+    // 用户消息保持准入时的默认值，不被本轮开关覆盖。
+    expect(rows.find((row) => row.role === 'user')?.uiFormat).toBe('markdown');
   });
 
   it('replaces output idempotently while keeping the user message and redacting secrets', async () => {

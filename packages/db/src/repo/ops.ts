@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, getTableColumns, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -150,9 +150,9 @@ export async function claimScheduleTrigger(
   });
 }
 
-/** 需要人处理的待批工具调用：未批准且未过期。 */
+/** 需要人处理的待批工具调用：未批准且未过期。生成式 UI 的会话级审批不在运行待办里。 */
 export async function listPendingApprovals(db: Database) {
-  return db
+  const rows = await db
     .select({
       runId: approvalRequests.runId,
       agentId: agentRuns.agentId,
@@ -167,12 +167,15 @@ export async function listPendingApprovals(db: Database) {
     .leftJoin(agents, eq(agents.id, agentRuns.agentId))
     .where(
       and(
+        isNotNull(approvalRequests.runId),
         isNull(approvalRequests.approvedAt),
         sql`(${approvalRequests.expiresAt} is null or ${approvalRequests.expiresAt} > now())`,
         inArray(agentRuns.status, ['queued', 'running']),
       ),
     )
     .orderBy(asc(approvalRequests.createdAt));
+  // 查询已排除空 run_id；这里收窄类型，不引入哨兵值。
+  return rows.flatMap((row) => (row.runId === null ? [] : [{ ...row, runId: row.runId }]));
 }
 
 /** 近期失败的运行（用于待办列表）。 */

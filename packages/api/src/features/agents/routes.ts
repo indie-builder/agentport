@@ -14,6 +14,7 @@ import {
   outputStyleInputSchema,
   permissionModeSchema,
   slugSchema,
+  uiFormatSchema,
 } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -121,6 +122,7 @@ const patchSchema = z.object({
   allowedTools: allowedToolsSchema.optional(),
   disallowedTools: z.array(z.string()).optional(),
   permissionMode: permissionModeSchema.optional(),
+  uiFormat: uiFormatSchema.optional(),
   maxTurns: z.number().int().positive().optional(),
   maxBudgetUsd: z.number().positive().optional(),
   timeoutMs: z.number().int().positive().optional(),
@@ -161,6 +163,7 @@ function toWrite(
     allowedTools: input.allowedTools,
     disallowedTools: input.disallowedTools,
     permissionMode: input.permissionMode,
+    uiFormat: input.uiFormat,
     effort: input.effort ?? null,
     maxThinkingTokens: input.maxThinkingTokens ?? null,
     enabled: input.enabled,
@@ -233,6 +236,8 @@ function snapshotToWrite(snapshot: Agent, slug: string, currentRole: string): re
     allowedTools: snapshot.allowedTools,
     disallowedTools: snapshot.disallowedTools,
     permissionMode: snapshot.permissionMode,
+    // 旧快照没有 uiFormat，回滚按默认 markdown。
+    uiFormat: snapshot.uiFormat ?? 'markdown',
     effort: snapshot.effort ?? null,
     maxThinkingTokens: snapshot.maxThinkingTokens ?? null,
     enabled: snapshot.enabled,
@@ -409,6 +414,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       if (input.allowedTools !== undefined) patch.allowedTools = input.allowedTools;
       if (input.disallowedTools !== undefined) patch.disallowedTools = input.disallowedTools;
       if (input.permissionMode !== undefined) patch.permissionMode = input.permissionMode;
+      if (input.uiFormat !== undefined) patch.uiFormat = input.uiFormat;
       if (input.effort !== undefined) patch.effort = input.effort;
       if (input.maxThinkingTokens !== undefined) {
         patch.maxThinkingTokens = input.maxThinkingTokens;

@@ -1,4 +1,5 @@
-import { SANDBOX_RUNTIME_ENV } from '@agentport/shared';
+import { type OpenUiToolDescriptor, SANDBOX_RUNTIME_ENV } from '@agentport/shared';
+import { openuiSystemPrompt } from './openui-prompt.js';
 import type { McpJsonEntry } from './tools.js';
 
 export interface WorkspaceFiles {
@@ -37,6 +38,8 @@ export interface WorkspaceAgent {
   systemPrompt: string;
   maxTurns: number;
   permissionMode?: string;
+  /** 'openui' 时系统提示词追加生成式 UI 段；缺省按 markdown。 */
+  uiFormat?: string;
   effort?: string | null;
   allowedTools?: string[];
   disallowedTools?: string[];
@@ -78,6 +81,8 @@ export interface WorkspaceInput {
   plugins?: WorkspacePlugin[];
   toolsAllow?: string[];
   toolsDeny?: string[];
+  /** 生成式 UI 可调用的工具；必须与执行桥的工具目录同源，提示词里没有的调用一律拒绝。 */
+  openuiTools?: OpenUiToolDescriptor[];
 }
 
 /** 插件的已授权形态：文件树已按授权裁剪，manifest 未授权组件不会再出现在里面。 */
@@ -294,6 +299,9 @@ function renderClaudeMd(input: WorkspaceInput): string {
     ...skillLines,
     ...delegationWaitSection(input),
     ...subAgentLines,
+    ...(agent.uiFormat === 'openui'
+      ? ['', '## 生成式 UI', '', openuiSystemPrompt(input.openuiTools)]
+      : []),
     '',
   ].join('\n');
 }

@@ -56,6 +56,7 @@ describe.skipIf(!ready)('agents', () => {
       maxBudgetUsd: 2,
       timeoutMs: 600_000,
       serverIds: [],
+      uiFormat: 'markdown',
     });
     expect(body.id.startsWith('agt_')).toBe(true);
   });
@@ -207,6 +208,27 @@ describe.skipIf(!ready)('agents', () => {
     expectProblem(await newAgent(slug, [], 409), 'CONFLICT');
   });
 
+  it('PATCH toggles uiFormat and rejects unknown formats', async () => {
+    const agent = (await newAgent(unique('ui-format'))).json<Agent>();
+
+    const enabled = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { uiFormat: 'openui' },
+    });
+    expect(enabled.statusCode, enabled.body).toBe(200);
+    expect(enabled.json<Agent>().uiFormat).toBe('openui');
+
+    const invalid = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { uiFormat: 'html' },
+    });
+    expect(expectProblem(invalid, 'INVALID_INPUT').path).toBe('/uiFormat');
+  });
+
   it('PATCH updates fields and forbids slug changes', async () => {
     const slug = unique('patch');
     const agent = (await newAgent(slug)).json<Agent>();
@@ -328,6 +350,75 @@ describe.skipIf(!ready)('agents', () => {
     expect(body.agentMd).toContain(`name: "${agent.slug}"`);
     expect(body.agentMd).toContain(`"mcp__${server.name}__*"`);
     expect(body.agentMd).toContain('disallowedTools: ["Bash"');
+  });
+
+  it('renders the OpenUI tool catalog from the currently bound servers only', async () => {
+    const first = await createServer(app, cookie, {
+      name: unique('openui-srv-a'),
+      track: createdServers,
+    });
+    const second = await createServer(app, cookie, {
+      name: unique('openui-srv-b'),
+      track: createdServers,
+    });
+    const createTool = async (serverId: string, name: string) => {
+      const res = await inject(app, {
+        method: 'POST',
+        url: `/api/servers/${serverId}/tools`,
+        headers: auth(),
+        payload: { name, pathTemplate: `/${name}` },
+      });
+      expect(res.statusCode, res.body).toBe(201);
+    };
+    await createTool(first.id, unique('tool-a'));
+    await createTool(second.id, unique('tool-b'));
+    const toolsOf = async (serverId: string) =>
+      (
+        await inject(app, {
+          method: 'GET',
+          url: `/api/servers/${serverId}/tools`,
+          headers: auth(),
+        })
+      ).json<Array<{ name: string }>>();
+
+    const agent = (await newAgent(unique('openui-bind'), [first.id])).json<Agent>();
+    const enable = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { uiFormat: 'openui' },
+    });
+    expect(enable.statusCode, enable.body).toBe(200);
+
+    const preview = async () =>
+      (
+        await inject(app, {
+          method: 'GET',
+          url: `/api/agents/${agent.id}/files`,
+          headers: auth(),
+        })
+      ).json<WorkspaceFiles>();
+    const firstTool = (await toolsOf(first.id))[0]?.name ?? '';
+    const secondTool = (await toolsOf(second.id))[0]?.name ?? '';
+
+    const before = await preview();
+    expect(before.claudeMd).toContain(`mcp__${first.name}__${firstTool}`);
+    expect(before.claudeMd).not.toContain(`mcp__${second.name}__`);
+    expect(before.claudeMd.split('## 生成式 UI')).toHaveLength(2);
+
+    // 换绑后预览必须立即反映新 server：旧名字消失、新名字出现，生成段仍是 1 份。
+    const rebind = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { serverIds: [second.id] },
+    });
+    expect(rebind.statusCode, rebind.body).toBe(200);
+    const after = await preview();
+    expect(after.claudeMd).toContain(`mcp__${second.name}__${secondTool}`);
+    expect(after.claudeMd).not.toContain(`mcp__${first.name}__`);
+    expect(after.claudeMd.split('## 生成式 UI')).toHaveLength(2);
+    expect(after.claudeMd.split('## 工具使用')).toHaveLength(2);
   });
 
   it('returns 404 for unknown ids on get/patch/delete/files', async () => {

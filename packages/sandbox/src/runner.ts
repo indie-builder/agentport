@@ -19,6 +19,8 @@ interface RunnerEvent {
   type:
     | 'text_delta'
     | 'assistant_text'
+    | 'assistant_block_start'
+    | 'assistant_block_stop'
     | 'tool_start'
     | 'tool_input'
     | 'tool_result'
@@ -35,6 +37,12 @@ interface RunnerEvent {
   sessionId?: string;
   /** 子智能体产生的消息：指向父侧 Agent 的 tool_use id；顶层消息不写。 */
   parentToolUseId?: string;
+  /** 助手消息内的内容块序号；text_delta / assistant_text 用它区分不同文本块。 */
+  blockIndex?: number;
+  /** assistant_block_start：该块的类型；其他事件不带。 */
+  kind?: 'text' | 'tool_use';
+  /** assistant_text：单块超过上限，text 只是保留的前缀。 */
+  truncated?: boolean;
   name?: string;
   json?: string;
   content?: string;
@@ -62,14 +70,28 @@ function log(message: string): void {
   process.stderr.write(`[runner] ${message}\n`);
 }
 
-/** 单字段上限：宿主侧还有 1MiB 单行/32MiB 总量兜底，这里先截断常见大块。 */
-const MAX_FIELD_BYTES = 256 * 1024;
+/**
+ * 单块上限：默认 1MiB，可由任务的 maxFieldBytes 覆盖。
+ * 超限时只截断这一块并显式标记（assistant_text 带 truncated），不再静默丢尾部。
+ */
+const DEFAULT_MAX_FIELD_BYTES = 1024 * 1024;
 const TRUNCATED = '\n…[truncated]';
 
-/** 按字节截断但不在多字节字符中间切开；截断时追加标记。 */
-function cap(value: string): string {
-  if (Buffer.byteLength(value) <= MAX_FIELD_BYTES) return value;
-  return `${Buffer.from(value).subarray(0, MAX_FIELD_BYTES).toString('utf8').replace(/�$/, '')}${TRUNCATED}`;
+/** 按字节截断但不在多字节字符中间切开；truncated 说明尾部已丢。 */
+function cap(value: string, maxBytes: number): { text: string; truncated: boolean } {
+  const bytes = Buffer.byteLength(value);
+  if (bytes <= maxBytes) return { text: value, truncated: false };
+  log(`truncated a ${bytes} byte field to ${maxBytes} bytes`);
+  return {
+    text: Buffer.from(value).subarray(0, maxBytes).toString('utf8').replace(/�$/, ''),
+    truncated: true,
+  };
+}
+
+/** 工具负载没有 truncated 字段，用标记说明尾部被截断。 */
+function capWithMarker(value: string, maxBytes: number): string {
+  const { text, truncated } = cap(value, maxBytes);
+  return truncated ? `${text}${TRUNCATED}` : text;
 }
 
 /** 只取第一行，不读 EOF：宿主写完任务后保持 stdin 打开。 */
@@ -106,19 +128,6 @@ function tokenUsage(
     }
   }
   return seen ? { inputTokens: input, outputTokens: output } : {};
-}
-
-function assistantText(content: unknown): string {
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((block: unknown) => {
-      if (typeof block !== 'object' || block === null) return '';
-      if (!('type' in block) || block.type !== 'text') return '';
-      if (!('text' in block) || typeof block.text !== 'string') return '';
-      return block.text;
-    })
-    .filter((text) => text.length > 0)
-    .join('\n');
 }
 
 function toolResultText(content: unknown): string {
@@ -168,6 +177,7 @@ async function findSessionFile(sessionId: string): Promise<string | null> {
 }
 
 const task = await readTask();
+const maxFieldBytes = task.maxFieldBytes ?? DEFAULT_MAX_FIELD_BYTES;
 
 /**
  * 插件 MCP 工具名是 `mcp__plugin_<plugin>_<server>__<tool>`，插件名与 server 名里
@@ -330,6 +340,14 @@ if (session.error !== undefined) {
   }
 
   try {
+    /**
+     * 每个 parent 当前正在流式输出的块。SDK 的完整 assistant 消息只带自己那一个块，
+     * 对消息内容 entries() 从 0 编号会把 thinking(0)+text(1) 的文本错报成 0，
+     * 也不能与流事件的真实 index 对齐；完整消息在 content_block_stop 之前到达，按此对齐。
+     */
+    const openBlocks = new Map<string, { index: number; kind: string }>();
+    const parentKey = (id: string | null): string => id ?? '';
+
     for await (const message of query({
       prompt: userPrompt(),
       options: {
@@ -435,12 +453,23 @@ if (session.error !== undefined) {
       if (message.type === 'assistant') {
         // 子智能体消息带 parent_tool_use_id（父侧 Agent 的 tool_use id）；顶层为 null。
         const parent = parentTag(message.parent_tool_use_id);
-        // 完整文本块单独发一次：前端已用 text_delta 渲染，这次用于落库。
-        const fullText = assistantText(message.message.content);
-        if (fullText.length > 0) {
-          emit({ type: 'assistant_text', text: cap(fullText), sdkUuid: message.uuid, ...parent });
-        }
+        const open = openBlocks.get(parentKey(message.parent_tool_use_id));
+        // 每个文本块单独发一次整块文本：前端已按 text_delta 渲染，这次用于落库。
+        // 完整消息只含当前一个块，块序号取正在流式的那个真实 index，不能按消息内位置重编。
         for (const block of message.message.content) {
+          if (block.type === 'text') {
+            if (block.text.length === 0) continue;
+            const { text, truncated } = cap(block.text, maxFieldBytes);
+            emit({
+              type: 'assistant_text',
+              text,
+              ...(open?.kind === 'text' ? { blockIndex: open.index } : {}),
+              sdkUuid: message.uuid,
+              ...(truncated ? { truncated } : {}),
+              ...parent,
+            });
+            continue;
+          }
           if (block.type !== 'tool_use') continue;
           emit({
             type: 'tool_start',
@@ -452,7 +481,7 @@ if (session.error !== undefined) {
           emit({
             type: 'tool_input',
             toolUseId: block.id,
-            json: cap(JSON.stringify(block.input)),
+            json: capWithMarker(JSON.stringify(block.input), maxFieldBytes),
             ...parent,
           });
         }
@@ -468,7 +497,7 @@ if (session.error !== undefined) {
           emit({
             type: 'tool_result',
             toolUseId: block.tool_use_id,
-            content: cap(toolResultText(block.content)),
+            content: capWithMarker(toolResultText(block.content), maxFieldBytes),
             ...(message.uuid === undefined ? {} : { sdkUuid: message.uuid }),
             ...parent,
           });
@@ -478,8 +507,34 @@ if (session.error !== undefined) {
 
       if (message.type === 'stream_event') {
         const event = message.event;
-        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-          emit({ type: 'text_delta', text: event.delta.text });
+        const parent = parentTag(message.parent_tool_use_id);
+        const key = parentKey(message.parent_tool_use_id);
+        if (event.type === 'message_start' || event.type === 'message_stop') {
+          openBlocks.delete(key);
+        } else if (event.type === 'content_block_start') {
+          // 工具块的内容由完整 assistant 消息发送；这里只标记边界。
+          const kind = event.content_block.type;
+          if (kind === 'text' || kind === 'tool_use') {
+            openBlocks.set(key, { index: event.index, kind });
+            emit({
+              type: 'assistant_block_start',
+              blockIndex: event.index,
+              kind,
+              sdkUuid: message.uuid,
+              ...parent,
+            });
+          }
+        } else if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+          emit({
+            type: 'text_delta',
+            text: event.delta.text,
+            blockIndex: event.index,
+            sdkUuid: message.uuid,
+            ...parent,
+          });
+        } else if (event.type === 'content_block_stop') {
+          if (openBlocks.get(key)?.index === event.index) openBlocks.delete(key);
+          emit({ type: 'assistant_block_stop', blockIndex: event.index });
         }
         continue;
       }
