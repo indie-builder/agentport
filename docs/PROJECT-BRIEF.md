@@ -769,9 +769,9 @@ pnpm dev
 
 实测结果：模型在容器内调用 MCP 工具，拿到真实用户数据，文本流与 `tool_start` / `tool_input` / `tool_result` 事件都经 SSE 到达客户端。
 
-### 16.2 ID 方案：TypeID
+### 16.2 ID 约定
 
-所有实体 ID 使用 `typeid-js@1.2.0`，格式 `<prefix>_<uuidv7 base32>`：
+常规业务实体主键统一通过 `@agentport/db` 导出的 `newId(entity)` 在应用层生成 TypeID，格式为 `<prefix>_<uuidv7 base32>`，前缀以 `packages/db/src/id.ts` 为准。下表为部分示例：
 
 | 实体 | 前缀 | 示例 |
 |---|---|---|
@@ -783,7 +783,16 @@ pnpm dev
 | run | `run` | `run_01m5ag7sq6eh7bw81dxdrhkvec` |
 | audit | `aud` | — |
 
-统一入口：`packages/db/src/id.ts` 的 `newId(entity)`。K-sortable 保证按创建时间排序，前缀让日志与 URL 自解释。
+TypeID 由 uuidv7 编码而来，按时间排序，便于按创建顺序扫描与分页；前缀让日志、URL 和跨表引用自解释。
+
+例外：
+
+- `agent_skills`、`agent_servers`：关联表只有复合唯一索引，没有独立 `id`。
+- Better Auth 的管理员用户与账号使用固定 ID；`session` / `verification` 默认随机 ID。
+- `audit_log` 默认用 `newId('audit')`；调用方提供 `dedupeKey` 时直接以其作为主键。
+- 市场资源沿用上游的 owner/repo/skill 标识。
+
+UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，聚合行可用 `agentId`，消息块可用组合 ID。行标识只要求在对应列表内唯一、在同一项更新期间稳定，无需统一为 TypeID。数据库目前不强制 TypeID 格式约束，沿用应用层生成与各类标识约定，保留已有 ID。
 
 ### 16.3 本轮踩到的坑（重要）
 

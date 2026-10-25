@@ -1863,7 +1863,7 @@ export function AgentEditor({
                       {savedSubAgents.length > 0 ? (
                         <div className="flex flex-col gap-2">
                           <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                            <FileText className="size-4 text-subtle" aria-hidden="true" />{' '}
+                            <FileText className="size-4 text-muted-foreground" aria-hidden="true" />{' '}
                             已保存的子智能体文件
                           </h3>
                           <div className="flex flex-wrap gap-2">
@@ -2123,7 +2123,7 @@ export function AgentEditor({
               {fileGroups.map((group) => (
                 <Fragment key={group}>
                   <li className="min-w-0">
-                    <p className="px-2 pt-1 pb-0.5 text-2xs text-subtle">{group}</p>
+                    <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">{group}</p>
                   </li>
                   {fileEntries
                     .filter((entry) => entry.group === group)

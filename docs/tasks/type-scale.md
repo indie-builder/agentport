@@ -29,7 +29,7 @@
 - `packages/web/src/styles.css`：`lg` 从 24/30 改为 16/24；新增 `xl` 18/26、`2xl` 20/28、`3xl` 24/32；`base` 行高 24 → 22；`md` 行高 24 → 26。
 - `packages/web/src/components/page.tsx`：页面 h1 `text-[16px]` → `text-lg`。
 - `packages/web/src/pages/chat.tsx`：对话标题 `text-[15px]` → `text-lg`；欢迎标题 `text-[20px] sm:text-lg` → `text-2xl sm:text-3xl`；用户气泡去掉 `leading-relaxed`；折叠大文本去掉 `leading-[1.7]`。
-- `packages/web/src/components/markdown.tsx`：H1 `text-base` → `text-xl`、H2 → `text-lg`、H3 → `text-md`、H4–H6 → `text-base`，字重 500 → 600；正文去掉 `leading-[1.7]`，改由 `md` 的 26px 行高承担。
+- `packages/web/src/components/markdown.tsx`：H1 `text-base` → `text-xl`、H2 → `text-lg`、H3–H6 → `text-md`，字重 500 → 600；正文去掉 `leading-[1.7]`，改由 `md` 的 26px 行高承担。
 - `packages/web/src/pages/run-detail.tsx`：运行步骤正文去掉 `leading-relaxed`。
 - `packages/web/src/components/status-badge.tsx`：去掉 `text-2xs` 与 `leading-none`，字号继承 Badge 的 `xs`。
 - `packages/web/src/components/ui/button.tsx` / `toggle.tsx`：`text-[0.8rem]` → `text-sm`。

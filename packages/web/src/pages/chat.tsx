@@ -2245,7 +2245,7 @@ const ToolRow = memo(function ToolRow({
       className={cn('overflow-hidden rounded-item bg-surface', nested && 'ml-4')}
     >
       <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-        <Wrench className="size-4 shrink-0 text-subtle" aria-hidden="true" />
+        <Wrench className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{item.name}</code>
         <span className="sr-only">{status}</span>
         {running ? (
@@ -2266,7 +2266,10 @@ const ToolRow = memo(function ToolRow({
           </span>
         ) : null}
         <ChevronDown
-          className={cn('size-3 shrink-0 text-subtle transition-transform', open && 'rotate-180')}
+          className={cn(
+            'size-3 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-180',
+          )}
           aria-hidden="true"
         />
       </CollapsibleTrigger>

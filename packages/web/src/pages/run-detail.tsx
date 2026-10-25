@@ -243,7 +243,7 @@ export function RunDetailPage() {
       {failed && detail.error ? (
         <div
           role="alert"
-          className="flex items-start gap-3 border-y border-danger-line bg-danger-soft px-4 py-3"
+          className="flex items-start gap-3 border-y border-line bg-danger-soft px-4 py-3"
         >
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
           <div className="min-w-0 flex-1">
@@ -263,7 +263,7 @@ export function RunDetailPage() {
       {pending.length > 0 ? (
         <div
           role={detail.status === 'running' ? 'alert' : undefined}
-          className="flex flex-wrap items-center gap-3 border-y border-warning-line bg-warning-soft px-4 py-2.5"
+          className="flex flex-wrap items-center gap-3 border-y border-line bg-warning-soft px-4 py-2.5"
         >
           <CircleAlert className="size-4 shrink-0 text-warning" />
           <span className="min-w-0 [overflow-wrap:anywhere] text-xs text-fg">

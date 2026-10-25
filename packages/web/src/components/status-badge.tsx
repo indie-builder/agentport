@@ -9,9 +9,9 @@ const statusBadgeVariants = cva('rounded-tag px-1.5', {
   variants: {
     tone: {
       default: 'border-line bg-sunken text-muted-foreground',
-      success: 'border-success-line bg-success-soft text-success',
-      warn: 'border-warning-line bg-warning-soft text-warning',
-      danger: 'border-danger-line bg-danger-soft text-danger',
+      success: 'border-line bg-surface text-success',
+      warn: 'border-line bg-warning-soft text-warning',
+      danger: 'border-line bg-danger-soft text-danger',
       outline: 'border-line-strong bg-transparent text-muted-foreground',
       mono: 'border-code-line bg-code font-mono text-muted-foreground',
     },

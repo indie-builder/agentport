@@ -4,9 +4,9 @@ import { CopyButton } from './copy-button.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './motion-collapsible.js';
 
 const JSON_TOKEN =
-  /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"\s*:)|("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+  /"(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"\s*:|"(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"|\b(?:true|false|(null))\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
 
-/** 轻量 JSON 高亮：只区分键、字符串、字面量、数字，够读且不引入依赖。 */
+/** 轻量 JSON 高亮：null 表示缺失，用弱化文字；其余 token 与正文同色，避免引入高亮依赖。 */
 export function highlightJson(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let last = 0;
@@ -14,14 +14,8 @@ export function highlightJson(text: string): ReactNode[] {
   for (const match of text.matchAll(JSON_TOKEN)) {
     const start = match.index;
     if (start > last) nodes.push(text.slice(last, start));
-    const [token, key, string, literal, number] = match;
-    // 浅色底上要压深：颜色只区分词法类别，不承担装饰。
-    let className = 'text-fg';
-    if (key) className = 'text-code-key';
-    else if (string) className = 'text-code-string';
-    else if (literal)
-      className = literal === 'null' ? 'text-muted-foreground' : 'text-code-literal';
-    else if (number) className = 'text-code-number';
+    const [token] = match;
+    const className = match[1] === 'null' ? 'text-muted-foreground' : 'text-fg';
     nodes.push(
       <span key={index++} className={className}>
         {token}
@@ -92,7 +86,7 @@ export function CodeBlock({
               value={code}
               label={copyLabel}
               showLabel
-              className="absolute right-2 top-2 z-10 bg-surface/90 opacity-0 backdrop-blur transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+              className="absolute right-2 top-2 z-10 bg-surface/90 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
             />
             {/* 滚动区可聚焦，键盘用户才能用方向键/PageDown 浏览超长内容。 */}
             <section
@@ -110,7 +104,7 @@ export function CodeBlock({
                       {lineNumbers ? (
                         <span
                           aria-hidden="true"
-                          className="mr-3 inline-block w-8 shrink-0 select-none text-right text-subtle/50"
+                          className="mr-3 inline-block w-8 shrink-0 select-none text-right text-muted-foreground"
                         >
                           {i + 1}
                         </span>

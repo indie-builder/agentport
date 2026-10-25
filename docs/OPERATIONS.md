@@ -17,7 +17,8 @@
 | `REDIS_URL` | 否 | `redis://localhost:6379` | api、worker | 队列、事件流、取消、限流共用；用 compose 的 Redis 时连接串需带 `REDIS_PASSWORD` |
 | `APP_SECRET_KEY` | 是 | — | api、worker | MCP 密钥加密主密钥，≥32 字符。**api 与 worker 必须一致**，否则 worker 无法解密 |
 | `ADMIN_USER` | 否 | `admin` | api | 唯一管理员用户名 |
-| `ADMIN_PASSWORD` | 是 | — | api | 管理员密码，≥12 字符，且不能是 `admin-change-me` / `changeme` / `password`；每次登录用 scrypt 比对 |
+| `ADMIN_PASSWORD` | 是 | — | api | 管理员密码，默认要求 ≥12 字符且不能是 `admin-change-me` / `changeme` / `password`；每次登录用 scrypt 比对 |
+| `ALLOW_WEAK_ADMIN_PASSWORD` | 否 | 未设置（等同 `false`） | api | 只接受字面量 `true` / `false`。默认关闭，保持上面的密码规则；个人本地开发要用 admin/admin 时显式设为 `true`，此时仅保留 1–128 字符的基础限制。生产部署不要开启 |
 | `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥，≥32 字符 |
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问域名（如 `https://agentport.example.com`），不要用 `*`。本机 Portless 可加通配符 `https://*.agentport.localhost`（仅 HTTPS 默认端口），一次覆盖变化的 worktree 子域名，精确的 `https://agentport.localhost` 仍保留；生产只有确实要覆盖子域名时才用通配符 |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
