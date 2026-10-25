@@ -31,6 +31,8 @@ export const skillsSearchSchema = resourceSearchSchema.extend({
   marketView: z.enum(['all-time', 'trending', 'hot']).optional().catch(undefined),
 });
 
+export const pluginsSearchSchema = resourceSearchSchema;
+
 export const chatSearchSchema = z.object({
   agent: z.string().min(1).optional().catch(undefined),
   conversation: z.string().min(1).optional().catch(undefined),

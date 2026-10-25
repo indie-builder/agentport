@@ -5,6 +5,7 @@ import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
   agentOutputStyles,
+  agentPlugins,
   agentRules,
   agentServers,
   agentSkills,
@@ -43,6 +44,7 @@ export function toAgent(
   serverIds: string[],
   skillIds: string[],
   subAgentIds: string[] = [],
+  pluginBindings: Agent['pluginBindings'] = [],
 ): Agent {
   return {
     id: row.id,
@@ -54,6 +56,7 @@ export function toAgent(
     systemPrompt: row.systemPromptMd,
     serverIds,
     skillIds,
+    pluginBindings,
     subAgentIds,
     parentId: row.parentId,
     allowedTools: row.allowedTools,
@@ -80,15 +83,25 @@ export async function getAgent(db: Database | Tx, id: string): Promise<AgentRow 
 }
 
 /**
+ * 委派与插件绑定共用的锁。凡是会拿 agent 行锁的写事务，都必须在第一次拿行锁之前
+ * 调它：两个方向交叉持锁（先行锁后 advisory / 先 advisory 后行锁）会真死锁。
+ * 同事务内重复获取 PG 可重入，不会自阻塞。
+ */
+async function lockAgentBindings(tx: Tx): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport.subagent-bindings'))`);
+}
+
+/**
  * 绑定变更串行化：路由里的预检是快路径，并发下两个请求可能都通过，
  * 所以写事务再拿同一把 advisory 锁并复查。只保护绑定，不阻塞普通字段更新。
+ * 调用方若会顺带拿行锁，必须先调 lockAgentBindings。
  */
 async function lockSubAgentBindings(
   tx: Tx,
   selfId: string | null,
   subAgentIds: string[],
 ): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport.subagent-bindings'))`);
+  await lockAgentBindings(tx);
   if (new Set(subAgentIds).size !== subAgentIds.length) {
     throw new AppError('INVALID_INPUT', '同一个智能体被重复选为子智能体，请去掉重复项');
   }
@@ -129,6 +142,18 @@ async function lockSubAgentBindings(
       `「${row?.name ?? nested[0]?.parentId}」自己还有子智能体；只支持一层委派，请先解除它的子智能体`,
     );
   }
+  const bound = await tx
+    .select({ agentId: agentPlugins.agentId })
+    .from(agentPlugins)
+    .where(inArray(agentPlugins.agentId, subAgentIds))
+    .limit(1);
+  if (bound.length > 0) {
+    const row = rows.find((candidate) => candidate.id === bound[0]?.agentId);
+    throw new AppError(
+      'INVALID_INPUT',
+      `「${row?.name ?? bound[0]?.agentId}」绑定了插件；插件只在会话级加载，请先解除它的插件绑定`,
+    );
+  }
 }
 
 export async function createAgent(
@@ -137,10 +162,13 @@ export async function createAgent(
   serverIds: string[],
   skillIds: string[],
   subAgentIds: string[] = [],
+  pluginBindings: Agent['pluginBindings'] = [],
 ): Promise<AgentRow> {
   const id = newId('agent');
   const [row] = await retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
+      // 先拿 advisory 再碰 agents 的行和唯一索引，与 update/duplicate 的先后顺序一致。
+      if (pluginBindings.length > 0) await lockAgentBindings(tx);
       if (subAgentIds.length > 0) await lockSubAgentBindings(tx, id, subAgentIds);
       const inserted = await tx
         .insert(agents)
@@ -166,7 +194,12 @@ export async function createAgent(
       }
       const created = inserted[0];
       if (!created) throw new Error('agent insert returned no row');
-      await insertAgentVersion(tx, id, toAgent(created, serverIds, skillIds, subAgentIds));
+      await writeAgentPluginBindings(tx, id, pluginBindings);
+      await insertAgentVersion(
+        tx,
+        id,
+        toAgent(created, serverIds, skillIds, subAgentIds, pluginBindings),
+      );
       return inserted;
     }),
   );
@@ -197,6 +230,9 @@ export async function duplicateAgent(
     return await retryOnVersionConflict(() =>
       db.transaction(
         async (tx) => {
+          // 复制会照抄源绑定；先拿 advisory 再读/锁源行，避免与「先 advisory 后改候选行」
+          // 的事务交叉持锁。源有没有绑定要先读才知道，所以直接无条件拿，代价只是一次快锁。
+          await lockAgentBindings(tx);
           const [source] = await tx
             .select()
             .from(agents)
@@ -207,6 +243,8 @@ export async function duplicateAgent(
 
           const serverIds = await getAgentServerIds(tx, sourceId);
           const skillIds = await getAgentSkillIds(tx, sourceId);
+          const pluginBindings =
+            (await listAgentPluginBindings(tx, [sourceId])).get(sourceId) ?? [];
           const ruleRows = await tx
             .select()
             .from(agentRules)
@@ -251,6 +289,7 @@ export async function duplicateAgent(
               .insert(agentSkills)
               .values(skillIds.map((skillId) => ({ agentId: id, skillId })));
           }
+          await writeAgentPluginBindings(tx, id, pluginBindings);
           if (ruleRows.length > 0) {
             await tx.insert(agentRules).values(
               ruleRows.map((row) => ({
@@ -276,7 +315,7 @@ export async function duplicateAgent(
             );
           }
 
-          const snapshot = toAgent(created, serverIds, skillIds, []);
+          const snapshot = toAgent(created, serverIds, skillIds, [], pluginBindings);
           await insertAgentVersion(tx, id, snapshot);
           return snapshot;
         },
@@ -302,10 +341,15 @@ export async function updateAgent(
   note: string | null = null,
   subAgentIds?: string[],
   expectedUpdatedAt?: Date,
+  pluginBindings?: Agent['pluginBindings'],
 ): Promise<AgentRow | null> {
   return retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
       // 锁和复查必须在 UPDATE 之前：拿到锁后再读，读到的才是最终状态。
+      // 会拿行锁的写事务一律先拿 advisory，否则与委派事务交叉持锁（二者都改 agents 行）。
+      if (subAgentIds !== undefined || (pluginBindings?.length ?? 0) > 0) {
+        await lockAgentBindings(tx);
+      }
       if (subAgentIds !== undefined) await lockSubAgentBindings(tx, id, subAgentIds);
       const where =
         expectedUpdatedAt === undefined
@@ -362,14 +406,73 @@ export async function updateAgent(
       const nextServerIds = serverIds ?? (await getAgentServerIds(tx, id));
       const nextSkillIds = skillIds ?? (await getAgentSkillIds(tx, id));
       const nextSubAgentIds = subAgentIds ?? (await getAgentSubAgentIds(tx, id));
+      if (pluginBindings !== undefined) await writeAgentPluginBindings(tx, id, pluginBindings);
+      const nextPluginBindings =
+        pluginBindings ?? (await listAgentPluginBindings(tx, [id])).get(id) ?? [];
       await insertAgentVersion(
         tx,
         id,
-        toAgent(row, nextServerIds, nextSkillIds, nextSubAgentIds),
+        toAgent(row, nextServerIds, nextSkillIds, nextSubAgentIds, nextPluginBindings),
         note,
       );
       return row;
     }),
+  );
+}
+
+export async function listAgentPluginBindings(
+  db: Database | Tx,
+  agentIds: string[],
+): Promise<Map<string, Agent['pluginBindings']>> {
+  const out = new Map<string, Agent['pluginBindings']>();
+  if (agentIds.length === 0) return out;
+  const rows = await db
+    .select({
+      agentId: agentPlugins.agentId,
+      pluginId: agentPlugins.pluginId,
+      allowHooks: agentPlugins.allowHooks,
+      allowMcp: agentPlugins.allowMcp,
+    })
+    .from(agentPlugins)
+    .where(inArray(agentPlugins.agentId, agentIds))
+    .orderBy(asc(agentPlugins.agentId), asc(agentPlugins.pluginId));
+  for (const row of rows) {
+    const list = out.get(row.agentId) ?? [];
+    list.push({
+      pluginId: row.pluginId,
+      allowHooks: row.allowHooks,
+      allowMcp: row.allowMcp,
+    });
+    out.set(row.agentId, list);
+  }
+  return out;
+}
+
+/**
+ * 专家与插件的绑定随专家一起写。子智能体不允许绑定：复查 parentId，
+ * 这样「解绑后立刻被收为子智能体」和「已解绑后又想恢复旧绑定」都过不了。
+ * 本函数是私有写 helper，不加锁：调用方在有绑定时必须先 lockAgentBindings，且在碰任何行锁之前。
+ */
+async function writeAgentPluginBindings(
+  tx: Tx,
+  agentId: string,
+  bindings: Agent['pluginBindings'],
+): Promise<void> {
+  if (bindings.length > 0) {
+    const self = await getAgent(tx, agentId);
+    if (self !== null && self.parentId !== null) {
+      throw new AppError('INVALID_INPUT', '子智能体不能绑定插件；插件在会话级加载');
+    }
+  }
+  await tx.delete(agentPlugins).where(eq(agentPlugins.agentId, agentId));
+  if (bindings.length === 0) return;
+  await tx.insert(agentPlugins).values(
+    bindings.map((binding) => ({
+      agentId,
+      pluginId: binding.pluginId,
+      allowHooks: binding.allowHooks,
+      allowMcp: binding.allowMcp,
+    })),
   );
 }
 

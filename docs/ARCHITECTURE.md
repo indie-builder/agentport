@@ -193,7 +193,7 @@ data/workspaces/<agent-slug>/
 | `.claude/commands/*.md` | 官方保留的旧式命令文件；新能力优先 skills | 尚未接入，不另造命令引擎 |
 | `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 已有输出风格管理、文件预览与根级运行落盘；选中者写入 settings.json 的 outputStyle |
 | Hooks | 由 settings.json 的 hooks 配置或 SDK callbacks 注册；脚本目录本身不是自动发现入口 | 平台层回调与工作区文件Hooks需分别核对，不能仅创建hooks目录声称生效 |
-| 插件根中的 `.claude-plugin/plugin.json`、skills/agents/hooks/.mcp.json | SDK plugins 指定本地插件根；不是默认扫描项目 `.claude/plugins/` | 尚未接入本地插件包 |
+| 插件根中的 `.claude-plugin/plugin.json`、skills/agents/hooks/.mcp.json | SDK `plugins: [{type:'local', path}]` 指定本地插件根；不是默认扫描项目 `.claude/plugins/` | 已接入：ZIP 导入的插件在 DB 保存一份，多个专家引用，运行渲染到 `.claude/plugins/<slug>/` 后传给 SDK。hooks 与 MCP 默认关闭，按专家绑定分别授权，未授权组件由 `renderPlugin` 裁剪。平台子智能体不绑定插件；插件自带子智能体可原生委派。技能、references、插件子智能体、hooks/MCP 开启及撤销授权均有真实沙盒验证。v1 无 marketplace 或替换插件文件的升级入口；专家 ZIP 不携带插件并明确提示。拒绝 LSP/workflows/monitors/bin/userConfig/channels/dependencies |
 | `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 原生 auto-memory 使用 `WORKSPACES_DIR/<slug>/agent-memory/`（uid 1000、0700），API/worker 共卷，沙盒 rw 挂载到 `/mnt/agent-memory` 并设置 `autoMemoryEnabled=true`、`autoMemoryDirectory`。主会话仅预批准该目录的 Read/Edit 路径规则（Edit 含 Write），SDK PreToolUse 每次拒绝越界、链接和非普通 Markdown 文件；子智能体仍禁用文件工具。保留官方 `MEMORY.md` 与主题文件；权限/挂载测试通过，真实模型跨 run 记忆验收尚未验证。Workflows 仍不接入 |
 
 会话恢复、预算、取消信号、消息流、宿主 callbacks 等还有 SDK 运行时参数，不能声称全部都可写入 settings.json。`~/.claude/` 的认证、缓存、会话记录等宿主状态不属于可分享项目定义，不复制进用户工作区包。

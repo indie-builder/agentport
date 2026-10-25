@@ -11,6 +11,7 @@ const defaults = {
   model: 'claude-sonnet-5-5',
   serverIds: [],
   skillIds: [],
+  pluginBindings: [],
   subAgentIds: [],
   allowedTools: [],
   disallowedTools: [],
@@ -19,6 +20,8 @@ const defaults = {
   maxBudgetUsd: 2,
   timeoutMs: 600_000,
   enabled: true,
+  // agentInputSchema 对可选 effort 不做默认值，解析结果是显式 undefined。
+  effort: undefined,
 };
 
 function invalidWith(content: string): AppError {
