@@ -1,36 +1,6 @@
-import { Cause, Effect, Fiber, Option } from 'effect';
-import { TestClock } from 'effect/testing';
+import { Effect, Fiber, Option } from 'effect';
 import { describe, expect, it } from 'vitest';
-import {
-  Clock,
-  ClockLive,
-  isRetryableFailure,
-  RunFailure,
-  runProgram,
-  withTimeout,
-} from '../src/effect-runtime.js';
-
-describe('withTimeout', () => {
-  it('returns the value when it finishes in time', async () => {
-    const value = await Effect.runPromise(withTimeout(Effect.succeed(42), 1_000));
-    expect(value).toBe(42);
-  });
-
-  it('fails with RunFailure(timeout) instead of leaking TimeoutError', async () => {
-    const result = await Effect.runPromiseExit(
-      withTimeout(Effect.sleep('10 seconds').pipe(Effect.as(1)), 50),
-    );
-    expect(result._tag).toBe('Failure');
-    const error = result._tag === 'Failure' ? Cause.squash(result.cause) : undefined;
-    expect(error).toBeInstanceOf(RunFailure);
-    expect((error as RunFailure).reason).toBe('timeout');
-  });
-
-  it('does not affect a failing effect that is not a timeout', async () => {
-    const result = await Effect.runPromiseExit(withTimeout(Effect.fail(new Error('boom')), 1_000));
-    expect(result._tag).toBe('Failure');
-  });
-});
+import { isRetryableFailure, RunFailure, runProgram } from '../src/effect-runtime.js';
 
 describe('acquireRelease semantics', () => {
   const makeResource = () => {
@@ -105,69 +75,6 @@ describe('RunFailure classification', () => {
     for (const reason of ['sandbox', 'agent', 'timeout', 'cancelled'] as const) {
       expect(isRetryableFailure(new RunFailure(reason, 'x'))).toBe(false);
     }
-  });
-});
-
-describe('Clock service', () => {
-  it('can be replaced with a fake clock so logic does not depend on wall time', async () => {
-    const sleeps: number[] = [];
-    const fakeClock = {
-      sleep: (ms: number) =>
-        Effect.sync(() => {
-          sleeps.push(ms);
-        }),
-      now: () => Effect.succeed(1_000),
-    };
-
-    const program = Effect.gen(function* () {
-      const clock = yield* Clock;
-      yield* clock.sleep(250);
-      yield* clock.sleep(500);
-      return yield* clock.now();
-    });
-
-    const now = await Effect.runPromise(program.pipe(Effect.provideService(Clock, fakeClock)));
-    expect(now).toBe(1_000);
-    expect(sleeps).toEqual([250, 500]);
-  });
-
-  it('ClockLive delegates to the Effect clock', async () => {
-    const program = Effect.gen(function* () {
-      const clock = yield* Clock;
-      const before = yield* clock.now();
-      return before > 0;
-    });
-    const ok = await Effect.runPromise(program.pipe(Effect.provide(ClockLive)));
-    expect(ok).toBe(true);
-  });
-});
-
-describe('TestClock', () => {
-  // fork 与 adjust 必须在同一个 TestClock.layer() 里，否则是两个互不相干的假时钟。
-  const withTestClock = <A, E>(effect: Effect.Effect<A, E, never>) =>
-    Effect.runPromise(effect.pipe(Effect.provide(TestClock.layer())));
-
-  it('drives a sleep to completion without real waiting', async () => {
-    const program = Effect.gen(function* () {
-      const fiber = yield* Effect.forkChild(
-        withTimeout(Effect.sleep('10 seconds').pipe(Effect.as('late')), 60_000),
-      );
-      yield* TestClock.adjust('11 seconds');
-      return yield* Fiber.join(fiber);
-    });
-    expect(await withTestClock(program)).toBe('late');
-  });
-
-  it('fires the timeout when virtual time passes the deadline', async () => {
-    const program = Effect.gen(function* () {
-      const fiber = yield* Effect.forkChild(
-        withTimeout(Effect.sleep('10 seconds').pipe(Effect.as('late')), 5_000).pipe(Effect.result),
-      );
-      yield* TestClock.adjust('6 seconds');
-      return yield* Fiber.join(fiber);
-    });
-    const result = await withTestClock(program);
-    expect(result._tag).toBe('Failure');
   });
 });
 

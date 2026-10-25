@@ -1,54 +1,123 @@
 #!/usr/bin/env bash
-# 数据库备份：pg_dump → backups/<timestamp>.sql.gz，保留最近 7 份。
+# 完整备份：一致性 pg_dump + 持久工作区（agent-memory / SDK transcript）+ 必要 .env →
+# backups/<timestamp>.tar.gz（0600）。可选 RESTIC_REPOSITORY 在本地成功后推送整包。
 set -euo pipefail
 
-: "${DATABASE_URL:?DATABASE_URL is required}"
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIR="$ROOT/backups"
-mkdir -p "$DIR"
+# shellcheck source=scripts/backup-lib.sh
+. "$ROOT/scripts/backup-lib.sh"
 
-# 宿主没装客户端时借 compose 的 postgres 容器；DATABASE_URL 需在容器内可达（localhost 指向容器自身）。
-# 宿主 pg_dump 主版本与服务器不一致（旧客户端连 PG18）时同样改走容器。
-container_pg() { docker compose -f "$ROOT/docker-compose.yml" exec -T postgres "$@"; }
+ENV_SOURCE="${BACKUP_ENV_FILE:-$ROOT/.env}"
+if [ ! -f "$ENV_SOURCE" ]; then
+  die "env file not found: $ENV_SOURCE (set BACKUP_ENV_FILE)"
+fi
 
-dump_client_matches_server() {
-  command -v pg_dump >/dev/null 2>&1 || return 1
-  local host_major server_major
-  host_major="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"
-  server_major="$(container_pg postgres --version 2>/dev/null | grep -oE '[0-9]+' | head -1)"
-  # 容器没起来时无从比较，只能寄望宿主客户端。
-  [ -z "$server_major" ] || [ "$host_major" = "$server_major" ]
+# 只读取 DATABASE_URL，不 source 整个文件：.env 里的值可能带空格或注释。
+if [ -z "${DATABASE_URL:-}" ]; then
+  DATABASE_URL="$(sed -n 's/^DATABASE_URL=//p' "$ENV_SOURCE" | tail -n 1)"
+  DATABASE_URL="${DATABASE_URL%\"}"
+  DATABASE_URL="${DATABASE_URL#\"}"
+  DATABASE_URL="${DATABASE_URL%\'}"
+  DATABASE_URL="${DATABASE_URL#\'}"
+fi
+[ -n "$DATABASE_URL" ] || die "DATABASE_URL is empty in $ENV_SOURCE"
+export DATABASE_URL
+
+ENV_BYTES="$(file_bytes "$ENV_SOURCE")"
+[ "$ENV_BYTES" -gt 0 ] || die "env file is empty: $ENV_SOURCE"
+[ "$ENV_BYTES" -le "$MAX_ENV_BYTES" ] || die "env file is larger than $MAX_ENV_BYTES bytes: $ENV_SOURCE"
+
+mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
+
+resolve_workspaces
+STAGE="$(mktemp -d "$BACKUP_DIR/.staging.XXXXXX")"
+TMP_ARCHIVE=''
+cleanup() {
+  rm -rf "$STAGE"
+  [ -z "$TMP_ARCHIVE" ] || rm -f "$TMP_ARCHIVE"
 }
+trap cleanup EXIT
 
-pg() {
-  if [ "$1" = pg_dump ] && ! dump_client_matches_server; then
-    container_pg "$@"
-  elif command -v "$1" >/dev/null 2>&1; then
-    "$@"
-  else
-    container_pg "$@"
+case "$WS_MODE" in
+  host) log "workspaces: $WS_PATH" ;;
+  exec) log "workspaces: compose exec $WS_SERVICE:$WORKSPACES_CONTAINER_DIR" ;;
+  run) log "workspaces: compose run $WS_SERVICE:$WORKSPACES_CONTAINER_DIR (docker volume)" ;;
+esac
+
+# 1) 一致性数据库导出。pg_dump 自带快照，运行中的 api/worker 不会造成半截数据。
+# 服务器上只留本脚本的连接，避免清点行数时混入应用连接。
+OTHERS="$(pg_client_backends)" || die "cannot query database; check DATABASE_URL and the postgres service"
+if [ "${OTHERS:-0}" != 0 ]; then
+  log "warning: $OTHERS other database client(s) connected (api/worker). The dump is still consistent, but files and database may differ slightly. Stop api/worker for a fully aligned backup."
+fi
+if ! pg_run pg_dump --format=custom --no-owner --no-privileges "$DATABASE_URL" >"$STAGE/database.dump"; then
+  die "pg_dump failed; no backup published"
+fi
+chmod 600 "$STAGE/database.dump"
+
+# 2) 配置：整份 .env（含密钥），归档与解包后都是 0600，脚本不打印内容。
+install -m 600 "$ENV_SOURCE" "$STAGE/env"
+
+# 3) 持久工作区。run_* 是每次运行重建的派生物，agent-memory/ 与 SDK transcript 才需要保留。
+mkdir -p "$STAGE/workspaces"
+if ! ws_tar_out | tar -xf - -C "$STAGE/workspaces"; then
+  die "workspace archive failed; no backup published"
+fi
+prune_workspaces "$STAGE/workspaces"
+chmod 700 "$STAGE"
+find "$STAGE/workspaces" -type d -exec chmod 700 {} \;
+find "$STAGE/workspaces" -type f -exec chmod 600 {} \;
+
+WS_FILES="$(find "$STAGE/workspaces" -type f | wc -l | tr -d ' ')"
+# 0 个文件几乎一定是工作区定位错了（空目录/别的 checkout）；不能当完整备份发布。
+if [ "$WS_FILES" -eq 0 ] && [ "${BACKUP_ALLOW_EMPTY_WORKSPACES:-0}" != 1 ]; then
+  die "workspace resolved to an empty directory (mode=$WS_MODE path=$WS_PATH); set BACKUP_WORKSPACES_DIR or BACKUP_ALLOW_EMPTY_WORKSPACES=1"
+fi
+WS_BYTES="$(find "$STAGE/workspaces" -type f -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')"
+DB_BYTES="$(file_bytes "$STAGE/database.dump")"
+write_manifest "$STAGE/manifest.json" "$STAGE/database.dump" "$STAGE/env" "$STAGE/workspaces"
+
+# 4) 先临时后发布：同一目录内 rename，半截文件不会出现在备份名里。
+TS="$(now_ts)"
+OUT="$BACKUP_DIR/$TS.tar.gz"
+TMP_ARCHIVE="$BACKUP_DIR/.tmp-$TS.tar.gz"
+if ! tar -C "$STAGE" -czf "$TMP_ARCHIVE" .; then
+  die "archive creation failed; no backup published"
+fi
+if ! gzip -t "$TMP_ARCHIVE"; then
+  die "archive integrity check failed; no backup published"
+fi
+# 用恢复端同一套校验先自检：链接、越界路径或清单不符在发布前就失败，
+# 不会留下一个 restore 会拒收的「备份」。
+if ! validate_archive "$TMP_ARCHIVE"; then
+  die "fresh backup failed validation; no backup published"
+fi
+chmod 600 "$TMP_ARCHIVE"
+mv "$TMP_ARCHIVE" "$OUT"
+TMP_ARCHIVE=''
+log "backup written: $OUT ($(file_bytes "$OUT") bytes, database $DB_BYTES bytes, workspaces $WS_FILES files / $WS_BYTES bytes)"
+
+# 只清理本脚本产出的 .tar.gz；restore.sh 的 pre-restore-* 安全副本不参与保留数量。
+ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null | grep -v '/pre-restore-' | tail -n +"$((BACKUP_KEEP + 1))" |
+  while IFS= read -r old; do rm -f "$old"; done || true
+
+# 5) 可选：restic 把整个包推到远端（加密由 restic 完成，本脚本不自造协议）。
+if [ -n "${RESTIC_REPOSITORY:-}" ]; then
+  command -v restic >/dev/null 2>&1 || die "RESTIC_REPOSITORY is set but restic is not installed; local backup kept at $OUT"
+  log "restic: backing up $OUT"
+  if ! restic backup --tag "$BACKUP_FORMAT" "$OUT"; then
+    die "restic backup failed; local backup kept at $OUT"
   fi
-}
-
-OUT="$DIR/$(date +%Y%m%d-%H%M%S).sql.gz"
-TMP="$OUT.tmp"
-
-# --clean --if-exists 让备份可以直接恢复到已有库（restore.sh 依赖这一点）。
-if ! pg pg_dump --no-owner --no-privileges --clean --if-exists "$DATABASE_URL" | gzip >"$TMP"; then
-  rm -f "$TMP"
-  echo "backup failed" >&2
-  exit 1
+  # 保留策略按 tag+路径分组，不碰同一仓库里其他来源的快照。
+  # 按 host 分组：每次备份的路径都不同，默认的 host+paths 分组会让 keep-last 变成空操作。
+  if ! restic forget --tag "$BACKUP_FORMAT" --group-by host \
+    --keep-last "$BACKUP_RESTIC_KEEP" --prune; then
+    die "restic retention failed; local backup kept at $OUT"
+  fi
+  if ! restic check; then
+    die "restic check failed; local backup kept at $OUT"
+  fi
+  log "restic: uploaded, retention applied, repository check passed"
 fi
-if ! gzip -t "$TMP"; then
-  rm -f "$TMP"
-  echo "backup integrity check failed" >&2
-  exit 1
-fi
-mv "$TMP" "$OUT"
-echo "backup written: $OUT ($(wc -c <"$OUT" | tr -d ' ') bytes)"
-
-# 只清理本脚本产出的文件名，避免误删 backups/ 里的其他文件。
-# pre-restore-*.sql.gz 是 restore.sh 的安全副本，不参与保留数量与删除。
-# BSD xargs 没有 -r，用 while 读入；为空时循环不执行。
-ls -1t "$DIR"/*.sql.gz 2>/dev/null | grep -v '/pre-restore-' | tail -n +8 | while IFS= read -r old; do rm -f "$old"; done || true
+echo "BACKUP OK $OUT"

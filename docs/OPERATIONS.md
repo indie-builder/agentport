@@ -210,49 +210,65 @@ pnpm run up --rebuild
 ### 3.1 备份
 
 ```bash
-set -a; . ./.env; set +a     # backup.sh 不读 .env，必须已经 export DATABASE_URL
 pnpm backup
 ```
 
-行为（`scripts/backup.sh`）：
+`scripts/backup.sh`（共享实现见 `scripts/backup-lib.sh`）生成一个完整包：`backups/<YYYYMMDD-HHMMSS>.tar.gz`（0600）。
 
-- `pg_dump --no-owner --no-privileges --clean --if-exists "$DATABASE_URL" | gzip` 写入 `backups/<YYYYMMDD-HHMMSS>.sql.gz`
-- 宿主没有 `pg_dump` 时自动改用 `docker compose exec -T postgres pg_dump`（`DATABASE_URL` 必须能在容器内解析，默认 compose 配置满足）
-- 生成后 `gzip -t` 校验，打印文件大小；校验失败删除临时文件并以非零退出
-- 成功后只保留 `backups/` 下最近 7 个 `.sql.gz`
-- 失败时删除临时文件并以非零退出
-- 需要宿主已安装 PostgreSQL 客户端
+包内容：
 
-建议用宿主机 cron 每天执行，并把 `backups/` 同步到另一台机器：
+| 成员 | 内容 |
+|---|---|
+| `database.dump` | `pg_dump --format=custom` 的一致性快照（不带 `--clean`，由恢复侧 `pg_restore --clean` 替换） |
+| `workspaces/` | 持久工作区，排除每次 run 重建的 `<slug>/run_*`；含 `agent-memory/` 与 SDK 会话目录 |
+| `env` | `.env` 副本（0600），恢复主密钥与模型凭证 |
+| `manifest.json` | 格式版本、数据库/配置/工作区的 sha256、字节数与文件数；不含任何密钥或连接串 |
+
+行为要点：
+
+- 数据库客户端按需选择：宿主 `pg_dump` 主版本匹配时用宿主，否则走 `docker compose exec -T postgres`；`PG_CLIENT=host|container|auto` 可强制。
+- 工作区按 `BACKUP_WORKSPACES_DIR` → `HOST_WORKSPACES_DIR` → 运行中的 compose 服务 → compose 卷 → 宿主默认目录依次定位，不假定数据在 `./data/workspaces`。
+- 有其他数据库连接时打印警告（快照仍一致，但文件与数据库可能略微不同步）；要求完全对齐时先停 api/worker。
+- 先写临时文件，`gzip -t` 后再用恢复侧同一套 `validate_archive` 校验，最后原子改名发布；任一步失败删除临时文件并以非零退出。
+- 只保留最近 `BACKUP_KEEP`（默认 7）个 `*.tar.gz`；`pre-restore-*` 安全副本不参与清理。
+- 设置 `RESTIC_REPOSITORY` 时，在本地包发布后执行 `restic backup --tag <format>`、`forget --keep-last $BACKUP_RESTIC_KEEP --prune`、`check`；任一步失败返回非零但保留本地包。加密与仓库密码完全交给 restic 的 `RESTIC_PASSWORD`/`_FILE`/`_COMMAND`，脚本不另存秘密。
+
+可用变量：`BACKUP_DIR`、`BACKUP_ENV_FILE`、`BACKUP_WORKSPACES_DIR`、`BACKUP_KEEP`、`BACKUP_RESTIC_KEEP`、`PG_CLIENT`、`WORKSPACES_CONTAINER_DIR`。
+
+建议用宿主机 cron 每天执行：
 
 ```cron
-15 3 * * * cd /path/to/agentport && set -a && . ./.env && set +a && pnpm backup >> backups/cron.log 2>&1
+15 3 * * * cd /path/to/agentport && pnpm backup >> backups/cron.log 2>&1
 ```
 
-备份含全部配置、会话、运行与审计，但**不含** `data/workspaces/`。其中 `run_*` 工作区是每次 run 重建的派生物，无需备份；`<slug>/agent-memory/` 是持久记忆，必须单独做文件备份，手工放入的文件也需单独备份。
+`backups/` 与完整包都含密文密钥与会话数据，按敏感文件保护并使 restic 或同步盘保持 0600/0700。
 
 ### 3.2 恢复
 
 ```bash
-set -a; . ./.env; set +a
 docker compose stop api worker
-pnpm restore backups/20261020-031500.sql.gz
+pnpm restore backups/<YYYYMMDD-HHMMSS>.tar.gz
 docker compose start api worker
 ```
 
 `scripts/restore.sh` 的行为：
 
-- 校验备份文件存在且 `gzip -t` 通过，并要求已 export `DATABASE_URL`
-- 先用 `pg_dump` 生成 `backups/pre-restore-<timestamp>.sql.gz`；这一步失败就中止，不动库
-- `gunzip -c <file> | psql -v ON_ERROR_STOP=1 --single-transaction`：备份自带 DROP/CREATE，整库替换，失败则整体回滚
-- 成功后执行 `pnpm db:migrate`，补齐备份之后新增的迁移
-- 成功打印 `RESTORE OK <file>`；任一步失败非零退出，并提示安全副本路径
+1. 校验归档（格式版本 2；旧版归档需重新备份）：必须是本格式的 `tar.gz`，成员只能是 `manifest.json` / `database.dump` / `env` / `workspaces/**`；拒绝绝对路径、`..`、控制字符、重复成员、符号链接/硬链接/设备文件、旧 `.sql.gz`，以及超出 `MAX_RESTORE_BYTES` 的包。解压后再按 manifest 校验 sha256（含工作区内容指纹）、字节数与文件数。
+2. compose 的 api/worker 仍在运行时直接拒绝（脚本不替你停共享服务）。
+3. 先写 `pre-restore-<ts>.tar.gz`（当前数据库 + 工作区 + 配置）和 `pre-restore-<ts>.env`；任一步失败即中止，不改动任何目标。
+4. `pg_restore --clean --if-exists --single-transaction --exit-on-error`：数据库失败整体回滚，库保持原样。
+5. 恢复 `env`（可用 `RESTORE_ENV_TARGET` 改路径；`--target-workspaces` 旁路验证默认不改配置），再按“暂存 → 权限收紧 → 顶层换入”恢复工作区，保留现有 `run_*`，最后执行 `pnpm db:migrate`。
 
 要点：
 
-- 恢复会**清空并替换**目标库，所以要先 `docker compose stop api worker`；同库恢复不需要事先创建空库。
-- 保持原来的 `APP_SECRET_KEY`。换了主密钥，`servers.secrets_encrypted` 无法解密，所有 MCP 密钥需要重新填写。
-- 恢复后 `pnpm db:migrate` 只为补齐备份之后新增的迁移。
+- **数据库目标只来自调用环境**（`DATABASE_URL`，或 `BACKUP_ENV_FILE` 中的值）；归档内的 `env` 不参与任何数据库操作，仅用于恢复配置。
+- 文件恢复在数据库提交之后；若文件换入失败会明确说明「不是完整回滚」，不会谎报成功。
+- `--target-workspaces <空目录>` 可把文件恢复到旁路目录做验证，不碰当前工作区。
+- 保持原来的 `APP_SECRET_KEY`。换了主密钥，`servers.secrets_encrypted` 无法解密，所有 MCP 密钥需重新填写。
+- restic 恢复本身不由脚本执行：按需 `restic restore latest --target <dir>` 取回完整包后再运行 `pnpm restore`。
+
+### 3.3 其他数据约束
+
 - 集成测试使用固定APP_SECRET_KEY，禁止与使用本地密钥的验收数据共用数据库；独立测试库先迁移，再以DATABASE_URL覆盖运行`pnpm test`。否则连接器列表会因无法解密其他密钥写入的数据返回500；保留真实数据，不用忽略解密错误或清空库绕过。
 - URL中不能写username/password；新建、编辑和两类导入均拒绝。旧记录在列表/导出/预览显示掩码，测试连接会在传输前返回固定错误；数据库不自动改写。需改为无内嵌凭证的URL并在加密headers中配置认证后保存，详见D-33。
 - 连接器页「导入 .mcp.json」接受≤1MiB、1–100条HTTP/stdio配置；env/headers加密保存，响应只给密钥键名。任一重名整批409不覆盖；未知字段、未支持transport、`${VAR}`占位符及URL内嵌凭证明确拒绝。HTTP仍校验SSRF；导入不测试连接或执行命令，详见D-32。
@@ -266,35 +282,14 @@ docker compose start api worker
 - 同一会话已有queued/running时，聊天提交返回409并保留既有运行；等待完成或取消后重发。会话行锁保证HTTP入场互斥，历史和用户消息同事务写入；不同会话继续并行，既有重复运行不自动清理，详见D-39。
 - 评估页可导入/导出 `agentport/eval@1` JSON，只含用例name/prompt/expectation和导出时间；显式选择目标专家，同名跳过并告警。单文件≤500条且≤1MiB，导入不启动评估；超限导出留在页面提示错误，不截断。导入与单条CRUD并发不承诺名称全局唯一，详见D-24。
 - 单个技能可在资源中心「技能 → 操作 → 导出 SKILL.md」下载；内容与专家工作区预览一致。安装到其他 Claude Code/Agent SDK 工作区时，放到 `.claude/skills/<frontmatter中的name>/SKILL.md`；这是单文件下载，不是完整工作区或支持资源目录包。
-- 专家JSON包新增直接subAgents及其资源并集，根serverNames/skillSlugs保持自身绑定，最多20个直接子定义、100项连接器与100项技能；导入事务内为根和子定义创建新ID与最终版本，同slug后缀提示，不改挂已有专家。旧文件无名称引用时仍将包内资源绑定到根，旧subAgentIds继续告警不绑定；悬空引用与嵌套定义拒绝。子server绑定作为配置保存，执行仍按既有父工作区工具继承，详见D-37。
-- 专家JSON包导入导出统一1MiB UTF8上限，API与浏览器使用同一下载排版；导出过大在下载前409拒绝，不截断内容，导入恰好上限接受、多一字节413。既有workspace和子定义字段保留；旧非法凭证URL等历史数据仍需人工修正，详见D-53。
-- 专家PATCH只更新明确提交的字段，不带版本的不同字段并发各自保留，同字段后写优先；带expectedUpdatedAt仍按毫秒单调版本检查冲突，版本快照记录最终提交状态，详见D-52/D-54。
-- 如果只恢复单个智能体，用「专家 → 导出 / 导入」：新导出为 `agentport/agent@2` JSON，仍可导入 `@1`。`@2` 保留根与直接子定义的 `rules`、`outputStyles`（含 `isSelected`）及技能的 `skills.files`；派生 `workspace` 不作为导入权威来源。包限≤1MiB，每个根/子定义最多50条规则、20个输出样式，每个技能最多50个支持文件。同slug共享技能复用时保留已有内容并告警；生成式连接器包含工具定义、启用状态与审批标记，同名同类型复用时保留原工具并提示，旧文件缺少 tools 仍可导入。导出不含连接器密钥明文或服务令牌，只含密钥键名，导入后需重新填写；导入不调用模型、不测试连接或执行工具。旧版应用可能拒绝 `@2`；子定义所属规则/样式虽保留，不保证在父工作区内运行子定义时自动应用，详见D-64。
+- 专家包是官方 `.claude/` 目录的 ZIP（`application/zip`），下载名为 `<slug>.zip`；包内 `CLAUDE.md`、`.mcp.json`、`.claude/settings.json`、`.claude/agents/*.md`、`.claude/skills/**`、`.claude/rules/*.md`、`.claude/output-styles/*.md` 是定义正文的唯一来源。根 `agentport.json` 只存官方文件表达不了的平台元数据（显示名、slug、预算/超时、密钥键名、generated 连接器托管定义及子定义自有规则等），不复制正文；删掉它后目录仍可作为普通官方目录加载。旧 `agent@1`/`agent@2` JSON 不再接受。
+- 专家包导入使用同一 ZIP；没有 sidecar 时用请求参数 `slug`/`name` 补标识。限制与校验：ZIP ≤1MiB、解压总量 ≤4MiB、条目 ≤6000，先读中央目录再解压；拒绝绝对路径、`..`、反斜杠、重复成员、符号链接与未知顶层路径；连接器密钥只以键名出现，导入后需重新填写；generated 端点在目标实例按新 id 重建。导入不调用模型、不测试连接、不执行工具。
 
-### 3.3 恢复演练记录（2026-10-20）
+### 3.4 恢复演练记录
 
-环境：本地 compose（postgres 18.6 / api / worker），宿主未安装 PostgreSQL 客户端，脚本走容器内 `pg_dump` / `psql`。
+新格式尚未做真实库/卷的完整备份→恢复演练。演练前不要把它当作已验证的灾难恢复路径。
 
-| 项 | 结果 |
-|---|---|
-| 数据量 | 备份 484 KiB；`skills` 10、`agents` 16、`agent_runs` 16，迁移 15 条 |
-| `pnpm backup`（两次） | 约 0.3 s / 次 |
-| 标记记录 | 插入 `skills.slug = restore-drill-20261020-074317` → 确认存在 → 删除 → 确认 0 行 |
-| `pnpm restore` | 约 0.9 s，含 pre-restore 副本与迁移 |
-| 恢复后校验 | 标记记录回来；`pnpm db:migrate` 通过；`pnpm smoke` 全部 ok（含 /mcp 401 与带 token 的 tools/list） |
-
-遇到的问题：
-
-1. 宿主没有 `pg_dump` / `psql`，原脚本直接报 `command not found`。两个脚本改为缺客户端时回退到 `docker compose exec -T postgres`。
-2. 原始 `pg_dump` 输出不带 `DROP`，恢复到已有库会因表已存在失败。备份改为 `--clean --if-exists`，恢复才能直接整库替换。
-3. 按「先备份、后建标记」的顺序演练，恢复点早于标记，标记不可能回来。实际做法是建标记后再备份一次，用该备份演练；同一原因下，插入的标记 id 用朴素字符串，`pg_dump` 的 sequence 只覆盖表，不影响结果。
-4. `pnpm restore` 依赖 `DATABASE_URL` 已 export（与 `pnpm backup` 相同）；迁移步骤会把 `DATABASE_URL` 显式传给 `pnpm db:migrate`，不依赖 `.env`。
-
-遗留：
-
-- 单机库直接恢复；生产应恢复到新库、验证后再切流量，当前脚本仍会替换目标库。
-- 脚本用 `--single-transaction`，大库恢复时长受单个事务限制。
-- `backups/` 含密钥密文与审计数据，注意同步盘权限；演练产生的三个文件仍留在本地，确认后可删。
+2026-10-20 的旧 `.sql.gz` 演练与当前 tar.gz 包格式不兼容，结论不再适用，已删除。
 
 ## 4. 维护任务
 

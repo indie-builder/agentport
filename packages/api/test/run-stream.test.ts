@@ -1,4 +1,4 @@
-import { RUN_STREAM_MAXLEN, runCancelKey, runChannel, runStreamKey } from '@agentport/shared';
+import { RUN_STREAM_MAXLEN, runCancelKey, runStreamKey } from '@agentport/shared';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -7,8 +7,8 @@ import {
   configureRunnerClient,
   publishRun as publishFromWorker,
 } from '../../worker/src/runner-client.js';
-import { closeProducer, publishRun } from '../src/queue/producer.js';
-import { infraReady, testConfig, unique } from './helpers.js';
+import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
+import { infraReady, testConfig, unique, waitFor } from './helpers.js';
 
 const ready = await infraReady;
 const logger = { warn: () => undefined, error: () => undefined } as unknown as Logger;
@@ -22,9 +22,7 @@ describe.skipIf(!ready)('run stream contract', () => {
   const runIds: string[] = [];
 
   afterAll(async () => {
-    await Promise.all(
-      runIds.map((runId) => redis.del(runStreamKey(runId), runChannel(runId), runCancelKey(runId))),
-    );
+    await Promise.all(runIds.map((runId) => redis.del(runStreamKey(runId), runCancelKey(runId))));
     await redis.quit();
     await closeProducer();
     await closeRunnerClient();
@@ -54,19 +52,16 @@ describe.skipIf(!ready)('run stream contract', () => {
     expect(texts).toEqual(['from api', 'from worker']);
   });
 
-  it('wakes subscribers on the pub/sub channel without polluting the stream', async () => {
+  it('publishes nothing on pub/sub; the stream read alone wakes subscribers', async () => {
     const runId = newRun();
-    const listener = new Redis(testConfig().REDIS_URL);
+    const types: string[] = [];
+    const subscription = await subscribeRun(runId, (event) => types.push(event.type));
     try {
-      await listener.subscribe(runChannel(runId));
-      const received = new Promise<string>((resolve) => {
-        listener.once('message', (_channel, message) => resolve(message));
-      });
       await publishRun(runId, { type: 'text_delta', text: 'wake me' });
-      expect(await received).toBe('1');
+      expect(await waitFor(() => types.length === 1)).toBe(true);
       expect(await eventCount(runId)).toBe(1);
     } finally {
-      await listener.quit();
+      subscription.close();
     }
   });
 

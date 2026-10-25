@@ -225,6 +225,13 @@
       "when": 1792818108423,
       "tag": "0031_giant_vision",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792901401137,
+      "tag": "0032_melted_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }

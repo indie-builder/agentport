@@ -1,3 +1,5 @@
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fail, isAppError, parseAgentMd } from '@agentport/core';
 import { repo as allRepo, schema } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
@@ -414,8 +416,23 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     '/api/agents/:id',
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
+      // 目录名依赖 slug，删除后无法再定位；先取出 slug 再删行。
+      const [row] = await app.db
+        .select({ slug: schema.agents.slug })
+        .from(schema.agents)
+        .where(eq(schema.agents.id, request.params.id))
+        .limit(1);
       const ok = await repo.deleteAgent(app.db, request.params.id);
       if (!ok) return notFound(reply);
+      if (row) {
+        // 会话 transcript 是每次分支/续聊的运行时数据，删专家后不再需要；记忆按约定保留为持久资产。
+        await rm(join(app.config.WORKSPACES_DIR, row.slug, 'sdk-sessions'), {
+          recursive: true,
+          force: true,
+        }).catch((err: unknown) => {
+          request.log.warn({ err, agentId: request.params.id }, 'sdk session cleanup failed');
+        });
+      }
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'agent.deleted',

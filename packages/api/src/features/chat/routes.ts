@@ -1,3 +1,5 @@
+import { cp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fail } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import {
@@ -102,7 +104,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       }
 
       const agentVersion = await repo.agentVersions.latestAgentVersion(app.db, agentId);
-      const { run, conversationId, inherited, history } = await chatRepo.admitChatRun(app.db, {
+      const { run, conversationId, inherited } = await chatRepo.admitChatRun(app.db, {
         agentId,
         message,
         ...(agentVersion === null ? {} : { agentVersion }),
@@ -112,7 +114,8 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
           : { conversationId: request.body.conversationId }),
       });
 
-      // jobId = runId，重复投递天然幂等。
+      // jobId = runId，重复投递天然幂等。job 只带标识与本次输入：
+      // 续聊 / fork 状态由 worker 从 DB 读取，不把历史文本塞进队列。
       try {
         await getQueue().add(
           'run',
@@ -121,7 +124,6 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
             agentId,
             conversationId,
             prompt: message,
-            ...(history === null ? {} : { history }),
           },
           runEnqueueOptions(run.id),
         );
@@ -367,7 +369,13 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         error: run.error,
         endedAt: run.endedAt?.toISOString() ?? null,
       }));
-      return { conversation, messages, runMetrics, nextBefore: hasMore ? messages[0]?.id : null };
+      return {
+        conversation,
+        // 只回前端契约里的字段：SDK uuid 是内部续聊状态，不上 wire。
+        messages: messages.map(({ sdkMessageUuid: _sdk, ...message }) => message),
+        runMetrics,
+        nextBefore: hasMore ? messages[0]?.id : null,
+      };
     },
   );
 
@@ -412,6 +420,8 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/conversations/:id',
     { preHandler: [rawApp.requireAuth], schema: { params: idParams } },
     async (request, reply) => {
+      // 删除会级联清掉消息与运行；transcript 目录不归 DB 管，成功后单独清理。
+      const conversation = await chatRepo.getConversation(app.db, request.params.id);
       const ok = await chatRepo.deleteConversation(app.db, request.params.id);
       if (!ok) {
         return reject(
@@ -419,6 +429,25 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
           'CONVERSATION_NOT_FOUND',
           '会话不存在，可能已被删除；请从会话列表重新打开',
         );
+      }
+      if (conversation) {
+        const [agent] = await app.db
+          .select({ slug: schema.agents.slug })
+          .from(schema.agents)
+          .where(eq(schema.agents.id, conversation.agentId))
+          .limit(1);
+        if (agent) {
+          await rm(join(app.config.WORKSPACES_DIR, agent.slug, 'sdk-sessions', conversation.id), {
+            recursive: true,
+            force: true,
+          }).catch((err: unknown) => {
+            // DB 已删，目录残留只是占空间；记日志不改变响应。
+            request.log.warn(
+              { err, conversationId: conversation.id },
+              'sdk session cleanup failed',
+            );
+          });
+        }
       }
       await writeAudit(app.db, request.log, {
         actor: 'admin',
@@ -463,6 +492,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       schema: { params: idParams, body: branchBodySchema },
     },
     async (request, reply) => {
+      // 分支点是原会话里一条已落库的消息；复制与 SDK 分叉状态在同一次写入里建立。
       const result = await chatRepo.branchConversation(app.db, {
         id: newId('conversation'),
         conversationId: request.params.id,
@@ -476,6 +506,34 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
           'CONVERSATION_NOT_FOUND',
           '会话或分支点不存在，可能已被删除；请刷新后重试',
         );
+      }
+      // 每个会话只挂自己的 transcript 目录：分支要在自己的目录里找到来源 session 才能 fork。
+      const [agent] = await app.db
+        .select({ slug: schema.agents.slug })
+        .from(schema.agents)
+        .where(eq(schema.agents.id, result.conversation.agentId))
+        .limit(1);
+      const sessionsRoot = agent
+        ? join(app.config.WORKSPACES_DIR, agent.slug, 'sdk-sessions')
+        : null;
+      const sourceDir = sessionsRoot === null ? null : join(sessionsRoot, request.params.id);
+      const targetDir = sessionsRoot === null ? null : join(sessionsRoot, result.conversation.id);
+      if (sourceDir !== null && targetDir !== null && result.copied > 0) {
+        try {
+          await cp(sourceDir, targetDir, { recursive: true, force: true });
+        } catch (err) {
+          // 分支行已写入，但缺 transcript 时首轮必定 infra 失败；在这里就说清楚并回滚分支。
+          await chatRepo.deleteConversation(app.db, result.conversation.id).catch(() => undefined);
+          request.log.warn(
+            { err, conversationId: result.conversation.id },
+            'sdk session copy failed',
+          );
+          return reject(
+            reply,
+            'CONFLICT',
+            '该会话的 SDK 会话记录不可用，无法按历史点分支；请重新对话后再试',
+          );
+        }
       }
       await writeAudit(app.db, request.log, {
         actor: 'admin',

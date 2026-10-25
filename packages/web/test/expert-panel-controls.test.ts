@@ -120,6 +120,9 @@ describe('output style editor controls', () => {
     });
     await waitFor(() => host.querySelector('button'));
     await click(button('新建风格'));
+    await waitFor(() =>
+      document.getElementById('output-style-body')?.classList.contains('cm-content'),
+    );
 
     expect(host.querySelector('label[for="output-style-slug"]')?.textContent).toBe('风格 slug');
     expect(host.querySelector('label[for="output-style-description"]')?.textContent).toBe(
@@ -131,7 +134,9 @@ describe('output style editor controls', () => {
     );
     expect(control('output-style-slug').tagName).toBe('INPUT');
     expect(control('output-style-description').tagName).toBe('INPUT');
-    expect(control('output-style-body').tagName).toBe('TEXTAREA');
+    expect(document.getElementById('output-style-body')?.getAttribute('aria-label')).toBe(
+      '风格内容',
+    );
 
     await edit('output-style-slug', 'concise');
     await edit('output-style-description', '更短的回答');
@@ -149,7 +154,9 @@ describe('output style editor controls', () => {
     expect(saving.getAttribute('aria-busy')).toBe('true');
     expect(control('output-style-slug').disabled).toBe(true);
     expect(control('output-style-description').disabled).toBe(true);
-    expect(control('output-style-body').disabled).toBe(true);
+    expect(document.getElementById('output-style-body')?.getAttribute('aria-disabled')).toBe(
+      'true',
+    );
     expect(control('output-style-keep-coding').disabled).toBe(true);
 
     saved.resolve({ ...style, description: '更短的回答' });

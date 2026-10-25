@@ -1,7 +1,13 @@
 import { type Agent, agentInputSchema, type Server } from '@agentport/shared';
-import { act, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
+import {
+  act,
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  useState,
+} from 'react';
 import { createRoot } from 'react-dom/client';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from '../src/components/confirm-dialog.js';
 import { ApiError, api } from '../src/lib/api.js';
@@ -79,36 +85,62 @@ function elements(node: ReactNode): Element[] {
     ...elements(node.props.leadingFilters as ReactNode),
   ];
 }
-function inspect(render: () => ReactNode, visit: (tree: Element[], pass: number) => void) {
-  let pass = 0;
+/**
+ * 组件按函数直接调用，hook 落在 Probe 上。
+ * 表单只由 RHF 驱动后不再有本地 state：visit 在两帧之间运行，返回 true 表示再看下一帧。
+ */
+async function inspect(
+  render: () => ReactNode,
+  visit: (tree: Element[], pass: number) => boolean | undefined | Promise<boolean | undefined>,
+) {
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  let tree: Element[] = [];
+  let rerender: (() => void) | undefined;
   function Probe() {
-    visit(elements(render()), pass++);
+    const [, setVersion] = useState(0);
+    rerender = () => setVersion((version) => version + 1);
+    tree = elements(render());
     return null;
   }
-  renderToStaticMarkup(createElement(Probe));
+  await act(async () => root.render(createElement(Probe)));
+  for (let pass = 0; pass < 12; pass += 1) {
+    if ((await visit(tree, pass)) !== true) break;
+    await act(async () => {
+      rerender?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+  await act(async () => root.unmount());
+  container.remove();
 }
 function required(tree: Element[], predicate: (node: Element) => boolean) {
   const node = tree.find(predicate);
   if (!node) throw new Error('Missing control');
   return node;
 }
-function openDialog(page: () => ReactNode, buttonText: string, prop: string): Element {
+async function openDialog(
+  page: () => ReactNode,
+  buttonText: string,
+  prop: string,
+): Promise<Element> {
   let dialog: Element | undefined;
-  inspect(page, (tree, pass) => {
+  await inspect(page, (tree, pass) => {
     if (pass === 0) {
       const button = required(
         tree,
         (node) => Array.isArray(node.props.children) && node.props.children.includes(buttonText),
       );
       (button.props.onClick as (event: unknown) => void)({ currentTarget: {} });
-    } else
-      dialog = required(
-        tree,
-        (node) =>
-          node.props[prop] !== undefined &&
-          node.props.onClose !== undefined &&
-          typeof node.type === 'function',
-      );
+      return true;
+    }
+    dialog = required(
+      tree,
+      (node) =>
+        node.props[prop] !== undefined &&
+        node.props.onClose !== undefined &&
+        typeof node.type === 'function',
+    );
   });
   if (!dialog) throw new Error('Missing dialog');
   return dialog;
@@ -142,10 +174,10 @@ beforeEach(() => {
 });
 
 describe('skills toolbar', () => {
-  it('hides market ranking controls only while a market search is active', () => {
-    const rankingCount = (): number => {
+  it('hides market ranking controls only while a market search is active', async () => {
+    const rankingCount = async (): Promise<number> => {
       let market: Element | undefined;
-      inspect(SkillsPage, (tree) => {
+      await inspect(SkillsPage, (tree) => {
         market ??= tree.find(
           (node) =>
             typeof node.type === 'function' &&
@@ -154,7 +186,7 @@ describe('skills toolbar', () => {
       });
       if (!market) throw new Error('Missing market page');
       let count = 0;
-      inspect(
+      await inspect(
         () => (market.type as (props: Record<string, unknown>) => ReactNode)(market.props),
         (tree) => {
           count = tree.filter((node) => node.props.label === '榜单').length;
@@ -163,18 +195,18 @@ describe('skills toolbar', () => {
       return count;
     };
     state.search = { scope: 'market', marketView: 'trending' };
-    expect(rankingCount()).toBe(1);
+    expect(await rankingCount()).toBe(1);
     state.search = { scope: 'market', marketView: 'trending', q: 'react' };
-    expect(rankingCount()).toBe(0);
+    expect(await rankingCount()).toBe(0);
   });
 });
 
 describe('resource draft navigation', () => {
   it.each(['skill', 'server', 'tool'] as const)(
     'guards dirty and pending %s forms on navigation and unload',
-    (kind) => {
+    async (kind) => {
       const page = kind === 'skill' ? SkillsPage : ServersPage;
-      const dialog = openDialog(
+      const dialog = await openDialog(
         page,
         kind === 'skill' ? ' 新建技能' : ' 新建连接器',
         kind === 'skill' ? 'finalFocus' : 'getReturnFocus',
@@ -183,7 +215,7 @@ describe('resource draft navigation', () => {
       if (kind === 'tool') {
         // Open the existing tool editor through the page's own dialog contract.
         let tools: Element | undefined;
-        inspect(ServersPage, (tree, pass) => {
+        await inspect(ServersPage, (tree, pass) => {
           if (pass === 0) {
             const button = required(
               tree,
@@ -191,7 +223,9 @@ describe('resource draft navigation', () => {
                 Array.isArray(node.props.children) && node.props.children.includes(' 新建连接器'),
             );
             (button.props.onClick as (event: unknown) => void)({ currentTarget: {} });
-          } else if (pass === 1) {
+            return true;
+          }
+          if (pass === 1) {
             const form = required(tree, (node) => node.props.onSaved !== undefined);
             (form.props.onSaved as (server: Server, created: boolean) => void)(
               {
@@ -202,41 +236,47 @@ describe('resource draft navigation', () => {
               } as Server,
               true,
             );
-          } else
-            tools = required(
-              tree,
-              (node) =>
-                node.props.server !== undefined &&
-                node.props.onClose !== undefined &&
-                node.props.onSaved === undefined,
-            );
+            return true;
+          }
+          tools = required(
+            tree,
+            (node) =>
+              node.props.server !== undefined &&
+              node.props.onClose !== undefined &&
+              node.props.onSaved === undefined,
+          );
         });
         if (!tools) throw new Error('Missing tool editor');
         let toolForm: Element | undefined;
-        inspect(renderDialog(tools), (tree) => {
+        await inspect(renderDialog(tools), (tree) => {
           toolForm = required(tree, (node) => node.props.onDirtyChange !== undefined);
         });
         if (!toolForm) throw new Error('Missing tool form');
         render = renderDialog(toolForm);
       }
-      inspect(render, (tree, pass) => {
+      await inspect(render, (tree, pass) => {
         if (pass === 0 && kind === 'server') {
           const select = required(tree, (node) => node.props['aria-label'] === '来源类型');
           (select.props.onValueChange as (values: string[]) => void)(['http']);
-        } else if (pass === 0 || (pass === 1 && kind === 'server')) {
+          return true;
+        }
+        if (pass === 0 || (pass === 1 && kind === 'server')) {
           const input = required(
             tree,
             (node) =>
-              typeof node.props.onChange === 'function' && typeof node.props.value === 'string',
+              typeof node.props.id === 'string' &&
+              node.props.id.startsWith(kind === 'tool' ? 'tool-name-' : `${kind}-name`),
           );
-          (input.props.onChange as (event: unknown) => void)({ target: { value: 'unsaved' } });
-        } else {
-          expect(state.blocker?.shouldBlockFn()).toBe(true);
-          expect(state.blocker?.enableBeforeUnload).toBe(true);
+          (input.props.onChange as (event: unknown) => void)({
+            target: { name: 'name', value: 'unsaved' },
+          });
+          return true;
         }
+        expect(state.blocker?.shouldBlockFn()).toBe(true);
+        expect(state.blocker?.enableBeforeUnload).toBe(true);
       });
       state.pending = true;
-      inspect(render, () => {
+      await inspect(render, () => {
         expect(state.blocker?.shouldBlockFn()).toBe(true);
         expect(state.blocker?.enableBeforeUnload).toBe(true);
       });
@@ -258,30 +298,36 @@ describe('conflict recovery', () => {
         onPendingChange() {},
         onDeleteRequest() {},
       });
-    inspect(render, (tree, pass) => {
+    await inspect(render, async (tree, pass) => {
       if (pass === 0) {
         const name = required(tree, (node) => node.props.id === 'agent-name');
         (name.props.onChange as (event: unknown) => void)({
           target: { name: 'name', value: 'my-draft' },
         });
-      } else if (pass === 1) {
-        (required(tree, (node) => node.type === 'form').props.onSubmit as (event: unknown) => void)(
-          { preventDefault() {} },
-        );
-      } else if (pass === 2) {
+        return true;
+      }
+      if (pass === 1) {
+        await (
+          required(tree, (node) => node.type === 'form').props.onSubmit as (
+            event: unknown,
+          ) => Promise<void>
+        )({ preventDefault() {} });
+        return true;
+      }
+      if (pass === 2) {
         expect(reload).not.toHaveBeenCalled();
         expect(state.mutate.mock.calls[0]?.[0].expectedUpdatedAt).toBe('v1');
         const button = required(tree, (node) => node.props.children === '加载最新配置');
         (button.props.onClick as () => void)();
-      } else {
-        const confirmation = required(
-          tree,
-          (node) => node.type === ConfirmDialog && node.props.title === '放弃草稿并加载最新配置？',
-        );
-        expect(confirmation.props.open).toBe(true);
-        expect(confirmation.props.description).toContain('丢失');
-        request = confirmation.props.onConfirm as () => Promise<void>;
+        return true;
       }
+      const confirmation = required(
+        tree,
+        (node) => node.type === ConfirmDialog && node.props.title === '放弃草稿并加载最新配置？',
+      );
+      expect(confirmation.props.open).toBe(true);
+      expect(confirmation.props.description).toContain('丢失');
+      request = confirmation.props.onConfirm as () => Promise<void>;
     });
     expect(reload).not.toHaveBeenCalled();
     await request?.();

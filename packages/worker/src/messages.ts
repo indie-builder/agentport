@@ -14,11 +14,14 @@ function parseToolInput(raw: string | undefined): unknown {
 }
 
 /** 事件流 → 消息行：assistant 文本按块存，工具调用存成 tool 消息（use + result 各一行）。 */
-export function buildMessageRows(events: ChatEvent[]): Array<{ role: string; content: unknown }> {
-  const rows: Array<{ role: string; content: unknown }> = [];
+export function buildMessageRows(
+  events: ChatEvent[],
+): Array<{ role: string; content: unknown; sdkMessageUuid?: string }> {
+  const rows: Array<{ role: string; content: unknown; sdkMessageUuid?: string }> = [];
   const toolNames = new Map<string, string>();
   const toolInputs = new Map<string, string>();
   const toolParents = new Map<string, string>();
+  const toolUuids = new Map<string, string>();
 
   for (const event of events) {
     if (event.type === 'assistant_text' && event.text.trim().length > 0) {
@@ -31,9 +34,11 @@ export function buildMessageRows(events: ChatEvent[]): Array<{ role: string; con
             ? {}
             : { parentToolUseId: event.parentToolUseId }),
         },
+        ...(event.sdkUuid === undefined ? {} : { sdkMessageUuid: event.sdkUuid }),
       });
     } else if (event.type === 'tool_start') {
       toolNames.set(event.toolUseId, event.name);
+      if (event.sdkUuid !== undefined) toolUuids.set(event.toolUseId, event.sdkUuid);
       if (event.parentToolUseId !== undefined) {
         toolParents.set(event.toolUseId, event.parentToolUseId);
       }
@@ -43,6 +48,9 @@ export function buildMessageRows(events: ChatEvent[]): Array<{ role: string; con
       // 子智能体内部的调用：标出它属于哪个父侧 Agent 调用，前端据此缩进。
       const parentToolUseId = event.parentToolUseId ?? toolParents.get(event.toolUseId);
       const parent = parentToolUseId === undefined ? {} : { parentToolUseId };
+      // 工具调用的两半属于同一条 SDK 消息；fork 时按这个 uuid 重映射。
+      const sdkMessageUuid = event.sdkUuid ?? toolUuids.get(event.toolUseId);
+      const sdk = sdkMessageUuid === undefined ? {} : { sdkMessageUuid };
       // tool_use 也要落库：否则刷新后前端无法重建工具卡片（只有 result 没有卡片）。
       rows.push({
         role: 'tool',
@@ -53,6 +61,7 @@ export function buildMessageRows(events: ChatEvent[]): Array<{ role: string; con
           input: parseToolInput(toolInputs.get(event.toolUseId)),
           ...parent,
         },
+        ...sdk,
       });
       rows.push({
         role: 'tool',
@@ -63,6 +72,7 @@ export function buildMessageRows(events: ChatEvent[]): Array<{ role: string; con
           content: redactSecrets(event.content),
           ...parent,
         },
+        ...sdk,
       });
     }
   }
@@ -73,7 +83,16 @@ export function buildMessageRows(events: ChatEvent[]): Array<{ role: string; con
 /** 按专家、会话、运行的顺序持锁，防止终态后追加输出或与删除形成反向锁等待。 */
 export async function persistRunMessages(
   db: Database,
-  input: { agentId: string; conversationId: string; runId: string; events: ChatEvent[] },
+  input: {
+    agentId: string;
+    conversationId: string;
+    runId: string;
+    events: ChatEvent[];
+    /** 本次运行后的 SDK session；与消息同事务写入，避免只存一半。 */
+    sdkSessionId?: string;
+    /** fork 造成的 uuid 重映射（旧 → 新），更新页面已保存的历史消息。 */
+    uuidMap?: Array<{ from: string; to: string }>;
+  },
 ): Promise<boolean> {
   const rows = buildMessageRows(input.events);
 
@@ -127,8 +146,18 @@ export async function persistRunMessages(
         role: row.role,
         content: row.content,
         runId: input.runId,
+        ...(row.sdkMessageUuid === undefined ? {} : { sdkMessageUuid: row.sdkMessageUuid }),
       })),
     );
+    // 会话的 SDK 状态必须与输出同事务：先落消息再单独存 session，
+    // 失败时会出现「页面有历史、transcript 缺一截」的静默错位。
+    if (input.sdkSessionId !== undefined) {
+      await repo.chat.saveSdkState(tx, {
+        conversationId: input.conversationId,
+        sdkSessionId: input.sdkSessionId,
+        ...(input.uuidMap === undefined ? {} : { uuidMap: input.uuidMap }),
+      });
+    }
     return true;
   });
 }

@@ -181,7 +181,7 @@ POST   /api/chat/:runId/cancel   -> 202
 - `GET /api/conversations/:id`：`runMetrics` 是本页消息涉及的 run 读数（按 `runId` 去重后一次 `inArray` 查询），用于给每条历史回复回填读数行；`nextBefore` 为向前分页游标。
 - `DELETE /api/conversations/:id`：事务内先锁 agent（KEY SHARE）再锁会话（UPDATE），与 `admitChatRun` 同序；会话仍有 queued/running 运行时返回 409 `CONFLICT` 并保留数据；成功后级联删除消息与运行记录，Fork 子会话的 `parent_id` 置空保留，并写 `conversation.deleted` 审计。
 - `POST /api/chat`：创建/复用 conversation，写 user message，创建 `agentRuns` 行（status `queued`），投递 `agent-runs` 队列（BullMQ，`Queue` + `connection: { url: REDIS_URL }`），返回。
-- `GET .../events`：订阅 Redis pub/sub 频道 `run:<runId>`，把 JSON 事件以 `data: <json>\n\n` 写出；收到 `run_finished` 后结束。实现方式：每个订阅用独立 `ioredis` 连接（`producer.ts` 导出 `subscribeRun(runId, cb)` / `publishRun(runId, event)`；worker 用同一 Redis 但通过 **publish** 发送，API 用 subscribe）；`close()` 时 `quit()` 该连接，因此多标签页互不影响。
+- `GET .../events`：从 Redis Stream `run:<runId>:events` 有界回放，再用独立连接的 `XREAD BLOCK` 从最后一条真实 ID 跟读，把 JSON 事件以 `data: <json>\n\n` 写出；收到 `run_finished` 后结束；`close()` 直接断开该连接，多标签页互不影响。
 - `POST .../cancel`：往频道发 `{type:'cancel'}`，并把 run 标记为 `cancelled`。
 - SSE 需 `reply.hijack()` 自己写 header，或使用 `reply.raw`；注意不能被 Fastify 的序列化拦截。
 
@@ -268,14 +268,8 @@ README.md
 
 | 形式 | 机制 | 调用方怎样等 |
 |---|---|---|
-| 父 → 子智能体 | `Agent` 工具 + `.claude/agents/<slug>.md` | `run_in_background: false`，SDK 本轮阻塞到子智能体返回 |
+| 父 → 子智能体 | `Agent` 工具 + `.claude/agents/<slug>.md` | 运行时设 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，子智能体调用在后台不可用，SDK 本轮阻塞到返回 |
 | 外部 Host → 平台智能体 | `/mcp` 暴露的 `run_<slug>` 工具 | `AgentInvoker` 轮询 run 终态后返回文本 |
 | 智能体 → HTTP 工具 | `.mcp.json` + `/mcp/:serverId` | MCP 调用本身同步；需批准的工具先返回 `需要批准：<tool>` |
 
-因此 `renderWorkspace()` 生成的 Markdown 必须显式写出等待约定，而不是假设模型知道：
-
-- `CLAUDE.md` 在有子智能体或 MCP server 时追加「等待规则」章节，位于子智能体清单之前；
-- 子智能体清单是表格（slug / 适用场景 / 超时），超时来自 `agents.timeout_ms`；
-- 子智能体的 md 写明「你是被父智能体同步调用的」与「父最多等你 N 秒」。
-
-**为什么不依赖 SDK 默认值**：`Agent` 的 `run_in_background` 缺省为后台运行，父智能体会在子智能体返回前结束本轮，最终文本里没有结果。平台要求同步，所以把 `false` 写成 MD 里的硬约束。
+平台要求同步等待，因此不等模型自觉传 `run_in_background: false`，而是在运行时环境里直接关闭后台任务（同时限制子智能体深度为 1 层）。`CLAUDE.md` 只保留子智能体清单（slug / 适用场景 / 超时，超时来自 `agents.timeout_ms`）与子定义「你是被父智能体同步调用的 / 父最多等你 N 秒」。

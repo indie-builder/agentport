@@ -1,6 +1,6 @@
 # 沙盒运行时镜像：只含 runner，不含业务代码与智能体定义。
 # 构建：docker build -t agentport/sandbox:dev packages/sandbox
-FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
 
 # 容器内用独立 manifest：workspace 协议无法在镜像里解析。
 # 不能用 --omit=dev / --omit=optional：Agent SDK 的平台原生 CLI 在 optionalDependencies 里。

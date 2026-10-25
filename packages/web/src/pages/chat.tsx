@@ -90,14 +90,9 @@ import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
 import {
   type ChatItem,
-  type LocalConversation,
-  loadLocalConversations,
-  localConversation,
   mergeOlderHistory,
-  removeLocalConversation,
   titleFromDetail,
   toolFailed,
-  upsertLocalConversation,
 } from '../lib/chat-state.js';
 import {
   type RunMetrics,
@@ -267,9 +262,6 @@ function ChatWorkspace({
   const setInput = useChatStore((state) => state.setInput);
   const setHistoryOpen = useChatStore((state) => state.setHistoryOpen);
   const client = useQueryClient();
-  const [local, setLocal] = useState<LocalConversation[]>(() => loadLocalConversations());
-  // 本地索引只有两条写路径（新会话被接收、历史会话被打开），统一走这里刷新。
-  const refreshLocal = useCallback(() => setLocal(loadLocalConversations()), []);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const workspaceToggleRef = useRef<HTMLButtonElement>(null);
   // 记下真正发起操作的菜单触发器：菜单与对话框卸载后，焦点要回到它。
@@ -306,17 +298,9 @@ function ChatWorkspace({
   const stream = useChatStream({
     agentId,
     history: detail,
-    onAccepted: (accepted, text) => {
+    onAccepted: (accepted) => {
       // 第一次发送才拿到会话 id：URL 镜像它，但这是同一次操作，用 replace 不留历史。
       onConversationChange(accepted.conversationId, true);
-      upsertLocalConversation({
-        id: accepted.conversationId,
-        agentId: agent?.id ?? agentId ?? '',
-        title: text.slice(0, 80),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      refreshLocal();
     },
   });
 
@@ -335,18 +319,16 @@ function ChatWorkspace({
     if (!run && items.length === 0) composerRef.current?.focus();
   }, [run, items.length]);
 
-  const history = useMemo(() => {
-    if (conversations.data?.supported) {
-      return conversations.data.items.map((conversation) => ({
+  const history = useMemo(
+    () =>
+      (conversations.data ?? []).map((conversation) => ({
         id: conversation.id,
         agentId: conversation.agentId,
         title: conversation.title || '未命名会话',
         updatedAt: conversation.updatedAt || conversation.createdAt,
-      }));
-    }
-    // 后端没有列表接口：用本地索引，只保留当前 agent 的会话。
-    return local.filter((conversation) => conversation.agentId === agentId);
-  }, [conversations.data, local, agentId]);
+      })),
+    [conversations.data],
+  );
 
   // 三个写操作都用 mutation：pending 与失效刷新交给 TanStack Query。
   const cancelMutation = useMutation({
@@ -410,8 +392,6 @@ function ChatWorkspace({
       // 级联删除了该会话的运行记录，运行列表与概况跟着刷新。
       void client.invalidateQueries({ queryKey: ['runs'] });
       void client.invalidateQueries({ queryKey: ['overview'] });
-      removeLocalConversation(id);
-      refreshLocal();
       if (id === conversationId) newConversation();
       toastSuccess('会话已删除');
     },
@@ -491,25 +471,6 @@ function ChatWorkspace({
     });
   }, [detail.hasNextPage, detail.isFetching, detail.fetchNextPage, run]);
 
-  useEffect(() => {
-    if (!detail.data) return;
-    const existing = loadLocalConversations().find(
-      (conversation) => conversation.id === detail.data?.conversation.id,
-    );
-    if (existing) return;
-    const next = localConversation(
-      {
-        id: detail.data.conversation.id,
-        agentId: detail.data.conversation.agentId,
-        title: detail.data.conversation.title,
-        createdAt: detail.data.conversation.createdAt,
-      },
-      titleFromDetail(detail.data),
-    );
-    upsertLocalConversation(next);
-    refreshLocal();
-  }, [detail.data, refreshLocal]);
-
   const switchAgent = (id: string): void => {
     if (id === agentId) return;
     stream.closeStream();
@@ -527,7 +488,6 @@ function ChatWorkspace({
       pending={conversations.isPending}
       error={conversations.isError ? conversations.error : null}
       onRetry={() => void conversations.refetch()}
-      supported={conversations.data?.supported === true}
       conversationId={conversationId}
       branching={branchMutation.isPending ? (branchMutation.variables?.id ?? null) : null}
       onOpen={openConversation}
@@ -1029,7 +989,6 @@ function HistoryPanel({
   pending,
   error,
   onRetry,
-  supported,
   conversationId,
   branching,
   onOpen,
@@ -1040,7 +999,6 @@ function HistoryPanel({
   pending: boolean;
   error: unknown;
   onRetry: () => void;
-  supported: boolean;
   conversationId: string | null;
   branching: string | null;
   onOpen: (id: string) => void;
@@ -1066,7 +1024,7 @@ function HistoryPanel({
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {pending ? <LoadingState rows={4} /> : null}
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
-        {history.length === 0 && !pending && !needle ? (
+        {history.length === 0 && !pending && !error && !needle ? (
           <p className="px-2 py-5 text-xs leading-relaxed text-muted-foreground">
             开始对话后，记录会出现在这里。
           </p>
@@ -1117,18 +1075,15 @@ function HistoryPanel({
                 />
                 <DropdownMenuContent align="end" sideOffset={4} className="w-40">
                   <DropdownMenuGroup>
-                    {/* 后端没有列表接口时没有可写回的服务端会话，只保留分支。 */}
-                    {supported ? (
-                      <DropdownMenuItem
-                        onClick={() => {
-                          if (menuTriggerRef.current) {
-                            onRename(conversation, menuTriggerRef.current);
-                          }
-                        }}
-                      >
-                        <Pencil /> 重命名
-                      </DropdownMenuItem>
-                    ) : null}
+                    <DropdownMenuItem
+                      onClick={() => {
+                        if (menuTriggerRef.current) {
+                          onRename(conversation, menuTriggerRef.current);
+                        }
+                      }}
+                    >
+                      <Pencil /> 重命名
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       aria-label={`从「${conversation.title}」分支`}
                       disabled={branching !== null}
@@ -1148,11 +1103,6 @@ function HistoryPanel({
           ))}
         </ul>
       </div>
-      {!supported && history.length > 0 ? (
-        <p className="border-t px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-          历史列表来自本浏览器。
-        </p>
-      ) : null}
     </>
   );
 }

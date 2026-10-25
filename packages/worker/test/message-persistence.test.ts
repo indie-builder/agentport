@@ -156,6 +156,41 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     await pool.end();
   });
 
+  it('stores SDK session state and fork uuid mapping in the same transaction', async () => {
+    const fixture = await newFixture();
+    const runId = await seedRun(fixture);
+    const from = '11111111-2222-4333-8444-555555555555';
+    await repo.chat.appendMessage(db, {
+      id: newId('message'),
+      conversationId: fixture.conversationId,
+      role: 'assistant',
+      content: { type: 'text', text: 'branch point' },
+      runId: null,
+      sdkMessageUuid: from,
+    });
+
+    expect(
+      await messages.persistRunMessages(db, {
+        agentId: fixture.agentId,
+        conversationId: fixture.conversationId,
+        runId,
+        events: [text('answer')],
+        sdkSessionId: '66666666-7777-4888-8999-000000000000',
+        uuidMap: [{ from, to: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }],
+      }),
+    ).toBe(true);
+
+    expect(await repo.chat.getConversationSdkState(db, fixture.conversationId)).toMatchObject({
+      sdkSessionId: '66666666-7777-4888-8999-000000000000',
+      forkFromSdkMessageUuid: null,
+    });
+    const uuids = (await repo.chat.listMessages(db, fixture.conversationId))
+      .map((row) => row.sdkMessageUuid)
+      .filter((uuid) => uuid !== null);
+    expect(uuids).toContain('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+    expect(uuids).not.toContain(from);
+  });
+
   it('replaces output idempotently while keeping the user message and redacting secrets', async () => {
     const fixture = await newFixture();
     const runId = await seedRun(fixture);
@@ -243,13 +278,6 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     });
 
     expect((await outputOf(runId)).map((row) => row.text)).toEqual(['existing output']);
-    const admitted = await repo.chat.admitChatRun(db, {
-      agentId: fixture.agentId,
-      message: 'next question',
-      conversationId: fixture.conversationId,
-    });
-    expect(admitted.history).toContain('existing output');
-    expect(admitted.history).not.toContain('late output');
   });
 
   it('flush wins: a flush already queued for the run lock lands before cancel', async () => {
@@ -276,13 +304,6 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     expect(output.map((row) => row.text)).toEqual(['flushed answer']);
     expect(await userCount(runId)).toBe(1);
     expect((await repo.chat.getRun(db, runId))?.status).toBe('cancelled');
-
-    const admitted = await repo.chat.admitChatRun(db, {
-      agentId: fixture.agentId,
-      message: 'next question',
-      conversationId: fixture.conversationId,
-    });
-    expect(admitted.history?.split('flushed answer')).toHaveLength(2);
   });
 
   it('takes the agent lock first, so an agent delete cannot deadlock with the flush', async () => {

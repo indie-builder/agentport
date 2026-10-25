@@ -23,23 +23,30 @@ function network(egress: DockerSandboxOptions['egress']): string {
   return egress === 'none' ? 'none' : 'bridge';
 }
 
+const CONFIG_DIR = '/home/node/.claude';
+
 /**
- * 只读根文件系统 + tmpfs：Agent SDK 会写 ~/.claude（会话、缓存）。
- * 单独给 /home/node/.claude 挂 tmpfs（uid/gid 对齐镜像内的 node 用户，否则 tmpfs
- * 默认 root:root、非 root 进程写不进去），并把 CLAUDE_CONFIG_DIR 指过去（worker 注入），
- * 根文件系统保持只读。已实测：上述组合下 runner 能正常启动并输出 run_finished。
+ * 只读根文件系统 + tmpfs：Agent SDK 会写 /tmp 与 ~/.claude 的缓存。
+ * `/home/node/.claude` 只有在调用方没有挂持久目录时才用 tmpfs：
+ * Docker 不允许同一容器路径同时挂 tmpfs 与 bind mount（Duplicate mount point）。
  */
-const READ_ONLY_ARGS = [
-  '--read-only',
-  '--tmpfs',
-  '/tmp:rw,noexec,nosuid,size=64m',
-  '--tmpfs',
-  '/home/node/.claude:rw,noexec,nosuid,size=64m,uid=1000,gid=1000',
-  '--cap-drop',
-  'ALL',
-  '--security-opt',
-  'no-new-privileges',
-];
+function readOnlyArgs(extraMounts: SandboxCreateOptions['extraMounts']): string[] {
+  const configDirMounted = (extraMounts ?? []).some(
+    (mount) => resolve(mount.containerPath) === CONFIG_DIR,
+  );
+  return [
+    '--read-only',
+    '--tmpfs',
+    '/tmp:rw,noexec,nosuid,size=64m',
+    ...(configDirMounted
+      ? []
+      : ['--tmpfs', `${CONFIG_DIR}:rw,noexec,nosuid,size=64m,uid=1000,gid=1000`]),
+    '--cap-drop',
+    'ALL',
+    '--security-opt',
+    'no-new-privileges',
+  ];
+}
 
 export class DockerSandboxProvider implements SandboxProvider {
   private readonly options: DockerSandboxOptions;
@@ -73,7 +80,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       String(this.options.cpus),
       '--pids-limit',
       String(this.options.pids),
-      ...READ_ONLY_ARGS,
+      ...readOnlyArgs(options.extraMounts),
       '-v',
       `${workspace}:/workspace:ro`,
       ...(options.extraMounts ?? []).flatMap((mount) => [
@@ -83,7 +90,9 @@ export class DockerSandboxProvider implements SandboxProvider {
       ...envArgs,
       '--name',
       name,
+      ...(options.entrypoint === undefined ? [] : ['--entrypoint', options.entrypoint]),
       options.image,
+      ...(options.command ?? []),
     ];
 
     this.running.add(name);

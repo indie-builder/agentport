@@ -1,22 +1,27 @@
-import { RUN_STREAM_MAXLEN, runCancelKey, runChannel, runStreamKey } from '@agentport/shared';
+import {
+  RUN_STREAM_MAXLEN,
+  runCancelKey,
+  runEventsConnectionName,
+  runStreamKey,
+} from '@agentport/shared';
 import { Redis } from 'ioredis';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
 
 vi.mock('ioredis', () => {
   class Redis {
-    status = 'ready';
     on = vi.fn();
-    off = vi.fn();
     xadd = vi.fn().mockResolvedValue('1-0');
     expire = vi.fn().mockResolvedValue(1);
     publish = vi.fn().mockResolvedValue(1);
     set = vi.fn().mockResolvedValue('OK');
     subscribe = vi.fn().mockResolvedValue(1);
-    xrange = vi.fn().mockResolvedValue([]);
     xrevrange = vi.fn().mockResolvedValue([]);
+    xinfo = vi.fn().mockResolvedValue(['length', 1, 'entries-added', 1]);
+    // BLOCK 0 且没有新事件：订阅停在阻塞读取上，直到 close() 打断连接。
+    xread = vi.fn(() => new Promise<never>(() => undefined));
+    disconnect = vi.fn();
     quit = vi.fn().mockResolvedValue('OK');
-    duplicate = vi.fn(() => this);
   }
   return { Redis: vi.fn(Redis) };
 });
@@ -28,7 +33,6 @@ vi.mock('@agentport/shared', async (importOriginal) => {
     ...shared,
     RUN_STREAM_MAXLEN: 17,
     runStreamKey: (id: string) => `contract:${id}:events`,
-    runChannel: (id: string) => `contract:${id}:wake`,
     runCancelKey: (id: string) => `contract:${id}:cancel`,
   };
 });
@@ -36,7 +40,7 @@ vi.mock('@agentport/shared', async (importOriginal) => {
 afterEach(closeProducer);
 
 describe('producer shared stream contract', () => {
-  it('uses the shared stream key, wake channel, and maxlen for publishing and subscribing', async () => {
+  it('publishes events to the stream without any separate wake channel', async () => {
     await publishRun('run-1', { type: 'text_delta', text: 'hello' });
     const publisher = vi.mocked(Redis).mock.instances.at(-1);
     expect(publisher?.xadd).toHaveBeenCalledWith(
@@ -49,19 +53,46 @@ describe('producer shared stream contract', () => {
       JSON.stringify({ type: 'text_delta', text: 'hello' }),
     );
     expect(publisher?.expire).toHaveBeenCalledWith(runStreamKey('run-1'), 3600);
-    expect(publisher?.publish).toHaveBeenCalledWith(runChannel('run-1'), '1');
+    expect(publisher?.publish).not.toHaveBeenCalled();
+  });
 
-    const subscription = await subscribeRun('run-1', () => undefined);
-    const subscriber = vi.mocked(Redis).mock.instances.at(-1);
-    expect(subscriber?.subscribe).toHaveBeenCalledWith(runChannel('run-1'));
-    expect(publisher?.xrevrange).toHaveBeenCalledWith(
+  it('follows the stream with a blocking XREAD from the last real id', async () => {
+    await publishRun('run-1', { type: 'text_delta', text: 'hello' });
+    const publisher = vi.mocked(Redis).mock.instances.at(-1);
+    expect(publisher).toBeDefined();
+    // 回放读到一条真实事件后，跟读必须从它的 ID 继续，而不是 `$`（会丢掉阻塞前到达的事件）。
+    vi.mocked(Redis).mock.instances[0]?.xrevrange.mockResolvedValueOnce([
+      ['42-0', ['payload', JSON.stringify({ type: 'text_delta', text: 'hello' })]],
+    ]);
+    const subscription = await subscribeRun('run-1', () => undefined, undefined);
+    const subscriber = vi
+      .mocked(Redis)
+      .mock.calls.map((call, index) => ({ call, instance: vi.mocked(Redis).mock.instances[index] }))
+      .find(({ call }) => call[1]?.connectionName === runEventsConnectionName('run-1'))?.instance;
+    expect(subscriber).toBeDefined();
+    // 初始回放走共享普通连接（不在订阅连接上执行 XRANGE）。
+    expect(publisher.xrevrange).toHaveBeenCalledWith(
       runStreamKey('run-1'),
       '+',
       '-',
       'COUNT',
       expect.any(Number),
     );
+    await vi.waitFor(() => {
+      expect(subscriber?.xread).toHaveBeenCalledWith(
+        'COUNT',
+        expect.any(Number),
+        'BLOCK',
+        0,
+        'STREAMS',
+        runStreamKey('run-1'),
+        '42-0',
+      );
+    });
+    expect(subscriber?.subscribe).not.toHaveBeenCalled();
+
     subscription.close();
+    expect(subscriber?.disconnect).toHaveBeenCalled();
   });
 
   it('uses the shared cancel key for the persistent flag and notification', async () => {
@@ -74,7 +105,6 @@ describe('producer shared stream contract', () => {
   it('keeps the existing Redis wire format byte-identical', async () => {
     const shared = await vi.importActual<typeof import('@agentport/shared')>('@agentport/shared');
     expect(shared.runStreamKey('run-1')).toBe('run:run-1:events');
-    expect(shared.runChannel('run-1')).toBe('run:run-1:events:wake');
     expect(shared.runCancelKey('run-1')).toBe('run:run-1:cancel');
     expect(shared.RUN_STREAM_MAXLEN).toBe(1000);
   });

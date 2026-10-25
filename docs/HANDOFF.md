@@ -55,7 +55,7 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 7. **会话上下文靠注入最近 20 条消息**，不是 SDK 原生 session resume；长对话会截断。
 8. **子智能体只支持单层**，且继承父会话的 MCP 工具集；子智能体自己的 server 绑定不参与渲染。子智能体内部调用已带 `parentToolUseId` 并在 UI 缩进，但单层约束仍靠 API 校验 + `disallowedTools`，SDK 本身无深度限制。
 9. **评估跑批在 worker 的 `eval-runs` 队列串行（并发 1）**；worker 重启后超过 1 小时仍为 `running` 的跑批会被收敛为 `failed`（`eval run lost`）。
-10. **SSE 事件保留 1 小时、最多 1000 条**；过期后只能从 `messages` 还原主线。每个观众占一条独立 Redis 连接，受 Redis `maxclients` 约束；唤醒失败时最多有 2 秒轮询兜底延迟。
+10. **SSE 事件保留 1 小时、最多 1000 条**；过期后只能从 `messages` 还原主线。每个观众占一条独立 Redis 连接（`XREAD BLOCK`），受 Redis `maxclients` 约束；慢客户端未读事件被 MAXLEN 裁剪时可能静默丢失。
 11. **分支**：既可从侧栏对整段会话分支（复制全部），也可从任意一条已持久化的用户消息分支（复制到该消息为止，UI 已暴露 `fromMessageId`）。新发/流式消息尚无持久化 id，不显示该入口。
 12. **导入不携带子智能体与工具审批标记**；导入格式当前没有这两个字段。
 13. **Server 地址校验与连接之间的 DNS 重绑定窗口**仍靠网络层 allowlist 兜底。

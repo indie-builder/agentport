@@ -1,6 +1,6 @@
 import { schema } from '@agentport/db';
 import { overviewSchema, overviewTimeseriesSchema } from '@agentport/shared';
-import { and, avg, count, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { typed } from '../../types.js';
@@ -38,10 +38,23 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
       const { days } = request.query;
       const since = daysAgo(days);
 
-      // 三个互不依赖的查询并行：串行会把连接池占用时间乘以 3。
-      const [[serverCount], [agentCount], agentRows] = await Promise.all([
-        app.db.select({ value: sql<number>`count(*)::int` }).from(schema.servers),
-        app.db.select({ value: sql<number>`count(*)::int` }).from(schema.agents),
+      const inWindow = sql`${schema.agentRuns.startedAt} >= ${since}`;
+      const [[runAgg], agentRows, recent] = await Promise.all([
+        app.db
+          .select({
+            servers: sql<number>`(select count(*)::int from ${schema.servers})`,
+            agents: sql<number>`(select count(*)::int from ${schema.agents})`,
+            running: sql<number>`count(*) filter (where ${schema.agentRuns.status} = 'running')::int`,
+            total: sql<number>`count(*) filter (where ${inWindow})::int`,
+            failed: sql<number>`count(*) filter (where ${inWindow} and ${schema.agentRuns.status} in ('failed','timeout'))::int`,
+            tokens: sql<number>`coalesce(sum(coalesce(${schema.agentRuns.inputTokens},0)::bigint + coalesce(${schema.agentRuns.outputTokens},0)::bigint) filter (where ${inWindow}), 0)::float8`,
+            cost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}) filter (where ${inWindow}), 0)::float`,
+            avgLatency: sql<
+              string | null
+            >`avg(${schema.agentRuns.latencyMs}) filter (where ${inWindow})`,
+          })
+          .from(schema.agentRuns)
+          .where(or(inWindow, eq(schema.agentRuns.status, 'running'))),
         // 每个智能体的聚合指标。FILTER 子句让「失败率」与「延迟」一次扫描完成。
         app.db
           .select({
@@ -74,23 +87,6 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
           )
           .groupBy(schema.agents.id)
           .orderBy(desc(sql`max(${schema.agentRuns.startedAt})`)),
-      ]);
-
-      const [[runningCount], [runAgg], recent] = await Promise.all([
-        app.db
-          .select({ value: sql<number>`count(*)::int` })
-          .from(schema.agentRuns)
-          .where(eq(schema.agentRuns.status, 'running')),
-        app.db
-          .select({
-            total: count(),
-            failed: sql<number>`count(*) filter (where ${schema.agentRuns.status} in ('failed','timeout'))::int`,
-            tokens: sql<number>`coalesce(sum(coalesce(${schema.agentRuns.inputTokens},0)::bigint + coalesce(${schema.agentRuns.outputTokens},0)::bigint), 0)::float8`,
-            cost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}), 0)::float`,
-            avgLatency: avg(schema.agentRuns.latencyMs),
-          })
-          .from(schema.agentRuns)
-          .where(sql`${schema.agentRuns.startedAt} >= ${since}`),
         app.db
           .select({
             id: schema.agentRuns.id,
@@ -113,10 +109,10 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
       return {
         window: { days, since: since.toISOString() },
         counts: {
-          servers: serverCount?.value ?? 0,
-          agents: agentCount?.value ?? 0,
+          servers: runAgg?.servers ?? 0,
+          agents: runAgg?.agents ?? 0,
           runs: Number(runAgg?.total ?? 0),
-          running: runningCount?.value ?? 0,
+          running: runAgg?.running ?? 0,
           failed: Number(runAgg?.failed ?? 0),
           tokens: Number(runAgg?.tokens ?? 0),
           costUsd: Number(runAgg?.cost ?? 0),

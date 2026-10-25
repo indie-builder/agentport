@@ -307,7 +307,12 @@ describe.skipIf(!ready)('conversations', () => {
       conversationId: parentId,
       role: 'user',
       content: { type: 'text', text: '分支点' },
+      sdkMessageUuid: '11111111-2222-4333-8444-555555555555',
     });
+    await app.pool.query('update conversations set sdk_session_id = $2 where id = $1', [
+      parentId,
+      '66666666-7777-4888-8999-000000000000',
+    ]);
     const branched = await repo.chat.branchConversation(app.db, {
       id: newId('conversation'),
       conversationId: parentId,

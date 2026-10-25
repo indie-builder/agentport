@@ -32,7 +32,7 @@ import { useAudit } from '../src/lib/queries.js';
 
 interface AuditOptions {
   queryKey: unknown[];
-  queryFn: (context: { pageParam: string | null }) => Promise<AuditList>;
+  queryFn: (context: { pageParam: string | null; signal: AbortSignal }) => Promise<AuditList>;
   initialPageParam: string | null;
   getNextPageParam: (
     last: AuditList,
@@ -82,14 +82,21 @@ test('查询键保留过滤条件，分页游标不进入键', () => {
 test('首屏用筛选条件请求，不带游标', async () => {
   const query = { target: 'agent:1' };
   mocks.audit.mockResolvedValue(page([entry('e1')]));
-  await useQueryOptions(query).queryFn({ pageParam: null });
-  expect(mocks.audit).toHaveBeenCalledWith({ ...query, limit: 100 });
+  await useQueryOptions(query).queryFn({ pageParam: null, signal: new AbortController().signal });
+  expect(mocks.audit).toHaveBeenCalledWith({ ...query, limit: 100 }, expect.any(AbortSignal));
+});
+
+test('把查询的取消信号交给请求，离开页面时能中止在途分页', async () => {
+  const signal = new AbortController().signal;
+  mocks.audit.mockResolvedValue(page([entry('e1')]));
+  await useQueryOptions().queryFn({ pageParam: null, signal });
+  expect(mocks.audit).toHaveBeenCalledWith({ limit: 100 }, signal);
 });
 
 test('后续页用 id 游标，不再用时间戳', async () => {
   mocks.audit.mockResolvedValue(page([entry('e2')]));
-  await useQueryOptions().queryFn({ pageParam: 'e1' });
-  expect(mocks.audit).toHaveBeenCalledWith({ limit: 100, beforeId: 'e1' });
+  await useQueryOptions().queryFn({ pageParam: 'e1', signal: new AbortController().signal });
+  expect(mocks.audit).toHaveBeenCalledWith({ limit: 100, beforeId: 'e1' }, expect.any(AbortSignal));
 });
 
 test('满页时即使时间戳相同也继续按 id 翻页', () => {

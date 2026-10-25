@@ -258,6 +258,13 @@ export const conversations = pgTable(
     }),
     /** 分支点消息：新会话复制到这条消息（含）为止。 */
     branchOfMessageId: text('branch_of_message_id'),
+    /** 当前有效的 SDK session（transcript 在 sdk-sessions/<id>/）；null 表示还没有可续的会话。 */
+    sdkSessionId: text('sdk_session_id'),
+    /**
+     * 待执行的按点分叉：非空表示下次运行要先在 sdkSessionId 里 fork 到该消息 uuid。
+     * 分支创建时写入，fork 成功后清空。
+     */
+    forkFromSdkMessageUuid: text('fork_from_sdk_message_uuid'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     /**
      * 最后一条消息时间，由 messages 上的语句级触发器维护；无消息时等于 createdAt。
@@ -283,6 +290,8 @@ export const messages = pgTable(
     content: jsonb('content').$type<unknown>().notNull(),
     /** 可空：用户输入或分支副本；分支副本由会话级保留规则保护。 */
     runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+    /** SDK transcript 里的消息 uuid；用于按历史点 fork，缺失表示这条还没进 transcript。 */
+    sdkMessageUuid: text('sdk_message_uuid'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

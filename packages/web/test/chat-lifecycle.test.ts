@@ -107,7 +107,7 @@ beforeEach(() => {
   vi.spyOn(api, 'run').mockResolvedValue(run);
   vi.spyOn(api, 'conversation').mockResolvedValue(history);
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
-  vi.spyOn(api, 'conversations').mockResolvedValue({ supported: true, items: [] });
+  vi.spyOn(api, 'conversations').mockResolvedValue([]);
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -417,18 +417,15 @@ describe('approval final refresh', () => {
       runId: 'run-a',
       conversationId: 'conversation-a',
     });
-    vi.mocked(api.conversations).mockResolvedValue({
-      supported: true,
-      items: [{ ...history.conversation, updatedAt: 'now' }],
-    });
+    vi.mocked(api.conversations).mockResolvedValue([{ ...history.conversation, updatedAt: 'now' }]);
     await act(async () => {
       useChatStore.getState().setInput('prompt');
       await stream.send();
     });
     await flush();
-    expect(client.getQueryData(['conversations', 'agent-a'])).toMatchObject({
-      items: [{ id: 'conversation-a' }],
-    });
+    expect(client.getQueryData(['conversations', 'agent-a'])).toMatchObject([
+      { id: 'conversation-a' },
+    ]);
     vi.mocked(api.runApprovals).mockResolvedValue({ items: [approval] });
     const before = vi.mocked(api.conversations).mock.calls.length;
     await act(async () => Source.instances[0]?.emit({ type: 'run_finished', status: 'failed' }));

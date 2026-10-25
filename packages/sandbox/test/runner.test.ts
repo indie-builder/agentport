@@ -6,6 +6,9 @@ import { renderWorkspace } from '../../core/src/workspace.js';
 const io = vi.hoisted(() => ({
   line: '',
   options: undefined as Record<string, unknown> | undefined,
+  forkCalls: [] as Array<{ sessionId: string; upToMessageId?: string }>,
+  /** 挂载目录里实际存在的 session（含 fork 产物）。 */
+  sessions: new Set<string>(),
 }));
 
 vi.mock('node:readline', () => ({
@@ -17,7 +20,29 @@ vi.mock('node:readline', () => ({
   }),
 }));
 
+// transcript 目录用真实文件系统语义太重；这里只回答「会话是否存在」。
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readdir: async () => ['workspace'],
+    stat: async (path: string) => {
+      const match = /([^/]+)\.jsonl$/.exec(path);
+      if (match && io.sessions.has(match[1] ?? '')) return { isFile: () => true };
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    },
+  };
+});
+
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  forkSession: async (sessionId: string, options: { upToMessageId?: string }) => {
+    io.forkCalls.push({
+      sessionId,
+      ...(options.upToMessageId ? { upToMessageId: options.upToMessageId } : {}),
+    });
+    io.sessions.add('forked-session');
+    return { sessionId: 'forked-session' };
+  },
   query: ({ options }: { options: Record<string, unknown> }) => {
     io.options = options;
     return (async function* () {
@@ -25,6 +50,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
       yield {
         type: 'assistant',
         parent_tool_use_id: null,
+        uuid: '33333333-4444-4555-8666-777777777777',
         message: { content: [{ type: 'text', text: 'hello' }] },
       };
       yield {
@@ -40,16 +66,31 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   },
 }));
 
+const USER_UUID = '11111111-2222-4333-8444-555555555555';
+
 interface Event {
   type: string;
   text?: string;
   status?: string;
+  sessionId?: string;
+  uuids?: Array<{ from: string; to: string }>;
+  sdkUuid?: string;
   inputTokens?: number;
   outputTokens?: number;
 }
 
 async function run(task: Record<string, unknown>): Promise<{ events: Event[] }> {
-  io.line = JSON.stringify({ prompt: 'hi', ...task });
+  io.line = JSON.stringify({
+    prompt: 'hi',
+    model: 'test-model',
+    maxTurns: 2,
+    maxBudgetUsd: 1,
+    userMessageUuid: USER_UUID,
+    ...task,
+  });
+  io.forkCalls = [];
+  io.options = undefined;
+  io.sessions = new Set(['existing-session', 'source-session']);
   vi.resetModules();
   const events: Event[] = [];
   const stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
@@ -74,12 +115,17 @@ describe('runner task wiring', () => {
     expect(io.options?.allowedTools).not.toContain('Skill');
     expect(io.options?.disallowedTools).toContain('Bash');
     expect(events).toContainEqual(
-      expect.objectContaining({ type: 'assistant_text', text: 'hello' }),
+      expect.objectContaining({
+        type: 'assistant_text',
+        text: 'hello',
+        sdkUuid: '33333333-4444-4555-8666-777777777777',
+      }),
     );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'run_finished',
         status: 'succeeded',
+        sessionId: 'session-1',
         inputTokens: 3,
         outputTokens: 4,
       }),
@@ -104,6 +150,7 @@ describe('runner task wiring', () => {
     const matchers = options.hooks?.PreToolUse;
     expect(matchers).toHaveLength(1);
     expect(matchers?.[0]?.matcher).toBeUndefined();
+    expect(matchers?.[0]?.hooks).toHaveLength(2);
     const hook = matchers?.[0]?.hooks[0];
     expect(hook).toBeTypeOf('function');
     const result = await hook?.(
@@ -122,6 +169,57 @@ describe('runner task wiring', () => {
     expect(result).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
   });
 
+  it('sets the sandbox runtime env on the SDK process', async () => {
+    await run({});
+    expect(io.options?.env).toMatchObject({
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+      CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1',
+    });
+  });
+
+  it('does not resume an empty conversation', async () => {
+    await run({});
+    expect(io.options).not.toHaveProperty('resume');
+    expect(io.forkCalls).toEqual([]);
+  });
+
+  it('resumes the stored session for a follow-up turn', async () => {
+    await run({ resumeSessionId: 'existing-session' });
+    expect(io.options?.resume).toBe('existing-session');
+    expect(io.forkCalls).toEqual([]);
+  });
+
+  it('forks at the saved message before resuming a branch', async () => {
+    io.forkCalls = [];
+    const { events } = await run({
+      resumeSessionId: 'source-session',
+      forkFromMessageUuid: '22222222-3333-4444-8555-666666666666',
+    });
+
+    expect(io.forkCalls).toEqual([
+      { sessionId: 'source-session', upToMessageId: '22222222-3333-4444-8555-666666666666' },
+    ]);
+    expect(io.options?.resume).toBe('forked-session');
+    // uuid 映射由宿主从 transcript 的 forkedFrom 计算，事件只带新会话 id。
+    expect(events).toContainEqual({
+      type: 'session_forked',
+      sessionId: 'forked-session',
+    });
+  });
+
+  it('fails as infra instead of falling back to text when the transcript is missing', async () => {
+    const { events } = await run({ resumeSessionId: 'missing-session' });
+    expect(events).toEqual([
+      {
+        type: 'run_finished',
+        status: 'failed',
+        error: expect.stringContaining('missing from the mounted transcript directory'),
+        failureKind: 'infra',
+      },
+    ]);
+    expect(io.options).toBeUndefined();
+  });
+
   it('keeps file tools denied in generated child frontmatter', () => {
     const child = { slug: 'child', name: 'Child', model: 'm', systemPrompt: 'p', maxTurns: 5 };
     const files = renderWorkspace({
@@ -135,12 +233,25 @@ describe('runner task wiring', () => {
     }
   });
 
+  it('does not auto-approve child-only MCP servers for the parent', async () => {
+    await run({
+      mcpServers: ['root-mcp'],
+      subAgents: [{ slug: 'researcher', servers: ['child-mcp'], skills: [] }],
+    });
+    const options = io.options as Options;
+    expect(options.allowedTools).toContain('mcp__root-mcp__*');
+    expect(options.allowedTools).not.toContain('mcp__child-mcp__*');
+    // 会话级 deny 会连带移除子智能体自己的工具（子级继承会话权限），
+    // 父级误调用交给 PreToolUse 边界 hook 拒绝。
+    expect(options.disallowedTools).not.toContain('mcp__child-mcp');
+  });
+
   it('defaults to no skills when the task omits them', async () => {
     await run({});
     expect(io.options?.skills).toEqual([]);
   });
 
-  it('rejects a skill name that is not a slug', async () => {
-    await expect(run({ skills: ['Not A Slug'] })).rejects.toThrow();
+  it('rejects a task without a user message uuid', async () => {
+    await expect(run({ userMessageUuid: 'not-a-uuid' })).rejects.toThrow();
   });
 });

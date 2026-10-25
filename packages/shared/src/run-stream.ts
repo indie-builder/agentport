@@ -7,9 +7,9 @@ export function runStreamKey(runId: string): string {
   return `run:${runId}:events`;
 }
 
-/** Pub/sub channel used to wake event-stream subscribers. */
-export function runChannel(runId: string): string {
-  return `${runStreamKey(runId)}:wake`;
+/** Redis connection name for a run's blocking event follower; also used to count followers. */
+export function runEventsConnectionName(runId: string): string {
+  return `run-events:${runId}`;
 }
 
 export function runCancelKey(runId: string): string {

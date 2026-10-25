@@ -1,8 +1,8 @@
 # 应用镜像：api 与 worker 共用，入口由 compose command 区分。
 # 构建：docker build -t agentport/api:dev .
-FROM node:24-alpine AS base
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS base
 # 固定 pnpm 版本，避免 corepack 在构建时联网取最新版。
-RUN npm install -g pnpm@12.14.0
+RUN npm install -g pnpm@12.15.0
 WORKDIR /repo
 
 # 先只复制 manifest，依赖层可被源码变更复用。
@@ -26,7 +26,7 @@ RUN pnpm -r build
 RUN pnpm --filter @agentport/api deploy --prod /out/api \
  && pnpm --filter @agentport/worker deploy --prod /out/worker
 
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
 # worker 通过宿主 docker.sock 启沙盒，需要 docker CLI（不含 daemon）。
 RUN apk add --no-cache docker-cli
 ENV NODE_ENV=production

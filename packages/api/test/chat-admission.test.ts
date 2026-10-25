@@ -182,7 +182,7 @@ describe.skipIf(!ready)('chat admission', () => {
     expect(await runCount(right)).toBe(1);
   });
 
-  it('queues history captured before the current user message, without duplicating it', async () => {
+  it('admits one of two racing posts and queues only ids plus the new prompt', async () => {
     const agent = await newAgent();
     const conversationId = await newConversation(agent.id);
     await repo.chat.appendMessage(app.db, {
@@ -204,10 +204,20 @@ describe.skipIf(!ready)('chat admission', () => {
 
     const { getQueue } = await import('../src/queue/producer.js');
     const job = await getQueue().getJob(runId);
-    expect(job).not.toBeUndefined();
-    const history = (job?.data as { history?: string } | undefined)?.history ?? '';
-    expect(history).toContain('助手：noted earlier');
-    expect(history).not.toContain('latest question');
+    expect(job?.data).toEqual({
+      runId,
+      agentId: agent.id,
+      conversationId,
+      prompt: 'latest question',
+    });
+    // 续聊身份在准入时就固定：平台生成的 uuid 与用户消息一一对应。
+    const [stored] = await app.pool
+      .query<{ sdk_message_uuid: string }>(
+        "select sdk_message_uuid from messages where run_id = $1 and role = 'user'",
+        [runId],
+      )
+      .then((result) => result.rows);
+    expect(stored?.sdk_message_uuid).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('waits on the conversation row lock before admitting the run', async () => {

@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { McpJsonEntry, WorkspaceSkill } from '@agentport/core';
@@ -16,9 +16,12 @@ import { createDb, repo, schema } from '@agentport/db';
 import {
   agentRunJobSchema,
   EVAL_RUNS_QUEUE,
+  effortSchema,
   evalRunJobSchema,
+  permissionModeSchema,
   previewMcpEntry,
   RUNS_QUEUE,
+  type SandboxTaskInput,
   serverInputSchema,
   wireFailureKind,
 } from '@agentport/shared';
@@ -27,6 +30,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
 import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
+import { readForkUuidMap } from './fork-uuids.js';
 import { startMaintenanceWorker } from './maintenance.js';
 import { persistRunMessages } from './messages.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
@@ -40,7 +44,9 @@ import {
   runInSandbox,
 } from './runner-client.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
+import { registerSandboxProbe } from './sandbox-probe.js';
 import { startScheduleScheduler } from './scheduler.js';
+import { modelProxyUpstream } from './upstream.js';
 
 const config = loadConfig();
 const logger = pino({ level: config.LOG_LEVEL });
@@ -109,7 +115,7 @@ function toEntry(
 
 /** 每次 run 重写工作区：文件是 DB 的只读快照，prompt 只走 stdin。 */
 async function writeWorkspace(
-  agent: AgentRow,
+  agent: AgentRow & { serverNames: string[] },
   runId: string,
   servers: Array<{ name: string; entry: McpJsonEntry }>,
   skills: Array<{
@@ -225,7 +231,7 @@ async function writeWorkspace(
   return { dir, hasSubAgents: files.subAgents.length > 0 };
 }
 
-/** 本机代理常监听 127.0.0.1，容器内该地址指向容器自身；改写成宿主别名。 */
+/** 沙盒里的地址：容器内 127.0.0.1 指向容器自身，必须改写成宿主别名。 */
 function toHostUrl(value: string): string {
   return value.replace(
     /\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)(?=[:/]|$)/,
@@ -279,7 +285,8 @@ modelProxy = await startModelProxy({
   logger,
   port: config.MODEL_PROXY_PORT,
   // worker 可能在容器里：127.0.0.1 指向容器自身，网关在宿主上。
-  upstreamBaseUrl: toHostUrl(config.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'),
+  // worker 在容器里时 127.0.0.1 指向容器自身，网关在宿主上；宿主直跑则原样保留。
+  upstreamBaseUrl: modelProxyUpstream(config.ANTHROPIC_BASE_URL),
   ...(config.ANTHROPIC_API_KEY ? { apiKey: config.ANTHROPIC_API_KEY } : {}),
   ...(config.ANTHROPIC_AUTH_TOKEN ? { authToken: config.ANTHROPIC_AUTH_TOKEN } : {}),
   resolveRun: async (token) => {
@@ -332,7 +339,7 @@ const worker = new Worker(
     if (!parsed.success) {
       throw new Error(`invalid job payload: ${parsed.error.message}`);
     }
-    const { runId, agentId, conversationId, prompt, history } = parsed.data;
+    const { runId, agentId, conversationId, prompt } = parsed.data;
 
     const [run] = await db
       .select({ status: schema.agentRuns.status, agentVersion: schema.agentRuns.agentVersion })
@@ -367,6 +374,7 @@ const worker = new Worker(
     let runStartedAt = 0;
     let runLatencyMs: number | null = null;
     let workspaceDirForRun: string | null = null;
+    let sessionsDirForRun: string | null = null;
     try {
       const [agent] = await db
         .select()
@@ -390,6 +398,31 @@ const worker = new Worker(
       }
 
       const timeoutMs = agent.timeoutMs;
+      // 续聊状态只从 DB 取：队列消息不带历史，重试时也不会用陈旧上下文覆盖会话。
+      const sdkState = await repo.chat.getConversationSdkState(db, conversationId);
+      if (!sdkState) throw new Error(`conversation ${conversationId} not found`);
+      // 本轮用户消息在准入时已落库；runner 用它（或这里补生成的 uuid）发首条消息。
+      const [userMessage] = await db
+        .select({ id: schema.messages.id, sdkMessageUuid: schema.messages.sdkMessageUuid })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.runId, runId),
+            eq(schema.messages.role, 'user'),
+            eq(schema.messages.conversationId, conversationId),
+          ),
+        )
+        .limit(1);
+      if (!userMessage) throw new Error(`user message for run ${runId} not found`);
+      // 非浏览器入口（定时、评估、外部调用）不经过准入；uuid 由平台生成后显式发给 SDK，
+      // 因此它仍是真实 transcript 身份，不是事后拼的映射。
+      const userMessageUuid = userMessage.sdkMessageUuid ?? randomUUID();
+      if (userMessage.sdkMessageUuid === null) {
+        await db
+          .update(schema.messages)
+          .set({ sdkMessageUuid: userMessageUuid })
+          .where(eq(schema.messages.id, userMessage.id));
+      }
       // 按 run 签发短期 token：DB 只存 hash，明文只在本工作区的 .mcp.json 里。
       // 过期时间比 run 超时多 5 分钟，避免收尾阶段请求被截断。
       const runToken = randomBytes(32).toString('base64url');
@@ -401,11 +434,32 @@ const worker = new Worker(
         modelProxy ? hashMcpToken(runId) : null,
       );
 
-      const rows = await db
-        .select({ server: schema.servers })
+      // 单层委派：只取直接子智能体；enabled 过滤在 toWorkspaceInput 里统一做。
+      const subAgentRows: SubAgentRow[] = await db
+        .select()
+        .from(schema.agents)
+        .where(eq(schema.agents.parentId, agentId))
+        .orderBy(asc(schema.agents.id));
+      const enabledChildren = subAgentRows.filter((row) => row.enabled);
+
+      // 工作区 .mcp.json 是父 + 启用子级的并集：子级按名字引用根条目，
+      // 在非交互会话里无需信任目录即可加载；父级看不到子级工具由渲染与 hook 共同限制。
+      const bindings = await db
+        .select({ agentId: schema.agentServers.agentId, server: schema.servers })
         .from(schema.agentServers)
         .innerJoin(schema.servers, eq(schema.agentServers.serverId, schema.servers.id))
-        .where(eq(schema.agentServers.agentId, agentId));
+        .where(
+          inArray(schema.agentServers.agentId, [agentId, ...enabledChildren.map((row) => row.id)]),
+        )
+        .orderBy(asc(schema.servers.id));
+      const serverNamesByAgent = new Map<string, string[]>();
+      for (const { agentId: owner, server } of bindings) {
+        const list = serverNamesByAgent.get(owner) ?? [];
+        list.push(server.name);
+        serverNamesByAgent.set(owner, list);
+      }
+      const parentServerNames = serverNamesByAgent.get(agentId) ?? [];
+      const serverRows = [...new Map(bindings.map(({ server }) => [server.id, server])).values()];
 
       const skillRows = await db
         .select({
@@ -419,16 +473,10 @@ const worker = new Worker(
         .innerJoin(schema.skills, eq(schema.agentSkills.skillId, schema.skills.id))
         .where(eq(schema.agentSkills.agentId, agentId));
 
-      // 单层委派：只取直接子智能体；enabled 过滤在 toWorkspaceInput 里统一做。
-      const subAgentRows: SubAgentRow[] = await db
-        .select()
-        .from(schema.agents)
-        .where(eq(schema.agents.parentId, agentId))
-        .orderBy(asc(schema.agents.id));
       // 子智能体的技能也要落盘，否则它们的 md 里声明的 skills 无从加载。
       const childSkills = await repo.agents.getBoundSkillsByAgentIds(
         db,
-        subAgentRows.filter((row) => row.enabled).map((row) => row.id),
+        enabledChildren.map((row) => row.id),
       );
       // 根技能和启用子智能体的技能共用一次资源查询，根白名单仍只来自 skillRows。
       const skillFileMap = await repo.skillFiles.getSkillFilesBySkillIds(db, [
@@ -445,6 +493,8 @@ const worker = new Worker(
       const subAgents = subAgentRows.map((row) => ({
         ...row,
         skills: (childSkills.get(row.id) ?? []).map(withFiles),
+        // 子级 MCP 归属：渲染只列表自己绑定的，运行时 hook 也按这份校验。
+        serverNames: serverNamesByAgent.get(row.id) ?? [],
       }));
 
       const ruleRows = await repo.rules.listRules(db, agentId);
@@ -460,9 +510,9 @@ const worker = new Worker(
       const selectedOutputStyle = styleRows.find((r) => r.isSelected)?.slug ?? null;
 
       const { dir: workspaceDir, hasSubAgents } = await writeWorkspace(
-        agent,
+        { ...agent, serverNames: parentServerNames },
         runId,
-        rows.map(({ server }) => ({
+        serverRows.map((server) => ({
           name: server.name,
           entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId, runToken),
         })),
@@ -488,29 +538,49 @@ const worker = new Worker(
       }
       await chmod(memoryHostDir, 0o700);
 
+      // 会话 transcript 按 conversation 隔离，挂到容器的 CLAUDE_CONFIG_DIR：
+      // 同一会话跨 run 续聊，不同会话互不可见；记忆目录保持独立挂载。
+      const sessionsHostDir = join(workspacesDir, agent.slug, 'sdk-sessions', conversationId);
+      sessionsDirForRun = sessionsHostDir;
+      await mkdir(sessionsHostDir, { recursive: true, mode: 0o700 });
+      await chmod(sessionsHostDir, 0o700);
+      const sessionsDir = await lstat(sessionsHostDir);
+      if (!sessionsDir.isDirectory() || sessionsDir.isSymbolicLink()) {
+        throw new Error(
+          `SDK session storage path must be a real directory: ${sessionsHostDir}. See docs/OPERATIONS.md.`,
+        );
+      }
+
       runStartedAt = Date.now();
+      const task: SandboxTaskInput = {
+        prompt,
+        model: agent.model,
+        maxTurns: agent.maxTurns,
+        maxBudgetUsd: Number(agent.maxBudgetUsd),
+        permissionMode: permissionModeSchema.parse(agent.permissionMode),
+        mcpServers: parentServerNames,
+        skills: skillRows.map((skill) => skill.slug),
+        extraAllowedTools: agent.allowedTools,
+        extraDisallowedTools: agent.disallowedTools,
+        ...(agent.effort === null ? {} : { effort: effortSchema.parse(agent.effort) }),
+        ...(agent.maxThinkingTokens === null ? {} : { maxThinkingTokens: agent.maxThinkingTokens }),
+        allowSubAgents: hasSubAgents,
+        subAgents: enabledChildren.map((row) => ({
+          slug: row.slug,
+          servers: serverNamesByAgent.get(row.id) ?? [],
+          skills: (childSkills.get(row.id) ?? []).map((skill) => skill.slug),
+        })),
+        userMessageUuid,
+        // 首次空会话不 resume：没有 transcript 时传了只会让 CLI 找不到会话。
+        ...(sdkState.sdkSessionId === null ? {} : { resumeSessionId: sdkState.sdkSessionId }),
+        ...(sdkState.forkFromSdkMessageUuid === null
+          ? {}
+          : { forkFromMessageUuid: sdkState.forkFromSdkMessageUuid }),
+      };
       outcome = await runInSandbox({
         runId,
         timeoutMs,
-        task: {
-          prompt,
-          ...(history === undefined ? {} : { history }),
-          model: agent.model,
-          maxTurns: agent.maxTurns,
-          maxBudgetUsd: Number(agent.maxBudgetUsd),
-          permissionMode: agent.permissionMode,
-          mcpServers: rows.map(({ server }) => server.name),
-          skills: skillRows.map((skill) => skill.slug),
-          ...(agent.allowedTools.length > 0 ? { extraAllowedTools: agent.allowedTools } : {}),
-          ...(agent.disallowedTools.length > 0
-            ? { extraDisallowedTools: agent.disallowedTools }
-            : {}),
-          ...(agent.effort === null ? {} : { effort: agent.effort }),
-          ...(agent.maxThinkingTokens === null
-            ? {}
-            : { maxThinkingTokens: agent.maxThinkingTokens }),
-          ...(hasSubAgents ? { allowSubAgents: true } : {}),
-        },
+        task,
         workspaceDir: toHostWorkspacePath(workspaceDir),
         image: config.SANDBOX_IMAGE,
         env: sandboxEnv(sandboxApiUrl, runId),
@@ -518,6 +588,12 @@ const worker = new Worker(
           {
             hostPath: join(hostWorkspacesDir, agent.slug, 'agent-memory'),
             containerPath: '/mnt/agent-memory',
+            readonly: false,
+          },
+          {
+            // 会话目录必须可写；容器内 node（uid 1000）与宿主目录归属一致。
+            hostPath: join(hostWorkspacesDir, agent.slug, 'sdk-sessions', conversationId),
+            containerPath: '/home/node/.claude',
             readonly: false,
           },
         ],
@@ -541,14 +617,27 @@ const worker = new Worker(
     });
 
     // 把本次 run 的 assistant 文本与工具调用写入会话，刷新后历史才完整。
+    // SDK session 与 fork 后的 uuid 映射同事务落库：只存一半会让续聊对不上 transcript。
     // 写库失败不能抛出：抛出会让 BullMQ 重跑整个沙盒并最终只留 reconcile 的
     // "worker lost track of this run"，真实原因反而被覆盖。记日志，继续写终态。
+    const forked = outcome.events.find((event) => event.type === 'session_forked');
     try {
+      // 分支首轮：从宿主 transcript 的 forkedFrom 算新旧 uuid 映射，再与消息同事务写入。
+      const uuidMap =
+        forked?.type === 'session_forked' && sessionsDirForRun !== null
+          ? await readForkUuidMap(
+              sessionsDirForRun,
+              forked.sessionId,
+              new Set(await repo.chat.listConversationMessageUuids(db, conversationId)),
+            )
+          : undefined;
       await persistRunMessages(db, {
         agentId,
         conversationId,
         runId,
         events: outcome.events,
+        ...(outcome.sessionId === undefined ? {} : { sdkSessionId: outcome.sessionId }),
+        ...(uuidMap === undefined ? {} : { uuidMap }),
       });
     } catch (err) {
       // agent_runs.error 说明的是沙盒失败原因；消息丢失是另一件事，只进日志。
@@ -698,6 +787,9 @@ const maintenanceWorker = await startMaintenanceWorker({
   },
 });
 
+// stdio 试连走独立队列与独立容器入口，不影响 run 消费。
+const sandboxProbe = await registerSandboxProbe(config);
+
 const stopReconciler = startReconciler({
   db,
   logger,
@@ -740,6 +832,7 @@ const shutdown = async (): Promise<void> => {
   const closing = Promise.allSettled([worker.close(), evalWorker.close()]);
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
+  await sandboxProbe.close();
   await scheduleScheduler.close();
   await stopReconciler();
   await provider.destroyAll();

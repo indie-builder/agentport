@@ -9,14 +9,16 @@ export function parseMarkdownFrontmatter(
   content: string,
   label: string,
   path: string,
+  options?: { maxBytes?: number },
 ): { fields: Map<string, unknown>; body: string } {
   function invalid(message: string): never {
     fail('INVALID_INPUT', message, { path });
   }
 
+  const maxBytes = options?.maxBytes ?? MAX_BYTES;
   const text = content.replace(/^﻿/, '');
-  if (Buffer.byteLength(text, 'utf8') > MAX_BYTES) {
-    invalid(`${label} 超过 ${MAX_BYTES} 字节上限`);
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+    invalid(`${label} 超过 ${maxBytes} 字节上限`);
   }
 
   const openingEnd = text.indexOf('\n');

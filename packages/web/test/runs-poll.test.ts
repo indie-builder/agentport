@@ -31,7 +31,6 @@ import { useRuns } from '../src/lib/queries.js';
 
 interface RunsOptions {
   queryKey: unknown[];
-  enabled: boolean;
   refetchInterval: (query: { state: { data?: RunList } }) => number | false;
 }
 
@@ -39,16 +38,10 @@ function capture(): RunsOptions {
   return rq.useQuery.mock.calls.at(-1)?.[0] as RunsOptions;
 }
 
-// biome 只允许 hook 在 hook/组件里调用，因此这两个测试助手按 hook 命名。
+// biome 只允许 hook 在 hook/组件里调用，因此这个测试助手按 hook 命名。
 function useDefaultOptions(query: RunQuery = {}): RunsOptions {
   rq.useQuery.mockReturnValue({ data: undefined });
   useRuns(query);
-  return capture();
-}
-
-function useOptions(query: RunQuery, enabled: boolean): RunsOptions {
-  rq.useQuery.mockReturnValue({ data: undefined });
-  useRuns(query, enabled);
   return capture();
 }
 
@@ -76,14 +69,8 @@ beforeEach(() => {
   rq.useQuery.mockReset();
 });
 
-test('默认启用，显式关闭时透传 enabled', () => {
-  expect(useDefaultOptions({ limit: 50 }).enabled).toBe(true);
-  expect(useOptions({ limit: 50 }, false).enabled).toBe(false);
-  expect(useOptions({ limit: 50 }, true).enabled).toBe(true);
-});
-
 test('查询键保留过滤条件', () => {
-  expect(useOptions({ agentId: 'a1', status: 'failed', limit: 20 }, true).queryKey).toEqual([
+  expect(useDefaultOptions({ agentId: 'a1', status: 'failed', limit: 20 }).queryKey).toEqual([
     'runs',
     'a1',
     'failed',

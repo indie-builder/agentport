@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.14.0] - 2026-10-25
+
+### 技术栈升级与重复机制收敛
+
+- 直接依赖升到当前 stable：Claude Agent SDK 0.3.310、MCP client/server 2.4.0（node 2.1.2）、BullMQ 6.4.2、Effect 4.0.6、Vite 8.3.5、jsdom 30.1.3、Biome 2.6.3、pnpm 12.15.0 等；共享版本收进 pnpm Catalogs，沙盒独立镜像清单/锁同步
+- `@scalar` 与 `@biomejs` 只对 scope 走官方 registry（npmmirror 传递依赖滞后）；Biome 新版 `noComponentHookFactories` 只对测试目录关闭
+
+### 原生能力替代自研机制
+
+- 会话上下文改用 SDK 原生 `resume`/`forkSession`：transcript 按 conversation 持久化到 `sdk-sessions/`，删除文本历史拼接；分支复制来源 transcript 并按 fork 点截断，缺失时明确失败
+- 子智能体 MCP 改为官方 `mcpServers` 名称引用；新增运行时工具边界 hook，父/子只用自己的 server 与技能；`run_in_background` 提示改为官方环境变量约束
+- SSE 跟随改用 `XREAD BLOCK`，删除事件 pub/sub 唤醒与 2 秒补轮询；慢客户端被 MAXLEN 裁剪时静默丢事件记为已知限制
+- stdio 连接测试移入沙盒：独立 `sandbox-probes` 队列、无模型凭证、超时销毁；API 主机不再启动用户进程
+
+### 数据与文件
+
+- 迁移 0032：`conversations.sdk_session_id`、`fork_from_sdk_message_uuid`、`messages.sdk_message_uuid`
+- 专家包改为官方 `.claude/` 目录 ZIP；删除 `agent@1/@2` 与 `serializeAgentPackage`；平台元数据放根 sidecar，不复制正文；导入前校验条目数、解压字节、路径与链接
+- 备份改为单个 `tar.gz`（一致性 pg_dump + 持久工作区 + env + manifest），恢复单事务整库替换、文件先暂存后换入；可选 restic 推送/保留/校验，失败保留本地包
+
+### 前端
+
+- 专家/技能表单收敛为 React Hook Form 唯一数据源，删除双写、手动错误搬运与 JSON dirty 比较
+- CodeMirror 6 按需加载的 `SourceEditor` 接入记忆、规则、输出风格、技能正文、支持文件与工具 inputSchema
+- 删除 localStorage 会话索引与旧接口兼容分支；Query 取消信号接到 `fetch`；市场搜索 300ms 防抖
+- 概览查询由 6 条 SQL 合并为 3 条
+
+### 修复
+
+- worker 在宿主机直跑时模型代理错误地把上游 loopback 改写成 `host.docker.internal`，导致 `pnpm dev` 下模型请求全部失败；现在仅 worker 自身在容器内时改写
+
 ## [0.13.1] - 2026-10-24
 
 ### 文档剪枝与单一真相收敛

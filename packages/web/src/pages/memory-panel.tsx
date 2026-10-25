@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FilePlus2, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { SourceEditor } from '../components/source-editor.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Checkbox } from '../components/ui/checkbox.js';
@@ -16,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select.js';
-import { Textarea } from '../components/ui/textarea.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
@@ -332,14 +332,14 @@ function MemoryFileEditor({
       </div>
       <Field data-disabled={save.isPending} className="gap-1.5">
         <FieldLabel htmlFor="memory-content">{name} 内容</FieldLabel>
-        <Textarea
+        <SourceEditor
           id="memory-content"
           value={content}
-          rows={18}
+          language="markdown"
+          aria-label={`${name} 内容`}
           disabled={save.isPending}
-          onChange={(event) => setDraft(event.target.value)}
-          // Markdown 需要等宽与可读的行距。
-          className="min-h-[18rem] font-mono leading-relaxed"
+          onChange={setDraft}
+          className="min-h-[18rem]"
         />
       </Field>
     </div>
@@ -549,13 +549,14 @@ export function RulesPanel({
               </Field>
               <Field className="gap-1.5" data-disabled={pending}>
                 <FieldLabel htmlFor="rule-content">规则内容（Markdown）</FieldLabel>
-                <Textarea
+                <SourceEditor
                   id="rule-content"
                   value={draft}
-                  rows={12}
-                  className="min-h-[16rem] font-mono leading-relaxed"
+                  language="markdown"
+                  aria-label="规则内容（Markdown）"
                   disabled={pending}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={setDraft}
+                  className="min-h-[16rem]"
                 />
               </Field>
             </FieldGroup>
@@ -868,14 +869,14 @@ export function OutputStylesPanel({
               </Field>
               <Field className="gap-1.5" data-disabled={pending}>
                 <FieldLabel htmlFor="output-style-body">风格内容</FieldLabel>
-                <Textarea
+                <SourceEditor
                   id="output-style-body"
                   value={body}
-                  placeholder="风格说明（Markdown）"
-                  rows={12}
-                  className="min-h-[16rem] font-mono leading-relaxed"
+                  language="markdown"
+                  aria-label="风格内容"
                   disabled={pending}
-                  onChange={(e) => setBody(e.target.value)}
+                  onChange={setBody}
+                  className="min-h-[16rem]"
                 />
               </Field>
             </FieldGroup>

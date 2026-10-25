@@ -1,3 +1,4 @@
+import { SANDBOX_RUNTIME_ENV } from '@agentport/shared';
 import type { McpJsonEntry } from './tools.js';
 
 export interface WorkspaceFiles {
@@ -31,6 +32,8 @@ export interface WorkspaceAgent {
   effort?: string | null;
   allowedTools?: string[];
   disallowedTools?: string[];
+  /** 该智能体自己绑定的 MCP server 名；缺省视为全部（预览等单一视角）。 */
+  serverNames?: string[];
   /** 子智能体的技能；父智能体只声明自己的，子技能仅供子智能体原生加载。 */
   skills?: WorkspaceSkill[];
   /** 子智能体超时；调用方会一直等到它返回或超时。 */
@@ -167,14 +170,9 @@ function yamlList(values: string[]): string {
  * 2. 调用平台内其他智能体（/mcp 暴露的 run_<slug> 工具）
  * 3. 调用外部 HTTP→MCP 工具（可能需要人工审批，批准前调用方挂起）
  *
- * SDK 的 `Agent` 默认后台运行（run_in_background 缺省 true），与「等待」相反。
- * 这里把 run_in_background: false 写成硬约束，否则父智能体会在子智能体
- * 返回前结束本轮，最终文本里没有结果。
+ * 「必须等待」由运行时 env 保证（见 shared 的 SANDBOX_RUNTIME_ENV：
+ * 关闭后台任务、限制委派深度），因此不再要求模型逐次传 run_in_background。
  */
-export const DELEGATION_WAIT_RULE =
-  '委派时必须传 `run_in_background: false`：平台要求你等到子智能体返回结果后再继续。' +
-  '默认的后台模式会让本轮在结果回来前结束。';
-
 export function delegationWaitSection(input: WorkspaceInput): string[] {
   const subAgents = input.subAgents ?? [];
   const lines: string[] = [];
@@ -186,8 +184,8 @@ export function delegationWaitSection(input: WorkspaceInput): string[] {
       '',
       '本平台的智能体之间是**同步调用**：调用方发起后要等到被调用方返回，才能继续。',
       '',
-      '- 委派给子智能体：调用 `Agent` 时传 `run_in_background: false`，不要用后台模式。',
-      '  如果你提前结束本轮，调用方（用户或其他智能体）拿不到结果。',
+      '后台执行已被运行时禁用，`Agent` 调用会一直等到子智能体返回；',
+      '如果你提前结束本轮，调用方（用户或其他智能体）拿不到结果。',
       '- 子智能体只返回最终文本。中间的 `tool_start` / `tool_result` 由平台记录，你不需要转述。',
       `- 子智能体受它自己的 \`maxTurns\` 与智能体超时约束；超时后本次委派失败，不会无限等待。`,
     );
@@ -280,10 +278,14 @@ function renderClaudeMd(input: WorkspaceInput): string {
 /** standalone：子智能体文件没有自己的 CLAUDE.md，正文直接放系统提示。 */
 function renderAgentMd(input: WorkspaceInput, standalone = false): string {
   const { agent, servers, skills = [] } = input;
+  // 绑定归属只由调用方显式给出（运行时）；预览没有子级绑定信息，沿用旧的继承语义。
+  const bound = agent.serverNames;
+  const ownNames = bound ?? servers.map((s) => s.name);
+  const ownServers = servers.filter((s) => ownNames.includes(s.name));
   const tools =
     input.toolsAllow && input.toolsAllow.length > 0
       ? input.toolsAllow
-      : servers.map((s) => `mcp__${s.name}__*`);
+      : ownServers.map((s) => `mcp__${s.name}__*`);
   const hasSubAgents = (input.subAgents ?? []).length > 0;
   // 智能体可显式放行 ListAgents/SendMessage（D-19）；其余默认项不能通过配置解除。
   const allowedByConfig = new Set(input.toolsAllow ?? []);
@@ -293,6 +295,10 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
       : tool === 'ListAgents' || tool === 'SendMessage'
         ? allowedByConfig.has(tool)
         : false;
+  // 工作区 .mcp.json 是父 + 启用子级的并集；不绑定的 server 必须显式拒绝，
+  // 否则 dontAsk 下这些工具仍出现在上下文里，等于把子级工具隐式放行给父级。
+  const foreignServers =
+    bound === undefined ? [] : servers.filter((s) => !ownNames.includes(s.name));
   // 单层委派：有子智能体时放行 Agent/TaskStop，与 runner 的 options 保持一致；
   // 子智能体本身不传 subAgents，因此仍被禁用，无法继续向下委派。
   const disallowed = [
@@ -301,6 +307,7 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
       // 子智能体的单层约束由这里兜底：API 只拦两层父子，
       // 手工把文件放回 .claude/agents/ 时也必须无法再委派。
       ...(standalone ? ['Agent', 'TaskStop'] : []),
+      ...foreignServers.map((s) => `mcp__${s.name}`),
       ...(input.toolsDeny ?? []),
     ]),
   ];
@@ -316,6 +323,10 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
     // `mcp__<server>__*` 解析为空会被直接拒绝（"would be spawned with zero tools"）。
     // 省略 tools 即继承父会话工具集；子级 disallowedTools 保持禁用文件工具。
     ...(standalone ? [] : [`tools: ${yamlList(hasSubAgents ? [...tools, 'Agent'] : tools)}`]),
+    // 子级按名字引用根 .mcp.json 的条目：inline 配置在非交互/未信任目录会被跳过。
+    ...(standalone && bound !== undefined && ownServers.length > 0
+      ? ['mcpServers:', ...ownServers.map((s) => `  - ${yamlString(s.name)}`)]
+      : []),
     `disallowedTools: ${yamlList(disallowed)}`,
     `maxTurns: ${agent.maxTurns}`,
     ...(skills.length > 0 ? [`skills: ${yamlList(skills.map((s) => s.slug))}`] : []),
@@ -349,6 +360,33 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
           '',
         ]),
   ].join('\n');
+}
+
+/**
+ * 子智能体文件（`.claude/agents/<slug>.md`）。导出专家包时停用的子定义也要落文件，
+ * 因此不能只依赖 renderWorkspace 的启用过滤。
+ * 子级 allowedTools 不作为 `tools:` 白名单：SDK 在派生时解析不到 MCP 名字会直接拒绝；
+ * 它仍用于显式放行 ListAgents/SendMessage 与生成 disallowedTools 的差集。
+ */
+export function renderSubAgentMd(input: {
+  agent: WorkspaceAgent;
+  servers: Array<{ name: string; entry: McpJsonEntry }>;
+  skills?: WorkspaceSkill[];
+}): string {
+  return renderAgentMd(
+    {
+      agent: input.agent,
+      servers: input.servers,
+      skills: input.skills ?? [],
+      ...(input.agent.allowedTools && input.agent.allowedTools.length > 0
+        ? { toolsAllow: input.agent.allowedTools }
+        : {}),
+      ...(input.agent.disallowedTools && input.agent.disallowedTools.length > 0
+        ? { toolsDeny: input.agent.disallowedTools }
+        : {}),
+    },
+    true,
+  );
 }
 
 export function renderSkillMd(skill: WorkspaceSkill): string {
@@ -392,20 +430,11 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
     })),
     subAgents: (input.subAgents ?? []).map((subAgent) => ({
       slug: subAgent.slug,
-      content: renderAgentMd(
-        {
-          agent: subAgent,
-          servers: input.servers,
-          skills: subAgent.skills ?? [],
-          ...(subAgent.allowedTools && subAgent.allowedTools.length > 0
-            ? { toolsAllow: subAgent.allowedTools }
-            : {}),
-          ...(subAgent.disallowedTools && subAgent.disallowedTools.length > 0
-            ? { toolsDeny: subAgent.disallowedTools }
-            : {}),
-        },
-        true,
-      ),
+      content: renderSubAgentMd({
+        agent: subAgent,
+        servers: input.servers,
+        ...(subAgent.skills ? { skills: subAgent.skills } : {}),
+      }),
     })),
     rules: (input.rules ?? []).map((rule) => ({
       slug: rule.slug,
@@ -416,8 +445,13 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
       content: renderOutputStyleMd(style),
     })),
     selectedOutputStyle: input.selectedOutputStyle ?? null,
-    settingsJson: input.selectedOutputStyle
-      ? `${JSON.stringify({ outputStyle: input.selectedOutputStyle }, null, 2)}\n`
-      : null,
+    settingsJson: `${JSON.stringify(
+      {
+        env: SANDBOX_RUNTIME_ENV,
+        ...(input.selectedOutputStyle ? { outputStyle: input.selectedOutputStyle } : {}),
+      },
+      null,
+      2,
+    )}\n`,
   };
 }

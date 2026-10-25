@@ -33,9 +33,13 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   await browser.locator('input[id^="tool-path-"]').fill('/users/{id}');
   await browser.locator('input[id^="tool-desc-"]').fill('fetch a user by id');
   // 路径里的 {id} 必须在 inputSchema.properties 中有同名属性，否则表单会拦下。
-  await browser
-    .locator('textarea[id^="tool-schema-"]')
-    .fill('{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]}');
+  // CodeMirror 只认键盘事件：选中全部再逐字输入，不能直接写 DOM。
+  const schema = screen.getByLabel('inputSchema (JSON)');
+  await schema.focus();
+  await schema.press('ControlOrMeta+a');
+  await schema.pressSequentially(
+    '{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]}',
+  );
   await screen.getByRole('button', '添加').tap();
   await expect(screen.getByText('工具已添加')).toBeVisible();
 

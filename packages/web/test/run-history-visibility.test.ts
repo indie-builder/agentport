@@ -29,7 +29,17 @@ const retainedRun: RunListItem = {
   error: 'Retained execution failed',
 };
 const noConfiguration: Overview = {
-  counts: { agents: 0, servers: 0, runs: 0, running: 0 },
+  window: { days: 7, since: '2026-01-01T00:00:00Z' },
+  counts: {
+    agents: 0,
+    servers: 0,
+    runs: 0,
+    running: 0,
+    failed: 0,
+    tokens: 0,
+    costUsd: 0,
+    avgLatencyMs: null,
+  },
   recent: [],
   agents: [],
 };
@@ -131,34 +141,41 @@ describe('overview retained run history', () => {
     expect(host.querySelector('a[href="/servers"]')).not.toBeNull();
   });
 
-  it('keeps retained history visible with the legacy overview fallback', async () => {
-    client.setQueryData(['overview'], null);
-    client.setQueryData(['runs', null, null, 50], { items: [retainedRun] });
+  it('renders the real failure instead of inferring statistics from list endpoints', async () => {
+    client
+      .getQueryCache()
+      .build(client, { queryKey: ['overview'] })
+      .setState({ status: 'error', error: new Error('Overview unavailable') });
     await mount();
-    expect(host.querySelector('[title="run_retained"]')).not.toBeNull();
+    expect(host.textContent).toContain('Overview unavailable');
     expect(host.textContent).not.toContain('开始配置');
+    expect(host.querySelector('table[aria-label="最近运行"]')).toBeNull();
   });
 
-  it.each(['pending', 'error'] as const)(
-    'does not declare an empty platform while fallback history is %s',
-    async (state) => {
-      client.setQueryData(['overview'], null);
-      client.removeQueries({ queryKey: ['runs'] });
-      if (state === 'error') {
-        client
-          .getQueryCache()
-          .build(client, { queryKey: ['runs', null, null, 50] })
-          .setState({
-            status: 'error',
-            error: new Error('History unavailable'),
-          });
-      }
-      await mount();
-      expect(host.textContent).not.toContain('开始配置');
-      expect(host.textContent).toContain('最近运行');
-      if (state === 'error') expect(host.textContent).toContain('History unavailable');
-    },
-  );
+  it('reports loading without declaring an empty platform', async () => {
+    client.removeQueries({ queryKey: ['overview'] });
+    await mount();
+    expect(host.textContent).not.toContain('开始配置');
+    expect(host.querySelector('[aria-label="加载中"]')).not.toBeNull();
+  });
+
+  it('never fetches the list endpoints the overview already aggregates', async () => {
+    const servers = vi.spyOn(api, 'servers').mockResolvedValue([]);
+    const agents = vi.spyOn(api, 'agents').mockResolvedValue([]);
+    const runs = vi.spyOn(api, 'runs').mockResolvedValue({ items: [] });
+    // 清掉预置缓存：页面若仍在请求列表接口，spy 会收到调用，而不是命中缓存。
+    client.removeQueries({ queryKey: ['servers'] });
+    client.removeQueries({ queryKey: ['agents'] });
+    client.removeQueries({ queryKey: ['runs'] });
+    client.setQueryData(['overview'], {
+      ...noConfiguration,
+      counts: { ...noConfiguration.counts, agents: 1 },
+    } satisfies Overview);
+    await mount();
+    expect(servers).not.toHaveBeenCalled();
+    expect(agents).not.toHaveBeenCalled();
+    expect(runs).not.toHaveBeenCalled();
+  });
 
   it('uses a truthful run destination label when configured', async () => {
     client.setQueryData(['overview'], {

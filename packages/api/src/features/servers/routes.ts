@@ -6,6 +6,7 @@ import {
   httpUrlSchema,
   idParams,
   maskSecret,
+  type ServerTestResult,
   serverInputSchema,
   serverTestResultSchema,
   slugSchema,
@@ -19,6 +20,7 @@ import { typed } from '../../types.js';
 import { connectorCatalog } from './connector-catalog-data.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
+import { testStdioInSandbox } from './sandbox-probe.js';
 import { assertSafeUrl } from './ssrf.js';
 import { testConnection } from './test-connection.js';
 
@@ -274,17 +276,22 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const server = await getServerWithSecrets(app.db, request.params.id, key());
       if (!server) return notFound(reply, 'server');
-      const result = await testConnection(
-        server,
-        app.config.NODE_ENV,
-        server.kind === 'generated'
-          ? {
-              baseUrl: app.config.SELF_URL,
-              token: (await getMcpToken(app.db, server.id)) ?? '',
-            }
-          : undefined,
-        request.log,
-      );
+      // stdio 命令由用户提供：只在 worker 的沙盒镜像里执行；http/generated 仍在 API 内直连。
+      // worker 结果带脱敏 stderr，序列化时由 serverTestResultSchema 剥掉。
+      const result: ServerTestResult & { stderr?: string } =
+        server.kind === 'stdio'
+          ? await testStdioInSandbox(server.id, request.log)
+          : await testConnection(
+              server,
+              app.config.NODE_ENV,
+              server.kind === 'generated'
+                ? {
+                    baseUrl: app.config.SELF_URL,
+                    token: (await getMcpToken(app.db, server.id)) ?? '',
+                  }
+                : undefined,
+              request.log,
+            );
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'mcp.server.tested',
@@ -298,7 +305,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
             ? { tools: result.tools.length }
             : {
                 error: result.error ?? 'connection failed',
-                ...(result.stderr ? { stderr: result.stderr } : {}),
+                ...('stderr' in result && result.stderr ? { stderr: result.stderr } : {}),
               }),
         },
         status: result.ok ? 'ok' : 'error',

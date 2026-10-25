@@ -105,8 +105,8 @@ describe('toWorkspaceInput', () => {
         subAgents: [agentRow({ slug: 'researcher', description: '查资料', timeoutMs: 120_000 })],
       }),
     );
-    // Agent 默认后台运行；平台要求等待，MD 必须写明。
-    expect(files.claudeMd).toContain('run_in_background: false');
+    // 后台执行由运行时 env 禁用，不再要求模型逐次传 run_in_background。
+    expect(files.claudeMd).toContain('后台执行已被运行时禁用');
     expect(files.claudeMd).toContain('| `researcher` | 查资料 | 120s |');
     // 章节顺序：规则在前，清单在后，否则「读上面的规则」是错的。
     expect(files.claudeMd.indexOf('## 等待规则')).toBeLessThan(
@@ -228,6 +228,45 @@ describe('toWorkspaceInput', () => {
       }),
     );
     expect(files.subAgents[0]?.content).not.toContain('skills:');
+  });
+
+  it('renders settings env that pins foreground execution and one delegation layer', () => {
+    const files = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow(),
+        servers: servers('<已配置>'),
+        skills: [],
+        subAgents: [],
+      }),
+    );
+    expect(JSON.parse(files.settingsJson ?? '{}')).toEqual({
+      env: {
+        CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+        CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1',
+      },
+    });
+  });
+
+  it('limits each agent to its own MCP servers and references them by name', () => {
+    const files = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow({ serverNames: ['root-srv'], allowedTools: [] }),
+        servers: [
+          { name: 'root-srv', entry: { command: 'root', args: [], env: {} } },
+          { name: 'child-srv', entry: { command: 'child', args: [], env: {} } },
+        ],
+        skills: [],
+        subAgents: [agentRow({ slug: 'researcher', serverNames: ['child-srv'] })],
+      }),
+    );
+    // 根 md 只列自己的 server；child-srv 必须显式拒绝，不能隐式放行。
+    expect(files.agentMd).toContain('mcp__root-srv__*');
+    expect(files.agentMd).not.toContain('mcp__child-srv__*');
+    expect(files.agentMd).toContain('"mcp__child-srv"');
+    // 子级按名字引用根 .mcp.json：inline 配置会在非交互/未信任目录被跳过。
+    const child = files.subAgents[0]?.content ?? '';
+    expect(child).toContain('mcpServers:\n  - "child-srv"');
+    expect(child).not.toContain('mcp__root-srv__*');
   });
 
   it('always disallows Agent/TaskStop in sub-agent files, even if the DB value omits them', () => {

@@ -34,14 +34,7 @@ import {
   formatTokens,
   shortId,
 } from '../lib/format.js';
-import {
-  agentsQuery,
-  healthMetricsQuery,
-  serversQuery,
-  useOverview,
-  useOverviewTimeseries,
-  useRuns,
-} from '../lib/queries.js';
+import { healthMetricsQuery, useOverview, useOverviewTimeseries } from '../lib/queries.js';
 import { AttentionPanel } from './ops.js';
 
 const agentColumns: DataColumn<OverviewAgentRow>[] = [
@@ -340,45 +333,22 @@ function RunTrendCard() {
 export function OverviewPage() {
   const navigate = useNavigate();
   const overview = useOverview();
-  // overview 已带 servers/agents 计数，列表只作为旧后端（返回 null）的兜底，正常不请求。
-  const fallback = overview.data === null;
-  const servers = useQuery({ ...serversQuery, enabled: fallback });
-  const agents = useQuery({ ...agentsQuery, enabled: fallback });
-  const runs = useRuns({ limit: 50 }, fallback);
+  const data = overview.data ?? null;
 
-  const counts = overview.data?.counts ?? {
-    servers: servers.data?.length ?? 0,
-    agents: agents.data?.length ?? 0,
-    runs: null,
-    running: null,
-    failed: 0,
-  };
-  const recent = overview.data?.recent ?? runs.data?.items ?? null;
-  const agentRows = overview.data?.agents ?? null;
-  // 只有 runs 是最近运行来源时才由它报错；否则「没有失败」会被当成结论。
-  const runsSource = (overview.data?.recent ?? null) === null;
-  const runsError = runsSource && runs.isError ? runs.error : null;
-
-  const error = overview.isError
-    ? overview.error
-    : fallback
-      ? (servers.error ?? agents.error)
-      : null;
-  const loading = overview.isPending || (fallback && (servers.isPending || agents.isPending));
+  const error = overview.isError ? overview.error : null;
+  const loading = overview.isPending && !error;
   const empty =
     !loading &&
     !error &&
-    !runsError &&
-    counts.servers === 0 &&
-    counts.agents === 0 &&
-    (counts.runs ?? 0) === 0 &&
-    (counts.running ?? 0) === 0 &&
-    recent?.length === 0;
+    data !== null &&
+    data.counts.servers === 0 &&
+    data.counts.agents === 0 &&
+    data.counts.runs === 0 &&
+    data.counts.running === 0 &&
+    data.recent.length === 0;
 
-  const windowLabel = overview.data?.window
-    ? `最近 ${overview.data.window.days} 天`
-    : '统计窗口未提供';
-  const failedCount = counts.failed ?? 0;
+  const windowLabel = data ? `最近 ${data.window.days} 天` : '';
+  const failedCount = data?.counts.failed ?? 0;
 
   return (
     <Page>
@@ -391,20 +361,9 @@ export function OverviewPage() {
         }
       />
 
-      {error ? (
-        <ErrorState
-          error={error}
-          onRetry={() => {
-            void overview.refetch();
-            if (fallback) {
-              void servers.refetch();
-              void agents.refetch();
-            }
-          }}
-        />
-      ) : null}
+      {error ? <ErrorState error={error} onRetry={() => void overview.refetch()} /> : null}
 
-      {loading && !error ? <LoadingState rows={3} /> : null}
+      {loading ? <LoadingState rows={3} /> : null}
 
       {empty ? (
         <PageNote
@@ -419,7 +378,7 @@ export function OverviewPage() {
         />
       ) : null}
 
-      {!loading && !error && !empty ? (
+      {data && !empty ? (
         <>
           <section className="flex flex-col gap-3" aria-label="平台概况">
             <p className="text-xs text-muted-foreground">{windowLabel}</p>
@@ -427,26 +386,19 @@ export function OverviewPage() {
               {[
                 {
                   label: '运行次数',
-                  value: counts.runs ?? '—',
-                  hint:
-                    counts.runs === null || counts.runs === undefined
-                      ? null
-                      : failedCount > 0
-                        ? `${failedCount} 次失败`
-                        : null,
+                  value: data.counts.runs,
+                  hint: failedCount > 0 ? `${failedCount} 次失败` : null,
                   icon: Activity,
                 },
                 {
                   label: '运行成本',
-                  value: counts.costUsd === undefined ? '—' : formatCost(counts.costUsd),
+                  value: formatCost(data.counts.costUsd),
                   hint:
-                    counts.tokens === undefined || counts.tokens === 0
-                      ? null
-                      : `${formatTokens(counts.tokens)} tokens`,
+                    data.counts.tokens === 0 ? null : `${formatTokens(data.counts.tokens)} tokens`,
                   icon: Sparkles,
                 },
-                { label: '专家', value: counts.agents, hint: null, icon: Bot },
-                { label: '连接器', value: counts.servers, hint: null, icon: Server },
+                { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
+                { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
               ].map(({ label, value, hint, icon: Icon }) => (
                 <Card key={label}>
                   <CardHeader>
@@ -475,20 +427,16 @@ export function OverviewPage() {
           <PageSection
             title="最近运行"
             divided={false}
-            {...(counts.running ? { description: `${counts.running} 个正在运行` } : {})}
+            {...(data.counts.running ? { description: `${data.counts.running} 个正在运行` } : {})}
             actions={
               <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
                 查看运行
               </Link>
             }
           >
-            {runsError ? (
-              <ErrorState error={runsError} onRetry={() => void runs.refetch()} />
-            ) : runsSource && runs.isPending ? (
-              <LoadingState rows={3} />
-            ) : recent && recent.length > 0 ? (
+            {data.recent.length > 0 ? (
               <DataTable
-                rows={recent.slice(0, 6)}
+                rows={data.recent.slice(0, 6)}
                 columns={runColumns}
                 rowKey={(run) => run.id}
                 label="最近运行"
@@ -515,11 +463,9 @@ export function OverviewPage() {
               </Link>
             }
           >
-            {fallback ? (
-              <PageNote title="聚合指标暂不可用" />
-            ) : agentRows && agentRows.length > 0 ? (
+            {data.agents.length > 0 ? (
               <DataTable
-                rows={agentRows}
+                rows={data.agents}
                 columns={agentColumns}
                 rowKey={(row) => row.agentId}
                 label="专家指标"

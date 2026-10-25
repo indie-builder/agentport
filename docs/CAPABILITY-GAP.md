@@ -202,7 +202,7 @@
 |---|---|---|
 | 工具级启用/禁用 | ✅ | `api_tools.enabled`；`PATCH /api/servers/:id/tools/:toolId`；`buildGeneratedServer` 跳过禁用项。实测禁用后测试连接工具消失、评估跑批失败；恢复后 2/2 通过 |
 | 评估集 + 回归跑批 | ✅ | `eval_cases` / `eval_runs` / `eval_results`；`POST /api/eval/runs` 异步串行执行；实测 2 个用例全部判对 |
-| 资产导出 | ✅ | `GET /api/export/agents/:id`，`agentport/agent@1` 格式，密钥只导出键名 |
+| 资产导出 | ✅ | `GET /api/export/agents/:id`，官方 `.claude/` 目录 ZIP（平台元数据在根 sidecar），密钥只导出键名 |
 | 数据库备份 | ✅ | `pnpm backup` → `pg_dump | gzip`，保留 7 份 |
 | 运行完成审计 | ✅ | worker 写 `agent.run.finished` |
 | run 步骤映射单测 | ✅ | `packages/db/test/steps.test.ts`，5 个用例 |
@@ -296,7 +296,7 @@
 | 按 run 的短期 MCP token | ✅ | `agent_runs.mcp_token_hash` / `mcp_token_expires_at`（迁移 0012）；token 仅写入 `.mcp.json`，DB 存 sha256，run 结束清空；端点先认 run token 再回退长期 token |
 | 工作区文件权限 | ✅ | 目录 0700 / 文件 0600（`core/mcp-token.ts`）；重试复用后再次 `chmod`；macOS Docker Desktop 下容器内 uid 1000 可读 |
 | 评估跑批入队 | ✅ | `eval-runs` 队列（并发 1）；API 只建行并入队返回 202；`eval_runs.error`（迁移 0013）；超 1 小时 running 收敛为 `failed` |
-| SSE 每连接独立订阅 | ✅ | `subscribeRun` 每次 `duplicate()` 一条 Redis 连接；串行 drain 避免重复回调；2 秒轮询兜底 |
+| SSE 每连接独立订阅 | ✅ | `subscribeRun` 每次一条独立 Redis 连接并 `XREAD BLOCK` 跟读；串行回调保持背压；无 pub/sub 唤醒 |
 | 测试 | ✅ | 新增 `generated-mcp.test.ts`（run token 生命周期、绑定校验）、`sse-subscribers.test.ts`（并发发布去重、关闭隔离）、eval 入队断言 |
 
 ### 循环 14 已补齐

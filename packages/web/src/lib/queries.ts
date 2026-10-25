@@ -30,7 +30,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   type AgentFiles,
   type AgentVersionDetail,
@@ -39,8 +39,8 @@ import {
   type ApprovalRequestList,
   type AuditQuery,
   api,
+  type Conversation,
   type ConversationDetail,
-  type ConversationList,
   type EvalCase,
   type EvalCaseInput,
   type EvalComparison,
@@ -89,7 +89,7 @@ export const skillsQuery = queryOptions<SkillWithAgentCount[]>({
   queryFn: api.skills,
 });
 
-export const overviewQuery = queryOptions<Overview | null>({
+export const overviewQuery = queryOptions<Overview>({
   queryKey: ['overview'],
   queryFn: api.overview,
   staleTime: 15_000,
@@ -253,9 +253,9 @@ export function useRollbackAgent() {
 }
 
 export function useConversations(agentId: string | null) {
-  return useQuery<ConversationList>({
+  return useQuery<Conversation[]>({
     queryKey: ['conversations', agentId],
-    queryFn: () => api.conversations(agentId ?? undefined),
+    queryFn: ({ signal }) => api.conversations(agentId ?? undefined, signal),
     enabled: agentId !== null,
     staleTime: 0,
   });
@@ -267,11 +267,15 @@ const CONVERSATION_PAGE_SIZE = 50;
 export function useConversation(conversationId: string | null) {
   return useInfiniteQuery({
     queryKey: ['conversation', conversationId],
-    queryFn: ({ pageParam }) =>
-      api.conversation(conversationId ?? '', {
-        limit: CONVERSATION_PAGE_SIZE,
-        ...(pageParam === null ? {} : { before: pageParam }),
-      }),
+    queryFn: ({ pageParam, signal }) =>
+      api.conversation(
+        conversationId ?? '',
+        {
+          limit: CONVERSATION_PAGE_SIZE,
+          ...(pageParam === null ? {} : { before: pageParam }),
+        },
+        signal,
+      ),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextBefore ?? undefined,
     enabled: conversationId !== null,
@@ -290,11 +294,10 @@ export function useConversation(conversationId: string | null) {
   });
 }
 
-export function useRuns(query: RunQuery = {}, enabled = true) {
+export function useRuns(query: RunQuery = {}) {
   return useQuery<RunList>({
     queryKey: ['runs', query.agentId ?? null, query.status ?? null, query.limit ?? 50],
     queryFn: () => api.runs(query),
-    enabled,
     staleTime: 5_000,
     // 运行期间列表有变化，轮询跟进；全部结束后停止。
     refetchInterval: (query) =>
@@ -381,12 +384,15 @@ const AUDIT_PAGE_SIZE = 100;
 export function useAudit(query: Omit<AuditQuery, 'before' | 'beforeId' | 'limit'>) {
   return useInfiniteQuery({
     queryKey: ['audit', query],
-    queryFn: ({ pageParam }) =>
-      api.audit({
-        ...query,
-        limit: AUDIT_PAGE_SIZE,
-        ...(pageParam === null ? {} : { beforeId: pageParam }),
-      }),
+    queryFn: ({ pageParam, signal }) =>
+      api.audit(
+        {
+          ...query,
+          limit: AUDIT_PAGE_SIZE,
+          ...(pageParam === null ? {} : { beforeId: pageParam }),
+        },
+        signal,
+      ),
     initialPageParam: null as string | null,
     getNextPageParam: (last, _pages, beforeId) => {
       if (last.items.length < AUDIT_PAGE_SIZE) return undefined;
@@ -649,13 +655,25 @@ export function useImportSkillFile() {
   });
 }
 
+/** 输入停顿 `delayMs` 后才返回新值；防抖期间沿用上一次的值，请求不会随每个字符发出。 */
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 /** 市场搜索要求至少 2 个字符；空查询走 skills.sh 榜单。 */
 export function useMarketSkills(view: MarketView, query: string) {
-  const term = query.trim();
+  // 每个字符都打一次 skills.sh 会把外部榜单打爆：停 300ms 再换 queryKey。
+  const settled = useDebouncedValue(query.trim(), 300);
   return useQuery({
-    queryKey: ['market-skills', view, term],
-    queryFn: () => api.marketSkills({ view, ...(term === '' ? {} : { q: term }) }),
-    enabled: term.length === 0 || term.length >= 2,
+    queryKey: ['market-skills', view, settled],
+    queryFn: ({ signal }) =>
+      api.marketSkills({ view, ...(settled === '' ? {} : { q: settled }) }, signal),
+    enabled: settled.length === 0 || settled.length >= 2,
     staleTime: 5 * 60_000,
   });
 }

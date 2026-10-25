@@ -43,7 +43,7 @@ services:
   # 命名卷首次创建时属主是 root；worker 以 node(1000) 运行会 EACCES。
   # 单独的一次性 init 修复，`docker compose up` 与 up.sh 行为一致。
   init:
-    image: alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+    image: alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f
     command: ['chown', '-R', '1000:1000', '/w']
     restart: 'no'
     volumes:

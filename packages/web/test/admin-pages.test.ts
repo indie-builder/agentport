@@ -161,7 +161,17 @@ beforeEach(() => {
   state.metrics = metrics;
   state.runs = [];
   state.overview = {
-    counts: { agents: 1, servers: 1, runs: 0, running: 0 },
+    window: { days: 7, since: '2026-01-01T00:00:00Z' },
+    counts: {
+      agents: 1,
+      servers: 1,
+      runs: 0,
+      running: 0,
+      failed: 0,
+      tokens: 0,
+      costUsd: 0,
+      avgLatencyMs: null,
+    },
     recent: [],
     agents: [],
   } satisfies Overview;

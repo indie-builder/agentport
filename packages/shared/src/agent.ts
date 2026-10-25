@@ -1,9 +1,6 @@
 import { z } from 'zod';
 import { slugSchema } from './params.js';
 
-export const AGENT_PACKAGE_MAX_BYTES = 1_048_576;
-export const serializeAgentPackage = (value: unknown): string => JSON.stringify(value, null, 2);
-
 /** 智能体可配置的权限模式，与 Agent SDK 的 PermissionMode 对齐。 */
 export const permissionModeSchema = z.enum(['default', 'acceptEdits', 'plan', 'dontAsk', 'auto']);
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
@@ -49,6 +46,10 @@ export const agentRoleSchema = z
   .transform((role): string => role)
   .default(AGENT_ROLES[0]);
 
+/** 推理强度；不填则用 SDK 默认。DB 存 text，写入运行配置前用它收窄。 */
+export const effortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+export type Effort = z.infer<typeof effortSchema>;
+
 export const agentInputSchema = z.object({
   slug: slugSchema,
   name: z.string().min(1).max(128),
@@ -70,7 +71,7 @@ export const agentInputSchema = z.object({
   maxBudgetUsd: z.number().positive().default(2),
   timeoutMs: z.number().int().positive().default(600_000),
   /** 推理强度；不填则用 SDK 默认。 */
-  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+  effort: effortSchema.optional(),
   maxThinkingTokens: z.number().int().positive().optional(),
   enabled: z.boolean().default(true),
 });

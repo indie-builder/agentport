@@ -192,9 +192,18 @@ export async function isRunActive(db: Database, runId: string): Promise<boolean>
 }
 
 /**
- * run 必须存在，且其智能体确实绑定了该 server。外部传入的 run header 不可信，
- * 不满足时按「没有 run」处理，审批不会跨 agent/server 复用。
+ * run 的沙盒只挂载两类 server：所属智能体自己绑定的，以及它启用的直接子智能体绑定的。
+ * 外部传入的 run header 不可信，不满足时按「没有 run」处理，审批不会跨 agent/server 复用。
  */
+function runMayUseServer(): SQL {
+  return sql`${agentServers.agentId} = ${agentRuns.agentId} or exists (
+    select 1 from ${agents} child
+    where child.id = ${agentServers.agentId}
+      and child.parent_id = ${agentRuns.agentId}
+      and child.enabled
+  )`;
+}
+
 export async function isRunBoundToServer(
   db: Database,
   runId: string,
@@ -203,7 +212,7 @@ export async function isRunBoundToServer(
   const [row] = await db
     .select({ runId: agentRuns.id })
     .from(agentRuns)
-    .innerJoin(agentServers, eq(agentServers.agentId, agentRuns.agentId))
+    .innerJoin(agentServers, runMayUseServer())
     .where(and(eq(agentRuns.id, runId), eq(agentServers.serverId, serverId)))
     .limit(1);
   return row !== undefined;
@@ -263,7 +272,7 @@ export async function clearRunMcpToken(db: Database, runId: string): Promise<voi
 }
 
 /**
- * run 仍持有的短期 token（只在其智能体绑定了该 server 时返回）。
+ * run 仍持有的短期 token（父或其启用子级绑定该 server 时返回）。
  * 行存在但 hash 为空表示 run 已结束，token 立即失效。
  */
 export async function getRunToken(
@@ -274,7 +283,7 @@ export async function getRunToken(
   const [row] = await db
     .select({ hash: agentRuns.mcpTokenHash, expiresAt: agentRuns.mcpTokenExpiresAt })
     .from(agentRuns)
-    .innerJoin(agentServers, eq(agentServers.agentId, agentRuns.agentId))
+    .innerJoin(agentServers, runMayUseServer())
     .where(and(eq(agentRuns.id, runId), eq(agentServers.serverId, serverId)))
     .limit(1);
   return row ?? null;

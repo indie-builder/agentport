@@ -159,8 +159,7 @@ async function importFile(warnings: string[]) {
   });
   const input = host.querySelector<HTMLInputElement>('input[type="file"]');
   if (!input) throw new Error('Missing import input');
-  const file = new File(['{}'], 'expert.json', { type: 'application/json' });
-  Object.defineProperty(file, 'text', { value: async () => '{}' });
+  const file = new File(['PK'], 'expert.zip', { type: 'application/zip' });
   Object.defineProperty(input, 'files', { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
   await flush();
