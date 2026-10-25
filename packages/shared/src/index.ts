@@ -5,6 +5,7 @@ export * from './config.js';
 export * from './connector-catalog.js';
 export * from './errors.js';
 export * from './mcp.js';
+export * from './native-plugins.js';
 export * from './ops.js';
 export * from './params.js';
 export * from './plugin.js';

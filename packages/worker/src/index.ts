@@ -35,6 +35,7 @@ import { readForkUuidMap } from './fork-uuids.js';
 import { startMaintenanceWorker } from './maintenance.js';
 import { persistRunMessages } from './messages.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
+import { registerNativePlugins } from './native-plugins.js';
 import { startReconciler } from './reconcile.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
@@ -856,6 +857,7 @@ const maintenanceWorker = await startMaintenanceWorker({
 
 // stdio 试连走独立队列与独立容器入口，不影响 run 消费。
 const sandboxProbe = await registerSandboxProbe(config);
+const nativePlugins = await registerNativePlugins(config);
 
 const stopReconciler = startReconciler({
   db,
@@ -900,6 +902,7 @@ const shutdown = async (): Promise<void> => {
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
   await sandboxProbe.close();
+  await nativePlugins.close();
   await scheduleScheduler.close();
   await stopReconciler();
   await provider.destroyAll();
