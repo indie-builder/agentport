@@ -17,13 +17,13 @@
       "source": "samber/developer-platform-skills",
       "sourceType": "github",
       "skillPath": "skills/api-integration-surface-strategy/SKILL.md",
-      "computedHash": "e3691e0ebb104bf905f0aea7895525595a81aa54b9e012af327bf2f46a39b4fd"
+      "computedHash": "158a563857995efc8609a607a2e58a3af3777f2a69fc80bff407f32d2a3178fa"
     },
     "cli-interface-design": {
       "source": "samber/developer-platform-skills",
       "sourceType": "github",
       "skillPath": "skills/cli-interface-design/SKILL.md",
-      "computedHash": "029316672952d551d7187f8445efd15649eb816d392b1653a8c982a69239ab69"
+      "computedHash": "981c21912a7071b704a2811e95e2feb636c050a1a6ddbc0664fe7d0a30ad12bc"
     },
     "frontend-design": {
       "source": "anthropics/skills",

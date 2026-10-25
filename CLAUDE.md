@@ -85,9 +85,9 @@
 - 登录等共享前置用 `test.setup` + session，不要在每条用例里重复登录。
 - 单元/集成测试用 Vitest；涉及队列的用例需先停掉本地 worker（见 `docs/OPERATIONS.md`）。
 
-## 项目技能（skills.sh）
+## 技能与插件维护
 
-已安装技能清单与用途见 [docs/SKILLS.md](docs/SKILLS.md)，版本锁定在 `skills-lock.json`。新增：`npx skills add <repo> --skill <name> -y`，并提交 `skills-lock.json`；不装与项目栈冲突的技能（如 Playwright 类，E2E 已统一为 `e2e`）。
+新增、更新或删除本项目技能/插件前，先按 [docs/SKILLS.md](docs/SKILLS.md) 执行；已安装技能清单与用途见该文，版本锁定在 `skills-lock.json`。
 
 ## 交付
 
