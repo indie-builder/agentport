@@ -7,6 +7,7 @@ export * from './errors.js';
 export * from './mcp.js';
 export * from './ops.js';
 export * from './params.js';
+export * from './plugin.js';
 export * from './run-stream.js';
 export * from './sandbox-probe.js';
 export * from './schedules.js';

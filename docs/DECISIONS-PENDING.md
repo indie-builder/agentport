@@ -228,6 +228,8 @@
 
 **边界**：官方支持不等于自动执行不可信Hooks/插件；导入执行逻辑必须明确权限与沙盒范围。用户级认证、缓存与宿主状态不作为项目定义打包。主智能体与可委派子智能体文件区分，运行时参数不能强行塞入settings.json。没有因这项需求新增第二套执行循环，也不将DB整体迁移或开放任意宿主目录写入作为先决条件。
 
+**插件边界（2026-10-25 落地）**：插件按「DB 持有制品 + SDK 本地加载」实现，不接 marketplace。默认加载插件的上下文组件；hooks 与 MCP 在专家绑定处分别显式授权，未授权组件在渲染阶段从文件树与 manifest 中一并移除，见 `packages/core/src/plugin-render.ts`。插件是会话级能力，平台子智能体不单独绑定插件，边界 hook 拒绝平台子智能体调用插件 MCP 与插件技能；插件自带的子智能体可以原生委派。v1 拒绝 LSP / workflows / monitors / bin / userConfig / channels / dependencies，导入阶段明确报错。支持 ZIP 导入和导出、多个专家引用同一制品；当前没有替换同一插件文件的升级入口，专家 ZIP 不携带插件。运行证据见 `docs/tasks/plugin-support-runtime-verification.json`。
+
 **待核对的能力差距**：现有技能文件原生调用、定义文件往返、settings/rules/支持资源与子智能体文件包。后续50轮按证据逐项实现，不阻塞可独立交付的能力。
 
 ## D-23 ✅ SKILL.md 初始导入支持范围（2026-10-22）

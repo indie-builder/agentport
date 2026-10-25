@@ -14,6 +14,8 @@ import type {
   MemoryFileContent,
   MemoryFileList,
   OutputStyle,
+  PluginInput,
+  PluginWithAgentCount,
   Rule,
   Schedule,
   Server,
@@ -73,6 +75,10 @@ export const meQuery = queryOptions<Me>({
 export const serversQuery = queryOptions<Server[]>({
   queryKey: ['servers'],
   queryFn: api.servers,
+});
+export const pluginsQuery = queryOptions<PluginWithAgentCount[]>({
+  queryKey: ['plugins'],
+  queryFn: api.plugins,
 });
 export const connectorCatalogQuery = queryOptions<ConnectorCatalogItem[]>({
   queryKey: ['connector-catalog'],
@@ -162,6 +168,10 @@ export function useMe() {
 
 export function useServers() {
   return useQuery(serversQuery);
+}
+
+export function usePlugins() {
+  return useQuery(pluginsQuery);
 }
 
 export function useAgents() {
@@ -707,6 +717,34 @@ export function useDeleteSkill() {
     mutationFn: (id: string) => api.deleteSkill(id),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['skills'] });
+      void client.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}
+
+export function useUpdatePlugin() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; input: Partial<PluginInput>; expectedUpdatedAt?: string }) =>
+      api.updatePlugin(vars.id, vars.input, vars.expectedUpdatedAt),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['plugins'] }),
+  });
+}
+
+export function useImportPlugin() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { file: Blob; slug: string }) => api.importPlugin(vars.file, vars.slug),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['plugins'] }),
+  });
+}
+
+export function useDeletePlugin() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deletePlugin(id),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['plugins'] });
       void client.invalidateQueries({ queryKey: ['agents'] });
     },
   });

@@ -108,6 +108,15 @@ const patchSchema = z.object({
   systemPrompt: z.string().optional(),
   serverIds: z.array(z.string()).optional(),
   skillIds: z.array(z.string()).optional(),
+  pluginBindings: z
+    .array(
+      z.object({
+        pluginId: z.string(),
+        allowHooks: z.boolean().default(false),
+        allowMcp: z.boolean().default(false),
+      }),
+    )
+    .optional(),
   subAgentIds: z.array(z.string()).optional(),
   allowedTools: allowedToolsSchema.optional(),
   disallowedTools: z.array(z.string()).optional(),
@@ -135,12 +144,12 @@ function notFound(reply: FastifyReply) {
 function rethrowConflict(err: unknown): never {
   if (isPgCode(err, '23505')) fail('CONFLICT', '该 slug 已被其他智能体占用，请换一个');
   if (isPgCode(err, '23503'))
-    fail('INVALID_REFERENCE', '引用的 MCP Server 或技能不存在，请刷新后重新选择');
+    fail('INVALID_REFERENCE', '引用的 MCP Server、技能或插件不存在，请刷新后重新选择');
   throw err;
 }
 
 function toWrite(
-  input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds'>,
+  input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds' | 'pluginBindings'>,
 ): repo.AgentWrite {
   return {
     slug: input.slug,
@@ -198,6 +207,16 @@ async function validateSubAgents(
       return `「${row.name}」自己还有子智能体；只支持一层委派，请先解除它的子智能体`;
     }
   }
+  // 子智能体不绑插件：带插件绑定的候选必须先解绑，否则运行时会静默忽略而预览仍显示。
+  const bindings = await repo.listAgentPluginBindings(
+    app.db,
+    rows.map((row) => row.id),
+  );
+  for (const row of rows) {
+    if ((bindings.get(row.id) ?? []).length > 0) {
+      return `「${row.name}」绑定了插件；插件只在会话级加载，请先解除它的插件绑定`;
+    }
+  }
   return undefined;
 }
 
@@ -233,10 +252,11 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     async () => {
       const rows = await repo.listAgents(app.db);
       const ids = rows.map((row) => row.id);
-      const [servers, skills, subAgents] = await Promise.all([
+      const [servers, skills, subAgents, plugins] = await Promise.all([
         repo.listAgentServerIds(app.db, ids),
         repo.listAgentSkillIds(app.db, ids),
         repo.listAgentSubAgentIds(app.db, ids),
+        repo.listAgentPluginBindings(app.db, ids),
       ]);
       return rows.map((row) =>
         repo.toAgent(
@@ -244,6 +264,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           servers.get(row.id) ?? [],
           skills.get(row.id) ?? [],
           subAgents.get(row.id) ?? [],
+          plugins.get(row.id) ?? [],
         ),
       );
     },
@@ -253,11 +274,18 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     const input = request.body;
     const modeError = unsupportedPermissionMode(input.permissionMode);
     if (modeError) return invalid(reply, modeError);
-    const { serverIds, skillIds, subAgentIds, ...rest } = input;
+    const { serverIds, skillIds, subAgentIds, pluginBindings, ...rest } = input;
     const subAgentError = await validateSubAgents(app, null, subAgentIds);
     if (subAgentError) return invalid(reply, subAgentError);
     try {
-      const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds, subAgentIds);
+      const row = await repo.createAgent(
+        app.db,
+        toWrite(rest),
+        serverIds,
+        skillIds,
+        subAgentIds,
+        pluginBindings,
+      );
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'agent.created',
@@ -266,7 +294,9 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         status: 'ok',
         requestId: request.id,
       });
-      return reply.status(201).send(repo.toAgent(row, serverIds, skillIds, subAgentIds));
+      return reply
+        .status(201)
+        .send(repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings));
     } catch (err) {
       rethrowConflict(err);
     }
@@ -308,9 +338,16 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     { ...auth, schema: { body: importFileSchema } },
     async (request, reply) => {
       const { agent: input, warnings } = request.body;
-      const { serverIds, skillIds, subAgentIds, ...rest } = input;
+      const { serverIds, skillIds, subAgentIds, pluginBindings, ...rest } = input;
       try {
-        const row = await repo.createAgent(app.db, toWrite(rest), serverIds, skillIds, subAgentIds);
+        const row = await repo.createAgent(
+          app.db,
+          toWrite(rest),
+          serverIds,
+          skillIds,
+          subAgentIds,
+          pluginBindings,
+        );
         await writeAudit(app.db, request.log, {
           actor: 'admin',
           action: 'agent.imported',
@@ -319,9 +356,10 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           status: 'ok',
           requestId: request.id,
         });
-        return reply
-          .status(201)
-          .send({ agent: repo.toAgent(row, serverIds, skillIds, subAgentIds), warnings });
+        return reply.status(201).send({
+          agent: repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings),
+          warnings,
+        });
       } catch (err) {
         rethrowConflict(err);
       }
@@ -331,12 +369,13 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
   app.get('/api/agents/:id', { ...auth, schema: { params: idParams } }, async (request, reply) => {
     const row = await repo.getAgent(app.db, request.params.id);
     if (!row) return notFound(reply);
-    const [serverIds, skillIds, subAgentIds] = await Promise.all([
+    const [serverIds, skillIds, subAgentIds, pluginBindings] = await Promise.all([
       repo.getAgentServerIds(app.db, row.id),
       repo.getAgentSkillIds(app.db, row.id),
       repo.getAgentSubAgentIds(app.db, row.id),
+      repo.listAgentPluginBindings(app.db, [row.id]),
     ]);
-    return repo.toAgent(row, serverIds, skillIds, subAgentIds);
+    return repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings.get(row.id) ?? []);
   });
 
   app.patch(
@@ -379,6 +418,10 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       if (input.maxBudgetUsd !== undefined) patch.maxBudgetUsd = String(input.maxBudgetUsd);
       if (input.timeoutMs !== undefined) patch.timeoutMs = input.timeoutMs;
 
+      // 插件是会话级能力：子智能体不能绑定，避免出现「配了但实际不隔离」的假能力。
+      if (current.parentId !== null && (input.pluginBindings?.length ?? 0) > 0) {
+        return invalid(reply, '子智能体不能绑定插件；插件在会话级加载');
+      }
       try {
         const row = await repo.updateAgent(
           app.db,
@@ -389,6 +432,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           null,
           input.subAgentIds,
           input.expectedUpdatedAt,
+          input.pluginBindings,
         );
         // 版本不匹配时仓储抛 409，走到这里只剩「行不存在」。
         if (!row) return notFound(reply);
@@ -400,12 +444,19 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           status: 'ok',
           requestId: request.id,
         });
-        const [serverIds, skillIds, subAgentIds] = await Promise.all([
+        const [serverIds, skillIds, subAgentIds, pluginBindings] = await Promise.all([
           input.serverIds ?? repo.getAgentServerIds(app.db, current.id),
           input.skillIds ?? repo.getAgentSkillIds(app.db, current.id),
           input.subAgentIds ?? repo.getAgentSubAgentIds(app.db, current.id),
+          repo.listAgentPluginBindings(app.db, [current.id]),
         ]);
-        return repo.toAgent(row, serverIds, skillIds, subAgentIds);
+        return repo.toAgent(
+          row,
+          serverIds,
+          skillIds,
+          subAgentIds,
+          pluginBindings.get(current.id) ?? [],
+        );
       } catch (err) {
         rethrowConflict(err);
       }
@@ -555,6 +606,9 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           snapshot.skillIds,
           `rollback to v${target.version}`,
           snapshotSubAgentIds,
+          undefined,
+          // 旧快照没有 pluginBindings；缺失时保持现有绑定不动。
+          (snapshot as { pluginBindings?: Agent['pluginBindings'] }).pluginBindings,
         );
         if (!row) return notFound(reply);
         await writeAudit(app.db, request.log, {
@@ -565,7 +619,14 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           status: 'ok',
           requestId: request.id,
         });
-        return repo.toAgent(row, snapshot.serverIds, snapshot.skillIds, snapshotSubAgentIds ?? []);
+        const restoredPlugins = await repo.listAgentPluginBindings(app.db, [current.id]);
+        return repo.toAgent(
+          row,
+          snapshot.serverIds,
+          snapshot.skillIds,
+          snapshotSubAgentIds ?? [],
+          restoredPlugins.get(current.id) ?? [],
+        );
       } catch (err) {
         rethrowConflict(err);
       }

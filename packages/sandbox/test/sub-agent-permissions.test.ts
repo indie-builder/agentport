@@ -62,4 +62,20 @@ describe('sub-agent tool boundary', () => {
   it('does not guess server names for unknown tools', async () => {
     expect(await decide(boundary(), 'mcp__unknown__tool')).toBeUndefined();
   });
+
+  it('lets the main session use loaded plugin skills and keeps them off sub-agents', async () => {
+    const withPlugin: SubAgentBoundary = {
+      ...boundary(),
+      // 宿主传的是目录名；CLI 的规范名可能取 frontmatter name，按插件命名空间判断。
+      pluginSkills: new Set(['demo:review']),
+    };
+    const researcher = { id: 'agent-1', type: 'researcher' };
+
+    expect(await decide(withPlugin, 'Skill', { skill: 'demo:review' })).toBe('allow');
+    expect(await decide(withPlugin, 'Skill', { skill: 'demo:renamed' })).toBe('allow');
+    expect(await decide(withPlugin, 'Skill', { skill: 'demo:review' }, researcher)).toBe('deny');
+    expect(await decide(withPlugin, 'Skill', { skill: 'demo:renamed' }, researcher)).toBe('deny');
+    // 不带命名空间的同名技能仍走调用方自己的绑定。
+    expect(await decide(withPlugin, 'Skill', { skill: 'review' })).toBe('deny');
+  });
 });

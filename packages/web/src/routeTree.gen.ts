@@ -16,6 +16,7 @@ import { Route as ShellSplatRouteImport } from './routes/_shell/$'
 import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
 import { Route as ShellChatRouteImport } from './routes/_shell/chat'
 import { Route as ShellEvalRouteImport } from './routes/_shell/eval'
+import { Route as ShellPluginsRouteImport } from './routes/_shell/plugins'
 import { Route as ShellSchedulesRouteImport } from './routes/_shell/schedules'
 import { Route as ShellServersRouteImport } from './routes/_shell/servers'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
@@ -57,6 +58,11 @@ const ShellChatRoute = ShellChatRouteImport.update({
 const ShellEvalRoute = ShellEvalRouteImport.update({
   id: '/eval',
   path: '/eval',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellPluginsRoute = ShellPluginsRouteImport.update({
+  id: '/plugins',
+  path: '/plugins',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellSchedulesRoute = ShellSchedulesRouteImport.update({
@@ -107,6 +113,7 @@ export interface FileRoutesByFullPath {
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
+  '/plugins': typeof ShellPluginsRoute
   '/schedules': typeof ShellSchedulesRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
+  '/plugins': typeof ShellPluginsRoute
   '/schedules': typeof ShellSchedulesRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/_shell/audit': typeof ShellAuditRoute
   '/_shell/chat': typeof ShellChatRoute
   '/_shell/eval': typeof ShellEvalRoute
+  '/_shell/plugins': typeof ShellPluginsRoute
   '/_shell/schedules': typeof ShellSchedulesRoute
   '/_shell/servers': typeof ShellServersRoute
   '/_shell/skills': typeof ShellSkillsRoute
@@ -159,6 +168,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/chat'
     | '/eval'
+    | '/plugins'
     | '/schedules'
     | '/servers'
     | '/skills'
@@ -174,6 +184,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/chat'
     | '/eval'
+    | '/plugins'
     | '/schedules'
     | '/servers'
     | '/skills'
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '/_shell/audit'
     | '/_shell/chat'
     | '/_shell/eval'
+    | '/_shell/plugins'
     | '/_shell/schedules'
     | '/_shell/servers'
     | '/_shell/skills'
@@ -258,6 +270,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellEvalRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/plugins': {
+      id: '/_shell/plugins'
+      path: '/plugins'
+      fullPath: '/plugins'
+      preLoaderRoute: typeof ShellPluginsRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/schedules': {
       id: '/_shell/schedules'
       path: '/schedules'
@@ -322,6 +341,7 @@ interface ShellRouteChildren {
   ShellAuditRoute: typeof ShellAuditRoute
   ShellChatRoute: typeof ShellChatRoute
   ShellEvalRoute: typeof ShellEvalRoute
+  ShellPluginsRoute: typeof ShellPluginsRoute
   ShellSchedulesRoute: typeof ShellSchedulesRoute
   ShellServersRoute: typeof ShellServersRoute
   ShellSkillsRoute: typeof ShellSkillsRoute
@@ -338,6 +358,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellAuditRoute: ShellAuditRoute,
   ShellChatRoute: ShellChatRoute,
   ShellEvalRoute: ShellEvalRoute,
+  ShellPluginsRoute: ShellPluginsRoute,
   ShellSchedulesRoute: ShellSchedulesRoute,
   ShellServersRoute: ShellServersRoute,
   ShellSkillsRoute: ShellSkillsRoute,

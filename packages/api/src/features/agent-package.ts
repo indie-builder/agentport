@@ -341,6 +341,8 @@ function assertSkillResourcePaths(
 export interface AgentPackageFiles {
   files: Record<string, string>;
   slug: string;
+  /** 包表达不了的内容（如插件绑定）：导出时明确告知，不让用户以为能力被带走了。 */
+  warnings: string[];
 }
 
 /** 把 DB 定义渲染成官方文件 + 侧车；路由只负责 HTTP。 */
@@ -537,7 +539,15 @@ export async function buildAgentPackage(
     fail('INVALID_INPUT', message, path === undefined ? undefined : { path });
   }
   files[AGENT_PACKAGE_SIDECAR] = `${JSON.stringify(parsed.data, null, 2)}\n`;
-  return { files, slug: row.slug };
+  const pluginBindings = await agentRepo.listAgentPluginBindings(db, [row.id]);
+  const boundPlugins = pluginBindings.get(row.id) ?? [];
+  const warnings =
+    boundPlugins.length === 0
+      ? []
+      : [
+          `该专家绑定了 ${boundPlugins.length} 个插件，插件代码不随专家包导出；导入后需要在本机插件库重新绑定`,
+        ];
+  return { files, slug: row.slug, warnings };
 }
 
 /** 导出 ZIP；超过上限明确失败，不截断。 */
@@ -739,6 +749,8 @@ export function parseAgentPackage(
     systemPrompt: parsedClaude.systemPrompt,
     allowedTools: checkAllowedTools(sidecar.agent.allowedTools, `${AGENT_PACKAGE_SIDECAR}/agent`),
     disallowedTools: sidecar.agent.disallowedTools,
+    // v1 的专家包不携带插件代码；导入后由用户在本机插件库绑定。
+    pluginBindings: [],
     permissionMode: sidecar.agent.permissionMode,
     maxTurns: sidecar.agent.maxTurns,
     maxBudgetUsd: sidecar.agent.maxBudgetUsd,
@@ -870,6 +882,8 @@ export function parseAgentPackage(
           `${AGENT_PACKAGE_SIDECAR}/subAgents`,
         ),
         disallowedTools: parsed.disallowedTools,
+        // 插件是会话级能力，专家包里的子智能体不携带插件绑定。
+        pluginBindings: [],
         permissionMode: meta?.permissionMode ?? 'dontAsk',
         maxTurns: parsed.maxTurns,
         maxBudgetUsd: meta?.maxBudgetUsd ?? 2,

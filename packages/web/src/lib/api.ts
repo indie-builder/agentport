@@ -19,6 +19,9 @@ import type {
   MemoryFileList,
   OutputStyle,
   OverviewTimeseriesPoint,
+  Plugin,
+  PluginInput,
+  PluginWithAgentCount,
   Problem,
   Rule,
   Schedule,
@@ -37,6 +40,12 @@ import type {
 } from '@agentport/shared';
 
 export type AgentFiles = WorkspaceFiles;
+
+/** 插件 ZIP 导入结果：warnings 提示被忽略的官方组件，不阻断导入。 */
+export interface PluginImportResult {
+  plugin: Plugin;
+  warnings: string[];
+}
 
 export type { OverviewTimeseriesPoint };
 
@@ -380,6 +389,7 @@ async function request<T>(
   body?: unknown,
   signal?: AbortSignal,
   responseType: 'json' | 'blob' = 'json',
+  onResponse?: (response: Response) => void,
 ): Promise<T> {
   let res: Response;
   try {
@@ -418,6 +428,7 @@ async function request<T>(
   }
 
   if (res.status === 204) return undefined as T;
+  onResponse?.(res);
   return (responseType === 'blob' ? await res.blob() : await res.json()) as T;
 }
 
@@ -531,8 +542,22 @@ export const api = {
   rollbackAgent: (id: string, version: number): Promise<Agent> =>
     request(`/agents/${id}/rollback`, 'POST', { version }),
   /** 官方目录包的 ZIP；错误仍是 Problem JSON。 */
-  exportAgent: (id: string, signal?: AbortSignal): Promise<Blob> =>
-    request(`/export/agents/${id}`, 'GET', undefined, signal, 'blob'),
+  exportAgent: (
+    id: string,
+    signal?: AbortSignal,
+    onWarnings?: (warnings: string[]) => void,
+  ): Promise<Blob> =>
+    request(`/export/agents/${id}`, 'GET', undefined, signal, 'blob', (response) => {
+      if (onWarnings === undefined) return;
+      const raw = response.headers.get('x-package-warnings');
+      if (raw === null) return;
+      try {
+        const parsed: unknown = JSON.parse(decodeURIComponent(raw));
+        if (Array.isArray(parsed)) onWarnings(parsed.filter((item) => typeof item === 'string'));
+      } catch {
+        // 头部损坏不影响下载本身，忽略即可。
+      }
+    }),
   importAgent: (file: Blob, signal?: AbortSignal): Promise<AgentImportResult> =>
     request('/import/agents', 'POST', file, signal),
   importAgentFile: (agentMd: string): Promise<Pick<AgentImportResult, 'agent' | 'warnings'>> =>
@@ -552,6 +577,20 @@ export const api = {
       ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
     }),
   deleteSkill: (id: string): Promise<void> => request(`/skills/${id}`, 'DELETE'),
+
+  plugins: (): Promise<PluginWithAgentCount[]> => request('/plugins'),
+  updatePlugin: (
+    id: string,
+    input: Partial<PluginInput>,
+    expectedUpdatedAt?: string,
+  ): Promise<Plugin> =>
+    request(`/plugins/${id}`, 'PATCH', {
+      ...input,
+      ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
+    }),
+  deletePlugin: (id: string): Promise<void> => request(`/plugins/${id}`, 'DELETE'),
+  importPlugin: (file: Blob, slug: string, signal?: AbortSignal): Promise<PluginImportResult> =>
+    request(`/plugins/import?slug=${encodeURIComponent(slug)}`, 'POST', file, signal),
   skillFiles: (id: string): Promise<SkillFile[]> => request(`/skills/${id}/files`),
   writeSkillFile: (id: string, path: string, content: string): Promise<SkillFile> =>
     request(`/skills/${id}/files/${path.split('/').map(encodeURIComponent).join('/')}`, 'PUT', {
