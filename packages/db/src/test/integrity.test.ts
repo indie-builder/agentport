@@ -5,7 +5,7 @@ import { newId } from '../id.js';
 import * as chat from '../repo/chat.js';
 import * as evalRepo from '../repo/eval.js';
 import * as maintenance from '../repo/maintenance.js';
-import { agents } from '../schema.js';
+import { agentRuns, agents, conversations } from '../schema.js';
 
 const { db, pool } = createDb(
   process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport',
@@ -40,19 +40,90 @@ describe('history integrity', () => {
         runId,
         role: 'user',
         content: { text: 'keep this' },
+        sdkMessageUuid: '11111111-2222-4333-8444-555555555555',
         createdAt: at,
       },
     ]);
+    await db
+      .update(conversations)
+      .set({ sdkSessionId: '66666666-7777-4888-8999-000000000000' })
+      .where(eq(conversations.id, conversationId));
     await chat.branchConversation(db, { id: branchId, conversationId, fromMessageId: messageId });
     const [copy] = await chat.listMessages(db, branchId);
     expect(copy?.createdAt).toEqual(at);
     expect(copy?.runId).toBeNull();
+    // 分支会话记下来源 session 与分叉点：首轮运行据此 fork，而不是拼文本历史。
+    expect((await chat.getConversation(db, branchId))?.sdkSessionId).toBe(
+      '66666666-7777-4888-8999-000000000000',
+    );
+    expect((await chat.getConversation(db, branchId))?.forkFromSdkMessageUuid).toBe(
+      '11111111-2222-4333-8444-555555555555',
+    );
     await maintenance.pruneRuns(db, 36_500);
     await pool.query('delete from conversations where id = $1', [conversationId]);
     await maintenance.pruneOrphanMessages(db, 36_500);
     expect((await chat.listMessages(db, branchId)).map((row) => row.content)).toEqual([
       { text: 'keep this' },
     ]);
+  });
+
+  it('keeps SDK session state consistent through the run finish path', async () => {
+    const conv = newId('conversation');
+    const runId = newId('run');
+    await chat.createConversation(db, { id: conv, agentId, title: 'sdk state' });
+    await chat.createRun(db, { id: runId, conversationId: conv, agentId });
+    await db
+      .update(agentRuns)
+      .set({ status: 'running', startedAt: new Date() })
+      .where(eq(agentRuns.id, runId));
+
+    const userMessage = await chat.appendMessage(db, {
+      id: newId('message'),
+      conversationId: conv,
+      role: 'user',
+      content: { text: 'hi' },
+      runId,
+      sdkMessageUuid: '11111111-2222-4333-8444-555555555555',
+    });
+    // 分支前还看不到 SDK 状态；运行收尾才写入。
+    expect(await chat.getConversationSdkState(db, conv)).toEqual({
+      sdkSessionId: null,
+      forkFromSdkMessageUuid: null,
+    });
+
+    await chat.saveSdkState(db, {
+      conversationId: conv,
+      sdkSessionId: '66666666-7777-4888-8999-000000000000',
+      uuidMap: [
+        {
+          from: '11111111-2222-4333-8444-555555555555',
+          to: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+        },
+      ],
+    });
+    // uuid 重映射与 session 同事务写入；分叉点收尾清空。
+    expect(await chat.getConversationSdkState(db, conv)).toEqual({
+      sdkSessionId: '66666666-7777-4888-8999-000000000000',
+      forkFromSdkMessageUuid: null,
+    });
+    expect((await chat.listMessages(db, conv))[0]?.sdkMessageUuid).toBe(
+      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    );
+    expect((await chat.listMessages(db, conv))[0]?.id).toBe(userMessage.id);
+  });
+
+  it('rejects branching when no SDK session exists yet', async () => {
+    const conv = newId('conversation');
+    await chat.createConversation(db, { id: conv, agentId, title: 'no session' });
+    await chat.appendMessage(db, {
+      id: newId('message'),
+      conversationId: conv,
+      role: 'user',
+      content: { text: 'hi' },
+    });
+    await expect(
+      chat.branchConversation(db, { id: newId('conversation'), conversationId: conv }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
   });
 
   it('keeps eval result rows visible after their case and run are deleted', async () => {

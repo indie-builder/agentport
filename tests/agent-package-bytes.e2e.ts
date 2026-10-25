@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { createDb, newId } from '../packages/db/dist/index.js';
-import { AGENT_PACKAGE_MAX_BYTES, serializeAgentPackage } from '../packages/shared/dist/agent.js';
+import { AGENT_PACKAGE_MAX_BYTES } from '../packages/shared/dist/agent-package.js';
 
 /**
  * 专家包字节上限的真实浏览器验收：真实页面、真实 API、数据库直写 fixture。
@@ -65,18 +65,11 @@ async function seed(prompt: string): Promise<Fixture> {
   return fixture;
 }
 
-interface AgentPackage {
-  format: string;
-  exportedAt: string;
-  agent: { slug: string; name: string; systemPrompt: string };
-  workspace: { claudeMd: string; agentMd: string; mcpJson: string };
-}
-
 interface ImportResult {
   agent: { id: string; slug: string; systemPrompt: string };
 }
 
-test('golden export downloads the exact pretty package and re-imports through the page', {
+test('golden export downloads a claude directory zip and re-imports through the page', {
   session: 'admin',
 }, async ({ app, screen, browser }) => {
   const prompt = '你是助手。\n包含 "引号"、\\反斜杠 与 🚀\n第二行';
@@ -90,25 +83,14 @@ test('golden export downloads the exact pretty package and re-imports through th
 
   const download = await browser.waitForDownload(async () => {
     await screen.getByRole('button', '更多操作').tap();
-    await screen.getByRole('menuitem', '导出 JSON').tap();
+    await screen.getByRole('menuitem', '导出 ZIP').tap();
   });
-  expect(download.suggestedFilename).toBe(`${fixture.slug}.agent.json`);
+  expect(download.suggestedFilename).toBe(`${fixture.slug}.zip`);
 
-  const raw = await readFile(download.absolutePath, 'utf8');
-  expect(Buffer.byteLength(raw, 'utf8')).toBeLessThanOrEqual(AGENT_PACKAGE_MAX_BYTES);
-
-  const body = JSON.parse(raw) as AgentPackage;
-  expect(body.format).toBe('agentport/agent@2');
-  expect(body.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-  expect(body.agent.slug).toBe(fixture.slug);
-  expect(body.agent.name).toBe(fixture.name);
-  expect(body.agent.systemPrompt).toBe(prompt);
-  // 工作区预览必须随包保留，且来自同一份提示词。
-  expect(body.workspace.claudeMd).toContain(prompt);
-  expect(body.workspace.agentMd).toContain(`name: "${fixture.slug}"`);
-  expect(body.workspace.mcpJson).toContain('"mcpServers"');
-  // 下载字节就是页面的序列化结果；二次排版不会生成导入端拒绝的包。
-  expect(raw).toBe(serializeAgentPackage(body));
+  const bytes = await readFile(download.absolutePath);
+  expect(bytes.byteLength).toBeLessThanOrEqual(AGENT_PACKAGE_MAX_BYTES);
+  // ZIP 本地文件头；旧 JSON 导出不应再出现。
+  expect(bytes.subarray(0, 2).toString('latin1')).toBe('PK');
 
   // 下载文件原样交给列表页里的文件输入，走真实导入端点。
   await screen.getByRole('button', '返回列表', { exact: true }).tap();
@@ -133,7 +115,7 @@ test('golden export downloads the exact pretty package and re-imports through th
 test('oversize export reports the 1 MiB error and keeps the editor usable', {
   session: 'admin',
 }, async ({ app, screen, browser }) => {
-  // 60 万个汉字（UTF-8 约 1.7 MiB）同时出现在 agent 与 workspace.claudeMd，
+  // 60 万个汉字（UTF-8 约 1.7 MiB）写入 CLAUDE.md 与 agent 行，
   // 导出必然超过 1 MiB；直写数据库绕开导入请求体上限。
   const fixture = await seed('提'.repeat(600_000));
 
@@ -141,12 +123,12 @@ test('oversize export reports the 1 MiB error and keeps the editor usable', {
   await screen.getByRole('button', `配置 ${fixture.name}`).tap();
 
   await screen.getByRole('button', '更多操作').tap();
-  await screen.getByRole('menuitem', '导出 JSON').tap();
+  await screen.getByRole('menuitem', '导出 ZIP').tap();
 
   await expect(screen.getByText('专家包超过 1 MiB', { exact: false }).first()).toBeVisible();
   // 失败不导航、不关闭编辑器；触发器恢复可再次点击。
   await expect(browser).toHaveURL(new RegExp(`/agents/${fixture.id}$`));
   await expect(screen.getByRole('button', '更多操作')).toBeEnabled();
   await screen.getByRole('button', '更多操作').tap();
-  await expect(screen.getByRole('menuitem', '导出 JSON')).toBeEnabled();
+  await expect(screen.getByRole('menuitem', '导出 ZIP')).toBeEnabled();
 });

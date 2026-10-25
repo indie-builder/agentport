@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { fail } from '@agentport/core';
-import { and, asc, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentRuns, agents, conversations, messages } from '../schema.js';
@@ -23,6 +24,16 @@ export interface RunPatch {
   error?: string | null;
   costUsd?: string | null;
   turns?: number | null;
+}
+
+/**
+ * 准入时从 DB 读出的续聊状态。worker 只拿 job 里的 id，用它决定
+ * 本次是空会话、resume 还是先 fork 再 resume。
+ */
+export interface ConversationSdkState {
+  sdkSessionId: string | null;
+  /** 分支建立时记录的待分叉历史点；非空表示本轮必须先 fork。 */
+  forkFromSdkMessageUuid: string | null;
 }
 
 // id 由调用方生成（TypeID），db 层只负责持久化。
@@ -221,9 +232,6 @@ export async function insertMessages(db: Database | Tx, rows: MessageInsert[]): 
   }
 }
 
-const HISTORY_LIMIT = 20;
-const HISTORY_TEXT_LIMIT = 2_000;
-
 /** 消息正文只在 content.text 里；tool 消息没有该字段。 */
 export function messageText(content: unknown): string | null {
   if (typeof content !== 'object' || content === null || !('text' in content)) return null;
@@ -231,42 +239,41 @@ export function messageText(content: unknown): string | null {
 }
 
 /**
- * 新 run 的上下文恢复：沙盒每次都是新容器，SDK 的 session resume 不可用，
- * 只能把最近 N 条 user/assistant 文本拼进 prompt。tool 消息体积不可控，跳过。
+ * 续聊状态：worker 只拿到 job 里的 id，靠这里决定空会话 / resume / 先 fork。
+ * 分支会话在首轮运行前 sdkSessionId 仍指向来源会话，fork 完成后由运行收尾改写。
  */
-export async function getHistoryForPrompt(
+export async function getConversationSdkState(
   db: Database | Tx,
   conversationId: string,
-): Promise<string | null> {
-  const rows = await db
-    .select({ role: messages.role, content: messages.content })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        inArray(messages.role, ['user', 'assistant']),
-      ),
-    )
-    .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(HISTORY_LIMIT);
-
-  const lines = rows
-    .reverse()
-    .map((row) => {
-      const text = messageText(row.content)?.trim();
-      if (!text) return null;
-      const clipped =
-        text.length > HISTORY_TEXT_LIMIT ? `${text.slice(0, HISTORY_TEXT_LIMIT)}…` : text;
-      return `${row.role === 'user' ? '用户' : '助手'}：${clipped}`;
+): Promise<ConversationSdkState | null> {
+  const [row] = await db
+    .select({
+      sdkSessionId: conversations.sdkSessionId,
+      forkFromSdkMessageUuid: conversations.forkFromSdkMessageUuid,
     })
-    .filter((line): line is string => line !== null);
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  if (!row) return null;
+  return row;
+}
 
-  return lines.length > 0 ? lines.join('\n\n') : null;
+/** 分支首轮需要重映射的页面消息 uuid（该会话已保存、且有 SDK uuid 的那些）。 */
+export async function listConversationMessageUuids(
+  db: Database | Tx,
+  conversationId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ uuid: messages.sdkMessageUuid })
+    .from(messages)
+    .where(and(eq(messages.conversationId, conversationId), isNotNull(messages.sdkMessageUuid)));
+  return rows.flatMap((row) => (row.uuid === null ? [] : [row.uuid]));
 }
 
 /**
- * 从原会话复制消息到新会话。fromMessageId 为空时复制全部；
- * 原会话或分支点消息不存在时返回 null。
+ * 从原会话复制消息到新会话，并把新会话指向来源 SDK 会话与分叉点：
+ * 首次运行时先 fork 到该点，再继续对话。fromMessageId 为空时复制全部；
+ * 原会话、分支点或 SDK 会话缺失时抛业务错误（没有文本历史回退）。
  */
 export async function branchConversation(
   db: Database,
@@ -283,6 +290,18 @@ export async function branchConversation(
     if (cutoffIndex < 0) return null;
   }
   const copy = rows.slice(0, cutoffIndex + 1);
+  const forkPoint = copy.at(-1)?.sdkMessageUuid ?? null;
+  // 非空历史必须能对应到 SDK transcript：否则只能拼文本，而平台已不保留该路径。
+  if (copy.length > 0 && source.sdkSessionId === null) {
+    fail('CONFLICT', '该会话还没有可用的 SDK 会话记录，无法按历史点分支；请重新对话后再试');
+  }
+  if (copy.length > 0 && !copy.every((row) => row.sdkMessageUuid !== null)) {
+    // 旧版本会话的消息永远拿不到 uuid；不要把「等运行完成」当成可解决的问题。
+    fail(
+      'CONFLICT',
+      '该会话的历史消息没有 SDK 会话记录（来自旧版本或 SDK 会话已丢失），无法按历史点分支',
+    );
+  }
 
   const [conversation] = await db
     .insert(conversations)
@@ -292,6 +311,9 @@ export async function branchConversation(
       title: input.title ?? source.title,
       parentId: source.id,
       branchOfMessageId: copy.at(-1)?.id ?? null,
+      // 分叉前仍指向来源会话；首轮运行 fork 成功后改写为新 session。
+      sdkSessionId: source.sdkSessionId,
+      forkFromSdkMessageUuid: forkPoint,
     })
     .returning();
   if (!conversation) throw new Error('conversation insert returned no row');
@@ -305,6 +327,8 @@ export async function branchConversation(
         role: row.role,
         content: row.content,
         runId: null,
+        // 复制的是来源会话的 uuid；fork 后由运行收尾统一重映射到新 session。
+        sdkMessageUuid: row.sdkMessageUuid,
         createdAt: row.createdAt,
       })),
     );
@@ -381,7 +405,14 @@ export async function listConversations(
 
 export async function appendMessage(
   db: Database | Tx,
-  input: { id: string; conversationId: string; role: string; content: unknown; runId?: string },
+  input: {
+    id: string;
+    conversationId: string;
+    role: string;
+    content: unknown;
+    runId?: string;
+    sdkMessageUuid?: string;
+  },
 ): Promise<Message> {
   const [row] = await db
     .insert(messages)
@@ -391,6 +422,7 @@ export async function appendMessage(
       role: input.role,
       content: input.content,
       runId: input.runId ?? null,
+      ...(input.sdkMessageUuid === undefined ? {} : { sdkMessageUuid: input.sdkMessageUuid }),
     })
     .returning();
   if (!row) throw new Error('message insert returned no row');
@@ -436,7 +468,8 @@ export async function admitChatRun(
   run: AgentRun;
   conversationId: string;
   inherited: string[];
-  history: string | null;
+  /** 本轮用户消息的 SDK uuid；runner 用它发送首条用户消息。 */
+  userMessageUuid: string;
 }> {
   return db.transaction(async (tx) => {
     // 锁序：先 agents 再 conversations；反向会和 agent_runs 的外键检查形成删除死锁。
@@ -490,18 +523,47 @@ export async function admitChatRun(
     });
     // 批准原先绑定单次 run；重发消息会新建 run，这里把上一 run 的已批准工具带过来。
     const inherited = await inheritApprovals(tx, { conversationId, runId: run.id });
-    // 在写入本条消息前取历史，避免把当前输入重复拼进上下文。
-    const history = await getHistoryForPrompt(tx, conversationId);
+    // 页面消息的 SDK 身份由平台生成：runner 用它发首条用户消息，后续按点 fork 依赖它。
+    const userMessageUuid = randomUUID();
     await appendMessage(tx, {
       id: newId('message'),
       conversationId,
       role: 'user',
       content: { type: 'text', text: input.message },
       runId: run.id,
+      sdkMessageUuid: userMessageUuid,
     });
 
-    return { run, conversationId, inherited, history };
+    return { run, conversationId, inherited, userMessageUuid };
   });
+}
+
+/** 运行收尾：同一事务里更新会话的 SDK 状态并重映射消息 uuid（fork 会换 uuid）。 */
+export async function saveSdkState(
+  db: Database | Tx,
+  input: {
+    conversationId: string;
+    sdkSessionId: string;
+    /** fork 前的旧 uuid → 新 uuid；非 fork 轮为空。 */
+    uuidMap?: Array<{ from: string; to: string }>;
+  },
+): Promise<void> {
+  await db
+    .update(conversations)
+    .set({ sdkSessionId: input.sdkSessionId, forkFromSdkMessageUuid: null })
+    .where(eq(conversations.id, input.conversationId));
+  if (input.uuidMap === undefined || input.uuidMap.length === 0) return;
+  const map = sql.join(
+    input.uuidMap.map(({ from, to }) => sql`(${from}::text, ${to}::text)`),
+    sql`, `,
+  );
+  await db.execute(sql`
+    update ${messages} m
+    set sdk_message_uuid = v.to_uuid
+    from (values ${map}) as v(from_uuid, to_uuid)
+    where m.conversation_id = ${input.conversationId}
+      and m.sdk_message_uuid = v.from_uuid
+  `);
 }
 
 export async function getRun(db: Database, runId: string): Promise<AgentRun | null> {

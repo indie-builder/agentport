@@ -14,15 +14,15 @@
     "@agentport/core": "workspace:*",
     "@agentport/db": "workspace:*",
     "@agentport/shared": "workspace:*",
-    "bullmq": "6.3.17",
-    "drizzle-orm": "0.45.4",
-    "effect": "4.0.5",
-    "ioredis": "6.0.0",
-    "pino": "10.4.0",
-    "zod": "4.6.7"
+    "bullmq": "catalog:",
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:",
+    "ioredis": "catalog:",
+    "pino": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/node": "24.10.1",
-    "tsx": "4.23.15"
+    "@types/node": "catalog:",
+    "tsx": "catalog:"
   }
 }

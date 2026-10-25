@@ -1,0 +1,1255 @@
+import { randomBytes } from 'node:crypto';
+import type { Agent, Server, Skill } from '@agentport/shared';
+import { AGENT_PACKAGE_MAX_BYTES, AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
+import type { FastifyInstance } from 'fastify';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  cleanup,
+  createAgent,
+  expectProblem,
+  infraReady,
+  inject,
+  injectZip,
+  loginCookie,
+  startApp,
+  unique,
+} from './helpers.js';
+import {
+  packageFiles,
+  packageZip,
+  packageZipStored,
+  rawZip,
+  sidecarOf,
+  unzipPackage,
+} from './package-fixtures.js';
+
+const ready = await infraReady;
+
+const GENERATED_BASE_URL = 'https://jsonplaceholder.typicode.com';
+
+interface AgentImportResult {
+  agent: Agent;
+  createdServers: string[];
+  reusedServers: string[];
+  createdSkills: string[];
+  createdSubAgents: string[];
+  warnings: string[];
+}
+
+interface PortableTool {
+  name: string;
+  description: string;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  pathTemplate: string;
+  inputSchema: Record<string, unknown>;
+  paramsIn: 'query' | 'body';
+  requiresApproval: boolean;
+  enabled: boolean;
+}
+
+interface ApiToolResponse extends PortableTool {
+  id: string;
+  serverId: string;
+  createdAt: string;
+}
+
+function makeTool(overrides: Partial<PortableTool> & { name: string }): PortableTool {
+  return {
+    description: '',
+    method: 'GET',
+    pathTemplate: `/${overrides.name}`,
+    inputSchema: { type: 'object', properties: {} },
+    paramsIn: 'query',
+    requiresApproval: false,
+    enabled: true,
+    ...overrides,
+  };
+}
+
+function portable(tool: PortableTool): PortableTool {
+  const {
+    name,
+    description,
+    method,
+    pathTemplate,
+    inputSchema,
+    paramsIn,
+    enabled,
+    requiresApproval,
+  } = tool;
+  return {
+    name,
+    description,
+    method,
+    pathTemplate,
+    inputSchema,
+    paramsIn,
+    enabled,
+    requiresApproval,
+  };
+}
+
+const sortByName = <T extends { name: string }>(items: T[]): T[] =>
+  [...items].sort((a, b) => a.name.localeCompare(b.name));
+
+describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => {
+  let app: FastifyInstance;
+  let cookie: string;
+  const createdAgents: string[] = [];
+  const createdServers: string[] = [];
+  const createdSkills: string[] = [];
+
+  beforeAll(async () => {
+    app = await startApp();
+    cookie = await loginCookie(app);
+  });
+
+  afterAll(async () => {
+    await cleanup(app, {
+      agentSlugs: createdAgents,
+      serverNames: createdServers,
+      skillSlugs: createdSkills,
+    });
+    await app.close();
+  });
+
+  const exportAgent = (id: string) => injectZip(app, 'GET', `/api/export/agents/${id}`, cookie);
+  const exportFiles = async (id: string): Promise<Map<string, string>> => {
+    const res = await exportAgent(id);
+    expect(res.statusCode, res.body).toBe(200);
+    return unzipPackage(res.rawPayload);
+  };
+  const importZip = (zip: Buffer, query = '') =>
+    injectZip(app, 'POST', `/api/import/agents${query}`, cookie, zip);
+  const listAgents = async (): Promise<Agent[]> => {
+    const res = await inject(app, { method: 'GET', url: '/api/agents', headers: { cookie } });
+    expect(res.statusCode, res.body).toBe(200);
+    return res.json<Agent[]>();
+  };
+  const serverByName = async (name: string): Promise<Server | undefined> => {
+    const res = await inject(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    return res.json<Server[]>().find((server) => server.name === name);
+  };
+  const createToolFor = async (serverId: string, tool: PortableTool): Promise<ApiToolResponse> => {
+    const res = await inject(app, {
+      method: 'POST',
+      url: `/api/servers/${serverId}/tools`,
+      headers: { cookie },
+      payload: tool,
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const created = res.json<ApiToolResponse>();
+    if (tool.enabled) return created;
+    const disabled = await inject(app, {
+      method: 'PATCH',
+      url: `/api/servers/${serverId}/tools/${created.id}`,
+      headers: { cookie },
+      payload: { enabled: false },
+    });
+    expect(disabled.statusCode, disabled.body).toBe(200);
+    return disabled.json<ApiToolResponse>();
+  };
+  const listTools = async (serverId: string): Promise<ApiToolResponse[]> => {
+    const res = await inject(app, {
+      method: 'GET',
+      url: `/api/servers/${serverId}/tools`,
+      headers: { cookie },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    return res.json<ApiToolResponse[]>();
+  };
+
+  it('exports a ZIP whose only definition is official .claude files', async () => {
+    const slug = unique('pkg-zip');
+    const skillSlug = unique('pkg-zip-skill');
+    createdAgents.push(slug);
+    createdSkills.push(skillSlug);
+
+    const skill = await inject(app, {
+      method: 'POST',
+      url: '/api/skills',
+      headers: { cookie },
+      payload: {
+        slug: skillSlug,
+        name: '包技能',
+        description: '包含 "引号"',
+        body: '# 步骤\n\n第一行 "x"\n第二行',
+      },
+    });
+    expect(skill.statusCode, skill.body).toBe(201);
+    const created = await createAgent(app, cookie, { slug, track: createdAgents });
+    const agentId = created.json<{ id: string }>().id;
+    const prompt = '你是助手。\n包含 "引号"、\\反斜杠 与 🚀\n第二行';
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agentId}`,
+      headers: { cookie },
+      payload: { systemPrompt: prompt, skillIds: [skill.json<{ id: string }>().id] },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+
+    const res = await exportAgent(agentId);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^application\/zip/);
+    expect(res.headers['content-disposition']).toBe(`attachment; filename="${slug}.zip"`);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.rawPayload.byteLength).toBeLessThanOrEqual(AGENT_PACKAGE_MAX_BYTES);
+
+    const files = unzipPackage(res.rawPayload);
+    // 正文只在官方文件里；侧车不带 prompt / 技能正文。
+    expect(files.get('CLAUDE.md')).toContain(prompt);
+    expect(files.get(`.claude/skills/${skillSlug}/SKILL.md`)).toContain('# 步骤');
+    const sidecarText = files.get(AGENT_PACKAGE_SIDECAR) ?? '';
+    expect(sidecarText).not.toContain(prompt);
+    expect(sidecarText).not.toContain('# 步骤');
+    expect(sidecarOf(files).agent).toMatchObject({ slug, name: `Agent ${slug}` });
+
+    const reimport = await importZip(res.rawPayload);
+    expect(reimport.statusCode, reimport.body).toBe(201);
+    const result = reimport.json<AgentImportResult>();
+    createdAgents.push(result.agent.slug);
+    expect(result.agent.slug).toBe(`${slug}-2`);
+    expect(result.agent.systemPrompt).toBe(prompt);
+    expect(result.warnings.some((warning) => warning.includes(`导入为 "${slug}-2"`))).toBe(true);
+  });
+
+  it('rejects an export whose ZIP exceeds 1 MiB instead of truncating it', async () => {
+    const slug = unique('pkg-big');
+    const skillSlug = unique('pkg-big-skill');
+    createdAgents.push(slug);
+    createdSkills.push(skillSlug);
+    const created = await createAgent(app, cookie, { slug, track: createdAgents });
+    // 随机内容不可压缩：官方文件合起来真实超过 1 MiB，才能验证导出端拒绝而不是截断。
+    // 单个请求仍低于 1 MiB 的 JSON 上限，所以只能由导出端拦截。
+    const skill = await inject(app, {
+      method: 'POST',
+      url: '/api/skills',
+      headers: { cookie },
+      payload: {
+        slug: skillSlug,
+        name: 'Big skill',
+        description: 'big',
+        body: randomBytes(500_000).toString('base64'),
+      },
+    });
+    expect(skill.statusCode, skill.body).toBe(201);
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${created.json<{ id: string }>().id}`,
+      headers: { cookie },
+      payload: {
+        systemPrompt: randomBytes(600_000).toString('base64'),
+        skillIds: [skill.json<{ id: string }>().id],
+      },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+
+    const res = await exportAgent(created.json<{ id: string }>().id);
+    const problem = expectProblem(res, 'CONFLICT');
+    expect(problem.message).toContain('1 MiB');
+  });
+
+  it('imports an official directory, creating missing servers and skills', async () => {
+    const slug = unique('imp');
+    const serverName = unique('imp-srv');
+    const skillSlug = unique('imp-skill');
+    createdAgents.push(slug);
+    createdServers.push(serverName);
+    createdSkills.push(skillSlug);
+
+    const res = await importZip(
+      packageZip({
+        agent: {
+          slug,
+          name: `Imported ${slug}`,
+          description: 'from a file',
+          systemPrompt: 'You are imported.',
+          serverNames: [serverName],
+          skillSlugs: [skillSlug],
+        },
+        servers: [
+          {
+            name: serverName,
+            kind: 'stdio',
+            description: 'local tools',
+            secretKeys: [],
+            command: 'npx',
+            args: ['-y', 'some-mcp'],
+          },
+        ],
+        skills: [
+          { slug: skillSlug, name: 'Imported Skill', description: 'does things', body: '# steps' },
+        ],
+      }),
+    );
+
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.agent).toMatchObject({
+      slug,
+      name: `Imported ${slug}`,
+      description: 'from a file',
+      role: '通用助手',
+      model: 'claude-sonnet-5-5',
+      maxTurns: 20,
+      serverIds: [expect.any(String)],
+      skillIds: [expect.any(String)],
+    });
+    expect(body.createdServers).toEqual([serverName]);
+    expect(body.reusedServers).toEqual([]);
+    expect(body.createdSkills).toEqual([skillSlug]);
+    expect(body.warnings).toEqual([]);
+    expect((await listAgents()).some((agent) => agent.id === body.agent.id)).toBe(true);
+  });
+
+  it('keeps a supported role and rejects an unsupported one', async () => {
+    const slug = unique('imp-role');
+    const badSlug = unique('imp-bad-role');
+    createdAgents.push(slug);
+
+    const ok = await importZip(packageZip({ agent: { slug, name: slug, role: '数据分析师' } }));
+    expect(ok.statusCode, ok.body).toBe(201);
+    expect(ok.json<AgentImportResult>().agent.role).toBe('数据分析师');
+
+    const bad = await importZip(
+      packageZip({
+        agent: {
+          slug: badSlug,
+          name: badSlug,
+          // 绕过类型：构造历史岗位值，导入必须拒绝。
+          role: '历史自定义岗位' as '通用助手',
+        },
+      }),
+    );
+    const problem = expectProblem(bad, 'INVALID_INPUT');
+    expect(problem.message).toMatch(/角色|岗位|role/i);
+  });
+
+  it('reuses an existing server by name and refuses a different kind', async () => {
+    const serverName = unique('imp-reuse');
+    const slug = unique('imp-reuse');
+    const kindSlug = unique('imp-kind');
+    const kindName = unique('imp-kind');
+    createdServers.push(serverName, kindName);
+    createdAgents.push(slug, kindSlug);
+
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/servers',
+      headers: { cookie },
+      payload: { name: serverName, kind: 'http', url: 'https://example.com/mcp' },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const reused = await importZip(
+      packageZip({
+        agent: { slug, name: slug, serverNames: [serverName] },
+        servers: [
+          { name: serverName, kind: 'http', url: 'https://example.com/mcp', secretKeys: [] },
+        ],
+      }),
+    );
+    expect(reused.statusCode, reused.body).toBe(201);
+    const body = reused.json<AgentImportResult>();
+    expect(body.reusedServers).toEqual([serverName]);
+    expect(body.createdServers).toEqual([]);
+    expect(body.agent.serverIds).toEqual([created.json<Server>().id]);
+
+    const stdio = await inject(app, {
+      method: 'POST',
+      url: '/api/servers',
+      headers: { cookie },
+      payload: { name: kindName, kind: 'stdio', command: 'node', args: [] },
+    });
+    expect(stdio.statusCode).toBe(201);
+    const conflict = await importZip(
+      packageZip({
+        agent: { slug: kindSlug, name: kindSlug, serverNames: [kindName] },
+        servers: [{ name: kindName, kind: 'http', url: 'https://example.com/mcp', secretKeys: [] }],
+      }),
+    );
+    expect(conflict.statusCode).toBe(400);
+  });
+
+  it('rejects a server pointing at a private address without partial writes', async () => {
+    const res = await importZip(
+      packageZip({
+        agent: { slug: unique('imp-ssrf'), name: 'ssrf' },
+        servers: [
+          {
+            name: unique('imp-ssrf-srv'),
+            kind: 'http',
+            url: 'http://10.0.0.1/mcp',
+            secretKeys: [],
+          },
+        ],
+      }),
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('renames a conflicting slug and explains it in warnings', async () => {
+    const slug = unique('imp-dup');
+    createdAgents.push(slug, `${slug}-2`);
+    const first = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: { cookie },
+      payload: { slug, name: `Existing ${slug}` },
+    });
+    expect(first.statusCode).toBe(201);
+
+    const res = await importZip(packageZip({ agent: { slug, name: `Imported ${slug}` } }));
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.agent.slug).toBe(`${slug}-2`);
+    expect(body.agent.name).toBe(`Imported ${slug}`);
+    expect(body.warnings.some((warning) => warning.includes(`${slug}-2`))).toBe(true);
+  });
+
+  it('rejects forbidden allowed tools without creating anything', async () => {
+    const slug = unique('imp-tool');
+    createdAgents.push(slug);
+    const res = await importZip(
+      packageZip({ agent: { slug, name: slug, allowedTools: ['mcp__ok__*', 'Monitor'] } }),
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('Monitor');
+    expect((await listAgents()).some((agent) => agent.slug === slug)).toBe(false);
+  });
+
+  it('rejects a legacy JSON package', async () => {
+    const res = await inject(app, {
+      method: 'POST',
+      url: '/api/import/agents',
+      headers: { cookie, 'content-type': 'application/zip' },
+      payload: Buffer.from(
+        JSON.stringify({ format: 'agentport/agent@1', agent: { slug: 'x', name: 'X' } }),
+      ),
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects unsafe archives: absolute, .., backslash, duplicates, symlinks and bombs', async () => {
+    const cases: Array<{ label: string; zip: Buffer }> = [
+      { label: 'absolute path', zip: rawZip([{ name: '/etc/CLAUDE.md', content: 'x' }]) },
+      {
+        label: 'parent traversal',
+        zip: rawZip([{ name: 'CLAUDE.md' }, { name: '../escape.md', content: 'x' }]),
+      },
+      {
+        label: 'backslash',
+        zip: rawZip([{ name: 'CLAUDE.md' }, { name: 'a\\b.md', content: 'x' }]),
+      },
+      {
+        label: 'symlink',
+        zip: rawZip([
+          { name: 'CLAUDE.md' },
+          { name: 'link.md', content: '/etc/passwd', mode: 0o120777 },
+        ]),
+      },
+      {
+        label: 'unknown capability path',
+        zip: rawZip([{ name: 'CLAUDE.md' }, { name: '.claude/hooks/x.sh', content: 'rm -rf /' }]),
+      },
+    ];
+    for (const { label, zip } of cases) {
+      const res = await importZip(zip);
+      expect(res.statusCode, `${label}: ${res.body}`).toBe(400);
+      expectProblem(res, 'INVALID_INPUT');
+    }
+
+    // 声明解压后超大：不真正解压就拒绝。
+    const bomb = rawZip([{ name: 'CLAUDE.md' }]);
+    const original = bomb.indexOf('CLAUDE.md');
+    // 把中央目录里的原始大小改成 0x00ffffff，模拟 zip bomb 声明。
+    const central = bomb.lastIndexOf('PK\x01\x02');
+    bomb.writeUInt32LE(0x00ffffff, central + 24);
+    expect(original).toBeGreaterThan(0);
+    expectProblem(await importZip(bomb), 'INVALID_INPUT');
+  });
+
+  it('accepts a package without sidecar using the query slug', async () => {
+    const slug = unique('imp-nosidecar');
+    createdAgents.push(slug);
+    const files = packageFiles({
+      agent: { slug: 'ignored', name: 'Plain official dir', systemPrompt: 'Plain prompt.' },
+      omitSidecar: true,
+    });
+    // 侧车缺失时连接器绑定无法推断：带 .mcp.json 条目的目录必须明确拒绝。
+    const withMcp = {
+      ...files,
+      '.mcp.json': JSON.stringify({
+        mcpServers: { legacy: { type: 'http', url: 'https://x.test' } },
+      }),
+    };
+    expectProblem(
+      await importZip(
+        rawZip(Object.entries(withMcp).map(([name, content]) => ({ name, content }))),
+        `?slug=${slug}`,
+      ),
+      'INVALID_INPUT',
+    );
+    const zip = rawZip(Object.entries(files).map(([name, content]) => ({ name, content })));
+
+    const missing = await importZip(zip);
+    expect(missing.statusCode).toBe(400);
+
+    const res = await importZip(zip, `?slug=${slug}&name=Plain`);
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.agent).toMatchObject({ slug, name: 'Plain', systemPrompt: 'Plain prompt.' });
+  });
+
+  it('round-trips generated tools, bindings and secret keys', async () => {
+    const sourceName = unique('pkg-gen-src');
+    const importedName = unique('pkg-gen-dst');
+    const sourceSlug = unique('pkg-gen-src');
+    const importedSlug = unique('pkg-gen-dst');
+    const secretValue = `Bearer ${unique('pkg-gen-secret')}`;
+    createdServers.push(sourceName, importedName);
+    createdAgents.push(importedSlug);
+
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/servers',
+      headers: { cookie },
+      payload: {
+        name: sourceName,
+        kind: 'generated',
+        baseUrl: GENERATED_BASE_URL,
+        headers: { Authorization: secretValue },
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const sourceServer = created.json<Server>();
+
+    const tools: PortableTool[] = [
+      makeTool({ name: 'list-users', description: 'list users' }),
+      makeTool({
+        name: 'create-user',
+        method: 'POST',
+        pathTemplate: '/users',
+        inputSchema: { type: 'object', properties: { name: { type: 'string' } } },
+        paramsIn: 'body',
+        requiresApproval: true,
+      }),
+      makeTool({
+        name: 'delete-user',
+        method: 'DELETE',
+        pathTemplate: '/users/{id}',
+        enabled: false,
+      }),
+    ];
+    const sourceTools: ApiToolResponse[] = [];
+    for (const tool of tools) sourceTools.push(await createToolFor(sourceServer.id, tool));
+
+    const sourceAgent = (
+      await createAgent(app, cookie, {
+        slug: sourceSlug,
+        serverIds: [sourceServer.id],
+        track: createdAgents,
+      })
+    ).json<Agent>();
+
+    const files = await exportFiles(sourceAgent.id);
+    const exported = sidecarOf(files);
+    const sourceEntry = exported.servers.find((entry) => entry.name === sourceName);
+    if (sourceEntry?.kind !== 'generated') {
+      throw new Error('export did not include the generated server');
+    }
+    expect(sortByName(sourceEntry.tools ?? []).map(portable)).toEqual(
+      sortByName(tools).map(portable),
+    );
+
+    // mcpToken 与加密列里的值都不能写入导出包。
+    const tokenRow = await app.pool.query<{ token: string | null }>(
+      "select config->>'mcpToken' as token from servers where name = $1",
+      [sourceName],
+    );
+    const sourceToken = tokenRow.rows[0]?.token ?? '';
+    expect(sourceToken).not.toBe('');
+    expect(sourceEntry).not.toHaveProperty('mcpToken');
+    expect(sourceEntry.secretKeys).toEqual(['Authorization']);
+    const rawFiles = [...files.values()].join('\n');
+    expect(rawFiles).not.toContain(sourceToken);
+    expect(rawFiles).not.toContain(secretValue);
+
+    // 目标实例换新名字，工具定义仍在包里。
+    sourceEntry.name = importedName;
+    exported.agent.slug = importedSlug;
+    exported.agent.name = `Imported ${importedSlug}`;
+    exported.agent.serverNames = [importedName];
+    const zip = rawZip(
+      [...files].map(([name, content]) => ({
+        name,
+        content:
+          name === AGENT_PACKAGE_SIDECAR ? `${JSON.stringify(exported, null, 2)}\n` : content,
+      })),
+    );
+
+    const res = await importZip(zip);
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.agent.slug).toBe(importedSlug);
+    expect(body.agent.id).not.toBe(sourceAgent.id);
+    expect(body.createdServers).toEqual([importedName]);
+    expect(body.warnings.some((warning) => warning.includes('Authorization'))).toBe(true);
+
+    const importedServer = await serverByName(importedName);
+    if (importedServer?.kind !== 'generated') {
+      throw new Error('import did not create the generated server');
+    }
+    expect(importedServer.id).not.toBe(sourceServer.id);
+    expect(body.agent.serverIds).toEqual([importedServer.id]);
+    expect(importedServer.baseUrl).toBe(GENERATED_BASE_URL);
+    expect(importedServer.headers).toEqual({});
+
+    const importedTools = await listTools(importedServer.id);
+    expect(sortByName(importedTools).map(portable)).toEqual(sortByName(tools).map(portable));
+    const sourceToolIds = new Set(sourceTools.map((tool) => tool.id));
+    for (const tool of importedTools) {
+      expect(tool.serverId).toBe(importedServer.id);
+      expect(sourceToolIds.has(tool.id)).toBe(false);
+    }
+
+    // 导入必须生成新的 mcpToken，且响应里不能出现任何 token。
+    const importedTokenRow = await app.pool.query<{ token: string | null }>(
+      "select config->>'mcpToken' as token from servers where name = $1",
+      [importedName],
+    );
+    const importedToken = importedTokenRow.rows[0]?.token ?? '';
+    expect(importedToken).not.toBe('');
+    expect(importedToken).not.toBe(sourceToken);
+    expect(res.body).not.toContain(importedToken);
+    expect(res.body).not.toContain(secretValue);
+    expect(sortByName(await listTools(sourceServer.id)).map(portable)).toEqual(
+      sortByName(tools).map(portable),
+    );
+  });
+
+  it('warns about drift on a reused server and keeps its secrets', async () => {
+    const slug = unique('imp-drift');
+    const serverName = unique('imp-drift-srv');
+    createdAgents.push(slug);
+    createdServers.push(serverName);
+
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/servers',
+      headers: { cookie },
+      payload: {
+        name: serverName,
+        kind: 'http',
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer existing' },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const res = await importZip(
+      packageZip({
+        agent: { slug, name: slug, serverNames: [serverName] },
+        servers: [
+          {
+            name: serverName,
+            kind: 'http',
+            url: 'https://example.com/other',
+            secretKeys: ['Authorization'],
+          },
+        ],
+      }),
+    );
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.reusedServers).toEqual([serverName]);
+    expect(body.warnings.some((warning) => warning.includes('配置与导入包不同'))).toBe(true);
+    expect(body.warnings.some((warning) => warning.includes('Authorization'))).toBe(false);
+
+    const existing = await serverByName(serverName);
+    expect(existing?.kind === 'http' ? existing.url : undefined).toBe('https://example.com/mcp');
+    const row = await app.pool.query<{ secrets_encrypted: string | null }>(
+      'select secrets_encrypted from servers where name = $1',
+      [serverName],
+    );
+    expect(row.rows[0]?.secrets_encrypted).not.toBeNull();
+  });
+
+  it('never writes secret values and warns about secret keys', async () => {
+    const slug = unique('imp-secret');
+    const serverName = unique('imp-secret-srv');
+    createdAgents.push(slug);
+    createdServers.push(serverName);
+
+    const res = await importZip(
+      packageZip({
+        agent: { slug, name: slug, serverNames: [serverName] },
+        servers: [
+          {
+            name: serverName,
+            kind: 'stdio',
+            command: 'node',
+            secretKeys: ['API_KEY', 'TOKEN'],
+          },
+        ],
+      }),
+    );
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.warnings).toHaveLength(1);
+    expect(body.warnings[0]).toContain('API_KEY');
+    expect(body.warnings[0]).toContain('TOKEN');
+
+    const row = await app.pool.query<{ secrets_encrypted: string | null }>(
+      'select secrets_encrypted from servers where name = $1',
+      [serverName],
+    );
+    expect(row.rows[0]?.secrets_encrypted).toBeNull();
+    const servers = await inject(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
+    const imported = servers.json<Server[]>().find((server) => server.name === serverName);
+    expect(imported?.kind === 'stdio' ? imported.env : imported?.headers).toEqual({});
+  });
+
+  it('reuses skills, preserving content and warning about drift', async () => {
+    const slug = unique('imp-skill-reuse');
+    const skillSlug = unique('imp-existing-skill');
+    const targetSlug = unique('imp-skill-target');
+    createdAgents.push(slug, targetSlug);
+    createdSkills.push(skillSlug);
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/skills',
+      headers: { cookie },
+      payload: { slug: skillSlug, name: 'Existing', description: 'already here' },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const res = await importZip(
+      packageZip({
+        agent: { slug, name: slug, skillSlugs: [skillSlug] },
+        skills: [{ slug: skillSlug, name: 'Existing', description: 'already here', body: '# new' }],
+      }),
+    );
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.createdSkills).toEqual([]);
+    expect(body.agent.skillIds).toHaveLength(1);
+    expect(body.warnings.some((warning) => warning.includes(skillSlug))).toBe(true);
+    const skills = await inject(app, { method: 'GET', url: '/api/skills', headers: { cookie } });
+    expect(skills.json<Skill[]>().filter((skill) => skill.slug === skillSlug)).toHaveLength(1);
+    expect(skills.json<Skill[]>().find((skill) => skill.slug === skillSlug)?.body).toBe('');
+  });
+
+  it('rejects duplicate server names without partial writes', async () => {
+    const slug = unique('imp-dup-srv');
+    const serverName = unique('imp-dup-srv-name');
+    createdAgents.push(slug);
+    createdServers.push(serverName);
+
+    const res = await importZip(
+      packageZip({
+        agent: { slug, name: slug, serverNames: [serverName] },
+        servers: [
+          { name: serverName, kind: 'stdio', command: 'node', secretKeys: [] },
+          { name: serverName, kind: 'stdio', command: 'deno', secretKeys: [] },
+        ],
+      }),
+    );
+    expect(res.statusCode).toBe(400);
+    expect((await listAgents()).some((agent) => agent.slug === slug)).toBe(false);
+    expect(await serverByName(serverName)).toBeUndefined();
+  });
+
+  it('requires auth for import and export', async () => {
+    const imported = await inject(app, {
+      method: 'POST',
+      url: '/api/import/agents',
+      headers: { 'content-type': 'application/zip' },
+      payload: packageZip({ agent: { slug: unique('imp-anon'), name: 'anon' } }),
+    });
+    expect(imported.statusCode).toBe(401);
+
+    const exported = await inject(app, { method: 'GET', url: '/api/export/agents/agt_missing' });
+    expect(exported.statusCode).toBe(401);
+  });
+
+  it('round-trips root and child rules, output styles and skill resources', async () => {
+    const sourceSlug = unique('pkg-tree-src');
+    const childSlug = unique('pkg-tree-child');
+    const skillSlug = unique('pkg-tree-skill');
+    const targetSlug = unique('pkg-tree-dst');
+    createdAgents.push(sourceSlug, childSlug, targetSlug);
+    createdSkills.push(skillSlug);
+
+    const spec = {
+      agent: {
+        slug: sourceSlug,
+        name: 'Portable root',
+        systemPrompt: 'Root prompt.',
+        skillSlugs: [skillSlug],
+        effort: 'high' as const,
+        maxThinkingTokens: 2048,
+      },
+      rules: [{ slug: 'root-rule', content: 'Keep root rules.', globs: 'src/**,test/**' }],
+      outputStyles: [
+        {
+          slug: 'brief',
+          description: 'Brief',
+          keepCodingInstructions: true,
+          body: 'Be brief.',
+          isSelected: true,
+        },
+        {
+          slug: 'verbose',
+          description: 'Verbose',
+          keepCodingInstructions: false,
+          body: 'Explain.',
+          isSelected: false,
+        },
+      ],
+      subAgents: [
+        {
+          slug: childSlug,
+          name: 'Portable child',
+          systemPrompt: 'CHILD-PROMPT',
+          skills: [skillSlug],
+          rules: [{ slug: 'child-rule', content: 'Keep child rules.', globs: '' }],
+          outputStyles: [
+            {
+              slug: 'child-style',
+              description: 'Child',
+              keepCodingInstructions: false,
+              body: 'Child voice.',
+              isSelected: true,
+            },
+          ],
+        },
+      ],
+      skills: [
+        {
+          slug: skillSlug,
+          name: 'Portable skill',
+          description: 'With resources',
+          body: '# Skill steps',
+          files: [
+            { path: 'references/guide.md', content: '# Guide' },
+            { path: 'scripts/run.sh', content: 'true\n' },
+          ],
+        },
+      ],
+    };
+    const source = await importZip(packageZip(spec));
+    expect(source.statusCode, source.body).toBe(201);
+    const sourceResult = source.json<AgentImportResult>();
+
+    const files = await exportFiles(sourceResult.agent.id);
+    expect(files.get('.claude/rules/root-rule.md')).toContain('Keep root rules.');
+    expect(files.get('.claude/output-styles/brief.md')).toContain('Be brief.');
+    expect(JSON.parse(files.get('.claude/settings.json') ?? '{}')).toEqual({
+      outputStyle: 'brief',
+    });
+    expect(files.get(`.claude/skills/${skillSlug}/references/guide.md`)).toBe('# Guide');
+    expect(files.get(`.claude/skills/${skillSlug}/scripts/run.sh`)).toBe('true\n');
+    expect(files.get(`.claude/agents/${childSlug}.md`)).toContain('CHILD-PROMPT');
+    const exported = sidecarOf(files);
+    expect(exported.agent).toMatchObject({ effort: 'high', maxThinkingTokens: 2048 });
+    expect(exported.subAgents[0]).toMatchObject({
+      slug: childSlug,
+      rules: [{ slug: 'child-rule', content: 'Keep child rules.', globs: '' }],
+      outputStyles: [
+        {
+          slug: 'child-style',
+          description: 'Child',
+          keepCodingInstructions: false,
+          body: 'Child voice.',
+          isSelected: true,
+        },
+      ],
+    });
+
+    // 目标实例：改根 slug，导出包里的子定义随根一起迁移。
+    const copy = new Map(files);
+    exported.agent.slug = targetSlug;
+    exported.agent.name = 'Imported root';
+    copy.set(AGENT_PACKAGE_SIDECAR, `${JSON.stringify(exported, null, 2)}\n`);
+    const imported = await importZip(
+      rawZip([...copy].map(([name, content]) => ({ name, content }))),
+    );
+    expect(imported.statusCode, imported.body).toBe(201);
+    const result = imported.json<AgentImportResult>();
+    expect(result.agent.slug).toBe(targetSlug);
+    expect(result.createdSubAgents).toEqual([`${childSlug}-2`]);
+    expect(result.agent.skillIds).toHaveLength(1);
+    expect(result.createdSkills).toEqual([]);
+
+    const roundTrip = await exportFiles(result.agent.id);
+    expect(roundTrip.get('.claude/rules/root-rule.md')).toBe(
+      files.get('.claude/rules/root-rule.md'),
+    );
+    expect(roundTrip.get('.claude/output-styles/brief.md')).toBe(
+      files.get('.claude/output-styles/brief.md'),
+    );
+    expect(roundTrip.get(`.claude/skills/${skillSlug}/references/guide.md`)).toBe('# Guide');
+    const roundTripSidecar = sidecarOf(roundTrip);
+    expect(roundTripSidecar.subAgents[0]?.rules).toEqual(exported.subAgents[0]?.rules);
+    expect(roundTripSidecar.agent).toMatchObject({ effort: 'high', maxThinkingTokens: 2048 });
+  });
+
+  it('rejects invalid skill resource paths and unknown frontmatter before writes', async () => {
+    const cases: Array<{ label: string; files: Record<string, string> }> = [
+      {
+        label: 'unsafe resource path',
+        files: { '.claude/skills/x/references/../../escape.md': 'x' },
+      },
+      {
+        label: 'resource owns SKILL.md',
+        files: { '.claude/skills/x/skill.md': 'x' },
+      },
+      {
+        label: 'unknown skill frontmatter',
+        files: {
+          '.claude/skills/x/SKILL.md':
+            '---\nname: x\ndescription: d\nallowed-tools: Bash\n---\n\n# x',
+        },
+      },
+      {
+        label: 'two selected output styles',
+        files: {
+          '.claude/output-styles/a.md': '---\nname: a\n---\n\nA',
+          '.claude/output-styles/b.md': '---\nname: b\n---\n\nB',
+          '.claude/settings.json': '{"outputStyle":"a","permissions":{}}',
+        },
+      },
+    ];
+    for (const [index, item] of cases.entries()) {
+      const slug = unique(`pkg-invalid-${index}`);
+      createdAgents.push(slug);
+      const spec = packageFiles({
+        agent: { slug, name: slug, skillSlugs: ['x'] },
+        skills: [{ slug: 'x', name: 'X', description: 'd', body: 'body' }],
+        extraFiles: item.files,
+      });
+      const res = await importZip(
+        rawZip(Object.entries(spec).map(([name, content]) => ({ name, content }))),
+      );
+      expect(res.statusCode, `${item.label}: ${res.body}`).toBe(400);
+      expectProblem(res, 'INVALID_INPUT');
+      expect((await listAgents()).some((agent) => agent.slug === slug)).toBe(false);
+    }
+  });
+
+  it('rejects more than 20 children and more than 100 resources on export', async () => {
+    const rootSlug = unique('pkg-many-children');
+    createdAgents.push(rootSlug);
+    const createdRoot = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: { cookie },
+      payload: { slug: rootSlug, name: `Agent ${rootSlug}` },
+    });
+    expect(createdRoot.statusCode, createdRoot.body).toBe(201);
+    const root = createdRoot.json<Agent>();
+
+    const idPrefix = `agt_${unique('many')}_`;
+    const slugPrefix = unique('pkg-child-bulk');
+    for (let index = 1; index <= 21; index += 1) createdAgents.push(`${slugPrefix}-${index}`);
+    await app.pool.query(
+      `insert into agents (id, slug, name, model, system_prompt_md, parent_id)
+       select $1 || g, $2 || '-' || g, 'Bulk child ' || g, 'claude-sonnet-5-5', 'bulk', $3
+       from generate_series(1, 21) g`,
+      [idPrefix, slugPrefix, root.id],
+    );
+    expectProblem(await exportAgent(root.id), 'CONFLICT');
+
+    const resourceSlug = unique('pkg-many-skills');
+    createdAgents.push(resourceSlug);
+    const root2 = (
+      await inject(app, {
+        method: 'POST',
+        url: '/api/agents',
+        headers: { cookie },
+        payload: { slug: resourceSlug, name: `Agent ${resourceSlug}` },
+      })
+    ).json<Agent>();
+    const skillPrefix = unique('pkg-bulk-skill');
+    for (let index = 1; index <= 101; index += 1) createdSkills.push(`${skillPrefix}-${index}`);
+    await app.pool.query(
+      `insert into skills (id, slug, name, description, body)
+       select $1 || g, $2 || '-' || g, 'Bulk skill ' || g, 'bulk', ''
+       from generate_series(1, 101) g`,
+      [`skl_${unique('bulk')}_`, skillPrefix],
+    );
+    await app.pool.query(
+      `insert into agent_skills (agent_id, skill_id)
+       select $1, id from skills where slug like $2`,
+      [root2.id, `${skillPrefix}-%`],
+    );
+    expectProblem(await exportAgent(root2.id), 'CONFLICT');
+  });
+
+  it('rejects stored resource path collisions on export', async () => {
+    const collisionCases: Array<{ label: string; paths: string[] }> = [
+      ...['skill.md', 'SkIlL.mD', 'skill.md/child.md'].map((path) => ({
+        label: `reserved ${path}`,
+        paths: [path],
+      })),
+      { label: 'case-folded duplicate', paths: ['references/A.md', 'references/a.md'] },
+      { label: 'ancestor first', paths: ['refs/A', 'refs/a/child.md'] },
+      { label: 'descendant first', paths: ['refs/a/child.md', 'refs/A'] },
+    ];
+    for (const [index, item] of collisionCases.entries()) {
+      const slug = unique(`pkg-collision-${index}`);
+      const skillSlug = unique(`pkg-collision-skill-${index}`);
+      createdAgents.push(slug);
+      createdSkills.push(skillSlug);
+      const imported = await importZip(
+        packageZip({
+          agent: { slug, name: slug, skillSlugs: [skillSlug] },
+          skills: [{ slug: skillSlug, name: 'Collision', description: 'd', body: '# x' }],
+        }),
+      );
+      expect(imported.statusCode, imported.body).toBe(201);
+      const skill = await app.pool.query<{ id: string }>('select id from skills where slug = $1', [
+        skillSlug,
+      ]);
+      await app.pool.query('delete from skill_files where skill_id = $1', [skill.rows[0]?.id]);
+      for (const path of item.paths) {
+        await app.pool.query(
+          'insert into skill_files (id, skill_id, path, content) values ($1, $2, $3, $4)',
+          [unique('collision-file'), skill.rows[0]?.id, path, 'Conflicting resource.'],
+        );
+      }
+      const exported = await exportAgent(imported.json<AgentImportResult>().agent.id);
+      expectProblem(exported, 'INVALID_INPUT');
+    }
+  });
+
+  it('rejects definition limits on export and import', async () => {
+    const slug = unique('pkg-limits');
+    createdAgents.push(slug);
+    const root = (
+      await inject(app, {
+        method: 'POST',
+        url: '/api/agents',
+        headers: { cookie },
+        payload: { slug, name: slug },
+      })
+    ).json<Agent>();
+    const insertRules = async (count: number) => {
+      await app.pool.query('delete from agent_rules where agent_id = $1', [root.id]);
+      await app.pool.query(
+        `insert into agent_rules (id, agent_id, slug, content, globs)
+         select $1 || g, $2, 'rule-' || g, '', '' from generate_series(1, $3) g`,
+        [`rule_${unique('bulk')}_`, root.id, count],
+      );
+    };
+    await insertRules(51);
+    expectProblem(await exportAgent(root.id), 'CONFLICT');
+    await insertRules(50);
+    expect((await exportAgent(root.id)).statusCode).toBe(200);
+
+    // 导入端同一套上限：51 条规则直接拒绝，且不落库。
+    const importSlug = unique('pkg-limits-import');
+    createdAgents.push(importSlug);
+    const res = await importZip(
+      packageZip({
+        agent: { slug: importSlug, name: importSlug },
+        rules: Array.from({ length: 51 }, (_, index) => ({
+          slug: `rule-${index}`,
+          content: '',
+          globs: '',
+        })),
+      }),
+    );
+    expectProblem(res, 'INVALID_INPUT');
+    expect((await listAgents()).some((agent) => agent.slug === importSlug)).toBe(false);
+  });
+
+  it('reuses a same-name generated server without merging tools and warns', async () => {
+    const serverName = unique('imp-reuse-tools');
+    const sourceSlug = unique('imp-reuse-tools-src');
+    const importedSlug = unique('imp-reuse-tools-dst');
+    createdAgents.push(sourceSlug, importedSlug);
+
+    const server = await inject(app, {
+      method: 'POST',
+      url: '/api/servers',
+      headers: { cookie },
+      payload: { name: serverName, kind: 'generated', baseUrl: GENERATED_BASE_URL },
+    });
+    expect(server.statusCode, server.body).toBe(201);
+    createdServers.push(serverName);
+    const original = await createToolFor(
+      server.json<Server>().id,
+      makeTool({ name: 'keep-me', description: 'existing tool', pathTemplate: '/keep' }),
+    );
+    const sourceAgent = (
+      await createAgent(app, cookie, {
+        slug: sourceSlug,
+        serverIds: [server.json<Server>().id],
+        track: createdAgents,
+      })
+    ).json<Agent>();
+
+    const files = await exportFiles(sourceAgent.id);
+    const sidecar = sidecarOf(files);
+    const entry = sidecar.servers.find((item) => item.name === serverName);
+    if (entry?.kind !== 'generated') throw new Error('export missing generated server');
+    // 同名 server 被复用时，包里的工具不能被合并进去。
+    entry.tools = [...(entry.tools ?? []), makeTool({ name: 'incoming', pathTemplate: '/new' })];
+    sidecar.agent.slug = importedSlug;
+    const res = await importZip(
+      rawZip(
+        [...files].map(([name, content]) => ({
+          name,
+          content:
+            name === AGENT_PACKAGE_SIDECAR ? `${JSON.stringify(sidecar, null, 2)}\n` : content,
+        })),
+      ),
+    );
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.createdServers).toEqual([]);
+    expect(body.reusedServers).toEqual([serverName]);
+    expect(body.warnings.some((warning) => warning.includes('工具'))).toBe(true);
+    expect(body.agent.serverIds).toEqual([server.json<Server>().id]);
+
+    const after = await listTools(server.json<Server>().id);
+    expect(after).toHaveLength(1);
+    expect(after[0]?.name).toBe(original.name);
+    expect(after.some((tool) => tool.name === 'incoming')).toBe(false);
+  });
+
+  it('rejects malformed tool definitions without partial writes', async () => {
+    const cases: Array<{ label: string; server: Record<string, unknown> }> = [
+      {
+        label: 'duplicate tool names',
+        server: {
+          name: unique('imp-bad-tool-dup'),
+          kind: 'generated',
+          baseUrl: GENERATED_BASE_URL,
+          tools: [makeTool({ name: 'dup-tool' }), makeTool({ name: 'dup-tool' })],
+        },
+      },
+      {
+        label: 'non-generated server with tools',
+        server: {
+          name: unique('imp-bad-tool-stdio'),
+          kind: 'stdio',
+          command: 'node',
+          args: [],
+          tools: [makeTool({ name: 'stdio-tool' })],
+        },
+      },
+      {
+        label: 'malformed tool',
+        server: {
+          name: unique('imp-bad-tool-shape'),
+          kind: 'generated',
+          baseUrl: GENERATED_BASE_URL,
+          tools: [{ name: 'missing-path' }],
+        },
+      },
+    ];
+    for (const [index, item] of cases.entries()) {
+      const slug = unique(`imp-bad-${index}`);
+      createdAgents.push(slug);
+      const serverName = String(item.server.name);
+      createdServers.push(serverName);
+      const files = packageFiles({
+        agent: { slug, name: slug, serverNames: [serverName] },
+      });
+      const sidecar = sidecarOf(new Map(Object.entries(files)));
+      const res = await importZip(
+        rawZip([
+          ...Object.entries(files).map(([name, content]) => ({ name, content })),
+          {
+            name: AGENT_PACKAGE_SIDECAR,
+            content: `${JSON.stringify({ ...sidecar, servers: [item.server] }, null, 2)}\n`,
+          },
+        ]),
+      );
+      expect(res.statusCode, `${item.label}: ${res.body}`).toBe(400);
+      expect(
+        (await listAgents()).some((agent) => agent.slug === slug),
+        item.label,
+      ).toBe(false);
+      expect(await serverByName(serverName), item.label).toBeUndefined();
+    }
+  });
+
+  it('accepts a package at the byte limit and rejects one byte more', async () => {
+    const exactSlug = unique('pkg-exact');
+    const skillSlug = unique('pkg-exact-skill');
+    createdAgents.push(exactSlug);
+    createdSkills.push(skillSlug);
+    const resource = (length: number) => ({
+      path: 'references/big.txt',
+      content: 'x'.repeat(length),
+    });
+    const build = (length: number) =>
+      packageZipStored({
+        agent: { slug: exactSlug, name: 'Exact', skillSlugs: [skillSlug] },
+        skills: [
+          {
+            slug: skillSlug,
+            name: 'Exact skill',
+            description: 'd',
+            body: 'x',
+            files: [resource(length)],
+          },
+        ],
+      });
+    // 不压缩打包时包体随内容线性增长；先量一次，再补齐到精确上限。
+    const probe = build(100_000);
+    const exact = build(100_000 + AGENT_PACKAGE_MAX_BYTES - probe.byteLength);
+    expect(exact.byteLength).toBe(AGENT_PACKAGE_MAX_BYTES);
+
+    const accepted = await importZip(exact);
+    expect(accepted.statusCode, accepted.body).toBe(201);
+    createdAgents.push(accepted.json<AgentImportResult>().agent.slug);
+
+    expectProblem(await importZip(Buffer.concat([exact, Buffer.alloc(1, 0)])), 'PAYLOAD_TOO_LARGE');
+  });
+
+  it('rejects an import body over the ZIP limit', async () => {
+    const oversized = Buffer.alloc(AGENT_PACKAGE_MAX_BYTES + 1, 0x50);
+    expectProblem(await importZip(oversized), 'PAYLOAD_TOO_LARGE');
+  });
+
+  it('redacts the per-server secret mask from an exported .mcp.json', async () => {
+    const slug = unique('pkg-mask');
+    const serverName = unique('pkg-mask-srv');
+    createdAgents.push(slug);
+    createdServers.push(serverName);
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/servers',
+      headers: { cookie },
+      payload: {
+        name: serverName,
+        kind: 'http',
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer super-secret' },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const agent = (
+      await createAgent(app, cookie, {
+        slug,
+        serverIds: [created.json<Server>().id],
+        track: createdAgents,
+      })
+    ).json<Agent>();
+    const files = await exportFiles(agent.id);
+    const raw = [...files.values()].join('\n');
+    expect(raw).not.toContain('super-secret');
+    expect(files.get('.mcp.json')).toContain(serverName);
+    expect(JSON.parse(files.get('.mcp.json') ?? '{}')).toEqual({
+      mcpServers: { [serverName]: { type: 'http', url: 'https://example.com/mcp', headers: {} } },
+    });
+    expect(files.get(AGENT_PACKAGE_SIDECAR)).toContain('Authorization');
+  });
+});

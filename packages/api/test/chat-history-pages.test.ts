@@ -1,3 +1,5 @@
+import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
@@ -18,6 +20,11 @@ const ready = await infraReady;
 
 /** 所有消息共用同一个 created_at，(created_at, id) 的次级排序决定顺序。 */
 const TIES = new Date('2026-10-22T00:00:00.000Z');
+
+/** 固定格式的合法 uuid：SDK 会话与分叉点都要求可解析的消息 id。 */
+function sessionUuid(index: number): string {
+  return `00000000-0000-4000-8000-${index.toString().padStart(12, '0')}`;
+}
 
 interface HistoryBody {
   conversation: { id: string; createdAt: string };
@@ -54,7 +61,23 @@ describe.skipIf(!ready)('chat history pagination', () => {
     ).json<Agent>();
     const id = newId('conversation');
     await repo.chat.createConversation(app.db, { id, agentId: agent.id, title: '分页' });
+    // 分支需要 SDK 会话与每条消息的 uuid；分页本身不读它们。
+    await app.pool.query('update conversations set sdk_session_id = $2 where id = $1', [
+      id,
+      sessionUuid(0),
+    ]);
     conversationIds.push(id);
+    // 分支会复制来源 transcript 目录；fixture 落一个真实文件，断言复制与清理。
+    const sessionsDir = join(
+      app.config.WORKSPACES_DIR,
+      agent.slug,
+      'sdk-sessions',
+      id,
+      'projects',
+      'workspace',
+    );
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(join(sessionsDir, `${sessionUuid(0)}.jsonl`), '');
     // id 带会话前缀：全局唯一，且同一会话内按序号字典序排列。
     const ids = Array.from(
       { length: count },
@@ -62,13 +85,14 @@ describe.skipIf(!ready)('chat history pagination', () => {
     );
     for (const [index, messageId] of ids.entries()) {
       await app.pool.query(
-        'insert into messages (id, conversation_id, role, content, created_at) values ($1, $2, $3, $4, $5)',
+        'insert into messages (id, conversation_id, role, content, created_at, sdk_message_uuid) values ($1, $2, $3, $4, $5, $6)',
         [
           messageId,
           id,
           index % 2 === 0 ? 'user' : 'assistant',
           JSON.stringify({ type: 'text', text: `第 ${index} 条` }),
           TIES,
+          sessionUuid(index + 1),
         ],
       );
     }
@@ -210,6 +234,23 @@ describe.skipIf(!ready)('chat history pagination', () => {
     expect(res.statusCode, res.body).toBe(201);
     const branchId = res.json<{ id: string }>().id;
     conversationIds.push(branchId);
+
+    // 分支在自己的目录里拿到来源 transcript，首轮运行才能 fork。
+    const agent = await app.pool.query<{ slug: string }>(
+      'select a.slug from agents a join conversations c on c.agent_id = a.id where c.id = $1',
+      [branchId],
+    );
+    const slug = agent.rows[0]?.slug ?? '';
+    const branchSession = join(
+      app.config.WORKSPACES_DIR,
+      slug,
+      'sdk-sessions',
+      branchId,
+      'projects',
+      'workspace',
+      `${sessionUuid(0)}.jsonl`,
+    );
+    expect((await stat(branchSession)).isFile()).toBe(true);
 
     const copied = await repo.chat.listMessages(app.db, branchId);
     expect(copied).toHaveLength(125);

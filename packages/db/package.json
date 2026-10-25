@@ -31,12 +31,12 @@
   "dependencies": {
     "@agentport/core": "workspace:*",
     "@agentport/shared": "workspace:*",
-    "drizzle-orm": "0.45.4",
+    "drizzle-orm": "catalog:",
     "pg": "8.23.1",
     "typeid-js": "1.2.0"
   },
   "devDependencies": {
-    "@types/pg": "8.15.6",
+    "@types/pg": "8.23.1",
     "drizzle-kit": "0.31.11"
   }
 }

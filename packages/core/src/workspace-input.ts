@@ -16,6 +16,8 @@ export interface WorkspaceAgentRow {
   enabled: boolean;
   /** 子智能体自带技能；可选，由 DB 调用方补充子行时提供。 */
   skills?: WorkspaceSkill[];
+  /** 该智能体自己绑定的 MCP server 名；决定 .mcp.json 里哪些名字对它可见。 */
+  serverNames?: string[];
   /** 父智能体派生子智能体时等它多久；子智能体 md 里要写明，否则等待规则是空话。 */
   timeoutMs: number;
 }
@@ -32,9 +34,15 @@ function toAgent(row: WorkspaceAgentRow): WorkspaceAgent {
     effort: row.effort,
     allowedTools: row.allowedTools,
     disallowedTools: row.disallowedTools,
+    ...(row.serverNames ? { serverNames: row.serverNames } : {}),
     timeoutMs: row.timeoutMs,
     ...(row.skills ? { skills: row.skills } : {}),
   };
+}
+
+/** DB 行 → 工作区 agent；导出停用子定义等需要绕过启用过滤时单独使用。 */
+export function toWorkspaceAgent(row: WorkspaceAgentRow): WorkspaceAgent {
+  return toAgent(row);
 }
 
 /**

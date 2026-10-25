@@ -2,7 +2,7 @@
 
 PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：把 HTTP API 或 MCP Server 接进来，用文件定义智能体，在隔离沙盒里运行，并观测每一次调用。
 
-产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。依赖版本以 `package.json` / `pnpm-lock.yaml` 为准：Node.js >= 24、pnpm 12.14.0、React 19.3、Vite 8.3、Fastify 5.12、PostgreSQL 18、Redis 8。项目版本见根 `package.json`（当前 0.13.0）。
+产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。依赖版本以 `package.json` / `pnpm-lock.yaml` 为准：Node.js >= 24、pnpm 12.15.0、React 19.3、Vite 8.3、Fastify 5.12、PostgreSQL 18、Redis 8。项目版本见根 `package.json`（当前 0.14.0）。
 
 ## 能力
 
@@ -11,7 +11,7 @@ PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：�
 | MCP 接入 | stdio 命令、远程 HTTP、HTTP API 转 MCP（generated）三种来源；连接测试；密钥加密入库、接口脱敏 |
 | HTTP → MCP | 运行时挂载 `/mcp/:serverId`，按数据库中的工具定义动态构造标准 MCP 端点，不生成代码 |
 | 平台 → MCP | `POST /mcp` 把已启用的智能体暴露为 `run_<slug>` 工具，供其他 Host 调用 |
-| 智能体定义 | `.mcp.json`、`CLAUDE.md`、`.claude/agents/*.md`、`.claude/skills/*/SKILL.md`（含技能支持资源）、`.claude/rules/*.md`、`.claude/output-styles/*.md`；原生 auto-memory（`agent-memory/`，浏览/编辑）；文件预览；版本历史与回滚；导入导出（`agentport/agent@2`） |
+| 智能体定义 | `.mcp.json`、`CLAUDE.md`、`.claude/agents/*.md`、`.claude/skills/*/SKILL.md`（含技能支持资源）、`.claude/rules/*.md`、`.claude/output-styles/*.md`；原生 auto-memory（`agent-memory/`，浏览/编辑）；文件预览；版本历史与回滚；导入导出（官方 `.claude/` 目录 ZIP） |
 | 运行时配置 | 提示词、模型、技能、MCP 绑定、子智能体、工具白名单/黑名单、权限模式（`dontAsk` / `plan` / `default` / `acceptEdits`，`auto` 不开放）、effort、思考预算、轮次、预算、超时 |
 | 运行 | BullMQ 队列 → Docker 沙盒 → Claude Agent SDK → SSE 流式事件；取消、超时、预算与轮次限制；失败重试与孤儿 run 收敛 |
 | 对话 | 会话历史、分支、工具调用落库、上下文注入（最近 20 条消息）、运行详情重跑 |
@@ -25,7 +25,7 @@ PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：�
 ### 前置条件
 
 - Node.js >= 24
-- pnpm 12.14.0（`packageManager` 已固定）
+- pnpm 12.15.0（`packageManager` 已固定）
 - Docker Engine 与 Docker Compose
 - 备份需要本机有 `pg_dump`（PostgreSQL 客户端）
 
@@ -117,7 +117,7 @@ E2E 不读取 `.env`，默认管理员为 `admin` / `admin-local-dev-2026`（`e2
 ## 版本与发布
 
 版本号在根 `package.json`，变更记录见 [CHANGELOG.md](CHANGELOG.md)（SemVer）。
-发布：更新版本号与 CHANGELOG 后推送 `v*` tag（如 `git tag v0.13.0 && git push origin v0.13.0`）。
+发布：更新版本号与 CHANGELOG 后推送 `v*` tag（如 `git tag v0.14.0 && git push origin v0.14.0`）。
 tag 触发 `.github/workflows/release.yml`，构建并推送 `ghcr.io/<repo>/api:<tag>` 与 `ghcr.io/<repo>/sandbox:<tag>` 到 GHCR。
 
 ## 目录结构

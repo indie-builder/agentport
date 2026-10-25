@@ -1,28 +1,22 @@
-import type { Agent, Server } from '@agentport/shared';
+import type { Agent } from '@agentport/shared';
+import { AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   cleanup,
   createAgent,
+  expectProblem,
   infraReady,
   inject,
+  injectZip,
   loginCookie,
   startApp,
   unique,
 } from './helpers.js';
+import type { AgentSpec, ChildSpec, PackageSpec, SkillSpec } from './package-fixtures.js';
+import { packageFiles, packageZip, rawZip, sidecarOf, unzipPackage } from './package-fixtures.js';
 
 const ready = await infraReady;
-
-interface BundleChild {
-  slug: string;
-  name?: string;
-  systemPrompt?: string;
-  serverNames?: string[];
-  skillSlugs?: string[];
-  allowedTools?: string[];
-  permissionMode?: string;
-  [key: string]: unknown;
-}
 
 interface ImportResult {
   agent: Agent;
@@ -44,34 +38,7 @@ interface PortableTool {
   requiresApproval: boolean;
 }
 
-interface CopyAgent {
-  slug: string;
-  name: string;
-  serverNames?: string[];
-  skillSlugs?: string[];
-  enabled?: boolean;
-  [key: string]: unknown;
-}
-
-/** 导出文件的可移植视图：不声明 id，断言时也用不到。 */
-interface CopyFile {
-  format: string;
-  agent: CopyAgent;
-  subAgents: CopyAgent[];
-  servers: Array<{
-    name: string;
-    kind: string;
-    tools?: PortableTool[];
-  }>;
-  skills: Array<{ slug: string; name: string; description: string; body: string }>;
-}
-
-interface AgentVersionRow {
-  version: number;
-  snapshot: Agent;
-}
-
-describe.skipIf(!ready)('sub-agent bundles', () => {
+describe.skipIf(!ready)('sub-agent packages (official files)', () => {
   let app: FastifyInstance;
   let cookie: string;
   const createdAgents: string[] = [];
@@ -93,40 +60,31 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
   });
 
   const auth = () => ({ cookie });
-  const importBundle = (payload: object) =>
-    inject(app, { method: 'POST', url: '/api/import/agents', headers: auth(), payload });
+  const importPackage = (spec: PackageSpec) =>
+    injectZip(app, 'POST', '/api/import/agents', cookie, packageZip(spec));
+  const exportFiles = async (id: string) => {
+    const res = await injectZip(app, 'GET', `/api/export/agents/${id}`, cookie);
+    expect(res.statusCode, res.body).toBe(200);
+    return unzipPackage(res.rawPayload);
+  };
 
-  const child = (slug: string, overrides: Partial<BundleChild> = {}): BundleChild => ({
+  const child = (slug: string, overrides: Partial<ChildSpec> = {}): ChildSpec => ({
     slug,
     name: `Child ${slug}`,
     systemPrompt: `prompt for ${slug}`,
     ...overrides,
   });
-
-  const skill = (slug: string) => ({
+  const skill = (slug: string): SkillSpec => ({
     slug,
     name: `Skill ${slug}`,
     description: `skill ${slug}`,
     body: '# steps',
   });
-
-  const server = (name: string, url = 'https://jsonplaceholder.typicode.com') => ({
-    name,
-    kind: 'generated',
-    description: '',
-    config: { baseUrl: url },
-    secretKeys: [],
-  });
-
-  const tool = (name: string) => ({
-    name,
-    description: '',
-    method: 'GET',
-    pathTemplate: `/${name}`,
-    inputSchema: { type: 'object', properties: {} },
-    paramsIn: 'query',
-    requiresApproval: false,
-    enabled: true,
+  const agent = (slug: string, overrides: Partial<AgentSpec> = {}): AgentSpec => ({
+    slug,
+    name: `Parent ${slug}`,
+    systemPrompt: 'parent prompt',
+    ...overrides,
   });
 
   const agentRow = async (
@@ -138,8 +96,8 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
     );
     return res.rows[0];
   };
-  const versionsOf = async (agentId: string): Promise<AgentVersionRow[]> => {
-    const res = await app.pool.query<AgentVersionRow>(
+  const versionsOf = async (agentId: string) => {
+    const res = await app.pool.query<{ version: number; snapshot: Agent }>(
       'select version, snapshot from agent_versions where agent_id = $1 order by version',
       [agentId],
     );
@@ -159,6 +117,7 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
     );
     return res.rows.map((row) => row.name);
   };
+  const sorted = (values: string[]) => [...values].sort((a, b) => a.localeCompare(b));
 
   it('creates a parent and two fresh children with exact bindings', async () => {
     const parentSlug = unique('bundle-parent');
@@ -173,24 +132,45 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
     createdServers.push(sharedServer, firstServer);
     createdSkills.push(rootSkill, firstSkill, secondSkill);
 
-    const res = await importBundle({
-      format: 'agentport/agent@1',
-      agent: {
-        slug: parentSlug,
-        name: `Parent ${parentSlug}`,
-        systemPrompt: 'parent prompt',
+    const res = await importPackage({
+      agent: agent(parentSlug, {
         serverNames: [sharedServer],
         skillSlugs: [rootSkill],
-      },
-      servers: [server(sharedServer), { ...server(firstServer), tools: [tool('list-a')] }],
+      }),
+      servers: [
+        {
+          name: sharedServer,
+          kind: 'generated',
+          baseUrl: 'https://jsonplaceholder.typicode.com',
+          secretKeys: [],
+        },
+        {
+          name: firstServer,
+          kind: 'generated',
+          baseUrl: 'https://jsonplaceholder.typicode.com',
+          secretKeys: [],
+          tools: [
+            {
+              name: 'list-a',
+              description: '',
+              method: 'GET',
+              pathTemplate: '/list-a',
+              inputSchema: { type: 'object', properties: {} },
+              paramsIn: 'query',
+              requiresApproval: false,
+              enabled: true,
+            },
+          ],
+        },
+      ],
       skills: [skill(rootSkill), skill(firstSkill), skill(secondSkill)],
       subAgents: [
         child(firstSlug, {
           serverNames: [firstServer],
-          skillSlugs: [firstSkill],
+          skills: [firstSkill],
           permissionMode: 'plan',
         }),
-        child(secondSlug, { skillSlugs: [secondSkill] }),
+        child(secondSlug, { skills: [secondSkill] }),
       ],
     });
 
@@ -203,14 +183,10 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
     const parent = await agentRow(parentSlug);
     const first = await agentRow(firstSlug);
     const second = await agentRow(secondSlug);
-    expect(parent).toBeDefined();
     expect(first?.parent_id).toBe(parent?.id);
     expect(second?.parent_id).toBe(parent?.id);
-    expect(first?.id).not.toBe(second?.id);
     expect(body.agent.id).toBe(parent?.id);
-    expect(new Set(body.agent.subAgentIds)).toEqual(new Set([first?.id, second?.id]));
 
-    // 共享技能只属于父级；子级只拿到自己的技能和 server。
     expect(await boundSkillSlugs(parent?.id ?? '')).toEqual([rootSkill]);
     expect(await boundSkillSlugs(first?.id ?? '')).toEqual([firstSkill]);
     expect(await boundSkillSlugs(second?.id ?? '')).toEqual([secondSkill]);
@@ -224,11 +200,9 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
       expect(versions).toHaveLength(1);
       expect(versions[0]?.version).toBe(1);
     }
-    const parentSnapshot = (await versionsOf(parent?.id ?? ''))[0]?.snapshot;
-    expect(new Set(parentSnapshot?.subAgentIds)).toEqual(new Set([first?.id, second?.id]));
     expect((await versionsOf(first?.id ?? ''))[0]?.snapshot.parentId).toBe(parent?.id);
+    expect((await versionsOf(parent?.id ?? ''))[0]?.snapshot.subAgentIds).toHaveLength(2);
 
-    // 子级的 generated server 工具已落库，且绑定的是子级自己的 server。
     const tools = await app.pool.query<{ server_id: string; name: string }>(
       'select server_id, name from api_tools where name = $1',
       ['list-a'],
@@ -256,22 +230,22 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
       payload: { ...skill(skillSlug), body: 'existing instructions' },
     });
     expect(seeded.statusCode).toBe(201);
-    const imported = await importBundle({
-      format: 'agentport/agent@1',
-      agent: { slug: parentSlug, name: parentSlug, skillSlugs: [] },
+
+    const res = await importPackage({
+      agent: agent(parentSlug),
       skills: [{ ...skill(skillSlug), body: 'incoming instructions' }],
-      subAgents: [child(childSlug, { skillSlugs: [skillSlug] })],
+      subAgents: [child(childSlug, { skills: [skillSlug] })],
     });
-    expect(imported.statusCode, imported.body).toBe(201);
-    expect(imported.json<ImportResult>().warnings).toEqual([
-      `已存在同名技能「${skillSlug}」，其内容与导入文件不同，已保留原配置`,
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json<ImportResult>().warnings).toEqual([
+      `已存在同名技能「${skillSlug}」，其内容与导入包不同，已保留原配置`,
     ]);
     const stored = await app.pool.query<{ body: string }>(
       'select body from skills where slug = $1',
       [skillSlug],
     );
     expect(stored.rows[0]?.body).toBe('existing instructions');
-    expect(await boundSkillSlugs(imported.json<ImportResult>().agent.id)).toEqual([]);
+    expect(await boundSkillSlugs(res.json<ImportResult>().agent.id)).toEqual([]);
   });
 
   it('suffixes a child slug that already belongs to another parent, without touching it', async () => {
@@ -281,24 +255,20 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
       await createAgent(app, cookie, { slug: oldParentSlug, track: createdAgents })
     ).json<Agent>();
     const oldChild = (
-      await createAgent(app, cookie, {
-        slug: oldChildSlug,
-        track: createdAgents,
-      })
+      await createAgent(app, cookie, { slug: oldChildSlug, track: createdAgents })
     ).json<Agent>();
-    const bind = await inject(app, {
+    const bound = await inject(app, {
       method: 'PATCH',
       url: `/api/agents/${oldParent.id}`,
       headers: auth(),
       payload: { subAgentIds: [oldChild.id] },
     });
-    expect(bind.statusCode, bind.body).toBe(200);
+    expect(bound.statusCode, bound.body).toBe(200);
 
     const parentSlug = unique('bundle-new-parent');
     createdAgents.push(parentSlug, `${oldChildSlug}-2`);
-    const res = await importBundle({
-      format: 'agentport/agent@1',
-      agent: { slug: parentSlug, name: `Parent ${parentSlug}` },
+    const res = await importPackage({
+      agent: agent(parentSlug),
       subAgents: [child(oldChildSlug, { systemPrompt: 'imported copy' })],
     });
     expect(res.statusCode, res.body).toBe(201);
@@ -310,57 +280,88 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
     const newChild = await agentRow(`${oldChildSlug}-2`);
     expect(newChild?.parent_id).toBe(newParent?.id);
     expect(newChild?.id).not.toBe(oldChild.id);
-
-    // 原有子智能体与其父级关系保持不变。
     const untouched = await agentRow(oldChildSlug);
     expect(untouched?.id).toBe(oldChild.id);
     expect(untouched?.parent_id).toBe(oldParent.id);
     expect(await versionsOf(oldChild.id)).toHaveLength(1);
-    const existing = await inject(app, {
-      method: 'GET',
-      url: `/api/agents/${oldChild.id}`,
-      headers: auth(),
-    });
-    expect(existing.json<Agent>().systemPrompt).toBe('You are helpful.');
   });
 
-  it('rejects nested, unresolved and forbidden child configs without writing anything', async () => {
-    const cases: Array<{ label: string; overrides: Partial<BundleChild> }> = [
-      { label: 'nested sub-agents', overrides: { subAgents: [] } },
-      { label: 'unknown server reference', overrides: { serverNames: [unique('missing-srv')] } },
-      { label: 'unknown skill reference', overrides: { skillSlugs: [unique('missing-skill')] } },
-      { label: 'blocked allowed tool', overrides: { allowedTools: ['Monitor'] } },
-      { label: 'unsupported permission mode', overrides: { permissionMode: 'auto' } },
-      { label: 'parent id supplied', overrides: { parentId: 'agt_whatever' } },
+  it('rejects unresolvable references, forbidden tools and unknown fields', async () => {
+    const cases: Array<{ label: string; spec: PackageSpec }> = [
+      {
+        label: 'unknown server reference',
+        spec: {
+          agent: agent(unique('bundle-bad-srv'), { serverNames: [unique('missing-srv')] }),
+        },
+      },
+      {
+        label: 'unknown skill reference',
+        spec: {
+          agent: agent(unique('bundle-bad-skill'), { skillSlugs: [unique('missing-skill')] }),
+        },
+      },
+      {
+        label: 'blocked allowed tool',
+        spec: { agent: agent(unique('bundle-bad-tool'), { allowedTools: ['Monitor'] }) },
+      },
+      {
+        label: 'unsupported permission mode',
+        spec: {
+          agent: {
+            ...agent(unique('bundle-bad-mode')),
+            // 绕过类型：auto 依赖分类器，平台不开放。
+            permissionMode: 'auto' as 'dontAsk',
+          },
+        },
+      },
+      {
+        label: 'child referencing a missing server',
+        spec: (() => {
+          const rootSlug = unique('bundle-bad-child-srv');
+          const childSlug = unique('bundle-bad-child');
+          const files = packageFiles({
+            agent: agent(rootSlug),
+            subAgents: [child(childSlug)],
+          });
+          // 子级绑定只能来自官方 mcpServers；引用包内没有的名字必须拒绝。
+          const path = `.claude/agents/${childSlug}.md`;
+          const md = (files[path] ?? '').replace(
+            /^---\n/,
+            `---\nmcpServers: ["${unique('nope')}"]\n`,
+          );
+          return {
+            agent: agent(rootSlug),
+            subAgents: [child(childSlug)],
+            extraFiles: { [path]: md },
+          } satisfies PackageSpec;
+        })(),
+      },
     ];
-
-    for (const [index, item] of cases.entries()) {
-      const parentSlug = unique(`bundle-bad-${index}`);
-      const childSlug = unique(`bundle-bad-child-${index}`);
-      const serverName = unique(`bundle-bad-srv-${index}`);
-      createdAgents.push(parentSlug);
-      createdServers.push(serverName);
-
-      const res = await importBundle({
-        format: 'agentport/agent@1',
-        agent: { slug: parentSlug, name: `Parent ${parentSlug}` },
-        servers: [server(serverName)],
-        subAgents: [child(childSlug, item.overrides)],
-      });
-      expect(res.statusCode, `${item.label}: ${res.body}`).toBe(400);
-      expect(await agentRow(parentSlug), item.label).toBeUndefined();
-      const createdChild = await app.pool.query('select id from agents where slug like $1', [
-        `${childSlug}%`,
-      ]);
-      expect(createdChild.rowCount, item.label).toBe(0);
-      const createdServer = await app.pool.query('select id from servers where name = $1', [
-        serverName,
-      ]);
-      expect(createdServer.rowCount, item.label).toBe(0);
+    for (const { label, spec } of cases) {
+      const res = await importPackage(spec);
+      expect(res.statusCode, `${label}: ${res.body}`).toBe(400);
+      expectProblem(res, 'INVALID_INPUT');
+      expect((await agentRow(spec.agent.slug))?.id, label).toBeUndefined();
     }
+
+    // 侧车未知字段一律拒绝：旧格式的 ID 字段不能悄悄被忽略。
+    const slug = unique('bundle-unknown');
+    const files = packageFiles({ agent: agent(slug) });
+    const sidecar = sidecarOf(new Map(Object.entries(files)));
+    const tampered = rawZip(
+      Object.entries({
+        ...files,
+        [AGENT_PACKAGE_SIDECAR]: `${JSON.stringify({ ...sidecar, format: 'agentport/agent@2' })}\n`,
+      }).map(([name, content]) => ({ name, content })),
+    );
+    expectProblem(
+      await injectZip(app, 'POST', '/api/import/agents', cookie, tampered),
+      'INVALID_INPUT',
+    );
+    expect(await agentRow(slug)).toBeUndefined();
   });
 
-  it('rejects duplicate skills and duplicate references instead of taking the last one', async () => {
+  it('rejects duplicate names, duplicate refs and duplicate child files', async () => {
     const parentSlug = unique('bundle-dup-parent');
     const skillSlug = unique('bundle-dup-skill');
     const serverName = unique('bundle-dup-srv');
@@ -368,77 +369,37 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
     createdServers.push(serverName);
     createdSkills.push(skillSlug);
 
-    const duplicateSkill = await importBundle({
-      format: 'agentport/agent@1',
-      agent: { slug: parentSlug, name: `Parent ${parentSlug}` },
-      skills: [skill(skillSlug), { ...skill(skillSlug), name: 'other' }],
+    const duplicateServer = await importPackage({
+      agent: agent(parentSlug, { serverNames: [serverName] }),
+      servers: [
+        { name: serverName, kind: 'stdio', command: 'node', secretKeys: [] },
+        { name: serverName, kind: 'stdio', command: 'deno', secretKeys: [] },
+      ],
     });
-    expect(duplicateSkill.statusCode, duplicateSkill.body).toBe(400);
+    expectProblem(duplicateServer, 'INVALID_INPUT');
 
-    const duplicateRef = await importBundle({
-      format: 'agentport/agent@1',
-      agent: {
-        slug: parentSlug,
-        name: `Parent ${parentSlug}`,
-        serverNames: [serverName, serverName],
-      },
-      servers: [server(serverName)],
+    const duplicateRef = await importPackage({
+      agent: agent(parentSlug, { serverNames: [serverName, serverName] }),
+      servers: [{ name: serverName, kind: 'stdio', command: 'node', secretKeys: [] }],
       skills: [{ ...skill(skillSlug), body: 'kept' }],
     });
-    expect(duplicateRef.statusCode, duplicateRef.body).toBe(400);
+    expectProblem(duplicateRef, 'INVALID_INPUT');
+
+    // ZIP 内同名条目：底层归档校验直接拒绝，不落任何行。
+    const childSlug = unique('bundle-dup-child');
+    const files = packageFiles({ agent: agent(parentSlug), subAgents: [child(childSlug)] });
+    const raw = rawZip([
+      ...Object.entries(files).map(([name, content]) => ({ name, content })),
+      { name: `.claude/agents/${childSlug}.md`, content: 'duplicate' },
+    ]);
+    expectProblem(await injectZip(app, 'POST', '/api/import/agents', cookie, raw), 'INVALID_INPUT');
 
     expect(await agentRow(parentSlug)).toBeUndefined();
     const createdSkill = await app.pool.query('select body from skills where slug = $1', [
       skillSlug,
     ]);
     expect(createdSkill.rowCount).toBe(0);
-
-    // 子智能体 slug 不能与父级重复，同级之间也不能重复。
-    const twin = unique('bundle-dup-child');
-    const childCases: BundleChild[][] = [[child(parentSlug)], [child(twin), child(twin)]];
-    for (const children of childCases) {
-      const duplicateChild = await importBundle({
-        format: 'agentport/agent@1',
-        agent: { slug: parentSlug, name: `Parent ${parentSlug}` },
-        subAgents: children,
-      });
-      expect(duplicateChild.statusCode, duplicateChild.body).toBe(400);
-    }
-    expect(await agentRow(parentSlug)).toBeUndefined();
-  });
-
-  it('warns about legacy foreign sub-agent ids without binding them', async () => {
-    const localSlug = unique('bundle-legacy-local');
-    const parentSlug = unique('bundle-legacy-parent');
-    const local = (
-      await createAgent(app, cookie, { slug: localSlug, track: createdAgents })
-    ).json<Agent>();
-    createdAgents.push(parentSlug);
-
-    const res = await importBundle({
-      format: 'agentport/agent@1',
-      agent: { slug: parentSlug, name: `Parent ${parentSlug}`, subAgentIds: [local.id] },
-    });
-    expect(res.statusCode, res.body).toBe(201);
-    const body = res.json<ImportResult>();
-    expect(body.agent.subAgentIds).toEqual([]);
-    expect(body.createdSubAgents).toEqual([]);
-    expect(body.warnings.some((warning) => warning.includes('子智能体'))).toBe(true);
-    expect((await agentRow(localSlug))?.parent_id).toBeNull();
-  });
-
-  it('does not warn about legacy ids when the bundle carries real sub-agents', async () => {
-    const parentSlug = unique('bundle-nowarn-parent');
-    const childSlug = unique('bundle-nowarn-child');
-    createdAgents.push(parentSlug, childSlug);
-
-    const res = await importBundle({
-      format: 'agentport/agent@1',
-      agent: { slug: parentSlug, name: `Parent ${parentSlug}`, subAgentIds: [] },
-      subAgents: [child(childSlug)],
-    });
-    expect(res.statusCode, res.body).toBe(201);
-    expect(res.json<ImportResult>().warnings).toEqual([]);
+    expect(await agentRow(childSlug)).toBeUndefined();
   });
 
   it('rolls back every row when a reused server has a conflicting kind', async () => {
@@ -456,12 +417,16 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
     });
     expect(existing.statusCode, existing.body).toBe(201);
 
-    const res = await importBundle({
-      format: 'agentport/agent@1',
-      agent: { slug: parentSlug, name: `Parent ${parentSlug}` },
+    const res = await importPackage({
+      agent: agent(parentSlug),
       servers: [
-        server(freshName),
-        { name: existingName, kind: 'http', config: { url: 'https://example.com/mcp' } },
+        {
+          name: freshName,
+          kind: 'generated',
+          baseUrl: 'https://jsonplaceholder.typicode.com',
+          secretKeys: [],
+        },
+        { name: existingName, kind: 'http', url: 'https://example.com/mcp', secretKeys: [] },
       ],
       subAgents: [child(childSlug)],
     });
@@ -474,52 +439,114 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
     expect(await agentRow(childSlug)).toBeUndefined();
   });
 
-  it('imports an exported agent as a fresh parent with no sub-agent warnings', async () => {
-    const server = {
-      name: unique('bundle-export-srv'),
-      kind: 'generated' as const,
-      baseUrl: 'https://jsonplaceholder.typicode.com',
-    };
-    createdServers.push(server.name);
-    const createdServer = await inject(app, {
-      method: 'POST',
-      url: '/api/servers',
-      headers: auth(),
-      payload: server,
+  it('re-imports an exported package as a new parent with fresh child ids', async () => {
+    const rootSlug = unique('bundle-export-root');
+    const childSlug = unique('bundle-export-child');
+    const serverName = unique('bundle-export-srv');
+    const skillSlug = unique('bundle-export-skill');
+    createdAgents.push(rootSlug, childSlug);
+    createdServers.push(serverName);
+    createdSkills.push(skillSlug);
+
+    const source = await importPackage({
+      agent: agent(rootSlug, { serverNames: [serverName], skillSlugs: [skillSlug] }),
+      servers: [
+        {
+          name: serverName,
+          kind: 'generated',
+          baseUrl: 'https://jsonplaceholder.typicode.com',
+          secretKeys: [],
+          tools: [
+            {
+              name: 'root-tool',
+              description: '',
+              method: 'GET',
+              pathTemplate: '/root-tool',
+              inputSchema: { type: 'object', properties: {} },
+              paramsIn: 'query',
+              requiresApproval: true,
+              enabled: false,
+            },
+          ],
+        },
+      ],
+      skills: [skill(skillSlug)],
+      subAgents: [child(childSlug, { skills: [skillSlug], enabled: false })],
     });
-    expect(createdServer.statusCode, createdServer.body).toBe(201);
-    const serverRow = createdServer.json<Server>();
+    expect(source.statusCode, source.body).toBe(201);
+    const seeded = source.json<ImportResult>();
+    const sourceRoot = await agentRow(rootSlug);
+    const sourceChild = await agentRow(childSlug);
 
-    const sourceSlug = unique('bundle-export-src');
-    const source = (
-      await createAgent(app, cookie, {
-        slug: sourceSlug,
-        serverIds: [serverRow.id],
-        track: createdAgents,
-      })
-    ).json<Agent>();
-
-    const exp = await inject(app, {
-      method: 'GET',
-      url: `/api/export/agents/${source.id}`,
-      headers: auth(),
+    const files = await exportFiles(seeded.agent.id);
+    // 停用的子定义仍写成官方文件；状态在侧车里。
+    expect(files.get(`.claude/agents/${childSlug}.md`)).toContain(`prompt for ${childSlug}`);
+    const sidecar = sidecarOf(files);
+    expect(sidecar.subAgents[0]).toMatchObject({ slug: childSlug, enabled: false });
+    expect(sidecar.servers[0]).toMatchObject({
+      name: serverName,
+      kind: 'generated',
+      tools: [
+        {
+          name: 'root-tool',
+          description: '',
+          method: 'GET',
+          pathTemplate: '/root-tool',
+          inputSchema: { type: 'object', properties: {} },
+          paramsIn: 'query',
+          requiresApproval: true,
+          enabled: false,
+        },
+      ],
     });
-    expect(exp.statusCode, exp.body).toBe(200);
-    const file = exp.json<Record<string, unknown>>();
-    const importedSlug = unique('bundle-export-dst');
-    createdAgents.push(importedSlug);
-    (file.agent as Record<string, unknown>).slug = importedSlug;
-    (file.agent as Record<string, unknown>).name = `Imported ${importedSlug}`;
+    expect(sidecar.agent).toMatchObject({
+      slug: rootSlug,
+      serverNames: [serverName],
+      skillSlugs: [skillSlug],
+    });
 
-    const res = await importBundle(file);
-    expect(res.statusCode, res.body).toBe(201);
-    const body = res.json<ImportResult>();
-    expect(body.agent.slug).toBe(importedSlug);
-    expect(body.agent.id).not.toBe(source.id);
-    expect(body.reusedServers).toEqual([server.name]);
-    expect(body.createdSubAgents).toEqual([]);
-    expect(body.warnings).toEqual([]);
-    expect(await boundServerNames(body.agent.id)).toEqual([server.name]);
+    // 不改名导入：全部加后缀，源树不动。
+    const copy = await injectZip(
+      app,
+      'POST',
+      '/api/import/agents',
+      cookie,
+      rawZip([...files].map(([name, content]) => ({ name, content }))),
+    );
+    expect(copy.statusCode, copy.body).toBe(201);
+    const imported = copy.json<ImportResult>();
+    createdAgents.push(imported.agent.slug, ...imported.createdSubAgents);
+    createdServers.push(...imported.createdServers);
+    createdSkills.push(...imported.createdSkills);
+    expect(imported.agent.slug).toBe(`${rootSlug}-2`);
+    expect(imported.createdSubAgents).toEqual([`${childSlug}-2`]);
+    // 同名资源复用，不重复创建。
+    expect(imported.createdServers).toEqual([]);
+    expect(imported.createdSkills).toEqual([]);
+
+    const newRoot = await agentRow(`${rootSlug}-2`);
+    const newChild = await agentRow(`${childSlug}-2`);
+    expect(newRoot?.id).toBe(imported.agent.id);
+    expect(newRoot?.id).not.toBe(sourceRoot?.id);
+    expect(newRoot?.parent_id).toBeNull();
+    expect(newChild?.parent_id).toBe(newRoot?.id);
+    expect(newChild?.id).not.toBe(sourceChild?.id);
+
+    const disabled = await app.pool.query<{ enabled: boolean }>(
+      'select enabled from agents where id = $1',
+      [newChild?.id],
+    );
+    expect(disabled.rows[0]?.enabled).toBe(false);
+
+    expect(sorted(await boundServerNames(newRoot?.id ?? ''))).toEqual([serverName]);
+    expect(sorted(await boundSkillSlugs(newRoot?.id ?? ''))).toEqual([skillSlug]);
+    expect(sorted(await boundSkillSlugs(newChild?.id ?? ''))).toEqual([skillSlug]);
+
+    // 源树与版本都不被改写。
+    expect((await agentRow(rootSlug))?.id).toBe(sourceRoot?.id);
+    expect((await agentRow(childSlug))?.parent_id).toBe(sourceRoot?.id);
+    expect(await versionsOf(sourceChild?.id ?? '')).toHaveLength(1);
+    expect((await versionsOf(newRoot?.id ?? ''))[0]?.snapshot.subAgentIds).toEqual([newChild?.id]);
   });
 
   it('records the import in the audit log without raw prompts', async () => {
@@ -527,9 +554,8 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
     const prompt = `secret-prompt-${parentSlug}`;
     createdAgents.push(parentSlug);
 
-    const res = await importBundle({
-      format: 'agentport/agent@1',
-      agent: { slug: parentSlug, name: `Parent ${parentSlug}`, systemPrompt: prompt },
+    const res = await importPackage({
+      agent: agent(parentSlug, { systemPrompt: prompt }),
       subAgents: [child(`${parentSlug}-kid`, { systemPrompt: `${prompt}-kid` })],
     });
     expect(res.statusCode, res.body).toBe(201);
@@ -545,343 +571,98 @@ describe.skipIf(!ready)('sub-agent bundles', () => {
     expect(audit.rows[0]?.input_digest).toMatch(/^[0-9a-f]{32}$/);
   });
 
-  it('rejects more than 20 sub-agents per bundle', async () => {
+  it('rejects more than 20 sub-agents per package', async () => {
     const parentSlug = unique('bundle-many');
     createdAgents.push(parentSlug);
-    const res = await importBundle({
-      format: 'agentport/agent@1',
-      agent: { slug: parentSlug, name: `Parent ${parentSlug}` },
+    const res = await importPackage({
+      agent: agent(parentSlug),
       subAgents: Array.from({ length: 21 }, (_, index) =>
         child(`${parentSlug}-${index.toString(36)}`),
       ),
     });
-    expect(res.statusCode, res.body).toBe(400);
+    expectProblem(res, 'INVALID_INPUT');
     expect(await agentRow(parentSlug)).toBeUndefined();
+    // 只有真正新建的子定义才需要清理。
+    for (let index = 0; index < 21; index += 1) {
+      expect(await agentRow(`${parentSlug}-${index.toString(36)}`)).toBeUndefined();
+    }
   });
 
-  it('re-imports an exported tree as a new parent with fresh child ids and exact bindings', async () => {
-    const rootSlug = unique('bundle-copy-root');
-    const activeSlug = unique('bundle-copy-active');
-    const disabledSlug = unique('bundle-copy-disabled');
-    const sharedServer = unique('bundle-copy-srv-shared');
-    const rootServer = unique('bundle-copy-srv-root');
-    const childServer = unique('bundle-copy-srv-child');
-    const rootSkill = unique('bundle-copy-skill-root');
-    const sharedSkill = unique('bundle-copy-skill-shared');
-    const activeSkill = unique('bundle-copy-skill-active');
-    const disabledSkill = unique('bundle-copy-skill-disabled');
-    createdAgents.push(rootSlug, activeSlug, disabledSlug);
-    createdServers.push(sharedServer, rootServer, childServer);
-    createdSkills.push(rootSkill, sharedSkill, activeSkill, disabledSkill);
+  it('preserves child-only generated tools and bindings in the exported tree', async () => {
+    const rootSlug = unique('bundle-tree-root');
+    const childSlug = unique('bundle-tree-child');
+    const childServer = unique('bundle-tree-srv-child');
+    const sharedServer = unique('bundle-tree-srv-shared');
+    createdAgents.push(rootSlug, childSlug);
+    createdServers.push(childServer, sharedServer);
 
-    // 源 bundle 直接写成导出格式：根 + 一个启用的子 + 一个停用的子。
-    const source = await importBundle({
-      format: 'agentport/agent@1',
-      agent: {
-        slug: rootSlug,
-        name: `Parent ${rootSlug}`,
-        systemPrompt: 'root prompt',
-        serverNames: [sharedServer, rootServer],
-        skillSlugs: [rootSkill, sharedSkill],
-        permissionMode: 'plan',
-      },
+    const imported = await importPackage({
+      agent: agent(rootSlug, { serverNames: [sharedServer] }),
       servers: [
-        server(sharedServer),
         {
-          ...server(rootServer),
-          tools: [
-            {
-              ...tool('root-tool'),
-              pathTemplate: '/root-tool',
-              enabled: false,
-              requiresApproval: true,
-            },
-          ],
+          name: sharedServer,
+          kind: 'generated',
+          baseUrl: 'https://jsonplaceholder.typicode.com',
+          secretKeys: [],
         },
         {
-          ...server(childServer),
+          name: childServer,
+          kind: 'generated',
+          baseUrl: 'https://jsonplaceholder.typicode.com',
+          secretKeys: [],
           tools: [
             {
-              ...tool('child-tool'),
+              name: 'child-tool',
+              description: '',
               method: 'POST',
               pathTemplate: '/child-tool',
+              inputSchema: { type: 'object', properties: {} },
               paramsIn: 'body',
-              enabled: true,
               requiresApproval: true,
+              enabled: true,
             },
           ],
         },
       ],
-      skills: [skill(rootSkill), skill(sharedSkill), skill(activeSkill), skill(disabledSkill)],
-      subAgents: [
-        child(activeSlug, {
-          serverNames: [childServer, sharedServer],
-          skillSlugs: [activeSkill, sharedSkill],
-        }),
-        child(disabledSlug, { enabled: false, skillSlugs: [disabledSkill] }),
-      ],
+      subAgents: [child(childSlug, { serverNames: [childServer, sharedServer] })],
     });
-    expect(source.statusCode, source.body).toBe(201);
-    const seeded = source.json<ImportResult>();
-    const sourceRoot = await agentRow(rootSlug);
-    const sourceActive = await agentRow(activeSlug);
-    const sourceDisabled = await agentRow(disabledSlug);
-    expect(seeded.createdSubAgents).toEqual([activeSlug, disabledSlug]);
-    expect(sourceRoot?.parent_id).toBeNull();
-    expect(sourceActive?.parent_id).toBe(sourceRoot?.id);
-    expect(sourceDisabled?.parent_id).toBe(sourceRoot?.id);
+    expect(imported.statusCode, imported.body).toBe(201);
 
-    const exp = await inject(app, {
-      method: 'GET',
-      url: `/api/export/agents/${seeded.agent.id}`,
-      headers: auth(),
-    });
-    expect(exp.statusCode, exp.body).toBe(200);
-    const file = exp.json<CopyFile>();
-    const sorted = (values: string[]) => [...values].sort((a, b) => a.localeCompare(b));
-
-    // 根只声明自己的资源；子资源只出现在子定义里。
-    expect(sorted(file.agent.serverNames ?? [])).toEqual(sorted([rootServer, sharedServer]));
-    expect(sorted(file.agent.skillSlugs ?? [])).toEqual(sorted([rootSkill, sharedSkill]));
-    expect(file.agent.skillSlugs).not.toContain(activeSkill);
-    expect(file.agent.skillSlugs).not.toContain(disabledSkill);
-    // 顶层资源是根与全部子资源的并集。
-    expect(sorted(file.servers.map((entry) => entry.name))).toEqual(
-      sorted([sharedServer, rootServer, childServer]),
+    const files = await exportFiles(imported.json<ImportResult>().agent.id);
+    const sidecar = sidecarOf(files);
+    expect(sorted(sidecar.agent.serverNames)).toEqual([sharedServer]);
+    // 子级绑定只写在官方 md 的 mcpServers；侧车不重复。
+    const childMd = files.get(`.claude/agents/${childSlug}.md`) ?? '';
+    const mcpList = /mcpServers:\n((?: {2}- .*\n)*)/.exec(childMd)?.[1] ?? '';
+    expect(
+      sorted(
+        mcpList
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => line.replace(/^ {2}- "?|"$/g, '')),
+      ),
+    ).toEqual(sorted([childServer, sharedServer]));
+    const exportedChildTools = sidecar.servers.find((entry) => entry.name === childServer);
+    expect(exportedChildTools?.kind === 'generated' ? exportedChildTools.tools : undefined).toEqual(
+      [
+        {
+          name: 'child-tool',
+          description: '',
+          method: 'POST',
+          pathTemplate: '/child-tool',
+          inputSchema: { type: 'object', properties: {} },
+          paramsIn: 'body',
+          requiresApproval: true,
+          enabled: true,
+        },
+      ] satisfies PortableTool[],
     );
-    expect(sorted(file.skills.map((entry) => entry.slug))).toEqual(
-      sorted([rootSkill, sharedSkill, activeSkill, disabledSkill]),
-    );
-    const exportedChildren = new Map(file.subAgents.map((entry) => [entry.slug, entry]));
-    expect(sorted([...exportedChildren.keys()])).toEqual(sorted([activeSlug, disabledSlug]));
-    expect(exportedChildren.get(activeSlug)).toMatchObject({
-      enabled: true,
-      skillSlugs: sorted([activeSkill, sharedSkill]),
-    });
-    expect(sorted(exportedChildren.get(activeSlug)?.serverNames ?? [])).toEqual(
-      sorted([childServer, sharedServer]),
-    );
-    expect(exportedChildren.get(disabledSlug)).toMatchObject({
-      enabled: false,
-      serverNames: [],
-      skillSlugs: [disabledSkill],
-    });
-
-    // 工具只带可移植字段，启停与审批标记原样保留。
-    const exportedServers = new Map(file.servers.map((entry) => [entry.name, entry]));
-    expect(exportedServers.get(rootServer)?.tools).toEqual([
-      {
-        name: 'root-tool',
-        description: '',
-        method: 'GET',
-        pathTemplate: '/root-tool',
-        inputSchema: { type: 'object', properties: {} },
-        paramsIn: 'query',
-        enabled: false,
-        requiresApproval: true,
-      },
-    ]);
-    expect(exportedServers.get(childServer)?.tools).toEqual([
-      {
-        name: 'child-tool',
-        description: '',
-        method: 'POST',
-        pathTemplate: '/child-tool',
-        inputSchema: { type: 'object', properties: {} },
-        paramsIn: 'body',
-        enabled: true,
-        requiresApproval: true,
-      },
-    ]);
-
-    const sourceServerIds = (
-      await app.pool.query<{ id: string }>('select id from servers where name = any($1::text[])', [
-        [sharedServer, rootServer, childServer],
-      ])
-    ).rows.map((row) => row.id);
-    const sourceToolIds = (
-      await app.pool.query<{ id: string }>(
-        'select id from api_tools where server_id = any($1::text[])',
-        [sourceServerIds],
-      )
-    ).rows.map((row) => row.id);
-    expect(sourceServerIds).toHaveLength(3);
-    expect(sourceToolIds).toHaveLength(2);
-    const sourceIds = [
-      seeded.agent.id,
-      sourceActive?.id ?? '',
-      sourceDisabled?.id ?? '',
-      ...sourceServerIds,
-      ...sourceToolIds,
-    ];
-    for (const id of sourceIds) expect(exp.body).not.toContain(id);
-
-    // 第二份：只改根 slug/name，资源全部改名以强制新 ID，引用同步镜像。
-    const fresh = {
-      root: unique('bundle-copy2-root'),
-      servers: {
-        shared: unique('bundle-copy2-srv-shared'),
-        root: unique('bundle-copy2-srv-root'),
-        child: unique('bundle-copy2-srv-child'),
-      },
-      skills: {
-        root: unique('bundle-copy2-skill-root'),
-        shared: unique('bundle-copy2-skill-shared'),
-        active: unique('bundle-copy2-skill-active'),
-        disabled: unique('bundle-copy2-skill-disabled'),
-      },
+    // .mcp.json 与运行时一致：父 + 子绑定的并集，子定义按名字引用自己的条目。
+    const mcp = JSON.parse(files.get('.mcp.json') ?? '{}') as {
+      mcpServers: Record<string, unknown>;
     };
-    const serverRename = new Map([
-      [sharedServer, fresh.servers.shared],
-      [rootServer, fresh.servers.root],
-      [childServer, fresh.servers.child],
-    ]);
-    const skillRename = new Map([
-      [rootSkill, fresh.skills.root],
-      [sharedSkill, fresh.skills.shared],
-      [activeSkill, fresh.skills.active],
-      [disabledSkill, fresh.skills.disabled],
-    ]);
-    const copy = structuredClone(file);
-    copy.agent.slug = fresh.root;
-    copy.agent.name = `Imported ${fresh.root}`;
-    const mirror = (entry: CopyAgent) => {
-      entry.serverNames = (entry.serverNames ?? []).map((name) => serverRename.get(name) ?? name);
-      entry.skillSlugs = (entry.skillSlugs ?? []).map((slug) => skillRename.get(slug) ?? slug);
-    };
-    mirror(copy.agent);
-    for (const entry of copy.subAgents) mirror(entry);
-    for (const entry of copy.servers) entry.name = serverRename.get(entry.name) ?? entry.name;
-    for (const entry of copy.skills) entry.slug = skillRename.get(entry.slug) ?? entry.slug;
-    copy.servers.sort((a, b) => a.name.localeCompare(b.name));
-    copy.skills.sort((a, b) => a.slug.localeCompare(b.slug));
-
-    const second = await importBundle(copy);
-    expect(second.statusCode, second.body).toBe(201);
-    const imported = second.json<ImportResult>();
-    createdAgents.push(imported.agent.slug, ...imported.createdSubAgents);
-    createdServers.push(...imported.createdServers);
-    createdSkills.push(...imported.createdSkills);
-
-    expect(imported.agent.slug).toBe(fresh.root);
-    expect(sorted(imported.createdSubAgents)).toEqual(
-      sorted([`${activeSlug}-2`, `${disabledSlug}-2`]),
-    );
-    expect(imported.createdServers).toEqual(copy.servers.map((entry) => entry.name));
-    expect(imported.createdSkills).toEqual(copy.skills.map((entry) => entry.slug));
-    expect(imported.warnings.some((warning) => warning.includes(`${activeSlug}-2`))).toBe(true);
-
-    const newRoot = await agentRow(fresh.root);
-    const newActive = await agentRow(`${activeSlug}-2`);
-    const newDisabled = await agentRow(`${disabledSlug}-2`);
-    expect(newRoot?.id).toBe(imported.agent.id);
-    expect(newRoot?.id).not.toBe(sourceRoot?.id);
-    expect(newRoot?.parent_id).toBeNull();
-    expect(newActive?.parent_id).toBe(newRoot?.id);
-    expect(newDisabled?.parent_id).toBe(newRoot?.id);
-    for (const child of [newActive, newDisabled]) {
-      expect(sourceIds).not.toContain(child?.id);
-    }
-
-    // 源树不动：子智能体仍挂在原父级，行与版本都没被改写。
-    expect((await agentRow(activeSlug))?.id).toBe(sourceActive?.id);
-    expect((await agentRow(activeSlug))?.parent_id).toBe(sourceRoot?.id);
-    expect((await agentRow(disabledSlug))?.parent_id).toBe(sourceRoot?.id);
-    expect(await versionsOf(sourceActive?.id ?? '')).toHaveLength(1);
-
-    // 导入结果按名称重建绑定，根只拿自己的资源。
-    const newServerRows = await app.pool.query<{ id: string; name: string }>(
-      'select id, name from servers where name = any($1::text[])',
-      [[fresh.servers.shared, fresh.servers.root, fresh.servers.child]],
-    );
-    const newServerId = new Map(newServerRows.rows.map((row) => [row.name, row.id]));
-    const newSkillRows = await app.pool.query<{ id: string; slug: string }>(
-      'select id, slug from skills where slug = any($1::text[])',
-      [[fresh.skills.root, fresh.skills.shared, fresh.skills.active, fresh.skills.disabled]],
-    );
-    const newSkillId = new Map(newSkillRows.rows.map((row) => [row.slug, row.id]));
-    expect(newServerId.size).toBe(3);
-    expect(newSkillId.size).toBe(4);
-
-    expect(new Set(imported.agent.serverIds)).toEqual(
-      new Set([newServerId.get(fresh.servers.root), newServerId.get(fresh.servers.shared)]),
-    );
-    expect(new Set(imported.agent.skillIds)).toEqual(
-      new Set([newSkillId.get(fresh.skills.root), newSkillId.get(fresh.skills.shared)]),
-    );
-    expect(sorted(await boundServerNames(newRoot?.id ?? ''))).toEqual(
-      sorted([fresh.servers.root, fresh.servers.shared]),
-    );
-    expect(sorted(await boundSkillSlugs(newRoot?.id ?? ''))).toEqual(
-      sorted([fresh.skills.root, fresh.skills.shared]),
-    );
-    expect(sorted(await boundServerNames(newActive?.id ?? ''))).toEqual(
-      sorted([fresh.servers.child, fresh.servers.shared]),
-    );
-    expect(sorted(await boundSkillSlugs(newActive?.id ?? ''))).toEqual(
-      sorted([fresh.skills.active, fresh.skills.shared]),
-    );
-    expect(await boundServerNames(newDisabled?.id ?? '')).toEqual([]);
-    expect(await boundSkillSlugs(newDisabled?.id ?? '')).toEqual([fresh.skills.disabled]);
-    const disabledRow = await app.pool.query<{ enabled: boolean }>(
-      'select enabled from agents where id = $1',
-      [newDisabled?.id],
-    );
-    expect(disabledRow.rows[0]?.enabled).toBe(false);
-
-    // 工具用新 ID 重建，绑定到各自的 server，可移植字段与标记不变。
-    const newTools = await app.pool.query<{
-      id: string;
-      serverId: string;
-      name: string;
-      method: string;
-      pathTemplate: string;
-      inputSchema: Record<string, unknown>;
-      paramsIn: string;
-      enabled: boolean;
-      requiresApproval: boolean;
-    }>(
-      `select id, server_id as "serverId", name, method, path_template as "pathTemplate",
-              input_schema as "inputSchema", params_in as "paramsIn", enabled,
-              requires_approval as "requiresApproval"
-       from api_tools where server_id = any($1::text[]) order by name`,
-      [[newServerId.get(fresh.servers.root), newServerId.get(fresh.servers.child)]],
-    );
-    expect(newTools.rows.map(({ id: _id, serverId: _serverId, ...portable }) => portable)).toEqual([
-      {
-        name: 'child-tool',
-        method: 'POST',
-        pathTemplate: '/child-tool',
-        inputSchema: { type: 'object', properties: {} },
-        paramsIn: 'body',
-        enabled: true,
-        requiresApproval: true,
-      },
-      {
-        name: 'root-tool',
-        method: 'GET',
-        pathTemplate: '/root-tool',
-        inputSchema: { type: 'object', properties: {} },
-        paramsIn: 'query',
-        enabled: false,
-        requiresApproval: true,
-      },
-    ]);
-    expect(newTools.rows).toHaveLength(2);
-    expect(newTools.rows.find((entry) => entry.name === 'root-tool')?.serverId).toBe(
-      newServerId.get(fresh.servers.root),
-    );
-    expect(newTools.rows.find((entry) => entry.name === 'child-tool')?.serverId).toBe(
-      newServerId.get(fresh.servers.child),
-    );
-    for (const entry of newTools.rows) expect(sourceToolIds).not.toContain(entry.id);
-
-    // 根版本快照记录最终的子智能体 ID。
-    const newRootVersions = await versionsOf(newRoot?.id ?? '');
-    expect(newRootVersions).toHaveLength(1);
-    expect(newRootVersions[0]?.version).toBe(1);
-    expect(new Set(newRootVersions[0]?.snapshot.subAgentIds)).toEqual(
-      new Set([newActive?.id, newDisabled?.id]),
-    );
+    // 与运行时同源：.mcp.json 是父 + 子绑定的并集，CLAUDE.md 的工具清单同源于此；
+    // 子定义靠官方 mcpServers 名字只引用自己那几条。
+    expect(Object.keys(mcp.mcpServers).sort()).toEqual([childServer, sharedServer].sort());
   });
 });

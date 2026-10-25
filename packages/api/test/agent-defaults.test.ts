@@ -1,7 +1,16 @@
 import type { Agent, WorkspaceFiles } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cleanup, infraReady, inject, loginCookie, startApp, unique } from './helpers.js';
+import {
+  cleanup,
+  infraReady,
+  inject,
+  injectZip,
+  loginCookie,
+  startApp,
+  unique,
+} from './helpers.js';
+import { sidecarOf, unzipPackage } from './package-fixtures.js';
 
 const ready = await infraReady;
 const FIELDS = ['effort', 'maxThinkingTokens'] as const;
@@ -133,34 +142,42 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
 
   it('omits cleared fields from export and round-trips configured ones', async () => {
     const agent = await create({ effort: 'xhigh', maxThinkingTokens: 4096 });
-    const exportAgent = async (id: string) => {
-      const res = await inject(app, {
-        method: 'GET',
-        url: `/api/export/agents/${id}`,
-        headers: auth(),
-      });
+    const exportPackage = async (id: string) => {
+      const res = await injectZip(app, 'GET', `/api/export/agents/${id}`, cookie);
       expect(res.statusCode, res.body).toBe(200);
-      return res.json<{ agent: Record<string, unknown> }>();
+      return { zip: res.rawPayload, files: unzipPackage(res.rawPayload) };
     };
 
-    const file = await exportAgent(agent.id);
-    expect(file.agent).toMatchObject({ effort: 'xhigh', maxThinkingTokens: 4096 });
-
-    const imported = await inject(app, {
-      method: 'POST',
-      url: '/api/import/agents',
-      headers: auth(),
-      payload: file,
+    const exported = await exportPackage(agent.id);
+    expect(sidecarOf(exported.files).agent).toMatchObject({
+      effort: 'xhigh',
+      maxThinkingTokens: 4096,
     });
+
+    const imported = await injectZip(app, 'POST', '/api/import/agents', cookie, exported.zip);
     expect(imported.statusCode, imported.body).toBe(201);
     const created = imported.json<{ agent: Agent }>().agent;
     agentSlugs.push(created.slug);
     agentIds.push(created.id);
     expect(created).toMatchObject({ effort: 'xhigh', maxThinkingTokens: 4096 });
 
+    // 清空后导出：侧车不写这两个字段，包仍可导入。
     const cleared = await patch(agent.id, { effort: null, maxThinkingTokens: null });
     expect(cleared.statusCode, cleared.body).toBe(200);
-    const clearedFile = await exportAgent(agent.id);
-    for (const field of FIELDS) expect(clearedFile.agent).not.toHaveProperty(field);
+    const clearedPackage = await exportPackage(agent.id);
+    const clearedSidecar = sidecarOf(clearedPackage.files);
+    for (const field of FIELDS) expect(clearedSidecar.agent).not.toHaveProperty(field);
+    const reimported = await injectZip(
+      app,
+      'POST',
+      '/api/import/agents',
+      cookie,
+      clearedPackage.zip,
+    );
+    expect(reimported.statusCode, reimported.body).toBe(201);
+    const clearedAgent = reimported.json<{ agent: Agent }>().agent;
+    agentSlugs.push(clearedAgent.slug);
+    agentIds.push(clearedAgent.id);
+    for (const field of FIELDS) expect(clearedAgent).not.toHaveProperty(field);
   });
 });

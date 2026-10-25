@@ -1,9 +1,9 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { RUN_STREAM_MAXLEN, runChannel, runStreamKey } from '@agentport/shared';
+import { RUN_STREAM_MAXLEN, runStreamKey } from '@agentport/shared';
 import { Redis } from 'ioredis';
 import { afterAll, describe, expect, it } from 'vitest';
 import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
-import { infraReady, subscriberCount, testConfig, unique, waitFor } from './helpers.js';
+import { eventFollowerCount, infraReady, testConfig, unique, waitFor } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -29,20 +29,20 @@ describe.skipIf(!ready)('run subscribers', () => {
     second.close();
   });
 
-  it('delivers each event once when publishes race the drain', async () => {
+  it('delivers each event once during live follow', async () => {
     const runId = unique('sse-run');
     const texts: string[] = [];
     const sub = await subscribeRun(runId, (event) => {
       if (event.type === 'text_delta') texts.push(event.text);
     });
 
-    // 每次 publish 都会唤醒一次 drain；并发 XRANGE 返回同一批事件时不能重复回调。
     await Promise.all(
       Array.from({ length: 50 }, (_, i) =>
         publishRun(runId, { type: 'text_delta', text: `t${i}` }),
       ),
     );
-    await delay(500);
+    await waitFor(() => texts.length === 50);
+    await delay(200);
 
     expect(texts).toHaveLength(50);
     expect(new Set(texts).size).toBe(50);
@@ -87,7 +87,7 @@ describe.skipIf(!ready)('run subscribers', () => {
       expect(texts.at(-1)).toBe(`e${RUN_STREAM_MAXLEN + 499}`);
     } finally {
       sub?.close();
-      await redis.del(runStreamKey(runId), runChannel(runId)).catch(() => undefined);
+      await redis.del(runStreamKey(runId)).catch(() => undefined);
       await redis.quit();
     }
   });
@@ -120,14 +120,13 @@ describe.skipIf(!ready)('run subscribers', () => {
       expect(types.filter((type) => type === 'text_delta')).toHaveLength(2);
     } finally {
       sub?.close();
-      await redis.del(runStreamKey(runId), runChannel(runId)).catch(() => undefined);
+      await redis.del(runStreamKey(runId)).catch(() => undefined);
       await redis.quit();
     }
   });
 
-  it('does not unsubscribe a live subscriber when a stale one closes', async () => {
+  it('does not disconnect a live subscriber when a stale one closes', async () => {
     const runId = unique('sse-run');
-    const channel = runChannel(runId);
     const types: string[] = [];
     const probe = new Redis(testConfig().REDIS_URL);
 
@@ -139,15 +138,94 @@ describe.skipIf(!ready)('run subscribers', () => {
 
       stale.close();
       await delay(100);
-      expect(await subscriberCount(probe, channel)).toBe(1);
-
       await publishRun(runId, { type: 'text_delta', text: 'still here' });
       expect(await waitFor(() => types.length > 0)).toBe(true);
 
       live.close();
-      expect(await waitFor(async () => (await subscriberCount(probe, channel)) === 0)).toBe(true);
+      expect(await waitFor(async () => (await eventFollowerCount(probe, runId)) === 0)).toBe(true);
     } finally {
       await probe.quit();
     }
+  });
+
+  it('follows events added while the blocking read is between calls', async () => {
+    const runId = unique('sse-run');
+    const probe = new Redis(testConfig().REDIS_URL);
+    const types: string[] = [];
+    const sub = await subscribeRun(runId, (event) => types.push(event.type));
+    try {
+      expect(await waitFor(async () => (await eventFollowerCount(probe, runId)) === 1)).toBe(true);
+
+      // 先写再等：BLOCK 从最后真实 ID 继续，不会因为订阅已建立就漏掉。
+      await publishRun(runId, { type: 'text_delta', text: 'a' });
+      await publishRun(runId, { type: 'text_delta', text: 'b' });
+      expect(await waitFor(() => types.length === 2)).toBe(true);
+    } finally {
+      sub.close();
+      await probe.quit();
+    }
+  });
+
+  it('resumes from the last seen id after the follower connection drops', async () => {
+    const runId = unique('sse-run');
+    const probe = new Redis(testConfig().REDIS_URL);
+    const texts: string[] = [];
+    const sub = await subscribeRun(runId, (event) => {
+      if (event.type === 'text_delta') texts.push(event.text);
+    });
+    try {
+      await publishRun(runId, { type: 'text_delta', text: 'before' });
+      expect(await waitFor(() => texts.includes('before'))).toBe(true);
+
+      // 模拟网络闪断：服务端断开阻塞中的跟随连接，客户端会带着同一个 lastId 重订阅。
+      expect(await waitFor(async () => (await eventFollowerCount(probe, runId)) === 1)).toBe(true);
+      const list = await probe.client('LIST');
+      const line = list.split('\n').find((entry) => entry.includes(`name=run-events:${runId}`));
+      const clientId = line?.match(/\bid=(\d+)/)?.[1];
+      expect(clientId).toBeDefined();
+      await probe.client('KILL', 'ID', clientId as string);
+
+      await publishRun(runId, { type: 'text_delta', text: 'after' });
+      expect(await waitFor(() => texts.includes('after'))).toBe(true);
+      // 不重放已确认的事件，也不丢断线期间写入的事件。
+      expect(texts).toEqual(['before', 'after']);
+    } finally {
+      sub.close();
+      await probe.quit();
+    }
+  });
+
+  it('applies callback backpressure instead of buffering pending events', async () => {
+    const runId = unique('sse-run');
+    const seen: string[] = [];
+    let active = 0;
+    let overlap = false;
+    const sub = await subscribeRun(runId, async (event) => {
+      active += 1;
+      if (active > 1) overlap = true;
+      await delay(20);
+      if (event.type === 'text_delta') seen.push(event.text);
+      active -= 1;
+    });
+    try {
+      await publishRun(runId, { type: 'text_delta', text: 'a' });
+      await publishRun(runId, { type: 'text_delta', text: 'b' });
+      expect(await waitFor(() => seen.length === 2)).toBe(true);
+      expect(seen).toEqual(['a', 'b']);
+      expect(overlap).toBe(false);
+    } finally {
+      sub.close();
+    }
+  });
+
+  it('closeProducer interrupts a blocked follower promptly', async () => {
+    const runId = unique('sse-run');
+    const probe = new Redis(testConfig().REDIS_URL);
+    await subscribeRun(runId, () => undefined);
+    await waitFor(async () => (await eventFollowerCount(probe, runId)) === 1);
+    const started = Date.now();
+    await closeProducer();
+    expect(Date.now() - started).toBeLessThan(2_000);
+    await probe.quit();
   });
 });

@@ -8,6 +8,7 @@ import {
   errorCode,
   type Problem,
   problemSchema,
+  runEventsConnectionName,
   type Server,
 } from '@agentport/shared';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
@@ -23,6 +24,22 @@ let counter = 0;
 
 export function inject(app: FastifyInstance, opts: InjectOptions): Promise<LightMyRequestResponse> {
   return app.inject(opts);
+}
+
+/** ZIP 导出/导入是二进制接口：直接发字节并声明 application/zip。 */
+export function injectZip(
+  app: FastifyInstance,
+  method: 'GET' | 'POST',
+  url: string,
+  cookie: string,
+  payload?: Buffer,
+): Promise<LightMyRequestResponse> {
+  return app.inject({
+    method,
+    url,
+    headers: payload === undefined ? { cookie } : { cookie, 'content-type': 'application/zip' },
+    ...(payload === undefined ? {} : { payload }),
+  });
 }
 
 /** 合法 slug/name：小写字母、数字、- 和 _。 */
@@ -212,9 +229,11 @@ export async function waitFor(
   return false;
 }
 
-/** 用独立连接数某个 channel 的观众数；服务端订阅连接不参与计数。 */
-export async function subscriberCount(redis: Redis, channel: string): Promise<number> {
-  return Number((await redis.pubsub('NUMSUB', channel))[1] ?? 0);
+/** 用独立连接数某个 run 的阻塞事件跟随者；连接名由 producer 设置。 */
+export async function eventFollowerCount(redis: Redis, runId: string): Promise<number> {
+  const name = `name=${runEventsConnectionName(runId)}`;
+  const list = await redis.client('LIST');
+  return list.split('\n').filter((line) => line.includes(`${name} `) || line.endsWith(name)).length;
 }
 
 /** 只删本次测试创建的目标；级联会带走 tools / agent_servers / conversations。 */

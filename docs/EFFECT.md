@@ -73,7 +73,7 @@ BullMQ 仍然负责任务分发与重试；Effect 负责单个任务内部。
 
 | 模块 | 改动 |
 |---|---|
-| `packages/core/src/effect-runtime.ts` | 新增：四个服务 + `runProgram` + `withTimeout` |
+| `packages/core/src/effect-runtime.ts` | 新增：四个服务 + `runProgram` + `withTimeout`（2026-10-25：无消费者的服务层与 `withTimeout` 已删除，仅保留错误分类与 `runProgram`） |
 | `packages/worker/src/runner-client.ts` | 重写：容器生命周期、取消、超时、事件发布 |
 | `packages/worker/src/eval-runner.ts` | 重写：批量执行用 `Effect.forEach` + `Effect.result`（v4 已无 `either`） |
 | `packages/worker/src/reconcile.ts` | 重写：DB 调用加重试 |

@@ -1,6 +1,6 @@
 import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
-import { runCancelKey, runChannel, runStreamKey } from '@agentport/shared';
+import { runCancelKey, runStreamKey } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -8,12 +8,12 @@ import { publishRun } from '../src/queue/producer.js';
 import {
   cleanup,
   createAgent,
+  eventFollowerCount,
   infraReady,
   inject,
   loginCookie,
   seedRun,
   startApp,
-  subscriberCount,
   testConfig,
   unique,
   waitFor,
@@ -46,9 +46,7 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
 
   afterAll(async () => {
     for (const runId of runIds) {
-      await redis
-        .del(runStreamKey(runId), runChannel(runId), runCancelKey(runId))
-        .catch(() => undefined);
+      await redis.del(runStreamKey(runId), runCancelKey(runId)).catch(() => undefined);
     }
     await cleanup(app, { agentSlugs, runIds });
     await redis.quit();
@@ -157,9 +155,8 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
 
   it('ends an open stream with run_unavailable when the run row is deleted', async () => {
     const runId = await seed();
-    const channel = runChannel(runId);
     const sse = await openSse(runId);
-    expect(await waitFor(async () => (await subscriberCount(redis, channel)) === 1)).toBe(true);
+    expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 1)).toBe(true);
 
     // 模拟保留期清理：只删本用例自己的 run 行。
     await app.pool.query('delete from agent_runs where id = $1', [runId]);
@@ -171,7 +168,7 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
     expect(text.match(/"type":"run_unavailable"/g)).toHaveLength(1);
     expect(text).toContain('运行记录已不存在，已停止接收。');
     expect(text).not.toContain('run_finished');
-    expect(await waitFor(async () => (await subscriberCount(redis, channel)) === 0)).toBe(true);
+    expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 0)).toBe(true);
   });
 
   it('returns a JSON 404 before opening SSE for an unknown run', async () => {
@@ -198,14 +195,13 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
 
   it('stops the recheck when the client aborts', async () => {
     const runId = await seed();
-    const channel = runChannel(runId);
     const sse = await openSse(runId);
-    expect(await waitFor(async () => (await subscriberCount(redis, channel)) === 1)).toBe(true);
+    expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 1)).toBe(true);
 
     await sse.abort();
-    expect(await waitFor(async () => (await subscriberCount(redis, channel)) === 0)).toBe(true);
+    expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 0)).toBe(true);
     await delay(2_200);
-    expect(await subscriberCount(redis, channel)).toBe(0);
+    expect(await eventFollowerCount(redis, runId)).toBe(0);
 
     const health = await inject(app, { method: 'GET', url: '/health/live' });
     expect(health.statusCode).toBe(200);

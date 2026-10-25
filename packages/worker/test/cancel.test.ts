@@ -60,7 +60,7 @@ describe('escalateKill', () => {
 });
 
 describe('runInSandbox task payload', () => {
-  it('serializes bound skill slugs to the runner unchanged', async () => {
+  it('serializes the shared sandbox task to the runner unchanged', async () => {
     configureRunnerClient(process.env.REDIS_URL ?? 'redis://localhost:6379');
     const child = new FakeSandboxChild();
 
@@ -74,17 +74,19 @@ describe('runInSandbox task payload', () => {
       return originalWrite(chunk);
     }) as typeof child.stdin.write;
 
+    const task = {
+      prompt: 'hi',
+      model: 'test',
+      maxTurns: 1,
+      maxBudgetUsd: 1,
+      mcpServers: ['files'],
+      skills: ['pdf-tools', 'release-notes'],
+      userMessageUuid: '11111111-2222-4333-8444-555555555555',
+    };
     await runInSandbox({
       runId: 'run-test',
       timeoutMs: 5_000,
-      task: {
-        prompt: 'hi',
-        model: 'test',
-        maxTurns: 1,
-        maxBudgetUsd: 1,
-        mcpServers: ['files'],
-        skills: ['pdf-tools', 'release-notes'],
-      },
+      task,
       workspaceDir: '/tmp/fake',
       image: 'fake',
       env: {},
@@ -92,8 +94,7 @@ describe('runInSandbox task payload', () => {
       logger: quietLogger,
     });
 
-    const task = JSON.parse(written.join('').trim());
-    expect(task.skills).toEqual(['pdf-tools', 'release-notes']);
+    expect(JSON.parse(written.join('').trim())).toEqual(task);
     await closeRunnerClient();
   });
 });

@@ -4,8 +4,8 @@ import {
   chatEventSchema,
   RUN_STREAM_MAXLEN,
   runCancelKey,
-  runChannel,
   runStreamKey,
+  type SandboxTaskInput,
 } from '@agentport/shared';
 import { Deferred, Effect, Exit, type Scope } from 'effect';
 import { Redis } from 'ioredis';
@@ -18,25 +18,8 @@ export type RunStatus = 'succeeded' | 'failed' | 'cancelled' | 'timeout';
 export interface SandboxRunInput {
   runId: string;
   timeoutMs: number;
-  /** 原样发给 runner 的任务对象（prompt + 模型 + 限额）。 */
-  task: {
-    prompt: string;
-    /** 已格式化的历史对话；runner 拼在 prompt 之前。 */
-    history?: string;
-    model: string;
-    maxTurns: number;
-    maxBudgetUsd: number;
-    /** SDK 权限模式；缺省由 runner 回落到 dontAsk。 */
-    permissionMode?: string;
-    /** 绑定到工作区的 MCP server 名，runner 用它生成精确 allow 规则 */
-    mcpServers: string[];
-    /** 绑定到工作区的技能 slug，runner 据此放行原生 Skill 工具。 */
-    skills?: string[];
-    extraAllowedTools?: string[];
-    extraDisallowedTools?: string[];
-    effort?: string;
-    maxThinkingTokens?: number;
-  };
+  /** 原样发给 runner 的任务对象；schema 由 shared 定义，runner 直接校验。 */
+  task: SandboxTaskInput;
   workspaceDir: string;
   image: string;
   /** 注入容器的凭证等；不会落到工作区文件。 */
@@ -139,16 +122,12 @@ function getCancelSubscriber(logger: Logger): Redis {
   return cancelSubscriber;
 }
 
-/**
- * 事件写 Redis Stream（与 API 的订阅端一致），可从流头回放；
- * 写完后用 pub/sub 唤醒正在 XRANGE 等待的订阅者。
- */
+/** 事件写 Redis Stream（与 API 的订阅端一致），可从流头回放；BLOCK 订阅者由 XADD 直接唤醒。 */
 export async function publishRun(runId: string, event: ChatEvent, logger: Logger): Promise<void> {
   const redis = getPublisher(logger);
   const key = runStreamKey(runId);
   await redis.xadd(key, 'MAXLEN', '~', RUN_STREAM_MAXLEN, '*', 'payload', JSON.stringify(event));
   await redis.expire(key, 3600);
-  await redis.publish(runChannel(runId), '1');
 }
 
 export async function closeRunnerClient(): Promise<void> {

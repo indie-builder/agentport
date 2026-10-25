@@ -40,35 +40,7 @@ export type AgentFiles = WorkspaceFiles;
 
 export type { OverviewTimeseriesPoint };
 
-/** 导出文件的前端视图；页面只取 agent.slug 生成文件名，其余原样写盘。 */
-export interface AgentExport {
-  format: string;
-  exportedAt: string;
-  agent: Omit<Agent, 'id' | 'createdAt' | 'updatedAt' | 'parentId'> & {
-    serverNames: string[];
-    skillSlugs: string[];
-  };
-  rules: Array<{ slug: string; content: string; globs: string }>;
-  outputStyles: Array<{
-    slug: string;
-    description: string;
-    keepCodingInstructions: boolean;
-    body: string;
-    isSelected: boolean;
-  }>;
-  subAgents: Array<
-    Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds'> & {
-      serverNames: string[];
-      skillSlugs: string[];
-      rules: AgentExport['rules'];
-      outputStyles: AgentExport['outputStyles'];
-    }
-  >;
-  servers: Array<Record<string, unknown>>;
-  skills: Array<SkillInput & { files: Array<{ path: string; content: string }> }>;
-  workspace: AgentFiles;
-}
-
+/** 导入官方目录包后新建/复用的资源；正文在文件里，这里只回名称供提示。 */
 export interface AgentImportResult {
   agent: Agent;
   createdServers: string[];
@@ -205,18 +177,18 @@ export interface OverviewAgentRow {
 }
 
 export interface Overview {
-  window?: { days: number; since: string };
+  window: { days: number; since: string };
   counts: {
     servers: number;
     agents: number;
-    runs: number | null;
-    running: number | null;
-    costUsd?: number;
-    avgLatencyMs?: number | null;
-    failed?: number;
-    tokens?: number;
+    runs: number;
+    running: number;
+    failed: number;
+    tokens: number;
+    costUsd: number;
+    avgLatencyMs: number | null;
   };
-  agents?: OverviewAgentRow[];
+  agents: OverviewAgentRow[];
   recent: RecentRun[];
 }
 
@@ -258,12 +230,6 @@ export type ConversationDetail = SharedConversationDetail;
 export interface ConversationPageOptions {
   limit?: number;
   before?: string;
-}
-
-export interface ConversationList {
-  items: Conversation[];
-  /** 后端尚未实现列表接口时为 false，页面退回本地会话记录。 */
-  supported: boolean;
 }
 
 export type EvalRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
@@ -408,17 +374,29 @@ export function errorMessage(error: unknown): string {
   return error.message;
 }
 
-async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+async function request<T>(
+  path: string,
+  method = 'GET',
+  body?: unknown,
+  signal?: AbortSignal,
+  responseType: 'json' | 'blob' = 'json',
+): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
       method,
       credentials: 'include',
+      ...(signal === undefined ? {} : { signal }),
       ...(body === undefined
         ? {}
-        : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+        : body instanceof Blob
+          ? // 二进制包按原样上传，不能重新序列化；空 type 按接口唯一格式兜底。
+            { headers: { 'content-type': body.type || 'application/zip' }, body }
+          : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
     });
-  } catch {
+  } catch (error) {
+    // 取消不是连不上：保持 AbortError 原样，让 TanStack Query 静默丢弃这次请求。
+    if (signal?.aborted || (error as { name?: string } | null)?.name === 'AbortError') throw error;
     throw new ApiError(0, '连不上 API 服务，请确认它已启动并检查网络后重试。');
   }
 
@@ -429,6 +407,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   }
 
   if (!res.ok) {
+    // 错误响应始终是 Problem JSON，即使成功响应是二进制。
     const data = (await res.json().catch(() => null)) as Partial<Problem> | null;
     // 服务端返回 Problem；非 Problem（代理页面、旧版本）时退回状态码文案。
     throw new ApiError(res.status, data?.message ?? (res.statusText || `HTTP ${res.status}`), {
@@ -439,7 +418,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   }
 
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  return (responseType === 'blob' ? await res.blob() : await res.json()) as T;
 }
 
 export const api = {
@@ -455,15 +434,7 @@ export const api = {
     request('/auth/login', 'POST', { username, password }),
   logout: (): Promise<{ ok: boolean }> => request('/auth/logout', 'POST'),
 
-  overview: async (): Promise<Overview | null> => {
-    try {
-      return await request<Overview>('/overview');
-    } catch (error) {
-      // 旧后端没有该端点；统计退回 servers/agents 列表推断。
-      if (error instanceof ApiError && error.status === 404) return null;
-      throw error;
-    }
-  },
+  overview: (): Promise<Overview> => request('/overview'),
   overviewTimeseries: (days = 14): Promise<OverviewTimeseriesPoint[]> =>
     request(`/overview/timeseries?days=${days}`),
 
@@ -559,9 +530,11 @@ export const api = {
     request(`/agents/${id}/stats?days=${days}`),
   rollbackAgent: (id: string, version: number): Promise<Agent> =>
     request(`/agents/${id}/rollback`, 'POST', { version }),
-  exportAgent: (id: string): Promise<AgentExport> => request(`/export/agents/${id}`),
-  importAgent: (data: unknown): Promise<AgentImportResult> =>
-    request('/import/agents', 'POST', data),
+  /** 官方目录包的 ZIP；错误仍是 Problem JSON。 */
+  exportAgent: (id: string, signal?: AbortSignal): Promise<Blob> =>
+    request(`/export/agents/${id}`, 'GET', undefined, signal, 'blob'),
+  importAgent: (file: Blob, signal?: AbortSignal): Promise<AgentImportResult> =>
+    request('/import/agents', 'POST', file, signal),
   importAgentFile: (agentMd: string): Promise<Pick<AgentImportResult, 'agent' | 'warnings'>> =>
     request('/agents/import-file', 'POST', { agentMd }),
 
@@ -587,12 +560,15 @@ export const api = {
   deleteSkillFile: (id: string, path: string): Promise<void> =>
     request(`/skills/${id}/files/${path.split('/').map(encodeURIComponent).join('/')}`, 'DELETE'),
 
-  marketSkills: (query: { view?: MarketView; q?: string } = {}): Promise<MarketSkill[]> => {
+  marketSkills: (
+    query: { view?: MarketView; q?: string } = {},
+    signal?: AbortSignal,
+  ): Promise<MarketSkill[]> => {
     const params = new URLSearchParams();
     if (query.view) params.set('view', query.view);
     if (query.q) params.set('q', query.q);
     const search = params.size > 0 ? `?${params.toString()}` : '';
-    return request(`/market/skills${search}`);
+    return request(`/market/skills${search}`, 'GET', undefined, signal);
   },
   installMarketSkill: (input: MarketInstallInput): Promise<SkillImportResult> =>
     request('/market/skills/install', 'POST', input),
@@ -601,26 +577,20 @@ export const api = {
     request(`/conversations/${id}`, 'PATCH', { title }),
   deleteConversation: (id: string): Promise<void> => request(`/conversations/${id}`, 'DELETE'),
 
-  conversations: async (agentId?: string): Promise<ConversationList> => {
+  conversations: (agentId?: string, signal?: AbortSignal): Promise<Conversation[]> => {
     const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
-    try {
-      const items = await request<Conversation[]>(`/conversations${query}`);
-      return { items, supported: true };
-    } catch (error) {
-      // 历史列表接口不在当前契约中；先支持本浏览器发起的会话，接口上线后自动切换。
-      if (error instanceof ApiError && error.status === 404) return { items: [], supported: false };
-      throw error;
-    }
+    return request(`/conversations${query}`, 'GET', undefined, signal);
   },
   conversation: (
     id: string,
     options: ConversationPageOptions = {},
+    signal?: AbortSignal,
   ): Promise<ConversationDetail> => {
     const params = new URLSearchParams();
     if (options.limit !== undefined) params.set('limit', String(options.limit));
     if (options.before !== undefined) params.set('before', options.before);
     const query = params.size > 0 ? `?${params.toString()}` : '';
-    return request(`/conversations/${id}${query}`);
+    return request(`/conversations/${id}${query}`, 'GET', undefined, signal);
   },
   branchConversation: (id: string, fromMessageId?: string): Promise<{ id: string }> =>
     request(`/conversations/${id}/branch`, 'POST', {
@@ -658,7 +628,7 @@ export const api = {
     request(`/schedules/${id}`, 'PATCH', input),
   deleteSchedule: (id: string): Promise<void> => request(`/schedules/${id}`, 'DELETE'),
 
-  audit: (query: AuditQuery = {}): Promise<AuditList> => {
+  audit: (query: AuditQuery = {}, signal?: AbortSignal): Promise<AuditList> => {
     const params = new URLSearchParams();
     if (query.action) params.set('action', query.action);
     if (query.status) params.set('status', query.status);
@@ -667,7 +637,7 @@ export const api = {
     if (query.before) params.set('before', query.before);
     if (query.beforeId) params.set('beforeId', query.beforeId);
     const search = params.size > 0 ? `?${params.toString()}` : '';
-    return request<AuditList>(`/audit${search}`);
+    return request<AuditList>(`/audit${search}`, 'GET', undefined, signal);
   },
   exportAudit: (
     query: AuditQuery = {},

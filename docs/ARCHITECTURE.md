@@ -140,23 +140,26 @@
 数据库是真相源；文件是每次运行前重新渲染的只读快照。
 
 ```
-data/workspaces/<agent-slug>/<run-id>/
-├─ .mcp.json
-├─ CLAUDE.md
-└─ .claude/
-   ├─ agents/
-   │  └─ <child-slug>.md         子智能体（仅单层；主智能体自己不落盘）
-   └─ skills/
-      └─ <skill-slug>/SKILL.md
+data/workspaces/<agent-slug>/
+├─ <run-id>/                      每次运行重建，run 结束删除
+│  ├─ .mcp.json
+│  ├─ CLAUDE.md
+│  └─ .claude/
+│     ├─ agents/
+│     │  └─ <child-slug>.md       子智能体（仅单层；主智能体自己不落盘）
+│     └─ skills/
+│        └─ <skill-slug>/SKILL.md
+├─ agent-memory/                  跨 run 持久：原生 auto-memory
+└─ sdk-sessions/<conversationId>/ 跨 run 持久：SDK transcript（按会话隔离）
 ```
 
-工作区按 run 隔离，run 结束删除；重试复用同一目录。目录 0700、文件 0600。
+工作区按 run 隔离，run 结束删除；重试复用同一目录。目录 0700、文件 0600。`agent-memory/` 与 `sdk-sessions/` 不属于单次运行，清理与备份都按持久数据处理。
 
 | 文件 | 内容来源 | 说明 |
 |---|---|---|
 | `.mcp.json` | `agent_servers` + `servers` | `mcpServers` 映射；stdio 写 command/args/env，http 写 url/headers，generated 写 `${SANDBOX_API_URL}/mcp/<id>` + 按 run 的短期 Bearer token 与 `x-agentport-run-id` |
-| `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 技能 + **等待规则** + 子智能体清单（含超时） |
-| `.claude/agents/<child-slug>.md` | 子智能体配置 | YAML frontmatter：`name`、`description`、`model`、`disallowedTools`、`maxTurns`及子级绑定的`skills`；**不写 `tools`**，否则 SDK 派生时按名字解析 MCP 工具会得到空集并拒绝启动。主智能体自己的 md 只用于预览（`GET /api/agents/:id/files`），不落盘，避免被当成可委派子智能体 |
+| `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 技能 + 子智能体清单（含超时）；前台执行与单层委派由运行时环境变量强制，不再逐次写在提示里 |
+| `.claude/agents/<child-slug>.md` | 子智能体配置 | YAML frontmatter：`name`、`description`、`model`、`mcpServers`（按名引用根 `.mcp.json`）、`disallowedTools`、`maxTurns` 及子级绑定的 `skills`；**不写 `tools`**，否则 SDK 派生时按名字解析 MCP 工具会得到空集并拒绝启动。父级不写 server 级 `disallowedTools`：子级继承会话权限，server 级 deny 会把子级工具一起移除，父级越权改由 PreToolUse 边界 hook 拒绝。主智能体自己的 md 只用于预览（`GET /api/agents/:id/files`），不落盘，避免被当成可委派子智能体 |
 | `.claude/skills/<slug>/SKILL.md` | `skills` 表 | frontmatter：`name`、`description`，正文为技能步骤 |
 
 运行时约定：
@@ -174,9 +177,9 @@ data/workspaces/<agent-slug>/<run-id>/
 
 目录与字段以已安装 Claude Agent SDK/Claude Code 版本及官方文档为准；下表为能力清单，不表示所有目录已经生成。项目目录是 `.claude/`，技能入口文件区分大小写为 `SKILL.md`。仅有文件存在不代表能力已加载，需验证加载来源、权限及实际调用。
 
-`agentport/agent@2` 包含根级与子智能体的规则、输出风格及技能支持资源；`agentport/agent@1` 仍可导入。包内每个技能的资源路径按大小写不敏感比较，禁止占用 `SKILL.md` 及其后代、重复路径和文件/目录祖先冲突；仅目录大小写不同、文件不同的路径（如 `References/a.md` 与 `references/b.md`）允许共存。导入与导出只读校验路径，保留合法路径的原始拼写及 content，不通过改名或归一化修复冲突。
+专家包是官方 `.claude/` 目录的 ZIP：`CLAUDE.md`、`.mcp.json`、`.claude/settings.json`、`.claude/agents/*.md`、`.claude/skills/**`、`.claude/rules/*.md`、`.claude/output-styles/*.md` 保存全部定义正文；根 `agentport.json` 只保存平台元数据（显示名、slug、预算/超时、密钥键名、generated 连接器定义、子定义自有规则等），不复制正文。旧 `agent@1`/`agent@2` JSON 已删除。包内每个技能的资源路径按大小写不敏感比较，禁止占用 `SKILL.md` 及其后代、重复路径和文件/目录祖先冲突；仅目录大小写不同、文件不同的路径（如 `References/a.md` 与 `references/b.md`）允许共存。导入与导出只读校验路径，保留合法路径的原始拼写及 content，不通过改名或归一化修复冲突。
 
-子智能体自有 rules / outputStyles 已支持保存、以自身为根的文件预览、clone 与 @2 导入导出；父级委派时不会自动应用这些子级自有配置，父工作区只渲染根智能体的规则与输出风格。clone 复制源智能体自身配置与资源绑定，不复制其子智能体。
+子智能体自有 rules / outputStyles 已支持保存、以自身为根的文件预览、clone 与目录包导入导出；父级委派时不会自动应用这些子级自有配置，父工作区只渲染根智能体的规则与输出风格。clone 复制源智能体自身配置与资源绑定，不复制其子智能体。
 
 | 官方文件/能力 | 加载方式 | 本项目当前状态 |
 |---|---|---|
@@ -185,8 +188,8 @@ data/workspaces/<agent-slug>/<run-id>/
 | `.claude/settings.json` | cwd 下 project settings；权限、环境、Hooks 等按该键允许的作用域生效 | 已生成选中输出风格的 outputStyle；其余主要通过 query options，尚未完整文件往返。**原生 auto-memory 已配置**：runner 通过 `settings.autoMemoryEnabled/autoMemoryDirectory` 指向挂载目录，文件工具权限及验收状态见下方记忆行 |
 | `.claude/settings.local.json`、根 `CLAUDE.local.md` | local source；本地覆盖，不作为共享包默认内容 | 当前只启用 project，不默认加载 |
 | `.mcp.json`（工作区根） | project source；连接与工具权限需实际验证 | 已生成运行时配置；受限HTTP/stdio文件可事务导入且凭证加密，不执行命令/测试连接；不支持字段与模板明确拒绝，导出不含密钥 |
-| `.claude/skills/<name>/SKILL.md` 与其支持资源 | project source 发现；技能启用、可用工具由 SDK 配置控制 | 单文件生成、下载、受限导入及支持资源增删改查已实现；@2 携带父子绑定技能的支持资源。父子绑定技能均落盘，父会话可用 `Read` 只读打开 `.claude/skills/<slug>/references/**/*.md`（写入仍仅限原生记忆目录）；真实CLI正负发现通过，绑定slug原生许可已接入；实际模型按需读取 references 仍未实测 |
-| `.claude/agents/*.md` | 文件子智能体定义；程序式同名定义优先 | 已生成子定义与子级skills字段，父编辑器可下载已保存且启用定义，预览与运行共用渲染器。**子智能体 MCP 绑定：官方支持子级 `mcpServers`，但平台当前未接通——子智能体继承父会话工具集，单独给子智能体绑定的 server 不独立生效**（如需要可后续按官方 frontmatter 实现）；CLI发现通过，实际子级加载未验证；主定义预览不下载为子文件 |
+| `.claude/skills/<name>/SKILL.md` 与其支持资源 | project source 发现；技能启用、可用工具由 SDK 配置控制 | 单文件生成、下载、受限导入及支持资源增删改查已实现；目录包携带父子绑定技能的支持资源。父子绑定技能均落盘，父会话可用 `Read` 只读打开 `.claude/skills/<slug>/references/**/*.md`（写入仍仅限原生记忆目录）；真实CLI正负发现通过，绑定slug原生许可已接入；实际模型按需读取 references 仍未实测 |
+| `.claude/agents/*.md` | 文件子智能体定义；程序式同名定义优先 | 已生成子定义与子级 skills 字段，父编辑器可下载已保存且启用定义，预览与运行共用渲染器。**子智能体 MCP 绑定已接通**：子定义写官方 `mcpServers` 名称引用根 `.mcp.json`，运行时用 PreToolUse 边界 hook 保证子级只用自己的 server/技能、父级不隐式获得子级工具；CLI 发现通过，子级实际加载仍以真实模型调试验收（单层约束由 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` 强制）；主定义预览不下载为子文件 |
 | `.claude/commands/*.md` | 官方保留的旧式命令文件；新能力优先 skills | 尚未接入，不另造命令引擎 |
 | `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 已有输出风格管理、文件预览与根级运行落盘；选中者写入 settings.json 的 outputStyle |
 | Hooks | 由 settings.json 的 hooks 配置或 SDK callbacks 注册；脚本目录本身不是自动发现入口 | 平台层回调与工作区文件Hooks需分别核对，不能仅创建hooks目录声称生效 |
@@ -194,6 +197,8 @@ data/workspaces/<agent-slug>/<run-id>/
 | `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 原生 auto-memory 使用 `WORKSPACES_DIR/<slug>/agent-memory/`（uid 1000、0700），API/worker 共卷，沙盒 rw 挂载到 `/mnt/agent-memory` 并设置 `autoMemoryEnabled=true`、`autoMemoryDirectory`。主会话仅预批准该目录的 Read/Edit 路径规则（Edit 含 Write），SDK PreToolUse 每次拒绝越界、链接和非普通 Markdown 文件；子智能体仍禁用文件工具。保留官方 `MEMORY.md` 与主题文件；权限/挂载测试通过，真实模型跨 run 记忆验收尚未验证。Workflows 仍不接入 |
 
 会话恢复、预算、取消信号、消息流、宿主 callbacks 等还有 SDK 运行时参数，不能声称全部都可写入 settings.json。`~/.claude/` 的认证、缓存、会话记录等宿主状态不属于可分享项目定义，不复制进用户工作区包。
+
+会话上下文不再拼接历史文本：每个 conversation 的 SDK transcript 持久化在 `WORKSPACES_DIR/<slug>/sdk-sessions/<conversationId>/`，容器只挂这一个目录到 `/home/node/.claude`；续聊传 `resume`，从某条用户消息分支时先复制来源 transcript 再用官方 `forkSession` 截断，成功后写回新 session id。fork 会给消息换新 uuid，映射由 **worker 从宿主 transcript 的 `forkedFrom` 字段计算**（不按位置对齐，压缩过的会话顺序会变），并与消息同事务写库；resume 事件只携带新 session id。transcript 缺失时该轮以 infra 失败，不回退成文本上下文。该目录属于运行时持久数据，随备份保存，但不是可分享定义包的一部分。
 
 当前 sandbox 明确使用 `cwd:'/workspace'`、`settingSources:['project']`；不加载宿主 user/local 偏好。官方加载默认值可能随版本变化，继续显式配置。文件导入必须经过类型、路径与大小校验，不能直接解压到执行目录或自动运行导入的脚本。
 
@@ -216,7 +221,7 @@ data/workspaces/<agent-slug>/<run-id>/
 | Redis 流契约只在 `shared/run-stream.ts` 定义 | api 与 worker 分属两个进程，键名/通道/取消载荷一旦漂移就是「事件写了没人读」这类静默故障；第 1 轮发现两处独立副本后收敛 | `@agentport/shared` 因此成为沙盒镜像的运行时依赖（见下） |
 | 审计写入支持 `dedupeKey` | BullMQ 基础设施重试会重放同一件事；没有幂等键时每次重试都多写一行审计 | 有键时用 `onConflictDoNothing` 而不是覆盖，重复上报被丢弃 |
 | 内置工具默认禁用 | 用户可配置任意 stdio server，必须收紧默认权限 | 需要显式绑定 MCP 才能做事 |
-| SSE 走 Redis Stream + pub/sub 唤醒 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库；每个观众一条独立订阅连接；唤醒丢失时最多 2 秒轮询延迟 |
+| SSE 走 Redis Stream + 阻塞读取 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库；每个观众一条独立订阅连接（`XREAD BLOCK`）；回调过慢导致未读事件被 MAXLEN 裁剪时不再补截断提示 |
 | MCP容量按执行计数 | 握手、SSE、平台invoke与审批等待不占上游执行槽，避免自等待 | 每进程执行4槽、排队8项；审批等待独立4槽且满时立即需批准，invoke既有4并发入场；非全局多进程限额 |
 | 会话历史使用独占游标页 | 网页默认50条、最多100条，按(created_at,id)倒取后正序展示；before须属于当前会话 | nextBefore为空则结束；消息内容字节未单独限制，内部完整复制调用保持原语义 |
 | api / worker 分进程 | 长任务不占 HTTP；队列消费可独立扩容 | 多一层队列与状态同步 |
@@ -231,12 +236,12 @@ data/workspaces/<agent-slug>/<run-id>/
 |---|---|
 | `RUN_STREAM_MAXLEN`（1000） | `XADD` 的 `MAXLEN ~`，事件流按条数截断 |
 | `runStreamKey(runId)` | `run:<runId>:events`，SSE 回放的事件流 |
-| `runChannel(runId)` | `run:<runId>:events:wake`，pub/sub 唤醒通道（事件本体仍在 Stream 里） |
+| `runEventsConnectionName(runId)` | `run-events:<runId>`，订阅连接的名称，用于计数观众 |
 | `runCancelKey(runId)` | `run:<runId>:cancel`，取消标记 |
 | `RUN_CANCEL_PAYLOAD` | 取消键的固定值 |
 | `runEnqueueOptions(jobId)` | BullMQ `jobId` + `attempts: 2` + 5s 指数退避 |
 
-流的 TTL（1 小时）在写入侧设置；`runChannel` 只负责「有新事件，去 XRANGE」，丢唤醒时靠 2 秒轮询兜底。
+流的 TTL（1 小时）在写入侧设置。订阅者先用 XREVRANGE 有界回放最近 8MiB，再用 `XREAD BLOCK` 从最后一条真实 ID 跟读；`XADD` 本身会唤醒阻塞读取，不再有单独的 pub/sub 唤醒通道或轮询兜底。终态事件丢失仍由 SSE 路由每 2 秒查数据库兜底。
 
 ### 6.2 审计幂等：`writeAudit(dedupeKey)`
 

@@ -12,7 +12,13 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { type ApprovalRequest, api, type ChatAccepted, type RunDetail } from '../src/lib/api.js';
+import {
+  ApiError,
+  type ApprovalRequest,
+  api,
+  type ChatAccepted,
+  type RunDetail,
+} from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
 import { toastError } from '../src/lib/toast.js';
 import { ChatPage } from '../src/pages/chat.js';
@@ -132,7 +138,7 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(['agents'], [agent]);
   vi.spyOn(api, 'agents').mockResolvedValue([agent]);
-  vi.spyOn(api, 'conversations').mockResolvedValue({ supported: true, items: [] });
+  vi.spyOn(api, 'conversations').mockResolvedValue([]);
   vi.spyOn(api, 'conversation').mockResolvedValue({
     conversation: { ...terminal.conversation, createdAt: '' },
     runMetrics: [],
@@ -367,31 +373,29 @@ describe('chat shell layout', () => {
     };
     client.setQueryData(['agents'], [agent, other]);
     vi.mocked(api.agents).mockResolvedValue([agent, other]);
-    vi.mocked(api.conversations).mockImplementation(async (agentId?: string) => ({
-      supported: true,
-      items:
-        agentId === 'agent-a'
-          ? [
-              {
-                id: 'conversation-a',
-                agentId: 'agent-a',
-                title: 'History',
-                createdAt: '',
-                updatedAt: '',
-                lastMessage: null,
-              },
-            ]
-          : [
-              {
-                id: 'conversation-b',
-                agentId: 'agent-b',
-                title: 'Other history',
-                createdAt: '',
-                updatedAt: '',
-                lastMessage: null,
-              },
-            ],
-    }));
+    vi.mocked(api.conversations).mockImplementation(async (agentId?: string) =>
+      agentId === 'agent-a'
+        ? [
+            {
+              id: 'conversation-a',
+              agentId: 'agent-a',
+              title: 'History',
+              createdAt: '',
+              updatedAt: '',
+              lastMessage: null,
+            },
+          ]
+        : [
+            {
+              id: 'conversation-b',
+              agentId: 'agent-b',
+              title: 'Other history',
+              createdAt: '',
+              updatedAt: '',
+              lastMessage: null,
+            },
+          ],
+    );
     const remove = vi.spyOn(api, 'deleteConversation');
     const router = await mount('/chat?agent=agent-a&conversation=conversation-a');
     await type('unfinished draft');
@@ -428,9 +432,41 @@ describe('chat shell layout', () => {
     expect(host.textContent).not.toContain('History');
     expect(host.textContent).toContain('Other history');
     expect(host.textContent).toContain('未命名会话');
-    expect(vi.mocked(api.conversations)).toHaveBeenCalledWith('agent-b');
+    expect(vi.mocked(api.conversations)).toHaveBeenCalledWith('agent-b', expect.any(AbortSignal));
     expect(message().value).toBe('unfinished draft');
     expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('shows a list failure in the history panel and never falls back to browser records', async () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    }));
+    localStorage.setItem(
+      'agentport:conversations',
+      JSON.stringify([
+        {
+          id: 'conversation-local',
+          agentId: 'agent-a',
+          title: 'Local only',
+          createdAt: '',
+          updatedAt: '',
+        },
+      ]),
+    );
+    vi.mocked(api.conversations).mockRejectedValue(new ApiError(0, 'Failed to fetch'));
+    await mount('/chat?agent=agent-a');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]')?.click(),
+    );
+    await flush();
+    const history = host.querySelector('aside[aria-label="会话历史"]');
+    expect(history?.textContent).toContain('连不上 API 服务');
+    expect(history?.textContent).not.toContain('Local only');
+    expect(host.textContent).not.toContain('历史列表来自本浏览器');
   });
 
   it('opens a workspace of conversation results without touching history', async () => {

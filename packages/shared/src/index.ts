@@ -1,4 +1,5 @@
 export * from './agent.js';
+export * from './agent-package.js';
 export * from './chat.js';
 export * from './config.js';
 export * from './connector-catalog.js';
@@ -7,5 +8,6 @@ export * from './mcp.js';
 export * from './ops.js';
 export * from './params.js';
 export * from './run-stream.js';
+export * from './sandbox-probe.js';
 export * from './schedules.js';
 export * from './schemas.js';

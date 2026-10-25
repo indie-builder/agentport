@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { Agent } from '@agentport/shared';
 import { chatEventSchema } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
@@ -150,7 +152,7 @@ describe.skipIf(!ready)('chat', () => {
     expectProblem(res, 'RUN_NOT_FOUND');
   });
 
-  it('passes prior messages as history on the next run', async () => {
+  it('does not put conversation history in the queue job', async () => {
     const agent = await newAgent();
     const first = await inject(app, {
       method: 'POST',
@@ -183,11 +185,14 @@ describe.skipIf(!ready)('chat', () => {
     const secondBody = second.json<{ runId: string }>();
     runIds.push(secondBody.runId);
 
+    // 上下文恢复靠 DB 里的 SDK session；队列只带标识与本次输入。
     const job = await getQueue().getJob(secondBody.runId);
-    const history = (job?.data as { history?: string } | undefined)?.history ?? '';
-    expect(history).toContain('用户：remember this');
-    expect(history).toContain('助手：noted');
-    expect(history).not.toContain('and now?');
+    expect(job?.data).toEqual({
+      runId: secondBody.runId,
+      agentId: agent.id,
+      conversationId: firstBody.conversationId,
+      prompt: 'and now?',
+    });
   });
 
   it('branches a conversation up to the given message', async () => {
@@ -200,10 +205,30 @@ describe.skipIf(!ready)('chat', () => {
     });
     const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
     runIds.push(runId);
+    // 分支要求线上消息都有 SDK uuid：这里模拟已完成的一轮 assistant 输出。
     await app.pool.query(
-      "insert into messages (id, conversation_id, role, content) values ('msg_branch_test', $1, 'assistant', $2)",
-      [conversationId, JSON.stringify({ type: 'text', text: 'answer' })],
+      "insert into messages (id, conversation_id, role, content, sdk_message_uuid) values ('msg_branch_test', $1, 'assistant', $2, $3)",
+      [
+        conversationId,
+        JSON.stringify({ type: 'text', text: 'answer' }),
+        '7a1c2b3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d',
+      ],
     );
+    await app.pool.query('update conversations set sdk_session_id = $2 where id = $1', [
+      conversationId,
+      '11111111-2222-4333-8444-555555555555',
+    ]);
+    // 分支会复制来源 transcript 目录；必须存在，否则首轮无从 fork。
+    const sessionsDir = join(
+      app.config.WORKSPACES_DIR,
+      agent.slug,
+      'sdk-sessions',
+      conversationId,
+      'projects',
+      'workspace',
+    );
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(join(sessionsDir, '11111111-2222-4333-8444-555555555555.jsonl'), '');
 
     const detail = await inject(app, {
       method: 'GET',

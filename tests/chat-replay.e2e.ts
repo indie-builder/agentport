@@ -8,7 +8,6 @@ import { RUNS_QUEUE } from '../packages/shared/dist/chat.js';
 import {
   RUN_STREAM_MAXLEN,
   runCancelKey,
-  runChannel,
   runStreamKey,
 } from '../packages/shared/dist/run-stream.js';
 
@@ -361,7 +360,7 @@ async function cleanup(fixture: Fixture, runId?: string): Promise<void> {
     await queue()
       .getJob(runId)
       .then((job) => job?.remove());
-    await redis().del(runStreamKey(runId), runChannel(runId), runCancelKey(runId));
+    await redis().del(runStreamKey(runId), runCancelKey(runId));
   }
   const { pool } = await db();
   const targets = [fixture.agentId, fixture.conversationId, ...(runId ? [runId] : [])];

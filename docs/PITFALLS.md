@@ -3,6 +3,12 @@
 > 跨任务反复出现的坑统一记在这里，由 `CLAUDE.md` 指向。主会话与执行子代理动手前先读，落实相关规避方式；任务范围变化或报错时重新核对，不只在踩坑后追加。
 > 不限定类别：遇到值得留存、能避免以后重复犯错的教训就及时整理，运行、实现、沟通、测试只是例子。每条固定「现象 → 原因 → 规避」，不把任务流水账和已有操作说明复制进来。
 
+## 运行：宿主直跑 worker 时模型网关地址不能被改写成 host.docker.internal
+
+- **现象**：`pnpm dev` 下真实对话全部失败，worker 日志反复出现 `model proxy request failed: other side closed`，但直接请求网关正常。
+- **原因**：模型代理无条件把上游 loopback 改写成 `host.docker.internal`；该别名只在容器内可解析，宿主进程访问同一网关会失败。
+- **规避**：只有 worker 自身在容器内时才改写（`packages/worker/src/upstream.ts`，用 `/.dockerenv` 判定）；沙盒侧地址仍必须改写。改到这里时不要把它和沙盒的 `toHostUrl` 混用。
+
 ## Worktree 是干净 checkout，`.env` 与依赖产物不会自动带过去
 
 - **现象**：新 worktree 里起服务直接失败，报缺 `APP_SECRET_KEY` / `ANTHROPIC_API_KEY` 等；装好依赖后前端也可能无法解析 `@agentport/shared`。

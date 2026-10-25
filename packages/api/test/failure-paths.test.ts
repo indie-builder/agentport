@@ -1,7 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Agent, Server } from '@agentport/shared';
-import { runCancelKey, runChannel, runStreamKey } from '@agentport/shared';
+import { runCancelKey, runStreamKey } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -10,6 +10,7 @@ import {
   cleanup,
   createAgent,
   createServer,
+  eventFollowerCount,
   expectProblem,
   infraReady,
   inject,
@@ -17,7 +18,6 @@ import {
   queueIdle,
   seedRun,
   startApp,
-  subscriberCount,
   testConfig,
   unique,
   waitFor,
@@ -51,9 +51,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       await getQueue()
         .remove(runId)
         .catch(() => undefined);
-      await redis
-        .del(runStreamKey(runId), runChannel(runId), runCancelKey(runId))
-        .catch(() => undefined);
+      await redis.del(runStreamKey(runId), runCancelKey(runId)).catch(() => undefined);
     }
     await cleanup(app, { serverNames, agentSlugs, skillSlugs, runIds });
     await redis.quit();
@@ -140,7 +138,6 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     const agent = await newAgent();
     const runId = await createRun(agent, 'abort me');
     runIds.push(runId);
-    const channel = runChannel(runId);
 
     // 断开发生在 subscribe 完成前后，覆盖订阅建立过程中的每个时间窗。
     // 每次请求独立、留出间隔：并行 abort 会让服务端在另一请求的 subscribe 完成前就 close，
@@ -160,7 +157,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       }
     }
 
-    expect(await waitFor(async () => (await subscriberCount(redis, channel)) === 0)).toBe(true);
+    expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 0)).toBe(true);
     // 服务端仍能处理新请求，说明断开路径没有把连接池或事件循环拖死。
     const health = await inject(app, { method: 'GET', url: '/health/live' });
     expect(health.statusCode).toBe(200);
@@ -170,17 +167,16 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     const agent = await newAgent();
     const runId = await createRun(agent, 'shared channel');
     runIds.push(runId);
-    const channel = runChannel(runId);
 
     const first = await openSse(runId);
     const second = await openSse(runId);
-    // 每个订阅独立连接，NUMSUB 按观众计数。
-    expect(await waitFor(async () => (await subscriberCount(redis, channel)) === 2)).toBe(true);
+    // 每个订阅独立连接；按连接名统计跟随者。
+    expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 2)).toBe(true);
 
     await first.abort();
     // 连接断开是异步的；给服务端一个事件循环窗口。
     await delay(300);
-    expect(await subscriberCount(redis, channel)).toBe(1);
+    expect(await eventFollowerCount(redis, runId)).toBe(1);
 
     await publishRun(runId, { type: 'text_delta', text: 'still-here' });
     // SSE 可能分多个 chunk 到达；读到目标文本或超时为止。
@@ -190,7 +186,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     }
     expect(received).toContain('still-here');
     await second.abort();
-    expect(await waitFor(async () => (await subscriberCount(redis, channel)) === 0)).toBe(true);
+    expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 0)).toBe(true);
   });
 
   it('returns 404 for a missing run on events, cancel and approve', async () => {

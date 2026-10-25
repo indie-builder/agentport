@@ -28,11 +28,11 @@
   },
   "dependencies": {
     "@agentport/shared": "workspace:*",
-    "effect": "4.0.5",
+    "effect": "catalog:",
     "yaml": "2.9.1",
-    "zod": "4.6.7"
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/node": "24.10.1"
+    "@types/node": "catalog:"
   }
 }

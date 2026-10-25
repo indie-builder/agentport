@@ -36,6 +36,7 @@ import { FilterSelect } from '../components/filter-select.js';
 import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
+import { SourceEditor } from '../components/source-editor.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -1353,7 +1354,7 @@ function toolToForm(tool: ApiTool): ToolFormValues {
 }
 
 /** 同一个表单用于新增与编辑；编辑时提交按钮换成「保存更改」。 */
-function ToolForm({
+export function ToolForm({
   serverId,
   tool,
   disabled,
@@ -1582,15 +1583,23 @@ function ToolForm({
         data-invalid={Boolean(errors.inputSchema)}
       >
         <FieldLabel htmlFor={`tool-schema-${serverId}`}>inputSchema (JSON)</FieldLabel>
-        <Textarea
-          {...register('inputSchema')}
-          value={watched.inputSchema}
-          disabled={pending}
-          id={`tool-schema-${serverId}`}
-          rows={4}
-          className="font-mono text-xs"
-          aria-invalid={Boolean(errors.inputSchema)}
-          aria-describedby={errors.inputSchema ? `tool-schema-error-${serverId}` : undefined}
+        <Controller
+          control={control}
+          name="inputSchema"
+          render={({ field }) => (
+            <SourceEditor
+              id={`tool-schema-${serverId}`}
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              language="json"
+              aria-label="inputSchema (JSON)"
+              aria-invalid={Boolean(errors.inputSchema)}
+              aria-describedby={errors.inputSchema ? `tool-schema-error-${serverId}` : undefined}
+              disabled={pending}
+              className="min-h-[10rem]"
+            />
+          )}
         />
         <FieldError id={`tool-schema-error-${serverId}`}>{errors.inputSchema?.message}</FieldError>
       </Field>

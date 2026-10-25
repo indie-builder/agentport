@@ -10,8 +10,8 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import type { Path, PathValue } from 'react-hook-form';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Controller } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
@@ -20,6 +20,7 @@ import { FilterSelect } from '../components/filter-select.js';
 import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
+import { SourceEditor } from '../components/source-editor.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -48,11 +49,10 @@ import {
   FieldLabel,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
-import { Textarea } from '../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { fieldErrors, useFormBlocker } from '../lib/form.js';
+import { useFormBlocker } from '../lib/form.js';
 import { formatTokens } from '../lib/format.js';
 import {
   useCreateSkill,
@@ -422,10 +422,9 @@ function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) 
   const search = useSearch({ from: '/_shell/skills' });
   const view: MarketView = search.marketView ?? 'all-time';
   const query = search.q ?? '';
-  const deferredQuery = useDeferredValue(query);
-  const term = deferredQuery.trim();
+  const term = query.trim();
   const tooShort = term.length === 1;
-  const market = useMarketSkills(view, deferredQuery);
+  const market = useMarketSkills(view, query);
   const install = useInstallMarketSkill();
   const [installingId, setInstallingId] = useState<string | null>(null);
   const installedIds = new Set(
@@ -577,7 +576,7 @@ function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) 
   );
 }
 
-function SkillDialog({
+export function SkillDialog({
   skill,
   onClose,
   finalFocus,
@@ -588,7 +587,7 @@ function SkillDialog({
 }) {
   const create = useCreateSkill();
   const update = useUpdateSkill();
-  const [form, setForm] = useState<SkillInput>(
+  const [initial] = useState<SkillInput>(() =>
     skill
       ? {
           slug: skill.slug,
@@ -598,43 +597,16 @@ function SkillDialog({
         }
       : emptySkill,
   );
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  // 支持文件编辑器有自己的草稿与请求，它们的未保存/在途状态也要保护弹层关闭。
-  const [filesDirty, setFilesDirty] = useState(false);
-  const [filesSaving, setFilesSaving] = useState(false);
-  const initial = useMemo<SkillInput>(
-    () =>
-      skill
-        ? {
-            slug: skill.slug,
-            name: skill.name,
-            description: skill.description,
-            body: skill.body,
-          }
-        : emptySkill,
-    [skill],
-  );
+  // RHF 是唯一数据源；支持文件编辑器有自己的草稿与请求，两者一起保护弹层关闭。
   const rhf = useZodForm(skillFormSchema, { defaultValues: initial });
   const errors = rhf.formState.errors;
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || filesDirty;
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [filesDirty, setFilesDirty] = useState(false);
+  const [filesSaving, setFilesSaving] = useState(false);
+  const dirty = rhf.formState.isDirty || filesDirty;
 
-  const set = <K extends keyof SkillInput>(key: K, value: SkillInput[K]): void => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    rhf.setValue(key as Path<SkillInput>, value as PathValue<SkillInput, Path<SkillInput>>);
-    rhf.clearErrors(key);
-  };
-
-  const submit = (event: React.FormEvent): void => {
-    event.preventDefault();
+  const submit = rhf.handleSubmit((values) => {
     if (pending) return;
-    const parsed = skillFormSchema.safeParse(form);
-    if (!parsed.success) {
-      rhf.clearErrors();
-      for (const [path, message] of Object.entries(fieldErrors(parsed.error.issues))) {
-        rhf.setError(path as keyof SkillInput, { type: 'validation', message });
-      }
-      return;
-    }
     const onError = (error: unknown): void => {
       // 冲突时保留当前草稿，让用户关闭后重开拿到最新版本再决定。
       if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
@@ -645,7 +617,7 @@ function SkillDialog({
     };
     if (skill) {
       update.mutate(
-        { id: skill.id, input: parsed.data, expectedUpdatedAt: skill.updatedAt },
+        { id: skill.id, input: values, expectedUpdatedAt: skill.updatedAt },
         {
           onSuccess: () => {
             toastSuccess('技能已更新');
@@ -655,7 +627,7 @@ function SkillDialog({
         },
       );
     } else {
-      create.mutate(parsed.data, {
+      create.mutate(values, {
         onSuccess: () => {
           toastSuccess('技能已创建');
           onClose();
@@ -663,7 +635,7 @@ function SkillDialog({
         onError,
       });
     }
-  };
+  });
 
   const pending = create.isPending || update.isPending || filesSaving;
   const blocker = useFormBlocker(dirty, pending);
@@ -690,7 +662,14 @@ function SkillDialog({
         closeDisabled={pending}
         finalFocus={finalFocus}
       >
-        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            return submit();
+          }}
+          className="flex flex-col gap-4"
+          noValidate
+        >
           <FieldGroup className="grid gap-3 sm:grid-cols-2">
             <Field data-disabled={pending} className="gap-1.5" data-invalid={Boolean(errors.name)}>
               <FieldLabel htmlFor="skill-name">
@@ -700,11 +679,9 @@ function SkillDialog({
                 {...rhf.register('name')}
                 id="skill-name"
                 disabled={pending}
-                value={form.name}
                 aria-required="true"
                 aria-invalid={Boolean(errors.name)}
                 aria-describedby={errors.name ? 'skill-name-error' : undefined}
-                onChange={(event) => set('name', event.target.value)}
               />
               <FieldError id="skill-name-error">{errors.name?.message}</FieldError>
             </Field>
@@ -719,12 +696,10 @@ function SkillDialog({
               <Input
                 {...rhf.register('slug')}
                 id="skill-slug"
-                value={form.slug}
                 disabled={pending || Boolean(skill)}
                 aria-required="true"
                 aria-invalid={Boolean(errors.slug)}
                 aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
-                onChange={(event) => set('slug', event.target.value)}
                 // Keep the directory slug monospaced for literal identifier editing.
                 className="font-mono"
               />
@@ -747,27 +722,31 @@ function SkillDialog({
               {...rhf.register('description')}
               id="skill-desc"
               disabled={pending}
-              value={form.description}
               aria-required="true"
               aria-invalid={Boolean(errors.description)}
               aria-describedby={errors.description ? 'skill-desc-error' : undefined}
-              onChange={(event) => set('description', event.target.value)}
               placeholder="一句话说明这个技能解决什么问题"
             />
             <FieldError id="skill-desc-error">{errors.description?.message}</FieldError>
           </Field>
           <Field data-disabled={pending} className="gap-1.5">
             <FieldLabel htmlFor="skill-body">步骤</FieldLabel>
-            <Textarea
-              {...rhf.register('body')}
-              id="skill-body"
-              disabled={pending}
-              rows={10}
-              value={form.body}
-              onChange={(event) => set('body', event.target.value)}
-              // Keep Markdown compact and monospaced with readable line spacing.
-              className="font-mono text-xs leading-relaxed"
-              placeholder="1. 先读取 …&#10;2. 再调用 mcp__…&#10;3. 最后汇总 …"
+            <Controller
+              control={rhf.control}
+              name="body"
+              render={({ field }) => (
+                <SourceEditor
+                  id="skill-body"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  language="markdown"
+                  // label[for] 对 contenteditable 无效，可访问名称落在编辑器表面。
+                  aria-label="步骤"
+                  disabled={pending}
+                  className="min-h-[16rem]"
+                />
+              )}
             />
             <FieldDescription>支持 Markdown。</FieldDescription>
           </Field>
@@ -830,34 +809,20 @@ function SkillFilesEditor({
     queryFn: () => api.skillFiles(skillId),
   });
   const rhf = useZodForm(skillFileFormSchema, { defaultValues: { path: '', content: '' } });
-  const path = rhf.watch('path');
-  const content = rhf.watch('content');
-  const error = rhf.formState.errors.path?.message ?? '';
+  const error = rhf.formState.errors.path?.message ?? rhf.formState.errors.content?.message ?? '';
   const [saving, setSaving] = useState(false);
 
   // 草稿与在途请求交回父级弹层，Esc / 点遮罩 / 取消都要先确认。
-  useEffect(
-    () => onDirtyChange(path.trim() !== '' || content !== ''),
-    [path, content, onDirtyChange],
-  );
+  useEffect(() => onDirtyChange(rhf.formState.isDirty), [rhf.formState.isDirty, onDirtyChange]);
   useEffect(() => onSavingChange(saving), [saving, onSavingChange]);
 
   const invalidate = (): void =>
     void client.invalidateQueries({ queryKey: ['skill-files', skillId] });
 
-  const add = async (): Promise<void> => {
-    const parsed = skillFileFormSchema.safeParse({ path, content });
-    if (!parsed.success) {
-      rhf.clearErrors();
-      rhf.setError('path', {
-        type: 'validation',
-        message: parsed.error.issues[0]?.message ?? '路径不合法',
-      });
-      return;
-    }
+  const add = rhf.handleSubmit(async (values) => {
     setSaving(true);
     try {
-      await api.writeSkillFile(skillId, parsed.data.path, parsed.data.content);
+      await api.writeSkillFile(skillId, values.path, values.content);
       rhf.reset();
       invalidate();
       toastSuccess('已添加支持文件');
@@ -866,7 +831,7 @@ function SkillFilesEditor({
     } finally {
       setSaving(false);
     }
-  };
+  });
 
   const remove = async (target: string): Promise<void> => {
     try {
@@ -911,15 +876,21 @@ function SkillFilesEditor({
           aria-describedby={error ? 'skill-file-path-error' : undefined}
           className="font-mono text-xs"
         />
-        <FieldLabel htmlFor="skill-file-content" className="sr-only">
-          文件内容
-        </FieldLabel>
-        <Textarea
-          {...rhf.register('content')}
-          id="skill-file-content"
-          rows={3}
-          placeholder="文件内容"
-          className="font-mono text-xs leading-relaxed"
+        <Controller
+          control={rhf.control}
+          name="content"
+          render={({ field }) => (
+            <SourceEditor
+              id="skill-file-content"
+              value={field.value ?? ''}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              language="text"
+              aria-label="文件内容"
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'skill-file-path-error' : undefined}
+            />
+          )}
         />
         {error ? <FieldError id="skill-file-path-error">{error}</FieldError> : null}
         <div className="flex justify-end">

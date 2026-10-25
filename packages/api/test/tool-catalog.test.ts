@@ -2,8 +2,8 @@ import type { Server } from '@agentport/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * testConnection 的目录上限走真实 Effect 流程，只 mock MCP transport 边界：
- * stdio 传输不 spawn 进程，Client 不建连接，断言失败/成功与 close 语义。
+ * testConnection 的目录上限走真实 Effect 流程，只 mock MCP client 边界：
+ * 不建连接，断言失败/成功与 close 语义。stdio 已移到沙盒，这里用 http。
  */
 const mocks = vi.hoisted(() => ({
   tools: [] as unknown[],
@@ -23,16 +23,7 @@ vi.mock('@modelcontextprotocol/client', async (importOriginal) => {
       getServerVersion = mocks.getServerVersion;
       close = mocks.close;
     },
-  };
-});
-
-vi.mock('@modelcontextprotocol/client/stdio', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@modelcontextprotocol/client/stdio')>();
-  return {
-    ...actual,
-    StdioClientTransport: class {
-      stderr = undefined;
-    },
+    StreamableHTTPClientTransport: class {},
   };
 });
 
@@ -42,10 +33,9 @@ const server: Server = {
   id: 'srv-fixture',
   name: 'fixture',
   description: '',
-  kind: 'stdio',
-  command: 'node',
-  args: [],
-  env: {},
+  kind: 'http',
+  url: 'https://example.test/mcp',
+  headers: {},
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
@@ -60,6 +50,20 @@ beforeEach(() => {
 });
 
 describe('testConnection tool catalog limits', () => {
+  it('never spawns stdio servers in the API process', async () => {
+    const result = await testConnection({
+      ...server,
+      kind: 'stdio',
+      command: 'node',
+      args: [],
+      env: {},
+    } as Server);
+
+    expect(result).toMatchObject({ ok: false, tools: [] });
+    expect(result.error).toContain('沙盒');
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+
   it('rejects more than 1000 tools and still closes the client once', async () => {
     mocks.tools = Array.from({ length: 1001 }, (_, i) => ({ name: `tool-${i}` }));
 

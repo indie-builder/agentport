@@ -19,15 +19,28 @@ const metrics: HealthMetrics = {
   redis: { pingMs: 1 },
 };
 
+const overview = (counts: Partial<Overview['counts']> = {}): Overview => ({
+  window: { days: 7, since: '2026-01-01T00:00:00Z' },
+  counts: {
+    agents: 1,
+    servers: 1,
+    runs: 0,
+    running: 0,
+    failed: 0,
+    tokens: 0,
+    costUsd: 0,
+    avgLatencyMs: null,
+    ...counts,
+  },
+  recent: [],
+  agents: [],
+});
+
 function renderHealth(state: 'pending' | 'unavailable' | 'error' | 'ready' | 'missing-queue') {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, retryOnMount: false, gcTime: Infinity } },
   });
-  client.setQueryData(overviewQuery.queryKey, {
-    counts: { agents: 1, servers: 1, runs: 0, running: 0 },
-    recent: [],
-    agents: [],
-  } satisfies Overview);
+  client.setQueryData(overviewQuery.queryKey, overview());
   if (state === 'unavailable') client.setQueryData(healthMetricsQuery.queryKey, null);
   if (state === 'ready') client.setQueryData(healthMetricsQuery.queryKey, metrics);
   if (state === 'missing-queue') {
@@ -81,11 +94,7 @@ describe('overview health summary', () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, retryOnMount: false, gcTime: Infinity } },
     });
-    client.setQueryData(overviewQuery.queryKey, {
-      counts: { agents: 1, servers: 1, runs: 1, running: 0 },
-      recent: [],
-      agents: [],
-    } satisfies Overview);
+    client.setQueryData(overviewQuery.queryKey, overview({ runs: 1 }));
     client.setQueryData(healthMetricsQuery.queryKey, {
       ...metrics,
       queue: { waiting: 9, active: 1, completed: 0, failed: 0, delayed: 0 },

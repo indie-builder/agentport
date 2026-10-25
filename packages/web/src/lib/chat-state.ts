@@ -1,5 +1,5 @@
 import type { ChatEvent, ConversationMessage } from '@agentport/shared';
-import type { Conversation, ConversationDetail } from './api.js';
+import type { ConversationDetail } from './api.js';
 
 export type ChatItem =
   | { id?: string; kind: 'user'; text: string; messageId?: string }
@@ -258,70 +258,7 @@ export function mergeOlderHistory(
   };
 }
 
-/* ---------- 本地会话索引：历史列表接口上线前的兜底 ---------- */
-
-const STORE_KEY = 'agentport:conversations';
-
-export interface LocalConversation {
-  id: string;
-  agentId: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export function loadLocalConversations(): LocalConversation[] {
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is LocalConversation => {
-      if (typeof item !== 'object' || item === null) return false;
-      const record = item as Record<string, unknown>;
-      return (
-        typeof record.id === 'string' &&
-        typeof record.agentId === 'string' &&
-        typeof record.title === 'string' &&
-        typeof record.createdAt === 'string' &&
-        typeof record.updatedAt === 'string'
-      );
-    });
-  } catch {
-    return [];
-  }
-}
-
-export function upsertLocalConversation(conversation: LocalConversation): void {
-  const next = [conversation, ...loadLocalConversations().filter((c) => c.id !== conversation.id)];
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(next.slice(0, 100)));
-  } catch {
-    // 隐私模式或配额已满：历史索引只是便利功能，不阻断对话。
-  }
-}
-
-export function removeLocalConversation(id: string): void {
-  const next = loadLocalConversations().filter((conversation) => conversation.id !== id);
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(next));
-  } catch {
-    // 隐私模式或配额已满：索引清理失败不影响服务端删除结果。
-  }
-}
-
-export function localConversation(
-  conversation: Pick<Conversation, 'id' | 'agentId' | 'title' | 'createdAt'>,
-  title: string,
-): LocalConversation {
-  return {
-    id: conversation.id,
-    agentId: conversation.agentId,
-    title: title.trim() || conversation.title,
-    createdAt: conversation.createdAt,
-    updatedAt: new Date().toISOString(),
-  };
-}
+/* ---------- 会话标题 ---------- */
 
 export function titleFromDetail(detail: ConversationDetail): string {
   const firstUser = detail.messages.find((message) => message.role === 'user');
