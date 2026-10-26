@@ -1,3 +1,4 @@
+import { parseSkillMd } from '@agentport/core';
 import type { Agent, Skill, SkillWithAgentCount, WorkspaceFiles } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -316,14 +317,16 @@ describe.skipIf(!ready)('skills', () => {
     expectProblem(res, 'UNAUTHORIZED');
   });
 
-  it('warns about unknown frontmatter metadata but still imports', async () => {
+  it('keeps descriptive frontmatter fields instead of warning', async () => {
     const slug = unique('import-meta');
     createdSkills.push(slug);
 
-    const res = await importSkill(skillMd(slug, ['license: MIT']));
+    const markdown = skillMd(slug, ['license: MIT']);
+    const res = await importSkill(markdown);
     expect(res.statusCode, res.body).toBe(201);
-    const { skill, warnings } = res.json<ImportResult>();
-    expect(skill.slug).toBe(slug);
-    expect(warnings.length).toBeGreaterThan(0);
+    expect(res.json<ImportResult>().skill.slug).toBe(slug);
+
+    // 直接断言解析层保留 provenance 字段；DB 持久化与 API 透传由独立任务接入。
+    expect(parseSkillMd(markdown).skill).toMatchObject({ license: 'MIT' });
   });
 });

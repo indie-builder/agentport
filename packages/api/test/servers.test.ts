@@ -365,6 +365,36 @@ describe.skipIf(!ready)('servers', () => {
     expect(missing.statusCode).toBe(404);
   });
 
+  it('maps a duplicate tool name on rename to 409', async () => {
+    const name = unique('dup-tool');
+    created.push(name);
+    const server = (
+      await post(name, { kind: 'generated', baseUrl: 'https://jsonplaceholder.typicode.com' })
+    ).json<Server>();
+    const createTool = (toolName: string) =>
+      inject(app, {
+        method: 'POST',
+        url: `/api/servers/${server.id}/tools`,
+        headers: auth(),
+        payload: { name: toolName, method: 'GET', pathTemplate: '/users' },
+      });
+    const first = await createTool(unique('tool-a'));
+    const second = await createTool(unique('tool-b'));
+    expect(first.statusCode, first.body).toBe(201);
+    expect(second.statusCode, second.body).toBe(201);
+    const firstTool = first.json<{ name: string }>();
+    const secondTool = second.json<{ id: string }>();
+
+    const res = await inject(app, {
+      method: 'PATCH',
+      url: `/api/servers/${server.id}/tools/${secondTool.id}`,
+      headers: auth(),
+      payload: { name: firstTool.name },
+    });
+    const body = expectProblem(res, 'CONFLICT');
+    expect(body.message).toContain('工具名');
+  });
+
   it('PATCH rejects a stale expectedUpdatedAt with 409', async () => {
     const name = unique('stale');
     created.push(name);

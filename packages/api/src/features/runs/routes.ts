@@ -55,10 +55,11 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
     '/api/runs/export',
     { ...auth, schema: { querystring: exportQuerySchema } },
     async (request, reply) => {
-      const { agentId, status, limit } = request.query;
+      const { agentId, status, trigger, limit } = request.query;
       const items = await runsRepo.listRuns(app.db, {
         ...(agentId === undefined ? {} : { agentId }),
         ...(status === undefined ? {} : { status }),
+        ...(trigger === undefined ? {} : { trigger }),
         limit: limit + 1,
       });
       if (items.length > limit) {

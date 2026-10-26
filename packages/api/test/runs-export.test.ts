@@ -108,6 +108,7 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
   async function seedRun(options: {
     agentId: string;
     status: string;
+    trigger?: string;
     startedAt?: Date | null;
     endedAt?: Date | null;
     latencyMs?: number | null;
@@ -126,13 +127,14 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
     ]);
     await app.pool.query(
       `insert into agent_runs
-        (id, conversation_id, agent_id, status, started_at, ended_at, latency_ms, cost_usd, turns, input_tokens, output_tokens, error)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        (id, conversation_id, agent_id, status, trigger, started_at, ended_at, latency_ms, cost_usd, turns, input_tokens, output_tokens, error)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         id,
         conversationId,
         options.agentId,
         options.status,
+        options.trigger ?? 'chat',
         options.startedAt ?? null,
         options.endedAt ?? null,
         options.latencyMs ?? null,
@@ -163,6 +165,22 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
     expect(ids).toEqual([failed]);
     expect(ids).not.toContain(succeeded);
     expect(ids).not.toContain(foreign);
+  });
+
+  it('filters by trigger exactly', async () => {
+    const agent = await seedAgent();
+    const chat = await seedRun({ agentId: agent.id, status: 'succeeded', trigger: 'chat' });
+    const scheduled = await seedRun({
+      agentId: agent.id,
+      status: 'succeeded',
+      trigger: 'schedule',
+    });
+
+    const res = await exportRuns(`?agentId=${encodeURIComponent(agent.id)}&trigger=schedule`);
+    expect(res.statusCode, res.body).toBe(200);
+    const ids = res.json<ExportBody>().items.map((item) => item.id);
+    expect(ids).toEqual([scheduled]);
+    expect(ids).not.toContain(chat);
   });
 
   it('returns RunListItem fields with ISO dates and no steps or messages', async () => {

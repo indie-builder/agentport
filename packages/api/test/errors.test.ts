@@ -125,6 +125,25 @@ describe('toAppError mappings', () => {
     expect(toAppError(input)).toMatchObject({ code, status: errorCode[code] });
   });
 
+  it('maps a Redis outage to a retryable 503, not a 500', () => {
+    const unavailable = Object.assign(new Error('Command timed out'), {
+      name: 'MaxRetriesPerRequestError',
+    });
+    expect(toAppError(unavailable)).toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      status: 503,
+      retryable: true,
+    });
+  });
+
+  it('does not treat a generic AbortError as a Redis outage', () => {
+    // 外部 HTTP 超时（AbortSignal.timeout）同样抛 AbortError，不能映射成可重试 503。
+    const aborted = Object.assign(new Error('The operation was aborted due to timeout'), {
+      name: 'AbortError',
+    });
+    expect(toAppError(aborted)).toMatchObject({ code: 'INTERNAL_ERROR', status: 500 });
+  });
+
   it('keeps an existing AppError and defaults everything else to INTERNAL_ERROR', () => {
     const original = new AppError('CONFLICT', 'dup');
     expect(toAppError(original)).toBe(original);

@@ -1,6 +1,6 @@
 import { AppError } from '@agentport/core';
 import type { Agent, AgentDuplicateInput, AgentInput } from '@agentport/shared';
-import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -574,19 +574,6 @@ export async function listAgentSubAgentIds(
     else out.set(row.parentId, [row.id]);
   }
   return out;
-}
-
-/** 可以作为子智能体的候选：还没有 parent 的 agent，排除自己。 */
-export async function listSubAgentCandidates(
-  db: Database,
-  excludeId?: string,
-): Promise<AgentRow[]> {
-  const rows = await db
-    .select()
-    .from(agents)
-    .where(isNull(agents.parentId))
-    .orderBy(asc(agents.createdAt), asc(agents.id));
-  return excludeId === undefined ? rows : rows.filter((row) => row.id !== excludeId);
 }
 
 export async function getAgentsByIds(db: Database, ids: string[]): Promise<AgentRow[]> {

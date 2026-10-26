@@ -2,11 +2,55 @@ import { type SkillInput, skillInputSchema } from '@agentport/shared';
 import { fail } from './errors.js';
 import { parseMarkdownFrontmatter } from './markdown-frontmatter.js';
 
-/** 这三个字段只描述技能来源，导入时给出警告但不落库。 */
-const DESCRIPTIVE_KEYS = new Set(['license', 'compatibility', 'metadata']);
+/** 官方 SKILL.md 的来源描述字段：解析时保留，导出时原样写回 frontmatter。 */
+export interface SkillProvenance {
+  license?: string;
+  compatibility?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type ParsedSkill = SkillInput & SkillProvenance;
+
+const PROVENANCE_KEYS = new Set(['license', 'compatibility', 'metadata']);
 
 function invalid(message: string, path = '/skillMd'): never {
   fail('INVALID_INPUT', message, { path });
+}
+
+/** 解析用的 mapAsMap 会把嵌套映射也变成 Map；metadata 要转回普通对象才能写回 JSON/YAML。 */
+function plainValue(value: unknown, keyPath: string): unknown {
+  if (value instanceof Map) {
+    return Object.fromEntries(
+      [...value].map(([key, item]) => [String(key), plainValue(item, `${keyPath}.${String(key)}`)]),
+    );
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, index) => plainValue(item, `${keyPath}[${index}]`));
+  }
+  // JSON.stringify 会把 NaN/Infinity 写成 null，往返后值就变了。
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    invalid(`SKILL.md 的 ${keyPath} 必须是有限数字`, '/metadata');
+  }
+  return value;
+}
+
+function provenanceOf(fields: Map<string, unknown>): SkillProvenance {
+  const provenance: SkillProvenance = {};
+  for (const key of ['license', 'compatibility'] as const) {
+    const value = fields.get(key);
+    if (value === undefined) continue;
+    if (typeof value !== 'string') invalid(`SKILL.md 的 ${key} 必须是字符串`, `/${key}`);
+    provenance[key] = value;
+  }
+  const metadata = fields.get('metadata');
+  if (metadata !== undefined) {
+    const plain = plainValue(metadata, 'metadata');
+    if (typeof plain !== 'object' || plain === null || Array.isArray(plain)) {
+      invalid('SKILL.md 的 metadata 必须是映射', '/metadata');
+    }
+    provenance.metadata = plain as Record<string, unknown>;
+  }
+  return provenance;
 }
 
 /** 首个非空行是 H1 时作为显示名，并且只移除这一行。 */
@@ -32,16 +76,11 @@ function fieldOf(path: PropertyKey | undefined): string {
 export function parseSkillMd(
   content: string,
   options?: { slug?: string },
-): { skill: SkillInput; warnings: string[] } {
+): { skill: ParsedSkill; warnings: string[] } {
   const { fields, body: rawBody } = parseMarkdownFrontmatter(content, 'SKILL.md', '/skillMd');
-  const warnings: string[] = [];
   const unknown: string[] = [];
   for (const key of fields.keys()) {
-    if (key === 'name' || key === 'description') continue;
-    if (DESCRIPTIVE_KEYS.has(key)) {
-      warnings.push(`忽略描述性前置字段 ${key}（不会保存）`);
-      continue;
-    }
+    if (key === 'name' || key === 'description' || PROVENANCE_KEYS.has(key)) continue;
     unknown.push(key);
   }
   if (unknown.length > 0) {
@@ -62,5 +101,5 @@ export function parseSkillMd(
     invalid(`SKILL.md 的 ${field} 无效：${issue?.message ?? '字段不合法'}`, `/${field}`);
   }
 
-  return { skill: parsed.data, warnings };
+  return { skill: { ...parsed.data, ...provenanceOf(fields) }, warnings: [] };
 }

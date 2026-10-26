@@ -10,6 +10,20 @@ import {
 export { AppError, isAppError };
 
 /**
+ * 限流存储（Redis）不可用时 ioredis 的错误没有 statusCode：重试耗尽抛
+ * MaxRetriesPerRequestError，连接关闭/命令超时抛固定文案的普通 Error。
+ * 这些是依赖不可用（503、可重试），不是代码缺陷（500）。
+ * 不能匹配 AbortError：外部 HTTP 超时（AbortSignal.timeout）也叫这个名字。
+ */
+function isRedisUnavailable(err: { name?: string; message?: string } | null): boolean {
+  return (
+    err?.name === 'MaxRetriesPerRequestError' ||
+    err?.message === 'Command timed out' ||
+    err?.message === 'Connection is closed.'
+  );
+}
+
+/**
  * 把任意异常压成 AppError。分三步：
  * 1. 已经是 AppError → 原样返回
  * 2. 框架/插件抛出的可识别错误 → 映射成稳定 code
@@ -58,6 +72,13 @@ export function toAppError(error: unknown): AppError {
   }
   if (status === 503) {
     return new AppError('SERVICE_UNAVAILABLE', '服务暂时不可用，请稍后重试', { cause: error });
+  }
+  // 限流 Redis 的故障不带 statusCode；映射成可重试的 503，与普通 500 区分。
+  if (isRedisUnavailable(err)) {
+    return new AppError('SERVICE_UNAVAILABLE', '服务暂时不可用，请稍后重试', {
+      cause: error,
+      retryable: true,
+    });
   }
 
   // 旧代码里仍有 Object.assign(new Error(...), { statusCode, code })，逐条迁完后可删。
