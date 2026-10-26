@@ -1,0 +1,80 @@
+{
+  "mode": "built-in image_gen",
+  "reference": "docs/brand/pace-logo-master.png",
+  "basePrompt": "Use case: logo-brand. Asset type: individual transparent PNG mascot logo for PACE product UI.\nInput image 1: identity and illustration-style reference, NOT a background to reproduce.\nPreserve the exact brand character: cute white fluffy curly-haired dog with drooping ears, round black shiny eyes with tiny white glints, small black oval nose, friendly curved black mouth, black-and-white tongue. Bold smooth rounded BLACK outlines, white flat fills, minimal interior curls, gray metal hammer with natural wood handle and a small bright yellow pencil as brand accents. Clean flat 2D hand-drawn vector-like artwork, no realistic fur, no gradients, no shadows, no glow, no 3D.\nCreate ONE isolated coherent mascot logo, centered on a truly transparent background, square canvas with generous 12% safety margins, clear at small UI sizes. Keep proportions and face very faithful to the reference, keep lettering readable and spelled exactly PACE. Do not reproduce a dark background. No extra text, no scene background, no mockup, no grid, no watermark.\nScene: ",
+  "scenes": [
+    [
+      "welcome",
+      "Welcome and onboarding: the same dog smiling and waving one paw, other paw holding the familiar yellow pencil, leaning over a compact PACE wordmark."
+    ],
+    [
+      "working",
+      "Task running / building: the same dog concentrating happily at a tiny carpenter bench, one paw using the familiar gray hammer, the yellow pencil tucked by one ear; a small PACE wordmark on the front of the bench."
+    ],
+    [
+      "success",
+      "Task completed: the same dog holding up a neatly finished wooden plaque bearing PACE in the reference's white bubble letters with black outlines; proud smile, raised other paw, two tiny yellow celebration sparkles."
+    ],
+    [
+      "search",
+      "Knowledge search: the same dog examining a small open book with a magnifying glass; familiar yellow pencil next to the book; PACE on the book cover edge in white bubble letters outlined black; curious attentive face."
+    ],
+    [
+      "empty",
+      "Empty state / waiting for first project: the same dog peeking into a small empty open toolbox, paws resting on its rim, gentle curious smile; PACE in reference white bubble letters with black outline on the toolbox; familiar hammer and yellow pencil neatly beside it."
+    ],
+    [
+      "error",
+      "Error / retry: the same dog carefully repairing a tiny disconnected wooden joint with its familiar gray hammer, yellow pencil beside it; slightly puzzled but reassuring friendly face, one small question mark; compact PACE wordmark below. No injury, no tears, no red."
+    ]
+  ],
+  "usage": "业务场景设计预览；未接入正式前端。PNG 母版与透明 WebP 衍生图保留。",
+  "corrections": {
+    "search": "Change ONLY book cover blue to neutral steel gray, and pale blue magnifying glass lens to near-white gray; preserve all other details and transparent alpha.",
+    "empty": "Change ONLY red toolbox body and lid to natural light wood beige; preserve all other details and transparent alpha."
+  },
+  "businessScenes": [
+    {
+      "scene": "welcome",
+      "page": "/chat",
+      "trigger": "新建空白对话",
+      "asset": "pace-welcome.webp"
+    },
+    {
+      "scene": "knowledge",
+      "page": "/knowledge",
+      "trigger": "无知识库",
+      "asset": "pace-search.webp"
+    },
+    {
+      "scene": "agents",
+      "page": "/agents",
+      "trigger": "无专家",
+      "asset": "pace-empty.webp"
+    },
+    {
+      "scene": "search",
+      "page": "/knowledge",
+      "trigger": "搜索无结果",
+      "asset": "pace-search.webp"
+    },
+    {
+      "scene": "working",
+      "page": "/runs/$runId",
+      "trigger": "执行中",
+      "asset": "pace-working.webp"
+    },
+    {
+      "scene": "success",
+      "page": "/runs/$runId",
+      "trigger": "已完成",
+      "asset": "pace-success.webp"
+    },
+    {
+      "scene": "error",
+      "page": "/knowledge",
+      "trigger": "整页加载失败",
+      "asset": "pace-error.webp"
+    }
+  ]
+}
