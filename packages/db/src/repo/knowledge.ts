@@ -1149,26 +1149,19 @@ async function usableSourceChunks(
       chunkId: knowledgeChunks.id,
       documentId: knowledgeChunks.documentId,
       versionId: knowledgeChunks.versionId,
-      enabled: knowledgeChunks.enabled,
-      documentStatus: knowledgeDocuments.status,
-      currentVersionId: knowledgeDocuments.currentVersionId,
     })
     .from(knowledgeChunks)
     .innerJoin(knowledgeDocuments, eq(knowledgeDocuments.id, knowledgeChunks.documentId))
-    .where(and(eq(knowledgeChunks.baseId, page.baseId), inArray(knowledgeChunks.id, [...wanted])));
-  const usable = rows
-    .filter(
-      (chunk) =>
-        chunk.enabled &&
-        chunk.documentStatus === 'ready' &&
-        chunk.versionId === chunk.currentVersionId,
-    )
-    .map((chunk) => ({
-      chunkId: chunk.chunkId,
-      documentId: chunk.documentId,
-      versionId: chunk.versionId,
-    }));
-  return { usable, unusable: wanted.size - usable.length };
+    .where(
+      and(
+        eq(knowledgeChunks.baseId, page.baseId),
+        inArray(knowledgeChunks.id, [...wanted]),
+        eq(knowledgeChunks.enabled, true),
+        eq(knowledgeDocuments.status, 'ready'),
+        eq(knowledgeChunks.versionId, knowledgeDocuments.currentVersionId),
+      ),
+    );
+  return { usable: rows, unusable: wanted.size - rows.length };
 }
 
 /**

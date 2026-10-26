@@ -19,6 +19,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   let cookie = '';
   let knowledgeDir = '';
   let baseId = '';
+  let otherBaseId = '';
   const baseIds: string[] = [];
   const profileIds: string[] = [];
 
@@ -64,12 +65,12 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     return res.json<{ id: string; title: string; status: string }>();
   }
 
-  async function seedSourceDocument(): Promise<string> {
+  async function seedSourceDocument(targetBaseId = baseId): Promise<string> {
     const documentId = `kdoc_wiki${Math.random().toString(36).slice(2, 10)}`;
     await app.pool.query(
       `insert into knowledge_documents (id, base_id, title, source_type, mime_type, status)
        values ($1, $2, '来源文档', 'upload', 'text/markdown', 'processing')`,
-      [documentId, baseId],
+      [documentId, targetBaseId],
     );
     return documentId;
   }
@@ -78,27 +79,29 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   async function addSourceVersion(
     documentId: string,
     version: number,
+    options: { enabled?: boolean; current?: boolean; baseId?: string } = {},
   ): Promise<{ versionId: string; chunkId: string }> {
     const suffix = Math.random().toString(36).slice(2, 10);
     const versionId = `kdv_wiki${suffix}`;
     const chunkId = `kchk_wiki${suffix}`;
+    const targetBaseId = options.baseId ?? baseId;
     await app.pool.query(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, parse_status, page_map, images, embedding_profile_id)
        values ($1, $2, $3, $4, $4, 'a.md', 'text/markdown', 1, 'parsed', '[]', '[]',
                (select embedding_profile_id from knowledge_bases where id = $5))`,
-      [versionId, documentId, version, 'b'.repeat(64), baseId],
+      [versionId, documentId, version, 'b'.repeat(64), targetBaseId],
     );
     await app.pool.query(
       `insert into knowledge_chunks
-         (id, base_id, document_id, version_id, ordinal, kind, content, search_text)
-       values ($1, $2, $3, $4, 0, 'text', '正文', '正文')`,
-      [chunkId, baseId, documentId, versionId],
+         (id, base_id, document_id, version_id, ordinal, kind, content, search_text, enabled)
+       values ($1, $2, $3, $4, 0, 'text', '正文', '正文', $5)`,
+      [chunkId, targetBaseId, documentId, versionId, options.enabled ?? true],
     );
     await app.pool.query(
       `update knowledge_documents set status = 'ready', current_version_id = $2 where id = $1`,
-      [documentId, versionId],
+      [documentId, options.current === false ? null : versionId],
     );
     return { versionId, chunkId };
   }
@@ -123,6 +126,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     app = await startApp({ KNOWLEDGE_DIR: knowledgeDir });
     cookie = await loginCookie(app);
     baseId = await createBase(await createProfile());
+    otherBaseId = await createBase(await createProfile());
   });
 
   afterAll(async () => {
@@ -614,5 +618,136 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(retry.statusCode, retry.body).toBe(200);
     expect(retry.json()).toMatchObject({ status: 'published', currentVersionId: fresh?.id });
+  });
+
+  const invalidSourceCases = [
+    {
+      name: '禁用 chunk',
+      prepare: async () => {
+        const documentId = await seedSourceDocument();
+        const chunk = await addSourceVersion(documentId, 1, { enabled: false });
+        return { ids: [chunk.chunkId], usable: [] };
+      },
+    },
+    {
+      name: '文档 currentVersionId 为 NULL',
+      prepare: async () => {
+        const documentId = await seedSourceDocument();
+        const chunk = await addSourceVersion(documentId, 1, { current: false });
+        return { ids: [chunk.chunkId], usable: [] };
+      },
+    },
+    {
+      name: '有效与失效混合',
+      prepare: async () => {
+        const validDocument = await seedSourceDocument();
+        const valid = await addSourceVersion(validDocument, 1);
+        const disabledDocument = await seedSourceDocument();
+        const disabled = await addSourceVersion(disabledDocument, 1, { enabled: false });
+        return { ids: [valid.chunkId, disabled.chunkId], usable: [valid.chunkId] };
+      },
+    },
+    {
+      name: '跨 base 的 chunk',
+      prepare: async () => {
+        const documentId = await seedSourceDocument(otherBaseId);
+        const chunk = await addSourceVersion(documentId, 1, { baseId: otherBaseId });
+        return { ids: [chunk.chunkId], usable: [] };
+      },
+    },
+    {
+      name: '不存在的 chunk',
+      prepare: async () => ({
+        ids: [`kchk_missing${Math.random().toString(36).slice(2, 10)}`],
+        usable: [],
+      }),
+    },
+  ];
+
+  it.each(invalidSourceCases)(
+    '人工保存无效来源（$name）保持 stale，发布对应草稿 409',
+    async ({ prepare }) => {
+      const { ids, usable } = await prepare();
+      const manualPage = await createPage();
+      const saved = await repo.knowledge.saveWikiVersion(app.db, manualPage.id, {
+        markdown: '# 人工保存',
+        sourceChunkIds: ids,
+        model: 'manual',
+        generatedBy: 'manual',
+      });
+      expect(saved).not.toBeNull();
+      expect(await repo.knowledge.getWikiPage(app.db, manualPage.id)).toMatchObject({
+        status: 'stale',
+        currentVersionId: saved?.id,
+      });
+      const manualSources = await app.pool.query<{ chunk_id: string; stale: boolean }>(
+        'select chunk_id, stale from knowledge_wiki_sources where page_id = $1 order by chunk_id',
+        [manualPage.id],
+      );
+      expect(manualSources.rows).toEqual(
+        [...usable].sort().map((chunkId) => ({ chunk_id: chunkId, stale: false })),
+      );
+
+      const draftPage = await createPage();
+      const draft = await repo.knowledge.saveWikiVersion(app.db, draftPage.id, {
+        markdown: '# 草稿',
+        sourceChunkIds: ids,
+        model: 'wiki-model',
+        generatedBy: 'sdk',
+      });
+      const publish = await inject(app, {
+        method: 'POST',
+        url: `/api/knowledge/wiki-pages/${draftPage.id}/publish`,
+        headers: { cookie },
+        payload: { versionId: draft?.id },
+      });
+      expect(publish.statusCode, publish.body).toBe(409);
+      expect(publish.json<{ code: string }>().code).toBe('CONFLICT');
+      expect(await repo.knowledge.getWikiPage(app.db, draftPage.id)).toMatchObject({
+        status: 'draft',
+        currentVersionId: draft?.id,
+      });
+      const draftSources = await app.pool.query(
+        'select 1 from knowledge_wiki_sources where page_id = $1',
+        [draftPage.id],
+      );
+      expect(draftSources.rows).toEqual([]);
+    },
+  );
+
+  const usableSourceCases = [
+    {
+      name: '空输入',
+      prepare: async () => ({ ids: [] as string[], usable: [] as string[] }),
+    },
+    {
+      name: '重复有效 ID',
+      prepare: async () => {
+        const documentId = await seedSourceDocument();
+        const chunk = await addSourceVersion(documentId, 1);
+        return { ids: [chunk.chunkId, chunk.chunkId], usable: [chunk.chunkId] };
+      },
+    },
+  ];
+
+  it.each(usableSourceCases)('人工保存有效来源（$name）直接发布并去重', async ({ prepare }) => {
+    const { ids, usable } = await prepare();
+    const page = await createPage();
+    const saved = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+      markdown: '# 有效来源',
+      sourceChunkIds: ids,
+      model: 'manual',
+      generatedBy: 'manual',
+    });
+    expect(saved).not.toBeNull();
+    expect(await repo.knowledge.getWikiPage(app.db, page.id)).toMatchObject({
+      status: 'published',
+      currentVersionId: saved?.id,
+    });
+    const sources = await app.pool.query<{ chunk_id: string }>(
+      'select chunk_id from knowledge_wiki_sources where page_id = $1 order by chunk_id',
+      [page.id],
+    );
+    expect(sources.rows.map((row) => row.chunk_id)).toEqual([...usable].sort());
   });
 });
