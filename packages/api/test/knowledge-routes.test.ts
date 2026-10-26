@@ -246,6 +246,131 @@ describe('knowledge routes', () => {
     expect(jobRow.rows[0]?.payload.documentId).toBe(body.documentId);
   });
 
+  it('任务列表只返回展示字段，列表查询不读 payload，单任务仍保留 payload', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+    const uploaded = await upload(base.id, '任务列表投影');
+    expect(uploaded.statusCode, uploaded.body).toBe(202);
+    const { documentId, jobId } = uploaded.json<{ documentId: string; jobId: string }>();
+
+    const spy = vi.spyOn(app.pool, 'query');
+    try {
+      const list = await inject(app, {
+        method: 'GET',
+        url: `/api/knowledge/jobs?baseId=${base.id}`,
+        headers: { cookie },
+      });
+      expect(list.statusCode, list.body).toBe(200);
+      const [item] = list.json<{ items: Array<Record<string, unknown>> }>().items;
+      expect(Object.keys(item ?? {}).sort()).toEqual(
+        [
+          'id',
+          'type',
+          'status',
+          'step',
+          'progress',
+          'attempts',
+          'error',
+          'createdAt',
+          'startedAt',
+          'endedAt',
+        ].sort(),
+      );
+
+      const detail = await inject(app, {
+        method: 'GET',
+        url: `/api/knowledge/jobs/${jobId}`,
+        headers: { cookie },
+      });
+      expect(detail.statusCode, detail.body).toBe(200);
+      expect(detail.json()).toMatchObject({ id: jobId, type: 'ingest', status: 'queued' });
+
+      const jobSelects = spy.mock.calls
+        .map(([query]) => (typeof query === 'string' ? query : query.text))
+        .filter((text) => /from "knowledge_jobs"/.test(text));
+      expect(jobSelects).toHaveLength(2);
+      expect(jobSelects[0]).not.toMatch(/"payload"/i);
+      expect(jobSelects[1]).toMatch(/"payload"/i);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const stored = await app.pool.query<{ payload: { documentId: string } }>(
+      'select payload from knowledge_jobs where id = $1',
+      [jobId],
+    );
+    expect(stored.rows[0]?.payload.documentId).toBe(documentId);
+  });
+
+  it('任务列表按 baseId 与 status 过滤', async () => {
+    const embedding = await createProfile('embedding');
+    const first = await createBase(embedding);
+    const second = await createBase(embedding);
+    const queued = await upload(first.id, '排队任务');
+    expect(queued.statusCode, queued.body).toBe(202);
+    const queuedId = queued.json<{ jobId: string }>().jobId;
+    const failedId = `kjob_failed_${Math.random().toString(36).slice(2, 10)}`;
+    await app.pool.query(
+      `insert into knowledge_jobs (id, type, base_id, status, payload, error, ended_at)
+       values ($1, 'reindex', $2, 'failed', $3::jsonb, 'boom', now())`,
+      [
+        failedId,
+        first.id,
+        JSON.stringify({ type: 'reindex', baseId: first.id, chunksOnly: false }),
+      ],
+    );
+    const other = await upload(second.id, '其他库任务');
+    expect(other.statusCode, other.body).toBe(202);
+    const otherId = other.json<{ jobId: string }>().jobId;
+
+    const ids = async (query: string) => {
+      const res = await inject(app, {
+        method: 'GET',
+        url: `/api/knowledge/jobs?${query}`,
+        headers: { cookie },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json<{ items: Array<{ id: string }> }>().items.map((item) => item.id);
+    };
+
+    expect((await ids(`baseId=${first.id}`)).sort()).toEqual([queuedId, failedId].sort());
+    expect(await ids(`baseId=${first.id}&status=failed`)).toEqual([failedId]);
+    expect(await ids(`baseId=${first.id}&status=queued`)).toEqual([queuedId]);
+    expect(await ids(`baseId=${second.id}`)).toEqual([otherId]);
+  });
+
+  it('任务列表游标跨页覆盖同一时间戳的行', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const jobIds = [1, 2, 3].map((n) => `kjob_cursor_${suffix}_${n}`);
+    await app.pool.query(
+      `insert into knowledge_jobs (id, type, base_id, status, payload, created_at)
+       select id, 'cleanup', $1, 'queued', '{}'::jsonb, '2026-01-01T00:00:00Z'::timestamptz
+       from unnest($2::text[]) as id`,
+      [base.id, jobIds],
+    );
+
+    const getPage = async (cursor?: string) => {
+      const params = new URLSearchParams({ baseId: base.id, limit: '2' });
+      if (cursor) params.set('cursor', cursor);
+      const res = await inject(app, {
+        method: 'GET',
+        url: `/api/knowledge/jobs?${params}`,
+        headers: { cookie },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json<{ items: Array<{ id: string }>; nextCursor: string | null }>();
+    };
+
+    const first = await getPage();
+    expect(first.items.map((item) => item.id)).toEqual([jobIds[2], jobIds[1]]);
+    expect(first.nextCursor).toBe(jobIds[1]);
+    const second = await getPage(first.nextCursor ?? undefined);
+    expect(second.items.map((item) => item.id)).toEqual([jobIds[0]]);
+    expect(second.nextCursor).toBeNull();
+  });
+
   it('检索命中；删除文档后不再召回', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);

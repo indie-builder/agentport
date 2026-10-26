@@ -797,10 +797,26 @@ export interface ListJobsFilter extends PageOptions {
   status?: KnowledgeJobRow['status'];
 }
 
+/** 列表只需展示字段：payload 与归属外键留给 getJob/worker，避免列表读出整块任务载荷。 */
+const jobSummaryColumns = {
+  id: knowledgeJobs.id,
+  type: knowledgeJobs.type,
+  status: knowledgeJobs.status,
+  step: knowledgeJobs.step,
+  progress: knowledgeJobs.progress,
+  attempts: knowledgeJobs.attempts,
+  error: knowledgeJobs.error,
+  createdAt: knowledgeJobs.createdAt,
+  startedAt: knowledgeJobs.startedAt,
+  endedAt: knowledgeJobs.endedAt,
+};
+
+export type KnowledgeJobSummary = Pick<KnowledgeJobRow, keyof typeof jobSummaryColumns>;
+
 export async function listJobs(
   db: Database,
   filter: ListJobsFilter = {},
-): Promise<Page<KnowledgeJobRow>> {
+): Promise<Page<KnowledgeJobSummary>> {
   const limit = pageLimit(filter);
   const filters: SQL[] = [];
   if (filter.baseId) filters.push(eq(knowledgeJobs.baseId, filter.baseId));
@@ -811,7 +827,7 @@ export async function listJobs(
     )`);
   }
   const rows = await db
-    .select()
+    .select(jobSummaryColumns)
     .from(knowledgeJobs)
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(desc(knowledgeJobs.createdAt), desc(knowledgeJobs.id))

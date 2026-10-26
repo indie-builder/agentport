@@ -231,7 +231,7 @@ const profileSchema = z.object({
 
 type DocumentRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getDocument>>>;
 type ChunkRow = Awaited<ReturnType<typeof repo.knowledge.listChunkSummaries>>['items'][number];
-type JobRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getJob>>>;
+type JobRow = Awaited<ReturnType<typeof repo.knowledge.listJobs>>['items'][number];
 type FolderRow = Awaited<ReturnType<typeof repo.knowledge.listFolders>>['items'][number];
 type TagRow = Awaited<ReturnType<typeof repo.knowledge.listTags>>[number];
 type ProfileRow = Awaited<ReturnType<typeof repo.knowledge.listModelProfiles>>[number];

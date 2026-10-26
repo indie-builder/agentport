@@ -212,8 +212,9 @@ export function KnowledgePage() {
   const [failedImport, setFailedImport] = useState<{ file: File; message: string } | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
 
-  const boundAgents = (base: KnowledgeBase) =>
-    (agents.data ?? []).filter((agent) => agent.serverIds.includes(base.serverId));
+  const boundAgents = deleting
+    ? (agents.data?.filter((agent) => agent.serverIds.includes(deleting.serverId)) ?? [])
+    : [];
 
   const download = (base: KnowledgeBase): void => {
     exporter.mutate(base.id, {
@@ -459,8 +460,8 @@ export function KnowledgePage() {
           open
           title="删除知识库"
           description={
-            boundAgents(deleting).length > 0
-              ? `将删除「${deleting.name}」的全部文档、Wiki 与索引，并解除与 ${boundAgents(deleting)
+            boundAgents.length > 0
+              ? `将删除「${deleting.name}」的全部文档、Wiki 与索引，并解除与 ${boundAgents
                   .map((agent) => agent.name)
                   .join('、')} 的绑定。此操作不可撤销。`
               : `将删除「${deleting.name}」的全部文档、Wiki 与索引。此操作不可撤销。`

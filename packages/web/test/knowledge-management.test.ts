@@ -493,6 +493,24 @@ describe('knowledge library lifecycle', () => {
       ),
     ).toBe(true);
   });
+
+  it('deletes a base with no bound experts without mentioning unbound experts', async () => {
+    baseHandlers();
+    handler('GET', '/api/agents', [{ id: 'agent_2', name: '无关专家', serverIds: [] }]);
+    handler('DELETE', '/api/knowledge/bases/kb_1', {});
+    await mount('/knowledge');
+    await openMenu('操作 产品手册');
+    await chooseMenuItem('删除');
+    const confirmation = dialog('删除知识库');
+    expect(confirmation.textContent).not.toContain('解除与');
+    expect(confirmation.textContent).not.toContain('无关专家');
+    await click(button('删除', confirmation));
+    expect(
+      state.calls.some(
+        (item) => item.method === 'DELETE' && item.path === '/api/knowledge/bases/kb_1',
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('knowledge folder and tag management', () => {
