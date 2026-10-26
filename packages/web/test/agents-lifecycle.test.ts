@@ -9,10 +9,11 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import { act, createElement } from 'react';
+import { act, createElement, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
+import { useAgent } from '../src/lib/queries.js';
 import { AgentDetailPage, AgentsPage } from '../src/pages/agents.js';
 
 vi.mock('@agentport/core/workspace', async (importOriginal) => {
@@ -144,6 +145,32 @@ async function mount() {
   await flush();
   return router;
 }
+async function mountAgentProbe(id: string) {
+  // 与真实详情页一样只读取 data；提交计数放在 effect 里，只统计 React 真正提交的渲染。
+  const snapshot: { commits: number; data: Agent | null | undefined } = {
+    commits: 0,
+    data: undefined,
+  };
+  function Probe({ agentId }: { agentId: string }) {
+    const { data } = useAgent(agentId);
+    snapshot.data = data;
+    useEffect(() => {
+      snapshot.commits += 1;
+    });
+    return null;
+  }
+  const renderProbe = async (agentId: string) => {
+    await act(async () => {
+      root.render(
+        createElement(QueryClientProvider, { client }, createElement(Probe, { agentId })),
+      );
+    });
+    await flush();
+  };
+  await renderProbe(id);
+  return { snapshot, switchTo: renderProbe };
+}
+
 async function openHistory(dirty = false) {
   await click(button('配置 Expert'));
   await waitFor(() => document.querySelector('#agent-name'));
@@ -207,11 +234,86 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
-  history.destroy();
+  history?.destroy();
   client.clear();
   host.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe('useAgent cache selection', () => {
+  const other: Agent = { ...agent, id: 'other', slug: 'other', name: 'Other' };
+
+  it('does not commit when another expert changes', async () => {
+    client.setQueryData(['agents'], [agent, other]);
+    const probe = await mountAgentProbe('expert');
+    expect(probe.snapshot.data?.name).toBe('Expert');
+    const commits = probe.snapshot.commits;
+
+    await act(async () => {
+      client.setQueryData(
+        ['agents'],
+        [agent, { ...other, name: 'Other updated', updatedAt: '2026-03-01T00:00:00Z' }],
+      );
+    });
+    await flush();
+
+    expect(probe.snapshot.commits).toBe(commits);
+    expect(probe.snapshot.data?.name).toBe('Expert');
+  });
+
+  it('does not commit when a refetch returns the same experts', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json([agent]));
+    const probe = await mountAgentProbe('expert');
+    const commits = probe.snapshot.commits;
+
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['agents'] });
+    });
+    await flush();
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(probe.snapshot.commits).toBe(commits);
+    expect(probe.snapshot.data?.name).toBe('Expert');
+  });
+
+  it('reflects an update to the selected expert', async () => {
+    const probe = await mountAgentProbe('expert');
+    const commits = probe.snapshot.commits;
+
+    await act(async () => {
+      client.setQueryData(
+        ['agents'],
+        [{ ...agent, name: 'Renamed', updatedAt: '2026-03-01T00:00:00Z' }],
+      );
+    });
+    await flush();
+
+    expect(probe.snapshot.commits).toBe(commits + 1);
+    expect(probe.snapshot.data?.name).toBe('Renamed');
+  });
+
+  it('returns null after the selected expert is removed', async () => {
+    client.setQueryData(['agents'], [agent, other]);
+    const probe = await mountAgentProbe('expert');
+
+    await act(async () => {
+      client.setQueryData(['agents'], [other]);
+    });
+    await flush();
+
+    expect(probe.snapshot.data).toBeNull();
+  });
+
+  it('switches to the selected expert when the id changes', async () => {
+    client.setQueryData(['agents'], [agent, other]);
+    const probe = await mountAgentProbe('expert');
+    expect(probe.snapshot.data?.name).toBe('Expert');
+
+    await probe.switchTo('other');
+
+    expect(probe.snapshot.data?.name).toBe('Other');
+  });
 });
 
 describe('expert creation lifecycle', () => {

@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fail } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { RUN_QUEUE_MAX_WAITING, runEnqueueOptions } from '@agentport/shared';
@@ -116,9 +117,17 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
         while (Date.now() < deadline) {
           if (signal?.aborted) await cancelled();
           // 别让一轮睡眠跨过截止时间，否则超时最多晚 POLL_MS。
-          await new Promise((resolve) =>
-            setTimeout(resolve, Math.min(POLL_MS, Math.max(0, deadline - Date.now()))),
-          );
+          try {
+            // 可取消睡眠：取消时立即退出，不必等满一个轮询周期。
+            await sleep(Math.min(POLL_MS, Math.max(0, deadline - Date.now())), undefined, {
+              signal,
+            });
+          } catch (err) {
+            if (signal?.aborted) await cancelled();
+            throw err;
+          }
+          // 正常醒来后先看取消信号，避免取消后还多读一次 run。
+          if (signal?.aborted) await cancelled();
           // 读状态失败时不猜：cancelAgentRun 可能在 DB 不可用时造出错误的终态。
           const current = await repo.chat.getRun(app.db, run.id);
           if (!current) fail('RUN_NOT_FOUND', 'run disappeared');

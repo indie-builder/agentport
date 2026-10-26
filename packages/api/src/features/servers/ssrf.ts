@@ -1,36 +1,29 @@
 import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
+import { BlockList, isIP } from 'node:net';
 import { fail } from '@agentport/core';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
-function ipv4ToInt(ip: string): number {
-  const parts = ip.split('.').map(Number);
-  return (
-    ((parts[0] ?? 0) << 24) | ((parts[1] ?? 0) << 16) | ((parts[2] ?? 0) << 8) | (parts[3] ?? 0)
-  );
+const PRIVATE_IPV4 = new BlockList();
+// 255.255.255.255 已包含在 240.0.0.0/4，无需单独的精确匹配。
+for (const [network, prefix] of [
+  ['0.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['127.0.0.0', 8],
+  ['169.254.0.0', 16],
+  ['172.16.0.0', 12],
+  ['192.168.0.0', 16],
+  ['100.64.0.0', 10],
+  ['192.0.0.0', 24],
+  ['192.88.99.0', 24],
+  ['224.0.0.0', 4],
+  ['240.0.0.0', 4],
+] as const) {
+  PRIVATE_IPV4.addSubnet(network, prefix);
 }
 
 function isPrivateIpv4(ip: string): boolean {
-  const n = ipv4ToInt(ip) >>> 0;
-  const inRange = (base: string, bits: number): boolean => {
-    const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
-    return (n & mask) === (ipv4ToInt(base) & mask);
-  };
-  return (
-    inRange('0.0.0.0', 8) ||
-    inRange('10.0.0.0', 8) ||
-    inRange('127.0.0.0', 8) ||
-    inRange('169.254.0.0', 16) ||
-    inRange('172.16.0.0', 12) ||
-    inRange('192.168.0.0', 16) ||
-    inRange('100.64.0.0', 10) ||
-    inRange('192.0.0.0', 24) ||
-    inRange('192.88.99.0', 24) ||
-    inRange('224.0.0.0', 4) ||
-    inRange('240.0.0.0', 4) ||
-    ip === '255.255.255.255'
-  );
+  return PRIVATE_IPV4.check(ip, 'ipv4');
 }
 
 /** 展开 IPv6 为 16 字节；只覆盖需要判断的写法，解析失败返回 null。 */

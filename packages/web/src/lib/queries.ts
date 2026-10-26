@@ -198,8 +198,10 @@ export function useAgents() {
 
 /** 单个专家从列表缓存里取；配置页用它，slug 不存在时返回 null。 */
 export function useAgent(id: string) {
-  const query = useAgents();
-  return { ...query, data: (query.data ?? []).find((agent) => agent.id === id) ?? null };
+  return useQuery({
+    ...agentsQuery,
+    select: (agents) => agents.find((agent) => agent.id === id) ?? null,
+  });
 }
 
 export function useOverview() {
