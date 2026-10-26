@@ -133,6 +133,77 @@ function jsonFeed(): string {
   });
 }
 
+function rssWrongTypeXml(): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel><title>Wrong Type Feed</title><item><guid>wrong-1</guid><title>Wrong Type</title><link>${articleBase}/articles/missing</link><description>Wrong type summary</description></item></channel></rss>`;
+}
+
+function rdfXml(): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+  <channel rdf:about="${mainUrl}/rdf">
+    <title>RDF Feed</title>
+    <link>${mainUrl}/rdf</link>
+    <description>RDF feed</description>
+    <items><rdf:Seq><rdf:li rdf:resource="${mainUrl}/rdf#item-1"/></rdf:Seq></items>
+  </channel>
+  <item rdf:about="${mainUrl}/rdf#item-1">
+    <title>RDF One</title>
+    <link>${articleBase}/articles/missing</link>
+    <description>RDF summary</description>
+  </item>
+</rdf:RDF>`;
+}
+
+function atomLinksXml(): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Atom Links Feed</title>
+  <entry>
+    <id>atom-links-1</id>
+    <title>Atom Links</title>
+    <link rel="self" href="${mainUrl}/self"/>
+    <link rel="alternate" href="${articleBase}/articles/missing"/>
+    <content type="html">&lt;p&gt;Atom links summary&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <summary>No id or title</summary>
+  </entry>
+</feed>`;
+}
+
+function jsonNumericFeed(): string {
+  return JSON.stringify({
+    version: 'https://jsonfeed.org/version/1.1',
+    title: 'Numeric Feed',
+    items: [
+      { id: 42, title: 'Numeric', content_text: 'Numeric body' },
+      {
+        id: 'json-fallback',
+        url: `${articleBase}/articles/missing`,
+        title: 'Fallback',
+        summary: 'Summary only',
+      },
+    ],
+  });
+}
+
+function jsonRssMarkupFeed(): string {
+  return JSON.stringify({
+    version: 'https://jsonfeed.org/version/1.1',
+    title: 'JSON RSS Markup Feed',
+    items: [
+      {
+        id: 'json-rss-markup',
+        url: `${articleBase}/articles/missing`,
+        title: 'JSON RSS Markup',
+        content_html:
+          '<pre><code><rss><channel><title>Example</title></channel></rss></code></pre>',
+      },
+    ],
+  });
+}
+
 function docxBlocks(docToken: string, pageToken: string | undefined): unknown {
   const pageId = `${docToken}-page`;
   const block = (id: string, blockType: number, extra: Record<string, unknown> = {}) => ({
@@ -273,6 +344,27 @@ async function handleMain(request: IncomingMessage, response: ServerResponse): P
   }
   if (path === '/feed.json') {
     json(response, 200, JSON.parse(jsonFeed()));
+    return;
+  }
+  if (path === '/rss-wrong-type') {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(rssWrongTypeXml());
+    return;
+  }
+  if (path === '/rdf') {
+    xml(response, rdfXml());
+    return;
+  }
+  if (path === '/atom-links') {
+    xml(response, atomLinksXml());
+    return;
+  }
+  if (path === '/feed-numeric.json') {
+    json(response, 200, JSON.parse(jsonNumericFeed()));
+    return;
+  }
+  if (path === '/feed-json-rss-markup.json') {
+    json(response, 200, JSON.parse(jsonRssMarkupFeed()));
     return;
   }
   if (path === '/feed-binary') {
@@ -619,6 +711,41 @@ describe('RSS/Atom/JSON sources', () => {
     const json = await readSource(rssConfig(`${mainUrl}/feed.json`));
     expect(json.items[0]?.title).toBe('JSON One');
     expect(json.items[0]?.content).toContain('JSON body');
+  });
+
+  it('detects the feed format from content when Content-Type disagrees', async () => {
+    const snapshot = await readSource(rssConfig(`${mainUrl}/rss-wrong-type`));
+    expect(snapshot.items).toHaveLength(1);
+    expect(snapshot.items[0]?.title).toBe('Wrong Type');
+    expect(snapshot.items[0]?.content).toBe('Wrong type summary');
+  });
+
+  it('parses JSON feeds whose content embeds XML markup', async () => {
+    const snapshot = await readSource(rssConfig(`${mainUrl}/feed-json-rss-markup.json`));
+    expect(snapshot.items).toHaveLength(1);
+    expect(snapshot.items[0]?.title).toBe('JSON RSS Markup');
+    expect(snapshot.items[0]?.content).toContain('Example');
+  });
+
+  it('keeps RDF, Atom link priority, skipped entries and JSON id/body fallbacks', async () => {
+    const rdf = await readSource(rssConfig(`${mainUrl}/rdf`));
+    expect(rdf.items).toHaveLength(1);
+    expect(rdf.items[0]?.title).toBe('RDF One');
+    expect(rdf.items[0]?.externalId).toBe(`${mainUrl}/rdf:${articleBase}/articles/missing`);
+    expect(rdf.items[0]?.content).toBe('RDF summary');
+
+    const atom = await readSource(rssConfig(`${mainUrl}/atom-links`));
+    // The entry without id and title is skipped; the alternate link wins over self.
+    expect(atom.items).toHaveLength(1);
+    expect(atom.items[0]?.sourceUrl).toBe(`${articleBase}/articles/missing`);
+    expect(atom.items[0]?.content).toBe('Atom links summary');
+
+    const json = await readSource(rssConfig(`${mainUrl}/feed-numeric.json`));
+    const numeric = json.items.find((item) => item.externalId.endsWith(':42'));
+    expect(numeric?.content).toBe('Numeric body');
+    expect(numeric?.sourceUrl).toBe(`${mainUrl}/feed-numeric.json`);
+    const fallback = json.items.find((item) => item.externalId.endsWith(':json-fallback'));
+    expect(fallback?.content).toBe('Summary only');
   });
 
   it('surfaces feed HTTP errors and rejects unknown cursors', async () => {
