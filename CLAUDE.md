@@ -56,6 +56,7 @@
 - 能拆成互不依赖的子任务就并行，不要串行做完一个再下一个；每个子代理要有明确产出边界（改哪些文件、不改哪些文件）与验收方式。
 - 模型选择遵循 `pstack-models.md` 的 per-role 配置，不为并行而降低判断质量。
 - **完整研发流程（含建树、配置与启动规则）、review 轮次做法、验证与撤销规则统一见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**；开工前读 [docs/PITFALLS.md](docs/PITFALLS.md)，踩坑记入该文件不散落。产出只落在 worktree，主 checkout 保持干净。
+- **已提交并合并的 worktree 任务收尾即删**：分支改动全部提交且已合并到 main 后，对应 worktree 不再有存在价值，`git worktree remove` 删掉（分支与远程保留）；未提交内容一律不删，先报告。判据与做法见 docs/DEV-WORKFLOW.md §2-7。
 
 ## 智能体运行底座
 
