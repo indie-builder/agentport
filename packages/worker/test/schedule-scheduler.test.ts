@@ -12,6 +12,7 @@ import {
   type ScheduleTriggerJobLike,
   startScheduleScheduler,
 } from '../src/scheduler.js';
+import { createIsolatedDatabase } from './isolated-db.js';
 
 async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -23,19 +24,14 @@ async function probeInfra(): Promise<boolean> {
     maxRetriesPerRequest: 1,
     retryStrategy: () => null,
   });
-  const queue = new Queue(SCHEDULE_TRIGGERS_QUEUE, {
-    connection: { url: redisUrl, maxRetriesPerRequest: 1 },
-  });
   try {
     await pool.query('select 1');
     await redis.connect();
-    if ((await redis.ping()) !== 'PONG') return false;
-    // 该队列有真实消费者时，测试投递的 trigger 会被它跑掉，断言无法成立。
-    return (await queue.getWorkersCount()) === 0;
+    // 不需要检查消费者：本套件全程使用独立 prefix（见下方 `prefix`），真实 worker 看不到。
+    return (await redis.ping()) === 'PONG';
   } catch {
     return false;
   } finally {
-    await queue.close().catch(() => undefined);
     await pool.end().catch(() => undefined);
     await redis.quit().catch(() => undefined);
   }
@@ -45,9 +41,14 @@ const ready = await probeInfra();
 const redisUrl = process.env.REDIS_URL ?? '';
 // 独立的键前缀：对账会删「库里不存在」的 scheduler，绝不能落到同机真实队列上。
 const prefix = `sched-test-${randomUUID().slice(0, 8)}`;
+// 套件写的 schedule 是 enabled 的，共享库上真实 worker 的 sync 会把它同步到生产队列并真的触发；
+// 独享随机库后，生产 worker 看不到这些行。
+const isolated = ready ? await createIsolatedDatabase('worker_sched_test') : null;
+if (ready && isolated === null) console.warn('schedule-scheduler: 无法建独立库，回退共享库');
+const databaseUrl = isolated?.url ?? process.env.DATABASE_URL ?? '';
 
 describe.skipIf(!ready)('schedule scheduler against live redis and postgres', () => {
-  const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
+  const { db, pool } = createDb(databaseUrl);
   const logger = {
     info: () => undefined,
     warn: () => undefined,
@@ -172,6 +173,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
     await schedulerQueue.close();
     await db.delete(schema.agents).where(inArray(schema.agents.id, [agentId, disabledAgentId]));
     await pool.end();
+    await isolated?.close();
   });
 
   describe('sync', () => {

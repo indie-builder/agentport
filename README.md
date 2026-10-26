@@ -94,7 +94,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `pnpm typecheck` | 全量类型检查（`pnpm -r typecheck`） |
 | `pnpm lint` | Biome 检查 |
 | `pnpm lint:fix` | Biome 检查并写入修复 |
-| `pnpm test` | 同时跑 `web` 与 `backend` 两个 Vitest 项目。web 项目不依赖后端；`backend` 项目会加载 `.env`，默认连 `DATABASE_URL` / `REDIS_URL` 指向的 PostgreSQL 与 Redis，集成用例在连不上时自动跳过。**队列相关用例先停 worker**（`docker compose stop worker api`），否则测试建的 run 会被真实消费 |
+| `pnpm test` | 同时跑 `web` 与 `backend` 两个 Vitest 项目。web 项目不依赖后端；`backend` 项目会加载 `.env`，默认连 `DATABASE_URL` / `REDIS_URL` 指向的 PostgreSQL 与 Redis，集成用例在连不上时自动跳过。测试的 Redis 固定走 db 9，与开发 worker 的 db 0 隔离，**不需要停 worker** |
 | `pnpm test:web` | 只跑 `packages/web/test`（jsdom，不加载 `.env`，不需要 API、worker、PostgreSQL、Redis） |
 | `pnpm test:watch` | Vitest watch |
 | `pnpm test:e2e` | e2e 端到端测试（`e2e run`，用例在 `tests/*.e2e.ts`）。自动启动或复用 [http://localhost:5173](http://localhost:5173) 的 Vite（不经过 Portless）；API 需另行在 [http://localhost:3000](http://localhost:3000) 运行。前置与凭据见下方说明；配置收全部 `tests/**/*.e2e.ts`，普通套件含要求停 worker 的回放用例，真实对话用例需单独跑（见下） |

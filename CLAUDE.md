@@ -2,6 +2,8 @@
 
 > 这些规则对本仓库的所有改动生效。与个人偏好冲突时，以本文件为准。
 >
+> 对本仓库的所有回复、总结、提交说明都用中文；代码、命令、标识符、路径保持原样。
+>
 > 文档入口见 [docs/README.md](docs/README.md)；研发流程规范见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)；跨任务踩坑见 [docs/PITFALLS.md](docs/PITFALLS.md)，开工前或报错时先读。
 
 ## 0. 第一性原则：文件系统即智能体定义（最高约束）
@@ -86,7 +88,7 @@
 
 - E2E 统一使用 `e2e`（`e2e` + `@e2e-dev/web`）。Playwright 已退役，不再新增其用例。
 - 登录等共享前置用 `test.setup` + session，不要在每条用例里重复登录。
-- 单元/集成测试用 Vitest；涉及队列的用例需先停掉本地 worker（见 `docs/OPERATIONS.md`）。
+- 单元/集成测试用 Vitest；测试的 Redis 固定走 db 9，与开发 worker（db 0）隔离，默认不需要停 worker（见 `docs/OPERATIONS.md`）。
 
 ## 技能与插件维护
 
