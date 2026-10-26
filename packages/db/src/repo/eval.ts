@@ -114,7 +114,7 @@ export async function finishEvalRun(
     .where(and(eq(evalRuns.id, id), eq(evalRuns.status, 'running')));
 }
 
-/** 只有 running 能转 cancelled；返回 false 表示跑批已收口，调用方据此拒绝重复取消。 */
+/** 只有 running 能转 cancelled；返回 false 表示跑批已收口，调用方据此跳过重复审计。 */
 export async function cancelEvalRun(db: Database, id: string): Promise<boolean> {
   const rows = await db
     .update(evalRuns)

@@ -346,7 +346,12 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
       const { id } = request.params;
-      const run = await evalRepo.getEvalRun(app.db, id);
+      // 存在性校验只需要主键；不用共享 getEvalRun，避免读取 case_snapshot 等大字段。
+      const [run] = await app.db
+        .select({ id: schema.evalRuns.id })
+        .from(schema.evalRuns)
+        .where(eq(schema.evalRuns.id, id))
+        .limit(1);
       if (!run) return reject(reply, 'NOT_FOUND', '评估运行不存在，可能已被清理；请刷新列表');
       // 已收口的跑批重复取消是无操作；只有真正完成转换的一方写审计。
       if (await evalRepo.cancelEvalRun(app.db, id)) {
