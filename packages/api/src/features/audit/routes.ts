@@ -2,7 +2,7 @@ import { repo } from '@agentport/db';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { reject } from '../../plugins/errors.js';
-import { type TypedApp, typed } from '../../types.js';
+import { typed } from '../../types.js';
 
 const querySchema = z.object({
   action: z.string().trim().max(100).optional(),
@@ -36,10 +36,9 @@ function toItem(row: Row) {
 
 type Query = z.infer<typeof querySchema>;
 
-/** 两个读接口共用过滤映射；未知游标返回 null，由 handler 统一拒绝。 */
-async function auditOptions(app: TypedApp, query: Query): Promise<repo.audit.AuditQuery | null> {
+/** 两个读接口共用过滤映射；游标是否有效只在空页时补查，非空页由查询本身证明。 */
+function auditOptions(query: Query): repo.audit.AuditQuery {
   const { action, status, target, limit, before, beforeId } = query;
-  if (beforeId !== undefined && !(await repo.audit.auditEntryExists(app.db, beforeId))) return null;
   return {
     ...(action ? { action } : {}),
     ...(status ? { status } : {}),
@@ -58,9 +57,15 @@ export function registerAuditRoutes(rawApp: FastifyInstance): void {
     '/api/audit',
     { ...auth, schema: { querystring: querySchema } },
     async (request, reply) => {
-      const options = await auditOptions(app, request.query);
-      if (!options) return reject(reply, 'INVALID_INPUT', '分页游标无效');
+      const options = auditOptions(request.query);
       const rows = await repo.audit.listAudit(app.db, options);
+      if (
+        request.query.beforeId !== undefined &&
+        rows.length === 0 &&
+        !(await repo.audit.auditEntryExists(app.db, request.query.beforeId))
+      ) {
+        return reject(reply, 'INVALID_INPUT', '分页游标无效');
+      }
       return { items: rows.map(toItem) };
     },
   );
@@ -69,13 +74,19 @@ export function registerAuditRoutes(rawApp: FastifyInstance): void {
     '/api/audit/export',
     { ...auth, schema: { querystring: exportQuerySchema } },
     async (request, reply) => {
-      const options = await auditOptions(app, request.query);
-      if (!options) return reject(reply, 'INVALID_INPUT', '分页游标无效');
+      const options = auditOptions(request.query);
       // 多取一条用于判断超限，绝不把截断后的结果当完整导出发出。
       const rows = await repo.audit.listAudit(app.db, {
         ...options,
         limit: request.query.limit + 1,
       });
+      if (
+        request.query.beforeId !== undefined &&
+        rows.length === 0 &&
+        !(await repo.audit.auditEntryExists(app.db, request.query.beforeId))
+      ) {
+        return reject(reply, 'INVALID_INPUT', '分页游标无效');
+      }
       if (rows.length > request.query.limit) {
         return reject(
           reply,
