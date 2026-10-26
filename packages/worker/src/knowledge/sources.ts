@@ -367,35 +367,13 @@ function articleBody(html: string): string {
   return markdown;
 }
 
-/** Atom wraps text in `{ value, type }`; RSS/JSON give plain strings. */
-function feedText(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (value && typeof value === 'object') {
-    const inner = (value as { value?: unknown }).value;
-    if (typeof inner === 'string') return inner;
-  }
-  return '';
-}
-
-function feedLink(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (!Array.isArray(value)) return '';
-  const alternate = value.find(
-    (entry: unknown) =>
-      entry !== null &&
-      typeof entry === 'object' &&
-      [undefined, 'alternate'].includes((entry as { rel?: string }).rel),
-  ) as { href?: unknown } | undefined;
-  return typeof alternate?.href === 'string' ? alternate.href : '';
-}
-
-function feedEntries(
-  source: string,
-  contentType: string | null,
-): { feedTitle: string; entries: FeedEntry[] } {
-  const trimmed = source.trimStart();
-  if (contentType?.includes('json') || trimmed.startsWith('{')) {
-    const feed = parseJsonFeed(source);
+function feedEntries(source: string): { feedTitle: string; entries: FeedEntry[] } {
+  // parseFeed regex-scans for XML tags, so JSON bodies containing feed markup must bypass it.
+  const parsed = source.trimStart().startsWith('{')
+    ? { format: 'json' as const, feed: parseJsonFeed(source) }
+    : parseFeed(source);
+  if (parsed.format === 'json') {
+    const { feed } = parsed;
     const entries = (feed.items ?? []).flatMap((item) => {
       const link = item.url ?? item.external_url ?? '';
       const id = String(item.id ?? '') || link || item.title || '';
@@ -410,52 +388,32 @@ function feedEntries(
         },
       ];
     });
-    return { feedTitle: feedText(feed.title), entries };
+    return { feedTitle: feed.title ?? '', entries };
   }
-
-  const { format, feed } = parseFeed(source);
-  if (format === 'atom') {
-    const atom = feed as {
-      title?: unknown;
-      entries?: Array<{
-        id?: unknown;
-        title?: unknown;
-        links?: unknown;
-        content?: { value?: string } | undefined;
-        summary?: unknown;
-      }>;
-    };
-    const entries = (atom.entries ?? []).flatMap((entry) => {
-      const id = feedText(entry.id) || feedText(entry.title);
+  if (parsed.format === 'atom') {
+    const { feed } = parsed;
+    const entries = (feed.entries ?? []).flatMap((entry) => {
+      const id = entry.id || entry.title?.value || '';
       if (!id) return [];
       return [
         {
           id,
-          title: feedText(entry.title),
-          link: feedLink(entry.links),
+          title: entry.title?.value ?? '',
+          link:
+            entry.links?.find((link) => link.rel === undefined || link.rel === 'alternate')?.href ??
+            '',
           html: entry.content?.value ?? '',
-          summary: feedText(entry.summary),
+          summary: entry.summary?.value ?? '',
         },
       ];
     });
-    return { feedTitle: feedText(atom.title), entries };
+    return { feedTitle: feed.title?.value ?? '', entries };
   }
-  if (format !== 'rss' && format !== 'rdf') {
-    throw new Error(`unsupported feed format: ${format}`);
-  }
-  const rss = feed as {
-    title?: unknown;
-    items?: Array<{
-      title?: string;
-      link?: unknown;
-      description?: string;
-      guid?: { value?: string } | undefined;
-      content?: { encoded?: string } | undefined;
-    }>;
-  };
-  const entries = (rss.items ?? []).flatMap((item) => {
-    const link = feedLink(item.link);
-    const id = item.guid?.value ?? link ?? item.title ?? '';
+  const { feed } = parsed;
+  const entries = (feed.items ?? []).flatMap((item) => {
+    const link = item.link ?? '';
+    // RDF has no guid; its id falls back to the link, so an empty link still skips the item.
+    const id = ('guid' in item ? item.guid?.value : undefined) ?? link;
     if (!id) return [];
     return [
       {
@@ -467,7 +425,7 @@ function feedEntries(
       },
     ];
   });
-  return { feedTitle: feedText(rss.title), entries };
+  return { feedTitle: feed.title ?? '', entries };
 }
 
 const rssCursorSchema = z.object({
@@ -511,9 +469,8 @@ async function readRss(
     ...origins,
     ...(signal === undefined ? {} : { signal }),
   });
-  const contentType = request.headers.get('content-type');
   const source = await readCapped(request, 'feed');
-  const { feedTitle, entries } = feedEntries(source, contentType);
+  const { feedTitle, entries } = feedEntries(source);
   const feedDir = sanitizeSegment(feedTitle, 'feed');
 
   const usedPaths = new Set<string>();
