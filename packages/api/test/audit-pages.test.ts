@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { expectProblem, infraReady, inject, loginCookie, startApp, unique } from './helpers.js';
 
 const ready = await infraReady;
@@ -53,6 +53,19 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     const res = await list(query);
     expect(res.statusCode, res.body).toBe(200);
     return res.json<ItemBody>().items;
+  }
+
+  /** 真实连接直通 spy：只统计发往 audit_log 的 SELECT，不改变数据库行为。 */
+  async function countAuditSelects(run: () => Promise<unknown>): Promise<number> {
+    const spy = vi.spyOn(app.pool, 'query');
+    try {
+      await run();
+      return spy.mock.calls
+        .map(([query]) => (typeof query === 'string' ? query : query.text))
+        .filter((text) => /^\s*select\b/i.test(text) && text.includes('from "audit_log"')).length;
+    } finally {
+      spy.mockRestore();
+    }
   }
 
   interface SeedRow {
@@ -111,6 +124,70 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     const all = [...first, ...second];
     expect(all.map((row) => row.id)).toEqual([...ids].reverse());
     expect(new Set(all.map((row) => row.id)).size).toBe(125);
+  });
+
+  it('reads non-empty cursor pages with one audit select and rechecks only empty pages', async () => {
+    const target = unique('target');
+    const prefix = unique('audit-select');
+    await seed(
+      target,
+      Array.from({ length: 3 }, (_, i) => ({
+        id: `${prefix}-${i + 1}`,
+        createdAt: `2026-04-01T00:00:0${i + 1}.000000Z`,
+      })),
+    );
+
+    const first = await page(`${targetQuery(target)}&limit=2`);
+    const before = first.at(-1)?.id ?? '';
+    expect(before).toBe(`${prefix}-2`);
+
+    const listSelects = await countAuditSelects(async () => {
+      const res = await list(`${targetQuery(target)}&limit=2${cursor(before)}`);
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json<ItemBody>().items.map((row) => row.id)).toEqual([`${prefix}-1`]);
+    });
+    expect(listSelects).toBe(1);
+
+    const exportSelects = await countAuditSelects(async () => {
+      const res = await exportAudit(`${targetQuery(target)}${cursor(before)}`);
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json<ExportBody>().items.map((row) => row.id)).toEqual([`${prefix}-1`]);
+    });
+    expect(exportSelects).toBe(1);
+
+    // 有效游标 + 过滤后为空：仍要补查游标存在性，但结果是 200 []。
+    const emptyListSelects = await countAuditSelects(async () => {
+      const res = await list(`${targetQuery(target)}&action=audit.select.missing${cursor(before)}`);
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json<ItemBody>().items).toEqual([]);
+    });
+    expect(emptyListSelects).toBe(2);
+
+    const emptyExportSelects = await countAuditSelects(async () => {
+      const res = await exportAudit(
+        `${targetQuery(target)}&action=audit.select.missing${cursor(before)}`,
+      );
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json<ExportBody>().items).toEqual([]);
+    });
+    expect(emptyExportSelects).toBe(2);
+
+    const unknown = `audit-missing-${unique('cursor')}`;
+    const unknownListSelects = await countAuditSelects(async () => {
+      expectProblem(await list(`?beforeId=${encodeURIComponent(unknown)}`), 'INVALID_INPUT');
+    });
+    expect(unknownListSelects).toBe(2);
+
+    const unknownExportSelects = await countAuditSelects(async () => {
+      expectProblem(await exportAudit(`?beforeId=${encodeURIComponent(unknown)}`), 'INVALID_INPUT');
+    });
+    expect(unknownExportSelects).toBe(2);
+
+    const noCursorSelects = await countAuditSelects(async () => {
+      const res = await list(targetQuery(target));
+      expect(res.statusCode, res.body).toBe(200);
+    });
+    expect(noCursorSelects).toBe(1);
   });
 
   it('keeps microsecond ordering when every ISO string collides', async () => {
