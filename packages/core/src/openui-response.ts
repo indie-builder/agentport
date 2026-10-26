@@ -138,8 +138,8 @@ function joinParts(parts: string[]): string {
   return kept
     .map((part, index) => {
       let value = part;
-      if (index > 0) value = value.replace(/^\s+/, '');
-      if (index < kept.length - 1) value = value.replace(/\s+$/, '');
+      if (index > 0) value = value.trimStart();
+      if (index < kept.length - 1) value = value.trimEnd();
       return value;
     })
     .join('\n\n');
