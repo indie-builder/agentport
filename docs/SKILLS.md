@@ -15,12 +15,23 @@
 | `api-integration-surface-strategy` | samber/developer-platform-skills | 按回滚成本与受众排序 REST/CLI/SDK/MCP 等各集成面的建设顺序 |
 | `vercel-react-best-practices` | vercel-labs/agent-skills | React 19 组件与性能 |
 | `supabase-postgres-best-practices` | supabase/agent-skills | PostgreSQL 18 查询、索引、RLS |
-| `test-driven-development` | obra/superpowers | Vitest 单元/集成测试 |
+| `test-driven-development` | obra/superpowers | 框架无关的 TDD：先写测试看失败，再写最小实现（Vitest 只是项目默认执行器） |
 | `verification-before-completion` | obra/superpowers | 交付前的验证纪律 |
 | `shadcn` | shadcn-ui/ui | 组件库（本项目唯一 UI 组件来源） |
 | `migrate-radix-to-base` | shadcn-ui/ui | Radix 组件迁移到 Base UI（交互原语已统一 Base UI） |
 | `tailwind-design-system` | wshobson/agents | Tailwind 4 token 与设计系统 |
 | `openui` | thesysdev/skills | 明确涉及 OpenUI / OpenUI Lang / `@openuidev/*` / Gateway / Autofix / CLI 的生成式 UI 任务；不用于普通 chat/dashboard，也不替代本项目 UI 实现 |
+| `fastify-best-practices` | mcollina/skills | Fastify 5 路由、schema 校验、插件与生命周期 |
+| `better-auth-best-practices` | better-auth/skills | Better Auth 会话、插件与鉴权配置 |
+| `tanstack-query-best-practices` | deckardger/tanstack-agent-skills | TanStack Query 5 数据获取与缓存 |
+| `router-core` | tanstack/router | TanStack Router 核心：路由树、类型安全导航 |
+| `react-router` | tanstack/router | TanStack Router 的 React 绑定与组件用法 |
+| `router-query` | tanstack/router | TanStack Router 与 Query 的集成（loader、预取） |
+| `vitest` | antfu/skills | Vitest 配置、断言与测试组织 |
+| `vite` | antfu/skills | Vite 配置、插件与构建 |
+| `pnpm` | antfu/skills | pnpm workspace 与依赖管理 |
+| `drizzle-orm-patterns` | giuseppe-trisciuoglio/developer-kit | Drizzle ORM schema、查询与迁移模式 |
+| `react-hook-form` | pproenca/dot-skills | React Hook Form 表单状态与校验 |
 
 ## 范围
 
@@ -61,6 +72,18 @@
 - `description` 收窄：仅用于明确涉及 OpenUI、OpenUI Lang、`@openuidev/*` 包、OpenUI Gateway、Autofix、`@openuidev/cli` 的任务；不用于普通 chat / agent / dashboard 需求，也不用于只借 openui.com 做视觉参考的场景。
 - 正文 Project convention：UI 一律 shadcn/Base UI、Tailwind 4 现有 `@theme` token 与 `docs/DESIGN-SYSTEM.md`，不新建 app；运行底座只有 Claude Agent SDK，不默认切换 Gateway / OpenAI / LangGraph，也不引入外部存储或部署。
 - 更新（`add`/`update`）后同样要补回这两处；以本地版与上游 `SKILL.md` 的差异为准，适配副本路径记入当次任务记录。
+
+### 技术栈最佳实践技能
+
+新增技能的适配以 `SKILL.md` 顶部一段 `Project convention` 为主，`references/` 与其余文件维持上游原样；例外是 `router-core` 的 `data-loading/SKILL.md`、`ssr/SKILL.md` 也改了本地路径引用。11 个技能中 9 个有适配（合计 11 个文件，含 Better Auth），`vite`、`pnpm` 未改动；`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。升级或重装后按本组规则补回适配，再跑「完成核验」。
+
+- **Fastify**：保持本项目入口约定——`typed(rawApp)` 类型化实例、Zod `schema` 校验、handler 直接读 `request.body`、统一 `INVALID_INPUT` 错误映射、`/api/*` 默认 `requireAuth`；认证走 Better Auth + Drizzle/PostgreSQL，不引入 JWT 或 TypeBox 层。
+- **Better Auth / Drizzle**：认证实现以 `packages/api/src/features/auth` 为准；Drizzle 按本地 lock 锁定版本与 `packages/db/src/schema.ts` 现行写法。常规业务实体主键用应用层 `newId(entity)` TypeID；认证、关联表、幂等派生标识、外部资源等按 `docs/PROJECT-BRIEF.md` §「ID 约定」的例外处理；不采用上游 `serial`/数据库生成 ID 示例。迁移只走 `pnpm db:generate` + `pnpm db:migrate`。
+- **React Hook Form**：沿用现有 `useZodForm` 与 `components/ui/` 的 Base UI/shadcn 控件，不引入 Radix 或 MUI；示例按本地 lock 版本核对。
+- **Router / Query**：对准现有 React + Vite SPA 入口（`packages/web/src/router.tsx`、`routes/`、`lib/queries.ts`），示例中的包标识与跨技能链接用本地路径修正，不引入 TanStack Start/SSR 或额外依赖；版本差异按 lock。
+- **Vitest**：技能文本可能来自高于 lock 的版本，使用前核对已安装版本，不为示例升级依赖；测试仍走根 `vitest.config.ts` 的 `backend`/`web` projects。
+
+安装依据与许可：`better-auth-best-practices` 按上游 <https://www.better-auth.com/docs/ai-resources/skills> 发布的安装命令装入；上游仓库未提供 LICENSE 文件，此处只登记本地安装与来源事实。
 
 ## 插件更新
 
