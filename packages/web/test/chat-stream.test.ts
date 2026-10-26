@@ -175,6 +175,33 @@ describe('chat request ownership', () => {
     expect(useChatStore.getState().run).toBeNull();
     expect(harness.sendChat).not.toHaveBeenCalled();
   });
+
+  it('sends an explicit action without touching the unsent draft', async () => {
+    const stream = render();
+    useChatStore.getState().setInput('还没发出去的草稿');
+    const action = {
+      type: 'continue_conversation' as const,
+      params: { context: { chart: 'revenue' } },
+      message: '看这个渠道',
+      context: { chart: 'revenue' },
+      formState: { booking: { city: { value: '上海' } } },
+      formName: 'booking',
+      messageId: 'message_1',
+      blockKey: 's1',
+    };
+    await act(async () => {
+      await stream.send(action.message, action);
+    });
+
+    expect(harness.sendChat).toHaveBeenCalledWith({
+      agentId: 'agent-a',
+      message: '看这个渠道',
+      openuiAction: action,
+    });
+    // 动作不占输入框：草稿原样保留。
+    expect(useChatStore.getState().input).toBe('还没发出去的草稿');
+    expect(useChatStore.getState().items).toEqual([{ kind: 'user', text: '看这个渠道' }]);
+  });
 });
 
 describe('disconnected runs', () => {
@@ -321,6 +348,49 @@ function message(event: unknown): { data: string } {
   return { data: JSON.stringify(event) };
 }
 
+/** 会话分页：恢复只读真实会话消息，不再从运行详情伪造步骤。 */
+function conversationPage(
+  messages: unknown[],
+  options: { id?: string; nextBefore?: string | null } = {},
+) {
+  return {
+    conversation: {
+      id: options.id ?? 'c1',
+      agentId: 'a1',
+      title: '',
+      createdAt: '',
+    },
+    messages,
+    runMetrics: [],
+    nextBefore: options.nextBefore ?? null,
+  };
+}
+
+function assistantMessage(
+  id: string,
+  text: string,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id,
+    conversationId: 'c1',
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    runId: 'r1',
+    createdAt: id,
+    ...extra,
+  };
+}
+
+const userMessage: Record<string, unknown> = {
+  id: 'u1',
+  conversationId: 'c1',
+  role: 'user',
+  content: { type: 'text', text: 'hi' },
+  runId: 'r1',
+  createdAt: 'u1',
+};
+
 async function settle(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
@@ -390,7 +460,7 @@ test('正常接受：保留用户气泡，开流，run_finished 后失效缓存�
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversation', 'c1'] });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversations'] });
   // 没有截断就只用流式结果，不为每次运行多发一次请求。
-  expect(apiMock.run).not.toHaveBeenCalled();
+  expect(apiMock.conversation).not.toHaveBeenCalled();
 });
 
 test('replay_truncated 只追加 muted 通知，不改写回答文本，也不断流', async () => {
@@ -410,19 +480,14 @@ test('replay_truncated 只追加 muted 通知，不改写回答文本，也不�
     { kind: 'notice', tone: 'muted', text: TRUNCATED_NOTICE },
     { kind: 'text', text: 'b' },
   ]);
-  expect(apiMock.run).not.toHaveBeenCalled();
+  expect(apiMock.conversation).not.toHaveBeenCalled();
 });
 
 test('terminal_missing 提示未收到结束事件，run_finished 后仍用已保存结果替换', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
-  apiMock.run.mockResolvedValue({
-    steps: [
-      { kind: 'user', at: 't1', text: 'hi' },
-      { kind: 'assistant', at: 't2', text: 'answer' },
-    ],
-    run: {},
-    conversation: {},
-  });
+  apiMock.conversation.mockResolvedValue(
+    conversationPage([userMessage, assistantMessage('m2', 'answer')]),
+  );
   const hook = render('a1');
   await startRun(hook);
 
@@ -438,31 +503,39 @@ test('terminal_missing 提示未收到结束事件，run_finished 后仍用已�
   opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
   await settle();
 
-  expect(apiMock.run).toHaveBeenCalledWith('r1');
+  expect(apiMock.conversation).toHaveBeenCalledWith('c1', { limit: 100 });
   const { items } = useChatStore.getState();
   expect(items.some((item) => item.kind === 'text' && item.text === 'partial answer')).toBe(false);
   expect(items.some((item) => item.kind === 'text' && item.text === 'answer')).toBe(true);
 });
 
-test('截断后 run_finished 用已保存步骤重建尾部，不重复用户气泡', async () => {
+test('截断后 run_finished 用真实会话消息重建尾部，不重复用户气泡、不丢子文本', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
-  apiMock.run.mockResolvedValue({
-    steps: [
-      { kind: 'user', at: 't1', text: 'hi' },
-      { kind: 'assistant', at: 't2', text: 'answer' },
+  apiMock.conversation.mockResolvedValue(
+    conversationPage([
+      userMessage,
+      // 同一条 SDK 消息的两块都用 blockIndex 0：只有 blockIndex 不足以区分。
       {
-        kind: 'tool',
-        at: 't3',
-        name: 'search',
-        toolUseId: 'tool-1',
-        content: { q: 'x' },
-        result: 'ok',
-        parentToolUseId: 'parent-1',
+        ...assistantMessage('m2', 'answer'),
+        content: [{ type: 'text', text: 'answer', blockIndex: 0 }],
       },
-    ],
-    run: { id: 'r1' },
-    conversation: { id: 'c1', agentId: 'a1', title: '' },
-  });
+      {
+        ...assistantMessage('m3', '子任务输出'),
+        content: [{ type: 'text', text: '子任务输出', blockIndex: 0, parentToolUseId: 'tool-1' }],
+      },
+      {
+        id: 'm4',
+        conversationId: 'c1',
+        role: 'tool',
+        content: [
+          { type: 'tool_use', id: 'tool-1', name: 'search', input: { q: 'x' } },
+          { type: 'tool_result', toolUseId: 'tool-1', content: 'ok' },
+        ],
+        runId: 'r1',
+        createdAt: 'm4',
+      },
+    ]),
+  );
   useChatStore.getState().setItems([{ kind: 'text', text: 'old' }]);
   const hook = render('a1');
   await startRun(hook);
@@ -473,43 +546,71 @@ test('截断后 run_finished 用已保存步骤重建尾部，不重复用户气
   opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
   await settle();
 
-  expect(apiMock.run).toHaveBeenCalledWith('r1');
+  expect(apiMock.conversation).toHaveBeenCalledWith('c1', { limit: 100 });
   const { items, lastRun } = useChatStore.getState();
   expect(items[0]).toEqual({ kind: 'text', text: 'old' });
   const users = items.filter((item) => item.kind === 'user');
-  expect(users).toEqual([{ id: 'r1:0:0', kind: 'user', text: 'hi' }]);
+  // 真实会话消息的用户 id 回填，不再出现运行详情的合成 id。
+  expect(users).toEqual([{ id: 'u1:0', kind: 'user', text: 'hi', messageId: 'u1' }]);
   expect(items.some((item) => item.kind === 'text' && item.text === 'partial answer')).toBe(false);
-  expect(items.some((item) => item.kind === 'text' && item.text === 'answer')).toBe(true);
+  expect(items.find((item) => item.kind === 'text' && item.text === 'answer')).toMatchObject({
+    runId: 'r1',
+    blockIndex: 0,
+  });
+  expect(items.find((item) => item.kind === 'text' && item.text === '子任务输出')).toMatchObject({
+    parentToolUseId: 'tool-1',
+  });
   expect(items.find((item) => item.kind === 'tool')).toMatchObject({
     toolUseId: 'tool-1',
     name: 'search',
     input: '{\n  "q": "x"\n}',
     result: 'ok',
-    parentToolUseId: 'parent-1',
   });
   // 运行读数来自终态事件，不因回读而丢失。
   expect(lastRun).toMatchObject({ runId: 'r1', status: 'succeeded' });
 });
 
+test('截断恢复按 runId 翻页直到本 run 完整，不无限拉更早历史', async () => {
+  apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
+  apiMock.conversation
+    .mockResolvedValueOnce(
+      conversationPage([assistantMessage('m3', '后半段')], { nextBefore: 'm3' }),
+    )
+    .mockResolvedValueOnce(
+      conversationPage([userMessage, assistantMessage('m2', '前半段')], { nextBefore: 'u1' }),
+    );
+  const hook = render('a1');
+  await startRun(hook);
+
+  const opened = source();
+  opened.onmessage?.(message({ type: 'replay_truncated', reason: 'bytes' }));
+  opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
+  await settle();
+
+  expect(apiMock.conversation).toHaveBeenCalledTimes(2);
+  expect(apiMock.conversation).toHaveBeenLastCalledWith('c1', { limit: 100, before: 'm3' });
+  expect(useChatStore.getState().items.map((item) => ('text' in item ? item.text : ''))).toEqual([
+    'hi',
+    '前半段',
+    '后半段',
+  ]);
+});
+
 test('切换会话后迟到的恢复结果被丢弃', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   const recovery = deferred<unknown>();
-  apiMock.run.mockReturnValue(recovery.promise);
+  apiMock.conversation.mockReturnValue(recovery.promise);
   const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
   opened.onmessage?.(message({ type: 'replay_truncated', reason: 'retention' }));
   opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
-  expect(apiMock.run).toHaveBeenCalledWith('r1');
+  expect(apiMock.conversation).toHaveBeenCalledWith('c1', { limit: 100 });
 
   hook.closeStream();
   useChatStore.getState().resetConversation('other');
-  recovery.resolve({
-    steps: [{ kind: 'assistant', at: 't2', text: 'late' }],
-    run: {},
-    conversation: {},
-  });
+  recovery.resolve(conversationPage([assistantMessage('m2', 'late')]));
   await settle();
 
   expect(useChatStore.getState()).toMatchObject({
@@ -523,7 +624,7 @@ test('切换会话后迟到的恢复结果被丢弃', async () => {
 test('新一轮发送开始后，上一轮的恢复结果不能改写当前会话', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   const recovery = deferred<unknown>();
-  apiMock.run.mockReturnValue(recovery.promise);
+  apiMock.conversation.mockReturnValue(recovery.promise);
   const hook = render('a1');
   await startRun(hook);
 
@@ -539,11 +640,7 @@ test('新一轮发送开始后，上一轮的恢复结果不能改写当前会�
   const afterSend = useChatStore.getState().items;
   expect(useChatStore.getState().run?.status).toBe('queued');
 
-  recovery.resolve({
-    steps: [{ kind: 'assistant', at: 't2', text: 'stale' }],
-    run: {},
-    conversation: {},
-  });
+  recovery.resolve(conversationPage([assistantMessage('m2', 'stale')]));
   await settle();
 
   expect(useChatStore.getState().items).toBe(afterSend);
@@ -553,7 +650,7 @@ test('新一轮发送开始后，上一轮的恢复结果不能改写当前会�
 test('恢复等待期间加载的更早历史不会被旧发送快照覆盖', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   const recovery = deferred<unknown>();
-  apiMock.run.mockReturnValue(recovery.promise);
+  apiMock.conversation.mockReturnValue(recovery.promise);
   useChatStore.getState().setItems([{ id: 'old:0', kind: 'text', text: '已加载历史' }]);
   const hook = render('a1');
   await startRun(hook);
@@ -567,14 +664,7 @@ test('恢复等待期间加载的更早历史不会被旧发送快照覆盖', as
       { id: 'earlier:0', kind: 'text', text: '刚加载的更早历史' },
       ...previous,
     ]);
-  recovery.resolve({
-    steps: [
-      { kind: 'user', at: 't1', text: 'hi' },
-      { kind: 'assistant', at: 't2', text: '完整回答' },
-    ],
-    run: {},
-    conversation: {},
-  });
+  recovery.resolve(conversationPage([userMessage, assistantMessage('m2', '完整回答')]));
   await settle();
   expect(useChatStore.getState().items.map((item) => ('text' in item ? item.text : ''))).toEqual([
     '刚加载的更早历史',
@@ -586,7 +676,7 @@ test('恢复等待期间加载的更早历史不会被旧发送快照覆盖', as
 
 test('恢复失败保留部分输出，并明确提示无法读取已保存结果', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
-  apiMock.run.mockRejectedValue(new Error('boom'));
+  apiMock.conversation.mockRejectedValue(new Error('boom'));
   const hook = render('a1');
   await startRun(hook);
 
@@ -609,11 +699,7 @@ test('恢复失败保留部分输出，并明确提示无法读取已保存结�
 
 test('仅保存用户消息时保留部分回答并提示输出未保存', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
-  apiMock.run.mockResolvedValue({
-    steps: [{ kind: 'user', at: 't1', text: 'hi' }],
-    run: {},
-    conversation: {},
-  });
+  apiMock.conversation.mockResolvedValue(conversationPage([userMessage]));
   const hook = render('a1');
   await startRun(hook);
   const opened = source();
@@ -635,7 +721,7 @@ test('仅保存用户消息时保留部分回答并提示输出未保存', async
 
 test('已保存步骤为空时保留部分输出，不冒充完整结果', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
-  apiMock.run.mockResolvedValue({ steps: [], run: {}, conversation: {} });
+  apiMock.conversation.mockResolvedValue(conversationPage([]));
   const hook = render('a1');
   await startRun(hook);
 
@@ -697,7 +783,7 @@ test('run_unavailable 结束本轮：保留部分输出并释放 run，不重连
   expect(state.lastRun).toBeNull();
   expect(state.lastRunId).toBeNull();
   // 记录已经不存在：不回读已保存结果，也不凭空补运行读数。
-  expect(apiMock.run).not.toHaveBeenCalled();
+  expect(apiMock.conversation).not.toHaveBeenCalled();
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversation', 'c1'] });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversations'] });
 
@@ -769,4 +855,165 @@ test('离开后请求失败：不恢复旧输入、不追加错误通知', async
     run: null,
   });
   expect(toastMock.toastError).not.toHaveBeenCalled();
+});
+
+describe('run_finished 回填', () => {
+  const openUiProgram = '先说明\n\n```openui\nroot = Card([])\n```';
+
+  async function streamBlocks() {
+    apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
+    const hook = render('a1');
+    await startRun(hook, '两个块');
+    const opened = source();
+    // 两条独立 SDK 消息都从 blockIndex 0 开始，只有 streamBlockId 能区分。
+    opened.onmessage?.(
+      message({ type: 'text_delta', text: '第一段', blockIndex: 0, streamBlockId: 'b0' }),
+    );
+    opened.onmessage?.(
+      message({ type: 'assistant_text', text: '第一段', blockIndex: 0, streamBlockId: 'b0' }),
+    );
+    opened.onmessage?.(
+      message({
+        type: 'text_delta',
+        text: '子文本',
+        blockIndex: 0,
+        streamBlockId: 'b1',
+        parentToolUseId: 'tool-1',
+      }),
+    );
+    opened.onmessage?.(
+      message({
+        type: 'assistant_text',
+        text: '子文本',
+        blockIndex: 0,
+        streamBlockId: 'b1',
+        parentToolUseId: 'tool-1',
+      }),
+    );
+    return opened;
+  }
+
+  test('同 blockIndex 的两条消息按 streamBlockId 各得自己的 id 与 canonical', async () => {
+    const opened = await streamBlocks();
+    opened.onmessage?.(
+      message({
+        type: 'run_finished',
+        status: 'succeeded',
+        messageIds: [
+          {
+            id: 'm2',
+            blockIndex: 0,
+            streamBlockId: 'b0',
+            uiFormat: 'openui',
+            uiProgram: openUiProgram,
+          },
+          {
+            id: 'm3',
+            blockIndex: 0,
+            streamBlockId: 'b1',
+            parentToolUseId: 'tool-1',
+            uiFormat: 'markdown',
+            uiProgram: null,
+          },
+        ],
+      }),
+    );
+
+    const texts = useChatStore.getState().items.filter((item) => item.kind === 'text');
+    expect(texts).toHaveLength(2);
+    expect(texts[0]).toMatchObject({
+      text: '第一段',
+      id: 'm2',
+      messageId: 'm2',
+      runId: 'r1',
+      uiFormat: 'openui',
+      uiProgram: openUiProgram,
+    });
+    expect(texts[1]).toMatchObject({
+      text: '子文本',
+      parentToolUseId: 'tool-1',
+      id: 'm3',
+      messageId: 'm3',
+      runId: 'r1',
+      uiFormat: 'markdown',
+    });
+    expect(texts[1]).not.toHaveProperty('uiProgram');
+  });
+
+  test('canonical 快照能替换流式原文，终态后不再按流式段渲染', async () => {
+    const opened = await streamBlocks();
+    opened.onmessage?.(
+      message({
+        type: 'run_finished',
+        status: 'succeeded',
+        messageIds: [
+          {
+            id: 'm2',
+            blockIndex: 0,
+            streamBlockId: 'b0',
+            uiFormat: 'openui',
+            uiProgram: openUiProgram,
+            uiState: { version: 1, blocks: { s0: { query: 'x' } } },
+          },
+        ],
+      }),
+    );
+    const item = useChatStore.getState().items.find((entry) => entry.kind === 'text');
+    expect(item).toMatchObject({ uiProgram: openUiProgram });
+    expect(item).toMatchObject({ uiState: { version: 1, blocks: { s0: { query: 'x' } } } });
+  });
+
+  test('没有稳定 id 的旧事件按父调用与块序号顺序配对', async () => {
+    apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
+    const hook = render('a1');
+    await startRun(hook, 'legacy');
+    const opened = source();
+    opened.onmessage?.(message({ type: 'text_delta', text: '主文本', blockIndex: 0 }));
+    opened.onmessage?.(message({ type: 'assistant_text', text: '主文本', blockIndex: 0 }));
+    opened.onmessage?.(
+      message({ type: 'text_delta', text: '子文本', blockIndex: 0, parentToolUseId: 'tool-1' }),
+    );
+    opened.onmessage?.(
+      message({
+        type: 'assistant_text',
+        text: '子文本',
+        blockIndex: 0,
+        parentToolUseId: 'tool-1',
+      }),
+    );
+    opened.onmessage?.(
+      message({
+        type: 'run_finished',
+        status: 'succeeded',
+        messageIds: [
+          { id: 'm2', blockIndex: 0, uiFormat: 'openui', uiProgram: 'root = Card([])' },
+          {
+            id: 'm3',
+            blockIndex: 0,
+            parentToolUseId: 'tool-1',
+            uiFormat: 'markdown',
+            uiProgram: null,
+          },
+        ],
+      }),
+    );
+    const texts = useChatStore.getState().items.filter((item) => item.kind === 'text');
+    expect(texts.map((item) => ('messageId' in item ? item.messageId : undefined))).toEqual([
+      'm2',
+      'm3',
+    ]);
+  });
+
+  test('没有块元数据时不猜测消息 id', async () => {
+    apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
+    const hook = render('a1');
+    await startRun(hook, 'plain');
+    const opened = source();
+    opened.onmessage?.(message({ type: 'text_delta', text: '普通回答' }));
+    opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
+    expect(useChatStore.getState().items).toEqual([
+      { kind: 'user', text: 'plain' },
+      { kind: 'text', text: '普通回答', runId: 'r1' },
+    ]);
+  });
 });

@@ -236,15 +236,29 @@
     {
       "idx": 33,
       "version": "7",
-      "when": 1792925676592,
-      "tag": "0033_steep_nico_minoru",
+      "when": 1792917422698,
+      "tag": "0033_slim_cyclops",
       "breakpoints": true
     },
     {
       "idx": 34,
       "version": "7",
-      "when": 1792942227079,
-      "tag": "0034_normal_sebastian_shaw",
+      "when": 1792925482623,
+      "tag": "0034_wealthy_ikaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1792972093290,
+      "tag": "0035_pretty_tana_nile",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792973001212,
+      "tag": "0036_demonic_dust",
       "breakpoints": true
     }
   ]

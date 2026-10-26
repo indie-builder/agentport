@@ -10,6 +10,8 @@ import {
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from '../src/components/confirm-dialog.js';
+import { ResourcePage } from '../src/components/resource-page.js';
+import { TabsTrigger } from '../src/components/ui/tabs.js';
 import { ApiError, api } from '../src/lib/api.js';
 import { AgentEditor } from '../src/pages/agents.js';
 import { ServerFormDialog, ServersPage } from '../src/pages/servers.js';
@@ -55,6 +57,7 @@ vi.mock('../src/lib/queries.js', () => {
     useInstallMarketSkill: mutation,
     useServers: () => ({ data: [] }),
     useKnowledgeBases: () => ({ data: [], isPending: false, isError: false }),
+    usePlugins: () => ({ data: [], isPending: false, isError: false, status: 'success' }),
     useCreateSkill: mutation,
     useUpdateSkill: mutation,
     useDeleteSkill: mutation,
@@ -200,6 +203,43 @@ describe('skills toolbar', () => {
     state.search = { scope: 'market', marketView: 'trending', q: 'react' };
     expect(await rankingCount()).toBe(0);
   });
+});
+
+describe('resource tabs', () => {
+  it.each(['agents', 'skills', 'servers', 'plugins', 'knowledge'] as const)(
+    'keeps all five tabs on %s',
+    async (section) => {
+      await inspect(
+        () =>
+          ResourcePage({
+            section,
+            query: '',
+            onQueryChange() {},
+            sort: 'newest',
+            onSortChange() {},
+            count: 0,
+            status: 'success',
+            children: null,
+          }),
+        (tree) => {
+          expect(
+            tree
+              .filter((node) => node.type === TabsTrigger)
+              .map((node) => {
+                const link = node.props.render as Element;
+                return [node.props.value, link.props.to];
+              }),
+          ).toEqual([
+            ['agents', '/agents'],
+            ['skills', '/skills'],
+            ['servers', '/servers'],
+            ['plugins', '/plugins'],
+            ['knowledge', '/knowledge'],
+          ]);
+        },
+      );
+    },
+  );
 });
 
 describe('resource draft navigation', () => {

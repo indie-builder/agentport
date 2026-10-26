@@ -1,0 +1,218 @@
+{
+  "task": "plugin-support runtime verification (plugin agents / hooks / MCP)",
+  "date": "2026-10-25",
+  "environment": {
+    "worktree": ".claude/worktrees/plugin-support",
+    "api": "http://localhost:3311",
+    "workerModelProxyPort": 3427,
+    "redisDb": 14,
+    "workerWorkspacesDir": "packages/worker/data/verify-ws",
+    "sandboxImage": "agentport/sandbox:plugin-dev",
+    "sandboxImageId": "sha256:b6d5397c6092292f4f8b921d08eff519acc87d1e19cdf77b9d01c92627e284f2",
+    "sandboxNode": "v24.22.1",
+    "containerUser": "uid=1000(node) gid=1000(node)",
+    "containerFlags": "--read-only, --tmpfs /tmp:rw,noexec,nosuid,size=64m, --cap-drop ALL, --security-opt no-new-privileges, workspace mounted ro, agent-memory rw at /mnt/agent-memory",
+    "model": "claude-sonnet-5-5 (default in agent create payload)"
+  },
+  "fixtures": {
+    "pluginSlug": "vr581808-probe",
+    "pluginId": "plg_01m5s78n3peh2v4h54653y1gq0",
+    "agentSlug": "vr581808-expert",
+    "agentId": "agt_01m5s78qc5eh2v4h7jmdcwwg4j",
+    "agentLimits": { "maxTurns": 6, "maxBudgetUsd": 0.3, "timeoutMs": 90000 },
+    "pluginFiles": [
+      ".claude-plugin/plugin.json",
+      "agents/echo.md",
+      "hooks/hooks.json",
+      "scripts/mark.sh",
+      "scripts/mark-sh.sh",
+      "scripts/mcp.mjs",
+      ".mcp.json"
+    ],
+    "importCapabilities": {
+      "skills": [],
+      "agents": ["echo"],
+      "hasHooks": true,
+      "mcpServers": ["probe"]
+    },
+    "importExecutableInference": {
+      "scripts/mark.sh": true,
+      "scripts/mark-sh.sh": true,
+      "scripts/mcp.mjs": true
+    },
+    "hooksShape": "official wrapper {hooks:{SessionStart:[{hooks:[{type:'command',command:'/bin/sh \"${CLAUDE_PLUGIN_ROOT}/scripts/mark-sh.sh\"'},{type:'command',command:'\"${CLAUDE_PLUGIN_ROOT}/scripts/mark.sh\"'}]}]}}",
+    "mcpShape": "stdio, command node, args [${CLAUDE_PLUGIN_ROOT}/scripts/mcp.mjs], dependency-free readline JSON-RPC (initialize, notifications/initialized, tools/list, tools/call probe)"
+  },
+  "rounds": [
+    {
+      "name": "round1_hooks_off_mcp_off_plugin_agent",
+      "binding": { "allowHooks": false, "allowMcp": false },
+      "preview": {
+        "pluginCount": 1,
+        "paths": [
+          ".claude-plugin/plugin.json",
+          "agents/echo.md",
+          "scripts/mark-sh.sh",
+          "scripts/mark.sh",
+          "scripts/mcp.mjs"
+        ],
+        "hooksPresent": false,
+        "mcpPresent": false,
+        "note": "renderPlugin strips hooks/** and .mcp.json; independently recomputed with packages/core/dist renderPlugin and matched exactly"
+      },
+      "runId": "run_01m5s79z3veh2v4hatk2j8vfh5",
+      "run": {
+        "status": "succeeded",
+        "costUsd": "0.0214",
+        "turns": 2,
+        "latencyMs": 8141,
+        "error": null
+      },
+      "evidence": {
+        "agentToolStep": {
+          "name": "Agent",
+          "toolUseId": "call_00_nYF6lJ5ekmxo3dPCIuEY7527",
+          "parentToolUseId": null,
+          "subagent_type": "vr581808-probe:echo",
+          "prompt": "Report your fixed verification token exactly as given in your instructions."
+        },
+        "subagentReplyTokenMatched": true,
+        "subagentReplyExcerpt": "[Subagent hand-back] ... ECHO-581808-PLUGINAGENT ... agentId: a6fbf30fba710dc81, tool_uses: 0",
+        "subagentTranscript": "sdk-sessions/conv_01m5s79z3seh2v4hap4ybcy0y6/projects/-workspace/20f8d667.../subagents/agent-a6fbf30fba710dc81.jsonl contains the token",
+        "clientAssistantAnswerEqualsToken": true,
+        "pluginMcpToolPresent": false,
+        "hookMarkerFiles": "none"
+      },
+      "pass": true
+    },
+    {
+      "name": "round2_hooks_on_mcp_on_real_tool_call",
+      "binding": { "allowHooks": true, "allowMcp": true },
+      "preview": {
+        "pluginCount": 1,
+        "paths": [
+          ".claude-plugin/plugin.json",
+          ".mcp.json",
+          "agents/echo.md",
+          "hooks/hooks.json",
+          "scripts/mark-sh.sh",
+          "scripts/mark.sh",
+          "scripts/mcp.mjs"
+        ],
+        "hooksPresent": true,
+        "mcpPresent": true,
+        "manifestUnchanged": "plugin.json contains no hooks/mcpServers keys; both come from hooks/hooks.json and .mcp.json",
+        "hooksContentChecked": true,
+        "mcpContentChecked": true
+      },
+      "runId": "run_01m5s7bhsseh2v4hdrwyhc69rz",
+      "run": {
+        "status": "succeeded",
+        "costUsd": "0.0188",
+        "turns": 3,
+        "latencyMs": 9974,
+        "error": null
+      },
+      "evidence": {
+        "toolSteps": [
+          {
+            "name": "ToolSearch",
+            "parentToolUseId": null,
+            "input": { "query": "select:mcp__plugin_vr581808-probe_probe__probe", "max_results": 1 },
+            "note": "SDK defers MCP tools; model loaded the schema first"
+          },
+          {
+            "name": "mcp__plugin_vr581808-probe_probe__probe",
+            "parentToolUseId": null,
+            "input": {},
+            "resultEqualsMcpToken": true,
+            "resultLength": 16
+          }
+        ],
+        "clientAssistantAnswerEqualsMcpToken": true,
+        "redisStreamErrors": [],
+        "hookMarkers": {
+          "verification-hook-marker.md": "written by /bin/sh \"${CLAUDE_PLUGIN_ROOT}/scripts/mark-sh.sh\"",
+          "verification-hook-marker-exec.md": "written by direct execution of ${CLAUDE_PLUGIN_ROOT}/scripts/mark.sh (0700 x-bit preserved, read-only workspace mount, CLAUDE_PLUGIN_ROOT=/workspace/.claude/plugins/vr581808-probe)",
+          "hostDir": "packages/worker/data/verify-ws/vr581808-expert/agent-memory",
+          "fileMode": "644",
+          "dirMode": "agent-memory 700, expert dir 700",
+          "apiMemoryListAfterGrant": "reported files before run (empty at baseline) and both files after run2"
+        },
+        "pluginLoadedAgentListing": "transcript agent_listing_delta addedTypes includes vr581808-probe:echo; no plugin_errors event in Redis stream"
+      },
+      "pass": true
+    },
+    {
+      "name": "round3_hooks_off_mcp_off_revoke_negative_control",
+      "binding": { "allowHooks": false, "allowMcp": false },
+      "preview": {
+        "hooksPresent": false,
+        "mcpPresent": false,
+        "paths": [
+          ".claude-plugin/plugin.json",
+          "agents/echo.md",
+          "scripts/mark-sh.sh",
+          "scripts/mark.sh",
+          "scripts/mcp.mjs"
+        ]
+      },
+      "preCleanup": "deleted both own marker files before the run; agent-memory listed empty",
+      "runId": "run_01m5s7cqpweh2v4hgqdy65xk4g",
+      "run": {
+        "status": "succeeded",
+        "costUsd": "0.0062",
+        "turns": 1,
+        "latencyMs": 3665,
+        "error": null
+      },
+      "evidence": {
+        "toolsUsed": [],
+        "markerRebuilt": false,
+        "agentMemoryAfterRun": "empty (API list: files [], and host dir listing empty)",
+        "transcriptMcpPluginTool": false,
+        "run2TranscriptMcpPluginTool": true,
+        "note": "negative control proves hooks and MCP are not silently loaded when unauthorized; MCP discoverability difference is backed by transcripts/stream, not by model prose"
+      },
+      "pass": true
+    }
+  ],
+  "independentPreChecks": [
+    {
+      "check": "container can write /mnt/agent-memory mounted from 0700 host dir",
+      "result": "pass (file created, container wrote as uid 1000)"
+    },
+    {
+      "check": "0700 shell script in a read-only mount is directly executable and via /bin/sh",
+      "result": "pass (both /workspace/.claude/plugins/p/scripts/mark.sh direct-exec and /bin/sh invocation exited 0 and wrote marker)"
+    },
+    {
+      "check": "image runner contains plugin support",
+      "result": "pass (/dist/runner.js contains plugin_errors and task.plugins handling)"
+    }
+  ],
+  "limitations": [
+    "Hook execution is only observed by its side effect (marker files in agent memory). Plugin hooks print nothing by design; no /hooks listing or debug-log capture was taken inside the sandbox.",
+    "MCP client-side init status is inferred from the tool actually being callable in round2 and absent in round3; the runner's 'mcp not connected' error event was absent (Redis stream errors: []), but no direct init dump was captured.",
+    "Subagent-internal step wiring: the Agent tool step carries parentToolUseId=null and the child's reply is delivered in the Agent tool result; no separate nested tool steps exist in this fixture because echo.md calls no tools.",
+    "Round budget: exactly 3 model runs used (limit 3). No retries were needed.",
+    "Cost scope is only the 3 listed runs; all other runs/costs untouched."
+  ],
+  "cleanup": {
+    "deleteAgent": "agt_01m5s78qc5eh2v4h7jmdcwwg4j",
+    "deletePlugin": "plg_01m5s78n3peh2v4h54653y1gq0",
+    "removeFixtureDirs": ["/tmp/vr-fixture", "/tmp/vr-tools", "/tmp/vr-mountcheck", "/tmp/vr-execcheck", "/tmp/vr-uidcheck"],
+    "preserve": ["this report", "run ids and exact tool evidence above"],
+    "note": "deleting the agent cascades conversations/messages; run rows are captured above before deletion",
+    "servicesStopped": {
+      "apiPort3311": true,
+      "workerModelProxyPort3427": true,
+      "verification": "Parent session verified both ports have no listener and PIDs 89151/89161/89669/89677 no longer exist after SIGTERM."
+    },
+    "parentLogCrossCheck": {
+      "allThreeRunIdsSucceeded": true,
+      "totalCostUsd": 0.04643,
+      "source": "exact runId agent run finished entries in /tmp/verify-worker.log"
+    }
+  }
+}

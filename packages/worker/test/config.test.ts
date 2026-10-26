@@ -20,6 +20,21 @@ describe('DOCLING_URL', () => {
   });
 });
 
+describe('SANDBOX_MAX_FIELD_BYTES', () => {
+  it('defaults to 1MiB', () => {
+    expect(loadConfig(base).SANDBOX_MAX_FIELD_BYTES).toBe(1024 * 1024);
+  });
+
+  it('refuses a limit whose JSON escaping would exceed the host 8MiB line cap', () => {
+    expect(() => loadConfig({ ...base, SANDBOX_MAX_FIELD_BYTES: String(1024 * 1024 + 1) })).toThrow(
+      /1MiB/,
+    );
+    expect(
+      loadConfig({ ...base, SANDBOX_MAX_FIELD_BYTES: String(1024 * 1024) }).SANDBOX_MAX_FIELD_BYTES,
+    ).toBe(1024 * 1024);
+  });
+});
+
 describe('SANDBOX_EGRESS', () => {
   it('defaults to open', () => {
     expect(loadConfig(base).SANDBOX_EGRESS).toBe('open');

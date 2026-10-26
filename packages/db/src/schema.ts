@@ -90,6 +90,8 @@ export const agents = pgTable(
     allowedTools: jsonb('allowed_tools').$type<string[]>().notNull().default([]),
     disallowedTools: jsonb('disallowed_tools').$type<string[]>().notNull().default([]),
     permissionMode: text('permission_mode').notNull().default('dontAsk'),
+    /** 助手回复格式：markdown 或生成式 UI（OpenUI Lang 围栏）。 */
+    uiFormat: text('ui_format').notNull().default('markdown'),
     effort: text('effort'),
     maxThinkingTokens: integer('max_thinking_tokens'),
     enabled: boolean('enabled').notNull().default(true),
@@ -110,6 +112,7 @@ export const agents = pgTable(
       'agents_permission_mode_check',
       sql`${t.permissionMode} in ('dontAsk', 'plan', 'default', 'acceptEdits')`,
     ),
+    check('agents_ui_format_check', sql`${t.uiFormat} in ('markdown', 'openui')`),
     check(
       'agents_allowed_tools_check',
       sql`jsonb_typeof(${t.allowedTools}) = 'array' and not jsonb_path_exists(${t.allowedTools}, '$[*] ? (@.type() != "string")')`,
@@ -173,6 +176,80 @@ export const skillFiles = pgTable(
   (t) => [
     uniqueIndex('skill_files_skill_path_idx').on(t.skillId, t.path),
     index('skill_files_skill_idx').on(t.skillId),
+  ],
+);
+
+/**
+ * 插件：官方 `.claude-plugin/plugin.json` + 组件目录的完整快照（一个专家包里的插件根）。
+ * `runtimeName` 是 SDK 看到的插件名（插件命名空间 `plugin:skill` 的前缀）；
+ * 同一插件被多个智能体引用时只存一份，绑定走 `agent_plugins`。
+ */
+export const plugins = pgTable(
+  'plugins',
+  {
+    id: text('id').primaryKey(),
+    /** 工作区目录名 `.claude/plugins/<slug>/`。 */
+    slug: text('slug').notNull(),
+    /** manifest 的 name；缺 manifest 时取 slug。 */
+    runtimeName: text('runtime_name').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    version: text('version').notNull().default(''),
+    /** 解析出的组件清单，供列表与详情展示，避免每次重扫文件。 */
+    manifest: jsonb('manifest').$type<Record<string, unknown>>().notNull().default({}),
+    /** 原生市场来源 `name@marketplace`；ZIP 导入为 null。 */
+    sourceId: text('source_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('plugins_slug_idx').on(t.slug),
+    uniqueIndex('plugins_runtime_name_idx').on(t.runtimeName),
+    // 同一市场插件只纳入一次；多个 NULL（ZIP）不受影响。
+    uniqueIndex('plugins_source_id_idx').on(t.sourceId),
+  ],
+);
+
+/** 插件目录树；path 是相对插件根的安全相对路径。 */
+export const pluginFiles = pgTable(
+  'plugin_files',
+  {
+    id: text('id').primaryKey(),
+    pluginId: text('plugin_id')
+      .notNull()
+      .references(() => plugins.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    content: text('content').notNull().default(''),
+    /** 保留 Unix 可执行位：插件 hooks 常直接执行 scripts/*.sh。 */
+    executable: boolean('executable').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('plugin_files_plugin_path_idx').on(t.pluginId, t.path),
+    index('plugin_files_plugin_idx').on(t.pluginId),
+  ],
+);
+
+/**
+ * 智能体绑定插件。插件是会话级能力（SDK `plugins` 没有按子智能体隔离的入口），
+ * 因此只允许顶层智能体绑定，子智能体的关联由应用层拒绝。
+ */
+export const agentPlugins = pgTable(
+  'agent_plugins',
+  {
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    pluginId: text('plugin_id')
+      .notNull()
+      .references(() => plugins.id, { onDelete: 'cascade' }),
+    /** hooks / MCP 默认关闭；管理员逐项授权后才随插件加载。 */
+    allowHooks: boolean('allow_hooks').notNull().default(false),
+    allowMcp: boolean('allow_mcp').notNull().default(false),
+  },
+  (t) => [
+    uniqueIndex('agent_plugins_pk').on(t.agentId, t.pluginId),
+    index('agent_plugins_plugin_idx').on(t.pluginId),
   ],
 );
 
@@ -303,6 +380,12 @@ export const messages = pgTable(
       .references(() => conversations.id, { onDelete: 'cascade' }),
     role: text('role').notNull(),
     content: jsonb('content').$type<unknown>().notNull(),
+    /** 落下这条消息时智能体的回复格式；历史渲染按它而不是当前开关。 */
+    uiFormat: text('ui_format').notNull().default('markdown'),
+    /** OpenUI editMode 合并后的程序文本；null 表示用原始文本围栏。 */
+    uiProgram: text('ui_program'),
+    /** 消息级表单/绑定快照：`{ version: 1, blocks: { [blockKey]: state } }`。 */
+    uiState: jsonb('ui_state').$type<unknown>(),
     /** 可空：用户输入或分支副本；分支副本由会话级保留规则保护。 */
     runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     /** SDK transcript 里的消息 uuid；用于按历史点 fork，缺失表示这条还没进 transcript。 */
@@ -314,6 +397,7 @@ export const messages = pgTable(
     index('messages_conversation_idx').on(t.conversationId, t.createdAt, t.id),
     index('messages_run_idx').on(t.runId),
     check('messages_role_check', sql`${t.role} in ('user', 'assistant', 'tool')`),
+    check('messages_ui_format_check', sql`${t.uiFormat} in ('markdown', 'openui')`),
   ],
 );
 
@@ -393,14 +477,22 @@ export const agentRuns = pgTable(
 /**
  * 结构化的工具审批。行在工具被拒绝时由 MCP 端点写入（pending），用户批准后置 approved_at。
  * (run_id, server_id, tool_name) 唯一，审批因此不会跨 server 复用。
+ * 生成式 UI 的工具调用没有 run：这些行 run_id 为空，改挂 conversation_id。
  */
 export const approvalRequests = pgTable(
   'approval_requests',
   {
     id: text('id').primaryKey(),
-    runId: text('run_id')
-      .notNull()
-      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    /** 沙盒内调用所属的 run；生成式 UI 的调用没有 run。 */
+    runId: text('run_id').references(() => agentRuns.id, { onDelete: 'cascade' }),
+    /** 生成式 UI 调用的会话归属；run 级审批为空。 */
+    conversationId: text('conversation_id').references(() => conversations.id, {
+      onDelete: 'cascade',
+    }),
+    /** 触发这次调用的助手消息，供 UI 回到原位置展示。 */
+    messageId: text('message_id'),
+    /** 审批来源：openui 表示 UI 按钮/工具桥发起。 */
+    source: text('source', { enum: ['openui'] }),
     serverId: text('server_id')
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
@@ -409,7 +501,14 @@ export const approvalRequests = pgTable(
     approvedAt: timestamp('approved_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
   },
-  (t) => [uniqueIndex('approval_requests_run_server_tool_idx').on(t.runId, t.serverId, t.toolName)],
+  (t) => [
+    uniqueIndex('approval_requests_run_server_tool_idx').on(t.runId, t.serverId, t.toolName),
+    // 同一会话对同一 server 工具只保留一条待批/已批记录；run 级行不受影响。
+    uniqueIndex('approval_requests_openui_idx')
+      .on(t.conversationId, t.serverId, t.toolName)
+      .where(sql`${t.runId} is null`),
+    index('approval_requests_conversation_idx').on(t.conversationId).where(sql`${t.runId} is null`),
+  ],
 );
 
 /**

@@ -11,6 +11,7 @@ function agentRow(overrides: Partial<WorkspaceAgentRow> = {}): WorkspaceAgentRow
     systemPromptMd: '# Lead\n\nYou are the lead.',
     maxTurns: 20,
     permissionMode: 'dontAsk',
+    uiFormat: 'markdown',
     effort: null,
     allowedTools: ['Bash'],
     disallowedTools: ['WebFetch'],

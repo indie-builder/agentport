@@ -329,6 +329,10 @@ export async function branchConversation(
         runId: null,
         // 复制的是来源会话的 uuid；fork 后由运行收尾统一重映射到新 session。
         sdkMessageUuid: row.sdkMessageUuid,
+        // 生成式 UI 的渲染快照必须跟着走：否则分支里的界面会退回围栏源码、表单状态全丢。
+        uiFormat: row.uiFormat,
+        uiProgram: row.uiProgram,
+        uiState: row.uiState,
         createdAt: row.createdAt,
       })),
     );
@@ -463,6 +467,8 @@ export async function admitChatRun(
     conversationId?: string;
     trigger?: 'chat' | 'mcp' | 'schedule' | 'event';
     agentVersion?: number;
+    /** 用户消息的完整 content；缺省等价于 `{ type: 'text', text: input.message }`。 */
+    userContent?: unknown;
   },
 ): Promise<{
   run: AgentRun;
@@ -529,7 +535,7 @@ export async function admitChatRun(
       id: newId('message'),
       conversationId,
       role: 'user',
-      content: { type: 'text', text: input.message },
+      content: input.userContent ?? { type: 'text', text: input.message },
       runId: run.id,
       sdkMessageUuid: userMessageUuid,
     });

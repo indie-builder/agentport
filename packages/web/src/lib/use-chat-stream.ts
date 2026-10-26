@@ -1,4 +1,9 @@
-import { type ConversationMessage, chatEventSchema } from '@agentport/shared';
+import {
+  type ChatEvent,
+  type ChatRequest,
+  type ConversationMessage,
+  chatEventSchema,
+} from '@agentport/shared';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -8,7 +13,6 @@ import {
   type ConversationDetail,
   errorMessage,
   type RunDetail,
-  type RunStep,
 } from './api.js';
 import {
   applyEvent,
@@ -20,41 +24,95 @@ import {
 import { useChatStore } from './chat-store.js';
 import { toastError } from './toast.js';
 
-/** 运行详情里的步骤已经是合并后的形态；转成历史消息再复用 historyToItems 的合并规则。 */
-function runStepsToItems(runId: string, steps: RunStep[]): ChatItem[] {
-  const messages: ConversationMessage[] = steps.map((step, index) => {
-    const id = `${runId}:${index}`;
-    const base = { id, conversationId: '', runId, createdAt: step.at };
-    if (step.kind === 'user') return { ...base, role: 'user', content: step.text };
-    if (step.kind === 'assistant') {
-      return { ...base, role: 'assistant', content: { type: 'text', text: step.text } };
+/** 终态事件里的落库块：按运行内稳定 id 对齐实时文本。 */
+type PersistedBlock = NonNullable<
+  Extract<ChatEvent, { type: 'run_finished' }>['messageIds']
+>[number];
+
+/** 已保存消息的分页上限；一个 run 的输出再多也不无限拉历史。 */
+const RECOVERY_PAGE_SIZE = 100;
+const RECOVERY_MAX_PAGES = 10;
+
+/**
+ * 按 `runId` 翻到本 run 的第一条消息。消息按时间正序、同一 run 连续，
+ * 所以遇到别的 run（或没有更早页）就说明本 run 已完整。
+ */
+async function loadRunMessages(
+  conversationId: string,
+  runId: string,
+): Promise<ConversationMessage[]> {
+  let before: string | undefined;
+  let messages: ConversationMessage[] = [];
+  for (let page = 0; page < RECOVERY_MAX_PAGES; page += 1) {
+    const detail = await api.conversation(conversationId, {
+      limit: RECOVERY_PAGE_SIZE,
+      ...(before === undefined ? {} : { before }),
+    });
+    if (detail.conversation.id !== conversationId) {
+      throw new Error('会话历史不匹配，请重新打开会话');
     }
-    const toolUseId = step.toolUseId ?? id;
-    return {
-      ...base,
-      role: 'tool',
-      content: [
-        {
-          type: 'tool_use',
-          id: toolUseId,
-          name: step.name ?? '未知工具',
-          input: step.content,
-          ...(step.parentToolUseId === null ? {} : { parentToolUseId: step.parentToolUseId }),
-        },
-        ...(step.result === undefined
-          ? []
-          : [
-              {
-                type: 'tool_result',
-                toolUseId,
-                content:
-                  typeof step.result === 'string' ? step.result : JSON.stringify(step.result),
-              },
-            ]),
-      ],
-    };
-  });
-  return historyToItems(messages);
+    messages = [...detail.messages.filter((message) => message.runId === runId), ...messages];
+    const oldest = detail.messages[0];
+    // 本 run 从它自己的用户消息开始；遇到别的 run 或用户消息即已完整。
+    const complete = oldest === undefined || oldest.runId !== runId || oldest.role === 'user';
+    if (complete || detail.nextBefore == null) return messages;
+    before = detail.nextBefore;
+  }
+  throw new Error('本轮输出超出可恢复范围，请刷新后查看会话历史');
+}
+
+/**
+ * 把落库块回填到实时文本：优先按运行内稳定 `streamBlockId` 精确对齐，
+ * 不能只用 `blockIndex`（同一条 SDK 消息的后续消息会重用它）。
+ * 旧版事件没有稳定 id 时退回 `blockIndex + parent` 的队列，按输出顺序配对。
+ */
+function matchPersistedBlocks(
+  items: ChatItem[],
+  startIndex: number,
+  blocks: PersistedBlock[],
+): Map<number, PersistedBlock> {
+  const used = new Set<number>();
+  const matched = new Map<number, PersistedBlock>();
+  for (const [index, item] of items.entries()) {
+    if (index <= startIndex || item.kind !== 'text' || item.streamBlockId === undefined) continue;
+    const found = blocks.findIndex(
+      (block, blockIndex) =>
+        !used.has(blockIndex) &&
+        block.streamBlockId === item.streamBlockId &&
+        block.parentToolUseId === item.parentToolUseId,
+    );
+    if (found < 0) continue;
+    used.add(found);
+    matched.set(index, blocks[found] as PersistedBlock);
+  }
+  // 没有稳定 id 的旧事件：同块序号、同父调用的落库块与实时项数量一致时，
+  // 才按各自输出顺序一一配对；数量对不上说明中间还有没看到的块，不猜测。
+  const queues = new Map<string, Array<{ block: PersistedBlock; index: number }>>();
+  const live = new Map<string, number[]>();
+  for (const [index, block] of blocks.entries()) {
+    if (used.has(index) || block.streamBlockId !== undefined) continue;
+    const key = `${block.blockIndex}|${block.parentToolUseId ?? ''}`;
+    const queue = queues.get(key);
+    if (queue) queue.push({ block, index });
+    else queues.set(key, [{ block, index }]);
+  }
+  for (const [index, item] of items.entries()) {
+    if (index <= startIndex || item.kind !== 'text') continue;
+    if (item.streamBlockId !== undefined || matched.has(index)) continue;
+    const key = `${item.blockIndex ?? 0}|${item.parentToolUseId ?? ''}`;
+    const list = live.get(key);
+    if (list) list.push(index);
+    else live.set(key, [index]);
+  }
+  for (const [key, indexes] of live) {
+    const queue = queues.get(key);
+    if (queue === undefined || queue.length !== indexes.length) continue;
+    indexes.forEach((index, position) => {
+      const entry = queue[position] as { block: PersistedBlock; index: number };
+      matched.set(index, entry.block);
+    });
+  }
+  return matched;
 }
 
 /**
@@ -129,7 +187,8 @@ export function useChatStream({
     // closeStream 已在 run_finished 时递增 generation，晚到的响应自然作废。
     const generation = generationRef.current;
     try {
-      const detail = await api.run(accepted.runId);
+      // 用真实会话消息取 id 与 canonical：运行详情的步骤是合成 id，也没有块与 UI 快照。
+      const messages = await loadRunMessages(accepted.conversationId, accepted.runId);
       if (generation !== generationRef.current) return;
       const store = useChatStore.getState();
       if (store.conversationId !== accepted.conversationId) return;
@@ -139,7 +198,7 @@ export function useChatStream({
       if (!prompt) return;
       const promptIndex = store.items.indexOf(prompt);
       if (promptIndex < 0) return;
-      if (!detail.steps.some((step) => step.kind !== 'user')) {
+      if (!messages.some((message) => message.role !== 'user')) {
         store.setItems((previous) => [
           ...previous,
           {
@@ -150,7 +209,7 @@ export function useChatStream({
         ]);
         return;
       }
-      const tail = runStepsToItems(accepted.runId, detail.steps);
+      const tail = historyToItems(messages);
       store.setItems([...store.items.slice(0, promptIndex), ...tail]);
     } catch {
       if (generation !== generationRef.current) return;
@@ -220,17 +279,32 @@ export function useChatStream({
           closeStream();
           store.setRun(null);
           // 本轮回复落库后都带同一个 run_id；补到流式项上，下一轮开始后它也能按 id 取读数。
+          // 按稳定块身份回填消息 id 与 canonical 快照：表单状态与 Query/Mutation 都要用它定位消息。
           store.setItems((previous) => {
             const userIndex = previous.findLastIndex((item) => item.kind === 'user');
             // 没有用户项时无从判断本轮起点，宁可什么都不补，也不能给整段历史打上本轮 id。
             if (userIndex < 0) return previous;
-            return previous.map((item, index) =>
-              index > userIndex &&
-              (item.kind === 'text' || item.kind === 'tool') &&
-              item.runId === undefined
-                ? { ...item, runId: accepted.runId }
-                : item,
-            );
+            const matched = matchPersistedBlocks(previous, userIndex, event.messageIds ?? []);
+            return previous.map((item, index) => {
+              if (index <= userIndex) return item;
+              if (item.kind !== 'text' && item.kind !== 'tool') return item;
+              const block = matched.get(index);
+              // 普通消息仍补本轮 runId；没有匹配块时保持原有行为，只补 runId。
+              if (item.runId !== undefined && block === undefined) return item;
+              return {
+                ...item,
+                ...(item.runId === undefined ? { runId: accepted.runId } : {}),
+                ...(block === undefined
+                  ? {}
+                  : {
+                      id: block.id,
+                      messageId: block.id,
+                      ...(block.uiFormat === undefined ? {} : { uiFormat: block.uiFormat }),
+                      ...(block.uiProgram == null ? {} : { uiProgram: block.uiProgram }),
+                      ...(block.uiState === undefined ? {} : { uiState: block.uiState }),
+                    }),
+              };
+            });
           });
           store.setLastRun({
             runId: accepted.runId,
@@ -384,20 +458,25 @@ export function useChatStream({
     openStream,
   ]);
 
-  const send = async (): Promise<void> => {
+  /**
+   * `text` 是显式正文（组件动作由按钮文案给出）；省略时才读输入框。
+   * 动作发送不能先 `setInput` 再发送：那样会覆盖用户没发出的草稿。
+   */
+  const send = async (text?: string, action?: ChatRequest['openuiAction']): Promise<void> => {
     const store = useChatStore.getState();
     const { input, items, run, conversationId } = store;
-    const text = input.trim();
-    if (!mountedRef.current || !text || !agentId || run) return;
+    const body = (text ?? input).trim();
+    if (!mountedRef.current || !body || !agentId || run) return;
     if (conversationId !== null && hydratedRef.current !== conversationId) return;
     const generation = ++generationRef.current;
     const ownsRequest = () => mountedRef.current && generationRef.current === generation;
     replayTruncatedRef.current = false;
-    store.setInput('');
+    // 只有显式读输入框的那一次才清空；动作发送不碰草稿。
+    if (text === undefined) store.setInput('');
     store.setLastRun(null);
     store.setLastRunId(null);
     // base 必须包含刚追加的用户气泡：重连会整体回放事件，不能把它丢掉。
-    const nextItems: ChatItem[] = [...items, { kind: 'user', text }];
+    const nextItems: ChatItem[] = [...items, { kind: 'user', text: body }];
     baseItemsRef.current = nextItems;
     store.setItems(nextItems);
     startedAtRef.current = Date.now();
@@ -410,21 +489,23 @@ export function useChatStream({
     try {
       const accepted = await api.sendChat({
         agentId,
-        message: text,
+        message: body,
         ...(conversationId ? { conversationId } : {}),
+        ...(action ? { openuiAction: action } : {}),
       });
       if (!ownsRequest()) return;
       store.setConversationId(accepted.conversationId);
       store.setLastRunId(accepted.runId);
       hydratedRef.current = accepted.conversationId;
       store.setRun({ ...accepted, status: 'streaming', startedAt: startedAtRef.current });
-      onAccepted(accepted, text);
+      onAccepted(accepted, body);
       void client.invalidateQueries({ queryKey: ['conversations', agentId] });
       openStream(accepted, generation);
     } catch (error) {
       if (!ownsRequest()) return;
       store.setRun(null);
-      store.setInput(text);
+      // 动作发送没有动过草稿，失败时也不回填按钮文案。
+      if (text === undefined) store.setInput(body);
       // 没有 run 产生任何回答：撤回本地用户气泡，只留一条错误通知。
       store.setItems([...items, { kind: 'notice', tone: 'error', text: errorMessage(error) }]);
       toastError(error);

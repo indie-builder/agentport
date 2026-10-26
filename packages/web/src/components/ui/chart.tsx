@@ -121,6 +121,7 @@ function ChartTooltipContent({
   color,
   nameKey,
   labelKey,
+  style,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
   React.ComponentProps<'div'> & {
     hideLabel?: boolean;
@@ -170,6 +171,7 @@ function ChartTooltipContent({
         'grid min-w-32 items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl',
         className,
       )}
+      style={style}
     >
       {!nestLabel ? tooltipLabel : null}
       <div className="grid gap-1.5">

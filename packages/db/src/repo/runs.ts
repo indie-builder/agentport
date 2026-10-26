@@ -291,6 +291,7 @@ export async function getRunToken(
 
 export interface ApprovalRequestRow {
   id: string;
+  /** 沙盒内调用所属的 run；生成式 UI 的会话级审批不在这份列表里。 */
   runId: string;
   serverId: string;
   serverName: string | null;
@@ -338,10 +339,10 @@ export async function listApprovalRequests(
   db: Database,
   runId: string,
 ): Promise<ApprovalRequestRow[]> {
-  return db
+  // 查询按 run_id 精确匹配，生成式 UI 的会话级行（run_id 为空）不会命中。
+  const rows = await db
     .select({
       id: approvalRequests.id,
-      runId: approvalRequests.runId,
       serverId: approvalRequests.serverId,
       serverName: servers.name,
       toolName: approvalRequests.toolName,
@@ -353,6 +354,7 @@ export async function listApprovalRequests(
     .leftJoin(servers, eq(servers.id, approvalRequests.serverId))
     .where(eq(approvalRequests.runId, runId))
     .orderBy(asc(approvalRequests.createdAt), asc(approvalRequests.id));
+  return rows.map((row) => ({ ...row, runId }));
 }
 
 /**

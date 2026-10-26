@@ -36,8 +36,20 @@ async function inspectRoute(path: string, auth: 'success' | 'pending' | 'error')
     path: '/knowledge/$baseId',
     component: () => createElement(PageHeader, { title: '知识库详情' }),
   });
+  const pluginsIndex = createRoute({
+    getParentRoute: () => shell,
+    path: '/plugins/',
+    component: () => createElement(PageHeader, { title: '插件' }),
+  });
+  const pluginDetail = createRoute({
+    getParentRoute: () => shell,
+    path: '/plugins/$pluginId',
+    component: () => createElement(PageHeader, { title: '插件详情' }),
+  });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([shell.addChildren([missing, detail, knowledge])]),
+    routeTree: rootRoute.addChildren([
+      shell.addChildren([missing, detail, knowledge, pluginsIndex, pluginDetail]),
+    ]),
     history: createMemoryHistory({ initialEntries: [path] }),
   });
   const host = document.createElement('div');
@@ -91,6 +103,25 @@ describe('shell route identity', () => {
     const view = await inspectRoute('/runs/run_review', 'success');
     try {
       expect(document.title).toBe('运行 · 控制台');
+    } finally {
+      await view.close();
+    }
+  });
+
+  it.each(['/plugins', '/plugins/'])('names the plugin list route %s', async (path) => {
+    const view = await inspectRoute(path, 'success');
+    try {
+      expect(document.title).toBe('插件 · 控制台');
+      expect(document.body.textContent).not.toContain('页面不存在');
+    } finally {
+      await view.close();
+    }
+  });
+
+  it('names the plugin detail route', async () => {
+    const view = await inspectRoute('/plugins/plugin_review', 'success');
+    try {
+      expect(document.title).toBe('插件 · 控制台');
     } finally {
       await view.close();
     }

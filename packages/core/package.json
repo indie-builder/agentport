@@ -19,6 +19,10 @@
     "./tools": {
       "types": "./dist/tools.d.ts",
       "default": "./dist/tools.js"
+    },
+    "./plugin-display": {
+      "types": "./dist/plugin-display.d.ts",
+      "default": "./dist/plugin-display.js"
     }
   },
   "scripts": {
@@ -28,6 +32,7 @@
   },
   "dependencies": {
     "@agentport/shared": "workspace:*",
+    "@openuidev/lang-core": "1.0.1",
     "effect": "catalog:",
     "yaml": "2.9.1",
     "zod": "catalog:"

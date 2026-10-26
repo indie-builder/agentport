@@ -54,7 +54,7 @@ const nav = [
   {
     label: '构建',
     items: [
-      { to: '/agents', label: '专家·技能·连接器·知识库', icon: Cable },
+      { to: '/agents', label: '专家·技能·连接器·插件·知识库', icon: Cable },
       { to: '/eval', label: '评估', icon: FlaskConical },
     ],
   },
@@ -78,6 +78,7 @@ const resourceLabels: Record<string, string> = {
   '/agents': '专家',
   '/skills': '技能',
   '/servers': '连接器',
+  '/plugins': '插件',
   '/knowledge': '知识库',
 };
 
@@ -300,11 +301,15 @@ export function AppShell() {
   const isNotFound = useRouterState({
     select: (state) => state.matches.at(-1)?.routeId === '/_shell/$',
   });
+  // 插件不在主导航里，按实际命中的路由命名，列表与详情共用「插件」。
+  const matchedRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
   const pageTitle = isNotFound
     ? '页面不存在'
-    : (resourceLabels[pathname] ??
-      (pathname.startsWith('/knowledge/') ? '知识库' : currentPage?.label) ??
-      '页面不存在');
+    : matchedRoute?.startsWith('/_shell/plugins')
+      ? '插件'
+      : (resourceLabels[pathname] ??
+        (pathname.startsWith('/knowledge/') ? '知识库' : currentPage?.label) ??
+        '页面不存在');
   const [collapsed, setCollapsed] = useCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);

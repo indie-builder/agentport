@@ -3,6 +3,8 @@ packages:
 allowBuilds:
   esbuild: true
   msgpackr-extract: true
+  # lang-core 的 postinstall 只上报匿名版本遥测，且自己 try/catch；不需要在安装期执行。
+  '@openuidev/lang-core': false
 catalog:
   '@modelcontextprotocol/client': 2.4.0
   '@types/node': 24.19.2

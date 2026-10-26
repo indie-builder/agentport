@@ -1,12 +1,13 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
-import type { McpJsonEntry, WorkspaceSkill } from '@agentport/core';
+import type { McpJsonEntry, WorkspacePlugin, WorkspaceSkill } from '@agentport/core';
 import {
   decryptSecrets,
   hashMcpToken,
   installProcessGuards,
   RunFailure,
+  renderPlugin,
   renderWorkspace,
   toWorkspaceInput,
   WORKSPACE_DIR_MODE,
@@ -36,8 +37,10 @@ import { startKnowledgeWorker } from './knowledge/queue.js';
 import { startKnowledgeReconciler } from './knowledge/reconcile.js';
 import { startKnowledgeScheduler } from './knowledge/scheduler.js';
 import { startMaintenanceWorker } from './maintenance.js';
-import { persistRunMessages } from './messages.js';
+import { type PersistedMessage, persistRunMessages } from './messages.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
+import { registerNativePlugins } from './native-plugins.js';
+import { promptWithOpenUiAction } from './openui-action.js';
 import { startReconciler } from './reconcile.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
@@ -121,6 +124,42 @@ function toEntry(
     : entry;
 }
 
+/**
+ * 插件是会话级能力，子智能体不绑定：SDK 的 `plugins` 没有按子智能体隔离的入口。
+ * 上游已拒绝，这里只防御性忽略并留日志。
+ */
+async function loadAgentPlugins(agent: AgentRow): Promise<WorkspacePlugin[]> {
+  if (agent.parentId !== null) {
+    logger.warn({ agentId: agent.id }, 'sub-agent cannot bind plugins; ignoring bindings');
+    return [];
+  }
+  const bindings = await repo.plugins.listAgentPluginBindings(db, agent.id);
+  if (bindings.length === 0) return [];
+  const filesByPlugin = await repo.plugins.getPluginFilesByPluginIds(
+    db,
+    bindings.map(({ plugin }) => plugin.id),
+  );
+  const plugins = bindings.map(({ plugin, allowHooks, allowMcp }) =>
+    renderPlugin({
+      slug: plugin.slug,
+      runtimeName: plugin.runtimeName,
+      allowHooks,
+      allowMcp,
+      files: (filesByPlugin.get(plugin.id) ?? []).map((file) => ({
+        path: file.path,
+        content: file.content,
+        executable: file.executable,
+      })),
+    }),
+  );
+  // 只剩未授权组件时目录为空，交给 SDK 只会变成一次加载失败。
+  return plugins.filter((plugin) => {
+    if (plugin.files.length > 0) return true;
+    logger.warn({ agentId: agent.id, slug: plugin.slug }, 'plugin has nothing authorized; skipped');
+    return false;
+  });
+}
+
 /** 每次 run 重写工作区：文件是 DB 的只读快照，prompt 只走 stdin。 */
 async function writeWorkspace(
   agent: AgentRow & { serverNames: string[] },
@@ -142,7 +181,11 @@ async function writeWorkspace(
     body: string;
   }>,
   selectedOutputStyle: string | null,
+  plugins: WorkspacePlugin[],
 ): Promise<{ dir: string; hasSubAgents: boolean }> {
+  // 生成式 UI 的工具目录与提示词、执行桥同源：这里查一次，渲染时写进 CLAUDE.md。
+  const openuiTools =
+    agent.uiFormat === 'openui' ? await repo.openui.listOpenUiTools(db, agent.id) : [];
   const files = renderWorkspace(
     toWorkspaceInput({
       agent,
@@ -152,6 +195,8 @@ async function writeWorkspace(
       rules,
       outputStyles,
       selectedOutputStyle,
+      openuiTools,
+      plugins,
     }),
   );
 
@@ -215,6 +260,25 @@ async function writeWorkspace(
         mode: WORKSPACE_FILE_MODE,
       });
     }
+  }
+  // 插件每次重建：解绑或撤销授权后旧组件不能残留，否则 SDK 仍会按目录加载。
+  const pluginsDir = join(dir, '.claude', 'plugins');
+  await rm(pluginsDir, { recursive: true, force: true });
+  if (files.plugins.length > 0) {
+    await mkdir(pluginsDir, { mode: WORKSPACE_DIR_MODE, recursive: true });
+    for (const plugin of files.plugins) {
+      const root = join(pluginsDir, plugin.slug);
+      for (const file of plugin.files) {
+        const filePath = join(root, file.path);
+        await mkdir(join(filePath, '..'), { mode: WORKSPACE_DIR_MODE, recursive: true });
+        await writeFile(filePath, file.content, {
+          encoding: 'utf8',
+          // 可执行脚本用 0700：同一模式下既保留 x 位，也只对属主开放。
+          mode: file.executable ? WORKSPACE_DIR_MODE : WORKSPACE_FILE_MODE,
+        });
+      }
+    }
+    await chmod(pluginsDir, WORKSPACE_DIR_MODE);
   }
   // settings.json 与预览同源（renderWorkspace）。outputStyle 必须写进这里，因为 runner 的
   // inline object-settings 优先级高于磁盘文件；runner 会把这里解析出的 outputStyle 一并带上，
@@ -383,6 +447,8 @@ const worker = new Worker(
     let runLatencyMs: number | null = null;
     let workspaceDirForRun: string | null = null;
     let sessionsDirForRun: string | null = null;
+    /** 本轮智能体的回复格式；在 try 内读取，收尾落库时仍要用。 */
+    let runUiFormat: 'markdown' | 'openui' = 'markdown';
     try {
       const [agent] = await db
         .select()
@@ -390,6 +456,8 @@ const worker = new Worker(
         .where(eq(schema.agents.id, agentId))
         .limit(1);
       if (!agent) throw new Error(`agent ${agentId} not found`);
+      // 消息级快照：历史渲染按这一轮落库的格式，切换开关不影响已存消息。
+      runUiFormat = agent.uiFormat === 'openui' ? 'openui' : 'markdown';
 
       // 版本只做 provenance：执行始终用当前配置，不一致仅告警。
       try {
@@ -411,7 +479,11 @@ const worker = new Worker(
       if (!sdkState) throw new Error(`conversation ${conversationId} not found`);
       // 本轮用户消息在准入时已落库；runner 用它（或这里补生成的 uuid）发首条消息。
       const [userMessage] = await db
-        .select({ id: schema.messages.id, sdkMessageUuid: schema.messages.sdkMessageUuid })
+        .select({
+          id: schema.messages.id,
+          content: schema.messages.content,
+          sdkMessageUuid: schema.messages.sdkMessageUuid,
+        })
         .from(schema.messages)
         .where(
           and(
@@ -422,6 +494,8 @@ const worker = new Worker(
         )
         .limit(1);
       if (!userMessage) throw new Error(`user message for run ${runId} not found`);
+      // 动作回传要把上下文与表单值一起交给模型；纯文本消息仍是原文。
+      const taskPrompt = promptWithOpenUiAction(userMessage.content, prompt);
       // 非浏览器入口（定时、评估、外部调用）不经过准入；uuid 由平台生成后显式发给 SDK，
       // 因此它仍是真实 transcript 身份，不是事后拼的映射。
       const userMessageUuid = userMessage.sdkMessageUuid ?? randomUUID();
@@ -516,6 +590,7 @@ const worker = new Worker(
         body: r.body,
       }));
       const selectedOutputStyle = styleRows.find((r) => r.isSelected)?.slug ?? null;
+      const runPlugins = await loadAgentPlugins(agent);
 
       const { dir: workspaceDir, hasSubAgents } = await writeWorkspace(
         { ...agent, serverNames: parentServerNames },
@@ -529,6 +604,7 @@ const worker = new Worker(
         rules,
         outputStyles,
         selectedOutputStyle,
+        runPlugins,
       );
       workspaceDirForRun = workspaceDir;
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');
@@ -561,7 +637,7 @@ const worker = new Worker(
 
       runStartedAt = Date.now();
       const task: SandboxTaskInput = {
-        prompt,
+        prompt: taskPrompt,
         model: agent.model,
         maxTurns: agent.maxTurns,
         maxBudgetUsd: Number(agent.maxBudgetUsd),
@@ -573,6 +649,14 @@ const worker = new Worker(
         ...(agent.effort === null ? {} : { effort: effortSchema.parse(agent.effort) }),
         ...(agent.maxThinkingTokens === null ? {} : { maxThinkingTokens: agent.maxThinkingTokens }),
         allowSubAgents: hasSubAgents,
+        maxFieldBytes: config.SANDBOX_MAX_FIELD_BYTES,
+        plugins: runPlugins.map((plugin) => ({
+          path: `/workspace/.claude/plugins/${plugin.slug}`,
+          runtimeName: plugin.runtimeName,
+          skills: plugin.skillNames,
+          mcpServers: plugin.mcpServerNames,
+          hasAgents: plugin.hasAgents,
+        })),
         subAgents: enabledChildren.map((row) => ({
           slug: row.slug,
           servers: serverNamesByAgent.get(row.id) ?? [],
@@ -629,6 +713,7 @@ const worker = new Worker(
     // 写库失败不能抛出：抛出会让 BullMQ 重跑整个沙盒并最终只留 reconcile 的
     // "worker lost track of this run"，真实原因反而被覆盖。记日志，继续写终态。
     const forked = outcome.events.find((event) => event.type === 'session_forked');
+    let persistedMessages: PersistedMessage[] = [];
     try {
       // 分支首轮：从宿主 transcript 的 forkedFrom 算新旧 uuid 映射，再与消息同事务写入。
       const uuidMap =
@@ -639,14 +724,16 @@ const worker = new Worker(
               new Set(await repo.chat.listConversationMessageUuids(db, conversationId)),
             )
           : undefined;
-      await persistRunMessages(db, {
+      const persisted = await persistRunMessages(db, {
         agentId,
         conversationId,
         runId,
         events: outcome.events,
         ...(outcome.sessionId === undefined ? {} : { sdkSessionId: outcome.sessionId }),
         ...(uuidMap === undefined ? {} : { uuidMap }),
+        uiFormat: runUiFormat,
       });
+      persistedMessages = persisted.messages;
     } catch (err) {
       // agent_runs.error 说明的是沙盒失败原因；消息丢失是另一件事，只进日志。
       logger.error({ err, runId }, 'failed to persist run messages');
@@ -707,6 +794,7 @@ const worker = new Worker(
       {
         type: 'run_finished',
         status: outcome.status,
+        ...(persistedMessages.length === 0 ? {} : { messageIds: persistedMessages }),
         ...(outcome.costUsd === undefined ? {} : { costUsd: outcome.costUsd }),
         ...(outcome.turns === undefined ? {} : { turns: outcome.turns }),
         ...(outcome.error === undefined ? {} : { error: outcome.error }),
@@ -797,6 +885,7 @@ const maintenanceWorker = await startMaintenanceWorker({
 
 // stdio 试连走独立队列与独立容器入口，不影响 run 消费。
 const sandboxProbe = await registerSandboxProbe(config);
+const nativePlugins = await registerNativePlugins(config);
 
 const stopReconciler = startReconciler({
   db,
@@ -875,6 +964,7 @@ const shutdown = async (): Promise<void> => {
   await knowledgeScheduler.close();
   await stopKnowledgeReconciler();
   await sandboxProbe.close();
+  await nativePlugins.close();
   await scheduleScheduler.close();
   await stopReconciler();
   await provider.destroyAll();

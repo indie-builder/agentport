@@ -1,4 +1,8 @@
-import { conversationRenameSchema } from '@agentport/shared';
+import {
+  conversationRenameSchema,
+  type OpenUiAction,
+  type OpenUiToolResult,
+} from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
@@ -41,12 +45,12 @@ import { CollapsibleText, JsonBlock, LARGE_CONTENT_CHARS } from '../components/c
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { KnowledgeCitations, knowledgeHitsFromTool } from '../components/knowledge-citations.js';
-import { Markdown } from '../components/markdown.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
+import { AssistantText } from '../components/openui-message.js';
 import { Page, PageHeader } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
@@ -113,6 +117,11 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useChatStream } from '../lib/use-chat-stream.js';
+import type {
+  OpenUiApprovalInput,
+  OpenUiStateSaveInput,
+  OpenUiToolCallInput,
+} from '../openui/renderer.js';
 
 export function ChatPage() {
   const search = useSearch({ from: '/_shell/chat' });
@@ -1178,7 +1187,7 @@ function ChatColumn({
   hasOlder: boolean;
   loadingOlder: boolean;
   showWelcome: boolean;
-  send: () => Promise<void>;
+  send: ReturnType<typeof useChatStream>['send'];
   composerRef: RefObject<HTMLTextAreaElement | null>;
   deleting: boolean;
   onRename: (trigger: HTMLElement) => void;
@@ -1186,6 +1195,49 @@ function ChatColumn({
   onDelete: (trigger: HTMLElement) => void;
 }) {
   const headerTriggerRef = useRef<HTMLElement | null>(null);
+  // 组件动作走同一条发送路径；send 每次渲染都是新函数，用 ref 保住 MessagePart 的 memo。
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  // 动作本身就是一条完整的下一轮输入：正文用按钮说明，params/context/表单值原样带走。
+  // 不走输入框（不 setInput），因此用户没发出的草稿不会被覆盖。
+  const openUiAction = useCallback((action: OpenUiAction) => {
+    void sendRef.current(action.message, action);
+  }, []);
+  /**
+   * Query/Mutation 走服务端工具桥。来源由渲染层按段闭包提供：
+   * 历史 UI、多条消息、同一消息的多个段都不会归错。
+   */
+  const openUiToolCall = useCallback(
+    (input: OpenUiToolCallInput) =>
+      api.callOpenUiTool(input.conversationId, input.toolName, {
+        args: input.args,
+        messageId: input.messageId,
+        blockKey: input.blockKey,
+      }),
+    [],
+  );
+  const openUiSaveState = useCallback(
+    (input: OpenUiStateSaveInput) =>
+      api.saveOpenUiState(input.conversationId, input.messageId, {
+        blockKey: input.blockKey,
+        state: input.state,
+      }),
+    [],
+  );
+  const openUiApprove = useCallback(
+    (input: OpenUiApprovalInput) => api.approveOpenUiTool(input.conversationId, input.approvalId),
+    [],
+  );
+  // 回调身份固定：每段渲染器都靠 ref 读取它们，重新渲染不会重新挂载生成内容。
+  const openUiSnapshot = useMemo(
+    () => ({
+      ...(conversationId === null ? {} : { conversationId }),
+      onToolCall: openUiToolCall,
+      onSaveState: openUiSaveState,
+      onApprove: openUiApprove,
+    }),
+    [conversationId, openUiToolCall, openUiSaveState, openUiApprove],
+  );
   const composer = (
     <Composer
       agent={agent}
@@ -1334,6 +1386,10 @@ function ChatColumn({
           }}
           branchingMessageId={branchingMessageId}
           running={Boolean(run)}
+          openUi={agent?.uiFormat === 'openui'}
+          streaming={Boolean(run)}
+          onAction={openUiAction}
+          openUiSnapshot={openUiSnapshot}
           welcome={
             showWelcome ? (
               <WelcomeState agent={agent} onPick={onPickSuggestion}>
@@ -1370,7 +1426,7 @@ export function Composer({
   onCancel,
 }: {
   agent: AgentView | null;
-  send: () => Promise<void>;
+  send: ReturnType<typeof useChatStream>['send'];
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   lastRunId: string | null;
   welcome: boolean;
@@ -1574,6 +1630,10 @@ export function MessagePane({
   onBranchMessage,
   branchingMessageId,
   running,
+  openUi,
+  streaming,
+  onAction,
+  openUiSnapshot,
 }: {
   items: ChatItem[];
   loading: boolean;
@@ -1595,6 +1655,13 @@ export function MessagePane({
   onBranchMessage: (messageId: string) => void;
   branchingMessageId: string | null;
   running: boolean;
+  /** 当前智能体的回复格式；旧消息自身带格式时以消息为准。 */
+  openUi: boolean;
+  /** 当前这一轮是否仍在流式输出：解析器按此自动闭合未完成的语句。 */
+  streaming: boolean;
+  onAction: (action: OpenUiAction) => void;
+  /** 生成式 UI 的状态写回、工具桥与会话级审批；按段闭包来源。 */
+  openUiSnapshot?: OpenUiSnapshot;
 }) {
   const reduce = useReducedMotion();
   const turns = useMemo(
@@ -1720,8 +1787,15 @@ export function MessagePane({
                                   );
                                 }
                                 return (
-                                  // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
-                                  <MessagePart key={`${index}-${item.kind}`} item={item} />
+                                  <MessagePart
+                                    // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
+                                    key={`${index}-${item.kind}`}
+                                    item={item}
+                                    openUi={openUi}
+                                    streaming={latest && streaming}
+                                    onAction={onAction}
+                                    {...(openUiSnapshot ? { openUiSnapshot } : {})}
+                                  />
                                 );
                               })}
                             </MessageGroup>
@@ -2021,15 +2095,51 @@ type AgentView = NonNullable<ReturnType<typeof useAgents>['data']>[number];
 /** 文本增量只更新对应片段，工具行继续使用独立的 memo。 */
 const MessagePart = memo(function MessagePart({
   item,
+  openUi,
+  streaming,
+  onAction,
+  openUiSnapshot,
 }: {
   item: Exclude<ChatItem, { kind: 'tool' }>;
+  openUi: boolean;
+  streaming: boolean;
+  openUiSnapshot?: OpenUiSnapshot;
+  onAction: (action: OpenUiAction) => void;
 }) {
+  // 历史消息自带格式快照：切回 markdown 后，已存的 UI 仍按 UI 渲染。
+  // 子智能体的文本（带 parentToolUseId）永远不当主线程 UI 渲染：
+  // 它的围栏属于子任务输出，混进主界面会让人误以为那是本轮回答。
+  const subAgentText = item.kind === 'text' && item.parentToolUseId !== undefined;
+  const messageOpenUi = subAgentText
+    ? false
+    : item.kind === 'text' && item.uiFormat
+      ? item.uiFormat === 'openui'
+      : openUi;
   switch (item.kind) {
     case 'user':
       // 不覆盖行高：气泡与助手正文共用 md 的阅读行高。
       return <p className="whitespace-pre-wrap break-words">{item.text}</p>;
     case 'text':
-      return renderAssistantText(item.text);
+      return (
+        <>
+          {renderAssistantText(item.text, messageOpenUi, streaming, onAction, {
+            // 优先用回填的持久化 id；历史项的 id 形如 `msg_x:0`，需要去掉块后缀。
+            ...(item.messageId !== undefined
+              ? { messageId: item.messageId }
+              : item.id === undefined
+                ? {}
+                : { messageId: item.id.split(':')[0] }),
+            ...(item.uiProgram == null ? {} : { uiProgram: item.uiProgram }),
+            ...(item.uiState == null ? {} : { uiState: item.uiState }),
+            ...(openUiSnapshot ?? {}),
+          })}
+          {item.truncated ? (
+            <p className="text-2xs text-muted-foreground">
+              该段内容超过单块上限，只显示了前一部分。
+            </p>
+          ) : null}
+        </>
+      );
     case 'notice':
       return (
         <div
@@ -2056,7 +2166,26 @@ const MessagePart = memo(function MessagePart({
 });
 
 /** 助手文本走流式 Markdown；超大内容仍折叠成原文，避免一次排版整篇。 */
-function renderAssistantText(text: string) {
+/** 消息级的渲染快照：渲染器提供的回调身份固定，来源由每段自己闭包。 */
+interface OpenUiSnapshot {
+  conversationId?: string;
+  messageId?: string;
+  /** 落库后的完整混合文本（Markdown + 完整围栏）；稳定态优先于原文。 */
+  uiProgram?: string;
+  /** `{ version, blocks }` 信封；渲染器按段取自己的快照。 */
+  uiState?: unknown;
+  onToolCall?: (input: OpenUiToolCallInput) => Promise<OpenUiToolResult>;
+  onSaveState?: (input: OpenUiStateSaveInput) => Promise<unknown>;
+  onApprove?: (input: OpenUiApprovalInput) => Promise<unknown>;
+}
+
+function renderAssistantText(
+  text: string,
+  openUi: boolean,
+  streaming: boolean,
+  onAction: (action: OpenUiAction) => void,
+  snapshot?: OpenUiSnapshot,
+) {
   if (text.length > LARGE_CONTENT_CHARS) {
     return (
       <CollapsibleText
@@ -2066,7 +2195,23 @@ function renderAssistantText(text: string) {
       />
     );
   }
-  return <Markdown text={text} />;
+  return (
+    <AssistantText
+      text={text}
+      openUi={openUi}
+      streaming={streaming}
+      onAction={onAction}
+      {...(snapshot?.messageId === undefined ? {} : { messageId: snapshot.messageId })}
+      {...(snapshot?.conversationId === undefined
+        ? {}
+        : { conversationId: snapshot.conversationId })}
+      {...(snapshot?.uiProgram === undefined ? {} : { uiProgram: snapshot.uiProgram })}
+      {...(snapshot?.uiState === undefined ? {} : { uiState: snapshot.uiState })}
+      {...(snapshot?.onToolCall === undefined ? {} : { onToolCall: snapshot.onToolCall })}
+      {...(snapshot?.onSaveState === undefined ? {} : { onSaveState: snapshot.onSaveState })}
+      {...(snapshot?.onApprove === undefined ? {} : { onApprove: snapshot.onApprove })}
+    />
+  );
 }
 
 /** 一行读数：完成 · 轮次 · 耗时 · token · 成本 · 查看详情。 */
@@ -2145,7 +2290,8 @@ export const ApprovalCard = memo(function ApprovalCard({
         <span className="text-muted-foreground"> @ {item.serverName ?? item.serverId}</span>{' '}
         {item.waiting
           ? '调用仍在等待，批准后可继续本次调用，无需重发'
-          : '本次调用已结束等待，批准仅对后续调用生效，不会恢复已结束的调用。'}
+          : '本次调用已结束等待，批准仅对后续调用生效，不会恢复已结束的调用。'}{' '}
+        <span className="text-muted-foreground">批准在本会话内有效，8 小时后需重新批准。</span>
       </div>
       <Button
         size="sm"

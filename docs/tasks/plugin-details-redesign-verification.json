@@ -1,0 +1,23 @@
+{
+  "date":"2026-10-25",
+  "scope":"plugin detail UI audit: remove introduction index and repair content spacing",
+  "previewUrl":"http://localhost:3316/plugins/plg_01m5sghm0jeh6bw2pq3c5xy6cf",
+  "status":"implemented, verified and independently approved",
+  "skills":["interfaces:better-layout","interfaces:better-typography"],
+  "beforeMeasurements":{"desktop":{"viewport":[1512,838],"documentInset":0,"tabsToPath":8},"mobile":{"viewport":[320,720],"breadcrumbTop":245,"modeTop":273}},
+  "afterMeasurements":{"desktop":{"viewport":[1512,838],"documentInset":24,"tabsToPanel":16,"mainOverflow":0},"mobile":{"viewport":[320,720],"horizontalOverflow":false}},
+  "browserChecks":[
+    {"check":"introduction contains only README, no aside or source section","result":"passed","screenshot":"/tmp/plugin-ui-audit-intro-after.png"},
+    {"check":"desktop content inset 24px and tabs-to-panel gap 16px; path and mode share toolbar","result":"passed","screenshot":"/tmp/plugin-ui-audit-final-desktop.png"},
+    {"check":"320px content readable with no horizontal overflow; one h1","result":"passed","screenshot":"/tmp/plugin-ui-audit-mobile-stable.png"},
+    {"check":"mobile inline directory selection restores file-toggle focus and opens no dialog","result":"passed"},
+    {"check":"short viewport content scroll preserved after intro/content round trip (73px)","result":"passed"},
+    {"check":"750x420 RTL has no horizontal document overflow","result":"passed"}
+  ],
+  "cleanup":"Removed unreferenced plugin-entry-list, plugin-entries, ui/item and their dedicated test; no remaining source/test imports.",
+  "review":"Independent Opus layout/typography audit and correction review approved; minor nonblocking empty toolbar container on plain files noted.",
+  "reviewPending":[],
+  "finalValidation":{"webFiles":40,"webTestsPassed":388,"pageTestsPassed":25,"typecheck":"all packages passed","build":"passed","biome":"passed","focusAndProjectContract":"passed","diffCheck":"passed"},
+  "notVerified":["actual browser 200% zoom","full localization stress test","arbitrary large directory performance","backend full suite"],
+  "notes":["Test count decreased because the removed index and its dedicated tests were deleted.","User authorized commit, PR creation and merge on 2026-10-26; pre-submit web 388 tests, all-package types, production build, static and project checks passed.","Optional Ego Lite update not installed."]
+}

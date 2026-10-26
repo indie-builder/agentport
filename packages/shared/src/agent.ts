@@ -50,6 +50,10 @@ export const agentRoleSchema = z
 export const effortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 export type Effort = z.infer<typeof effortSchema>;
 
+/** 助手回复的渲染格式：Markdown（默认）或生成式 UI（围栏内的 OpenUI Lang）。 */
+export const uiFormatSchema = z.enum(['markdown', 'openui']);
+export type UiFormat = z.infer<typeof uiFormatSchema>;
+
 export const agentInputSchema = z.object({
   slug: slugSchema,
   name: z.string().min(1).max(128),
@@ -60,6 +64,19 @@ export const agentInputSchema = z.object({
   systemPrompt: z.string().default(''),
   serverIds: z.array(z.string()).default([]),
   skillIds: z.array(z.string()).default([]),
+  /**
+   * 绑定的插件。插件是会话级能力（SDK `plugins` 无法按子智能体隔离），仅顶层智能体可绑定。
+   * hooks / MCP 默认关闭，需要逐个显式授权。
+   */
+  pluginBindings: z
+    .array(
+      z.object({
+        pluginId: z.string(),
+        allowHooks: z.boolean().default(false),
+        allowMcp: z.boolean().default(false),
+      }),
+    )
+    .default([]),
   /** 可委派的子智能体（最多一层，子智能体不能再委派）。 */
   subAgentIds: z.array(z.string()).default([]),
   /** 允许的 MCP 工具模式；留空表示「所有已绑定 server 的全部工具」。 */
@@ -67,6 +84,8 @@ export const agentInputSchema = z.object({
   /** 额外禁用的工具；内置工具默认全部禁用，这里是补充项。 */
   disallowedTools: z.array(z.string()).default([]),
   permissionMode: permissionModeSchema.default('dontAsk'),
+  /** 助手回复格式；openui 时系统提示词追加 OpenUI Lang 约定，前端按生成式 UI 渲染。 */
+  uiFormat: uiFormatSchema.default('markdown'),
   maxTurns: z.number().int().positive().default(20),
   maxBudgetUsd: z.number().positive().default(2),
   timeoutMs: z.number().int().positive().default(600_000),
@@ -236,6 +255,17 @@ export const workspaceFilesSchema = z.object({
   rules: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
   outputStyles: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
   selectedOutputStyle: z.string().nullable().default(null),
+  /** 渲染到 `.claude/plugins/<slug>/` 的插件目录树；与运行时同一份裁剪结果。 */
+  plugins: z
+    .array(
+      z.object({
+        slug: z.string(),
+        files: z
+          .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean() }))
+          .default([]),
+      }),
+    )
+    .default([]),
   settingsJson: z.string().nullable().default(null),
 });
 

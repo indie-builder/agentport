@@ -60,6 +60,7 @@
 | `SANDBOX_MEMORY` | 否 | `1g` | worker | 容器内存上限（Docker 格式，如 `1g`、`512m`） |
 | `SANDBOX_CPUS` | 否 | `1` | worker | CPU 核数上限 |
 | `SANDBOX_PIDS` | 否 | `128` | worker | PID 上限 |
+| `SANDBOX_MAX_FIELD_BYTES` | 否 | `1048576` | worker | 沙盒单块文本/工具负载上限（字节）。超限只截断该块并随事件标 `truncated`，不再静默丢尾部。最坏 JSON 转义约 6 倍，宿主单行上限 8MiB；调到 1MiB 以上必须同步调高 `runner-client` 的 `MAX_LINE_BYTES`，否则整块会被丢弃 |
 
 ### 原生记忆存储（native memory storage）
 
@@ -97,7 +98,8 @@ runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`a
 
 ### 2.1 前置
 
-- Node.js 24、pnpm 12.14.0
+- Node.js 24、pnpm 12.15.0
+- pnpm 12 默认不跑依赖的安装脚本，决定写在根 `pnpm-workspace.yaml` 的 `allowBuilds`：放行 `esbuild`、`msgpackr-extract`，拒绝 `@openuidev/lang-core`（其 postinstall 只上报匿名安装遥测）。新增带安装脚本的依赖时在这里补决定，否则 `pnpm install` / `deploy` 以 `ERR_PNPM_IGNORED_BUILDS` 失败。
 - Docker Engine + Compose
 - 宿主有 `pg_dump` / `psql`（备份与恢复）
 - 至少一个模型凭证（`ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`）
@@ -209,7 +211,17 @@ pnpm dev
 
 多 worktree 共用同一套 API、数据库与 Redis，前端单独启动不提供后端隔离；不同任务的数据会互相可见（见 [PITFALLS.md](PITFALLS.md)）。
 
-### 2.4 升级
+### 2.4 原生插件安装
+
+插件页的「从市场安装」调用 Claude Code 官方 `plugin install`，由 worker 在独立 Linux 沙盒中执行。需要 worker、Redis、Docker 和包含 `dist/native-plugins.js` 的新版沙盒镜像；仅启动 API 时可以使用已纳入插件库的定义，无法执行新的安装任务。
+
+安装器缓存保存在 `WORKSPACES_DIR/plugin-cache/`，以可写目录挂入安装沙盒，配置和下载目录都与宿主个人 `~/.claude` 分离。「已安装」只列平台自己的缓存，选择「加入插件库」不重新安装或下载。不要在运行中的安装任务期间手工删除该缓存。
+
+插件加入现有插件库后在 DB 保存一次，各专家仍按绑定生成自己的运行文件，安装缓存不挂载给专家。hooks/MCP 的逐专家授权继续在运行文件渲染时生效。现有文本插件限制同样适用；不支持的二进制、运行依赖或组件应明确报错，不视为全部原生插件生态兼容。
+
+新部署需应用来源字段迁移并重建 sandbox 镜像（见 §2.2.1）。升级前已下载的插件可从平台缓存重新加入，ZIP 导入保持可用。
+
+### 2.5 升级
 
 ```bash
 git pull

@@ -108,10 +108,10 @@
 3. worker 消费 job：若 run 已被取消则跳过；置为 `running` 并发布 `run_started`。
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 生成文件并写入 `WORKSPACES_DIR/<slug>/<runId>/`。
 5. worker 通过 `DockerSandboxProvider` 执行 `docker run`，把任务 JSON 写入容器 stdin。
-6. 容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`text_delta`、`tool_start`、`tool_input`、`tool_result`、`assistant_text`、`run_finished`），日志写 stderr。
+6. 容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
 7. worker 逐行解析并转发到 Redis Stream；工具调用经 `.mcp.json` 中的地址访问 api。
 8. 取消：api 写 `run:<runId>:cancel` 键并 publish；worker 订阅后向容器发 SIGTERM；超时由 worker 计时；两者最终都 `docker rm -f`。
-9. 结束后 worker 把 `assistant_text` 与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。
+9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。
 10. 只有基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会抛出以触发 BullMQ 重试；业务失败不重试，避免重复计费。
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
@@ -121,7 +121,7 @@
 | 维度 | HTTP → MCP（`/mcp/:serverId`，generated） | 平台 → MCP（`/mcp`） | 内置知识 MCP（`/mcp/:serverId`，knowledge） |
 |---|---|---|---|
 | 解决什么 | 把已有 HTTP API 变成 MCP 工具 | 把平台内的智能体变成 MCP 工具 | 让绑定专家在 run 内只读检索一个知识库 |
-| 工具来源 | `api_tools` 表，每个 generated server 一组 | 所有 `enabled = true` 的智能体，工具名 `run_<slug>` | 固定三个只读工具：`knowledge_search` / `knowledge_read` / `knowledge_list` |
+| 工具来源 | `api_tools` 表，每个 generated server 一组 | 所有 `enabled = true` 的智能体，工具名 `run_<slug>` | 固定四个只读工具：`knowledge_search` / `knowledge_read` / `knowledge_list` / `knowledge_read_image` |
 | 鉴权 | 沙盒内用按 run 签发的短期 token（DB 存 sha256，run 结束清空）；外部客户端用长期 `mcpToken` | 单个 `PLATFORM_MCP_TOKEN`；未设置则不注册该端点 | 只接受绑定该 server 的 run 短期 token；没有长期 token，无效一律 401 |
 | 调用发生什么 | 按 method / path 模板 / `paramsIn` 转发上游 HTTP | 创建 conversation 与 run，入队，轮询 DB 直到终态，返回最终 assistant 文本 | 在 api 进程内查 pgvector/全文索引并读解析正文；工具不能跨库、不能写入 |
 | 执行位置 | api 进程内 `fetch` | worker + 沙盒（与浏览器发起的对话同一条链路） | api 进程内 `retrieval.ts` + 文件读取 |
@@ -138,7 +138,7 @@
 
 `servers.kind` 因此有四种取值：`stdio`、`http`、`generated` 属于用户可创建/导入的连接；`knowledge` 是平台内部的第四种，只能由知识库生命周期写入（name `kb-<slug>`，config 只有 `{ knowledgeBaseId }`）。读写类型分离：`serverKindSchema` 与读联合包含 `knowledge`，`serverInputSchema` 只含前三种。它不出现在 `/api/servers` 列表，也不能经该接口 PATCH/DELETE；URL 永远由运行时拼 `/mcp/:serverId`。共享的 `knowledgeMcpEntry()` 是预览与运行时的唯一构造点，避免两处漂移。
 
-内置知识连接的工具是只读的：`knowledge_search` 返回带 `chunkId`/标题/页码/score 的命中，`knowledge_read` 只读当前版本正文（超过 20,000 字符截断并标 `truncated`），`knowledge_list` 按游标列出文档。参数里带别的 `baseId` 返回 `BASE_MISMATCH` 工具错误而不是静默换库；库被禁用时三个工具都返回 `BASE_DISABLED`。没有写入、上传、删除或重建工具。
+内置知识连接的工具是只读的：`knowledge_search` 返回带 `chunkId`/标题/页码/score 的命中，`knowledge_read` 只读当前版本正文（超过 20,000 字符截断并标 `truncated`），`knowledge_list` 按游标列出文档，`knowledge_read_image` 读取版本图片（详见 §6.2.1）。参数里带别的 `baseId` 返回 `BASE_MISMATCH` 工具错误而不是静默换库；库被禁用时四个工具都返回 `BASE_DISABLED`。没有写入、上传、删除或重建工具。
 
 ## 5. 工作区文件模型
 
@@ -187,6 +187,38 @@ data/workspaces/<agent-slug>/
 
 子智能体自有 rules / outputStyles 已支持保存、以自身为根的文件预览、clone 与目录包导入导出；父级委派时不会自动应用这些子级自有配置，父工作区只渲染根智能体的规则与输出风格。clone 复制源智能体自身配置与资源绑定，不复制其子智能体。
 
+### 生成式 UI（OpenUI）接入
+
+> 官方契约重调及独立评审已完成，验证见 `docs/tasks/openui-integration.md`。当前继续按官方 shadcn 示例调整 UI 呈现，范围和本轮验收见 `docs/tasks/openui-official-shadcn-ui.md`；适配来源见 `docs/OPENUI-UI-ADAPTATION.md`，升级见 `docs/OPENUI-UPGRADE.md`。
+
+智能体的 `uiFormat` 决定助手回复的格式：`markdown`（默认）或 `openui`。选 `openui` 时，平台在 CLAUDE.md 的平台生成段末尾追加一段组件签名提示词，模型把 OpenUI Lang 程序放进 ```openui-lang 围栏；浏览器用同一个组件库解析并渲染围栏内容，围栏外的散文仍按 Markdown 显示。
+
+| 位置 | 作用 |
+|---|---|
+| `packages/shared/src/openui/` | 唯一组件契约：纯 zod 定义 + 提示词规则 + 跨端协议（动作、状态信封、工具描述），不 import 任何 OpenUI 包 |
+| `packages/core/src/openui-prompt.ts` | 从官方 CLI 生成的 `generated/openui.spec.json` 生成提示词，按工具目录缓存；不导入浏览器组件 |
+| `packages/core/src/openui-response.ts` | 流结束后用官方解析器与 `mergeStatements` 合并对应段，保存完整混合响应；缺基线/非法程序保留原文并提供诊断 |
+| `packages/db/src/repo/openui.ts` | OpenUI 工具目录（提示词与执行桥同源）、消息状态原子更新、会话级审批 |
+| `packages/api/src/features/chat/openui-state.ts` | `PUT /api/conversations/:conversationId/messages/:messageId/openui-state`：按 blockKey 合并表单/绑定快照 |
+| `packages/api/src/features/chat/openui-actions.ts` | 动作回传协议：`continue_conversation` 存成 `[{type:'text'},{type:'openui_action',…}]`，`open_url` 不入库 |
+| `packages/api/src/features/chat/openui-tools.ts` | `POST /api/chat/:conversationId/openui/tools/:toolName`：Query/Mutation 执行桥；`POST /api/chat/:conversationId/openui/approvals/:approvalId/approve`：会话级批准 |
+| `packages/worker/src/openui-action.ts` | 将已校验动作上下文/表单值完整追加给模型；大小应在 API 边界拒绝，不能在 worker 静默省略 |
+| `packages/web/src/openui/library.tsx` | 真实 Zod/reactive 定义配上 shadcn 组件实现，官方 CLI 和浏览器共享同一个 library |
+| `packages/web/src/openui/renderer.tsx`、`components/openui-message.tsx` | 按围栏分段、状态恢复、原生工具错误/重试及完整动作回传 |
+
+要点：
+
+- **运行底座保持 Claude Agent SDK**：OpenUI Lang 支持接入现有模型与智能体框架。Gateway 是官方推荐的托管推理/纠错路径，并不是使用 Renderer 的前提；当前 SDK 路径保留现有推理方式。Autofix 可在既有推理之后修复输出，属于可选外部服务，当前未接入。
+- **业务运行时不引入 `@openuidev/react-ui` 的视觉层**：项目用真实 Zod/reactive 组件定义和 shadcn/Base UI 实现。该包仅作为开发期的官方契约对照，不能以其 JSON Schema 反编译出等价的 Zod（会丢绑定标记等语义）。
+- **输出模式由宿主选择**：当前选择 `inlineMode:true` 支持 Markdown 与 UI 混合；这属于产品行为，不是所有 OpenUI 接入都必须使用的选项。`editMode` 必须与跨轮 previous/完成后合并的存储路径同时验收。
+- **消息级格式快照**：`messages.ui_format` 固定消息生成时的渲染模式；`content` 保留原始模型输出与 SDK transcript 对应，`ui_program` 保存完成后按段合并的完整混合响应，`ui_state` 原样保存官方渲染器状态。历史优先读已存快照，不在浏览器二次合并。
+- **段归属**：消息的每个UI围栏按`s0/s1…`编号，Markdown段不占编号；状态保存在`ui_state.blocks[sN]`。外部请求另带真实conversationId/messageId，不能把messageId编码到state键，也不能从全局store倒找最后一条消息。分支复制快照后不需重写段键。
+- **工具目录单一来源**：`repo.openui.listOpenUiTools(agentId)` 同时喂提示词（worker 渲染 CLAUDE.md）和执行桥（API 校验）。只收已绑定且启用的 http / generated server 工具；stdio 由用户提供任意命令，仅沙盒内可见。http server 的目录来自最近一次「测试连接」写入 `servers.config.toolCatalog` 的快照——worker 没有 MCP client。
+- **审批与会话绑定**：生成式UI的工具需要批准时返回202与approvalId，由当前UI段提供批准及重试；会话级批准8小时有效，重放不能续期，过期须重新请求并批准。Query可显式重试，Mutation不自动重放。它与run级审批分开：`approval_requests.run_id` 可空，UI来源使用 `conversation_id/message_id/source` 和会话工具部分唯一索引；run审批行为不变。
+- 提示词进 CLAUDE.md 而不是 `.claude/rules/`：该段位于 `parseClaudeMd` 的截断标记之后，不污染用户可编辑正文，导出包也不会丢失。
+- `pnpm-workspace.yaml` 的 `allowBuilds` 明确拒绝 `@openuidev/lang-core` 的构建脚本：否则每次 `pnpm install --frozen-lockfile` 因 `ERR_PNPM_IGNORED_BUILDS` 失败；该脚本只发匿名安装遥测。`.npmrc` 的变量**不会**作为进程环境传给 postinstall，因此不靠它关闭遥测。
+
+
 | 官方文件/能力 | 加载方式 | 本项目当前状态 |
 |---|---|---|
 | `CLAUDE.md` 或 `.claude/CLAUDE.md` | project source 加载上下文，与是否使用 claude_code systemPrompt preset 无关 | 已生成根文件 |
@@ -199,8 +231,10 @@ data/workspaces/<agent-slug>/
 | `.claude/commands/*.md` | 官方保留的旧式命令文件；新能力优先 skills | 尚未接入，不另造命令引擎 |
 | `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 已有输出风格管理、文件预览与根级运行落盘；选中者写入 settings.json 的 outputStyle |
 | Hooks | 由 settings.json 的 hooks 配置或 SDK callbacks 注册；脚本目录本身不是自动发现入口 | 平台层回调与工作区文件Hooks需分别核对，不能仅创建hooks目录声称生效 |
-| 插件根中的 `.claude-plugin/plugin.json`、skills/agents/hooks/.mcp.json | SDK plugins 指定本地插件根；不是默认扫描项目 `.claude/plugins/` | 尚未接入本地插件包 |
+| 插件根中的 `.claude-plugin/plugin.json`、skills/agents/hooks/.mcp.json | SDK `plugins: [{type:'local', path}]` 指定本地插件根；不是默认扫描项目 `.claude/plugins/` | 插件库文件在 DB 保存一次，多个专家引用，每次运行复制到独立 `.claude/plugins/<slug>/`。支持 ZIP 导入，以及 worker 独立安装沙盒调用 Claude Code CLI 从市场安装、读取平台已下载缓存后纳入插件库；来源记录 `name@marketplace` 去重，缓存不挂载给专家。hooks/MCP 默认关闭，仍按各专家绑定裁剪。平台子智能体不绑定插件；插件自带子智能体可原生委派。已有技能、references、子智能体及 hooks/MCP 开关真实沙盒证据。无升级/版本选择入口，专家 ZIP 不带插件并提示；不支持的组件、二进制和运行依赖明确拒绝，不静默漏文件 |
 | `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 原生 auto-memory 使用 `WORKSPACES_DIR/<slug>/agent-memory/`（uid 1000、0700），API/worker 共卷，沙盒 rw 挂载到 `/mnt/agent-memory` 并设置 `autoMemoryEnabled=true`、`autoMemoryDirectory`。主会话仅预批准该目录的 Read/Edit 路径规则（Edit 含 Write），SDK PreToolUse 每次拒绝越界、链接和非普通 Markdown 文件；子智能体仍禁用文件工具。保留官方 `MEMORY.md` 与主题文件；权限/挂载测试通过，真实模型跨 run 记忆验收尚未验证。Workflows 仍不接入 |
+
+详情接口返回插件库实际保存的完整文件。前端 `/plugins/$pluginId` 是只读详情页：紧凑身份头（名称、版本、简介、导出）下用页内「简介 / 内容」两个 Tabs 切换，不使用抽屉、Sheet 或弹层，页面恰好一个 `h1`。简介页签只展示根 README；无 README 时给简洁空态并指向内容页签，不编写介绍、不拿首个技能冒充说明。内容页签在页内展示真实完整目录树与当前正文：桌面左右可拖动分栏，窄屏目录在同一页内折叠；默认文件为 README → 技能 `SKILL.md` → 首个真实文件。目录树用真实文件/目录名，目录优先、可折叠，只有当前文件铺选中底色，技能目录内 `SKILL.md` 优先，manifest、hooks、MCP、支持文件、空文件全部可达。URL 用 `tab=intro|content`、`file`、`mode=read|source`，默认 `intro` 且无 `file`；切换页签、选择文件与模式进入历史，刷新和前后退可恢复，切到简介保留 `file`/`mode`，切回内容恢复上次选择与滚动位置，失效文件给说明并回退。点击 README 或正文内真实文件链接切到内容页签并定位对应文件。正文显示实际路径 breadcrumb 与 frontmatter 语义名称，Markdown 默认阅读并可切源码，其余文件直接源码并可复制。展示解析只读取 frontmatter 的名称、描述和正文，不改变保存内容或运行定义；Markdown 静态渲染，HTML 作为文本，只有插件内真实存在的相对文件链接可点击。内容区按真实文件路径展示，不另建能力索引；多来源文件在目录树中各自可达。详情是插件库快照，专家运行时仍独立复制并按授权裁剪。
 
 会话恢复、预算、取消信号、消息流、宿主 callbacks 等还有 SDK 运行时参数，不能声称全部都可写入 settings.json。`~/.claude/` 的认证、缓存、会话记录等宿主状态不属于可分享项目定义，不复制进用户工作区包。
 
@@ -226,7 +260,7 @@ data/workspaces/<agent-slug>/
 
 | 位置 | 内容 | 说明 |
 |---|---|---|
-| PostgreSQL 18 + pgvector | 知识库/文件夹/标签/文档/版本/chunk/任务/来源/同步运行/Wiki/模型 profile | 迁移 `0033_steep_nico_minoru.sql`；`CREATE EXTENSION vector` 与 HNSW 索引是手工补的 SQL |
+| PostgreSQL 18 + pgvector | 知识库/文件夹/标签/文档/版本/chunk/任务/来源/同步运行/Wiki/模型 profile | 迁移 `0036_demonic_dust.sql`；`CREATE EXTENSION vector` 与 HNSW 索引是手工补的 SQL |
 | `$KNOWLEDGE_DIR/blobs/<前2位>/<sha256>` | 原件，按内容寻址、只读 | 上传/抓取先写临时文件再原子 rename；同内容复用 |
 | `$KNOWLEDGE_DIR/docs/<documentId>/<versionId>/` | `markdown.md` 与 `images/` | 解析产物；版本删除后目录不会立即消失，等 cleanup 任务回收 |
 | `$KNOWLEDGE_DIR/wiki-sdk/<jobId>/` | Wiki 生成时的平台私有临时 cwd（同时作 HOME / `CLAUDE_CONFIG_DIR`） | 不是 Claude 官方目录约定，也不进入专家工作区或导出包；任务结束即删除 |
@@ -252,7 +286,7 @@ data/workspaces/<agent-slug>/
 
 OCR 与 caption 分别形成 `kind:image` 的文字块，`metadata.imageRole` 标记来源动作，`metadata.image` 保存当前版本图片名/MIME/页码；图片字节留在已有版本图片目录。至少一个动作成功可使用，失败动作记录 `versions.images[].warnings`，两者均无有效输出则不发布新版本。默认经现有文字 embedding/关键词检索；启用图片处理不等于默认启用图片向量。
 
-可选原生图片向量使用同一 embedding profile 的 Cohere v2 `embed-v4.0` 文本与图像编码，固定1024维；profile 新字段 `embeddingProtocol`/`imageInputEnabled` 由迁移 `0034_normal_sebastian_shaw.sql` 声明。只有显式支持图片输入的 profile 才允许库开启图片向量；关键词排除 vector 子块，图像向量召回独立应用最低相似度。同维不同模型不混用：向量分支限定版本 profile ID，profile 被引用后不允许原地替换模型/协议。
+可选原生图片向量使用同一 embedding profile 的 Cohere v2 `embed-v4.0` 文本与图像编码，固定1024维；profile 新字段 `embeddingProtocol`/`imageInputEnabled` 由迁移 `0036_demonic_dust.sql` 声明。只有显式支持图片输入的 profile 才允许库开启图片向量；关键词排除 vector 子块，图像向量召回独立应用最低相似度。同维不同模型不混用：向量分支限定版本 profile ID，profile 被引用后不允许原地替换模型/协议。
 
 专家仍通过官方 `.mcp.json` 加载知识连接。`knowledge_read_image` 默认返回可读描述；`format:image` 校验绑定库、当前版本、文档/chunk状态和版本图片清单后返回 JSON 文本加 MCP 原生 image content。原图传给 SDK，不在聊天执行层重新拼消息；Web 引用经已有鉴权图片端点显示同一原图。真实 SDK→受控 MCP→图像到达本地模型协议夹具已实测，真实视觉模型质量与 Cohere 服务未验收。详见 [多模态实施](tasks/knowledge-multimodal-implementation.md)。
 
@@ -304,7 +338,7 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 
 ### 6.8 当前实现状态
 
-知识库已作为第四个资源页签接入：`/knowledge`列表含新建、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId`含文档/检索/Wiki/来源/任务五个面板。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘；未完成真实企业与真实模型服务验收，当前不能据此宣称生产可用。
+知识库已作为与专家/技能/连接器/插件并列的资源页签接入：`/knowledge`列表含新建、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId`含文档/检索/Wiki/来源/任务五个面板。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘；未完成真实企业与真实模型服务验收，当前不能据此宣称生产可用。
 
 **真实闭环仍未完整验收**：上传 → 真实 worker 消费 → Docling/OCR → 真实 embedding/rerank → 检索、真实飞书/GitLab 凭证、真实 Wiki 模型生成都还没有跑过真模型或真实企业服务；现有运行用的是本地协议夹具（确定性向量与自建 feed/article 服务），只能证明协议形状与任务生命周期，**不代表真实企业来源已接通**。Docling 的 compose profile 也从未实际拉起。已有的运行记录、发现的问题与未验证项见 [任务记录](tasks/knowledge-runtime-verification.md) 与 [审查整改](tasks/knowledge-review-findings.md)，不能把模块测试通过当成端到端通过。
 

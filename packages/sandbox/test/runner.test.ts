@@ -9,6 +9,11 @@ const io = vi.hoisted(() => ({
   forkCalls: [] as Array<{ sessionId: string; upToMessageId?: string }>,
   /** 挂载目录里实际存在的 session（含 fork 产物）。 */
   sessions: new Set<string>(),
+  /** 自定义 SDK 消息序列；为 null 时用默认的单文本块回合。 */
+  messages: null as unknown[] | null,
+  /** init 消息里报告已加载的插件；undefined 表示按任务里的 path 全部加载。 */
+  initPlugins: undefined as Array<{ name: string; path: string }> | undefined,
+  pluginErrors: undefined as Array<{ plugin: string; type: string; message: string }> | undefined,
 }));
 
 vi.mock('node:readline', () => ({
@@ -45,8 +50,24 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   },
   query: ({ options }: { options: Record<string, unknown> }) => {
     io.options = options;
+    const loaded =
+      io.initPlugins ??
+      ((options.plugins as Array<{ path: string }> | undefined) ?? []).map((plugin) => ({
+        name: plugin.path.split('/').pop() ?? plugin.path,
+        path: plugin.path,
+      }));
     return (async function* () {
-      yield { type: 'system', subtype: 'init', mcp_servers: [] };
+      if (io.messages !== null) {
+        yield* io.messages as AsyncIterable<unknown>;
+        return;
+      }
+      yield {
+        type: 'system',
+        subtype: 'init',
+        mcp_servers: [],
+        plugins: loaded,
+        ...(io.pluginErrors === undefined ? {} : { plugin_errors: io.pluginErrors }),
+      };
       yield {
         type: 'assistant',
         parent_tool_use_id: null,
@@ -77,9 +98,20 @@ interface Event {
   sdkUuid?: string;
   inputTokens?: number;
   outputTokens?: number;
+  blockIndex?: number;
+  kind?: string;
+  parentToolUseId?: string;
+  truncated?: boolean;
 }
 
-async function run(task: Record<string, unknown>): Promise<{ events: Event[] }> {
+async function run(
+  task: Record<string, unknown>,
+  messages?: unknown[],
+  init: {
+    plugins?: Array<{ name: string; path: string }>;
+    pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
+  } = {},
+): Promise<{ events: Event[]; stderr: string }> {
   io.line = JSON.stringify({
     prompt: 'hi',
     model: 'test-model',
@@ -90,21 +122,28 @@ async function run(task: Record<string, unknown>): Promise<{ events: Event[] }> 
   });
   io.forkCalls = [];
   io.options = undefined;
+  io.messages = messages ?? null;
   io.sessions = new Set(['existing-session', 'source-session']);
+  io.initPlugins = init.plugins;
+  io.pluginErrors = init.pluginErrors;
   vi.resetModules();
   const events: Event[] = [];
+  let stderr = '';
   const stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
     events.push(JSON.parse(String(chunk)));
     return true;
   });
-  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+    stderr += String(chunk);
+    return true;
+  });
   try {
     await import('../src/runner.js');
   } finally {
     stdout.mockRestore();
-    stderr.mockRestore();
+    stderrSpy.mockRestore();
   }
-  return { events };
+  return { events, stderr };
 }
 
 describe('runner task wiring', () => {
@@ -251,7 +290,363 @@ describe('runner task wiring', () => {
     expect(io.options?.skills).toEqual([]);
   });
 
+  it('omits the plugins option entirely when no plugin is bound', async () => {
+    await run({});
+    expect(io.options).not.toHaveProperty('plugins');
+    expect(io.options?.allowedTools).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('mcp__plugin_')]),
+    );
+  });
+
+  it('loads bound plugins and namespaces their skills and MCP tools', async () => {
+    await run({
+      skills: ['demo-skill'],
+      plugins: [
+        {
+          path: '/workspace/.claude/plugins/demo',
+          runtimeName: 'demo.plugin',
+          skills: ['review'],
+          mcpServers: ['fs.main'],
+          hasAgents: false,
+        },
+      ],
+    });
+    const options = io.options as Options;
+
+    expect(options.plugins).toEqual([{ type: 'local', path: '/workspace/.claude/plugins/demo' }]);
+    expect(options.skills).toEqual(['demo-skill', 'demo.plugin:review']);
+    // 插件 server 的 scoped 名非 [A-Za-z0-9_-] 字符替换成 _。
+    expect(options.allowedTools).toContain('mcp__plugin_demo_plugin_fs_main__*');
+    // 有插件子智能体时才放行 Agent。
+    expect(options.allowedTools).not.toContain('Agent');
+    expect(options.disallowedTools).toContain('Agent');
+  });
+
+  it('allows Agent when a plugin ships its own sub-agents', async () => {
+    await run({
+      subAgents: [{ slug: 'child', servers: [], skills: [] }],
+      plugins: [
+        {
+          path: '/workspace/.claude/plugins/demo',
+          runtimeName: 'demo',
+          skills: [],
+          mcpServers: [],
+          hasAgents: true,
+        },
+      ],
+    });
+    const options = io.options as Options;
+    expect(options.allowedTools).toContain('Agent');
+    expect(options.disallowedTools).not.toContain('Agent');
+  });
+
+  it('fails as infra when bound plugins never load', async () => {
+    const { events } = await run(
+      {
+        plugins: [
+          {
+            path: '/workspace/.claude/plugins/demo',
+            runtimeName: 'demo',
+            skills: [],
+            mcpServers: [],
+            hasAgents: false,
+          },
+        ],
+      },
+      undefined,
+      { plugins: [] },
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'run_finished',
+        status: 'failed',
+        failureKind: 'infra',
+      }),
+    );
+  });
+
+  it('reports plugin load errors without failing the run', async () => {
+    const { events } = await run(
+      {
+        plugins: [
+          {
+            path: '/workspace/.claude/plugins/demo',
+            runtimeName: 'demo',
+            skills: [],
+            mcpServers: [],
+            hasAgents: false,
+          },
+        ],
+      },
+      undefined,
+      {
+        pluginErrors: [
+          { plugin: 'inline[0]', type: 'path-not-found', message: 'Path not found: /x' },
+        ],
+      },
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        message: expect.stringContaining('Path not found: /x'),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'run_finished', status: 'succeeded' }),
+    );
+  });
+
   it('rejects a task without a user message uuid', async () => {
     await expect(run({ userMessageUuid: 'not-a-uuid' })).rejects.toThrow();
+  });
+});
+
+describe('assistant block streaming', () => {
+  const SDK_UUID = '33333333-4444-4555-8666-777777777777';
+  const init = [{ type: 'system', subtype: 'init', mcp_servers: [] }];
+  const result = [
+    {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      total_cost_usd: 0,
+      num_turns: 1,
+      session_id: 'session-1',
+      modelUsage: {},
+    },
+  ];
+  /** 真实顺序：每个非空内容块先发流事件，完整 assistant 消息在该块 stop 之前到达。 */
+  function stream(event: unknown, parentToolUseId: string | null = null): unknown {
+    return {
+      type: 'stream_event',
+      event,
+      parent_tool_use_id: parentToolUseId,
+      uuid: SDK_UUID,
+      session_id: 'session-1',
+    };
+  }
+  const completed = (text: string, parentToolUseId: string | null = null): unknown => ({
+    type: 'assistant',
+    parent_tool_use_id: parentToolUseId,
+    uuid: SDK_UUID,
+    message: { content: [{ type: 'text', text }] },
+  });
+  /** 工具块只能来自完整消息，同样在本块 stop 之前到达。 */
+  const completedTool = (parentToolUseId: string | null = null): unknown => ({
+    type: 'assistant',
+    parent_tool_use_id: parentToolUseId,
+    uuid: SDK_UUID,
+    message: {
+      content: [{ type: 'tool_use', id: 'toolu_1', name: 'read', input: { path: 'x' } }],
+    },
+  });
+
+  /** 一轮助手消息：文本块 + 工具块 + 文本块，完整消息在各自 stop 之前到达。 */
+  function turn(parentToolUseId: string | null = null): unknown[] {
+    const stream = (event: unknown): unknown => ({
+      type: 'stream_event',
+      event,
+      parent_tool_use_id: parentToolUseId,
+      uuid: SDK_UUID,
+      session_id: 'session-1',
+    });
+    return [
+      ...init,
+      stream({ type: 'message_start', message: {} }),
+      stream({
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'text', text: '' },
+      }),
+      stream({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'first ' },
+      }),
+      stream({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'part' },
+      }),
+      completed('first part', parentToolUseId),
+      stream({ type: 'content_block_stop', index: 0 }),
+      stream({
+        type: 'content_block_start',
+        index: 1,
+        content_block: { type: 'tool_use', id: 'toolu_1', name: 'read', input: {} },
+      }),
+      completedTool(parentToolUseId),
+      stream({ type: 'content_block_stop', index: 1 }),
+      stream({
+        type: 'content_block_start',
+        index: 2,
+        content_block: { type: 'text', text: '' },
+      }),
+      stream({
+        type: 'content_block_delta',
+        index: 2,
+        delta: { type: 'text_delta', text: 'second' },
+      }),
+      completed('second', parentToolUseId),
+      stream({ type: 'content_block_stop', index: 2 }),
+      stream({ type: 'message_stop' }),
+      ...result,
+    ];
+  }
+
+  it('emits start/delta/stop per content block and keeps one completed text per block', async () => {
+    const { events } = await run({}, turn());
+    const streamed = events.filter((event) => event.type !== 'run_finished');
+
+    expect(streamed.map((event) => event.type)).toEqual([
+      'assistant_block_start',
+      'text_delta',
+      'text_delta',
+      'assistant_text',
+      'assistant_block_stop',
+      'assistant_block_start',
+      'tool_start',
+      'tool_input',
+      'assistant_block_stop',
+      'assistant_block_start',
+      'text_delta',
+      'assistant_text',
+      'assistant_block_stop',
+    ]);
+    expect(streamed.filter((event) => event.type === 'assistant_block_start')).toEqual([
+      { type: 'assistant_block_start', blockIndex: 0, kind: 'text', sdkUuid: SDK_UUID },
+      { type: 'assistant_block_start', blockIndex: 1, kind: 'tool_use', sdkUuid: SDK_UUID },
+      { type: 'assistant_block_start', blockIndex: 2, kind: 'text', sdkUuid: SDK_UUID },
+    ]);
+    expect(streamed.filter((event) => event.type === 'text_delta')).toEqual([
+      { type: 'text_delta', text: 'first ', blockIndex: 0, sdkUuid: SDK_UUID },
+      { type: 'text_delta', text: 'part', blockIndex: 0, sdkUuid: SDK_UUID },
+      { type: 'text_delta', text: 'second', blockIndex: 2, sdkUuid: SDK_UUID },
+    ]);
+    // 落库用整块文本：只有文本块产生 assistant_text，各自带自己的 blockIndex。
+    expect(streamed.filter((event) => event.type === 'assistant_text')).toEqual([
+      { type: 'assistant_text', text: 'first part', blockIndex: 0, sdkUuid: SDK_UUID },
+      { type: 'assistant_text', text: 'second', blockIndex: 2, sdkUuid: SDK_UUID },
+    ]);
+  });
+
+  it('keeps sub-agent attribution on every streamed block', async () => {
+    const { events } = await run({}, turn('toolu_parent'));
+    for (const event of events.filter(
+      (event) => event.type === 'text_delta' || event.type === 'assistant_block_start',
+    )) {
+      expect(event.parentToolUseId).toBe('toolu_parent');
+    }
+    expect(events.filter((event) => event.type === 'assistant_text')).toContainEqual(
+      expect.objectContaining({ text: 'second', parentToolUseId: 'toolu_parent' }),
+    );
+  });
+
+  it('maps a completed block to the streaming block index, not its position in the message', async () => {
+    // 真实顺序（docs streaming-output）：thinking 是 index 0，文本是 index 1；
+    // 完整 assistant 消息只含当前块，按消息内位置重编会把文本错报成 0。
+    const thinking = { type: 'thinking', thinking: 'plan' };
+    const { events } = await run({}, [
+      ...init,
+      stream({ type: 'message_start', message: {} }),
+      stream({ type: 'content_block_start', index: 0, content_block: thinking }),
+      stream({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: 'plan' },
+      }),
+      {
+        type: 'assistant',
+        parent_tool_use_id: null,
+        uuid: 'aaaaaaaa-1111-4111-8111-111111111111',
+        message: { content: [thinking] },
+      },
+      stream({ type: 'content_block_stop', index: 0 }),
+      stream({
+        type: 'content_block_start',
+        index: 1,
+        content_block: { type: 'text', text: '' },
+      }),
+      stream({
+        type: 'content_block_delta',
+        index: 1,
+        delta: { type: 'text_delta', text: 'answer' },
+      }),
+      {
+        type: 'assistant',
+        parent_tool_use_id: null,
+        uuid: 'bbbbbbbb-2222-4222-8222-222222222222',
+        message: { content: [{ type: 'text', text: 'answer' }] },
+      },
+      stream({ type: 'content_block_stop', index: 1 }),
+      stream({ type: 'message_stop' }),
+      ...result,
+    ]);
+
+    const text = events.filter((event) => event.type === 'assistant_text');
+    expect(text).toEqual([
+      {
+        type: 'assistant_text',
+        text: 'answer',
+        blockIndex: 1,
+        sdkUuid: 'bbbbbbbb-2222-4222-8222-222222222222',
+      },
+    ]);
+    // 完整消息先于该块的 stop 到达，delta 与完整块共享同一个真实 index。
+    expect(events.filter((event) => event.type === 'text_delta')).toEqual([
+      { type: 'text_delta', text: 'answer', blockIndex: 1, sdkUuid: SDK_UUID },
+    ]);
+  });
+
+  it('forwards every complete single-block message in order, then the terminal result', async () => {
+    const { events } = await run({}, [
+      ...init,
+      stream({ type: 'message_start', message: {} }),
+      stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+      completed('first'),
+      stream({ type: 'content_block_stop', index: 0 }),
+      stream({ type: 'message_stop' }),
+      stream({ type: 'message_start', message: {} }),
+      stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+      completed('second'),
+      stream({ type: 'content_block_stop', index: 0 }),
+      stream({ type: 'message_stop' }),
+      ...result,
+    ]);
+
+    const streamed = events.filter((event) => event.type !== 'run_finished');
+    expect(streamed.map((event) => event.type)).toEqual([
+      'assistant_block_start',
+      'assistant_text',
+      'assistant_block_stop',
+      'assistant_block_start',
+      'assistant_text',
+      'assistant_block_stop',
+    ]);
+    expect(streamed.filter((event) => event.type === 'assistant_text')).toEqual([
+      { type: 'assistant_text', text: 'first', blockIndex: 0, sdkUuid: SDK_UUID },
+      { type: 'assistant_text', text: 'second', blockIndex: 0, sdkUuid: SDK_UUID },
+    ]);
+    expect(events.at(-1)).toMatchObject({ type: 'run_finished', status: 'succeeded' });
+  });
+
+  it('marks an over-limit block as truncated instead of silently cutting it', async () => {
+    const huge = 'x'.repeat(2048);
+    const { events, stderr } = await run({ maxFieldBytes: 1024 }, [
+      ...init,
+      {
+        type: 'assistant',
+        parent_tool_use_id: null,
+        uuid: SDK_UUID,
+        message: { content: [{ type: 'text', text: huge }] },
+      },
+      ...result,
+    ]);
+    const text = events.find((event) => event.type === 'assistant_text');
+    expect(text?.truncated).toBe(true);
+    expect(text?.text).toBe('x'.repeat(1024));
+    expect(stderr).toContain('truncated');
   });
 });

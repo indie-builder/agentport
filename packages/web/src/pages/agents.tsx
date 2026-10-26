@@ -18,7 +18,14 @@ import {
   type Server,
 } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { useBlocker, useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import {
+  Link,
+  useBlocker,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearch,
+} from '@tanstack/react-router';
 import {
   ArrowLeft,
   Bot,
@@ -33,6 +40,7 @@ import {
   LibraryBig,
   Plug,
   Plus,
+  Puzzle,
   RotateCcw,
   Sparkles,
   Trash2,
@@ -50,6 +58,7 @@ import {
   useState,
 } from 'react';
 import { type Path, type PathValue, useController } from 'react-hook-form';
+import { toast } from 'sonner';
 import { z } from 'zod';
 import digitalTwinPortrait from '../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../components/agent-avatar.js';
@@ -77,6 +86,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/ui/card.js';
+import { Checkbox } from '../components/ui/checkbox.js';
 import {
   Combobox,
   ComboboxChip,
@@ -141,6 +151,7 @@ import {
   useDeleteAgent,
   useDuplicateAgent,
   useKnowledgeBases,
+  usePlugins,
   useRollbackAgent,
   useServers,
   useSkills,
@@ -175,10 +186,12 @@ const emptyInput: AgentInput = {
   systemPrompt: '',
   serverIds: [],
   skillIds: [],
+  pluginBindings: [],
   subAgentIds: [],
   allowedTools: [],
   disallowedTools: [],
   permissionMode: 'dontAsk',
+  uiFormat: 'markdown',
   maxTurns: 20,
   maxBudgetUsd: 2,
   timeoutMs: 600_000,
@@ -195,10 +208,12 @@ function toInput(agent: Agent): AgentInput {
     systemPrompt: agent.systemPrompt,
     serverIds: agent.serverIds,
     skillIds: agent.skillIds,
+    pluginBindings: agent.pluginBindings,
     subAgentIds: agent.subAgentIds,
     allowedTools: agent.allowedTools,
     disallowedTools: agent.disallowedTools,
     permissionMode: agent.permissionMode,
+    uiFormat: agent.uiFormat,
     maxTurns: agent.maxTurns,
     maxBudgetUsd: agent.maxBudgetUsd,
     timeoutMs: agent.timeoutMs,
@@ -844,6 +859,7 @@ const errorSections: Record<string, SectionId> = {
   permissionMode: 'permissions',
   allowedTools: 'permissions',
   disallowedTools: 'permissions',
+  uiFormat: 'limits',
   maxTurns: 'limits',
   maxBudgetUsd: 'limits',
   timeoutMs: 'limits',
@@ -865,12 +881,15 @@ export function AgentEditor({
   const servers = useServers();
   const knowledgeBases = useKnowledgeBases();
   const skills = useSkills();
+  const plugins = usePlugins();
   const agents = useAgents();
-  const navigate = useNavigate();
+  // 绑定来源路由后，navigate 的 current 只含本路由 search，不会被其他路由的联合类型污染。
+  const navigate = useNavigate({ from: '/agents/$agentId' });
   const search = useSearch({ from: '/_shell/agents/$agentId' });
   const serverAnchor = useComboboxAnchor();
   const knowledgeAnchor = useComboboxAnchor();
   const skillAnchor = useComboboxAnchor();
+  const pluginAnchor = useComboboxAnchor();
   const subAgentAnchor = useComboboxAnchor();
   const [baseline, setBaseline] = useState(agent);
   const [conflict, setConflict] = useState(false);
@@ -894,6 +913,7 @@ export function AgentEditor({
     void navigate({
       to: '/agents/$agentId',
       params: { agentId: agent.id },
+      // 以 router 最新 search 为基底，连续两次更新不会互相覆盖。
       search: (current) => ({ ...current, ...next }),
       replace: true,
     });
@@ -926,6 +946,7 @@ export function AgentEditor({
   const skillIdsField = useController({ control: rhf.control, name: 'skillIds' }).field;
   const subAgentIdsField = useController({ control: rhf.control, name: 'subAgentIds' }).field;
   const permissionModeField = useController({ control: rhf.control, name: 'permissionMode' }).field;
+  const uiFormatField = useController({ control: rhf.control, name: 'uiFormat' }).field;
   const enabledField = useController({ control: rhf.control, name: 'enabled' }).field;
 
   const set = <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]): void => {
@@ -939,7 +960,11 @@ export function AgentEditor({
     setExporting(true);
     try {
       // 导出就是官方 `.claude/` 目录的 ZIP，浏览器直接落盘。
-      const url = URL.createObjectURL(await api.exportAgent(agent.id));
+      const url = URL.createObjectURL(
+        await api.exportAgent(agent.id, undefined, (warnings) => {
+          for (const warning of warnings) toast.warning(warning);
+        }),
+      );
       const link = document.createElement('a');
       link.href = url;
       link.download = `${agent.slug}.zip`;
@@ -1108,6 +1133,36 @@ export function AgentEditor({
     label: skill.name,
     hint: skill.description,
   }));
+
+  const pluginOptions = (plugins.data ?? []).map((plugin) => ({
+    id: plugin.id,
+    label: plugin.name,
+    hint: plugin.runtimeName,
+  }));
+
+  /** 勾选插件即绑定；hooks / MCP 仍取该插件上次的授权状态（新的默认关闭）。 */
+  const setPluginSelection = (pickedIds: string[]): void => {
+    const previous = new Map(form.pluginBindings.map((binding) => [binding.pluginId, binding]));
+    set(
+      'pluginBindings',
+      pickedIds.map(
+        (pluginId) => previous.get(pluginId) ?? { pluginId, allowHooks: false, allowMcp: false },
+      ),
+    );
+  };
+
+  const setPluginPermission = (
+    pluginId: string,
+    key: 'allowHooks' | 'allowMcp',
+    value: boolean,
+  ): void => {
+    set(
+      'pluginBindings',
+      form.pluginBindings.map((binding) =>
+        binding.pluginId === pluginId ? { ...binding, [key]: value } : binding,
+      ),
+    );
+  };
 
   // 保留当前绑定的子智能体，允许解绑；其他父级的子智能体不可选。
   const subAgentOptions = (agents.data ?? [])
@@ -1284,6 +1339,10 @@ export function AgentEditor({
     { value: 'plan', label: 'plan — 只规划不执行' },
     { value: 'default', label: 'default — 标准权限' },
     { value: 'acceptEdits', label: 'acceptEdits — 自动接受编辑' },
+  ];
+  const uiFormatOptions = [
+    { value: 'markdown', label: 'Markdown' },
+    { value: 'openui', label: '生成式 UI' },
   ];
 
   return (
@@ -1694,7 +1753,12 @@ export function AgentEditor({
                               form.serverIds.includes(option.id),
                             )}
                             onValueChange={(picked) => {
-                              serverIdsField.onChange(picked.map((option) => option.id));
+                              serverIdsField.onChange([
+                                ...form.serverIds.filter(
+                                  (id) => !serverOptions.some((option) => option.id === id),
+                                ),
+                                ...picked.map((option) => option.id),
+                              ]);
                             }}
                             itemToStringLabel={(option) => option.label}
                             itemToStringValue={(option) => option.id}
@@ -1899,6 +1963,158 @@ export function AgentEditor({
                             </ComboboxContent>
                           </Combobox>
                         ) : null}
+                      </div>
+
+                      <div>
+                        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                          <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                            <Puzzle className="size-4 text-muted-foreground" aria-hidden="true" />
+                            插件
+                          </h3>
+                          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                            {form.pluginBindings.length > 0
+                              ? `${form.pluginBindings.length} 个已启用`
+                              : '未启用'}
+                          </span>
+                        </div>
+                        {agent.parentId !== null ? (
+                          <p className="text-xs text-muted-foreground">
+                            插件在会话级加载，子智能体不能单独绑定。
+                          </p>
+                        ) : plugins.isPending ? (
+                          <LoadingState rows={1} />
+                        ) : plugins.isError ? (
+                          <ErrorState
+                            error={plugins.error}
+                            onRetry={() => void plugins.refetch()}
+                          />
+                        ) : pluginOptions.length === 0 ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            nativeButton={false}
+                            render={<Link to="/plugins" />}
+                          >
+                            导入插件
+                          </Button>
+                        ) : (
+                          <>
+                            <Combobox
+                              disabled={pending}
+                              multiple
+                              items={pluginOptions}
+                              value={pluginOptions.filter((option) =>
+                                form.pluginBindings.some((b) => b.pluginId === option.id),
+                              )}
+                              onValueChange={(picked) =>
+                                setPluginSelection(picked.map((option) => option.id))
+                              }
+                              itemToStringLabel={(option) => option.label}
+                              itemToStringValue={(option) => option.id}
+                              isItemEqualToValue={(a, b) => a.id === b.id}
+                              filter={(option, query) =>
+                                `${option.label} ${option.hint}`
+                                  .toLowerCase()
+                                  .includes(query.trim().toLowerCase())
+                              }
+                            >
+                              <ComboboxChips
+                                aria-label="已启用插件"
+                                data-disabled={pending}
+                                ref={pluginAnchor}
+                              >
+                                <ComboboxValue>
+                                  {(selected: typeof pluginOptions) =>
+                                    selected.map((option) => (
+                                      <ComboboxChip key={option.id} aria-label={option.label}>
+                                        {option.label}
+                                      </ComboboxChip>
+                                    ))
+                                  }
+                                </ComboboxValue>
+                                <ComboboxChipsInput
+                                  aria-label="插件"
+                                  placeholder="搜索并选择插件…"
+                                />
+                              </ComboboxChips>
+                              <ComboboxContent anchor={pluginAnchor}>
+                                <ComboboxEmpty>没有匹配的插件</ComboboxEmpty>
+                                <ComboboxList>
+                                  {(option: (typeof pluginOptions)[number]) => (
+                                    <ComboboxItem key={option.id} value={option}>
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block truncate">{option.label}</span>
+                                        <span className="block truncate text-xs text-muted-foreground">
+                                          {option.hint}
+                                        </span>
+                                      </span>
+                                    </ComboboxItem>
+                                  )}
+                                </ComboboxList>
+                              </ComboboxContent>
+                            </Combobox>
+                            {form.pluginBindings.length > 0 ? (
+                              <ul className="mt-2 flex flex-col gap-1.5">
+                                {form.pluginBindings.map((binding) => {
+                                  const plugin = (plugins.data ?? []).find(
+                                    (item) => item.id === binding.pluginId,
+                                  );
+                                  if (!plugin) return null;
+                                  return (
+                                    <li
+                                      key={binding.pluginId}
+                                      className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
+                                    >
+                                      <span className="font-medium text-fg">{plugin.name}</span>
+                                      {plugin.capabilities.hasHooks ? (
+                                        <span className="flex items-center gap-1.5">
+                                          <Checkbox
+                                            id={`plugin-${binding.pluginId}-hooks`}
+                                            checked={binding.allowHooks}
+                                            disabled={pending}
+                                            onCheckedChange={(checked) =>
+                                              setPluginPermission(
+                                                binding.pluginId,
+                                                'allowHooks',
+                                                checked === true,
+                                              )
+                                            }
+                                          />
+                                          <label htmlFor={`plugin-${binding.pluginId}-hooks`}>
+                                            允许 hooks
+                                          </label>
+                                        </span>
+                                      ) : null}
+                                      {plugin.capabilities.mcpServers.length > 0 ? (
+                                        <span className="flex items-center gap-1.5">
+                                          <Checkbox
+                                            id={`plugin-${binding.pluginId}-mcp`}
+                                            checked={binding.allowMcp}
+                                            disabled={pending}
+                                            onCheckedChange={(checked) =>
+                                              setPluginPermission(
+                                                binding.pluginId,
+                                                'allowMcp',
+                                                checked === true,
+                                              )
+                                            }
+                                          />
+                                          <label htmlFor={`plugin-${binding.pluginId}-mcp`}>
+                                            允许 MCP
+                                          </label>
+                                        </span>
+                                      ) : null}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            ) : null}
+                            <p className="mt-1.5 text-xs text-muted-foreground">
+                              hooks 与 MCP
+                              默认关闭：插件启动的进程以沙盒内用户权限运行，不经过平台的审批与审计。
+                            </p>
+                          </>
+                        )}
                       </div>
 
                       <div>
@@ -2210,6 +2426,32 @@ export function AgentEditor({
                             留空表示不设置。
                           </FieldDescription>
                         )}
+                      </Field>
+                      <Field data-disabled={pending} className="gap-1.5">
+                        <FieldLabel htmlFor="agent-ui-format">回复格式</FieldLabel>
+                        <Select
+                          disabled={pending}
+                          value={form.uiFormat}
+                          onValueChange={(value) => {
+                            if (value !== null) {
+                              uiFormatField.onChange(value as AgentInput['uiFormat']);
+                            }
+                          }}
+                          items={uiFormatOptions}
+                        >
+                          <SelectTrigger id="agent-ui-format" className="w-full min-w-0">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {uiFormatOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                       </Field>
                     </FieldGroup>
                   </Section>
@@ -2611,6 +2853,14 @@ function listWorkspaceFiles(files: AgentFiles): FileEntry[] {
       group: '输出风格',
       content: style.content,
     })),
+    ...(files.plugins ?? []).flatMap((plugin) =>
+      plugin.files.map((file) => ({
+        id: `.claude/plugins/${plugin.slug}/${file.path}`,
+        path: `plugins/${plugin.slug}/${file.path}`,
+        group: '插件',
+        content: file.content,
+      })),
+    ),
   ];
 }
 

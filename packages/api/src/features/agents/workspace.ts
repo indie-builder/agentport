@@ -1,5 +1,5 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
-import { renderWorkspace, toWorkspaceInput } from '@agentport/core';
+import { renderPlugin, renderWorkspace, toWorkspaceInput } from '@agentport/core';
 import { repo } from '@agentport/db';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import { knowledgeMcpEntry, maskUrlCredentials, SECRET_MASK } from '@agentport/shared';
@@ -124,6 +124,31 @@ export async function renderAgentWorkspace(
     body: r.body,
   }));
   const selectedOutputStyle = styleRows.find((r) => r.isSelected)?.slug ?? null;
+  // 预览与 worker 渲染同一份 CLAUDE.md：生成式 UI 的工具目录也要一致。
+  const openuiTools =
+    agent.uiFormat === 'openui' ? await repo.openui.listOpenUiTools(app.db, agent.id) : [];
+
+  // 预览必须与运行同源：同一份 renderPlugin 裁剪规则，否则用户看到的文件和实际加载的不一致。
+  // 子智能体不加载插件（worker 侧同样忽略），预览也按 parentId 过滤。
+  const pluginBindings =
+    agent.parentId === null ? await repo.plugins.listAgentPluginBindings(app.db, agent.id) : [];
+  const pluginFiles = await repo.plugins.getPluginFilesByPluginIds(
+    app.db,
+    pluginBindings.map(({ plugin }) => plugin.id),
+  );
+  const plugins = pluginBindings.map(({ plugin, allowHooks, allowMcp }) =>
+    renderPlugin({
+      slug: plugin.slug,
+      runtimeName: plugin.runtimeName,
+      allowHooks,
+      allowMcp,
+      files: (pluginFiles.get(plugin.id) ?? []).map((file) => ({
+        path: file.path,
+        content: file.content,
+        executable: file.executable,
+      })),
+    }),
+  );
 
   return renderWorkspace(
     toWorkspaceInput({
@@ -134,6 +159,8 @@ export async function renderAgentWorkspace(
       rules,
       outputStyles,
       selectedOutputStyle,
+      openuiTools,
+      plugins,
     }),
   );
 }

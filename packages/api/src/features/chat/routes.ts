@@ -20,6 +20,15 @@ import { chatRateLimit } from '../../plugins/security.js';
 import { closeProducer, getQueue, subscribeRun } from '../../queue/producer.js';
 import { typed } from '../../types.js';
 import { cancelAgentRun } from './cancel-run.js';
+import {
+  actionBytes,
+  checkOpenUiActionSource,
+  OPENUI_ACTION_MAX_BYTES,
+  openUiActionContent,
+  sourcePairingProblem,
+} from './openui-actions.js';
+import { registerOpenUiStateRoutes } from './openui-state.js';
+import { registerOpenUiToolRoutes } from './openui-tools.js';
 
 const chatRepo = repo.chat;
 
@@ -85,7 +94,34 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       schema: { body: chatRequestSchema },
     },
     async (request, reply) => {
-      const { agentId, message } = request.body;
+      const { openuiAction, ...chatInput } = request.body;
+      const { agentId, message } = chatInput;
+
+      // 来源成对：两个字段要么都有、要么都没有；缺一半是客户端拼错。open_url 也按此拒绝。
+      const pairingProblem = openuiAction === undefined ? null : sourcePairingProblem(openuiAction);
+      if (pairingProblem !== null) {
+        return reject(reply, 'INVALID_INPUT', pairingProblem);
+      }
+
+      // open_url 由浏览器直接开窗，不该变成一轮对话：接受并返回 204，明确不入库。
+      // 必要校验已在入口做完（shared schema 的协议与 http/https 地址）。
+      if (openuiAction?.type === 'open_url') {
+        return reply.status(204).send();
+      }
+
+      // 动作片段与正文一起落库：超过 64KB 时明确拒绝，避免表单值被截断后模型读到半份数据。
+      if (openuiAction !== undefined && actionBytes(openuiAction) > OPENUI_ACTION_MAX_BYTES) {
+        return reject(reply, 'PAYLOAD_TOO_LARGE', '生成式 UI 动作数据超过 64KB 上限，未发送');
+      }
+
+      // 落库的动作来源必须真实存在：伪造的 messageId/blockKey 会让审计对错消息。
+      const sourceProblem =
+        openuiAction === undefined
+          ? null
+          : await checkOpenUiActionSource(app.db, request.body.conversationId, openuiAction);
+      if (sourceProblem !== null) {
+        return reject(reply, 'INVALID_INPUT', sourceProblem);
+      }
 
       if (!(await chatRepo.agentExists(app.db, agentId))) {
         return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
@@ -104,6 +140,8 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       }
 
       const agentVersion = await repo.agentVersions.latestAgentVersion(app.db, agentId);
+      // 动作内容在准入前构造完，与 run、用户消息同一次事务写入：
+      // 先落纯文本再补写，补写失败会留下一个没有 job 的 queued run。
       const { run, conversationId, inherited } = await chatRepo.admitChatRun(app.db, {
         agentId,
         message,
@@ -112,6 +150,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         ...(request.body.conversationId === undefined
           ? {}
           : { conversationId: request.body.conversationId }),
+        ...(openuiAction === undefined ? {} : { userContent: openUiActionContent(openuiAction) }),
       });
 
       // jobId = runId，重复投递天然幂等。job 只带标识与本次输入：
@@ -148,7 +187,22 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         actor: 'admin',
         action: 'agent.run.requested',
         target: run.id,
-        input: { agentId, prompt: message },
+        input: {
+          agentId,
+          prompt: message,
+          // 生成式 UI 动作的来源段：用于把一次点击追到具体消息，实时消息可能没有 id。
+          ...(openuiAction === undefined
+            ? {}
+            : {
+                openuiAction: openuiAction.type,
+                ...(openuiAction.messageId === undefined
+                  ? {}
+                  : { openuiMessageId: openuiAction.messageId }),
+                ...(openuiAction.blockKey === undefined
+                  ? {}
+                  : { openuiBlockKey: openuiAction.blockKey }),
+              }),
+        },
         status: 'ok',
         requestId: request.id,
       });
@@ -308,6 +362,9 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       if (finished) {
         finishing = true;
         try {
+          // 库里终态但流里没有终态（worker 发布失败/流已过期）时，终态没有 messageIds：
+          // 先明确提示缺失，前端据此用已保存结果做 canonical 恢复。
+          await writeEvent(reply, { type: 'replay_truncated', reason: 'terminal_missing' });
           await writeEvent(reply, finished);
         } catch (err) {
           request.log.error({ err, runId }, 'sse write failed');
@@ -372,6 +429,8 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       return {
         conversation,
         // 只回前端契约里的字段：SDK uuid 是内部续聊状态，不上 wire。
+        // ui_format / ui_program / ui_state 是消息级渲染快照，必须原样带出，
+        // 否则刷新后只能按当前智能体的开关猜格式。
         messages: messages.map(({ sdkMessageUuid: _sdk, ...message }) => message),
         runMetrics,
         nextBefore: hasMore ? messages[0]?.id : null,
@@ -571,4 +630,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
   app.addHook('onClose', async () => {
     await closeProducer();
   });
+
+  registerOpenUiStateRoutes(rawApp);
+  registerOpenUiToolRoutes(rawApp);
 }

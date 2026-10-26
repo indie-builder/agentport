@@ -24,6 +24,8 @@ import { Route as ShellAgentsIndexRouteImport } from './routes/_shell/agents.ind
 import { Route as ShellAgentsAgentIdRouteImport } from './routes/_shell/agents.$agentId'
 import { Route as ShellKnowledgeIndexRouteImport } from './routes/_shell/knowledge.index'
 import { Route as ShellKnowledgeBaseIdRouteImport } from './routes/_shell/knowledge.$baseId'
+import { Route as ShellPluginsIndexRouteImport } from './routes/_shell/plugins.index'
+import { Route as ShellPluginsPluginIdRouteImport } from './routes/_shell/plugins.$pluginId'
 import { Route as ShellRunsIndexRouteImport } from './routes/_shell/runs.index'
 import { Route as ShellRunsRunIdRouteImport } from './routes/_shell/runs.$runId'
 
@@ -101,6 +103,16 @@ const ShellKnowledgeBaseIdRoute = ShellKnowledgeBaseIdRouteImport.update({
   path: '/knowledge/$baseId',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellPluginsIndexRoute = ShellPluginsIndexRouteImport.update({
+  id: '/plugins/',
+  path: '/plugins/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellPluginsPluginIdRoute = ShellPluginsPluginIdRouteImport.update({
+  id: '/plugins/$pluginId',
+  path: '/plugins/$pluginId',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellRunsIndexRoute = ShellRunsIndexRouteImport.update({
   id: '/runs/',
   path: '/runs/',
@@ -125,9 +137,11 @@ export interface FileRoutesByFullPath {
   '/status': typeof ShellStatusRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
+  '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/agents/': typeof ShellAgentsIndexRoute
   '/knowledge/': typeof ShellKnowledgeIndexRoute
+  '/plugins/': typeof ShellPluginsIndexRoute
   '/runs/': typeof ShellRunsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -143,9 +157,11 @@ export interface FileRoutesByTo {
   '/': typeof ShellIndexRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
+  '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/agents': typeof ShellAgentsIndexRoute
   '/knowledge': typeof ShellKnowledgeIndexRoute
+  '/plugins': typeof ShellPluginsIndexRoute
   '/runs': typeof ShellRunsIndexRoute
 }
 export interface FileRoutesById {
@@ -163,9 +179,11 @@ export interface FileRoutesById {
   '/_shell/': typeof ShellIndexRoute
   '/_shell/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/_shell/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
+  '/_shell/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/_shell/runs/$runId': typeof ShellRunsRunIdRoute
   '/_shell/agents/': typeof ShellAgentsIndexRoute
   '/_shell/knowledge/': typeof ShellKnowledgeIndexRoute
+  '/_shell/plugins/': typeof ShellPluginsIndexRoute
   '/_shell/runs/': typeof ShellRunsIndexRoute
 }
 export interface FileRouteTypes {
@@ -183,9 +201,11 @@ export interface FileRouteTypes {
     | '/status'
     | '/agents/$agentId'
     | '/knowledge/$baseId'
+    | '/plugins/$pluginId'
     | '/runs/$runId'
     | '/agents/'
     | '/knowledge/'
+    | '/plugins/'
     | '/runs/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -201,9 +221,11 @@ export interface FileRouteTypes {
     | '/'
     | '/agents/$agentId'
     | '/knowledge/$baseId'
+    | '/plugins/$pluginId'
     | '/runs/$runId'
     | '/agents'
     | '/knowledge'
+    | '/plugins'
     | '/runs'
   id:
     | '__root__'
@@ -220,9 +242,11 @@ export interface FileRouteTypes {
     | '/_shell/'
     | '/_shell/agents/$agentId'
     | '/_shell/knowledge/$baseId'
+    | '/_shell/plugins/$pluginId'
     | '/_shell/runs/$runId'
     | '/_shell/agents/'
     | '/_shell/knowledge/'
+    | '/_shell/plugins/'
     | '/_shell/runs/'
   fileRoutesById: FileRoutesById
 }
@@ -338,6 +362,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellKnowledgeBaseIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/plugins/': {
+      id: '/_shell/plugins/'
+      path: '/plugins'
+      fullPath: '/plugins/'
+      preLoaderRoute: typeof ShellPluginsIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/plugins/$pluginId': {
+      id: '/_shell/plugins/$pluginId'
+      path: '/plugins/$pluginId'
+      fullPath: '/plugins/$pluginId'
+      preLoaderRoute: typeof ShellPluginsPluginIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/runs/': {
       id: '/_shell/runs/'
       path: '/runs'
@@ -367,9 +405,11 @@ interface ShellRouteChildren {
   ShellIndexRoute: typeof ShellIndexRoute
   ShellAgentsAgentIdRoute: typeof ShellAgentsAgentIdRoute
   ShellKnowledgeBaseIdRoute: typeof ShellKnowledgeBaseIdRoute
+  ShellPluginsPluginIdRoute: typeof ShellPluginsPluginIdRoute
   ShellRunsRunIdRoute: typeof ShellRunsRunIdRoute
   ShellAgentsIndexRoute: typeof ShellAgentsIndexRoute
   ShellKnowledgeIndexRoute: typeof ShellKnowledgeIndexRoute
+  ShellPluginsIndexRoute: typeof ShellPluginsIndexRoute
   ShellRunsIndexRoute: typeof ShellRunsIndexRoute
 }
 
@@ -385,9 +425,11 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellIndexRoute: ShellIndexRoute,
   ShellAgentsAgentIdRoute: ShellAgentsAgentIdRoute,
   ShellKnowledgeBaseIdRoute: ShellKnowledgeBaseIdRoute,
+  ShellPluginsPluginIdRoute: ShellPluginsPluginIdRoute,
   ShellRunsRunIdRoute: ShellRunsRunIdRoute,
   ShellAgentsIndexRoute: ShellAgentsIndexRoute,
   ShellKnowledgeIndexRoute: ShellKnowledgeIndexRoute,
+  ShellPluginsIndexRoute: ShellPluginsIndexRoute,
   ShellRunsIndexRoute: ShellRunsIndexRoute,
 }
 

@@ -1,4 +1,4 @@
--- pgvector: drizzle 无法声明扩展与 HNSW opclass，这两段是手工补的。
+-- pgvector 扩展需先于向量列创建；HNSW 索引沿用知识库原迁移。
 CREATE EXTENSION IF NOT EXISTS vector;--> statement-breakpoint
 CREATE TABLE "knowledge_bases" (
 	"id" text PRIMARY KEY NOT NULL,
@@ -119,12 +119,16 @@ CREATE TABLE "knowledge_model_profiles" (
 	"endpoint_url" text NOT NULL,
 	"model" text NOT NULL,
 	"dimensions" integer,
+	"embedding_protocol" text DEFAULT 'openai' NOT NULL,
+	"image_input_enabled" boolean DEFAULT false NOT NULL,
 	"secrets_encrypted" text,
 	"enabled" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "knowledge_model_profiles_kind_check" CHECK ("knowledge_model_profiles"."kind" in ('embedding', 'rerank')),
-	CONSTRAINT "knowledge_model_profiles_dimensions_check" CHECK (("knowledge_model_profiles"."kind" = 'embedding' and "knowledge_model_profiles"."dimensions" = 1024) or ("knowledge_model_profiles"."kind" = 'rerank' and "knowledge_model_profiles"."dimensions" is null))
+	CONSTRAINT "knowledge_model_profiles_dimensions_check" CHECK (("knowledge_model_profiles"."kind" = 'embedding' and "knowledge_model_profiles"."dimensions" = 1024) or ("knowledge_model_profiles"."kind" = 'rerank' and "knowledge_model_profiles"."dimensions" is null)),
+	CONSTRAINT "knowledge_model_profiles_embedding_protocol_check" CHECK ("knowledge_model_profiles"."embedding_protocol" in ('openai', 'cohere_v2')),
+	CONSTRAINT "knowledge_model_profiles_image_input_check" CHECK ("knowledge_model_profiles"."image_input_enabled" = false or ("knowledge_model_profiles"."kind" = 'embedding' and "knowledge_model_profiles"."embedding_protocol" = 'cohere_v2' and "knowledge_model_profiles"."model" = 'embed-v4.0'))
 );
 --> statement-breakpoint
 CREATE TABLE "knowledge_source_ranges" (
@@ -266,5 +270,4 @@ CREATE UNIQUE INDEX "knowledge_wiki_sources_page_chunk_idx" ON "knowledge_wiki_s
 CREATE INDEX "knowledge_wiki_sources_document_idx" ON "knowledge_wiki_sources" USING btree ("document_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "knowledge_wiki_versions_page_version_idx" ON "knowledge_wiki_versions" USING btree ("page_id","version");--> statement-breakpoint
 ALTER TABLE "servers" ADD CONSTRAINT "servers_kind_check" CHECK ("servers"."kind" in ('stdio', 'http', 'generated', 'knowledge'));--> statement-breakpoint
--- 手工补：drizzle 的 index() 不支持 hnsw + vector_cosine_ops。部分索引只覆盖可召回的行。
 CREATE INDEX "knowledge_chunks_embedding_idx" ON "knowledge_chunks" USING hnsw ("embedding" vector_cosine_ops) WHERE "knowledge_chunks"."enabled" and "knowledge_chunks"."embedding" is not null;
