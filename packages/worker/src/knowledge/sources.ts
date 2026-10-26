@@ -235,9 +235,9 @@ async function fetchChecked(raw: string, options: FetchOptions): Promise<Respons
       continue;
     }
     if (!response.ok) {
+      await response.body?.cancel();
       const message = `HTTP ${response.status} from ${current.origin}${current.pathname}`;
       if (response.status === 401 || response.status === 403) {
-        await response.body?.cancel();
         throw new SourceAuthError(message);
       }
       throw new Error(message);

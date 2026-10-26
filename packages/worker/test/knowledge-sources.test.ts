@@ -33,6 +33,53 @@ async function startServer(handler: Handler): Promise<{ url: string; close: () =
   };
 }
 
+/**
+ * Flushes headers and a partial body but never ends the response, so the server
+ * only observes `close` after the client cancels the body or drops the connection.
+ */
+async function startHoldingServer(status: number): Promise<{
+  url: string;
+  responseClosed: Promise<void>;
+  close: () => Promise<void>;
+}> {
+  let markClosed: () => void = () => undefined;
+  const responseClosed = new Promise<void>((resolve) => {
+    markClosed = resolve;
+  });
+  const server = createServer((_request, response) => {
+    response.on('close', markClosed);
+    response.writeHead(status, { 'content-type': 'text/plain' });
+    response.write('held response body');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    responseClosed,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        // 客户端未取消时兜底断开，保证测试清理有界。
+        server.closeAllConnections();
+      }),
+  };
+}
+
+/** Bounded wait so a leaked connection fails the test instead of hanging the suite. */
+async function within(ms: number, promise: Promise<void>, message: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function readRequestBody(request: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) chunks.push(Buffer.from(chunk));
@@ -757,6 +804,32 @@ describe('RSS/Atom/JSON sources', () => {
       /cursor/,
     );
   });
+});
+
+describe('HTTP failure responses', () => {
+  it.each([
+    { status: 401, auth: true },
+    { status: 403, auth: true },
+    { status: 429, auth: false },
+    { status: 500, auth: false },
+  ])(
+    'cancels a held $status body before rejecting with the original error',
+    async ({ status, auth }) => {
+      const upstream = await startHoldingServer(status);
+      try {
+        const error = await readSource(rssConfig(`${upstream.url}/held`)).catch(
+          (reason: unknown) => reason,
+        );
+        expect(error).toBeInstanceOf(Error);
+        if (auth) expect(error).toBeInstanceOf(SourceAuthError);
+        else expect(error).not.toBeInstanceOf(SourceAuthError);
+        expect((error as Error).message).toBe(`HTTP ${status} from ${upstream.url}/held`);
+        await within(2_000, upstream.responseClosed, `upstream ${status} connection stayed open`);
+      } finally {
+        await upstream.close();
+      }
+    },
+  );
 });
 
 describe('GitLab source', () => {
