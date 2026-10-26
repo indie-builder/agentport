@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Redis } from 'ioredis';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type FastifyInstance, inject, loginCookie, startApp, testConfig } from './helpers.js';
 
 let app: FastifyInstance;
@@ -113,6 +113,28 @@ async function upload(baseId: string, content: string, filename = 'notes.md') {
       dataBase64: Buffer.from(content, 'utf8').toString('base64'),
     },
   });
+}
+
+/** 捕获 rebuild 期间的文档归属查询，区分一次批量查询与逐条查询。 */
+async function rebuildCapturingDocumentSelects(
+  baseId: string,
+  payload: { documentIds?: string[]; chunksOnly?: boolean },
+) {
+  const spy = vi.spyOn(app.pool, 'query');
+  try {
+    const res = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/rebuild`,
+      headers: { cookie },
+      payload,
+    });
+    const selects = spy.mock.calls
+      .map(([query]) => (typeof query === 'string' ? query : query.text))
+      .filter((text) => /from "knowledge_documents"/.test(text));
+    return { res, selects };
+  } finally {
+    spy.mockRestore();
+  }
 }
 
 /** 检索依赖 chunk 与当前版本；这里直接落 ready 文档，验证 API 层而不是 worker。 */
@@ -461,6 +483,146 @@ describe('knowledge routes', () => {
       [first.id],
     );
     expect(jobs.rows[0]?.count).toBe('0');
+  });
+
+  it('重建多个合法文档只做一次归属查询且只取 id', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+    const first = await upload(base.id, '文档一', 'one.md');
+    const second = await upload(base.id, '文档二', 'two.md');
+    expect(first.statusCode, first.body).toBe(202);
+    expect(second.statusCode, second.body).toBe(202);
+    const documentIds = [
+      first.json<{ documentId: string }>().documentId,
+      second.json<{ documentId: string }>().documentId,
+    ];
+
+    const { res, selects } = await rebuildCapturingDocumentSelects(base.id, {
+      documentIds,
+      chunksOnly: true,
+    });
+    expect(res.statusCode, res.body).toBe(202);
+    expect(selects).toHaveLength(1);
+    const sql = selects[0]?.replace(/\s+/g, ' ') ?? '';
+    expect(sql).toMatch(/^select "id" from "knowledge_documents"/i);
+    expect(sql).not.toMatch(/"metadata"|"content_hash"/i);
+
+    const jobs = await app.pool.query<{ payload: Record<string, unknown> }>(
+      "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
+      [base.id],
+    );
+    expect(jobs.rows).toHaveLength(1);
+    expect(jobs.rows[0]?.payload).toEqual({
+      type: 'reindex',
+      baseId: base.id,
+      documentIds,
+      chunksOnly: true,
+    });
+  });
+
+  it('重建混合跨库或缺失文档仍 400 且不入队', async () => {
+    const embedding = await createProfile('embedding');
+    const first = await createBase(embedding);
+    const second = await createBase(embedding);
+    const own = await upload(first.id, '本库文档', 'own.md');
+    const foreign = await upload(second.id, '外库文档', 'foreign.md');
+    expect(own.statusCode, own.body).toBe(202);
+    expect(foreign.statusCode, foreign.body).toBe(202);
+    const ownId = own.json<{ documentId: string }>().documentId;
+    const foreignId = foreign.json<{ documentId: string }>().documentId;
+
+    const cross = await rebuildCapturingDocumentSelects(first.id, {
+      documentIds: [ownId, foreignId],
+    });
+    expect(cross.res.statusCode, cross.res.body).toBe(400);
+    expect(cross.res.json<{ code: string; message: string }>()).toMatchObject({
+      code: 'INVALID_INPUT',
+      message: '存在不属于该知识库的文档',
+    });
+    expect(cross.selects).toHaveLength(1);
+
+    const missing = await rebuildCapturingDocumentSelects(first.id, {
+      documentIds: [ownId, 'kdoc_missing'],
+    });
+    expect(missing.res.statusCode, missing.res.body).toBe(400);
+    expect(missing.res.json<{ code: string; message: string }>()).toMatchObject({
+      code: 'INVALID_INPUT',
+      message: '存在不属于该知识库的文档',
+    });
+    expect(missing.selects).toHaveLength(1);
+
+    const jobs = await app.pool.query<{ count: string }>(
+      "select count(*)::text as count from knowledge_jobs where base_id = $1 and type = 'reindex'",
+      [first.id],
+    );
+    expect(jobs.rows[0]?.count).toBe('0');
+  });
+
+  it('重建重复文档只做一次归属查询并保留原数组入队', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+    const uploaded = await upload(base.id, '重复文档');
+    expect(uploaded.statusCode, uploaded.body).toBe(202);
+    const documentId = uploaded.json<{ documentId: string }>().documentId;
+
+    const { res, selects } = await rebuildCapturingDocumentSelects(base.id, {
+      documentIds: [documentId, documentId],
+    });
+    expect(res.statusCode, res.body).toBe(202);
+    expect(selects).toHaveLength(1);
+
+    const jobs = await app.pool.query<{ payload: Record<string, unknown> }>(
+      "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
+      [base.id],
+    );
+    expect(jobs.rows).toHaveLength(1);
+    expect(jobs.rows[0]?.payload).toEqual({
+      type: 'reindex',
+      baseId: base.id,
+      documentIds: [documentId, documentId],
+      chunksOnly: false,
+    });
+  });
+
+  it('重建空数组不查询文档并以空数组入队', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+
+    const { res, selects } = await rebuildCapturingDocumentSelects(base.id, { documentIds: [] });
+    expect(res.statusCode, res.body).toBe(202);
+    expect(selects).toHaveLength(0);
+
+    const jobs = await app.pool.query<{ payload: Record<string, unknown> }>(
+      "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
+      [base.id],
+    );
+    expect(jobs.rows).toHaveLength(1);
+    expect(jobs.rows[0]?.payload).toEqual({
+      type: 'reindex',
+      baseId: base.id,
+      documentIds: [],
+      chunksOnly: false,
+    });
+  });
+
+  it('重建缺省 documentIds 不查询且不传该属性', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+
+    const { res, selects } = await rebuildCapturingDocumentSelects(base.id, { chunksOnly: true });
+    expect(res.statusCode, res.body).toBe(202);
+    expect(selects).toHaveLength(0);
+
+    const jobs = await app.pool.query<{ payload: Record<string, unknown> }>(
+      "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
+      [base.id],
+    );
+    expect(jobs.rows).toHaveLength(1);
+    expect(jobs.rows[0]?.payload).toEqual({
+      type: 'reindex',
+      baseId: base.id,
+      chunksOnly: true,
+    });
   });
 
   it('模型端点保存与测试都走 SSRF 边界，allowlist 内网主机放行', async () => {
