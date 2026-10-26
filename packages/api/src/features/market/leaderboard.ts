@@ -90,7 +90,10 @@ export async function fetchLeaderboard(view: MarketView): Promise<MarketSkill[]>
       headers: { 'user-agent': 'agentport-market/1.0', accept: 'text/html' },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!response.ok) throw new Error(`skills.sh responded ${response.status}`);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`skills.sh responded ${response.status}`);
+    }
     const data = parseLeaderboard(await response.text());
     cache.set(view, { at: Date.now(), data });
     return data;
