@@ -5,6 +5,14 @@ import { getTrustedOrigins, isTrustedOrigin } from '../config.js';
 /** 测试与本地关闭限流；预设保留显式 `rateLimit: false`，避免落回全局默认。 */
 const limitsOff = process.env.RATE_LIMIT_DISABLED === '1';
 
+/** 限流存储调用失败即依赖不可用：不依赖 ioredis 的错误名/文案，统一成可重试 503。 */
+function storeUnavailable(err: unknown) {
+  return new AppError('SERVICE_UNAVAILABLE', '服务暂时不可用，请稍后重试', {
+    cause: err,
+    retryable: true,
+  });
+}
+
 /**
  * 安全与限流插件集中注册，避免散落在各 feature 里。
  * 限流用 Redis 存储：多进程/多 worker 部署时计数才一致。
@@ -37,8 +45,31 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
   });
   await app.register(compress, { global: true });
 
-  const redis = new Redis(app.config.REDIS_URL, { maxRetriesPerRequest: null });
+  // 限流专用连接（未与 BullMQ 共用）：有界重试 + 命令超时，Redis 故障时快速失败而不是挂死。
+  // BullMQ 的队列连接要求 maxRetriesPerRequest: null，那条在各 queue 里单独创建，不受这里影响。
+  const redis = new Redis(app.config.REDIS_URL, {
+    maxRetriesPerRequest: 1,
+    // 从命令入队开始计时：3s 覆盖容器暂停/网络抖动的恢复窗口，1s 会把恢复后仍在队列里的命令误杀。
+    commandTimeout: 3_000,
+  });
   redis.on('error', (err: Error) => app.log.warn({ err }, 'rate-limit redis error'));
+
+  // @fastify/rate-limit 的 RedisStore 只调用 defineCommand 和这两条 Lua 命令；
+  // 在存储边界转换错误，避免 ioredis 升级改文案后限流故障退化成 500。
+  const rateLimitRedis = new Proxy(redis, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop);
+      // 命令由 RedisStore 通过 defineCommand 懒注册；未定义时返回 undefined 让它继续注册。
+      if (typeof value !== 'function') return value;
+      if (prop !== 'rateLimit' && prop !== 'rateLimitRead') return value.bind(target);
+      return (...args: unknown[]) => {
+        const done = args.pop() as (err: Error | null, result?: unknown) => void;
+        value.call(target, ...args, (err: Error | null, result: unknown) =>
+          done(err ? storeUnavailable(err) : null, result),
+        );
+      };
+    },
+  });
 
   if (limitsOff) app.log.warn('rate limiting disabled by RATE_LIMIT_DISABLED=1');
   /*
@@ -51,7 +82,7 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
     global: true,
     max: 600,
     timeWindow: '1 minute',
-    redis,
+    redis: rateLimitRedis,
     nameSpace: 'agentport:rl:',
     // 插件会 throw 这个返回值，所以必须是 Error；边界再渲染成 Problem。
     errorResponseBuilder: () =>
@@ -61,7 +92,8 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
   });
 
   app.addHook('onClose', async () => {
-    await redis.quit();
+    // Redis 不可用时 quit 会随命令超时失败；关停不需要等待连接。
+    await redis.quit().catch(() => redis.disconnect());
   });
 }
 

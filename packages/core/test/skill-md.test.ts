@@ -98,7 +98,7 @@ describe('parseSkillMd', () => {
     expect(parseSkillMd(markdown).skill.description).toBe('line one\nline two');
   });
 
-  it('warns about descriptive fields without persisting them', () => {
+  it('keeps descriptive fields in the parse result', () => {
     const markdown = [
       '---',
       'name: described',
@@ -107,21 +107,61 @@ describe('parseSkillMd', () => {
       'compatibility: claude-code',
       'metadata:',
       '  version: 1',
+      '  author:',
+      '    name: team',
       '---',
       '',
       '# Described',
     ].join('\n');
 
-    const { skill, warnings } = parseSkillMd(markdown);
-    expect(skill).toEqual({
-      slug: 'described',
-      name: 'Described',
-      description: 'Has provenance metadata',
-      body: '',
+    expect(parseSkillMd(markdown)).toEqual({
+      skill: {
+        slug: 'described',
+        name: 'Described',
+        description: 'Has provenance metadata',
+        body: '',
+        license: 'MIT',
+        compatibility: 'claude-code',
+        metadata: { version: 1, author: { name: 'team' } },
+      },
+      warnings: [],
     });
-    expect(warnings).toHaveLength(3);
-    expect(warnings.join('\n')).toMatch(/license/);
-    expect(warnings.join('\n')).toMatch(/metadata/);
+  });
+
+  it('round-trips descriptive fields through renderSkillMd', () => {
+    const skill = {
+      slug: 'provenance',
+      name: 'Provenance',
+      description: 'Keeps provenance',
+      body: '## Steps',
+      license: 'MIT',
+      compatibility: 'claude-code',
+      metadata: { version: 1, author: { name: 'team' } },
+    };
+
+    expect(parseSkillMd(renderSkillMd(skill))).toEqual({ skill, warnings: [] });
+  });
+
+  it('round-trips deeply nested metadata and numeric keys', () => {
+    const skill = {
+      slug: 'nested-metadata',
+      name: 'Nested Metadata',
+      description: 'Keeps nested metadata',
+      body: '',
+      metadata: { weight: 2, 1: 'one', nested: { list: [1, { ok: true }] } },
+    };
+
+    expect(parseSkillMd(renderSkillMd(skill))).toEqual({ skill, warnings: [] });
+  });
+
+  it('rejects non-finite numbers in metadata and names the key', () => {
+    const withMetadata = (line: string): string =>
+      ['---', 'name: bad-metadata', 'description: d', 'metadata:', line, '---', '', '# X'].join(
+        '\n',
+      );
+
+    expect(invalidWith(withMetadata('  score: .nan')).message).toMatch(/metadata\.score/);
+    expect(invalidWith(withMetadata('  ratio: .inf')).message).toMatch(/metadata\.ratio/);
   });
 
   it('rejects files without a frontmatter header', () => {

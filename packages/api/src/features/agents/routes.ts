@@ -47,7 +47,7 @@ const memoryFileParams = z.object({
   name: z.string().regex(memoryFileNamePattern, '记忆文件名非法：只允许 <name>.md'),
 });
 const memoryWriteBody = z.object({ content: z.string() });
-const ruleParams = z.object({ id: z.string().min(1), slug: z.string().min(1) });
+const ruleParams = z.object({ id: z.string().min(1), slug: slugSchema });
 const outputStyleParams = z.object({ id: z.string().min(1), slug: slugSchema });
 const ruleBody = z.object({
   content: z.string().max(100_000),
@@ -742,32 +742,28 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const exists = await memorySlug(request.params.id);
       if (!exists) return notFound(reply);
-      try {
-        const row = await allRepo.rules.upsertRule(app.db, request.params.id, {
-          slug: request.params.slug,
-          content: request.body.content,
-          globs: request.body.globs,
-        });
-        await writeAudit(app.db, request.log, {
-          actor: 'admin',
-          action: 'agent.rule.written',
-          target: request.params.id,
-          input: { slug: row.slug },
-          status: 'ok',
-          requestId: request.id,
-        });
-        return {
-          id: row.id,
-          agentId: row.agentId,
-          slug: row.slug,
-          content: row.content,
-          globs: row.globs,
-          createdAt: row.createdAt.toISOString(),
-          updatedAt: row.updatedAt.toISOString(),
-        };
-      } catch {
-        return reject(reply, 'INVALID_INPUT', '规则 slug 非法：仅允许小写字母、数字、- 和 _');
-      }
+      const row = await allRepo.rules.upsertRule(app.db, request.params.id, {
+        slug: request.params.slug,
+        content: request.body.content,
+        globs: request.body.globs,
+      });
+      await writeAudit(app.db, request.log, {
+        actor: 'admin',
+        action: 'agent.rule.written',
+        target: request.params.id,
+        input: { slug: row.slug },
+        status: 'ok',
+        requestId: request.id,
+      });
+      return {
+        id: row.id,
+        agentId: row.agentId,
+        slug: row.slug,
+        content: row.content,
+        globs: row.globs,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+      };
     },
   );
 

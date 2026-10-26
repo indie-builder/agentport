@@ -1,5 +1,6 @@
 import { type OpenUiToolDescriptor, SANDBOX_RUNTIME_ENV } from '@agentport/shared';
 import { openuiSystemPrompt } from './openui-prompt.js';
+import type { SkillProvenance } from './skill-md.js';
 import type { McpJsonEntry } from './tools.js';
 
 export interface WorkspaceFiles {
@@ -51,7 +52,7 @@ export interface WorkspaceAgent {
   timeoutMs?: number;
 }
 
-export interface WorkspaceSkill {
+export interface WorkspaceSkill extends SkillProvenance {
   slug: string;
   name: string;
   description: string;
@@ -117,12 +118,35 @@ export function renderOutputStyleMd(style: {
   ].join('\n');
 }
 
+/** 只在顶层逗号拆分 glob；花括号、方括号与反斜杠转义内的逗号属于同一个模式。 */
+function splitGlobs(value: string): string[] {
+  const patterns: string[] = [];
+  let depth = 0;
+  let inBracket = false;
+  let start = 0;
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    // 转义只影响下一个字符：既不是分隔符，也不改变括号深度。
+    if (char === '\\') {
+      i++;
+      continue;
+    }
+    if (char === '[') inBracket = true;
+    else if (char === ']') inBracket = false;
+    else if (!inBracket && char === '{') depth++;
+    else if (!inBracket && char === '}') depth = Math.max(0, depth - 1);
+    else if (!inBracket && char === ',' && depth === 0) {
+      patterns.push(value.slice(start, i));
+      start = i + 1;
+    }
+  }
+  patterns.push(value.slice(start));
+  return patterns.map((pattern) => pattern.trim()).filter(Boolean);
+}
+
 /** 渲染一条规则文件：有 globs 时写入 frontmatter 的 paths；否则纯 Markdown。 */
 export function renderRuleMd(rule: { slug: string; content: string; globs?: string }): string {
-  const globs = (rule.globs ?? '')
-    .split(',')
-    .map((g) => g.trim())
-    .filter(Boolean);
+  const globs = splitGlobs(rule.globs ?? '');
   if (globs.length === 0) return `${rule.content.trim()}\n`;
   return [
     '---',
@@ -258,7 +282,6 @@ function renderClaudeMd(input: WorkspaceInput): string {
           ...skills.map((s) => `- \`${s.slug}\`：${inlineText(s.description)}`),
           '',
           '需要时用原生 `Skill` 工具调用对应技能，技能名就是上面的 slug。',
-          '不要用 `Read` 打开 `.claude/skills/` 下的文件：文件工具仅供主会话访问原生记忆。',
         ];
 
   const subAgents = input.subAgents ?? [];
@@ -426,6 +449,11 @@ export function renderSkillMd(skill: WorkspaceSkill): string {
     '---',
     `name: ${yamlString(skill.slug)}`,
     `description: ${yamlString(skill.description)}`,
+    ...(skill.license === undefined ? [] : [`license: ${yamlString(skill.license)}`]),
+    ...(skill.compatibility === undefined
+      ? []
+      : [`compatibility: ${yamlString(skill.compatibility)}`]),
+    ...(skill.metadata === undefined ? [] : [`metadata: ${JSON.stringify(skill.metadata)}`]),
     '---',
     '',
     `# ${skill.name}`,

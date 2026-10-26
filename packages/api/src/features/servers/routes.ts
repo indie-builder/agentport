@@ -393,7 +393,14 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       if (body.paramsIn !== undefined) patch.paramsIn = body.paramsIn;
       if (body.requiresApproval !== undefined) patch.requiresApproval = body.requiresApproval;
       if (body.enabled !== undefined) patch.enabled = body.enabled;
-      const tool = await repo.updateTool(app.db, id, toolId, patch);
+      let tool: Awaited<ReturnType<typeof repo.updateTool>>;
+      try {
+        tool = await repo.updateTool(app.db, id, toolId, patch);
+      } catch (err) {
+        if (isPgCode(err, '23505'))
+          return reject(reply, 'CONFLICT', '该工具名已被同一连接器下的其他工具占用，请换一个');
+        throw err;
+      }
       if (!tool) return notFound(reply, 'tool');
       await writeAudit(app.db, request.log, {
         actor: 'admin',

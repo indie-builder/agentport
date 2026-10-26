@@ -31,6 +31,7 @@ command -v docker >/dev/null 2>&1 || fail "未找到 docker"
 docker compose version >/dev/null 2>&1 || fail "未找到 docker compose"
 
 if [ ! -f .env ]; then
+  umask 077
   cp .env.example .env
   ENV_FILE=.env node --input-type=commonjs <<'NODE'
 const fs = require('node:fs');
@@ -63,6 +64,7 @@ NODE
   echo "已从 .env.example 生成 .env（APP_SECRET_KEY / JWT_SECRET / REDIS_PASSWORD / PLATFORM_MCP_TOKEN / ADMIN_PASSWORD 已随机填充）"
   echo "提示：请按需修改 .env 中的 ADMIN_PASSWORD 后重新部署；运行智能体还需填写 ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN"
 fi
+chmod 600 .env
 
 ADMIN_PASSWORD="$(env_get ADMIN_PASSWORD)"
 [ -n "$ADMIN_PASSWORD" ] ||

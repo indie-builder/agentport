@@ -36,10 +36,12 @@ export const scheduleSchema = z.object({
 
 export type Schedule = z.infer<typeof scheduleSchema>;
 
-export const schedulePatchSchema = scheduleInputSchema
-  .omit({ agentId: true })
-  .partial()
-  .extend({ expectedUpdatedAt: z.string().optional() });
+// `.partial()` 只把字段设为可选，不会移除 `default()`；直接 partial 会在省略
+// enabled 时仍注入 true，把停用的任务重新启用。这里显式覆盖成纯可选。
+export const schedulePatchSchema = scheduleInputSchema.omit({ agentId: true }).partial().extend({
+  enabled: z.boolean().optional(),
+  expectedUpdatedAt: z.string().optional(),
+});
 
 export type SchedulePatch = z.infer<typeof schedulePatchSchema>;
 

@@ -670,4 +670,29 @@ describe.skipIf(!ready)('agents', () => {
     expect(res.statusCode).toBe(404);
     expectProblem(res, 'AGENT_NOT_FOUND');
   });
+
+  it('validates rule slugs at the route boundary and keeps database failures as 500s', async () => {
+    const agent = (await newAgent(unique('rule-errors'))).json<Agent>();
+
+    const invalid = await inject(app, {
+      method: 'PUT',
+      url: `/api/agents/${agent.id}/rules/Bad.Slug`,
+      headers: auth(),
+      payload: { content: 'x' },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expectProblem(invalid, 'INVALID_INPUT');
+
+    // PostgreSQL rejects NUL bytes in text parameters: a real DB failure must
+    // surface as INTERNAL_ERROR, not as an invalid-slug message.
+    const dbError = await inject(app, {
+      method: 'PUT',
+      url: `/api/agents/${agent.id}/rules/deploy`,
+      headers: auth(),
+      payload: { content: 'before\u0000after' },
+    });
+    expect(dbError.statusCode).toBe(500);
+    expect(dbError.json<{ code: string }>().code).toBe('INTERNAL_ERROR');
+    expect(dbError.body).not.toContain('规则 slug 非法');
+  });
 });
