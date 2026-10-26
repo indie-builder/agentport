@@ -54,6 +54,7 @@ vi.mock('../src/lib/queries.js', () => {
     }),
     useInstallMarketSkill: mutation,
     useServers: () => ({ data: [] }),
+    useKnowledgeBases: () => ({ data: [], isPending: false, isError: false }),
     useCreateSkill: mutation,
     useUpdateSkill: mutation,
     useDeleteSkill: mutation,

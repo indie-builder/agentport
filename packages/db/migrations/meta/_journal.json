@@ -232,6 +232,20 @@
       "when": 1792901401137,
       "tag": "0032_melted_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792925676592,
+      "tag": "0033_steep_nico_minoru",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792942227079,
+      "tag": "0034_normal_sebastian_shaw",
+      "breakpoints": true
     }
   ]
 }

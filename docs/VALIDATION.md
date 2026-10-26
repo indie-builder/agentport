@@ -78,3 +78,23 @@ zod 校验失败由 `plugins/errors.ts` 统一映射：
 规则因此仍然成立：**路由层面没有 `safeParse`**，唯一的前置校验点仍是路由 `schema`；handler 内的
 `safeParse` 只用于把开放 JSON 收窄成已知类型，而不是补路由漏写的校验。新增类似场景时，同样需要
 在类型层无法表达的前提下才允许，并在代码注释里写明原因。
+
+## 知识库上传与内容入口
+
+知识库的写入口都在路由 `schema` 上完成校验，不新增第二套解析约定：
+
+| 入口 | 形状 | 边界 |
+|---|---|---|
+| `PUT /api/knowledge/bases/:id/documents/upload` | JSON `{ filename, mimeType, dataBase64, title?, folderId }` | 路由级 `bodyLimit` 48 MiB；base64 解码后超过 32 MiB 返回 `PAYLOAD_TOO_LARGE`；解码后重新编码比对，非法 base64 不写盘 |
+| `POST /api/knowledge/bases/:id/documents/manual` | `{ title, content, folderId, tags }` | 正文最多 200,000 字符，路由级 `bodyLimit` 2 MiB |
+| `POST /api/knowledge/bases/:id/documents/url` | `{ url, title?, folderId? }` | URL 先经 `assertSafeUrl`；重定向直接拒绝（要求填最终地址），只接受可解析的文本类 MIME，响应上限 32 MiB |
+| `POST /api/knowledge/bases/import` | `application/zip` 二进制 | 路由级 `bodyLimit` 64 MiB；包内路径、条目数、解压总量与 sha256 在解压前/后分别校验，拒绝绝对路径、`..`、链接和重复成员；`manifest.json` 是开放 JSON，由 `package.ts` 在 handler 内 `safeParse` 收窄 |
+| 内置知识 MCP 工具参数 | MCP JSON，非 Fastify 路由 | `features/knowledge/mcp.ts` 在 handler 内 `safeParse` 工具参数：这里没有路由 schema 可挂，且必须把非法参数转成工具错误而不是 HTTP 400 |
+
+上传的文件类型不在入口做格式白名单（除 URL 导入按可解析类型过滤）：格式判定在 worker 的解析链完成，不支持的格式以任务失败明确报出；PDF/Office/OCR 需要配置 `DOCLING_URL`，未配置时不会静默降级。知识库连接本身也不走用户 CRUD：`serverInputSchema` 不含 `kind='knowledge'`，内置连接只能由知识库生命周期创建。`knowledgeSourceInputSchema` 的 `ranges` 是 `.min(1)`，所以范围为空在路由校验阶段就返回 `INVALID_INPUT`，handler 不再二次判空。
+
+图片多模态入口复用上述上传与模型配置：库设置 `imageProcessing` 在共享 Zod schema 完成开关、模型、动作与相似度范围校验，启用需模型且 OCR/描述至少一项。profile 的 `embeddingProtocol`/`imageInputEnabled` 有数据库 check，图片输入仅适用于已实现的 Cohere v2 `embed-v4.0` 协议。模型响应严格校验有限数、条数及1024维，不截断/拼接向量。
+
+`knowledge_read_image` 接受 chunkId 和 description/image 格式，不接受任意路径或URL；再按绑定库→当前可见文档/版本→启用chunk→版本图片清单读取。原图以 MCP 原生 image content 返回，MIME与单图5MiB限制独立校验；描述结果仍为JSON text以保存引用。图片metadata导入须与同版本图片清单对应，向量数值不进知识包，图片向量子块身份需保留以恢复索引。
+
+2026-10-25 的实际状态：上传、手写、URL 导入、来源同步与内置 MCP 的**自动**测试已覆盖对应断言；多模态实际SDK/CLI+本地协议夹具及页面链验证见 [实施记录](tasks/knowledge-multimodal-implementation.md)。真实 Docling /视觉模型/ Cohere / embedding / rerank / 飞书 / GitLab 尚未用真实服务或凭证验证，不能用 fixture 通过代替质量验收。

@@ -1,0 +1,86 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "# 季度报告\n\n第一段内容。\n\n| 指标 | 数值 |\n| --- | --- |\n| 收入 | 100 |\n\n未匹配的段落。\n",
+    "json_content": {
+      "body": {
+        "self_ref": "#/body",
+        "children": [{ "$ref": "#/texts/0" }, { "$ref": "#/texts/1" }, { "$ref": "#/tables/0" }]
+      },
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "section_header",
+          "level": 1,
+          "text": "季度报告",
+          "orig": "季度报告",
+          "prov": [
+            {
+              "page_no": 1,
+              "bbox": { "l": 10, "t": 20, "r": 30, "b": 40, "coord_origin": "BOTTOMLEFT" },
+              "charspan": [0, 4]
+            }
+          ]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "第一段内容。",
+          "orig": "第一段内容。",
+          "prov": [{ "page_no": 2, "bbox": { "l": 1, "t": 2, "r": 3, "b": 4 }, "charspan": [0, 6] }]
+        },
+        {
+          "self_ref": "#/texts/2",
+          "label": "text",
+          "text": "附加说明",
+          "orig": "附加说明",
+          "prov": [{ "page_no": 3, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 }, "charspan": [0, 4] }]
+        }
+      ],
+      "tables": [
+        {
+          "self_ref": "#/tables/0",
+          "label": "table",
+          "prov": [
+            { "page_no": 4, "bbox": { "l": 0, "t": 0, "r": 9, "b": 9 }, "charspan": [0, 0] }
+          ],
+          "data": {
+            "num_rows": 2,
+            "num_cols": 2,
+            "table_cells": [
+              {
+                "text": "指标",
+                "start_row_offset_idx": 0,
+                "end_row_offset_idx": 1,
+                "start_col_offset_idx": 0,
+                "end_col_offset_idx": 1
+              },
+              {
+                "text": "数值",
+                "start_row_offset_idx": 0,
+                "end_row_offset_idx": 1,
+                "start_col_offset_idx": 1,
+                "end_col_offset_idx": 2
+              },
+              {
+                "text": "收入",
+                "start_row_offset_idx": 1,
+                "end_row_offset_idx": 2,
+                "start_col_offset_idx": 0,
+                "end_col_offset_idx": 1
+              },
+              {
+                "text": "100",
+                "start_row_offset_idx": 1,
+                "end_row_offset_idx": 2,
+                "start_col_offset_idx": 1,
+                "end_col_offset_idx": 2
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

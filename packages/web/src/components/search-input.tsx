@@ -16,16 +16,19 @@ export function SearchInput({
   placeholder = '搜索…',
   label,
   className,
+  inputId,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   label: string;
   className?: string;
+  inputId?: string;
 }) {
   return (
     <InputGroup className={className}>
       <InputGroupInput
+        id={inputId}
         type="search"
         aria-label={label}
         value={value}

@@ -39,7 +39,12 @@ describe('native memory deployment', () => {
       expect(service?.depends_on?.init?.condition).toBe('service_completed_successfully');
     }
     expect(config.services.api?.image).toBe(config.services.worker?.image);
-    expect(config.services.init?.command).toEqual(['chown', '-R', '1000:1000', '/w']);
+    expect(config.services.init?.command?.slice(0, 3)).toEqual(['chown', '-R', '1000:1000']);
+    expect(config.services.init?.command).toContain('/w');
+    expect(config.services.init?.command).toContain('/k');
+    expect(config.services.init?.volumes).toContainEqual(
+      expect.objectContaining({ source: 'knowledgedata', target: '/k', type: 'volume' }),
+    );
     expect(config.services.init?.volumes).toContainEqual(
       expect.objectContaining({ source: 'workspaces', target: '/w', type: 'volume' }),
     );

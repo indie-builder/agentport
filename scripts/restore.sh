@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 从完整备份恢复：校验归档 → 生成恢复前安全副本（库 + 工作区）→ 单事务替换数据库 →
 # 换入工作区文件 → 补齐迁移。
-# 用法：pnpm restore <backup.tar.gz> [--target-workspaces <dir>]
+# 用法：pnpm restore <backup.tar.gz> [--target-workspaces <dir>] [--target-knowledge <dir>]
 # 数据库目标永远来自调用环境（DATABASE_URL 或 BACKUP_ENV_FILE 里的值），
 # 备份里的 env 只用于恢复配置文件，不会覆盖本次连接的数据库。
 set -euo pipefail
@@ -12,6 +12,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 ARCHIVE=''
 TARGET_WS=''
+TARGET_KN=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --target-workspaces)
@@ -19,8 +20,13 @@ while [ $# -gt 0 ]; do
       TARGET_WS="$2"
       shift 2
       ;;
+    --target-knowledge)
+      [ $# -ge 2 ] || die "--target-knowledge needs a directory"
+      TARGET_KN="$2"
+      shift 2
+      ;;
     -h | --help)
-      echo "usage: pnpm restore <backup.tar.gz> [--target-workspaces <dir>]" >&2
+      echo "usage: pnpm restore <backup.tar.gz> [--target-workspaces <dir>] [--target-knowledge <dir>]" >&2
       exit 0
       ;;
     *)
@@ -30,7 +36,7 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-[ -n "$ARCHIVE" ] || die "usage: pnpm restore <backup.tar.gz> [--target-workspaces <dir>]"
+[ -n "$ARCHIVE" ] || die "usage: pnpm restore <backup.tar.gz> [--target-workspaces <dir>] [--target-knowledge <dir>]"
 ARCHIVE="$(cd "$(dirname -- "$ARCHIVE")" && pwd)/$(basename -- "$ARCHIVE")"
 
 ENV_SOURCE="${BACKUP_ENV_FILE:-$ROOT/.env}"
@@ -95,6 +101,34 @@ fi
 # 新机器上工作区目录可能还不存在；安全副本允许是空目录。
 [ "$WS_MODE" = host ] && mkdir -p "$WS_PATH"
 
+# 知识库目标：默认回到配置位置（容器卷时在容器里，宿主目录时在宿主）。
+# --target-knowledge 是隔离演练，永远写宿主空目录，不碰真实知识库。
+# 只给 --target-workspaces 时与配置一致：旁路验证不碰真实知识库。
+resolve_knowledge
+KN_TARGET=''
+if [ -n "$TARGET_KN" ]; then
+  if [ -e "$TARGET_KN" ] && [ ! -d "$TARGET_KN" ]; then
+    die "--target-knowledge is not a directory: $TARGET_KN"
+  fi
+  if [ -n "$(ls -A "$TARGET_KN" 2>/dev/null || true)" ]; then
+    die "--target-knowledge must be empty for a side-by-side verification restore: $TARGET_KN"
+  fi
+  mkdir -p "$TARGET_KN"
+  KN_MODE=host
+  KN_TARGET="$(cd "$TARGET_KN" && pwd)"
+elif [ -n "$TARGET_WS" ]; then
+  log "knowledge not restored (--target-workspaces verification run); set --target-knowledge to write it"
+else
+  case "$KN_MODE" in
+    host)
+      KN_TARGET="$KN_PATH"
+      [ -d "$KN_TARGET" ] && [ -n "$(ls -A "$KN_TARGET" 2>/dev/null || true)" ] &&
+        log "warning: knowledge dir $KN_TARGET is not empty; its files will be replaced (current copy saved in the pre-restore safety archive)"
+      ;;
+    *) KN_TARGET="$KNOWLEDGE_CONTAINER_DIR" ;;
+  esac
+fi
+
 STAMP="$(now_ts)"
 SAFETY="$BACKUP_DIR/pre-restore-$STAMP.tar.gz"
 mkdir -p "$BACKUP_DIR"
@@ -121,11 +155,26 @@ if ! ws_tar_out | tar -xf - -C "$SAFETY_STAGE/workspaces"; then
   die "pre-restore workspace backup failed; restore aborted, nothing changed"
 fi
 prune_workspaces "$SAFETY_STAGE/workspaces"
+# 当前知识库也进安全副本；侧验模式不碰真实知识库，无需复制。没有时留空，清单写 knowledge: null。
+# 已配置却读不到时中止：安全副本缺知识库等于没有回退路径。
+SAFETY_KN=''
+if [ -z "$TARGET_WS" ]; then
+  KN_FILES="$(knowledge_file_count)" || die "cannot read current knowledge storage; restore aborted, nothing changed"
+  if [ "$KN_FILES" -gt 0 ]; then
+    mkdir -p "$SAFETY_STAGE/knowledge"
+    if ! knowledge_tar_out | tar -xf - -C "$SAFETY_STAGE/knowledge"; then
+      die "pre-restore knowledge backup failed; restore aborted, nothing changed"
+    fi
+    find "$SAFETY_STAGE/knowledge" -type d -exec chmod 700 {} \;
+    find "$SAFETY_STAGE/knowledge" -type f -exec chmod 600 {} \;
+    SAFETY_KN="$SAFETY_STAGE/knowledge"
+  fi
+fi
 chmod 700 "$SAFETY_STAGE"
 find "$SAFETY_STAGE/workspaces" -type d -exec chmod 700 {} \;
 find "$SAFETY_STAGE/workspaces" -type f -exec chmod 600 {} \;
 write_manifest "$SAFETY_STAGE/manifest.json" "$SAFETY_STAGE/database.dump" "$SAFETY_STAGE/env" \
-  "$SAFETY_STAGE/workspaces" "$ARCHIVE"
+  "$SAFETY_STAGE/workspaces" "$ARCHIVE" "$SAFETY_KN"
 SAFETY_TMP="$SAFETY.tmp"
 if ! tar -C "$SAFETY_STAGE" -czf "$SAFETY_TMP" .; then
   rm -f "$SAFETY_TMP"
@@ -173,6 +222,17 @@ fi
 log "restoring workspaces ($WS_MODE)"
 ws_swap "$WORK/workspaces" ||
   die "database and config were restored, but workspace files did NOT complete. Re-run the file restore or copy from $SAFETY; do not assume a full rollback. safety copy: $SAFETY"
+
+# ── 知识库文件：同套暂存/换入；归档里没有 knowledge/ 时保持现状 ──
+if [ -z "$KN_TARGET" ]; then
+  log "knowledge not restored (side-by-side run without --target-knowledge)"
+elif [ -d "$WORK/knowledge" ]; then
+  log "restoring knowledge ($KN_TARGET)"
+  knowledge_swap "$WORK/knowledge" "$KN_TARGET" ||
+    die "database, config and workspaces were restored, but knowledge files did NOT complete. Re-run the file restore or copy from $SAFETY; do not assume a full rollback. safety copy: $SAFETY"
+else
+  log "backup has no knowledge/; leaving $KN_TARGET unchanged"
+fi
 
 log "applying migrations"
 if ! DATABASE_URL="$DATABASE_URL" pnpm --dir "$ROOT" db:migrate; then

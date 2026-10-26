@@ -1,0 +1,54 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "text",
+          "text": "仅 JSON 的内容",
+          "orig": "仅 JSON 的内容",
+          "prov": [{ "page_no": 7, "bbox": { "l": 0, "t": 0, "r": 5, "b": 5 }, "charspan": [0, 8] }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "没有定位的文本",
+          "orig": "没有定位的文本",
+          "prov": []
+        }
+      ],
+      "tables": [
+        {
+          "self_ref": "#/tables/0",
+          "label": "table",
+          "prov": [
+            { "page_no": 8, "bbox": { "l": 0, "t": 0, "r": 5, "b": 5 }, "charspan": [0, 0] }
+          ],
+          "data": {
+            "num_rows": 1,
+            "num_cols": 2,
+            "table_cells": [
+              {
+                "text": "键",
+                "start_row_offset_idx": 0,
+                "end_row_offset_idx": 1,
+                "start_col_offset_idx": 0,
+                "end_col_offset_idx": 1
+              },
+              {
+                "text": "值",
+                "start_row_offset_idx": 0,
+                "end_row_offset_idx": 1,
+                "start_col_offset_idx": 1,
+                "end_col_offset_idx": 2
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

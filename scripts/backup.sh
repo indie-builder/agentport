@@ -76,9 +76,33 @@ if [ "$WS_FILES" -eq 0 ] && [ "${BACKUP_ALLOW_EMPTY_WORKSPACES:-0}" != 1 ]; then
 fi
 WS_BYTES="$(find "$STAGE/workspaces" -type f -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')"
 DB_BYTES="$(file_bytes "$STAGE/database.dump")"
-write_manifest "$STAGE/manifest.json" "$STAGE/database.dump" "$STAGE/env" "$STAGE/workspaces"
 
-# 4) 先临时后发布：同一目录内 rename，半截文件不会出现在备份名里。
+# 4) 知识库（原件 blob + 解析产物）。可选：还没启用知识库时归档里就没有 knowledge/。
+# 已配置却读不到（卷在宿主不可见、容器不可用）必须失败，不能伪装成「没有数据」。
+resolve_knowledge
+KN_DIR=''
+case "$KN_MODE" in
+  host) log "knowledge: $KN_MODE $KN_PATH" ;;
+  exec) log "knowledge: compose exec $KN_SERVICE:$KNOWLEDGE_CONTAINER_DIR" ;;
+  run) log "knowledge: compose run $KN_SERVICE:$KNOWLEDGE_CONTAINER_DIR (docker volume)" ;;
+esac
+KN_FILES="$(knowledge_file_count)" || die "cannot read knowledge storage (mode=$KN_MODE path=${KN_PATH:-$KNOWLEDGE_CONTAINER_DIR}); no backup published"
+if [ "$KN_FILES" -gt 0 ]; then
+  mkdir -p "$STAGE/knowledge"
+  if ! knowledge_tar_out | tar -xf - -C "$STAGE/knowledge"; then
+    die "knowledge archive failed; no backup published"
+  fi
+  find "$STAGE/knowledge" -type d -exec chmod 700 {} \;
+  find "$STAGE/knowledge" -type f -exec chmod 600 {} \;
+  KN_DIR="$STAGE/knowledge"
+  log "knowledge: $KN_FILES files archived"
+else
+  log "knowledge: no files, manifest records knowledge: null"
+fi
+
+write_manifest "$STAGE/manifest.json" "$STAGE/database.dump" "$STAGE/env" "$STAGE/workspaces" '' "$KN_DIR"
+
+# 5) 先临时后发布：同一目录内 rename，半截文件不会出现在备份名里。
 TS="$(now_ts)"
 OUT="$BACKUP_DIR/$TS.tar.gz"
 TMP_ARCHIVE="$BACKUP_DIR/.tmp-$TS.tar.gz"
@@ -96,13 +120,13 @@ fi
 chmod 600 "$TMP_ARCHIVE"
 mv "$TMP_ARCHIVE" "$OUT"
 TMP_ARCHIVE=''
-log "backup written: $OUT ($(file_bytes "$OUT") bytes, database $DB_BYTES bytes, workspaces $WS_FILES files / $WS_BYTES bytes)"
+log "backup written: $OUT ($(file_bytes "$OUT") bytes, database $DB_BYTES bytes, workspaces $WS_FILES files / $WS_BYTES bytes${KN_DIR:+, knowledge $(workspace_file_count "$KN_DIR") files})"
 
 # 只清理本脚本产出的 .tar.gz；restore.sh 的 pre-restore-* 安全副本不参与保留数量。
 ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null | grep -v '/pre-restore-' | tail -n +"$((BACKUP_KEEP + 1))" |
   while IFS= read -r old; do rm -f "$old"; done || true
 
-# 5) 可选：restic 把整个包推到远端（加密由 restic 完成，本脚本不自造协议）。
+# 6) 可选：restic 把整个包推到远端（加密由 restic 完成，本脚本不自造协议）。
 if [ -n "${RESTIC_REPOSITORY:-}" ]; then
   command -v restic >/dev/null 2>&1 || die "RESTIC_REPOSITORY is set but restic is not installed; local backup kept at $OUT"
   log "restic: backing up $OUT"

@@ -1,0 +1,4 @@
+ALTER TABLE "knowledge_model_profiles" ADD COLUMN "embedding_protocol" text DEFAULT 'openai' NOT NULL;--> statement-breakpoint
+ALTER TABLE "knowledge_model_profiles" ADD COLUMN "image_input_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "knowledge_model_profiles" ADD CONSTRAINT "knowledge_model_profiles_embedding_protocol_check" CHECK ("knowledge_model_profiles"."embedding_protocol" in ('openai', 'cohere_v2'));--> statement-breakpoint
+ALTER TABLE "knowledge_model_profiles" ADD CONSTRAINT "knowledge_model_profiles_image_input_check" CHECK ("knowledge_model_profiles"."image_input_enabled" = false or ("knowledge_model_profiles"."kind" = 'embedding' and "knowledge_model_profiles"."embedding_protocol" = 'cohere_v2' and "knowledge_model_profiles"."model" = 'embed-v4.0'));

@@ -77,7 +77,21 @@ runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`a
 | `RETAIN_MESSAGE_DAYS` | 否 | `30` | worker | 无 `run_id` 的孤立消息保留天数 |
 | `RETAIN_AGENT_VERSIONS` | 否 | `50` | worker | 每个智能体保留的版本数 |
 
+### 1.5 知识库（api/worker 共享目录与可信端点配置）
+
+| 变量 | 必填 | 默认 | 读取方 | 说明 |
+|---|---|---|---|---|
+| `KNOWLEDGE_DIR` | 否 | `./data/knowledge` | api、worker | 原件 blob 与解析产物目录。宿主直跑用相对路径；compose 覆盖为 `/knowledge`（`knowledgedata` 命名卷） |
+| `DOCLING_URL` | 否 | — | worker | Docling 服务 base URL；未设置时 PDF/Office/OCR 等格式明确报错。用内置服务时设 `http://docling:5001` 并 `--profile docling` 启动 |
+| `DOCLING_TOKEN` | 否 | — | worker | 以 `X-Api-Key` 头发给 Docling；服务端用 `DOCLING_SERVE_API_KEY` 校验。compose 把同一变量同时喂给 `docling` 服务，留空即不启用鉴权 |
+| `KNOWLEDGE_WIKI_MODEL` | 否 | — | worker | Wiki 生成使用的模型；未设置时 wiki 任务明确失败 |
+| `KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api、worker | 逗号分隔的精确私网主机（可含端口）；仅部署白名单端点放行，用于自建GitLab和模型服务，不是用户可配置的通用私网开关 |
+
 `.env.example` 与本表一致；schema 之外可用的变量（`PLATFORM_MCP_TOKEN`、`RATE_LIMIT_DISABLED` 等）已在上方「不在 schema 中」表中列出。
+
+图片多模态复用 worker 的现有 `ANTHROPIC_*` 凭据/网关；在知识库「设置」启用图片处理，填写网关支持视觉输入的模型 ID，并开启 OCR 和/或图片描述，不新增独立视觉服务环境变量。默认将识别文字/描述纳入普通检索；独立 PNG/JPEG/GIF/WebP 不必先经 Docling。文档内插图仍依赖 Docling 实际返回图片字节，需用目标解析服务验收。
+
+可选图片向量需要新建 Cohere v2 的 `embed-v4.0` embedding profile（Endpoint URL 为含 `/v2` 的根地址），启用该 profile 的图片输入，再在库设置开启图片向量。固定1024维，必须使用同一模型的文本/图片编码；普通 OpenAI embedding profile 不支持此选项。更换已引用模型需新建 profile 后完整重建，不能仅补缺失向量混用空间。图片描述失败/向量降级可查看任务错误与版本图片 warnings；真实服务质量/费用不由本地协议测试保证。
 
 ## 2. 部署
 
@@ -122,6 +136,8 @@ curl -s http://localhost:3000/health/ready
 - 迁移由 compose 的 `migrate` 服务自动执行；直接在宿主机操作时仍可用 `pnpm db:migrate`（需要 `packages/db/dist`，先 `pnpm build`）。
 - `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。`pnpm run up` 生成 `.env` 时会同时写入匹配的 `REDIS_PASSWORD` 与 `REDIS_URL`。
 - compose 会占用 3000、5432、6379；如冲突，先停掉本机对应服务或改端口。
+- 知识库卷 `knowledgedata` 与 `workspaces` 一样由一次性 `init` 服务 `chown 1000:1000`（镜像 `USER node`，即 uid 1000），否则 api/worker 首次上传会 EACCES。卷内容随 `pnpm backup` 的 `knowledge/` 归档；`docker compose down -v` 会连同知识库一起删除。
+- 复杂格式解析默认不部署：需要时 `docker compose --profile docling up -d docling`，并把 `.env` 的 `DOCLING_URL` 设为 `http://docling:5001`；首次启动会下载模型。不内置时指向外部 Docling 服务即可，`DOCLING_TOKEN` 通过 `X-Api-Key` 发送。**内置 Docling 服务本身尚未在本仓库实际拉起验证过**，只核验了镜像 tag/digest 与端口；未配置 `DOCLING_URL` 时 PDF/Office/OCR 解析会明确报错，而不是假装成功。
 - worker 容器内是 `node` 用户，通过 `group_add: ${DOCKER_GID:-0}` 访问 socket。Linux 上若 docker 组 GID 不是 0，部署前 `export DOCKER_GID=$(getent group docker | cut -d: -f3)`。
 - Redis 健康检查（compose 里的 `healthcheck.test`）在容器内使用 redis 服务自身的 `REDIS_PASSWORD`；若宿主另行导出 `REDIS_PASSWORD`，compose 会用它重建 redis，与 `.env` 的 `REDIS_URL` 不一致时 api/worker 连不上。`pnpm run up` 不读取宿主导出的该变量，直接使用 `.env`。
 - 生产通过 `http://localhost:3000` 访问；Cookie 带 `Secure`，局域网 IP + HTTP 会无法保持登录。
@@ -221,19 +237,22 @@ pnpm backup
 |---|---|
 | `database.dump` | `pg_dump --format=custom` 的一致性快照（不带 `--clean`，由恢复侧 `pg_restore --clean` 替换） |
 | `workspaces/` | 持久工作区，排除每次 run 重建的 `<slug>/run_*`；含 `agent-memory/` 与 SDK 会话目录 |
+| `knowledge/` | 知识库原件 blob 与解析产物；从未启用知识库时该成员不存在，manifest 记 `knowledge: null` |
 | `env` | `.env` 副本（0600），恢复主密钥与模型凭证 |
-| `manifest.json` | 格式版本、数据库/配置/工作区的 sha256、字节数与文件数；不含任何密钥或连接串 |
+| `manifest.json` | 格式版本、数据库/配置/工作区/知识库的 sha256、字节数与文件数；不含任何密钥或连接串 |
 
 行为要点：
 
 - 数据库客户端按需选择：宿主 `pg_dump` 主版本匹配时用宿主，否则走 `docker compose exec -T postgres`；`PG_CLIENT=host|container|auto` 可强制。
 - 工作区按 `BACKUP_WORKSPACES_DIR` → `HOST_WORKSPACES_DIR` → 运行中的 compose 服务 → compose 卷 → 宿主默认目录依次定位，不假定数据在 `./data/workspaces`。
+- 知识库与工作区同一套定位方式：`BACKUP_KNOWLEDGE_DIR` → `knowledgedata` 卷 → `KNOWLEDGE_DIR` → `.env` 的 `KNOWLEDGE_DIR`。卷存在但宿主路径不可读时（macOS Docker Desktop 的命名卷目录不在宿主文件系统里），改走 `docker compose exec -T api tar`（服务在跑）或 `docker compose run --rm --no-deps api tar`（服务已停），不假设卷路径宿主可见。
+- **知识库已配置却读不到时备份直接失败**（`cannot read knowledge storage`），不会写成 `knowledge: null` 瞒过恢复；只有确实没有目录/卷、或目录为空时才记 `null`。
 - 有其他数据库连接时打印警告（快照仍一致，但文件与数据库可能略微不同步）；要求完全对齐时先停 api/worker。
 - 先写临时文件，`gzip -t` 后再用恢复侧同一套 `validate_archive` 校验，最后原子改名发布；任一步失败删除临时文件并以非零退出。
 - 只保留最近 `BACKUP_KEEP`（默认 7）个 `*.tar.gz`；`pre-restore-*` 安全副本不参与清理。
 - 设置 `RESTIC_REPOSITORY` 时，在本地包发布后执行 `restic backup --tag <format>`、`forget --keep-last $BACKUP_RESTIC_KEEP --prune`、`check`；任一步失败返回非零但保留本地包。加密与仓库密码完全交给 restic 的 `RESTIC_PASSWORD`/`_FILE`/`_COMMAND`，脚本不另存秘密。
 
-可用变量：`BACKUP_DIR`、`BACKUP_ENV_FILE`、`BACKUP_WORKSPACES_DIR`、`BACKUP_KEEP`、`BACKUP_RESTIC_KEEP`、`PG_CLIENT`、`WORKSPACES_CONTAINER_DIR`。
+可用变量：`BACKUP_DIR`、`BACKUP_ENV_FILE`、`BACKUP_WORKSPACES_DIR`、`BACKUP_KNOWLEDGE_DIR`、`BACKUP_KEEP`、`BACKUP_RESTIC_KEEP`、`PG_CLIENT`、`WORKSPACES_CONTAINER_DIR`、`KNOWLEDGE_CONTAINER_DIR`。
 
 建议用宿主机 cron 每天执行：
 
@@ -253,17 +272,20 @@ docker compose start api worker
 
 `scripts/restore.sh` 的行为：
 
-1. 校验归档（格式版本 2；旧版归档需重新备份）：必须是本格式的 `tar.gz`，成员只能是 `manifest.json` / `database.dump` / `env` / `workspaces/**`；拒绝绝对路径、`..`、控制字符、重复成员、符号链接/硬链接/设备文件、旧 `.sql.gz`，以及超出 `MAX_RESTORE_BYTES` 的包。解压后再按 manifest 校验 sha256（含工作区内容指纹）、字节数与文件数。
+1. 校验归档（格式版本 2；旧版归档需重新备份）：必须是本格式的 `tar.gz`，成员只能是 `manifest.json` / `database.dump` / `env` / `workspaces/**` / `knowledge/**`；拒绝绝对路径、`..`、控制字符、重复成员、符号链接/硬链接/设备文件、旧 `.sql.gz`，以及超出 `MAX_RESTORE_BYTES` 的包。解压后再按 manifest 校验 sha256（含工作区与知识库内容指纹）、字节数与文件数。
 2. compose 的 api/worker 仍在运行时直接拒绝（脚本不替你停共享服务）。
-3. 先写 `pre-restore-<ts>.tar.gz`（当前数据库 + 工作区 + 配置）和 `pre-restore-<ts>.env`；任一步失败即中止，不改动任何目标。
+3. 先写 `pre-restore-<ts>.tar.gz`（当前数据库 + 工作区 + 知识库 + 配置）和 `pre-restore-<ts>.env`；任一步失败即中止，不改动任何目标。当前知识库已配置却读不到时同样中止，不留一个缺知识库的回退点。
 4. `pg_restore --clean --if-exists --single-transaction --exit-on-error`：数据库失败整体回滚，库保持原样。
-5. 恢复 `env`（可用 `RESTORE_ENV_TARGET` 改路径；`--target-workspaces` 旁路验证默认不改配置），再按“暂存 → 权限收紧 → 顶层换入”恢复工作区，保留现有 `run_*`，最后执行 `pnpm db:migrate`。
+5. 恢复 `env`（可用 `RESTORE_ENV_TARGET` 改路径；`--target-workspaces` 旁路验证默认不改配置），再按“暂存 → 权限收紧 → 顶层换入”恢复工作区，保留现有 `run_*`；知识库用同一套换入（宿主目录在宿主执行，`knowledgedata` 卷用一次性容器），最后执行 `pnpm db:migrate`。
 
 要点：
 
 - **数据库目标只来自调用环境**（`DATABASE_URL`，或 `BACKUP_ENV_FILE` 中的值）；归档内的 `env` 不参与任何数据库操作，仅用于恢复配置。
 - 文件恢复在数据库提交之后；若文件换入失败会明确说明「不是完整回滚」，不会谎报成功。
-- `--target-workspaces <空目录>` 可把文件恢复到旁路目录做验证，不碰当前工作区。
+- `--target-workspaces <空目录>` 可把文件恢复到旁路目录做验证，不碰当前工作区；`--target-knowledge <空目录>` 把知识库恢复到隔离目录（即使真实部署用命名卷），两者可同时使用。
+- 只给 `--target-workspaces` 时知识库不恢复，避免演练覆盖线上知识卷；要一起验就同时给 `--target-knowledge`。
+- 容器卷模式下换入会在目标卷里做「暂存 + 按顶层换入」，中断时尽力回滚；api/worker 必须先停。
+- 新机器上恢复知识库前，先让 compose 建出 `knowledgedata` 卷（`docker compose create` 或先启动过一次），再执行 `pnpm restore`：卷还不存在时脚本会按 `KNOWLEDGE_DIR` 落到宿主目录，随后启动的容器读的却是空卷。
 - 保持原来的 `APP_SECRET_KEY`。换了主密钥，`servers.secrets_encrypted` 无法解密，所有 MCP 密钥需重新填写。
 - restic 恢复本身不由脚本执行：按需 `restic restore latest --target <dir>` 取回完整包后再运行 `pnpm restore`。
 
@@ -287,7 +309,13 @@ docker compose start api worker
 
 ### 3.4 恢复演练记录
 
-新格式尚未做真实库/卷的完整备份→恢复演练。演练前不要把它当作已验证的灾难恢复路径。
+新格式尚未做真实库/工作区卷的完整备份→恢复演练（数据库与 `workspaces` 卷仍缺实测）。演练前不要把它当作已验证的灾难恢复路径。
+
+2026-10-25 在 macOS Docker Desktop 上做了**知识卷**实测（临时项目名 `agentport-kn-drill-*` 与临时命名卷，只写自造测试文件，未读主应用数据）：
+
+- 命名卷的 `Mountpoint` 是容器内路径（`/var/lib/docker/volumes/.../_data`），宿主不可读 → 脚本判定 `mode=run`，通过 `docker compose run --rm --no-deps --entrypoint tar` 读出 2 个文件，`knowledge_tar_out` 得到正确的 `./blobs/...`、`./docs/...` 成员。
+- 同一模式下 `knowledge_swap` 在容器里完成换入，卷内 `blobs/ab/abcdef` 内容变为恢复源的新内容。
+- 临时卷与网络演练后删除。
 
 2026-10-20 的旧 `.sql.gz` 演练与当前 tar.gz 包格式不兼容，结论不再适用，已删除。
 
@@ -354,6 +382,7 @@ pnpm --filter @agentport/worker maintenance
 | 登录返回 429 | 登录限流 10 次/分钟（按 IP）；反向代理后未设 `TRUST_PROXY=1` 时所有请求共用代理 IP | 等一分钟；确认 `TRUST_PROXY=1`；只在本地/测试环境可临时 `RATE_LIMIT_DISABLED=1` 后重启 api |
 | `pnpm backup` 报 `DATABASE_URL is required` | 脚本不读取 `.env` | `set -a; . ./.env; set +a; pnpm backup` |
 | `pnpm backup` / `pnpm restore` 报 `pg_dump`、`psql` 或 `docker compose` 找不到 | 宿主既没有 PostgreSQL 客户端，也不在项目目录运行 | 在项目根目录运行；安装 `postgresql` 客户端，或保持 compose 的 postgres 容器运行 |
+| `pnpm backup` 报 `cannot read knowledge storage` | `knowledgedata` 卷存在，但宿主挂载点不可读且容器方式也失败（Docker 未运行、服务不健康） | 启动 Docker 与 postgres/api 容器后重跑；本机直跑且没有卷时设 `BACKUP_KNOWLEDGE_DIR` 指向真实目录。不要为绕过它改成 `KNOWLEDGE_DIR=`（会把知识库漏出备份） |
 | generated server 在沙盒内 401 | run 的短期 token 已过期/被清空，或 `.mcp.json` 未带上 `x-agentport-run-id` | 确认 run 仍为 `running`；不要手工改工作区文件；run 结束后短期 token 必然失效，属预期 |
 | worker 退出并报 `Invalid environment` | `.env` 缺少必填项或长度不足 | 按报错里的字段名补齐；`APP_SECRET_KEY`、`JWT_SECRET` ≥32，`ADMIN_PASSWORD` ≥12 且不是常见默认口令 |
 | 运行超时 | `timeoutMs` 太小、模型慢、工具上游慢 | 运行详情看 `latencyMs` 与最后一步；调大智能体的 `timeoutMs`；检查上游 API 延迟 |

@@ -13,24 +13,29 @@ const anthropic = createOpenAICompatible({
   apiKey: process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? '',
 });
 
+/** 指向已起好的独立实例（如 3305）时不带 command；默认仍是本地 vite。 */
+const externalAppUrl = process.env.E2E_APP_URL;
+
 export default {
   tests: 'tests/**/*.e2e.ts',
   targets: [
     {
       name: 'web',
       engine: web({ viewport: { width: 1440, height: 900 } }),
-      app: {
-        url: 'http://localhost:5173',
-        command: {
-          executable: 'pnpm',
-          // 直接跑 vite：Portless 只用于本地启动，CI 非 TTY 环境起不了代理
-          args: ['--filter', '@agentport/web', 'exec', 'vite'],
-          env: { RATE_LIMIT_DISABLED: '1' },
-          log: '.e2e/logs/app.log',
-          reuseExisting: true,
-        },
-        readyUrl: 'http://localhost:5173',
-      },
+      app: externalAppUrl
+        ? { url: externalAppUrl }
+        : {
+            url: 'http://localhost:5173',
+            command: {
+              executable: 'pnpm',
+              // 直接跑 vite：Portless 只用于本地启动，CI 非 TTY 环境起不了代理
+              args: ['--filter', '@agentport/web', 'exec', 'vite'],
+              env: { RATE_LIMIT_DISABLED: '1' },
+              log: '.e2e/logs/app.log',
+              reuseExisting: true,
+            },
+            readyUrl: 'http://localhost:5173',
+          },
     },
   ],
   credentials: {

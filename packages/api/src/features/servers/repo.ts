@@ -42,6 +42,13 @@ export function toApiServer(row: ServerRow, keyB64url: string): Server {
     lastToolCount: row.lastToolCount,
   };
   const config = row.config;
+  if (row.kind === 'knowledge') {
+    return {
+      ...base,
+      kind: 'knowledge',
+      config: { knowledgeBaseId: str(config.knowledgeBaseId) },
+    };
+  }
   if (row.kind === 'stdio') {
     const args = config.args;
     return {
@@ -98,7 +105,10 @@ function randomToken(): string {
 
 export async function listServers(db: Db, key: string): Promise<Server[]> {
   const rows = await serverRepo.listServers(db);
-  return rows.map((row) => maskServer(toApiServer(row, key)));
+  // 知识库连接器由知识库生命周期管理，不出现在用户可编辑的连接器列表里。
+  return rows
+    .filter((row) => row.kind !== 'knowledge')
+    .map((row) => maskServer(toApiServer(row, key)));
 }
 
 export async function getServerRow(db: Db, id: string): Promise<ServerRow | null> {
@@ -253,7 +263,7 @@ export async function updateServer(
         url: patch.url ?? current.url,
         headers: mergedSecrets(patch.headers, current.headers),
       };
-    } else {
+    } else if (current.kind === 'generated') {
       next = {
         kind: 'generated',
         name: patch.name ?? current.name,
@@ -261,6 +271,9 @@ export async function updateServer(
         baseUrl: patch.baseUrl ?? current.baseUrl,
         headers: mergedSecrets(patch.headers, current.headers),
       };
+    } else {
+      // 知识库连接由知识库生命周期管理；路由层已拒绝，这里兜住其他调用方。
+      fail('FORBIDDEN', '知识库连接由知识库设置管理');
     }
 
     const split = splitInput(

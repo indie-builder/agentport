@@ -49,6 +49,17 @@ const envSchema = z
      * 宿主机直跑 worker 时随意。
      */
     MODEL_PROXY_PORT: z.coerce.number().int().positive().default(3426),
+    /** Docling HTTP base URL；不给对应任务直接失败，避免解析静默降级。compose 的 `${DOCLING_URL:-}` 会传空串，按未配置处理。 */
+    DOCLING_URL: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().url().optional(),
+    ),
+    DOCLING_TOKEN: z.string().optional(),
+    /** 原件与解析产物卷；api/worker 共用同一挂载点。 */
+    KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),
+    KNOWLEDGE_WIKI_MODEL: z.string().optional(),
+    /** 逗号分隔的私网主机名（可含端口）；知识出站只在这些主机上放行内网地址。 */
+    KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
   })
   .superRefine((env, ctx) => {
     // fail-closed：proxy 没配代理时宁可不启动，也不静默降级成不隔离出站的 open。

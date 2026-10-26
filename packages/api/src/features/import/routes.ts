@@ -50,6 +50,7 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
       });
       const result = await importAgentPackage(app.db, parsed, {
         nodeEnv: app.config.NODE_ENV,
+        selfUrl: app.config.SELF_URL,
       });
       await writeAudit(app.db, request.log, {
         actor: 'admin',

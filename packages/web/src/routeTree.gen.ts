@@ -22,6 +22,8 @@ import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
 import { Route as ShellStatusRouteImport } from './routes/_shell/status'
 import { Route as ShellAgentsIndexRouteImport } from './routes/_shell/agents.index'
 import { Route as ShellAgentsAgentIdRouteImport } from './routes/_shell/agents.$agentId'
+import { Route as ShellKnowledgeIndexRouteImport } from './routes/_shell/knowledge.index'
+import { Route as ShellKnowledgeBaseIdRouteImport } from './routes/_shell/knowledge.$baseId'
 import { Route as ShellRunsIndexRouteImport } from './routes/_shell/runs.index'
 import { Route as ShellRunsRunIdRouteImport } from './routes/_shell/runs.$runId'
 
@@ -89,6 +91,16 @@ const ShellAgentsAgentIdRoute = ShellAgentsAgentIdRouteImport.update({
   path: '/agents/$agentId',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellKnowledgeIndexRoute = ShellKnowledgeIndexRouteImport.update({
+  id: '/knowledge/',
+  path: '/knowledge/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellKnowledgeBaseIdRoute = ShellKnowledgeBaseIdRouteImport.update({
+  id: '/knowledge/$baseId',
+  path: '/knowledge/$baseId',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellRunsIndexRoute = ShellRunsIndexRouteImport.update({
   id: '/runs/',
   path: '/runs/',
@@ -112,8 +124,10 @@ export interface FileRoutesByFullPath {
   '/skills': typeof ShellSkillsRoute
   '/status': typeof ShellStatusRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
+  '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/agents/': typeof ShellAgentsIndexRoute
+  '/knowledge/': typeof ShellKnowledgeIndexRoute
   '/runs/': typeof ShellRunsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -128,8 +142,10 @@ export interface FileRoutesByTo {
   '/status': typeof ShellStatusRoute
   '/': typeof ShellIndexRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
+  '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/agents': typeof ShellAgentsIndexRoute
+  '/knowledge': typeof ShellKnowledgeIndexRoute
   '/runs': typeof ShellRunsIndexRoute
 }
 export interface FileRoutesById {
@@ -146,8 +162,10 @@ export interface FileRoutesById {
   '/_shell/status': typeof ShellStatusRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/agents/$agentId': typeof ShellAgentsAgentIdRoute
+  '/_shell/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/_shell/runs/$runId': typeof ShellRunsRunIdRoute
   '/_shell/agents/': typeof ShellAgentsIndexRoute
+  '/_shell/knowledge/': typeof ShellKnowledgeIndexRoute
   '/_shell/runs/': typeof ShellRunsIndexRoute
 }
 export interface FileRouteTypes {
@@ -164,8 +182,10 @@ export interface FileRouteTypes {
     | '/skills'
     | '/status'
     | '/agents/$agentId'
+    | '/knowledge/$baseId'
     | '/runs/$runId'
     | '/agents/'
+    | '/knowledge/'
     | '/runs/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -180,8 +200,10 @@ export interface FileRouteTypes {
     | '/status'
     | '/'
     | '/agents/$agentId'
+    | '/knowledge/$baseId'
     | '/runs/$runId'
     | '/agents'
+    | '/knowledge'
     | '/runs'
   id:
     | '__root__'
@@ -197,8 +219,10 @@ export interface FileRouteTypes {
     | '/_shell/status'
     | '/_shell/'
     | '/_shell/agents/$agentId'
+    | '/_shell/knowledge/$baseId'
     | '/_shell/runs/$runId'
     | '/_shell/agents/'
+    | '/_shell/knowledge/'
     | '/_shell/runs/'
   fileRoutesById: FileRoutesById
 }
@@ -300,6 +324,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAgentsAgentIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/knowledge/': {
+      id: '/_shell/knowledge/'
+      path: '/knowledge'
+      fullPath: '/knowledge/'
+      preLoaderRoute: typeof ShellKnowledgeIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/knowledge/$baseId': {
+      id: '/_shell/knowledge/$baseId'
+      path: '/knowledge/$baseId'
+      fullPath: '/knowledge/$baseId'
+      preLoaderRoute: typeof ShellKnowledgeBaseIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/runs/': {
       id: '/_shell/runs/'
       path: '/runs'
@@ -328,8 +366,10 @@ interface ShellRouteChildren {
   ShellStatusRoute: typeof ShellStatusRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellAgentsAgentIdRoute: typeof ShellAgentsAgentIdRoute
+  ShellKnowledgeBaseIdRoute: typeof ShellKnowledgeBaseIdRoute
   ShellRunsRunIdRoute: typeof ShellRunsRunIdRoute
   ShellAgentsIndexRoute: typeof ShellAgentsIndexRoute
+  ShellKnowledgeIndexRoute: typeof ShellKnowledgeIndexRoute
   ShellRunsIndexRoute: typeof ShellRunsIndexRoute
 }
 
@@ -344,8 +384,10 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellStatusRoute: ShellStatusRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellAgentsAgentIdRoute: ShellAgentsAgentIdRoute,
+  ShellKnowledgeBaseIdRoute: ShellKnowledgeBaseIdRoute,
   ShellRunsRunIdRoute: ShellRunsRunIdRoute,
   ShellAgentsIndexRoute: ShellAgentsIndexRoute,
+  ShellKnowledgeIndexRoute: ShellKnowledgeIndexRoute,
   ShellRunsIndexRoute: ShellRunsIndexRoute,
 }
 

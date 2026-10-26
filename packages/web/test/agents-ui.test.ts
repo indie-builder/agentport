@@ -55,6 +55,7 @@ vi.mock('../src/lib/queries.js', () => ({
   useAgents: () => ({ data: state.agents }),
   useAgent: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
   useServers: () => ({ data: [] }),
+  useKnowledgeBases: () => ({ data: [], isPending: false, isError: false }),
   useSkills: () => ({
     isError: state.skillsError,
     error: new Error('Skills unavailable'),

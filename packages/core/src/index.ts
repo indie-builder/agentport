@@ -1,6 +1,7 @@
 export * from './agent-md.js';
 export * from './effect-runtime.js';
 export * from './errors.js';
+export * from './knowledge-models.js';
 export * from './mcp-json.js';
 export * from './mcp-token.js';
 export * from './official-files.js';

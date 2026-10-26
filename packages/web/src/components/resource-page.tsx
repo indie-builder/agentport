@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { Bot, Cable, Sparkles } from 'lucide-react';
+import { Bot, Cable, LibraryBig, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { FilterSelect } from './filter-select.js';
 import { Page, PageHeader, PageToolbar } from './page.js';
@@ -10,6 +10,7 @@ const sections = [
   { id: 'agents', to: '/agents', label: '专家', icon: Bot },
   { id: 'skills', to: '/skills', label: '技能', icon: Sparkles },
   { id: 'servers', to: '/servers', label: '连接器', icon: Cable },
+  { id: 'knowledge', to: '/knowledge', label: '知识库', icon: LibraryBig },
 ] as const;
 
 const sortOptions = [
@@ -31,7 +32,7 @@ export function ResourcePage({
   hideSort = false,
   children,
 }: {
-  section: 'agents' | 'skills' | 'servers';
+  section: 'agents' | 'skills' | 'servers' | 'knowledge';
   query: string;
   onQueryChange: (value: string) => void;
   sort: 'newest' | 'name';
@@ -44,7 +45,7 @@ export function ResourcePage({
   hideSort?: boolean;
   children: ReactNode;
 }) {
-  const label = { agents: '专家', skills: '技能', servers: '连接器' }[section];
+  const label = { agents: '专家', skills: '技能', servers: '连接器', knowledge: '知识库' }[section];
   return (
     <Page>
       <PageHeader title={label} className="sr-only" />

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { slugSchema } from './params.js';
 
 /** 用户配置的 MCP Server；密钥字段在 API 层加密，返回时脱敏。 */
-export const serverKindSchema = z.enum(['stdio', 'http', 'generated']);
+export const serverKindSchema = z.enum(['stdio', 'http', 'generated', 'knowledge']);
 export type ServerKind = z.infer<typeof serverKindSchema>;
 
 export const SECRET_MASK = '••••';
@@ -57,6 +57,31 @@ export function previewMcpEntry(
   };
 }
 
+/**
+ * 专家包里的知识库凭据占位：导出只写这个环境变量名，run token 与密钥都不进包。
+ * 官方 `.mcp.json` 支持 `${VAR}` 展开，因此包仍是标准 MCP HTTP 条目。
+ */
+export function knowledgeTokenEnv(serverName: string): string {
+  return `KNOWLEDGE_${serverName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_TOKEN`;
+}
+
+/** 知识库连接器在 `.mcp.json` 里的唯一构造点：预览与运行时共用，避免两处漂移。 */
+export function knowledgeMcpEntry(input: {
+  apiUrl: string;
+  serverId: string;
+  runId: string;
+  runToken: string;
+}) {
+  return {
+    type: 'http' as const,
+    url: `${input.apiUrl.replace(/\/$/, '')}/mcp/${input.serverId}`,
+    headers: {
+      Authorization: `Bearer ${input.runToken}`,
+      'x-agentport-run-id': input.runId,
+    },
+  };
+}
+
 const baseServer = {
   name: slugSchema,
   description: z.string().max(500).default(''),
@@ -94,6 +119,14 @@ export const generatedServerSchema = z.object({
   headers: z.record(z.string(), z.string()).default({}),
 });
 
+/** 平台为每个知识库自动生成的内置 server；只接受 run 短期 token，不走用户 CRUD。 */
+export const knowledgeServerSchema = z.object({
+  kind: z.literal('knowledge'),
+  name: slugSchema,
+  description: z.string().default(''),
+  config: z.object({ knowledgeBaseId: z.string() }),
+});
+
 export const serverInputSchema = z.discriminatedUnion('kind', [
   stdioServerSchema,
   httpServerSchema,
@@ -102,17 +135,26 @@ export const serverInputSchema = z.discriminatedUnion('kind', [
 
 export type ServerInput = z.infer<typeof serverInputSchema>;
 
-export const serverSchema = serverInputSchema.and(
-  z.object({
-    id: z.string(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-    /** 最近一次测试连接的结果；从未测试为 null。 */
-    lastTestedAt: z.string().nullable().optional(),
-    lastTestOk: z.boolean().nullable().optional(),
-    lastToolCount: z.number().int().nullable().optional(),
-  }),
-);
+const serverIdFields = {
+  id: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  /** 最近一次测试连接的结果；从未测试为 null。 */
+  lastTestedAt: z.string().nullable().optional(),
+  lastTestOk: z.boolean().nullable().optional(),
+  lastToolCount: z.number().int().nullable().optional(),
+};
+
+/**
+ * 读形状包含平台内置的 `knowledge`；写形状（serverInputSchema）不含它，
+ * 用户无法通过创建/导入伪造内置知识连接。`knowledge` 的 config 由平台写入。
+ */
+export const serverSchema = z.discriminatedUnion('kind', [
+  stdioServerSchema.extend(serverIdFields),
+  httpServerSchema.extend(serverIdFields),
+  generatedServerSchema.extend(serverIdFields),
+  knowledgeServerSchema.extend(serverIdFields),
+]);
 
 export type Server = z.infer<typeof serverSchema>;
 

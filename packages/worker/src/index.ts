@@ -18,6 +18,7 @@ import {
   EVAL_RUNS_QUEUE,
   effortSchema,
   evalRunJobSchema,
+  knowledgeMcpEntry,
   permissionModeSchema,
   previewMcpEntry,
   RUNS_QUEUE,
@@ -31,6 +32,9 @@ import pino from 'pino';
 import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
 import { readForkUuidMap } from './fork-uuids.js';
+import { startKnowledgeWorker } from './knowledge/queue.js';
+import { startKnowledgeReconciler } from './knowledge/reconcile.js';
+import { startKnowledgeScheduler } from './knowledge/scheduler.js';
 import { startMaintenanceWorker } from './maintenance.js';
 import { persistRunMessages } from './messages.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
@@ -91,6 +95,10 @@ function toEntry(
   runId: string,
   runToken: string,
 ): McpJsonEntry {
+  // knowledge 不进入 serverInputSchema；URL 由运行时拼，只带 run 短期 token。
+  if (server.kind === 'knowledge') {
+    return knowledgeMcpEntry({ apiUrl, serverId: server.id, runId, runToken });
+  }
   const secrets = server.secretsEncrypted ? decryptSecrets(server.secretsEncrypted, secretKey) : {};
   const input = serverInputSchema.parse({
     ...server.config,
@@ -799,6 +807,37 @@ const stopReconciler = startReconciler({
 
 installProcessGuards(logger);
 
+// 知识任务走独立队列，不占聊天 run 的并发额度。
+const knowledgeWorker = await startKnowledgeWorker({
+  db,
+  logger,
+  redisUrl: config.REDIS_URL,
+  knowledgeDir: config.KNOWLEDGE_DIR,
+  wikiModel: config.KNOWLEDGE_WIKI_MODEL,
+  decrypt: (payload) => decryptSecrets(payload, config.APP_SECRET_KEY),
+  parser: { url: config.DOCLING_URL, key: config.DOCLING_TOKEN },
+  trustedHosts: config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST.split(',')
+    .map((host) => host.trim())
+    .filter((host) => host !== ''),
+});
+
+// 崩溃恢复：DB 的 queued/running 与知识队列实际状态对账。
+const stopKnowledgeReconciler = startKnowledgeReconciler({
+  db,
+  logger,
+  redisUrl: config.REDIS_URL,
+});
+
+// sync_cron 的权威来源是库：启动同步一次，之后周期对账。
+const knowledgeScheduler = startKnowledgeScheduler({
+  db,
+  logger,
+  redisUrl: config.REDIS_URL,
+});
+await knowledgeScheduler.sync().catch((err: unknown) => {
+  logger.error({ err }, 'knowledge scheduler sync failed');
+});
+
 logger.info('worker started');
 
 // 启动即对账一次：Redis 里的 Job Scheduler 以库为准补齐/清理。
@@ -832,6 +871,9 @@ const shutdown = async (): Promise<void> => {
   const closing = Promise.allSettled([worker.close(), evalWorker.close()]);
   await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
   await maintenanceWorker.close();
+  await knowledgeWorker.close();
+  await knowledgeScheduler.close();
+  await stopKnowledgeReconciler();
   await sandboxProbe.close();
   await scheduleScheduler.close();
   await stopReconciler();

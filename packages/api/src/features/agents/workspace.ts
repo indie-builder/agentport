@@ -2,7 +2,7 @@ import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
 import { renderWorkspace, toWorkspaceInput } from '@agentport/core';
 import { repo } from '@agentport/db';
 import * as agentRepo from '@agentport/db/repo/agents.js';
-import { maskUrlCredentials, SECRET_MASK } from '@agentport/shared';
+import { knowledgeMcpEntry, maskUrlCredentials, SECRET_MASK } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { str, strArray } from '../servers/repo.js';
 import { decryptSecrets } from '../servers/secrets.js';
@@ -33,6 +33,19 @@ function maskValues(keys: string[], omitAuthorization = false): Record<string, s
  */
 function toEntry(row: ServerRow, secretKeys: string[]): McpJsonEntry {
   const config = row.config;
+
+  // 知识库连接器：地址与凭证都由平台按 run 生成，不能落到下方 generated 预览分支。
+  if (row.kind === 'knowledge') {
+    return {
+      ...knowledgeMcpEntry({
+        apiUrl: sandboxApiUrl(),
+        serverId: row.id,
+        runId: '<run-id>',
+        runToken: '<run-token>',
+      }),
+      _note: RUNTIME_AUTH_NOTE,
+    };
+  }
 
   if (row.kind === 'stdio') {
     return {

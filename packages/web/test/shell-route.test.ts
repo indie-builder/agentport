@@ -31,8 +31,13 @@ async function inspectRoute(path: string, auth: 'success' | 'pending' | 'error')
     path: '/runs/$runId',
     component: () => createElement(PageHeader, { title: '运行详情' }),
   });
+  const knowledge = createRoute({
+    getParentRoute: () => shell,
+    path: '/knowledge/$baseId',
+    component: () => createElement(PageHeader, { title: '知识库详情' }),
+  });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([shell.addChildren([missing, detail])]),
+    routeTree: rootRoute.addChildren([shell.addChildren([missing, detail, knowledge])]),
     history: createMemoryHistory({ initialEntries: [path] }),
   });
   const host = document.createElement('div');
@@ -71,6 +76,16 @@ describe('shell route identity', () => {
       }
     },
   );
+
+  it('names a matched knowledge detail as knowledge rather than not found', async () => {
+    const view = await inspectRoute('/knowledge/kb_review', 'success');
+    try {
+      expect(document.title).toBe('知识库 · 控制台');
+      expect(view.host.querySelectorAll('h1')).toHaveLength(1);
+    } finally {
+      await view.close();
+    }
+  });
 
   it('keeps the title for a matched run detail route', async () => {
     const view = await inspectRoute('/runs/run_review', 'success');

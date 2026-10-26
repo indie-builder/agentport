@@ -14,6 +14,7 @@ import {
   agentDuplicateInputSchema,
   agentInputSchema,
   BUILTIN_TOOLS,
+  knowledgeMcpEntry,
   type Server,
 } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
@@ -29,6 +30,7 @@ import {
   FileCode,
   FileText,
   History,
+  LibraryBig,
   Plug,
   Plus,
   RotateCcw,
@@ -138,6 +140,7 @@ import {
   useCreateAgent,
   useDeleteAgent,
   useDuplicateAgent,
+  useKnowledgeBases,
   useRollbackAgent,
   useServers,
   useSkills,
@@ -822,6 +825,11 @@ const tabItems: ReadonlyArray<{ id: TabId; label: string }> = [
 
 const tabOptions = tabItems.map((item) => ({ value: item.id, label: item.label }));
 
+/** 普通连接器与知识库共用一个 serverIds：只替换知识库那部分，其余绑定原样保留。 */
+function mergeKnowledgeIds(current: string[], knowledgeIds: Set<string>, next: string[]): string[] {
+  return [...current.filter((id) => !knowledgeIds.has(id)), ...next];
+}
+
 const errorSections: Record<string, SectionId> = {
   slug: 'identity',
   name: 'identity',
@@ -855,11 +863,13 @@ export function AgentEditor({
 }) {
   const update = useUpdateAgent();
   const servers = useServers();
+  const knowledgeBases = useKnowledgeBases();
   const skills = useSkills();
   const agents = useAgents();
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/agents/$agentId' });
   const serverAnchor = useComboboxAnchor();
+  const knowledgeAnchor = useComboboxAnchor();
   const skillAnchor = useComboboxAnchor();
   const subAgentAnchor = useComboboxAnchor();
   const [baseline, setBaseline] = useState(agent);
@@ -1015,9 +1025,55 @@ export function AgentEditor({
     el?.scrollIntoView({ block: 'start' });
   }, [tab]);
 
+  /**
+   * 知识库的 server 不出现在通用连接器列表（生命周期由知识库页管理），
+   * 这里按知识库自带的 serverId 反向补齐，才能在这里完成绑定/解绑。
+   * 已停用的库不可新增绑定，但既有绑定仍显示、仍随保存原样提交。
+   */
+  const knowledgeOptions = useMemo(
+    () =>
+      (knowledgeBases.data ?? []).map((base) => ({
+        id: base.serverId,
+        baseId: base.id,
+        label: base.name,
+        slug: base.slug,
+        disabled: base.status !== 'active',
+        updatedAt: base.updatedAt,
+      })),
+    [knowledgeBases.data],
+  );
+
+  // 知识库连接的运行条目与真实 server 行同形，草稿预览才与落盘/运行时一致。
+  const knowledgeServers = useMemo<Server[]>(
+    () =>
+      knowledgeOptions
+        .filter((item) => form.serverIds.includes(item.id))
+        .map((item) => ({
+          id: item.id,
+          name: `kb-${item.slug}`,
+          description: '',
+          kind: 'knowledge',
+          config: { knowledgeBaseId: item.baseId },
+          createdAt: item.updatedAt,
+          updatedAt: item.updatedAt,
+        })),
+    [knowledgeOptions, form.serverIds],
+  );
+
+  const knowledgeIds = useMemo(
+    () => new Set(knowledgeOptions.map((item) => item.id)),
+    [knowledgeOptions],
+  );
+  const setKnowledgeIds = (ids: string[]): void => {
+    serverIdsField.onChange(mergeKnowledgeIds(form.serverIds, knowledgeIds, ids));
+  };
+
   const boundServers = useMemo(
-    () => (servers.data ?? []).filter((server) => form.serverIds.includes(server.id)),
-    [servers.data, form.serverIds],
+    () =>
+      [...(servers.data ?? []), ...knowledgeServers].filter((server) =>
+        form.serverIds.includes(server.id),
+      ),
+    [servers.data, knowledgeServers, form.serverIds],
   );
   const boundSkills = useMemo(
     () => (skills.data ?? []).filter((skill) => form.skillIds.includes(skill.id)),
@@ -1675,6 +1731,92 @@ export function AgentEditor({
                                   <ComboboxItem key={option.id} value={option}>
                                     <span className="min-w-0 flex-1 truncate">{option.label}</span>
                                     <StatusBadge tone="mono">{option.tag}</StatusBadge>
+                                  </ComboboxItem>
+                                )}
+                              </ComboboxList>
+                            </ComboboxContent>
+                          </Combobox>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                          <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                            <LibraryBig
+                              className="size-4 text-muted-foreground"
+                              aria-hidden="true"
+                            />
+                            知识库
+                          </h3>
+                          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                            已选 {form.serverIds.filter((id) => knowledgeIds.has(id)).length}
+                          </span>
+                        </div>
+                        {knowledgeBases.isPending ? <LoadingState rows={1} /> : null}
+                        {knowledgeBases.isError ? (
+                          <ErrorState
+                            error={knowledgeBases.error}
+                            onRetry={() => void knowledgeBases.refetch()}
+                          />
+                        ) : null}
+                        {knowledgeBases.data && knowledgeOptions.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            前往知识库页面创建，创建后即可在这里绑定。
+                          </p>
+                        ) : null}
+                        {knowledgeOptions.length > 0 ? (
+                          <Combobox
+                            disabled={pending}
+                            multiple
+                            items={knowledgeOptions}
+                            value={knowledgeOptions.filter((option) =>
+                              form.serverIds.includes(option.id),
+                            )}
+                            onValueChange={(picked) => {
+                              setKnowledgeIds(picked.map((option) => option.id));
+                            }}
+                            itemToStringLabel={(option) => option.label}
+                            itemToStringValue={(option) => option.id}
+                            isItemEqualToValue={(a, b) => a.id === b.id}
+                            filter={(option, query) =>
+                              `${option.label} ${option.slug}`
+                                .toLowerCase()
+                                .includes(query.trim().toLowerCase())
+                            }
+                          >
+                            <ComboboxChips
+                              aria-label="已选知识库"
+                              data-disabled={pending}
+                              ref={knowledgeAnchor}
+                            >
+                              <ComboboxValue>
+                                {(selected: typeof knowledgeOptions) =>
+                                  selected.map((option) => (
+                                    <ComboboxChip key={option.id} aria-label={option.label}>
+                                      {option.label}
+                                    </ComboboxChip>
+                                  ))
+                                }
+                              </ComboboxValue>
+                              <ComboboxChipsInput
+                                aria-label="知识库"
+                                placeholder="搜索并选择知识库…"
+                              />
+                            </ComboboxChips>
+                            <ComboboxContent anchor={knowledgeAnchor}>
+                              <ComboboxEmpty>没有匹配的知识库</ComboboxEmpty>
+                              <ComboboxList>
+                                {(option: (typeof knowledgeOptions)[number]) => (
+                                  <ComboboxItem
+                                    key={option.id}
+                                    value={option}
+                                    // 已停用的库不能再新绑；已绑定的仍可保留或解绑。
+                                    disabled={
+                                      option.disabled && !form.serverIds.includes(option.id)
+                                    }
+                                  >
+                                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                                    {option.disabled ? <StatusBadge>已停用</StatusBadge> : null}
                                   </ComboboxItem>
                                 )}
                               </ComboboxList>
@@ -2382,6 +2524,15 @@ function draftFiles(
 
 /** `.mcp.json` 预览条目：密钥替换为占位符。 */
 function previewEntry(server: Server): McpJsonEntry {
+  if (server.kind === 'knowledge') {
+    // 与运行时同一构造器：地址由平台拼，凭证按 run 注入，草稿里只留占位。
+    return knowledgeMcpEntry({
+      apiUrl: '<平台>',
+      serverId: server.id,
+      runId: '<run-id>',
+      runToken: '<run-token>',
+    });
+  }
   if (server.kind === 'stdio') {
     return {
       command: server.command,

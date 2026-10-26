@@ -62,6 +62,19 @@ const server: Server = {
   createdAt: '2026-01-01',
   updatedAt: '2026-01-01',
 };
+const knowledgeBase = {
+  id: 'kb_1',
+  slug: 'handbook',
+  name: '产品手册',
+  description: '',
+  serverId: 'server-kb',
+  status: 'active' as const,
+  embeddingProfileId: 'profile',
+  rerankProfileId: null,
+  settings: { chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false },
+  createdAt: '2026-01-01',
+  updatedAt: '2026-01-01',
+};
 const tool: ApiTool = {
   id: 'tool',
   serverId: server.id,
@@ -96,6 +109,10 @@ function client() {
   });
   result.setQueryData(['agents'], [agent, { ...agent, id: 'child', parentId: agent.id }]);
   result.setQueryData(['servers'], [server]);
+  result.setQueryData(['knowledge', 'bases'], {
+    pages: [{ items: [knowledgeBase], nextCursor: null }],
+    pageParams: [null],
+  });
   result.setQueryData(
     ['skills'],
     [{ id: 'skill', slug: 'skill', name: 'Skill', description: '', body: '' }],

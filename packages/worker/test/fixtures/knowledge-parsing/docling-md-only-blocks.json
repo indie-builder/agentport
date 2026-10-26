@@ -1,0 +1,24 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "# 报表\n\n正文段落。\n\n## 环境\n\n| 环境 | 地址 |\n| --- | --- |\n| 测试 | dev |\n\n> 引用块只在 Markdown 里\n",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "title",
+          "text": "报表",
+          "prov": [{ "page_no": 1, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 }, "charspan": [0, 2] }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "正文段落。",
+          "prov": [{ "page_no": 1, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 }, "charspan": [0, 5] }]
+        }
+      ],
+      "tables": []
+    }
+  }
+}

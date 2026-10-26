@@ -112,8 +112,10 @@ import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
 type Kind = ServerInput['kind'];
+/** 用户可创建的类型；knowledge 由知识库生命周期生成，不在连接器页出现。 */
+const creatableKinds = ['stdio', 'http', 'generated'] as const;
 
-const kindMeta: Record<Kind, { label: string; hint: string; newHint: string }> = {
+const kindMeta: Record<Server['kind'], { label: string; hint: string; newHint: string }> = {
   stdio: {
     label: '本地命令',
     hint: '由沙盒启动的 stdio 进程',
@@ -128,6 +130,11 @@ const kindMeta: Record<Kind, { label: string; hint: string; newHint: string }> =
     label: 'HTTP API 转 MCP',
     hint: '平台把上游 HTTP API 包装成 MCP',
     newHint: '逐个声明上游 HTTP 端点，平台替你生成可调用的 MCP 工具。',
+  },
+  knowledge: {
+    label: '知识库',
+    hint: '由知识库自动生成',
+    newHint: '',
   },
 };
 
@@ -151,6 +158,8 @@ function detailOf(server: Server): string {
       return server.url;
     case 'generated':
       return server.baseUrl;
+    case 'knowledge':
+      return server.config.knowledgeBaseId;
   }
 }
 
@@ -1727,6 +1736,8 @@ const serverFormSchema = z
   });
 
 function serverToForm(server: Server): ServerFormValues {
+  // 知识库连接不在连接器列表中出现，也没有对应表单。
+  if (server.kind === 'knowledge') return emptyForm;
   const common = { kind: server.kind, name: server.name, description: server.description };
   switch (server.kind) {
     case 'stdio':
@@ -1935,7 +1946,7 @@ export function ServerFormDialog({
                 }}
                 className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3"
               >
-                {(Object.keys(kindMeta) as Kind[]).map((value) => (
+                {creatableKinds.map((value) => (
                   <ToggleGroupItem
                     key={value}
                     value={value}
