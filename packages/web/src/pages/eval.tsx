@@ -463,7 +463,7 @@ export function EvalPage() {
                         : '期望为空：只要求有文本输出'}
                     </p>
                   </div>
-                  <div className="flex shrink-0 gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
+                  <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
                     <Button
                       variant="ghost"
                       size="icon-sm"

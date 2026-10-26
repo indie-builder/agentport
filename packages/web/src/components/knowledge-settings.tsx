@@ -11,6 +11,7 @@ import {
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { DialogShell } from './dialog-shell.js';
+import { Collapsible, CollapsibleContent } from './motion-collapsible.js';
 import { RequiredMark } from './required-mark.js';
 import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
@@ -241,93 +242,99 @@ export function KnowledgeSettingsDialog({
                 />
                 <FieldLabel htmlFor="knowledge-settings-image-enabled">图片处理</FieldLabel>
               </div>
-              {image.enabled ? (
-                <FieldGroup className="grid gap-3 sm:grid-cols-2">
-                  <Field className="gap-1.5 sm:col-span-2">
-                    <FieldLabel htmlFor="knowledge-settings-image-model">
-                      视觉模型 <RequiredMark />
-                    </FieldLabel>
-                    <Input
-                      id="knowledge-settings-image-model"
-                      value={image.model ?? ''}
-                      disabled={pending}
-                      className="font-mono"
-                      placeholder="网关支持的模型 ID"
-                      onChange={(event) => patchImage({ model: event.target.value || null })}
-                    />
-                  </Field>
-                  <Field orientation="horizontal" className="items-center gap-2">
-                    <Switch
-                      id="knowledge-settings-image-ocr"
-                      checked={image.ocrEnabled}
-                      disabled={pending}
-                      aria-label="OCR"
-                      onCheckedChange={(checked) => patchImage({ ocrEnabled: checked })}
-                    />
-                    <FieldLabel htmlFor="knowledge-settings-image-ocr">OCR</FieldLabel>
-                  </Field>
-                  <Field orientation="horizontal" className="items-center gap-2">
-                    <Switch
-                      id="knowledge-settings-image-caption"
-                      checked={image.captionEnabled}
-                      disabled={pending}
-                      aria-label="图片描述"
-                      onCheckedChange={(checked) => patchImage({ captionEnabled: checked })}
-                    />
-                    <FieldLabel htmlFor="knowledge-settings-image-caption">图片描述</FieldLabel>
-                  </Field>
-                  <Field className="gap-1.5">
-                    <FieldLabel htmlFor="knowledge-settings-image-language">描述语言</FieldLabel>
-                    <Input
-                      id="knowledge-settings-image-language"
-                      value={image.descriptionLanguage}
-                      disabled={pending}
-                      maxLength={35}
-                      onChange={(event) => patchImage({ descriptionLanguage: event.target.value })}
-                    />
-                  </Field>
-                  <Field className="gap-1.5 sm:col-span-2">
-                    <FieldLabel htmlFor="knowledge-settings-image-instructions">
-                      自定义指令
-                    </FieldLabel>
-                    <Textarea
-                      id="knowledge-settings-image-instructions"
-                      value={image.customInstructions}
-                      disabled={pending}
-                      maxLength={2000}
-                      rows={2}
-                      onChange={(event) => patchImage({ customInstructions: event.target.value })}
-                    />
-                  </Field>
-                  <Field orientation="horizontal" className="items-center gap-2">
-                    <Switch
-                      id="knowledge-settings-image-vector"
-                      checked={image.imageVectorEnabled}
-                      disabled={pending || imageVectorsBlocked}
-                      aria-label="图片向量"
-                      onCheckedChange={(checked) => patchImage({ imageVectorEnabled: checked })}
-                    />
-                    <FieldLabel htmlFor="knowledge-settings-image-vector">图片向量</FieldLabel>
-                  </Field>
-                  <Field className="gap-1.5">
-                    <FieldLabel htmlFor="knowledge-settings-image-min-score">向量最低分</FieldLabel>
-                    <Input
-                      id="knowledge-settings-image-min-score"
-                      inputMode="decimal"
-                      value={String(image.imageVectorMinScore)}
-                      disabled={pending || imageVectorsBlocked}
-                      onChange={(event) =>
-                        patchImage({ imageVectorMinScore: Number(event.target.value) })
-                      }
-                    />
-                  </Field>
-                  {imageVectorsBlocked ? (
-                    <FieldDescription className="sm:col-span-2">
-                      图片向量需要 Cohere embed-v4.0，并在模型 profile 里开启图片输入。
-                    </FieldDescription>
-                  ) : null}
-                </FieldGroup>
-              ) : null}
+              <Collapsible open={image.enabled} className="empty:hidden">
+                <CollapsibleContent animated>
+                  <FieldGroup className="grid gap-3 sm:grid-cols-2">
+                    <Field className="gap-1.5 sm:col-span-2">
+                      <FieldLabel htmlFor="knowledge-settings-image-model">
+                        视觉模型 <RequiredMark />
+                      </FieldLabel>
+                      <Input
+                        id="knowledge-settings-image-model"
+                        value={image.model ?? ''}
+                        disabled={pending}
+                        className="font-mono"
+                        placeholder="网关支持的模型 ID"
+                        onChange={(event) => patchImage({ model: event.target.value || null })}
+                      />
+                    </Field>
+                    <Field orientation="horizontal" className="items-center gap-2">
+                      <Switch
+                        id="knowledge-settings-image-ocr"
+                        checked={image.ocrEnabled}
+                        disabled={pending}
+                        aria-label="OCR"
+                        onCheckedChange={(checked) => patchImage({ ocrEnabled: checked })}
+                      />
+                      <FieldLabel htmlFor="knowledge-settings-image-ocr">OCR</FieldLabel>
+                    </Field>
+                    <Field orientation="horizontal" className="items-center gap-2">
+                      <Switch
+                        id="knowledge-settings-image-caption"
+                        checked={image.captionEnabled}
+                        disabled={pending}
+                        aria-label="图片描述"
+                        onCheckedChange={(checked) => patchImage({ captionEnabled: checked })}
+                      />
+                      <FieldLabel htmlFor="knowledge-settings-image-caption">图片描述</FieldLabel>
+                    </Field>
+                    <Field className="gap-1.5">
+                      <FieldLabel htmlFor="knowledge-settings-image-language">描述语言</FieldLabel>
+                      <Input
+                        id="knowledge-settings-image-language"
+                        value={image.descriptionLanguage}
+                        disabled={pending}
+                        maxLength={35}
+                        onChange={(event) =>
+                          patchImage({ descriptionLanguage: event.target.value })
+                        }
+                      />
+                    </Field>
+                    <Field className="gap-1.5 sm:col-span-2">
+                      <FieldLabel htmlFor="knowledge-settings-image-instructions">
+                        自定义指令
+                      </FieldLabel>
+                      <Textarea
+                        id="knowledge-settings-image-instructions"
+                        value={image.customInstructions}
+                        disabled={pending}
+                        maxLength={2000}
+                        rows={2}
+                        onChange={(event) => patchImage({ customInstructions: event.target.value })}
+                      />
+                    </Field>
+                    <Field orientation="horizontal" className="items-center gap-2">
+                      <Switch
+                        id="knowledge-settings-image-vector"
+                        checked={image.imageVectorEnabled}
+                        disabled={pending || imageVectorsBlocked}
+                        aria-label="图片向量"
+                        onCheckedChange={(checked) => patchImage({ imageVectorEnabled: checked })}
+                      />
+                      <FieldLabel htmlFor="knowledge-settings-image-vector">图片向量</FieldLabel>
+                    </Field>
+                    <Field className="gap-1.5">
+                      <FieldLabel htmlFor="knowledge-settings-image-min-score">
+                        向量最低分
+                      </FieldLabel>
+                      <Input
+                        id="knowledge-settings-image-min-score"
+                        inputMode="decimal"
+                        value={String(image.imageVectorMinScore)}
+                        disabled={pending || imageVectorsBlocked}
+                        onChange={(event) =>
+                          patchImage({ imageVectorMinScore: Number(event.target.value) })
+                        }
+                      />
+                    </Field>
+                    {imageVectorsBlocked ? (
+                      <FieldDescription className="sm:col-span-2">
+                        图片向量需要 Cohere embed-v4.0，并在模型 profile 里开启图片输入。
+                      </FieldDescription>
+                    ) : null}
+                  </FieldGroup>
+                </CollapsibleContent>
+              </Collapsible>
             </div>
             <FieldError>{error}</FieldError>
             <FieldDescription>

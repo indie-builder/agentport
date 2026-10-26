@@ -170,7 +170,10 @@ export function SchedulesPage() {
             </thead>
             <tbody>
               {items.map((schedule) => (
-                <tr key={schedule.id} className="border-b border-line">
+                <tr
+                  key={schedule.id}
+                  className="border-b border-line transition-colors duration-150 ease-out-soft hover:bg-hover"
+                >
                   <th scope="row" className="min-w-0 py-3 pr-2 text-left font-normal">
                     <span className="block truncate text-sm font-medium text-fg">
                       {schedule.name}

@@ -277,10 +277,14 @@ body #F5F5F5
 
 ## 11. 动效
 
-- 交互过渡 90–160ms，`cubic-bezier(0.22, 1, 0.36, 1)`（实测参考页的统一缓动）。
+- 交互过渡 90–160ms，统一 `--ease-out-soft`（`cubic-bezier(0.22, 1, 0.36, 1)`）；只过渡实际变化的属性，禁止 `transition-all`。
 - 侧栏宽度过渡 160ms；标签淡出 90ms；logo 与折叠按钮互换 140ms。
-- 只有：悬停背景、展开折叠、流式光标。
-- 无入场动画、无位移、无呼吸点。
+- 允许的动效只有局部交互与状态反馈：悬停背景、展开折叠、浮层显隐、流式光标、复制/安装等结果反馈。
+- 浮层（Dialog / Sheet / Popover / 菜单 / 选择器 / Combobox / Tooltip）统一由 Base UI 的 `data-starting-style` / `data-ending-style` 驱动透明度过渡 150ms，官方在动画结束后卸载；Positioner、Portal、焦点与关闭保护保持不变。
+- Sheet 保留各 side 的定位与尺寸，仅淡入淡出，不做位移；Switch、加载/运行状态等控件必要状态保留其原有位移或颜色过渡，不属于装饰动效。
+- 骨架屏保持静态，不做呼吸；消息滚动按钮只做可见性淡入淡出，不位移、不缩放。
+- 无页面入场动画、无装饰位移、无呼吸点；不改尺寸、色值、布局与业务行为。
+- `prefers-reduced-motion` 下全局把过渡/动画时长与延迟归零；JS Motion 仍由各调用方读取 `useReducedMotion` 自行收敛。
 
 ## 12. 实现技术栈（硬性）
 
@@ -290,7 +294,7 @@ body #F5F5F5
 |---|---|---|
 | 控件、表单、浮层 | shadcn/ui（`base-nova`）+ Base UI | 先复用或安装官方组件，共享视觉由 `@theme` 语义令牌控制 |
 | 图标 | lucide | `LucideProvider` 在 `App.tsx` 统一设 `strokeWidth={1.75}`、`size={16}`，组件里不要再逐个传 |
-| 动效 | Motion（`motion/react`） | 只用于 §11 允许的三类；`duration` 0.15–0.2、`easeOut`；读 `useReducedMotion` |
+| 动效 | Motion（`motion/react`）+ Base UI 状态过渡 | 局部交互与状态反馈用 CSS transition（90–160ms、`--ease-out-soft`；浮层用 `data-starting-style` / `data-ending-style`）。需要布局开合时用 Motion：`duration` 0.15–0.2、`easeOut`，并读 `useReducedMotion` |
 | 可拖拽分栏 | react-resizable-panels v4 | `Group` / `Panel` / `Separator`；用 `useDefaultLayout` 持久化；分隔条就是 1px `border-line`，不加把手 |
 | 拖拽排序 | dnd-kit | 必须带 `KeyboardSensor`，拖拽手柄有可访问名称 |
 | 客户端状态 | Zustand | 只放**跨组件、非服务端**的状态；服务端数据一律 TanStack Query |
@@ -299,7 +303,6 @@ body #F5F5F5
 | 生成式 UI 渲染 | `@openuidev/react-lang` 的 `<Renderer>` | 组件实现全部映射到 shadcn/ui；官方解析、响应式、表单与Query/Mutation运行时负责交互。业务不加载 `@openuidev/react-ui` 的视觉层，该包仅作开发期契约对照。围栏外散文仍走Markdown |
 
 - 项目圆角：外壳与卡片 16 / 行与常规控件 9 / 图标按钮 7 / 标签 6。底座内部细节沿用官方结构；`--radius` 为 9px，InputGroup 的内部按钮经 `calc()` 推导为 6px。共享映射见 `styles.css`。
-- 动画类（`animate-in` / `fade-in-0` / `zoom-in-95`）由 `tw-animate-css` 提供，已在 `styles.css` 引入。
 - shadcn 原语的语义色（`bg-popover`、`text-muted-foreground`、`bg-accent` 等）已全部映射到统一低饱和度主题令牌，**不要在组件里改回具体色值**。
 - shadcn 定制顺序：内置 variant → 局部布局 → 源码中的语义 variant → 有实际复用需求的应用组合。底座组件放 `components/ui/`，应用组合放 `src/components/`（如 `ConfirmDialog`）。允许改源码，但保留原语的 `aria-*`、焦点管理与键盘交互，只改外观 token；安装/更新前对比 git diff，`--overwrite` 会覆盖既有定制。
 

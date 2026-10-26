@@ -228,6 +228,11 @@ const outcomeLabel: Record<RunOutcome, string> = {
 /** 设计规范 §9：只有展开折叠这类状态切换，150ms、ease-out、不加位移。 */
 const EXPAND = { duration: 0.15, ease: 'easeOut' } as const;
 const STILL = { duration: 0 } as const;
+/** 工作区宽度开合：与设计规范的侧栏 160ms 一致。 */
+const WORKSPACE = {
+  duration: 0.16,
+  ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+};
 
 /** 与 Tailwind 的 lg 断点一致：只有这一侧需要可拖拽分栏。 */
 const DESKTOP = '(min-width: 64rem)';
@@ -301,6 +306,7 @@ function ChatWorkspace({
   );
   // 右侧工作区展示会话成果，与历史列表互相独立。
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const reduce = useReducedMotion();
 
   // 空数组也要稳定：否则轮询之外的重渲染会给工具行换一个新身份。
   const approvalData = useMemo(() => runApprovals.data?.items ?? [], [runApprovals.data]);
@@ -730,7 +736,19 @@ function ChatWorkspace({
             <Panel id="chat" minSize={400}>
               <div className="flex h-full min-h-0">
                 <div className="relative min-w-0 flex-1">{column}</div>
-                {workspaceOpen && wide ? <WorkspacePanel inline /> : null}
+                {wide ? (
+                  // 宽度开合保留成果子树：收起后仍不可聚焦，也不会丢输入或流式上下文。
+                  <motion.div
+                    initial={false}
+                    animate={{ width: workspaceOpen ? 320 : 0 }}
+                    transition={reduce ? STILL : WORKSPACE}
+                    inert={!workspaceOpen}
+                    aria-hidden={!workspaceOpen}
+                    className="h-full max-w-[40%] shrink-0 overflow-hidden"
+                  >
+                    <WorkspacePanel inline />
+                  </motion.div>
+                ) : null}
               </div>
             </Panel>
           </Group>
@@ -970,7 +988,7 @@ function WorkspacePanel({ inline = false }: { inline?: boolean }) {
       aria-label="会话成果"
       className={cn(
         'flex h-full flex-col overflow-y-auto bg-surface',
-        inline ? 'w-[min(320px,40%)] shrink-0 border-l' : 'min-h-0 flex-1',
+        inline ? 'border-l' : 'min-h-0 flex-1',
       )}
     >
       <div className="flex shrink-0 items-center border-b px-3 py-2.5">
@@ -1070,7 +1088,7 @@ function HistoryPanel({
                       size="icon-sm"
                       aria-label={`操作「${conversation.title}」`}
                       disabled={branching !== null}
-                      className="absolute right-1 top-2.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                      className="absolute right-1 top-2.5 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100"
                       onClick={(event) => {
                         menuTriggerRef.current = event.currentTarget;
                       }}
@@ -1582,7 +1600,7 @@ function RunFooter({
       <span
         className={cn(
           'size-1.5 shrink-0 rounded-full',
-          run.status === 'detached' ? 'bg-danger' : 'bg-fg motion-safe:animate-pulse',
+          run.status === 'detached' ? 'bg-danger' : 'bg-fg',
         )}
         aria-hidden="true"
       />

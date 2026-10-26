@@ -486,6 +486,22 @@ describe('expert review details', () => {
     expect(history.textContent).toContain('Write');
   });
 
+  it('loads a version snapshot only after the diff expands', async () => {
+    const detail = vi.spyOn(api, 'agentVersion');
+    await mount();
+    await openHistory();
+    expect(detail).not.toHaveBeenCalled();
+    await click(button('查看差异'));
+    await flush();
+    expect(detail).toHaveBeenCalledWith('expert', 1);
+    await click(button('收起差异'));
+    expect(dialog('版本历史').textContent).toContain('查看差异');
+    expect(detail).toHaveBeenCalledTimes(1);
+    await click(button('查看差异'));
+    await flush();
+    expect(detail).toHaveBeenCalledTimes(1);
+  });
+
   it('retains every import warning until the user dismisses the result', async () => {
     await mount();
     const warnings = [

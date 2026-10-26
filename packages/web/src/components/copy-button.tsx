@@ -1,5 +1,6 @@
 import { Check, Copy } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { cn } from '../lib/cn.js';
 import { toastError } from '../lib/toast.js';
 import { Button } from './ui/button.js';
 
@@ -46,11 +47,24 @@ export function CopyButton({
       title={text}
       className={className}
     >
-      {copied ? (
-        <Check data-icon={showLabel ? 'inline-start' : undefined} className="text-success" />
-      ) : (
-        <Copy data-icon={showLabel ? 'inline-start' : undefined} />
-      )}
+      <span className="grid">
+        <Copy
+          aria-hidden="true"
+          data-icon={showLabel ? 'inline-start' : undefined}
+          className={cn(
+            'col-start-1 row-start-1 transition-opacity duration-150 ease-out-soft',
+            copied ? 'opacity-0' : 'opacity-100',
+          )}
+        />
+        <Check
+          aria-hidden="true"
+          data-icon={showLabel ? 'inline-start' : undefined}
+          className={cn(
+            'col-start-1 row-start-1 text-success transition-opacity duration-150 ease-out-soft',
+            copied ? 'opacity-100' : 'opacity-0',
+          )}
+        />
+      </span>
       {showLabel ? text : null}
     </Button>
   );

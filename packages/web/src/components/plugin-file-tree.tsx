@@ -131,7 +131,7 @@ function FolderRow({ folder, props }: { folder: FolderNode; props: TreeProps }) 
           {expanded ? <FolderOpen aria-hidden="true" /> : <Folder aria-hidden="true" />}
           <span className="min-w-0 truncate">{folder.name}</span>
         </CollapsibleTrigger>
-        <CollapsibleContent>
+        <CollapsibleContent animated>
           <Children folder={folder} props={props} nested />
         </CollapsibleContent>
       </Collapsible>

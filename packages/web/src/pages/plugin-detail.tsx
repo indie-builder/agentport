@@ -4,6 +4,11 @@ import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { ArrowLeft, Download, FileText, FolderOpen } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../components/motion-collapsible.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
 import {
   isPluginMarkdown,
@@ -21,11 +26,6 @@ import {
   BreadcrumbSeparator,
 } from '../components/ui/breadcrumb.js';
 import { Button } from '../components/ui/button.js';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '../components/ui/collapsible.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { ApiError } from '../lib/api.js';
@@ -455,7 +455,7 @@ function PluginContent({
                 文件
               </CollapsibleTrigger>
             </div>
-            <CollapsibleContent>
+            <CollapsibleContent animated>
               <div className="max-h-[40vh] overflow-y-auto border-b py-2">
                 <PluginFileTree
                   files={plugin.files}

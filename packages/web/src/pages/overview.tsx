@@ -311,6 +311,7 @@ function RunTrendCard() {
                 fillOpacity={0.08}
                 stroke="var(--color-runs)"
                 strokeWidth={1.5}
+                isAnimationActive={false}
               />
               <Area
                 dataKey="failed"
@@ -319,6 +320,7 @@ function RunTrendCard() {
                 fillOpacity={0.16}
                 stroke="var(--color-failed)"
                 strokeWidth={1.5}
+                isAnimationActive={false}
               />
             </AreaChart>
           </ChartContainer>

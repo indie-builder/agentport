@@ -3224,70 +3224,71 @@ function VersionRow({
 
   return (
     <li className="py-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-medium tabular-nums text-fg">
-              v{item.version}
-            </span>
-            {item.note ? (
-              <span className="truncate rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground">
-                {item.note}
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm font-medium tabular-nums text-fg">
+                v{item.version}
               </span>
+              {item.note ? (
+                <span className="truncate rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground">
+                  {item.note}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-0.5 font-mono text-2xs tabular-nums text-muted-foreground">
+              {formatDateTime(item.createdAt)}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <CollapsibleTrigger
+              render={
+                <Button variant="ghost" size="sm">
+                  <ChevronRight
+                    className={cn('size-4 transition-transform', open && 'rotate-90')}
+                    aria-hidden="true"
+                  />
+                  {open ? '收起差异' : '查看差异'}
+                </Button>
+              }
+            />
+            <Button variant="outline" size="sm" disabled={rollbackDisabled} onClick={onRollback}>
+              <RotateCcw className="size-4" /> 回滚
+            </Button>
+          </div>
+        </div>
+        <CollapsibleContent animated>
+          <div className="mt-2">
+            {detail.isPending ? <LoadingState rows={2} /> : null}
+            {detail.isError ? (
+              <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
+            ) : null}
+            {diff && diff.length === 0 ? (
+              <p className="text-2xs text-muted-foreground">与当前配置一致。</p>
+            ) : null}
+            {diff && diff.length > 0 ? (
+              <ul className="divide-y divide-line border-y">
+                {diff.map((entry) => (
+                  <li
+                    key={entry.label}
+                    className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2 py-1.5 text-2xs"
+                  >
+                    <span className="text-muted-foreground">{entry.label}</span>
+                    <span className="whitespace-pre-wrap break-all text-fg">
+                      <span className="text-muted-foreground">{entry.from}</span>
+                      <span className="mx-1 text-muted-foreground" aria-hidden="true">
+                        →
+                      </span>
+                      <span>{entry.to}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
             ) : null}
           </div>
-          <div className="mt-0.5 font-mono text-2xs tabular-nums text-muted-foreground">
-            {formatDateTime(item.createdAt)}
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            <ChevronRight
-              className={cn('size-4 transition-transform', open && 'rotate-90')}
-              aria-hidden="true"
-            />
-            {open ? '收起差异' : '查看差异'}
-          </Button>
-          <Button variant="outline" size="sm" disabled={rollbackDisabled} onClick={onRollback}>
-            <RotateCcw className="size-4" /> 回滚
-          </Button>
-        </div>
-      </div>
-      {open ? (
-        <div className="mt-2">
-          {detail.isPending ? <LoadingState rows={2} /> : null}
-          {detail.isError ? (
-            <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
-          ) : null}
-          {diff && diff.length === 0 ? (
-            <p className="text-2xs text-muted-foreground">与当前配置一致。</p>
-          ) : null}
-          {diff && diff.length > 0 ? (
-            <ul className="divide-y divide-line border-y">
-              {diff.map((entry) => (
-                <li
-                  key={entry.label}
-                  className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2 py-1.5 text-2xs"
-                >
-                  <span className="text-muted-foreground">{entry.label}</span>
-                  <span className="whitespace-pre-wrap break-all text-fg">
-                    <span className="text-muted-foreground">{entry.from}</span>
-                    <span className="mx-1 text-muted-foreground" aria-hidden="true">
-                      →
-                    </span>
-                    <span>{entry.to}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
+        </CollapsibleContent>
+      </Collapsible>
     </li>
   );
 }

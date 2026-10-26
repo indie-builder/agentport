@@ -188,7 +188,12 @@ export function RunsPage() {
               onClick={() => void runs.refetch()}
               disabled={runs.isFetching}
             >
-              <RefreshCw data-icon="inline-start" aria-hidden="true" /> 刷新
+              <RefreshCw
+                data-icon="inline-start"
+                className={runs.isFetching ? 'animate-spin' : undefined}
+                aria-hidden="true"
+              />
+              {runs.isFetching ? '刷新中…' : '刷新'}
             </Button>
           </>
         }
