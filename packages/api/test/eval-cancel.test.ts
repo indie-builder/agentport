@@ -1,6 +1,6 @@
 import { newId, repo } from '@agentport/db';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   cleanup,
   createAgent,
@@ -83,6 +83,25 @@ describe.skipIf(!ready)('eval run cancellation', () => {
     expectProblem(res, 'NOT_FOUND');
   });
 
+  it('checks run existence with an id-only query', async () => {
+    const { run } = await seedRun();
+    const query = vi.spyOn(app.pool, 'query');
+    const res = await cancel(run.id);
+    const calls = [...query.mock.calls];
+    query.mockRestore();
+    expect(res.statusCode).toBe(202);
+    const evalRunSelects = calls
+      .map(([statement]) => {
+        if (typeof statement === 'string') return statement;
+        const text = (statement as { text?: unknown }).text;
+        return typeof text === 'string' ? text : '';
+      })
+      .filter((text) => /^select .* from "eval_runs"/i.test(text));
+    expect(evalRunSelects).toHaveLength(1);
+    expect(evalRunSelects[0]).toMatch(/^select "id" from "eval_runs"/i);
+    expect(evalRunSelects[0]).not.toMatch(/case_snapshot/i);
+  });
+
   it('cancels a running run and records one audit row without inputs', async () => {
     const { run } = await seedRun();
 
@@ -111,20 +130,28 @@ describe.skipIf(!ready)('eval run cancellation', () => {
     expect(await cancelAudits(run.id)).toHaveLength(1);
   });
 
-  it('leaves a finished run unchanged and writes no audit', async () => {
-    const { run } = await seedRun();
-    await repo.evalRepo.finishEvalRun(app.db, run.id, { status: 'succeeded', passed: 1 });
-    const finished = await repo.evalRepo.getEvalRun(app.db, run.id);
+  it.each(['succeeded', 'failed', 'cancelled'] as const)(
+    'leaves a %s run unchanged and writes no audit',
+    async (status) => {
+      const { run } = await seedRun();
+      const passed = status === 'succeeded' ? 1 : 0;
+      if (status === 'cancelled') {
+        expect(await repo.evalRepo.cancelEvalRun(app.db, run.id)).toBe(true);
+      } else {
+        await repo.evalRepo.finishEvalRun(app.db, run.id, { status, passed });
+      }
+      const finished = await repo.evalRepo.getEvalRun(app.db, run.id);
 
-    const res = await cancel(run.id);
-    expect(res.statusCode).toBe(202);
-    expect(res.json()).toEqual({ ok: true });
+      const res = await cancel(run.id);
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toEqual({ ok: true });
 
-    const row = await repo.evalRepo.getEvalRun(app.db, run.id);
-    expect(row).toMatchObject({ status: 'succeeded', passed: 1 });
-    expect(row?.finishedAt).toEqual(finished?.finishedAt);
-    expect(await cancelAudits(run.id)).toHaveLength(0);
-  });
+      const row = await repo.evalRepo.getEvalRun(app.db, run.id);
+      expect(row).toMatchObject({ status, passed });
+      expect(row?.finishedAt).toEqual(finished?.finishedAt);
+      expect(await cancelAudits(run.id)).toHaveLength(0);
+    },
+  );
 
   it('keeps result counts consistent when recording races with cancellation', async () => {
     const { run, evalCase, caseSnapshot } = await seedRun();
