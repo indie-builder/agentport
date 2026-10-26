@@ -7,6 +7,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        plain: 'cursor-pointer bg-transparent',
         default: 'bg-primary text-primary-foreground hover:bg-primary/80',
         // §9：已有边框的变体只用边框变色表达焦点/错误；ring-0 会被基类 ring-2 覆盖，故把环设成透明。
         outline:
