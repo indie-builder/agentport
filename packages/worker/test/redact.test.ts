@@ -36,6 +36,28 @@ describe('redactSecrets', () => {
     );
   });
 
+  it('masks the token after a repeated Bearer word instead of consuming it', () => {
+    expect(redactSecrets('Bearer Bearer abcdefgh')).toBe('Bearer Bearer abcd***');
+    // 阈值不变：第二个词本身不足 8 位时仍原样保留。
+    expect(redactSecrets('Bearer Bearer abcdefg')).toBe('Bearer Bearer abcdefg');
+    // 只有 Bearer 的词类会吞下相邻前缀；provider 前缀不跨空白消费。
+    expect(redactSecrets('sk- sk-abcdefghijklmnopqrst')).toBe('sk- sk-a***');
+  });
+
+  it('masks a multi-megabyte token behind a repeated Bearer word', () => {
+    const chunk = 'x'.repeat(7_000_000);
+    expect(redactSecrets(`Bearer Bearer ${chunk}`)).toBe('Bearer Bearer xxxx***');
+  });
+
+  it('handles multi-megabyte contiguous tokens without overflowing', () => {
+    const chunk = 'x'.repeat(7_000_000);
+    // 连续长串本身不是密钥：不能因为长度让整个脱敏抛栈溢出。
+    expect(redactSecrets(chunk)).toBe(chunk);
+    expect(redactSecrets(`Bearer ${chunk}`)).toBe('Bearer xxxx***');
+    expect(redactSecrets(`sk-${chunk}`)).toBe('sk-x***');
+    expect(redactSecrets(`aB3${chunk}`)).toBe('aB3x***');
+  });
+
   it('is a no-op without secrets', () => {
     expect(redactSecrets('sandbox exited with code 1')).toBe('sandbox exited with code 1');
   });

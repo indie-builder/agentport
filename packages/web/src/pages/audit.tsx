@@ -1,6 +1,6 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RefreshCw } from 'lucide-react';
-import { useDeferredValue, useState } from 'react';
+import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
@@ -17,6 +17,7 @@ import {
 } from '../lib/format.js';
 import { useAudit } from '../lib/queries.js';
 import { toastError } from '../lib/toast.js';
+import { useDebouncedValue } from '../lib/use-debounced-value.js';
 
 const statusOptions: Array<{ value: AuditStatus | 'all'; label: string }> = [
   { value: 'all', label: '全部状态' },
@@ -98,26 +99,26 @@ export function AuditPage() {
   const status = search.status ?? 'all';
   const target = search.target ?? '';
   const [exporting, setExporting] = useState(false);
-  const deferredAction = useDeferredValue(action.trim());
-  const deferredTarget = useDeferredValue(target.trim());
+  const settledAction = useDebouncedValue(action.trim(), 300);
+  const settledTarget = useDebouncedValue(target.trim(), 300);
   const audit = useAudit({
-    ...(deferredAction ? { action: deferredAction } : {}),
+    ...(settledAction ? { action: settledAction } : {}),
     ...(status === 'all' ? {} : { status }),
-    ...(deferredTarget ? { target: deferredTarget } : {}),
+    ...(settledTarget ? { target: settledTarget } : {}),
   });
 
   const rows = audit.data?.pages.flatMap((page) => page.items) ?? [];
-  const filtered = Boolean(deferredAction) || status !== 'all' || Boolean(deferredTarget);
-  const searchPending = action.trim() !== deferredAction || target.trim() !== deferredTarget;
+  const filtered = Boolean(settledAction) || status !== 'all' || Boolean(settledTarget);
+  const searchPending = action.trim() !== settledAction || target.trim() !== settledTarget;
 
   const exportAudit = async (): Promise<void> => {
     setExporting(true);
     try {
-      // 与表格使用同一份延迟筛选值，避免刚输入就导出时导出旧条件。
+      // 与表格使用同一份已生效的筛选值，避免刚输入就导出时导出旧条件。
       const data = await api.exportAudit({
-        ...(deferredAction ? { action: deferredAction } : {}),
+        ...(settledAction ? { action: settledAction } : {}),
         ...(status === 'all' ? {} : { status }),
-        ...(deferredTarget ? { target: deferredTarget } : {}),
+        ...(settledTarget ? { target: settledTarget } : {}),
       });
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),

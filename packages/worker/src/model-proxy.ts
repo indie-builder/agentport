@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { pipeline } from 'node:stream/promises';
 
 import type { Logger } from 'pino';
 
@@ -168,43 +169,53 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     }
 
     ctx.model = modelOf(body);
-    const upstreamRes = await fetch(target, {
-      method: req.method ?? 'POST',
-      headers,
-      ...(body.length > 0 && req.method !== 'GET' && req.method !== 'HEAD' ? { body } : {}),
-    });
 
-    const upstreamRequestId = upstreamRes.headers.get('request-id') ?? undefined;
-    ctx.upstreamRequestId = upstreamRequestId;
-    // 每次请求一行：runId + 上游 request-id 能把沙盒里的报错对回上游账单与日志。
-    // 不记请求体、不记响应体。
-    logger.info(
-      {
-        runId: ctx.runId,
-        model: ctx.model,
-        status: upstreamRes.status,
-        durationMs: Date.now() - startedAt,
-        upstreamRequestId,
-      },
-      'model proxy request',
-    );
+    // 下游提前断开时中止上游 fetch，否则它会继续把整段响应读完。
+    const abort = new AbortController();
+    const abortIfUnfinished = () => {
+      if (!res.writableFinished) abort.abort();
+    };
+    res.once('close', abortIfUnfinished);
 
-    res.writeHead(upstreamRes.status, {
-      'content-type': upstreamRes.headers.get('content-type') ?? 'application/json',
-      ...(upstreamRequestId ? { 'request-id': upstreamRequestId } : {}),
-    });
-    if (!upstreamRes.body) {
-      res.end();
-      return;
+    try {
+      const upstreamRes = await fetch(target, {
+        method: req.method ?? 'POST',
+        headers,
+        signal: abort.signal,
+        ...(body.length > 0 && req.method !== 'GET' && req.method !== 'HEAD' ? { body } : {}),
+      });
+
+      const upstreamRequestId = upstreamRes.headers.get('request-id') ?? undefined;
+      ctx.upstreamRequestId = upstreamRequestId;
+      // 每次请求一行：runId + 上游 request-id 能把沙盒里的报错对回上游账单与日志。
+      // 不记请求体、不记响应体。
+      logger.info(
+        {
+          runId: ctx.runId,
+          model: ctx.model,
+          status: upstreamRes.status,
+          durationMs: Date.now() - startedAt,
+          upstreamRequestId,
+        },
+        'model proxy request',
+      );
+
+      res.writeHead(upstreamRes.status, {
+        'content-type': upstreamRes.headers.get('content-type') ?? 'application/json',
+        ...(upstreamRequestId ? { 'request-id': upstreamRequestId } : {}),
+      });
+      if (!upstreamRes.body) {
+        res.end();
+        return;
+      }
+      // 流式（SSE）必须边读边写；pipeline 负责背压，下游慢时暂停读上游。
+      await pipeline(upstreamRes.body, res);
+    } catch (err) {
+      // 下游已主动断开：没有响应可写，也不属于代理故障。
+      if (!abort.signal.aborted) throw err;
+    } finally {
+      res.off('close', abortIfUnfinished);
     }
-    // 流式（SSE）必须边读边写：一次性 await text() 会让流式输出退化成阻塞。
-    const reader = upstreamRes.body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
-    }
-    res.end();
   }
 
   await new Promise<void>((resolvePromise, rejectPromise) => {

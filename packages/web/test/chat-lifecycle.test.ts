@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, createElement } from 'react';
+import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type ConversationDetail, type RunDetail } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
-import { useConversation, useConversations, useRunApprovals } from '../src/lib/queries.js';
+import { useConversation, useConversations, useRun, useRunApprovals } from '../src/lib/queries.js';
 import { useChatStream } from '../src/lib/use-chat-stream.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn() }));
@@ -82,7 +82,7 @@ async function flush() {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
 }
-async function mount(probe: () => null) {
+async function mount(probe: () => ReactElement | null) {
   await act(async () => {
     root.render(createElement(QueryClientProvider, { client }, createElement(probe)));
   });
@@ -97,6 +97,24 @@ function ChatProbe() {
   useConversations('agent-a');
   stream = useChatStream({ agentId: 'agent-a', onAccepted() {}, history: detail });
   return null;
+}
+
+function ActiveRunProbe() {
+  const run = useChatStore((state) => state.run);
+  return run?.runId ? createElement(RunDetailProbe, { runId: run.runId }) : null;
+}
+
+function RunDetailProbe({ runId }: { runId: string }) {
+  useRun(runId);
+  return null;
+}
+
+/** 与聊天页一样：恢复后一旦有活动 run，就让 useRun 接管轮询。 */
+function RestoreProbe() {
+  const id = useChatStore((state) => state.conversationId);
+  const detail = useConversation(id);
+  stream = useChatStream({ agentId: 'agent-a', onAccepted() {}, history: detail });
+  return createElement(ActiveRunProbe);
 }
 beforeEach(() => {
   useChatStore.getState().reset();
@@ -193,6 +211,35 @@ describe('history restoration', () => {
       runId: 'run-a',
     });
     expect(api.runApprovals).toHaveBeenCalledWith('run-a');
+  });
+
+  it('restores through the shared run cache so useRun does not request the same run again', async () => {
+    // 测试 client 默认 staleTime 为 0；恢复写入的缓存靠 runQuery 自带的 5s freshness 供 useRun 复用。
+    client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
+    useChatStore.getState().resetConversation('conversation-a');
+    await mount(RestoreProbe);
+    expect(api.run).toHaveBeenCalledTimes(1);
+    expect(client.getQueryData(['run', 'run-a'])).toEqual(run);
+    expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'reconnecting' });
+    expect(Source.instances).toHaveLength(1);
+  });
+
+  it('forces a fresh run read during restore even when the cache holds data', async () => {
+    client.setQueryData(['run', 'run-a'], {
+      ...run,
+      run: { ...run.run, status: 'failed' },
+    });
+    vi.mocked(api.run).mockResolvedValue({
+      ...run,
+      run: { ...run.run, status: 'succeeded', latencyMs: 2400 },
+    });
+    useChatStore.getState().resetConversation('conversation-a');
+    await mount(ChatProbe);
+    expect(api.run).toHaveBeenCalledTimes(1);
+    expect(useChatStore.getState().lastRun).toMatchObject({
+      status: 'succeeded',
+      durationMs: 2400,
+    });
   });
 
   it.each(['succeeded', 'failed', 'cancelled', 'timeout'] as const)(
@@ -327,7 +374,7 @@ describe('history restoration', () => {
     expect(api.run).not.toHaveBeenCalled();
   });
 
-  it('ignores a late run lookup after switching away and back', async () => {
+  it('reuses an in-flight run lookup when switching away and back', async () => {
     const pending = deferred<RunDetail>();
     vi.mocked(api.run).mockReturnValueOnce(pending.promise);
     useChatStore.getState().resetConversation('conversation-a');
@@ -337,17 +384,45 @@ describe('history restoration', () => {
       stream.hydratedRef.current = null;
       useChatStore.getState().resetConversation('conversation-b');
     });
-    vi.mocked(api.run).mockResolvedValue({ ...run, run: { ...run.run, status: 'succeeded' } });
     await act(async () => {
       stream.closeStream();
       stream.hydratedRef.current = null;
       useChatStore.getState().resetConversation('conversation-a');
     });
     await flush();
-    const current = useChatStore.getState();
     await act(async () => pending.resolve(run));
     await flush();
-    expect(useChatStore.getState()).toBe(current);
+    expect(api.run).toHaveBeenCalledTimes(1);
+    expect(useChatStore.getState().run).toMatchObject({
+      runId: 'run-a',
+      status: 'reconnecting',
+    });
+    expect(useChatStore.getState().items).toContainEqual({
+      id: '1:0',
+      kind: 'user',
+      text: 'prompt',
+      messageId: '1',
+    });
+    expect(Source.instances).toHaveLength(1);
+  });
+
+  it('does not apply an older run lookup after switching to another conversation', async () => {
+    const pending = deferred<RunDetail>();
+    vi.mocked(api.run).mockReturnValueOnce(pending.promise);
+    useChatStore.getState().resetConversation('conversation-a');
+    await mount(ChatProbe);
+    await act(async () => {
+      stream.closeStream();
+      stream.hydratedRef.current = null;
+      useChatStore.getState().resetConversation('conversation-b');
+    });
+    await flush();
+    await act(async () => pending.resolve(run));
+    await flush();
+    expect(useChatStore.getState().conversationId).toBe('conversation-b');
+    expect(useChatStore.getState().items).toEqual([]);
+    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().lastRunId).toBeNull();
     expect(Source.instances).toHaveLength(0);
   });
 });

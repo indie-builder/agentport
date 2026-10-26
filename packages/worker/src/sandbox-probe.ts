@@ -52,6 +52,8 @@ export interface SandboxProbeDeps {
   /** 宿主视角的同一目录；docker -v 的源路径由宿主 daemon 解析。 */
   hostWorkspacesDir: string;
   secretKey: string;
+  /** close 时 abort：取消这次试连的镜像拉取/创建。 */
+  closing?: AbortSignal;
 }
 
 /** 试连结果回给 API：stderr 只进审计与日志，`serverTestResultSchema` 会把它剥掉。 */
@@ -79,8 +81,8 @@ function parseResultLine(line: string): SandboxProbeOutput | null {
  * 在沙盒镜像里连一次 stdio MCP server：容器入口 `dist/probe.js` 只拿 stdio 配置，
  * 不给模型凭证、不写记忆。超时与容器启动失败都变成可读结果，不抛给 BullMQ。
  *
- * 整体预算含拉镜像与 docker run；容器内部的 connect/listTools 另有 5s 上限。
- * 超时后迟到的容器立即 SIGKILL，避免 worker 无界等待与容器泄漏。
+ * 整体预算含拉镜像与 docker create/start；容器内部的 connect/listTools 另有 5s 上限。
+ * 超时后迟到的容器仍由 provider 销毁（失败只告警），避免 worker 无界等待与容器泄漏。
  */
 export async function runSandboxProbe(
   deps: SandboxProbeDeps,
@@ -112,13 +114,16 @@ export async function runSandboxProbe(
   const workspaceDir = join(deps.hostWorkspacesDir, 'sandbox-probes');
   await mkdir(join(deps.workspacesDir, 'sandbox-probes'), { recursive: true, mode: 0o700 });
 
+  // 每次试连独立的取消信号：超时或关停时停掉冷拉取，不能等它跑完再销毁容器。
+  const createAbort = new AbortController();
+
   let sandbox: ProbeSandbox | undefined;
   let abandoned = false;
   let destroyed = false;
   const destroy = async (): Promise<void> => {
     if (!sandbox || destroyed) return;
     destroyed = true;
-    sandbox.child.kill('SIGKILL');
+    // 停止语义统一由 provider 负责（stop --time 5 + rm -f 兜底）。
     await deps.provider.destroy(sandbox).catch((err: unknown) => {
       deps.logger.warn({ err, serverId }, 'sandbox probe cleanup failed');
     });
@@ -129,6 +134,22 @@ export async function runSandboxProbe(
   const done = new Promise<{ result?: SandboxProbeOutput; exited?: string }>((resolve) => {
     resolveDone = resolve;
   });
+  // 记录提前结束的原因，容器还没起来时也要给出准确文案。
+  let exitReason: string | undefined;
+  const finish = (outcome: { result?: SandboxProbeOutput; exited?: string }): void => {
+    exitReason = outcome.exited;
+    resolveDone(outcome);
+  };
+  // 关停必须同时结束 done 并取消创建：只 abort 会让已启动的试连继续等满预算。
+  // create 也可能因 provider 的 closing 监听先 reject，catch 靠 exitReason 归类。
+  const onClosing = (): void => {
+    exitReason = '__closing__';
+    createAbort.abort();
+    finish({ exited: '__closing__' });
+  };
+  // listener 要在 finish 可用后注册，已 aborted 的输入也要按关停立即结束。
+  if (deps.closing?.aborted) onClosing();
+  deps.closing?.addEventListener('abort', onClosing, { once: true });
   let stderr = '';
   const collectStderr = (chunk: string): void => {
     if (stderr.length < SANDBOX_PROBE_STDERR_MAX_BYTES) {
@@ -137,7 +158,7 @@ export async function runSandboxProbe(
   };
 
   // 启动与结果各有一次预算：容器起不来和连不上要给出不同文案。
-  let timer = setTimeout(() => resolveDone({ exited: '__startup_timeout__' }), timeoutMs);
+  let timer = setTimeout(() => finish({ exited: '__startup_timeout__' }), timeoutMs);
   try {
     const creating = deps.provider.create({
       image: deps.image,
@@ -147,13 +168,18 @@ export async function runSandboxProbe(
       name: `agentport-probe-${randomBytes(4).toString('hex')}`,
       entrypoint: 'node',
       command: ['dist/probe.js'],
+      signal: createAbort.signal,
     });
     // 超时先返回时容器可能随后才创建完成；不能再走 finally，就地销毁避免泄漏。
     void creating.then(
       (late) => {
         if (!abandoned) return;
-        late.child.kill('SIGKILL');
-        void deps.provider.destroy(late).catch(() => undefined);
+        void deps.provider.destroy(late).catch((err: unknown) => {
+          deps.logger.warn(
+            { err, serverId, sandboxId: late.id },
+            'sandbox probe cleanup failed after timeout',
+          );
+        });
       },
       () => undefined,
     );
@@ -161,13 +187,18 @@ export async function runSandboxProbe(
     const created = await Promise.race([creating, done.then(() => undefined)]);
     if (!created) {
       abandoned = true;
-      // 启动预算先用完：错误信息区分「容器没起来」与「连上了但没结果」。
+      // 启动预算或关停先用完：取消仍在进行的拉取/创建，迟到的容器由迟到分支销毁。
+      createAbort.abort();
+      // 错误信息区分「worker 关停」「容器没起来」与「连上了但没结果」。
+      if (exitReason === '__closing__') {
+        return failure('worker 正在关停，连接测试已取消');
+      }
       return failure(`沙盒启动超时（${timeoutMs}ms），请检查 Docker 服务与镜像后重试`);
     }
     sandbox = created;
     // 容器已启动：剩余预算留给容器内的 connect + listTools。
     clearTimeout(timer);
-    timer = setTimeout(() => resolveDone({ exited: '__timeout__' }), timeoutMs);
+    timer = setTimeout(() => finish({ exited: '__timeout__' }), timeoutMs);
 
     const { child } = created;
     let pending = '';
@@ -180,21 +211,22 @@ export async function runSandboxProbe(
         const line = pending.slice(0, newline);
         pending = pending.slice(newline + 1);
         const result = parseResultLine(line);
-        if (result) resolveDone({ result });
+        if (result) finish({ result });
       }
     });
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', collectStderr);
     child.stdin.on('error', () => undefined);
-    child.once('error', (err) => resolveDone({ exited: errorText(err) }));
+    child.once('error', (err) => finish({ exited: errorText(err) }));
     child.once('close', (code, signal) => {
-      resolveDone({
+      finish({
         exited: `退出码 ${String(code)}${signal ? ` (${signal})` : ''}`,
       });
     });
     child.stdin.write(`${JSON.stringify(task.data)}\n`);
 
     const outcome = await done;
+    if (outcome.exited === '__timeout__' || outcome.exited === '__closing__') createAbort.abort();
     const stderrTail = redactSecrets(stderr.trim()).split('\n').at(-1)?.slice(0, 300) ?? '';
     if (outcome.result) {
       const output = outcome.result;
@@ -221,20 +253,28 @@ export async function runSandboxProbe(
     }
 
     const reason =
-      outcome.exited === '__timeout__'
-        ? `连接测试超时（${timeoutMs}ms），请检查 Server 是否能正常启动`
-        : `沙盒没有返回结果（${outcome.exited ?? 'unknown'}）`;
+      outcome.exited === '__closing__'
+        ? 'worker 正在关停，连接测试已取消'
+        : outcome.exited === '__timeout__'
+          ? `连接测试超时（${timeoutMs}ms），请检查 Server 是否能正常启动`
+          : `沙盒没有返回结果（${outcome.exited ?? 'unknown'}）`;
     deps.logger.warn(
       { serverId, durationMs: Date.now() - startedAt, stderr: redactSecrets(stderr) },
       'sandbox probe failed',
     );
     return failure(stderrTail ? `${reason}: ${stderrTail}` : reason, stderrTail || undefined);
   } catch (err) {
+    // create 也可能在关停竞速里先 reject；此时要给关停文案，不能报成启动失败。
+    if (exitReason === '__closing__' || deps.closing?.aborted === true) {
+      deps.logger.warn({ serverId }, 'sandbox probe cancelled by shutdown');
+      return failure('worker 正在关停，连接测试已取消');
+    }
     // 容器创建失败（docker 不可达、镜像缺失）也只回可读结果，不让 BullMQ 重试无限拉长请求。
     deps.logger.warn({ err, serverId }, 'sandbox probe crashed');
     return failure(`无法启动沙盒：${redactSecrets(errorText(err))}`);
   } finally {
     clearTimeout(timer);
+    deps.closing?.removeEventListener('abort', onClosing);
     await destroy();
   }
 }
@@ -245,11 +285,13 @@ export async function runSandboxProbe(
  */
 export async function registerSandboxProbe(config: Config): Promise<{ close(): Promise<void> }> {
   const handle = createDb(config.DATABASE_URL);
+  const closing = new AbortController();
   const provider: ProbeProvider = new DockerSandboxProvider({
     memory: config.SANDBOX_MEMORY,
     cpus: config.SANDBOX_CPUS,
     pids: config.SANDBOX_PIDS,
     egress: config.SANDBOX_EGRESS,
+    closing: closing.signal,
   });
   const deps: SandboxProbeDeps = {
     db: handle.db,
@@ -259,6 +301,7 @@ export async function registerSandboxProbe(config: Config): Promise<{ close(): P
     workspacesDir: config.WORKSPACES_DIR,
     hostWorkspacesDir: config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR,
     secretKey: config.APP_SECRET_KEY,
+    closing: closing.signal,
   };
 
   const worker = new Worker<SandboxProbeJob>(
@@ -274,9 +317,17 @@ export async function registerSandboxProbe(config: Config): Promise<{ close(): P
 
   return {
     close: async () => {
-      await worker.close();
-      await provider.destroyAll?.();
+      // 先停新任务并取消进行中的拉取/创建，再并行等消费者与容器清理收尾。
+      closing.abort();
+      const closed = worker.close();
+      const results = await Promise.allSettled([closed, provider.destroyAll?.()]);
       await handle.pool.end();
+      const failures = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : [],
+      );
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'sandbox probe shutdown failed');
+      }
     },
   };
 }

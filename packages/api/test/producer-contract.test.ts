@@ -8,7 +8,31 @@ import { Redis } from 'ioredis';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
 
+const mockState = vi.hoisted(() => ({
+  pipelines: [] as Array<Record<string, ReturnType<typeof vi.fn>>>,
+  execError: null as Error | null,
+}));
+
 vi.mock('ioredis', () => {
+  const chain = (): Record<string, ReturnType<typeof vi.fn>> => {
+    const pipe: Record<string, ReturnType<typeof vi.fn>> = {};
+    for (const name of ['xadd', 'expire', 'set', 'publish']) {
+      pipe[name] = vi.fn(() => pipe);
+    }
+    pipe.exec = vi.fn(async () =>
+      mockState.execError
+        ? [
+            [mockState.execError, null],
+            [null, 1],
+          ]
+        : [
+            [null, '1-0'],
+            [null, 1],
+          ],
+    );
+    mockState.pipelines.push(pipe);
+    return pipe;
+  };
   class Redis {
     on = vi.fn();
     xadd = vi.fn().mockResolvedValue('1-0');
@@ -22,6 +46,7 @@ vi.mock('ioredis', () => {
     xread = vi.fn(() => new Promise<never>(() => undefined));
     disconnect = vi.fn();
     quit = vi.fn().mockResolvedValue('OK');
+    pipeline = vi.fn(() => chain());
   }
   return { Redis: vi.fn(Redis) };
 });
@@ -37,13 +62,18 @@ vi.mock('@agentport/shared', async (importOriginal) => {
   };
 });
 
-afterEach(closeProducer);
+afterEach(async () => {
+  await closeProducer();
+  mockState.pipelines.length = 0;
+  mockState.execError = null;
+});
 
 describe('producer shared stream contract', () => {
-  it('publishes events to the stream without any separate wake channel', async () => {
+  it('publishes events through one pipeline instead of two round trips', async () => {
     await publishRun('run-1', { type: 'text_delta', text: 'hello' });
     const publisher = vi.mocked(Redis).mock.instances.at(-1);
-    expect(publisher?.xadd).toHaveBeenCalledWith(
+    const pipe = mockState.pipelines.at(-1);
+    expect(pipe?.xadd).toHaveBeenCalledWith(
       runStreamKey('run-1'),
       'MAXLEN',
       '~',
@@ -52,8 +82,19 @@ describe('producer shared stream contract', () => {
       'payload',
       JSON.stringify({ type: 'text_delta', text: 'hello' }),
     );
-    expect(publisher?.expire).toHaveBeenCalledWith(runStreamKey('run-1'), 3600);
+    expect(pipe?.expire).toHaveBeenCalledWith(runStreamKey('run-1'), 3600);
+    expect(pipe?.exec).toHaveBeenCalledTimes(1);
+    // 两条命令都进了同一个 pipeline，不再各自单独往返。
+    expect(publisher?.xadd).not.toHaveBeenCalled();
+    expect(publisher?.expire).not.toHaveBeenCalled();
     expect(publisher?.publish).not.toHaveBeenCalled();
+  });
+
+  it('rejects when a pipelined command fails', async () => {
+    mockState.execError = new Error('xadd failed');
+    await expect(publishRun('run-1', { type: 'text_delta', text: 'hello' })).rejects.toThrow(
+      'xadd failed',
+    );
   });
 
   it('follows the stream with a blocking XREAD from the last real id', async () => {
@@ -95,11 +136,12 @@ describe('producer shared stream contract', () => {
     expect(subscriber?.disconnect).toHaveBeenCalled();
   });
 
-  it('uses the shared cancel key for the persistent flag and notification', async () => {
+  it('batches the cancel flag and notification under the shared cancel key', async () => {
     await publishRun('run-1', { type: 'cancel' });
-    const publisher = vi.mocked(Redis).mock.instances.at(-1);
-    expect(publisher?.set).toHaveBeenCalledWith(runCancelKey('run-1'), '1', 'EX', 3600);
-    expect(publisher?.publish).toHaveBeenCalledWith(runCancelKey('run-1'), '1');
+    const pipe = mockState.pipelines.at(-1);
+    expect(pipe?.set).toHaveBeenCalledWith(runCancelKey('run-1'), '1', 'EX', 3600);
+    expect(pipe?.publish).toHaveBeenCalledWith(runCancelKey('run-1'), '1');
+    expect(pipe?.exec).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the existing Redis wire format byte-identical', async () => {

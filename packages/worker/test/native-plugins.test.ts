@@ -175,6 +175,8 @@ describe('runNativePluginAction', () => {
         containerPath: '/mnt/plugin-cache',
       },
     ]);
+    // 正常完成的动作不能触发取消。
+    expect(options?.signal?.aborted).toBe(false);
     expect(fake.destroyed).toEqual(['native-plugin-fake']);
   });
 
@@ -217,6 +219,122 @@ describe('runNativePluginAction', () => {
 
     expect(result).toEqual({ ok: false, error: '沙盒动作超时（30ms）' });
     expect(fake.destroyed).toEqual(['native-plugin-fake']);
+    // 总预算用完也要取消这次创建，冷拉取不能继续。
+    expect(fake.options[0]?.signal?.aborted).toBe(true);
+  });
+
+  it('aborts a pending create when the action budget expires', async () => {
+    const captured: { signal?: AbortSignal } = {};
+    const provider: FakeProvider['provider'] = {
+      create: (options) => {
+        captured.signal = options.signal;
+        return new Promise<Sandbox>(() => undefined);
+      },
+      destroy: async () => undefined,
+    };
+
+    const result = await runNativePluginAction(deps(provider, 30), { action: 'list' });
+
+    expect(result).toEqual({
+      ok: false,
+      error: '沙盒启动超时（30ms），请检查 Docker 服务与镜像后重试',
+    });
+    expect(captured.signal?.aborted).toBe(true);
+  });
+
+  it('aborts a pending create when the worker closes', async () => {
+    const closing = new AbortController();
+    const captured: { signal?: AbortSignal } = {};
+    const provider: FakeProvider['provider'] = {
+      create: (options) => {
+        captured.signal = options.signal;
+        return new Promise<Sandbox>(() => undefined);
+      },
+      destroy: async () => undefined,
+    };
+
+    const pending = runNativePluginAction(
+      { ...deps(provider, 5_000), closing: closing.signal },
+      { action: 'list' },
+    );
+    await vi.waitFor(() => expect(captured.signal).toBeDefined());
+    closing.abort();
+    const result = await pending;
+
+    expect(result).toEqual({ ok: false, error: 'worker 正在关停，安装已取消' });
+    expect(captured.signal?.aborted).toBe(true);
+  });
+
+  it('reports worker shutdown when create rejects on the closing signal', async () => {
+    const closing = new AbortController();
+    let rejectCreate: ((error: Error) => void) | undefined;
+    const captured: { signal?: AbortSignal } = {};
+    const provider: FakeProvider['provider'] = {
+      create: (options) => {
+        captured.signal = options.signal;
+        return new Promise<Sandbox>((_resolve, reject) => {
+          rejectCreate = reject;
+        });
+      },
+      destroy: async () => undefined,
+    };
+    // provider 先于动作注册 closing 监听：关停时 create 的拒绝先于 done 落地。
+    closing.signal.addEventListener(
+      'abort',
+      () => rejectCreate?.(new Error('sandbox create aborted')),
+      { once: true },
+    );
+
+    const pending = runNativePluginAction(
+      { ...deps(provider, 10_000), closing: closing.signal },
+      { action: 'list' },
+    );
+    await vi.waitFor(() => expect(rejectCreate).toBeDefined());
+    closing.abort();
+    const result = await pending;
+
+    expect(result).toEqual({ ok: false, error: 'worker 正在关停，安装已取消' });
+    expect(captured.signal?.aborted).toBe(true);
+  });
+
+  it('leaves late cleanup to the provider and reports its failure', async () => {
+    const child = hangingChild();
+    const destroyed: string[] = [];
+    const warn = vi.fn();
+    const logger = { ...quietLogger, warn } as unknown as Logger;
+    const captured: { resolve?: (value: Sandbox) => void } = {};
+    const provider: FakeProvider['provider'] = {
+      create: () =>
+        new Promise<Sandbox>((resolve) => {
+          captured.resolve = resolve;
+        }),
+      destroy: async (sandbox) => {
+        destroyed.push(sandbox.id);
+        throw new Error('rm failed');
+      },
+    };
+
+    const result = await runNativePluginAction(
+      { ...deps(provider, 30), logger },
+      { action: 'list' },
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: '沙盒启动超时（30ms），请检查 Docker 服务与镜像后重试',
+    });
+
+    captured.resolve?.({ id: 'native-plugin-late', child } as unknown as Sandbox);
+    await vi.waitFor(() => expect(destroyed).toEqual(['native-plugin-late']));
+    // 停止语义归 provider；这里不能杀进程，清理失败也必须带上下文告警。
+    expect(child.signals).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.any(Error),
+        action: 'list',
+        sandboxId: 'native-plugin-late',
+      }),
+      'native plugin sandbox cleanup failed after timeout',
+    );
   });
 
   it('rejects an invalid result line instead of parsing partial output', async () => {
@@ -294,6 +412,19 @@ describe('registerNativePlugins close', () => {
     }
   });
 
+  it('reports cleanup failure instead of swallowing it', async () => {
+    docker.destroyAll.mockRejectedValueOnce(new Error('rm failed'));
+    const handle = await registerNativePlugins(config());
+    try {
+      await expect(handle.close()).rejects.toMatchObject({
+        name: 'AggregateError',
+        errors: [expect.objectContaining({ message: 'rm failed' })],
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('does not wait for an install stuck in provider.create', async () => {
     let resolveCreate: (sandbox: Sandbox) => void = () => {};
     docker.createImpl.mockImplementation(
@@ -309,11 +440,11 @@ describe('registerNativePlugins close', () => {
       // create 未完成时 destroyAll 清不到容器，close 必须自行返回而不是等满安装预算。
       await handle.close();
 
-      // 迟到的容器由 finally 销毁，不泄漏。
+      // 迟到的容器由 provider 销毁，native-plugins 不再直接杀进程。
       const child = hangingChild();
       resolveCreate({ id: 'native-plugin-late', child } as unknown as Sandbox);
       await vi.waitFor(() => expect(docker.destroy).toHaveBeenCalledTimes(1));
-      expect(child.signals).toContain('SIGKILL');
+      expect(child.signals).toEqual([]);
     } finally {
       await handle.close();
       await queue.close();

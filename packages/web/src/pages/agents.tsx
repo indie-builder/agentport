@@ -57,7 +57,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { type Path, type PathValue, useController } from 'react-hook-form';
+import { type Control, type Path, type PathValue, useController, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import digitalTwinPortrait from '../assets/agents/digital-twin.png';
@@ -218,7 +218,9 @@ function toInput(agent: Agent): AgentInput {
     maxBudgetUsd: agent.maxBudgetUsd,
     timeoutMs: agent.timeoutMs,
     enabled: agent.enabled,
-    ...(agent.effort === undefined ? {} : { effort: agent.effort }),
+    // 显式保留 undefined 键：RHF 的 defaultValues 必须覆盖每个受控字段，
+    // 否则 reset 后 useController 写回的 undefined 会让表单再次判定为 dirty。
+    effort: agent.effort,
     ...(agent.maxThinkingTokens === undefined
       ? {}
       : { maxThinkingTokens: agent.maxThinkingTokens }),
@@ -935,19 +937,23 @@ export function AgentEditor({
   const [exporting, setExporting] = useState(false);
   // RHF 是唯一数据源：多行工具与思考上限保留原始文本，提交时才解析。
   const rhf = useZodForm(agentFormSchema, { defaultValues: draftFromInput(toInput(agent)) });
-  // defaultValues 完整，watch 总能拿到全部字段；类型上按完整草稿读取。
-  const form = rhf.watch() as AgentDraft;
+  // defaultValues 覆盖全部字段；把 schema 输入的可选类型收敛回完整草稿。
+  const control = rhf.control as unknown as Control<AgentDraft, unknown, AgentDraft>;
   const errors = rhf.formState.errors;
   const allowedInvalid = Boolean(errors.allowedTools);
   const thinkingInvalid = Boolean(errors.maxThinkingTokens);
-  const roleField = useController({ control: rhf.control, name: 'role' }).field;
-  const effortField = useController({ control: rhf.control, name: 'effort' }).field;
-  const serverIdsField = useController({ control: rhf.control, name: 'serverIds' }).field;
-  const skillIdsField = useController({ control: rhf.control, name: 'skillIds' }).field;
-  const subAgentIdsField = useController({ control: rhf.control, name: 'subAgentIds' }).field;
-  const permissionModeField = useController({ control: rhf.control, name: 'permissionMode' }).field;
-  const uiFormatField = useController({ control: rhf.control, name: 'uiFormat' }).field;
-  const enabledField = useController({ control: rhf.control, name: 'enabled' }).field;
+  const roleField = useController({ control, name: 'role' }).field;
+  const effortField = useController({ control, name: 'effort' }).field;
+  const serverIdsField = useController({ control, name: 'serverIds' }).field;
+  const skillIdsField = useController({ control, name: 'skillIds' }).field;
+  const subAgentIdsField = useController({ control, name: 'subAgentIds' }).field;
+  const pluginBindingsField = useController({ control, name: 'pluginBindings' }).field;
+  const permissionModeField = useController({ control, name: 'permissionMode' }).field;
+  const uiFormatField = useController({ control, name: 'uiFormat' }).field;
+  const enabledField = useController({ control, name: 'enabled' }).field;
+  // 只有工具文本参与派生状态；其余输入走非受控 register 或各自控件，不再整表订阅。
+  const allowedToolsDraft = useWatch({ control, name: 'allowedTools' });
+  const disallowedToolsDraft = useWatch({ control, name: 'disallowedTools' });
 
   const set = <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]): void => {
     rhf.setValue(key as Path<AgentDraft>, value as PathValue<AgentDraft, Path<AgentDraft>>, {
@@ -1072,7 +1078,7 @@ export function AgentEditor({
   const knowledgeServers = useMemo<Server[]>(
     () =>
       knowledgeOptions
-        .filter((item) => form.serverIds.includes(item.id))
+        .filter((item) => serverIdsField.value.includes(item.id))
         .map((item) => ({
           id: item.id,
           name: `kb-${item.slug}`,
@@ -1082,7 +1088,7 @@ export function AgentEditor({
           createdAt: item.updatedAt,
           updatedAt: item.updatedAt,
         })),
-    [knowledgeOptions, form.serverIds],
+    [knowledgeOptions, serverIdsField.value],
   );
 
   const knowledgeIds = useMemo(
@@ -1090,30 +1096,30 @@ export function AgentEditor({
     [knowledgeOptions],
   );
   const setKnowledgeIds = (ids: string[]): void => {
-    serverIdsField.onChange(mergeKnowledgeIds(form.serverIds, knowledgeIds, ids));
+    serverIdsField.onChange(mergeKnowledgeIds(serverIdsField.value, knowledgeIds, ids));
   };
 
   const boundServers = useMemo(
     () =>
       [...(servers.data ?? []), ...knowledgeServers].filter((server) =>
-        form.serverIds.includes(server.id),
+        serverIdsField.value.includes(server.id),
       ),
-    [servers.data, knowledgeServers, form.serverIds],
+    [servers.data, knowledgeServers, serverIdsField.value],
   );
   const boundSkills = useMemo(
-    () => (skills.data ?? []).filter((skill) => form.skillIds.includes(skill.id)),
-    [skills.data, form.skillIds],
+    () => (skills.data ?? []).filter((skill) => skillIdsField.value.includes(skill.id)),
+    [skills.data, skillIdsField.value],
   );
   const boundSubAgents = useMemo(
     () =>
       (agents.data ?? [])
-        .filter((item) => item.enabled && form.subAgentIds.includes(item.id))
+        .filter((item) => item.enabled && subAgentIdsField.value.includes(item.id))
         .map((item) => ({
           ...item,
           effort: item.effort ?? null,
           skills: (skills.data ?? []).filter((skill) => item.skillIds.includes(skill.id)),
         })),
-    [agents.data, form.subAgentIds, skills.data],
+    [agents.data, subAgentIdsField.value, skills.data],
   );
   // 下载入口只能指向已落盘的配置，不能跟着未保存的草稿走。
   const savedSubAgents = useMemo(
@@ -1142,7 +1148,9 @@ export function AgentEditor({
 
   /** 勾选插件即绑定；hooks / MCP 仍取该插件上次的授权状态（新的默认关闭）。 */
   const setPluginSelection = (pickedIds: string[]): void => {
-    const previous = new Map(form.pluginBindings.map((binding) => [binding.pluginId, binding]));
+    const previous = new Map(
+      pluginBindingsField.value.map((binding) => [binding.pluginId, binding]),
+    );
     set(
       'pluginBindings',
       pickedIds.map(
@@ -1158,7 +1166,7 @@ export function AgentEditor({
   ): void => {
     set(
       'pluginBindings',
-      form.pluginBindings.map((binding) =>
+      pluginBindingsField.value.map((binding) =>
         binding.pluginId === pluginId ? { ...binding, [key]: value } : binding,
       ),
     );
@@ -1184,7 +1192,7 @@ export function AgentEditor({
   const toolCountUnknown = servers.isError || toolQueries.some((query) => query.isError);
   const unknownServerCount = boundServers.length - generatedIds.length;
   const serverToolSummary =
-    form.serverIds.length === 0
+    serverIdsField.value.length === 0
       ? '将获得 0 个工具'
       : toolCountUnknown
         ? '工具数量未知'
@@ -1194,13 +1202,13 @@ export function AgentEditor({
               unknownServerCount > 0 ? ` · 另 ${unknownServerCount} 个 server 连接后确定` : ''
             }`;
 
-  const hasSubAgents = form.subAgentIds.length > 0;
-  const allowedTools = toolLines(form.allowedTools);
+  const hasSubAgents = subAgentIdsField.value.length > 0;
+  const allowedTools = toolLines(allowedToolsDraft);
   /** 实际生效的内置工具状态：默认禁用 + 显式禁用，allowedTools 显式放行。 */
   const builtinEnabled = (tool: string): boolean => {
     // runner 只要 allowSubAgents 为真就放行 Agent/TaskStop，显式禁用拦不住。
     if ((tool === 'Agent' || tool === 'TaskStop') && hasSubAgents) return true;
-    if (form.disallowedTools.includes(tool)) return false;
+    if (disallowedToolsDraft.includes(tool)) return false;
     return !DEFAULT_DISALLOWED_TOOLS.includes(tool) || allowedTools.includes(tool);
   };
 
@@ -1215,8 +1223,8 @@ export function AgentEditor({
     set(
       'disallowedTools',
       enabled
-        ? [...new Set([...form.disallowedTools, tool])]
-        : form.disallowedTools.filter((item) => item !== tool),
+        ? [...new Set([...disallowedToolsDraft, tool])]
+        : disallowedToolsDraft.filter((item) => item !== tool),
     );
   };
 
@@ -1292,22 +1300,6 @@ export function AgentEditor({
       if (section) focusFirstInvalid(section);
     },
   );
-
-  // 草稿预览与真实落盘共用 core 的渲染函数，只有 server 条目用占位符替换密钥。
-  const draft = draftFiles(inputFromDraft(form), boundServers, boundSkills, boundSubAgents);
-  const claudeDraft = draft.claudeMd;
-  const fileDraft = [
-    '// .mcp.json',
-    draft.mcpJson,
-    `// .claude/agents/${form.slug || '<slug>'}.md（主智能体，仅预览）`,
-    draft.agentMd,
-    ...(draft.subAgents.length > 0
-      ? [
-          '// 子智能体文件（各用自己的配置）',
-          ...draft.subAgents.map((sub) => `// .claude/agents/${sub.slug}.md`),
-        ]
-      : []),
-  ].join('\n');
 
   const sectionButtonClass = (active: boolean): string =>
     cn(
@@ -1418,12 +1410,12 @@ export function AgentEditor({
               <Switch
                 disabled={pending}
                 id="agent-enabled"
-                checked={form.enabled}
+                checked={enabledField.value}
                 onCheckedChange={(enabled) => enabledField.onChange(enabled)}
                 aria-label="启用专家"
-                title={form.enabled ? '已启用，点击停用' : '已停用，点击启用'}
+                title={enabledField.value ? '已启用，点击停用' : '已停用，点击启用'}
               />
-              {form.enabled ? '已启用' : '已停用'}
+              {enabledField.value ? '已启用' : '已停用'}
             </label>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {dirty ? (
@@ -1572,11 +1564,11 @@ export function AgentEditor({
                         <FieldLabel htmlFor="agent-role">角色</FieldLabel>
                         <Select
                           disabled={pending}
-                          value={form.role}
+                          value={roleField.value}
                           items={
-                            roleOptions.some((option) => option.value === form.role)
+                            roleOptions.some((option) => option.value === roleField.value)
                               ? roleOptions
-                              : [{ value: form.role, label: form.role }, ...roleOptions]
+                              : [{ value: roleField.value, label: roleField.value }, ...roleOptions]
                           }
                           onValueChange={(role) => {
                             if (role !== null) roleField.onChange(role);
@@ -1592,9 +1584,9 @@ export function AgentEditor({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectGroup>
-                              {!roleOptions.some((option) => option.value === form.role) ? (
-                                <SelectItem value={form.role} disabled>
-                                  {form.role}
+                              {!roleOptions.some((option) => option.value === roleField.value) ? (
+                                <SelectItem value={roleField.value} disabled>
+                                  {roleField.value}
                                 </SelectItem>
                               ) : null}
                               {roleOptions.map((option) => (
@@ -1617,7 +1609,6 @@ export function AgentEditor({
                           {...rhf.register('description')}
                           disabled={pending}
                           id="agent-desc"
-                          value={form.description}
                           aria-invalid={Boolean(errors.description)}
                           aria-describedby={errors.description ? 'agent-desc-error' : undefined}
                           placeholder="一句话说明它擅长什么"
@@ -1628,7 +1619,7 @@ export function AgentEditor({
                         <FieldLabel htmlFor="agent-slug">Slug</FieldLabel>
                         <Input
                           id="agent-slug"
-                          value={form.slug}
+                          value={agent.slug}
                           // Keep monospace technical identifiers instead of the base sans-serif input.
                           className="font-mono"
                           disabled
@@ -1650,13 +1641,12 @@ export function AgentEditor({
                           disabled={pending}
                           id="agent-model"
                           list="agent-models"
-                          value={form.model}
                           // Keep monospace technical identifiers instead of the base sans-serif input.
                           className="font-mono"
                         />
                         <datalist id="agent-models">
-                          {modelOptions(form.model).map((option) => (
-                            <option key={option.value} value={option.value} />
+                          {models.map((model) => (
+                            <option key={model} value={model} />
                           ))}
                         </datalist>
                       </Field>
@@ -1664,7 +1654,7 @@ export function AgentEditor({
                         <FieldLabel htmlFor="agent-effort">推理强度</FieldLabel>
                         <Select
                           disabled={pending}
-                          value={form.effort ?? ''}
+                          value={effortField.value ?? ''}
                           onValueChange={(value) => {
                             if (value !== null) {
                               effortField.onChange(
@@ -1692,21 +1682,27 @@ export function AgentEditor({
 
                     <Field data-disabled={pending} className="gap-1.5">
                       <FieldLabel htmlFor="agent-prompt">
-                        {form.role === '数字分身' ? '工作背景与表达方式' : '系统提示词'}
+                        {roleField.value === '数字分身' ? '工作背景与表达方式' : '系统提示词'}
                       </FieldLabel>
                       <Textarea
                         {...rhf.register('systemPrompt')}
                         disabled={pending}
                         id="agent-prompt"
                         rows={16}
-                        value={form.systemPrompt}
                         // Keep monospace code text instead of the base prose typography.
                         className="font-mono leading-relaxed"
                         placeholder="描述角色、边界与工作方式"
                       />
                     </Field>
 
-                    <DraftPreview title="CLAUDE.md 草稿" code={claudeDraft} />
+                    <DraftPreview
+                      title="CLAUDE.md 草稿"
+                      view="claude"
+                      control={control}
+                      servers={boundServers}
+                      skills={boundSkills}
+                      subAgents={boundSubAgents}
+                    />
                   </Section>
                 ) : null}
 
@@ -1750,11 +1746,11 @@ export function AgentEditor({
                             multiple
                             items={serverOptions}
                             value={serverOptions.filter((option) =>
-                              form.serverIds.includes(option.id),
+                              serverIdsField.value.includes(option.id),
                             )}
                             onValueChange={(picked) => {
                               serverIdsField.onChange([
-                                ...form.serverIds.filter(
+                                ...serverIdsField.value.filter(
                                   (id) => !serverOptions.some((option) => option.id === id),
                                 ),
                                 ...picked.map((option) => option.id),
@@ -1813,7 +1809,7 @@ export function AgentEditor({
                             知识库
                           </h3>
                           <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                            已选 {form.serverIds.filter((id) => knowledgeIds.has(id)).length}
+                            已选 {serverIdsField.value.filter((id) => knowledgeIds.has(id)).length}
                           </span>
                         </div>
                         {knowledgeBases.isPending ? <LoadingState rows={1} /> : null}
@@ -1834,7 +1830,7 @@ export function AgentEditor({
                             multiple
                             items={knowledgeOptions}
                             value={knowledgeOptions.filter((option) =>
-                              form.serverIds.includes(option.id),
+                              serverIdsField.value.includes(option.id),
                             )}
                             onValueChange={(picked) => {
                               setKnowledgeIds(picked.map((option) => option.id));
@@ -1876,7 +1872,7 @@ export function AgentEditor({
                                     value={option}
                                     // 已停用的库不能再新绑；已绑定的仍可保留或解绑。
                                     disabled={
-                                      option.disabled && !form.serverIds.includes(option.id)
+                                      option.disabled && !serverIdsField.value.includes(option.id)
                                     }
                                   >
                                     <span className="min-w-0 flex-1 truncate">{option.label}</span>
@@ -1896,7 +1892,7 @@ export function AgentEditor({
                             技能
                           </h3>
                           <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                            已选 {form.skillIds.length}
+                            已选 {skillIdsField.value.length}
                           </span>
                         </div>
                         {skills.isPending ? <LoadingState rows={1} /> : null}
@@ -1914,7 +1910,7 @@ export function AgentEditor({
                             multiple
                             items={skillOptions}
                             value={skillOptions.filter((option) =>
-                              form.skillIds.includes(option.id),
+                              skillIdsField.value.includes(option.id),
                             )}
                             onValueChange={(picked) => {
                               skillIdsField.onChange(picked.map((option) => option.id));
@@ -1972,8 +1968,8 @@ export function AgentEditor({
                             插件
                           </h3>
                           <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                            {form.pluginBindings.length > 0
-                              ? `${form.pluginBindings.length} 个已启用`
+                            {pluginBindingsField.value.length > 0
+                              ? `${pluginBindingsField.value.length} 个已启用`
                               : '未启用'}
                           </span>
                         </div>
@@ -2004,7 +2000,7 @@ export function AgentEditor({
                               multiple
                               items={pluginOptions}
                               value={pluginOptions.filter((option) =>
-                                form.pluginBindings.some((b) => b.pluginId === option.id),
+                                pluginBindingsField.value.some((b) => b.pluginId === option.id),
                               )}
                               onValueChange={(picked) =>
                                 setPluginSelection(picked.map((option) => option.id))
@@ -2053,9 +2049,9 @@ export function AgentEditor({
                                 </ComboboxList>
                               </ComboboxContent>
                             </Combobox>
-                            {form.pluginBindings.length > 0 ? (
+                            {pluginBindingsField.value.length > 0 ? (
                               <ul className="mt-2 flex flex-col gap-1.5">
-                                {form.pluginBindings.map((binding) => {
+                                {pluginBindingsField.value.map((binding) => {
                                   const plugin = (plugins.data ?? []).find(
                                     (item) => item.id === binding.pluginId,
                                   );
@@ -2141,7 +2137,7 @@ export function AgentEditor({
                             multiple
                             items={subAgentOptions}
                             value={subAgentOptions.filter((option) =>
-                              form.subAgentIds.includes(option.id),
+                              subAgentIdsField.value.includes(option.id),
                             )}
                             onValueChange={(picked) => {
                               subAgentIdsField.onChange(picked.map((option) => option.id));
@@ -2217,8 +2213,8 @@ export function AgentEditor({
                           <p className="text-xs text-muted-foreground">
                             技能文件与 MCP 连接配置需来自同一工作区。
                           </p>
-                          {form.subAgentIds.length !== agent.subAgentIds.length ||
-                          form.subAgentIds.some((id) => !agent.subAgentIds.includes(id)) ? (
+                          {subAgentIdsField.value.length !== agent.subAgentIds.length ||
+                          subAgentIdsField.value.some((id) => !agent.subAgentIds.includes(id)) ? (
                             <p className="text-xs text-muted-foreground">
                               绑定未保存 · 下载的是已保存版本。
                             </p>
@@ -2227,7 +2223,14 @@ export function AgentEditor({
                       ) : null}
                     </div>
 
-                    <DraftPreview title=".mcp.json 与 frontmatter 草稿" code={fileDraft} />
+                    <DraftPreview
+                      title=".mcp.json 与 frontmatter 草稿"
+                      view="files"
+                      control={control}
+                      servers={boundServers}
+                      skills={boundSkills}
+                      subAgents={boundSubAgents}
+                    />
                   </Section>
                 ) : null}
 
@@ -2241,7 +2244,7 @@ export function AgentEditor({
                         <FieldLabel htmlFor="agent-perm">权限模式</FieldLabel>
                         <Select
                           disabled={pending}
-                          value={form.permissionMode}
+                          value={permissionModeField.value}
                           onValueChange={(next) => {
                             if (next !== null) {
                               permissionModeField.onChange(next as AgentInput['permissionMode']);
@@ -2431,7 +2434,7 @@ export function AgentEditor({
                         <FieldLabel htmlFor="agent-ui-format">回复格式</FieldLabel>
                         <Select
                           disabled={pending}
-                          value={form.uiFormat}
+                          value={uiFormatField.value}
                           onValueChange={(value) => {
                             if (value !== null) {
                               uiFormatField.onChange(value as AgentInput['uiFormat']);
@@ -2672,8 +2675,64 @@ function Section({ id, title, children }: { id: SectionId; title: string; childr
   );
 }
 
-/** 草稿预览：折叠在表单里，内容随表单实时变化。 */
-function DraftPreview({ title, code }: { title: string; code: string }) {
+type PreviewSkill = { slug: string; name: string; description: string; body: string };
+type PreviewSubAgent = {
+  slug: string;
+  name: string;
+  description: string;
+  model: string;
+  systemPrompt: string;
+  maxTurns: number;
+  timeoutMs: number;
+  permissionMode: string;
+  effort?: string | null;
+  allowedTools: string[];
+  disallowedTools: string[];
+  skills?: PreviewSkill[];
+};
+type DraftPreviewInput = Pick<
+  AgentInput,
+  | 'slug'
+  | 'name'
+  | 'description'
+  | 'model'
+  | 'systemPrompt'
+  | 'maxTurns'
+  | 'permissionMode'
+  | 'effort'
+  | 'allowedTools'
+  | 'disallowedTools'
+>;
+
+const previewFieldNames = [
+  'slug',
+  'name',
+  'description',
+  'model',
+  'systemPrompt',
+  'maxTurns',
+  'permissionMode',
+  'effort',
+  'allowedTools',
+  'disallowedTools',
+] as const;
+
+/** 草稿预览：折叠在表单里；展开后才挂载渲染，内容随表单实时变化。 */
+function DraftPreview({
+  title,
+  view,
+  control,
+  servers,
+  skills,
+  subAgents,
+}: {
+  title: string;
+  view: 'claude' | 'files';
+  control: Control<AgentDraft, unknown, AgentDraft>;
+  servers: Server[];
+  skills: PreviewSkill[];
+  subAgents: PreviewSubAgent[];
+}) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
 
@@ -2703,7 +2762,13 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
               className="overflow-hidden"
             >
               <div className="border-t p-2">
-                <CodeBlock code={code} maxHeight="22rem" />
+                <DraftPreviewBody
+                  view={view}
+                  control={control}
+                  servers={servers}
+                  skills={skills}
+                  subAgents={subAgents}
+                />
               </div>
             </motion.div>
           ) : null}
@@ -2711,6 +2776,72 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
       </CollapsibleContent>
     </Collapsible>
   );
+}
+
+/** 预览正文只在展开时存在：局部订阅草稿字段，避免每次按键重算整页。 */
+function DraftPreviewBody({
+  view,
+  control,
+  servers,
+  skills,
+  subAgents,
+}: {
+  view: 'claude' | 'files';
+  control: Control<AgentDraft, unknown, AgentDraft>;
+  servers: Server[];
+  skills: PreviewSkill[];
+  subAgents: PreviewSubAgent[];
+}) {
+  const [
+    slug,
+    name,
+    description,
+    model,
+    systemPrompt,
+    maxTurns,
+    permissionMode,
+    effort,
+    allowedTools,
+    disallowedTools,
+  ] = useWatch({ control, name: previewFieldNames });
+  const draft = draftFiles(
+    {
+      slug,
+      name,
+      description,
+      model,
+      systemPrompt,
+      maxTurns,
+      permissionMode,
+      effort,
+      allowedTools: toolLines(allowedTools),
+      disallowedTools,
+    },
+    servers,
+    skills,
+    subAgents,
+  );
+  return (
+    <CodeBlock
+      code={view === 'claude' ? draft.claudeMd : previewFileDraft(draft, slug)}
+      maxHeight="22rem"
+    />
+  );
+}
+
+function previewFileDraft(draft: WorkspaceFiles, slug: string): string {
+  return [
+    '// .mcp.json',
+    draft.mcpJson,
+    `// .claude/agents/${slug || '<slug>'}.md（主智能体，仅预览）`,
+    draft.agentMd,
+    ...(draft.subAgents.length > 0
+      ? [
+          '// 子智能体文件（各用自己的配置）',
+          ...draft.subAgents.map((sub) => `// .claude/agents/${sub.slug}.md`),
+        ]
+      : []),
+  ].join('\n');
 }
 
 /**
@@ -2721,36 +2852,23 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
  * core/workspace.ts 是纯函数、无 Node 依赖，浏览器可直接用。
  */
 function draftFiles(
-  form: AgentInput,
+  draft: DraftPreviewInput,
   servers: Server[],
-  skills: Array<{ slug: string; name: string; description: string; body: string }>,
-  subAgents: Array<{
-    slug: string;
-    name: string;
-    description: string;
-    model: string;
-    systemPrompt: string;
-    maxTurns: number;
-    timeoutMs: number;
-    permissionMode: string;
-    effort?: string | null;
-    allowedTools: string[];
-    disallowedTools: string[];
-    skills?: Array<{ slug: string; name: string; description: string; body: string }>;
-  }>,
+  skills: PreviewSkill[],
+  subAgents: PreviewSubAgent[],
 ): WorkspaceFiles {
   return renderWorkspace({
     agent: {
-      slug: form.slug,
-      name: form.name,
-      description: form.description,
-      model: form.model,
-      systemPrompt: form.systemPrompt,
-      maxTurns: form.maxTurns,
-      permissionMode: form.permissionMode,
-      effort: form.effort ?? null,
-      allowedTools: form.allowedTools,
-      disallowedTools: form.disallowedTools,
+      slug: draft.slug,
+      name: draft.name,
+      description: draft.description,
+      model: draft.model,
+      systemPrompt: draft.systemPrompt,
+      maxTurns: draft.maxTurns,
+      permissionMode: draft.permissionMode,
+      effort: draft.effort ?? null,
+      allowedTools: draft.allowedTools,
+      disallowedTools: draft.disallowedTools,
     },
     // 预览只给键名：真实密钥永不出现在这里。
     servers: servers.map((server) => ({
@@ -2759,8 +2877,8 @@ function draftFiles(
     })),
     skills,
     subAgents,
-    ...(form.allowedTools.length > 0 ? { toolsAllow: form.allowedTools } : {}),
-    ...(form.disallowedTools.length > 0 ? { toolsDeny: form.disallowedTools } : {}),
+    ...(draft.allowedTools.length > 0 ? { toolsAllow: draft.allowedTools } : {}),
+    ...(draft.disallowedTools.length > 0 ? { toolsDeny: draft.disallowedTools } : {}),
   });
 }
 
@@ -3143,11 +3261,12 @@ export function CreateAgentDialog({
       name: initialRole === '数字分身' ? '我的分身' : '',
     }),
   });
-  const form = rhf.watch() as AgentDraft;
-  const isTwin = form.role === '数字分身';
+  // defaultValues 覆盖全部字段；把 schema 输入的可选类型收敛回完整草稿。
+  const control = rhf.control as unknown as Control<AgentDraft, unknown, AgentDraft>;
   const errors = rhf.formState.errors;
-  const roleField = useController({ control: rhf.control, name: 'role' }).field;
-  const modelField = useController({ control: rhf.control, name: 'model' }).field;
+  const roleField = useController({ control, name: 'role' }).field;
+  const modelField = useController({ control, name: 'model' }).field;
+  const isTwin = roleField.value === '数字分身';
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [created, setCreated] = useState<Agent | null>(null);
   const dirty = rhf.formState.isDirty;
@@ -3174,7 +3293,7 @@ export function CreateAgentDialog({
     });
   });
 
-  const newModelOptions = modelOptions(form.model);
+  const newModelOptions = modelOptions(modelField.value);
 
   return (
     <Dialog
@@ -3270,13 +3389,15 @@ export function CreateAgentDialog({
                 <FieldLabel htmlFor="new-agent-role">角色</FieldLabel>
                 <Select
                   disabled={create.isPending}
-                  value={form.role}
+                  value={roleField.value}
                   items={roleOptions}
                   onValueChange={(role) => {
                     if (role === null) return;
                     roleField.onChange(role);
                     if (role === '数字分身') {
-                      rhf.setValue('name', form.name || '我的分身', { shouldDirty: true });
+                      rhf.setValue('name', rhf.getValues('name') || '我的分身', {
+                        shouldDirty: true,
+                      });
                     }
                   }}
                 >
@@ -3306,7 +3427,7 @@ export function CreateAgentDialog({
             <FieldLabel htmlFor="new-agent-model">模型</FieldLabel>
             <Select
               disabled={create.isPending}
-              value={form.model}
+              value={modelField.value}
               onValueChange={(model) => {
                 if (model !== null) modelField.onChange(model);
               }}

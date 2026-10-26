@@ -582,7 +582,9 @@ export const evalRuns = pgTable(
     finishedAt: timestamp('finished_at', { withTimezone: true }),
   },
   (t) => [
-    index('eval_runs_agent_idx').on(t.agentId),
+    // 分页按 (created_at, id) 倒序取前 N 行；升序索引即可反向扫描，避免 DESC NULLS LAST 与查询排序不匹配。
+    index('eval_runs_agent_created_idx').on(t.agentId, t.createdAt, t.id),
+    index('eval_runs_created_idx').on(t.createdAt, t.id),
     check(
       'eval_runs_status_check',
       sql`${t.status} in ('running', 'succeeded', 'failed', 'cancelled')`,

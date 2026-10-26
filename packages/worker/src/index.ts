@@ -53,6 +53,8 @@ import {
 import { DockerSandboxProvider } from './sandbox/docker.js';
 import { registerSandboxProbe } from './sandbox-probe.js';
 import { startScheduleScheduler } from './scheduler.js';
+import { loadRunServerBindings } from './server-bindings.js';
+import { runShutdown } from './shutdown.js';
 import { modelProxyUpstream } from './upstream.js';
 
 const config = loadConfig();
@@ -79,11 +81,14 @@ if (config.SANDBOX_EGRESS === 'none') {
 }
 
 const { db, pool } = createDb(config.DATABASE_URL);
+/** 关停信号：abort 后 run 线不再新建容器，进行中的拉取/创建按取消语义收尾。 */
+const sandboxClosing = new AbortController();
 const provider = new DockerSandboxProvider({
   memory: config.SANDBOX_MEMORY,
   cpus: config.SANDBOX_CPUS,
   pids: config.SANDBOX_PIDS,
   egress: config.SANDBOX_EGRESS,
+  closing: sandboxClosing.signal,
 });
 
 type ServerRow = typeof schema.servers.$inferSelect;
@@ -280,9 +285,8 @@ async function writeWorkspace(
     }
     await chmod(pluginsDir, WORKSPACE_DIR_MODE);
   }
-  // settings.json 与预览同源（renderWorkspace）。outputStyle 必须写进这里，因为 runner 的
-  // inline object-settings 优先级高于磁盘文件；runner 会把这里解析出的 outputStyle 一并带上，
-  // 否则磁盘上的 settings.json 会被 inline settings 遮蔽。
+  // settings.json 与预览同源（renderWorkspace），outputStyle 写在这里由 project settings 加载。
+  // inline settings 与磁盘文件按 key 合并：只覆盖同名 key，未指定的字段仍继承磁盘值。
   const settingsPath = join(dir, '.claude', 'settings.json');
   if (files.settingsJson !== null) {
     await writeFile(settingsPath, files.settingsJson, {
@@ -526,22 +530,12 @@ const worker = new Worker(
 
       // 工作区 .mcp.json 是父 + 启用子级的并集：子级按名字引用根条目，
       // 在非交互会话里无需信任目录即可加载；父级看不到子级工具由渲染与 hook 共同限制。
-      const bindings = await db
-        .select({ agentId: schema.agentServers.agentId, server: schema.servers })
-        .from(schema.agentServers)
-        .innerJoin(schema.servers, eq(schema.agentServers.serverId, schema.servers.id))
-        .where(
-          inArray(schema.agentServers.agentId, [agentId, ...enabledChildren.map((row) => row.id)]),
-        )
-        .orderBy(asc(schema.servers.id));
-      const serverNamesByAgent = new Map<string, string[]>();
-      for (const { agentId: owner, server } of bindings) {
-        const list = serverNamesByAgent.get(owner) ?? [];
-        list.push(server.name);
-        serverNamesByAgent.set(owner, list);
-      }
+      const { serverNamesByAgent, serverRows } = await loadRunServerBindings(
+        db,
+        agentId,
+        subAgentRows,
+      );
       const parentServerNames = serverNamesByAgent.get(agentId) ?? [];
-      const serverRows = [...new Map(bindings.map(({ server }) => [server.id, server])).values()];
 
       const skillRows = await db
         .select({
@@ -939,13 +933,6 @@ await scheduleScheduler.sync().catch((err: unknown) => {
   logger.error({ err }, 'schedule reconcile failed');
 });
 
-const SHUTDOWN_WAIT_MS = 10_000;
-const POOL_WAIT_MS = 2_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms).unref());
-}
-
 let shuttingDown = false;
 
 /**
@@ -957,24 +944,33 @@ const shutdown = async (): Promise<void> => {
   shuttingDown = true;
   logger.info('shutting down');
 
-  const closing = Promise.allSettled([worker.close(), evalWorker.close()]);
-  await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
-  await maintenanceWorker.close();
-  await knowledgeWorker.close();
-  await knowledgeScheduler.close();
-  await stopKnowledgeReconciler();
-  await sandboxProbe.close();
-  await nativePlugins.close();
-  await scheduleScheduler.close();
-  await stopReconciler();
-  await provider.destroyAll();
-  await Promise.race([closing, sleep(POOL_WAIT_MS)]);
-  await closeEvalRunQueue();
-
-  await modelProxy?.close();
-  await closeRunnerClient();
-  await Promise.race([pool.end(), sleep(POOL_WAIT_MS)]);
-  process.exit(0);
+  const code = await runShutdown({
+    // 关停后不再启动新容器；进行中的拉取/创建按取消语义收尾。
+    abort: () => sandboxClosing.abort(),
+    logError: (label, err) => logger.error({ err }, `${label} cleanup failed`),
+    workers: [
+      { label: 'main worker', close: () => worker.close() },
+      { label: 'eval worker', close: () => evalWorker.close() },
+    ],
+    steps: [
+      { label: 'maintenance worker', close: () => maintenanceWorker.close() },
+      { label: 'knowledge worker', close: () => knowledgeWorker.close() },
+      { label: 'knowledge scheduler', close: () => knowledgeScheduler.close() },
+      { label: 'knowledge reconciler', close: () => stopKnowledgeReconciler() },
+      { label: 'sandbox probe', close: () => sandboxProbe.close() },
+      { label: 'native plugins', close: () => nativePlugins.close() },
+      { label: 'schedule scheduler', close: () => scheduleScheduler.close() },
+      { label: 'reconciler', close: () => stopReconciler() },
+      { label: 'sandbox provider', close: () => provider.destroyAll() },
+    ],
+    finalSteps: [
+      { label: 'eval queue', close: () => closeEvalRunQueue() },
+      { label: 'model proxy', close: () => modelProxy?.close() ?? Promise.resolve() },
+      { label: 'runner client', close: () => closeRunnerClient() },
+    ],
+    pool: { label: 'postgres pool', close: () => pool.end() },
+  });
+  process.exit(code);
 };
 
 process.on('SIGTERM', () => void shutdown());

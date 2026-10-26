@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -248,21 +247,8 @@ const disallowedTools = baseDisallowed.filter((tool) => {
   return true;
 });
 
-// 读取工作区 .claude/settings.json 的 outputStyle，再以 inline settings 传入。
-// SDK 会按 key 优先级把项目 .claude/settings.json 与 inline settings 合并；
-// 这里额外 inline 传 outputStyle，保证跨 SDK 版本的合并语义下都能生效。
-let outputStyle: string | undefined;
-try {
-  const parsed = JSON.parse(
-    readFileSync(join(workspaceDir, '.claude', 'settings.json'), 'utf8'),
-  ) as {
-    outputStyle?: unknown;
-  };
-  if (typeof parsed.outputStyle === 'string' && parsed.outputStyle)
-    outputStyle = parsed.outputStyle;
-} catch {
-  // 文件不存在或非法：走默认输出风格。
-}
+// outputStyle 由下面 settingSources: ['project'] 从 .claude/settings.json 原生加载；
+// 不再手工解析同一文件再 inline 覆盖，避免两处合并语义漂移。
 
 let emittedTerminal = false;
 // run_finished 只能有一条：宿主按它落库并结束 SSE。
@@ -360,7 +346,6 @@ if (session.error !== undefined) {
           enableAllProjectMcpServers: true,
           autoMemoryEnabled: true,
           autoMemoryDirectory: memoryDirectory,
-          ...(outputStyle === undefined ? {} : { outputStyle }),
         },
         // 容器进程 env 与工作区 settings 同源；这里再兜一层，避免 project settings 未加载时丢约束。
         env: { ...process.env, ...SANDBOX_RUNTIME_ENV },

@@ -5,6 +5,17 @@ import { type EvalCaseSnapshot, evalCases, evalResults, evalRuns } from '../sche
 export type EvalCase = typeof evalCases.$inferSelect;
 export type EvalRun = typeof evalRuns.$inferSelect;
 
+/** 列表投影：不读 caseSnapshot / claimedAt，避免把大字段带进分页查询。 */
+export type EvalRunSummary = Pick<
+  EvalRun,
+  'id' | 'agentId' | 'status' | 'total' | 'passed' | 'error' | 'createdAt' | 'finishedAt'
+>;
+
+export interface EvalRunPage {
+  items: EvalRunSummary[];
+  nextCursor: string | null;
+}
+
 export interface EvalCaseInput {
   agentId: string;
   name: string;
@@ -120,12 +131,45 @@ export async function updateProgress(db: Database, id: string, passed: number): 
     .where(and(eq(evalRuns.id, id), eq(evalRuns.status, 'running')));
 }
 
-export async function listRuns(db: Database, agentId?: string): Promise<EvalRun[]> {
-  return db
-    .select()
+export async function listRuns(
+  db: Database,
+  options: { agentId?: string; cursor?: string; limit: number },
+): Promise<EvalRunPage | null> {
+  const filters: SQL[] = [];
+  if (options.agentId !== undefined) filters.push(eq(evalRuns.agentId, options.agentId));
+  if (options.cursor !== undefined) {
+    // 游标必须落在当前筛选范围内；否则会把别人的历史当成自己的下一页。
+    const [cursor] = await db
+      .select({ id: evalRuns.id })
+      .from(evalRuns)
+      .where(and(eq(evalRuns.id, options.cursor), ...filters))
+      .limit(1);
+    if (!cursor) return null;
+    // shortcut: 两步查询，游标恰在两步之间被删只会得到空页；需要严格语义时改成单条 CTE。
+    // 时间戳在库内读取并比较：JS Date 只有毫秒，转一手会丢掉微秒。
+    filters.push(sql`(${evalRuns.createdAt}, ${evalRuns.id}) < (
+      select cursor.created_at, cursor.id from ${evalRuns} cursor
+      where cursor.id = ${options.cursor}
+    )`);
+  }
+  const rows = await db
+    .select({
+      id: evalRuns.id,
+      agentId: evalRuns.agentId,
+      status: evalRuns.status,
+      total: evalRuns.total,
+      passed: evalRuns.passed,
+      error: evalRuns.error,
+      createdAt: evalRuns.createdAt,
+      finishedAt: evalRuns.finishedAt,
+    })
     .from(evalRuns)
-    .where(agentId === undefined ? undefined : eq(evalRuns.agentId, agentId))
-    .orderBy(desc(evalRuns.createdAt), desc(evalRuns.id));
+    .where(filters.length > 0 ? and(...filters) : undefined)
+    .orderBy(desc(evalRuns.createdAt), desc(evalRuns.id))
+    .limit(options.limit + 1);
+  const hasMore = rows.length > options.limit;
+  const items = hasMore ? rows.slice(0, options.limit) : rows;
+  return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
 }
 
 /** 同一智能体只允许一个在跑的评估；API 层据此返回 409。 */

@@ -48,9 +48,30 @@ async function probeInfra(): Promise<boolean> {
 
 const ready = await probeInfra();
 
+const dbHandle = createDb(process.env.DATABASE_URL ?? '');
+const { db } = dbHandle;
+
+/**
+ * 收敛会扫描全表 queued run，而用例的队列名是进程私有的：同库并发跑本文件时，
+ * 两个进程会把对方仍在队列里的 run 判成孤儿。会话级 advisory lock 让并发执行串行化，
+ * 连接断开自动释放，无需清理。
+ */
+const RECONCILE_TEST_LOCK = 7_362_701;
+const lockClient = ready ? await dbHandle.pool.connect() : undefined;
+try {
+  if (lockClient) {
+    // 等锁时长取决于另一进程跑完本文件（约 21s），池的 15s statement_timeout 会先把
+    // 等待取消（57014）；只关掉这条持锁专用连接的语句超时。
+    await lockClient.query('set statement_timeout = 0');
+    await lockClient.query('select pg_advisory_lock($1)', [RECONCILE_TEST_LOCK]);
+  }
+} catch (error) {
+  lockClient?.release(true);
+  await dbHandle.pool.end().catch(() => undefined);
+  throw error;
+}
+
 describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
-  const dbHandle = createDb(process.env.DATABASE_URL ?? '');
-  const { db } = dbHandle;
   const agentId = newId('agent');
   const conversationId = newId('conversation');
   const runWaiting = newId('run');
@@ -106,14 +127,19 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
   });
 
   afterAll(async () => {
-    await waitingJob?.remove();
-    await delayedJob?.remove();
-    await queue.close();
-    await db.delete(schema.auditLog).where(inArray(schema.auditLog.target, ownedRuns));
-    await db.delete(schema.agentRuns).where(inArray(schema.agentRuns.id, ownedRuns));
-    await db.delete(schema.conversations).where(eq(schema.conversations.id, conversationId));
-    await db.delete(schema.agents).where(eq(schema.agents.id, agentId));
-    await dbHandle.pool.end();
+    try {
+      await waitingJob?.remove();
+      await delayedJob?.remove();
+      await queue.close();
+      await db.delete(schema.auditLog).where(inArray(schema.auditLog.target, ownedRuns));
+      await db.delete(schema.agentRuns).where(inArray(schema.agentRuns.id, ownedRuns));
+      await db.delete(schema.conversations).where(eq(schema.conversations.id, conversationId));
+      await db.delete(schema.agents).where(eq(schema.agents.id, agentId));
+    } finally {
+      // 销毁持锁连接即释放会话级锁；上面的清理失败也必须断开，否则下一个进程会一直等锁。
+      lockClient?.release(true);
+      await dbHandle.pool.end();
+    }
   });
 
   it('fails only the stale queued run whose job is gone', async () => {

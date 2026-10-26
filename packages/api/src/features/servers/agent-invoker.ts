@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import { newId, repo, schema } from '@agentport/db';
+import { repo, schema } from '@agentport/db';
 import { RUN_QUEUE_MAX_WAITING, runEnqueueOptions } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -43,25 +43,14 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
         // 已取消的调用不落任何 run/会话，避免为没人等的结果排队。
         if (signal?.aborted) fail('UPSTREAM_FAILED', 'agent run cancelled');
 
-        const conversation = await repo.chat.createConversation(app.db, {
-          id: newId('conversation'),
-          agentId: agent.id,
-          title: `mcp: ${prompt.slice(0, 60)}`,
-        });
         const agentVersion = await repo.agentVersions.latestAgentVersion(app.db, agent.id);
-        const run = await repo.chat.createRun(app.db, {
-          id: newId('run'),
-          conversationId: conversation.id,
+        // 与浏览器入口共用同一准入事务：会话、run、用户消息一起提交或回滚。
+        const { run, conversationId } = await repo.chat.admitChatRun(app.db, {
           agentId: agent.id,
+          message: prompt,
+          title: `mcp: ${prompt.slice(0, 60)}`,
           trigger: 'mcp',
           ...(agentVersion === null ? {} : { agentVersion }),
-        });
-        await repo.chat.appendMessage(app.db, {
-          id: newId('message'),
-          conversationId: conversation.id,
-          role: 'user',
-          content: { type: 'text', text: prompt },
-          runId: run.id,
         });
         const abortRun = async (
           input: { slug: string; promptLength: number } | { reason: 'deadline' },
@@ -86,7 +75,7 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
         try {
           await getQueue().add(
             'run',
-            { runId: run.id, agentId: agent.id, conversationId: conversation.id, prompt },
+            { runId: run.id, agentId: agent.id, conversationId, prompt },
             runEnqueueOptions(run.id),
           );
         } catch (err) {
@@ -156,7 +145,7 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
           await abortRun({ reason: 'deadline' }, `agent run ${run.id} timed out`);
         }
 
-        const messages = await repo.chat.listMessages(app.db, conversation.id);
+        const messages = await repo.chat.listMessages(app.db, conversationId);
         const text = messages
           .filter((message) => message.role === 'assistant')
           .map((message) => repo.chat.messageText(message.content) ?? '')

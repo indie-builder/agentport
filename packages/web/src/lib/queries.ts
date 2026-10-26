@@ -36,7 +36,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   type AgentFiles,
   type AgentVersionDetail,
@@ -50,7 +50,6 @@ import {
   type EvalCase,
   type EvalCaseInput,
   type EvalComparison,
-  type EvalRun,
   type EvalRunDetail,
   type HealthLive,
   type HealthMetrics,
@@ -66,6 +65,7 @@ import {
   type RunList,
   type RunQuery,
 } from './api.js';
+import { useDebouncedValue } from './use-debounced-value.js';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -343,10 +343,18 @@ export function useRuns(query: RunQuery = {}) {
   });
 }
 
-export function useRun(runId: string) {
-  return useQuery<RunDetail>({
+/** 恢复会话与运行详情页共用同一份运行缓存，同键才能复用。 */
+export const runQuery = (runId: string) =>
+  queryOptions<RunDetail>({
     queryKey: ['run', runId],
-    queryFn: () => api.run(runId),
+    queryFn: ({ signal }) => api.run(runId, signal),
+    // 短 staleTime：恢复后 useRun 立即挂载也不会重复请求，轮询仍按间隔继续。
+    staleTime: 5_000,
+  });
+
+export function useRun(runId: string) {
+  return useQuery({
+    ...runQuery(runId),
     // 运行中要能看到新落库的步骤。
     refetchInterval: (query) =>
       query.state.data?.run.status === 'running' || query.state.data?.run.status === 'queued'
@@ -691,16 +699,6 @@ export function useImportSkillFile() {
   });
 }
 
-/** 输入停顿 `delayMs` 后才返回新值；防抖期间沿用上一次的值，请求不会随每个字符发出。 */
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
-}
-
 /** 市场搜索要求至少 2 个字符；空查询走 skills.sh 榜单。 */
 export function useMarketSkills(view: MarketView, query: string) {
   // 每个字符都打一次 skills.sh 会把外部榜单打爆：停 300ms 再换 queryKey。
@@ -843,14 +841,28 @@ export function useDeleteEvalCase() {
   });
 }
 
+const EVAL_RUNS_PAGE_SIZE = 50;
+
 export function useEvalRuns(agentId: string | null) {
-  return useQuery<EvalRun[]>({
-    queryKey: ['eval-runs', agentId],
-    queryFn: () => api.evalRuns(agentId ?? undefined),
+  return useInfiniteQuery({
+    queryKey: ['eval-runs', agentId, EVAL_RUNS_PAGE_SIZE],
+    queryFn: ({ pageParam, signal }) =>
+      api.evalRuns(
+        {
+          ...(agentId === null ? {} : { agentId }),
+          limit: EVAL_RUNS_PAGE_SIZE,
+          ...(pageParam === null ? {} : { cursor: pageParam }),
+        },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: agentId !== null,
-    // 跑批在后台进行，列表里有 running 时轮询。
-    refetchInterval: (query) =>
-      query.state.data?.some((run) => run.status === 'running') ? 3_000 : false,
+    // 跑批在后台进行，已加载的列表里有 running 时轮询。
+    refetchInterval: (query) => {
+      const runs = query.state.data?.pages.flatMap((page) => page.items);
+      return runs?.some((run) => run.status === 'running') ? 3_000 : false;
+    },
   });
 }
 

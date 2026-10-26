@@ -594,17 +594,25 @@ export async function getAgentsByIds(db: Database, ids: string[]): Promise<Agent
   return db.select().from(agents).where(inArray(agents.id, ids));
 }
 
-export async function getBoundServers(
+/** 批量取多个 agent 绑定的 servers：预览、导出与详情避免按行发 SQL。 */
+export async function getBoundServersByAgentIds(
   db: Database,
-  agentId: string,
-): Promise<Array<typeof servers.$inferSelect>> {
+  agentIds: string[],
+): Promise<Map<string, Array<typeof servers.$inferSelect>>> {
+  const out = new Map<string, Array<typeof servers.$inferSelect>>();
+  if (agentIds.length === 0) return out;
   const rows = await db
-    .select({ server: servers })
+    .select({ agentId: agentServers.agentId, server: servers })
     .from(agentServers)
     .innerJoin(servers, eq(agentServers.serverId, servers.id))
-    .where(eq(agentServers.agentId, agentId))
-    .orderBy(asc(agentServers.serverId));
-  return rows.map(({ server }) => server);
+    .where(inArray(agentServers.agentId, agentIds))
+    .orderBy(asc(agentServers.agentId), asc(agentServers.serverId));
+  for (const row of rows) {
+    const list = out.get(row.agentId);
+    if (list) list.push(row.server);
+    else out.set(row.agentId, [row.server]);
+  }
+  return out;
 }
 
 export async function getBoundSkills(

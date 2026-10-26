@@ -69,19 +69,9 @@ ADMIN_PASSWORD="$(env_get ADMIN_PASSWORD)"
   fail ".env 中 ADMIN_PASSWORD 为空：请设置至少 12 字符的密码后重新运行"
 
 echo "==> 启动 postgres / redis"
-docker compose up -d --build postgres redis || fail "启动 postgres / redis 失败"
-
-deps_healthy() {
-  local status
-  status="$(docker compose ps --format '{{.Service}}|{{.Health}}' 2>/dev/null || true)"
-  grep -qx 'postgres|healthy' <<<"$status" && grep -qx 'redis|healthy' <<<"$status"
-}
-for _ in $(seq 1 60); do
-  deps_healthy && break
-  sleep 2
-done
-deps_healthy || {
+docker compose up -d --wait --wait-timeout 120 postgres redis || {
   docker compose ps >&2 || true
+  docker compose logs --tail=60 postgres redis >&2 || true
   fail "postgres / redis 未在 120 秒内 healthy"
 }
 echo "依赖就绪"
@@ -95,12 +85,7 @@ if is_remote_image; then
   echo "==> 使用远程沙盒镜像 $SANDBOX_IMAGE（首次运行时由 worker 拉取）"
 elif [ "$REBUILD" = 1 ] || ! docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1; then
   echo "==> 构建沙盒镜像 $SANDBOX_IMAGE"
-  pnpm --filter @agentport/sandbox build || fail "构建 sandbox dist 失败（先运行 pnpm install）"
-  # runner 在 stdin 边界用 @agentport/shared 校验任务，镜像需要它的编译产物。
-  pnpm --filter @agentport/shared build || fail "构建 shared dist 失败"
-  rm -rf packages/sandbox/shared
-  cp -R packages/shared/dist packages/sandbox/shared
-  docker build -t "$SANDBOX_IMAGE" packages/sandbox || fail "构建沙盒镜像失败"
+  docker build --target sandbox -t "$SANDBOX_IMAGE" . || fail "构建沙盒镜像失败"
 else
   echo "==> 沙盒镜像已存在，跳过构建（需要重建时加 --rebuild）"
 fi
@@ -108,24 +93,10 @@ fi
 echo "==> 迁移并启动 api / worker"
 # 删除上次完成的一次性迁移容器，确保本次重新执行迁移。
 docker compose rm -sf migrate >/dev/null 2>&1 || true
-if ! docker compose up -d --build api worker; then
-  docker compose logs --tail=60 migrate api >&2 || true
-  fail "构建或启动 api / worker 失败（迁移日志见上）"
-fi
-
-echo "==> 等待 $BASE_URL/health/ready"
-READY=0
-for _ in $(seq 1 45); do
-  if curl -fsS "$BASE_URL/health/ready" >/dev/null 2>&1; then
-    READY=1
-    break
-  fi
-  sleep 2
-done
-if [ "$READY" != 1 ]; then
+if ! docker compose up -d --build --wait --wait-timeout 120 api worker; then
   docker compose ps >&2 || true
-  docker compose logs --tail=60 migrate api >&2 || true
-  fail "api 未在 90 秒内就绪"
+  docker compose logs --tail=60 migrate api worker >&2 || true
+  fail "构建或启动 api / worker 失败，或 api 未在 120 秒内就绪（日志见上）"
 fi
 
 echo "==> 冒烟测试"

@@ -144,8 +144,14 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
       headers: { cookie },
     });
     expect(list.statusCode, list.body).toBe(200);
-    const [listed] = list.json<Array<Record<string, unknown>>>();
+    const page = list.json<{
+      items: Array<Record<string, unknown>>;
+      nextCursor: string | null;
+    }>();
+    const [listed] = page.items;
+    expect(page.nextCursor).toBeNull();
     expect(listed).not.toHaveProperty('caseSnapshot');
+    expect(listed).not.toHaveProperty('claimedAt');
   });
 
   it('serves frozen case text even after the source cases are edited or deleted', async () => {

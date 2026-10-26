@@ -29,8 +29,13 @@ const STREAM_TTL_SECONDS = 3600;
 
 /** 首次回放只补发最近的 8MiB，晚加入的观众不会把整条流拉进内存。 */
 const REPLAY_MAX_BYTES = 8 * 1024 * 1024;
-/** 每次 XRANGE/XREVRANGE/XREAD 的条数上限：事件再大，单次读取也是有界的。 */
-const READ_PAGE_SIZE = 1;
+/**
+ * 每次 XREVRANGE/XREAD 的条数上限。批量摊薄往返：40 条约 21 次而不是 41 次。
+ * runner 转发的单条事件受 worker 的 8MiB NDJSON 行预算：单页最多 2 × 8MiB = 16MiB，
+ * 叠加累计回放的 8MiB，慢观众峰值约 24MiB（仅此路径，且不含 JSON.parse 副本等，非绝对 RSS）。
+ * worker/API 自行合成的事件（如 run_finished 的 uiProgram）不走行预算，不受上述上界约束。
+ */
+const READ_PAGE_SIZE = 2;
 
 type StreamEntry = [string, string[]];
 
@@ -173,26 +178,40 @@ function parseEvent(payload: string): ChatEvent | null {
   return parsed.success ? parsed.data : null;
 }
 
+/**
+ * pipeline.exec() 不会因单条命令失败而 reject，只逐命令返回 [error, result]；
+ * 这里必须检查每一条，否则写入失败会被当成成功。
+ */
+function throwOnCommandError(results: [Error | null, unknown][] | null): void {
+  for (const [err] of results ?? []) {
+    if (err) throw err;
+  }
+}
+
 export async function publishRun(runId: string, event: RunSignal): Promise<void> {
+  const redis = getClient();
   // cancel 走独立键：它不是 ChatEvent，也不该出现在事件流里被前端看到。
   if (event.type === 'cancel') {
-    await getClient().set(runCancelKey(runId), RUN_CANCEL_PAYLOAD, 'EX', STREAM_TTL_SECONDS);
-    await getClient().publish(runCancelKey(runId), RUN_CANCEL_PAYLOAD);
+    const key = runCancelKey(runId);
+    throwOnCommandError(
+      await redis
+        .pipeline()
+        .set(key, RUN_CANCEL_PAYLOAD, 'EX', STREAM_TTL_SECONDS)
+        .publish(key, RUN_CANCEL_PAYLOAD)
+        .exec(),
+    );
     return;
   }
 
-  const redis = getClient();
-  await redis.xadd(
-    runStreamKey(runId),
-    'MAXLEN',
-    '~',
-    RUN_STREAM_MAXLEN,
-    '*',
-    'payload',
-    JSON.stringify(event),
+  const key = runStreamKey(runId);
+  // 事件流不会被读取者删除（可回放），单独给 TTL 兜底；两条命令合成一次往返。
+  throwOnCommandError(
+    await redis
+      .pipeline()
+      .xadd(key, 'MAXLEN', '~', RUN_STREAM_MAXLEN, '*', 'payload', JSON.stringify(event))
+      .expire(key, STREAM_TTL_SECONDS)
+      .exec(),
   );
-  // 事件流不会被读取者删除（可回放），单独给 TTL 兜底。
-  await redis.expire(runStreamKey(runId), STREAM_TTL_SECONDS);
 }
 
 export interface RunSubscription {

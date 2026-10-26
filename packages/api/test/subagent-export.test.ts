@@ -43,6 +43,7 @@ describe.skipIf(!ready)('subagent export', () => {
   let disabledChild: Agent;
   let rootServer: Server;
   let childServer: Server;
+  let disabledServer: Server;
   let sharedServer: Server;
   let rootSkill: Skill;
   let childSkill: Skill;
@@ -51,6 +52,8 @@ describe.skipIf(!ready)('subagent export', () => {
   let toolIds: string[] = [];
 
   const auth = () => ({ cookie });
+  const byIdOrder = (items: Array<{ id: string; name: string }>) =>
+    [...items].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map((item) => item.name);
 
   beforeAll(async () => {
     app = await startApp();
@@ -115,16 +118,36 @@ describe.skipIf(!ready)('subagent export', () => {
       return tool;
     };
 
+    // 先建子级 server、后建父级 server：按分组顺序会得到 [父, …, 子]，
+    // 统一投影必须按 server id 得到 [子, 父, …]。
+    childServer = await createServer({
+      name: unique('exp-child-srv'),
+      kind: 'http',
+      url: 'https://example.com/mcp',
+    });
     rootServer = await createServer({
       name: unique('exp-root-srv'),
       kind: 'generated',
       baseUrl: 'https://jsonplaceholder.typicode.com',
       headers: { Authorization: 'Bearer root-secret-value' },
     });
-    childServer = await createServer({
-      name: unique('exp-child-srv'),
+    // 固定 id 顺序（子 a < 父 b），否则 uuidv7 同毫秒的随机位会让顺序断言偶然通过。
+    const fixedServerId = (suffix: string) => `srv_${suffix.padStart(26, '0')}`;
+    await app.pool.query('update servers set id = $1 where id = $2', [
+      fixedServerId('a'),
+      childServer.id,
+    ]);
+    await app.pool.query('update servers set id = $1 where id = $2', [
+      fixedServerId('b'),
+      rootServer.id,
+    ]);
+    childServer = { ...childServer, id: fixedServerId('a') };
+    rootServer = { ...rootServer, id: fixedServerId('b') };
+    // 只属于停用子级的 server：预览（运行时）不加载，导出仍携带其定义。
+    disabledServer = await createServer({
+      name: unique('exp-disabled-srv'),
       kind: 'http',
-      url: 'https://example.com/mcp',
+      url: 'https://example.net/mcp',
     });
     // 根与子智能体共用的 server：导出里只能出现一次，工具也只带一份。
     sharedServer = await createServer({
@@ -159,7 +182,7 @@ describe.skipIf(!ready)('subagent export', () => {
     disabledChild = await createAgentWith(unique('exp-child-two'), {
       systemPrompt: 'CHILD-TWO-PROMPT',
       enabled: false,
-      serverIds: [sharedServer.id],
+      serverIds: [sharedServer.id, disabledServer.id],
       skillIds: [disabledChildSkill.id, sharedSkill.id],
     });
     parent = await createAgentWith(unique('exp-parent'), {
@@ -219,11 +242,12 @@ describe.skipIf(!ready)('subagent export', () => {
     const disabledMd = files.get(`.claude/agents/${disabledChild.slug}.md`) ?? '';
     const mcpList = /mcpServers:\n((?: {2}- .*\n)*)/.exec(disabledMd)?.[1] ?? '';
     expect(mcpList).toContain(sharedServer.name);
+    expect(mcpList).toContain(disabledServer.name);
     expect(mcpList).not.toContain(childServer.name);
 
-    // 顶层资源是根与全部直接子智能体的并集，共用资源只出现一次。
-    expect(sidecar.servers.map((server) => server.name).sort()).toEqual(
-      [rootServer.name, childServer.name, sharedServer.name].sort((a, b) => a.localeCompare(b)),
+    // 顶层资源是根与全部直接子智能体的并集，共用资源只出现一次，且按 server id 排序。
+    expect(sidecar.servers.map((server) => server.name)).toEqual(
+      byIdOrder([childServer, rootServer, disabledServer, sharedServer]),
     );
     expect(new Set(sidecar.servers.map((server) => server.name)).size).toBe(sidecar.servers.length);
     const skillFiles = [...files.keys()].filter((path) => path.endsWith('/SKILL.md'));
@@ -278,11 +302,15 @@ describe.skipIf(!ready)('subagent export', () => {
     };
     expect(mcp.mcpServers[rootServer.name]?.url).toBe(`http://127.0.0.1:3000/mcp/${rootServer.id}`);
     expect(mcp.mcpServers[rootServer.name]?.url).not.toContain('jsonplaceholder.typicode.com');
+    // 导出包含停用子级的 server（有意差异），顺序同样按 id。
+    expect(Object.keys(mcp.mcpServers)).toEqual(
+      byIdOrder([childServer, rootServer, disabledServer, sharedServer]),
+    );
     expect(raw).not.toContain('root-secret-value');
     expect(files.get(AGENT_PACKAGE_SIDECAR)).toBeDefined();
   });
 
-  it('renders the root workspace with child skills but not child resources', async () => {
+  it('renders the root workspace with enabled child resources but not disabled child resources', async () => {
     const res = await inject(app, {
       method: 'GET',
       url: `/api/agents/${parent.id}/files`,
@@ -291,15 +319,19 @@ describe.skipIf(!ready)('subagent export', () => {
     expect(res.statusCode, res.body).toBe(200);
     const workspace = res.json<WorkspaceFiles>();
 
+    // 与 worker 落盘一致：.mcp.json 是父 + 启用子级的并集，停用子级的 server 不进入运行时；
+    // 顺序与导出/运行共用同一 id 排序，子级先建时也不能把父级排到前面。
     const mcpServers = JSON.parse(workspace.mcpJson).mcpServers as Record<string, unknown>;
-    expect(Object.keys(mcpServers).sort()).toEqual(
-      [rootServer.name, sharedServer.name].sort((a, b) => a.localeCompare(b)),
-    );
-    expect(mcpServers).not.toHaveProperty(childServer.name);
-    expect(workspace.claudeMd).not.toContain(childServer.name);
+    expect(Object.keys(mcpServers)).toEqual(byIdOrder([childServer, rootServer, sharedServer]));
+    expect(mcpServers).not.toHaveProperty(disabledServer.name);
+    // CLAUDE.md 列出工作区里所有可用条目；子级条目只归子级，父级在 agentMd 里显式禁用。
+    expect(workspace.claudeMd).toContain(childServer.name);
+    expect(workspace.claudeMd).not.toContain(disabledServer.name);
     expect(workspace.claudeMd).toContain(rootSkill.slug);
     expect(workspace.claudeMd).toContain(sharedSkill.slug);
     expect(workspace.claudeMd).not.toContain(childSkill.slug);
+    expect(workspace.agentMd).toContain(`"mcp__${childServer.name}"`);
+    expect(workspace.agentMd).not.toContain(`"mcp__${childServer.name}__*"`);
 
     // 停用的子智能体不渲染到运行时工作区；导出仍保留其定义。
     expect(workspace.subAgents.map((subAgent) => subAgent.slug)).toEqual([firstChild.slug]);
@@ -307,6 +339,12 @@ describe.skipIf(!ready)('subagent export', () => {
     expect(childFile?.content).toContain(childSkill.slug);
     expect(childFile?.content).toContain('CHILD-ONE-PROMPT');
     expect(childFile?.content).not.toContain('ROOT-PROMPT');
+    // 子定义按名字引用根 .mcp.json 里自己的条目。
+    const childMcp = /mcpServers:\n((?: {2}- .*\n)*)/.exec(childFile?.content ?? '')?.[1] ?? '';
+    expect(childMcp).toContain(childServer.name);
+    expect(childMcp).toContain(sharedServer.name);
+    expect(childMcp).not.toContain(rootServer.name);
+    expect(childMcp).not.toContain(disabledServer.name);
   });
 
   it('requires auth', async () => {

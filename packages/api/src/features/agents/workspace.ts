@@ -1,13 +1,13 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
-import { renderPlugin, renderWorkspace, toWorkspaceInput } from '@agentport/core';
-import { repo } from '@agentport/db';
+import { renderPlugin, renderWorkspace, toWorkspaceInput, unionById } from '@agentport/core';
+import { repo, type schema } from '@agentport/db';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import { knowledgeMcpEntry, maskUrlCredentials, SECRET_MASK } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { str, strArray } from '../servers/repo.js';
 import { decryptSecrets } from '../servers/secrets.js';
 
-type ServerRow = Awaited<ReturnType<typeof agentRepo.getBoundServers>>[number];
+type ServerRow = typeof schema.servers.$inferSelect;
 
 /** 预览里密钥只保留键名；明文值只在 worker 写工作区时注入。 */
 const PREVIEW_SECRET = SECRET_MASK;
@@ -80,15 +80,24 @@ export async function renderAgentWorkspace(
   const agent = await agentRepo.getAgent(app.db, agentId);
   if (!agent) return null;
 
-  const [rows, skills, subAgentRows] = await Promise.all([
-    agentRepo.getBoundServers(app.db, agent.id),
+  const [skills, subAgentRows] = await Promise.all([
     agentRepo.getBoundSkills(app.db, agent.id),
     agentRepo.listSubAgents(app.db, agent.id),
   ]);
-  // 停用的子智能体不渲染，也不查它们的技能。
-  const enabledChildIds = subAgentRows.filter((row) => row.enabled).map((row) => row.id);
-  const childSkills = await agentRepo.getBoundSkillsByAgentIds(app.db, enabledChildIds);
-  const servers = rows.map((row) => {
+  // 与 worker 落盘一致：.mcp.json 是父 + 启用子级绑定的并集，停用子级不参与运行时。
+  const enabledChildren = subAgentRows.filter((row) => row.enabled);
+  const enabledChildIds = enabledChildren.map((row) => row.id);
+  const [serversByAgent, childSkills] = await Promise.all([
+    agentRepo.getBoundServersByAgentIds(app.db, [agent.id, ...enabledChildIds]),
+    agentRepo.getBoundSkillsByAgentIds(app.db, enabledChildIds),
+  ]);
+  const rootServers = serversByAgent.get(agent.id) ?? [];
+  // 查询按 agent 分组返回；预览必须和 worker/导出一致按 id 排序，而不是继承分组顺序。
+  const serverRows = unionById([
+    rootServers,
+    ...enabledChildren.map((row) => serversByAgent.get(row.id) ?? []),
+  ]);
+  const servers = serverRows.map((row) => {
     // 只传键名，值没有离开过加密列的解密结果，更不会进 API 响应。
     const secretKeys = row.secretsEncrypted
       ? Object.keys(decryptSecrets(row.secretsEncrypted, app.config.APP_SECRET_KEY))
@@ -111,6 +120,8 @@ export async function renderAgentWorkspace(
   const subAgents = subAgentRows.map((row) => ({
     ...row,
     skills: (childSkills.get(row.id) ?? []).map(withFiles),
+    // 子定义按名字引用根 .mcp.json 里自己的条目；父级在 agentMd 里禁用这些名字。
+    serverNames: (serversByAgent.get(row.id) ?? []).map((server) => server.name),
   }));
 
   const ruleRows = await repo.rules.listRules(app.db, agent.id);
@@ -152,7 +163,7 @@ export async function renderAgentWorkspace(
 
   return renderWorkspace(
     toWorkspaceInput({
-      agent,
+      agent: { ...agent, serverNames: rootServers.map((server) => server.name) },
       servers,
       skills: skillsWithFiles,
       subAgents,
