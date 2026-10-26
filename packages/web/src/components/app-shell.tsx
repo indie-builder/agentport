@@ -17,7 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { meQuery, queryClient } from '../lib/queries.js';
@@ -83,33 +83,6 @@ const resourceLabels: Record<string, string> = {
 };
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
-
-/**
- * Motion 只能插值数值，读不到 `var()`；令牌仍是唯一来源，这里只取像素值。
- * shortcut: 样式表尚未应用时回落到与令牌相同的常量，改令牌需同步这里。
- */
-function sidebarMetrics() {
-  const style = getComputedStyle(document.documentElement);
-  const px = (name: string, fallback: number): number =>
-    Number.parseFloat(style.getPropertyValue(name)) || fallback;
-  const pad = (name: string, fallback: number[]): number[] =>
-    style
-      .getPropertyValue(name)
-      .trim()
-      .split(/\s+/)
-      .map((value) => Number.parseFloat(value) || 0)
-      .map((value, index) => value || (fallback[index] ?? 0));
-  const [padY = 0, padX = 0] = pad('--sidebar-pad', [16, 12]);
-  const [padYCollapsed = 0, padXCollapsed = 0] = pad('--sidebar-pad-collapsed', [16, 18]);
-  return {
-    width: px('--sidebar-width', 272),
-    collapsed: px('--sidebar-collapsed', 68),
-    padY,
-    padX,
-    padYCollapsed,
-    padXCollapsed,
-  };
-}
 
 function useCollapsed(): [boolean, (next: boolean) => void] {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1');
@@ -311,7 +284,6 @@ export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
   const reduce = useReducedMotion();
-  const metrics = useMemo(sidebarMetrics, []);
 
   useEffect(() => {
     if (me.data && !me.data.authenticated) void navigate({ to: '/login' });
@@ -370,22 +342,9 @@ export function AppShell() {
     );
   }
 
-  // §11：侧栏宽度与内边距一起过渡 160ms，宽度由 Motion 插值（CSS 变量读不到）。
   const rail = collapsed
-    ? {
-        width: metrics.collapsed,
-        paddingTop: metrics.padYCollapsed,
-        paddingBottom: metrics.padYCollapsed,
-        paddingLeft: metrics.padXCollapsed,
-        paddingRight: metrics.padXCollapsed,
-      }
-    : {
-        width: metrics.width,
-        paddingTop: metrics.padY,
-        paddingBottom: metrics.padY,
-        paddingLeft: metrics.padX,
-        paddingRight: metrics.padX,
-      };
+    ? { width: 'var(--sidebar-collapsed)', padding: 'var(--sidebar-pad-collapsed)' }
+    : { width: 'var(--sidebar-width)', padding: 'var(--sidebar-pad)' };
 
   const sidebar = (drawer: boolean) => (
     <motion.aside
