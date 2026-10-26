@@ -58,15 +58,22 @@ describe.skipIf(!ready)('run token server scope', () => {
     await app.db.insert(schema.agentServers).values({ agentId, serverId });
   }
 
-  async function seedRun(agentId: string) {
+  async function seedRun(agentId: string, token?: { hash: string; expiresAt: Date }) {
     const conversationId = newId('conversation');
     const runId = newId('run');
     await app.db.insert(schema.conversations).values({ id: conversationId, agentId });
-    await app.db
-      .insert(schema.agentRuns)
-      .values({ id: runId, conversationId, agentId, status: 'running' });
+    await app.db.insert(schema.agentRuns).values({
+      id: runId,
+      conversationId,
+      agentId,
+      status: 'running',
+      mcpTokenHash: token?.hash ?? null,
+      mcpTokenExpiresAt: token?.expiresAt ?? null,
+    });
     return runId;
   }
+
+  const token = { hash: 'a'.repeat(64), expiresAt: new Date(Date.now() + 60_000) };
 
   it('allows the parent binding and a direct enabled child binding', async () => {
     const parent = await agent({ id: newId('agent'), slug: `scope-parent-${newId('agent')}` });
@@ -79,10 +86,12 @@ describe.skipIf(!ready)('run token server scope', () => {
     const childServer = await server(`scope-child-${newId('server')}`);
     await bind(parent, ownServer);
     await bind(child, childServer);
-    const runId = await seedRun(parent);
+    const runId = await seedRun(parent, token);
 
     expect(await repo.runs.isRunBoundToServer(app.db, runId, ownServer)).toBe(true);
     expect(await repo.runs.isRunBoundToServer(app.db, runId, childServer)).toBe(true);
+    expect(await repo.runs.getRunToken(app.db, runId, ownServer)).toEqual(token);
+    expect(await repo.runs.getRunToken(app.db, runId, childServer)).toEqual(token);
   });
 
   it('rejects a disabled child, a non-direct descendant, and a sibling', async () => {
@@ -105,10 +114,14 @@ describe.skipIf(!ready)('run token server scope', () => {
     await bind(disabledChild, disabledServer);
     await bind(grandChild, grandServer);
     await bind(sibling, siblingServer);
-    const runId = await seedRun(parent);
+    const runId = await seedRun(parent, token);
 
     expect(await repo.runs.isRunBoundToServer(app.db, runId, disabledServer)).toBe(false);
     expect(await repo.runs.isRunBoundToServer(app.db, runId, grandServer)).toBe(false);
     expect(await repo.runs.isRunBoundToServer(app.db, runId, siblingServer)).toBe(false);
+    expect(await repo.runs.getRunToken(app.db, runId, disabledServer)).toBeNull();
+    expect(await repo.runs.getRunToken(app.db, runId, grandServer)).toBeNull();
+    expect(await repo.runs.getRunToken(app.db, runId, siblingServer)).toBeNull();
+    expect(await repo.runs.getRunToken(app.db, newId('run'), siblingServer)).toBeNull();
   });
 });

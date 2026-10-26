@@ -5,9 +5,10 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hashMcpToken } from '@agentport/core';
+import { newId, schema } from '@agentport/db';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createAgent,
   infraReady,
@@ -131,6 +132,54 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     }
   }
 
+  /** 直接发一次 JSON-RPC initialize；保留原始响应以便断言状态码与鉴权头。 */
+  function mcpPost(targetServerId: string, headers: Record<string, string> = {}) {
+    return fetch(`${baseUrl}/mcp/${targetServerId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json', ...headers },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'knowledge-mcp-test', version: '0.0.0' },
+        },
+      }),
+    });
+  }
+
+  /** 按绑定形态造 run：自己的绑定、禁用的直接子级、或完全不绑定。 */
+  async function seedAuthRun(bind: 'self' | 'disabled-child' | 'none') {
+    const slug = unique('kb-auth');
+    const agentId = newId('agent');
+    createdAgents.push(slug);
+    await app.db
+      .insert(schema.agents)
+      .values({ id: agentId, slug, name: slug, model: 'test-model' });
+    if (bind === 'self') {
+      await app.db.insert(schema.agentServers).values({ agentId, serverId });
+    } else if (bind === 'disabled-child') {
+      const childSlug = `${slug}-child`;
+      createdAgents.push(childSlug);
+      const childId = newId('agent');
+      await app.db.insert(schema.agents).values({
+        id: childId,
+        slug: childSlug,
+        name: childSlug,
+        model: 'test-model',
+        parentId: agentId,
+        enabled: false,
+      });
+      await app.db.insert(schema.agentServers).values({ agentId: childId, serverId });
+    }
+    const token = randomBytes(32).toString('base64url');
+    const { runId: id } = await seedRun(app, agentId, { mcpTokenHash: hashMcpToken(token) });
+    runIds.push(id);
+    return { token, runId: id };
+  }
+
   beforeAll(async () => {
     await new Promise<void>((resolve) => embedFix.listen(0, '127.0.0.1', resolve));
     knowledgeDir = await mkdtemp(join(tmpdir(), 'knowledge-mcp-'));
@@ -187,38 +236,93 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   });
 
   it('rejects missing, wrong and unbound run tokens with 401', async () => {
-    const noToken = await fetch(`${baseUrl}/mcp/${serverId}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
-    });
+    const noToken = await mcpPost(serverId);
     expect(noToken.status).toBe(401);
 
-    const wrong = await fetch(`${baseUrl}/mcp/${serverId}`, {
-      method: 'POST',
-      headers: {
-        authorization: 'Bearer wrong',
-        'x-agentport-run-id': runId,
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    const wrong = await mcpPost(serverId, {
+      authorization: 'Bearer wrong',
+      'x-agentport-run-id': runId,
     });
     expect(wrong.status).toBe(401);
 
     // 另一个 knowledge server：run 只绑定了 A，用 A 的 token 访问 B 也必须拒绝。
     const other = await createBase(embeddingId);
-    const otherRes = await fetch(`${baseUrl}/mcp/${other.serverId}`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${runToken}`,
-        'x-agentport-run-id': runId,
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    const otherRes = await mcpPost(other.serverId, {
+      authorization: `Bearer ${runToken}`,
+      'x-agentport-run-id': runId,
     });
     expect(otherRes.status).toBe(401);
+  });
+
+  it('rejects expired, cleared, unbound and disabled-child tokens with 401', async () => {
+    const expired = await seedAuthRun('self');
+    await app.pool.query(
+      "update agent_runs set mcp_token_expires_at = now() - interval '1 minute' where id = $1",
+      [expired.runId],
+    );
+    const expiredRes = await mcpPost(serverId, {
+      authorization: `Bearer ${expired.token}`,
+      'x-agentport-run-id': expired.runId,
+    });
+    expect(expiredRes.status).toBe(401);
+    expect(expiredRes.headers.get('www-authenticate')).toBe('Bearer realm="agentport-mcp"');
+
+    // run 结束后 token 被清空：即使 header 里还带着旧 token 也不能再用。
+    const cleared = await seedAuthRun('self');
+    await app.pool.query(
+      'update agent_runs set mcp_token_hash = null, mcp_token_expires_at = null where id = $1',
+      [cleared.runId],
+    );
+    expect(
+      (
+        await mcpPost(serverId, {
+          authorization: `Bearer ${cleared.token}`,
+          'x-agentport-run-id': cleared.runId,
+        })
+      ).status,
+    ).toBe(401);
+
+    const unbound = await seedAuthRun('none');
+    expect(
+      (
+        await mcpPost(serverId, {
+          authorization: `Bearer ${unbound.token}`,
+          'x-agentport-run-id': unbound.runId,
+        })
+      ).status,
+    ).toBe(401);
+
+    const disabledChild = await seedAuthRun('disabled-child');
+    expect(
+      (
+        await mcpPost(serverId, {
+          authorization: `Bearer ${disabledChild.token}`,
+          'x-agentport-run-id': disabledChild.runId,
+        })
+      ).status,
+    ).toBe(401);
+  });
+
+  it('checks the run binding once per successful request', async () => {
+    // 真实 query spy：旧实现会先取 token、再做一次 isRunBoundToServer，同样的 JOIN 执行两次。
+    const spy = vi.spyOn(app.pool, 'query');
+    let sql: string[] = [];
+    try {
+      const res = await mcpPost(serverId, {
+        authorization: `Bearer ${runToken}`,
+        'x-agentport-run-id': runId,
+        accept: 'application/json, text/event-stream',
+      });
+      expect(res.status).toBe(200);
+      sql = spy.mock.calls.map(([text]) =>
+        typeof text === 'string' ? text : (text as { text: string }).text,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(
+      sql.filter((query) => query.includes('"agent_runs"') && query.includes('"agent_servers"')),
+    ).toHaveLength(1);
   });
 
   it('lists the three read-only tools and returns keyword hits', async () => {

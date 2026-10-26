@@ -99,11 +99,7 @@ export function registerMcpEndpoint(rawApp: FastifyInstance): void {
           runToken.expiresAt !== null &&
           runToken.expiresAt.getTime() > Date.now() &&
           tokenMatches(runToken.hash, bearerToken(request.headers.authorization), hashMcpToken);
-        if (
-          !ok ||
-          runId === null ||
-          !(await repo.runs.isRunBoundToServer(app.db, runId, serverId))
-        ) {
+        if (!ok || runId === null) {
           reply.header('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
           return reject(reply, 'UNAUTHORIZED', 'invalid bearer token');
         }
