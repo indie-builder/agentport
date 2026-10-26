@@ -4,6 +4,7 @@ import type {
   KnowledgeSearchHit,
   KnowledgeSourceInput,
 } from '@agentport/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
@@ -84,6 +85,7 @@ import {
 import { cn } from '../lib/cn.js';
 import { formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
 import {
+  knowledgeKeys,
   knowledgeShouldPoll,
   useCancelKnowledgeJob,
   useCreateKnowledgeFolder,
@@ -2038,12 +2040,15 @@ function WikiTab({
 
 function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) {
   const detail = useKnowledgeWikiPage(pageId);
-  const generate = useGenerateKnowledgeWikiPage(baseId);
+  const generate = useGenerateKnowledgeWikiPage();
   const rollback = useRollbackKnowledgeWikiPage(baseId);
   const publish = usePublishKnowledgeWikiVersion(baseId);
   const loadOlder = useLoadOlderKnowledgeWikiVersions();
   const jobs = useKnowledgeJobs(baseId);
+  const client = useQueryClient();
   const [instruction, setInstruction] = useState('');
+  const [generateJobId, setGenerateJobId] = useState<string | null>(null);
+  const settledJobRef = useRef<string | null>(null);
   const [rollbackTarget, setRollbackTarget] = useState<string | null>(null);
   const [publishTarget, setPublishTarget] = useState<KnowledgeWikiVersion | null>(null);
   const [previewing, setPreviewing] = useState<KnowledgeWikiVersion | null>(null);
@@ -2056,18 +2061,44 @@ function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) 
   const current = versions.find((version) => version.id === page?.currentVersionId);
   // 首屏游标只在还没请求过更早版本时用；之后由 olderVersions 自己的游标接管。
   const nextCursor = olderCursor === undefined ? page?.nextCursor : olderCursor;
-  const generateJob = jobs.data?.find(
-    (job) => job.type === 'wiki_generate' && (job.status === 'queued' || job.status === 'running'),
-  );
+  // 只跟本次提交返回的任务，其他页面的生成任务不会显示在这里。
+  const generateJob = generateJobId
+    ? jobs.data?.find((job) => job.id === generateJobId)
+    : undefined;
+
+  // 任务跨过终态时失效当前页面与列表，只做一次；轮询本身不触发失效。
+  useEffect(() => {
+    if (!generateJob || !generateJobId || settledJobRef.current === generateJobId) return;
+    if (
+      generateJob.status !== 'succeeded' &&
+      generateJob.status !== 'failed' &&
+      generateJob.status !== 'cancelled'
+    ) {
+      return;
+    }
+    settledJobRef.current = generateJobId;
+    void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPage(pageId) });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPages(baseId) });
+  }, [baseId, client, generateJob, generateJobId, pageId]);
 
   if (detail.isPending) return <LoadingState rows={4} />;
-  if (detail.isError) {
-    return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
+  // 已有页面数据时，刷新失败不能整块替换编辑器，否则会丢掉正在编辑的草稿。
+  if (!page) {
+    if (detail.isError) {
+      return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
+    }
+    return null;
   }
-  if (!page) return null;
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {detail.isError ? (
+        <ErrorState
+          title="Wiki 页面没有刷新成功"
+          error={detail.error}
+          onRetry={() => void detail.refetch()}
+        />
+      ) : null}
       <div className="flex min-w-0 flex-wrap items-center gap-3">
         <h2 className="min-w-0 truncate text-sm font-medium text-fg" title={page.title}>
           {page.title}
@@ -2101,7 +2132,12 @@ function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) 
               generate.mutate(
                 { pageId, ...(instruction.trim() ? { instruction: instruction.trim() } : {}) },
                 {
-                  onSuccess: () => toastSuccess('已提交生成任务'),
+                  onSuccess: (result) => {
+                    setGenerateJobId(result.jobId);
+                    // Pick up the new job once so its polling starts; terminal handling comes from the job status.
+                    void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+                    toastSuccess('已提交生成任务');
+                  },
                   onError: toastError,
                 },
               )

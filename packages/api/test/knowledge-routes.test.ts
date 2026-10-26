@@ -160,6 +160,27 @@ async function seedReadyDocument(baseId: string, profileId: string, content: str
   return { documentId, versionId };
 }
 
+async function createFolder(baseId: string, name: string, parentId: string | null = null) {
+  const res = await inject(app, {
+    method: 'POST',
+    url: `/api/knowledge/bases/${baseId}/folders`,
+    headers: { cookie },
+    payload: { name, parentId },
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  return res.json<{ id: string }>();
+}
+
+async function folderPaths(baseId: string): Promise<Map<string, string>> {
+  const res = await inject(app, {
+    method: 'GET',
+    url: `/api/knowledge/bases/${baseId}/folders`,
+    headers: { cookie },
+  });
+  expect(res.statusCode, res.body).toBe(200);
+  return new Map(res.json<Array<{ id: string; path: string }>>().map((f) => [f.id, f.path]));
+}
+
 describe('knowledge routes', () => {
   it('未登录访问知识路由返回 401', async () => {
     for (const url of [
@@ -495,5 +516,154 @@ describe('knowledge routes', () => {
     });
     expect(tested.statusCode, tested.body).toBe(400);
     expect(tested.json<{ code: string }>().code).toBe('INVALID_URL');
+  });
+
+  it('文件夹改名转义 LIKE 通配符，不误改相邻子树', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+    const cases = [
+      { name: 'a_', sibling: 'ab' },
+      { name: 'x%y', sibling: 'xzzzy' },
+      { name: 'p\\q', sibling: 'pq' },
+    ];
+    const roots: Array<{
+      id: string;
+      childId: string;
+      siblingId: string;
+      siblingChildId: string;
+    }> = [];
+    for (const [index, item] of cases.entries()) {
+      const root = await createFolder(base.id, item.name);
+      const child = await createFolder(base.id, `child-${index}`, root.id);
+      const sibling = await createFolder(base.id, item.sibling);
+      const siblingChild = await createFolder(base.id, `sibling-${index}`, sibling.id);
+      roots.push({
+        id: root.id,
+        childId: child.id,
+        siblingId: sibling.id,
+        siblingChildId: siblingChild.id,
+      });
+    }
+
+    for (const [index] of cases.entries()) {
+      const res = await inject(app, {
+        method: 'PATCH',
+        url: `/api/knowledge/folders/${roots[index]!.id}`,
+        headers: { cookie },
+        payload: { name: `renamed-${index}` },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+    }
+
+    const paths = await folderPaths(base.id);
+    for (const [index, item] of cases.entries()) {
+      expect(paths.get(roots[index]!.id)).toBe(`/renamed-${index}`);
+      expect(paths.get(roots[index]!.childId)).toBe(`/renamed-${index}/child-${index}`);
+      expect(paths.get(roots[index]!.siblingId)).toBe(`/${item.sibling}`);
+      expect(paths.get(roots[index]!.siblingChildId)).toBe(`/${item.sibling}/sibling-${index}`);
+    }
+  });
+
+  it('文件夹改名按字符计算前缀，emoji 子路径不被截断', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+    const root = await createFolder(base.id, '🚀');
+    const child = await createFolder(base.id, '子', root.id);
+
+    const res = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/folders/${root.id}`,
+      headers: { cookie },
+      payload: { name: 'rocket' },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+
+    const paths = await folderPaths(base.id);
+    expect(paths.get(root.id)).toBe('/rocket');
+    expect(paths.get(child.id)).toBe('/rocket/子');
+  });
+
+  it('同时改名和移动冲突时整体回滚，不留下中间位置', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+    const a = await createFolder(base.id, 'A');
+    const aChild = await createFolder(base.id, 'a-child', a.id);
+    const b = await createFolder(base.id, 'B');
+    const target = await createFolder(base.id, 'target', b.id);
+
+    const res = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/folders/${a.id}`,
+      headers: { cookie },
+      payload: { parentId: b.id, name: 'target' },
+    });
+    expect(res.statusCode, res.body).toBe(409);
+
+    const paths = await folderPaths(base.id);
+    expect(paths.get(a.id)).toBe('/A');
+    expect(paths.get(aChild.id)).toBe('/A/a-child');
+    expect(paths.get(b.id)).toBe('/B');
+    expect(paths.get(target.id)).toBe('/B/target');
+  });
+
+  it('重解析统计全部人工编辑分块，分页外的人工块也触发确认', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+    const { documentId, versionId } = await seedReadyDocument(base.id, embedding, '基础 分块');
+    await app.pool.query(
+      `insert into knowledge_chunks
+         (id, base_id, document_id, version_id, ordinal, kind, content, search_text, edited_by_user)
+       select 'kchk_manual_' || g, $1, $2, $3, g + 1, 'text', 'bulk', 'bulk', g = 249
+       from generate_series(0, 249) g`,
+      [base.id, documentId, versionId],
+    );
+
+    const res = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/documents/${documentId}/reprocess`,
+      headers: { cookie },
+      payload: {},
+    });
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.json<{ message: string }>().message).toContain('1 个');
+
+    const confirmed = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/documents/${documentId}/reprocess`,
+      headers: { cookie },
+      payload: { confirmOverwriteManualChunks: true },
+    });
+    expect(confirmed.statusCode, confirmed.body).toBe(202);
+  });
+
+  it('分块列表返回展示字段，响应不含向量', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+    const { documentId } = await seedReadyDocument(base.id, embedding, '访问 令牌 需要 定期 轮换');
+
+    const res = await inject(app, {
+      method: 'GET',
+      url: `/api/knowledge/documents/${documentId}/chunks`,
+      headers: { cookie },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const [chunk] = res.json<{ items: Array<Record<string, unknown>> }>().items;
+    expect(chunk).not.toHaveProperty('embedding');
+    expect(Object.keys(chunk ?? {}).sort()).toEqual(
+      [
+        'content',
+        'documentId',
+        'editedByUser',
+        'enabled',
+        'heading',
+        'id',
+        'kind',
+        'metadata',
+        'ordinal',
+        'pageFrom',
+        'pageTo',
+        'versionId',
+      ].sort(),
+    );
   });
 });

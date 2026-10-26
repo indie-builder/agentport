@@ -1,3 +1,4 @@
+import type { KnowledgeJob } from '@agentport/shared';
 import { EditorView } from '@codemirror/view';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
@@ -131,6 +132,22 @@ const wikiPage = {
 };
 
 const { versions: _wikiVersions, nextCursor: _wikiNextCursor, ...wikiPageSummary } = wikiPage;
+
+function wikiJob(status: KnowledgeJob['status'], id = 'kjob_gen'): KnowledgeJob {
+  const now = new Date().toISOString();
+  return {
+    id,
+    type: 'wiki_generate',
+    status,
+    step: status === 'running' ? '生成中' : null,
+    progress: status === 'succeeded' ? 100 : 0,
+    attempts: 1,
+    error: null,
+    createdAt: now,
+    startedAt: now,
+    endedAt: status === 'succeeded' ? now : null,
+  };
+}
 
 const state = vi.hoisted(() => ({
   calls: [] as Array<{ method: string; path: string; body: unknown }>,
@@ -1372,6 +1389,81 @@ describe('knowledge wiki versions', () => {
     expect(detailCalls()).toBeGreaterThan(before);
     expect(document.querySelector('#knowledge-wiki-markdown')).toBeNull();
     expect(document.body.textContent).toContain('第三步。');
+  });
+
+  it('tracks the submitted generation job and refreshes page and list once it finishes', async () => {
+    baseHandlers();
+    let jobs: KnowledgeJob[] = [];
+    handler('GET', '/api/knowledge/jobs', () => ({ items: jobs, nextCursor: null }));
+    let pageCalls = 0;
+    let listCalls = 0;
+    handler('GET', '/api/knowledge/wiki-pages/kwp_1', () => {
+      pageCalls += 1;
+      return wikiPage;
+    });
+    handler('GET', '/api/knowledge/bases/kb_1/wiki-pages', () => {
+      listCalls += 1;
+      return { items: [wikiPageSummary], nextCursor: null };
+    });
+    // 其他页面或其他来源的终态任务留在列表里，但不显示在这一页。
+    jobs = [wikiJob('succeeded', 'kjob_other')];
+    handler('POST', '/api/knowledge/wiki-pages/kwp_1/generate', () => {
+      jobs = [wikiJob('queued'), ...jobs];
+      return { jobId: 'kjob_gen' };
+    });
+    await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
+    expect(document.body.textContent).not.toContain('生成任务');
+    await click(button('编辑正文'));
+    const editor = dialog('编辑 Wiki 正文');
+    await fill('knowledge-wiki-markdown', '## 未保存的草稿');
+
+    const pageBefore = pageCalls;
+    const listBefore = listCalls;
+    await click(button('重新生成'));
+    await flush();
+    // 提交后由产品自己刷新任务列表即可看到新任务，不靠测试手动刷新。
+    expect(document.body.textContent).toContain('生成任务 排队中');
+    // 任务仍在跑时只刷新任务列表，不重复拉当前页面与页面列表。
+    expect(pageCalls).toBe(pageBefore);
+    expect(listCalls).toBe(listBefore);
+
+    // 任务终态刷新页面失败时保留页面数据与编辑草稿，只做局部报错。
+    state.failures['GET /api/knowledge/wiki-pages/kwp_1'] = {
+      status: 500,
+      message: '页面刷新失败',
+    };
+    jobs = [wikiJob('succeeded'), wikiJob('succeeded', 'kjob_other')];
+    await act(async () => {
+      await client?.invalidateQueries({ queryKey: ['knowledge', 'jobs', 'kb_1'] });
+    });
+    await flush();
+    expect(listCalls).toBe(listBefore + 1);
+    expect(editor.isConnected).toBe(true);
+    expect(document.querySelector<HTMLTextAreaElement>('#knowledge-wiki-markdown')?.value).toBe(
+      '## 未保存的草稿',
+    );
+    expect(document.body.textContent).toContain('Wiki 页面没有刷新成功');
+
+    delete state.failures['GET /api/knowledge/wiki-pages/kwp_1'];
+    await click(button('重试'));
+    await flush();
+    expect(editor.isConnected).toBe(true);
+    expect(document.querySelector<HTMLTextAreaElement>('#knowledge-wiki-markdown')?.value).toBe(
+      '## 未保存的草稿',
+    );
+    expect(document.body.textContent).not.toContain('Wiki 页面没有刷新成功');
+    expect(document.body.textContent).toContain('第二步。');
+
+    // 终态后的轮询即使继续刷新任务列表，也不再重复失效页面与列表。
+    const settledPage = pageCalls;
+    const settledList = listCalls;
+    await act(async () => {
+      await client?.invalidateQueries({ queryKey: ['knowledge', 'jobs', 'kb_1'] });
+    });
+    await flush();
+    expect(pageCalls).toBe(settledPage);
+    expect(listCalls).toBe(settledList);
+    expect(editor.isConnected).toBe(true);
   });
 
   it('loads every wiki page page so older pages stay selectable', async () => {

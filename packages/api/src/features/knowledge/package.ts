@@ -408,7 +408,7 @@ export async function exportKnowledgePackage(
       ).catch(() => null);
       // embedding 不属于包内容；vector chunk 保留身份与描述，靠导入后的 chunksOnly 按原图补向量。
       const chunks = await collectPages((options) =>
-        repo.knowledge.listChunks(db, version.id, options),
+        repo.knowledge.listChunkSummaries(db, version.id, options),
       );
       for (const chunk of chunks) exportedChunkIds.add(chunk.id);
       const dir = `documents/${document.id}/${version.id}`;

@@ -1731,7 +1731,7 @@ export function MessagePane({
                 {welcome}
               </MessageScrollerItem>
             ) : null}
-            {!loading && !error && items.length > 0
+            {!loading && items.length > 0
               ? turns.map((turn, turnIndex) => {
                   const messageId = turn.user ? userMessageId(turn.items) : undefined;
                   const latest = turnIndex === turns.length - 1;

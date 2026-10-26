@@ -99,6 +99,8 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     const ctx: ProxyRequestContext = {};
     void handle(req, res, ctx).catch((err: unknown) => {
       logger.error({ err, ...ctx }, 'model proxy request failed');
+      // 客户端已断开时不能再写响应，否则会再抛一次 stream destroyed。
+      if (res.destroyed || res.writableEnded) return;
       if (!res.headersSent) {
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { type: 'proxy_error', message: 'proxy failed' } }));
@@ -168,43 +170,63 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     }
 
     ctx.model = modelOf(body);
-    const upstreamRes = await fetch(target, {
-      method: req.method ?? 'POST',
-      headers,
-      ...(body.length > 0 && req.method !== 'GET' && req.method !== 'HEAD' ? { body } : {}),
-    });
+    const upstreamController = new AbortController();
+    // 客户端提前断开（沙盒取消/进程退出）时中止上游并取消 reader，避免挂到上游超时。
+    const onClientClose = () => {
+      if (!res.writableEnded) upstreamController.abort();
+    };
+    res.on('close', onClientClose);
 
-    const upstreamRequestId = upstreamRes.headers.get('request-id') ?? undefined;
-    ctx.upstreamRequestId = upstreamRequestId;
-    // 每次请求一行：runId + 上游 request-id 能把沙盒里的报错对回上游账单与日志。
-    // 不记请求体、不记响应体。
-    logger.info(
-      {
-        runId: ctx.runId,
-        model: ctx.model,
-        status: upstreamRes.status,
-        durationMs: Date.now() - startedAt,
-        upstreamRequestId,
-      },
-      'model proxy request',
-    );
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let completed = false;
+    try {
+      const upstreamRes = await fetch(target, {
+        method: req.method ?? 'POST',
+        headers,
+        ...(body.length > 0 && req.method !== 'GET' && req.method !== 'HEAD' ? { body } : {}),
+        signal: upstreamController.signal,
+      });
 
-    res.writeHead(upstreamRes.status, {
-      'content-type': upstreamRes.headers.get('content-type') ?? 'application/json',
-      ...(upstreamRequestId ? { 'request-id': upstreamRequestId } : {}),
-    });
-    if (!upstreamRes.body) {
+      const upstreamRequestId = upstreamRes.headers.get('request-id') ?? undefined;
+      ctx.upstreamRequestId = upstreamRequestId;
+      // 每次请求一行：runId + 上游 request-id 能把沙盒里的报错对回上游账单与日志。
+      // 不记请求体、不记响应体。
+      logger.info(
+        {
+          runId: ctx.runId,
+          model: ctx.model,
+          status: upstreamRes.status,
+          durationMs: Date.now() - startedAt,
+          upstreamRequestId,
+        },
+        'model proxy request',
+      );
+
+      res.writeHead(upstreamRes.status, {
+        'content-type': upstreamRes.headers.get('content-type') ?? 'application/json',
+        ...(upstreamRequestId ? { 'request-id': upstreamRequestId } : {}),
+      });
+      if (!upstreamRes.body) {
+        res.end();
+        completed = true;
+        return;
+      }
+      // 流式（SSE）必须边读边写：一次性 await text() 会让流式输出退化成阻塞。
+      reader = upstreamRes.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
       res.end();
-      return;
+      completed = true;
+    } catch (err) {
+      // 客户端断开导致的中止是预期路径；其余错误交给外层统一返回 500。
+      if (!upstreamController.signal.aborted) throw err;
+    } finally {
+      res.off('close', onClientClose);
+      if (!completed) await reader?.cancel().catch(() => undefined);
     }
-    // 流式（SSE）必须边读边写：一次性 await text() 会让流式输出退化成阻塞。
-    const reader = upstreamRes.body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
-    }
-    res.end();
   }
 
   await new Promise<void>((resolvePromise, rejectPromise) => {

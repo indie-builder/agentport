@@ -229,7 +229,7 @@ const profileSchema = z.object({
 });
 
 type DocumentRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getDocument>>>;
-type ChunkRow = Awaited<ReturnType<typeof repo.knowledge.listChunks>>['items'][number];
+type ChunkRow = Awaited<ReturnType<typeof repo.knowledge.listChunkSummaries>>['items'][number];
 type JobRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getJob>>>;
 type FolderRow = Awaited<ReturnType<typeof repo.knowledge.listFolders>>['items'][number];
 type TagRow = Awaited<ReturnType<typeof repo.knowledge.listTags>>[number];
@@ -662,13 +662,8 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       const current = await repo.knowledge.getFolder(app.db, request.params.folderId);
       if (!current) return notFound(reply, '文件夹');
       try {
-        let row = current;
-        if (request.body.parentId !== undefined) {
-          row = (await repo.knowledge.moveFolder(app.db, current.id, request.body.parentId)) ?? row;
-        }
-        if (request.body.name !== undefined) {
-          row = (await repo.knowledge.renameFolder(app.db, row.id, request.body.name)) ?? row;
-        }
+        const row =
+          (await repo.knowledge.updateFolder(app.db, current.id, request.body)) ?? current;
         return toFolder(row);
       } catch (err) {
         if (isPgCode(err, '23505')) return reject(reply, 'CONFLICT', '同级下已有同名文件夹');
@@ -821,7 +816,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       // 重新启用必须仍有当前版本的 chunk，否则检索会指向空文档。
       if (current.status === 'disabled' && patch.status === 'ready') {
         const chunks = current.currentVersionId
-          ? await repo.knowledge.listChunks(app.db, current.currentVersionId, { limit: 1 })
+          ? await repo.knowledge.listChunkSummaries(app.db, current.currentVersionId, { limit: 1 })
           : null;
         if (!chunks || chunks.items.length === 0) {
           return reject(reply, 'CONFLICT', '当前版本没有可用分块，请先重新摄取');
@@ -872,8 +867,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       const row = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!row) return notFound(reply, '文档');
       if (!row.currentVersionId) return reject(reply, 'CONFLICT', '文档还没有成功解析的版本');
-      const chunks = await repo.knowledge.listChunks(app.db, row.currentVersionId, { limit: 200 });
-      const manualChunkCount = chunks.items.filter((chunk) => chunk.editedByUser).length;
+      const manualChunkCount = await repo.knowledge.countEditedChunks(app.db, row.currentVersionId);
       // 重解析新建版本、不继承人工 chunk；未确认时明确拒绝，避免静默丢弃编辑。
       if (manualChunkCount > 0 && !request.body.confirmOverwriteManualChunks) {
         return reject(
@@ -916,7 +910,11 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
           return reject(reply, 'INVALID_INPUT', '版本不存在或不属于该文档');
         }
       }
-      const page = await repo.knowledge.listChunks(app.db, versionId, pageOptions(request.query));
+      const page = await repo.knowledge.listChunkSummaries(
+        app.db,
+        versionId,
+        pageOptions(request.query),
+      );
       return { items: page.items.map(toChunk), nextCursor: page.nextCursor };
     },
   );

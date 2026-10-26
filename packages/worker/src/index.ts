@@ -30,6 +30,7 @@ import {
 import { Worker } from 'bullmq';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
+import { waitClose } from './close-wait.js';
 import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
 import { readForkUuidMap } from './fork-uuids.js';
@@ -940,40 +941,58 @@ await scheduleScheduler.sync().catch((err: unknown) => {
 });
 
 const SHUTDOWN_WAIT_MS = 10_000;
+const CLOSE_WAIT_MS = 5_000;
 const POOL_WAIT_MS = 2_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms).unref());
-}
 
 let shuttingDown = false;
 
 /**
- * SIGTERM：先让 BullMQ 排空在跑的任务（最多 10s），仍未结束的沙盒由
- * docker rm -f 兜底；容器退出会推动任务收尾，再关闭 Redis / PG。
+ * SIGTERM：先让聊天 run 排空最多 10s；其余队列并发关闭（知识任务会 abort 活跃任务），
+ * 沙盒不等待它们排空，最后关闭 Redis / PG。
  */
 const shutdown = async (): Promise<void> => {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info('shutting down');
 
-  const closing = Promise.allSettled([worker.close(), evalWorker.close()]);
-  await Promise.race([closing, sleep(SHUTDOWN_WAIT_MS)]);
-  await maintenanceWorker.close();
-  await knowledgeWorker.close();
-  await knowledgeScheduler.close();
-  await stopKnowledgeReconciler();
-  await sandboxProbe.close();
-  await nativePlugins.close();
-  await scheduleScheduler.close();
-  await stopReconciler();
-  await provider.destroyAll();
-  await Promise.race([closing, sleep(POOL_WAIT_MS)]);
-  await closeEvalRunQueue();
+  // 先启动所有关闭：知识任务硬超时可达 2h，不能排在沙盒清理前面等它排空。
+  const closingRuns = Promise.allSettled([worker.close(), evalWorker.close()]);
+  const closingKnowledge = knowledgeWorker.close().catch(() => undefined);
+  const closingMaintenance = maintenanceWorker.close().catch(() => undefined);
+  const closingKnowledgeScheduler = knowledgeScheduler.close().catch(() => undefined);
+  const closingKnowledgeReconciler = stopKnowledgeReconciler().catch(() => undefined);
+  const closingSandboxProbe = sandboxProbe.close().catch(() => undefined);
+  const closingNativePlugins = nativePlugins.close().catch(() => undefined);
+  const closingScheduleScheduler = scheduleScheduler.close().catch(() => undefined);
+  const closingReconciler = stopReconciler().catch(() => undefined);
 
-  await modelProxy?.close();
-  await closeRunnerClient();
-  await Promise.race([pool.end(), sleep(POOL_WAIT_MS)]);
+  const runsClosed = await waitClose(closingRuns, SHUTDOWN_WAIT_MS);
+  // run 的宽限期已过，沙盒必须在这里强杀；不等其他队列无界排空。
+  await provider.destroyAll();
+
+  const othersClosed = await waitClose(
+    Promise.allSettled([
+      closingKnowledge,
+      closingMaintenance,
+      closingKnowledgeScheduler,
+      closingKnowledgeReconciler,
+      closingSandboxProbe,
+      closingNativePlugins,
+      closingScheduleScheduler,
+      closingReconciler,
+    ]),
+    CLOSE_WAIT_MS,
+  );
+  const evalQueueClosed = await waitClose(closeEvalRunQueue(), CLOSE_WAIT_MS);
+  const proxyClosed =
+    modelProxy === null ? true : await waitClose(modelProxy.close(), CLOSE_WAIT_MS);
+  const runnerClosed = await waitClose(closeRunnerClient(), CLOSE_WAIT_MS);
+
+  // 仍有后台任务在用连接时不能 pool.end：提前关池会打断它正在跑的查询。
+  // 超时就直接退出，由进程回收连接。
+  if (runsClosed && othersClosed && evalQueueClosed && proxyClosed && runnerClosed) {
+    await waitClose(pool.end(), POOL_WAIT_MS);
+  }
   process.exit(0);
 };
 
