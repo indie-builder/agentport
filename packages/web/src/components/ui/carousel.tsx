@@ -1,6 +1,7 @@
 import { cn } from 'cn';
 import useEmblaCarousel, { type UseEmblaCarouselType } from 'embla-carousel-react';
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
+import { useReducedMotion } from 'motion/react';
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 
@@ -55,6 +56,7 @@ function Carousel({
   );
   const [canScrollPrev, setCanScrollPrev] = React.useState(false);
   const [canScrollNext, setCanScrollNext] = React.useState(false);
+  const reduceMotion = useReducedMotion() === true;
 
   const onSelect = React.useCallback((api: CarouselApi) => {
     if (!api) return;
@@ -63,24 +65,25 @@ function Carousel({
   }, []);
 
   const scrollPrev = React.useCallback(() => {
-    api?.scrollPrev();
-  }, [api]);
+    api?.scrollPrev(reduceMotion);
+  }, [api, reduceMotion]);
 
   const scrollNext = React.useCallback(() => {
-    api?.scrollNext();
-  }, [api]);
+    api?.scrollNext(reduceMotion);
+  }, [api, reduceMotion]);
 
+  // Embla v8 的 jump 参数跳过 JS 动画（duration 是速度系数，不是毫秒）；键盘要即时反馈。
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        scrollPrev();
+        api?.scrollPrev(true);
       } else if (event.key === 'ArrowRight') {
         event.preventDefault();
-        scrollNext();
+        api?.scrollNext(true);
       }
     },
-    [scrollPrev, scrollNext],
+    [api],
   );
 
   React.useEffect(() => {
@@ -98,6 +101,16 @@ function Carousel({
       api?.off('select', onSelect);
     };
   }, [api, onSelect]);
+
+  // Embla 松手后总会跑惯性动画；pointerUp 时它已算好吸附点，reduceMotion 下直接跳过去。
+  React.useEffect(() => {
+    if (!api || !reduceMotion) return;
+    const handlePointerUp = () => api.scrollTo(api.selectedScrollSnap(), true);
+    api.on('pointerUp', handlePointerUp);
+    return () => {
+      api.off('pointerUp', handlePointerUp);
+    };
+  }, [api, reduceMotion]);
 
   return (
     <CarouselContext.Provider

@@ -49,6 +49,7 @@ import {
   useState,
 } from 'react';
 import { cn } from '../lib/cn.js';
+import { Collapsible, CollapsibleContent } from './motion-collapsible.js';
 import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
@@ -615,15 +616,21 @@ export function DataTable<T extends RowData>({
                   {expandedContent !== null && (
                     <TableRow
                       role="row"
-                      hidden={!isOpen}
-                      className={cn('hover:bg-transparent', isOpen ? 'block' : 'hidden')}
+                      aria-hidden={isOpen ? undefined : true}
+                      className={cn('block border-0 hover:bg-transparent', isOpen && 'border-b')}
                     >
                       <TableCell
+                        id={panelId}
                         role="cell"
                         colSpan={visible.length}
-                        className="block px-3 py-4 whitespace-normal"
+                        className="block p-0 whitespace-normal"
                       >
-                        <div id={panelId}>{isOpen ? expandedContent : null}</div>
+                        {/* 收起时 Panel 不挂载内容，展开详情仍保持首次打开的懒查询。 */}
+                        <Collapsible open={isOpen}>
+                          <CollapsibleContent animated>
+                            <div className="px-3 py-4">{expandedContent}</div>
+                          </CollapsibleContent>
+                        </Collapsible>
                       </TableCell>
                     </TableRow>
                   )}

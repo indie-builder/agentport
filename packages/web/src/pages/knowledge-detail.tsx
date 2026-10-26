@@ -29,6 +29,7 @@ import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { KnowledgeImage, stripImageReferences } from '../components/knowledge-citations.js';
 import { Markdown } from '../components/markdown.js';
+import { Collapsible, CollapsibleContent } from '../components/motion-collapsible.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
@@ -428,7 +429,7 @@ function DocumentsTab({
                           variant="ghost"
                           size="icon-xs"
                           aria-label={`文件夹操作 ${entry.name}`}
-                          className="opacity-0 group-hover/folder:opacity-100 focus-visible:opacity-100"
+                          className="transition-opacity duration-150 ease-out-soft [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/folder:opacity-100 group-focus-within/folder:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100"
                           onClick={(event) => setFolderTrigger(event.currentTarget)}
                         >
                           <MoreHorizontal />
@@ -2498,7 +2499,6 @@ function SourcesTab({ baseId }: { baseId: string }) {
   const [deleting, setDeleting] = useState<KnowledgeSource | null>(null);
   const [deleteDocuments, setDeleteDocuments] = useState(false);
   const [editing, setEditing] = useState<KnowledgeSource | null>(null);
-  const runs = useKnowledgeSourceRuns(selected);
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -2542,96 +2542,97 @@ function SourcesTab({ baseId }: { baseId: string }) {
       {sources.data && sources.data.length > 0 ? (
         <ul className="flex flex-col">
           {sources.data.map((source) => (
-            <li
-              key={source.id}
-              className="flex min-w-0 flex-col gap-2 border-b py-3 last:border-b-0"
-            >
-              <div className="flex min-w-0 flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  className="min-w-0 truncate text-sm font-medium text-fg hover:underline"
-                  onClick={() => setSelected(selected === source.id ? null : source.id)}
-                  aria-expanded={selected === source.id}
-                >
-                  {source.name}
-                </button>
-                <StatusBadge tone="outline">{sourceTypeLabel[source.type]}</StatusBadge>
-                <StatusBadge
-                  tone={
-                    source.status === 'active'
-                      ? 'success'
-                      : source.status === 'auth_error'
-                        ? 'danger'
-                        : 'outline'
-                  }
-                >
-                  {sourceStatusLabel[source.status]}
-                </StatusBadge>
-                <span className="text-2xs text-muted-foreground">
-                  上次同步 {formatRelative(source.lastSyncAt)}
-                </span>
-                <div className="ml-auto flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={test.isPending}
-                    onClick={() =>
-                      test.mutate(source.id, {
-                        onSuccess: (result) =>
-                          result.ok
-                            ? toastSuccess('本地配置与已存凭证检查通过')
-                            : toast.error(result.issues.join('；'), { duration: Infinity }),
-                        onError: toastError,
-                      })
+            <li key={source.id} className="border-b py-3 last:border-b-0">
+              <Collapsible open={selected === source.id} className="flex min-w-0 flex-col gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    className="min-w-0 truncate text-sm font-medium text-fg hover:underline"
+                    onClick={() => setSelected(selected === source.id ? null : source.id)}
+                    aria-expanded={selected === source.id}
+                  >
+                    {source.name}
+                  </button>
+                  <StatusBadge tone="outline">{sourceTypeLabel[source.type]}</StatusBadge>
+                  <StatusBadge
+                    tone={
+                      source.status === 'active'
+                        ? 'success'
+                        : source.status === 'auth_error'
+                          ? 'danger'
+                          : 'outline'
                     }
                   >
-                    检查配置
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={sync.isPending}
-                    onClick={() =>
-                      sync.mutate(source.id, {
-                        onSuccess: () => {
-                          setSelected(source.id);
-                          toastSuccess('已提交同步任务');
-                        },
-                        onError: toastError,
-                      })
-                    }
-                  >
-                    同步
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`编辑来源 ${source.name}`}
-                    onClick={() => setEditing(source)}
-                  >
-                    <Pencil />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`删除来源 ${source.name}`}
-                    onClick={() => {
-                      setDeleteDocuments(false);
-                      setDeleting(source);
-                    }}
-                  >
-                    <Trash2 />
-                  </Button>
+                    {sourceStatusLabel[source.status]}
+                  </StatusBadge>
+                  <span className="text-2xs text-muted-foreground">
+                    上次同步 {formatRelative(source.lastSyncAt)}
+                  </span>
+                  <div className="ml-auto flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={test.isPending}
+                      onClick={() =>
+                        test.mutate(source.id, {
+                          onSuccess: (result) =>
+                            result.ok
+                              ? toastSuccess('本地配置与已存凭证检查通过')
+                              : toast.error(result.issues.join('；'), { duration: Infinity }),
+                          onError: toastError,
+                        })
+                      }
+                    >
+                      检查配置
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={sync.isPending}
+                      onClick={() =>
+                        sync.mutate(source.id, {
+                          onSuccess: () => {
+                            setSelected(source.id);
+                            toastSuccess('已提交同步任务');
+                          },
+                          onError: toastError,
+                        })
+                      }
+                    >
+                      同步
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`编辑来源 ${source.name}`}
+                      onClick={() => setEditing(source)}
+                    >
+                      <Pencil />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`删除来源 ${source.name}`}
+                      onClick={() => {
+                        setDeleteDocuments(false);
+                        setDeleting(source);
+                      }}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-              <span className="truncate text-2xs text-muted-foreground">
-                {source.ranges.map((range) => range.externalId).join(' · ')}
-                {source.syncCron ? ` · cron ${source.syncCron}` : ''}
-              </span>
-              {source.lastError ? (
-                <span className="text-2xs text-danger">{source.lastError}</span>
-              ) : null}
-              {selected === source.id ? <SourceRuns runs={runs} /> : null}
+                <span className="truncate text-2xs text-muted-foreground">
+                  {source.ranges.map((range) => range.externalId).join(' · ')}
+                  {source.syncCron ? ` · cron ${source.syncCron}` : ''}
+                </span>
+                {source.lastError ? (
+                  <span className="text-2xs text-danger">{source.lastError}</span>
+                ) : null}
+                <CollapsibleContent animated>
+                  <SourceRuns sourceId={source.id} />
+                </CollapsibleContent>
+              </Collapsible>
             </li>
           ))}
         </ul>
@@ -3048,7 +3049,9 @@ function EditSourceDialog({
   );
 }
 
-function SourceRuns({ runs }: { runs: ReturnType<typeof useKnowledgeSourceRuns> }) {
+/** 每个展开的来源各自取同步记录；收起动画期间仍显示自己的数据。 */
+function SourceRuns({ sourceId }: { sourceId: string }) {
+  const runs = useKnowledgeSourceRuns(sourceId);
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-item bg-sunken/40 p-2">
       <span className="text-2xs text-muted-foreground">同步记录</span>

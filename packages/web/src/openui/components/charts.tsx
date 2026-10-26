@@ -36,6 +36,11 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../../components/motion-collapsible.js';
+import {
   type ChartConfig,
   ChartContainer,
   ChartLegend,
@@ -43,11 +48,6 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '../../components/ui/chart.js';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '../../components/ui/collapsible.js';
 import {
   Table,
   TableBody,
@@ -367,7 +367,7 @@ function ChartDataView({
       <CollapsibleTrigger className="self-start rounded-item text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         数据视图
       </CollapsibleTrigger>
-      <CollapsibleContent className="pt-2">
+      <CollapsibleContent animated className="pt-2">
         <Table className="text-xs">
           <TableHeader>
             <TableRow>

@@ -1,7 +1,6 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 @import "tailwindcss";
-@import "tw-animate-css";
 
 /* Streamdown 渲染 Markdown 时用到的 Tailwind 类需要被扫描到。 */
 @source "../node_modules/streamdown/dist/*.js";
@@ -378,8 +377,10 @@
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
+      transition-delay: 0ms !important;
       scroll-behavior: auto !important;
     }
   }

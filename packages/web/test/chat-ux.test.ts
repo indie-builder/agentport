@@ -554,8 +554,34 @@ describe('chat shell layout', () => {
 
     const hide = host.querySelector<HTMLButtonElement>('button[aria-label="隐藏工作区"]');
     await act(async () => hide?.click());
-    expect(host.querySelector('aside[aria-label="会话成果"]')).toBeNull();
+    // 折叠只收起宽度：子树保留，但收起后离开焦点顺序与无障碍树。
+    const collapsed = host.querySelector('aside[aria-label="会话成果"]');
+    expect(collapsed).not.toBeNull();
+    expect(collapsed?.closest('[inert]')).not.toBeNull();
+    expect(collapsed?.closest('[aria-hidden="true"]')).not.toBeNull();
     expect(host.querySelector('button[aria-label="显示工作区"]')).not.toBeNull();
+  });
+
+  it('keeps the draft editable after the workspace width collapses', async () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    }));
+    await mount();
+    await type('workspace draft');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="显示工作区"]')?.click(),
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="隐藏工作区"]')?.click(),
+    );
+    expect(message().value).toBe('workspace draft');
+    await type('still editable');
+    expect(message().value).toBe('still editable');
+    expect(useChatStore.getState().input).toBe('still editable');
   });
 
   it('keeps the draft and expert when the workspace opens', async () => {

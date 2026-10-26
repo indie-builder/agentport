@@ -15,6 +15,7 @@ import {
   CircleCheck,
   KeyRound,
   LibraryBig,
+  LoaderCircle,
   MoreHorizontal,
   Pencil,
   Plug,
@@ -664,7 +665,14 @@ function TestSummary({
   serverName: string;
   onOpen: (trigger: HTMLElement) => void;
 }) {
-  if (testing) return <span className="text-xs text-muted-foreground">测试中…</span>;
+  if (testing) {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <LoaderCircle className="size-3 shrink-0 animate-spin" aria-hidden="true" />
+        测试中…
+      </span>
+    );
+  }
   if (!state) return <span className="text-xs text-muted-foreground">未测试</span>;
   const { result, at } = state;
   return (

@@ -561,6 +561,7 @@ function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) 
                       disabled={installed || install.isPending}
                       aria-busy={pending}
                       aria-label={installed ? `${item.name} 已安装` : `安装 ${item.name}`}
+                      className="transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft"
                       onClick={() => installSkill(item)}
                     >
                       {installed ? '已安装' : pending ? '安装中…' : '安装'}

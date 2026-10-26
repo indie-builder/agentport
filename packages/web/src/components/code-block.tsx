@@ -46,6 +46,38 @@ export function prettyJson(value: string | unknown): string {
 /** 单块内容超过该长度时默认折叠：整块渲染会明显拖慢页面。 */
 export const LARGE_CONTENT_CHARS = 64 * 1024;
 
+/** 行拆分放在子组件里：Panel 收起时不挂载它，超大内容就不会被提前构造。 */
+function CodeLines({
+  code,
+  lineNumbers,
+  json,
+}: {
+  code: string;
+  lineNumbers: boolean;
+  json: boolean;
+}) {
+  return (
+    <code className="block">
+      {code.split('\n').map((line, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 代码行没有稳定 id，行号即身份
+        <span key={i} className="flex min-w-max px-3">
+          {lineNumbers ? (
+            <span
+              aria-hidden="true"
+              className="mr-3 inline-block w-8 shrink-0 select-none text-right text-muted-foreground"
+            >
+              {i + 1}
+            </span>
+          ) : null}
+          <span className="whitespace-pre text-fg/90">
+            {json ? highlightJson(line) : line || ' '}
+          </span>
+        </span>
+      ))}
+    </code>
+  );
+}
+
 export function CodeBlock({
   code,
   lineNumbers = false,
@@ -61,7 +93,7 @@ export function CodeBlock({
   copyLabel?: string;
   json?: boolean;
 }) {
-  // 超大内容默认不渲染，避免一次插入数万行 DOM。
+  // 超大内容默认折叠，只有展开时 Panel 才挂载内容。
   const [expanded, setExpanded] = useState(false);
   const large = code.length > LARGE_CONTENT_CHARS;
   const open = !large || expanded;
@@ -79,46 +111,25 @@ export function CodeBlock({
           {expanded ? '收起内容' : '内容过大，点击查看'}
         </CollapsibleTrigger>
       )}
-      <CollapsibleContent>
-        {open && (
-          <>
-            <CopyButton
-              value={code}
-              label={copyLabel}
-              showLabel
-              className="absolute right-2 top-2 z-10 bg-surface/90 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-            />
-            {/* 滚动区可聚焦，键盘用户才能用方向键/PageDown 浏览超长内容。 */}
-            <section
-              // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
-              tabIndex={0}
-              aria-label="代码内容"
-              className="overflow-auto overscroll-contain"
-              style={{ maxHeight }}
-            >
-              <pre className="py-3 font-mono text-xs leading-5">
-                <code className="block">
-                  {code.split('\n').map((line, i) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: 代码行没有稳定 id，行号即身份
-                    <span key={i} className="flex min-w-max px-3">
-                      {lineNumbers ? (
-                        <span
-                          aria-hidden="true"
-                          className="mr-3 inline-block w-8 shrink-0 select-none text-right text-muted-foreground"
-                        >
-                          {i + 1}
-                        </span>
-                      ) : null}
-                      <span className="whitespace-pre text-fg/90">
-                        {json ? highlightJson(line) : line || ' '}
-                      </span>
-                    </span>
-                  ))}
-                </code>
-              </pre>
-            </section>
-          </>
-        )}
+      <CollapsibleContent animated>
+        <CopyButton
+          value={code}
+          label={copyLabel}
+          showLabel
+          className="absolute right-2 top-2 z-10 bg-surface/90 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+        />
+        {/* 滚动区可聚焦，键盘用户才能用方向键/PageDown 浏览超长内容。 */}
+        <section
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
+          tabIndex={0}
+          aria-label="代码内容"
+          className="overflow-auto overscroll-contain"
+          style={{ maxHeight }}
+        >
+          <pre className="py-3 font-mono text-xs leading-5">
+            <CodeLines code={code} lineNumbers={lineNumbers} json={json} />
+          </pre>
+        </section>
       </CollapsibleContent>
     </Collapsible>
   );
@@ -143,7 +154,9 @@ export function CollapsibleText({ text, className }: { text: string; className?:
       <CollapsibleTrigger className="text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         {open ? '收起内容' : '内容过大，点击查看'}
       </CollapsibleTrigger>
-      <CollapsibleContent className="pt-1">{text}</CollapsibleContent>
+      <CollapsibleContent animated className="pt-1">
+        {text}
+      </CollapsibleContent>
     </Collapsible>
   );
 }
