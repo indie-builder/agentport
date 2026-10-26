@@ -467,6 +467,8 @@ export async function admitChatRun(
     conversationId?: string;
     trigger?: 'chat' | 'mcp' | 'schedule' | 'event';
     agentVersion?: number;
+    /** 新会话标题；缺省取消息前 80 字。非浏览器入口用它标明来源。 */
+    title?: string;
     /** 用户消息的完整 content；缺省等价于 `{ type: 'text', text: input.message }`。 */
     userContent?: unknown;
   },
@@ -493,7 +495,7 @@ export async function admitChatRun(
       await createConversation(tx, {
         id: conversationId,
         agentId: input.agentId,
-        title: input.message.slice(0, 80),
+        title: input.title ?? input.message.slice(0, 80),
       });
     } else {
       conversationId = input.conversationId;

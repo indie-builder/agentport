@@ -29,13 +29,12 @@ const testCase: EvalCase = {
 
 async function mount(editing = false) {
   vi.spyOn(api, 'evalCases').mockResolvedValue(editing ? [testCase] : []);
-  vi.spyOn(api, 'evalRuns').mockResolvedValue([]);
+  vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [], nextCursor: null });
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });
   for (const agent of ['agent-a', 'agent-b']) {
     client.setQueryData(['eval-cases', agent], editing ? [testCase] : []);
-    client.setQueryData(['eval-runs', agent], []);
   }
   client.setQueryData(
     ['agents'],

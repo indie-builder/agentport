@@ -312,6 +312,21 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     expect(await userCount(runId)).toBe(1);
   });
 
+  it('persists the messages collected before a byte overflow without choking on a huge token', async () => {
+    const fixture = await newFixture();
+    const runId = await seedRun(fixture);
+    // runner 的 32MiB 落库额度最多保留 4 条 7MB 消息；它们必须能真正写进库。
+    const chunk = 'x'.repeat(7_000_000);
+    const events = [0, 1, 2, 3].map((blockIndex) => ({
+      type: 'assistant_text' as const,
+      text: chunk,
+      blockIndex,
+    }));
+
+    expect(await persist(fixture, runId, events)).toBe(true);
+    expect(await outputOf(runId)).toHaveLength(4);
+  });
+
   for (const status of TERMINAL) {
     it(`does not write or delete anything for a ${status} run`, async () => {
       const fixture = await newFixture();

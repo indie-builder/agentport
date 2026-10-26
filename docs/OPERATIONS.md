@@ -114,11 +114,10 @@ pnpm run up
 `pnpm run up`（`scripts/up.sh`）依次执行：
 
 1. `.env` 不存在时从 `.env.example` 复制，随机生成 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN`、`ADMIN_PASSWORD`（同时改写 `REDIS_URL`），并打印管理员密码；运行智能体仍需自行填写模型凭证。
-2. `docker compose up -d --build postgres redis`，轮询 `docker compose ps` 直到两者 healthy。
-3. 构建沙盒镜像 `agentport/sandbox:dev`（已存在则跳过；`pnpm run up --rebuild` 强制重建）。步骤见下文「2.2.1 手动构建沙盒镜像」。
-4. `docker compose up -d --build api worker`。compose 会先运行一次性服务 `migrate`（`node api/node_modules/@agentport/db/scripts/migrate.js`，`restart: no`），成功后 api 才启动（`depends_on: service_completed_successfully`）。
-5. 轮询 `/health/ready`，最多 90 秒。
-6. 执行 `bash scripts/smoke.sh`。
+2. `docker compose up -d --wait --wait-timeout 120 postgres redis`，按 compose healthcheck 等两者就绪；失败时打印状态与日志。
+3. 从仓库根构建沙盒镜像 `agentport/sandbox:dev`（已存在则跳过；`pnpm run up --rebuild` 强制重建）。步骤见下文「2.2.1 手动构建沙盒镜像」。
+4. `docker compose up -d --build --wait --wait-timeout 120 api worker`。compose 会先运行一次性服务 `migrate`（`node api/node_modules/@agentport/db/scripts/migrate.js`，`restart: no`），成功后 api 才启动（`depends_on: service_completed_successfully`）；`--wait` 继续等 api 的 `/health/ready` healthcheck 通过。
+5. 执行 `bash scripts/smoke.sh`。
 
 任一步失败会打印相关容器状态或日志，并以非零退出。停止服务用 `pnpm run down`（`docker compose down`，保留卷）；`pnpm run down --clean` 使用 `down -v` 删除数据卷。
 
@@ -134,7 +133,7 @@ curl -s http://localhost:3000/health/ready
 
 说明：
 
-- compose 的 `api`/`worker` 镜像内执行 `pnpm -r build`，不依赖宿主 `dist`；沙盒镜像例外，其 Dockerfile 复制 `packages/sandbox/dist` 与 `packages/sandbox/shared/`（即 `@agentport/shared` 的编译产物），由 `pnpm run up` 先构建并复制。
+- compose 的 api/worker 镜像与 `sandbox` target 都在镜像内执行安装与 `pnpm -r build`（sandbox 再用 `pnpm deploy --prod` 打包），不依赖宿主 `dist` 或暂存目录。
 - 迁移由 compose 的 `migrate` 服务自动执行；直接在宿主机操作时仍可用 `pnpm db:migrate`（需要 `packages/db/dist`，先 `pnpm build`）。
 - `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。`pnpm run up` 生成 `.env` 时会同时写入匹配的 `REDIS_PASSWORD` 与 `REDIS_URL`。
 - compose 会占用 3000、5432、6379；如冲突，先停掉本机对应服务或改端口。
@@ -146,10 +145,9 @@ curl -s http://localhost:3000/health/ready
 
 #### 2.2.1 手动构建沙盒镜像
 
-镜像的 Dockerfile 会 `COPY dist/`、`COPY shared/` 与 `package.shared.json`，**不能**直接 `docker build`：
-构建上下文是 `packages/sandbox`，`shared/` 需要先把 `packages/shared/dist` 复制进来。
+沙盒镜像与 api/worker 共用根 `Dockerfile`，**必须从仓库根 context 构建 `sandbox` target**；依赖安装、`pnpm -r build` 与 `pnpm deploy --prod` 都在镜像内完成，不需要先在宿主构建 `dist`，也不再把 shared 复制到 `packages/sandbox`。
 
-推荐直接用脚本（它会完成全部三步）：
+推荐直接用脚本：
 
 ```bash
 pnpm run up --rebuild
@@ -158,16 +156,14 @@ pnpm run up --rebuild
 手动等价步骤：
 
 ```bash
-pnpm --filter @agentport/sandbox build      # → packages/sandbox/dist
-pnpm --filter @agentport/shared build       # → packages/shared/dist
-rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
-docker build -t agentport/sandbox:dev packages/sandbox
+docker build --target sandbox -t agentport/sandbox:dev .
+# 或使用包脚本（同样从仓库根 context 构建）：
+pnpm --filter @agentport/sandbox image
 ```
 
-- 跳过 `shared` 复制会得到 `COPY shared/: not found` 或镜像运行时 `ERR_MODULE_NOT_FOUND`（runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务）。
-- `packages/sandbox/.dockerignore` 是为这个构建上下文单独准备的：根目录 `.dockerignore` 会排除 `**/dist`，这里显式放行 `dist/` 与 `shared/`，同时排除 `node_modules`、`src`、`test`、`*.tsbuildinfo`。
-- `package.shared.json` 是 shared 在镜像内的独立 manifest（`node_modules/@agentport/shared/package.json`）；`package.docker.json` 是 runner 自身的独立 manifest。workspace 协议无法在镜像内解析，所以两者都不能用根 `package.json` 代替。
-- `pnpm --filter @agentport/sandbox image` 只执行 `docker build`，**不含**前面的构建与复制步骤。
+- 镜像构建期验证 `dist/runner.js` 存在、Agent SDK 原生 CLI 可执行；`deploy` 输出已包含生产依赖与 workspace 包（含 `@agentport/shared` 的 `dist`）。
+- 不再有 `package.shared.json` / `package.docker.json` 或 `packages/sandbox/.dockerignore`；旧版 `packages/sandbox/shared` 暂存目录也已删除。
+- 根 `.dockerignore` 排除 `.git`、docs、data、`node_modules`、`dist` 等；镜像内重新安装和编译，`packages/sandbox/shared` 即使残留也不会进入构建上下文。
 - 反向代理之后部署时，设置 `TRUST_PROXY=1`（否则限流按代理 IP 计数），并把 `CORS_ORIGINS` 改成浏览器实际访问的 Origin。
 
 #### Docker socket 风险
@@ -189,13 +185,10 @@ worker 挂载 `/var/run/docker.sock`，**等价于把宿主 root 权限交给 wo
 pnpm install
 pnpm build
 cp .env.example .env
-docker compose up -d postgres redis
+docker compose up -d --wait postgres redis
 pnpm db:migrate
-# 见上文「2.2.1 手动构建沙盒镜像」：先构建 sandbox 与 shared，再复制 shared/dist 进构建上下文
-pnpm --filter @agentport/sandbox build
-pnpm --filter @agentport/shared build
-rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
-docker build -t agentport/sandbox:dev packages/sandbox
+# 见上文「2.2.1 手动构建沙盒镜像」：从仓库根构建 sandbox target，安装与构建都在镜像内
+docker build --target sandbox -t agentport/sandbox:dev .
 pnpm dev
 ```
 
@@ -231,7 +224,7 @@ pnpm run up --rebuild
 
 `pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run（容器随 `docker rm -f` 清理）；建议在空闲时操作。
 
-**关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 退出时清理自己遗留的工作区目录，reconciler 会把仍为 running 的 run 收敛为失败。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
+**关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 先禁止新的沙盒创建并取消镜像拉取，等待已发出的创建请求收尾后清理容器；单项清理失败仍继续关闭其余资源，记录错误并以非零状态退出。执行已经完成后的清理失败不改写业务结果或触发模型重试。reconciler 会收敛仍为 running 的 run。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
 
 ## 3. 备份与恢复
 
@@ -360,12 +353,13 @@ pnpm --filter @agentport/worker maintenance
 - 评估历史「比较运行」选择同专家两个终态批次，按结果快照中的用例ID对齐；仅在两边都有快照且prompt/expectation相同时显示改善/退步。输入变更、旧记录或重复身份另标；单边无结果也可能是批次未执行完成，不代表用例增删。专家配置未固定，比较不等于完整可复现。
 - 评估页「停止后续用例」将批次置为cancelled并保留已有结果；重复请求幂等，晚到进度/完成不能覆盖。当前用例可能仍执行至完成或超时并产生费用，停止不等同于即时终止沙盒，不提供恢复。迁移0023扩展eval_runs状态约束。
 - 评估提交时冻结本次用例数组与total；worker按冻结的提示词/期望执行，结果保留原文，后续编辑或删除用例不会改写新批次历史。迁移0022新增eval_runs/eval_results的case_snapshot列；旧记录不回填，专家配置/技能/连接器仍未冻结。
+- 评估批次列表 `GET /api/eval/runs?agentId=&cursor=&limit=` 返回 `{items,nextCursor}`：`limit` 默认 50、最大 100，游标取当前页末条 ID，按 `(created_at,id)` 倒序排他翻页；游标不属于当前筛选范围（不存在或跨专家）返回 400 `INVALID_INPUT`。列表 SQL 只投影摘要列；迁移 `0037` 用 `(agent_id,created_at,id)` 与 `(created_at,id)` 复合索引支持按专家或全局倒序分页，替换冗余的专家单列索引。详情仍按单批次读取，不参与列表分页。
 - `/chat?agent=<id>&conversation=<id>`保留专家和会话选择；刷新、前进后退恢复已保存历史，服务端会话归属优先于链接中的专家参数。新建会话清除conversation，首次发送获id后replace写入URL；链接本身不创建运行、不恢复SDK会话。浏览其他历史只关闭客户端事件流，不等同取消服务端运行；离开后的迟到提交响应不会把界面拉回，运行结束后会刷新会话及历史列表缓存。
 - 对话历史的操作菜单支持重命名持久化会话：标题去除首尾空白、1–128字符；只更新标题，不修改消息、归属或最近消息时间。脏草稿退出须确认，提交中不可关闭。
 - MCP上游执行每API进程4槽、排队最多8项，满额返回可重试错误；审批等待独立4槽，满额立即返回需批准而非排队。握手/SSE/平台invoke不占上游槽，invoke仍保留既有4并发入场；多进程不共享全局容量，详见D-36。
 - 工具审批只接受running状态的运行；API在事务内锁定运行行再批准，与取消/终态更新串行。queued及终态返回409，不写批准时间；重复批准保留首次时间。等待中的同一次MCP调用可继续，无需重发消息。聊天结束后停止审批轮询，终态详情只显示失效说明。
 - 审批是有超时的调用内等待；0024新增expires_at，服务端返回waiting并区分当前等待与后续调用许可。过期批准仍可用于后续调用，不会恢复已超时的旧调用；截止前后都检查期限（包括读取批准状态之后）。期限不证明沙盒仍在线，不提供跨重启检查点；API与数据库时钟需保持同步。
-- 事件流在 Redis 中保留 1 小时（`run:<runId>:events`，约 1000 条），首次回放受8MiB上限约束；保留裁剪或字节裁剪返回独立提示。裁剪运行结束后页面读取该run已保存步骤恢复本轮尾部，保留已加载旧历史；保存缺失或读取失败则保留部分输出并提示。过期流仍需从历史查看，不等于SDK会话恢复，详见D-50。
+- 事件流在 Redis 中保留 1 小时（`run:<runId>:events`，约 1000 条），首次回放按有界批次读取、累计不超过8MiB，并保持写入顺序；每个观众仍是独立订阅。展示增量（`text_delta`、块边界）与需落库的完整事件分开限额，增量超限只停止展示，不挤占完整消息的落库额度；完整事件超过保存上限时保留部分结果并明确失败（不可自动重试），取消、超时等既有非成功状态优先。保留裁剪或字节裁剪返回独立提示。裁剪运行结束后页面读取该run已保存步骤恢复本轮尾部，保留已加载旧历史；保存缺失或读取失败则保留部分输出并提示。过期流仍需从历史查看，不等于SDK会话恢复，详见D-50。
 - 已订阅运行每2秒非重叠检查数据库终态：结束事件缺失时发terminal_missing标记后补终态，页面读取已保存步骤；若确认运行行已消失，则发run_unavailable并关闭，页面保留已接收文本、释放忙碌、不伪造结果。初次请求不存在仍404，数据库查询失败继续固定警告重试，详见D-58/D-60。
 - 普通聊天入队失败只将仍queued的运行收口为failed/infra，用户消息保留，可重提；固定503及统一安全日志不附原始队列cause，认领/终态保留。数据库收尾失败可能等待既有协调清理，详见D-59。
 - 连接器编辑与token轮换共用行锁内合并，避免并发覆盖或旧token复活；提交expectedUpdatedAt过期返回409且保留最新配置，版本时间至少前进一毫秒。省略版本仍是同字段后写优先，详见D-51。
@@ -381,8 +375,8 @@ pnpm --filter @agentport/worker maintenance
 | `/health/ready` 返回 503，`db` 或 `redis` 为 `error` | 依赖未启动、连接串错误、容器不健康 | `docker compose ps`；`docker compose logs postgres redis`；`curl -s localhost:3000/health/ready`；确认 `.env` 的 `DATABASE_URL` / `REDIS_URL` 与实际端口一致 |
 | `docker compose ps` 中 redis 一直 `health: starting`，api/worker 不启动 | 宿主导出了与 `.env` 不同的 `REDIS_PASSWORD`，compose 用它重建了 redis，而 `.env` 的 `REDIS_URL` 仍是旧密码 | `unset REDIS_PASSWORD` 后 `docker compose up -d --force-recreate redis api worker`；或让 `.env` 的 `REDIS_PASSWORD`/`REDIS_URL` 与导出的值一致；确认用 `docker compose exec redis redis-cli -a "$REDIS_PASSWORD" ping` |
 | 日志报 `Could not find a working container runtime strategy` 或 `Cannot connect to the Docker daemon` | worker 无法访问宿主 Docker socket | 在 worker 容器内 `docker ps`；检查 `/var/run/docker.sock` 挂载与 `DOCKER_GID`（`ls -l /var/run/docker.sock`，`getent group docker`） |
-| run 失败，错误含 `no such image` / `pull access denied` | 沙盒镜像未构建或名字不对 | `docker images agentport/sandbox`；`pnpm run up --rebuild`（或按「2.2.1 手动构建沙盒镜像」三步走）；核对 `SANDBOX_IMAGE` |
-| 构建镜像报 `COPY shared/: not found` | 直接 `docker build packages/sandbox`，没有先把 `packages/shared/dist` 复制成 `packages/sandbox/shared` | 按「2.2.1 手动构建沙盒镜像」执行，或用 `pnpm run up --rebuild` |
+| run 失败，错误含 `no such image` / `pull access denied` | 沙盒镜像未构建或名字不对 | `docker images agentport/sandbox`；`pnpm run up --rebuild`（或按「2.2.1 手动构建沙盒镜像」）；核对 `SANDBOX_IMAGE` |
+| 构建沙盒镜像报 `COPY package.json: not found` 或 `SDK native CLI is not executable` | 仍在用 `packages/sandbox` 作为构建上下文；或 `pnpm deploy` 未带入平台对应的 optional 原生依赖 | 从仓库根执行 `docker build --target sandbox ... .`；确认基础镜像平台与 SDK optional 依赖匹配，删掉旧构建缓存后重试 |
 | 模型调用 401 / 403 | 凭证缺失、失效，或 `ANTHROPIC_BASE_URL` 在容器内不可达 | `docker compose logs worker` 看容器 stderr；确认 `.env` 只填了 `ANTHROPIC_API_KEY` 与 `ANTHROPIC_AUTH_TOKEN` 之一；`ANTHROPIC_BASE_URL` 不要写 `127.0.0.1`（worker 会改写为 `host.docker.internal`，Linux 需 Docker 支持该别名） |
 | MCP 工具未出现在智能体上下文 | 未绑定 server、工具被禁用、绑定关系未保存，或 server 连接失败 | 「MCP Servers」页点「测试」看 `listTools()`；检查 generated server 的工具是否 `enabled`；「智能体 → 文件预览」确认 `.mcp.json` 含该 server；运行详情看拒绝原因（`permissionMode=dontAsk` 下未预批准会直接拒绝） |
 | `mcp__<server>__tool` 被拒绝 | 允许规则写成了 `mcp__*`，或 server 名与绑定名不一致 | 规则由 worker 按 `.mcp.json` 的 server key 生成 `mcp__<name>__*`；不要手写 `mcp__*`；在文件预览核对 server key |
@@ -580,5 +574,6 @@ ANTHROPIC_AUTH_TOKEN=<网关的 key>
 - `ANTHROPIC_BASE_URL` 写 `127.0.0.1` 即可：worker 在容器里时会改写为 `host.docker.internal`。
 - 模型名必须是网关接受的名字。直连 Anthropic 的名字（`claude-sonnet-5-5`）在自建网关上通常不存在。
 - 代理只转发 `/v1/messages`、`/v1/count_tokens`、`/v1/models`；网关的其他端点不可达。
+- 代理使用 Node 原生 `http` 与 `stream/promises.pipeline` 流式转发：上游/下游按流背压，沙盒或客户端提前断开时中止上游请求，不再手工逐 chunk 读写。
 - 改端口时同步改 compose 的 `ports` 映射，否则沙盒连不上。
 - 容器里只有 `ANTHROPIC_AUTH_TOKEN=run_...`；拿这个 token 直接访问代理以外的地址没有意义。

@@ -111,6 +111,10 @@ export async function runNativePluginAction(
   let sandbox: Sandbox | undefined;
   let abandoned = false;
   let destroyed = false;
+
+  // 每次动作独立的取消信号：超时或关停时停掉冷拉取，不能等它跑完再销毁容器。
+  const createAbort = new AbortController();
+
   const destroy = async (): Promise<void> => {
     if (!sandbox || destroyed) return;
     destroyed = true;
@@ -134,20 +138,30 @@ export async function runNativePluginAction(
   };
 
   // close 期间不再等安装跑完；已创建的容器走 finally 销毁，创建还没完成的交给迟到分支。
-  const onClosing = (): void => finish({ exited: '__closing__' });
+  // 先 abort 再 finish：provider 的 closing 监听可能让 create 先 reject，
+  // catch 要靠 exitReason 把它归类为关停，而不是启动失败。
+  const onClosing = (): void => {
+    exitReason = '__closing__';
+    createAbort.abort();
+    finish({ exited: '__closing__' });
+  };
   if (deps.closing?.aborted) onClosing();
   deps.closing?.addEventListener('abort', onClosing, { once: true });
 
   // 启动与动作共用一个总预算：超时即销毁容器，不让安装任务无界占用队列。
   const timer = setTimeout(() => finish({ exited: '__timeout__' }), timeoutMs);
   try {
-    const creating = deps.provider.create(createOptions);
-    // 超时先返回时容器可能随后才创建完成；就地销毁，避免遗留。
+    const creating = deps.provider.create({ ...createOptions, signal: createAbort.signal });
+    // 超时先返回时容器可能随后才创建完成；交给 provider 销毁，避免遗留。
     void creating.then(
       (late) => {
         if (!abandoned) return;
-        late.child.kill('SIGKILL');
-        void deps.provider.destroy(late).catch(() => undefined);
+        void deps.provider.destroy(late).catch((err: unknown) => {
+          deps.logger.warn(
+            { err, action: action.action, sandboxId: late.id },
+            'native plugin sandbox cleanup failed after timeout',
+          );
+        });
       },
       () => undefined,
     );
@@ -155,6 +169,8 @@ export async function runNativePluginAction(
     const created = await Promise.race([creating, done.then(() => undefined)]);
     if (!created) {
       abandoned = true;
+      // 预算或关停先到：取消仍在进行的拉取/创建，迟到的容器由迟到分支销毁。
+      createAbort.abort();
       return {
         ok: false,
         error:
@@ -193,6 +209,9 @@ export async function runNativePluginAction(
     child.stdin.write(`${JSON.stringify(action)}\n`);
 
     const outcome = await done;
+    if (outcome.exited === '__timeout__' || outcome.exited === '__closing__') {
+      createAbort.abort();
+    }
     const tail = redactSecrets(stderr.trim()).split('\n').at(-1)?.slice(0, 300) ?? '';
     if (outcome.result) {
       if (!outcome.result.ok) {
@@ -219,6 +238,11 @@ export async function runNativePluginAction(
     );
     return { ok: false, error: tail ? `${reason}: ${tail}` : reason };
   } catch (err) {
+    // create 可能在关停竞速里先 reject；此时仍要给关停文案，不能报成启动失败。
+    if (exitReason === '__closing__' || deps.closing?.aborted === true) {
+      deps.logger.warn({ action: action.action }, 'native plugin action cancelled by shutdown');
+      return { ok: false, error: 'worker 正在关停，安装已取消' };
+    }
     deps.logger.warn({ err, action: action.action }, 'native plugin sandbox crashed');
     return { ok: false, error: `无法启动沙盒：${redactSecrets(errorText(err))}` };
   } finally {
@@ -233,13 +257,14 @@ export async function runNativePluginAction(
  * 调用、关停时 `close()`；安装缓存与官方目录写入串行，并发固定 1。
  */
 export async function registerNativePlugins(config: Config): Promise<{ close(): Promise<void> }> {
+  const closing = new AbortController();
   const provider = new DockerSandboxProvider({
     memory: config.SANDBOX_MEMORY,
     cpus: config.SANDBOX_CPUS,
     pids: config.SANDBOX_PIDS,
     egress: config.SANDBOX_EGRESS,
+    closing: closing.signal,
   });
-  const closing = new AbortController();
   const deps: NativePluginsDeps = {
     provider,
     image: config.SANDBOX_IMAGE,
@@ -266,8 +291,13 @@ export async function registerNativePlugins(config: Config): Promise<{ close(): 
       // 反过来先 await 会等满 120s 安装预算，超过 compose 的 30s 宽限，Docker 来不及清理。
       closing.abort();
       const closed = worker.close();
-      await provider.destroyAll();
-      await closed;
+      const results = await Promise.allSettled([closed, provider.destroyAll()]);
+      const failures = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : [],
+      );
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'native plugin shutdown failed');
+      }
     },
   };
 }

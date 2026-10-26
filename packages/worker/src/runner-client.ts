@@ -50,20 +50,10 @@ export interface SandboxRunOutcome {
   events: ChatEvent[];
 }
 
-/** SIGTERM 后留一点时间让 runner 收尾，否则强杀。 */
-const KILL_GRACE_MS = 5_000;
+/** 容器创建预算；超时按基础设施失败处理。 */
 const CREATE_TIMEOUT_MS = 30_000;
-const DESTROY_TIMEOUT_MS = 10_000;
-
-interface Killable {
-  kill(signal: NodeJS.Signals): unknown;
-}
-
-/** 先 SIGTERM，宽限期后仍活着就 SIGKILL；超时与取消共用。 */
-export function escalateKill(child: Killable, delayMs: number = KILL_GRACE_MS): void {
-  child.kill('SIGTERM');
-  setTimeout(() => child.kill('SIGKILL'), delayMs).unref();
-}
+/** 容器停止由 provider 负责（stop --time 5 + rm -f 兜底，每步 10s 上限），这里留出总预算。 */
+const DESTROY_TIMEOUT_MS = 40_000;
 
 /**
  * 单行 NDJSON 上限；超过即丢弃，避免一行把内存吃穿。
@@ -71,14 +61,33 @@ export function escalateKill(child: Killable, delayMs: number = KILL_GRACE_MS): 
  * 两个上限要一起改，否则整块 assistant_text 会被这里静默丢掉。
  */
 const MAX_LINE_BYTES = 8 * 1024 * 1024;
-/** 单 run 收集上限：超出后只保留终态，不再转发事件。 */
-const MAX_EVENTS = 2_000;
-const MAX_EVENT_BYTES = 32 * 1024 * 1024;
+/** 单 run 展示上限：瞬时增量与块边界超出后只停止展示，不占用落库额度。 */
+const MAX_TRANSIENT_EVENTS = 2_000;
+const MAX_TRANSIENT_BYTES = 32 * 1024 * 1024;
+/**
+ * 单 run 落库上限：只统计需要持久化的完整消息与工具事件。
+ * 与展示额度分开，避免 text_delta 把完整的 assistant_text 挤出持久化集合。
+ */
+const MAX_PERSISTED_EVENTS = 2_000;
+const MAX_PERSISTED_BYTES = 32 * 1024 * 1024;
+/** 落库被截断时不能回报成功：SDK 会话完整而历史只剩部分，刷新后会对不上。 */
+const PERSIST_OVERFLOW_MESSAGE = '完整输出超过保存上限，已保存部分结果';
 /** 失败时保留的 stderr 上限：2KB 常常只剩最后一行，16KB 才能看到启动错误。 */
 const STDERR_KEEP_CHARS = 16 * 1024;
 
 /** shared 事件类型加上本轮补发的字段；shared 定稿前先在这里收窄。 */
 type StreamEvent = ChatEvent & { streamBlockId?: string };
+
+/** 落库需要的完整事件；text_delta 与块边界只用于展示。 */
+function isPersistable(event: ChatEvent): boolean {
+  return (
+    event.type === 'assistant_text' ||
+    event.type === 'tool_start' ||
+    event.type === 'tool_input' ||
+    event.type === 'tool_result' ||
+    event.type === 'session_forked'
+  );
+}
 
 /**
  * run 内稳定的文本块身份。`blockIndex` 会被 SDK 的后续消息重用（每条 assistant 消息都从 0 起），
@@ -186,10 +195,18 @@ function getCancelSubscriber(logger: Logger): Redis {
 
 /** 事件写 Redis Stream（与 API 的订阅端一致），可从流头回放；BLOCK 订阅者由 XADD 直接唤醒。 */
 export async function publishRun(runId: string, event: ChatEvent, logger: Logger): Promise<void> {
-  const redis = getPublisher(logger);
   const key = runStreamKey(runId);
-  await redis.xadd(key, 'MAXLEN', '~', RUN_STREAM_MAXLEN, '*', 'payload', JSON.stringify(event));
-  await redis.expire(key, 3600);
+  // XADD 与 TTL 合并为一次 pipeline；逐命令检查，避免任一失败被静默吞掉。
+  const replies = await getPublisher(logger)
+    .pipeline()
+    .xadd(key, 'MAXLEN', '~', RUN_STREAM_MAXLEN, '*', 'payload', JSON.stringify(event))
+    .expire(key, 3600)
+    .exec();
+  // 无 WATCH 时不应返回 null；真出现说明命令没执行，不能当作发布成功。
+  if (replies === null) throw new Error('redis pipeline aborted');
+  for (const reply of replies) {
+    if (reply[0]) throw reply[0];
+  }
 }
 
 export async function closeRunnerClient(): Promise<void> {
@@ -245,13 +262,8 @@ function reasonFor(signal: ExitSignal): RunFailure['reason'] {
  * 取消、超时、进程退出三者用 race 表达，谁先到谁赢；容器销毁由 Scope 保证。
  */
 export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOutcome> {
-  let cleanupError: string | undefined;
-  const outcome = await Effect.runPromise(
-    Effect.scoped(
-      runInSandboxEffect(input, (error) => {
-        cleanupError = error;
-      }),
-    ).pipe(
+  return Effect.runPromise(
+    Effect.scoped(runInSandboxEffect(input)).pipe(
       // 订阅取消频道失败属于基础设施故障：交给 BullMQ 重试，而不是伪装成 agent 失败。
       Effect.catch((failure) =>
         Effect.succeed<SandboxRunOutcome>({
@@ -264,23 +276,10 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
       ),
     ),
   );
-  if (
-    cleanupError !== undefined &&
-    (outcome.failure === undefined || outcome.failure.reason === 'infra')
-  ) {
-    return {
-      ...outcome,
-      status: 'failed',
-      error: cleanupError,
-      failure: new RunFailure('infra', cleanupError),
-    };
-  }
-  return outcome;
 }
 
 function runInSandboxEffect(
   input: SandboxRunInput,
-  onCleanupError: (error: string) => void,
 ): Effect.Effect<SandboxRunOutcome, RunFailure, Scope.Scope> {
   return Effect.gen(function* () {
     const { logger, runId } = input;
@@ -294,9 +293,11 @@ function runInSandboxEffect(
     let reportedInput: number | undefined;
     let reportedOutput: number | undefined;
     const stderrTap: StderrTap = { text: '', dropped: 0 };
-    let eventBytes = 0;
-    let overflowed = false;
-    let child: Sandbox['child'] | undefined;
+    let transientEvents = 0;
+    let transientBytes = 0;
+    let transientOverflowed = false;
+    let persistedBytes = 0;
+    let persistOverflowed = false;
     let abandoning = false;
     let runnerStarted = false;
     const assignStreamBlockId = createStreamBlockIds();
@@ -327,20 +328,39 @@ function runInSandboxEffect(
         reportedOutput = event.outputTokens;
         return;
       }
-      if (overflowed) return;
 
-      eventBytes += Buffer.byteLength(line);
-      if (events.length >= MAX_EVENTS || eventBytes > MAX_EVENT_BYTES) {
-        overflowed = true;
+      const bytes = Buffer.byteLength(line);
+      if (isPersistable(event)) {
+        if (persistOverflowed) return;
+        if (events.length >= MAX_PERSISTED_EVENTS || persistedBytes + bytes > MAX_PERSISTED_BYTES) {
+          persistOverflowed = true;
+          logger.warn(
+            { runId, events: events.length, persistedBytes },
+            'sandbox persisted event stream overflowed',
+          );
+          events.push({ type: 'error', message: PERSIST_OVERFLOW_MESSAGE });
+          publish({ type: 'error', message: PERSIST_OVERFLOW_MESSAGE });
+          return;
+        }
+        persistedBytes += bytes;
+        events.push(event);
+        publish(event);
+        return;
+      }
+
+      // 瞬时展示有独立额度：截断增量不能影响上面的完整消息落库。
+      if (transientOverflowed) return;
+      if (transientEvents >= MAX_TRANSIENT_EVENTS || transientBytes + bytes > MAX_TRANSIENT_BYTES) {
+        transientOverflowed = true;
         logger.warn(
-          { runId, events: events.length, eventBytes },
+          { runId, events: transientEvents, eventBytes: transientBytes },
           'sandbox event stream overflowed',
         );
-        events.push({ type: 'error', message: '输出超出上限' });
         publish({ type: 'error', message: '输出超出上限' });
         return;
       }
-      events.push(event);
+      transientEvents += 1;
+      transientBytes += bytes;
       publish(event);
     };
 
@@ -370,8 +390,8 @@ function runInSandboxEffect(
         ]);
       } catch (err) {
         sandbox.child.kill('SIGKILL');
-        onCleanupError(`sandbox cleanup failed: ${toError(err)}`);
-        logger.warn({ err, runId }, 'sandbox cleanup failed');
+        // 清理失败只影响容器回收，不能改写已完成的业务结果；容器仍由 provider tracking 兜底。
+        logger.warn({ err, runId, sandbox: sandbox.id }, 'sandbox cleanup failed');
       } finally {
         if (timer !== undefined) clearTimeout(timer);
       }
@@ -379,13 +399,11 @@ function runInSandboxEffect(
 
     const attach = (sandbox: Sandbox): void => {
       if (abandoning) {
-        // 取消先到，容器才创建完成：直接扔掉，不让它泄漏。
-        sandbox.child.kill('SIGKILL');
+        // 取消先到，容器才创建完成：交给 provider 的停止语义清理，不让它泄漏。
         void destroy(sandbox);
         return;
       }
       const proc = sandbox.child;
-      child = proc;
 
       proc.stderr.setEncoding('utf8');
       let startupLog = '';
@@ -453,7 +471,9 @@ function runInSandboxEffect(
     const created = yield* Effect.result(
       Effect.raceAllFirst([
         Effect.tryPromise({
-          try: () =>
+          // 声明参数才会拿到 Effect 的 AbortSignal：取消/创建超时/中断打断 create 分支时 abort，
+          // 让 provider 能中断 docker pull；create 正常完成不会 abort（已核对 effect 4.0.6 语义）。
+          try: (signal) =>
             input.provider
               .create({
                 image: input.image,
@@ -461,12 +481,10 @@ function runInSandboxEffect(
                 env: input.env,
                 name: `agentport-${runId.toLowerCase()}`,
                 ...(input.extraMounts ? { extraMounts: input.extraMounts } : {}),
+                signal,
               })
               .then((sandbox) => {
-                if (abandoning) {
-                  sandbox.child.kill('SIGKILL');
-                  void destroy(sandbox);
-                }
+                if (abandoning) void destroy(sandbox);
                 return sandbox;
               }),
           catch: (err) => err,
@@ -518,7 +536,6 @@ function runInSandboxEffect(
     ]);
 
     if (stopped.kind === 'infra') {
-      sandbox.child.kill('SIGKILL');
       const error = `sandbox startup timed out after ${CREATE_TIMEOUT_MS}ms`;
       return {
         status: 'failed',
@@ -530,7 +547,6 @@ function runInSandboxEffect(
     }
     if (stopped.kind === 'cancelled') {
       logger.info({ runId }, 'sandbox run cancelled');
-      if (child) escalateKill(child);
       yield* Effect.promise(() => unsubscribe());
       return {
         status: 'cancelled',
@@ -541,7 +557,6 @@ function runInSandboxEffect(
     }
     if (stopped.kind === 'timeout') {
       logger.warn({ runId, timeoutMs: input.timeoutMs }, 'sandbox timed out');
-      if (child) escalateKill(child);
       yield* Effect.promise(() => unsubscribe());
       const error = `sandbox timed out after ${input.timeoutMs}ms`;
       return {
@@ -609,16 +624,27 @@ function runInSandboxEffect(
         );
       }
     }
+    // 落库被截断时把成功改判为失败；已有的非成功终态（取消/超时/失败）优先，不覆盖。
+    const persistFailure =
+      persistOverflowed && reportedStatus === 'succeeded'
+        ? new RunFailure('agent', PERSIST_OVERFLOW_MESSAGE)
+        : undefined;
+    const failure =
+      persistFailure ??
+      (reportedStatus !== 'succeeded'
+        ? new RunFailure(reportedFailure ?? 'agent', reportedError ?? 'agent failed')
+        : undefined);
     return {
-      status: reportedStatus,
+      status: persistFailure === undefined ? reportedStatus : 'failed',
       sandboxId: sandbox.id,
       events,
       ...budget,
-      ...(reportedError === undefined ? {} : { error: reportedError }),
-      // 成功时没有分类；失败时 runner 已归类，缺省按 agent 处理（不可重试）。
-      ...(reportedStatus !== 'succeeded'
-        ? { failure: new RunFailure(reportedFailure ?? 'agent', reportedError ?? 'agent failed') }
-        : {}),
+      ...(persistFailure === undefined
+        ? reportedError === undefined
+          ? {}
+          : { error: reportedError }
+        : { error: persistFailure.message }),
+      ...(failure === undefined ? {} : { failure }),
     };
   });
 }

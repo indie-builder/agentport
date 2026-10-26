@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderWorkspace } from '../src/workspace.js';
+import { renderWorkspace, unionById } from '../src/workspace.js';
 import { toWorkspaceInput, type WorkspaceAgentRow } from '../src/workspace-input.js';
 
 function agentRow(overrides: Partial<WorkspaceAgentRow> = {}): WorkspaceAgentRow {
@@ -285,5 +285,14 @@ describe('toWorkspaceInput', () => {
     expect(content).toMatch(/disallowedTools: \[[^\]]*"TaskStop"/);
     // 主智能体有子智能体时仍可委派。
     expect(files.agentMd).not.toMatch(/disallowedTools: \[[^\]]*"Agent"/);
+  });
+});
+
+describe('unionById', () => {
+  it('dedupes across owner groups and orders the union by id', () => {
+    // 父绑定 b、子绑定 a：分组顺序是 [b, a]，并集必须按 id 稳定成 [a, b]。
+    const a = { id: 'srv_a' };
+    const b = { id: 'srv_b' };
+    expect(unionById([[b], [a, b]])).toEqual([a, b]);
   });
 });

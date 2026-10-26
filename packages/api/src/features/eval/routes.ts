@@ -7,7 +7,8 @@ import {
   evalDatasetSchema,
   evalRunDetailSchema,
   evalRunExportSchema,
-  evalRunSchema,
+  evalRunListQuerySchema,
+  evalRunPageSchema,
   idParams,
   RUN_QUEUE_MAX_WAITING,
 } from '@agentport/shared';
@@ -24,7 +25,7 @@ const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
 
 /** 库里是 Date、wire 上是 ISO 字符串；列表和详情都要走这一层，否则 response schema 会 500。 */
-function toEvalRun(row: typeof schema.evalRuns.$inferSelect) {
+function toEvalRun(row: repo.evalRepo.EvalRunSummary) {
   return {
     id: row.id,
     agentId: row.agentId,
@@ -32,7 +33,6 @@ function toEvalRun(row: typeof schema.evalRuns.$inferSelect) {
     total: row.total,
     passed: row.passed,
     error: row.error,
-    claimedAt: row.claimedAt,
     createdAt: row.createdAt.toISOString(),
     finishedAt: row.finishedAt === null ? null : row.finishedAt.toISOString(),
   };
@@ -364,10 +364,18 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/eval/runs',
-    { ...auth, schema: { querystring: listQuery, response: { 200: z.array(evalRunSchema) } } },
-    async (request) => {
-      const rows = await evalRepo.listRuns(app.db, request.query.agentId);
-      return rows.map(toEvalRun);
+    {
+      ...auth,
+      schema: { querystring: evalRunListQuerySchema, response: { 200: evalRunPageSchema } },
+    },
+    async (request, reply) => {
+      const page = await evalRepo.listRuns(app.db, {
+        ...(request.query.agentId === undefined ? {} : { agentId: request.query.agentId }),
+        ...(request.query.cursor === undefined ? {} : { cursor: request.query.cursor }),
+        limit: request.query.limit,
+      });
+      if (!page) return reject(reply, 'INVALID_INPUT', '分页游标不存在或不属于当前筛选条件');
+      return { items: page.items.map(toEvalRun), nextCursor: page.nextCursor };
     },
   );
 

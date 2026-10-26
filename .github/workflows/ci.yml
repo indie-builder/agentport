@@ -121,18 +121,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12.15.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      # 沙盒镜像的 Dockerfile 复制 dist/ 与 shared/，不在镜像内编译。
-      # runner 的 stdin 校验依赖 @agentport/shared，必须先把它的 dist 暂存进构建上下文。
-      - run: pnpm --filter @agentport/sandbox build
-      - run: pnpm --filter @agentport/shared build
-      - run: rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
+      # 两个镜像都从 root context 构建；依赖安装与构建在 Dockerfile 内完成。
       - run: docker build -t agentport/api:ci .
-      - run: docker build -t agentport/sandbox:ci packages/sandbox
+      - run: docker build --target sandbox -t agentport/sandbox:ci .

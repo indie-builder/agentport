@@ -24,7 +24,7 @@
               └────────┘  └────────┘
 
   web ──▶ shared（仅此一层）
-  sandbox ── 独立产物：镜像内自包含，不参与 workspace 依赖
+  sandbox ── 同一 workspace 的 runner；镜像内由 pnpm deploy 自包含
 ```
 
 | 包 | 职责 | 不做什么 |
@@ -60,7 +60,7 @@
                     │ worker (同一镜像，不同入口)             │
                     │  BullMQ 消费 + 工作区渲染 + 沙盒生命周期 │
                     └───────────────────┬────────────────────┘
-                                        │ docker run（宿主 daemon）
+                                        │ docker create/start（宿主 daemon）
                                         ▼
                     ┌───────────────────────────────────────┐
                     │ sandbox 容器                          │
@@ -72,7 +72,7 @@
 
 要点：
 
-- **api 与 worker 共用镜像**（根 `Dockerfile`），默认入口 `api/dist/index.js`；compose 用 `command` 覆盖为 `worker/dist/index.js`。
+- **api 与 worker 共用镜像**（根 `Dockerfile` 的 `runtime` target），默认入口 `api/dist/index.js`；compose 用 `command` 覆盖为 `worker/dist/index.js`。沙盒镜像由同一 Dockerfile 的 `sandbox` target 产出，构建上下文同为仓库根。
 - **web 没有独立生产容器**：`WEB_DIST=/app/web`，由 api 静态托管；SPA 路由回退到 `index.html`，`/api`、`/mcp`、`/health` 未命中仍返回 JSON 404。
 - **沙盒由宿主 Docker daemon 启动**：worker 挂载 `/var/run/docker.sock`，容器内外使用同一工作区绝对路径。
 - **沙盒网络模式**：`open` / `proxy` 使用 `bridge`，并加 `--add-host host.docker.internal:host-gateway`；`none` 使用 `--network none`。
@@ -91,7 +91,7 @@
   │                    │                      │  消费 job           │                    │
   │                    │                      ├───────────────────▶│ 读 agent/servers    │
   │                    │                      │                    │ 渲染工作区到宿主     │
-  │ GET /events        │                      │                    │ docker run          │
+  │ GET /events        │                      │                    │ create/start        │
   ├───────────────────▶│ XRANGE 回放 + 订阅    │                    ├───────────────────▶│
   │                    │◀─────────────────────┤ XADD run:*:events  │◀─ NDJSON stdout ───┤
   │◀─ SSE data ────────┤                      │                    │                    │
@@ -107,12 +107,12 @@
 2. `GET /api/chat/:runId/events` 先订阅 Redis Stream，从 `0` 开始回放，因此 POST 与建连之间的事件不会丢；已结束的 run 直接补发终态。
 3. worker 消费 job：若 run 已被取消则跳过；置为 `running` 并发布 `run_started`。
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 生成文件并写入 `WORKSPACES_DIR/<slug>/<runId>/`。
-5. worker 通过 `DockerSandboxProvider` 执行 `docker run`，把任务 JSON 写入容器 stdin。
+5. worker 通过 `DockerSandboxProvider` 检查本地镜像；缺失时先执行可取消的 `docker pull`，再以 `docker create --pull=never` 固定容器并 `docker start -ai` 启动，通过 stdin 写入任务 JSON。创建请求已经发出后取消会等待创建结果并删除，绝不继续启动；不再依赖容器出现的一秒轮询窗口。
 6. 容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
-7. worker 逐行解析并转发到 Redis Stream；工具调用经 `.mcp.json` 中的地址访问 api。
-8. 取消：api 写 `run:<runId>:cancel` 键并 publish；worker 订阅后向容器发 SIGTERM；超时由 worker 计时；两者最终都 `docker rm -f`。
-9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。
-10. 只有基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会抛出以触发 BullMQ 重试；业务失败不重试，避免重复计费。
+7. worker 逐行解析并按事件写入 Redis Stream（每次 `XADD` 与 TTL 续期合并为一次 pipeline）；工具调用经 `.mcp.json` 中的地址访问 api。
+8. 取消：api 写 `run:<runId>:cancel` 键并 publish；创建阶段的取消信号中止拉取，已发出的 create 则等待返回后删除、不启动。已启动容器由 Docker provider 统一 `docker stop --time 5` 优雅停止，再执行 `docker rm -f` 确认删除（未启动的 created 容器不能仅凭 stop 成功判定已删）；删除失败保留跟踪并上报。运行与试连共用容器收尾语义。
+9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。事件展示额度与落库额度分开：`text_delta`、块边界等瞬时事件超出展示上限只停止展示，完整 `assistant_text` 与工具事件另有落库上限，不会被增量挤出。真正超过落库上限时保留已收集结果，将成功改为带明确原因的不可重试失败，避免缺失尾部仍报告成功。
+10. 只有业务执行本身的基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会触发 BullMQ 重试；业务失败不重试。执行结果已确定后的容器清理失败只记录运行/容器上下文并保留清理跟踪，不改业务终态，避免完整任务重复计费或工具副作用重放。
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
@@ -229,7 +229,7 @@ data/workspaces/<agent-slug>/
 | `.claude/skills/<name>/SKILL.md` 与其支持资源 | project source 发现；技能启用、可用工具由 SDK 配置控制 | 单文件生成、下载、受限导入及支持资源增删改查已实现；目录包携带父子绑定技能的支持资源。父子绑定技能均落盘，父会话可用 `Read` 只读打开 `.claude/skills/<slug>/references/**/*.md`（写入仍仅限原生记忆目录）；真实CLI正负发现通过，绑定slug原生许可已接入；实际模型按需读取 references 仍未实测 |
 | `.claude/agents/*.md` | 文件子智能体定义；程序式同名定义优先 | 已生成子定义与子级 skills 字段，父编辑器可下载已保存且启用定义，预览与运行共用渲染器。**子智能体 MCP 绑定已接通**：子定义写官方 `mcpServers` 名称引用根 `.mcp.json`，运行时用 PreToolUse 边界 hook 保证子级只用自己的 server/技能、父级不隐式获得子级工具；CLI 发现通过，子级实际加载仍以真实模型调试验收（单层约束由 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` 强制）；主定义预览不下载为子文件 |
 | `.claude/commands/*.md` | 官方保留的旧式命令文件；新能力优先 skills | 尚未接入，不另造命令引擎 |
-| `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 已有输出风格管理、文件预览与根级运行落盘；选中者写入 settings.json 的 outputStyle |
+| `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 已有输出风格管理、文件预览与根级运行落盘；选中者写入 settings.json 的 outputStyle，runner 通过 `settingSources: ['project']` 原生加载，不再手工解析后 inline 覆盖 |
 | Hooks | 由 settings.json 的 hooks 配置或 SDK callbacks 注册；脚本目录本身不是自动发现入口 | 平台层回调与工作区文件Hooks需分别核对，不能仅创建hooks目录声称生效 |
 | 插件根中的 `.claude-plugin/plugin.json`、skills/agents/hooks/.mcp.json | SDK `plugins: [{type:'local', path}]` 指定本地插件根；不是默认扫描项目 `.claude/plugins/` | 插件库文件在 DB 保存一次，多个专家引用，每次运行复制到独立 `.claude/plugins/<slug>/`。支持 ZIP 导入，以及 worker 独立安装沙盒调用 Claude Code CLI 从市场安装、读取平台已下载缓存后纳入插件库；来源记录 `name@marketplace` 去重，缓存不挂载给专家。hooks/MCP 默认关闭，仍按各专家绑定裁剪。平台子智能体不绑定插件；插件自带子智能体可原生委派。已有技能、references、子智能体及 hooks/MCP 开关真实沙盒证据。无升级/版本选择入口，专家 ZIP 不带插件并提示；不支持的组件、二进制和运行依赖明确拒绝，不静默漏文件 |
 | `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 原生 auto-memory 使用 `WORKSPACES_DIR/<slug>/agent-memory/`（uid 1000、0700），API/worker 共卷，沙盒 rw 挂载到 `/mnt/agent-memory` 并设置 `autoMemoryEnabled=true`、`autoMemoryDirectory`。主会话仅预批准该目录的 Read/Edit 路径规则（Edit 含 Write），SDK PreToolUse 每次拒绝越界、链接和非普通 Markdown 文件；子智能体仍禁用文件工具。保留官方 `MEMORY.md` 与主题文件；权限/挂载测试通过，真实模型跨 run 记忆验收尚未验证。Workflows 仍不接入 |
@@ -240,7 +240,7 @@ data/workspaces/<agent-slug>/
 
 会话上下文不再拼接历史文本：每个 conversation 的 SDK transcript 持久化在 `WORKSPACES_DIR/<slug>/sdk-sessions/<conversationId>/`，容器只挂这一个目录到 `/home/node/.claude`；续聊传 `resume`，从某条用户消息分支时先复制来源 transcript 再用官方 `forkSession` 截断，成功后写回新 session id。fork 会给消息换新 uuid，映射由 **worker 从宿主 transcript 的 `forkedFrom` 字段计算**（不按位置对齐，压缩过的会话顺序会变），并与消息同事务写库；resume 事件只携带新 session id。transcript 缺失时该轮以 infra 失败，不回退成文本上下文。该目录属于运行时持久数据，随备份保存，但不是可分享定义包的一部分。
 
-当前 sandbox 明确使用 `cwd:'/workspace'`、`settingSources:['project']`；不加载宿主 user/local 偏好。官方加载默认值可能随版本变化，继续显式配置。文件导入必须经过类型、路径与大小校验，不能直接解压到执行目录或自动运行导入的脚本。
+当前 sandbox 明确使用 `cwd:'/workspace'`、`settingSources:['project']`；不加载宿主 user/local 偏好。outputStyle 因此由项目 `settings.json` 原生加载，inline settings 只覆盖同名 key。官方加载默认值可能随版本变化，继续显式配置。文件导入必须经过类型、路径与大小校验，不能直接解压到执行目录或自动运行导入的脚本。
 
 官方来源：
 - https://code.claude.com/docs/en/agent-sdk/claude-code-features
@@ -357,6 +357,11 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 | MCP容量按执行计数 | 握手、SSE、平台invoke与审批等待不占上游执行槽，避免自等待 | 每进程执行4槽、排队8项；审批等待独立4槽且满时立即需批准，invoke既有4并发入场；非全局多进程限额 |
 | 会话历史使用独占游标页 | 网页默认50条、最多100条，按(created_at,id)倒取后正序展示；before须属于当前会话 | nextBefore为空则结束；消息内容字节未单独限制，内部完整复制调用保持原语义 |
 | api / worker 分进程 | 长任务不占 HTTP；队列消费可独立扩容 | 多一层队列与状态同步 |
+| 单机优先，不抽象多机 | 少一层存储与服务发现 | 不能横向扩容 worker |
+| TypeID（`srv_`、`agt_`、`run_`…） | 可排序、日志与 URL 自解释 | 依赖 `typeid-js` |
+| 智能体版本快照 + 回滚 | 配置变更可追溯，回滚生成新版本 | 需维护保留策略 |
+| 评估跑批在 worker 队列内 | API 只建行并入队，重启不丢跑批 | `eval-runs` 串行（并发 1）；超时 running 由 reconciler 收敛 |
+| 评估批次列表使用游标分页 | 列表只投影摘要列，避免大字段随分页带出；`(agent_id,created_at,id)` 与 `(created_at,id)` 索引覆盖筛选和全局倒序分页 | `GET /api/eval/runs` 默认 50、最大 100，返回 `{items,nextCursor}`；详情仍按单批次读取 |
 
 ### 7.1 `shared/run-stream.ts`：跨进程的事件流契约
 
@@ -373,7 +378,7 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 | `RUN_CANCEL_PAYLOAD` | 取消键的固定值 |
 | `runEnqueueOptions(jobId)` | BullMQ `jobId` + `attempts: 2` + 5s 指数退避 |
 
-流的 TTL（1 小时）在写入侧设置。订阅者先用 XREVRANGE 有界回放最近 8MiB，再用 `XREAD BLOCK` 从最后一条真实 ID 跟读；`XADD` 本身会唤醒阻塞读取，不再有单独的 pub/sub 唤醒通道或轮询兜底。终态事件丢失仍由 SSE 路由每 2 秒查数据库兜底。
+流的 TTL（1 小时）在写入侧设置，api 与 worker 的 `XADD` 都和 `EXPIRE` 合并为一次 pipeline 并逐条检查命令错误。订阅者按有界批次 XREVRANGE 回放最近 8MiB（顺序不变，累计不超过上限），再用 `XREAD BLOCK` 从最后一条真实 ID 跟读；每个观众仍是独立连接/独立订阅，`XADD` 本身唤醒阻塞读取，不再有单独的 pub/sub 唤醒通道或轮询兜底。终态事件丢失仍由 SSE 路由每 2 秒查数据库兜底。
 
 ### 7.2 审计幂等：`writeAudit(dedupeKey)`
 
@@ -382,18 +387,15 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 worker 在 run 完成时传 `dedupeKey: aud_<runId 去掉前缀>`，因此 BullMQ 的基础设施重试重放同一个 job 不会写出多条「run 完成」审计。
 审计写失败只 `logger.warn`，不影响 run 的终态。
 
-### 7.3 沙盒镜像依赖 `@agentport/shared`
+### 7.3 沙盒镜像自包含 workspace 依赖
 
 runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`agentRunJobSchema`），所以该包是
-**镜像的运行时依赖**，不只是构建期依赖：
+**镜像的运行时依赖**。镜像不再从宿主复制 `dist` 或维护独立 manifest：
 
-- Dockerfile 复制 `dist/`、`shared/`（即 `packages/shared/dist`）与 `package.shared.json`（镜像内的独立 manifest）。
-- 构建脚本必须先构建 shared 并把 `packages/shared/dist` 复制到 `packages/sandbox/shared`，再 `docker build`；否则报 `COPY shared/: not found`，或镜像能构建但运行时报 `ERR_MODULE_NOT_FOUND`。
-- `packages/sandbox/.dockerignore` 单独放行这两个目录（根 `.dockerignore` 会排除 `**/dist`）。
-- 步骤见 [OPERATIONS.md §2.2.1](OPERATIONS.md#221-手动构建沙盒镜像)；`pnpm run up --rebuild` 已包含全部三步。
-| 单机优先，不抽象多机 | 少一层存储与服务发现 | 不能横向扩容 worker |
-| TypeID（`srv_`、`agt_`、`run_`…） | 可排序、日志与 URL 自解释 | 依赖 `typeid-js` |
-| 智能体版本快照 + 回滚 | 配置变更可追溯，回滚生成新版本 | 需维护保留策略 |
-| 评估跑批在 worker 队列内 | API 只建行并入队，重启不丢跑批 | `eval-runs` 串行（并发 1）；超时 running 由 reconciler 收敛 |
+- 根 Dockerfile 的 build stage 安装 workspace 依赖并执行 `pnpm -r build`，再用 `pnpm --filter @agentport/sandbox deploy --prod /out/sandbox` 生成自包含目录（dist、生产依赖与 workspace 包，含 shared 的 dist）。
+- `sandbox` target 只复制 deploy 结果并验证 `dist/runner.js` 与 Agent SDK 原生 CLI 可执行；`git` 仅为官方插件市场安装保留。
+- api、worker、sandbox 三个镜像都从仓库根 context 构建；沙盒命令是 `docker build --target sandbox -t agentport/sandbox:dev .`，CI 与 release 同样使用根 context + target。
+- 根 `.dockerignore` 排除 `.git`、docs、data、`node_modules`、`dist` 等；旧版 `packages/sandbox/shared` 暂存目录、`package.shared.json`/`package.docker.json` 与 `packages/sandbox/.dockerignore` 均已删除。
+- 步骤见 [OPERATIONS.md §2.2.1](OPERATIONS.md#221-手动构建沙盒镜像)；`pnpm run up --rebuild` 与 `pnpm --filter @agentport/sandbox image` 都走这条路径。
 
 更细的选择理由（为什么 PostgreSQL、为什么 v2 MCP 包线、为什么不用 microsandbox 起步）见 `PROJECT-BRIEF.md` 与 `DECISIONS-PENDING.md`。

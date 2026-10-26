@@ -1,3 +1,4 @@
+import { renderWorkspace } from '@agentport/core/workspace';
 import { type Agent, agentInputSchema } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
@@ -13,6 +14,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
 import { AgentDetailPage, AgentsPage } from '../src/pages/agents.js';
+
+vi.mock('@agentport/core/workspace', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@agentport/core/workspace')>();
+  return { ...actual, renderWorkspace: vi.fn(actual.renderWorkspace) };
+});
 
 const agent: Agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
@@ -168,6 +174,10 @@ async function importFile(warnings: string[]) {
 
 beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: () => {},
+  });
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -505,5 +515,87 @@ describe('expert review details', () => {
     await importFile([]);
     expect(field().value).toBe('Expert');
     expect(document.body.textContent).not.toContain('导入提示');
+  });
+});
+
+describe('expert draft previews', () => {
+  it('does not render workspace files while previews are folded', async () => {
+    const render = vi.mocked(renderWorkspace);
+    render.mockClear();
+    await mount();
+    await click(button('配置 Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    expect(render).not.toHaveBeenCalled();
+
+    await editName('每按键草稿');
+    await click(button('行为'));
+    await editInput('agent-prompt', '每按键提示词');
+    await flush();
+    expect(render).not.toHaveBeenCalled();
+  });
+
+  it('renders the draft only after expansion and follows later edits', async () => {
+    const prompted = { ...agent, systemPrompt: '初始提示词' };
+    vi.spyOn(api, 'agents').mockResolvedValue([prompted]);
+    client.setQueryData(['agents'], [prompted]);
+    const render = vi.mocked(renderWorkspace);
+    render.mockClear();
+    await mount();
+    await click(button('配置 Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    await click(button('行为'));
+    expect(render).not.toHaveBeenCalled();
+    expect(document.querySelector<HTMLTextAreaElement>('#agent-prompt')?.value).toBe('初始提示词');
+
+    await click(button('CLAUDE.md 草稿'));
+    expect(render).toHaveBeenCalled();
+    expect(host.textContent).toContain('初始提示词');
+
+    await editInput('agent-prompt', '更新后的提示词');
+    await flush();
+    expect(host.textContent).toContain('更新后的提示词');
+    expect(host.textContent).not.toContain('初始提示词');
+  });
+
+  it('keeps unsaved fields when switching config sections', async () => {
+    await mount();
+    await click(button('配置 Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    await editName('分区草稿');
+    await click(button('行为'));
+    expect(document.querySelector('#agent-name')).toBeNull();
+    await click(button('身份'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    expect(field().value).toBe('分区草稿');
+  });
+
+  it('clears the dirty state after saving edits made in different config sections', async () => {
+    const saved = {
+      ...agent,
+      name: '配置验收草稿',
+      systemPrompt: '验收用提示词',
+      updatedAt: '2026-03-01T00:00:00Z',
+    };
+    const update = vi.spyOn(api, 'updateAgent').mockResolvedValue(saved);
+    vi.mocked(api.agents).mockResolvedValue([saved]);
+    await mount();
+    await click(button('配置 Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    await editName('配置验收草稿');
+    await click(button('行为'));
+    await waitFor(() => document.querySelector('#agent-prompt'));
+    await editInput('agent-prompt', '验收用提示词');
+    await click(button('CLAUDE.md 草稿'));
+    await flush();
+    await click(button('身份'));
+    await waitFor(() => document.querySelector('#agent-name'));
+
+    await click(button('保存更改'));
+    await waitFor(() => document.querySelector('h1')?.textContent === '配置验收草稿');
+
+    expect(update).toHaveBeenCalledOnce();
+    expect(field().value).toBe('配置验收草稿');
+    expect(document.body.textContent).not.toContain('未保存');
+    expect(button('已保存').disabled).toBe(true);
   });
 });

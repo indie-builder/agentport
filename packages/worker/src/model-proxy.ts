@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { pipeline } from 'node:stream/promises';
 
 import type { Logger } from 'pino';
 
@@ -170,23 +171,20 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     }
 
     ctx.model = modelOf(body);
-    const upstreamController = new AbortController();
-    // 客户端提前断开（沙盒取消/进程退出）时中止上游并取消 reader，避免挂到上游超时。
-    const onClientClose = () => {
-      if (!res.writableEnded) upstreamController.abort();
+    // 下游提前断开时中止上游 fetch，否则它会继续把整段响应读完。
+    const abort = new AbortController();
+    const abortIfUnfinished = () => {
+      if (!res.writableFinished) abort.abort();
     };
-    res.on('close', onClientClose);
+    res.once('close', abortIfUnfinished);
 
-    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-    let completed = false;
     try {
       const upstreamRes = await fetch(target, {
         method: req.method ?? 'POST',
         headers,
+        signal: abort.signal,
         ...(body.length > 0 && req.method !== 'GET' && req.method !== 'HEAD' ? { body } : {}),
-        signal: upstreamController.signal,
       });
-
       const upstreamRequestId = upstreamRes.headers.get('request-id') ?? undefined;
       ctx.upstreamRequestId = upstreamRequestId;
       // 每次请求一行：runId + 上游 request-id 能把沙盒里的报错对回上游账单与日志。
@@ -208,24 +206,15 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
       });
       if (!upstreamRes.body) {
         res.end();
-        completed = true;
         return;
       }
-      // 流式（SSE）必须边读边写：一次性 await text() 会让流式输出退化成阻塞。
-      reader = upstreamRes.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(Buffer.from(value));
-      }
-      res.end();
-      completed = true;
+      // 流式（SSE）必须边读边写；pipeline 负责背压，下游慢时暂停读上游并取消 reader。
+      await pipeline(upstreamRes.body, res);
     } catch (err) {
-      // 客户端断开导致的中止是预期路径；其余错误交给外层统一返回 500。
-      if (!upstreamController.signal.aborted) throw err;
+      // 下游已主动断开：没有响应可写，也不属于代理故障。
+      if (!abort.signal.aborted) throw err;
     } finally {
-      res.off('close', onClientClose);
-      if (!completed) await reader?.cancel().catch(() => undefined);
+      res.off('close', abortIfUnfinished);
     }
   }
 

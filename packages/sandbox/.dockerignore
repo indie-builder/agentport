@@ -1,6 +1,0 @@
-# 构建上下文是 packages/sandbox 本身，Dockerfile 需要 dist/ 与 shared/。
-# 根目录的 .dockerignore 会把 **/dist 排除掉，所以这里必须显式放行。
-node_modules
-*.tsbuildinfo
-src
-test

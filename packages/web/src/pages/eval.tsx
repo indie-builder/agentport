@@ -167,6 +167,7 @@ export function EvalPage() {
 
   const cases = useEvalCases(effectiveAgentId);
   const runs = useEvalRuns(effectiveAgentId);
+  const runItems = runs.data?.pages.flatMap((page) => page.items) ?? [];
   const start = useStartEvalRun();
   const cancel = useCancelEvalRun();
   const importDataset = useImportEvalDataset();
@@ -195,7 +196,7 @@ export function EvalPage() {
 
   /** 只停止后续用例：不撤销已在执行的 run，也不打断模型调用。 */
   const runningRun = effectiveAgentId
-    ? runs.data?.find((run) => run.status === 'running')
+    ? runItems.find((run) => run.status === 'running')
     : undefined;
   const stopRun = (): void => {
     if (!runningRun) return;
@@ -269,7 +270,7 @@ export function EvalPage() {
     }
   };
 
-  const terminalRuns = (runs.data ?? []).filter((run) => run.status !== 'running');
+  const terminalRuns = runItems.filter((run) => run.status !== 'running');
   const startDisabledReason = start.isPending
     ? '正在启动评估'
     : agents.isPending
@@ -516,26 +517,49 @@ export function EvalPage() {
                 : '选择有效的专家后查看运行历史。'}
             </p>
           ) : null}
-          {effectiveAgentId && runs.isError ? (
+          {effectiveAgentId && runs.isError && !runs.isFetchNextPageError ? (
             <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
           ) : null}
           {runs.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
-          {effectiveAgentId && runs.isSuccess && runs.data.length === 0 ? (
+          {effectiveAgentId && runs.isSuccess && runItems.length === 0 ? (
             <PageNote
               icon={<ClipboardCheck className="size-4" aria-hidden="true" />}
               title="还没有评估运行"
               description="点「运行评估」开始。"
             />
           ) : null}
-          {effectiveAgentId && runs.data && runs.data.length > 0 ? (
-            <DataTable
-              rows={runs.data}
-              columns={runColumns}
-              rowKey={(run) => run.id}
-              label="评估运行"
-              storageKey="agentport.eval-runs.columns"
-              renderExpanded={(run) => <EvalRunResults id={run.id} />}
-            />
+          {effectiveAgentId && runItems.length > 0 ? (
+            <>
+              <DataTable
+                rows={runItems}
+                columns={runColumns}
+                rowKey={(run) => run.id}
+                label="评估运行"
+                storageKey="agentport.eval-runs.columns"
+                renderExpanded={(run) => <EvalRunResults id={run.id} />}
+              />
+              {runs.isFetchNextPageError ? (
+                <ErrorState
+                  error={runs.error}
+                  onRetry={() => void runs.fetchNextPage()}
+                  title="下一页加载失败，保留已加载的运行记录"
+                />
+              ) : runs.hasNextPage ? (
+                <div className="flex justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={runs.isFetchingNextPage}
+                    aria-busy={runs.isFetchingNextPage}
+                    onClick={() => void runs.fetchNextPage()}
+                  >
+                    {runs.isFetchingNextPage ? '加载中…' : '加载更多'}
+                  </Button>
+                </div>
+              ) : (
+                <div className="text-center text-xs text-muted-foreground">已到末尾</div>
+              )}
+            </>
           ) : null}
         </PageSection>
       </div>

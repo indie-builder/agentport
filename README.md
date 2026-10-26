@@ -39,13 +39,13 @@ pnpm run up        # 生成 .env、起依赖、迁移、构建镜像、冒烟
 
 首次运行会从 `.env.example` 生成 `.env`，随机填充 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN` 和 `ADMIN_PASSWORD`，并打印管理员密码；请按需修改 `ADMIN_PASSWORD` 后重新执行 `pnpm run up`。运行智能体还需在 `.env` 填写 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`。
 
-`pnpm run up` 依次完成：启动 postgres/redis → 等待 healthy → 构建 `agentport/sandbox:dev`（已存在则跳过，`pnpm run up --rebuild` 强制重建）→ compose 一次性 `migrate` 服务执行迁移 → 构建并启动 api/worker → 等待 `/health/ready` → `pnpm smoke`。任一步失败会打印原因并以非零退出。停止服务用 `pnpm run down`（保留数据卷），`pnpm run down --clean` 会删除数据卷。
+`pnpm run up` 依次完成：`docker compose up -d --wait` 启动 postgres/redis 并等 healthcheck 通过 → 从仓库根构建 `agentport/sandbox:dev`（已存在则跳过，`pnpm run up --rebuild` 强制重建）→ compose 一次性 `migrate` 服务执行迁移 → 构建并启动 api/worker；compose 的 `--wait --wait-timeout 120` 会等 api 的 `/health/ready` healthcheck 通过 → `pnpm smoke`。任一步失败会打印原因并以非零退出。停止服务用 `pnpm run down`（保留数据卷），`pnpm run down --clean` 会删除数据卷。
 
 生产中 web 由 api 静态托管（`WEB_DIST=/app/web`），没有独立 web 容器。
 
 三个最容易踩的点（完整部署、升级与排障见 [docs/OPERATIONS.md](docs/OPERATIONS.md)）：
 
-- 沙盒镜像必须用宿主 Docker 构建；`pnpm run up` 已包含该步骤，worker 通过宿主 Docker daemon 启动沙盒。
+- 沙盒镜像从仓库根 context 的 `sandbox` target 构建，必须使用宿主 Docker；`pnpm run up` 已包含该步骤，worker 通过宿主 Docker daemon 启动沙盒。
 - worker 挂载 `/var/run/docker.sock`，等价于宿主 root 权限，仅适合单机自用。
 - 生产模式下登录 Cookie 带 `Secure`；请通过 `http://localhost` 访问。用局域网 IP 走 HTTP 会无法保持登录。
 
@@ -53,15 +53,12 @@ pnpm run up        # 生成 .env、起依赖、迁移、构建镜像、冒烟
 
 ```bash
 pnpm install
-pnpm build                      # 生成各包 dist；db:migrate 与沙盒镜像依赖它
+pnpm build                      # 生成各包 dist；db:migrate 依赖它
 cp .env.example .env            # 填写下方必填项
-docker compose up -d postgres redis
+docker compose up -d --wait postgres redis
 pnpm db:migrate
-# 沙盒镜像：runner 需要 @agentport/shared 的编译产物，不能只跑 docker build
-pnpm --filter @agentport/sandbox build
-pnpm --filter @agentport/shared build
-rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
-docker build -t agentport/sandbox:dev packages/sandbox
+# 沙盒镜像与 api/worker 共用根 Dockerfile，安装与构建都在镜像内完成
+docker build --target sandbox -t agentport/sandbox:dev .
 pnpm dev
 ```
 
@@ -109,8 +106,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `pnpm infra:up` | 启动 compose 中的 postgres 与 redis |
 | `pnpm infra:down` | `docker compose down`，会停止整套 compose 服务 |
 | `pnpm clean` | 删除各包 `dist` 与所有 `node_modules` |
-| `pnpm --filter @agentport/sandbox build` | 构建 runner 产物（镜像构建前置） |
-| `pnpm --filter @agentport/sandbox image` | 构建 `agentport/sandbox:dev` 镜像；**需先**构建 sandbox 与 shared 的 dist，并把 `packages/shared/dist` 复制到 `packages/sandbox/shared`（见上文本地开发，或直接用 `pnpm run up --rebuild`） |
+| `pnpm --filter @agentport/sandbox image` | 从仓库根 context 构建 `agentport/sandbox:dev`（`docker build --target sandbox`）；安装、构建与 `pnpm deploy --prod` 都在镜像内完成，不依赖宿主 `dist` |
 | `pnpm --filter @agentport/worker maintenance` | 手动执行一次数据保留任务 |
 | `pnpm --filter @agentport/api start` | 以构建产物启动 api（需先 `pnpm build`） |
 | `pnpm --filter @agentport/web preview` | 预览 web 构建产物 |
@@ -140,7 +136,7 @@ agentport/
 ├─ scripts/        backup.sh 等运维脚本
 ├─ data/           运行期工作区（gitignore）
 ├─ backups/        pg_dump 输出（gitignore）
-├─ Dockerfile      api / worker 共用镜像
+├─ Dockerfile      api / worker / sandbox 多 target 镜像（sandbox 用 `--target sandbox`）
 ├─ docker-compose.yml
 └─ .env.example
 ```

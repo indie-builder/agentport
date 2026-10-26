@@ -1,8 +1,10 @@
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+
 import type { Logger } from 'pino';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type ModelProxy, startModelProxy } from '../src/model-proxy.js';
+
+import { startModelProxy } from '../src/model-proxy.js';
 
 const quiet = {
   info: () => undefined,
@@ -12,6 +14,8 @@ const quiet = {
   child: () => quiet,
 } as unknown as Logger;
 
+const RUN_ID = 'run_test';
+
 const cleanups: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
@@ -19,80 +23,136 @@ afterEach(async () => {
 });
 
 async function listen(server: Server): Promise<number> {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    server.once('error', rejectPromise);
+    server.listen(0, '127.0.0.1', () => resolvePromise());
+  });
+  cleanups.push(
+    () =>
+      new Promise<void>((resolvePromise) => {
+        server.close(() => resolvePromise());
+        server.closeAllConnections();
+      }),
+  );
   return (server.address() as AddressInfo).port;
 }
 
-function closeServer(server: Server): Promise<void> {
-  // 失败用例里上游仍挂着连接；先断开再 close，清理才不会等满 hook 超时。
-  server.closeAllConnections();
-  return new Promise((resolve) => server.close(() => resolve()));
-}
-
-async function startProxy(upstreamPort: number): Promise<ModelProxy> {
+async function startProxy(upstreamPort: number): Promise<number> {
   const proxy = await startModelProxy({
     logger: quiet,
     upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
     apiKey: 'fake-upstream-credential',
-    port: 0,
-    resolveRun: async () => ({ runId: 'run_model_proxy_test' }),
+    resolveRun: async (token) => (token === RUN_ID ? { runId: RUN_ID } : null),
   });
-  if (!proxy) throw new Error('model proxy did not start');
+  if (!proxy) throw new Error('proxy did not start');
+  proxy.issueToken(RUN_ID);
   cleanups.push(() => proxy.close());
-  return proxy;
-}
-
-function proxyPort(proxy: ModelProxy): number {
-  // 返回的 url 是给沙盒用的 host.docker.internal；同机测试走回环地址。
   return Number(new URL(proxy.url).port);
 }
 
+/** 发一个带合法 token 的请求；返回的 ClientRequest 由调用方 end/destroy。 */
+function proxyRequest(port: number) {
+  const req = request({
+    host: '127.0.0.1',
+    port,
+    path: '/v1/messages',
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${RUN_ID}`,
+      'content-type': 'application/json',
+    },
+  });
+  req.on('error', () => {
+    // 提前断连的用例会主动销毁连接，忽略客户端侧的错误事件。
+  });
+  return req;
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe('model proxy streaming', () => {
+  it('stops reading upstream when the downstream client is slow', async () => {
+    const CHUNK = Buffer.alloc(1024 * 1024, 0x61);
+    const TOTAL_CHUNKS = 64;
+    let flushedBytes = 0;
+
+    const upstream = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.on('error', () => {
+        // 客户端中断后上游写会失败，这里只记录已刷出的字节数。
+      });
+      // 上游是快生产者：故意不等待 write 的返回值，代理必须自己施加背压。
+      for (let i = 0; i < TOTAL_CHUNKS; i += 1) {
+        res.write(CHUNK, () => {
+          flushedBytes += CHUNK.length;
+        });
+      }
+      res.end();
+    });
+    const upstreamPort = await listen(upstream);
+    const proxyPort = await startProxy(upstreamPort);
+
+    const client = proxyRequest(proxyPort);
+    const response = new Promise<import('node:http').IncomingMessage>((resolvePromise) => {
+      client.once('response', resolvePromise);
+    });
+    client.end(JSON.stringify({ model: 'claude-test' }));
+
+    const downstream = await response;
+    downstream.on('error', () => {});
+    // 下游暂停读取：没有背压时代理会把上游 64MB 全部读进内存。
+    downstream.pause();
+
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 1200));
+    const flushedWhilePaused = flushedBytes;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 600));
+    const flushedLater = flushedBytes;
+
+    downstream.destroy();
+
+    expect(flushedWhilePaused).toBeLessThan(TOTAL_CHUNKS * CHUNK.length);
+    // 暂停后上游应基本停在原处，而不是继续被代理抽干。
+    expect(flushedLater - flushedWhilePaused).toBeLessThan(4 * CHUNK.length);
+  }, 20_000);
+
   it('aborts the upstream request when the client disconnects mid-stream', async () => {
     let aborted = false;
-    let upstreamClosed!: () => void;
-    const upstreamClose = new Promise<undefined>((resolve) => {
-      upstreamClosed = resolve;
-    });
+    const upstreamClosed = deferred();
+
     const upstream = createServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.write('data: first\n\n');
       // 客户端断开时代理应取消上游；没有取消时这里不会触发。
       res.on('close', () => {
         aborted = !res.writableEnded;
-        upstreamClosed();
+        upstreamClosed.resolve();
       });
     });
     const upstreamPort = await listen(upstream);
-    cleanups.push(() => closeServer(upstream));
+    const proxyPort = await startProxy(upstreamPort);
 
-    const proxy = await startProxy(upstreamPort);
-    const client = request(
-      {
-        host: '127.0.0.1',
-        port: proxyPort(proxy),
-        path: '/v1/messages',
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer run_model_proxy_test',
-          'content-type': 'application/json',
-        },
-      },
-      (res) => {
-        res.once('data', () => client.destroy());
-        res.on('error', () => undefined);
-      },
-    );
-    client.on('error', () => undefined);
-    client.end(JSON.stringify({ model: 'test-model', stream: true, messages: [] }));
+    const client = proxyRequest(proxyPort);
+    client.once('response', (res) => {
+      res.once('data', () => client.destroy());
+      res.on('error', () => {});
+    });
+    client.end(JSON.stringify({ model: 'claude-test', stream: true, messages: [] }));
 
     const outcome = await Promise.race([
-      upstreamClose.then(() => 'closed' as const),
-      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 2_000)),
+      upstreamClosed.promise.then(() => 'closed' as const),
+      new Promise<'timeout'>((resolvePromise) => {
+        setTimeout(() => resolvePromise('timeout'), 2_000);
+      }),
     ]);
     expect(outcome).toBe('closed');
     expect(aborted).toBe(true);
-  });
+  }, 20_000);
 
   it('streams the whole body when the client stays connected', async () => {
     const upstream = createServer((_req, res) => {
@@ -101,35 +161,23 @@ describe('model proxy streaming', () => {
       setTimeout(() => res.end('data: two\n\n'), 10);
     });
     const upstreamPort = await listen(upstream);
-    cleanups.push(() => closeServer(upstream));
+    const proxyPort = await startProxy(upstreamPort);
 
-    const proxy = await startProxy(upstreamPort);
-    const body = await new Promise<string>((resolve, reject) => {
-      const client = request(
-        {
-          host: '127.0.0.1',
-          port: proxyPort(proxy),
-          path: '/v1/messages',
-          method: 'POST',
-          headers: {
-            authorization: 'Bearer run_model_proxy_test',
-            'content-type': 'application/json',
-          },
-        },
-        (res) => {
-          let text = '';
-          res.setEncoding('utf8');
-          res.on('data', (chunk: string) => {
-            text += chunk;
-          });
-          res.on('end', () => resolve(text));
-          res.on('error', reject);
-        },
-      );
-      client.on('error', reject);
-      client.end(JSON.stringify({ model: 'test-model', stream: true, messages: [] }));
+    const body = await new Promise<string>((resolvePromise, rejectPromise) => {
+      const client = proxyRequest(proxyPort);
+      client.once('response', (res) => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          text += chunk;
+        });
+        res.on('end', () => resolvePromise(text));
+        res.on('error', rejectPromise);
+      });
+      client.once('error', rejectPromise);
+      client.end(JSON.stringify({ model: 'claude-test', stream: true, messages: [] }));
     });
 
     expect(body).toBe('data: one\n\ndata: two\n\n');
-  });
+  }, 20_000);
 });

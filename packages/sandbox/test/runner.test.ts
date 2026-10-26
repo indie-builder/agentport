@@ -216,6 +216,12 @@ describe('runner task wiring', () => {
     });
   });
 
+  it('leaves outputStyle to the project settings the SDK loads natively', async () => {
+    await run({});
+    expect(io.options?.settingSources).toEqual(['project']);
+    expect(io.options?.settings).not.toHaveProperty('outputStyle');
+  });
+
   it('does not resume an empty conversation', async () => {
     await run({});
     expect(io.options).not.toHaveProperty('resume');

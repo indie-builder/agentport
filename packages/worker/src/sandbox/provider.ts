@@ -17,6 +17,8 @@ export interface SandboxCreateOptions {
   entrypoint?: string;
   /** ENTRYPOINT 之后的参数。 */
   command?: string[];
+  /** 取消创建：拉取结束前取消则不创建；create 已发出则等它结束、rm 且不 start。 */
+  signal?: AbortSignal;
 }
 
 export interface Sandbox {
@@ -27,7 +29,7 @@ export interface Sandbox {
 
 /**
  * 业务代码只依赖这个接口；换 microsandbox 时只新增实现。
- * create 返回时容器可能尚未就绪，进程错误通过 child 的 error/close 事件暴露。
+ * create 返回时容器已 start 并附着；进程错误通过 child 的 error/close 事件暴露。
  */
 export interface SandboxProvider {
   create(options: SandboxCreateOptions): Promise<Sandbox>;

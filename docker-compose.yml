@@ -53,7 +53,9 @@ services:
       - knowledgedata:/k
 
   migrate:
-    build: .
+    build:
+      context: .
+      target: runtime
     image: ${API_IMAGE:-agentport/api:dev}
     # 一次性迁移：使用镜像内已 deploy 的 db 包（含 dist、migrations、scripts）。
     command: ['node', 'api/node_modules/@agentport/db/scripts/migrate.js']
@@ -79,7 +81,9 @@ services:
       - '127.0.0.1:5001:5001'
 
   api:
-    build: .
+    build:
+      context: .
+      target: runtime
     image: ${API_IMAGE:-agentport/api:dev}
     restart: unless-stopped
     stop_grace_period: 30s
@@ -102,6 +106,17 @@ services:
     volumes:
       - workspaces:/workspaces
       - knowledgedata:/knowledge
+    # 供 `docker compose up --wait` 与依赖服务判断就绪，不只看进程是否启动。
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health/ready').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     depends_on:
       init:
         condition: service_completed_successfully
@@ -113,7 +128,9 @@ services:
         condition: service_healthy
 
   worker:
-    build: .
+    build:
+      context: .
+      target: runtime
     image: ${API_IMAGE:-agentport/api:dev}
     restart: unless-stopped
     stop_grace_period: 30s

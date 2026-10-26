@@ -8,6 +8,7 @@ interface Service {
   command?: string[];
   volumes?: Array<{ source: string; target: string; type: string }>;
   depends_on?: Record<string, { condition: string }>;
+  healthcheck?: { test?: string[] };
 }
 
 // config is read-only: it parses the deployment without starting containers or exposing env values.
@@ -48,5 +49,9 @@ describe('native memory deployment', () => {
     expect(config.services.init?.volumes).toContainEqual(
       expect.objectContaining({ source: 'workspaces', target: '/w', type: 'volume' }),
     );
+  });
+
+  it('checks API readiness with a compose healthcheck', () => {
+    expect(config.services.api?.healthcheck?.test?.join(' ')).toContain('/health/ready');
   });
 });

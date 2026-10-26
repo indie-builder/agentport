@@ -15,6 +15,7 @@ import {
   renderWorkspace,
   toWorkspaceAgent,
   toWorkspaceInput,
+  unionById,
 } from '@agentport/core';
 import type { Database } from '@agentport/db';
 import {
@@ -203,26 +204,7 @@ function toPreviewEntry(row: ServerRow, selfUrl: string): McpJsonEntry {
   };
 }
 
-/** 多个 agent 的绑定一次性查回，导出整棵委派树时不按行发 SQL。 */
-async function boundServersByAgent(
-  db: Database,
-  agentIds: string[],
-): Promise<Map<string, ServerRow[]>> {
-  const rows = await db
-    .select({ agentId: agentServers.agentId, server: servers })
-    .from(agentServers)
-    .innerJoin(servers, eq(agentServers.serverId, servers.id))
-    .where(inArray(agentServers.agentId, agentIds))
-    .orderBy(asc(agentServers.agentId), asc(agentServers.serverId));
-  const out = new Map<string, ServerRow[]>();
-  for (const row of rows) {
-    const list = out.get(row.agentId);
-    if (list) list.push(row.server);
-    else out.set(row.agentId, [row.server]);
-  }
-  return out;
-}
-
+/** 多个 agent 的技能绑定一次性查回，导出整棵委派树时不按行发 SQL。 */
 async function boundSkillsByAgent(
   db: Database,
   agentIds: string[],
@@ -284,13 +266,6 @@ function toPortableStyles(rows: StyleRow[]) {
     body: row.body,
     isSelected: row.isSelected,
   }));
-}
-
-/** 并集只保留每个资源一次；名称引用按各自绑定的来源取。 */
-function unionById<T extends { id: string }>(lists: T[][]): T[] {
-  const out = new Map<string, T>();
-  for (const list of lists) for (const item of list) if (!out.has(item.id)) out.set(item.id, item);
-  return [...out.values()];
 }
 
 function checkLimit(count: number, max: number, message: string): void {
@@ -392,7 +367,7 @@ export async function buildAgentPackage(
 
   const agentIds = [row.id, ...children.map((child) => child.id)];
   const [serversByAgent, skillsByAgent, rulesMap, stylesMap] = await Promise.all([
-    boundServersByAgent(db, agentIds),
+    agentRepo.getBoundServersByAgentIds(db, agentIds),
     boundSkillsByAgent(db, agentIds),
     rulesByAgent(db, agentIds),
     stylesByAgent(db, agentIds),

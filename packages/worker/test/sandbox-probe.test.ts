@@ -5,16 +5,35 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { encryptSecrets } from '@agentport/core';
 import { createDb, newId, schema } from '@agentport/db';
-import { SANDBOX_PROBE_STARTUP_TIMEOUT_MS } from '@agentport/shared';
+import { SANDBOX_PROBE_STARTUP_TIMEOUT_MS, SANDBOX_PROBES_QUEUE } from '@agentport/shared';
+import { Queue } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { Config } from '../src/config.js';
+import { loadConfig } from '../src/config.js';
 import type { Sandbox } from '../src/sandbox/provider.js';
 import {
   type ProbeSandboxOptions,
+  registerSandboxProbe,
   runSandboxProbe,
   type SandboxProbeDeps,
 } from '../src/sandbox-probe.js';
+
+/** registerSandboxProbe 自建 provider；close 用例用替身覆盖 destroyAll。 */
+const docker = vi.hoisted(() => ({
+  destroyAll: vi.fn(async () => undefined),
+}));
+
+vi.mock('../src/sandbox/docker.js', () => ({
+  DockerSandboxProvider: class {
+    create = async () => {
+      throw new Error('unexpected create');
+    };
+    destroy = async () => undefined;
+    destroyAll = docker.destroyAll;
+  },
+}));
 
 const SECRET_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
@@ -147,6 +166,8 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     });
     expect(Object.keys(options?.env ?? {}).some((key) => key.startsWith('ANTHROPIC'))).toBe(false);
     expect(options?.workspaceDir).toBe(join(workspacesDir, 'sandbox-probes'));
+    // 正常完成的试连不能触发取消，否则 provider 会把已启动的容器当成被放弃。
+    expect(options?.signal?.aborted).toBe(false);
   });
 
   it('sends the decrypted stdio configuration as the single stdin task', async () => {
@@ -183,6 +204,8 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     expect(result.error).toMatch(/连接测试超时（30ms）/);
     expect(result.durationMs).toBeLessThan(SANDBOX_PROBE_STARTUP_TIMEOUT_MS);
     expect(fake.destroyed).toEqual(['probe-fake']);
+    // 总预算用完也要取消这次创建，冷拉取不能继续。
+    expect(fake.options[0]?.signal?.aborted).toBe(true);
   });
 
   it('reports a container that exits without a result line', async () => {
@@ -243,26 +266,189 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
   it('times out container startup without leaking the late sandbox', async () => {
     const serverId = await seedStdio({});
     const child = hangingChild();
-    let resolveCreate: ((value: Sandbox) => void) | undefined;
+    const destroyed: string[] = [];
+    const captured: { signal?: AbortSignal; resolve?: (value: Sandbox) => void } = {};
     const provider: SandboxProbeDeps['provider'] = {
-      create: () =>
-        new Promise<Sandbox>((resolve) => {
-          resolveCreate = resolve;
-        }),
-      destroy: async () => undefined,
+      create: (options) => {
+        captured.signal = options.signal;
+        return new Promise<Sandbox>((resolve) => {
+          captured.resolve = resolve;
+        });
+      },
+      destroy: async (sandbox) => {
+        destroyed.push(sandbox.id);
+        throw new Error('docker stop failed');
+      },
     };
+    const warn = vi.fn();
+    const logger = { ...quietLogger, warn } as unknown as Logger;
 
     const result = await runSandboxProbe(
-      { ...deps(provider), image: 'agentport/sandbox:test' },
+      { ...deps(provider), logger, image: 'agentport/sandbox:test' },
       serverId,
       220, // 超过启动预算的 200ms
     );
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/启动超时/);
+    // 启动预算用完必须取消 provider.create，否则冷拉取会在超时后继续。
+    expect(captured.signal?.aborted).toBe(true);
 
-    // 迟到的容器必须被立即销毁，不能因为超时先返回就泄漏。
-    resolveCreate?.({ id: 'late-sandbox', child } as unknown as Sandbox);
+    // 迟到的容器必须交给 provider 销毁，不能因为超时先返回就泄漏。
+    captured.resolve?.({ id: 'late-sandbox', child } as unknown as Sandbox);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(child.signals).toContain('SIGKILL');
+    expect(destroyed).toEqual(['late-sandbox']);
+    // 停止语义统一在 provider 里，probe 不再直接给 docker 客户端发信号。
+    expect(child.signals).toEqual([]);
+    // 清理失败不能吞掉：带 err、serverId 与容器 id 记一条 warning。
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toMatchObject({ serverId, sandboxId: 'late-sandbox' });
+    expect(warn.mock.calls[0]?.[0]).toHaveProperty('err');
+  });
+
+  it('aborts the pending create when the worker closes', async () => {
+    const serverId = await seedStdio({});
+    const closing = new AbortController();
+    const captured: { signal?: AbortSignal } = {};
+    const provider: SandboxProbeDeps['provider'] = {
+      create: (options) =>
+        new Promise<Sandbox>((_resolve, reject) => {
+          captured.signal = options.signal;
+          options.signal?.addEventListener(
+            'abort',
+            () => reject(new Error('sandbox create aborted')),
+            { once: true },
+          );
+        }),
+      destroy: async () => undefined,
+    };
+
+    const pending = runSandboxProbe({ ...deps(provider), closing: closing.signal }, serverId, 100);
+    await vi.waitFor(() => expect(captured.signal).toBeDefined());
+    closing.abort();
+    const result = await pending;
+
+    expect(captured.signal?.aborted).toBe(true);
+    expect(result.ok).toBe(false);
+  });
+
+  it('reports shutdown cancellation when create rejects on the closing signal', async () => {
+    const serverId = await seedStdio({});
+    const closing = new AbortController();
+    let rejectCreate: ((error: Error) => void) | undefined;
+    const captured: { signal?: AbortSignal } = {};
+    const provider: SandboxProbeDeps['provider'] = {
+      create: (options) => {
+        captured.signal = options.signal;
+        return new Promise<Sandbox>((_resolve, reject) => {
+          rejectCreate = reject;
+        });
+      },
+      destroy: async () => undefined,
+    };
+    // provider 先于试连注册 closing 监听：关停时 create 的拒绝先于 done 落地。
+    closing.signal.addEventListener(
+      'abort',
+      () => rejectCreate?.(new Error('sandbox create aborted')),
+      { once: true },
+    );
+
+    const pending = runSandboxProbe(
+      { ...deps(provider), closing: closing.signal },
+      serverId,
+      10_000,
+    );
+    await vi.waitFor(() => expect(rejectCreate).toBeDefined());
+    closing.abort();
+    const result = await pending;
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('worker 正在关停，连接测试已取消');
+    expect(captured.signal?.aborted).toBe(true);
+  });
+
+  it('ends a started probe as soon as the worker closes', async () => {
+    const serverId = await seedStdio({});
+    const closing = new AbortController();
+    const child = hangingChild();
+    let started: () => void = () => {};
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    // stdin.write 在结果监听挂好后发生，用它确认试连已进入等待。
+    child.stdin.write = (() => {
+      started();
+      return true;
+    }) as typeof child.stdin.write;
+    const fake = fakeProvider(() => child);
+
+    const pending = runSandboxProbe(
+      { ...deps(fake.provider), closing: closing.signal },
+      serverId,
+      180,
+    );
+    await startedPromise;
+    closing.abort();
+    const result = await pending;
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('worker 正在关停，连接测试已取消');
+    expect(fake.destroyed).toEqual(['probe-fake']);
+  });
+
+  it('cancels an already-aborted probe without waiting for the startup budget', async () => {
+    const serverId = await seedStdio({});
+    const closing = new AbortController();
+    closing.abort();
+    const provider: SandboxProbeDeps['provider'] = {
+      create: () => new Promise<Sandbox>(() => undefined),
+      destroy: async () => undefined,
+    };
+
+    const result = await runSandboxProbe(
+      { ...deps(provider), closing: closing.signal },
+      serverId,
+      180,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('worker 正在关停，连接测试已取消');
+  });
+});
+
+/** close 用独立 Redis db：与 worker 的 probe 队列隔离，避免抢走真实任务。 */
+const redisUrl = (() => {
+  const url = new URL(process.env.REDIS_URL ?? 'redis://127.0.0.1:6379');
+  url.pathname = '/1';
+  return url.toString();
+})();
+const connection = { url: redisUrl };
+
+function config(): Config {
+  return loadConfig({
+    DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://u:p@localhost:5432/db',
+    APP_SECRET_KEY: 'a'.repeat(32),
+    WORKSPACES_DIR: workspacesDir,
+    REDIS_URL: redisUrl,
+    LOG_LEVEL: 'error',
+  });
+}
+
+describe.skipIf(!ready)('registerSandboxProbe close', () => {
+  beforeAll(async () => {
+    await new Queue(SANDBOX_PROBES_QUEUE, { connection }).obliterate({ force: true });
+  });
+
+  afterAll(async () => {
+    await new Queue(SANDBOX_PROBES_QUEUE, { connection }).obliterate({ force: true });
+  });
+
+  it('reports cleanup failure instead of swallowing it', async () => {
+    docker.destroyAll.mockRejectedValueOnce(new Error('rm failed'));
+    const handle = await registerSandboxProbe(config());
+
+    await expect(handle.close()).rejects.toMatchObject({
+      name: 'AggregateError',
+      errors: [expect.objectContaining({ message: 'rm failed' })],
+    });
   });
 });

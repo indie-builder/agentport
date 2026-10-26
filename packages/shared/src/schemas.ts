@@ -160,6 +160,20 @@ export const evalRunSchema = z.object({
 
 export type EvalRun = z.infer<typeof evalRunSchema>;
 
+/** 列表只回摘要列；游标是当前页最后一条的 id，按 (created_at, id) 倒序翻页。 */
+export const evalRunPageSchema = z.object({
+  items: z.array(evalRunSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export type EvalRunPage = z.infer<typeof evalRunPageSchema>;
+
+export const evalRunListQuerySchema = z.object({
+  agentId: z.string().min(1).optional(),
+  cursor: z.string().min(1).max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 export const evalResultSchema = z.object({
   // 用例或运行被清理后，结果仍保留：引用置空而不是级联删除历史。
   caseId: z.string().nullable(),

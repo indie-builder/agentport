@@ -41,6 +41,7 @@ import type {
   ServerTestResult,
   ConversationDetail as SharedConversationDetail,
   EvalComparison as SharedEvalComparison,
+  EvalRunPage as SharedEvalRunPage,
   NativeInstalledPlugin as SharedNativeInstalledPlugin,
   Skill,
   SkillFile,
@@ -292,6 +293,8 @@ export interface EvalRun {
   createdAt: string;
   finishedAt: string | null;
 }
+
+export type EvalRunPage = SharedEvalRunPage;
 
 export interface EvalResult {
   /** 用例或运行被清理后置空，历史结果仍然保留。 */
@@ -891,7 +894,8 @@ export const api = {
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return request(`/runs/export${search}`);
   },
-  run: (id: string): Promise<RunDetail> => request(`/runs/${id}`),
+  run: (id: string, signal?: AbortSignal): Promise<RunDetail> =>
+    request(`/runs/${id}`, 'GET', undefined, signal),
   skillDraftFromRun: (runId: string): Promise<Skill> =>
     request(`/runs/${runId}/skill-draft`, 'POST'),
   attention: (): Promise<Attention> => request('/attention'),
@@ -937,9 +941,16 @@ export const api = {
   importEvalDataset: (agentId: string, dataset: EvalDataset): Promise<EvalDatasetImportResult> =>
     request('/eval/cases/import', 'POST', { agentId, dataset }),
 
-  evalRuns: (agentId?: string): Promise<EvalRun[]> => {
-    const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
-    return request<EvalRun[]>(`/eval/runs${query}`);
+  evalRuns: (
+    query: { agentId?: string; cursor?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<EvalRunPage> => {
+    const params = new URLSearchParams();
+    if (query.agentId) params.set('agentId', query.agentId);
+    if (query.cursor) params.set('cursor', query.cursor);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/eval/runs${search}`, 'GET', undefined, signal);
   },
   startEvalRun: (agentId: string): Promise<{ evalRunId: string }> =>
     request('/eval/runs', 'POST', { agentId }),

@@ -22,6 +22,7 @@ import {
   snapshotHistory,
 } from './chat-state.js';
 import { useChatStore } from './chat-store.js';
+import { runQuery } from './queries.js';
 import { toastError } from './toast.js';
 
 /** 终态事件里的落库块：按运行内稳定 id 对齐实时文本。 */
@@ -388,7 +389,10 @@ export function useChatStream({
         baseItemsRef.current = historyToItems(data.messages.slice(0, beforeReply));
       }
       try {
-        const detail = latestRunId ? await api.run(latestRunId) : null;
+        // 与 useRun 共用 ['run', id] 缓存；恢复时必须读最新状态，不能拿旧缓存判定运行已结束。
+        const detail = latestRunId
+          ? await client.query({ ...runQuery(latestRunId), staleTime: 0 })
+          : null;
         if (!ownsHistory()) return;
         if (
           detail &&
@@ -456,6 +460,7 @@ export function useChatStream({
     history?.isFetchedAfterMount,
     history?.isError,
     openStream,
+    client,
   ]);
 
   /**

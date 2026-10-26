@@ -309,7 +309,8 @@ function renderClaudeMd(input: WorkspaceInput): string {
 /** standalone：子智能体文件没有自己的 CLAUDE.md，正文直接放系统提示。 */
 function renderAgentMd(input: WorkspaceInput, standalone = false): string {
   const { agent, servers, skills = [] } = input;
-  // 绑定归属只由调用方显式给出（运行时）；预览没有子级绑定信息，沿用旧的继承语义。
+  // serverNames 缺省时保持调用方默认：input.servers 全部可见、不显式拒绝；
+  // 给出数组则把可见范围限定到该智能体自身绑定的 server，并显式拒绝其余。
   const bound = agent.serverNames;
   const ownNames = bound ?? servers.map((s) => s.name);
   const ownServers = servers.filter((s) => ownNames.includes(s.name));
@@ -432,6 +433,16 @@ export function renderSkillMd(skill: WorkspaceSkill): string {
     skill.body.trim(),
     '',
   ].join('\n');
+}
+
+/**
+ * 绑定并集：按 id 去重后全局排序。预览、导出与运行各自拿到分组顺序，
+ * 不在这里统一就会写出不同顺序的 .mcp.json；三者共用这一处。
+ */
+export function unionById<T extends { id: string }>(lists: readonly (readonly T[])[]): T[] {
+  const out = new Map<string, T>();
+  for (const list of lists) for (const item of list) if (!out.has(item.id)) out.set(item.id, item);
+  return [...out.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /** 把 DB 中的智能体定义渲染成落盘文件的内容；纯函数，不碰文件系统。 */

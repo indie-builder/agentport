@@ -202,16 +202,17 @@ grep '^SANDBOX_IMAGE=' .env
 **处置**
 
 ```bash
-# 推荐：脚本会构建 sandbox + shared、复制 shared/dist 后再 docker build
+# 推荐：从仓库根构建 sandbox target，安装与构建都在镜像内完成
 pnpm run up --rebuild
-# 手动等价：docker build 前必须有 packages/sandbox/shared（否则 COPY shared/: not found）
-pnpm --filter @agentport/sandbox build
-pnpm --filter @agentport/shared build
-rm -rf packages/sandbox/shared && cp -R packages/shared/dist packages/sandbox/shared
-docker build -t agentport/sandbox:dev packages/sandbox
+# 手动等价
+docker build --target sandbox -t agentport/sandbox:dev .
+# 或包脚本（同样从仓库根 context 构建）
+pnpm --filter @agentport/sandbox image
 # 若 .env 的 SANDBOX_IMAGE 不是这个名字，改成上面的 tag 后重启 worker
 docker compose up -d --force-recreate worker
 ```
+
+旧文档里的 `packages/sandbox/shared`、`package.shared.json` / `package.docker.json` 已删除；出现 `COPY shared/: not found` 说明仍在执行旧命令或使用旧构建上下文。
 
 **验证**：在页面发起一次最简单对话，`agent_runs.status` 变为 `succeeded`。镜像本身只验证存在性：
 
@@ -650,7 +651,7 @@ pnpm install
 pnpm run up --rebuild
 ```
 
-`pnpm run up` 会重建 api/worker 与沙盒镜像、跑迁移、等待 `/health/ready`、再执行冒烟。迁移是**前向**的，不要手改已应用的迁移。
+`pnpm run up` 会重建 api/worker 与沙盒镜像、跑迁移，并用 compose `--wait --wait-timeout 120` 等 api 的 `/health/ready` healthcheck，再执行冒烟。迁移是**前向**的，不要手改已应用的迁移。
 
 ### 9.2 升级后验证
 

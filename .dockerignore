@@ -1,8 +1,30 @@
-**/.env
-**/.env.*
-**/data
-**/*.log
+# Docker 构建上下文只需要 manifest 与 packages 源码；排除本地状态、运行时数据和仓库工具。
+.git
+.claude
+.agents
+.compound-engineering
+.ego
+.impeccable
+.migration
+.vitest
+.tmp
+.github
+docs
+tests
+backups
+.e2e
+data
+coverage
+test-results
+playwright-report
+
 **/node_modules
 **/dist
+**/.env
+**/.env.*
+**/*.log
 # tsc -b 的增量状态指向宿主路径；复制进镜像会让构建跳过实际编译。
 **/*.tsbuildinfo
+
+# 旧版沙盒构建留下的 shared 暂存目录；现在由 pnpm deploy 生成。
+packages/sandbox/shared
