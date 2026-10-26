@@ -6,6 +6,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { createIsolatedDatabase } from './isolated-db.js';
 
 const { publishRun } = vi.hoisted(() => ({
   publishRun: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
@@ -43,10 +44,13 @@ async function probeInfra(): Promise<boolean> {
   }
 }
 
-const ready = await probeInfra();
+// 全表对账必须只看本次套件的数据：独享随机库，不能落到当前共享库。
+const isolated = await createIsolatedDatabase('worker_reconcile_eval');
+const ready = isolated !== null && (await probeInfra());
+if (!ready && isolated) await isolated.close();
 
 describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', () => {
-  const dbHandle = createDb(process.env.DATABASE_URL ?? '');
+  const dbHandle = createDb(isolated?.url ?? '');
   const { db } = dbHandle;
   const redisUrl = process.env.REDIS_URL ?? '';
   const logger = {
@@ -120,6 +124,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
       await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
     }
     await dbHandle.pool.end();
+    await isolated?.close();
   });
 
   it('fails the stale eval whose job is gone, keeping waiting and delayed jobs', async () => {
@@ -133,8 +138,8 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
     // 未来才执行的延迟任务仍是有效工作，不能因为 DB 里还 running 就被收敛。
     await queue.add('eval-run', { evalRunId: delayed }, { jobId: delayed, delay: 60_000 });
 
-    // 全局计数可能被其他文件的陈旧行影响：只要求有收敛，实现新旧靠行状态区分。
-    expect(await reconcileOrphanedEvalRuns(db, logger, queue)).toBeGreaterThanOrEqual(1);
+    // 随机库内只有本用例的三条 eval，收敛数必须是 1。
+    expect(await reconcileOrphanedEvalRuns(db, logger, queue)).toBe(1);
 
     expect(await statusOf(missing)).toMatchObject(LOST);
     expect(await statusOf(waiting)).toMatchObject(RUNNING);
@@ -143,6 +148,12 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
     await expect((await queue.getJob(waiting))?.getState()).resolves.toBe('waiting');
     await expect((await queue.getJob(delayed))?.getState()).resolves.toBe('delayed');
     expect(await queue.getJob(missing)).toBeUndefined();
+
+    // 本用例故意让这两行保持 running；结算掉，避免下个用例用新随机队列时把它们当孤儿。
+    await db
+      .update(schema.evalRuns)
+      .set({ status: 'succeeded', finishedAt: new Date() })
+      .where(inArray(schema.evalRuns.id, [waiting, delayed]));
   }, 15_000);
 
   it('keeps an eval whose job is active until that worker finishes', async () => {
@@ -173,7 +184,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
       await begun;
       await expect(job.getState()).resolves.toBe('active');
 
-      await reconcileOrphanedEvalRuns(db, logger, queue);
+      expect(await reconcileOrphanedEvalRuns(db, logger, queue)).toBe(0);
       expect(await statusOf(evalRunId)).toMatchObject(RUNNING);
 
       const completed = new Promise<void>((resolve, reject) => {
@@ -188,7 +199,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
       await expect(job.getState()).resolves.toBe('completed');
 
       // job 已到终态：这一轮才该收敛。
-      expect(await reconcileOrphanedEvalRuns(db, logger, queue)).toBeGreaterThanOrEqual(1);
+      expect(await reconcileOrphanedEvalRuns(db, logger, queue)).toBe(1);
       expect(await statusOf(evalRunId)).toMatchObject(LOST);
     } finally {
       release();

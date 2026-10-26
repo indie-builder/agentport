@@ -239,6 +239,62 @@ describe('confirmed chat UX defects', () => {
     expect(host.textContent).not.toMatch(/0\.0s|0 tok|\$0\.000|NaNs/);
   });
 
+  it('keeps rendered history when a background refresh fails', async () => {
+    await mount('/chat?agent=agent-a&conversation=conversation-a');
+    expect(host.textContent).toContain('old prompt');
+
+    vi.mocked(api.conversation).mockRejectedValue(new Error('history refresh failed'));
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['conversation', 'conversation-a'] });
+    });
+    await flush();
+
+    expect(host.textContent).toContain('old prompt');
+    expect(host.textContent).toContain('history refresh failed');
+  });
+
+  it('keeps loaded history when loading an older page fails', async () => {
+    vi.mocked(api.conversation)
+      .mockResolvedValueOnce({
+        conversation: { ...terminal.conversation, createdAt: '' },
+        runMetrics: [],
+        nextBefore: 'cursor-older',
+        messages: [
+          {
+            id: 'message-a',
+            conversationId: 'conversation-a',
+            role: 'user',
+            content: 'old prompt',
+            runId: 'run-old',
+            createdAt: '',
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error('older page unavailable'));
+    await mount('/chat?agent=agent-a&conversation=conversation-a');
+    const older = [...host.querySelectorAll('button')].find(
+      (item) => item.textContent === '加载更早消息',
+    );
+    if (!older) throw new Error('Missing older history button');
+
+    await act(async () => older.click());
+    await flush();
+
+    expect(host.textContent).toContain('old prompt');
+    expect(vi.mocked(toastError)).toHaveBeenCalled();
+  });
+
+  it('shows the full-page history error only when there is no content to keep', async () => {
+    vi.mocked(api.conversation).mockRejectedValue(new Error('history unavailable'));
+    await mount('/chat?agent=agent-a&conversation=conversation-a');
+
+    expect(host.textContent).toContain('history unavailable');
+    expect(
+      [...host.querySelectorAll('button')].some((item) => item.textContent === '开始新对话'),
+    ).toBe(true);
+    expect(host.querySelector('textarea[aria-label="消息"]')).toBeNull();
+  });
+
   it('identifies ambiguous fallback approvals and their separate actions by connector', async () => {
     const approvals: ApprovalRequest[] = ['server-a', 'server-b'].map((serverId) => ({
       id: `approval-${serverId}`,

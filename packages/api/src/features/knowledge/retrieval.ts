@@ -60,10 +60,11 @@ interface SearchScope {
 /** 契约 §4.6：旧版本、禁用 chunk、非 ready 文档都不召回；文件夹/标签是附加过滤。 */
 function scopeFilter(scope: SearchScope) {
   const { baseId, query } = scope;
+  // chunk.folder_id 是写入时快照；文档移动后归属以 d.folder_id 为准。
   const folders =
     query.folders.length === 0
       ? sql``
-      : sql`and c.folder_id = any(array[${sql.join(
+      : sql`and d.folder_id = any(array[${sql.join(
           query.folders.map((folder) => sql`${folder}`),
           sql`, `,
         )}]::text[])`;

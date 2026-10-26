@@ -276,13 +276,14 @@ export function startReconciler(input: {
   const tick = (): void => {
     if (busy) return;
     busy = true;
-    inFlight = Promise.all([
+    inFlight = Promise.allSettled([
       reconcileOrphanedRuns(input.db, input.logger, input.agentTimeoutMs, queue),
       reconcileOrphanedEvalRuns(input.db, input.logger, evalQueue),
     ])
-      .then(() => undefined)
-      .catch(() => {
-        input.logger.error('reconcile failed');
+      .then((results) => {
+        if (results.some((result) => result.status === 'rejected')) {
+          input.logger.error('reconcile failed');
+        }
       })
       .finally(() => {
         busy = false;

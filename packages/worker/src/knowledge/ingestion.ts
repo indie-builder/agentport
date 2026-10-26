@@ -848,6 +848,8 @@ export async function runReindex(
       if (err instanceof KnowledgeProfileMismatch) throw err;
       failed += 1;
       deps.logger.warn({ err, documentId: document.id }, 'reindex document failed');
+      // 临时模型/解析故障保持原类型，交给队列现有分类器重试；永久失败继续汇总。
+      if (isRetryableKnowledgeError(err)) throw err;
     }
   }
   if (failed > 0) throw new Error(`${failed} 个文档重建失败，旧版本保留`);
@@ -987,15 +989,15 @@ export async function runSync(
 ): Promise<void> {
   const payload = requirePayload(job);
   if (payload.type !== 'sync') throw new Error('job 类型不是 sync');
+  // BullMQ 重试复用同一个 syncRunId：上一次尝试可能已留下终态，恢复为 running 再跑。
+  await deps.db
+    .update(schema.knowledgeSyncRuns)
+    .set({ status: 'running', endedAt: null, error: null })
+    .where(eq(schema.knowledgeSyncRuns.id, payload.syncRunId));
   const source = await repo.knowledge.getSource(deps.db, payload.sourceId);
   if (!source) throw new Error('来源不存在，可能已被删除');
   if (!SYNCABLE.has(source.status)) {
-    // job 与 sync run 用同一个 cancelled 结果，避免暂停/失权来源看起来"同步成功"。
-    await repo.knowledge.finishSyncRun(deps.db, payload.syncRunId, {
-      status: 'cancelled',
-      cursorAfter: null,
-      error: `来源状态为 ${source.status}，已跳过同步`,
-    });
+    // 终态由队列按 KnowledgeCancelled 写 cancelled，这里只表示本次不执行。
     throw new KnowledgeCancelled();
   }
   const connector = deps.connectors[source.type];
@@ -1083,6 +1085,8 @@ export async function runSync(
         if (err instanceof KnowledgeCancelled || err instanceof SourceAuthError) throw err;
         stats.failed += 1;
         deps.logger.warn({ err, sourceId: source.id, itemId: item.sourceId }, 'sync item failed');
+        // 临时模型/解析故障保持原类型，交给队列现有分类器重试；永久失败继续汇总。
+        if (isRetryableKnowledgeError(err)) throw err;
       }
       if (
         stats.listed % SYNC_CHECKPOINT_ITEMS === 0 ||
@@ -1092,16 +1096,7 @@ export async function runSync(
       }
     }
   } catch (err) {
-    if (err instanceof KnowledgeCancelled) {
-      // 取消：本范围游标不推进，run 状态与 job 的 cancelled 保持一致。
-      await repo.knowledge.finishSyncRun(deps.db, payload.syncRunId, {
-        status: 'cancelled',
-        cursorAfter: null,
-        stats,
-        error: 'cancelled',
-      });
-      throw err;
-    }
+    if (err instanceof KnowledgeCancelled) throw err;
     // 明确失权（401/403/已知飞书鉴权码）才撤权：停源 + 旧文档退出检索与 read + Wiki 显式 stale。
     // 网络、限流、超时等临时故障保持 active，可继续重试。
     const authError = err instanceof SourceAuthError;
@@ -1110,42 +1105,17 @@ export async function runSync(
       for (const document of disabled) {
         await repo.knowledge.markWikiStaleByDocument(deps.db, document.id);
       }
-      stats.disabled += disabled.length;
     }
-    // 列举失败：游标不推进、不 disable 任何文档。
-    await repo.knowledge.finishSyncRun(deps.db, payload.syncRunId, {
-      status: 'failed',
-      cursorAfter: source.cursor,
-      stats,
-      error: describeKnowledgeError(err),
-    });
-    await repo.knowledge.updateSource(deps.db, source.id, {
-      lastSyncAt: new Date(),
-      lastSyncStatus: 'failed',
-      lastError: describeKnowledgeError(err),
-      // 凭证失效时暂停来源，避免每次 cron 重复失败；其他错误保持原状态可重试。
-      ...(authError || (err instanceof KnowledgeModelError && err.kind === 'auth')
-        ? { status: 'auth_error' }
-        : {}),
-    });
+    if (authError || (err instanceof KnowledgeModelError && err.kind === 'auth')) {
+      await repo.knowledge.updateSource(deps.db, source.id, { status: 'auth_error' });
+    }
+    // job 与 sync run 的终态统一由队列写；这里保留游标与旧版本，原样抛错给队列分类。
     throw err;
   }
 
   // 单文档失败：本轮不算成功，游标停在上一次成功的位置；下轮会重新读到它。
   if (stats.failed > 0) {
-    const message = `${stats.failed} 个条目同步失败，游标未推进`;
-    await repo.knowledge.finishSyncRun(deps.db, payload.syncRunId, {
-      status: 'failed',
-      cursorAfter: source.cursor,
-      stats,
-      error: message,
-    });
-    await repo.knowledge.updateSource(deps.db, source.id, {
-      lastSyncAt: new Date(),
-      lastSyncStatus: 'failed',
-      lastError: message,
-    });
-    throw new Error(message);
+    throw new Error(`${stats.failed} 个条目同步失败，游标未推进`);
   }
 
   // 只有完整枚举（含所有 range、无单文档失败）才能推导「缺失即删除」。

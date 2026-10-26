@@ -57,7 +57,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { type Path, type PathValue, useController } from 'react-hook-form';
+import { type Control, type Path, type PathValue, useController, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import digitalTwinPortrait from '../assets/agents/digital-twin.png';
@@ -301,6 +301,28 @@ const agentFormSchema = agentInputSchema
 const agentCreateFormSchema = agentFormSchema.safeExtend({
   name: z.string().max(128, '最多 128 个字符，请精简后再保存'),
 });
+
+/** 编辑表单的 control：schema 输入类型允许中间草稿，读取时再按完整草稿断言。 */
+type AgentDraftControl = Control<z.input<typeof agentFormSchema>>;
+
+/** 根渲染真正读取的字段；systemPrompt 由独立输入组件订阅，避免逐键重渲染整页。 */
+type AgentRootFields = Pick<
+  AgentDraft,
+  | 'role'
+  | 'description'
+  | 'slug'
+  | 'model'
+  | 'effort'
+  | 'enabled'
+  | 'serverIds'
+  | 'skillIds'
+  | 'pluginBindings'
+  | 'subAgentIds'
+  | 'allowedTools'
+  | 'disallowedTools'
+  | 'permissionMode'
+  | 'uiFormat'
+>;
 
 const duplicateFormSchema = agentDuplicateInputSchema.extend({
   slug: z
@@ -935,8 +957,72 @@ export function AgentEditor({
   const [exporting, setExporting] = useState(false);
   // RHF 是唯一数据源：多行工具与思考上限保留原始文本，提交时才解析。
   const rhf = useZodForm(agentFormSchema, { defaultValues: draftFromInput(toInput(agent)) });
-  // defaultValues 完整，watch 总能拿到全部字段；类型上按完整草稿读取。
-  const form = rhf.watch() as AgentDraft;
+  // 只订阅根渲染实际读取的字段；systemPrompt 由 SystemPromptInput 自行订阅，逐键不重渲染整页。
+  const [
+    role,
+    description,
+    slug,
+    model,
+    effort,
+    enabled,
+    serverIds,
+    skillIds,
+    pluginBindings,
+    subAgentIds,
+    allowedTools,
+    disallowedTools,
+    permissionMode,
+    uiFormat,
+  ] = useWatch({
+    control: rhf.control,
+    name: [
+      'role',
+      'description',
+      'slug',
+      'model',
+      'effort',
+      'enabled',
+      'serverIds',
+      'skillIds',
+      'pluginBindings',
+      'subAgentIds',
+      'allowedTools',
+      'disallowedTools',
+      'permissionMode',
+      'uiFormat',
+    ] as const,
+  }) as [
+    AgentDraft['role'],
+    AgentDraft['description'],
+    AgentDraft['slug'],
+    AgentDraft['model'],
+    AgentDraft['effort'],
+    AgentDraft['enabled'],
+    AgentDraft['serverIds'],
+    AgentDraft['skillIds'],
+    AgentDraft['pluginBindings'],
+    AgentDraft['subAgentIds'],
+    AgentDraft['allowedTools'],
+    AgentDraft['disallowedTools'],
+    AgentDraft['permissionMode'],
+    AgentDraft['uiFormat'],
+  ];
+  const form: AgentRootFields = {
+    role,
+    description,
+    slug,
+    model,
+    effort,
+    enabled,
+    serverIds,
+    skillIds,
+    pluginBindings,
+    subAgentIds,
+    allowedTools,
+    disallowedTools,
+    permissionMode,
+    uiFormat,
+  };
   const errors = rhf.formState.errors;
   const allowedInvalid = Boolean(errors.allowedTools);
   const thinkingInvalid = Boolean(errors.maxThinkingTokens);
@@ -1090,7 +1176,9 @@ export function AgentEditor({
     [knowledgeOptions],
   );
   const setKnowledgeIds = (ids: string[]): void => {
-    serverIdsField.onChange(mergeKnowledgeIds(form.serverIds, knowledgeIds, ids));
+    serverIdsField.onChange(
+      mergeKnowledgeIds(rhf.getValues('serverIds') as AgentDraft['serverIds'], knowledgeIds, ids),
+    );
   };
 
   const boundServers = useMemo(
@@ -1142,7 +1230,12 @@ export function AgentEditor({
 
   /** 勾选插件即绑定；hooks / MCP 仍取该插件上次的授权状态（新的默认关闭）。 */
   const setPluginSelection = (pickedIds: string[]): void => {
-    const previous = new Map(form.pluginBindings.map((binding) => [binding.pluginId, binding]));
+    const previous = new Map(
+      (rhf.getValues('pluginBindings') as AgentDraft['pluginBindings']).map((binding) => [
+        binding.pluginId,
+        binding,
+      ]),
+    );
     set(
       'pluginBindings',
       pickedIds.map(
@@ -1158,7 +1251,7 @@ export function AgentEditor({
   ): void => {
     set(
       'pluginBindings',
-      form.pluginBindings.map((binding) =>
+      (rhf.getValues('pluginBindings') as AgentDraft['pluginBindings']).map((binding) =>
         binding.pluginId === pluginId ? { ...binding, [key]: value } : binding,
       ),
     );
@@ -1195,28 +1288,33 @@ export function AgentEditor({
             }`;
 
   const hasSubAgents = form.subAgentIds.length > 0;
-  const allowedTools = toolLines(form.allowedTools);
   /** 实际生效的内置工具状态：默认禁用 + 显式禁用，allowedTools 显式放行。 */
-  const builtinEnabled = (tool: string): boolean => {
+  const builtinEnabled = (
+    draft: Pick<AgentDraft, 'subAgentIds' | 'allowedTools' | 'disallowedTools'>,
+    tool: string,
+  ): boolean => {
     // runner 只要 allowSubAgents 为真就放行 Agent/TaskStop，显式禁用拦不住。
-    if ((tool === 'Agent' || tool === 'TaskStop') && hasSubAgents) return true;
-    if (form.disallowedTools.includes(tool)) return false;
-    return !DEFAULT_DISALLOWED_TOOLS.includes(tool) || allowedTools.includes(tool);
+    if ((tool === 'Agent' || tool === 'TaskStop') && draft.subAgentIds.length > 0) return true;
+    if (draft.disallowedTools.includes(tool)) return false;
+    return !DEFAULT_DISALLOWED_TOOLS.includes(tool) || toolLines(draft.allowedTools).includes(tool);
   };
 
   const toggleBuiltin = (tool: string): void => {
     // Agent/TaskStop 由子智能体绑定决定，开关不生效，避免写出误导性的 disallowedTools。
     if (tool === 'Agent' || tool === 'TaskStop') return;
-    const enabled = builtinEnabled(tool);
-    const nextTools = enabled
-      ? allowedTools.filter((item) => item !== tool)
-      : [...allowedTools, tool];
-    set('allowedTools', nextTools.join('\n'));
+    // 点击时用完整快照推导，不依赖上一次渲染的值。
+    const current = rhf.getValues() as AgentDraft;
+    const enabled = builtinEnabled(current, tool);
+    const currentTools = toolLines(current.allowedTools);
+    set(
+      'allowedTools',
+      (enabled ? currentTools.filter((item) => item !== tool) : [...currentTools, tool]).join('\n'),
+    );
     set(
       'disallowedTools',
       enabled
-        ? [...new Set([...form.disallowedTools, tool])]
-        : form.disallowedTools.filter((item) => item !== tool),
+        ? [...new Set([...current.disallowedTools, tool])]
+        : current.disallowedTools.filter((item) => item !== tool),
     );
   };
 
@@ -1294,20 +1392,7 @@ export function AgentEditor({
   );
 
   // 草稿预览与真实落盘共用 core 的渲染函数，只有 server 条目用占位符替换密钥。
-  const draft = draftFiles(inputFromDraft(form), boundServers, boundSkills, boundSubAgents);
-  const claudeDraft = draft.claudeMd;
-  const fileDraft = [
-    '// .mcp.json',
-    draft.mcpJson,
-    `// .claude/agents/${form.slug || '<slug>'}.md（主智能体，仅预览）`,
-    draft.agentMd,
-    ...(draft.subAgents.length > 0
-      ? [
-          '// 子智能体文件（各用自己的配置）',
-          ...draft.subAgents.map((sub) => `// .claude/agents/${sub.slug}.md`),
-        ]
-      : []),
-  ].join('\n');
+  // 生成推迟到预览展开后，折叠时改字段不再触发 renderWorkspace。
 
   const sectionButtonClass = (active: boolean): string =>
     cn(
@@ -1694,19 +1779,17 @@ export function AgentEditor({
                       <FieldLabel htmlFor="agent-prompt">
                         {form.role === '数字分身' ? '工作背景与表达方式' : '系统提示词'}
                       </FieldLabel>
-                      <Textarea
-                        {...rhf.register('systemPrompt')}
-                        disabled={pending}
-                        id="agent-prompt"
-                        rows={16}
-                        value={form.systemPrompt}
-                        // Keep monospace code text instead of the base prose typography.
-                        className="font-mono leading-relaxed"
-                        placeholder="描述角色、边界与工作方式"
-                      />
+                      <SystemPromptInput control={rhf.control} disabled={pending} />
                     </Field>
 
-                    <DraftPreview title="CLAUDE.md 草稿" code={claudeDraft} />
+                    <DraftPreview
+                      title="CLAUDE.md 草稿"
+                      kind="claudeMd"
+                      control={rhf.control}
+                      servers={boundServers}
+                      skills={boundSkills}
+                      subAgents={boundSubAgents}
+                    />
                   </Section>
                 ) : null}
 
@@ -2227,7 +2310,14 @@ export function AgentEditor({
                       ) : null}
                     </div>
 
-                    <DraftPreview title=".mcp.json 与 frontmatter 草稿" code={fileDraft} />
+                    <DraftPreview
+                      title=".mcp.json 与 frontmatter 草稿"
+                      kind="files"
+                      control={rhf.control}
+                      servers={boundServers}
+                      skills={boundSkills}
+                      subAgents={boundSubAgents}
+                    />
                   </Section>
                 ) : null}
 
@@ -2300,7 +2390,7 @@ export function AgentEditor({
                       <h3 className="mb-2 text-sm font-medium text-fg">内置工具</h3>
                       <div className="flex flex-wrap gap-2">
                         {BUILTIN_TOOLS.map((tool) => {
-                          const enabled = builtinEnabled(tool);
+                          const enabled = builtinEnabled(form, tool);
                           const fixed = tool === 'Agent' || tool === 'TaskStop';
                           return (
                             <Toggle
@@ -2672,8 +2762,45 @@ function Section({ id, title, children }: { id: SectionId; title: string; childr
   );
 }
 
-/** 草稿预览：折叠在表单里，内容随表单实时变化。 */
-function DraftPreview({ title, code }: { title: string; code: string }) {
+/** 系统提示词逐键只重渲染自己，根表单不再跟着每个字符渲染。 */
+function SystemPromptInput({
+  control,
+  disabled,
+}: {
+  control: AgentDraftControl;
+  disabled: boolean;
+}) {
+  const field = useController({ control, name: 'systemPrompt' }).field;
+  return (
+    <Textarea
+      {...field}
+      value={field.value}
+      disabled={disabled}
+      id="agent-prompt"
+      rows={16}
+      // Keep monospace code text instead of the base prose typography.
+      className="font-mono leading-relaxed"
+      placeholder="描述角色、边界与工作方式"
+    />
+  );
+}
+
+/** 草稿预览：折叠在表单里，展开后按当前表单值实时生成。 */
+function DraftPreview({
+  title,
+  kind,
+  control,
+  servers,
+  skills,
+  subAgents,
+}: {
+  title: string;
+  kind: 'claudeMd' | 'files';
+  control: AgentDraftControl;
+  servers: Server[];
+  skills: Parameters<typeof draftFiles>[2];
+  subAgents: Parameters<typeof draftFiles>[3];
+}) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
 
@@ -2703,7 +2830,13 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
               className="overflow-hidden"
             >
               <div className="border-t p-2">
-                <CodeBlock code={code} maxHeight="22rem" />
+                <DraftPreviewBody
+                  kind={kind}
+                  control={control}
+                  servers={servers}
+                  skills={skills}
+                  subAgents={subAgents}
+                />
               </div>
             </motion.div>
           ) : null}
@@ -2711,6 +2844,41 @@ function DraftPreview({ title, code }: { title: string; code: string }) {
       </CollapsibleContent>
     </Collapsible>
   );
+}
+
+/** 只在展开后挂载：订阅表单值并按需生成，折叠期间不执行 renderWorkspace。 */
+function DraftPreviewBody({
+  kind,
+  control,
+  servers,
+  skills,
+  subAgents,
+}: {
+  kind: 'claudeMd' | 'files';
+  control: AgentDraftControl;
+  servers: Server[];
+  skills: Parameters<typeof draftFiles>[2];
+  subAgents: Parameters<typeof draftFiles>[3];
+}) {
+  // defaultValues 完整，useWatch 总能拿到全部字段；类型上按完整草稿读取。
+  const values = useWatch({ control }) as AgentDraft;
+  const draft = draftFiles(inputFromDraft(values), servers, skills, subAgents);
+  const code =
+    kind === 'claudeMd'
+      ? draft.claudeMd
+      : [
+          '// .mcp.json',
+          draft.mcpJson,
+          `// .claude/agents/${values.slug || '<slug>'}.md（主智能体，仅预览）`,
+          draft.agentMd,
+          ...(draft.subAgents.length > 0
+            ? [
+                '// 子智能体文件（各用自己的配置）',
+                ...draft.subAgents.map((sub) => `// .claude/agents/${sub.slug}.md`),
+              ]
+            : []),
+        ].join('\n');
+  return <CodeBlock code={code} maxHeight="22rem" />;
 }
 
 /**
@@ -3143,8 +3311,12 @@ export function CreateAgentDialog({
       name: initialRole === '数字分身' ? '我的分身' : '',
     }),
   });
-  const form = rhf.watch() as AgentDraft;
-  const isTwin = form.role === '数字分身';
+  // 根只读取角色与模型；其余字段由注册的控件自行管理，逐键输入不重渲染对话框。
+  const [role, model] = useWatch({
+    control: rhf.control,
+    name: ['role', 'model'] as const,
+  }) as [AgentDraft['role'], AgentDraft['model']];
+  const isTwin = role === '数字分身';
   const errors = rhf.formState.errors;
   const roleField = useController({ control: rhf.control, name: 'role' }).field;
   const modelField = useController({ control: rhf.control, name: 'model' }).field;
@@ -3174,7 +3346,7 @@ export function CreateAgentDialog({
     });
   });
 
-  const newModelOptions = modelOptions(form.model);
+  const newModelOptions = modelOptions(model);
 
   return (
     <Dialog
@@ -3270,13 +3442,15 @@ export function CreateAgentDialog({
                 <FieldLabel htmlFor="new-agent-role">角色</FieldLabel>
                 <Select
                   disabled={create.isPending}
-                  value={form.role}
+                  value={role}
                   items={roleOptions}
                   onValueChange={(role) => {
                     if (role === null) return;
                     roleField.onChange(role);
                     if (role === '数字分身') {
-                      rhf.setValue('name', form.name || '我的分身', { shouldDirty: true });
+                      rhf.setValue('name', rhf.getValues('name') || '我的分身', {
+                        shouldDirty: true,
+                      });
                     }
                   }}
                 >
@@ -3306,7 +3480,7 @@ export function CreateAgentDialog({
             <FieldLabel htmlFor="new-agent-model">模型</FieldLabel>
             <Select
               disabled={create.isPending}
-              value={form.model}
+              value={model}
               onValueChange={(model) => {
                 if (model !== null) modelField.onChange(model);
               }}

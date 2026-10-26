@@ -19,11 +19,29 @@
       "skillPath": "skills/api-integration-surface-strategy/SKILL.md",
       "computedHash": "158a563857995efc8609a607a2e58a3af3777f2a69fc80bff407f32d2a3178fa"
     },
+    "better-auth-best-practices": {
+      "source": "better-auth/skills",
+      "sourceType": "github",
+      "skillPath": "better-auth/best-practices/SKILL.md",
+      "computedHash": "0c30be0e118c2b7a0c4c57bd9e63bf110c7e420a79ec6ce7997153f3b1e066ee"
+    },
     "cli-interface-design": {
       "source": "samber/developer-platform-skills",
       "sourceType": "github",
       "skillPath": "skills/cli-interface-design/SKILL.md",
       "computedHash": "981c21912a7071b704a2811e95e2feb636c050a1a6ddbc0664fe7d0a30ad12bc"
+    },
+    "drizzle-orm-patterns": {
+      "source": "giuseppe-trisciuoglio/developer-kit",
+      "sourceType": "github",
+      "skillPath": "plugins/developer-kit-typescript/skills/drizzle-orm-patterns/SKILL.md",
+      "computedHash": "d63e6d73a9f579b505a5694af2f3b3200c2b5eeea147e88b9b6d1e5fce23bcbb"
+    },
+    "fastify-best-practices": {
+      "source": "mcollina/skills",
+      "sourceType": "github",
+      "skillPath": "skills/fastify/SKILL.md",
+      "computedHash": "cd479b552b22493a73eabcef8804f956847c8d3d9d0aaf051ccb01d22dc3247e"
     },
     "frontend-design": {
       "source": "anthropics/skills",
@@ -43,11 +61,41 @@
       "skillPath": "skills/openui/SKILL.md",
       "computedHash": "1f2f27370f1fc69ba09e96fc9186350c641d8fb0718dc8b99d131950704e7dac"
     },
+    "pnpm": {
+      "source": "antfu/skills",
+      "sourceType": "github",
+      "skillPath": "skills/pnpm/SKILL.md",
+      "computedHash": "d1bd6f4fd38ff1ba33b857223c58a832d1cd5b488163ba0d389db449be472603"
+    },
     "public-api-design-review": {
       "source": "samber/developer-platform-skills",
       "sourceType": "github",
       "skillPath": "skills/public-api-design-review/SKILL.md",
       "computedHash": "7fdcf6a469087d667d6ea61315d319fdf1d7bb7291dcf3b81b398caf2ad805d3"
+    },
+    "react-hook-form": {
+      "source": "pproenca/dot-skills",
+      "sourceType": "github",
+      "skillPath": "skills/.curated/react-hook-form/SKILL.md",
+      "computedHash": "e9881245bb3f993f93c9fce336ca7a517ce39864aa46c95d04238fc5ebc4e4d1"
+    },
+    "react-router": {
+      "source": "tanstack/router",
+      "sourceType": "github",
+      "skillPath": "packages/react-router/skills/react-router/SKILL.md",
+      "computedHash": "4a108fd017b8098d18258311ac598a26cbd6f53a43c306319093f841420cf7e7"
+    },
+    "router-core": {
+      "source": "tanstack/router",
+      "sourceType": "github",
+      "skillPath": "packages/router-core/skills/router-core/SKILL.md",
+      "computedHash": "c5664f69b8e2fb103fcb55b70f6e974f8b24782e6dfc8d505ecb5038dedef1a5"
+    },
+    "router-query": {
+      "source": "tanstack/router",
+      "sourceType": "github",
+      "skillPath": "packages/react-router/skills/compositions/router-query/SKILL.md",
+      "computedHash": "1c1cbbc7b9aff420c55ae862a4dee119f77a43c5737b4b0e25375325d26fe516"
     },
     "shadcn": {
       "source": "shadcn-ui/ui",
@@ -67,6 +115,12 @@
       "skillPath": "plugins/frontend-mobile-development/skills/tailwind-design-system/SKILL.md",
       "computedHash": "4e5bfe5af9b5da504752432dc45ed605af350cf1489a58419afad4123a514f89"
     },
+    "tanstack-query-best-practices": {
+      "source": "deckardger/tanstack-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/tanstack-query/SKILL.md",
+      "computedHash": "8e5a7e3cdc6900c3967945658aa277629ba7b5264ddadc017ee2b76359456719"
+    },
     "test-driven-development": {
       "source": "obra/superpowers",
       "sourceType": "github",
@@ -84,6 +138,18 @@
       "sourceType": "github",
       "skillPath": "skills/verification-before-completion/SKILL.md",
       "computedHash": "b529822bdac4b197b180fe12225cff86b930b65910435103c10622df7f041651"
+    },
+    "vite": {
+      "source": "antfu/skills",
+      "sourceType": "github",
+      "skillPath": "skills/vite/SKILL.md",
+      "computedHash": "88ee465fd10f711efecc76e91e96accae2b229dda371614dcf219099c264a486"
+    },
+    "vitest": {
+      "source": "antfu/skills",
+      "sourceType": "github",
+      "skillPath": "skills/vitest/SKILL.md",
+      "computedHash": "90f1cee9326269c91b46a601b3a575491505d8e771009dacff01329381d45291"
     }
   }
 }

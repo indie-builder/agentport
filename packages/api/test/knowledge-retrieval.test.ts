@@ -65,11 +65,13 @@ async function seedDocument(input: {
   status?: 'ready' | 'disabled';
   currentVersion?: boolean;
   base?: string;
+  folderId?: string | null;
 }) {
   const targetBase = input.base ?? baseId;
+  const folderId = input.folderId ?? null;
   const document = await repo.knowledge.createDocument(db, {
     baseId: targetBase,
-    folderId: null,
+    folderId,
     title: input.title,
     sourceType: 'manual',
     sourceId: null,
@@ -96,7 +98,7 @@ async function seedDocument(input: {
     baseId: targetBase,
     documentId: document.id,
     versionId: version.id,
-    folderId: null,
+    folderId,
     chunks: input.chunks.map((chunk, ordinal) => ({
       ordinal,
       kind: 'text' as const,
@@ -333,5 +335,45 @@ describe('searchKnowledge', () => {
     } finally {
       await pool.query('delete from knowledge_bases where id = $1', [other.id]);
     }
+  });
+
+  it('移文档后按文档当前文件夹过滤，不读分块写入时的旧 folder_id', async () => {
+    const folderA = await repo.knowledge.createFolder(db, {
+      baseId,
+      parentId: null,
+      name: 'A',
+      path: '/A',
+    });
+    const folderB = await repo.knowledge.createFolder(db, {
+      baseId,
+      parentId: null,
+      name: 'B',
+      path: '/B',
+    });
+    const moved = await seedDocument({
+      title: '移动文档',
+      folderId: folderA.id,
+      chunks: [
+        { content: '令牌移动归属', searchText: '令牌 移动 归属', embedding: vectorFor('token') },
+      ],
+    });
+    await repo.knowledge.updateDocument(db, moved.document.id, { folderId: folderB.id });
+
+    const query = { q: '令牌', tags: [], limit: 20, rerank: false };
+    const inA = await searchKnowledge(
+      db,
+      baseId,
+      { ...query, folders: [folderA.id] },
+      { secretKey: SECRET_KEY },
+    );
+    expect(inA.hits.map((hit) => hit.title)).not.toContain('移动文档');
+
+    const inB = await searchKnowledge(
+      db,
+      baseId,
+      { ...query, folders: [folderB.id] },
+      { secretKey: SECRET_KEY },
+    );
+    expect(inB.hits.map((hit) => hit.title)).toContain('移动文档');
   });
 });
