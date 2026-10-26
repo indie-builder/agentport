@@ -68,8 +68,8 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
 
   const out: OpenUiToolRow[] = [];
   for (const server of rows) {
-    // 查询已限定 http/generated；类型收窄只为了去掉 union 里的 stdio。
-    if (server.kind === 'stdio') continue;
+    // 查询已限定 http/generated；白名单收窄同时挡掉 stdio/knowledge（知识库只读 MCP，不进 OpenUI 工具目录）。
+    if (server.kind !== 'http' && server.kind !== 'generated') continue;
     const tools =
       server.kind === 'generated'
         ? generatedTools

@@ -25,7 +25,7 @@ async function newAgent(allowedTools: string[] = [], disallowedTools: string[] =
   return id;
 }
 
-async function newServer(kind: 'stdio' | 'http' | 'generated', name: string) {
+async function newServer(kind: 'stdio' | 'http' | 'generated' | 'knowledge', name: string) {
   const id = newId('server');
   serverIds.push(id);
   await db.insert(schema.servers).values({
@@ -47,7 +47,9 @@ async function newServer(kind: 'stdio' | 'http' | 'generated', name: string) {
                 },
               ],
             }
-          : { baseUrl: 'https://example.com', mcpToken: 'token' },
+          : kind === 'knowledge'
+            ? { knowledgeBaseId: 'kb-test' }
+            : { baseUrl: 'https://example.com', mcpToken: 'token' },
     secretsEncrypted: null,
   });
   return id;
@@ -95,6 +97,14 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
       `mcp__oui-gen-${agentId.slice(4)}__create-user`,
       `mcp__oui-http-${agentId.slice(4)}__search`,
     ]);
+  });
+
+  it('excludes bound knowledge servers from the OpenUI tool catalog', async () => {
+    const agentId = await newAgent();
+    const serverId = await newServer('knowledge', `oui-kb-${agentId.slice(4)}`);
+    await bind(agentId, serverId);
+
+    expect(await repo.openui.listOpenUiTools(db, agentId)).toEqual([]);
   });
 
   it('drops disabled generated tools', async () => {

@@ -132,14 +132,15 @@ _compose_running_service() {
 }
 
 _compose_volume_name() {
-  local json
+  local key="$1" json
   json="$(compose config --format json 2>/dev/null)" || return 1
-  printf '%s' "$json" | node -e '
+  printf '%s' "$json" | KEY="$key" node -e '
 let s = "";
 process.stdin.on("data", (d) => (s += d)).on("end", () => {
   const config = JSON.parse(s);
-  const volume = (config.volumes || {}).workspaces || {};
-  const name = volume.name || (config.name ? `${config.name}_workspaces` : "");
+  const key = process.env.KEY;
+  const volume = (config.volumes || {})[key] || {};
+  const name = volume.name || (config.name ? `${config.name}_${key}` : "");
   if (!name) process.exit(1);
   process.stdout.write(name);
 });
@@ -175,7 +176,7 @@ resolve_workspaces() {
       WS_MODE=exec
       return 0
     fi
-    vol="$(_compose_volume_name || true)"
+    vol="$(_compose_volume_name workspaces || true)"
     [ -n "$vol" ] || vol="agentport_workspaces"
     if docker volume inspect "$vol" >/dev/null 2>&1; then
       mount="$(docker volume inspect "$vol" --format '{{.Mountpoint}}' 2>/dev/null || true)"
@@ -249,13 +250,37 @@ ok=0
 fail() {
   ok=1
   echo "workspace swap failed: $1" >&2
-  # 尽力回滚：只把已经搬走的旧内容放回原位。绝不把线上目录移进 staging ——
-  # cp -a 阶段失败时 staging 里已有同名目录，mv 会嵌套后随 rm 一起删掉线上数据。
+  # 回滚：先撤已换入的新项，再放回旧项。顺序不能反 —— 新项还在时回搬同名旧目录
+  # 会嵌进新目录（blobs/blobs/old），随后的清理会把唯一旧副本一起删掉。
+  # 也绝不把线上目录移进 staging：cp -a 失败时那里已有同名目录。
+  kept=''
+  if [ -f "$staging/.swapped" ]; then
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      # run_* 已从 holding 搬进新目录的，先搬回 holding 再删新目录：安全副本不含 run_*，
+      # 它们没有第二份。
+      bad=0
+      if [ -d "$holding/$name" ]; then
+        for run in "$ROOT/$name"/run_*; do
+          [ -e "$run" ] || continue
+          mv "$run" "$holding/$name/${run##*/}" 2>/dev/null || { kept="$kept $run"; bad=1; }
+        done
+      fi
+      if [ "$bad" = 0 ]; then rm -rf "$ROOT/$name"; fi
+    done <"$staging/.swapped"
+  fi
   for old in "$holding"/*; do
     [ -e "$old" ] || continue
-    mv "$old" "$ROOT/${old##*/}" 2>/dev/null || true
+    name=${old##*/}
+    [ ! -e "$ROOT/$name" ] && mv "$old" "$ROOT/$name" 2>/dev/null || kept="$kept $old"
   done
-  rm -rf "$staging" "$holding" 2>/dev/null || true
+  rm -rf "$staging"
+  # 旧内容没能完全放回时保留 holding：这是回滚后仅存的旧副本。
+  if [ -n "$kept" ]; then
+    echo "workspace swap rollback incomplete; old files kept in:$kept" >&2
+    exit 1
+  fi
+  rm -rf "$holding" 2>/dev/null || true
   exit 1
 }
 trap '[ "$ok" = 1 ] || fail "aborted"' EXIT
@@ -272,7 +297,9 @@ for old in "$ROOT"/*; do
 done
 for new in "$staging"/*; do
   [ -e "$new" ] || continue
-  mv "$new" "$ROOT/${new##*/}"
+  name=${new##*/}
+  mv "$new" "$ROOT/$name"
+  printf '%s\n' "$name" >>"$staging/.swapped"
 done
 for old in "$holding"/*; do
   [ -e "$old" ] || continue
@@ -313,6 +340,136 @@ ws_swap() {
   esac
 }
 
+# 知识库与工作区同一套暂存/换入/回滚；容器卷靠一次性容器执行脚本。
+knowledge_swap() {
+  local src="$1" dest="$2" script ts src_abs
+  script="$(ws_swap_script)"
+  ts="$(now_ts)"
+  case "$KN_MODE" in
+    host)
+      mkdir -p "$dest"
+      SRC="$src" ROOT="$dest" TS="$ts" sh -c "$script"
+      ;;
+    run)
+      src_abs="$(cd "$src" && pwd)"
+      compose run --rm --no-deps -T \
+        -v "$src_abs:/in:ro" \
+        -e "SRC=/in" -e "ROOT=$KNOWLEDGE_CONTAINER_DIR" -e "TS=$ts" \
+        --entrypoint sh "$KN_SERVICE" -c "$script"
+      ;;
+    *)
+      die "stop api/worker before restoring files (knowledge storage is in use)"
+      ;;
+  esac
+}
+
+# ── 知识库目录 ─────────────────────────────────────────────────
+# 原件 blob 与解析产物。宿主直跑时是 KNOWLEDGE_DIR；compose 部署把它挂成
+# knowledgedata 命名卷。宿主读不到卷目录（macOS Docker Desktop）时，与工作区
+# 一样改用 docker compose exec/run 在容器里读写，不假定卷路径在宿主可见。
+# 顺序：BACKUP_KNOWLEDGE_DIR > compose 卷 > KNOWLEDGE_DIR 环境变量 > .env 的
+# KNOWLEDGE_DIR（默认 ./data/knowledge）。环境变量只是应用配置，compose 部署里
+# 它被覆盖成 /knowledge，不能让宿主残留目录抢走卷里的数据。
+# 卷已存在却读不到时必须失败：那是已配置的数据，不是「没有知识库」。
+KN_MODE=''
+KN_PATH=''
+KN_SERVICE=''
+KNOWLEDGE_CONTAINER_DIR="${KNOWLEDGE_CONTAINER_DIR:-/knowledge}"
+resolve_knowledge() {
+  local cand="${BACKUP_KNOWLEDGE_DIR:-}" file vol mount
+  if [ -n "$cand" ]; then
+    case "$cand" in /*) ;; *) cand="$ROOT/$cand" ;; esac
+    KN_MODE=host
+    KN_PATH="$cand"
+    return 0
+  fi
+  if compose_available; then
+    vol="$(_compose_volume_name knowledgedata 2>/dev/null || true)"
+    [ -n "$vol" ] || vol="agentport_knowledgedata"
+    if docker volume inspect "$vol" >/dev/null 2>&1; then
+      mount="$(docker volume inspect "$vol" --format '{{.Mountpoint}}' 2>/dev/null || true)"
+      if [ -n "$mount" ] && [ -d "$mount" ] && [ -r "$mount" ]; then
+        KN_MODE=host
+        KN_PATH="$mount"
+        return 0
+      fi
+      if KN_SERVICE="$(_compose_running_service)"; then
+        KN_MODE=exec
+      else
+        KN_MODE=run
+        KN_SERVICE="$(compose config --services 2>/dev/null | grep -x api | head -1)"
+        [ -n "$KN_SERVICE" ] || KN_SERVICE=api
+      fi
+      return 0
+    fi
+  fi
+  cand="${KNOWLEDGE_DIR:-}"
+  if [ -z "$cand" ]; then
+    file="${BACKUP_ENV_FILE:-$ROOT/.env}"
+    if [ -f "$file" ]; then
+      cand="$(sed -n 's/^KNOWLEDGE_DIR=//p' "$file" | tail -n 1)"
+      cand="${cand%\"}"; cand="${cand#\"}"
+      cand="${cand%\'}"; cand="${cand#\'}"
+    fi
+  fi
+  [ -n "$cand" ] || cand="$ROOT/data/knowledge"
+  case "$cand" in /*) ;; *) cand="$ROOT/$cand" ;; esac
+  KN_MODE=host
+  KN_PATH="$cand"
+}
+
+# 容器里数文件：find 失败必须让整条命令失败，不能被 wc 的 0 吞掉。
+_kn_count_script() {
+  printf '%s' "if [ ! -d '$KNOWLEDGE_CONTAINER_DIR' ]; then echo 0; exit 0; fi
+t=\$(mktemp) || exit 1
+find '$KNOWLEDGE_CONTAINER_DIR' -type f >\"\$t\" || { rm -f \"\$t\"; exit 1; }
+wc -l <\"\$t\"
+rm -f \"\$t\""
+}
+
+# 知识库文件数：目录不存在算 0；真正的读取失败返回非零，调用方必须中止，
+# 不能把「卷已配置但读不到」伪装成「没有知识库」。
+knowledge_file_count() {
+  local out list
+  case "$KN_MODE" in
+    host)
+      [ -d "$KN_PATH" ] || { printf 0; return 0; }
+      list="$(mktemp "${TMPDIR:-/tmp}/kn-list.XXXXXX")" || return 1
+      # find 在任一层目录读不了时非零退出；不能把权限错误当成空目录。
+      if ! find "$KN_PATH" -type f >"$list" 2>/dev/null; then rm -f "$list"; return 1; fi
+      out="$(wc -l <"$list" | tr -d ' ')"
+      rm -f "$list"
+      printf '%s' "$out"
+      ;;
+    exec)
+      out="$(compose exec -T "$KN_SERVICE" sh -c "$(_kn_count_script)")" || return 1
+      printf '%s' "$out" | tr -d '[:space:]'
+      ;;
+    run)
+      out="$(compose run --rm --no-deps -T --entrypoint sh "$KN_SERVICE" -c "$(_kn_count_script)")" || return 1
+      printf '%s' "$out" | tr -d '[:space:]'
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+knowledge_tar_out() {
+  # 与工作区一致：中断的恢复留下的 .restore-* 临时目录不是数据。
+  case "$KN_MODE" in
+    host) tar -C "$KN_PATH" -cf - --exclude='./.restore-*' . ;;
+    exec)
+      compose exec -T "$KN_SERVICE" tar -C "$KNOWLEDGE_CONTAINER_DIR" -cf - \
+        --exclude='./.restore-*' .
+      ;;
+    run)
+      compose run --rm --no-deps -T --entrypoint tar "$KN_SERVICE" \
+        -C "$KNOWLEDGE_CONTAINER_DIR" -cf - \
+        --exclude='./.restore-*' .
+      ;;
+    *) die "knowledge not resolved" ;;
+  esac
+}
+
 # ── 归档校验（真实信任边界）───────────────────────────────────
 # 只接受本格式：manifest.json / database.dump / env / workspaces/**；
 # 拒绝绝对路径、..、控制字符、重复成员、符号链接/硬链接/设备文件。
@@ -331,7 +488,7 @@ normalize_member() {
     *//* | */../* | */./*) return 1 ;;
   esac
   case "${name%%/*}" in
-    manifest.json | database.dump | env | workspaces) ;;
+    manifest.json | database.dump | env | workspaces | knowledge) ;;
     *) return 1 ;;
   esac
   printf '%s' "$name"
@@ -352,18 +509,23 @@ const num = (v) => (Number.isInteger(v) && v >= 0 ? String(v) : "");
 const db = m.database || {};
 const env = m.env || {};
 const ws = m.workspaces || {};
+// knowledge: 缺失（旧归档）或 null 都表示没有知识库；对象表示有内容。
+const kn = m.knowledge === null || m.knowledge === undefined ? null : m.knowledge;
+const knFlag = m.knowledge === undefined ? "" : kn === null ? "0" : "1";
+const k = kn || {};
 process.stdout.write(
-  [str(m.format), num(m.version), str(db.sha256), num(db.bytes), str(env.sha256), num(env.bytes), str(ws.sha256), num(ws.files), num(ws.bytes)].join("\u001f"),
+  [str(m.format), num(m.version), str(db.sha256), num(db.bytes), str(env.sha256), num(env.bytes), str(ws.sha256), num(ws.files), num(ws.bytes), knFlag, str(k.sha256), num(k.files), num(k.bytes)].join("\u001f"),
 );
 ' "$1"
 }
 
 # 归档清单：只记录格式版本与校验值，不写 DATABASE_URL 或任何秘密。
+# knowledge 传空串表示本次没有知识库内容，清单写 null。
 write_manifest() {
-  local file="$1" db="$2" envfile="$3" ws="$4" safety="${5:-}"
+  local file="$1" db="$2" envfile="$3" ws="$4" safety="${5:-}" kn="${6:-}"
   SAFETY_OF="$safety" node -e '
 const fs = require("node:fs");
-const [file, format, version, dbSha, dbBytes, envSha, envBytes, wsSha, wsFiles, wsBytes, safetyOf] = process.argv.slice(1);
+const [file, format, version, dbSha, dbBytes, envSha, envBytes, wsSha, wsFiles, wsBytes, safetyOf, knSha, knFiles, knBytes, knPresent] = process.argv.slice(1);
 const manifest = {
   format,
   version: Number(version),
@@ -372,6 +534,7 @@ const manifest = {
   database: { sha256: dbSha, bytes: Number(dbBytes) },
   env: { sha256: envSha, bytes: Number(envBytes) },
   workspaces: { sha256: wsSha, files: Number(wsFiles), bytes: Number(wsBytes) },
+  knowledge: knPresent === "1" ? { sha256: knSha, files: Number(knFiles), bytes: Number(knBytes) } : null,
 };
 if (safetyOf) manifest.safetyCopyOf = safetyOf;
 fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
@@ -381,7 +544,11 @@ fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 }
     "$(workspaces_sha256 "$ws")" \
     "$(workspace_file_count "$ws")" \
     "$(find "$ws" -type f -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')" \
-    "$safety"
+    "$safety" \
+    "${kn:+$(workspaces_sha256 "$kn")}" \
+    "${kn:+$(workspace_file_count "$kn")}" \
+    "${kn:+$(find "$kn" -type f -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')}" \
+    "${kn:+1}"
 }
 
 M_FORMAT=''
@@ -393,6 +560,10 @@ M_ENV_BYTES=''
 M_WS_SHA=''
 M_WS_FILES=''
 M_WS_BYTES=''
+M_KN_FLAG=''
+M_KN_SHA=''
+M_KN_FILES=''
+M_KN_BYTES=''
 
 is_sha256() {
   [ "${#1}" -eq 64 ] || return 1
@@ -400,7 +571,7 @@ is_sha256() {
 }
 
 validate_archive() {
-  local archive="$1" list types norm bad dup manifest fields
+  local archive="$1" list types norm bad dup manifest fields has_kn
   [ -f "$archive" ] || {
     log "backup not found: $archive"
     return 1
@@ -467,8 +638,10 @@ validate_archive() {
     log "archive rejected: manifest.json is not valid JSON"
     return 1
   }
+  has_kn=0
+  if grep -q '^knowledge' "$norm"; then has_kn=1; fi
   rm -f "$list" "$types" "$norm" "$manifest"
-  IFS=$'\x1f' read -r M_FORMAT M_VERSION M_DB_SHA M_DB_BYTES M_ENV_SHA M_ENV_BYTES M_WS_SHA M_WS_FILES M_WS_BYTES <<<"$fields"
+  IFS=$'\x1f' read -r M_FORMAT M_VERSION M_DB_SHA M_DB_BYTES M_ENV_SHA M_ENV_BYTES M_WS_SHA M_WS_FILES M_WS_BYTES M_KN_FLAG M_KN_SHA M_KN_FILES M_KN_BYTES <<<"$fields"
   if [ "$M_FORMAT" != "$BACKUP_FORMAT" ] || [ "$M_VERSION" != "$BACKUP_VERSION" ]; then
     log "archive rejected: unsupported format (expected $BACKUP_FORMAT@$BACKUP_VERSION)"
     return 1
@@ -479,20 +652,55 @@ validate_archive() {
     log "archive rejected: manifest fields are invalid"
     return 1
   fi
+  if [ "$M_KN_FLAG" = 1 ]; then
+    if ! is_sha256 "$M_KN_SHA" || [ -z "$M_KN_FILES" ] || [ -z "$M_KN_BYTES" ]; then
+      log "archive rejected: manifest fields are invalid"
+      return 1
+    fi
+    [ "$has_kn" = 1 ] || {
+      log "archive rejected: manifest lists knowledge but the archive has no knowledge/"
+      return 1
+    }
+  else
+    M_KN_SHA=''; M_KN_FILES=''; M_KN_BYTES=0
+    # knowledge 可选：清单说没有（或旧格式没有该字段）时归档里也不该出现。
+    [ "$has_kn" = 0 ] || {
+      log "archive rejected: archive contains knowledge/ but the manifest has none"
+      return 1
+    }
+  fi
   if [ "$M_DB_BYTES" -le 0 ] || [ "$M_ENV_BYTES" -le 0 ] || [ "$M_ENV_BYTES" -gt "$MAX_ENV_BYTES" ]; then
     log "archive rejected: manifest sizes are out of range"
     return 1
   fi
-  if [ "$((M_DB_BYTES + M_ENV_BYTES + M_WS_BYTES))" -gt "$MAX_RESTORE_BYTES" ]; then
+  if [ "$((M_DB_BYTES + M_ENV_BYTES + M_WS_BYTES + M_KN_BYTES))" -gt "$MAX_RESTORE_BYTES" ]; then
     log "archive rejected: manifest size exceeds MAX_RESTORE_BYTES ($MAX_RESTORE_BYTES)"
     return 1
   fi
   return 0
 }
 
+# 目录内容指纹（工作区与知识库共用）：文件数 + 总字节 + 路径/内容有序哈希。
+verify_dir() {
+  local dir="$1" files="$2" bytes="$3" sha="$4" label="$5" total
+  [ "$(workspace_file_count "$dir")" = "$files" ] || {
+    log "archive rejected: $label file count mismatch"
+    return 1
+  }
+  total="$(find "$dir" -type f -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')"
+  if [ "$total" != "$bytes" ]; then
+    log "archive rejected: $label size mismatch"
+    return 1
+  fi
+  [ "$(workspaces_sha256 "$dir")" = "$sha" ] || {
+    log "archive rejected: $label content checksum mismatch"
+    return 1
+  }
+}
+
 # 解压后逐项核对 manifest，防截断/替换。
 verify_tree() {
-  local stage="$1" db="$1/database.dump" env="$1/env" ws="$1/workspaces" total
+  local stage="$1" db="$1/database.dump" env="$1/env" ws="$1/workspaces" kn="$1/knowledge"
   [ -f "$db" ] && [ -f "$env" ] && [ -d "$ws" ] || {
     log "archive rejected: expected files are missing after extraction"
     return 1
@@ -517,19 +725,20 @@ verify_tree() {
     log "archive rejected: env size mismatch"
     return 1
   }
-  [ "$(workspace_file_count "$ws")" = "$M_WS_FILES" ] || {
-    log "archive rejected: workspace file count mismatch"
-    return 1
-  }
-  total="$(find "$ws" -type f -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')"
-  if [ "$total" != "$M_WS_BYTES" ]; then
-    log "archive rejected: workspace size mismatch"
-    return 1
+  verify_dir "$ws" "$M_WS_FILES" "$M_WS_BYTES" "$M_WS_SHA" workspace || return 1
+  if [ -n "$M_KN_SHA" ]; then
+    [ -d "$kn" ] || {
+      log "archive rejected: knowledge/ is missing after extraction"
+      return 1
+    }
+    if find "$kn" -type l | grep -q .; then
+      log "archive rejected: symlink left in knowledge"
+      return 1
+    fi
+    verify_dir "$kn" "$M_KN_FILES" "$M_KN_BYTES" "$M_KN_SHA" knowledge || return 1
+    find "$kn" -type d -exec chmod 700 {} \;
+    find "$kn" -type f -exec chmod 600 {} \;
   fi
-  [ "$(workspaces_sha256 "$ws")" = "$M_WS_SHA" ] || {
-    log "archive rejected: workspace content checksum mismatch"
-    return 1
-  }
   chmod 600 "$db" "$env"
   find "$ws" -type d -exec chmod 700 {} \;
   find "$ws" -type f -exec chmod 600 {} \;

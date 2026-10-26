@@ -66,3 +66,14 @@ export const runDetailSearchSchema = z.object({
 export const evalSearchSchema = z.object({
   agent: z.string().optional().catch(undefined),
 });
+
+export const knowledgeSearchSchema = resourceSearchSchema;
+
+const knowledgeTabs = ['documents', 'search', 'wiki', 'sources', 'jobs'] as const;
+
+/** 知识库详情：分区、Wiki 页面与文件夹都进 URL，刷新与分享后回到同一视图。 */
+export const knowledgeDetailSearchSchema = z.object({
+  panel: z.enum(knowledgeTabs).optional().catch(undefined),
+  page: z.string().optional().catch(undefined),
+  folder: z.string().optional().catch(undefined),
+});

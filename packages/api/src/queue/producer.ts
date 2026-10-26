@@ -2,6 +2,9 @@ import type { AgentRunJob, ChatEvent, EvalRunJob } from '@agentport/shared';
 import {
   chatEventSchema,
   EVAL_RUNS_QUEUE,
+  KNOWLEDGE_CANCEL_PAYLOAD,
+  KNOWLEDGE_JOBS_QUEUE,
+  knowledgeCancelKey,
   RUN_CANCEL_PAYLOAD,
   RUN_STREAM_MAXLEN,
   RUNS_QUEUE,
@@ -111,6 +114,7 @@ function logRedisError(err: Error): void {
 
 let queue: Queue<AgentRunJob> | undefined;
 let evalQueue: Queue<EvalRunJob> | undefined;
+let knowledgeQueue: Queue<{ jobId: string }> | undefined;
 let client: Redis | undefined;
 
 export function getQueue(): Queue<AgentRunJob> {
@@ -129,12 +133,33 @@ export function getEvalQueue(): Queue<EvalRunJob> {
   return evalQueue;
 }
 
+/** 知识任务独立队列：与聊天 run 分开消费，不占 run 并发、不进运行历史。 */
+export function getKnowledgeQueue(): Queue<{ jobId: string }> {
+  if (!knowledgeQueue) {
+    knowledgeQueue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
+      connection: { url: REDIS_URL },
+    });
+    knowledgeQueue.on('error', logRedisError);
+  }
+  return knowledgeQueue;
+}
+
 function getClient(): Redis {
   if (!client) {
     client = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
     client.on('error', logRedisError);
   }
   return client;
+}
+
+/** 运行中的知识任务：worker 每秒轮询该键，非空即 abort；键由 worker 收尾时删除。 */
+export async function publishKnowledgeCancel(jobId: string): Promise<void> {
+  await getClient().set(
+    knowledgeCancelKey(jobId),
+    KNOWLEDGE_CANCEL_PAYLOAD,
+    'EX',
+    STREAM_TTL_SECONDS,
+  );
 }
 
 function parseEvent(payload: string): ChatEvent | null {
@@ -288,14 +313,16 @@ export async function subscribeRun(
 }
 
 export async function closeProducer(): Promise<void> {
-  const closing = [queue, evalQueue, client] as const;
+  const closing = [queue, evalQueue, knowledgeQueue, client] as const;
   queue = undefined;
   evalQueue = undefined;
+  knowledgeQueue = undefined;
   client = undefined;
   await Promise.allSettled([
     closing[0]?.close(),
     closing[1]?.close(),
-    closing[2]?.quit(),
+    closing[2]?.close(),
+    closing[3]?.quit(),
     ...[...subscriptions.values()].map((close) => close()),
   ]);
   subscriptions.clear();

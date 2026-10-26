@@ -39,6 +39,21 @@ const state = vi.hoisted(() => ({
   saving: false,
   creating: false,
   skillsError: false,
+  servers: [] as Array<{
+    id: string;
+    name: string;
+    kind: string;
+    url: string;
+    headers: Record<string, string>;
+  }>,
+  knowledgeBases: [] as Array<{
+    id: string;
+    serverId: string;
+    name: string;
+    slug: string;
+    status: string;
+    updatedAt: string;
+  }>,
   detail: {} as { isPending: boolean; isError: boolean; data?: unknown },
   rollback: vi.fn(),
   retry: vi.fn(),
@@ -54,7 +69,8 @@ const state = vi.hoisted(() => ({
 vi.mock('../src/lib/queries.js', () => ({
   useAgents: () => ({ data: state.agents }),
   useAgent: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
-  useServers: () => ({ data: [] }),
+  useServers: () => ({ data: state.servers }),
+  useKnowledgeBases: () => ({ data: state.knowledgeBases, isPending: false, isError: false }),
   usePlugins: () => ({ data: [], isPending: false, isError: false, status: 'success' }),
   useSkills: () => ({
     isError: state.skillsError,
@@ -84,6 +100,7 @@ vi.mock('../src/lib/queries.js', () => ({
 }));
 vi.mock('@tanstack/react-query', () => ({ useQueries: () => [], useQueryClient: () => ({}) }));
 vi.mock('@tanstack/react-router', () => ({
+  Link: 'a',
   useBlocker: (options: (typeof state.blockerOptions)[number]) => {
     state.blockerOptions.push(options);
     return { status: state.blockerStatus, proceed: state.proceed, reset: state.reset };
@@ -195,6 +212,8 @@ beforeEach(() => {
   state.saving = false;
   state.creating = false;
   state.skillsError = false;
+  state.servers = [];
+  state.knowledgeBases = [];
   state.detail = { isPending: false, isError: false };
   state.blockerOptions = [];
   state.blockerStatus = 'idle';
@@ -508,6 +527,69 @@ describe('expert editor regressions', () => {
       );
       if (pass === 1) (picker.props.onValueChange as (items: unknown[]) => void)(items);
     });
+  });
+
+  it('retains knowledge and plugin bindings when changing ordinary connectors', async () => {
+    state.servers = [
+      {
+        id: 'connector',
+        name: 'Connector',
+        kind: 'http',
+        url: 'https://example.com/mcp',
+        headers: {},
+      },
+    ];
+    state.knowledgeBases = [
+      {
+        id: 'base',
+        serverId: 'knowledge-server',
+        name: 'Knowledge',
+        slug: 'knowledge',
+        status: 'active',
+        updatedAt: parent.updatedAt,
+      },
+    ];
+    const configured = {
+      ...parent,
+      serverIds: ['knowledge-server'],
+      pluginBindings: [{ pluginId: 'plugin', allowHooks: true, allowMcp: false }],
+    };
+    await inspect(
+      () =>
+        AgentEditor({
+          agent: configured,
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
+      async (tree, pass) => {
+        if (pass === 0) {
+          selectSection(tree, '能力');
+          return true;
+        }
+        if (pass === 1) {
+          const picker = tree.find(
+            (node) =>
+              node.type === Combobox &&
+              (node.props.items as Array<{ id: string }>).some((item) => item.id === 'connector'),
+          );
+          if (!picker) throw new Error('Missing connector picker');
+          (picker.props.onValueChange as (items: unknown[]) => void)(
+            picker.props.items as unknown[],
+          );
+          return true;
+        }
+        const form = tree.find((node) => node.type === 'form');
+        if (!form) throw new Error('Missing editor form');
+        await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+        expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+          input: {
+            serverIds: ['knowledge-server', 'connector'],
+            pluginBindings: configured.pluginBindings,
+          },
+        });
+      },
+    );
   });
 
   it('provides retry when skills cannot be loaded', async () => {

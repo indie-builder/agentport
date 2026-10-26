@@ -1,7 +1,7 @@
 # Agentport · 智能体平台 · 项目简报
 
-> 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [HANDOFF.md](HANDOFF.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
-> 最后更新：2026-10-20
+> 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [HANDOFF.md](HANDOFF.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
+> 最后更新：2026-10-20；2026-10-25 仅补知识库与 pgvector 相关段落，其余选型结论保持原样。
 > 项目名：**Agentport**（展示名 AgentPort，中文「智能体港」）
 > 包前缀：`@agentport/*`
 > 本文是该项目的唯一需求基线。项目改名后，本文继续有效；改名只影响仓库名与包名，不影响任何结论。
@@ -49,6 +49,7 @@
 
 - 至少有一个**页面用来配置 MCP Server**。
 - 用户不确定「该配 MCP Server 还是还要配 MCP Client」，需要项目给出明确答案。
+- 后续追加（D-9）：知识库作为与专家/技能/连接器/插件并列的资源页签（`/knowledge`）。
 
 ### 1.5 智能体定义方式
 
@@ -140,7 +141,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | Schema 校验 + 类型推导 | zod 4 + fastify-type-provider-zod | 4.6.7 / 7.0.0 |
 | ORM | Drizzle ORM | 0.45.4 |
 | 迁移工具 | drizzle-kit | 0.31.11 |
-| 数据库 | PostgreSQL | 镜像 `postgres:18-alpine`（已验证存在） |
+| 数据库 | PostgreSQL | 镜像 `pgvector/pgvector:pg18`（基于 PostgreSQL 18，内置 vector 扩展） |
 | PG 驱动 | pg | 8.23.1 |
 | 连接池 | pg 内置 Pool | — |
 | 日志 | pino | 10.4.0 |
@@ -258,12 +259,14 @@ shared  ◀── web
 ```
 浏览器 ──HTTP/SSE──▶ api (Fastify)
                        │
-                       ├─▶ PostgreSQL      配置、会话、消息、审计
+                       ├─▶ PostgreSQL      配置、会话、消息、审计、知识索引（pgvector）
                        ├─▶ Redis           BullMQ 队列、限流、缓存
-                       └─▶ /mcp/:serverId  动态 MCP 端点（HTTP→MCP 的产物）
+                       ├─▶ /mcp/:serverId  动态 MCP 端点（HTTP→MCP 的产物；含内置知识连接）
+                       └─▶ /knowledge      知识原件与解析产物（api 写入、worker 读取的持久卷）
 
-worker ──消费 agent-runs──▶ Sandbox (容器/microVM)
+worker ──消费 agent-runs / knowledge-jobs──▶ Sandbox (容器/microVM)
    │                              │
+   ├─▶ 知识任务：解析 → 分块 → embedding → 切版本（不进入沙盒）
    └─▶ 渲染工作区到宿主机卷 ──────┘ 挂载进沙盒
                                   └─▶ 容器内 runner → Agent SDK → claude CLI
                                         └─▶ MCP 工具调用 ──▶ api /mcp/:serverId
@@ -289,7 +292,7 @@ worker ──消费 agent-runs──▶ Sandbox (容器/microVM)
 - 「测试连接」和智能体调用走**完全相同**的端点，因此测通即调通。
 - 生成的是标准 MCP 端点，其他 host（Claude Code、其他客户端）也能直接连。
 
-### 4.4 三类 MCP Server 在 `.mcp.json` 中的统一表达
+### 4.4 MCP Server 在 `.mcp.json` 中的统一表达
 
 ```jsonc
 {
@@ -303,6 +306,8 @@ worker ──消费 agent-runs──▶ Sandbox (容器/microVM)
 
 > 沙盒内访问平台用 `SANDBOX_API_URL`（默认 `http://host.docker.internal:3000`）；compose 已把它显式设为该值（见 §6.5）。
 
+知识库也遵循同一官方表达：平台为每个知识库自动生成一个 `servers.kind='knowledge'` 的内部连接，运行时在 `.mcp.json` 里写成标准 `http` 条目（`/mcp/<serverId>` + run 短期 token）。这个 kind 只存在于数据库与读路径，**不进入用户可提交的 `serverInputSchema`**，因此不能通过创建/导入伪造，也不出现在 `/api/servers` 列表。知识正文、索引和 Wiki 都是平台内容资源，不写进 `.claude/` 目录。
+
 ---
 
 ## 5. 数据模型
@@ -311,7 +316,7 @@ worker ──消费 agent-runs──▶ Sandbox (容器/microVM)
 servers(
   id text pk                 -- TypeID，如 srv_/agt_/run_,
   name text unique,
-  kind text check (kind in ('stdio','http')),
+  kind text check (kind in ('stdio','http','generated','knowledge')),  -- knowledge 仅平台内部写
   config jsonb,              -- command/args/url/headers 等非敏感字段
   secrets_encrypted bytea,   -- AES-256-GCM：env、Authorization 等
   created_at timestamptz,
@@ -384,6 +389,34 @@ audit_log(
   created_at timestamptz
 )
 ```
+
+知识库是一组独立的内容表，不挂在专家定义下（字段契约见 [ARCHITECTURE.md §6.1](ARCHITECTURE.md#61-存储与数据模型)）：
+
+```sql
+knowledge_bases      (id, slug unique, name, description, status, server_id unique fk,
+                      embedding_profile_id fk, rerank_profile_id fk, settings jsonb)
+knowledge_folders    (id, base_id fk, parent_id fk, name, path)          -- 物化路径 /a/b
+knowledge_tags / knowledge_document_tags                                 -- 文档标签
+knowledge_documents  (id, base_id, folder_id, title,
+                      source_type check in (upload,url,feishu_wiki,feishu_drive,gitlab,feed,manual),
+                      source_id, source_url, mime_type, status, current_version_id, content_hash, metadata)
+knowledge_document_versions (id, document_id, version, blob_sha256, markdown_sha256,
+                      source_revision, parse_status, page_map, images, embedding_profile_id)
+knowledge_chunks     (id, base_id, document_id, version_id, folder_id, ordinal, kind, heading,
+                      content, search_text, search_vector generated, embedding vector(1024),
+                      enabled, edited_by_user, page_from, page_to)
+knowledge_sources    (id, base_id, type check in (feishu_wiki,feishu_drive,gitlab,feed),
+                      name, config, secrets_encrypted, status, sync_cron, cursor)
+knowledge_source_ranges (id, source_id, kind, external_id, ref, paths, enabled)
+knowledge_sync_runs  (id, source_id, status, cursor_before, cursor_after, stats)
+knowledge_jobs       (id, type, status, step, progress, payload)     -- BullMQ jobId = id
+knowledge_model_profiles (id, kind embedding|rerank, endpoint_url, model, dimensions, secrets)
+knowledge_wiki_pages / knowledge_wiki_versions / knowledge_wiki_sources
+```
+
+`source_id` 是外部条目的稳定 ID（worker 写入时形如 `<来源连接 ID>:<源端 ID>`，源端 ID 为飞书 token / GitLab `project:ref:path` / `feedURL:itemId`）；`upload`/`manual` 为空，身份只按 ID 匹配而不是标题。飞书的 `appId` 放在 `knowledge_sources.config`，`appSecret` 只在 `secrets_encrypted`。
+
+`search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用只写 `search_text`），embedding 固定 1024 维。业务实体主键同样用 TypeID（`kb_`、`kdoc_`、`kdv_`、`kchk_`、`ksrc_`、`kjob_` 等）；`knowledge_document_tags` 与 `knowledge_wiki_sources` 是纯关联表，不单独生成 ID。
 
 ---
 
@@ -538,7 +571,7 @@ interface SandboxProvider {
 ### 7.3 关于 Redis 与 Valkey
 
 - BullMQ 6.x 要求 Redis ≥ 5；Redis 8 已开源（AGPLv3）。
-- 本环境 `docker manifest inspect` 对 `redis:8` 系列超时，未能确认标签；`postgres:18-alpine` 已验证存在。
+- 本环境 `docker manifest inspect` 对 `redis:8` 系列超时，未能确认标签；`postgres:18-alpine` 已验证存在。现使用 `pgvector/pgvector:pg18`（同一 PG 18 主版本线，内置 vector 扩展），切换前仍需按 [OPERATIONS.md](OPERATIONS.md) 备份。
 - 已验证：`redis:8-alpine` 可正常拉取并启动（见 §15.2）；如镜像源受限可换 `valkey/valkey:9-alpine`（协议兼容，BullMQ 可用）。
 
 ---
@@ -618,7 +651,7 @@ interface SandboxProvider {
 |---|---|---|---|
 | `api` | 本仓库 Dockerfile | 3000 | Fastify，含 `/mcp/:serverId` |
 | `worker` | 同一镜像，入口不同 | — | BullMQ 消费者 + 沙盒管理 |
-| `postgres` | `postgres:18-alpine` | 5432 | 持久卷 |
+| `postgres` | `pgvector/pgvector:pg18` | 5432 | 持久卷；PG18 + vector 扩展，知识检索依赖 |
 | `redis` | `redis:8-alpine` | 6379（仅绑定 127.0.0.1） | AOF 持久化 + 密码 |
 | `web` | 开发时 Vite dev server | 5173 | 生产由 `api` 静态托管 |
 
@@ -782,12 +815,26 @@ pnpm dev
 | message | `msg` | — |
 | run | `run` | `run_01m5ag7sq6eh7bw81dxdrhkvec` |
 | audit | `aud` | — |
+| knowledge base | `kb` | `kb_01m6k4s2n8x7…` |
+| knowledge folder | `kfd` | — |
+| knowledge document | `kdoc` | — |
+| knowledge version | `kdv` | — |
+| knowledge chunk | `kchk` | — |
+| knowledge tag | `ktag` | — |
+| knowledge job | `kjob` | — |
+| knowledge source | `ksrc` | — |
+| knowledge source range | `krng` | — |
+| knowledge sync run | `ksyn` | — |
+| knowledge wiki page | `kwp` | — |
+| knowledge wiki version | `kwv` | — |
+| knowledge wiki source | `kws` | — |
+| knowledge model profile | `kmp` | — |
 
 TypeID 由 uuidv7 编码而来，按时间排序，便于按创建顺序扫描与分页；前缀让日志、URL 和跨表引用自解释。
 
 例外：
 
-- `agent_skills`、`agent_servers`：关联表只有复合唯一索引，没有独立 `id`。
+- `agent_skills`、`agent_servers`、`knowledge_document_tags`、`knowledge_wiki_sources`：关联表只有复合唯一索引，没有独立 `id`。
 - Better Auth 的管理员用户与账号使用固定 ID；`session` / `verification` 默认随机 ID。
 - `audit_log` 默认用 `newId('audit')`；调用方提供 `dedupeKey` 时直接以其作为主键。
 - 市场资源沿用上游的 owner/repo/skill 标识。

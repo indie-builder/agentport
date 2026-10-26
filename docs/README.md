@@ -18,6 +18,10 @@
 | [RUNBOOK.md](RUNBOOK.md) | 故障处置手册 |
 | [FIRST-RUN.md](FIRST-RUN.md) | 首次跑起来的步骤 |
 | [SKILLS.md](SKILLS.md) | 已装技能清单、项目适配、技能与插件更新 SOP |
+| [tasks/knowledge-runtime-verification.md](tasks/knowledge-runtime-verification.md) | 知识库真实运行验证记录（已操作、未验收、工具限制） |
+| [tasks/knowledge-review-findings.md](tasks/knowledge-review-findings.md) | 知识实现独立审查发现与整改范围 |
+| [tasks/knowledge-implementation.md](tasks/knowledge-implementation.md) | 知识实施进度、测试与部署配置记录 |
+| [tasks/knowledge-implementation-contract.md](tasks/knowledge-implementation-contract.md) | 知识实现契约：表、接口、模块与执行包 |
 | [OPENUI-UPGRADE.md](OPENUI-UPGRADE.md) | OpenUI 组件契约、官方 spec 生成与升级行为回归 |
 | [OPENUI-UI-ADAPTATION.md](OPENUI-UI-ADAPTATION.md) | 官方 shadcn UI 来源、Base UI 适配边界与项目令牌映射 |
 | `tasks/<slug>.md` | 单个任务的执行记录（按 `DEV-WORKFLOW.md` 模板创建） |

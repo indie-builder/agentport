@@ -3,6 +3,7 @@ export * as agents from './agents.js';
 export * as audit from './audit.js';
 export * as chat from './chat.js';
 export * as evalRepo from './eval.js';
+export * as knowledge from './knowledge.js';
 export * as maintenance from './maintenance.js';
 export * as openui from './openui.js';
 export * as ops from './ops.js';

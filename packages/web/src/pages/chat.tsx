@@ -44,6 +44,7 @@ import { AgentAvatar } from '../components/agent-avatar.js';
 import { CollapsibleText, JsonBlock, LARGE_CONTENT_CHARS } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { KnowledgeCitations, knowledgeHitsFromTool } from '../components/knowledge-citations.js';
 import {
   Collapsible,
   CollapsibleContent,
@@ -2319,6 +2320,8 @@ const ToolRow = memo(function ToolRow({
     item.result === undefined && item.startedAt !== undefined && item.endedAt === undefined;
   const missing = !running && item.result === undefined;
   const failed = toolFailed(item.result);
+  // 有结构化引用时在收起状态也提示来源数量，否则用户不会知道要展开 trace。
+  const cited = knowledgeHitsFromTool(item.name, item.result)?.length ?? 0;
   const status = running ? '运行中' : missing ? '未收到结果' : failed ? '失败' : '完成';
   const [open, setOpen] = useState(running);
   const reduce = useReducedMotion();
@@ -2356,6 +2359,9 @@ const ToolRow = memo(function ToolRow({
         <span className="shrink-0 text-xs text-muted-foreground" aria-hidden="true">
           {status}
         </span>
+        {cited > 0 ? (
+          <span className="shrink-0 text-2xs text-muted-foreground">{cited} 来源</span>
+        ) : null}
         {duration !== undefined ? (
           <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
             {formatDuration(duration)}
@@ -2404,7 +2410,13 @@ const ToolRow = memo(function ToolRow({
                     结果
                   </div>
                   {item.result !== undefined ? (
-                    <JsonBlock value={item.result} maxHeight="20rem" />
+                    <>
+                      <JsonBlock value={item.result} maxHeight="20rem" />
+                      {/* 知识库检索结果另给可点开的来源；原文在查看器里读，不执行来源页脚本。 */}
+                      <div className="mt-2">
+                        <KnowledgeCitations name={item.name} result={item.result} />
+                      </div>
+                    </>
                   ) : (
                     <p className="px-1 text-2xs text-muted-foreground">
                       {running ? '等待结果…' : '未收到结果'}

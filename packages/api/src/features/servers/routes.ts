@@ -231,6 +231,10 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       try {
         const row = await repo.getServerRow(app.db, id);
         if (!row) return notFound(reply, 'server');
+        // 知识库连接由知识库生命周期管理，普通连接器接口不能改。
+        if (row.kind === 'knowledge') {
+          return reject(reply, 'FORBIDDEN', '知识库连接由知识库设置管理');
+        }
         // 地址按库里实际的 kind 校验；只改描述不会复查既有地址。
         if (row.kind === 'http' && body.url !== undefined) {
           await assertSafeUrl(body.url, app.config.NODE_ENV);
@@ -258,6 +262,11 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
     '/api/servers/:id',
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
+      // 知识库连接随知识库删除，不能从这里单独删掉。
+      const row = await repo.getServerRow(app.db, request.params.id);
+      if (row?.kind === 'knowledge') {
+        return reject(reply, 'FORBIDDEN', '知识库连接由知识库设置管理');
+      }
       const ok = await repo.deleteServer(app.db, request.params.id);
       if (!ok) return notFound(reply, 'server');
       await writeAudit(app.db, request.log, {

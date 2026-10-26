@@ -6,6 +6,20 @@ const base = {
   APP_SECRET_KEY: 'a'.repeat(32),
 };
 
+describe('DOCLING_URL', () => {
+  it('treats an empty DOCLING_URL (compose default) as unset', () => {
+    const config = loadConfig({ ...base, DOCLING_URL: '', DOCLING_TOKEN: '' });
+    expect(config.DOCLING_URL).toBeUndefined();
+  });
+
+  it('keeps a real URL and rejects a malformed one', () => {
+    expect(loadConfig({ ...base, DOCLING_URL: 'http://docling:5001' }).DOCLING_URL).toBe(
+      'http://docling:5001',
+    );
+    expect(() => loadConfig({ ...base, DOCLING_URL: 'not a url' })).toThrow(/DOCLING_URL/);
+  });
+});
+
 describe('SANDBOX_MAX_FIELD_BYTES', () => {
   it('defaults to 1MiB', () => {
     expect(loadConfig(base).SANDBOX_MAX_FIELD_BYTES).toBe(1024 * 1024);

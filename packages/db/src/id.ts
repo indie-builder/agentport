@@ -24,6 +24,20 @@ export const idPrefixes = {
   evalCase: 'ec',
   evalRun: 'er',
   evalResult: 'evr',
+  knowledgeBase: 'kb',
+  knowledgeFolder: 'kfd',
+  knowledgeDocument: 'kdoc',
+  knowledgeVersion: 'kdv',
+  knowledgeChunk: 'kchk',
+  knowledgeTag: 'ktag',
+  knowledgeJob: 'kjob',
+  knowledgeSource: 'ksrc',
+  knowledgeSourceRange: 'krng',
+  knowledgeSyncRun: 'ksyn',
+  knowledgeWikiPage: 'kwp',
+  knowledgeWikiVersion: 'kwv',
+  knowledgeWikiSource: 'kws',
+  knowledgeModelProfile: 'kmp',
 } as const;
 
 type Entity = keyof typeof idPrefixes;

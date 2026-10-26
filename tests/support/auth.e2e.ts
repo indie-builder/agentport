@@ -10,7 +10,7 @@ test.setup('sign in as admin', { sessions: ['admin'] }, async ({ app, screen, se
   await screen.getByLabel('用户名').fill(admin.username);
   await screen.getByLabel('密码').fill(admin.password);
   await screen.getByRole('button', '进入工作台').tap();
-  // 登录成功后 AppShell 才渲染导航。
-  await screen.getByRole('link', '专家·技能·连接器').waitFor();
+  // 登录成功后 AppShell 才渲染导航；资源入口名称会随页签增删变化，按开头匹配。
+  await screen.getByRole('link', /^专家/).waitFor();
   await session.save('admin');
 });

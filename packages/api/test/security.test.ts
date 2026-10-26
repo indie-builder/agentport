@@ -22,6 +22,8 @@ describe.skipIf(!ready)('security headers', () => {
       const csp = String(res.headers['content-security-policy'] ?? '');
       expect(csp, url).toContain("script-src 'self'");
       expect(csp, url).toContain("style-src 'self' 'unsafe-inline'");
+      // UI 把鉴权拉取的图片转成 blob URL 渲染；缺 blob: 会被 CSP 拦掉。
+      expect(csp, url).toContain("img-src 'self' data: blob:");
     }
   });
 

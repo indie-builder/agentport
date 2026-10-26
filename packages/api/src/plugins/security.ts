@@ -20,7 +20,11 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
     // 前端构建产物无内联脚本；内联样式来自 React 的 style 属性，需要放行。
     // MCP 端点会被非浏览器客户端访问，在各自 route config 里单独关闭 CSP。
     contentSecurityPolicy: {
-      directives: { styleSrc: ["'self'", "'unsafe-inline'"] },
+      directives: {
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        // UI 通过鉴权 fetch 取图后转 blob URL 渲染。
+        imgSrc: ["'self'", 'data:', 'blob:'],
+      },
     },
   });
   const trustedOrigins = getTrustedOrigins(app.config);

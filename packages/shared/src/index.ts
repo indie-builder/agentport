@@ -4,6 +4,7 @@ export * from './chat.js';
 export * from './config.js';
 export * from './connector-catalog.js';
 export * from './errors.js';
+export * from './knowledge.js';
 export * from './mcp.js';
 export * from './native-plugins.js';
 export * from './openui/index.js';

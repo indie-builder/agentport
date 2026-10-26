@@ -48,9 +48,10 @@ import {
   AGENT_PACKAGE_SIDECAR,
   AGENT_PACKAGE_SIDECAR_VERSION,
   agentPackageSidecarSchema,
+  knowledgeTokenEnv,
   slugSchema,
 } from '@agentport/shared';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { isPgCode } from '../plugins/errors.js';
 import { encodePackage } from './agent-package-zip.js';
 import { unsupportedAllowedTool } from './agents/validation.js';
@@ -97,12 +98,41 @@ function exportUrl(value: string): string {
   }
 }
 
+/**
+ * 知识库连接在包里的官方表达：标准 MCP http 条目 + 专用凭据环境变量。
+ * run token 与密钥都不进包 —— 运行时的 Authorization 由平台按 run 注入，
+ * 导入端只提示需要重新提供凭据，不把内部 kind 当成官方格式写进侧车。
+ */
+function knowledgePackageEntries(
+  row: Pick<ServerRow, 'id' | 'name' | 'description'>,
+  selfUrl: string,
+) {
+  const url = `${selfUrl.replace(/\/$/, '')}/mcp/${row.id}`;
+  const tokenEnv = knowledgeTokenEnv(row.name);
+  return {
+    server: {
+      name: row.name,
+      description: row.description,
+      kind: 'http' as const,
+      url,
+      secretKeys: [tokenEnv],
+    },
+    mcpEntry: {
+      type: 'http' as const,
+      url,
+      headers: { Authorization: `Bearer \${${tokenEnv}}` },
+    },
+  };
+}
+
 /** 导出只保留非敏感配置；generated 的 mcpToken 与加密列的值一律不出现。 */
 function toExportedServer(
   row: ServerRow,
   key: string,
   tools: ToolRow[] | undefined,
+  selfUrl: string,
 ): PackageServer {
+  if (row.kind === 'knowledge') return knowledgePackageEntries(row, selfUrl).server;
   const base = {
     name: row.name,
     description: row.description,
@@ -151,6 +181,7 @@ function toExportedServer(
  * 平台依赖（kind / 工具 / 上游地址）在侧车里，导入时按新 id 重建端点。
  */
 function toPreviewEntry(row: ServerRow, selfUrl: string): McpJsonEntry {
+  if (row.kind === 'knowledge') return knowledgePackageEntries(row, selfUrl).mcpEntry;
   if (row.kind === 'stdio') {
     const args = row.config.args;
     return {
@@ -516,6 +547,7 @@ export async function buildAgentPackage(
         server,
         key,
         server.kind === 'generated' ? (toolsByServerId.get(server.id) ?? []) : undefined,
+        selfUrl,
       ),
     ),
     subAgents: children.map((child) => ({
@@ -1057,15 +1089,32 @@ async function insertAgentFiles(
 export async function importAgentPackage(
   db: Database,
   parsed: ParsedPackage,
-  options: { nodeEnv: string },
+  options: { nodeEnv: string; selfUrl: string },
 ): Promise<AgentPackageImportResult & { counts: ImportCounts }> {
   const serverEntries = parsed.servers.map((entry) => ({
     input: toServerInput(entry),
     tools: entry.kind === 'generated' ? entry.tools : undefined,
     secretKeys: entry.secretKeys,
+    // 知识库导出用的是官方 http 条目 + 专用 token 变量；导入端据此给准确提示。
+    knowledge: entry.kind === 'http' && entry.secretKeys.includes(knowledgeTokenEnv(entry.name)),
   }));
+  // 本实例知识库端点的唯一合法形态；只有库确实存在且地址完全吻合时才认，
+  // 这样导入端不用相信包里的声明，也不会因 SELF_URL 是 loopback 而拒绝回导。
+  const knownKnowledge = new Map<string, string>();
+  const knowledgeNames = serverEntries.filter((entry) => entry.knowledge).map((e) => e.input.name);
+  if (knowledgeNames.length > 0) {
+    const rows = await db
+      .select({ id: servers.id, name: servers.name })
+      .from(servers)
+      .where(and(inArray(servers.name, knowledgeNames), eq(servers.kind, 'knowledge')));
+    for (const row of rows) {
+      knownKnowledge.set(row.name, `${options.selfUrl.replace(/\/$/, '')}/mcp/${row.id}`);
+    }
+  }
   // 包内容同样不可信：地址与手动创建走同一个 SSRF 校验。
-  for (const { input } of serverEntries) {
+  for (const { input, knowledge } of serverEntries) {
+    if (knowledge && input.kind === 'http' && knownKnowledge.get(input.name) === input.url)
+      continue;
     if (input.kind === 'http') await assertSafeUrl(input.url, options.nodeEnv);
     else if (input.kind === 'generated') await assertSafeUrl(input.baseUrl, options.nodeEnv);
   }
@@ -1091,9 +1140,17 @@ export async function importAgentPackage(
               );
       const existingByName = new Map(existingServers.map((row) => [row.name, row]));
       const serverIdsByName = new Map(existingServers.map((row) => [row.name, row.id]));
-      for (const { input, tools, secretKeys } of serverEntries) {
+      for (const { input, tools, secretKeys, knowledge } of serverEntries) {
         const existing = existingByName.get(input.name);
         if (existing !== undefined) {
+          if (existing.kind === 'knowledge' && input.kind === 'http') {
+            // 知识库连接导出为官方 http 条目；导回同一实例时复用已有库，凭证由运行时按 run 注入。
+            reusedServers.push(input.name);
+            warnings.push(
+              `「${input.name}」是知识库连接，已复用对应的知识库；凭据由运行时注入，不需要重新填写`,
+            );
+            continue;
+          }
           if (existing.kind !== input.kind) {
             fail(
               'INVALID_INPUT',
@@ -1124,7 +1181,11 @@ export async function importAgentPackage(
           .returning();
         if (!row) throw new Error('server insert returned no row');
         if (secretKeys.length > 0) {
-          warnings.push(`「${input.name}」的密钥需要重新填写：${secretKeys.join(', ')}`);
+          warnings.push(
+            knowledge
+              ? `「${input.name}」是知识库连接：请在本实例的专家配置里绑定对应知识库，导出的地址与凭据不会生效`
+              : `「${input.name}」的密钥需要重新填写：${secretKeys.join(', ')}`,
+          );
         }
         serverIdsByName.set(row.name, row.id);
         createdServers.push(row.name);

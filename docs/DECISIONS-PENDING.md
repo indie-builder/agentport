@@ -80,9 +80,20 @@
 
 ---
 
-## D-9 ✅ 知识库 / RAG 是否需要
+## D-9 ✅ 知识库 / RAG 建设范围（2026-10-25 更新）
 
-**决定（按 A）**：不做内置 RAG；流程性知识用 `SKILL.md`，文档检索交给 MCP resource 或外部检索服务。
+**当前决定**：建设 PACE 内置知识库，管理资料后绑定指定专家使用；参考 WeKnora 已有能力和处理逻辑，不完整照搬其独立产品，不额外建设外部智能体平台授权接入。包含文档处理、检索引用、Wiki、Feeds、外部同步和文件删除；同步来源包括 GitHub、GitLab、飞书。多模态按 WeKnora 现有图片 OCR/描述、索引检索、专家取图与引用链路适配，不自创方案。分阶段只用于依赖管理与验收，不将已确认目标擅自降为可选项。
+
+智能体执行继续统一使用 Claude Agent SDK；知识接入定义通过官方 `.mcp.json`、技能及支持资源表达，知识语料与索引作为平台内容独立管理，不自创智能体定义格式。复用现有专家/聊天/认证/队列，组件选型、外部系统凭证和部署验证随具体阶段完成。
+
+**实施状态**：原知识库主体已有实现和本地验证，后续[能力审查](tasks/knowledge-parity-review.md)确认部分正确性与深度缺口，不能视作整体完成。用户授权的[多模态适配](tasks/knowledge-multimodal-delivery.md)已完成代码与本地流程验证，最后定点评审结论见交付记录；真实视觉/Cohere/Docling服务质量未验收。GitHub 来源尚未实现。**本轮正在提交 PR 并合并，未部署主栈**。Feeds按RSS/Atom/JSON订阅摄取，与FAQ分开。知识库作为与专家/技能/连接器/插件并列的资源页签；腾讯Memory暂缓、原生记忆保留。
+
+关键实现决策（依 [实现契约](tasks/knowledge-implementation-contract.md)）：
+- 知识库连接器使用独立 `servers.kind='knowledge'`，只接受 run 短期 token；不出现在普通连接器列表，不能经 `/api/servers` 修改或删除。
+- `serverInputSchema` 刻意不含 `knowledge`（读/写类型分离），防止用户伪造内置连接。
+- 检索为关键词（应用侧 `Intl.Segmenter` 分词 + `plainto_tsquery`）与 pgvector 向量两路 RRF 融合，embedding 不可用时降级并标 `degraded`。
+- 外部来源归属记在 `metadata.knowledgeSourceId`；`source_id` 存外部条目 ID。
+- 原“不做内置 RAG，文档检索仅交给外部服务”已被替代。
 
 ---
 

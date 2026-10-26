@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { reject } from '../../plugins/errors.js';
 import { mcpRateLimit } from '../../plugins/security.js';
 import { typed } from '../../types.js';
+import { buildKnowledgeServer } from '../knowledge/mcp.js';
 import { bearerToken, tokenMatches } from './bearer.js';
 import { buildGeneratedServer } from './generated.js';
 import { getServerRow, listTools, toApiServer } from './repo.js';
@@ -85,13 +86,57 @@ export function registerMcpEndpoint(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const { serverId } = request.params;
       const row = await getServerRow(app.db, serverId);
+      const headerRunId = request.headers['x-agentport-run-id'];
+      const runId = typeof headerRunId === 'string' ? headerRunId : null;
+
+      if (row?.kind === 'knowledge') {
+        // 内置知识库没有长期 token：只认绑定该 server 的 run 的短期 token，其余一律 401。
+        const runToken =
+          runId === null ? null : await repo.runs.getRunToken(app.db, runId, serverId);
+        const ok =
+          runToken !== null &&
+          runToken.hash !== null &&
+          runToken.expiresAt !== null &&
+          runToken.expiresAt.getTime() > Date.now() &&
+          tokenMatches(runToken.hash, bearerToken(request.headers.authorization), hashMcpToken);
+        if (
+          !ok ||
+          runId === null ||
+          !(await repo.runs.isRunBoundToServer(app.db, runId, serverId))
+        ) {
+          reply.header('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
+          return reject(reply, 'UNAUTHORIZED', 'invalid bearer token');
+        }
+        const baseId = row.config.knowledgeBaseId;
+        if (typeof baseId !== 'string')
+          return reject(reply, 'NOT_FOUND', 'knowledge server unbound');
+
+        reply.hijack();
+        const fields = { serverId, tool: toolNameOf(request.body), runId, requestId: request.id };
+        const nodeHandler = toNodeHandler(
+          buildKnowledgeServer({
+            db: app.db,
+            baseId,
+            serverId,
+            runId,
+            secretKey: app.config.APP_SECRET_KEY,
+            knowledgeDir: app.config.KNOWLEDGE_DIR,
+          }),
+          { onerror: (err) => app.log.error({ err, ...fields }, 'mcp endpoint error') },
+        );
+        await nodeHandler(
+          request.raw as unknown as NodeIncomingMessageLike,
+          reply.raw as unknown as NodeServerResponseLike,
+          request.body,
+        );
+        return;
+      }
+
       if (row?.kind !== 'generated') {
         return reject(reply, 'NOT_FOUND', 'generated server not found');
       }
       const expected = row.config.mcpToken;
       // 先认 run 的短期 token（沙盒内嵌在 .mcp.json），失败再回退长期 token（外部客户端）。
-      const headerRunId = request.headers['x-agentport-run-id'];
-      const runId = typeof headerRunId === 'string' ? headerRunId : null;
       const runToken = runId === null ? null : await repo.runs.getRunToken(app.db, runId, serverId);
       const runTokenOk =
         runToken !== null &&

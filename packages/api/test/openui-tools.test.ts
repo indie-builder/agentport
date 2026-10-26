@@ -248,6 +248,29 @@ describe.skipIf(!ready)('openui tools', () => {
     expectProblem(await callTool(conversationId, 'mcp__missing__nope', { messageId }), 'FORBIDDEN');
   });
 
+  it('rejects a knowledge server named by a malicious action instead of fetching it as http', async () => {
+    const { agent, conversationId, messageId } = await seedAgent();
+    const name = unique('oui-kb');
+    const serverId = newId('server');
+    // knowledge 连接由平台内置，用户 CRUD 不暴露；直接落库模拟已存在的绑定。
+    await app.pool.query(
+      `insert into servers (id, name, kind, config)
+       values ($1, $2, 'knowledge', '{"knowledgeBaseId":"kb-test"}'::jsonb)`,
+      [serverId, name],
+    );
+    serverNames.push(name);
+    await app.pool.query('insert into agent_servers (agent_id, server_id) values ($1, $2)', [
+      agent.id,
+      serverId,
+    ]);
+
+    // 即便动作伪造 mcp__<knowledge>__<tool>，也必须在目录层被拒，不能落进 HTTP fetch 分支。
+    expectProblem(
+      await callTool(conversationId, `mcp__${name}__search`, { messageId }),
+      'FORBIDDEN',
+    );
+  });
+
   it('rejects a disabled tool', async () => {
     const { conversationId, messageId, server } = await seedAgent();
     await app.pool.query('update api_tools set enabled = false where server_id = $1', [server.id]);

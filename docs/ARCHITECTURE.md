@@ -30,7 +30,7 @@
 | 包 | 职责 | 不做什么 |
 |---|---|---|
 | `shared` | `agentInputSchema`、`serverInputSchema`、`chatEventSchema`、`agentRunJobSchema` 等 | 不 import 其他包（zod 除外） |
-| `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`toMcpJsonEntry()` | 不碰数据库、不碰文件系统 |
+| `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`toMcpJsonEntry()`、`embedTexts()` / `rerankDocuments()` / `segmentForSearch()` | 不碰数据库、不读写宿主文件；`knowledge-models.ts` 只发 HTTP |
 | `db` | 表定义、repo、TypeID 生成、迁移 | 不含 HTTP 或业务编排 |
 | `api` | 路由、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不写工作区 |
 | `worker` | 消费队列、渲染并写入工作区、管理沙盒、回传事件、维护任务 | 不暴露 HTTP |
@@ -76,7 +76,8 @@
 - **web 没有独立生产容器**：`WEB_DIST=/app/web`，由 api 静态托管；SPA 路由回退到 `index.html`，`/api`、`/mcp`、`/health` 未命中仍返回 JSON 404。
 - **沙盒由宿主 Docker daemon 启动**：worker 挂载 `/var/run/docker.sock`，容器内外使用同一工作区绝对路径。
 - **沙盒网络模式**：`open` / `proxy` 使用 `bridge`，并加 `--add-host host.docker.internal:host-gateway`；`none` 使用 `--network none`。
-- **Redis 承担四件事**：BullMQ 队列、运行事件流、取消通知、限流计数。
+- **Redis 承担四件事**：BullMQ 队列、运行事件流、取消通知、限流计数；知识任务使用独立队列 `knowledge-jobs`。
+- **知识存储另挂 `knowledgedata:/knowledge`**：api 与 worker 共卷，原件与解析产物不进数据库、不进工作区。
 
 ## 3. 一次对话的数据流
 
@@ -113,27 +114,31 @@
 9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。
 10. 只有基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会抛出以触发 BullMQ 重试；业务失败不重试，避免重复计费。
 
-## 4. HTTP → MCP 与平台 → MCP
+## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
-两个方向共用 MCP 协议与同一个 Node 适配器，但目的不同。
+前两个方向共用 MCP 协议与同一个 Node 适配器，但目的不同；`/mcp/:serverId` 还承载平台为知识库自动生成的内置连接（第三种用途）。
 
-| 维度 | HTTP → MCP（`/mcp/:serverId`） | 平台 → MCP（`/mcp`） |
-|---|---|---|
-| 解决什么 | 把已有 HTTP API 变成 MCP 工具 | 把平台内的智能体变成 MCP 工具 |
-| 工具来源 | `api_tools` 表，每个 generated server 一组 | 所有 `enabled = true` 的智能体，工具名 `run_<slug>` |
-| 鉴权 | 沙盒内用按 run 签发的短期 token（DB 存 sha256，run 结束清空）；外部客户端用长期 `mcpToken` | 单个 `PLATFORM_MCP_TOKEN`；未设置则不注册该端点 |
-| 调用发生什么 | 按 method / path 模板 / `paramsIn` 转发上游 HTTP | 创建 conversation 与 run，入队，轮询 DB 直到终态，返回最终 assistant 文本 |
-| 执行位置 | api 进程内 `fetch` | worker + 沙盒（与浏览器发起的对话同一条链路） |
-| 工具定义变更 | 下一次请求重建 handler，立即生效 | 下一次请求重建 handler，立即生效 |
-| 超时 | 上游 HTTP 超时由 fetch/运行环境决定 | 默认取 agent `timeoutMs`，上限 30 分钟 |
-| 主要代码 | `features/servers/mcp-endpoint.ts`、`generated.ts` | `features/servers/agent-tools-endpoint.ts`、`agent-tools.ts`、`agent-invoker.ts` |
+| 维度 | HTTP → MCP（`/mcp/:serverId`，generated） | 平台 → MCP（`/mcp`） | 内置知识 MCP（`/mcp/:serverId`，knowledge） |
+|---|---|---|---|
+| 解决什么 | 把已有 HTTP API 变成 MCP 工具 | 把平台内的智能体变成 MCP 工具 | 让绑定专家在 run 内只读检索一个知识库 |
+| 工具来源 | `api_tools` 表，每个 generated server 一组 | 所有 `enabled = true` 的智能体，工具名 `run_<slug>` | 固定四个只读工具：`knowledge_search` / `knowledge_read` / `knowledge_list` / `knowledge_read_image` |
+| 鉴权 | 沙盒内用按 run 签发的短期 token（DB 存 sha256，run 结束清空）；外部客户端用长期 `mcpToken` | 单个 `PLATFORM_MCP_TOKEN`；未设置则不注册该端点 | 只接受绑定该 server 的 run 短期 token；没有长期 token，无效一律 401 |
+| 调用发生什么 | 按 method / path 模板 / `paramsIn` 转发上游 HTTP | 创建 conversation 与 run，入队，轮询 DB 直到终态，返回最终 assistant 文本 | 在 api 进程内查 pgvector/全文索引并读解析正文；工具不能跨库、不能写入 |
+| 执行位置 | api 进程内 `fetch` | worker + 沙盒（与浏览器发起的对话同一条链路） | api 进程内 `retrieval.ts` + 文件读取 |
+| 工具定义变更 | 下一次请求重建 handler，立即生效 | 下一次请求重建 handler，立即生效 | 由代码固定，不随用户配置变化 |
+| 超时 | 上游 HTTP 超时由 fetch/运行环境决定 | 默认取 agent `timeoutMs`，上限 30 分钟 | 同一次 MCP 请求 |
+| 主要代码 | `features/servers/mcp-endpoint.ts`、`generated.ts` | `features/servers/agent-tools-endpoint.ts`、`agent-tools.ts`、`agent-invoker.ts` | `features/servers/mcp-endpoint.ts`（kind 分支）、`features/knowledge/mcp.ts`、`retrieval.ts` |
 
 共同点：
 
 - 都使用 `createMcpHandler()` + `toNodeHandler()`，由适配器直接读写原始 req/res，Fastify 不再参与响应。
 - 每个 HTTP 请求重建实例，避免跨调用复用。
 - 都使用常量时间比较 Bearer token。
-- `/mcp/:serverId` 先校验请求头 `x-agentport-run-id` 对应 run 的短期 token（且该智能体必须绑定此 server），失败再回退长期 `mcpToken`。
+- `/mcp/:serverId` 先校验请求头 `x-agentport-run-id` 对应 run 的短期 token（且该智能体必须绑定此 server），失败再回退长期 `mcpToken`；`kind='knowledge'` 没有长期 token 回退。
+
+`servers.kind` 因此有四种取值：`stdio`、`http`、`generated` 属于用户可创建/导入的连接；`knowledge` 是平台内部的第四种，只能由知识库生命周期写入（name `kb-<slug>`，config 只有 `{ knowledgeBaseId }`）。读写类型分离：`serverKindSchema` 与读联合包含 `knowledge`，`serverInputSchema` 只含前三种。它不出现在 `/api/servers` 列表，也不能经该接口 PATCH/DELETE；URL 永远由运行时拼 `/mcp/:serverId`。共享的 `knowledgeMcpEntry()` 是预览与运行时的唯一构造点，避免两处漂移。
+
+内置知识连接的工具是只读的：`knowledge_search` 返回带 `chunkId`/标题/页码/score 的命中，`knowledge_read` 只读当前版本正文（超过 20,000 字符截断并标 `truncated`），`knowledge_list` 按游标列出文档，`knowledge_read_image` 读取版本图片（详见 §6.2.1）。参数里带别的 `baseId` 返回 `BASE_MISMATCH` 工具错误而不是静默换库；库被禁用时四个工具都返回 `BASE_DISABLED`。没有写入、上传、删除或重建工具。
 
 ## 5. 工作区文件模型
 
@@ -172,6 +177,7 @@ data/workspaces/<agent-slug>/
 - 会话间消息工具（`ListAgents`、`SendMessage`、`SendUserMessage`、`EndConversation`、`Monitor`）默认禁用：
   平台只支持「同步等待返回」这一种智能体沟通模型，发送方不等对方返回就继续与平台约定相悖。
 - 平台内的「文件预览」与运行时使用同一个 `renderWorkspace()`，但不落盘；写文件只发生在 worker。
+- 知识库不是工作区文件能力：语料不写进 `.claude/`，也不挂载进沙盒。专家只在 `.mcp.json` 里得到一个知识库 MCP 条目（§4），知识正文由 api 在工具调用时读取。
 
 ### 官方文件能力与接入状态（2026-10-22核对）
 
@@ -244,7 +250,99 @@ data/workspaces/<agent-slug>/
 - https://code.claude.com/docs/en/agent-sdk/plugins
 - https://code.claude.com/docs/en/agent-sdk/modifying-system-prompts
 
-## 6. 关键设计决策
+## 6. 知识库运行时
+
+知识库是平台的独立内容资源，不是智能体定义的一部分：语料、版本、chunk、Wiki 与同步游标都存在平台自己的表和持久卷里，**不写进任何专家工作区**。智能体访问知识的唯一入口是平台自动生成的内置 MCP 连接（§4）。这让 `.claude/` 目录始终保持官方语义：知识连接只是一个标准 MCP server 条目，知识正文也不会被误当成可分享的智能体定义。
+
+这条路由也是对旧决定的替代：此前「不做内置 RAG、文档检索交给外部服务或技能」的结论已被 D-9 当前决定取代。知识能力用项目既有栈自己实现，不引入第二套向量数据库或编排引擎。
+
+### 6.1 存储与数据模型
+
+| 位置 | 内容 | 说明 |
+|---|---|---|
+| PostgreSQL 18 + pgvector | 知识库/文件夹/标签/文档/版本/chunk/任务/来源/同步运行/Wiki/模型 profile | 迁移 `0036_demonic_dust.sql`；`CREATE EXTENSION vector` 与 HNSW 索引是手工补的 SQL |
+| `$KNOWLEDGE_DIR/blobs/<前2位>/<sha256>` | 原件，按内容寻址、只读 | 上传/抓取先写临时文件再原子 rename；同内容复用 |
+| `$KNOWLEDGE_DIR/docs/<documentId>/<versionId>/` | `markdown.md` 与 `images/` | 解析产物；版本删除后目录不会立即消失，等 cleanup 任务回收 |
+| `$KNOWLEDGE_DIR/wiki-sdk/<jobId>/` | Wiki 生成时的平台私有临时 cwd（同时作 HOME / `CLAUDE_CONFIG_DIR`） | 不是 Claude 官方目录约定，也不进入专家工作区或导出包；任务结束即删除 |
+| `knowledgedata:/knowledge` | 上述目录的 compose 命名卷 | api 与 worker 必须同卷；随 `pnpm backup` 归档为 `knowledge/` |
+
+关键 schema 事实：`knowledge_chunks.search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用不写），`embedding vector(1024)` 由 `customType` 映射；GIN 全文索引与 HNSW 向量部分索引（`WHERE enabled AND embedding IS NOT NULL`）在迁移里手写。embedding profile 的 `dimensions` 由 schema 的 check 约束固定为 1024。chunk、版本、Wiki、任务等业务实体都用 `newId()` 生成 TypeID（`kb_`、`kdoc_`、`kchk_`、`kjob_`…，见 `packages/db/src/id.ts`）。
+
+删除文档/知识库删除行与引用，blob与解析目录由`cleanup`按“无版本引用且超过24小时”回收。知识对账器启动时及每5分钟检查当天UTC清理任务，复用同一队列每日创建一条；入队失败保留queued供后续补投。`POST /bases/:id/rebuild`与知识库“设置”中的整库重建入口贯通，重建前提示人工分块更改会被覆盖。
+
+### 6.2 摄取与检索
+
+摄取链路是「API 落原件 + 建行 + 入队」→「worker 解析、分块、embedding、原子切版本」：
+
+1. 上传走 base64 JSON（路由级 `bodyLimit` 48 MiB，解码后上限 32 MiB），手写正文与 URL 导入走独立入口；三者都先写 blob，再建 `knowledge_documents` 行，最后投 `ingest` 任务并返回 202。
+2. worker 取当前知识库的 embedding profile，解析（Markdown/文本/CSV/JSON/HTML 本地处理；PDF/Office/OCR 走 `DOCLING_URL`）、结构感知分块、批量 embedding，最后在事务里把 `current_version_id` 切到新版本。失败或取消时旧版本继续可查。
+3. 内容读取只走带鉴权的 REST：`versions/:versionId/content` 回原件（`Content-Disposition` 用清洗后的文件名）、`.../markdown` 回解析正文（用 `X-Knowledge-Document-Status` 带文档状态）、`.../images/:name` 回图片。图片名必须匹配白名单文件名且在该版本的 `images` 清单里，磁盘路径只由库内记录拼出，不按 URL 原文读取；对外不暴露静态目录。
+4. 检索固定为两路：关键词（应用侧 `Intl.Segmenter('zh')` 分词 + `plainto_tsquery('simple')`）与向量（pgvector `<=>`），各取 top 50 后用 RRF（k=60）融合取前 30，再按知识库配置的 rerank profile 重排。召回条件同时要求 `chunks.enabled`、文档 `ready` 且 `current_version_id = chunks.version_id`，旧版本与停用内容不会命中。
+5. embedding 不可用时只返回关键词结果并在响应标 `degraded: true`；rerank 失败则保留 RRF 顺序。两种降级都不把整次检索变成错误。模型端点失败被归类为 `auth / rate_limit / timeout / bad_response / unavailable`；只有 `rate_limit`、`timeout`、`unavailable` 会重试，`auth` 与 `bad_response` 重试也不会变好。
+
+### 6.2.1 图片多模态（参考 WeKnora）
+
+独立 PNG/JPEG/GIF/WebP 与 Docling 文档插图进入同一摄取链。库设置 `imageProcessing` 指定现有模型网关接受的视觉模型及 OCR/caption 动作；worker 用官方 Agent SDK 的原生图像输入和结构化输出，复用既有模型凭据。临时会话关闭内置工具、外部设置与 auto-memory，取消后等待 SDK 退出再清理，不创建专家聊天 run。
+
+OCR 与 caption 分别形成 `kind:image` 的文字块，`metadata.imageRole` 标记来源动作，`metadata.image` 保存当前版本图片名/MIME/页码；图片字节留在已有版本图片目录。至少一个动作成功可使用，失败动作记录 `versions.images[].warnings`，两者均无有效输出则不发布新版本。默认经现有文字 embedding/关键词检索；启用图片处理不等于默认启用图片向量。
+
+可选原生图片向量使用同一 embedding profile 的 Cohere v2 `embed-v4.0` 文本与图像编码，固定1024维；profile 新字段 `embeddingProtocol`/`imageInputEnabled` 由迁移 `0036_demonic_dust.sql` 声明。只有显式支持图片输入的 profile 才允许库开启图片向量；关键词排除 vector 子块，图像向量召回独立应用最低相似度。同维不同模型不混用：向量分支限定版本 profile ID，profile 被引用后不允许原地替换模型/协议。
+
+专家仍通过官方 `.mcp.json` 加载知识连接。`knowledge_read_image` 默认返回可读描述；`format:image` 校验绑定库、当前版本、文档/chunk状态和版本图片清单后返回 JSON 文本加 MCP 原生 image content。原图传给 SDK，不在聊天执行层重新拼消息；Web 引用经已有鉴权图片端点显示同一原图。真实 SDK→受控 MCP→图像到达本地模型协议夹具已实测，真实视觉模型质量与 Cohere 服务未验收。详见 [多模态实施](tasks/knowledge-multimodal-implementation.md)。
+
+### 6.3 外部来源
+
+首批只做 RSS/Atom/JSON Feed、飞书 Wiki/Drive、GitLab 仓库文件（项目/ref/path）。范围（`knowledge_source_ranges`）必须非空，空数组在入口就 400，**不解释成「全企业」**。一个来源可以保存多条范围，每条范围有独立游标：飞书按空间/节点/云盘目录，Feed 按订阅地址，GitLab 按项目/ref/paths；GitLab 的范围填了 `externalId` 就以范围为准，未填时回落到 `config` 的 `projectId`/`ref`。`listRanges` 只用于展示与连接检查，同步只读已保存的范围。API 支持整体替换范围；前端新建来源时只提交一条范围，编辑对话框保留原有范围但暂不提供增删改。飞书的 `appId` 存在 `config`，`appSecret` 只存加密列；GitLab 的 token 与模型 apiKey 同理。
+
+文档身份只按 `(base_id, source_type, source_id)` 匹配外部条目，绝不用标题；`upload`/`manual` 的 `source_id` 为空。外部 `source_id` 形如 `<来源连接 ID>:<源端条目 ID>`（源端 ID 是飞书 token / GitLab `project:ref:path` / `feedURL:itemId`），加上连接前缀后，同一条目出现在两个来源里也不会互相覆盖。来源归属另记在 `metadata.knowledgeSourceId`，因为文档表没有指向来源的外键。
+
+- Feed 是滚动窗口：条目自然滚出窗口不删除，连接器永远返回「不完整枚举」。
+- 飞书只同步 `docx` 类型的 Wiki 节点与云盘的 docx/文本文件；其他类型或不支持的内容明确报错，不静默跳过。
+- GitLab 只读取文本类扩展名（md/txt/html/csv/json/xml/yaml/rst/adoc 等）的 blob；PDF/Office 等二进制文件不在当前同步范围内。先完整遍历仓库树，任何分页失败都抛出，不推导删除。
+- 飞书 Wiki/Drive 与 GitLab 只有在连接器明确声明「枚举完整」且本轮无失败时，`syncDeletions: true` 才允许把未再出现的条目置为 `disabled`（不物理删除、不参与检索）。
+- 上传入口不做格式预筛，PDF/Office/OCR 交给 `DOCLING_URL`；未配置时该格式以任务失败明确报出，不静默降级。来源同步走各自的读取路径，不经过 Docling。
+- 来源的「测试」只校验本地配置与凭证是否齐全，不发外网请求；真实连通性以同步 run 的结果为准。
+- 私网出站：`KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 只做精确 `host` / `host:port` / origin 匹配，默认空。它当前作用于两处：worker 的来源连接器抓取（飞书/GitLab/Feed，逐跳校验，使用独立的 `validateSourceUrl`）与 API 侧模型 profile 的创建/修改/测试。名单外的地址分别走各自的私网校验；名单只对知识出站生效，不会让普通 MCP server 把任意 URL 变成可信。
+- 目前**没有**接入该名单的知识出站还有三处，部署时应知悉：URL 导入只经 `assertSafeUrl`；worker 调 Docling 与 embedding/rerank 直接用已保存端点，不再逐次复核；这些端点的可信性依赖部署配置与 API 入口校验，公网部署仍需网络层出站限制兜底 DNS 重绑定。
+- 凭证（飞书 appSecret、GitLab token、模型 apiKey）沿用 `encryptSecrets` 加密入库，API 只回 `hasSecret`。
+
+知识库是单管理员部署下的共享资源：所有 REST 路由挂 `requireAuth`，不新增多租户或 RBAC。专家在编辑器里选中某个知识库、写入 `agent_servers` 后才获得该连接；没有「按用户授权」的中间层。
+
+### 6.4 任务、调度与恢复
+
+知识任务使用独立队列 `knowledge-jobs`（BullMQ jobId 即 `knowledge_jobs.id`），不占聊天 run 的并发额度，也不出现在运行历史。`queued → running` 用条件更新认领，终态只写一次；运行中取消通过 Redis 键 + `AbortController` 落地。超时为 ingest/sync/cleanup 30 分钟、reindex 2 小时、wiki_generate 15 分钟。
+
+- `knowledge/reconcile.ts` 定期对账：running 且超过 2 倍超时、或 Redis 中已消失的置 failed；Redis 丢失但 DB 仍 queued 的重新入队。
+- `knowledge/scheduler.ts` 以数据库的 `sync_cron` 为权威，在 Redis 维护 `knowledge-sync:<sourceId>` 调度器；到点只创建 sync run 与任务，不在 Redis 保存凭证。清空 cron 即移除调度器；同一来源已有 queued/running 任务时跳过重复触发。
+- 任务重试不复用原行，而是创建新任务；这样才能被重新认领。
+
+### 6.5 Wiki 生成
+
+Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 `@anthropic-ai/claude-agent-sdk` 的 `query()`，不引入第二套消息循环**：worker 用 `createSdkMcpServer` + `tool` 注册进程内工具 `wiki_search` / `wiki_read` / `wiki_save_draft`，`allowedTools` 只放这三个 `mcp__knowledge__*`，`tools: []` 清空内置工具，`settingSources: []`、关闭 auto-memory、cwd/HOME 指向任务临时目录。模型取 `KNOWLEDGE_WIKI_MODEL`，走 worker 现有模型网关凭证，不新增 API key。它不创建 `agent_runs` / `conversations` / `messages`，不启动沙盒，也不写工作区。工具与来源限定在本次任务的知识库与可选 `sourceDocumentIds` 内。
+
+草稿只追加版本：SDK 保存不会移动已发布页面的 `current_version_id`；发布与回退是显式 REST 动作，回退会复制目标版本成新版本。来源被删除或停用后，引用它的 Wiki 页标 `stale`，发布时若来源已不可用则拒绝。
+
+### 6.6 与原生记忆的边界
+
+知识语料与 SDK 原生 auto-memory 是两类对象：知识库承载有来源的企业文档、版本与引用；`agent-memory/` 承载专家自己的跨会话笔记，仍是工作区内的官方目录能力（§5）。两者不共用表、不互相写入；知识不会被挂载进沙盒，记忆也不会进入检索引擎。
+
+### 6.7 导出与备份
+
+| 对象 | 形式 | 是否含向量/凭证/游标 |
+|---|---|---|
+| 专家包 | `.claude/` 目录 ZIP + 根 sidecar | 知识连接导出为**官方 MCP HTTP 条目** + 专用 token 环境变量占位，不含 run token、不含知识正文 |
+| 知识库数据包 | ZIP `pace/knowledge@1`（`manifest.json` + 原件 + markdown） | 不含向量、密钥、同步游标、任务记录；导入按新 ID 建库，profile 按名称匹配，chunk 不导入向量（可 rebuild 补），缺 profile 时整体 409 而不是建半库 |
+| 平台备份 | `knowledge/**` + `pg_dump` + 环境 + 工作区 | 含原件与解析产物；恢复后索引可重建 |
+
+两者不能互相替代：专家包只表达「这个专家绑定了一个知识连接」，知识库数据包才是可迁移的语料交付物。
+
+### 6.8 当前实现状态
+
+知识库已作为与专家/技能/连接器/插件并列的资源页签接入：`/knowledge`列表含新建、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId`含文档/检索/Wiki/来源/任务五个面板。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘；未完成真实企业与真实模型服务验收，当前不能据此宣称生产可用。
+
+**真实闭环仍未完整验收**：上传 → 真实 worker 消费 → Docling/OCR → 真实 embedding/rerank → 检索、真实飞书/GitLab 凭证、真实 Wiki 模型生成都还没有跑过真模型或真实企业服务；现有运行用的是本地协议夹具（确定性向量与自建 feed/article 服务），只能证明协议形状与任务生命周期，**不代表真实企业来源已接通**。Docling 的 compose profile 也从未实际拉起。已有的运行记录、发现的问题与未验证项见 [任务记录](tasks/knowledge-runtime-verification.md) 与 [审查整改](tasks/knowledge-review-findings.md)，不能把模块测试通过当成端到端通过。
+
+## 7. 关键设计决策
 
 | 决策 | 理由 | 代价 / 边界 |
 |---|---|---|
@@ -260,7 +358,7 @@ data/workspaces/<agent-slug>/
 | 会话历史使用独占游标页 | 网页默认50条、最多100条，按(created_at,id)倒取后正序展示；before须属于当前会话 | nextBefore为空则结束；消息内容字节未单独限制，内部完整复制调用保持原语义 |
 | api / worker 分进程 | 长任务不占 HTTP；队列消费可独立扩容 | 多一层队列与状态同步 |
 
-### 6.1 `shared/run-stream.ts`：跨进程的事件流契约
+### 7.1 `shared/run-stream.ts`：跨进程的事件流契约
 
 沙盒事件的 Redis 布局由 `@agentport/shared` 的 `run-stream.ts` 唯一定义，**api 的 producer 与 worker 的
 消费/订阅两侧都必须从这里取，不得再写字符串副本**（第 1 轮只在 worker 换过来，第 2 轮补上 api，并加了
@@ -277,14 +375,14 @@ data/workspaces/<agent-slug>/
 
 流的 TTL（1 小时）在写入侧设置。订阅者先用 XREVRANGE 有界回放最近 8MiB，再用 `XREAD BLOCK` 从最后一条真实 ID 跟读；`XADD` 本身会唤醒阻塞读取，不再有单独的 pub/sub 唤醒通道或轮询兜底。终态事件丢失仍由 SSE 路由每 2 秒查数据库兜底。
 
-### 6.2 审计幂等：`writeAudit(dedupeKey)`
+### 7.2 审计幂等：`writeAudit(dedupeKey)`
 
 `packages/db/src/repo/audit.ts` 的 `writeAudit(db, logger, event)` 正常用 `newId('audit')` 生成主键。
 传 `dedupeKey` 时它**直接作为主键**并走 `onConflictDoNothing()`：重复上报同一件事只会保留第一行。
 worker 在 run 完成时传 `dedupeKey: aud_<runId 去掉前缀>`，因此 BullMQ 的基础设施重试重放同一个 job 不会写出多条「run 完成」审计。
 审计写失败只 `logger.warn`，不影响 run 的终态。
 
-### 6.3 沙盒镜像依赖 `@agentport/shared`
+### 7.3 沙盒镜像依赖 `@agentport/shared`
 
 runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`agentRunJobSchema`），所以该包是
 **镜像的运行时依赖**，不只是构建期依赖：
@@ -292,7 +390,7 @@ runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`ag
 - Dockerfile 复制 `dist/`、`shared/`（即 `packages/shared/dist`）与 `package.shared.json`（镜像内的独立 manifest）。
 - 构建脚本必须先构建 shared 并把 `packages/shared/dist` 复制到 `packages/sandbox/shared`，再 `docker build`；否则报 `COPY shared/: not found`，或镜像能构建但运行时报 `ERR_MODULE_NOT_FOUND`。
 - `packages/sandbox/.dockerignore` 单独放行这两个目录（根 `.dockerignore` 会排除 `**/dist`）。
-- 步骤见 [OPERATIONS.md §3.1](OPERATIONS.md#31-手动构建沙盒镜像)；`pnpm run up --rebuild` 已包含全部三步。
+- 步骤见 [OPERATIONS.md §2.2.1](OPERATIONS.md#221-手动构建沙盒镜像)；`pnpm run up --rebuild` 已包含全部三步。
 | 单机优先，不抽象多机 | 少一层存储与服务发现 | 不能横向扩容 worker |
 | TypeID（`srv_`、`agt_`、`run_`…） | 可排序、日志与 URL 自解释 | 依赖 `typeid-js` |
 | 智能体版本快照 + 回滚 | 配置变更可追溯，回滚生成新版本 | 需维护保留策略 |

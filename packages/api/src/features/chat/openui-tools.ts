@@ -267,9 +267,10 @@ async function callTool(
     }
   }
 
-  // stdio 不会出现在 UI 工具目录里（listOpenUiTools 已排除）；这里只兜住类型收窄。
-  if (server.kind === 'stdio') {
-    throw new AppError('FORBIDDEN', 'stdio 工具不能从浏览器调用；请让模型在沙盒内使用');
+  // 目录只含 http/generated（listOpenUiTools 白名单）；这里再兜一层，
+  // 知识库等其余连接类型绝不按 http 去 fetch。
+  if (server.kind !== 'http') {
+    throw new AppError('FORBIDDEN', `${server.kind} 工具不能从浏览器调用；请让模型在沙盒内使用`);
   }
 
   // 与测试连接同一道检查：保存时能过，不代表运行时 DNS 没被改。

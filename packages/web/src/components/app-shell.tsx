@@ -54,7 +54,7 @@ const nav = [
   {
     label: '构建',
     items: [
-      { to: '/agents', label: '专家·技能·连接器', icon: Cable },
+      { to: '/agents', label: '专家·技能·连接器·插件·知识库', icon: Cable },
       { to: '/eval', label: '评估', icon: FlaskConical },
     ],
   },
@@ -78,6 +78,8 @@ const resourceLabels: Record<string, string> = {
   '/agents': '专家',
   '/skills': '技能',
   '/servers': '连接器',
+  '/plugins': '插件',
+  '/knowledge': '知识库',
 };
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
@@ -305,7 +307,9 @@ export function AppShell() {
     ? '页面不存在'
     : matchedRoute?.startsWith('/_shell/plugins')
       ? '插件'
-      : (resourceLabels[pathname] ?? currentPage?.label ?? '页面不存在');
+      : (resourceLabels[pathname] ??
+        (pathname.startsWith('/knowledge/') ? '知识库' : currentPage?.label) ??
+        '页面不存在');
   const [collapsed, setCollapsed] = useCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);

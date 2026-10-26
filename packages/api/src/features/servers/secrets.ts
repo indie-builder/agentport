@@ -8,6 +8,7 @@ export { SECRET_MASK } from '@agentport/shared';
  * 旧数据可能把账号密码写在 URL 里，也一并遮掉。
  */
 export function maskServer(s: Server): Server {
+  if (s.kind === 'knowledge') return s;
   const keys = Object.keys(s.kind === 'stdio' ? s.env : s.headers);
   const masked = Object.fromEntries(keys.map((k) => [k, SECRET_MASK]));
   if (s.kind === 'stdio') return { ...s, env: masked };

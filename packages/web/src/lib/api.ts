@@ -12,6 +12,12 @@ import type {
   EvalDataset,
   EvalDatasetImportResult,
   EvalRunExport,
+  KnowledgeBase,
+  KnowledgeBaseSettings,
+  KnowledgeDocument,
+  KnowledgeJob,
+  KnowledgeSearchHit,
+  KnowledgeSourceInput,
   MarketInstallInput,
   MarketSkill,
   MarketView,
@@ -305,6 +311,186 @@ export interface EvalRunDetail {
 
 export type EvalComparison = SharedEvalComparison;
 
+/** 知识库：wire 形状与后端 features/knowledge/routes.ts 一一对应。 */
+export interface KnowledgePage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+export interface KnowledgeBaseInput {
+  slug: string;
+  name: string;
+  description: string;
+  embeddingProfileId: string;
+  rerankProfileId: string | null;
+  /** 建库时后端补默认值；设置弹层保存时以完整 settings 提交。 */
+  settings: Omit<KnowledgeBaseSettings, 'imageProcessing'> & {
+    imageProcessing?: KnowledgeBaseSettings['imageProcessing'];
+  };
+}
+
+export interface KnowledgeBasePatch {
+  name?: string;
+  description?: string;
+  status?: 'active' | 'disabled';
+  embeddingProfileId?: string;
+  rerankProfileId?: string | null;
+  settings?: KnowledgeBaseInput['settings'];
+}
+
+export interface KnowledgeFolder {
+  id: string;
+  baseId: string;
+  parentId: string | null;
+  name: string;
+  path: string;
+  createdAt: string;
+}
+
+/** 后端只回 content/heading/enabled 可写；正文改动会清空向量并标记人工编辑。 */
+export interface KnowledgeChunk {
+  id: string;
+  documentId: string;
+  versionId: string;
+  ordinal: number;
+  kind: 'text' | 'table' | 'image';
+  heading: string | null;
+  content: string;
+  enabled: boolean;
+  editedByUser: boolean;
+  pageFrom: number | null;
+  pageTo: number | null;
+  /** 图片 chunk 的定位/角色；普通 chunk 为空对象。 */
+  metadata: Record<string, unknown>;
+}
+
+export interface KnowledgeTag {
+  id: string;
+  baseId: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface KnowledgeSearchResponse {
+  hits: KnowledgeSearchHit[];
+  /** 向量不可用、只能走关键词时 true。 */
+  degraded: boolean;
+}
+
+export interface KnowledgeSourceRange {
+  id: string;
+  kind: 'wiki_space' | 'wiki_node' | 'drive_folder' | 'gitlab_project' | 'feed';
+  externalId: string;
+  ref: string | null;
+  paths: string[];
+  enabled: boolean;
+}
+
+export interface KnowledgeSource {
+  id: string;
+  baseId: string;
+  type: 'feishu_wiki' | 'feishu_drive' | 'gitlab' | 'feed';
+  name: string;
+  config: Record<string, unknown>;
+  hasSecret: boolean;
+  status: 'active' | 'paused' | 'auth_error' | 'disabled';
+  syncCron: string | null;
+  lastSyncAt: string | null;
+  lastSyncStatus: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  ranges: KnowledgeSourceRange[];
+}
+
+export interface KnowledgeSyncRun {
+  id: string;
+  sourceId: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  startedAt: string | null;
+  endedAt: string | null;
+  cursorBefore: Record<string, unknown> | null;
+  cursorAfter: Record<string, unknown> | null;
+  stats: { listed: number; created: number; updated: number; disabled: number; failed: number };
+  error: string | null;
+  createdAt: string;
+}
+
+export interface KnowledgeWikiVersion {
+  id: string;
+  pageId: string;
+  version: number;
+  markdown: string;
+  sourceChunkIds: string[];
+  model: string;
+  generatedBy: 'sdk' | 'manual';
+  createdAt: string;
+}
+
+export interface KnowledgeVersionImage {
+  name: string;
+  sha256: string;
+  mimeType: string;
+  page: number;
+}
+
+/** 版本详情：只含 UI 展示所需元数据，不含 blob 地址与磁盘路径。 */
+export interface KnowledgeVersionDetails {
+  id: string;
+  documentId: string;
+  version: number;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  sourceRevision: string | null;
+  parseStatus: 'parsed' | 'parse_failed';
+  pageMap: Array<{ page: number; startOffset: number; endOffset: number }>;
+  images: KnowledgeVersionImage[];
+  createdAt: string;
+}
+
+export interface KnowledgeWikiPageDetail {
+  id: string;
+  baseId: string;
+  slug: string;
+  title: string;
+  status: 'draft' | 'published' | 'stale' | 'failed';
+  currentVersionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  versions: KnowledgeWikiVersion[];
+  nextCursor: string | null;
+}
+
+export interface KnowledgeModelProfile {
+  id: string;
+  kind: 'embedding' | 'rerank';
+  name: string;
+  endpointUrl: string;
+  model: string;
+  dimensions: number | null;
+  enabled: boolean;
+  hasSecret: boolean;
+  /** 只有 Cohere v2 协议 + embed-v4.0 才能接收图片。 */
+  embeddingProtocol: 'openai' | 'cohere_v2';
+  imageInputEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgePackageImportResult {
+  baseId: string;
+  serverId: string;
+  counts: {
+    folders: number;
+    tags: number;
+    documents: number;
+    versions: number;
+    chunks: number;
+    wikiPages: number;
+  };
+}
+
 export interface HealthMetrics {
   process: { uptimeSeconds: number; memoryRssBytes: number; nodeVersion: string };
   queue: {
@@ -404,7 +590,7 @@ async function request<T>(
   method = 'GET',
   body?: unknown,
   signal?: AbortSignal,
-  responseType: 'json' | 'blob' = 'json',
+  responseType: 'json' | 'blob' | 'text' = 'json',
   onResponse?: (response: Response) => void,
 ): Promise<T> {
   let res: Response;
@@ -445,6 +631,7 @@ async function request<T>(
 
   if (res.status === 204) return undefined as T;
   onResponse?.(res);
+  if (responseType === 'text') return (await res.text()) as T;
   return (responseType === 'blob' ? await res.blob() : await res.json()) as T;
 }
 
@@ -762,4 +949,255 @@ export const api = {
     request(`/eval/runs/${encodeURIComponent(id)}/export`),
   compareEvalRuns: (baseId: string, headId: string): Promise<EvalComparison> =>
     request(`/eval/runs/${baseId}/compare?head=${encodeURIComponent(headId)}`),
+
+  // ---- 知识库 -------------------------------------------------------------
+  knowledgeBases: (
+    query: { cursor?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<KnowledgePage<KnowledgeBase>> => {
+    const params = new URLSearchParams();
+    if (query.cursor) params.set('cursor', query.cursor);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/knowledge/bases${search}`, 'GET', undefined, signal);
+  },
+  knowledgeBase: (id: string): Promise<KnowledgeBase> => request(`/knowledge/bases/${id}`),
+  createKnowledgeBase: (input: KnowledgeBaseInput): Promise<KnowledgeBase> =>
+    request('/knowledge/bases', 'POST', input),
+  updateKnowledgeBase: (id: string, patch: KnowledgeBasePatch): Promise<KnowledgeBase> =>
+    request(`/knowledge/bases/${id}`, 'PATCH', patch),
+  deleteKnowledgeBase: (id: string): Promise<void> => request(`/knowledge/bases/${id}`, 'DELETE'),
+
+  knowledgeFolders: (baseId: string): Promise<KnowledgeFolder[]> =>
+    request(`/knowledge/bases/${baseId}/folders`),
+  createKnowledgeFolder: (
+    baseId: string,
+    input: { parentId: string | null; name: string },
+  ): Promise<KnowledgeFolder> => request(`/knowledge/bases/${baseId}/folders`, 'POST', input),
+  updateKnowledgeFolder: (
+    folderId: string,
+    patch: { name?: string; parentId?: string | null },
+  ): Promise<KnowledgeFolder> => request(`/knowledge/folders/${folderId}`, 'PATCH', patch),
+  deleteKnowledgeFolder: (folderId: string): Promise<void> =>
+    request(`/knowledge/folders/${folderId}`, 'DELETE'),
+  knowledgeTags: (baseId: string): Promise<KnowledgeTag[]> =>
+    request(`/knowledge/bases/${baseId}/tags`),
+  createKnowledgeTag: (baseId: string, name: string): Promise<KnowledgeTag> =>
+    request(`/knowledge/bases/${baseId}/tags`, 'POST', { name }),
+  deleteKnowledgeTag: (tagId: string): Promise<void> =>
+    request(`/knowledge/tags/${tagId}`, 'DELETE'),
+
+  knowledgeDocuments: (
+    baseId: string,
+    query: { folderId?: string; tag?: string; status?: string; q?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<KnowledgePage<KnowledgeDocument>> => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/knowledge/bases/${baseId}/documents${search}`, 'GET', undefined, signal);
+  },
+  uploadKnowledgeDocument: (
+    baseId: string,
+    input: {
+      filename: string;
+      mimeType: string;
+      dataBase64: string;
+      folderId: string | null;
+      /** 目录上传时把相对路径放进标题，列表里能看出原目录。 */
+      title?: string;
+    },
+  ): Promise<{ documentId: string; jobId: string }> =>
+    request(`/knowledge/bases/${baseId}/documents/upload`, 'PUT', input),
+  createKnowledgeManualDocument: (
+    baseId: string,
+    input: { title: string; content: string; folderId: string | null; tags: string[] },
+  ): Promise<{ documentId: string; jobId: string }> =>
+    request(`/knowledge/bases/${baseId}/documents/manual`, 'POST', input),
+  importKnowledgeUrl: (
+    baseId: string,
+    input: { url: string; folderId: string | null },
+  ): Promise<{ documentId: string; jobId: string }> =>
+    request(`/knowledge/bases/${baseId}/documents/url`, 'POST', input),
+  updateKnowledgeDocument: (
+    documentId: string,
+    patch: {
+      title?: string;
+      folderId?: string | null;
+      status?: 'ready' | 'disabled';
+      tags?: string[];
+    },
+  ): Promise<KnowledgeDocument> => request(`/knowledge/documents/${documentId}`, 'PATCH', patch),
+  deleteKnowledgeDocument: (documentId: string): Promise<void> =>
+    request(`/knowledge/documents/${documentId}`, 'DELETE'),
+  reprocessKnowledgeDocument: (
+    documentId: string,
+    confirmOverwriteManualChunks = false,
+  ): Promise<{ jobId: string }> =>
+    request(`/knowledge/documents/${documentId}/reprocess`, 'POST', {
+      confirmOverwriteManualChunks,
+    }),
+
+  knowledgeChunks: (
+    documentId: string,
+    versionId: string | undefined,
+    signal?: AbortSignal,
+    cursor?: string,
+  ): Promise<KnowledgePage<KnowledgeChunk>> => {
+    const params = new URLSearchParams();
+    if (versionId) params.set('versionId', versionId);
+    if (cursor) params.set('cursor', cursor);
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/knowledge/documents/${documentId}/chunks${search}`, 'GET', undefined, signal);
+  },
+  updateKnowledgeChunk: (
+    chunkId: string,
+    patch: { content?: string; heading?: string | null; enabled?: boolean },
+  ): Promise<KnowledgeChunk> => request(`/knowledge/chunks/${chunkId}`, 'PATCH', patch),
+  deleteKnowledgeChunk: (chunkId: string): Promise<void> =>
+    request(`/knowledge/chunks/${chunkId}`, 'DELETE'),
+  /** 解析正文是 text/markdown，不是 JSON；原件走 content 端点直接下载。 */
+  knowledgeMarkdown: (versionId: string, signal?: AbortSignal): Promise<string> =>
+    request(`/knowledge/versions/${versionId}/markdown`, 'GET', undefined, signal, 'text'),
+  knowledgeOriginalUrl: (versionId: string): string =>
+    `/api/knowledge/versions/${versionId}/content`,
+  knowledgeVersionDetails: (
+    versionId: string,
+    signal?: AbortSignal,
+  ): Promise<KnowledgeVersionDetails> =>
+    request(`/knowledge/versions/${versionId}/details`, 'GET', undefined, signal),
+  /** 图片按版本元数据白名单读取，直接走鉴权端点，不代理也不抓远程。 */
+  knowledgeVersionImageUrl: (versionId: string, name: string): string =>
+    `/api/knowledge/versions/${encodeURIComponent(versionId)}/images/${encodeURIComponent(name)}`,
+
+  knowledgeSearch: (
+    baseId: string,
+    q: string,
+    limit = 10,
+    signal?: AbortSignal,
+  ): Promise<KnowledgeSearchResponse> => {
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    return request(
+      `/knowledge/bases/${baseId}/search?${params.toString()}`,
+      'GET',
+      undefined,
+      signal,
+    );
+  },
+
+  knowledgeJobs: (baseId: string): Promise<KnowledgePage<KnowledgeJob>> =>
+    request(`/knowledge/jobs?baseId=${encodeURIComponent(baseId)}`),
+  retryKnowledgeJob: (jobId: string): Promise<{ jobId: string }> =>
+    request(`/knowledge/jobs/${jobId}/retry`, 'POST'),
+  cancelKnowledgeJob: (jobId: string): Promise<KnowledgeJob> =>
+    request(`/knowledge/jobs/${jobId}/cancel`, 'POST'),
+
+  knowledgeSources: (baseId: string, cursor?: string): Promise<KnowledgePage<KnowledgeSource>> => {
+    const search = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+    return request(`/knowledge/bases/${baseId}/sources${search}`);
+  },
+  createKnowledgeSource: (baseId: string, input: KnowledgeSourceInput): Promise<KnowledgeSource> =>
+    request(`/knowledge/bases/${baseId}/sources`, 'POST', input),
+  updateKnowledgeSource: (
+    sourceId: string,
+    patch: {
+      name?: string;
+      config?: Record<string, unknown>;
+      /** 省略表示沿用已存凭证；绝不发空字符串，避免把密钥清空。 */
+      secrets?: Record<string, string>;
+      status?: 'active' | 'paused' | 'disabled';
+      syncCron?: string | null;
+      ranges?: Array<Omit<KnowledgeSourceRange, 'id'>>;
+    },
+  ): Promise<KnowledgeSource> => request(`/knowledge/sources/${sourceId}`, 'PATCH', patch),
+  deleteKnowledgeSource: (sourceId: string, documents: 'keep' | 'delete' = 'keep'): Promise<void> =>
+    request(`/knowledge/sources/${sourceId}?documents=${documents}`, 'DELETE'),
+  testKnowledgeSource: (sourceId: string): Promise<{ ok: boolean; issues: string[] }> =>
+    request(`/knowledge/sources/${sourceId}/test`, 'POST'),
+  syncKnowledgeSource: (sourceId: string): Promise<{ jobId: string; syncRunId: string }> =>
+    request(`/knowledge/sources/${sourceId}/sync`, 'POST'),
+  knowledgeSourceRuns: (sourceId: string): Promise<KnowledgePage<KnowledgeSyncRun>> =>
+    request(`/knowledge/sources/${sourceId}/runs`),
+
+  knowledgeWikiPages: (
+    baseId: string,
+    cursor?: string,
+  ): Promise<KnowledgePage<Omit<KnowledgeWikiPageDetail, 'versions' | 'nextCursor'>>> => {
+    const search = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+    return request(`/knowledge/bases/${baseId}/wiki-pages${search}`);
+  },
+  knowledgeWikiPage: (pageId: string): Promise<KnowledgeWikiPageDetail> =>
+    request(`/knowledge/wiki-pages/${pageId}`),
+  knowledgeWikiVersions: (
+    pageId: string,
+    cursor?: string,
+  ): Promise<KnowledgePage<KnowledgeWikiVersion>> => {
+    const params = new URLSearchParams();
+    if (cursor) params.set('cursor', cursor);
+    return request(
+      `/knowledge/wiki-pages/${pageId}/versions${params.size > 0 ? `?${params.toString()}` : ''}`,
+    );
+  },
+  createKnowledgeWikiPage: (
+    baseId: string,
+    input: { slug: string; title: string },
+  ): Promise<Omit<KnowledgeWikiPageDetail, 'versions' | 'nextCursor'>> =>
+    request(`/knowledge/bases/${baseId}/wiki-pages`, 'POST', input),
+  updateKnowledgeWikiPage: (
+    pageId: string,
+    patch: { title?: string; markdown?: string; expectedVersion?: string | null },
+  ): Promise<Omit<KnowledgeWikiPageDetail, 'versions' | 'nextCursor'>> =>
+    request(`/knowledge/wiki-pages/${pageId}`, 'PATCH', patch),
+  generateKnowledgeWikiPage: (
+    pageId: string,
+    input: { instruction?: string } = {},
+  ): Promise<{ jobId: string }> =>
+    request(`/knowledge/wiki-pages/${pageId}/generate`, 'POST', input),
+  rollbackKnowledgeWikiPage: (pageId: string, versionId: string): Promise<KnowledgeWikiVersion> =>
+    request(`/knowledge/wiki-pages/${pageId}/rollback`, 'POST', { versionId }),
+  publishKnowledgeWikiVersion: (
+    pageId: string,
+    versionId: string,
+  ): Promise<Omit<KnowledgeWikiPageDetail, 'versions' | 'nextCursor'>> =>
+    request(`/knowledge/wiki-pages/${pageId}/publish`, 'POST', { versionId }),
+
+  /** 导出是二进制 ZIP；走统一的 request 保留错误 Problem，并保证带 cookie 会话。 */
+  exportKnowledgeBase: (baseId: string): Promise<Blob> =>
+    request(`/knowledge/bases/${baseId}/export`, 'GET', undefined, undefined, 'blob'),
+  importKnowledgeBase: (archive: Blob): Promise<KnowledgePackageImportResult> =>
+    request('/knowledge/bases/import', 'POST', archive),
+
+  knowledgeModelProfiles: (): Promise<KnowledgeModelProfile[]> =>
+    request('/knowledge/model-profiles'),
+  updateKnowledgeModelProfile: (
+    id: string,
+    patch: {
+      name?: string;
+      endpointUrl?: string;
+      model?: string;
+      apiKey?: string | null;
+      enabled?: boolean;
+      embeddingProtocol?: 'openai' | 'cohere_v2';
+      imageInputEnabled?: boolean;
+    },
+  ): Promise<KnowledgeModelProfile> => request(`/knowledge/model-profiles/${id}`, 'PATCH', patch),
+  deleteKnowledgeModelProfile: (id: string): Promise<void> =>
+    request(`/knowledge/model-profiles/${id}`, 'DELETE'),
+  testKnowledgeModelProfile: (id: string): Promise<{ ok: boolean; kind?: string }> =>
+    request(`/knowledge/model-profiles/${id}/test`, 'POST'),
+  rebuildKnowledgeBase: (
+    id: string,
+    input: { documentIds?: string[]; chunksOnly?: boolean } = {},
+  ): Promise<{ jobId: string }> => request(`/knowledge/bases/${id}/rebuild`, 'POST', input),
+  createKnowledgeModelProfile: (input: {
+    kind: 'embedding' | 'rerank';
+    name: string;
+    endpointUrl: string;
+    model: string;
+    apiKey?: string;
+    embeddingProtocol?: 'openai' | 'cohere_v2';
+    imageInputEnabled?: boolean;
+  }): Promise<KnowledgeModelProfile> => request('/knowledge/model-profiles', 'POST', input),
 };

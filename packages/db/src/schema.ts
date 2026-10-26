@@ -1,9 +1,11 @@
-import type { Agent } from '@agentport/shared';
+import type { Agent, KnowledgeBaseSettings } from '@agentport/shared';
 import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
+  bigint,
   boolean,
   check,
+  customType,
   index,
   integer,
   jsonb,
@@ -14,12 +16,25 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
+/** pgvector 列：drizzle 无原生类型，写入时转 `[a,b]` 字面量，读取时还原数组。 */
+const vector = customType<{ data: number[]; driverData: string }>({
+  dataType: () => 'vector(1024)',
+  toDriver: (value) => `[${value.join(',')}]`,
+  fromDriver: (value) => JSON.parse(value as string) as number[],
+});
+
+/** 由 search_text 派生的 tsvector；应用不写这一列。 */
+const tsvector = customType<{ data: string }>({
+  dataType: () => 'tsvector',
+  fromDriver: (value) => value as string,
+});
+
 export const servers = pgTable(
   'servers',
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    kind: text('kind', { enum: ['stdio', 'http', 'generated'] }).notNull(),
+    kind: text('kind', { enum: ['stdio', 'http', 'generated', 'knowledge'] }).notNull(),
     description: text('description').notNull().default(''),
     // command / args / url / headers 等非敏感字段
     config: jsonb('config').$type<Record<string, unknown>>().notNull(),
@@ -34,7 +49,7 @@ export const servers = pgTable(
   },
   (t) => [
     uniqueIndex('servers_name_idx').on(t.name),
-    check('servers_kind_check', sql`${t.kind} in ('stdio', 'http', 'generated')`),
+    check('servers_kind_check', sql`${t.kind} in ('stdio', 'http', 'generated', 'knowledge')`),
   ],
 );
 
@@ -697,6 +712,484 @@ export const authVerifications = pgTable(
   (t) => [index('verification_identifier_idx').on(t.identifier)],
 );
 
+/**
+ * 模型端点（embedding/rerank）。API 只回 hasSecret；worker 用 decryptSecrets 取密钥。
+ */
+export const knowledgeModelProfiles = pgTable(
+  'knowledge_model_profiles',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind', { enum: ['embedding', 'rerank'] }).notNull(),
+    name: text('name').notNull(),
+    endpointUrl: text('endpoint_url').notNull(),
+    model: text('model').notNull(),
+    /** embedding 固定 1024 维；rerank 为 null。 */
+    dimensions: integer('dimensions'),
+    /** 文本/图片共用同一模型的向量协议；rerank 行保持默认 openai。 */
+    embeddingProtocol: text('embedding_protocol', { enum: ['openai', 'cohere_v2'] })
+      .notNull()
+      .default('openai'),
+    /** 只有 cohere_v2 + embed-v4.0 才能开启，见下方 check。 */
+    imageInputEnabled: boolean('image_input_enabled').notNull().default(false),
+    /** AES-256-GCM；API 永不回传密文。 */
+    secretsEncrypted: text('secrets_encrypted'),
+    enabled: boolean('enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('knowledge_model_profiles_kind_name_idx').on(t.kind, t.name),
+    check('knowledge_model_profiles_kind_check', sql`${t.kind} in ('embedding', 'rerank')`),
+    check(
+      'knowledge_model_profiles_dimensions_check',
+      sql`(${t.kind} = 'embedding' and ${t.dimensions} = 1024) or (${t.kind} = 'rerank' and ${t.dimensions} is null)`,
+    ),
+    check(
+      'knowledge_model_profiles_embedding_protocol_check',
+      sql`${t.embeddingProtocol} in ('openai', 'cohere_v2')`,
+    ),
+    check(
+      'knowledge_model_profiles_image_input_check',
+      sql`${t.imageInputEnabled} = false or (${t.kind} = 'embedding' and ${t.embeddingProtocol} = 'cohere_v2' and ${t.model} = 'embed-v4.0')`,
+    ),
+  ],
+);
+
+export const knowledgeBases = pgTable(
+  'knowledge_bases',
+  {
+    id: text('id').primaryKey(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    status: text('status', { enum: ['active', 'disabled'] })
+      .notNull()
+      .default('active'),
+    serverId: text('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    embeddingProfileId: text('embedding_profile_id')
+      .notNull()
+      .references(() => knowledgeModelProfiles.id, { onDelete: 'restrict' }),
+    rerankProfileId: text('rerank_profile_id').references(() => knowledgeModelProfiles.id, {
+      onDelete: 'set null',
+    }),
+    settings: jsonb('settings').$type<KnowledgeBaseSettings>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('knowledge_bases_slug_idx').on(t.slug),
+    uniqueIndex('knowledge_bases_server_idx').on(t.serverId),
+    check('knowledge_bases_status_check', sql`${t.status} in ('active', 'disabled')`),
+  ],
+);
+
+export const knowledgeFolders = pgTable(
+  'knowledge_folders',
+  {
+    id: text('id').primaryKey(),
+    baseId: text('base_id')
+      .notNull()
+      .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
+    parentId: text('parent_id').references((): AnyPgColumn => knowledgeFolders.id, {
+      onDelete: 'cascade',
+    }),
+    name: text('name').notNull(),
+    /** 物化路径，如 `/a/b`；改名/移动时整棵子树重写。 */
+    path: text('path').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('knowledge_folders_base_path_idx').on(t.baseId, t.path),
+    index('knowledge_folders_base_parent_idx').on(t.baseId, t.parentId),
+  ],
+);
+
+export const knowledgeTags = pgTable(
+  'knowledge_tags',
+  {
+    id: text('id').primaryKey(),
+    baseId: text('base_id')
+      .notNull()
+      .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('knowledge_tags_base_name_idx').on(t.baseId, t.name)],
+);
+
+export const knowledgeDocuments = pgTable(
+  'knowledge_documents',
+  {
+    id: text('id').primaryKey(),
+    baseId: text('base_id')
+      .notNull()
+      .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
+    folderId: text('folder_id').references(() => knowledgeFolders.id, {
+      onDelete: 'set null',
+    }),
+    title: text('title').notNull(),
+    sourceType: text('source_type', {
+      enum: ['upload', 'url', 'feishu_wiki', 'feishu_drive', 'gitlab', 'feed', 'manual'],
+    }).notNull(),
+    /** 外部稳定 ID（飞书 token / `project:ref:path` / `feedURL:itemId`）；upload/manual 为 null。 */
+    sourceId: text('source_id'),
+    sourceUrl: text('source_url'),
+    sourcePath: text('source_path'),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull().default(0),
+    status: text('status', {
+      enum: ['pending', 'processing', 'ready', 'failed', 'disabled'],
+    })
+      .notNull()
+      .default('pending'),
+    /** 不做 FK：版本表引用文档，反向引用会在删版本时成环。切版本前先在事务里写这里。 */
+    currentVersionId: text('current_version_id'),
+    contentHash: text('content_hash'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('knowledge_documents_base_status_idx').on(t.baseId, t.status, t.updatedAt.desc()),
+    index('knowledge_documents_base_folder_idx').on(t.baseId, t.folderId),
+    // 外部来源只按 sourceId 匹配，绝不用标题；upload/manual 的 null 不受约束。
+    uniqueIndex('knowledge_documents_source_idx')
+      .on(t.baseId, t.sourceType, t.sourceId)
+      .where(isNotNull(t.sourceId)),
+    check(
+      'knowledge_documents_source_type_check',
+      sql`${t.sourceType} in ('upload', 'url', 'feishu_wiki', 'feishu_drive', 'gitlab', 'feed', 'manual')`,
+    ),
+    check(
+      'knowledge_documents_status_check',
+      sql`${t.status} in ('pending', 'processing', 'ready', 'failed', 'disabled')`,
+    ),
+  ],
+);
+
+export const knowledgeDocumentVersions = pgTable(
+  'knowledge_document_versions',
+  {
+    id: text('id').primaryKey(),
+    documentId: text('document_id')
+      .notNull()
+      .references(() => knowledgeDocuments.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    /** 原件按内容寻址：`blobs/<前2位>/<sha256>`。 */
+    blobSha256: text('blob_sha256').notNull(),
+    markdownSha256: text('markdown_sha256').notNull(),
+    originalFilename: text('original_filename').notNull(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull().default(0),
+    /** 源端版本指纹：commit sha / 飞书 edit_time / feed 条目指纹。 */
+    sourceRevision: text('source_revision'),
+    parseStatus: text('parse_status', { enum: ['parsed', 'parse_failed'] }).notNull(),
+    pageMap: jsonb('page_map')
+      .$type<Array<{ page: number; startOffset: number; endOffset: number }>>()
+      .notNull()
+      .default([]),
+    images: jsonb('images')
+      .$type<
+        Array<{ name: string; sha256: string; mimeType: string; page: number; warnings: string[] }>
+      >()
+      .notNull()
+      .default([]),
+    embeddingProfileId: text('embedding_profile_id')
+      .notNull()
+      .references(() => knowledgeModelProfiles.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('knowledge_document_versions_document_version_idx').on(t.documentId, t.version),
+    index('knowledge_document_versions_blob_idx').on(t.blobSha256),
+    check(
+      'knowledge_document_versions_parse_status_check',
+      sql`${t.parseStatus} in ('parsed', 'parse_failed')`,
+    ),
+  ],
+);
+
+export const knowledgeChunks = pgTable(
+  'knowledge_chunks',
+  {
+    id: text('id').primaryKey(),
+    baseId: text('base_id')
+      .notNull()
+      .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
+    documentId: text('document_id')
+      .notNull()
+      .references(() => knowledgeDocuments.id, { onDelete: 'cascade' }),
+    versionId: text('version_id')
+      .notNull()
+      .references(() => knowledgeDocumentVersions.id, { onDelete: 'cascade' }),
+    folderId: text('folder_id').references(() => knowledgeFolders.id, {
+      onDelete: 'set null',
+    }),
+    ordinal: integer('ordinal').notNull(),
+    kind: text('kind', { enum: ['text', 'table', 'image'] })
+      .notNull()
+      .default('text'),
+    heading: text('heading'),
+    content: text('content').notNull().default(''),
+    /** 应用侧 Intl.Segmenter 分词后空格拼接，检索走 simple 词典。 */
+    searchText: text('search_text').notNull().default(''),
+    // 生成列：索引与查询都只依赖它，应用永远不写。
+    searchVector: tsvector('search_vector').generatedAlwaysAs(
+      sql`to_tsvector('simple', search_text)`,
+    ),
+    embedding: vector('embedding'),
+    enabled: boolean('enabled').notNull().default(true),
+    editedByUser: boolean('edited_by_user').notNull().default(false),
+    pageFrom: integer('page_from'),
+    pageTo: integer('page_to'),
+    tokenCount: integer('token_count').notNull().default(0),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('knowledge_chunks_version_ordinal_idx').on(t.versionId, t.ordinal),
+    index('knowledge_chunks_search_idx').using('gin', t.searchVector),
+    index('knowledge_chunks_base_document_idx').on(t.baseId, t.documentId),
+    check('knowledge_chunks_kind_check', sql`${t.kind} in ('text', 'table', 'image')`),
+  ],
+);
+
+export const knowledgeSources = pgTable(
+  'knowledge_sources',
+  {
+    id: text('id').primaryKey(),
+    baseId: text('base_id')
+      .notNull()
+      .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
+    type: text('type', { enum: ['feishu_wiki', 'feishu_drive', 'gitlab', 'feed'] }).notNull(),
+    name: text('name').notNull(),
+    config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
+    /** AES-256-GCM，复用 core 的 encryptSecrets。 */
+    secretsEncrypted: text('secrets_encrypted'),
+    status: text('status', {
+      enum: ['active', 'paused', 'auth_error', 'disabled'],
+    })
+      .notNull()
+      .default('active'),
+    /** 5 段 cron（UTC）；null 表示不自动同步。 */
+    syncCron: text('sync_cron'),
+    cursor: jsonb('cursor').$type<Record<string, unknown>>().notNull().default({}),
+    lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
+    lastSyncStatus: text('last_sync_status'),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('knowledge_sources_base_idx').on(t.baseId),
+    check(
+      'knowledge_sources_type_check',
+      sql`${t.type} in ('feishu_wiki', 'feishu_drive', 'gitlab', 'feed')`,
+    ),
+    check(
+      'knowledge_sources_status_check',
+      sql`${t.status} in ('active', 'paused', 'auth_error', 'disabled')`,
+    ),
+  ],
+);
+
+export const knowledgeSourceRanges = pgTable(
+  'knowledge_source_ranges',
+  {
+    id: text('id').primaryKey(),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => knowledgeSources.id, { onDelete: 'cascade' }),
+    kind: text('kind', {
+      enum: ['wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'feed'],
+    }).notNull(),
+    externalId: text('external_id').notNull(),
+    ref: text('ref'),
+    paths: jsonb('paths').$type<string[]>().notNull().default([]),
+    enabled: boolean('enabled').notNull().default(true),
+  },
+  (t) => [
+    // ref 可空，coalesce 成 '' 才能参与唯一约束。
+    uniqueIndex('knowledge_source_ranges_scope_idx').on(
+      t.sourceId,
+      t.kind,
+      t.externalId,
+      sql`coalesce(${t.ref}, '')`,
+    ),
+    check(
+      'knowledge_source_ranges_kind_check',
+      sql`${t.kind} in ('wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'feed')`,
+    ),
+  ],
+);
+
+export const knowledgeSyncRuns = pgTable(
+  'knowledge_sync_runs',
+  {
+    id: text('id').primaryKey(),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => knowledgeSources.id, { onDelete: 'cascade' }),
+    status: text('status', {
+      enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled'],
+    })
+      .notNull()
+      .default('queued'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    cursorBefore: jsonb('cursor_before').$type<Record<string, unknown>>(),
+    cursorAfter: jsonb('cursor_after').$type<Record<string, unknown>>(),
+    stats: jsonb('stats')
+      .$type<{
+        listed: number;
+        created: number;
+        updated: number;
+        disabled: number;
+        failed: number;
+      }>()
+      .notNull()
+      .default({ listed: 0, created: 0, updated: 0, disabled: 0, failed: 0 }),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('knowledge_sync_runs_source_idx').on(t.sourceId, t.createdAt.desc()),
+    check(
+      'knowledge_sync_runs_status_check',
+      sql`${t.status} in ('queued', 'running', 'succeeded', 'failed', 'cancelled')`,
+    ),
+  ],
+);
+
+/** 任务账本；BullMQ jobId = 本表 id，worker 只认领 queued 行。 */
+export const knowledgeJobs = pgTable(
+  'knowledge_jobs',
+  {
+    id: text('id').primaryKey(),
+    type: text('type', {
+      enum: ['ingest', 'reindex', 'sync', 'wiki_generate', 'cleanup'],
+    }).notNull(),
+    baseId: text('base_id').references(() => knowledgeBases.id, { onDelete: 'cascade' }),
+    documentId: text('document_id').references(() => knowledgeDocuments.id, {
+      onDelete: 'cascade',
+    }),
+    sourceId: text('source_id').references(() => knowledgeSources.id, { onDelete: 'cascade' }),
+    status: text('status', {
+      enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled'],
+    })
+      .notNull()
+      .default('queued'),
+    step: text('step'),
+    progress: integer('progress').notNull().default(0),
+    attempts: integer('attempts').notNull().default(0),
+    error: text('error'),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('knowledge_jobs_status_created_idx').on(t.status, t.createdAt),
+    index('knowledge_jobs_base_created_idx').on(t.baseId, t.createdAt.desc()),
+    index('knowledge_jobs_document_idx').on(t.documentId),
+    check(
+      'knowledge_jobs_type_check',
+      sql`${t.type} in ('ingest', 'reindex', 'sync', 'wiki_generate', 'cleanup')`,
+    ),
+    check(
+      'knowledge_jobs_status_check',
+      sql`${t.status} in ('queued', 'running', 'succeeded', 'failed', 'cancelled')`,
+    ),
+  ],
+);
+
+export const knowledgeWikiPages = pgTable(
+  'knowledge_wiki_pages',
+  {
+    id: text('id').primaryKey(),
+    baseId: text('base_id')
+      .notNull()
+      .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    title: text('title').notNull(),
+    status: text('status', { enum: ['draft', 'published', 'stale', 'failed'] })
+      .notNull()
+      .default('draft'),
+    currentVersionId: text('current_version_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('knowledge_wiki_pages_base_slug_idx').on(t.baseId, t.slug),
+    check(
+      'knowledge_wiki_pages_status_check',
+      sql`${t.status} in ('draft', 'published', 'stale', 'failed')`,
+    ),
+  ],
+);
+
+export const knowledgeWikiVersions = pgTable(
+  'knowledge_wiki_versions',
+  {
+    id: text('id').primaryKey(),
+    pageId: text('page_id')
+      .notNull()
+      .references(() => knowledgeWikiPages.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    markdown: text('markdown').notNull(),
+    sourceChunkIds: jsonb('source_chunk_ids').$type<string[]>().notNull().default([]),
+    model: text('model').notNull(),
+    generatedBy: text('generated_by', { enum: ['sdk', 'manual'] }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('knowledge_wiki_versions_page_version_idx').on(t.pageId, t.version),
+    check('knowledge_wiki_versions_generated_by_check', sql`${t.generatedBy} in ('sdk', 'manual')`),
+  ],
+);
+
+export const knowledgeWikiSources = pgTable(
+  'knowledge_wiki_sources',
+  {
+    pageId: text('page_id')
+      .notNull()
+      .references(() => knowledgeWikiPages.id, { onDelete: 'cascade' }),
+    documentId: text('document_id').references(() => knowledgeDocuments.id, {
+      onDelete: 'set null',
+    }),
+    versionId: text('version_id').references(() => knowledgeDocumentVersions.id, {
+      onDelete: 'set null',
+    }),
+    chunkId: text('chunk_id').references(() => knowledgeChunks.id, { onDelete: 'set null' }),
+    stale: boolean('stale').notNull().default(false),
+  },
+  (t) => [
+    uniqueIndex('knowledge_wiki_sources_page_chunk_idx').on(t.pageId, t.chunkId),
+    index('knowledge_wiki_sources_document_idx').on(t.documentId),
+  ],
+);
+
+/** 文档与标签的多对多关系。 */
+export const knowledgeDocumentTags = pgTable(
+  'knowledge_document_tags',
+  {
+    documentId: text('document_id')
+      .notNull()
+      .references(() => knowledgeDocuments.id, { onDelete: 'cascade' }),
+    tagId: text('tag_id')
+      .notNull()
+      .references(() => knowledgeTags.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    uniqueIndex('knowledge_document_tags_pk').on(t.documentId, t.tagId),
+    index('knowledge_document_tags_tag_idx').on(t.tagId),
+  ],
+);
+
 export const schema = {
   servers,
   apiTools,
@@ -721,6 +1214,21 @@ export const schema = {
   authSessions,
   authAccounts,
   authVerifications,
+  knowledgeModelProfiles,
+  knowledgeBases,
+  knowledgeFolders,
+  knowledgeTags,
+  knowledgeDocuments,
+  knowledgeDocumentVersions,
+  knowledgeChunks,
+  knowledgeSources,
+  knowledgeSourceRanges,
+  knowledgeSyncRuns,
+  knowledgeJobs,
+  knowledgeWikiPages,
+  knowledgeWikiVersions,
+  knowledgeWikiSources,
+  knowledgeDocumentTags,
 };
 
 export { sql };

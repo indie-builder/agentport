@@ -6,8 +6,10 @@ name: agentport
 
 services:
   postgres:
-    # 摘要固定到当前 18-alpine 的 multi-arch index，重建不会漂移。
-    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    # 知识库需要 pgvector；该镜像基于 PostgreSQL 18（18.6）并内置 vector 0.8.7。
+    # digest 是 registry manifest index（不是 image inspect 的 config Id），
+    # 已用 `docker buildx imagetools inspect` 与 Hub manifest 响应核对。
+    image: pgvector/pgvector:pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
     restart: unless-stopped
     environment:
       POSTGRES_USER: agentport
@@ -40,14 +42,15 @@ services:
       timeout: 3s
       retries: 10
 
-  # 命名卷首次创建时属主是 root；worker 以 node(1000) 运行会 EACCES。
+  # 命名卷首次创建时属主是 root；api/worker 以 node(1000) 运行会 EACCES。
   # 单独的一次性 init 修复，`docker compose up` 与 up.sh 行为一致。
   init:
     image: alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f
-    command: ['chown', '-R', '1000:1000', '/w']
+    command: ['chown', '-R', '1000:1000', '/w', '/k']
     restart: 'no'
     volumes:
       - workspaces:/w
+      - knowledgedata:/k
 
   migrate:
     build: .
@@ -63,6 +66,18 @@ services:
       postgres:
         condition: service_healthy
 
+  # 复杂格式解析（PDF/Office/OCR）。默认不启动：`docker compose --profile docling up -d docling`。
+  # 镜像 index digest 已用 ghcr manifest 核验（v0.8.0，amd64/arm64 均存在），但本仓库未实际拉起过该服务；
+  # 首次运行会下载模型。不想内置时把 DOCLING_URL 指向外部 Docling，鉴权同样用 DOCLING_TOKEN（X-Api-Key）。
+  docling:
+    profiles: ['docling']
+    image: ghcr.io/docling-project/docling-serve-cpu:v0.8.0@sha256:51b5c7172b5d01bdb0bc9c73a21ee4396cb904c0262a898a8002195564f30286
+    restart: unless-stopped
+    environment:
+      DOCLING_SERVE_API_KEY: ${DOCLING_TOKEN:-}
+    ports:
+      - '127.0.0.1:5001:5001'
+
   api:
     build: .
     image: ${API_IMAGE:-agentport/api:dev}
@@ -77,12 +92,16 @@ services:
       # web 构建产物在镜像里的位置（根 Dockerfile 复制 packages/web/dist 到 /app/web）
       WEB_DIST: /app/web
       WORKSPACES_DIR: /workspaces
+      # 知识库原件与解析产物；api 负责写入上传，worker 读取处理，两者必须同卷。
+      KNOWLEDGE_DIR: /knowledge
+      KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: ${KNOWLEDGE_PRIVATE_HOST_ALLOWLIST:-}
       # .env 里 development/debug 只用于本地进程；容器部署默认 info，需要时显式 export。
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - '3000:3000'
     volumes:
       - workspaces:/workspaces
+      - knowledgedata:/knowledge
     depends_on:
       init:
         condition: service_completed_successfully
@@ -107,6 +126,12 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # 固定容器内路径，与执行 compose 的目录无关。
       WORKSPACES_DIR: /workspaces
+      KNOWLEDGE_DIR: /knowledge
+      # 解析服务（Docling）与 Wiki 模型；未配置时知识功能明确不可用，不静默降级。
+      DOCLING_URL: ${DOCLING_URL:-}
+      DOCLING_TOKEN: ${DOCLING_TOKEN:-}
+      KNOWLEDGE_WIKI_MODEL: ${KNOWLEDGE_WIKI_MODEL:-}
+      KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: ${KNOWLEDGE_PRIVATE_HOST_ALLOWLIST:-}
       # 沙盒由宿主 daemon 启动，-v 的源路径按宿主文件系统解析，不能直接用容器内路径。
       # 命名卷在标准 rootful Docker 上的宿主目录如下（项目名固定为 agentport）；
       # rootless / 自定义 data-root 时用 HOST_WORKSPACES_DIR 覆盖。
@@ -125,6 +150,7 @@ services:
       # 换 socket proxy / 独立沙盒节点 / microVM。触发条件见 docs/DECISIONS-PENDING.md D-16。
       - /var/run/docker.sock:/var/run/docker.sock
       - workspaces:/workspaces
+      - knowledgedata:/knowledge
     # socket 属于宿主 root:docker；容器内 node 用户不在该组，补上 GID 0
     # （Docker Desktop 默认 socket 为 root:root）。Linux 上若 docker 组 GID 不同，
     # 用 DOCKER_GID 覆盖。
@@ -149,3 +175,4 @@ volumes:
   pgdata:
   redisdata:
   workspaces:
+  knowledgedata:
