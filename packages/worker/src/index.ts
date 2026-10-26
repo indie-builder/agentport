@@ -936,8 +936,8 @@ await scheduleScheduler.sync().catch((err: unknown) => {
 let shuttingDown = false;
 
 /**
- * SIGTERM：先让 BullMQ 排空在跑的任务（最多 10s），仍未结束的沙盒由
- * docker rm -f 兜底；容器退出会推动任务收尾，再关闭 Redis / PG。
+ * SIGTERM：先让聊天 run 排空最多 10s；其余队列并发关闭（知识任务会 abort 活跃任务），
+ * 沙盒不等待它们排空，最后关闭 Redis / PG。
  */
 const shutdown = async (): Promise<void> => {
   if (shuttingDown) return;
@@ -952,6 +952,7 @@ const shutdown = async (): Promise<void> => {
       { label: 'main worker', close: () => worker.close() },
       { label: 'eval worker', close: () => evalWorker.close() },
     ],
+    provider: { label: 'sandbox provider', close: () => provider.destroyAll() },
     steps: [
       { label: 'maintenance worker', close: () => maintenanceWorker.close() },
       { label: 'knowledge worker', close: () => knowledgeWorker.close() },
@@ -961,7 +962,6 @@ const shutdown = async (): Promise<void> => {
       { label: 'native plugins', close: () => nativePlugins.close() },
       { label: 'schedule scheduler', close: () => scheduleScheduler.close() },
       { label: 'reconciler', close: () => stopReconciler() },
-      { label: 'sandbox provider', close: () => provider.destroyAll() },
     ],
     finalSteps: [
       { label: 'eval queue', close: () => closeEvalRunQueue() },

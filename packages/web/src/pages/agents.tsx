@@ -1202,29 +1202,40 @@ export function AgentEditor({
               unknownServerCount > 0 ? ` · 另 ${unknownServerCount} 个 server 连接后确定` : ''
             }`;
 
-  const hasSubAgents = subAgentIdsField.value.length > 0;
-  const allowedTools = toolLines(allowedToolsDraft);
+  // 只订阅参与工具状态推导的字段，供渲染与点击时的快照共用同一形状。
+  const toolDraft = {
+    subAgentIds: subAgentIdsField.value,
+    allowedTools: allowedToolsDraft,
+    disallowedTools: disallowedToolsDraft,
+  };
+  const hasSubAgents = toolDraft.subAgentIds.length > 0;
   /** 实际生效的内置工具状态：默认禁用 + 显式禁用，allowedTools 显式放行。 */
-  const builtinEnabled = (tool: string): boolean => {
+  const builtinEnabled = (
+    draft: Pick<AgentDraft, 'subAgentIds' | 'allowedTools' | 'disallowedTools'>,
+    tool: string,
+  ): boolean => {
     // runner 只要 allowSubAgents 为真就放行 Agent/TaskStop，显式禁用拦不住。
-    if ((tool === 'Agent' || tool === 'TaskStop') && hasSubAgents) return true;
-    if (disallowedToolsDraft.includes(tool)) return false;
-    return !DEFAULT_DISALLOWED_TOOLS.includes(tool) || allowedTools.includes(tool);
+    if ((tool === 'Agent' || tool === 'TaskStop') && draft.subAgentIds.length > 0) return true;
+    if (draft.disallowedTools.includes(tool)) return false;
+    return !DEFAULT_DISALLOWED_TOOLS.includes(tool) || toolLines(draft.allowedTools).includes(tool);
   };
 
   const toggleBuiltin = (tool: string): void => {
     // Agent/TaskStop 由子智能体绑定决定，开关不生效，避免写出误导性的 disallowedTools。
     if (tool === 'Agent' || tool === 'TaskStop') return;
-    const enabled = builtinEnabled(tool);
-    const nextTools = enabled
-      ? allowedTools.filter((item) => item !== tool)
-      : [...allowedTools, tool];
-    set('allowedTools', nextTools.join('\n'));
+    // 点击时用完整快照推导，不依赖上一次渲染的值。
+    const current = rhf.getValues() as AgentDraft;
+    const enabled = builtinEnabled(current, tool);
+    const currentTools = toolLines(current.allowedTools);
+    set(
+      'allowedTools',
+      (enabled ? currentTools.filter((item) => item !== tool) : [...currentTools, tool]).join('\n'),
+    );
     set(
       'disallowedTools',
       enabled
-        ? [...new Set([...disallowedToolsDraft, tool])]
-        : disallowedToolsDraft.filter((item) => item !== tool),
+        ? [...new Set([...current.disallowedTools, tool])]
+        : current.disallowedTools.filter((item) => item !== tool),
     );
   };
 
@@ -2303,7 +2314,7 @@ export function AgentEditor({
                       <h3 className="mb-2 text-sm font-medium text-fg">内置工具</h3>
                       <div className="flex flex-wrap gap-2">
                         {BUILTIN_TOOLS.map((tool) => {
-                          const enabled = builtinEnabled(tool);
+                          const enabled = builtinEnabled(toolDraft, tool);
                           const fixed = tool === 'Agent' || tool === 'TaskStop';
                           return (
                             <Toggle

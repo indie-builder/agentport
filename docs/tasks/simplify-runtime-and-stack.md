@@ -83,7 +83,7 @@
 
 ## 下一步
 
-SDK核心约束限定核查已完成：独立Opus对照官方文档、本地0.3.310类型和efcf71c差异，未发现确定由本次引入的SDK接入回归；query、官方文件加载、resume/fork、UUID、父子权限/skills/plugins/hooks、memory和参数契约保留。专项48+真实CLI发现4测试通过。不得宣称完整SDK业务已端到端无回归：新镜像真实模型首次/续聊/分支/MCP/记忆跨轮/风格执行仍未验收。平台保存超限将SDK成功改平台失败的规则是明确业务变化，交付必须披露；本轮不擅自新增另一套运行状态/协议。成果未提交、未合入；发布前以SDK业务验收为核心标准。
+PR最终provider等待补丁独立Opus复核通过，最新origin/main f2eee7d冲突整合通过；完整251文件2187测试与最后13专项、build/typecheck/contract通过。正在完成merge提交、推送、创建PR并按用户授权合并；不触发/等待CI，不部署。SDK真实模型完整E2E缺口与保存超限状态规则已写PR。主线独立测试库已替换本任务advisory lock方案，不并存两套。
 
 ## 验证
 
@@ -156,4 +156,9 @@ SDK核心约束限定核查已完成：独立Opus对照官方文档、本地0.3.
 - 最终清理：追加3个自建容器与PG匿名卷已用`docker rm -fv`移除，只移除pace/api:review-fixes-20261026任务镜像；已跟踪Vitest报告恢复，用户dev镜像、共享服务和数据未动。
 - 用户澄清后的核心SDK复验：runner/memory-permissions/sub-agent-permissions/sdk-skills四文件48通过；真实query control初始化skill-discovery/plugin-discovery两文件4通过、0跳过（无模型请求），官方CLI实际发现技能、插件命名空间与子定义。shared任务协议、messages持久化源码、SDK版本与依赖锁均未替换。输出风格删除平台重复解析，继续由project官方文件加载。
 - 核心SDK验收边界：未在本轮做真实模型完整对话/续聊/分支/MCP/子智能体/记忆跨轮端到端；平台保存超限会将SDK成功标成平台失败，是明确平台规则而非SDK执行结果，不能混称。
-- 后续重复验证应创建新的独立Postgres/Redis实例并注入地址；本任务早期与追加阶段实例全部已清理。最终全套有既有act/jsdom尺寸/listeners警告，不声称零警告；未付费模型、未完整产品E2E。
+- 发布合并阶段执行代理越界：对账冲突代理未用任务专用数据库，执行了共享compose Postgres重建为pgvector。主会话发现后立即停止共享变更并核查`http://localhost:3000/health/ready`返回db/redis ok，容器健康。该操作不作为授权或本任务验证证据；后续显式只用pace-pr-final-pg/redis（55273/55274）。不得隐瞒影响或继续重启共享服务。
+- PR合并主线f2eee7d：5文件冲突已解决，前端保留局部订阅/懒预览/dirty reset并通过主线+任务22专项及web694全量；运行保留pipeline并整合主线waitClose/knowledge关停，删除重复内联close框架；reconcile测试采用主线随机独立库，删除本任务锁机制（同一问题原生项目已有更优实现）。
+- PR合并版本build/typecheck/focus/contract通过，关键关停/proxy/SDK runner36测试通过，runtime镜像pace/api:pr-merge-verify构建及只读uid1000入口通过；完整回归与Opus合并限定复核中。
+- PR运行合并复核唯一阻塞：provider.destroyAll被5s waitClose截断，pending create尚未收尾时会exit0；恢复直接await attempt(provider)，其他资源仍并行有界，补provider迟到完成不得提前退出回归。前端合并独立复核通过（22+59专项）。
+- PR最终完整串行回归：251文件2187测试通过，0失败0跳过；最后provider等待补丁9 shutdown/3 close-wait/1 reconcile-shutdown共13专项通过，相关proxy合计16通过。最新主线merge冲突已清、build/typecheck/focus/contract与有效差异格式通过；最后provider限定Opus复核中。
+- 后续重复验证应创建新的独立Postgres/Redis实例并注入地址；早期/追加验证实例已清理，PR合并阶段独立实例55273/55274收尾再清理。最终全套有既有act/jsdom尺寸/listeners警告，不声称零警告；未付费模型、未完整产品E2E。

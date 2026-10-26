@@ -1,12 +1,19 @@
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import pino from 'pino';
+import type { Logger } from 'pino';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { startModelProxy } from '../src/model-proxy.js';
 
-const logger = pino({ level: 'silent' });
+const quiet = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+  debug: () => undefined,
+  child: () => quiet,
+} as unknown as Logger;
+
 const RUN_ID = 'run_test';
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -32,9 +39,9 @@ async function listen(server: Server): Promise<number> {
 
 async function startProxy(upstreamPort: number): Promise<number> {
   const proxy = await startModelProxy({
-    logger,
+    logger: quiet,
     upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
-    apiKey: 'upstream-secret',
+    apiKey: 'fake-upstream-credential',
     resolveRun: async (token) => (token === RUN_ID ? { runId: RUN_ID } : null),
   });
   if (!proxy) throw new Error('proxy did not start');
@@ -114,17 +121,16 @@ describe('model proxy streaming', () => {
     expect(flushedLater - flushedWhilePaused).toBeLessThan(4 * CHUNK.length);
   }, 20_000);
 
-  it('aborts the upstream request when the downstream client disconnects early', async () => {
+  it('aborts the upstream request when the client disconnects mid-stream', async () => {
+    let aborted = false;
     const upstreamClosed = deferred();
 
     const upstream = createServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.on('error', () => {});
-      const timer = setInterval(() => {
-        if (!res.destroyed) res.write('data: ping\n\n');
-      }, 20);
-      res.once('close', () => {
-        clearInterval(timer);
+      res.write('data: first\n\n');
+      // 客户端断开时代理应取消上游；没有取消时这里不会触发。
+      res.on('close', () => {
+        aborted = !res.writableEnded;
         upstreamClosed.resolve();
       });
     });
@@ -132,25 +138,46 @@ describe('model proxy streaming', () => {
     const proxyPort = await startProxy(upstreamPort);
 
     const client = proxyRequest(proxyPort);
-    const firstChunk = new Promise<void>((resolvePromise, rejectPromise) => {
+    client.once('response', (res) => {
+      res.once('data', () => client.destroy());
+      res.on('error', () => {});
+    });
+    client.end(JSON.stringify({ model: 'claude-test', stream: true, messages: [] }));
+
+    const outcome = await Promise.race([
+      upstreamClosed.promise.then(() => 'closed' as const),
+      new Promise<'timeout'>((resolvePromise) => {
+        setTimeout(() => resolvePromise('timeout'), 2_000);
+      }),
+    ]);
+    expect(outcome).toBe('closed');
+    expect(aborted).toBe(true);
+  }, 20_000);
+
+  it('streams the whole body when the client stays connected', async () => {
+    const upstream = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write('data: one\n\n');
+      setTimeout(() => res.end('data: two\n\n'), 10);
+    });
+    const upstreamPort = await listen(upstream);
+    const proxyPort = await startProxy(upstreamPort);
+
+    const body = await new Promise<string>((resolvePromise, rejectPromise) => {
+      const client = proxyRequest(proxyPort);
       client.once('response', (res) => {
-        res.once('data', () => resolvePromise());
-        res.on('error', () => {});
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          text += chunk;
+        });
+        res.on('end', () => resolvePromise(text));
+        res.on('error', rejectPromise);
       });
       client.once('error', rejectPromise);
+      client.end(JSON.stringify({ model: 'claude-test', stream: true, messages: [] }));
     });
-    client.end(JSON.stringify({ model: 'claude-test' }));
 
-    await firstChunk;
-    client.destroy();
-
-    await expect(
-      Promise.race([
-        upstreamClosed.promise.then(() => 'closed' as const),
-        new Promise<'open'>((resolvePromise) => {
-          setTimeout(() => resolvePromise('open'), 1000);
-        }),
-      ]),
-    ).resolves.toBe('closed');
+    expect(body).toBe('data: one\n\ndata: two\n\n');
   }, 20_000);
 });

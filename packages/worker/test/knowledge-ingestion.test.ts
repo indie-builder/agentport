@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat, utimes } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { KnowledgeModelError } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeBaseSettings } from '@agentport/shared';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -19,12 +20,17 @@ import {
   runReindex,
   runSync,
 } from '../src/knowledge/ingestion.js';
+import { KnowledgeParseError } from '../src/knowledge/parsing.js';
 import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
 import { SourceAuthError } from '../src/knowledge/sources.js';
+import { createIsolatedDatabase } from './isolated-db.js';
 
 const sha256Of = (data: Buffer): string => createHash('sha256').update(data).digest('hex');
 
-const dbHandle = createDb(process.env.DATABASE_URL ?? '');
+// 套件写入大量知识库数据：独享随机库，不能复用当前共享库中的迁移和行。
+const isolated = await createIsolatedDatabase('worker_knowledge_ingestion');
+if (!isolated) throw new Error('knowledge ingestion tests require a reachable DATABASE_URL');
+const dbHandle = createDb(isolated.url);
 const { db } = dbHandle;
 const quiet = {
   info: () => undefined,
@@ -122,6 +128,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await new Promise<void>((resolve) => fixture.close(() => resolve()));
   await dbHandle.pool.end();
+  await isolated.close();
 });
 
 let knowledgeDir = '';
@@ -867,7 +874,8 @@ describe('runReindex', () => {
     const before = await repo.knowledge.getDocument(db, documentId);
     expect(before?.currentVersionId).not.toBeNull();
 
-    embeddingBehaviour = { status: 500, body: { error: 'down' } };
+    // 400 是永久性的 bad_response：单文档失败继续汇总，不触发队列重试。
+    embeddingBehaviour = { status: 400, body: { error: 'bad request' } };
     const job = await repo.knowledge.createJob(db, {
       type: 'reindex',
       baseId: fixtureBase.baseId,
@@ -882,6 +890,34 @@ describe('runReindex', () => {
     await expect(
       runReindex(fixtureBase.deps, claimed, new AbortController().signal),
     ).rejects.toThrow(/重建失败/);
+    const after = await repo.knowledge.getDocument(db, documentId);
+    expect(after?.currentVersionId).toBe(before?.currentVersionId);
+  });
+
+  it('propagates a transient embedding failure so the queue can retry', async () => {
+    const fixtureBase = await makeBase();
+    const { documentId, jobId } = await makeUploadedDocument(fixtureBase);
+    const ingestJob = await repo.knowledge.getJob(db, jobId);
+    if (!ingestJob) throw new Error('job missing');
+    await runIngest(fixtureBase.deps, ingestJob, new AbortController().signal);
+    const before = await repo.knowledge.getDocument(db, documentId);
+
+    embeddingBehaviour = { status: 503, body: { error: 'down' } };
+    const job = await repo.knowledge.createJob(db, {
+      type: 'reindex',
+      baseId: fixtureBase.baseId,
+      documentId,
+      sourceId: null,
+      payload: { type: 'reindex', baseId: fixtureBase.baseId, documentIds: [documentId] },
+    });
+    await repo.knowledge.claimJob(db, job.id);
+    const claimed = await repo.knowledge.getJob(db, job.id);
+    if (!claimed) throw new Error('job missing');
+
+    // 临时错误保持原始类型，队列现有的分类器才会重试。
+    await expect(
+      runReindex(fixtureBase.deps, claimed, new AbortController().signal),
+    ).rejects.toBeInstanceOf(KnowledgeModelError);
     const after = await repo.knowledge.getDocument(db, documentId);
     expect(after?.currentVersionId).toBe(before?.currentVersionId);
   });
@@ -1199,7 +1235,9 @@ describe('runSync', () => {
     const run = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
       (item) => item.id === syncRunId,
     );
-    expect(run?.status).toBe('failed');
+    // 终态由队列的 finish 统一写；摄取本身只重抛原错，不能抢先写 failed。
+    expect(run?.status).toBe('running');
+    expect(run?.endedAt).toBeNull();
     const source = await repo.knowledge.getSource(db, sourceId);
     expect(source?.cursor).toEqual({});
   });
@@ -1427,7 +1465,7 @@ describe('runSync', () => {
     expect(run?.stats.disabled).toBe(1);
   });
 
-  it('keeps the cursor of a range that failed and reports the run as failed', async () => {
+  it('keeps the cursor of a range that failed and leaves the run for the queue to fail', async () => {
     const fixtureBase = await makeBase();
     const connector: KnowledgeConnector = {
       // biome-ignore lint/correctness/useYield: 第一个 range 读完即失败
@@ -1454,10 +1492,11 @@ describe('runSync', () => {
     const run = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
       (item) => item.id === syncRunId,
     );
-    expect(run?.status).toBe('failed');
+    expect(run?.status).toBe('running');
+    expect(run?.endedAt).toBeNull();
   });
 
-  it('finishes the sync run as cancelled when the job is aborted', async () => {
+  it('leaves the run pending when the job is aborted so the queue decides cancelled vs retry', async () => {
     const fixtureBase = await makeBase();
     const connector: KnowledgeConnector = {
       // biome-ignore lint/correctness/useYield: 模拟取消，不产出条目
@@ -1477,7 +1516,9 @@ describe('runSync', () => {
     const run = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
       (item) => item.id === syncRunId,
     );
-    expect(run?.status).toBe('cancelled');
+    // SIGTERM 会让队列把 job 退回 queued：这里抢先写 cancelled 会与重试冲突。
+    expect(run?.status).toBe('running');
+    expect(run?.endedAt).toBeNull();
     const source = await repo.knowledge.getSource(db, sourceId);
     expect(source?.cursor).toEqual({});
   });
@@ -1507,7 +1548,9 @@ describe('runSync', () => {
     const run = (await repo.knowledge.listSyncRuns(db, job.sourceId ?? '')).items.find(
       (item) => item.id === syncRunId,
     );
-    expect(run?.status).toBe('cancelled');
+    // 跳过不是摄取层能定的终态：队列据 KnowledgeCancelled 写 cancelled。
+    expect(run?.status).toBe('running');
+    expect(run?.endedAt).toBeNull();
     expect(source?.lastSyncAt).toBeNull();
   });
 
@@ -1637,11 +1680,113 @@ describe('runSync', () => {
     const run = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
       (item) => item.id === syncRunId,
     );
-    expect(run?.status).toBe('failed');
-    expect(run?.stats.failed).toBe(1);
+    // 单个条目的永久失败由队列 finish 收成 failed；摄取层只汇总后抛错。
+    expect(run?.status).toBe('running');
+    expect(run?.endedAt).toBeNull();
     const source = await repo.knowledge.getSource(db, sourceId);
     expect(source?.cursor).toEqual({});
-    expect(source?.lastSyncStatus).toBe('failed');
+    expect(source?.lastSyncStatus).toBeNull();
+  });
+
+  it('reopens the same sync run as running when a retry reuses it', async () => {
+    const fixtureBase = await makeBase();
+    let runId = '';
+    let observed: { status: string; endedAt: Date | null } | null = null;
+    const connector: KnowledgeConnector = {
+      // biome-ignore lint/correctness/useYield: 只观察 run 状态，不需要产出条目
+      async *sync({ onCheckpoint }) {
+        const [row] = await db
+          .select({
+            status: schema.knowledgeSyncRuns.status,
+            endedAt: schema.knowledgeSyncRuns.endedAt,
+          })
+          .from(schema.knowledgeSyncRuns)
+          .where(eq(schema.knowledgeSyncRuns.id, runId))
+          .limit(1);
+        observed = row ?? null;
+        await onCheckpoint({}, { complete: true });
+      },
+    };
+    const { syncRunId, jobId } = await makeSource(fixtureBase, connector, { type: 'gitlab' });
+    runId = syncRunId;
+    // BullMQ 重试复用同一个 job/run；上一次尝试可能已把它写成终态。
+    await db
+      .update(schema.knowledgeSyncRuns)
+      .set({ status: 'failed', endedAt: new Date(), error: 'prior attempt' })
+      .where(eq(schema.knowledgeSyncRuns.id, syncRunId));
+    const job = await repo.knowledge.getJob(db, jobId);
+    if (!job) throw new Error('job missing');
+
+    await runSync(fixtureBase.deps, job, new AbortController().signal);
+
+    expect(observed).toMatchObject({ status: 'running', endedAt: null });
+    const run = (await repo.knowledge.listSyncRuns(db, job.sourceId ?? '')).items.find(
+      (item) => item.id === syncRunId,
+    );
+    expect(run?.status).toBe('succeeded');
+    expect(run?.endedAt).not.toBeNull();
+  });
+
+  it('propagates transient item failures so the queue can retry without re-ingesting successes', async () => {
+    const fixtureBase = await makeBase();
+    let parserDown = true;
+    fixtureBase.deps.parse = async ({ data }) => {
+      const markdown = data.toString('utf8');
+      if (parserDown && markdown.includes('TRANSIENT')) {
+        throw new KnowledgeParseError('parser_unavailable', 'parser down');
+      }
+      return { markdown, images: [], pageMap: [] };
+    };
+    const item = (sourceId: string, content: Buffer | { markdown: string }) => ({
+      sourceId,
+      sourceUrl: null,
+      sourcePath: null,
+      title: sourceId,
+      mimeType: 'text/markdown',
+      revision: 'r1',
+      content,
+    });
+    const connector: KnowledgeConnector = {
+      async *sync() {
+        yield item('ok', { markdown: '# ok' });
+        // Buffer 内容才会走 deps.parse；markdown 对象由连接器直接给出。
+        yield item('transient', Buffer.from('# TRANSIENT', 'utf8'));
+      },
+    };
+    const { sourceId, syncRunId, jobId } = await makeSource(fixtureBase, connector, {
+      type: 'gitlab',
+    });
+    const job = await repo.knowledge.getJob(db, jobId);
+    if (!job) throw new Error('job missing');
+
+    // 临时解析错误保持原类型，队列现有的分类器才会重试。
+    await expect(
+      runSync(fixtureBase.deps, job, new AbortController().signal),
+    ).rejects.toBeInstanceOf(KnowledgeParseError);
+    const firstRun = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
+      (entry) => entry.id === syncRunId,
+    );
+    // 临时错误可重试：run 必须保持 running，不能抢先写 failed，否则重试期间 UI 显示已结束。
+    expect(firstRun?.status).toBe('running');
+    expect(firstRun?.endedAt).toBeNull();
+    // 游标不推进，重试仍从同一检查点开始。
+    expect((await repo.knowledge.getSource(db, sourceId))?.cursor).toEqual({});
+
+    parserDown = false;
+    await runSync(fixtureBase.deps, job, new AbortController().signal);
+
+    const documents = await documentsOfType(fixtureBase, 'gitlab');
+    const ok = documents.find((document) => document.sourceId === 'ok');
+    const transient = documents.find((document) => document.sourceId === 'transient');
+    if (!ok || !transient) throw new Error('documents missing');
+    // 重试会重新列举 ok，但内容未变时只更新元数据，不再产生第二个版本。
+    expect((await repo.knowledge.listVersions(db, ok.id)).items).toHaveLength(1);
+    expect((await repo.knowledge.listVersions(db, transient.id)).items).toHaveLength(1);
+    const retriedRun = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
+      (entry) => entry.id === syncRunId,
+    );
+    expect(retriedRun?.status).toBe('succeeded');
+    expect((await repo.knowledge.getSource(db, sourceId))?.lastSyncStatus).toBe('succeeded');
   });
 
   it('scopes external ids per source connection so two connections never collide', async () => {

@@ -190,6 +190,11 @@ export async function getFolder(db: Database | Tx, id: string): Promise<Knowledg
   return row ?? null;
 }
 
+/** LIKE 默认转义符是反斜杠；路径里的 % _ \ 必须转义后才能当字面前缀匹配。 */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
 /** 改名或移动后整棵子树的物化路径一起重写；路径唯一冲突交给 409。 */
 async function rewriteFolderPath(
   tx: Tx,
@@ -214,35 +219,30 @@ async function rewriteFolderPath(
     .where(eq(knowledgeFolders.id, folder.id))
     .returning();
   if (!row) throw new Error('knowledge folder update returned no row');
+  // JS length 按 UTF-16 计数，emoji 会多算一位；字符偏移交给 PG char_length。
   await tx.execute(sql`
     update ${knowledgeFolders}
-    set path = ${nextPath} || substr(path, ${folder.path.length + 1})
-    where base_id = ${folder.baseId} and path like ${`${folder.path}/%`}
+    set path = ${nextPath} || substr(path, char_length(${folder.path}::text) + 1)
+    where base_id = ${folder.baseId} and path like ${`${escapeLike(folder.path)}/%`}
   `);
   return row;
 }
 
-export async function renameFolder(
+/** 改名与移动合并为一次事务：只写最终 path，冲突时整棵子树都不会留下中间状态。 */
+export async function updateFolder(
   db: Database,
   id: string,
-  name: string,
+  patch: { parentId?: string | null | undefined; name?: string | undefined },
 ): Promise<KnowledgeFolderRow | null> {
   return db.transaction(async (tx) => {
     const folder = await getFolder(tx, id);
     if (!folder) return null;
-    return rewriteFolderPath(tx, folder, folder.parentId, name);
-  });
-}
-
-export async function moveFolder(
-  db: Database,
-  id: string,
-  parentId: string | null,
-): Promise<KnowledgeFolderRow | null> {
-  return db.transaction(async (tx) => {
-    const folder = await getFolder(tx, id);
-    if (!folder) return null;
-    return rewriteFolderPath(tx, folder, parentId, folder.name);
+    return rewriteFolderPath(
+      tx,
+      folder,
+      patch.parentId === undefined ? folder.parentId : patch.parentId,
+      patch.name ?? folder.name,
+    );
   });
 }
 
@@ -654,12 +654,7 @@ export async function replaceChunks(
   });
 }
 
-export async function listChunks(
-  db: Database,
-  versionId: string,
-  options: PageOptions = {},
-): Promise<Page<KnowledgeChunkRow>> {
-  const limit = pageLimit(options);
+function chunkPageFilters(versionId: string, options: PageOptions): SQL[] {
   const filters: SQL[] = [eq(knowledgeChunks.versionId, versionId)];
   if (options.cursor) {
     // 按 ordinal 排序，游标行用 id 反查序号。
@@ -667,13 +662,65 @@ export async function listChunks(
       select b.ordinal, b.id from ${knowledgeChunks} b where b.id = ${options.cursor}
     )`);
   }
+  return filters;
+}
+
+export async function listChunks(
+  db: Database,
+  versionId: string,
+  options: PageOptions = {},
+): Promise<Page<KnowledgeChunkRow>> {
+  const limit = pageLimit(options);
   const rows = await db
     .select()
     .from(knowledgeChunks)
-    .where(and(...filters))
+    .where(and(...chunkPageFilters(versionId, options)))
     .orderBy(asc(knowledgeChunks.ordinal), asc(knowledgeChunks.id))
     .limit(limit + 1);
   return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+}
+
+/** 展示与导出只需要元数据：显式投影，避免把 1024 维向量读出来。 */
+const chunkSummaryColumns = {
+  id: knowledgeChunks.id,
+  documentId: knowledgeChunks.documentId,
+  versionId: knowledgeChunks.versionId,
+  ordinal: knowledgeChunks.ordinal,
+  kind: knowledgeChunks.kind,
+  heading: knowledgeChunks.heading,
+  content: knowledgeChunks.content,
+  enabled: knowledgeChunks.enabled,
+  editedByUser: knowledgeChunks.editedByUser,
+  pageFrom: knowledgeChunks.pageFrom,
+  pageTo: knowledgeChunks.pageTo,
+  tokenCount: knowledgeChunks.tokenCount,
+  metadata: knowledgeChunks.metadata,
+};
+
+export type KnowledgeChunkSummary = Pick<KnowledgeChunkRow, keyof typeof chunkSummaryColumns>;
+
+export async function listChunkSummaries(
+  db: Database,
+  versionId: string,
+  options: PageOptions = {},
+): Promise<Page<KnowledgeChunkSummary>> {
+  const limit = pageLimit(options);
+  const rows = await db
+    .select(chunkSummaryColumns)
+    .from(knowledgeChunks)
+    .where(and(...chunkPageFilters(versionId, options)))
+    .orderBy(asc(knowledgeChunks.ordinal), asc(knowledgeChunks.id))
+    .limit(limit + 1);
+  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+}
+
+/** 人工编辑总数取整版聚合，不能靠分页首页推断（>200 条时会漏）。 */
+export async function countEditedChunks(db: Database, versionId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(knowledgeChunks)
+    .where(and(eq(knowledgeChunks.versionId, versionId), eq(knowledgeChunks.editedByUser, true)));
+  return row?.count ?? 0;
 }
 
 /** 新增分块的序号取整版最大值：分页只读首页会漏掉超出 200 条的尾部。 */

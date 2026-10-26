@@ -940,7 +940,7 @@ export function knowledgeShouldPoll(items: readonly PollableJob[] | undefined): 
   });
 }
 
-const knowledgeKeys = {
+export const knowledgeKeys = {
   bases: ['knowledge', 'bases'] as const,
   base: (id: string) => ['knowledge', 'base', id] as const,
   documents: (baseId: string) => ['knowledge', 'documents', baseId] as const,
@@ -1420,18 +1420,13 @@ export function useSaveKnowledgeWikiPage(baseId: string) {
   });
 }
 
-export function useGenerateKnowledgeWikiPage(baseId: string) {
-  const client = useQueryClient();
-  const invalidate = useKnowledgeWikiInvalidate(baseId);
+export function useGenerateKnowledgeWikiPage() {
+  // Invalidation waits for the submitted job to reach a terminal state; the page tracks its id.
   return useMutation({
     mutationFn: (vars: { pageId: string; instruction?: string }) =>
       api.generateKnowledgeWikiPage(vars.pageId, {
         ...(vars.instruction ? { instruction: vars.instruction } : {}),
       }),
-    onSuccess: (_data, vars) => {
-      invalidate(vars.pageId);
-      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
-    },
   });
 }
 

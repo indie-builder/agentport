@@ -126,6 +126,9 @@ export async function startKnowledgeWorker(
   };
   const scanner = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
   scanner.on('error', (err) => config.logger.warn({ err }, 'knowledge cancel watch error'));
+  // 关闭时 abort 活跃任务；否则 worker.close() 会等满任务超时（最长 2h）。
+  const activeJobs = new Set<AbortController>();
+  let closing = false;
 
   const dispatch: DispatchDeps = {
     ...deps,
@@ -143,6 +146,7 @@ export async function startKnowledgeWorker(
       if (!row) return;
 
       const controller = new AbortController();
+      activeJobs.add(controller);
       let timedOut = false;
       const timeout = setTimeout(() => {
         timedOut = true;
@@ -159,9 +163,16 @@ export async function startKnowledgeWorker(
       }, CANCEL_POLL_MS);
 
       try {
+        // close 可能发生在认领期间：已经拿到的任务不再执行。
+        if (closing) throw new KnowledgeCancelled();
         await dispatchKnowledgeJob(row, { ...dispatch, signal: controller.signal });
         await finish(config.db, row, { status: 'succeeded' });
       } catch (err) {
+        if (closing) {
+          // SIGTERM 中断不是用户取消，也不能算成功：退回 queued 并让 BullMQ 重试。
+          await resetToQueued(config.db, row.id, 'worker shutting down');
+          throw err;
+        }
         if (controller.signal.aborted || err instanceof KnowledgeCancelled) {
           await finish(config.db, row, {
             status: timedOut ? 'failed' : 'cancelled',
@@ -179,6 +190,7 @@ export async function startKnowledgeWorker(
         }
         await finish(config.db, row, { status: 'failed', error });
       } finally {
+        activeJobs.delete(controller);
         clearTimeout(timeout);
         clearInterval(cancelWatch);
         await scanner.del(knowledgeCancelKey(row.id)).catch(() => undefined);
@@ -196,6 +208,9 @@ export async function startKnowledgeWorker(
 
   return {
     close: async () => {
+      // 先停止领取并 abort 活跃任务，再把关闭收尾；否则会等满任务硬超时才释放进程。
+      closing = true;
+      for (const controller of activeJobs) controller.abort();
       await worker.close();
       await followups.close();
       scanner.disconnect();

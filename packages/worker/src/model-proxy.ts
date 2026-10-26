@@ -100,6 +100,8 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     const ctx: ProxyRequestContext = {};
     void handle(req, res, ctx).catch((err: unknown) => {
       logger.error({ err, ...ctx }, 'model proxy request failed');
+      // 客户端已断开时不能再写响应，否则会再抛一次 stream destroyed。
+      if (res.destroyed || res.writableEnded) return;
       if (!res.headersSent) {
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { type: 'proxy_error', message: 'proxy failed' } }));
@@ -169,7 +171,6 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     }
 
     ctx.model = modelOf(body);
-
     // 下游提前断开时中止上游 fetch，否则它会继续把整段响应读完。
     const abort = new AbortController();
     const abortIfUnfinished = () => {
@@ -184,7 +185,6 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
         signal: abort.signal,
         ...(body.length > 0 && req.method !== 'GET' && req.method !== 'HEAD' ? { body } : {}),
       });
-
       const upstreamRequestId = upstreamRes.headers.get('request-id') ?? undefined;
       ctx.upstreamRequestId = upstreamRequestId;
       // 每次请求一行：runId + 上游 request-id 能把沙盒里的报错对回上游账单与日志。
@@ -208,7 +208,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
         res.end();
         return;
       }
-      // 流式（SSE）必须边读边写；pipeline 负责背压，下游慢时暂停读上游。
+      // 流式（SSE）必须边读边写；pipeline 负责背压，下游慢时暂停读上游并取消 reader。
       await pipeline(upstreamRes.body, res);
     } catch (err) {
       // 下游已主动断开：没有响应可写，也不属于代理故障。

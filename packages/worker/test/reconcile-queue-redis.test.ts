@@ -7,6 +7,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createIsolatedDatabase } from './isolated-db.js';
 
 const { publishRun } = vi.hoisted(() => ({
   publishRun: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
@@ -46,32 +47,14 @@ async function probeInfra(): Promise<boolean> {
   }
 }
 
-const ready = await probeInfra();
-
-const dbHandle = createDb(process.env.DATABASE_URL ?? '');
-const { db } = dbHandle;
-
-/**
- * 收敛会扫描全表 queued run，而用例的队列名是进程私有的：同库并发跑本文件时，
- * 两个进程会把对方仍在队列里的 run 判成孤儿。会话级 advisory lock 让并发执行串行化，
- * 连接断开自动释放，无需清理。
- */
-const RECONCILE_TEST_LOCK = 7_362_701;
-const lockClient = ready ? await dbHandle.pool.connect() : undefined;
-try {
-  if (lockClient) {
-    // 等锁时长取决于另一进程跑完本文件（约 21s），池的 15s statement_timeout 会先把
-    // 等待取消（57014）；只关掉这条持锁专用连接的语句超时。
-    await lockClient.query('set statement_timeout = 0');
-    await lockClient.query('select pg_advisory_lock($1)', [RECONCILE_TEST_LOCK]);
-  }
-} catch (error) {
-  lockClient?.release(true);
-  await dbHandle.pool.end().catch(() => undefined);
-  throw error;
-}
+// 全表对账必须只看本次套件的数据：独享随机库，不能落到当前共享库。
+const isolated = await createIsolatedDatabase('worker_reconcile_queue');
+const ready = isolated !== null && (await probeInfra());
+if (!ready && isolated) await isolated.close();
 
 describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
+  const dbHandle = createDb(isolated?.url ?? '');
+  const { db } = dbHandle;
   const agentId = newId('agent');
   const conversationId = newId('conversation');
   const runWaiting = newId('run');
@@ -127,25 +110,21 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
   });
 
   afterAll(async () => {
-    try {
-      await waitingJob?.remove();
-      await delayedJob?.remove();
-      await queue.close();
-      await db.delete(schema.auditLog).where(inArray(schema.auditLog.target, ownedRuns));
-      await db.delete(schema.agentRuns).where(inArray(schema.agentRuns.id, ownedRuns));
-      await db.delete(schema.conversations).where(eq(schema.conversations.id, conversationId));
-      await db.delete(schema.agents).where(eq(schema.agents.id, agentId));
-    } finally {
-      // 销毁持锁连接即释放会话级锁；上面的清理失败也必须断开，否则下一个进程会一直等锁。
-      lockClient?.release(true);
-      await dbHandle.pool.end();
-    }
+    await waitingJob?.remove();
+    await delayedJob?.remove();
+    await queue.close();
+    await db.delete(schema.auditLog).where(inArray(schema.auditLog.target, ownedRuns));
+    await db.delete(schema.agentRuns).where(inArray(schema.agentRuns.id, ownedRuns));
+    await db.delete(schema.conversations).where(eq(schema.conversations.id, conversationId));
+    await db.delete(schema.agents).where(eq(schema.agents.id, agentId));
+    await dbHandle.pool.end();
+    await isolated?.close();
   });
 
   it('fails only the stale queued run whose job is gone', async () => {
     const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue);
-    // 全表可能有其他测试的陈旧行；只要求至少收敛本用例的 missing，靠下方行状态确认。
-    expect(reconciled).toBeGreaterThanOrEqual(1);
+    // 随机库内只有本用例的三条 run，收敛数必须是 1，不能被别的套件/进程影响。
+    expect(reconciled).toBe(1);
 
     const rows = await db
       .select({
@@ -197,8 +176,8 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     offline.on('error', () => undefined);
     const started = Date.now();
     try {
-      // 其他测试文件可能有陈旧行：这里只断言本用例两条运行仍保留，不依赖全表计数。
-      expect(await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, offline)).toBeLessThan(3);
+      // 随机库内没有其他陈旧行：Redis 不可用时一条都不该收敛。
+      expect(await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, offline)).toBe(0);
       expect(Date.now() - started).toBeGreaterThanOrEqual(19_000);
       expect(Date.now() - started).toBeLessThan(27_000);
       const rows = await db
@@ -239,7 +218,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
 
     try {
       const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue);
-      expect(reconciled).toBeGreaterThanOrEqual(1);
+      expect(reconciled).toBe(1);
 
       const [row] = await db
         .select({ status: schema.agentRuns.status, error: schema.agentRuns.error })
