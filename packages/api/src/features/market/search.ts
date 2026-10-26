@@ -39,7 +39,10 @@ export async function searchMarket(q: string): Promise<MarketSkill[]> {
       headers: { 'user-agent': 'agentport-market/1.0', accept: 'application/json' },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!response.ok) throw new Error(`skills.sh responded ${response.status}`);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`skills.sh responded ${response.status}`);
+    }
     const body = (await response.json()) as { skills?: unknown };
     if (!Array.isArray(body.skills)) throw new Error('unexpected search response');
     const data = body.skills.map(toSkill).filter((skill): skill is MarketSkill => skill !== null);
