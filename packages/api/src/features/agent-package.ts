@@ -398,10 +398,7 @@ export async function buildAgentPackage(
     allSkills.map((skill) => skill.id),
   );
   const withFiles = (skill: SkillRow): WorkspaceSkill => ({
-    slug: skill.slug,
-    name: skill.name,
-    description: skill.description,
-    body: skill.body,
+    ...repo.skills.toSkillDefinition(skill),
     files: skillFiles.get(skill.id) ?? [],
   });
   const rootRules = rulesMap.get(row.id) ?? [];
@@ -594,6 +591,9 @@ interface PackageSkillInput {
   name: string;
   description: string;
   body: string;
+  license?: string;
+  compatibility?: string;
+  metadata?: Record<string, unknown>;
   files: Array<{ path: string; content: string }>;
 }
 
@@ -994,6 +994,16 @@ function configDiffers(input: ServerInput, existing: Record<string, unknown>): b
   );
 }
 
+/** 来源字段按结构比较：JSONB 不保证键顺序，空 metadata 与未设置等价。 */
+function metadataKey(metadata: Record<string, unknown> | undefined): string {
+  if (metadata === undefined || Object.keys(metadata).length === 0) return '';
+  return JSON.stringify(metadata, (_key, value: unknown) =>
+    value === null || typeof value !== 'object' || Array.isArray(value)
+      ? value
+      : Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))),
+  );
+}
+
 function toServerInput(entry: PackageServer): ServerInput {
   const base = { name: entry.name, description: entry.description };
   switch (entry.kind) {
@@ -1206,6 +1216,15 @@ export async function importAgentPackage(
             existing.body !== skillInput.body
           ) {
             warnings.push(`已存在同名技能「${skillInput.slug}」，其内容与导入包不同，已保留原配置`);
+          }
+          if (
+            (existing.license ?? null) !== (skillInput.license ?? null) ||
+            (existing.compatibility ?? null) !== (skillInput.compatibility ?? null) ||
+            metadataKey(existing.metadata) !== metadataKey(skillInput.metadata)
+          ) {
+            warnings.push(
+              `已存在同名技能「${skillInput.slug}」，其来源信息与导入包不同，已保留原配置`,
+            );
           }
           const files = existingFiles.filter((file) => file.skillId === existing.id);
           const contents = new Map(files.map((file) => [file.path, file.content]));

@@ -544,6 +544,9 @@ const worker = new Worker(
           name: schema.skills.name,
           description: schema.skills.description,
           body: schema.skills.body,
+          license: schema.skills.license,
+          compatibility: schema.skills.compatibility,
+          metadata: schema.skills.metadata,
         })
         .from(schema.agentSkills)
         .innerJoin(schema.skills, eq(schema.agentSkills.skillId, schema.skills.id))
@@ -559,10 +562,7 @@ const worker = new Worker(
         ...new Set([...skillRows, ...[...childSkills.values()].flat()].map((row) => row.id)),
       ]);
       const withFiles = (row: (typeof skillRows)[number]) => ({
-        slug: row.slug,
-        name: row.name,
-        description: row.description,
-        body: row.body,
+        ...repo.skills.toSkillDefinition(row),
         files: (skillFileMap.get(row.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
       });
       const skillsWithFiles = skillRows.map(withFiles);

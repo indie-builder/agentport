@@ -267,6 +267,13 @@
       "when": 1792979747982,
       "tag": "0037_chubby_baron_zemo",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793031472086,
+      "tag": "0038_funny_spitfire",
+      "breakpoints": true
     }
   ]
 }

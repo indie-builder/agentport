@@ -1,4 +1,4 @@
-import { AppError } from '@agentport/core';
+import { AppError, type SkillProvenance } from '@agentport/core';
 import { and, asc, count, eq, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -9,11 +9,32 @@ export type SkillRow = typeof skills.$inferSelect;
 
 export type SkillWithAgentCount = SkillRow & { agentCount: number };
 
+/** DB 用 NULL / 空对象表示未设置；读取、预览、导出统一折叠掉，避免写出空 metadata。 */
+export function toSkillDefinition(
+  row: Pick<
+    SkillRow,
+    'slug' | 'name' | 'description' | 'body' | 'license' | 'compatibility' | 'metadata'
+  >,
+): Pick<SkillRow, 'slug' | 'name' | 'description' | 'body'> & SkillProvenance {
+  return {
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    body: row.body,
+    ...(row.license === null ? {} : { license: row.license }),
+    ...(row.compatibility === null ? {} : { compatibility: row.compatibility }),
+    ...(Object.keys(row.metadata).length === 0 ? {} : { metadata: row.metadata }),
+  };
+}
+
 export interface SkillWrite {
   slug: string;
   name: string;
   description: string;
   body: string;
+  license?: string | null | undefined;
+  compatibility?: string | null | undefined;
+  metadata?: Record<string, unknown> | undefined;
   sourceId?: string | null;
 }
 
@@ -26,6 +47,9 @@ export async function listSkills(db: Database): Promise<SkillWithAgentCount[]> {
       name: skills.name,
       description: skills.description,
       body: skills.body,
+      license: skills.license,
+      compatibility: skills.compatibility,
+      metadata: skills.metadata,
       sourceId: skills.sourceId,
       createdAt: skills.createdAt,
       updatedAt: skills.updatedAt,

@@ -128,6 +128,10 @@ export const skills = pgTable(
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     body: text('body').notNull().default(''),
+    /** SKILL.md frontmatter 的来源描述字段，导入/安装时原样保留。 */
+    license: text('license'),
+    compatibility: text('compatibility'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
     /** skills.sh 来源 `owner/repo/skill`；内部自建为 null。 */
     sourceId: text('source_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

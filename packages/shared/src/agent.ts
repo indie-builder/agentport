@@ -125,6 +125,10 @@ export const skillInputSchema = z.object({
   name: z.string().min(1).max(128),
   description: z.string().min(1).max(500),
   body: z.string().default(''),
+  /** SKILL.md frontmatter 的来源描述字段，导入/安装时原样保留。 */
+  license: z.string().max(200).optional(),
+  compatibility: z.string().max(200).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type SkillInput = z.infer<typeof skillInputSchema>;

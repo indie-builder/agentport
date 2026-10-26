@@ -40,6 +40,9 @@ function provenanceOf(fields: Map<string, unknown>): SkillProvenance {
     const value = fields.get(key);
     if (value === undefined) continue;
     if (typeof value !== 'string') invalid(`SKILL.md 的 ${key} 必须是字符串`, `/${key}`);
+    if (value.length > 200) {
+      invalid(`SKILL.md 的 ${key} 不能超过 200 个字符`, `/${key}`);
+    }
     provenance[key] = value;
   }
   const metadata = fields.get('metadata');
@@ -101,5 +104,15 @@ export function parseSkillMd(
     invalid(`SKILL.md 的 ${field} 无效：${issue?.message ?? '字段不合法'}`, `/${field}`);
   }
 
-  return { skill: { ...parsed.data, ...provenanceOf(fields) }, warnings: [] };
+  // 逐字段取而非展开 parsed.data：可选来源字段展开后会带上 undefined，与 exactOptionalPropertyTypes 冲突。
+  return {
+    skill: {
+      slug: parsed.data.slug,
+      name: parsed.data.name,
+      description: parsed.data.description,
+      body: parsed.data.body,
+      ...provenanceOf(fields),
+    },
+    warnings: [],
+  };
 }
