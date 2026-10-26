@@ -21,7 +21,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { meQuery, queryClient } from '../lib/queries.js';
-import { Brand, BrandMark } from './brand.js';
+import { animateBrand, Brand, BrandMark } from './brand.js';
 import { PageHeader } from './page.js';
 import { Button } from './ui/button.js';
 import {
@@ -120,12 +120,7 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
   return [collapsed, update];
 }
 
-/**
- * 品牌区：展开使用 32px 完整组合，收起使用 32px 独立标记。
- * - 展开：字标在左，折叠按钮贴右（x=228）。按钮是 32×32、radius 7。
- * - 收起：整行缩成 32×32，logo 与按钮重叠在同一位置。默认露 logo，
- *   悬停或内部有焦点时 logo 淡出、换成展开按钮（140ms），布局不跳动。
- */
+/** 展开时 Logo 可点击切图；收起时保留原悬停展开侧栏的行为。 */
 function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   if (collapsed) {
     return (
@@ -153,13 +148,15 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
 
   return (
     <div className="flex h-8 shrink-0 items-center gap-2">
-      <Link
-        to="/"
-        aria-label="返回首页"
-        className="flex h-8 min-w-0 flex-1 items-center rounded-icon"
+      <Button
+        type="button"
+        variant="plain"
+        aria-label="切换 PACE Logo"
+        onClick={animateBrand}
+        className="h-8 min-w-0 flex-1 justify-start rounded-icon p-0"
       >
         <Brand className="h-8 self-center" />
-      </Link>
+      </Button>
       <Button
         variant="ghost"
         aria-label="收起侧栏"

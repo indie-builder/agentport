@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
-import { Brand } from '../components/brand.js';
+import { animateBrand, Brand } from '../components/brand.js';
 import { Page, PageHeader } from '../components/page.js';
 import { Button } from '../components/ui/button.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
@@ -48,7 +48,15 @@ export function LoginPage() {
     <main className="flex min-h-dvh min-w-0 items-center justify-center bg-surface px-6 py-10">
       <Page className="w-full max-w-xs gap-8">
         <PageHeader title="进入 PACE" className="sr-only" />
-        <Brand className="h-24 self-center" />
+        <Button
+          type="button"
+          variant="plain"
+          aria-label="切换 PACE Logo"
+          className="h-auto self-center p-0"
+          onClick={animateBrand}
+        >
+          <Brand className="h-24 self-center" />
+        </Button>
         <form
           aria-label="登录"
           aria-busy={login.isPending}
