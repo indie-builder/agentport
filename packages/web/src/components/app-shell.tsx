@@ -215,7 +215,7 @@ function SidebarLink({
         className={cn(
           'flex shrink-0 items-center justify-center transition-colors duration-150',
           collapsed
-            ? cn('size-8 rounded-tag', active ? 'bg-selected' : 'group-hover/nav:bg-hover')
+            ? cn('size-8 rounded-tag', active ? 'bg-selected' : 'hover:bg-hover')
             : 'size-4',
         )}
       >
