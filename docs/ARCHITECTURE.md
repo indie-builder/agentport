@@ -41,6 +41,21 @@
 
 **关停顺序**（api）：收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`；关停与超时竞速，超时后强制关闭残留 socket。compose 的 `stop_grace_period` 为 30s。worker 退出时清扫自己遗留的工作区目录，仍为 running 的 run 由 reconciler 收敛。
 
+### 1.1 前端页面地图
+
+`packages/web/src/pages/` 下有五个文件已过千行（`agents` 3677、`knowledge-detail` 3434、`chat` 2451、`servers` 2183、`eval` 1072），进文件前先看这张表定位，不要整文件读。
+
+| 页面 | 职责 | 会碰到的共享件 |
+|---|---|---|
+| `agents.tsx` | 专家/智能体：列表、配置表单、版本历史、文件视图 | `page.tsx`、`agent-avatar.tsx`、`resource-page.tsx`、`dialog-shell.tsx` |
+| `chat.tsx` | 对话三栏：会话列表、消息流、右侧产出；SSE 生命周期 | `agent-avatar.tsx`、`openui-message.tsx`、`code-block.tsx`、`motion-collapsible.tsx`、`knowledge-citations.tsx` |
+| `knowledge-detail.tsx` | 单个知识库：文档、来源、Wiki、检索调试 | `knowledge-citations.tsx`、`source-editor.tsx`、`markdown.tsx`、`filter-select.tsx` |
+| `servers.tsx` | 连接器：MCP/stdio/生成式 server、工具目录、测试连接 | `resource-page.tsx`、`dialog-shell.tsx`、`filter-select.tsx`、`source-editor.tsx` |
+| `eval.tsx` | 评估：数据集、跑批、结果对比 | `data-table.tsx`、`dialog-shell.tsx` |
+| 其余（`skills`、`plugins`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge-settings.tsx` | 同上，优先复用而不是新写 |
+
+页面骨架统一走 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`）；每个渲染状态恰好一个 `h1`。共享状态在 `lib/`（`api.ts`、`queries.ts`），路由表由 `routes/` 生成到 `routeTree.gen.ts`。
+
 ## 2. 运行时拓扑
 
 ```

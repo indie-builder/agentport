@@ -27,6 +27,13 @@ vi.mock('@modelcontextprotocol/client', async (importOriginal) => {
   };
 });
 
+// SSRF 边界单独有测试；本套件只关心目录上限与 close 语义，
+// 用真实 DNS 会让离线/沙箱环境里的固定域名解析失败，掩盖真正的断言。
+vi.mock('../src/features/servers/ssrf.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/features/servers/ssrf.js')>()),
+  assertSafeUrl: vi.fn(async () => undefined),
+}));
+
 const { testConnection } = await import('../src/features/servers/test-connection.js');
 
 const server: Server = {

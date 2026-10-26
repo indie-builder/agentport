@@ -11,7 +11,13 @@ export default defineConfig({
         if (existsSync('.env')) process.loadEnvFile('.env');
         const databaseUrl =
           process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport';
-        const redisUrl = process.env.REDIS_URL ?? 'redis://:agentport-dev@localhost:6379';
+        // 测试固定用独立 Redis 库：开发和各 worktree 的 worker 常驻 db 0，
+        // 共用会让「队列里没有消费者」类断言看到别人的 worker 而整组跳过。
+        const redisUrl = (() => {
+          const url = new URL(process.env.REDIS_URL ?? 'redis://:agentport-dev@localhost:6379');
+          url.pathname = '/9';
+          return url.toString();
+        })();
 
         return {
           envDir: false,

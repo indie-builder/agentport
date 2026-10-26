@@ -2,13 +2,30 @@ import { createDb, newId, schema } from '@agentport/db';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import * as serverRepo from '@agentport/db/repo/servers.js';
 import { AGENT_PACKAGE_SIDECAR, knowledgeTokenEnv } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   buildAgentPackage,
   importAgentPackage,
   parseAgentPackage,
 } from '../src/features/agent-package.js';
 import { getServer, listServers, toApiServer } from '../src/features/servers/repo.js';
+
+// 只给占位域名一个公网地址，其余域名仍走真实解析，
+// 这样「解析到内网要拒绝」那条用例照常生效。
+vi.mock('node:dns/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:dns/promises')>();
+  return {
+    ...actual,
+    lookup: vi.fn(async (host: string, options?: { all?: boolean }) => {
+      if (host === 'pace.example.com') {
+        return options?.all
+          ? [{ address: '203.0.113.10', family: 4 }]
+          : { address: '203.0.113.10', family: 4 };
+      }
+      return actual.lookup(host, options as never);
+    }),
+  };
+});
 
 const KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';
 const handle = createDb(

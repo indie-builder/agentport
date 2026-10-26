@@ -8,6 +8,7 @@ import {
   errorCode,
   type Problem,
   problemSchema,
+  RUNS_QUEUE,
   runEventsConnectionName,
   type Server,
 } from '@agentport/shared';
@@ -81,12 +82,20 @@ async function probeInfra(config: Config): Promise<boolean> {
  */
 async function probeQueueIdle(redisUrl: string): Promise<boolean> {
   const redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
+  // CLIENT LIST 是实例级的，不受库号隔离；只看本测试库里 agent-runs 的连接：
+  // 开发库上常驻的 worker 会让整组用例误判，同轮其他测试起的 worker 也不该算进来。
+  const db = new URL(redisUrl).pathname.replace('/', '') || '0';
+  // BullMQ 用 CLIENT SETNAME 标记归属：`bull:<base64(队列名)>`，具名 worker 追加 `:w:`。
+  const ownedBy = `name=bull:${Buffer.from(RUNS_QUEUE).toString('base64')}`;
   try {
     await redis.connect();
     const clients = await redis.client('LIST');
     // BullMQ worker 会以阻塞连接消费队列；存在阻塞客户端即视为有消费者。
     // BullMQ 6 用 BZPOPMIN 拉取延迟任务，不再用 BRPOP。
-    return !/cmd=(blpop|brpop|bzpopmin)/i.test(clients);
+    return !clients
+      .split('\n')
+      .filter((line) => line.includes(` db=${db} `) && line.includes(ownedBy))
+      .some((line) => /cmd=(blpop|brpop|bzpopmin)/i.test(line));
   } catch {
     return true;
   } finally {

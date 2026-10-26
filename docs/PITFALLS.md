@@ -27,11 +27,29 @@
 - **原因**：工具限制 name 每段只能是字母、数字、点、下划线、短横线（最长 64）。
 - **规避**：worktree 名用 `log-to-file` 这类 ASCII slug；中文只写在 `docs/tasks/<slug>.md` 的标题里。
 
-## worktree 里的 git 调用可能被拒绝
+## worktree 里两类命令会被拒绝，原因不同
 
-- **现象**：在本 worktree 里，把 git 放进复合命令会被改写成 rtk 调用后拒绝（报错说明无法确认该命令操作的是当前树）；通过 Python 子进程调用 git 同样被拒绝。同一时刻直接执行 `/usr/bin/git <args>` 成功。
-- **原因**：未确认。已观察到的是这些调用被改写后拒绝，命令改写与 worktree 隔离解析之间的具体关系没有查明；`command -v git` 解析到 `/usr/bin/git`，不足以归因于 PATH 包装。
-- **规避**：本次本地 git 操作直接写 `/usr/bin/git`；不改 hook、不绕过权限提示、不用 `git -C` 操作其他树。其他拒绝按实际报错定位，不一律归因 RTK。
+- **现象**：worktree 会话里出现两种拒绝。①「runs rtk with a git command among its operands … Refusing to run it」；②「this command is too complex to verify that it stays inside the worktree … Split it into plain, separate commands」。
+- **原因**：①是 `rtk hook claude` 把 `git` 包成 rtk 调用，命令里看不出实际执行的是哪个 git；②是 worktree 隔离守卫无法静态解析该命令，例如「建目录 + heredoc」写在同一行（`mkdir -p X && cat > X/a.mjs <<'EOF'`）。实测单独 `mkdir -p X`、单独 heredoc、`mkdir && echo`、`until [ -n "$(…)" ]` 都可通过，所以②不覆盖所有复合命令。
+- **规避**：git 用 `/usr/bin/git <args>` 直接调用，不要混进复合命令；写临时脚本时先把 `mkdir` 和 heredoc 分成两次调用。遇到其它拒绝先按报错原文区分是 rtk 还是 worktree 守卫，不要一律归因 RTK。
+
+## 测试：队列消费者检查要看库号和队列名，不能只看实例
+
+- **现象**：`pnpm test` 里 `chat-admission`、`chat`、`eval` 等套件整组 skip 或报 `worker must be stopped`，换机器/换时间又正常。
+- **原因**：`queueIdle` 用 `redis.client('LIST')` 扫全实例，而 `CLIENT LIST` 不受库号隔离；开发库 db 0 上常驻的 worker 会被算成「被测队列的消费者」。`Queue.getWorkersCount()` 同样扫全实例、只按 clientName 过滤，换成它并不能解决。测试全部并行时，同轮其它套件起的 worker（`sandbox-probe`、`native-queue`）也会被误算。
+- **规避**：测试固定连独立 Redis 库（`vitest.config.ts` 的 backend 项目写死 `/9`），判断时代码同时按 `db=<库号>` 和 `name=bull:<base64(队列名)>` 过滤。用独立 `prefix` 的套件（如 `schedule-scheduler`）真实 worker 看不到，不需要消费者检查，直接判 Redis/Postgres 可用即可。
+
+## 测试：全量并行时偶发 401，根因是登录后会话没落库
+
+- **现象**：`pnpm test` 全量跑时，`agents`、`servers`、`knowledge-routes` 等随机有文件报 `UNAUTHORIZED: not logged in`，每轮命中的文件都不一样，单独跑又全过。
+- **原因**：多个测试文件并行登录同一管理员时，better-auth 偶发返回 200、也下发了 cookie，但会话行没写进库。实测证据：失败的那张 cookie 重试仍 401、换一个 app 实例也 401，而会话表里既有会话完好、行数没有减少——所以不是缓存、不是 CASCADE、不是限流、也不是连接池。
+- **规避**：登录接口已加「下发的 cookie 回读一次，读不到就重试一次登录」（`packages/api/src/features/auth/routes.ts`；探测用 `disableRefresh: true`，避免为探测多写一次会话）。排查同类抖动时用 `--no-file-parallelism` 与基线对比，不要凭一次全量结果认定回归。
+
+## 测试：`RATE_LIMIT_DISABLED` 只在模块加载时求值
+
+- **现象**：调试脚本里设了 `process.env.RATE_LIMIT_DISABLED = '1'`，登录仍然第 11 次开始返回 429。
+- **原因**：`plugins/security.ts` 的 `limitsOff` 是模块顶层常量，在 `import` 时求值；ES module 的 import 会提升，写在 `import` 之后的赋值不生效。同时 `authRateLimit = preset(10)` 就是「第 11 次开始 429」的来源。
+- **规避**：脚本里要在 import 之前设置该变量（或用 `NODE_ENV=test` 等外部环境传入）；直接用 `node --env-file` 或 shell 前缀，不要在模块内补设。vitest 已经在 `env` 里统一下发，测试本身不受影响。
 
 ## recharts 的 `strokeWidth` 不是图标违例
 
@@ -111,6 +129,24 @@
 - **原因**：只看静态视觉就实现，没有在目标产品里实际操作对应控件。
 - **规避**：实现前实际操作目标控件确认区域/数据/状态，无法操作则标为缺口（`docs/DEV-WORKFLOW.md` §2 实现）。
 
+## 实现：对齐/间距类改动没量实际坐标就宣布完成
+
+- **现象**：同一处对齐问题被用户复述多次（例如三个面板的收起按钮不在同一行），前几轮都说「已改好」。
+- **原因**：只按代码里的类名推断视觉结果，没有读渲染后的实际位置；多个容器各自的高度来源不同，类名相同也不代表基线一致。
+- **规避**：间距、对齐、层级这类改动，交付前用浏览器读一次实际 `getBoundingClientRect()` 或计算样式，把数值写进回复；同一问题被复述第二次时先量再改，不再次靠改类名试错。
+
+## 浏览器：ego-browser 的四个高频误用
+
+- **现象**：`task space not found`、`page label not found`、`Invalid locator`、`matched N elements`、点了没反应。
+- **原因**：把上次的 space id / page 标签 / `ref` 当成长期有效；locator 语法写成 Playwright 的写法。
+- **规避**：①同一个目标只用一个 TaskSpace，用**固定名字**复用（`taskSpace('chat-layout')`），名字才是长期句柄；数字 `spaceId` 只在当轮输出里可读，不要当成跨轮常量存下来；②`task.page(label)` 只查已存在的页，缺页用 `await task.newPage()`（不传参数）且用先前输出里的 `p1`/`p2` 标签；③`ref` 只在当前快照有效，页面变化后重新 `snapshot()` 再点；④role 定位写成 `loc=role:button[name="新建专家"]`，名字是子串匹配用 `[name*="…"]`，`loc=role:dialog` 这种缺名字的写法会报 `Invalid locator`。需要观测条件时用 `waitForSelector`/`waitForFunction`，不用固定 sleep。
+
+## 数据库：迁移账本与 schema 漂移时不要手改迁移记录
+
+- **现象**：`pnpm db:migrate` 报列已存在（如 `agents.role`），或 `__drizzle_migrations` 里的时间戳在 journal 中找不到。
+- **原因**：dev 库曾被另一条迁移历史建过，或旧 worktree 用旧 journal 迁移过同一库；journal 与库内账本不一致。
+- **规避**：先按 `journal` 与实际 `__drizzle_migrations` 逐条比对确认差异，再决定；个人项目不留历史数据，直接 `pnpm run down --clean && pnpm run up` 重建最干净。不要手写/删除迁移账本行来「对齐」。
+
 ## 流程：用 main 的提交顺序覆盖了用户更晚的决定
 
 - **现象**：合并 review 时按 main 里已有的实现反推哪条决定有效，忽略了用户之后明确的新决定。
@@ -140,12 +176,6 @@
 - **现象**：`docker exec … $(grep …)`、`env $(grep …) node …`、`set -a; . ./.env` 被拒绝执行，提示命令无法确认停留在 worktree 内。
 - **原因**：worktree 隔离守卫只允许能静态解析的简单命令，运行时取值与 `source` 无法校验。
 - **规避**：把逻辑写进脚本文件，由脚本自己读 `.env`（不在命令行出现密钥）；单条简单命令分开执行。
-
-## 验证：`chat-admission` 失败常是别的 worktree 的 worker 在消费同一队列
-
-- **现象**：`pnpm test` 里 `packages/api/test/chat-admission.test.ts` 整组 suite 失败，报 `worker must be stopped before chat admission tests`，11 个用例全部 skip。
-- **原因**：该文件在 `beforeAll` 里断言「Redis 上没有阻塞消费者」。这台机器上可能有其他 worktree 的宿主 worker（例如别的会话跑的 `node .verify-start.mjs worker`）连着同一个 Redis 的 db0 消费 `agent-runs`，与被测代码无关。
-- **规避**：用带认证的连接串检查真实消费者，禁止把NOAUTH后的空输出当作没有消费者。`CLIENT LIST` 是Redis实例级，不受 `/1` 等db index隔离；测试要用独立Redis实例及临时数据库（本任务 `.tmp/oui-isolated-env.mjs` 已验证）。不杀其他会话进程，不启停共享compose来凑测试通过。
 
 ## OpenUI：JSON Schema 不能反推等价的真实组件库
 

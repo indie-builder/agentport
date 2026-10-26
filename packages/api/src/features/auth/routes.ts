@@ -75,11 +75,36 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       }
       const { username, password } = request.body;
       await ensureAdminReady();
-      const result = await auth.api.signInUsername({
-        body: { username, password },
-        headers: fromNodeHeaders(request.headers),
-        asResponse: true,
-      });
+      const signIn = () =>
+        auth.api.signInUsername({
+          body: { username, password },
+          headers: fromNodeHeaders(request.headers),
+          asResponse: true,
+        });
+      let result = await signIn();
+
+      // better-auth 偶发在并发下返回 200，但会话行没写进库（cookie 随即失效）。
+      // 用刚下发的 cookie 回读一次；读不到说明这次会话没落库，重试一次登录。
+      // 仅影响登录路径，不改变鉴权语义。
+      if (result.ok) {
+        const issued = result.headers.get('set-cookie') ?? '';
+        const cookie = issued
+          .split(/,(?=\s*[\w-]+=)/)
+          .map((part) => part.split(';')[0]?.trim())
+          .filter((part) => part?.includes('='))
+          .join('; ');
+        const live =
+          cookie === '' ||
+          (await auth.api
+            // 只读探测，不发刷新写：否则每次登录都会多一次会话写，反而加重并发。
+            .getSession({ headers: fromNodeHeaders({ cookie }), query: { disableRefresh: true } })
+            .then((session) => Boolean(session?.session))
+            .catch(() => false));
+        if (!live) {
+          request.log.warn({ username }, 'login session missing after sign-in, retrying once');
+          result = await signIn();
+        }
+      }
 
       if (!result.ok) {
         request.log.warn({ username }, 'login failed');
