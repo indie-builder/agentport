@@ -59,15 +59,25 @@ async function bind(agentId: string, serverId: string) {
   await db.insert(schema.agentServers).values({ agentId, serverId });
 }
 
-async function addGeneratedTool(serverId: string, name: string, enabled = true) {
+async function addGeneratedTool(
+  serverId: string,
+  name: string,
+  enabled = true,
+  metadata: {
+    description?: string;
+    inputSchema?: Record<string, unknown>;
+    requiresApproval?: boolean;
+  } = {},
+) {
   await db.insert(schema.apiTools).values({
     id: newId('tool'),
     serverId,
     name,
-    description: `${name} tool`,
+    description: metadata.description ?? `${name} tool`,
     method: 'GET',
     pathTemplate: `/${name}`,
-    inputSchema: { type: 'object', properties: {} },
+    inputSchema: metadata.inputSchema ?? { type: 'object', properties: {} },
+    requiresApproval: metadata.requiresApproval ?? false,
     enabled,
   });
 }
@@ -116,6 +126,40 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
 
     const names = (await repo.openui.listOpenUiTools(db, agentId)).map((tool) => tool.name);
     expect(names).toEqual([`mcp__oui-dis-${agentId.slice(4)}__live`]);
+  });
+
+  it('maps generated tool metadata and keeps catalog order', async () => {
+    const agentId = await newAgent();
+    const serverName = `oui-meta-${agentId.slice(4)}`;
+    const serverId = await newServer('generated', serverName);
+    await addGeneratedTool(serverId, 'zeta', true, {
+      description: 'zeta tool',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
+      requiresApproval: true,
+    });
+    await addGeneratedTool(serverId, 'alpha', true, { description: 'alpha tool' });
+    await bind(agentId, serverId);
+
+    expect(await repo.openui.listOpenUiTools(db, agentId)).toEqual([
+      {
+        serverId,
+        serverName,
+        kind: 'generated',
+        name: `mcp__${serverName}__alpha`,
+        description: 'alpha tool',
+        inputSchema: { type: 'object', properties: {} },
+        requiresApproval: false,
+      },
+      {
+        serverId,
+        serverName,
+        kind: 'generated',
+        name: `mcp__${serverName}__zeta`,
+        description: 'zeta tool',
+        inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
+        requiresApproval: true,
+      },
+    ]);
   });
 
   it('honours disallowedTools, including the whole-server form', async () => {

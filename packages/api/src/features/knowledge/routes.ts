@@ -20,6 +20,7 @@ import {
   knowledgeImageChunkMetadataSchema,
   knowledgeJobPayloadSchema,
 } from '@agentport/shared';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
@@ -1084,12 +1085,19 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return notFound(reply, '知识库');
       // reindex 的 documentIds 必须属于该库；否则跨库文档会被按错误 base 重建。
-      if (request.body.documentIds) {
-        for (const documentId of request.body.documentIds) {
-          const document = await repo.knowledge.getDocument(app.db, documentId);
-          if (!document || document.baseId !== base.id) {
-            return reject(reply, 'INVALID_INPUT', '存在不属于该知识库的文档');
-          }
+      if (request.body.documentIds && request.body.documentIds.length > 0) {
+        const ids = [...new Set(request.body.documentIds)];
+        const rows = await app.db
+          .select({ id: schema.knowledgeDocuments.id })
+          .from(schema.knowledgeDocuments)
+          .where(
+            and(
+              eq(schema.knowledgeDocuments.baseId, base.id),
+              inArray(schema.knowledgeDocuments.id, ids),
+            ),
+          );
+        if (rows.length !== ids.length) {
+          return reject(reply, 'INVALID_INPUT', '存在不属于该知识库的文档');
         }
       }
       const job = await enqueue(

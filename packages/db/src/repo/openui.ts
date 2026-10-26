@@ -61,7 +61,13 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
     generatedIds.length === 0
       ? []
       : await db
-          .select()
+          .select({
+            serverId: apiTools.serverId,
+            name: apiTools.name,
+            description: apiTools.description,
+            inputSchema: apiTools.inputSchema,
+            requiresApproval: apiTools.requiresApproval,
+          })
           .from(apiTools)
           .where(and(inArray(apiTools.serverId, generatedIds), eq(apiTools.enabled, true)))
           .orderBy(asc(apiTools.serverId), asc(apiTools.name));
