@@ -29,10 +29,10 @@
    **完成判据**：用户明确确认「按这个做」。
 
 2. **建隔离环境**
-   先 `git fetch origin main`。新任务从主仓库用绝对路径、以 `origin/main` 为起点建树（`git worktree add <abs-path> -b <branch> origin/main`；用 `EnterWorktree` 时同样核对其起点）。本地 main 不是最新，旧 worktree 也不是，二者都不作对齐依据；新树不建在旧 worktree 目录下——现有嵌套属历史，不重构也不照抄。名字用 ASCII slug（如 `log-to-file`），工具不接受中文名。
+   先 `git fetch origin main`。worktree 位置固定为主 checkout 的 `.claude/worktrees/<任务 slug>`（绝对路径 `<主 checkout>/.claude/worktrees/<slug>`）；默认用 `EnterWorktree`，手动执行时同样是 `git worktree add <主 checkout>/.claude/worktrees/<slug> -b <branch> origin/main`，起点为刚 fetch 的 `origin/main`（用 `EnterWorktree` 时同样核对其起点）。主 checkout 指仓库主目录本身，**不是当前任务 worktree**；新树不建在仓库同级，也不建在当前或其他任何已有**任务 worktree** 内部——现有旧位置属历史，不重构也不照抄。本地 main 不是最新，旧 worktree 也不是，二者都不作对齐依据。名字用 ASCII slug（如 `log-to-file`），工具不接受中文名。
    主 checkout 默认不改动、保持干净，任务产出只在 worktree。
    进树后记录一次绝对路径、`git rev-parse HEAD` 与 `git status`：已有未提交差异原地写明归属（他人/未完成），不顺手提交、还原或覆盖。这是开工时的一次性记录，后续不反复查全局 status，也不为核对额外加流程；所有动手只在本 worktree 内，子代理保持并行。
-   **完成判据**：会话已位于目标 worktree，HEAD 与声明的起点一致（默认 `origin/main`，偏离时已注明原因），初始差异归属已记入任务记录，产出不落到主 checkout。
+   **完成判据**：会话已位于目标 worktree（`<主 checkout>/.claude/worktrees/<slug>`），HEAD 与声明的起点一致（默认 `origin/main`，偏离时已注明原因），初始差异归属已记入任务记录，产出不落到主 checkout。
 
 3. **先写任务记录**
    在 worktree 内创建 `docs/tasks/<slug>.md`（模板见 §3），先把目标、方案、基线、当前有效决定写下来再动手。范围或决定变化时，先改记录再继续。
