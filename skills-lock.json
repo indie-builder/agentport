@@ -11,13 +11,13 @@
       "source": "samber/developer-platform-skills",
       "sourceType": "github",
       "skillPath": "skills/api-error-design/SKILL.md",
-      "computedHash": "3ec0d5f31d31c68cc7dcd6f84e59cdc52fe929c87d5a7d59d9a159bf1542012d"
+      "computedHash": "7d4d20488b7a5b2027f4da7724a0b424538083466a24579f790b8ad91a957475"
     },
     "api-integration-surface-strategy": {
       "source": "samber/developer-platform-skills",
       "sourceType": "github",
       "skillPath": "skills/api-integration-surface-strategy/SKILL.md",
-      "computedHash": "158a563857995efc8609a607a2e58a3af3777f2a69fc80bff407f32d2a3178fa"
+      "computedHash": "c3008c6f2edcb8eacf3e80b96ae9b4a4e8dd8cc643773e116b51ce402efaf93a"
     },
     "better-auth-best-practices": {
       "source": "better-auth/skills",
@@ -71,7 +71,7 @@
       "source": "samber/developer-platform-skills",
       "sourceType": "github",
       "skillPath": "skills/public-api-design-review/SKILL.md",
-      "computedHash": "7fdcf6a469087d667d6ea61315d319fdf1d7bb7291dcf3b81b398caf2ad805d3"
+      "computedHash": "1d000a681903bb0c79c62ffd3d34cf2c16a581a958dffc111b8ca2ac28b2130b"
     },
     "react-hook-form": {
       "source": "pproenca/dot-skills",

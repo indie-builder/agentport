@@ -54,7 +54,7 @@
 - 无新版且本地无文件变化时不重装。
 - 需与上游对齐时定向重装：`npx --yes skills@latest add <repo> --skill <name> --agent claude-code --agent universal -y`。两个 agent 缺一不可（只给 `claude-code` 会退化成 copy 模式，canonical 不更新、入口变成真实目录）。整目录替换，只排除 `metadata.json`、`.git`、`__pycache__`、`__pypackages__`；重装前保留差异证据，装后逐项补回项目适配。
 - 确凿的上游整技能删除才执行 `npx --yes skills@latest remove <name> -y`，并清理 lock、链接与文档；网络或鉴权失败不等于删除。上游只删单文件时，同步删除本地对应文件。
-- lock 存的是上游 hash，不是带项目适配的本地内容 hash；不要为了“匹配”改 lock。
+- lock 存的是上游 hash，不是带项目适配的本地内容 hash；不要为了“匹配”改 lock。CLI 1.7.4 实测：上游目录 hash 包含 `metadata.json`，但安装时不复制该文件，因此含该文件的上游技能 lock 与本地的目录 hash 本就不同，核验时按“排除 `metadata.json` 后内容一致”判断。
 
 ## 项目适配（必须保留）
 

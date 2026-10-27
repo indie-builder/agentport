@@ -47,7 +47,7 @@
     },
     {
       "id": 3,
-      "prompt": "Tessellate Health, 11 engineers across 2 backend teams, one public API for patient scheduling, about 40 endpoints. Our CTO read about Google's API readability certification and wants us to build the same thing: a written style guide, a certification process for reviewers, and embedded API champions per domain. I have maybe 3 days of my own time before the next sprint starts. Rank the options and tell me what to actually do.",
+      "prompt": "Tessellate Health, 11 engineers across 2 backend teams, one public API for patient scheduling, about 40 endpoints. Our CTO read about Google's API readability certification and wants us to build the same thing: a written style guide, a certification process for reviewers, and embedded API champions per domain. I have maybe one day of my own time before the next sprint starts. Rank the options and tell me what to actually do.",
       "expected_output": "A recommendation that steps down to a linter-only CI gate, removes the federated/certified rung from the menu outright rather than ranking it last, and supplies the concrete re-promotion trigger that would bring it back.",
       "files": [],
       "expectations": [
@@ -55,14 +55,14 @@
         "Justifies removal over demotion by noting a parked rung reappears as roadmap work that consumes corpus-writing time nobody needs yet",
         "Gives an explicit re-promotion trigger: a third team shipping its own API surface, or median review turnaround past roughly 2 weeks",
         "Recommends a linter-only CI gate rather than the default linter-plus-two-named-reviewers rung",
-        "Names the two-team scope and the 3-day effort ceiling as the answers that moved the recommendation down from the default rung",
+        "Names the two-team scope and the one-day effort ceiling as the answers that moved the recommendation down from the default rung",
         "States that the semantic conversation still happens inside ordinary code review at this scale",
         "Recommends forking a published corpus such as Zalando, Adidas, or Microsoft rather than writing a style guide from scratch",
         "States the corpus must be adapted to the team's own articulated intent before it is enforced",
         "States the ranking of the options explicitly rather than implying it through the order of a list",
         "Declines to propose reviewer certification or per-domain embedded champions for an 11-engineer, two-team organization",
         "Keeps the Must-change versus Improvement two-bucket model rather than introducing a numeric severity score",
-        "Characterizes the corpus-plus-linter setup as roughly an afternoon of work rather than a multi-week program"
+        "Characterizes the corpus-plus-linter setup as roughly an hour or two of work rather than a multi-week program"
       ]
     },
     {
