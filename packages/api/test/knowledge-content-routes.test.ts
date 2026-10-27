@@ -207,6 +207,44 @@ describe.skipIf(!ready)('knowledge content routes', () => {
     expect(job.json()).toMatchObject({ type: 'ingest', status: 'queued' });
   });
 
+  it('PATCH 多标签替换与空数组清空关联', async () => {
+    const baseId = await createBase();
+    const created = await createManual(baseId, { tags: ['initial'] });
+    expect(created.statusCode, created.body).toBe(202);
+    const documentId = created.json<{ documentId: string }>().documentId;
+
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/documents/${documentId}`,
+      headers: { cookie },
+      payload: { tags: ['beta', 'alpha', 'gamma'] },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(patched.json<{ tags: string[] }>().tags).toEqual(['alpha', 'beta', 'gamma']);
+
+    const links = await app.pool.query<{ name: string }>(
+      `select t.name from knowledge_document_tags l
+       join knowledge_tags t on t.id = l.tag_id
+       where l.document_id = $1 order by t.name`,
+      [documentId],
+    );
+    expect(links.rows.map((row) => row.name)).toEqual(['alpha', 'beta', 'gamma']);
+
+    const cleared = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/documents/${documentId}`,
+      headers: { cookie },
+      payload: { tags: [] },
+    });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+    expect(cleared.json<{ tags: string[] }>().tags).toEqual([]);
+    const remaining = await app.pool.query<{ n: number }>(
+      'select count(*)::int as n from knowledge_document_tags where document_id = $1',
+      [documentId],
+    );
+    expect(remaining.rows[0]?.n).toBe(0);
+  });
+
   it('手写校验：空正文 400，其他库的文件夹 400', async () => {
     const baseId = await createBase();
     const otherBaseId = await createBase();

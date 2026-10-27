@@ -830,11 +830,14 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         await repo.knowledge.markWikiStaleByDocument(app.db, row.id);
       }
       if (tags !== undefined) {
-        const ids: string[] = [];
-        for (const name of tags) {
-          ids.push((await repo.knowledge.upsertTag(app.db, current.baseId, name)).id);
-        }
-        await repo.knowledge.setDocumentTags(app.db, row.id, ids);
+        const rows = await repo.knowledge.upsertTags(app.db, current.baseId, tags);
+        const idByName = new Map(rows.map((tag) => [tag.name, tag.id]));
+        // 重复名原样保留到关联插入，由关联表唯一约束拒绝，不能在此去重换取成功。
+        await repo.knowledge.setDocumentTags(
+          app.db,
+          row.id,
+          tags.map((name) => idByName.get(name)!),
+        );
       }
       return documentWithTags(row);
     },

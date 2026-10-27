@@ -274,6 +274,45 @@ export async function upsertTag(
   return existing;
 }
 
+export async function upsertTags(
+  db: Database | Tx,
+  baseId: string,
+  names: string[],
+): Promise<KnowledgeTagRow[]> {
+  if (names.length === 0) return [];
+  const unique = [...new Set(names)];
+  const rows: KnowledgeTagRow[] = [];
+  for (let i = 0; i < unique.length; i += INSERT_CHUNK) {
+    rows.push(
+      ...(await db
+        .insert(knowledgeTags)
+        .values(
+          unique
+            .slice(i, i + INSERT_CHUNK)
+            .map((name) => ({ id: newId('knowledgeTag'), baseId, name })),
+        )
+        .onConflictDoNothing()
+        .returning()),
+    );
+  }
+  const returned = new Set(rows.map((row) => row.name));
+  const missing = unique.filter((name) => !returned.has(name));
+  if (missing.length > 0) {
+    rows.push(
+      ...(await db
+        .select()
+        .from(knowledgeTags)
+        .where(and(eq(knowledgeTags.baseId, baseId), inArray(knowledgeTags.name, missing)))),
+    );
+  }
+  const byName = new Map(rows.map((row) => [row.name, row]));
+  return unique.map((name) => {
+    const row = byName.get(name);
+    if (!row) throw new Error('knowledge tag upsert lost its row');
+    return row;
+  });
+}
+
 export async function listTags(db: Database, baseId: string): Promise<KnowledgeTagRow[]> {
   return db
     .select()
