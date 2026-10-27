@@ -49,6 +49,14 @@ zod 校验失败由 `plugins/errors.ts` 统一映射：
 
 这条规则是**唯一**的校验失败出口，handler 里不再出现手工 400（业务规则冲突仍用 4xx，但那是业务错误，不是格式错误）。
 
+## 共享文案与通配参数
+
+`packages/shared/src/index.ts` 在入口统一 `z.config(z.locales.zhCN())`；所有从 shared 取 schema 的进程默认输出中文校验文案，`Problem.message` 不必在各路由重复翻译。
+
+Fastify 通配路由的 `*` 段同样属于路由 schema：技能文件写入用 `skillFileInputSchema.shape.path` 校验，`..`、绝对路径和非法字符在进入 handler 前返回 `INVALID_INPUT`（`path: '/*'`），handler 不再对同一输入 `safeParse`。
+
+鉴权的 `requireAuth` 未登录时抛 `AppError('UNAUTHORIZED')` 而不是直接写响应；preHandler 抛出会真正停止后续 handler，401 仍由 `plugins/errors.ts` 统一渲染成 Problem。
+
 ## 分工
 
 - **请求校验**：路由 `schema`（body / params / querystring）。

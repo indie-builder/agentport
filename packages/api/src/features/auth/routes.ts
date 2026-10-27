@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { getTrustedOrigins, isTrustedOrigin } from '../../config.js';
 import { writeAudit } from '../../plugins/audit.js';
-import { reject } from '../../plugins/errors.js';
+import { AppError, reject } from '../../plugins/errors.js';
 import { authRateLimit } from '../../plugins/security.js';
 import { typed } from '../../types.js';
 import { createAuth, ensureAdmin } from './better-auth.js';
@@ -62,7 +62,8 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     const { response, headers } = await currentSession(request);
     forwardSetCookie(headers, reply);
     if (!response || response.user.username !== app.config.ADMIN_USER) {
-      reject(reply, 'UNAUTHORIZED', 'not logged in');
+      // 走统一错误出口：401 也由 Problem 渲染，且 preHandler 抛出后会真正停止后续 handler。
+      throw new AppError('UNAUTHORIZED', 'not logged in');
     }
   });
 

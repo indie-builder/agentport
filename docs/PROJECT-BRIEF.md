@@ -154,7 +154,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 压缩 | @fastify/compress | 9.2.2 |
 | 静态托管 | @fastify/static | 10.1.6 |
 | 鉴权 | @fastify/jwt + @fastify/cookie | 10.2.5 / 11.1.3 |
-| API 文档 | 未接入（路由即契约） | — |
+| API 文档 | @fastify/swagger + Scalar（已接入，需登录访问） | 当前版本见 packages/api/package.json |
 | 过载保护 | 未注册（依赖已安装但未使用） | 9.2.1 |
 | Redis 客户端 | ioredis | 6.0.0 |
 | 队列 | BullMQ | 6.3.17 |

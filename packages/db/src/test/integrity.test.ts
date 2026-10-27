@@ -126,6 +126,71 @@ describe('history integrity', () => {
     ).rejects.toMatchObject({ code: 'CONFLICT' });
   });
 
+  it('rolls back the branch row and copied history when a later message batch fails', async () => {
+    const conv = newId('conversation');
+    const branchId = newId('conversation');
+    const marker = 'injected branch rollback marker';
+    const total = 501;
+    await chat.createConversation(db, { id: conv, agentId, title: 'rollback source' });
+    await db
+      .update(conversations)
+      .set({ sdkSessionId: '66666666-7777-4888-8999-000000000000' })
+      .where(eq(conversations.id, conv));
+    const sourceRows = Array.from({ length: total }, (_, index) => ({
+      id: newId('message'),
+      conversationId: conv,
+      role: 'user' as const,
+      content: { text: index === 500 ? marker : `m${index}` },
+      sdkMessageUuid: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
+    }));
+    await chat.insertMessages(db, sourceRows);
+
+    // 标记消息落在第 501 条，让触发失败发生在第二批插入而不是第一批。
+    await pool.query(`
+      create or replace function messages_branch_rollback_probe() returns trigger
+      language plpgsql as $$
+      begin
+        if new.content->>'text' = '${marker}' then
+          raise exception 'injected branch rollback failure';
+        end if;
+        return new;
+      end $$
+    `);
+    await pool.query(`
+      create trigger messages_branch_rollback_probe
+      before insert on messages
+      for each row execute function messages_branch_rollback_probe()
+    `);
+
+    try {
+      await expect(
+        chat.branchConversation(db, { id: branchId, conversationId: conv }),
+      ).rejects.toMatchObject({
+        cause: { message: expect.stringMatching(/injected branch rollback failure/) },
+      });
+    } finally {
+      await pool.query('drop trigger if exists messages_branch_rollback_probe on messages');
+      await pool.query('drop function if exists messages_branch_rollback_probe()');
+    }
+
+    const leftovers = await pool.query<{ conversations: string; messages: string }>(
+      `select
+        (select count(*) from conversations where id = $1) as conversations,
+        (select count(*) from messages where conversation_id = $1) as messages`,
+      [branchId],
+    );
+    expect(leftovers.rows[0]).toEqual({ conversations: '0', messages: '0' });
+
+    // 源会话不受影响：消息完整、SDK 状态未变。
+    const sourceAfter = await chat.listMessages(db, conv);
+    expect(sourceAfter.map((row) => row.id)).toEqual(sourceRows.map((row) => row.id));
+    expect(sourceAfter[500]?.content).toEqual({ text: marker });
+    expect((await chat.getConversation(db, conv))?.sdkSessionId).toBe(
+      '66666666-7777-4888-8999-000000000000',
+    );
+  });
+
   it('keeps eval result rows visible after their case and run are deleted', async () => {
     const conv = newId('conversation');
     const runId = newId('run');

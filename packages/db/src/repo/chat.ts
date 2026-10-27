@@ -82,7 +82,7 @@ export async function renameConversation(
 }
 
 export async function getConversation(
-  db: Database,
+  db: Database | Tx,
   conversationId: string,
 ): Promise<Conversation | null> {
   const [row] = await db
@@ -150,7 +150,7 @@ export interface ListMessagesOptions {
  * 传 limit 时只取最新 N 条，避免把 tool 消息的大 jsonb 全量带给页面。
  */
 export async function listMessages(
-  db: Database,
+  db: Database | Tx,
   conversationId: string,
   options: ListMessagesOptions = {},
 ): Promise<Message[]> {
@@ -279,66 +279,68 @@ export async function branchConversation(
   db: Database,
   input: { id: string; conversationId: string; fromMessageId?: string; title?: string },
 ): Promise<{ conversation: Conversation; copied: number } | null> {
-  const source = await getConversation(db, input.conversationId);
-  if (!source) return null;
+  return db.transaction(async (tx) => {
+    const source = await getConversation(tx, input.conversationId);
+    if (!source) return null;
 
-  // 按 (createdAt, id) 排序后截断，与 listMessages 一致。
-  const rows = await listMessages(db, source.id);
-  let cutoffIndex = rows.length - 1;
-  if (input.fromMessageId !== undefined) {
-    cutoffIndex = rows.findIndex((row) => row.id === input.fromMessageId);
-    if (cutoffIndex < 0) return null;
-  }
-  const copy = rows.slice(0, cutoffIndex + 1);
-  const forkPoint = copy.at(-1)?.sdkMessageUuid ?? null;
-  // 非空历史必须能对应到 SDK transcript：否则只能拼文本，而平台已不保留该路径。
-  if (copy.length > 0 && source.sdkSessionId === null) {
-    fail('CONFLICT', '该会话还没有可用的 SDK 会话记录，无法按历史点分支；请重新对话后再试');
-  }
-  if (copy.length > 0 && !copy.every((row) => row.sdkMessageUuid !== null)) {
-    // 旧版本会话的消息永远拿不到 uuid；不要把「等运行完成」当成可解决的问题。
-    fail(
-      'CONFLICT',
-      '该会话的历史消息没有 SDK 会话记录（来自旧版本或 SDK 会话已丢失），无法按历史点分支',
-    );
-  }
+    // 按 (createdAt, id) 排序后截断，与 listMessages 一致。
+    const rows = await listMessages(tx, source.id);
+    let cutoffIndex = rows.length - 1;
+    if (input.fromMessageId !== undefined) {
+      cutoffIndex = rows.findIndex((row) => row.id === input.fromMessageId);
+      if (cutoffIndex < 0) return null;
+    }
+    const copy = rows.slice(0, cutoffIndex + 1);
+    const forkPoint = copy.at(-1)?.sdkMessageUuid ?? null;
+    // 非空历史必须能对应到 SDK transcript：否则只能拼文本，而平台已不保留该路径。
+    if (copy.length > 0 && source.sdkSessionId === null) {
+      fail('CONFLICT', '该会话还没有可用的 SDK 会话记录，无法按历史点分支；请重新对话后再试');
+    }
+    if (copy.length > 0 && !copy.every((row) => row.sdkMessageUuid !== null)) {
+      // 旧版本会话的消息永远拿不到 uuid；不要把「等运行完成」当成可解决的问题。
+      fail(
+        'CONFLICT',
+        '该会话的历史消息没有 SDK 会话记录（来自旧版本或 SDK 会话已丢失），无法按历史点分支',
+      );
+    }
 
-  const [conversation] = await db
-    .insert(conversations)
-    .values({
-      id: input.id,
-      agentId: source.agentId,
-      title: input.title ?? source.title,
-      parentId: source.id,
-      branchOfMessageId: copy.at(-1)?.id ?? null,
-      // 分叉前仍指向来源会话；首轮运行 fork 成功后改写为新 session。
-      sdkSessionId: source.sdkSessionId,
-      forkFromSdkMessageUuid: forkPoint,
-    })
-    .returning();
-  if (!conversation) throw new Error('conversation insert returned no row');
+    const [conversation] = await tx
+      .insert(conversations)
+      .values({
+        id: input.id,
+        agentId: source.agentId,
+        title: input.title ?? source.title,
+        parentId: source.id,
+        branchOfMessageId: copy.at(-1)?.id ?? null,
+        // 分叉前仍指向来源会话；首轮运行 fork 成功后改写为新 session。
+        sdkSessionId: source.sdkSessionId,
+        forkFromSdkMessageUuid: forkPoint,
+      })
+      .returning();
+    if (!conversation) throw new Error('conversation insert returned no row');
 
-  if (copy.length > 0) {
-    await insertMessages(
-      db,
-      copy.map((row) => ({
-        id: newId('message'),
-        conversationId: conversation.id,
-        role: row.role,
-        content: row.content,
-        runId: null,
-        // 复制的是来源会话的 uuid；fork 后由运行收尾统一重映射到新 session。
-        sdkMessageUuid: row.sdkMessageUuid,
-        // 生成式 UI 的渲染快照必须跟着走：否则分支里的界面会退回围栏源码、表单状态全丢。
-        uiFormat: row.uiFormat,
-        uiProgram: row.uiProgram,
-        uiState: row.uiState,
-        createdAt: row.createdAt,
-      })),
-    );
-  }
+    if (copy.length > 0) {
+      await insertMessages(
+        tx,
+        copy.map((row) => ({
+          id: newId('message'),
+          conversationId: conversation.id,
+          role: row.role,
+          content: row.content,
+          runId: null,
+          // 复制的是来源会话的 uuid；fork 后由运行收尾统一重映射到新 session。
+          sdkMessageUuid: row.sdkMessageUuid,
+          // 生成式 UI 的渲染快照必须跟着走：否则分支里的界面会退回围栏源码、表单状态全丢。
+          uiFormat: row.uiFormat,
+          uiProgram: row.uiProgram,
+          uiState: row.uiState,
+          createdAt: row.createdAt,
+        })),
+      );
+    }
 
-  return { conversation, copied: copy.length };
+    return { conversation, copied: copy.length };
+  });
 }
 
 export interface ConversationSummary {

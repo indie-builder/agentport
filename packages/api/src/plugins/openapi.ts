@@ -1,7 +1,8 @@
 import fastifySwagger from '@fastify/swagger';
 import fastifyApiReference from '@scalar/fastify-api-reference';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { jsonSchemaTransform } from 'fastify-type-provider-zod';
+import { errorHandler } from './errors.js';
 
 /** 版本跟随根 package.json；独立发版前不必为它引入运行时读文件的复杂度。 */
 const API_VERSION = '0.13.0';
@@ -24,6 +25,10 @@ const DOCS_CSP = [
  * Scalar 通过 hasPlugin('@fastify/swagger') 自动取文档，不需要额外配置源。
  */
 export async function registerOpenApi(app: FastifyInstance): Promise<void> {
+  // requireAuth 由 registerAuth（业务路由阶段）decorate；文档路由先注册，故请求时再取。
+  const requireAuth = (request: FastifyRequest, reply: FastifyReply) =>
+    app.requireAuth(request, reply);
+
   await app.register(fastifySwagger, {
     openapi: {
       openapi: '3.1.0',
@@ -32,9 +37,19 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
     transform: jsonSchemaTransform,
   });
 
-  app.get('/api/openapi.json', async () => app.swagger());
+  // 文档路由放在独立作用域：先装统一错误出口，401 才会渲染成 Problem；
+  // 与 registerRoutes 在根作用域安装的是同一个实现，互不覆盖。
+  await app.register(async (docs) => {
+    docs.setErrorHandler(errorHandler);
 
-  await app.register(fastifyApiReference, { routePrefix: '/api/docs' });
+    docs.get('/api/openapi.json', { preHandler: requireAuth }, async () => app.swagger());
+
+    // Scalar 页面与其 `./openapi.json` 都由浏览器同源请求，带得上会话 cookie。
+    await docs.register(fastifyApiReference, {
+      routePrefix: '/api/docs',
+      hooks: { preHandler: requireAuth },
+    });
+  });
 
   app.addHook('onSend', async (request, reply, payload) => {
     if (request.url.startsWith('/api/docs')) {

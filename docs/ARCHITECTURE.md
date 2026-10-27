@@ -253,7 +253,7 @@ data/workspaces/<agent-slug>/
 
 会话恢复、预算、取消信号、消息流、宿主 callbacks 等还有 SDK 运行时参数，不能声称全部都可写入 settings.json。`~/.claude/` 的认证、缓存、会话记录等宿主状态不属于可分享项目定义，不复制进用户工作区包。
 
-会话上下文不再拼接历史文本：每个 conversation 的 SDK transcript 持久化在 `WORKSPACES_DIR/<slug>/sdk-sessions/<conversationId>/`，容器只挂这一个目录到 `/home/node/.claude`；续聊传 `resume`，从某条用户消息分支时先复制来源 transcript 再用官方 `forkSession` 截断，成功后写回新 session id。fork 会给消息换新 uuid，映射由 **worker 从宿主 transcript 的 `forkedFrom` 字段计算**（不按位置对齐，压缩过的会话顺序会变），并与消息同事务写库；resume 事件只携带新 session id。transcript 缺失时该轮以 infra 失败，不回退成文本上下文。该目录属于运行时持久数据，随备份保存，但不是可分享定义包的一部分。
+会话上下文不再拼接历史文本：每个 conversation 的 SDK transcript 持久化在 `WORKSPACES_DIR/<slug>/sdk-sessions/<conversationId>/`，容器只挂这一个目录到 `/home/node/.claude`；续聊传 `resume`，从某条用户消息分支时先复制来源 transcript 再用官方 `forkSession` 截断，成功后写回新 session id。fork 会给消息换新 uuid，映射由 **worker 从宿主 transcript 的 `forkedFrom` 字段计算**（不按位置对齐，压缩过的会话顺序会变），并与消息同事务写库；resume 事件只携带新 session id。transcript 缺失时该轮以 infra 失败，不回退成文本上下文。该目录属于运行时持久数据，随备份保存，但不是可分享定义包的一部分。从历史点复制会话时，来源读取、分支会话行与复制消息在同一个 `db.transaction` 内提交；后续批次失败不会留下半成品分支。
 
 当前 sandbox 明确使用 `cwd:'/workspace'`、`settingSources:['project']`；不加载宿主 user/local 偏好。outputStyle 因此由项目 `settings.json` 原生加载，inline settings 只覆盖同名 key。官方加载默认值可能随版本变化，继续显式配置。文件导入必须经过类型、路径与大小校验，不能直接解压到执行目录或自动运行导入的脚本。
 
@@ -281,7 +281,7 @@ data/workspaces/<agent-slug>/
 | `$KNOWLEDGE_DIR/wiki-sdk/<jobId>/` | Wiki 生成时的平台私有临时 cwd（同时作 HOME / `CLAUDE_CONFIG_DIR`） | 不是 Claude 官方目录约定，也不进入专家工作区或导出包；任务结束即删除 |
 | `knowledgedata:/knowledge` | 上述目录的 compose 命名卷 | api 与 worker 必须同卷；随 `pnpm backup` 归档为 `knowledge/` |
 
-关键 schema 事实：`knowledge_chunks.search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用不写），`embedding vector(1024)` 由 `customType` 映射；GIN 全文索引与 HNSW 向量部分索引（`WHERE enabled AND embedding IS NOT NULL`）在迁移里手写。embedding profile 的 `dimensions` 由 schema 的 check 约束固定为 1024。chunk、版本、Wiki、任务等业务实体都用 `newId()` 生成 TypeID（`kb_`、`kdoc_`、`kchk_`、`kjob_`…，见 `packages/db/src/id.ts`）。
+关键 schema 事实：`knowledge_chunks.search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用不写），`embedding vector(1024)` 由 `customType` 映射；GIN 全文索引与 HNSW 向量部分索引（`WHERE enabled AND embedding IS NOT NULL`）在迁移里手写。embedding profile 的 `dimensions` 由 schema 的 check 约束固定为 1024。chunk、版本、Wiki、任务等业务实体都用 `newId()` 生成 TypeID（`kb_`、`kdoc_`、`kchk_`、`kjob_`…，见 `packages/db/src/id.ts`）。`insertChunks` 按 500 行分批执行 `INSERT`，避免单条语句超过 PostgreSQL 绑定参数上限；返回顺序与输入一致。
 
 删除文档/知识库删除行与引用，blob与解析目录由`cleanup`按“无版本引用且超过24小时”回收。知识对账器启动时及每5分钟检查当天UTC清理任务，复用同一队列每日创建一条；入队失败保留queued供后续补投。`POST /bases/:id/rebuild`与知识库“设置”中的整库重建入口贯通，重建前提示人工分块更改会被覆盖。
 

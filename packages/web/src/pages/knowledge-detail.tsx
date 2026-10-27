@@ -129,6 +129,7 @@ import {
   useUploadKnowledgeDocument,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useDebouncedValue } from '../lib/use-debounced-value.js';
 
 const tabs = [
   { id: 'documents', label: '文档' },
@@ -284,6 +285,8 @@ function DocumentsTab({
   onFolderChange: (folderId: string | undefined) => void;
 }) {
   const [query, setQuery] = useState('');
+  // 每个字符都换无限查询键会把列表打爆：输入即时回显，停 300ms 再订阅。
+  const settledQuery = useDebouncedValue(query.trim(), 300);
   const [status, setStatus] = useState('all');
   const [tag, setTag] = useState('all');
   const folders = useKnowledgeFolders(baseId);
@@ -293,7 +296,7 @@ function DocumentsTab({
     ...(folderId === undefined ? {} : { folderId }),
     ...(status === 'all' ? {} : { status }),
     ...(tag === 'all' ? {} : { tag }),
-    ...(query.trim() === '' ? {} : { q: query.trim() }),
+    ...(settledQuery === '' ? {} : { q: settledQuery }),
   });
   const documentItems = documents.data?.pages.flatMap((page) => page.items) ?? [];
   const upload = useUploadKnowledgeDocument(baseId);
@@ -578,7 +581,7 @@ function DocumentsTab({
         {documents.isSuccess && documentItems.length === 0 ? (
           <EmptyState
             icon={<FileText className="size-5" />}
-            title={query.trim() ? '没有匹配的文档' : '还没有文档'}
+            title={settledQuery ? '没有匹配的文档' : '还没有文档'}
             action={
               <Button variant="outline" size="sm" onClick={() => uploadInput.current?.click()}>
                 <Upload data-icon="inline-start" aria-hidden="true" /> 上传文件
