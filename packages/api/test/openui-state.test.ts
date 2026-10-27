@@ -16,6 +16,39 @@ import {
 // 直接写 repo：不经过 /api/chat，避免依赖 worker 空闲。
 const ready = await infraReady;
 
+/** 归属读取只可能是 select messages 或 select conversations。 */
+const ownershipRead = /^\s*select\b[\s\S]*\bfrom\s+"?(?:messages|conversations)"?\b/i;
+
+function countOwnershipReads(sql: string[]): number {
+  return sql.filter((text) => ownershipRead.test(text)).length;
+}
+
+/**
+ * 直通真实 pool.query：drizzle 的 node-postgres 会话最终也调用它，
+ * 因此能同时看到 repo 的 select/update 与 direct pool 查询。恢复必须放 finally。
+ */
+function spyPoolQueries(app: FastifyInstance): { sql: string[]; restore: () => void } {
+  const sql: string[] = [];
+  const original = app.pool.query;
+  app.pool.query = ((...args: unknown[]) => {
+    const first = args[0];
+    sql.push(
+      typeof first === 'string'
+        ? first
+        : first !== null && typeof first === 'object' && 'text' in first
+          ? String((first as { text: unknown }).text)
+          : '',
+    );
+    return (original as (...inner: unknown[]) => unknown).apply(app.pool, args);
+  }) as typeof app.pool.query;
+  return {
+    sql,
+    restore: () => {
+      app.pool.query = original;
+    },
+  };
+}
+
 /** n 个独立 OpenUI 段；blockKey 只按 UI 段计数（s0、s1…），Markdown 不占号。 */
 function uiText(segments: number): string {
   return Array.from(
@@ -118,19 +151,35 @@ describe.skipIf(!ready)('openui state', () => {
 
   it('returns CONVERSATION_NOT_FOUND for an unknown conversation', async () => {
     const { messageId } = await seed();
-    expectProblem(
-      await put('conv_missing', messageId, { blockKey: 's0', state: { a: 1 } }),
-      'CONVERSATION_NOT_FOUND',
-    );
+    const spy = spyPoolQueries(app);
+    try {
+      expectProblem(
+        await put('conv_missing', messageId, { blockKey: 's0', state: { a: 1 } }),
+        'CONVERSATION_NOT_FOUND',
+      );
+      // 错误路径最多两次归属读取：消息未命中后再查会话。
+      expect(countOwnershipReads(spy.sql)).toBeGreaterThan(0);
+      expect(countOwnershipReads(spy.sql)).toBeLessThanOrEqual(2);
+    } finally {
+      spy.restore();
+    }
   });
 
   it('rejects a message that belongs to another conversation', async () => {
     const first = await seed();
     const second = await seed();
-    expectProblem(
-      await put(first.conversationId, second.messageId, { blockKey: 's0', state: { a: 1 } }),
-      'NOT_FOUND',
-    );
+    const spy = spyPoolQueries(app);
+    try {
+      expectProblem(
+        await put(first.conversationId, second.messageId, { blockKey: 's0', state: { a: 1 } }),
+        'NOT_FOUND',
+      );
+      expect(countOwnershipReads(spy.sql)).toBeGreaterThan(0);
+      expect(countOwnershipReads(spy.sql)).toBeLessThanOrEqual(2);
+    } finally {
+      spy.restore();
+    }
+    expect(await savedState(second.messageId)).toBeNull();
   });
 
   it('rejects a message that is not an openui assistant message', async () => {
@@ -202,6 +251,38 @@ describe.skipIf(!ready)('openui state', () => {
   ])('rejects %s with 400', async (_label, payload) => {
     const { conversationId, messageId } = await seed();
     expectProblem(await put(conversationId, messageId, payload), 'INVALID_INPUT');
+  });
+
+  it('saves a state after a single ownership read', async () => {
+    const { conversationId, messageId } = await seed();
+
+    // 旧实现先 getConversation 再 getMessageInConversation：同一判据下命中 2 条。
+    expect(
+      countOwnershipReads([
+        'select "id" from "conversations" where "id" = $1 limit $2',
+        'select "id" from "messages" where "id" = $1 and "conversation_id" = $2 limit $3',
+      ]),
+    ).toBe(2);
+
+    const spy = spyPoolQueries(app);
+    try {
+      const res = await put(conversationId, messageId, { blockKey: 's0', state: { a: 1 } });
+      expect(res.statusCode, res.body).toBe(200);
+      // 命中路径只查一次消息归属，不再先 getConversation。
+      expect(countOwnershipReads(spy.sql)).toBe(1);
+      // 正对照：spy 确实抓到了后续写入，不是恒 0 的空抓取。
+      expect(spy.sql.some((text) => /^\s*update\s+"?messages"?/i.test(text))).toBe(true);
+      expect(spy.sql.some((text) => /^\s*insert\s+into\s+"?audit_log"?/i.test(text))).toBe(true);
+    } finally {
+      spy.restore();
+    }
+
+    expect(await savedState(messageId)).toEqual({ version: 1, blocks: { s0: { a: 1 } } });
+    const audit = await app.pool.query(
+      "select 1 from audit_log where action = 'openui.state.saved' and target = $1",
+      [messageId],
+    );
+    expect(audit.rows).toHaveLength(1);
   });
 
   it('persists a state envelope and merges blocks instead of overwriting', async () => {
