@@ -12,16 +12,17 @@ import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
-import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
+import { api, type HealthMetrics, type HealthProbe, type HealthReady } from '../lib/api.js';
 import { formatBytes, formatDuration } from '../lib/format.js';
 import { healthLiveQuery, healthMetricsQuery, healthReadyQuery } from '../lib/queries.js';
 
-type CheckState = 'pending' | 'ok' | 'warn' | 'error';
+type CheckState = 'pending' | 'ok' | 'warn' | 'unknown' | 'error';
 
 const stateLabel: Record<CheckState, string> = {
   pending: '检查中',
   ok: '正常',
   warn: '注意',
+  unknown: '未知',
   error: '不可用',
 };
 
@@ -29,6 +30,8 @@ const stateVariant = {
   pending: 'default',
   ok: 'success',
   warn: 'warn',
+  // 未知状态沿用失败色：视觉不变，只把「不可用」改成不编造原因的「未知」。
+  unknown: 'danger',
   error: 'danger',
 } as const satisfies Record<CheckState, 'default' | 'success' | 'warn' | 'danger'>;
 
@@ -65,6 +68,11 @@ function Reason({ children }: { children: ReactNode }) {
       <span className="min-w-0 break-words [overflow-wrap:anywhere]">{children}</span>
     </div>
   );
+}
+
+/** 整个指标端点的结果不可知：不写零值，也不替用户断定是哪个依赖故障。 */
+function Unknown() {
+  return <div className="text-sm text-muted-foreground">未知</div>;
 }
 
 function formatUptime(seconds: number): string {
@@ -241,8 +249,17 @@ function SmokeChecklist() {
 export function StatusPage() {
   const live = useQuery(healthLiveQuery);
   const ready = useQuery(healthReadyQuery);
-  // 与概览页共用缓存键，但状态页需要 10 秒粒度。
-  const metrics = useQuery({ ...healthMetricsQuery, refetchInterval: 10_000 });
+  // 与概览页共用缓存键，但状态页需要 10 秒粒度；null 在适配器里表示失败，
+  // 概览与冒烟检查仍用它表达「不可用」，这里转成查询失败才能识别刷新失败。
+  const metrics = useQuery({
+    ...healthMetricsQuery,
+    queryFn: async (): Promise<HealthMetrics | null> => {
+      const data = await api.healthMetrics();
+      if (!data) throw new Error('指标端点不可达或返回非 200');
+      return data;
+    },
+    refetchInterval: 10_000,
+  });
 
   const data = metrics.data ?? null;
   const queue = data?.queue ?? null;
@@ -257,31 +274,37 @@ export function StatusPage() {
   const processState: CheckState = metrics.isPending
     ? 'pending'
     : !data
-      ? 'error'
+      ? 'unknown'
       : metrics.isError
         ? 'warn'
         : 'ok';
   const queueState: CheckState = metrics.isPending
     ? 'pending'
-    : !queue
-      ? 'error'
-      : metrics.isError || queue.waiting > 10 || (queue.waiting > 0 && queue.active === 0)
-        ? 'warn'
-        : 'ok';
+    : !data
+      ? 'unknown'
+      : !queue
+        ? 'error'
+        : metrics.isError || queue.waiting > 10 || (queue.waiting > 0 && queue.active === 0)
+          ? 'warn'
+          : 'ok';
   const dbState: CheckState = metrics.isPending
     ? 'pending'
-    : !db
-      ? 'error'
-      : metrics.isError || db.waiting > 5
-        ? 'warn'
-        : 'ok';
+    : !data
+      ? 'unknown'
+      : !db
+        ? 'error'
+        : metrics.isError || db.waiting > 5
+          ? 'warn'
+          : 'ok';
   const redisState: CheckState = metrics.isPending
     ? 'pending'
-    : !redis
-      ? 'error'
-      : metrics.isError
-        ? 'warn'
-        : 'ok';
+    : !data
+      ? 'unknown'
+      : !redis
+        ? 'error'
+        : metrics.isError
+          ? 'warn'
+          : 'ok';
 
   const readyProblem = readyReason(ready);
   const readyState: CheckState = ready.isPending
@@ -366,8 +389,10 @@ export function StatusPage() {
       {metrics.isError ? (
         <PageNote
           tone="danger"
-          title="指标刷新失败"
-          description={data ? '以下保留上次成功读取的指标。' : undefined}
+          title={data ? '指标刷新失败' : '指标读取失败'}
+          description={
+            data ? '以下保留上次成功读取的指标。' : '指标端点不可达或返回非 200，各区块显示为未知。'
+          }
           action={
             <Button
               variant="outline"
@@ -392,10 +417,7 @@ export function StatusPage() {
           ) : metrics.isPending ? (
             <LoadingState rows={2} />
           ) : (
-            <Reason>
-              指标端点不可达或返回非 200；先确认 API 进程与反向代理，再看{' '}
-              <code className="font-mono">docker compose logs api</code>。
-            </Reason>
+            <Unknown />
           )}
         </PageSection>
 
@@ -420,8 +442,10 @@ export function StatusPage() {
             </>
           ) : metrics.isPending ? (
             <LoadingState rows={2} />
-          ) : (
+          ) : data ? (
             <Reason>BullMQ 查询失败或超过 1.5 秒：Redis 不可用，或队列键被阻塞。</Reason>
+          ) : (
+            <Unknown />
           )}
         </PageSection>
 
@@ -441,8 +465,10 @@ export function StatusPage() {
             </>
           ) : metrics.isPending ? (
             <LoadingState rows={2} />
-          ) : (
+          ) : data ? (
             <div className="text-sm text-muted-foreground">读不到连接池指标。</div>
+          ) : (
+            <Unknown />
           )}
         </PageSection>
 
@@ -454,10 +480,12 @@ export function StatusPage() {
             </div>
           ) : metrics.isPending ? (
             <LoadingState rows={2} />
-          ) : (
+          ) : data ? (
             <Reason>
               Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
             </Reason>
+          ) : (
+            <Unknown />
           )}
         </PageSection>
       </div>
