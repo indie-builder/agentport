@@ -397,7 +397,12 @@ describe('chat shell layout', () => {
     const history = host.querySelector('aside[aria-label="会话历史"]');
     expect(history).not.toBeNull();
     // 专家选择随历史面板一起出现，且只在历史内。
-    expect(history?.querySelector('[aria-label="选择专家"]')).not.toBeNull();
+    const picker = history?.querySelector<HTMLButtonElement>('[aria-label="选择专家"]');
+    expect(picker).not.toBeNull();
+    // 触发器同时显示头像、名称与 ComboboxTrigger 默认的下箭头。
+    expect(picker?.querySelector('img')).not.toBeNull();
+    expect(picker?.textContent).toContain('Expert');
+    expect(picker?.querySelectorAll('svg.lucide-chevron-down')).toHaveLength(1);
     expect(host.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
     expect(
       host.querySelector('button[aria-label="隐藏会话历史"]')?.getAttribute('aria-expanded'),

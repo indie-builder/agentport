@@ -70,6 +70,7 @@
 
 ## 前端
 
+- **仅面向桌面端，避免过度设计。** 前端采用桌面布局与控件规格，不做移动端适配，不为手机增加断点、触摸尺寸或替代导航；保留桌面窗口缩放、容器伸缩与无障碍行为。
 - **一切视觉以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 为准**，设计基准是 https://www.openui.com/chat?form_factor=desktop。无彩度（黑白灰 + 透明度）、1px 线与留白、lucide 图标 `strokeWidth={1.75}` 16px、焦点/边框统一（§9）、信息表达「让布局解释结构」（§10，做 UI 前后逐条过）。
 - **布局优先。** "Cut taglines, helper text and secondary labels. If a screen needs them to make sense, fix the layout." 删掉标语、用于解释结构的辅助文案和重复的次级标签；若界面要靠这些文字才看得懂，先改分组/对齐/间距/层级，而不是加字。表单字段标签、约束提示、错误、风险与无障碍说明仍按 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) §10 保留。
 - **组件库只用 shadcn/ui**（`components.json` 已配；`pnpm dlx shadcn@latest add <name>` 后可改源码 token）；交互原语只用 Base UI（`@base-ui/react`），Radix 已移除不再引入；样式只用 Tailwind 4，颜色/间距/字体/圆角只从 `styles.css` 的 `@theme` token 取，禁止硬编码 hex。先看 `components/ui/` 有无可复用再新增。
