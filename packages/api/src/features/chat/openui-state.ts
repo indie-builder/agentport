@@ -41,12 +41,13 @@ export function registerOpenUiStateRoutes(rawApp: FastifyInstance): void {
       const { conversationId, messageId } = request.params;
       const { blockKey, state } = request.body;
 
-      const conversation = await repo.chat.getConversation(app.db, conversationId);
-      if (!conversation) {
-        return reject(reply, 'CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请刷新后重试');
-      }
       const message = await repo.openui.getMessageInConversation(app.db, conversationId, messageId);
       if (!message) {
+        // messages.conversation_id 外键 cascade：消息存在则所属会话必存在；未命中才需区分两种错误。
+        const conversation = await repo.chat.getConversation(app.db, conversationId);
+        if (!conversation) {
+          return reject(reply, 'CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请刷新后重试');
+        }
         return reject(reply, 'NOT_FOUND', '消息不属于该会话，可能已被删除；请刷新后重试');
       }
       // 只有生成式 UI 的助手消息挂状态；其他消息没有可恢复的界面。
