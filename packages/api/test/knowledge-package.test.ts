@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
@@ -616,6 +616,115 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
     expect(res.statusCode, res.body).toBe(400);
   });
+
+  it('同一序号用于不同版本、同一版本号用于不同作用域时仍可导入', async () => {
+    const mutated = rewriteManifest(exported, (manifest) => {
+      manifest.base.slug = unique('pkg-scope');
+      const document = manifest.documents[0]!;
+      const version = document.versions[0]!;
+      document.versions.push({
+        ...version,
+        id: randomUUID(),
+        version: version.version + 1,
+        // 序号只在单个版本内唯一；不同版本重复同一序号合法。
+        chunks: version.chunks.map((chunk) => ({ ...chunk, id: randomUUID() })),
+      });
+    });
+    const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
+    expect(res.statusCode, res.body).toBe(201);
+    const result = res.json<{ baseId: string; counts: Record<string, number> }>();
+    baseIds.push(result.baseId);
+    expect(result.counts).toMatchObject({ documents: 1, versions: 2, chunks: 500, wikiPages: 1 });
+  });
+
+  const duplicateCases: Array<{
+    label: string;
+    mutate: (manifest: Manifest) => void;
+    message: (manifest: Manifest) => string;
+  }> = [
+    {
+      label: '标签名',
+      mutate: (manifest) => {
+        manifest.tags.push({ id: randomUUID(), name: manifest.tags[0]!.name });
+      },
+      message: (manifest) => `标签「${manifest.tags[0]!.name}」重复`,
+    },
+    {
+      label: '文档版本号',
+      mutate: (manifest) => {
+        const document = manifest.documents[0]!;
+        document.versions.push({ ...document.versions[0]!, id: randomUUID() });
+      },
+      message: (manifest) => `文档「${manifest.documents[0]!.title}」版本号重复`,
+    },
+    {
+      label: '分块序号',
+      mutate: (manifest) => {
+        const version = manifest.documents[0]!.versions[0]!;
+        version.chunks.push({ ...version.chunks[0]!, id: randomUUID() });
+      },
+      message: (manifest) => {
+        const version = manifest.documents[0]!.versions[0]!;
+        return `版本「${version.id}」的分块序号 ${String(version.chunks[0]!.ordinal)} 重复`;
+      },
+    },
+    {
+      label: 'Wiki 版本号',
+      mutate: (manifest) => {
+        const page = manifest.wikiPages[0]!;
+        page.versions.push({ ...page.versions[0]!, id: randomUUID() });
+      },
+      message: (manifest) => `Wiki 页面「${manifest.wikiPages[0]!.slug}」版本号重复`,
+    },
+    {
+      label: 'Wiki 版本 ID',
+      mutate: (manifest) => {
+        const page = manifest.wikiPages[0]!;
+        const version = page.versions[0]!;
+        page.versions.push({ ...version, version: version.version + 1 });
+      },
+      message: (manifest) => `Wiki 页面「${manifest.wikiPages[0]!.slug}」版本 ID 重复`,
+    },
+    {
+      label: '同页重复引用分块',
+      mutate: (manifest) => {
+        const page = manifest.wikiPages[0]!;
+        page.sources.push({ ...page.sources[0]! });
+      },
+      message: (manifest) => `Wiki 页面「${manifest.wikiPages[0]!.slug}」重复引用同一分块`,
+    },
+  ];
+
+  it.each(duplicateCases)(
+    '重复$label 的知识包被拒绝，且不落库、不写文件',
+    async ({ mutate, message }) => {
+      const mutated = rewriteManifest(exported, (manifest) => {
+        // 旧实现会放过重复并在落库时撞 slug；换唯一 slug 才能证明拒绝来自重复校验。
+        manifest.base.slug = unique('pkg-dup');
+        mutate(manifest);
+      });
+      const expected = message(readManifest(mutated));
+      const before = await app.pool.query<{ count: string }>(
+        'select count(*) from knowledge_bases where embedding_profile_id = $1',
+        [profileId],
+      );
+      const docsBefore = (await readdir(join(knowledgeDir, 'docs'))).sort();
+
+      const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
+      expect(res.statusCode, res.body).toBe(400);
+      expect(res.json<{ code: string; message: string }>()).toMatchObject({
+        code: 'INVALID_INPUT',
+        message: expected,
+      });
+
+      const after = await app.pool.query<{ count: string }>(
+        'select count(*) from knowledge_bases where embedding_profile_id = $1',
+        [profileId],
+      );
+      expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+      expect((await readdir(join(knowledgeDir, 'docs'))).sort()).toEqual(docsBefore);
+    },
+  );
 
   /** 独立小库：一篇文档 + 一个 chunk + 一页引用它的已发布 Wiki。 */
   async function seedReferencedWiki(): Promise<{

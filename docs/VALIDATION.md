@@ -99,6 +99,8 @@ Fastify 通配路由的 `*` 段同样属于路由 schema：技能文件写入用
 | `POST /api/knowledge/bases/import` | `application/zip` 二进制 | 路由级 `bodyLimit` 64 MiB；包内路径、条目数、解压总量与 sha256 在解压前/后分别校验，拒绝绝对路径、`..`、链接和重复成员；`manifest.json` 是开放 JSON，由 `package.ts` 在 handler 内 `safeParse` 收窄 |
 | 内置知识 MCP 工具参数 | MCP JSON，非 Fastify 路由 | `features/knowledge/mcp.ts` 在 handler 内 `safeParse` 工具参数：这里没有路由 schema 可挂，且必须把非法参数转成工具错误而不是 HTTP 400 |
 
+知识包在文件写入和导入事务前校验清单引用及唯一性：库内标签名、文档内版本号、版本内分块序号、Wiki 页内版本号与版本 ID、同页非空分块引用不得重复；各集合在所属作用域内独立判断。重复值返回 `INVALID_INPUT`，不等数据库约束冲突后再报错。
+
 上传的文件类型不在入口做格式白名单（除 URL 导入按可解析类型过滤）：格式判定在 worker 的解析链完成，不支持的格式以任务失败明确报出；PDF/Office/OCR 需要配置 `DOCLING_URL`，未配置时不会静默降级。知识库连接本身也不走用户 CRUD：`serverInputSchema` 不含 `kind='knowledge'`，内置连接只能由知识库生命周期创建。`knowledgeSourceInputSchema` 的 `ranges` 是 `.min(1)`，所以范围为空在路由校验阶段就返回 `INVALID_INPUT`，handler 不再二次判空。
 
 图片多模态入口复用上述上传与模型配置：库设置 `imageProcessing` 在共享 Zod schema 完成开关、模型、动作与相似度范围校验，启用需模型且 OCR/描述至少一项。profile 的 `embeddingProtocol`/`imageInputEnabled` 有数据库 check，图片输入仅适用于已实现的 Cohere v2 `embed-v4.0` 协议。模型响应严格校验有限数、条数及1024维，不截断/拼接向量。
