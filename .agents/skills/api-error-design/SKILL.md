@@ -4,7 +4,7 @@ description: Design the error surface of a public API so integrators self-serve 
 license: MIT
 metadata:
   author: Samuel Berthe
-  version: "1.0.1"
+  version: "1.0.2"
 ---
 
 # API Error Design
@@ -75,8 +75,8 @@ The taxonomy is the machine-readable identity a caller branches on. Three shapes
 - effort: `domain/reason > code/subcode catalog > flat code catalog`
 - value: `domain/reason > code/subcode catalog > flat code catalog`
 
-- **Default rung: the code/subcode catalog.** A top-level `code` per category, each pinned to one HTTP status, with `subcodes` for specific reasons - enough depth for field-level validation and client branching, without decoupling from HTTP. Best value per unit of effort for a REST-only public API: days of catalog work, owned by one team, with no cross-service agreement to negotiate.
-- **Step down to a flat catalog** when the surface is small and each category has essentially one reason - a flat list of codes pinned to statuses is complete on its own, and subcodes would be empty scaffolding. Effort is near-zero, an afternoon's enumeration.
+- **Default rung: the code/subcode catalog.** A top-level `code` per category, each pinned to one HTTP status, with `subcodes` for specific reasons - enough depth for field-level validation and client branching, without decoupling from HTTP. Best value per unit of effort for a REST-only public API: about a day of catalog work, most of it review, owned by one team, with no cross-service agreement to negotiate.
+- **Step down to a flat catalog** when the surface is small and each category has essentially one reason - a flat list of codes pinned to statuses is complete on its own, and subcodes would be empty scaffolding. Effort is near-zero, an hour or two of enumeration.
 - **Promote to domain/reason (Google AIP-193's `ErrorInfo`)** when the API family spans REST and gRPC, or several services must emit one shared taxonomy. `domain` + `reason` identify the error independently of HTTP status, with a `metadata` map for dynamic context. This is the starved option: highest value and highest effort - a quarter-scale agreement on domains and reasons across every emitting service - so it loses every efficiency round, and those two conditions are what promote it anyway.
 - **Deleted, not demoted: the HTTP-status-pinned rungs on a gRPC-only surface.** Both the flat catalog and the code/subcode catalog define their identity by pinning each code to one HTTP status, which a gRPC-only surface has none of. Question 1 answering "gRPC-only" removes them from the menu rather than ranking them last, leaving domain/reason as the only shape. Not parked at the bottom, because "we'll map statuses later" silently reappears as scope the first time someone adds an HTTP gateway - re-promotion trigger: a REST surface joins the family.
 - This ranking is a default, not a law. Re-rank against question 6 and anything else you know about the user:

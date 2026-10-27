@@ -4,7 +4,7 @@ description: Audit an existing or proposed public REST API surface as a checklis
 license: MIT
 metadata:
   author: Samuel Berthe
-  version: "1.0.2"
+  version: "1.0.3"
 ---
 
 # Public API Design Review
@@ -21,7 +21,7 @@ Ask these before reviewing anything; each answer changes a later step. Batch the
 
 1. Existing production API or proposed design? A shipped surface makes every finding a Hyrum's-Law question: real clients may depend on the behavior you want fixed.
 2. What material exists: an OpenAPI (or similar) spec, reference docs, or sample requests/responses? Ask for it - never review from the API's name alone.
-3. One-off review, or a standing review program to design as well? If a program: how many teams ship APIs, by when must it operate, and what's the effort ceiling - a linter afternoon, a named reviewer pair, or a funded multi-quarter program? (re-ranks the maturity ladder - see step 6)
+3. One-off review, or a standing review program to design as well? If a program: how many teams ship APIs, by when must it operate, and what's the effort ceiling - an hour or two of linter setup, a named reviewer pair, or a funded multi-quarter program? (re-ranks the maturity ladder - see step 6)
 4. Who consumes the surface - internal teams only, named partners, or anyone - and what lifecycle stage is it at (alpha, beta, GA)? (see next section)
 5. Which rule corpus does the team follow: their own guidelines, Zalando, Microsoft, Google AIPs, JSON:API - or none? A Must-change must cite a rule; the corpus is where citations come from.
 6. Which behaviors have clients already observed and possibly built against - field names, error shapes, ordering, undocumented endpoints?
@@ -118,9 +118,9 @@ Program maturity ladder - ranked:
 - effort: `certified federated reviewer pool > linter + two named reviewers > linter-only CI gate`
 - value: `certified federated reviewer pool > linter + two named reviewers > linter-only CI gate`
 
-- **Default rung: linter + two named reviewers** (Zalando's documented shape - Zally as first pass, two mandatory human reviewers per API, findings tracked as Must-change vs Improvement). Days to stand up on a forked public corpus, and it covers both mechanical and semantic findings. Move up when the human pair becomes the friction point: median turnaround past ~2 weeks, or teams shipping around review.
-- **Step down to a linter-only CI gate** when one or two teams own the whole surface - the corpus-plus-linter is an afternoon's setup and the semantic conversation still happens in ordinary code review.
-- **Promote to a certified federated reviewer pool** - a shared versioned rule corpus, reviewer certification (Google's "API Readability" model), domain-embedded reviewers feeding a central standards team - for many-team organizations. This is the starved option: highest value and highest effort (a quarter-scale program of corpus writing, training, and certification), so it loses every efficiency round - and organizations at the thousands-of-engineers scale need it anyway.
+- **Default rung: linter + two named reviewers** (Zalando's documented shape - Zally as first pass, two mandatory human reviewers per API, findings tracked as Must-change vs Improvement). A day or two to stand up on a forked public corpus, and it covers both mechanical and semantic findings. Move up when the human pair becomes the friction point: median turnaround past ~2 weeks, or teams shipping around review.
+- **Step down to a linter-only CI gate** when one or two teams own the whole surface - the corpus-plus-linter is an hour or two of setup and the semantic conversation still happens in ordinary code review.
+- **Promote to a certified federated reviewer pool** - a shared versioned rule corpus, reviewer certification (Google's "API Readability" model), domain-embedded reviewers feeding a central standards team - for many-team organizations. This is the starved option: highest value and highest effort (weeks of corpus writing, then a quarter-scale program of reviewer training and certification), so it loses every efficiency round - and organizations at the thousands-of-engineers scale need it anyway.
   - Kenneth Auchenberg, who built Stripe's developer platform, conceded centralized review became "a centralized friction point... at scale with 1000s of engineers" and would pivot it toward an education service - attribute that to him, not to "Stripe says".
   - Growing a central committee is the one scaling move no studied company chose.
 - **Deleted, not demoted: the federated reviewer pool at one- or two-team scale.** Question 3 answering that one or two teams own the whole surface removes this rung from the menu rather than ranking it last - there are no domains to embed reviewers in, so certification and a versioned shared corpus are ceremony over a conversation two people already have. Not parked at the bottom, because "eventually we'll federate" reappears as a roadmap item that consumes corpus-writing time nobody needs yet. Re-promotion trigger: a third team shipping its own API surface, or median review turnaround past ~2 weeks.

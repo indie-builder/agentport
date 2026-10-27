@@ -4,7 +4,7 @@ description: Decide which integration surfaces a platform offers external develo
 license: MIT
 metadata:
   author: Samuel Berthe
-  version: "1.0.3"
+  version: "1.0.4"
 ---
 
 # API Integration Surface Strategy
@@ -182,7 +182,7 @@ Record what evidence next review must re-check rather than re-arguing the whole 
 ## Failure modes
 
 - **Novelty-driven MCP-first.** Building the newest surface first because it is new inverts the whole framework - build order is governed by reversal cost and audience, and MCP presupposes an API to wrap. Park it until step-3 agent signals move it.
-- **Hand-building the MCP surface.** Every named platform derived its MCP server from an existing spec. A hand-built one is months of work re-creating what a generator produces. Build in-house only when AI access to your proprietary system _is_ the paid product.
+- **Hand-building the MCP surface.** Every named platform derived its MCP server from an existing spec. A hand-built one is weeks of work, plus standing maintenance, re-creating what a generator produces. Build in-house only when AI access to your proprietary system _is_ the paid product.
 - **Betting revenue on per-call agent monetization.** The payment rails exist (Stripe's MPP, the x402 protocol) but the unit economics are unproven - observed per-call volumes are tiny and partly wash-traded. Label any MCP monetization line in the plan as speculative.
 - **Surface sprawl without telemetry.** Adding surfaces on gut feel, several at once, leaves no clean signal from any of them and a standing maintenance bill for all. One at a time, capacity-matched, telemetry instrumented first.
 - **Shallow API-first.** Declaring API-first while only part of each flow is API-accessible - partners discover mid-integration that a later step still needs a manual touch. Step 2's depth probe exists to catch this before a partner does.
