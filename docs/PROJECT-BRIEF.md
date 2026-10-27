@@ -1,7 +1,7 @@
 # Agentport · 智能体平台 · 项目简报
 
 > 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [HANDOFF.md](HANDOFF.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
-> 最后更新：2026-10-20；2026-10-25 仅补知识库与 pgvector 相关段落，其余选型结论保持原样。
+> 最后更新：2026-10-28 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本；其余结论保持原样。
 > 项目名：**Agentport**（展示名 AgentPort，中文「智能体港」）
 > 包前缀：`@agentport/*`
 > 本文是该项目的唯一需求基线。项目改名后，本文继续有效；改名只影响仓库名与包名，不影响任何结论。
@@ -104,16 +104,16 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 ## 3. 技术栈
 
-所有版本均在 2026-10-19 通过 npm registry / docker manifest 实际核对，只取 stable 标签。
+所有版本均在 2026-10-28 通过 npm registry / docker manifest 实际核对，只取 stable 标签；以根 `package.json`、各包 `package.json`、`pnpm-workspace.yaml` 的 catalog 与 `pnpm-lock.yaml` 的实际解析结果为准。
 
 ### 3.1 语言与工程
 
 | 用途 | 选型 | 版本 | 备注 |
 |---|---|---|---|
 | 语言 | TypeScript | 7.0.2 | 当前 stable |
-| 运行时 | Node.js | 24 LTS | 本机 v24.22.0 |
-| 包管理 | pnpm workspace | 12.14.0 | |
-| Lint + 格式化 | Biome | 2.5.15 | 替代 ESLint + Prettier |
+| 运行时 | Node.js | 24 LTS | 要求 Node 24 的最新补丁版本；`engines` 为 `>=24`，容器镜像用 `node:24-alpine` |
+| 包管理 | pnpm workspace | 12.15.0 | `packageManager` 字段与本地版本一致 |
+| Lint + 格式化 | Biome | 2.6.3 | 替代 ESLint + Prettier |
 | 开发运行 | tsx | 4.23.15 | watch 模式 |
 | 生产构建 | tsc | 7.0.2 | Node 直接运行 `dist`，不引入打包器 |
 
@@ -121,17 +121,27 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| 构建 | Vite | 8.3.4 |
+| 构建 | Vite | 8.3.5 |
 | 框架 | React | 19.3.1 |
 | 样式 | Tailwind CSS | 4.3.3（`@tailwindcss/vite`，无需 config 文件） |
-| 组件 | shadcn/ui 结构（自建组件，未装 CLI） | —（代码手写在 `components/ui`） |
-| 路由 | TanStack Router | 1.170.45 |
-| 服务端状态 | TanStack Query | 5.104.4 |
-| 表单 | 原生受控组件 + zod 校验 | —（未装 react-hook-form） |
+| 组件 | shadcn/ui（`components.json` 已配，`style: base-nova`；源码在 `components/ui`） | — |
+| 交互原语 | Base UI（`@base-ui/react`） | 1.9.0；项目不再直接依赖 Radix |
+| 消息滚动容器 | `@shadcn/react`（`message-scroller`） | 0.3.1；仅 `components/ui/message-scroller.tsx` 使用 |
+| 路由 | TanStack Router（`@tanstack/router-plugin` 生成路由） | 1.170.46 / 1.168.48 |
+| 服务端状态 | TanStack Query | 5.105.0 |
+| 数据表格 | TanStack Table + dnd-kit（`@dnd-kit/core`/`sortable`/`utilities`） | 9.3.1 / 6.3.1 / 10.0.0 / 3.2.2 |
+| 表单 | react-hook-form + `@hookform/resolvers` | 7.91.0 / 6.0.1 |
 | 校验 | zod（与后端共享） | 4.6.7 |
+| 客户端状态 | Zustand | 5.0.16 |
+| 动效 | Motion | 14.7.1 |
+| 图表 | Recharts | 3.10.1 |
+| 源码编辑 | CodeMirror 6（按需加载） | 6.43.15（`@codemirror/view`）等子包 |
+| 智能体输出渲染 | Streamdown（含 `@streamdown/code`） | 2.7.1 / 2.0.0 |
+| 生成式 UI | OpenUI：`@openuidev/lang-core`（后端）、`@openuidev/react-lang`（前端）、`@openuidev/cli`（生成 spec） | 1.0.2 / 1.0.2 / 0.6.1；`@openuidev/react-ui` 0.18.1 仅作开发期契约对照（测试用） |
 | 提示 | sonner | 2.0.8 |
-| 图标 | lucide-react | 1.59.0 |
+| 图标 | lucide-react | 1.62.0 |
 | 流式 | 原生 `EventSource` | 无需额外库 |
+| 本地访问 | Portless（开发期 `pnpm dev` 分配域名） | 0.15.12 |
 
 ### 3.3 后端
 
@@ -151,17 +161,18 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | CORS | @fastify/cors | 11.3.1 |
 | 限流 | @fastify/rate-limit | 11.2.1 |
 | 限流存储 | `@fastify/rate-limit` 内置 Redis store（ioredis） | —（未装 rate-limit-redis） |
-| 压缩 | @fastify/compress | 9.2.2 |
-| 静态托管 | @fastify/static | 10.1.6 |
-| 鉴权 | @fastify/jwt + @fastify/cookie | 10.2.5 / 11.1.3 |
-| API 文档 | @fastify/swagger + Scalar（已接入，需登录访问） | 当前版本见 packages/api/package.json |
-| 过载保护 | 未注册（依赖已安装但未使用） | 9.2.1 |
+| 压缩 | @fastify/compress | 9.3.0 |
+| 静态托管 | @fastify/static | 10.1.8 |
+| 鉴权 | Better Auth（`better-auth` + Drizzle adapter，会话存库，httpOnly cookie） | 1.7.14 |
+| API 文档 | @fastify/swagger + `@scalar/fastify-api-reference`（已接入，需登录访问） | 9.9.2 / 1.76.0 |
+| 过载保护 | 未接入（无 `@fastify/under-pressure` 依赖；`/health/live`、`/health/ready` 由 `routes/health.ts` 自行实现） | — |
 | Redis 客户端 | ioredis | 6.0.0 |
-| 队列 | BullMQ | 6.3.17 |
+| 队列 | BullMQ | 6.5.0 |
 | 队列面板 | 不接（见 D-15） | — |
 | 队列遥测 | 不接 | — |
 | 并发控制 | p-limit | 7.3.3 |
 | ID | typeid-js | 1.2.0 |
+| 副作用运行时 | effect | 4.0.6 |
 
 **为什么从 SQLite 改为 PostgreSQL**：上一轮建议 SQLite 是按「单机学习项目」判断的。引入 BullMQ worker 后，API 进程与 worker 进程会并发写同一份数据，SQLite 的单写者限制会成为真实瓶颈，而且队列本身又要求 Redis，基础设施复杂度已经上去了。PostgreSQL 18 与 Redis 8 都通过 compose 起，运维成本相当。Drizzle 的 schema 写法在两者间基本一致，但迁移文件不通用，越早切换成本越低。
 
@@ -171,10 +182,10 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.303 |
-| MCP Server 实现 | @modelcontextprotocol/server | 2.3.1 |
-| MCP Node 适配 | @modelcontextprotocol/node | 2.1.1 |
-| MCP Client | @modelcontextprotocol/client | 2.3.1 |
+| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.311 |
+| MCP Server 实现 | @modelcontextprotocol/server | 2.4.0 |
+| MCP Node 适配 | @modelcontextprotocol/node | 2.1.2 |
+| MCP Client | @modelcontextprotocol/client | 2.4.0 |
 
 > **包线警告**：MCP TS SDK 已经分化为 v2 包线（`@modelcontextprotocol/server` / `client`，实现 2026-07-28 规范）与旧的 v1 单包 `@modelcontextprotocol/sdk`（1.32.1）。Agent SDK 内部 peer-depend 的是 v1。**两套不要混用**，项目里统一使用 v2；Agent SDK 与我们的 server 之间通过 stdio 进程边界通信，不存在类型冲突。
 
@@ -182,7 +193,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 | 用途 | 选型 | 版本 | 说明 |
 |---|---|---|---|
-| 起步方案 | Docker Engine + Docker Compose | 29.8.0 / Compose 5.5.1 | 本机已安装 |
+| 起步方案 | Docker Engine + Docker Compose | 以本机安装为准 | 本机由 Docker Desktop 提供，版本随其升级变动，不在文档里固定快照 |
 | 容器控制 | 宿主 `docker` CLI（`spawn` argv） | — |
 | 强隔离方案（未接入） | microsandbox | 0.7.8（仅评估） | Apache-2.0，libkrun microVM，提供 TS SDK |
 | Agent SDK 内置沙箱 | `options.sandbox` | SDK 自带 | **不能**替代容器（见 §6.4） |
@@ -192,8 +203,8 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 用途 | 选型 | 版本 |
 |---|---|---|
 | 单元/集成测试 | Vitest | 5.0.5 |
-| 覆盖率 | @vitest/coverage-v8 | 5.0.5 |
-| E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.21.2 / 0.15.2 |
+| 覆盖率 | 未配置（无 `@vitest/coverage-v8` 直接依赖与 coverage 配置） | — |
+| E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.21.3 / 0.15.3 |
 | 集成测试 | 本地/CI service containers（未用 testcontainers） | — |
 | 容器化 | Dockerfile（多阶段）+ docker-compose.yml | — |
 | CI | GitHub Actions | — |
@@ -571,8 +582,8 @@ interface SandboxProvider {
 ### 7.3 关于 Redis 与 Valkey
 
 - BullMQ 6.x 要求 Redis ≥ 5；Redis 8 已开源（AGPLv3）。
-- 本环境 `docker manifest inspect` 对 `redis:8` 系列超时，未能确认标签；`postgres:18-alpine` 已验证存在。现使用 `pgvector/pgvector:pg18`（同一 PG 18 主版本线，内置 vector 扩展），切换前仍需按 [OPERATIONS.md](OPERATIONS.md) 备份。
-- 已验证：`redis:8-alpine` 可正常拉取并启动（见 §15.2）；如镜像源受限可换 `valkey/valkey:9-alpine`（协议兼容，BullMQ 可用）。
+- 基础设施版本：Redis 8.10.3（`redis:8.10.3-alpine`，tag/digest 见 `docker-compose.yml` 与 CI）。
+- 如镜像源受限可换 `valkey/valkey:9-alpine`（协议兼容，BullMQ 可用）。
 
 ---
 
@@ -633,8 +644,8 @@ interface SandboxProvider {
 
 - `GET /health/live`：进程存活。
 - `GET /health/ready`：DB 可读 + 迁移已应用 + Redis ping。
-- `@fastify/under-pressure`：事件循环/内存超阈值时返回 503。
-- BullMQ 面板：`@bull-board/fastify` 挂在管理员路由下。
+- `@fastify/under-pressure`：不接入（无该依赖）；过载由容器内存上限与队列并发控制约束。
+- BullMQ 面板：不接（D-15）；队列状态看 `/health/metrics` 与 `/api/runs`。
 
 ### 9.5 OpenTelemetry
 
@@ -652,7 +663,8 @@ interface SandboxProvider {
 | `api` | 本仓库 Dockerfile | 3000 | Fastify，含 `/mcp/:serverId` |
 | `worker` | 同一镜像，入口不同 | — | BullMQ 消费者 + 沙盒管理 |
 | `postgres` | `pgvector/pgvector:pg18` | 5432 | 持久卷；PG18 + vector 扩展，知识检索依赖 |
-| `redis` | `redis:8-alpine` | 6379（仅绑定 127.0.0.1） | AOF 持久化 + 密码 |
+| `redis` | `redis:8.10.3-alpine`（tag/digest 见 `docker-compose.yml` 与 CI） | 6379（仅绑定 127.0.0.1） | AOF 持久化 + 密码 |
+| `docling` | `docling-serve-cpu` 1.38.2（`docling` profile，默认不启动） | 5001 | 复杂格式解析；未启动时 PDF/Office/OCR 明确报错 |
 | `web` | 开发时 Vite dev server | 5173 | 生产由 `api` 静态托管 |
 
 ### 10.2 本地开发
@@ -689,10 +701,10 @@ interface SandboxProvider {
    - **npm 使用 scope**：`@agentport/api`、`@agentport/web`、`@agentport/shared`、`@agentport/worker`（scope 需在 npm 注册，若不用公开 npm 则直接使用）。
    - **Docker 镜像名**：`agentport/api`、`agentport/worker`、`agentport/sandbox`。
    - **展示名**：AgentPort。
-2. **登录方式**：当前默认单管理员 JWT（httpOnly cookie）。是否需要多用户 / RBAC？
+2. **登录方式**：当前为单管理员 + Better Auth（会话落库，httpOnly cookie `agentport_token`）。是否需要多用户 / RBAC？
 3. **HTTP→MCP 的输入方式**：当前先做手动建工具，表结构按可导入 OpenAPI 设计。是否要 OpenAPI 导入？
 4. **智能体是否允许非 MCP 工具**：当前默认禁止。
-5. ~~**Redis 镜像标签**~~ 已确认：`redis:8-alpine` 可用（§15.2）。
+5. ~~**Redis 镜像标签**~~ 已确认 `redis:8-alpine` 可用（§15.2）；当前配置为 Redis 8.10.3（`redis:8.10.3-alpine`）。
 6. **沙盒默认后端**：Docker（起步）→ microsandbox（升级）。是否接受先 Docker？
 7. ~~**多机部署**~~ 已决定：**只做单机，暂不做多机设计**。见 §6.3。
 
@@ -762,13 +774,13 @@ cd ~/Documents/myself/agentport
 | 问题 | 实际行为 | 处理 |
 |---|---|---|
 | PostgreSQL 18 镜像的数据目录 | 挂载 `/var/lib/postgresql/data` 会导致容器无限重启；18+ 要求挂载 `/var/lib/postgresql` | compose 已改为后者 |
-| `redis:8-alpine` | 实际可用（`docker pull` 成功，容器 healthy）；此前 `docker manifest inspect` 因网络超时误判 | 维持该标签 |
+| `redis:8-alpine` | 实际可用（`docker pull` 成功，容器 healthy）；此前 `docker manifest inspect` 因网络超时误判 | 当时维持该标签；当前配置为 8.10.3（见 §10.1） |
 | npm 官方源 | 本机经代理访问 registry.npmjs.org 极慢（15s+），导致 `pnpm install` 长时间无输出 | 根目录 `.npmrc` 固定 `registry=https://registry.npmmirror.com` |
-| pnpm 12 的 build script 审批 | `ignoredBuiltDependencies` 不会放行，必须 `onlyBuiltDependencies` 或 `pnpm approve-builds --all` | 已用 `approve-builds --all`，配置写入 workspace yaml |
+| pnpm 12 的 build script 审批 | `ignoredBuiltDependencies` 不会放行，必须 `onlyBuiltDependencies` 或 `pnpm approve-builds --all` | 已用 `approve-builds --all`，配置写入 workspace yaml（当前键名 `allowBuilds`，见 OPERATIONS §2.1） |
 | BullMQ 6 在 ESM 下 | 不自动加载 ioredis，报 "could not load the optional 'ioredis' package" | worker 包显式依赖 `ioredis@6.0.0` |
 | TypeScript `-b --noEmit` | 与 project references 冲突（TS6310） | 各包 typecheck 统一为 `tsc -b`，无 `--noEmit` |
 | tsx 与 env | `--env-file-if-exists` 在 tsx 下不生效 | 该参数交给 tsx 传参即可；migrate 脚本用 Node 原生 `--env-file-if-exists` |
-| Biome 2.5 | `linter.rules.recommended` 已废弃 | 改用 `preset: "recommended"`（已 `biome migrate`） |
+| Biome 2.5（历史记录） | `linter.rules.recommended` 已废弃 | 改用 `preset: "recommended"`（已 `biome migrate`），当前版本 2.6.3 |
 
 ### 15.3 起步命令
 
@@ -789,7 +801,7 @@ pnpm dev
 ### 16.1 已真实验证的链路
 
 ```
-浏览器/curl ──JWT cookie──▶ api
+浏览器/curl ──会话 cookie（Better Auth）──▶ api
                              ├─ servers CRUD（secrets AES-256-GCM 加密，返回脱敏 ••••）
                              ├─ /api/servers/:id/test ── MCP client ──▶ 真实 MCP 端点
                              ├─ /mcp/:serverId ── createMcpHandler ──▶ 上游 HTTP API
@@ -857,7 +869,7 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 
 1. ~~审计写入~~：已覆盖登录、server/agent/skill/tool、运行起止与审批、评估、维护（见 OPERATIONS §6）。
 2. ~~Redis 限流~~：`@fastify/rate-limit` 使用 ioredis Redis store，无 `rate-limit-redis` 依赖。
-3. ~~测试~~：14 个 vitest 文件、82 个用例；Playwright E2E 在 `e2e/`。
+3. ~~测试~~：14 个 vitest 文件、82 个用例；当时 E2E 用 Playwright，现已统一为 `e2e`（`e2e` + `@e2e-dev/web`，见 `e2e.config.ts`）。
 4. ~~CI~~：`.github/workflows/ci.yml` 已创建。
 5. ~~server 编辑 UI~~：servers 页已支持编辑（PATCH + 乐观锁）。
 6. **沙盒网络**：仍为 `bridge` + `host.docker.internal`，默认 `SANDBOX_EGRESS=open`（不隔离出站）；`proxy` 必须配代理，否则 worker 启动 fail-closed；生产建议接受控出站代理。

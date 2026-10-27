@@ -1,0 +1,92 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "## Docling Verification Report\n\nThe quick brown fox jumps over the lazy dog.\n\n![Image](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==)\n\nFigure 1: bar chart of quarterly values. Alpha cell value 100.\n\nMarkdown-only paragraph with ticket 1234.\n\n## Appendix\n\nUnique token ZEBRA-42 appears only on this page. Second line of the appendix paragraph.\n\n| Metric   |   Value | Unit   |\n|----------|---------|--------|\n| Revenue  |    1234 | USD    |",
+    "json_content": {
+      "body": {
+        "self_ref": "#/body",
+        "children": [
+          { "$ref": "#/texts/0" },
+          { "$ref": "#/texts/1" },
+          { "$ref": "#/pictures/0" },
+          { "$ref": "#/texts/3" },
+          { "$ref": "#/texts/4" },
+          { "$ref": "#/texts/5" },
+          { "$ref": "#/tables/0" }
+        ]
+      },
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "section_header",
+          "level": 1,
+          "text": "Docling Verification Report",
+          "prov": [{ "page_no": 1 }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "The quick brown fox jumps over the lazy dog.",
+          "prov": [{ "page_no": 1 }]
+        },
+        {
+          "self_ref": "#/texts/2",
+          "parent": { "$ref": "#/pictures/0" },
+          "label": "text",
+          "text": "1",
+          "prov": [{ "page_no": 1 }]
+        },
+        {
+          "self_ref": "#/texts/3",
+          "label": "text",
+          "text": "Figure 1: bar chart of quarterly values. Alpha cell value 100.",
+          "prov": [{ "page_no": 1 }]
+        },
+        {
+          "self_ref": "#/texts/4",
+          "label": "section_header",
+          "level": 1,
+          "text": "Appendix",
+          "prov": [{ "page_no": 2 }]
+        },
+        {
+          "self_ref": "#/texts/5",
+          "label": "text",
+          "text": "Unique token ZEBRA-42 appears only on this page. Second line of the appendix paragraph.",
+          "prov": [{ "page_no": 2 }]
+        }
+      ],
+      "pictures": [
+        {
+          "self_ref": "#/pictures/0",
+          "label": "picture",
+          "prov": [{ "page_no": 1 }],
+          "image": {
+            "mimetype": "image/png",
+            "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          }
+        }
+      ],
+      "tables": [
+        {
+          "self_ref": "#/tables/0",
+          "label": "table",
+          "prov": [{ "page_no": 2 }],
+          "data": {
+            "num_rows": 2,
+            "num_cols": 3,
+            "table_cells": [
+              { "text": "Metric", "start_row_offset_idx": 0, "start_col_offset_idx": 0 },
+              { "text": "Value", "start_row_offset_idx": 0, "start_col_offset_idx": 1 },
+              { "text": "Unit", "start_row_offset_idx": 0, "start_col_offset_idx": 2 },
+              { "text": "Revenue", "start_row_offset_idx": 1, "start_col_offset_idx": 0 },
+              { "text": "1234", "start_row_offset_idx": 1, "start_col_offset_idx": 1 },
+              { "text": "USD", "start_row_offset_idx": 1, "start_col_offset_idx": 2 }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -7,6 +7,7 @@ import {
   type ParsedDocument,
   parseDocument,
 } from '../src/knowledge/parsing.js';
+import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
 
 const fixture = (name: string): Buffer =>
   readFileSync(new URL(`./fixtures/knowledge-parsing/${name}`, import.meta.url));
@@ -51,15 +52,29 @@ beforeAll(async () => {
                     ? 'docling-dedup-blocks.json'
                     : route === '/pictures'
                       ? 'docling-pictures.json'
-                      : route === '/invalid'
-                        ? 'docling-invalid.json'
-                        : route === '/fence-trailing'
-                          ? 'docling-fence-trailing.json'
-                          : route === '/fence-short'
-                            ? 'docling-fence-short.json'
-                            : route === '/fence-opposite'
-                              ? 'docling-fence-opposite.json'
-                              : 'docling-success.json',
+                      : route === '/embedded-images'
+                        ? 'docling-embedded-images.json'
+                        : route === '/null-markdown'
+                          ? 'docling-null-markdown.json'
+                          : route === '/null-json'
+                            ? 'docling-null-json.json'
+                            : route === '/invalid-errors'
+                              ? 'docling-invalid-errors.json'
+                              : route === '/invalid'
+                                ? 'docling-invalid.json'
+                                : route === '/fence-trailing'
+                                  ? 'docling-fence-trailing.json'
+                                  : route === '/fence-short'
+                                    ? 'docling-fence-short.json'
+                                    : route === '/fence-opposite'
+                                      ? 'docling-fence-opposite.json'
+                                      : route === '/aligned-table-ocr'
+                                        ? 'docling-aligned-table-ocr.json'
+                                        : route === '/crlf-lines'
+                                          ? 'docling-crlf-lines.json'
+                                          : route === '/same-paragraph'
+                                            ? 'docling-same-paragraph.json'
+                                            : 'docling-success.json',
       );
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(body);
@@ -427,6 +442,12 @@ describe('parseDocument Docling', () => {
     ).toEqual(['md', 'json']);
     expect(parts.find((part) => part.name === 'do_ocr')?.value.toString()).toBe('true');
     expect(parts.find((part) => part.name === 'do_table_structure')?.value.toString()).toBe('true');
+    // v1.38.2 同步内联响应 + embedded 图片：图片同时进 md 与 json，正文引用不能是 base64。
+    expect(parts.find((part) => part.name === 'target_type')?.value.toString()).toBe('inbody');
+    expect(parts.find((part) => part.name === 'image_export_mode')?.value.toString()).toBe(
+      'embedded',
+    );
+    expect(parts.find((part) => part.name === 'include_images')?.value.toString()).toBe('true');
 
     expect(parsed.markdown).toContain('# 季度报告');
     expect(parsed.markdown).toContain('未匹配的段落。');
@@ -542,6 +563,8 @@ describe('parseDocument Docling', () => {
 
     await expect(failure).rejects.toMatchObject({ code: 'partial_success' });
     await expect(failure).rejects.toThrow(/ocr failed on page 2/);
+    // v1.38.2 的 errors 是 ErrorItem 对象，详情取 error_message 而不是整段 JSON。
+    await expect(failure).rejects.not.toThrow(/\{/);
   });
 
   it('surfaces upstream failure and unsupported results', async () => {
@@ -573,6 +596,15 @@ describe('parseDocument Docling', () => {
         parserUrl: `${parserUrl}/invalid`,
       }),
     ).rejects.toMatchObject({ code: 'invalid_response' });
+    // 官方 errors 是 ErrorItem 对象数组；字符串条目不在此契约内，入口直接拒绝。
+    await expect(
+      parseDocument({
+        bytes: new TextEncoder().encode('fake'),
+        filename: 'bad-errors.pdf',
+        mimeType: 'application/pdf',
+        parserUrl: `${parserUrl}/invalid-errors`,
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_response' });
   });
 
   it('extracts inline data-URI pictures with real bytes and page numbers, never fetching remote URLs', async () => {
@@ -600,6 +632,74 @@ describe('parseDocument Docling', () => {
     ]);
   });
 
+  it('accepts null picture images and null md_content/json_content, but still requires usable content', async () => {
+    const withNullImage = await parseDocument({
+      bytes: new TextEncoder().encode('fake'),
+      filename: 'null-image.pdf',
+      mimeType: 'application/pdf',
+      parserUrl: `${parserUrl}/embedded-images`,
+    });
+    expect(withNullImage.images.map((image) => image.name)).toEqual(['image-1.png']);
+
+    const noMarkdown = await parseDocument({
+      bytes: new TextEncoder().encode('fake'),
+      filename: 'json-only-null-md.pdf',
+      mimeType: 'application/pdf',
+      parserUrl: `${parserUrl}/null-markdown`,
+    });
+    expect(noMarkdown.markdown).toContain('只有 JSON 的正文。');
+
+    await expect(
+      parseDocument({
+        bytes: new TextEncoder().encode('fake'),
+        filename: 'md-only-null-json.pdf',
+        mimeType: 'application/pdf',
+        parserUrl: `${parserUrl}/null-json`,
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+
+  it('rewrites embedded data-URI markdown pictures to stored image references before chunking', async () => {
+    const parsed = await parseDocument({
+      bytes: new TextEncoder().encode('fake'),
+      filename: 'embedded.pdf',
+      mimeType: 'application/pdf',
+      parserUrl: `${parserUrl}/embedded-images`,
+    });
+
+    // 归一后的最终 md：data URI 换成落盘引用，图片之后的正文保持独立。
+    expect(parsed.markdown).toBe(
+      ['# 图册', '', '正文。', '', '![image-1.png](images/image-1.png)', '', '图片之后。', ''].join(
+        '\n',
+      ),
+    );
+    expect(parsed.markdown).not.toContain('base64');
+    expect(parsed.blocks.every((block) => !block.content.includes('base64'))).toBe(true);
+    // 偏移必须按归一后的文本计算：图片前后两页都要落在最终 md 的精确切片上。
+    expect(parsed.pageMap).toEqual([
+      {
+        page: 1,
+        startOffset: parsed.markdown.indexOf('正文。'),
+        endOffset: parsed.markdown.indexOf('正文。') + '正文。'.length,
+      },
+      {
+        page: 3,
+        startOffset: parsed.markdown.indexOf('图片之后。'),
+        endOffset: parsed.markdown.indexOf('图片之后。') + '图片之后。'.length,
+      },
+    ]);
+    for (const range of parsed.pageMap) {
+      expect(parsed.markdown.slice(range.startOffset, range.endOffset)).toBe(
+        range.page === 1 ? '正文。' : '图片之后。',
+      );
+    }
+    const chunks = chunkDocument(parsed, { chunkSize: 1200, chunkOverlap: 0 });
+    expect(
+      chunks.some((chunk) => chunk.content.includes('![image-1.png](images/image-1.png)')),
+    ).toBe(true);
+    expect(chunks.every((chunk) => !chunk.content.includes('base64'))).toBe(true);
+  });
+
   it('builds a page map over the exact markdown offsets Docling returned', async () => {
     const parsed = await parseDocument({
       bytes: new TextEncoder().encode('fake'),
@@ -624,6 +724,116 @@ describe('parseDocument Docling', () => {
     expect(parsed.images).toEqual([]);
     // 标题和未匹配段落没有可靠页码，不得出现在页码表里。
     expect(parsed.pageMap).toHaveLength(2);
+  });
+
+  it('locates the JSON table in the aligned markdown and never lets short OCR text claim a substring', async () => {
+    const parsed = await parseDocument({
+      bytes: new TextEncoder().encode('fake'),
+      filename: 'sample.pdf',
+      mimeType: 'application/pdf',
+      parserUrl: `${parserUrl}/aligned-table-ocr`,
+    });
+
+    // 最终文本保留官方对齐表格、图片引用与只存在于 Markdown 的正文。
+    expect(parsed.markdown).toContain(
+      [
+        '| Metric   |   Value | Unit   |',
+        '|----------|---------|--------|',
+        '| Revenue  |    1234 | USD    |',
+      ].join('\n'),
+    );
+    expect(parsed.markdown).toContain('![image-1.png](images/image-1.png)');
+    expect(parsed.markdown).toContain('Markdown-only paragraph with ticket 1234.');
+    expect(parsed.images.map((image) => [image.name, image.page])).toEqual([['image-1.png', 1]]);
+    // JSON 角标 OCR "1" 保留为块，但没有可认领的原文位置。
+    expect(parsed.blocks.find((block) => block.content === '1')?.locator).toMatchObject({
+      page: 1,
+    });
+
+    const tableLine = '| Revenue  |    1234 | USD    |';
+    const tableStart = parsed.markdown.indexOf('| Metric');
+    const tableEnd = parsed.markdown.indexOf(tableLine) + tableLine.length;
+    expect(parsed.pageMap).toContainEqual({
+      page: 2,
+      startOffset: tableStart,
+      endOffset: tableEnd,
+    });
+    // 页码表按原文顺序、区间有效且互不重叠。
+    for (const [index, range] of parsed.pageMap.entries()) {
+      expect(range.startOffset).toBeGreaterThanOrEqual(0);
+      expect(range.endOffset).toBeGreaterThan(range.startOffset);
+      expect(range.endOffset).toBeLessThanOrEqual(parsed.markdown.length);
+      const previous = parsed.pageMap[index - 1];
+      if (previous) expect(range.startOffset).toBeGreaterThanOrEqual(previous.endOffset);
+    }
+    // 表格区间独占它覆盖的原文，其它页不得侵入；第 1 页的 "1" 也不能落进 "1234"。
+    expect(
+      parsed.pageMap.filter(
+        (range) =>
+          !(range.page === 2 && range.startOffset === tableStart) &&
+          range.startOffset < tableEnd &&
+          tableStart < range.endOffset,
+      ),
+    ).toEqual([]);
+    expect(
+      parsed.pageMap.filter((range) => range.page === 1 && range.startOffset >= tableStart),
+    ).toEqual([]);
+
+    const adapter = createParsingAdapter({ parserUrl: `${parserUrl}/aligned-table-ocr` });
+    const viaAdapter = await adapter.parse({
+      filename: 'sample.pdf',
+      mimeType: 'application/pdf',
+      data: Buffer.from('%PDF-1.7'),
+    });
+    const chunks = adapter.chunkMarkdown(viaAdapter.markdown, viaAdapter.pageMap, {
+      chunkTokens: 1200,
+      overlap: 0,
+    });
+    const tables = chunks.filter((chunk) => chunk.kind === 'table');
+    expect(tables).toHaveLength(1);
+    expect(tables[0]).toMatchObject({ pageFrom: 2, pageTo: null });
+    expect(tables[0]?.content).toContain(tableLine);
+    const all = chunks.map((chunk) => chunk.content).join('\n');
+    for (const kept of [
+      'ZEBRA-42',
+      'Markdown-only paragraph with ticket 1234.',
+      '![image-1.png](images/image-1.png)',
+    ]) {
+      expect(all).toContain(kept);
+    }
+  });
+
+  it('maps a multi-line block onto CRLF source offsets of the original text', async () => {
+    const parsed = await parseDocument({
+      bytes: new TextEncoder().encode('fake'),
+      filename: 'crlf.pdf',
+      mimeType: 'application/pdf',
+      parserUrl: `${parserUrl}/crlf-lines`,
+    });
+
+    // JSON 用 LF 拼出 "Alpha\nBeta"，原文是 CRLF；区间必须落在真实来源上，不编造。
+    expect(parsed.markdown).toBe('Alpha\r\nBeta tail.');
+    expect(parsed.pageMap).toEqual([
+      { page: 3, startOffset: 0, endOffset: 'Alpha\r\nBeta'.length },
+    ]);
+    expect(parsed.markdown.slice(0, 'Alpha\r\nBeta'.length)).toBe('Alpha\r\nBeta');
+  });
+
+  it('gives each JSON item in one markdown paragraph its own non-overlapping page range', async () => {
+    const parsed = await parseDocument({
+      bytes: new TextEncoder().encode('fake'),
+      filename: 'same-paragraph.pdf',
+      mimeType: 'application/pdf',
+      parserUrl: `${parserUrl}/same-paragraph`,
+    });
+
+    expect(parsed.markdown).toBe('Alpha\nBeta');
+    expect(parsed.pageMap).toEqual([
+      { page: 2, startOffset: 0, endOffset: 5 },
+      { page: 4, startOffset: 6, endOffset: 10 },
+    ]);
+    expect(parsed.markdown.slice(0, 5)).toBe('Alpha');
+    expect(parsed.markdown.slice(6, 10)).toBe('Beta');
   });
 
   it('reports upstream HTTP failures with status', async () => {

@@ -98,7 +98,7 @@ runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`a
 
 ### 2.1 前置
 
-- Node.js 24、pnpm 12.15.0
+- Node.js 24（要求 24 的最新补丁版本；`engines` 为 `>=24`）、pnpm 12.15.0
 - pnpm 12 默认不跑依赖的安装脚本，决定写在根 `pnpm-workspace.yaml` 的 `allowBuilds`：放行 `esbuild`、`msgpackr-extract`，拒绝 `@openuidev/lang-core`（其 postinstall 只上报匿名安装遥测）。新增带安装脚本的依赖时在这里补决定，否则 `pnpm install` / `deploy` 以 `ERR_PNPM_IGNORED_BUILDS` 失败。
 - Docker Engine + Compose
 - 宿主有 `pg_dump` / `psql`（备份与恢复）
@@ -138,7 +138,8 @@ curl -s http://localhost:3000/health/ready
 - `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。`pnpm run up` 生成 `.env` 时会同时写入匹配的 `REDIS_PASSWORD` 与 `REDIS_URL`。
 - compose 会占用 3000、5432、6379；如冲突，先停掉本机对应服务或改端口。
 - 知识库卷 `knowledgedata` 与 `workspaces` 一样由一次性 `init` 服务 `chown 1000:1000`（镜像 `USER node`，即 uid 1000），否则 api/worker 首次上传会 EACCES。卷内容随 `pnpm backup` 的 `knowledge/` 归档；`docker compose down -v` 会连同知识库一起删除。
-- 复杂格式解析默认不部署：需要时 `docker compose --profile docling up -d docling`，并把 `.env` 的 `DOCLING_URL` 设为 `http://docling:5001`；首次启动会下载模型。不内置时指向外部 Docling 服务即可，`DOCLING_TOKEN` 通过 `X-Api-Key` 发送。**内置 Docling 服务本身尚未在本仓库实际拉起验证过**，只核验了镜像 tag/digest 与端口；未配置 `DOCLING_URL` 时 PDF/Office/OCR 解析会明确报错，而不是假装成功。
+- 复杂格式解析默认不部署：需要时 `docker compose --profile docling up -d docling`，并把 `.env` 的 `DOCLING_URL` 设为 `http://docling:5001`。不内置时指向外部 Docling 服务即可，`DOCLING_TOKEN` 通过 `X-Api-Key` 发送。当前配置 Docling Serve 1.38.2（tag/digest 见 `docker-compose.yml`，该镜像已预装解析模型，无需首次下载）。本轮已用该固定镜像在独立容器中验证真实 PDF 的文本、图片与表格解析、纯图片 PDF 的 OCR 开关、200/401/损坏文件的 failure 返回；镜像预装 rapidocr，无运行时模型下载。来源 pageMap 的两处缺陷已修复并经 Opus review 通过：真实响应回放确认表格 chunk 的 pageFrom 为 2、短 OCR 不侵入数字、CRLF 与多段 JSON 区间均回归通过，详细范围见任务记录。Office 格式本轮未实测，不声称已验证。compose 的 `DOCLING_SERVE_MAX_SYNC_WAIT` 为 `600`，与客户端 10 分钟超时对齐。未配置 `DOCLING_URL` 时 PDF/Office/OCR 解析会明确报错，而不是假装成功。
+- 基础设施版本：Redis 8.10.3（compose 的 `redis` 服务，tag/digest 见 `docker-compose.yml` 与 CI）；是否已启动以当次 `docker compose ps` 为准，本文不代替运行状态。
 - worker 容器内是 `node` 用户，通过 `group_add: ${DOCKER_GID:-0}` 访问 socket。Linux 上若 docker 组 GID 不是 0，部署前 `export DOCKER_GID=$(getent group docker | cut -d: -f3)`。
 - Redis 健康检查（compose 里的 `healthcheck.test`）在容器内使用 redis 服务自身的 `REDIS_PASSWORD`；若宿主另行导出 `REDIS_PASSWORD`，compose 会用它重建 redis，与 `.env` 的 `REDIS_URL` 不一致时 api/worker 连不上。`pnpm run up` 不读取宿主导出的该变量，直接使用 `.env`。
 - 生产通过 `http://localhost:3000` 访问；Cookie 带 `Secure`，局域网 IP + HTTP 会无法保持登录。
@@ -297,7 +298,7 @@ docker compose start api worker
 ### 3.3 其他数据约束
 
 - 集成测试使用固定APP_SECRET_KEY，测试默认不再读写开发数据库：backend 的 globalSetup 每轮以 `DATABASE_URL` 为管理连接创建随机库并完成迁移，`setupFiles` 在测试模块导入前把连接串写入 `process.env.DATABASE_URL`，退出时只删除本轮创建的库。PostgreSQL 连不上时发布不可连地址，依赖数据库的套件跳过；管理账号需有 `CREATEDB` 权限，连接成功但建库或迁移失败（含无建库权限）属配置错误，直接报错而不跳过。
-- 测试 Redis 同样每轮独享：globalSetup 复用已缓存的 `redis:8-alpine` 启动临时容器（仅 loopback 随机端口、关闭持久化，实例内部仍用 db 9），退出时按本轮唯一容器名删除。本地需预先缓存该镜像（首次可显式 `docker pull redis:8-alpine`），镜像缺失属配置错误直接失败；只有 Docker 不可用时依赖 Redis 的套件才跳过。开发与各 worktree 的 worker 留在共享 Redis db 0，因此「队列里没有消费者」类断言不会被别人的 worker 干扰；禁止回落到共享 Redis，也不要为此停开发 worker。
+- 测试 Redis 同样每轮独享：globalSetup 复用已缓存的 Redis 镜像（tag 以 `packages/worker/test/global-setup.ts` 的 `REDIS_IMAGE` 为准）启动临时容器（仅 loopback 随机端口、关闭持久化，实例内部仍用 db 9），退出时按本轮唯一容器名删除。本地需预先缓存该镜像（首次可显式 `docker pull redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b`，须与 `REDIS_IMAGE` 完整一致），镜像缺失属配置错误直接失败；只有 Docker 不可用时依赖 Redis 的套件才跳过。开发与各 worktree 的 worker 留在共享 Redis db 0，因此「队列里没有消费者」类断言不会被别人的 worker 干扰；禁止回落到共享 Redis，也不要为此停开发 worker。
 - URL中不能写username/password；新建、编辑和两类导入均拒绝。旧记录在列表/导出/预览显示掩码，测试连接会在传输前返回固定错误；数据库不自动改写。需改为无内嵌凭证的URL并在加密headers中配置认证后保存，详见D-33。
 - 连接器页「导入 .mcp.json」接受≤1MiB、1–100条HTTP/stdio配置；env/headers加密保存，响应只给密钥键名。任一重名整批409不覆盖；未知字段、未支持transport、`${VAR}`占位符及URL内嵌凭证明确拒绝。HTTP仍校验SSRF；导入不测试连接或执行命令，详见D-32。
 - 专家页「导入」同时接受专家JSON与≤128KiB的agent.md。Markdown只导入name/description/model/maxTurns/effort及完整正文（含H1），创建独立专家与初始版本；重名409不覆盖，不自动运行。权限和绑定使用平台默认值并提示，inherit及未支持的权限/Hook字段明确拒绝，详见D-30。
@@ -455,7 +456,7 @@ ADMIN_PASSWORD='...' node scripts/loadtest.mjs
 | 项 | 值 |
 |---|---|
 | 宿主 | macOS，12 逻辑核，API / worker / Postgres / Redis / 压测客户端同机 |
-| API | Node v24.22.0，tsx dev，Fastify；pg 连接池 `max: 10`（当时硬编码；现由 `DB_POOL_MAX` 配置，默认仍为 10） |
+| API | Node 24 LTS（测时 v24.22.0；以当前 24 最新补丁为准），tsx dev，Fastify；pg 连接池 `max: 10`（当时硬编码；现由 `DB_POOL_MAX` 配置，默认仍为 10） |
 | 数据库 | Postgres 18-alpine，`max_connections=100`，`shared_buffers=128MB`；测试时 3 agents / 2 skills / 1 server / 14 runs / 43 messages |
 | worker | `AGENT_MAX_CONCURRENT=2`，`SANDBOX_MEMORY=1g`，模型 `claude-sonnet-5-5` |
 | 读接口 | 50 并发 × 20 轮（每接口 1000 样本）；另做 100 / 200 并发 × 10 轮找拐点 |
@@ -545,7 +546,7 @@ pnpm --filter @agentport/web build
 
 ### 9.2 后端集成测试与 E2E
 
-根 `pnpm test` 的 `backend` 项目（`vitest.config.ts`）会用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：globalSetup 每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；两者通过 `inject('backendInfra')` + `setupFiles` 在测试模块导入前写入 `process.env`，后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `redis:8-alpine`（首次可 `docker pull redis:8-alpine`）以及建库或迁移失败都属配置错误，直接报错。`pnpm test:web` 不走这条路径（见 §9.1）。watch 会话开始时 globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理；热重跑不会重建资源。
+根 `pnpm test` 的 `backend` 项目（`vitest.config.ts`）会用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：globalSetup 每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；两者通过 `inject('backendInfra')` + `setupFiles` 在测试模块导入前写入 `process.env`，后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `REDIS_IMAGE` 指定的 Redis 镜像（首次可 `docker pull redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b`）以及建库或迁移失败都属配置错误，直接报错。`pnpm test:web` 不走这条路径（见 §9.1）。watch 会话开始时 globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理；热重跑不会重建资源。
 
 集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。这类断言怕的是**同一个 Redis 实例上有 worker 在消费 `agent-runs`**。测试使用每轮独享的临时 Redis 容器（内部 db 9），开发 worker 留在共享实例的 db 0，默认互不可见，**不需要停 worker**；不要为了让测试通过把 `REDIS_URL` 指回共享实例。
 
