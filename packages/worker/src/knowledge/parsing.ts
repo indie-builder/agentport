@@ -182,20 +182,31 @@ function splitLines(markdown: string): { lines: string[]; offsets: number[] } {
  */
 export function markdownBlocks(
   markdown: string,
-  locator: (line: number, offset?: number) => Record<string, unknown>,
+  locator: (line: number, offset?: number, endOffset?: number) => Record<string, unknown>,
 ): ParsedBlock[] {
   const { lines, offsets } = splitLines(markdown);
   const blocks: ParsedBlock[] = [];
   const headings: string[] = [];
   let paragraph: string[] = [];
   let paragraphIndex = 0;
+  let paragraphEnd = 0;
+
+  // 块内容整体 trim 过；区间必须对应原文里真正的首尾字符，且跳过 CRLF 的 CR。
+  const contentStart = (lineIndex: number) => {
+    const line = lines[lineIndex] ?? '';
+    return (offsets[lineIndex] ?? 0) + line.length - line.trimStart().length;
+  };
+  const contentEnd = (lineIndex: number) => {
+    const line = lines[lineIndex] ?? '';
+    return (offsets[lineIndex] ?? 0) + line.trimEnd().length;
+  };
 
   const flush = () => {
     if (paragraph.length === 0) return;
     blocks.push({
       content: paragraph.join('\n').trim(),
       heading: emptyHeading(headings),
-      locator: locator(paragraphIndex + 1, offsets[paragraphIndex] ?? 0),
+      locator: locator(paragraphIndex + 1, contentStart(paragraphIndex), contentEnd(paragraphEnd)),
     });
     paragraph = [];
   };
@@ -220,7 +231,7 @@ export function markdownBlocks(
       blocks.push({
         content: lines.slice(start, index).join('\n').trim(),
         heading: emptyHeading(headings),
-        locator: locator(start + 1, offsets[start] ?? 0),
+        locator: locator(start + 1, contentStart(start), contentEnd(index - 1)),
       });
       continue;
     }
@@ -237,7 +248,7 @@ export function markdownBlocks(
       blocks.push({
         content: lines.slice(start, index).join('\n').trim(),
         heading: emptyHeading(headings),
-        locator: locator(start + 1, offsets[start] ?? 0),
+        locator: locator(start + 1, contentStart(start), contentEnd(index - 1)),
       });
       continue;
     }
@@ -262,6 +273,7 @@ export function markdownBlocks(
       continue;
     }
     if (paragraph.length === 0) paragraphIndex = index;
+    paragraphEnd = index;
     paragraph.push(line);
     index += 1;
   }
@@ -462,12 +474,13 @@ const doclingTableSchema = z.looseObject({
 const doclingPictureSchema = z.looseObject({
   self_ref: z.string().optional(),
   prov: z.array(doclingProvSchema).default([]),
+  // 官方响应里无法提取的图（如纯文本/无页图）会给出 image: null。
   image: z
     .looseObject({
-      mime_type: z.string().optional(),
+      mimetype: z.string().optional(),
       uri: z.string().optional(),
     })
-    .optional(),
+    .nullish(),
 });
 
 const doclingJsonSchema = z.looseObject({
@@ -482,13 +495,17 @@ const doclingJsonSchema = z.looseObject({
     .default([]),
 });
 
+// v1.38.2 官方 ErrorItem：只校验我们真正消费的 error_message，其余字段原样保留。
+const doclingErrorSchema = z.looseObject({ error_message: z.string() });
+
 const doclingResponseSchema = z.looseObject({
   status: z.enum(['success', 'partial_success', 'failure', 'skipped']),
-  errors: z.array(z.unknown()).default([]),
+  errors: z.array(doclingErrorSchema).default([]),
   document: z
     .looseObject({
-      md_content: z.string().optional(),
-      json_content: doclingJsonSchema.optional(),
+      // 成功响应里 md_content 也可能为 null（只请求到 JSON 或导出失败时）。
+      md_content: z.string().nullish(),
+      json_content: doclingJsonSchema.nullish(),
     })
     .optional(),
 });
@@ -650,50 +667,192 @@ function doclingBlocks(json: DoclingJson, markdown: string): ParsedBlock[] {
 const DATA_URI = /^data:([a-z0-9.+/-]+);base64,([a-z0-9+/=\s]+)$/i;
 
 /** 只接受响应内嵌的 data URI；远程 URL 一律不读，避免解析器替我们发起任意出站请求。 */
-function doclingImages(json: DoclingJson): ParsedImage[] {
-  const images: ParsedImage[] = [];
+function doclingImages(json: DoclingJson): Array<{ image: ParsedImage; payload: string }> {
+  const images: Array<{ image: ParsedImage; payload: string }> = [];
   for (const [index, picture] of json.pictures.entries()) {
     const match = DATA_URI.exec(picture.image?.uri ?? '');
     if (!match) continue;
-    const bytes = Buffer.from(match[2] ?? '', 'base64');
+    const payload = match[2] ?? '';
+    const bytes = Buffer.from(payload, 'base64');
     if (bytes.length === 0) continue;
     const page = picture.prov[0]?.page_no;
     if (typeof page !== 'number') continue;
-    const mimeType = match[1] ?? picture.image?.mime_type ?? 'application/octet-stream';
+    const mimeType = match[1] ?? picture.image?.mimetype ?? 'application/octet-stream';
     const extension = mimeType.split('/')[1]?.replace(/[^a-z0-9]/gi, '') || 'bin';
-    images.push({ name: `image-${index + 1}.${extension}`, data: bytes, mimeType, page });
+    images.push({
+      image: { name: `image-${index + 1}.${extension}`, data: bytes, mimeType, page },
+      payload: payload.replace(/\s+/g, ''),
+    });
   }
   return images;
 }
 
-/** markdown 里可能存在重复文本；按出现顺序找，找不到就不给区间而不是编造偏移。 */
+const MARKDOWN_DATA_IMAGE = /!\[[^\]]*\]\(data:[^,)]*,([a-z0-9+/=\s]+)\)/gi;
+
+/** embedded 模式下 md 与 json 内嵌同一张 data URI 图；md 里的 base64 不能进分块文本。 */
+function normalizeEmbeddedImages(
+  markdown: string,
+  images: Array<{ image: ParsedImage; payload: string }>,
+): string {
+  // 按 base64 内容而不是整个 URI 匹配：两条导出路径的 URI 前缀可能不同，图片字节才是同一张。
+  const byPayload = new Map(images.map(({ image, payload }) => [payload, image.name]));
+  return markdown.replace(MARKDOWN_DATA_IMAGE, (_whole, payload: string) => {
+    const name = byPayload.get(payload.replace(/\s+/g, ''));
+    // shortcut: 没有落盘对应图的 data URI 用 Docling 自身的占位符替换；需要保留这类图时再单独抽取。
+    return name ? `![${name}](images/${name})` : '<!-- image -->';
+  });
+}
+
+type MarkdownRegion = {
+  content: string;
+  kind: 'text' | 'table' | 'code' | 'image';
+  startOffset: number;
+  endOffset: number;
+  /** 已认领的原文区间；块级认领就是整块范围。 */
+  claimed: Array<{ start: number; end: number }>;
+};
+
+/** 短 OCR 文本（如 "1"）只能匹配独立单词，不能在 "1234" 中间造出伪区间。 */
+function hasWordBoundary(text: string, start: number, end: number, needle: string): boolean {
+  const isWord = (char: string | undefined) => char !== undefined && /[A-Za-z0-9_]/.test(char);
+  if (isWord(needle[0]) && isWord(text[start - 1])) return false;
+  // 原文里的换行可能比 needle 长（CRLF），边界要按真实结束位置算。
+  if (isWord(needle.at(-1)) && isWord(text[end])) return false;
+  return true;
+}
+
+function markdownRegions(markdown: string): MarkdownRegion[] {
+  return markdownBlocks(markdown, (_line, startOffset = 0, endOffset = startOffset) => ({
+    startOffset,
+    endOffset,
+  })).map((block) => {
+    const { startOffset, endOffset } = block.locator as {
+      startOffset: number;
+      endOffset: number;
+    };
+    const kind = isTableBlock(block.content)
+      ? 'table'
+      : isFenceStart(block.content)
+        ? 'code'
+        : /^!\[[^\]]*\]\([^)]*\)$/.test(block.content)
+          ? 'image'
+          : 'text';
+    return {
+      content: block.content,
+      kind,
+      startOffset,
+      endOffset,
+      claimed: [],
+    };
+  });
+}
+
+/**
+ * 在段落原文里定位块文本：JSON 用 LF 拼行，原文可能是 CRLF，直接 indexOf LF 子串会错。
+ * 比较时换行按 CRLF/CR/LF 等价，返回真实原文区间；已被其它页占用的候选跳到下一处。
+ */
+function locateBlock(
+  text: string,
+  region: MarkdownRegion,
+  needle: string,
+  claimed: Array<{ start: number; end: number }>,
+): { start: number; end: number } | null {
+  const first = needle[0];
+  if (first === undefined) return null;
+  for (
+    let base = text.indexOf(first, region.startOffset);
+    base !== -1 && base < region.endOffset;
+  ) {
+    let at = base;
+    let matched = true;
+    for (let index = 0; index < needle.length; index += 1) {
+      const want = needle[index];
+      if (want === '\n') {
+        if (text[at] === '\r' && text[at + 1] === '\n') at += 2;
+        else if (text[at] === '\r' || text[at] === '\n') at += 1;
+        else {
+          matched = false;
+          break;
+        }
+        continue;
+      }
+      if (text[at] !== want) {
+        matched = false;
+        break;
+      }
+      at += 1;
+    }
+    const start = base;
+    const end = at;
+    const free =
+      matched &&
+      end <= region.endOffset &&
+      hasWordBoundary(text, start, end, needle) &&
+      !claimed.some((span) => start < span.end && span.start < end);
+    if (free) return { start, end };
+    base = text.indexOf(first, start + 1);
+  }
+  return null;
+}
+
+/**
+ * 页码只从原文 Markdown 里真实存在的块认领：JSON 表格/代码按 fingerprint 配同类块，
+ * 普通文本先整块后段内子串；位置全局一次性使用，找不到就不给区间而不是编造偏移。
+ */
 function pageMapFrom(blocks: ParsedBlock[], markdown: string): PageRange[] {
+  const regions = markdownRegions(markdown);
   const ranges: PageRange[] = [];
-  const cursor = new Map<number, number>();
+
   for (const block of blocks) {
     const page = block.locator.page;
     if (typeof page !== 'number') continue;
-    const from = cursor.get(page) ?? 0;
-    const startOffset = markdown.indexOf(block.content, from);
-    if (startOffset === -1) continue;
-    const endOffset = startOffset + block.content.length;
-    cursor.set(page, endOffset);
-    const last = ranges.at(-1);
-    if (last && last.page === page && last.endOffset <= startOffset) last.endOffset = endOffset;
-    else ranges.push({ page, startOffset, endOffset });
+    const kind = isTableBlock(block.content)
+      ? 'table'
+      : isFenceStart(block.content)
+        ? 'code'
+        : 'text';
+
+    if (kind === 'text') {
+      const whole = regions.find(
+        (region) =>
+          region.kind === 'text' && region.claimed.length === 0 && region.content === block.content,
+      );
+      if (whole) {
+        whole.claimed.push({ start: whole.startOffset, end: whole.endOffset });
+        ranges.push({ page, startOffset: whole.startOffset, endOffset: whole.endOffset });
+        continue;
+      }
+      // 多个 JSON 项可能组成同一个 Markdown 段落，允许在段落内做带边界的子串匹配；
+      // 已认领的区间（整段或子串）由 overlaps 避开，段落仍可继续认领未占用的部分。
+      for (const region of regions) {
+        if (region.kind !== 'text') continue;
+        const located = locateBlock(markdown, region, block.content, region.claimed);
+        if (!located) continue;
+        region.claimed.push(located);
+        ranges.push({ page, startOffset: located.start, endOffset: located.end });
+        break;
+      }
+      continue;
+    }
+
+    const wanted = fingerprint(block.content);
+    const target = regions.find(
+      (region) =>
+        region.kind === kind &&
+        region.claimed.length === 0 &&
+        fingerprint(region.content) === wanted,
+    );
+    if (!target) continue;
+    target.claimed.push({ start: target.startOffset, end: target.endOffset });
+    ranges.push({ page, startOffset: target.startOffset, endOffset: target.endOffset });
   }
-  return ranges;
+
+  return ranges.sort((left, right) => left.startOffset - right.startOffset);
 }
 
-function doclingErrorMessage(errors: unknown[]): string {
+function doclingErrorMessage(errors: Array<{ error_message: string }>): string {
   return errors
-    .map((error) => {
-      if (typeof error === 'string') return error;
-      if (error && typeof error === 'object' && 'message' in error) {
-        return String((error as { message: unknown }).message);
-      }
-      return JSON.stringify(error);
-    })
+    .map((error) => error.error_message)
     .filter((text) => text !== '')
     .join('; ');
 }
@@ -713,6 +872,10 @@ async function parseWithDocling(input: {
   form.append('to_formats', 'json');
   form.append('do_ocr', 'true');
   form.append('do_table_structure', 'true');
+  // 同步内联响应；embedded 让图片同时出现在 md 与 json 里，正文不会再是 base64 之外的引用。
+  form.append('target_type', 'inbody');
+  form.append('image_export_mode', 'embedded');
+  form.append('include_images', 'true');
 
   const timeout = AbortSignal.timeout(DOCLING_TIMEOUT_MS);
   const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
@@ -791,7 +954,8 @@ async function parseWithDocling(input: {
     throw new KnowledgeParseError('invalid_response', 'Docling 成功响应缺少 document.json_content');
   }
   const json = document.json_content;
-  const markdown = document.md_content ?? '';
+  const embedded = doclingImages(json);
+  const markdown = normalizeEmbeddedImages(document.md_content ?? '', embedded);
   const blocks = doclingBlocks(json, markdown);
   if (blocks.length === 0) {
     throw new KnowledgeParseError('invalid_response', 'Docling 响应没有任何可索引内容');
@@ -802,7 +966,7 @@ async function parseWithDocling(input: {
   return {
     markdown: finalMarkdown,
     blocks,
-    images: doclingImages(json),
+    images: embedded.map(({ image }) => image),
     pageMap: pageMapFrom(blocks, finalMarkdown),
   };
 }

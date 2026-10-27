@@ -1,0 +1,24 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "Alpha\nBeta",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "text",
+          "text": "Alpha",
+          "prov": [{ "page_no": 2 }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "Beta",
+          "prov": [{ "page_no": 4 }]
+        }
+      ],
+      "tables": []
+    }
+  }
+}

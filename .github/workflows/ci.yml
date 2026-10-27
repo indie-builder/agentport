@@ -40,8 +40,9 @@ jobs:
       # globalSetup 用 docker create --pull=never 启动临时 Redis，只需镜像先在本地。
       # openui:check 会经根 Vitest 入口间接跑契约测试（scripts/check-openui.mjs），
       # 因此必须在任何 Vitest 入口之前准备好镜像，不能等到 pnpm test。
+      # tag 必须与 packages/worker/test/global-setup.ts 的 REDIS_IMAGE 一致。
       - name: Prepare test Redis image
-        run: docker pull redis:8-alpine
+        run: docker pull redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b
       - run: pnpm openui:check
       - run: pnpm typecheck
       - run: pnpm build
@@ -63,7 +64,7 @@ jobs:
           --health-cmd "pg_isready -U agentport -d agentport"
           --health-interval 5s --health-timeout 3s --health-retries 10
       redis:
-        image: redis:8-alpine
+        image: redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping"

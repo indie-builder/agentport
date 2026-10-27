@@ -1,0 +1,48 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "# 图册\n\n正文。\n\n![Image](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==)\n\n图片之后。\n",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "section_header",
+          "level": 1,
+          "text": "图册",
+          "prov": [{ "page_no": 1 }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "正文。",
+          "prov": [{ "page_no": 1 }]
+        },
+        {
+          "self_ref": "#/texts/2",
+          "label": "text",
+          "text": "图片之后。",
+          "prov": [{ "page_no": 3 }]
+        }
+      ],
+      "tables": [],
+      "pictures": [
+        {
+          "self_ref": "#/pictures/0",
+          "label": "picture",
+          "prov": [{ "page_no": 5 }],
+          "image": {
+            "mimetype": "image/png",
+            "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          }
+        },
+        {
+          "self_ref": "#/pictures/1",
+          "label": "picture",
+          "prov": [{ "page_no": 6 }],
+          "image": null
+        }
+      ]
+    }
+  }
+}

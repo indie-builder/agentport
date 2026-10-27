@@ -1,5 +1,11 @@
 {
   "status": "partial_success",
-  "errors": [{ "message": "ocr failed on page 2" }],
-  "document": { "md_content": "# 部分成功" }
+  "errors": [
+    {
+      "component_type": "ocr_engine",
+      "module_name": "docling",
+      "error_message": "ocr failed on page 2"
+    }
+  ],
+  "document": { "md_content": "# 部分成功", "json_content": null }
 }

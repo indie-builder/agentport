@@ -1,0 +1,18 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "Alpha\r\nBeta tail.",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "text",
+          "text": "Alpha\nBeta",
+          "prov": [{ "page_no": 3 }]
+        }
+      ],
+      "tables": []
+    }
+  }
+}
