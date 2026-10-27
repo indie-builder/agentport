@@ -1,4 +1,3 @@
-import { parseSkillMd } from '@agentport/core';
 import type { Agent, Skill, SkillWithAgentCount, WorkspaceFiles } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -317,16 +316,103 @@ describe.skipIf(!ready)('skills', () => {
     expectProblem(res, 'UNAUTHORIZED');
   });
 
-  it('keeps descriptive frontmatter fields instead of warning', async () => {
+  it('patches and clears descriptive frontmatter fields', async () => {
+    const slug = unique('patch-meta');
+    createdSkills.push(slug);
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/skills',
+      headers: auth(),
+      payload: { slug, name: 'Patchable', description: 'patchable skill', body: '' },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const skill = created.json<Skill>();
+
+    const provenance = {
+      license: 'MIT',
+      compatibility: 'claude-code',
+      metadata: { author: 'skills.sh', version: 2 },
+    };
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/skills/${skill.id}`,
+      headers: auth(),
+      payload: provenance,
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(patched.json<Skill>()).toMatchObject(provenance);
+
+    const loaded = await inject(app, {
+      method: 'GET',
+      url: `/api/skills/${skill.id}`,
+      headers: auth(),
+    });
+    expect(loaded.statusCode, loaded.body).toBe(200);
+    expect(loaded.json<Skill>()).toMatchObject(provenance);
+
+    // null 表示显式清空：读回来三个键都要消失，而不是变成 null。
+    const cleared = await inject(app, {
+      method: 'PATCH',
+      url: `/api/skills/${skill.id}`,
+      headers: auth(),
+      payload: { license: null, compatibility: null, metadata: null },
+    });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+    const reloaded = await inject(app, {
+      method: 'GET',
+      url: `/api/skills/${skill.id}`,
+      headers: auth(),
+    });
+    expect(reloaded.statusCode, reloaded.body).toBe(200);
+    for (const res of [cleared, reloaded]) {
+      const body = res.json<Skill>();
+      expect(body).not.toHaveProperty('license');
+      expect(body).not.toHaveProperty('compatibility');
+      expect(body).not.toHaveProperty('metadata');
+    }
+  });
+
+  it('keeps descriptive frontmatter fields through import and API reads', async () => {
     const slug = unique('import-meta');
     createdSkills.push(slug);
 
-    const markdown = skillMd(slug, ['license: MIT']);
+    const markdown = skillMd(slug, [
+      'license: MIT',
+      'compatibility: claude-code',
+      'metadata: {"author":"skills.sh","version":2}',
+    ]);
     const res = await importSkill(markdown);
     expect(res.statusCode, res.body).toBe(201);
-    expect(res.json<ImportResult>().skill.slug).toBe(slug);
+    const expected = {
+      slug,
+      license: 'MIT',
+      compatibility: 'claude-code',
+      metadata: { author: 'skills.sh', version: 2 },
+    };
+    expect(res.json<ImportResult>().skill).toMatchObject(expected);
 
-    // 直接断言解析层保留 provenance 字段；DB 持久化与 API 透传由独立任务接入。
-    expect(parseSkillMd(markdown).skill).toMatchObject({ license: 'MIT' });
+    const loaded = await inject(app, {
+      method: 'GET',
+      url: `/api/skills/${res.json<ImportResult>().skill.id}`,
+      headers: auth(),
+    });
+    expect(loaded.statusCode, loaded.body).toBe(200);
+    expect(loaded.json<Skill>()).toMatchObject(expected);
+
+    // 未写 provenance 时 DB 的 NULL / 空 metadata 不应作为无意义字段出现在 API 里。
+    const plainSlug = unique('import-no-meta');
+    createdSkills.push(plainSlug);
+    const plain = await importSkill(skillMd(plainSlug));
+    expect(plain.statusCode, plain.body).toBe(201);
+    const plainLoaded = await inject(app, {
+      method: 'GET',
+      url: `/api/skills/${plain.json<ImportResult>().skill.id}`,
+      headers: auth(),
+    });
+    expect(plainLoaded.statusCode, plainLoaded.body).toBe(200);
+    const plainSkill = plainLoaded.json<Skill>();
+    expect(plainSkill).not.toHaveProperty('license');
+    expect(plainSkill).not.toHaveProperty('compatibility');
+    expect(plainSkill).not.toHaveProperty('metadata');
   });
 });

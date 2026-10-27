@@ -1,10 +1,5 @@
-import { fail, parseSkillMd } from '@agentport/core';
-import {
-  type MarketInstallInput,
-  type SkillInput,
-  skillFileInputSchema,
-  slugSchema,
-} from '@agentport/shared';
+import { fail, type ParsedSkill, parseSkillMd } from '@agentport/core';
+import { type MarketInstallInput, skillFileInputSchema, slugSchema } from '@agentport/shared';
 
 const DOWNLOAD_URL = 'https://skills.sh/api/download';
 const TIMEOUT_MS = 30_000;
@@ -27,7 +22,7 @@ interface SnapshotEntry {
 export function snapshotToSkill(
   slug: string,
   entries: unknown[],
-): { skill: SkillInput; files: SkillFileDraft[]; warnings: string[] } {
+): { skill: ParsedSkill; files: SkillFileDraft[]; warnings: string[] } {
   if (!slugSchema.safeParse(slug).success) {
     fail('INVALID_INPUT', `市场技能目录名不合法：${slug}`);
   }
@@ -67,13 +62,13 @@ export function snapshotToSkill(
   }
 
   if (skillMd === null) fail('INVALID_INPUT', '市场技能缺少 SKILL.md，无法安装');
-  // frontmatter 的 license/metadata 等描述性字段不落库，只提示资源文件层面的问题。
+  // frontmatter 的 license/compatibility/metadata 原样保留，安装后导出与运行时仍写回。
   const { skill } = parseSkillMd(skillMd, { slug });
   return { skill, files, warnings };
 }
 
 export async function installFromMarket(input: MarketInstallInput): Promise<{
-  skill: SkillInput;
+  skill: ParsedSkill;
   files: SkillFileDraft[];
   warnings: string[];
 }> {

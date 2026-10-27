@@ -110,10 +110,7 @@ export async function renderAgentWorkspace(
     ...new Set([...skills, ...[...childSkills.values()].flat()].map((s) => s.id)),
   ]);
   const withFiles = (s: (typeof skills)[number]) => ({
-    slug: s.slug,
-    name: s.name,
-    description: s.description,
-    body: s.body,
+    ...repo.skills.toSkillDefinition(s),
     files: (skillFiles.get(s.id) ?? []).map((f) => ({ path: f.path, content: f.content })),
   });
   const skillsWithFiles = skills.map(withFiles);

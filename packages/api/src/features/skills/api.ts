@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import type { repo } from '@agentport/db';
+import { repo } from '@agentport/db';
 import type { Skill } from '@agentport/shared';
 import { isPgCode } from '../../plugins/errors.js';
 
@@ -13,11 +13,8 @@ export function rethrowConflict(err: unknown): never {
 
 export function toApi(row: SkillRow): Skill {
   return {
+    ...repo.skills.toSkillDefinition(row),
     id: row.id,
-    slug: row.slug,
-    name: row.name,
-    description: row.description,
-    body: row.body,
     sourceId: row.sourceId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

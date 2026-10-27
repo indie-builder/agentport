@@ -32,6 +32,10 @@ const patchSchema = z.object({
   name: z.string().min(1).max(128).optional(),
   description: z.string().min(1).max(500).optional(),
   body: z.string().optional(),
+  // nullable 表示显式清空；undefined 表示请求里没提这个字段。
+  license: z.string().max(200).nullable().optional(),
+  compatibility: z.string().max(200).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   expectedUpdatedAt: z.iso.datetime().optional(),
 });
 
@@ -107,7 +111,7 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
       return reply
         .header('Content-Type', 'text/markdown; charset=utf-8')
         .header('Content-Disposition', 'attachment; filename="SKILL.md"')
-        .send(renderSkillMd(row));
+        .send(renderSkillMd(repo.toSkillDefinition(row)));
     },
   );
 
@@ -121,6 +125,10 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
         ...(input.name === undefined ? {} : { name: input.name }),
         ...(input.description === undefined ? {} : { description: input.description }),
         ...(input.body === undefined ? {} : { body: input.body }),
+        ...(input.license === undefined ? {} : { license: input.license }),
+        ...(input.compatibility === undefined ? {} : { compatibility: input.compatibility }),
+        // metadata 列 NOT NULL：显式清空写空对象，读取端再折叠成缺席。
+        ...(input.metadata === undefined ? {} : { metadata: input.metadata ?? {} }),
       };
       try {
         const row = await repo.updateSkill(

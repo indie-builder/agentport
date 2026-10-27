@@ -216,6 +216,51 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(result.warnings.some((warning) => warning.includes(`导入为 "${slug}-2"`))).toBe(true);
   });
 
+  it('writes imported skill provenance into the exported SKILL.md', async () => {
+    const slug = unique('pkg-provenance');
+    const skillSlug = unique('pkg-provenance-skill');
+    createdAgents.push(slug);
+    createdSkills.push(skillSlug);
+
+    const markdown = [
+      '---',
+      `name: ${skillSlug}`,
+      'description: Provenance skill',
+      'license: MIT',
+      'compatibility: claude-code',
+      'metadata: {"author":"skills.sh","version":2}',
+      '---',
+      '',
+      '# Provenance',
+      '',
+      'Steps.',
+    ].join('\n');
+    const imported = await inject(app, {
+      method: 'POST',
+      url: '/api/skills/import',
+      headers: { cookie },
+      payload: { skillMd: markdown },
+    });
+    expect(imported.statusCode, imported.body).toBe(201);
+    const skill = imported.json<{ skill: Skill }>().skill;
+    expect(skill).toMatchObject({
+      license: 'MIT',
+      compatibility: 'claude-code',
+      metadata: { author: 'skills.sh', version: 2 },
+    });
+
+    const created = await createAgent(app, cookie, {
+      slug,
+      skillIds: [skill.id],
+      track: createdAgents,
+    });
+    const files = await exportFiles(created.json<{ id: string }>().id);
+    const skillMd = files.get(`.claude/skills/${skillSlug}/SKILL.md`) ?? '';
+    expect(skillMd).toContain('license: "MIT"');
+    expect(skillMd).toContain('compatibility: "claude-code"');
+    expect(skillMd).toContain('metadata: {"author":"skills.sh","version":2}');
+  });
+
   it('rejects an export whose ZIP exceeds 1 MiB instead of truncating it', async () => {
     const slug = unique('pkg-big');
     const skillSlug = unique('pkg-big-skill');
@@ -741,6 +786,79 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const skills = await inject(app, { method: 'GET', url: '/api/skills', headers: { cookie } });
     expect(skills.json<Skill[]>().filter((skill) => skill.slug === skillSlug)).toHaveLength(1);
     expect(skills.json<Skill[]>().find((skill) => skill.slug === skillSlug)?.body).toBe('');
+  });
+
+  it('warns when a reused skill differs only in provenance and keeps the original', async () => {
+    const slug = unique('imp-skill-prov');
+    const again = unique('imp-skill-prov');
+    const skillSlug = unique('imp-skill-prov-existing');
+    createdAgents.push(slug, again);
+    createdSkills.push(skillSlug);
+
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/skills',
+      headers: { cookie },
+      payload: {
+        slug: skillSlug,
+        name: 'Existing',
+        description: 'already here',
+        license: 'MIT',
+        compatibility: 'claude-code',
+        metadata: { author: 'existing', version: 1 },
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+
+    const markdown = (provenance: string[]) =>
+      [
+        '---',
+        `name: ${skillSlug}`,
+        'description: already here',
+        ...provenance,
+        '---',
+        '',
+        '# Existing',
+      ].join('\n');
+    const importWith = (agentSlug: string, provenance: string[]) =>
+      importZip(
+        packageZip({
+          agent: { slug: agentSlug, name: agentSlug, skillSlugs: [skillSlug] },
+          skills: [{ slug: skillSlug, name: 'Existing', description: 'already here', body: '' }],
+          extraFiles: {
+            [`.claude/skills/${skillSlug}/SKILL.md`]: markdown(provenance),
+          },
+        }),
+      );
+
+    // 同值不同键序（JSONB 会重排键）不算来源漂移。
+    const same = await importWith(slug, [
+      'license: MIT',
+      'compatibility: claude-code',
+      'metadata: {"version":1,"author":"existing"}',
+    ]);
+    expect(same.statusCode, same.body).toBe(201);
+    expect(same.json<AgentImportResult>().warnings.some((w) => w.includes('来源信息'))).toBe(false);
+
+    const drift = await importWith(again, [
+      'license: Apache-2.0',
+      'compatibility: other-host',
+      'metadata: {"author":"incoming","version":2}',
+    ]);
+    expect(drift.statusCode, drift.body).toBe(201);
+    const body = drift.json<AgentImportResult>();
+    expect(body.createdSkills).toEqual([]);
+    // 只有来源字段不同：内容警告不出现，来源警告出现。
+    expect(body.warnings.some((w) => w.includes('内容与导入包不同'))).toBe(false);
+    expect(body.warnings.some((w) => w.includes('来源信息与导入包不同'))).toBe(true);
+
+    const skills = await inject(app, { method: 'GET', url: '/api/skills', headers: { cookie } });
+    expect(skills.statusCode, skills.body).toBe(200);
+    expect(skills.json<Skill[]>().find((skill) => skill.slug === skillSlug)).toMatchObject({
+      license: 'MIT',
+      compatibility: 'claude-code',
+      metadata: { author: 'existing', version: 1 },
+    });
   });
 
   it('rejects duplicate server names without partial writes', async () => {

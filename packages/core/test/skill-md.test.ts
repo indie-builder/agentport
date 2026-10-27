@@ -164,6 +164,22 @@ describe('parseSkillMd', () => {
     expect(invalidWith(withMetadata('  ratio: .inf')).message).toMatch(/metadata\.ratio/);
   });
 
+  it('rejects provenance fields longer than the API limit', () => {
+    const content = [
+      '---',
+      'name: long-license',
+      'description: d',
+      `license: ${'x'.repeat(201)}`,
+      '---',
+      '',
+      '# X',
+    ].join('\n');
+    const error = invalidWith(content);
+    expect(error.path).toBe('/license');
+    expect(error.message).toMatch(/license/);
+    expect(error.message).toMatch(/200/);
+  });
+
   it('rejects files without a frontmatter header', () => {
     expect(invalidWith('# No frontmatter\n\nJust markdown.').message).toMatch(/---/);
   });
