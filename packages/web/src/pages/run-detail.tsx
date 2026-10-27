@@ -80,6 +80,7 @@ export function RunDetailPage() {
   const rerun = (): void => {
     if (!run.data) return;
     const { run: detail, steps } = run.data;
+    if (detail.status === 'queued' || detail.status === 'running') return;
     const prompt = steps.find((step) => step.kind === 'user')?.text;
     if (!prompt) {
       toastError(new Error('这次运行没有可重发的用户消息。'));
@@ -165,7 +166,7 @@ export function RunDetailPage() {
                   {cancelMutation.isPending ? '取消中…' : '取消'}
                 </Button>
               ) : null}
-              {hasPrompt ? (
+              {terminal && hasPrompt ? (
                 <Button
                   disabled={rerunMutation.isPending}
                   aria-busy={rerunMutation.isPending}
@@ -202,7 +203,8 @@ export function RunDetailPage() {
     );
   }
 
-  if (run.isError) {
+  // 只有从没拿到过数据时才整页报错；后台刷新失败要保留已加载的详情。
+  if (run.data === undefined) {
     return (
       <Page>
         {header}
@@ -221,6 +223,13 @@ export function RunDetailPage() {
   return (
     <Page>
       {header}
+      {run.isError ? (
+        <ErrorState
+          error={run.error}
+          title="刷新失败，内容仍是上次结果"
+          onRetry={() => void run.refetch()}
+        />
+      ) : null}
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-2 text-xs">
         {conversation.title ? (
           <span className="min-w-0 [overflow-wrap:anywhere] text-muted-foreground">
