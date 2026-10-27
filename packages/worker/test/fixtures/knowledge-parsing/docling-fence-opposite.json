@@ -1,0 +1,31 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "# 反引号\n\n正文。\n\n~~~rb\nputs 4\n```",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "title",
+          "text": "反引号",
+          "prov": [{ "page_no": 1, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 } }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "正文。",
+          "prov": [{ "page_no": 1, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 } }]
+        },
+        {
+          "self_ref": "#/texts/2",
+          "label": "code",
+          "text": "puts 4",
+          "code_language": "rb",
+          "prov": [{ "page_no": 2, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 } }]
+        }
+      ],
+      "tables": []
+    }
+  }
+}

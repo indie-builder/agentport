@@ -1,5 +1,13 @@
 import type { ChunkDraft, ParsedDocument } from './ingestion.js';
-import { chunkDocument, markdownBlocks, parseDocument } from './parsing.js';
+import {
+  chunkDocument,
+  isAtomicBlock,
+  isFenceStart,
+  isTableBlock,
+  isTableDelimiterLine,
+  markdownBlocks,
+  parseDocument,
+} from './parsing.js';
 
 /**
  * 运行配置（Docling 端点/密钥）只从适配器工厂注入，绝不从上传文档的输入里取；
@@ -38,16 +46,13 @@ export function createParsingAdapter(
 
 type Block = { content: string; heading: string; locator: Record<string, unknown> };
 
-const isTable = (content: string): boolean => /^\s*\|/.test(content);
-const isFence = (content: string): boolean => /^```/.test(content);
-
 /**
  * 表格按行拆分时保留列语义，按 maxChars 预算切块并重复表头。
  * shortcut: 单行超过预算时不拆行，那个 chunk 会超预算；模型窗口真的卡住时再按单元格拆。
  */
 function splitTable(block: Block, maxChars: number): Block[] {
   const lines = block.content.split('\n');
-  const separator = lines[1] && /^\s*\|[\s|:-]+\|\s*$/.test(lines[1]) ? lines[1] : null;
+  const separator = lines[1] !== undefined && isTableDelimiterLine(lines[1]) ? lines[1] : null;
   const header = separator ? [lines[0] ?? '', separator] : [];
   const head = header.length > 0 ? lines.slice(0, 2) : [lines[0] ?? ''];
   const rows = lines.slice(head.length);
@@ -96,8 +101,8 @@ function splitFence(block: Block, maxChars: number): Block[] {
 
 function clampChunk(block: Block, maxChars: number): Block[] {
   if (block.content.length <= maxChars) return [block];
-  if (isTable(block.content)) return splitTable(block, maxChars);
-  if (isFence(block.content)) return splitFence(block, maxChars);
+  if (isTableBlock(block.content)) return splitTable(block, maxChars);
+  if (isFenceStart(block.content)) return splitFence(block, maxChars);
   return [block];
 }
 
@@ -112,12 +117,8 @@ function chunkForIngestion(
 ): ChunkDraft[] {
   const maxChars = Math.max(200, options.chunkTokens);
   const overlap = Math.max(0, Math.min(options.overlap, maxChars - 1));
-  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
-  // 前缀和：行号 → 该行在 markdown 里的起始偏移；页码表按真实偏移查，与 markdownBlocks 的规范化一致。
-  const lineOffsets: number[] = [0];
-  for (const line of lines) lineOffsets.push((lineOffsets.at(-1) ?? 0) + line.length + 1);
-  const blocks = markdownBlocks(markdown, (line) => {
-    const offset = lineOffsets[line - 1] ?? 0;
+  // markdownBlocks 直接给出原文偏移，与 pageMap 同为 UTF-16 下标，无需再整篇算前缀。
+  const blocks = markdownBlocks(markdown, (_line, offset = 0) => {
     const range = pageMap.find((entry) => offset >= entry.startOffset && offset < entry.endOffset);
     return range ? { page: range.page } : {};
   });
@@ -125,13 +126,16 @@ function chunkForIngestion(
 
   // 表格/代码块必须整块独立成 chunk，不能再被跨块合并；连续散文才交给结构感知合并。
   const groups: Block[][] = [];
+  let atomicGroup = false;
   for (const block of rows) {
-    const atomic = isTable(block.content) || isFence(block.content);
+    const atomic = isAtomicBlock(block.content);
     const last = groups.at(-1);
-    if (atomic) groups.push([block]);
-    else if (last && !isTable(last[0]?.content ?? '') && !isFence(last[0]?.content ?? '')) {
+    if (!atomic && last && !atomicGroup) {
       last.push(block);
-    } else groups.push([block]);
+      continue;
+    }
+    groups.push([block]);
+    atomicGroup = atomic;
   }
 
   const chunks = groups.flatMap((group) =>
@@ -144,7 +148,7 @@ function chunkForIngestion(
     ),
   );
   return chunks.map((chunk) => ({
-    kind: isTable(chunk.content) ? ('table' as const) : ('text' as const),
+    kind: isTableBlock(chunk.content) ? ('table' as const) : ('text' as const),
     heading: chunk.heading || null,
     content: chunk.content,
     pageFrom: typeof chunk.locator.page === 'number' ? chunk.locator.page : null,

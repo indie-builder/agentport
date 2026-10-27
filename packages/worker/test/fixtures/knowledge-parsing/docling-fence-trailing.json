@@ -1,0 +1,38 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "# 围栏\n\n正文。\n\n~~~ts\nlet t = 1;\n~~~\n\n```ts\nconst a = 1;\n```still code",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "title",
+          "text": "围栏",
+          "prov": [{ "page_no": 1, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 } }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "正文。",
+          "prov": [{ "page_no": 1, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 } }]
+        },
+        {
+          "self_ref": "#/texts/2",
+          "label": "code",
+          "text": "let t = 1;",
+          "code_language": "ts",
+          "prov": [{ "page_no": 2, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 } }]
+        },
+        {
+          "self_ref": "#/texts/3",
+          "label": "code",
+          "text": "const a = 1;",
+          "code_language": "ts",
+          "prov": [{ "page_no": 3, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 } }]
+        }
+      ],
+      "tables": []
+    }
+  }
+}

@@ -295,6 +295,8 @@ data/workspaces/<agent-slug>/
 4. 检索固定为两路：关键词（应用侧 `Intl.Segmenter('zh')` 分词 + `plainto_tsquery('simple')`）与向量（pgvector `<=>`），各取 top 50 后用 RRF（k=60）融合取前 30，再按知识库配置的 rerank profile 重排。召回条件同时要求 `chunks.enabled`、文档 `ready` 且 `current_version_id = chunks.version_id`，旧版本与停用内容不会命中。
 5. embedding 不可用时只返回关键词结果并在响应标 `degraded: true`；rerank 失败则保留 RRF 顺序。两种降级都不把整次检索变成错误。模型端点失败被归类为 `auth / rate_limit / timeout / bad_response / unavailable`；只有 `rate_limit`、`timeout`、`unavailable` 会重试，`auth` 与 `bad_response` 重试也不会变好。
 
+本地解析：CSV 用 `csv-parse`（保留 BOM、引号内换行、不等宽列，CR-only 换行可解析，非法引号以 `invalid_input` 失败），表格列宽线性聚合，大行数不展开参数；Markdown 是线性轻量分块，只支持最小围栏、单行 Setext 与 GFM 表格（含无外管道），**不是完整 CommonMark**，未覆盖的语法按普通段落处理。
+
 ### 6.2.1 图片多模态（参考 WeKnora）
 
 独立 PNG/JPEG/GIF/WebP 与 Docling 文档插图进入同一摄取链。库设置 `imageProcessing` 指定现有模型网关接受的视觉模型及 OCR/caption 动作；worker 用官方 Agent SDK 的原生图像输入和结构化输出，复用既有模型凭据。临时会话关闭内置工具、外部设置与 auto-memory，取消后等待 SDK 退出再清理，不创建专家聊天 run。

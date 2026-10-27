@@ -108,6 +108,25 @@ describe('createParsingAdapter', () => {
       parsed.markdown.slice(parsed.pageMap[1]?.startOffset, parsed.pageMap[1]?.endOffset),
     ).toBe(['| 指标 | 数值 |', '| --- | --- |', '| 收入 | 100 |'].join('\n'));
   });
+
+  it('maps pages by original offsets across CRLF and surrogate pairs', () => {
+    const markdown = ['# 第一页', '', '😀 第一页内容', '', '# 第二页', '', '第二页内容'].join(
+      '\r\n',
+    );
+    const first = markdown.indexOf('😀 第一页内容');
+    const second = markdown.indexOf('第二页内容');
+    const pageMap = [
+      { page: 2, startOffset: first, endOffset: first + '😀 第一页内容'.length },
+      { page: 3, startOffset: second, endOffset: second + '第二页内容'.length },
+    ];
+
+    const chunks = createParsingAdapter().chunkMarkdown(markdown, pageMap, {
+      chunkTokens: 50,
+      overlap: 0,
+    });
+
+    expect(chunks.map((chunk) => chunk.pageFrom)).toEqual([2, 3]);
+  });
 });
 
 describe('createParsingAdapter().parse', () => {
@@ -196,5 +215,62 @@ describe('createParsingAdapter().chunkMarkdown', () => {
     }
     const rebuilt = chunks.flatMap((chunk) => chunk.content.split('\n').slice(1, -1));
     expect(rebuilt).toEqual(code);
+  });
+
+  it('splits GFM tables without outer pipes and keeps them typed as tables', () => {
+    const rows = Array.from({ length: 40 }, (_, index) => `项目${index} | 说明${index}`);
+    const markdown = ['名称 | 说明', '--- | ---', ...rows].join('\n');
+    const chunks = chunkForIngestion(markdown, [], { chunkTokens: 200, overlap: 0 });
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.kind).toBe('table');
+      expect(chunk.content.length).toBeLessThanOrEqual(200);
+      expect(chunk.content.startsWith('名称 | 说明\n--- | ---')).toBe(true);
+    }
+    const rebuiltRows = chunks.flatMap((chunk) => chunk.content.split('\n').slice(2));
+    expect(rebuiltRows).toEqual(rows);
+  });
+
+  it('splits tilde and longer fences by lines', () => {
+    const code = Array.from({ length: 60 }, (_, index) => `const value${index} = ${index};`);
+    const cases: Array<[string, string, string[], string]> = [
+      [['~~~ts', ...code, '~~~'].join('\n'), '~~~ts', code, '~~~'],
+      [
+        ['````md', '```ts', ...code, '```', '````'].join('\n'),
+        '````md',
+        ['```ts', ...code, '```'],
+        '````',
+      ],
+    ];
+
+    for (const [markdown, opener, body, closer] of cases) {
+      const chunks = chunkForIngestion(markdown, [], { chunkTokens: 200, overlap: 0 });
+      expect(chunks.length).toBeGreaterThan(1);
+      for (const chunk of chunks) {
+        expect(chunk.content.length).toBeLessThanOrEqual(200);
+        expect(chunk.content.startsWith(`${opener}\n`)).toBe(true);
+        expect(chunk.content.endsWith(`\n${closer}`)).toBe(true);
+      }
+      expect(chunks.flatMap((chunk) => chunk.content.split('\n').slice(1, -1))).toEqual(body);
+    }
+  });
+
+  it('does not mistake a table inside a fence for a table block', () => {
+    const table = [
+      '名称 | 说明',
+      '--- | ---',
+      ...Array.from({ length: 40 }, (_, index) => `项目${index} | 说明${index}`),
+    ];
+    const markdown = ['```md', ...table, '```'].join('\n');
+    const chunks = chunkForIngestion(markdown, [], { chunkTokens: 200, overlap: 0 });
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.kind).toBe('text');
+      expect(chunk.content.startsWith('```md\n')).toBe(true);
+      expect(chunk.content.endsWith('\n```')).toBe(true);
+    }
+    expect(chunks.flatMap((chunk) => chunk.content.split('\n').slice(1, -1))).toEqual(table);
   });
 });
