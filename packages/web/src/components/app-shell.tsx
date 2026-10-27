@@ -82,6 +82,26 @@ const resourceLabels: Record<string, string> = {
   '/knowledge': '知识库',
 };
 
+/** 主导航归属按实际命中的路由判断；未知路由（`/_shell/$`）不在表内，任何导航都不选中。 */
+const navRoutes: Record<string, string> = {
+  '/_shell/': '/',
+  '/_shell/chat': '/chat',
+  '/_shell/runs/': '/runs',
+  '/_shell/runs/$runId': '/runs',
+  '/_shell/schedules': '/schedules',
+  '/_shell/agents/': '/agents',
+  '/_shell/agents/$agentId': '/agents',
+  '/_shell/skills': '/agents',
+  '/_shell/servers': '/agents',
+  '/_shell/plugins/': '/agents',
+  '/_shell/plugins/$pluginId': '/agents',
+  '/_shell/knowledge/': '/agents',
+  '/_shell/knowledge/$baseId': '/agents',
+  '/_shell/eval': '/eval',
+  '/_shell/status': '/status',
+  '/_shell/audit': '/audit',
+};
+
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
 
 function useCollapsed(): [boolean, (next: boolean) => void] {
@@ -101,7 +121,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
         <Link
           to="/"
           aria-label="返回首页"
-          className="group/logo absolute left-0 top-0 flex size-8 items-center justify-center rounded-icon transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:opacity-100 group-hover/nav:opacity-0 group-has-[button:focus-visible]/nav:opacity-0"
+          className="group/logo absolute left-0 top-0 flex size-8 items-center justify-center rounded-icon transition-opacity duration-[140ms] ease-out-soft focus-visible:opacity-100 group-hover/nav:opacity-0 group-has-[button:focus-visible]/nav:opacity-0"
         >
           <BrandMark />
         </Link>
@@ -111,7 +131,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
           aria-expanded={!collapsed}
           onClick={onToggle}
           // Keep 7px corners and the translucent hover; ghost defaults to 9px and opaque muted.
-          className="absolute left-0 top-0 size-8 rounded-icon p-0 opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
+          className="absolute left-0 top-0 size-8 rounded-icon p-0 opacity-0 transition-opacity duration-[140ms] ease-out-soft hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
         >
           <PanelLeftOpen className="size-4" />
         </Button>
@@ -157,22 +177,20 @@ function SidebarLink({
   collapsed: boolean;
   onNavigate?: (() => void) | undefined;
 }) {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const active =
-    to === '/agents' && resourceLabels[pathname]
-      ? true
-      : to === '/'
-        ? pathname === '/'
-        : pathname.startsWith(to);
+  const activeRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
+  const active = navRoutes[activeRoute ?? ''] === to;
   // 收起态按参考页：整行透明，状态落在 32×32、radius 6 的图标块上。
   const link = (
     <Link
       to={to}
       onClick={onNavigate}
+      aria-label={label}
       aria-current={active ? 'page' : undefined}
+      // 归属由 navRoutes 判定；Link 自带的路径前缀匹配会把未知路由误判为 active。
+      activeOptions={{ exact: true, includeSearch: false }}
       className={cn(
-        'flex h-8 items-center gap-2.5 text-sm transition-colors duration-150',
-        collapsed ? 'w-8 justify-center' : 'rounded-item px-2.5',
+        'relative flex h-8 items-center text-sm transition-colors duration-150',
+        collapsed ? 'w-8 justify-center' : 'gap-2.5 rounded-item px-2.5',
         collapsed
           ? ''
           : active
@@ -191,16 +209,23 @@ function SidebarLink({
       >
         <Icon aria-hidden="true" />
       </span>
-      {collapsed ? (
-        <span className="sr-only">{label}</span>
-      ) : (
-        <span className="truncate">{label}</span>
-      )}
+      {/*
+        收起与展开共用同一文本节点。收起时标签脱离流、保留自身宽度，只让占位收为 0、
+        opacity 走 90ms，避免宽度即时裁掉文字让过渡不可见；收起瞬间链接仍在展开态
+        起点，left-9 让文字从原 48px 起画，不跳位。
+      */}
+      <span
+        className={cn(
+          'whitespace-nowrap transition-opacity duration-[90ms] ease-out-soft',
+          collapsed ? 'absolute inset-y-0 left-9 flex items-center opacity-0' : 'truncate',
+        )}
+      >
+        {label}
+      </span>
     </Link>
   );
-  if (!collapsed) return link;
   return (
-    <Tooltip>
+    <Tooltip disabled={!collapsed}>
       <TooltipTrigger render={link} />
       <TooltipContent side="right" sideOffset={8}>
         {label}
@@ -368,7 +393,8 @@ export function AppShell() {
       ) : (
         <SidebarBrand collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
       )}
-      <nav aria-label="主导航" className="mt-[18px] flex-1 overflow-y-auto">
+      {/* 收起态标签会横向溢出链接，导航不提供横向滚动。 */}
+      <nav aria-label="主导航" className="mt-[18px] flex-1 overflow-y-auto overflow-x-hidden">
         <SidebarLink
           to={overviewNav.to}
           label={overviewNav.label}
@@ -381,7 +407,7 @@ export function AppShell() {
             {drawer || !collapsed ? (
               <div className="px-2.5 pb-1.5 pt-4 text-xs text-muted-foreground">{group.label}</div>
             ) : (
-              <div className="mx-auto mb-1 h-px w-6 bg-line" aria-hidden="true" />
+              <div className="mx-auto mb-1 h-px w-6" aria-hidden="true" />
             )}
             <div className="flex flex-col gap-0.5">
               {group.items.map((item) => (
