@@ -929,7 +929,7 @@ export function AgentEditor({
     navigateSearch({ section: next });
   };
   const setActiveFile = (next: string): void => navigateSearch({ file: next });
-  const files = useAgentFiles(agent.id);
+  const files = useAgentFiles(agent.id, tab === 'files');
   const fileEntries = files.data ? listWorkspaceFiles(files.data) : baseFileEntries;
   const resolvedEntry = fileEntries.find((entry) => entry.id === activeFile) ?? fileEntries[0];
   const resolvedId = resolvedEntry?.id;

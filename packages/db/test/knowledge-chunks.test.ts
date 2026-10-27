@@ -28,7 +28,7 @@ afterAll(async () => {
   await pool.end();
 });
 
-async function seedChunk(text: string) {
+async function seedVersion() {
   const profile = await knowledge.createModelProfile(db, {
     kind: 'embedding',
     name: `chunk-summary-${randomBytes(4).toString('hex')}`,
@@ -81,6 +81,11 @@ async function seedChunk(text: string) {
     images: [],
     embeddingProfileId: profile.id,
   });
+  return { base, document, version };
+}
+
+async function seedChunk(text: string) {
+  const { base, document, version } = await seedVersion();
   const [chunk] = await knowledge.insertChunks(db, {
     baseId: base.id,
     documentId: document.id,
@@ -105,6 +110,48 @@ async function seedChunk(text: string) {
 }
 
 describe.skipIf(!ready)('knowledge chunk summaries', () => {
+  it('insertChunks 分批写入超过单条 INSERT 参数上限的输入，返回全部行并保持顺序', async () => {
+    const { base, document, version } = await seedVersion();
+    // 每行 14 个绑定参数：4700 行 = 65800 > 65535，未分批时单条语句会失败。
+    const total = 4700;
+    const chunks: knowledge.NewChunk[] = Array.from({ length: total }, (_, ordinal) => ({
+      ordinal,
+      kind: 'text',
+      heading: ordinal % 500 === 0 ? `h${ordinal}` : null,
+      content: `c${ordinal}`,
+      searchText: `c${ordinal}`,
+      embedding: null,
+      pageFrom: null,
+      pageTo: null,
+      tokenCount: 1,
+    }));
+
+    const rows = await knowledge.insertChunks(db, {
+      baseId: base.id,
+      documentId: document.id,
+      versionId: version.id,
+      folderId: null,
+      chunks,
+    });
+
+    expect(rows).toHaveLength(total);
+    expect(rows.map((row) => row.ordinal)).toEqual(chunks.map((chunk) => chunk.ordinal));
+    expect(new Set(rows.map((row) => row.id)).size).toBe(total);
+    for (const ordinal of [0, 499, 500, 999, 1000, total - 1]) {
+      expect(rows[ordinal]).toMatchObject({
+        ordinal,
+        baseId: base.id,
+        documentId: document.id,
+        versionId: version.id,
+        heading: ordinal % 500 === 0 ? `h${ordinal}` : null,
+        content: `c${ordinal}`,
+        searchText: `c${ordinal}`,
+        embedding: null,
+        tokenCount: 1,
+      });
+    }
+  });
+
   it('listChunks 仍返回完整行，worker 能读到向量与分词', async () => {
     const { chunk, versionId } = await seedChunk('令牌 轮换');
 

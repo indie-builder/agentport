@@ -43,6 +43,17 @@ async function settle(rounds = 12): Promise<void> {
   }
 }
 
+/** 保存防抖是真实计时器：按条件等它落定，不靠固定睡眠时长。 */
+async function waitFor(probe: () => boolean, tries = 100): Promise<void> {
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    if (probe()) return;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
+  expect(probe()).toBe(true);
+}
+
 async function render(props: Record<string, unknown>): Promise<void> {
   await act(async () => {
     root.render(createElement(AssistantText, { openUi: true, ...props }));
@@ -323,9 +334,7 @@ describe('state persistence', () => {
     });
 
     await type('fullName', '李四');
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 450));
-    });
+    await waitFor(() => onSaveState.mock.calls.length > 0);
 
     expect(onSaveState).toHaveBeenCalledWith(
       expect.objectContaining({

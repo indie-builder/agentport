@@ -138,6 +138,29 @@ describe.skipIf(!ready)('skills', () => {
     expect(missing.json<{ code: string }>().code).toBe('NOT_FOUND');
   });
 
+  it('rejects traversal and absolute skill file paths at the route boundary', async () => {
+    const skill = await createSkill(unique('file-path'));
+
+    for (const path of ['%2E%2E%2Fhack.md', '%2Fetc%2Fpasswd', 'a%2F..%2Fb.md']) {
+      const res = await inject(app, {
+        method: 'PUT',
+        url: `/api/skills/${skill.id}/files/${path}`,
+        headers: auth(),
+        payload: { content: 'x' },
+      });
+      const body = expectProblem(res, 'INVALID_INPUT');
+      expect(body.message).toContain('相对路径');
+      expect(body.path).toBe('/*');
+    }
+
+    const del = await inject(app, {
+      method: 'DELETE',
+      url: `/api/skills/${skill.id}/files/%2E%2E%2Fhack.md`,
+      headers: auth(),
+    });
+    expectProblem(del, 'INVALID_INPUT');
+  });
+
   type ImportResult = { skill: Skill; warnings: string[] };
 
   const importSkill = (skillMd: string) =>

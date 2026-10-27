@@ -14,7 +14,11 @@ const filesRepo = skillRepo.skillFiles;
 type SkillWrite = Parameters<typeof repo.createSkill>[1];
 
 // 通配路由用 '*' 捕获多段相对路径（scripts/run.sh 之类）。
-const skillFileParams = z.object({ id: z.string().min(1), '*': z.string().min(1) });
+// 通配段复用文件路径 schema：`..`、绝对路径与非法字符在路由边界就被拒绝。
+const skillFileParams = z.object({
+  id: z.string().min(1),
+  '*': skillFileInputSchema.shape.path,
+});
 
 // 解析（含 frontmatter / 字段校验）放在 schema 里：handler 只拿解析结果，不再 safeParse。
 const importSchema = z.object({ skillMd: z.string().max(131072) }).transform(({ skillMd }, ctx) => {
@@ -196,24 +200,13 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const skill = await repo.getSkill(app.db, request.params.id);
       if (!skill) return notFound(reply);
-      const check = skillFileInputSchema.safeParse({
-        path: request.params['*'],
-        content: request.body.content,
-      });
-      if (!check.success) {
-        return reject(reply, 'INVALID_INPUT', check.error.issues[0]?.message ?? '路径不合法');
-      }
-      const row = await filesRepo.upsertSkillFile(
-        app.db,
-        skill.id,
-        check.data.path,
-        check.data.content,
-      );
+      const path = request.params['*'];
+      const row = await filesRepo.upsertSkillFile(app.db, skill.id, path, request.body.content);
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'skill.file.written',
         target: skill.id,
-        input: { path: check.data.path },
+        input: { path },
         status: 'ok',
         requestId: request.id,
       });

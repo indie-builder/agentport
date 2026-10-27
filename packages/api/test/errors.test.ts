@@ -51,6 +51,12 @@ describe('problem responses', () => {
     const ok = await inject(app, { method: 'GET', url: '/api/runs?limit=5' });
     expect(ok.statusCode).toBe(401);
   });
+
+  it('renders zod default validation messages in Chinese', async () => {
+    const res = await inject(app, { method: 'GET', url: '/api/runs?limit=abc' });
+    const body = expectProblem(res, 'INVALID_INPUT');
+    expect(body.message).toMatch(/[一-鿿]/);
+  });
 });
 
 describe('AppError contract', () => {

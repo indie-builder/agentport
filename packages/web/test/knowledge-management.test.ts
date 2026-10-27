@@ -14,6 +14,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { useKnowledgeSearch } from '../src/lib/queries.js';
 import { toastError } from '../src/lib/toast.js';
 import { KnowledgePage } from '../src/pages/knowledge.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
@@ -199,6 +200,15 @@ async function flush() {
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
   await msw.waitForRequests();
+}
+
+/** 条件轮询推进真实异步（FileReader、请求），不靠固定睡眠猜时长。 */
+async function waitFor(probe: () => boolean, tries = 60): Promise<void> {
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    if (probe()) return;
+    await flush();
+  }
+  expect(probe()).toBe(true);
 }
 
 async function mount(path: string, search: Record<string, string> = {}) {
@@ -1177,6 +1187,107 @@ describe('knowledge pagination', () => {
   });
 });
 
+describe('knowledge document search debounce', () => {
+  it('echoes every keystroke but sends one query after the typing pause', async () => {
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索文档"]');
+    if (!input) throw new Error('Missing document search input');
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    for (const value of ['a', 'ab', 'abc']) {
+      await act(async () => {
+        setValue?.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    }
+    // 输入框立即回显，但请求要等防抖落定。
+    expect(input.value).toBe('abc');
+    await waitFor(() =>
+      calls.some((item) => item.path.includes('/api/knowledge/bases/kb_1/documents?q=abc')),
+    );
+    const terms = calls
+      .filter((item) => item.path.startsWith('/api/knowledge/bases/kb_1/documents?'))
+      .map((item) => new URL(item.path, 'http://localhost').searchParams.get('q'))
+      .filter((term) => term !== null);
+    expect(terms).toEqual(['abc']);
+  });
+
+  it('keeps the previous search empty state while a cleared query is still debouncing', async () => {
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', ({ request }) =>
+        HttpResponse.json({
+          items: new URL(request.url).searchParams.get('q') ? [] : [doc],
+          nextCursor: null,
+        }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    await waitFor(() => document.body.textContent?.includes('上线流程') === true);
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索文档"]');
+    if (!input) throw new Error('Missing document search input');
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    const type = (value: string) =>
+      act(async () => {
+        setValue?.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+
+    await type('不存在');
+    await waitFor(() => document.body.textContent?.includes('没有匹配的文档') === true);
+
+    await type('');
+    // 清空后的防抖窗口里，搜索结果还没换回全量，不能误报“还没有文档”。
+    expect(document.body.textContent).toContain('没有匹配的文档');
+    expect(document.body.textContent).not.toContain('还没有文档');
+
+    await waitFor(() => document.body.textContent?.includes('上线流程') === true);
+  });
+});
+
+describe('knowledge search cache keys', () => {
+  it('does not reuse cached results across different limits', async () => {
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/search', () =>
+        HttpResponse.json({ hits: [], degraded: false }),
+      ),
+    );
+    function Probe({ limit }: { limit: number }) {
+      useKnowledgeSearch('kb_1', '发布', limit);
+      return null;
+    }
+    client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    const renderProbe = async (limit: number) => {
+      await act(async () => {
+        root?.render(
+          createElement(QueryClientProvider, { client }, createElement(Probe, { limit })),
+        );
+      });
+      await flush();
+    };
+
+    await renderProbe(10);
+    await renderProbe(20);
+    await renderProbe(10);
+
+    const limits = calls
+      .filter((item) => item.path.startsWith('/api/knowledge/bases/kb_1/search?'))
+      .map((item) => new URL(item.path, 'http://localhost').searchParams.get('limit'));
+    // limit 不同必须各请求一次；回到 limit 10 命中缓存，不再发请求。
+    expect(limits).toEqual(['10', '20']);
+  });
+});
+
 describe('knowledge document viewer', () => {
   it('says a document without a parsed version has no chunks instead of querying an empty version', async () => {
     baseHandlers();
@@ -1406,9 +1517,15 @@ describe('knowledge document upload', () => {
       if (!input) throw new Error('Missing upload input');
       Object.defineProperty(input, 'files', { value: [good, bad], configurable: true });
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      // 等 FileReader 读完两个文件。
-      await new Promise((resolve) => setTimeout(resolve, 120));
     });
+    // FileReader 读完两个文件后才发请求：按请求条件等待。
+    await waitFor(
+      () =>
+        calls.filter(
+          (item) =>
+            item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
+        ).length === 2,
+    );
     await flush();
     const uploads = calls.filter(
       (item) => item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
@@ -1436,8 +1553,15 @@ describe('knowledge document upload', () => {
       if (!input) throw new Error('Missing folder input');
       Object.defineProperty(input, 'files', { value: [nested], configurable: true });
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 120));
     });
+    // 等 FileReader 落定并发出上传请求，再读请求体。
+    await waitFor(
+      () =>
+        calls.filter(
+          (item) =>
+            item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
+        ).length === 1,
+    );
     await flush();
     const body = calls.find(
       (item) => item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',

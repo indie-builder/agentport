@@ -1,6 +1,6 @@
 import { AppError, isAppError } from '@agentport/core';
 import { type ErrorCode, errorCode, type Problem } from '@agentport/shared';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   hasZodFastifySchemaValidationErrors,
   isResponseSerializationError,
@@ -110,56 +110,59 @@ export function problem(requestId: string, err: AppError, extra?: Partial<Proble
  * 错误响应只有一个形状（Problem）。zod 校验失败、响应序列化失败、
  * 框架错误都在这一层收敛，路由里因此不再需要手写 400。
  */
-export function registerErrorHandler(app: FastifyInstance) {
-  app.setErrorHandler((error: unknown, request, reply) => {
-    if (hasZodFastifySchemaValidationErrors(error)) {
-      const issues = error.validation.map((issue) => ({
-        path: (issue as { instancePath?: string }).instancePath ?? '',
-        message: (issue as { message?: string }).message ?? 'invalid value',
-      }));
-      const first = issues[0];
-      return reply.status(400).send(
-        problem(
-          request.id,
-          new AppError('INVALID_INPUT', first?.message ?? 'invalid request', {
-            ...(first?.path ? { path: first.path } : {}),
-          }),
-          { errors: issues },
-        ),
-      );
-    }
+export function errorHandler(
+  error: unknown,
+  request: FastifyRequest,
+  reply: FastifyReply,
+): FastifyReply {
+  if (hasZodFastifySchemaValidationErrors(error)) {
+    const issues = error.validation.map((issue) => ({
+      path: (issue as { instancePath?: string }).instancePath ?? '',
+      message: (issue as { message?: string }).message ?? 'invalid value',
+    }));
+    const first = issues[0];
+    return reply.status(400).send(
+      problem(
+        request.id,
+        new AppError('INVALID_INPUT', first?.message ?? 'invalid request', {
+          ...(first?.path ? { path: first.path } : {}),
+        }),
+        { errors: issues },
+      ),
+    );
+  }
 
-    if (isResponseSerializationError(error)) {
-      // 响应不符合声明的 schema 是服务端缺陷：细节只进日志。
-      request.log.error({ err: error }, 'response serialization failed');
-      return reply
-        .status(500)
-        .send(
-          problem(
-            request.id,
-            new AppError('RESPONSE_INVALID', 'response did not match its schema'),
-          ),
-        );
-    }
-
-    const err = toAppError(error);
-    if (err.status >= 500) request.log.error({ err: error, code: err.code }, 'unhandled error');
-    else if (err.status !== 401)
-      request.log.warn({ code: err.code, err: error }, 'request rejected');
-
-    return reply.status(err.status).send(problem(request.id, err));
-  });
-
-  app.setNotFoundHandler((request, reply) => {
-    reply
-      .status(404)
+  if (isResponseSerializationError(error)) {
+    // 响应不符合声明的 schema 是服务端缺陷：细节只进日志。
+    request.log.error({ err: error }, 'response serialization failed');
+    return reply
+      .status(500)
       .send(
-        problem(
-          request.id,
-          new AppError('NOT_FOUND', `Route ${request.method} ${request.url} not found`),
-        ),
+        problem(request.id, new AppError('RESPONSE_INVALID', 'response did not match its schema')),
       );
-  });
+  }
+
+  const err = toAppError(error);
+  if (err.status >= 500) request.log.error({ err: error, code: err.code }, 'unhandled error');
+  else if (err.status !== 401) request.log.warn({ code: err.code, err: error }, 'request rejected');
+
+  return reply.status(err.status).send(problem(request.id, err));
+}
+
+export function notFoundHandler(request: FastifyRequest, reply: FastifyReply): FastifyReply {
+  return reply
+    .status(404)
+    .send(
+      problem(
+        request.id,
+        new AppError('NOT_FOUND', `Route ${request.method} ${request.url} not found`),
+      ),
+    );
+}
+
+export function registerErrorHandler(app: FastifyInstance): void {
+  app.setErrorHandler(errorHandler);
+  app.setNotFoundHandler(notFoundHandler);
 }
 
 /** 路由里主动拒绝时用：省掉 status/message/requestId 的重复拼装。 */

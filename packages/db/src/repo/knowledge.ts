@@ -605,6 +605,9 @@ export interface NewChunk {
   metadata?: Record<string, unknown>;
 }
 
+/** 单条 INSERT 的绑定参数上限是 65535；按 500 行分段，远低于该上限。 */
+const INSERT_CHUNK = 500;
+
 export async function insertChunks(
   db: Database | Tx,
   input: {
@@ -616,19 +619,24 @@ export async function insertChunks(
   },
 ): Promise<KnowledgeChunkRow[]> {
   if (input.chunks.length === 0) return [];
-  return db
-    .insert(knowledgeChunks)
-    .values(
-      input.chunks.map((chunk) => ({
-        id: newId('knowledgeChunk'),
-        baseId: input.baseId,
-        documentId: input.documentId,
-        versionId: input.versionId,
-        folderId: input.folderId,
-        ...chunk,
-      })),
-    )
-    .returning();
+  const rows = input.chunks.map((chunk) => ({
+    id: newId('knowledgeChunk'),
+    baseId: input.baseId,
+    documentId: input.documentId,
+    versionId: input.versionId,
+    folderId: input.folderId,
+    ...chunk,
+  }));
+  const inserted: KnowledgeChunkRow[] = [];
+  for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+    inserted.push(
+      ...(await db
+        .insert(knowledgeChunks)
+        .values(rows.slice(i, i + INSERT_CHUNK))
+        .returning()),
+    );
+  }
+  return inserted;
 }
 
 /** 重建版本时整批替换：同事务内清空旧 chunk 再插入。 */

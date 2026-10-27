@@ -942,7 +942,8 @@ export const knowledgeKeys = {
     ['knowledge', 'chunks', documentId, versionId] as const,
   markdown: (versionId: string) => ['knowledge', 'markdown', versionId] as const,
   versionDetails: (versionId: string) => ['knowledge', 'version-details', versionId] as const,
-  search: (baseId: string, q: string) => ['knowledge', 'search', baseId, q] as const,
+  search: (baseId: string, q: string, limit: number) =>
+    ['knowledge', 'search', baseId, q, limit] as const,
   jobs: (baseId: string) => ['knowledge', 'jobs', baseId] as const,
   folders: (baseId: string) => ['knowledge', 'folders', baseId] as const,
   tags: (baseId: string) => ['knowledge', 'tags', baseId] as const,
@@ -1250,7 +1251,7 @@ export function useReprocessKnowledgeDocument(baseId: string) {
 export function useKnowledgeSearch(baseId: string, q: string, limit = 10) {
   const term = q.trim();
   return useQuery<KnowledgeSearchResponse>({
-    queryKey: knowledgeKeys.search(baseId, term),
+    queryKey: knowledgeKeys.search(baseId, term, limit),
     queryFn: ({ signal }) => api.knowledgeSearch(baseId, term, limit, signal),
     enabled: term.length > 0,
     staleTime: 10_000,
