@@ -122,6 +122,8 @@ export function SkillsPage() {
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const importSkill = useImportSkillFile();
+  // 安装生命周期放在常驻页上：切换 scope 卸载市场子页时，请求与提示仍然接得住。
+  const install = useInstallMarketSkill();
   const actionTriggerRef = useRef<HTMLElement | null>(null);
   // 关闭后回到真实触发器；菜单项会随菜单卸载，所以记的是常驻的下拉触发器。
   const panelFocus = (): HTMLElement | null =>
@@ -131,6 +133,16 @@ export function SkillsPage() {
     replace = false,
   ): void => {
     void navigate({ to: '/skills', search: (previous) => ({ ...previous, ...patch }), replace });
+  };
+  const openMarket = (): void => {
+    void navigate({
+      to: '/skills',
+      search: (previous) => ({
+        scope: 'market',
+        ...(previous.sort ? { sort: previous.sort } : {}),
+        ...(previous.marketView ? { marketView: previous.marketView } : {}),
+      }),
+    });
   };
   const importSkillMd = async (file: File): Promise<void> => {
     if (file.size > maxSkillFileBytes) {
@@ -163,7 +175,7 @@ export function SkillsPage() {
       );
   }, [skills.data, query, sort, usage]);
 
-  if (scope === 'market') return <MarketSkillsPage skills={skills} />;
+  if (scope === 'market') return <MarketSkillsPage skills={skills} install={install} />;
 
   return (
     <ResourcePage
@@ -184,16 +196,7 @@ export function SkillsPage() {
           label="技能来源"
           value="internal"
           options={scopeOptions}
-          onChange={() =>
-            void navigate({
-              to: '/skills',
-              search: (previous) => ({
-                scope: 'market',
-                ...(previous.sort ? { sort: previous.sort } : {}),
-                ...(previous.marketView ? { marketView: previous.marketView } : {}),
-              }),
-            })
-          }
+          onChange={openMarket}
         />
       }
       filters={
@@ -246,6 +249,17 @@ export function SkillsPage() {
       {skills.isPending ? <LoadingState rows={4} layout="cards" /> : null}
       {skills.isError ? (
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
+      ) : null}
+      {skills.data && skills.data.length === 0 ? (
+        <PageNote
+          icon={<Sparkles aria-hidden="true" />}
+          title="技能库为空"
+          action={
+            <Button variant="outline" size="sm" onClick={openMarket}>
+              前往市场
+            </Button>
+          }
+        />
       ) : null}
       {skills.data && skills.data.length > 0 && visibleSkills.length === 0 ? (
         <PageNote
@@ -417,7 +431,13 @@ function SegmentedToggle<T extends string>({
   );
 }
 
-function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) {
+function MarketSkillsPage({
+  skills,
+  install,
+}: {
+  skills: ReturnType<typeof useSkills>;
+  install: ReturnType<typeof useInstallMarketSkill>;
+}) {
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/skills' });
   const view: MarketView = search.marketView ?? 'all-time';
@@ -425,8 +445,7 @@ function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) 
   const term = query.trim();
   const tooShort = term.length === 1;
   const market = useMarketSkills(view, query);
-  const install = useInstallMarketSkill();
-  const [installingId, setInstallingId] = useState<string | null>(null);
+  const loaded = !skills.isPending && !skills.isError;
   const installedIds = new Set(
     (skills.data ?? []).map((skill) => skill.sourceId).filter((id): id is string => id !== null),
   );
@@ -438,19 +457,9 @@ function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) 
     });
   };
   const installSkill = (item: MarketSkill): void => {
+    // 串行安装：只有全局 pending 结束才允许下一次点击。
     if (install.isPending) return;
-    setInstallingId(item.id);
-    install.mutate(
-      { id: item.id },
-      {
-        onSuccess: ({ skill, warnings }) => {
-          toastSuccess(`已安装「${skill.name}」`);
-          for (const warning of warnings) toast.info(warning);
-        },
-        onError: toastError,
-        onSettled: () => setInstallingId(null),
-      },
-    );
+    install.mutate({ id: item.id });
   };
 
   return (
@@ -466,8 +475,10 @@ function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) 
       }
       sort="newest"
       onSortChange={() => {}}
-      count={market.data?.length ?? 0}
-      status={tooShort ? 'success' : market.status}
+      count={tooShort ? undefined : (market.data?.length ?? 0)}
+      status={
+        tooShort ? 'success' : market.isPending || market.isDebouncing ? 'pending' : market.status
+      }
       hideSort
       leadingFilters={
         <SegmentedToggle
@@ -510,29 +521,47 @@ function MarketSkillsPage({ skills }: { skills: ReturnType<typeof useSkills> }) 
           description="再多输入一个字符即可搜索市场。"
         />
       ) : null}
-      {!tooShort && market.isPending ? <LoadingState rows={4} layout="cards" /> : null}
-      {!tooShort && market.isError ? (
+      {skills.isPending ? <LoadingState rows={4} layout="cards" /> : null}
+      {skills.isError ? (
+        <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
+      ) : null}
+      {loaded && !tooShort && (market.isPending || market.isDebouncing) ? (
+        <LoadingState rows={4} layout="cards" />
+      ) : null}
+      {loaded && !tooShort && !market.isPending && !market.isDebouncing && market.isError ? (
         <ErrorState error={market.error} onRetry={() => void market.refetch()} />
       ) : null}
-      {!tooShort && market.data && market.data.length === 0 ? (
+      {loaded &&
+      !tooShort &&
+      !market.isPending &&
+      !market.isDebouncing &&
+      market.data &&
+      market.data.length === 0 ? (
         <PageNote
           icon={<Sparkles aria-hidden="true" />}
           title={term ? '没有匹配的技能' : '榜单为空'}
           description={term ? '试试其他关键词。' : 'skills.sh 暂时没有返回榜单数据。'}
           action={
-            term ? (
-              <Button variant="outline" size="sm" onClick={clearSearch}>
-                清除搜索
-              </Button>
-            ) : undefined
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={term ? clearSearch : () => void market.refetch()}
+            >
+              {term ? '清除搜索' : '刷新榜单'}
+            </Button>
           }
         />
       ) : null}
-      {!tooShort && market.data && market.data.length > 0 ? (
+      {loaded &&
+      !tooShort &&
+      !market.isPending &&
+      !market.isDebouncing &&
+      market.data &&
+      market.data.length > 0 ? (
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {market.data.map((item, index) => {
             const installed = installedIds.has(item.id);
-            const pending = installingId === item.id;
+            const pending = install.isPending && install.variables?.id === item.id;
             return (
               <li key={item.id} className="min-w-0">
                 <Card className="h-full">

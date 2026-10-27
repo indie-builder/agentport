@@ -32,4 +32,40 @@ describe('resource result count', () => {
     expect(html).toContain(expected);
     if (status !== 'success') expect(html).not.toContain('共 0 个专家');
   });
+
+  it.each([
+    ['pending', '加载中…'],
+    ['error', '数量不可用'],
+  ] as const)('keeps the %s status when no count is provided', (status, expected) => {
+    const html = renderToStaticMarkup(
+      createElement(ResourcePage, {
+        section: 'skills',
+        query: 'p',
+        onQueryChange() {},
+        sort: 'newest',
+        onSortChange() {},
+        status,
+        // biome-ignore lint/correctness/noChildrenProp: Required by the component's props type in createElement.
+        children: null,
+      }),
+    );
+    expect(html).toContain(expected);
+  });
+
+  it('omits the count span on success when count is not provided', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResourcePage, {
+        section: 'skills',
+        query: 'p',
+        onQueryChange() {},
+        sort: 'newest',
+        onSortChange() {},
+        status: 'success',
+        // biome-ignore lint/correctness/noChildrenProp: Required by the component's props type in createElement.
+        children: null,
+      }),
+    );
+    expect(html).not.toContain('共 ');
+    expect(html).not.toContain('数量不可用');
+  });
 });

@@ -38,7 +38,8 @@ export function ResourcePage({
   onQueryChange: (value: string) => void;
   sort: 'newest' | 'name';
   onSortChange: (value: 'newest' | 'name') => void;
-  count: number;
+  /** 省略时不展示数量（例如搜索词太短，结果数没有意义）。 */
+  count?: number | undefined;
   status: 'pending' | 'error' | 'success';
   filters?: ReactNode;
   leadingFilters?: ReactNode;
@@ -71,13 +72,15 @@ export function ResourcePage({
         <PageToolbar>
           <div className="flex min-w-0 flex-wrap items-center gap-3">
             {leadingFilters}
-            <span role="status" className="text-xs text-muted-foreground">
-              {status === 'pending'
-                ? '加载中…'
-                : status === 'error'
-                  ? '数量不可用'
-                  : `共 ${count} 个${label}`}
-            </span>
+            {status === 'success' && count === undefined ? null : (
+              <span role="status" className="text-xs text-muted-foreground">
+                {status === 'pending'
+                  ? '加载中…'
+                  : status === 'error'
+                    ? '数量不可用'
+                    : `共 ${count} 个${label}`}
+              </span>
+            )}
           </div>
           <div className="ml-auto flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
             <SearchInput
