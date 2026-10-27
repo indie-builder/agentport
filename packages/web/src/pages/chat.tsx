@@ -1211,6 +1211,14 @@ function ChatColumn({
   // 组件动作走同一条发送路径；send 每次渲染都是新函数，用 ref 保住 MessagePart 的 memo。
   const sendRef = useRef(send);
   sendRef.current = send;
+  // 欢迎态输入框随首条消息卸载：只有提交动作原本在输入框里才把焦点交给对话态的同一个控件。
+  // 标志由 Composer 在提交前写入，运行审批卡片或其它控件不会触发交班。
+  const focusHandoff = useRef(false);
+  useEffect(() => {
+    if (showWelcome || !focusHandoff.current) return;
+    focusHandoff.current = false;
+    composerRef.current?.focus();
+  }, [showWelcome, composerRef]);
   // 动作本身就是一条完整的下一轮输入：正文用按钮说明，params/context/表单值原样带走。
   // 不走输入框（不 setInput），因此用户没发出的草稿不会被覆盖。
   const openUiAction = useCallback((action: OpenUiAction) => {
@@ -1259,6 +1267,7 @@ function ChatColumn({
       lastRunId={lastRunId}
       welcome={showWelcome}
       historyReady={historyReady}
+      focusHandoff={focusHandoff}
       cancelling={cancelling}
       onCancel={onCancel}
     />
@@ -1435,6 +1444,7 @@ export function Composer({
   lastRunId,
   welcome,
   historyReady = true,
+  focusHandoff,
   cancelling = false,
   onCancel,
 }: {
@@ -1444,6 +1454,8 @@ export function Composer({
   lastRunId: string | null;
   welcome: boolean;
   historyReady?: boolean;
+  /** 由外层消费：提交时焦点还在输入框，才把焦点交接给卸载后重建的输入框。 */
+  focusHandoff?: { current: boolean };
   cancelling?: boolean;
   onCancel?: () => void;
 }) {
@@ -1451,12 +1463,20 @@ export function Composer({
   const input = useChatStore((state) => state.input);
   const setInput = useChatStore((state) => state.setInput);
   const run = useChatStore((state) => state.run);
+  // Enter 与发送按钮共用：每次提交都覆盖交班意图，只有欢迎态、正文非空且焦点原本在输入框才交接。
+  const submit = (): void => {
+    if (!historyReady || run) return;
+    if (focusHandoff)
+      focusHandoff.current =
+        welcome && Boolean(input.trim()) && document.activeElement === textareaRef.current;
+    void send();
+  };
   return (
     <form
       className={cn('w-full shrink-0', !welcome && 'mx-auto max-w-[760px] px-4 pb-4 pt-3')}
       onSubmit={(event) => {
         event.preventDefault();
-        if (historyReady) void send();
+        submit();
       }}
     >
       <div className="mx-auto w-full max-w-[728px]">
@@ -1478,7 +1498,7 @@ export function Composer({
               if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                if (!run && historyReady) void send();
+                submit();
               }
             }}
           />
@@ -1831,10 +1851,11 @@ export function MessagePane({
                           </MessageContent>
                         </Message>
                         {/* 历史读数常驻占位、默认透明：指到或聚焦这一轮才显影。
-                            不用绝对定位——item 的 content-visibility 会裁掉越界内容。
-                            invisible 同时把隐藏态里的「查看详情」移出 Tab 序，避免长会话堆积焦点位。 */}
+                            只用 opacity 隐藏——「查看详情」始终留在可访问树与 Tab 序里，
+                            键盘聚焦到它时本轮 group-focus-within 显影，链接不会突然消失。
+                            不用绝对定位——item 的 content-visibility 会裁掉越界内容。 */}
                         {historyRun ? (
-                          <div className="mt-1 invisible opacity-0 transition-[opacity,visibility] duration-150 group-focus-within/turn:visible group-focus-within/turn:opacity-100 group-hover/turn:visible group-hover/turn:opacity-100 pointer-coarse:visible pointer-coarse:opacity-100 motion-reduce:transition-none">
+                          <div className="mt-1 opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within/turn:opacity-100 group-hover/turn:opacity-100 pointer-coarse:opacity-100 motion-reduce:transition-none">
                             <RunMetricsLine
                               run={historyRun}
                               {...(historyRun.endedAt

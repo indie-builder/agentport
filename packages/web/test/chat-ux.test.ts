@@ -626,6 +626,136 @@ describe('chat shell layout', () => {
   });
 });
 
+describe('chat focus handoff and history detail reachability', () => {
+  function threeTurnHistory() {
+    const turns = ['run-1', 'run-2', 'run-3'];
+    return {
+      conversation: { ...terminal.conversation, createdAt: '' },
+      nextBefore: null,
+      messages: turns.flatMap((runId, index) => [
+        {
+          id: `user-${runId}`,
+          conversationId: 'conversation-a',
+          role: 'user',
+          content: `prompt ${index + 1}`,
+          runId,
+          createdAt: '',
+        },
+        {
+          id: `reply-${runId}`,
+          conversationId: 'conversation-a',
+          role: 'assistant',
+          content: [{ type: 'text', text: `reply ${index + 1}` }],
+          runId,
+          createdAt: '',
+        },
+      ]),
+      runMetrics: turns.map((runId) => ({
+        runId,
+        status: 'succeeded' as const,
+        turns: 1,
+        durationMs: 1000,
+        endedAt: null,
+        tokens: 10,
+        costUsd: 0.001,
+        error: null,
+      })),
+    };
+  }
+
+  it('keeps historical run details in the tab order instead of hiding them', async () => {
+    vi.mocked(api.conversation).mockResolvedValue(threeTurnHistory());
+    await mount('/chat?agent=agent-a&conversation=conversation-a');
+
+    const links = [...host.querySelectorAll('a')].filter((link) => link.textContent === '查看详情');
+    expect(links.length).toBeGreaterThanOrEqual(2);
+    const oldest = links[0];
+    if (!oldest) throw new Error('Missing history detail link');
+    // 隐藏只靠 opacity：链接仍在可访问树与 Tab 序里，聚焦到它时本轮 group-focus-within 显影。
+    const wrapper = oldest.closest('[class*="transition-opacity"]');
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.className).not.toContain('invisible');
+    expect(wrapper?.className).not.toContain('visibility');
+    expect(oldest.closest('[inert]')).toBeNull();
+    expect(oldest.closest('[aria-hidden="true"]')).toBeNull();
+    oldest.focus();
+    expect(document.activeElement).toBe(oldest);
+    expect(oldest.getAttribute('href')).toBe('/runs/run-1');
+  });
+
+  it('moves focus to the conversation composer after the first Enter send', async () => {
+    vi.spyOn(api, 'sendChat').mockResolvedValue({
+      runId: 'run-new',
+      conversationId: 'conversation-a',
+    });
+    vi.mocked(api.conversation).mockResolvedValue(threeTurnHistory());
+    await mount('/chat?agent=agent-a');
+    await type('first question');
+    message().focus();
+    const welcomeInput = message();
+    await act(async () => {
+      welcomeInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    await flush();
+
+    const conversationInput = message();
+    expect(conversationInput).not.toBe(welcomeInput);
+    expect(welcomeInput.isConnected).toBe(false);
+    expect(document.activeElement).toBe(conversationInput);
+    await type('follow-up draft');
+    expect(conversationInput.value).toBe('follow-up draft');
+  });
+
+  it('does not take focus back when another control submits', async () => {
+    vi.spyOn(api, 'sendChat').mockResolvedValue({
+      runId: 'run-new',
+      conversationId: 'conversation-a',
+    });
+    vi.mocked(api.conversation).mockResolvedValue(threeTurnHistory());
+    await mount('/chat?agent=agent-a');
+    await type('mouse send');
+    const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
+    if (!toggle) throw new Error('Missing history toggle');
+    toggle.focus();
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.click(),
+    );
+    await flush();
+
+    expect(document.activeElement).toBe(toggle);
+    expect(document.activeElement).not.toBe(message());
+  });
+
+  it('does not inherit an empty-Enter handoff when another control submits', async () => {
+    vi.spyOn(api, 'sendChat').mockResolvedValue({
+      runId: 'run-new',
+      conversationId: 'conversation-a',
+    });
+    vi.mocked(api.conversation).mockResolvedValue(threeTurnHistory());
+    await mount('/chat?agent=agent-a');
+    message().focus();
+    const welcomeInput = message();
+    await act(async () => {
+      welcomeInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(vi.mocked(api.sendChat)).not.toHaveBeenCalled();
+
+    await type('actual body');
+    const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
+    if (!toggle) throw new Error('Missing history toggle');
+    toggle.focus();
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.click(),
+    );
+    await flush();
+
+    expect(vi.mocked(api.sendChat)).toHaveBeenCalledTimes(1);
+    expect(welcomeInput.isConnected).toBe(false);
+    expect(document.activeElement).toBe(toggle);
+    expect(document.activeElement).not.toBe(message());
+  });
+});
+
 describe('conversation header menu', () => {
   function headerTitle() {
     return host.querySelector('h1');
