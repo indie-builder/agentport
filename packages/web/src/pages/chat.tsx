@@ -938,37 +938,32 @@ function AgentPicker({
             aria-label="选择专家"
             title="切换专家"
             className="h-8 w-full min-w-0 justify-start gap-2 px-2 font-normal"
-          >
-            {agent ? (
-              <AgentAvatar agent={agent} className="size-5" />
-            ) : (
-              <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
-            )}
-            <span className="min-w-0 flex-1 truncate text-left text-sm text-fg">
-              {agent?.name ?? '选择专家'}
-            </span>
-          </Button>
+          />
         }
-      />{' '}
+      >
+        {agent ? (
+          <AgentAvatar agent={agent} className="size-5" />
+        ) : (
+          <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
+        )}
+        <span className="min-w-0 flex-1 truncate text-left text-sm text-fg">
+          {agent?.name ?? '选择专家'}
+        </span>
+      </ComboboxTrigger>
       <ComboboxContent className="min-w-[16rem]">
-        <ComboboxInput
-          aria-label="搜索专家"
-          placeholder="搜索名称或角色…"
-          showTrigger={false}
-          className="w-full"
-        />
+        <ComboboxInput aria-label="搜索专家" placeholder="搜索名称或角色…" showTrigger={false} />
         <ComboboxEmpty>没有匹配的专家</ComboboxEmpty>
         <ComboboxList>
           {(option: (typeof agentOptions)[number]) => (
-            <ComboboxItem key={option.value} value={option} className="items-start gap-2 py-1.5">
+            <ComboboxItem key={option.value} value={option} className="py-1.5">
               {option.agent ? (
-                <AgentAvatar agent={option.agent} className="mt-0.5 size-6" />
+                <AgentAvatar agent={option.agent} className="size-6" />
               ) : (
-                <Bot className="mt-1 size-4 text-muted-foreground" aria-hidden="true" />
+                <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
               )}
               <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-sm text-fg">{option.label}</span>
-                <span className="truncate text-2xs text-muted-foreground">
+                <span className="min-w-0 break-words text-sm text-fg">{option.label}</span>
+                <span className="min-w-0 break-words text-xs text-muted-foreground">
                   {option.agent?.role?.trim() || '通用助手'}
                 </span>
               </span>
