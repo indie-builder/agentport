@@ -65,6 +65,19 @@ export async function getPluginBySourceId(
   return row ?? null;
 }
 
+/** 列表页只关心是否已入库：一次投影 sourceId，不取整行。 */
+export async function getImportedPluginSourceIds(
+  db: Database,
+  sourceIds: string[],
+): Promise<Set<string>> {
+  if (sourceIds.length === 0) return new Set();
+  const rows = await db
+    .select({ sourceId: plugins.sourceId })
+    .from(plugins)
+    .where(inArray(plugins.sourceId, sourceIds));
+  return new Set(rows.map((row) => row.sourceId).filter((id): id is string => id !== null));
+}
+
 export async function createPluginWithFiles(
   db: Database,
   input: PluginWrite,
