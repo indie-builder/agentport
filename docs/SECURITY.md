@@ -7,7 +7,7 @@
 | 编号 | 严重度 | 问题 | 修复 |
 |---|---|---|---|
 | C1 | Critical | compose 把 Postgres/Redis 发布到 0.0.0.0，Redis 无密码 | 端口绑 `127.0.0.1`；Redis 加 `--requirepass`；连接串带密码。compose 文件已修；已存在的容器需要 `docker compose up -d --force-recreate postgres redis` 才会生效 |
-| H1 | High | `assertSafeUrl` 可被 `[::ffff:7f00:1]`（十六进制 IPv4-mapped）与 NAT64 绕过 | 提取内嵌 IPv4 再判断；补 `240/4`、`255.255.255.255`、`192.0.0.0/24`、`192.88.99/24` |
+| H1 | High | `assertSafeUrl` 可被 `[::ffff:7f00:1]`（十六进制 IPv4-mapped）与 NAT64 绕过 | 改为单个 `net.BlockList`：原 IPv4 网段逐条同时登记 IPv4 与 NAT64 `64:ff9b::<network>/(96+prefix)` 子网，IPv4-mapped 由 BlockList 原生匹配；显式保留 `::/128`、`::1/128`、`fc00::/7`、`fe80::/10`，删除手写 IPv6 解析，拒绝范围不变 |
 | H2 | High | `fetch` 默认跟随重定向，只在第一跳做 SSRF 校验 | `redirect:'error'` + 30s 超时 + 1 MiB 响应体上限 |
 | H3 | High | stdio「测试连接」在 API 主机 spawn 用户命令并继承全部 `process.env` | 只传 `PATH`/`HOME`/`LANG` + 用户配置的 env |
 | H6 | High | `/health/ready` 每请求新建 Redis 连接 | 复用 metrics 的共享 lazy 客户端 |
@@ -17,7 +17,7 @@
 | L6 | Medium | overview `days` 无上限导致非法日期 500 | 限制 1–3650 |
 | — | — | 审批状态在连接建立时快照，批准后同一连接仍被拒 | 改为调用时重新读取（`refreshApprovals`） |
 | — | — | `generated.ts` 的 SSRF 调用未传 `nodeEnv`，与测试连接行为不一致 | 显式传入 `config.NODE_ENV` |
-| — | — | 本机代理的 `198.18.0.0/15` FakeIP 会被误判为私网 | 开发环境放行该网段，生产仍拦截 |
+| — | — | FakeIP `198.18.0.0/15` 的放行范围 | `ssrf.ts` 不单独屏蔽该网段，开发与生产一致；本机开发例外仅 `localhost`/`127.0.0.1`/`::1` |
 
 ## 循环 8 已修复
 
