@@ -1207,6 +1207,12 @@ export async function importAgentPackage(
                   existingSkills.map((skill) => skill.id),
                 ),
               );
+      const existingFilesBySkillId = new Map<string, typeof existingFiles>();
+      for (const file of existingFiles) {
+        const files = existingFilesBySkillId.get(file.skillId) ?? [];
+        files.push(file);
+        existingFilesBySkillId.set(file.skillId, files);
+      }
       for (const skillInput of parsed.skills) {
         const existing = existingSkillBySlug.get(skillInput.slug);
         if (existing) {
@@ -1226,7 +1232,7 @@ export async function importAgentPackage(
               `已存在同名技能「${skillInput.slug}」，其来源信息与导入包不同，已保留原配置`,
             );
           }
-          const files = existingFiles.filter((file) => file.skillId === existing.id);
+          const files = existingFilesBySkillId.get(existing.id) ?? [];
           const contents = new Map(files.map((file) => [file.path, file.content]));
           if (
             files.length !== skillInput.files.length ||
