@@ -56,10 +56,13 @@ describe.skipIf(!ready)('agent update concurrency', () => {
   };
 
   const versionRows = async (id: string) => {
-    const { rows } = await app.pool.query<{ version: number; snapshot: Agent }>(
-      'select version, snapshot from agent_versions where agent_id = $1 order by version',
-      [id],
-    );
+    const { rows } = await app.pool.query<{
+      version: number;
+      snapshot: Agent;
+      note: string | null;
+    }>('select version, snapshot, note from agent_versions where agent_id = $1 order by version', [
+      id,
+    ]);
     return rows;
   };
 
@@ -80,6 +83,69 @@ describe.skipIf(!ready)('agent update concurrency', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('writes each snapshot with one insert that computes the next version in SQL', async () => {
+    const agent = await newAgent();
+    expect((await versionRows(agent.id)).map((row) => row.version)).toEqual([1]);
+
+    const statements: string[] = [];
+    const clientProto = (
+      app.pool as unknown as { Client: { prototype: { query: (...args: unknown[]) => unknown } } }
+    ).Client.prototype;
+    const originalQuery = clientProto.query;
+    const spy = vi.spyOn(clientProto, 'query').mockImplementation(function (
+      this: unknown,
+      first: unknown,
+      ...rest: unknown[]
+    ) {
+      if (typeof first === 'string') statements.push(first);
+      else if (first && typeof first === 'object' && 'text' in first) {
+        statements.push(String((first as { text: unknown }).text));
+      }
+      return originalQuery.apply(this, [first, ...rest]);
+    });
+    try {
+      const first = await patch(agent.id, { name: 'Round one' });
+      expect(first.statusCode, first.body).toBe(200);
+      const second = await patch(agent.id, { description: 'Round two' });
+      expect(second.statusCode, second.body).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const writes = statements.filter((text) => /insert into "agent_versions"/i.test(text));
+    expect(writes).toHaveLength(2);
+    for (const text of writes) {
+      expect(text).toMatch(
+        /select coalesce\(max\("agent_versions"\."version"\),\s*0\)\s*\+\s*1\s+from\s+"agent_versions"/i,
+      );
+    }
+    expect(
+      statements.filter(
+        (text) =>
+          /\bmax\("agent_versions"\."version"\)/i.test(text) &&
+          !/insert into "agent_versions"/i.test(text),
+      ),
+    ).toEqual([]);
+
+    const versions = await versionRows(agent.id);
+    expect(versions.map((row) => row.version)).toEqual([1, 2, 3]);
+    expect(versions.at(-1)?.snapshot).toMatchObject({
+      name: 'Round one',
+      description: 'Round two',
+    });
+
+    const rolledBack = await inject(app, {
+      method: 'POST',
+      url: `/api/agents/${agent.id}/rollback`,
+      headers: { cookie },
+      payload: { version: 1 },
+    });
+    expect(rolledBack.statusCode, rolledBack.body).toBe(200);
+    const rolled = await versionRows(agent.id);
+    expect(rolled.at(-1)?.note).toBe('rollback to v1');
+    expect(rolled.at(-1)?.snapshot).toMatchObject({ name: agent.name });
   });
 
   it('lets exactly one of two same-version PATCHes win with one version and one audit row', async () => {

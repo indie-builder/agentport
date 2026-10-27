@@ -22,14 +22,11 @@ export async function insertAgentVersion(
   snapshot: Agent,
   note: string | null = null,
 ): Promise<void> {
-  const [last] = await tx
-    .select({ max: sql<number | null>`max(${agentVersions.version})` })
-    .from(agentVersions)
-    .where(eq(agentVersions.agentId, agentId));
   await tx.insert(agentVersions).values({
     id: newId('agentVersion'),
     agentId,
-    version: (last?.max ?? 0) + 1,
+    // 版本号在 INSERT 内计算，少一次往返；并发仍由唯一约束兜底。
+    version: sql`(select coalesce(max(${agentVersions.version}), 0) + 1 from ${agentVersions} where ${agentVersions.agentId} = ${agentId})`,
     snapshot,
     note,
   });
