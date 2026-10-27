@@ -65,6 +65,16 @@ export async function getServer(db: Database | Tx, id: string): Promise<ServerRo
   return row ?? null;
 }
 
+/** 只确认存在性，避免为一次判断传输并解码 config/secretsEncrypted。 */
+export async function serverExists(db: Database | Tx, id: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: servers.id })
+    .from(servers)
+    .where(eq(servers.id, id))
+    .limit(1);
+  return row !== undefined;
+}
+
 /**
  * 读取并锁住行，供「读 → 合并 → 写」跨请求串行化。
  * 必须在事务内调用；FOR UPDATE 之后的读取拿到的是锁释放后的最新值。

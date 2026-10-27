@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import {
   cleanup,
+  createServer,
   expectProblem,
   infraReady,
   inject,
@@ -14,6 +15,31 @@ import {
 } from './helpers.js';
 
 const ready = await infraReady;
+
+/**
+ * 记录真实 pool.query 执行的 SQL。drizzle 的 node-postgres driver 直接调用
+ * pool.query，所以包住这一层就能看到最终 SQL，不需要 mock repo。
+ */
+function capturePoolQueries(app: FastifyInstance): { queries: string[]; restore: () => void } {
+  const original = app.pool.query;
+  const queries: string[] = [];
+  const patched = (first: unknown, ...rest: unknown[]) => {
+    queries.push(typeof first === 'string' ? first : (first as { text: string }).text);
+    return (original as (...args: unknown[]) => unknown).call(app.pool, first, ...rest);
+  };
+  app.pool.query = patched as typeof original;
+  return {
+    queries,
+    restore: () => {
+      app.pool.query = original;
+    },
+  };
+}
+
+const isServerQuery = (sql: string) => /\bfrom\s+"?servers\b/i.test(sql);
+const isToolQuery = (sql: string) => /\bfrom\s+"?api_tools\b/i.test(sql);
+const readsServerSecrets = (sql: string) => /"(?:config|secrets_encrypted)"/i.test(sql);
+const isIdOnlyServerQuery = (sql: string) => /select\s+"id"\s+from\s+"servers"/i.test(sql);
 
 describe.skipIf(!ready)('servers', () => {
   let app: FastifyInstance;
@@ -363,6 +389,66 @@ describe.skipIf(!ready)('servers', () => {
       headers: auth(),
     });
     expect(missing.statusCode).toBe(404);
+  });
+
+  it('GET /api/servers/:id/tools returns [] for an existing server without tools', async () => {
+    const server = await createServer(app, cookie, { track: created });
+    const probe = capturePoolQueries(app);
+    try {
+      const res = await inject(app, {
+        method: 'GET',
+        url: `/api/servers/${server.id}/tools`,
+        headers: auth(),
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual([]);
+
+      // 存在性判断只投影 id；config/secretsEncrypted 不参与传输和解码。
+      const serverQueries = probe.queries.filter(isServerQuery);
+      expect(serverQueries).toHaveLength(1);
+      const existence = serverQueries[0] ?? '';
+      expect(isIdOnlyServerQuery(existence)).toBe(true);
+      expect(readsServerSecrets(existence)).toBe(false);
+      // 空目录仍会查一次工具表。
+      expect(probe.queries.filter(isToolQuery)).toHaveLength(1);
+
+      // 正对照：同一条捕获通道能识别整行查询里的 config/secrets，
+      // 证明上面的否定断言不是因为匹配器永远为假。
+      await app.pool.query('select "config", "secrets_encrypted" from "servers" where id = $1', [
+        server.id,
+      ]);
+      const withControl = probe.queries.filter(isServerQuery);
+      expect(withControl).toHaveLength(2);
+      expect(readsServerSecrets(withControl[1] ?? '')).toBe(true);
+    } finally {
+      probe.restore();
+    }
+  });
+
+  it('GET /api/servers/:id/tools returns the original 404 Problem without listing tools', async () => {
+    const probe = capturePoolQueries(app);
+    try {
+      const res = await inject(app, {
+        method: 'GET',
+        url: '/api/servers/srv_missing/tools',
+        headers: auth(),
+      });
+      expectProblem(res, 'NOT_FOUND');
+
+      const serverQueries = probe.queries.filter(isServerQuery);
+      expect(serverQueries).toHaveLength(1);
+      expect(isIdOnlyServerQuery(serverQueries[0] ?? '')).toBe(true);
+      expect(readsServerSecrets(serverQueries[0] ?? '')).toBe(false);
+      // 未知 id 在存在性检查处返回，不能再查工具目录。
+      expect(probe.queries.filter(isToolQuery)).toHaveLength(0);
+    } finally {
+      probe.restore();
+    }
+  });
+
+  it('GET /api/servers/:id/tools requires auth', async () => {
+    const res = await inject(app, { method: 'GET', url: '/api/servers/srv_missing/tools' });
+    expectProblem(res, 'UNAUTHORIZED');
   });
 
   it('maps a duplicate tool name on rename to 409', async () => {

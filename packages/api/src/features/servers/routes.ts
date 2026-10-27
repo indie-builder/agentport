@@ -341,8 +341,9 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
     '/api/servers/:id/tools',
     { ...auth, schema: { params: idParams } },
     async (request, reply) => {
-      const row = await repo.getServerRow(app.db, request.params.id);
-      if (!row) return notFound(reply, 'server');
+      if (!(await dbRepo.servers.serverExists(app.db, request.params.id))) {
+        return notFound(reply, 'server');
+      }
       return repo.listTools(app.db, request.params.id);
     },
   );
