@@ -37,11 +37,12 @@ function options(): MarketOptions {
 }
 
 let setQuery: (value: string) => void;
+let debouncing: boolean | undefined;
 
 function Probe() {
   const [query, set] = useState('');
   setQuery = set;
-  useMarketSkills('all-time', query);
+  debouncing = useMarketSkills('all-time', query).isDebouncing;
   return null;
 }
 
@@ -90,6 +91,29 @@ describe('market search debounce', () => {
     await type('p');
     await act(async () => vi.advanceTimersByTime(300));
     expect(options().enabled).toBe(false);
+    await act(async () => root.unmount());
+  });
+
+  it('reports isDebouncing while the typed term differs from the settled one', async () => {
+    const root = createRoot(document.createElement('div'));
+    await act(async () => root.render(createElement(Probe)));
+    expect(debouncing).toBe(false);
+
+    await type('pdf');
+    // 防抖窗口内仍是旧键，页面据此显示加载态而不是旧结果。
+    expect(debouncing).toBe(true);
+    expect(keys()).toEqual([['market-skills', 'all-time', '']]);
+
+    await act(async () => vi.advanceTimersByTime(299));
+    expect(debouncing).toBe(true);
+    expect(keys()).toEqual([['market-skills', 'all-time', '']]);
+
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(debouncing).toBe(false);
+    expect(keys()).toEqual([
+      ['market-skills', 'all-time', ''],
+      ['market-skills', 'all-time', 'pdf'],
+    ]);
     await act(async () => root.unmount());
   });
 });
