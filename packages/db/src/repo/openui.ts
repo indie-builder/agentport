@@ -71,6 +71,7 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
           .from(apiTools)
           .where(and(inArray(apiTools.serverId, generatedIds), eq(apiTools.enabled, true)))
           .orderBy(asc(apiTools.serverId), asc(apiTools.name));
+  const toolsByServer = Map.groupBy(generatedTools, (tool) => tool.serverId);
 
   const out: OpenUiToolRow[] = [];
   for (const server of rows) {
@@ -78,14 +79,12 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
     if (server.kind !== 'http' && server.kind !== 'generated') continue;
     const tools =
       server.kind === 'generated'
-        ? generatedTools
-            .filter((tool) => tool.serverId === server.serverId)
-            .map((tool) => ({
-              name: tool.name,
-              description: tool.description,
-              inputSchema: tool.inputSchema,
-              requiresApproval: tool.requiresApproval,
-            }))
+        ? (toolsByServer.get(server.serverId) ?? []).map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            requiresApproval: tool.requiresApproval,
+          }))
         : readHttpCatalog(server.config);
     for (const tool of tools) {
       const name = `mcp__${server.serverName}__${tool.name}`;

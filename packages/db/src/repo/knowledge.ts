@@ -467,28 +467,22 @@ export interface CreateVersionInput {
   embeddingProfileId: string;
 }
 
-/** 版本号在事务内取 max+1；并发重解析同一文档时唯一索引兜底。 */
+/** 版本号在 INSERT 内用按文档过滤的 coalesce(max)+1 子查询算出，单次往返即可。
+ * 同文档并发没有行锁兜底，仍可能撞唯一索引；冲突原样抛出，不自动重试。 */
 export async function createVersion(
   db: Database,
   input: CreateVersionInput,
 ): Promise<KnowledgeVersionRow> {
-  return db.transaction(async (tx) => {
-    const [last] = await tx
-      .select({ max: sql<number>`coalesce(max(${knowledgeDocumentVersions.version}), 0)` })
-      .from(knowledgeDocumentVersions)
-      .where(eq(knowledgeDocumentVersions.documentId, input.documentId));
-    const max = last?.max ?? 0;
-    const [row] = await tx
-      .insert(knowledgeDocumentVersions)
-      .values({
-        id: newId('knowledgeVersion'),
-        version: max + 1,
-        ...input,
-      })
-      .returning();
-    if (!row) throw new Error('knowledge version insert returned no row');
-    return row;
-  });
+  const [row] = await db
+    .insert(knowledgeDocumentVersions)
+    .values({
+      id: newId('knowledgeVersion'),
+      version: sql`(select coalesce(max(${knowledgeDocumentVersions.version}), 0) + 1 from ${knowledgeDocumentVersions} where ${knowledgeDocumentVersions.documentId} = ${input.documentId})`,
+      ...input,
+    })
+    .returning();
+  if (!row) throw new Error('knowledge version insert returned no row');
+  return row;
 }
 
 export async function getVersion(db: Database, id: string): Promise<KnowledgeVersionRow | null> {

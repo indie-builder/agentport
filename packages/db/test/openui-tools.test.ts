@@ -162,6 +162,84 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
     ]);
   });
 
+  it('keeps per-server tool order and isolation across http and generated servers', async () => {
+    const agentId = await newAgent();
+    const suffix = agentId.slice(4);
+    const httpName = `oui-multi-a-${suffix}`;
+    const firstGenName = `oui-multi-b-${suffix}`;
+    const emptyGenName = `oui-multi-c-${suffix}`;
+    const lastGenName = `oui-multi-d-${suffix}`;
+    const httpId = await newServer('http', httpName);
+    const firstGenId = await newServer('generated', firstGenName);
+    const emptyGenId = await newServer('generated', emptyGenName);
+    const lastGenId = await newServer('generated', lastGenName);
+
+    // 反序插入：输出仍按工具名排序，且各 server 的工具不能串组。
+    await addGeneratedTool(firstGenId, 'gamma');
+    await addGeneratedTool(firstGenId, 'beta');
+    await addGeneratedTool(firstGenId, 'alpha');
+    await addGeneratedTool(firstGenId, 'delta', false);
+    await addGeneratedTool(lastGenId, 'bravo', true, {
+      description: 'bravo tool',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
+      requiresApproval: true,
+    });
+    await addGeneratedTool(lastGenId, 'alpha', true);
+    for (const id of [httpId, firstGenId, emptyGenId, lastGenId]) await bind(agentId, id);
+    await db
+      .update(schema.agents)
+      .set({ disallowedTools: [`mcp__${firstGenName}__beta`] })
+      .where(eq(schema.agents.id, agentId));
+
+    expect(await repo.openui.listOpenUiTools(db, agentId)).toEqual([
+      {
+        serverId: httpId,
+        serverName: httpName,
+        kind: 'http',
+        name: `mcp__${httpName}__search`,
+        description: 'search the web',
+        inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
+        requiresApproval: false,
+      },
+      {
+        serverId: firstGenId,
+        serverName: firstGenName,
+        kind: 'generated',
+        name: `mcp__${firstGenName}__alpha`,
+        description: 'alpha tool',
+        inputSchema: { type: 'object', properties: {} },
+        requiresApproval: false,
+      },
+      {
+        serverId: firstGenId,
+        serverName: firstGenName,
+        kind: 'generated',
+        name: `mcp__${firstGenName}__gamma`,
+        description: 'gamma tool',
+        inputSchema: { type: 'object', properties: {} },
+        requiresApproval: false,
+      },
+      {
+        serverId: lastGenId,
+        serverName: lastGenName,
+        kind: 'generated',
+        name: `mcp__${lastGenName}__alpha`,
+        description: 'alpha tool',
+        inputSchema: { type: 'object', properties: {} },
+        requiresApproval: false,
+      },
+      {
+        serverId: lastGenId,
+        serverName: lastGenName,
+        kind: 'generated',
+        name: `mcp__${lastGenName}__bravo`,
+        description: 'bravo tool',
+        inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
+        requiresApproval: true,
+      },
+    ]);
+  });
+
   it('honours disallowedTools, including the whole-server form', async () => {
     const agentId = await newAgent();
     const serverId = await newServer('generated', `oui-deny-${agentId.slice(4)}`);
