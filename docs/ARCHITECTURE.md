@@ -23,7 +23,7 @@
               │  api   │  │ worker │      两者互不 import
               └────────┘  └────────┘
 
-  web ──▶ shared（仅此一层）
+  web ──▶ shared、core 的纯函数子路径（workspace / tools / plugin-display）
   sandbox ── 同一 workspace 的 runner；镜像内由 pnpm deploy 自包含
 ```
 
@@ -35,7 +35,7 @@
 | `api` | 路由、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不写工作区 |
 | `worker` | 消费队列、渲染并写入工作区、管理沙盒、回传事件、维护任务 | 不暴露 HTTP |
 | `sandbox` | 容器内 runner：读一行任务 JSON，逐行输出 NDJSON 事件 | 不含业务代码与智能体定义 |
-| `web` | SPA；生产由 api 托管静态产物 | 不 import core/db/api/worker |
+| `web` | SPA；生产由 api 托管静态产物 | 不 import db/api/worker，也不 import core 根入口（根入口含 `node:crypto` 模块）；仅引用 core 的纯函数子路径 `workspace`、`tools`、`plugin-display` |
 
 进程之间只通过 PostgreSQL、Redis、HTTP 通信，不共享内存对象。
 
@@ -118,7 +118,7 @@
 
 分步说明：
 
-1. `POST /api/chat` 校验 agent 是否存在，创建或复用 conversation，写 user 消息，创建 `agent_runs` 行（`queued`），取最近 20 条历史，投递 `agent-runs` 队列（`jobId = runId`，`attempts: 2`，指数退避 5s；仅当排队数 ≤ 100 时才入队，否则 503），写审计，返回 202。
+1. `POST /api/chat` 校验 agent 是否存在，创建或复用 conversation，写 user 消息，创建 `agent_runs` 行（`queued`），投递 `agent-runs` 队列（`jobId = runId`；载荷只有 `runId`、`agentId`、`conversationId` 与本轮 `prompt`，不携带历史文本；`attempts: 2`，指数退避 5s；仅当排队数 ≤ 100 时才入队，否则 503），写审计，返回 202。续聊/分支状态由 worker 从 DB 读取。
 2. `GET /api/chat/:runId/events` 先订阅 Redis Stream，从 `0` 开始回放，因此 POST 与建连之间的事件不会丢；已结束的 run 直接补发终态。
 3. worker 消费 job：若 run 已被取消则跳过；置为 `running` 并发布 `run_started`。
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 生成文件并写入 `WORKSPACES_DIR/<slug>/<runId>/`。

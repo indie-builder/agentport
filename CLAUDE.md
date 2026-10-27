@@ -92,7 +92,7 @@
 
 - E2E 统一使用 `e2e`（`e2e` + `@e2e-dev/web`）。Playwright 已退役，不再新增其用例。
 - 登录等共享前置用 `test.setup` + session，不要在每条用例里重复登录。
-- 单元/集成测试用 Vitest；测试的 Redis 固定走 db 9，与开发 worker（db 0）隔离，默认不需要停 worker（见 `docs/OPERATIONS.md`）。
+- 单元/集成测试用 Vitest；backend 项目由 globalSetup 每轮创建已迁移的随机 PostgreSQL database 和独享临时 Redis 容器，并在测试模块导入前注入连接串，默认不需要停开发 worker。Docker/PostgreSQL 不可用时依赖对应基础设施的套件跳过，不回落共享库；watch 会话内复用本轮资源并在退出时清理，热重跑不重建（见 `docs/OPERATIONS.md`）。
 
 ## 技能与插件维护
 

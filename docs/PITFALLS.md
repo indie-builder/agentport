@@ -18,8 +18,8 @@
 ## 多个 worktree 同时跑全栈 compose 会互相踩
 
 - **现象**：两个窗口的任务看到对方的数据/容器，或 `3000/5432/6379` 端口被占起不来。
-- **原因**：`docker-compose.yml` 写死 `name: agentport` 和固定端口，所有 worktree 共用同一 compose 项目、卷、端口。
-- **规避**：只让主 checkout 跑基础设施（postgres/redis），各 worktree 只跑应用进程连同一套；确需各自全栈时用 `COMPOSE_PROJECT_NAME` + 端口变量隔离。
+- **原因**：`docker-compose.yml` 写死 `name: agentport` 和主要宿主端口（api 3000、postgres 5432、redis 6379、Docling 5001；只有 worker 模型代理端口走 `MODEL_PROXY_PORT`），所有 worktree 共用同一 compose 项目、卷、端口。
+- **规避**：只让主 checkout 跑基础设施（postgres/redis），各 worktree 只跑应用进程连同一套。`COMPOSE_PROJECT_NAME` 只能分开项目、容器和命名卷，改不了写死的宿主端口；`HOST_WORKSPACES_DIR` 默认仍指向原项目的命名卷，`SANDBOX_API_URL` 也写死回连 3000，多套全栈还会共用工作区与回连地址。所以项目名本身不提供隔离，确需并行全栈要单独方案，先核对端口、宿主卷与回连地址再动手。端口说明见 `docs/OPERATIONS.md` §2.2 与 `docker-compose.yml` 的 `ports`。
 
 ## EnterWorktree 的 name 只接受 ASCII slug
 
@@ -37,7 +37,7 @@
 
 - **现象**：`pnpm test` 里 `chat-admission`、`chat`、`eval` 等套件整组 skip 或报 `worker must be stopped`，换机器/换时间又正常。
 - **原因**：`queueIdle` 用 `redis.client('LIST')` 扫全实例，而 `CLIENT LIST` 不受库号隔离；开发库 db 0 上常驻的 worker 会被算成「被测队列的消费者」。`Queue.getWorkersCount()` 同样扫全实例、只按 clientName 过滤，换成它并不能解决。测试全部并行时，同轮其它套件起的 worker（`sandbox-probe`、`native-queue`）也会被误算。
-- **规避**：测试固定连独立 Redis 库（`vitest.config.ts` 的 backend 项目写死 `/9`），判断时代码同时按 `db=<库号>` 和 `name=bull:<base64(队列名)>` 过滤。用独立 `prefix` 的套件（如 `schedule-scheduler`）真实 worker 看不到，不需要消费者检查，直接判 Redis/Postgres 可用即可。
+- **规避**：默认入口已由 backend globalSetup 每轮提供独享临时 Redis 容器（实例内固定 db 9），开发 worker 留在另一个共享实例的 db 0，因此看不到测试队列。自己判消费者时仍要同时按 `db=<库号>` 和 `name=bull:<base64(队列名)>` 过滤，不能只看实例；用独立 `prefix` 的套件（如 `schedule-scheduler`）真实 worker 看不到，不需要消费者检查，直接判 Redis/Postgres 可用即可。
 
 ## 测试：全量并行时偶发 401，根因是登录后会话没落库
 
@@ -225,11 +225,11 @@
 - **原因**：Carousel item 的内距计入 border-box；浏览器后台页会节流RAF；回放先启动、浏览器后导航会错过增量。空输入发送按钮本来就禁用，不能用“可发送”等待终态。
 - **规避**：分别测item和卡面矩形、轨道gap；浏览器就绪后用信号触发回放，在固定前台记录明确的流式窗口，并记录空闲对照。终态用真实run状态/最终内容判定，不把探针超时直接归为产品失败。
 
-## 测试：固定日期数据库会绕过外层隔离与新迁移
+## 测试：测试库隔离必须尊重注入地址，不能隐式改写或回落固定库
 
-- **现象**：外层已注入临时数据库，但创建智能体仍500，取消测试静默跳过。
-- **原因**：测试模块把DATABASE_URL路径重写回固定历史库，复用的旧迁移账本不含后来合入的插件表；迁移异常又被吞成infra不可用。
-- **规避**：尊重外层隔离地址；确需独立库的套件使用每次唯一名称并在关闭连接后只删自己创建的库。连接可用后的迁移失败应报错，不伪装成跳过。
+- **现象**：外层已注入临时数据库，但创建智能体仍500，取消测试静默跳过；或测试进程把连接串改成了历史固定库。
+- **原因**：测试模块在 import 时捕获 `DATABASE_URL`、擅自改 `process.env`，或把地址重写回固定历史库；复用的旧迁移账本不含后来合入的表，迁移异常又被吞成 infra 不可用。
+- **规避**：默认入口由 backend globalSetup 每轮创建随机库并迁移，经 `provide`/`inject` + `setupFiles` 在导入测试前写入 `process.env`；套件确需独立库时调用 `createIsolatedDatabase(prefix, adminUrl)`，显式使用返回的 `url`（不再隐式改 env），关闭连接后只删自己创建的库。建库/迁移失败必须抛错；只有 PG/Docker 不可用才发布不可连地址并跳过，不能回落开发库或共享 Redis。核验清理时只认本次函数返回的库名及唯一容器名/句柄：同一 worktree 可能有并行代理在跑测试，不要按 `backend_test_*` 前缀或镜像名批量删库/删容器。
 
 ## 数据库：共享库已有列会让 Drizzle 迁移整批中止
 

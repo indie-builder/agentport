@@ -296,8 +296,8 @@ docker compose start api worker
 
 ### 3.3 其他数据约束
 
-- 集成测试使用固定APP_SECRET_KEY，禁止与使用本地密钥的验收数据共用数据库；独立测试库先迁移，再以DATABASE_URL覆盖运行`pnpm test`。否则连接器列表会因无法解密其他密钥写入的数据返回500；保留真实数据，不用忽略解密错误或清空库绕过。
-- 测试固定连 Redis 逻辑库 db 9（`vitest.config.ts` 的 backend 项目强制改写 `REDIS_URL`），开发与各 worktree 的 worker 留在 db 0。这样「队列里没有消费者」类断言不会被别人的 worker 干扰而整组跳过；不要为了让测试通过去停掉开发 worker。
+- 集成测试使用固定APP_SECRET_KEY，测试默认不再读写开发数据库：backend 的 globalSetup 每轮以 `DATABASE_URL` 为管理连接创建随机库并完成迁移，`setupFiles` 在测试模块导入前把连接串写入 `process.env.DATABASE_URL`，退出时只删除本轮创建的库。PostgreSQL 连不上时发布不可连地址，依赖数据库的套件跳过；管理账号需有 `CREATEDB` 权限，连接成功但建库或迁移失败（含无建库权限）属配置错误，直接报错而不跳过。
+- 测试 Redis 同样每轮独享：globalSetup 复用已缓存的 `redis:8-alpine` 启动临时容器（仅 loopback 随机端口、关闭持久化，实例内部仍用 db 9），退出时按本轮唯一容器名删除。本地需预先缓存该镜像（首次可显式 `docker pull redis:8-alpine`），镜像缺失属配置错误直接失败；只有 Docker 不可用时依赖 Redis 的套件才跳过。开发与各 worktree 的 worker 留在共享 Redis db 0，因此「队列里没有消费者」类断言不会被别人的 worker 干扰；禁止回落到共享 Redis，也不要为此停开发 worker。
 - URL中不能写username/password；新建、编辑和两类导入均拒绝。旧记录在列表/导出/预览显示掩码，测试连接会在传输前返回固定错误；数据库不自动改写。需改为无内嵌凭证的URL并在加密headers中配置认证后保存，详见D-33。
 - 连接器页「导入 .mcp.json」接受≤1MiB、1–100条HTTP/stdio配置；env/headers加密保存，响应只给密钥键名。任一重名整批409不覆盖；未知字段、未支持transport、`${VAR}`占位符及URL内嵌凭证明确拒绝。HTTP仍校验SSRF；导入不测试连接或执行命令，详见D-32。
 - 专家页「导入」同时接受专家JSON与≤128KiB的agent.md。Markdown只导入name/description/model/maxTurns/effort及完整正文（含H1），创建独立专家与初始版本；重名409不覆盖，不自动运行。权限和绑定使用平台默认值并提示，inherit及未支持的权限/Hook字段明确拒绝，详见D-30。
@@ -545,15 +545,9 @@ pnpm --filter @agentport/web build
 
 ### 9.2 后端集成测试与 E2E
 
-根 `pnpm test` 的 `backend` 项目（`vitest.config.ts`）会用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，未设置时回落到 `postgres://agentport:agentport@localhost:5432/agentport` 与 `redis://:agentport-dev@localhost:6379`，所以后端用例需要可用的 PostgreSQL 与 Redis；连不上时相应 describe 自动跳过。Redis 库号固定改写为 db 9，与开发 worker 所在的 db 0 隔离。`pnpm test:web` 不走这条路径（见 §9.1）。
+根 `pnpm test` 的 `backend` 项目（`vitest.config.ts`）会用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：globalSetup 每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；两者通过 `inject('backendInfra')` + `setupFiles` 在测试模块导入前写入 `process.env`，后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `redis:8-alpine`（首次可 `docker pull redis:8-alpine`）以及建库或迁移失败都属配置错误，直接报错。`pnpm test:web` 不走这条路径（见 §9.1）。watch 会话开始时 globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理；热重跑不会重建资源。
 
-集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。这类断言怕的是**同一个 Redis 库上有 worker 在消费 `agent-runs`**。测试已在 db 9，开发 worker 在 db 0，默认互不可见，**不需要停 worker**。只有当你显式把 `REDIS_URL` 指回 db 0（例如为了复现隔离问题）时，才需要先停：
-
-```bash
-docker compose stop worker api   # 仅在把测试显式指回 db 0 时才需要
-pnpm test
-docker compose start api worker
-```
+集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。这类断言怕的是**同一个 Redis 实例上有 worker 在消费 `agent-runs`**。测试使用每轮独享的临时 Redis 容器（内部 db 9），开发 worker 留在共享实例的 db 0，默认互不可见，**不需要停 worker**；不要为了让测试通过把 `REDIS_URL` 指回共享实例。
 
 E2E（`pnpm test:e2e`）的地址与启动方式以 `e2e.config.ts` 为准：web 目标固定为 [http://localhost:5173](http://localhost:5173)，未就绪时由 e2e 自动执行 `pnpm --filter @agentport/web exec vite` 启动，已就绪则复用（`reuseExisting`）——它不走 Portless，也不使用 Portless 分配的地址。API 不会被自动启动，需另行在 [http://localhost:3000](http://localhost:3000) 运行。多数用例直写数据库：先 `pnpm build` 产出 `packages/db/dist`，并显式导出与 API 同库的 `DATABASE_URL`。登录凭据取自 `e2e.config.ts` 的 `credentials.admin`（默认 `admin` / `admin-local-dev-2026`，可用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖），须与服务端实际生效的管理员一致；个别文件另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `pnpm test:e2e` 要停 worker。`tests/smoke.e2e.ts` 中的真实对话用例需要 worker 与模型凭据，仅在 `E2E_FULL=1` 时运行，与回放用例前提相反；要跑它应单独选择该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。
 

@@ -9,15 +9,6 @@ export default defineConfig({
       () => {
         // 与 pnpm run up 写出的 .env 对齐；仅后端项目读取，已存在的 env 变量优先。
         if (existsSync('.env')) process.loadEnvFile('.env');
-        const databaseUrl =
-          process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport';
-        // 测试固定用独立 Redis 库：开发和各 worktree 的 worker 常驻 db 0，
-        // 共用会让「队列里没有消费者」类断言看到别人的 worker 而整组跳过。
-        const redisUrl = (() => {
-          const url = new URL(process.env.REDIS_URL ?? 'redis://:agentport-dev@localhost:6379');
-          url.pathname = '/9';
-          return url.toString();
-        })();
 
         return {
           envDir: false,
@@ -28,12 +19,12 @@ export default defineConfig({
             exclude: [...configDefaults.exclude, 'packages/web/**'],
             testTimeout: 20_000,
             hookTimeout: 20_000,
+            globalSetup: ['./packages/worker/test/global-setup.ts'],
+            setupFiles: ['packages/worker/test/setup-env.ts'],
             env: {
               // 测试用本地假上游（127.0.0.1），走与开发一致的安全策略。
               NODE_ENV: 'development',
               LOG_LEVEL: 'error',
-              DATABASE_URL: databaseUrl,
-              REDIS_URL: redisUrl,
               // 32 字节 base64url，固定值保证加密/解密在测试间可复现。
               APP_SECRET_KEY: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY',
               ADMIN_USER: 'admin',

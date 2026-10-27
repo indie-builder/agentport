@@ -22,17 +22,8 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U agentport -d agentport"
           --health-interval 5s --health-timeout 3s --health-retries 10
-      redis:
-        image: redis:8-alpine
-        ports: ['6379:6379']
-        # service container 不支持覆盖 command，这里用无密码 Redis 并让测试连它。
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 3s --health-retries 10
     env:
       DATABASE_URL: postgres://agentport:agentport@localhost:5432/agentport
-      # CI 的 service container 无法带 --requirepass，因此用无密码实例。
-      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -46,6 +37,11 @@ jobs:
       - run: pnpm exec biome ci .
       - run: pnpm lint:focus
       - run: pnpm lint:contract
+      # globalSetup 用 docker create --pull=never 启动临时 Redis，只需镜像先在本地。
+      # openui:check 会经根 Vitest 入口间接跑契约测试（scripts/check-openui.mjs），
+      # 因此必须在任何 Vitest 入口之前准备好镜像，不能等到 pnpm test。
+      - name: Prepare test Redis image
+        run: docker pull redis:8-alpine
       - run: pnpm openui:check
       - run: pnpm typecheck
       - run: pnpm build

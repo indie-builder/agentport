@@ -40,22 +40,17 @@ const redisUrl = process.env.REDIS_URL ?? '';
 const prefix = `knowledge-sched-${randomUUID().slice(0, 8)}`;
 
 describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgres', () => {
-  const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
+  let db: ReturnType<typeof createDb>['db'];
+  let pool: ReturnType<typeof createDb>['pool'];
+  /** 触发队列与 jobs 队列都用测试前缀：真实 worker 不会消费。 */
+  let triggers: Queue<{ sourceId: string }>;
+  let jobs: Queue<{ jobId: string }>;
   const logger = {
     info: () => undefined,
     warn: () => undefined,
     error: () => undefined,
     debug: () => undefined,
   } as unknown as Logger;
-  /** 触发队列与 jobs 队列都用测试前缀：真实 worker 不会消费。 */
-  const triggers = new Queue<{ sourceId: string }>('knowledge-sync-triggers', {
-    connection: { url: redisUrl, maxRetriesPerRequest: null },
-    prefix,
-  });
-  const jobs = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
-    connection: { url: redisUrl, maxRetriesPerRequest: null },
-    prefix,
-  });
   const serverId = newId('server');
   const profileId = newId('knowledgeModelProfile');
   const baseId = newId('knowledgeBase');
@@ -92,11 +87,21 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
   }
 
   async function clearSchedulers(): Promise<void> {
+    if (!triggers) return;
     const entries = await triggers.getJobSchedulers();
     await Promise.all(entries.map((entry) => triggers.removeJobScheduler(entry.key)));
   }
 
   beforeAll(async () => {
+    ({ db, pool } = createDb(process.env.DATABASE_URL ?? ''));
+    triggers = new Queue<{ sourceId: string }>('knowledge-sync-triggers', {
+      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      prefix,
+    });
+    jobs = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
+      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      prefix,
+    });
     await db.insert(schema.servers).values({
       id: serverId,
       name: `kb-sched-${serverId.slice(-6)}`,
@@ -132,18 +137,23 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
   });
 
   afterAll(async () => {
-    await clearSchedulers();
-    await jobs.obliterate({ force: true }).catch(() => undefined);
-    await triggers.close();
-    await jobs.close();
-    await db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.baseId, baseId));
-    await db.delete(schema.knowledgeSources).where(eq(schema.knowledgeSources.baseId, baseId));
-    await db.delete(schema.knowledgeBases).where(eq(schema.knowledgeBases.id, baseId));
-    await db
-      .delete(schema.knowledgeModelProfiles)
-      .where(eq(schema.knowledgeModelProfiles.id, profileId));
-    await db.delete(schema.servers).where(eq(schema.servers.id, serverId));
-    await pool.end();
+    try {
+      await clearSchedulers();
+      await jobs?.obliterate({ force: true }).catch(() => undefined);
+      await triggers?.close();
+      await jobs?.close();
+      if (db) {
+        await db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.baseId, baseId));
+        await db.delete(schema.knowledgeSources).where(eq(schema.knowledgeSources.baseId, baseId));
+        await db.delete(schema.knowledgeBases).where(eq(schema.knowledgeBases.id, baseId));
+        await db
+          .delete(schema.knowledgeModelProfiles)
+          .where(eq(schema.knowledgeModelProfiles.id, profileId));
+        await db.delete(schema.servers).where(eq(schema.servers.id, serverId));
+      }
+    } finally {
+      if (pool) await pool.end();
+    }
   });
 
   describe('sync', () => {

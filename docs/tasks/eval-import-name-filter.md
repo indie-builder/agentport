@@ -20,12 +20,12 @@ worktree /Users/xbjt/Documents/myself/agentport-worktrees/eval-import-name-filte
 - [x] 生产过滤实现完成，依赖/前置构建/专用库迁移完成；主会话API typecheck/build和实现Biome错误级通过
 - [x] 大量已有/少量导入SQL返回量证据及边界回归：两套19项主会话实跑通过，1000条已有仅返回2条匹配
 - [x] 生产独立review通过；测试连接query清理缺陷已修复，定点独立复核通过，无剩余阻断
-- [ ] 提交PR合并、清理/main同步
+- [x] 提交 `1341f0a`、推送、创建 PR #77、合并 `f7f86cd`，成果已合入 main；专用实例与任务树清理未在本记录内核实
 
-## 验证与下一步
+## 验证与交付状态
 
 主会话在对齐f33849d后，使用专用PG64112/Redis64114/9串行运行eval-files、eval两套件：2文件19项通过，0失败/跳过；API typecheck/build、两文件Biome错误级与diff check通过。
 
 真实事务client查询捕获：1000条已有名仅返回2个候选匹配，SQL含参数化name IN，精准警告顺序和旧内容保留、跨agent隔离通过。生产Opus评审通过；测试首轮发现client.query未还原，已保存原函数并finally逐个还原，断言原函数恢复及后续import不增加捕获数组，定点独立复审通过，旧阻断已解除。
 
-无产品文档冲突。评审通过后按授权提交PR合并，确认后删除专用实例和干净任务树、main快进。不声称减少SQL次数或数据库扫描耗时；未做全仓测试、真实模型或完整产品E2E。
+无产品文档冲突。已提交 `1341f0a`，经 PR #77 合并为 `f7f86cd`，成果已合入 main（可用 `git log` 核对）。专用实例与任务树清理未在本记录内核实，不作断言。不声称减少SQL次数或数据库扫描耗时；未做全仓测试、真实模型或完整产品E2E。

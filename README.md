@@ -14,7 +14,7 @@ PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：�
 | 智能体定义 | `.mcp.json`、`CLAUDE.md`、`.claude/agents/*.md`、`.claude/skills/*/SKILL.md`（含技能支持资源）、`.claude/rules/*.md`、`.claude/output-styles/*.md`；原生 auto-memory（`agent-memory/`，浏览/编辑）；文件预览；版本历史与回滚；导入导出（官方 `.claude/` 目录 ZIP） |
 | 运行时配置 | 提示词、模型、技能、MCP 绑定、子智能体、工具白名单/黑名单、权限模式（`dontAsk` / `plan` / `default` / `acceptEdits`，`auto` 不开放）、effort、思考预算、轮次、预算、超时 |
 | 运行 | BullMQ 队列 → Docker 沙盒 → Claude Agent SDK → SSE 流式事件；取消、超时、预算与轮次限制；失败重试与孤儿 run 收敛 |
-| 对话 | 会话历史、分支、工具调用落库、上下文注入（最近 20 条消息）、运行详情重跑 |
+| 对话 | 会话历史、分支、工具调用落库、续聊与分支走 SDK 会话续接/分支（`resumeSessionId` / `forkFromSdkMessageUuid`）、队列只带本轮输入、运行详情重跑 |
 | 观测 | 运行列表与 trace 详情、成本/轮次/token/延迟、审计日志、`/health/*`、队列与进程指标、`/status` 系统状态页 |
 | 评估 | 用例管理、`eval-runs` 队列异步回归跑批、通过率与结果详情 |
 | 治理 | 单管理员 JWT 登录（可吊销会话）、Redis 限流、UTC cron 定时任务（BullMQ Job Scheduler，运行队列积压超过 100 时跳过）、数据保留任务、数据库备份与恢复 |
@@ -94,9 +94,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | `pnpm typecheck` | 全量类型检查（`pnpm -r typecheck`） |
 | `pnpm lint` | Biome 检查 |
 | `pnpm lint:fix` | Biome 检查并写入修复 |
-| `pnpm test` | 同时跑 `web` 与 `backend` 两个 Vitest 项目。web 项目不依赖后端；`backend` 项目会加载 `.env`，默认连 `DATABASE_URL` / `REDIS_URL` 指向的 PostgreSQL 与 Redis，集成用例在连不上时自动跳过。测试的 Redis 固定走 db 9，与开发 worker 的 db 0 隔离，**不需要停 worker** |
+| `pnpm test` | 同时跑 `web` 与 `backend` 两个 Vitest 项目。`web` 项目不依赖后端；`backend` 项目会加载 `.env`，只把它当作管理连接：每次调用创建随机 PostgreSQL database 并完成迁移，同时启动独享临时 Redis 容器（loopback 随机端口，容器内 db 9），退出只删除本轮资源，不读写开发库或共享 Redis；前置与失败/跳过边界见 [docs/OPERATIONS.md §9.2](docs/OPERATIONS.md#92-后端集成测试与-e2e)。API/worker 配置无需改动 |
 | `pnpm test:web` | 只跑 `packages/web/test`（jsdom，不加载 `.env`，不需要 API、worker、PostgreSQL、Redis） |
-| `pnpm test:watch` | Vitest watch |
+| `pnpm test:watch` | Vitest watch；同一 watch 会话复用本轮隔离资源，退出时清理，热重跑不重建 |
 | `pnpm test:e2e` | e2e 端到端测试（`e2e run`，用例在 `tests/*.e2e.ts`）。自动启动或复用 [http://localhost:5173](http://localhost:5173) 的 Vite（不经过 Portless）；API 需另行在 [http://localhost:3000](http://localhost:3000) 运行。前置与凭据见下方说明；配置收全部 `tests/**/*.e2e.ts`，普通套件含要求停 worker 的回放用例，真实对话用例需单独跑（见下） |
 | `pnpm db:generate` | 修改 Drizzle schema 后生成迁移 |
 | `pnpm db:migrate` | 在宿主机应用迁移（`pnpm run up` 部署时由 compose 的 `migrate` 服务自动执行） |
