@@ -15,6 +15,34 @@ import {
 
 const ready = await infraReady;
 
+/**
+ * 统计路由 UPDATE 前对 agents 主键的整行 SELECT（repo.getAgent）。
+ * 事务内语句走 pool client，不经过 pool.query，因此 409 的 fallback 读不计入。
+ */
+function countAgentRowSelects(app: FastifyInstance) {
+  const original = app.pool.query as unknown as (...args: unknown[]) => unknown;
+  const selects: string[] = [];
+  app.pool.query = function (this: unknown, ...args: unknown[]) {
+    const first = args[0];
+    const text =
+      typeof first === 'string' ? first : ((first as { text?: string } | undefined)?.text ?? '');
+    if (
+      /^select\b/i.test(text) &&
+      /from\s+"agents"/i.test(text) &&
+      /where\s+"agents"\."id"\s*=\s*\$\d+/i.test(text)
+    ) {
+      selects.push(text);
+    }
+    return original.apply(this, args);
+  } as typeof app.pool.query;
+  return {
+    selects,
+    restore: () => {
+      app.pool.query = original as typeof app.pool.query;
+    },
+  };
+}
+
 interface WorkspaceFiles {
   mcpJson: string;
   claudeMd: string;
@@ -303,6 +331,136 @@ describe.skipIf(!ready)('agents', () => {
       payload: { name: 'Second', expectedUpdatedAt: agent.updatedAt },
     });
     expectProblem(stale, 'CONFLICT_STALE');
+  });
+
+  it('PATCHes ordinary fields without reading the agent row first', async () => {
+    const slug = unique('patch-plain');
+    createdAgents.push(slug);
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: auth(),
+      payload: { slug, name: 'Plain agent', effort: 'high', maxThinkingTokens: 1024 },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const agent = created.json<Agent>();
+
+    const counter = countAgentRowSelects(app);
+    try {
+      const changed = await inject(app, {
+        method: 'PATCH',
+        url: `/api/agents/${agent.id}`,
+        headers: auth(),
+        payload: { name: 'Renamed plain', description: 'plain description', enabled: false },
+      });
+      expect(changed.statusCode, changed.body).toBe(200);
+      expect(changed.json<Agent>()).toMatchObject({
+        name: 'Renamed plain',
+        description: 'plain description',
+        enabled: false,
+      });
+      expect(counter.selects).toHaveLength(0);
+
+      const empty = await inject(app, {
+        method: 'PATCH',
+        url: `/api/agents/${agent.id}`,
+        headers: auth(),
+        payload: {},
+      });
+      expect(empty.statusCode, empty.body).toBe(200);
+      expect(empty.json<Agent>().name).toBe('Renamed plain');
+      expect(counter.selects).toHaveLength(0);
+
+      // null 是合法的「清除回未配置」，与 undefined（不动）语义不同。
+      const cleared = await inject(app, {
+        method: 'PATCH',
+        url: `/api/agents/${agent.id}`,
+        headers: auth(),
+        payload: { effort: null, maxThinkingTokens: null },
+      });
+      expect(cleared.statusCode, cleared.body).toBe(200);
+      expect(cleared.json<Agent>().effort).toBeUndefined();
+      expect(cleared.json<Agent>().maxThinkingTokens).toBeUndefined();
+      expect(counter.selects).toHaveLength(0);
+    } finally {
+      counter.restore();
+    }
+
+    const stored = await app.pool.query<{
+      effort: string | null;
+      max_thinking_tokens: number | null;
+    }>('select effort, max_thinking_tokens from agents where id = $1', [agent.id]);
+    expect(stored.rows[0]).toEqual({ effort: null, max_thinking_tokens: null });
+  });
+
+  it('PATCH returns 404 for a missing agent even with a stale expectedUpdatedAt', async () => {
+    const counter = countAgentRowSelects(app);
+    try {
+      const res = await inject(app, {
+        method: 'PATCH',
+        url: '/api/agents/agt_missing_stale_patch',
+        headers: auth(),
+        payload: { name: 'x', expectedUpdatedAt: '2020-01-01T00:00:00.000Z' },
+      });
+      expectProblem(res, 'AGENT_NOT_FOUND');
+      // 普通字段不预读；事务内的 fallback 读不经过 pool.query。
+      expect(counter.selects).toHaveLength(0);
+    } finally {
+      counter.restore();
+    }
+  });
+
+  it('PATCH reads the old row for slug and binding fields, including empty arrays', async () => {
+    const agent = (await newAgent(unique('patch-special'))).json<Agent>();
+    const missingId = 'agt_missing_special_patch';
+    const counter = countAgentRowSelects(app);
+    try {
+      const subAgents = await inject(app, {
+        method: 'PATCH',
+        url: `/api/agents/${agent.id}`,
+        headers: auth(),
+        payload: { subAgentIds: [] },
+      });
+      expect(subAgents.statusCode, subAgents.body).toBe(200);
+      expect(counter.selects).toHaveLength(1);
+
+      const plugins = await inject(app, {
+        method: 'PATCH',
+        url: `/api/agents/${agent.id}`,
+        headers: auth(),
+        payload: { pluginBindings: [] },
+      });
+      expect(plugins.statusCode, plugins.body).toBe(200);
+      expect(counter.selects).toHaveLength(2);
+
+      const slugChange = await inject(app, {
+        method: 'PATCH',
+        url: `/api/agents/${agent.id}`,
+        headers: auth(),
+        payload: { slug: unique('other') },
+      });
+      expectProblem(slugChange, 'INVALID_INPUT');
+      expect(counter.selects).toHaveLength(3);
+
+      // 旧行不存在时特殊字段也先预读并直接 404；slug 冲突校验不能抢先。
+      for (const payload of [
+        { slug: unique('missing-slug') },
+        { subAgentIds: [] },
+        { pluginBindings: [] },
+      ]) {
+        const before = counter.selects.length;
+        const missing = await inject(app, {
+          method: 'PATCH',
+          url: `/api/agents/${missingId}`,
+          headers: auth(),
+          payload,
+        });
+        expectProblem(missing, 'AGENT_NOT_FOUND');
+        expect(counter.selects).toHaveLength(before + 1);
+      }
+    } finally {
+      counter.restore();
+    }
   });
 
   it('renders three workspace files with mcp tool wildcards', async () => {
