@@ -962,6 +962,7 @@ async function disableStaleDocuments(
   const documents = await listAllPages((cursor) =>
     repo.knowledge.listDocuments(deps.db, {
       baseId: source.baseId,
+      knowledgeSourceId: source.id,
       status: 'ready',
       limit: LIST_PAGE_SIZE,
       cursor,
@@ -970,7 +971,6 @@ async function disableStaleDocuments(
   let disabled = 0;
   for (const document of documents) {
     checkAborted(signal);
-    if (document.metadata.knowledgeSourceId !== source.id) continue;
     if (document.sourceId !== null && seen.has(document.sourceId)) continue;
     await repo.knowledge.updateDocument(deps.db, document.id, { status: 'disabled' });
     await repo.knowledge.markWikiStaleByDocument(deps.db, document.id);

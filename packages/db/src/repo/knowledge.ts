@@ -400,6 +400,8 @@ export interface ListDocumentsFilter extends PageOptions {
   folderId?: string | null;
   tag?: string;
   status?: KnowledgeDocumentRow['status'];
+  /** 精确匹配 metadata.knowledgeSourceId（同步删除推导内部使用）。 */
+  knowledgeSourceId?: string;
   /** 标题模糊匹配（大小写不敏感）。 */
   q?: string;
 }
@@ -418,6 +420,11 @@ export async function listDocuments(
     );
   }
   if (filter.status) filters.push(eq(knowledgeDocuments.status, filter.status));
+  if (filter.knowledgeSourceId) {
+    filters.push(
+      sql`${knowledgeDocuments.metadata}->>'knowledgeSourceId' = ${filter.knowledgeSourceId}`,
+    );
+  }
   if (filter.q) {
     filters.push(sql`${knowledgeDocuments.title} ilike ${`%${filter.q}%`}`);
   }
