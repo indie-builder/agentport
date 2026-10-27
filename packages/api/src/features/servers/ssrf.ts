@@ -4,7 +4,9 @@ import { fail } from '@agentport/core';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
-const PRIVATE_IPV4 = new BlockList();
+const PRIVATE_NETWORKS = new BlockList();
+// BlockList 原生把 IPv4-mapped IPv6（::ffff:a.b.c.d）与 IPv4 网段互相匹配，
+// 无需另登记 ::ffff:0:0/96；这里只需补 NAT64 64:ff9b::/96 的内嵌形式（RFC 6052 §2.2）。
 // 255.255.255.255 已包含在 240.0.0.0/4，无需单独的精确匹配。
 for (const [network, prefix] of [
   ['0.0.0.0', 8],
@@ -19,71 +21,18 @@ for (const [network, prefix] of [
   ['224.0.0.0', 4],
   ['240.0.0.0', 4],
 ] as const) {
-  PRIVATE_IPV4.addSubnet(network, prefix);
+  PRIVATE_NETWORKS.addSubnet(network, prefix, 'ipv4');
+  PRIVATE_NETWORKS.addSubnet(`64:ff9b::${network}`, 96 + prefix, 'ipv6');
 }
-
-function isPrivateIpv4(ip: string): boolean {
-  return PRIVATE_IPV4.check(ip, 'ipv4');
-}
-
-/** 展开 IPv6 为 16 字节；只覆盖需要判断的写法，解析失败返回 null。 */
-function ipv6Bytes(ip: string): number[] | null {
-  const [head = '', tail] = ip.split('::');
-  const headParts = head ? head.split(':') : [];
-  const tailParts = tail === undefined ? [] : tail ? tail.split(':') : [];
-  const groups =
-    tail === undefined
-      ? headParts
-      : [
-          ...headParts,
-          ...Array<string>(Math.max(0, 8 - headParts.length - tailParts.length)).fill('0'),
-          ...tailParts,
-        ];
-  if (groups.length !== 8) return null;
-  const bytes: number[] = [];
-  for (const g of groups) {
-    const v = Number.parseInt(g, 16);
-    if (Number.isNaN(v) || v < 0 || v > 0xffff) return null;
-    bytes.push(v >> 8, v & 0xff);
-  }
-  return bytes;
-}
-
-function embeddedIpv4(bytes: number[]): string | null {
-  // IPv4-mapped ::ffff:a.b.c.d（含十六进制写法）与 NAT64 64:ff9b::/96。
-  const isMapped =
-    bytes.slice(0, 10).every((b) => b === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
-  const isNat64 =
-    bytes[0] === 0x00 &&
-    bytes[1] === 0x64 &&
-    bytes[2] === 0xff &&
-    bytes[3] === 0x9b &&
-    bytes.slice(4, 12).every((b) => b === 0);
-  if (!isMapped && !isNat64) return null;
-  return `${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
-}
-
-function isPrivateIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase();
-  // IPv4-mapped 地址按内嵌 IPv4 判断，否则 ::ffff:127.0.0.1 会绕过检查。
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
-  if (mapped?.[1]) return isPrivateIpv4(mapped[1]);
-  const bytes = ipv6Bytes(lower);
-  if (!bytes) return true;
-  // 十六进制写法 [::ffff:7f00:1] 与 NAT64 都要拆出内嵌 IPv4 再判断。
-  const embedded = embeddedIpv4(bytes);
-  if (embedded !== null) return isPrivateIpv4(embedded);
-  const loopback = bytes.slice(0, 15).every((b) => b === 0) && bytes[15] === 1;
-  const unspecified = bytes.every((b) => b === 0);
-  const uniqueLocal = ((bytes[0] ?? 0) & 0xfe) === 0xfc;
-  const linkLocal = bytes[0] === 0xfe && ((bytes[1] ?? 0) & 0xc0) === 0x80;
-  return loopback || unspecified || uniqueLocal || linkLocal;
-}
+PRIVATE_NETWORKS.addSubnet('::', 128, 'ipv6');
+PRIVATE_NETWORKS.addSubnet('::1', 128, 'ipv6');
+PRIVATE_NETWORKS.addSubnet('fc00::', 7, 'ipv6');
+PRIVATE_NETWORKS.addSubnet('fe80::', 10, 'ipv6');
 
 function isPrivateAddress(ip: string): boolean {
   const family = isIP(ip);
-  if (family === 4) return isPrivateIpv4(ip);
-  if (family === 6) return isPrivateIpv6(ip);
+  if (family === 4) return PRIVATE_NETWORKS.check(ip, 'ipv4');
+  if (family === 6) return PRIVATE_NETWORKS.check(ip, 'ipv6');
   return true;
 }
 
