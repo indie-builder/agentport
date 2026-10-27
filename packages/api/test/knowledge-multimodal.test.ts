@@ -974,6 +974,48 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       return { baseId, profileId, chunks, serverId };
     }
 
+    type PackageImage = {
+      name: string;
+      sha256: string;
+      mimeType: string;
+      page: number;
+      path: string;
+    };
+    type PackageVersion = {
+      id: string;
+      version: number;
+      originalPath: string;
+      markdownPath: string | null;
+      originalFilename: string;
+      mimeType: string;
+      sizeBytes: number;
+      blobSha256: string;
+      markdownSha256: string | null;
+      sourceRevision: string | null;
+      parseStatus: string;
+      pageMap: unknown[];
+      images: PackageImage[];
+      chunks: Array<{ id: string; kind: string; metadata: Record<string, unknown> }>;
+    };
+    type PackageManifest = {
+      documents: Array<{ versions: PackageVersion[] }>;
+      files: Array<{ path: string; sha256: string; size: number }>;
+    };
+
+    async function editPackage(
+      baseId: string,
+      mutate: (manifest: PackageManifest, files: Record<string, Uint8Array>) => void,
+    ): Promise<Buffer> {
+      const pkg = await exportKnowledgePackage(app.db, knowledgeDir, baseId);
+      const files = unzipSync(new Uint8Array(pkg!.body));
+      const manifest = JSON.parse(
+        Buffer.from(files['manifest.json']!).toString('utf8'),
+      ) as PackageManifest;
+      mutate(manifest, files);
+      files['manifest.json'] = new TextEncoder().encode(JSON.stringify(manifest));
+      return Buffer.from(zipSync(files, { level: 6 }));
+    }
+
     it('keeps vector chunk identity/metadata on export and imports it without an embedding', async () => {
       const seeded = await seedPackageLibrary();
       // 停用状态不在导出/导入中丢失：vector 身份复用的是同一行。
@@ -1027,38 +1069,15 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
     });
 
-    it('rejects image metadata without an image, non-image kinds, and mismatched page', async () => {
+    it('rejects image metadata without an image, non-image kinds, and mismatched MIME/page', async () => {
       const seeded = await seedPackageLibrary();
-      const editManifest = async (
-        mutate: (manifest: {
-          documents: Array<{
-            versions: Array<{
-              chunks: Array<{
-                kind: string;
-                metadata: Record<string, unknown>;
-              }>;
-            }>;
-          }>;
-        }) => void,
-      ) => {
-        const pkg = await exportKnowledgePackage(app.db, knowledgeDir, seeded.baseId);
-        const files = unzipSync(new Uint8Array(pkg!.body));
-        const manifest = JSON.parse(Buffer.from(files['manifest.json']!).toString('utf8')) as {
-          documents: Array<{
-            versions: Array<{ chunks: Array<{ kind: string; metadata: Record<string, unknown> }> }>;
-          }>;
-        };
-        mutate(manifest);
-        files['manifest.json'] = new TextEncoder().encode(JSON.stringify(manifest));
-        return Buffer.from(zipSync(files, { level: 6 }));
-      };
 
       // 只有 imageRole、没有 image：导入后既没有可读图也没有检索路径，必须拒绝。
       await expect(
         importKnowledgePackage(
           app.db,
           knowledgeDir,
-          await editManifest((manifest) => {
+          await editPackage(seeded.baseId, (manifest) => {
             const chunk = manifest.documents[0]!.versions[0]!.chunks[0]!;
             delete chunk.metadata.image;
           }),
@@ -1070,7 +1089,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         importKnowledgePackage(
           app.db,
           knowledgeDir,
-          await editManifest((manifest) => {
+          await editPackage(seeded.baseId, (manifest) => {
             manifest.documents[0]!.versions[0]!.chunks[0]!.kind = 'text';
           }),
         ),
@@ -1081,14 +1100,168 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         importKnowledgePackage(
           app.db,
           knowledgeDir,
-          await editManifest((manifest) => {
+          await editPackage(seeded.baseId, (manifest) => {
             const metadata = manifest.documents[0]!.versions[0]!.chunks[0]!.metadata as {
               image: { page: number };
             };
             metadata.image.page = 9;
           }),
         ),
-      ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: expect.stringContaining('页码') });
+
+      // MIME 与清单不符：同名图片存在，但定位到的是另一份内容。
+      await expect(
+        importKnowledgePackage(
+          app.db,
+          knowledgeDir,
+          await editPackage(seeded.baseId, (manifest) => {
+            const metadata = manifest.documents[0]!.versions[0]!.chunks[0]!.metadata as {
+              image: { mimeType: string };
+            };
+            metadata.image.mimeType = 'image/jpeg';
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: expect.stringContaining('MIME') });
+
+      // 同时篡改 MIME 与页码时先报 MIME，保持既有检查顺序。
+      await expect(
+        importKnowledgePackage(
+          app.db,
+          knowledgeDir,
+          await editPackage(seeded.baseId, (manifest) => {
+            const metadata = manifest.documents[0]!.versions[0]!.chunks[0]!.metadata as {
+              image: { mimeType: string; page: number };
+            };
+            metadata.image.mimeType = 'image/jpeg';
+            metadata.image.page = 9;
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: expect.stringContaining('MIME') });
+    });
+
+    it('rejects duplicate image names within one version even when mime/page differ', async () => {
+      const seeded = await seedPackageLibrary();
+      const count = async () =>
+        (
+          await app.pool.query<{ count: string }>(
+            'select count(*) from knowledge_bases where embedding_profile_id = $1',
+            [seeded.profileId],
+          )
+        ).rows[0]?.count;
+      const before = await count();
+
+      const duplicate = await editPackage(seeded.baseId, (manifest) => {
+        const version = manifest.documents[0]!.versions[0]!;
+        version.images.push({ ...version.images[0]!, mimeType: 'image/jpeg', page: 9 });
+      });
+      await expect(importKnowledgePackage(app.db, knowledgeDir, duplicate)).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+        message: expect.stringContaining('重复'),
+      });
+
+      // 校验在事务前完成：被拒绝的包不会留下任何新库。
+      expect(await count()).toBe(before);
+    });
+
+    it('allows the same image name across versions with their own page/mime', async () => {
+      const seeded = await seedPackageLibrary();
+      const archive = await editPackage(seeded.baseId, (manifest, files) => {
+        const document = manifest.documents[0]!;
+        const first = document.versions[0]!;
+        const image = first.images[0]!;
+        const firstDir = first.originalPath.slice(0, first.originalPath.lastIndexOf('/'));
+        const secondDir = `${firstDir}-v2`;
+        const secondOriginal = `${secondDir}/original`;
+        const secondImage = `${secondDir}/images/${image.name}`;
+        files[secondOriginal] = files[first.originalPath]!;
+        files[secondImage] = files[image.path]!;
+        for (const path of [first.originalPath, image.path]) {
+          manifest.files.push({
+            ...manifest.files.find((file) => file.path === path)!,
+            path: path === first.originalPath ? secondOriginal : secondImage,
+          });
+        }
+        document.versions.push({
+          ...first,
+          id: `${first.id}-v2`,
+          version: first.version + 1,
+          originalPath: secondOriginal,
+          markdownPath: null,
+          markdownSha256: null,
+          images: [{ ...image, path: secondImage, mimeType: 'image/jpeg', page: 7 }],
+          chunks: [
+            {
+              ...first.chunks[0]!,
+              id: `${first.chunks[0]!.id}-v2`,
+              metadata: {
+                image: { name: image.name, mimeType: 'image/jpeg', page: 7 },
+                imageRole: 'caption',
+              },
+            },
+          ],
+        });
+      });
+
+      await app.pool.query('delete from servers where id = $1', [seeded.serverId]);
+      const imported = await importKnowledgePackage(app.db, knowledgeDir, archive);
+      baseIds.push(imported.baseId);
+
+      const rows = await app.pool.query<{
+        version: number;
+        images: Array<{ name: string; mimeType: string; page: number }>;
+        chunks: Array<{ image: { name: string; mimeType: string; page: number } }>;
+      }>(
+        `select v.version, v.images,
+                (select json_agg(c.metadata order by c.ordinal)
+                   from knowledge_chunks c where c.version_id = v.id) as chunks
+           from knowledge_document_versions v
+           join knowledge_documents d on d.id = v.document_id
+          where d.base_id = $1
+          order by v.version`,
+        [imported.baseId],
+      );
+      expect(
+        rows.rows.map((row) => ({
+          images: row.images.map(({ name, mimeType, page }) => ({ name, mimeType, page })),
+          chunk: row.chunks[0]!.image,
+        })),
+      ).toEqual([
+        {
+          images: [{ name: 'fig-1.png', mimeType: 'image/png', page: 1 }],
+          chunk: { name: 'fig-1.png', mimeType: 'image/png', page: 1 },
+        },
+        {
+          images: [{ name: 'fig-1.png', mimeType: 'image/jpeg', page: 7 }],
+          chunk: { name: 'fig-1.png', mimeType: 'image/jpeg', page: 7 },
+        },
+      ]);
+    });
+
+    it('rejects a valid-looking chunk image name missing from the version image list', async () => {
+      const seeded = await seedPackageLibrary();
+      const count = async () =>
+        (
+          await app.pool.query<{ count: string }>(
+            'select count(*) from knowledge_bases where embedding_profile_id = $1',
+            [seeded.profileId],
+          )
+        ).rows[0]?.count;
+      const before = await count();
+
+      // missing.png 是合法单段文件名，能过 schema，但不在本版本的图片清单里。
+      const missing = await editPackage(seeded.baseId, (manifest) => {
+        const metadata = manifest.documents[0]!.versions[0]!.chunks[0]!.metadata as {
+          image: { name: string };
+        };
+        metadata.image.name = 'missing.png';
+      });
+      await expect(importKnowledgePackage(app.db, knowledgeDir, missing)).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+        message: expect.stringMatching(/清单外的图片.*missing\.png/),
+      });
+
+      // 校验在事务前完成：清单外的图片不会留下新库。
+      expect(await count()).toBe(before);
     });
 
     it('rejects packages whose chunk metadata points outside the version image list', async () => {
