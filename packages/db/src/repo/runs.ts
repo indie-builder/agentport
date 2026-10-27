@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import { and, asc, desc, eq, isNotNull, isNull, ne, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -366,13 +366,12 @@ export async function inheritApprovals(
   db: Database | Tx,
   input: { conversationId: string; runId: string },
 ): Promise<string[]> {
-  const [previous] = await db
+  const previous = db
     .select({ id: agentRuns.id })
     .from(agentRuns)
     .where(and(eq(agentRuns.conversationId, input.conversationId), ne(agentRuns.id, input.runId)))
     .orderBy(desc(agentRuns.id))
     .limit(1);
-  if (!previous) return [];
 
   const approved = await db
     .select({
@@ -381,7 +380,7 @@ export async function inheritApprovals(
       approvedAt: approvalRequests.approvedAt,
     })
     .from(approvalRequests)
-    .where(and(eq(approvalRequests.runId, previous.id), isNotNull(approvalRequests.approvedAt)));
+    .where(and(inArray(approvalRequests.runId, previous), isNotNull(approvalRequests.approvedAt)));
   if (approved.length === 0) return [];
 
   await db
