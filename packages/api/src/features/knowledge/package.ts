@@ -1020,14 +1020,15 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
       if (version.markdownPath !== null && version.markdownSha256 === null) {
         invalid(`版本「${version.id}」有解析正文但缺少 sha256`, version.markdownPath);
       }
-      const imageNames = new Set<string>();
+      const imageByName = new Map<string, (typeof version.images)[number]>();
       let imageBytes = 0;
       for (const image of version.images) {
         const problem = imageNameProblem(image.name);
         if (problem !== null) invalid(`版本「${version.id}」的${problem}`, image.path);
-        if (!imageNames.add(image.name)) {
+        if (imageByName.has(image.name)) {
           invalid(`版本「${version.id}」的图片「${image.name}」重复`, image.path);
         }
+        imageByName.set(image.name, image);
         assertEntryPath(image.path);
         if (image.path !== imagePathFor(versionDirOf(version.originalPath), image.name)) {
           invalid(`版本「${version.id}」的图片路径必须是同版本 images/ 目录下的文件名`, image.path);
@@ -1075,7 +1076,7 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
         if (!hasImage) {
           invalid(`版本「${version.id}」的分块 ${chunk.ordinal} 有 imageRole 但缺少 image`);
         }
-        const image = version.images.find((entry) => entry.name === parsed.data.image.name);
+        const image = imageByName.get(parsed.data.image.name);
         if (!image) {
           invalid(`版本「${version.id}」的分块引用了清单外的图片「${parsed.data.image.name}」`);
         }
