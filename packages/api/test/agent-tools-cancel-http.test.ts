@@ -1,77 +1,27 @@
-import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { fileURLToPath } from 'node:url';
-import { createDb, newId, repo } from '@agentport/db';
+import { newId, repo } from '@agentport/db';
 import { runEnqueueOptions } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import type { AgentInvoker } from '../src/features/servers/agent-tools.js';
 import { registerAgentToolsEndpoint } from '../src/features/servers/agent-tools-endpoint.js';
 import { getQueue } from '../src/queue/producer.js';
 
 // 每次运行建独立库：只验证取消路径，也能并跑多条回归。
-const ADMIN_DATABASE_URL = process.env.DATABASE_URL ?? '';
-const ISOLATED_DB_NAME = `agentport_agent_tools_cancel_http_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
-const ISOLATED_DATABASE_URL = (() => {
-  if (ADMIN_DATABASE_URL === '')
-    return 'postgres://unused:unused@127.0.0.1:1/cancel_http_unconfigured';
-  const url = new URL(ADMIN_DATABASE_URL);
-  url.pathname = `/${ISOLATED_DB_NAME}`;
-  return url.toString();
-})();
-process.env.DATABASE_URL = ISOLATED_DATABASE_URL;
+const isolated = await createIsolatedDatabase(
+  'api_agent_tools_cancel_http',
+  process.env.DATABASE_URL ?? '',
+);
+if (isolated) process.env.DATABASE_URL = isolated.url;
 
-let createdIsolatedDb = false;
-
-async function dropIsolatedDatabase(): Promise<void> {
-  if (!createdIsolatedDb) return;
-  createdIsolatedDb = false;
-  const admin = createDb(ADMIN_DATABASE_URL);
-  try {
-    await admin.pool.query(`drop database if exists "${ISOLATED_DB_NAME}" with (force)`);
-  } finally {
-    await admin.pool.end();
-  }
-}
-
-async function prepareIsolatedDatabase(): Promise<boolean> {
-  if (ADMIN_DATABASE_URL === '') return false;
-  const admin = createDb(ADMIN_DATABASE_URL);
-  try {
-    try {
-      await admin.pool.query('select 1');
-    } catch {
-      // 基础设施不可达交给 infraReady 统一跳过；连上之后的建库/迁移失败必须显式报错。
-      return false;
-    }
-    await admin.pool.query(`create database "${ISOLATED_DB_NAME}"`);
-    createdIsolatedDb = true;
-  } finally {
-    await admin.pool.end();
-  }
-  const target = createDb(ISOLATED_DATABASE_URL);
-  try {
-    await migrate(target.db, {
-      migrationsFolder: fileURLToPath(new URL('../../db/migrations', import.meta.url)),
-    });
-  } catch (error) {
-    await dropIsolatedDatabase();
-    throw error;
-  } finally {
-    await target.pool.end().catch(() => undefined);
-  }
-  return true;
-}
-
-const isolated = await prepareIsolatedDatabase();
 // helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const helpers = await import('./helpers.js');
 const { cleanup, createAgent, loginCookie, startApp, unique, waitFor } = helpers;
 const ready = await helpers.infraReady;
 // skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
-if (!ready && isolated) await dropIsolatedDatabase();
+if (!ready && isolated) await isolated.close();
 
 /** 平台端点在注册时直接读 process.env，必须先于 buildApp 设置。 */
 const PLATFORM_TOKEN = 'cancel-platform-token-0123456789';
@@ -227,7 +177,7 @@ describe.skipIf(!(ready && isolated))('platform MCP over real HTTP: cancellation
         try {
           if (app) await app.close();
         } finally {
-          await dropIsolatedDatabase();
+          await isolated?.close();
         }
       }
     }

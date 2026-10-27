@@ -29,9 +29,11 @@ const sha256Of = (data: Buffer): string => createHash('sha256').update(data).dig
 
 // 套件写入大量知识库数据：独享随机库，不能复用当前共享库中的迁移和行。
 const isolated = await createIsolatedDatabase('worker_knowledge_ingestion');
-if (!isolated) throw new Error('knowledge ingestion tests require a reachable DATABASE_URL');
-const dbHandle = createDb(isolated.url);
-const { db } = dbHandle;
+const ready = isolated !== null;
+if (isolated) process.env.DATABASE_URL = isolated.url;
+// 库不可用时整套用例 skip：不建默认连接池，afterAll 按实际初始化关闭。
+let dbHandle: ReturnType<typeof createDb> | undefined;
+let db: ReturnType<typeof createDb>['db'];
 const quiet = {
   info: () => undefined,
   warn: () => undefined,
@@ -61,6 +63,10 @@ let embeddingCalls = 0;
 let cohereCalls: Array<Record<string, unknown>> = [];
 
 beforeAll(async () => {
+  if (isolated) {
+    dbHandle = createDb(isolated.url);
+    db = dbHandle.db;
+  }
   fixture = createServer((req, res) => {
     let raw = '';
     req.on('data', (chunk: Buffer) => {
@@ -127,8 +133,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => fixture.close(() => resolve()));
-  await dbHandle.pool.end();
-  await isolated.close();
+  await dbHandle?.pool.end();
+  await isolated?.close();
 });
 
 let knowledgeDir = '';
@@ -255,7 +261,7 @@ async function makeUploadedDocument(
   return { documentId, jobId: job.id };
 }
 
-describe('runIngest', () => {
+describe.skipIf(!ready)('runIngest', () => {
   it('indexes a document and switches to the new version in one step', async () => {
     const fixtureBase = await makeBase();
     const { documentId, jobId } = await makeUploadedDocument(fixtureBase);
@@ -574,7 +580,7 @@ async function enableImages(
   });
 }
 
-describe('runIngest image processing', () => {
+describe.skipIf(!ready)('runIngest image processing', () => {
   it('indexes an uploaded PNG through the same images path and writes OCR/caption chunks', async () => {
     const fixtureBase = await makeBase();
     await enableImages(fixtureBase);
@@ -872,7 +878,7 @@ describe('runIngest image processing', () => {
   });
 });
 
-describe('runReindex', () => {
+describe.skipIf(!ready)('runReindex', () => {
   it('keeps the previous version when reindexing fails', async () => {
     const fixtureBase = await makeBase();
     const { documentId, jobId } = await makeUploadedDocument(fixtureBase);
@@ -1076,7 +1082,7 @@ async function seedDocuments(
   return ids;
 }
 
-describe('runReindex pagination', () => {
+describe.skipIf(!ready)('runReindex pagination', () => {
   it('re-embeds chunks beyond the first page', async () => {
     const fixtureBase = await makeBase();
     const { documentId, jobId } = await makeUploadedDocument(fixtureBase);
@@ -1172,7 +1178,7 @@ describe('runReindex pagination', () => {
   });
 });
 
-describe('runSync', () => {
+describe.skipIf(!ready)('runSync', () => {
   const failingConnector: KnowledgeConnector = {
     async *sync() {
       yield {
@@ -1358,6 +1364,8 @@ describe('runSync', () => {
   });
 
   it('filters stale detection to the current source in SQL while keeping every other status', async () => {
+    const pool = dbHandle?.pool;
+    if (!pool) throw new Error('database not initialized');
     const fixtureBase = await makeBase();
     const connector: KnowledgeConnector = {
       async *sync({ onCheckpoint }) {
@@ -1416,10 +1424,9 @@ describe('runSync', () => {
       sourceType: 'gitlab',
       sourceId: () => 'json-null-0',
     });
-    await dbHandle.pool.query(
-      "update knowledge_documents set metadata = 'null'::jsonb where id = $1",
-      [jsonNullId],
-    );
+    await pool.query("update knowledge_documents set metadata = 'null'::jsonb where id = $1", [
+      jsonNullId,
+    ]);
     const nonReadyStatuses = ['pending', 'failed', 'disabled'] as const;
     const nonReadyIds = await seedDocuments(fixtureBase, 3, {
       status: (index) => nonReadyStatuses[index] ?? 'pending',
@@ -1447,7 +1454,7 @@ describe('runSync', () => {
       stale: false,
     });
 
-    const spy = vi.spyOn(dbHandle.pool, 'query');
+    const spy = vi.spyOn(pool, 'query');
     let documentCalls: Array<{
       text: string;
       values: unknown[];
@@ -2070,7 +2077,7 @@ async function documentsOfType(fixtureBase: Fixture, sourceType: 'feed' | 'gitla
     );
 }
 
-describe('runCleanup', () => {
+describe.skipIf(!ready)('runCleanup', () => {
   it('deletes only blobs that are unreferenced and older than 24h', async () => {
     const fixtureBase = await makeBase();
     const { documentId, jobId } = await makeUploadedDocument(fixtureBase);

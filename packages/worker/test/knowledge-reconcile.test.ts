@@ -42,17 +42,15 @@ const redisUrl = process.env.REDIS_URL ?? '';
 const prefix = `knowledge-reconcile-${randomUUID().slice(0, 8)}`;
 
 describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
-  const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
+  let db: ReturnType<typeof createDb>['db'];
+  let pool: ReturnType<typeof createDb>['pool'];
+  let queue: Queue<{ jobId: string }>;
   const logger = {
     info: () => undefined,
     warn: () => undefined,
     error: () => undefined,
     debug: () => undefined,
   } as unknown as Logger;
-  const queue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
-    connection: { url: redisUrl, maxRetriesPerRequest: null },
-    prefix,
-  });
   const serverId = newId('server');
   const profileId = newId('knowledgeModelProfile');
   const baseId = newId('knowledgeBase');
@@ -104,6 +102,11 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   }
 
   beforeAll(async () => {
+    ({ db, pool } = createDb(process.env.DATABASE_URL ?? ''));
+    queue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
+      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      prefix,
+    });
     await db.insert(schema.servers).values({
       id: serverId,
       name: `kb-rec-${serverId.slice(-6)}`,
@@ -166,15 +169,22 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   }
 
   afterAll(async () => {
-    await queue.obliterate({ force: true }).catch(() => undefined);
-    await queue.close();
-    await db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.baseId, baseId));
-    await db.delete(schema.knowledgeBases).where(eq(schema.knowledgeBases.id, baseId));
-    await db
-      .delete(schema.knowledgeModelProfiles)
-      .where(eq(schema.knowledgeModelProfiles.id, profileId));
-    await db.delete(schema.servers).where(eq(schema.servers.id, serverId));
-    await pool.end();
+    try {
+      if (queue) {
+        await queue.obliterate({ force: true }).catch(() => undefined);
+        await queue.close();
+      }
+      if (db) {
+        await db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.baseId, baseId));
+        await db.delete(schema.knowledgeBases).where(eq(schema.knowledgeBases.id, baseId));
+        await db
+          .delete(schema.knowledgeModelProfiles)
+          .where(eq(schema.knowledgeModelProfiles.id, profileId));
+        await db.delete(schema.servers).where(eq(schema.servers.id, serverId));
+      }
+    } finally {
+      if (pool) await pool.end();
+    }
   });
 
   it('fails a running job whose queue entry is gone and returns retrying ones to queued', async () => {

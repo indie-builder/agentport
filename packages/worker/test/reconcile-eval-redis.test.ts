@@ -46,6 +46,7 @@ async function probeInfra(): Promise<boolean> {
 
 // 全表对账必须只看本次套件的数据：独享随机库，不能落到当前共享库。
 const isolated = await createIsolatedDatabase('worker_reconcile_eval');
+if (isolated) process.env.DATABASE_URL = isolated.url;
 const ready = isolated !== null && (await probeInfra());
 if (!ready && isolated) await isolated.close();
 

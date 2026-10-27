@@ -49,22 +49,20 @@ async function probeInfra(): Promise<boolean> {
 
 // 全表对账必须只看本次套件的数据：独享随机库，不能落到当前共享库。
 const isolated = await createIsolatedDatabase('worker_reconcile_queue');
+if (isolated) process.env.DATABASE_URL = isolated.url;
 const ready = isolated !== null && (await probeInfra());
 if (!ready && isolated) await isolated.close();
 
 describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
-  const dbHandle = createDb(isolated?.url ?? '');
-  const { db } = dbHandle;
+  let dbHandle: ReturnType<typeof createDb>;
+  let db: ReturnType<typeof createDb>['db'];
+  let queue: Queue<AgentRunJob>;
   const agentId = newId('agent');
   const conversationId = newId('conversation');
   const runWaiting = newId('run');
   const runDelayed = newId('run');
   const runMissing = newId('run');
   const ownedRuns = [runWaiting, runDelayed, runMissing];
-  // 队列名按测试唯一：真实 worker 只消费 agent-runs，不会把这里的 job 跑掉。
-  const queue = new Queue<AgentRunJob>(`reconcile-${randomUUID()}`, {
-    connection: { url: process.env.REDIS_URL, maxRetriesPerRequest: null },
-  });
   const logger = {
     info: () => undefined,
     warn: () => undefined,
@@ -75,6 +73,12 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
   let delayedJob: Awaited<ReturnType<typeof queue.add>>;
 
   beforeAll(async () => {
+    dbHandle = createDb(isolated?.url ?? '');
+    db = dbHandle.db;
+    // 队列名按测试唯一：真实 worker 只消费 agent-runs，不会把这里的 job 跑掉。
+    queue = new Queue<AgentRunJob>(`reconcile-${randomUUID()}`, {
+      connection: { url: process.env.REDIS_URL, maxRetriesPerRequest: null },
+    });
     await db.insert(schema.agents).values({
       id: agentId,
       slug: `reconcile-${agentId.slice(4, 12)}`,

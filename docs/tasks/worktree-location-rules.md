@@ -28,13 +28,14 @@
 - [x] 改写 `docs/DEV-WORKFLOW.md` §2-2
 - [x] 创建本任务记录
 - [x] 运行 `git diff --check`
+- [x] 提交 `4214935`、创建 PR #78、合并 `d9fc977`
 
 ## 改动文件
 - `docs/DEV-WORKFLOW.md`
 - `docs/tasks/worktree-location-rules.md`
 
 ## 下一步
-个人记忆 `worktree-workflow-and-task-records.md`、MEMORY.md 索引入口及其他两份记忆中的旧引用已删除；源码无改动。Opus 评审指出「任何已有 worktree」会把主 checkout 也包含进去，已限定为「已有任务 worktree」。最终复核后提交、创建 PR 并合并；确认已合入 main 且工作区干净后删除本任务 worktree，保留分支。
+个人记忆 `worktree-workflow-and-task-records.md`、MEMORY.md 索引入口及其他两份记忆中的旧引用已删除；源码无改动。Opus 评审指出「任何已有 worktree」会把主 checkout 也包含进去，已限定为「已有任务 worktree」。成果已提交为 `4214935`，经 PR #78 合并为 `d9fc977`，规则文本已合入 main 的 `docs/DEV-WORKFLOW.md` §2-2（可用 `git log` 核对）。任务 worktree 是否已删除未在本记录内核实。
 
 ## 验证
 - `git status --porcelain=v1`：仅 `M docs/DEV-WORKFLOW.md`、`?? docs/tasks/worktree-location-rules.md`

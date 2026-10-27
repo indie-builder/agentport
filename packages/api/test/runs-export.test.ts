@@ -1,51 +1,17 @@
-import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
-import { createDb } from '@agentport/db';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 
 // 一次性库：导出是整表读，不能把共享测试库里的其他用例数据卷进来。
-const ADMIN_DATABASE_URL = process.env.DATABASE_URL ?? '';
-const ISOLATED_DB_NAME = `agentport_runs_export_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
-const ISOLATED_DATABASE_URL = (() => {
-  const url = new URL(ADMIN_DATABASE_URL);
-  url.pathname = `/${ISOLATED_DB_NAME}`;
-  return url.toString();
-})();
-if (ADMIN_DATABASE_URL !== '') process.env.DATABASE_URL = ISOLATED_DATABASE_URL;
+const isolated = await createIsolatedDatabase('api_runs_export', process.env.DATABASE_URL ?? '');
+if (isolated) process.env.DATABASE_URL = isolated.url;
 
-async function prepareIsolatedDatabase(): Promise<boolean> {
-  if (ADMIN_DATABASE_URL === '') return false;
-  try {
-    const admin = createDb(ADMIN_DATABASE_URL);
-    try {
-      await admin.pool.query(`create database "${ISOLATED_DB_NAME}"`);
-    } catch (error) {
-      // 42P04：已有同名库，复用。
-      if ((error as { code?: string }).code !== '42P04') throw error;
-    } finally {
-      await admin.pool.end();
-    }
-    const target = createDb(ISOLATED_DATABASE_URL);
-    try {
-      await migrate(target.db, {
-        migrationsFolder: fileURLToPath(new URL('../../db/migrations', import.meta.url)),
-      });
-    } finally {
-      await target.pool.end();
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const isolated = await prepareIsolatedDatabase();
 // helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const helpers = await import('./helpers.js');
 const { expectProblem, inject, loginCookie, startApp, unique } = helpers;
 const ready = await helpers.infraReady;
+// skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
+if (!ready && isolated) await isolated.close();
 
 interface ExportedItem {
   id: string;
@@ -78,12 +44,10 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
   });
 
   afterAll(async () => {
-    await app.close();
-    const admin = createDb(ADMIN_DATABASE_URL);
     try {
-      await admin.pool.query(`drop database if exists "${ISOLATED_DB_NAME}" with (force)`);
+      if (app) await app.close();
     } finally {
-      await admin.pool.end();
+      await isolated?.close();
     }
   });
 

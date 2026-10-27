@@ -44,21 +44,20 @@ const prefix = `sched-test-${randomUUID().slice(0, 8)}`;
 // 套件写的 schedule 是 enabled 的，共享库上真实 worker 的 sync 会把它同步到生产队列并真的触发；
 // 独享随机库后，生产 worker 看不到这些行。
 const isolated = ready ? await createIsolatedDatabase('worker_sched_test') : null;
-if (ready && isolated === null) console.warn('schedule-scheduler: 无法建独立库，回退共享库');
+if (isolated) process.env.DATABASE_URL = isolated.url;
+else if (ready) console.warn('schedule-scheduler: 无法建独立库，使用本轮测试库');
 const databaseUrl = isolated?.url ?? process.env.DATABASE_URL ?? '';
 
 describe.skipIf(!ready)('schedule scheduler against live redis and postgres', () => {
-  const { db, pool } = createDb(databaseUrl);
+  let db: ReturnType<typeof createDb>['db'];
+  let pool: ReturnType<typeof createDb>['pool'];
+  let schedulerQueue: Queue<ScheduleTriggerJob>;
   const logger = {
     info: () => undefined,
     warn: () => undefined,
     error: () => undefined,
     debug: () => undefined,
   } as unknown as Logger;
-  const schedulerQueue = new Queue<ScheduleTriggerJob>(SCHEDULE_TRIGGERS_QUEUE, {
-    connection: { url: redisUrl, maxRetriesPerRequest: null },
-    prefix,
-  });
   const agentId = newId('agent');
   const disabledAgentId = newId('agent');
   let scheduleIds: string[] = [];
@@ -144,6 +143,13 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
   }
 
   beforeAll(async () => {
+    const handle = createDb(databaseUrl);
+    db = handle.db;
+    pool = handle.pool;
+    schedulerQueue = new Queue<ScheduleTriggerJob>(SCHEDULE_TRIGGERS_QUEUE, {
+      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      prefix,
+    });
     await db.insert(schema.agents).values([
       { id: agentId, slug: `sched-${agentId.slice(4, 12)}`, name: 'sched', model: 'test' },
       {
