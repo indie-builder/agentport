@@ -320,6 +320,14 @@ async function fill(id: string, value: string) {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((yes) => {
+    resolve = yes;
+  });
+  return { promise, resolve };
+}
+
 function markdownResponse(body: string): Response {
   return HttpResponse.text(body, {
     headers: { 'content-type': 'text/markdown; charset=utf-8' },
@@ -720,6 +728,99 @@ describe('knowledge document inspection', () => {
     );
   });
 
+  it('keeps an edited chunk draft through cancel and Escape until it is discarded', async () => {
+    documentHandlers();
+    await mount('/knowledge/kb_1');
+    await click(button('上线流程'));
+    await click(button('编辑分块 1', dialog('上线流程')));
+    const editor = dialog('编辑分块');
+    await fill('knowledge-chunk-content', '修改后的内容');
+
+    await click(button('取消', editor));
+    let confirmation = dialog('放弃未保存的更改？');
+    expect(confirmation.textContent).toContain('分块正文草稿会丢失');
+    await click(button('取消', confirmation));
+    expect(document.querySelector<HTMLTextAreaElement>('#knowledge-chunk-content')?.value).toBe(
+      '修改后的内容',
+    );
+
+    await act(async () =>
+      dialog('编辑分块').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      ),
+    );
+    await flush();
+    confirmation = dialog('放弃未保存的更改？');
+    await click(button('取消', confirmation));
+    expect(document.querySelector<HTMLTextAreaElement>('#knowledge-chunk-content')?.value).toBe(
+      '修改后的内容',
+    );
+
+    await click(button('关闭', dialog('编辑分块')));
+    confirmation = dialog('放弃未保存的更改？');
+    await click(button('放弃并关闭', confirmation));
+    expect(document.getElementById('knowledge-chunk-content')).toBeNull();
+    expect(
+      calls.some((item) => item.method === 'PATCH' && item.path === '/api/knowledge/chunks/kchk_1'),
+    ).toBe(false);
+  });
+
+  it('asks before reloading a conflicted chunk over its draft', async () => {
+    documentHandlers();
+    server.use(
+      http.patch('/api/knowledge/chunks/kchk_1', () =>
+        HttpResponse.json({ code: 'CONFLICT', message: '分块已被其他修改更新' }, { status: 409 }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    await click(button('上线流程'));
+    await click(button('编辑分块 1', dialog('上线流程')));
+    const editor = dialog('编辑分块');
+    await fill('knowledge-chunk-content', '修改后的内容');
+    await click(button('保存', editor));
+    await click(button('重新加载', editor));
+    const confirmation = dialog('放弃未保存的更改？');
+    expect(confirmation.textContent).toContain('覆盖当前草稿');
+    await click(button('取消', confirmation));
+    expect(document.querySelector<HTMLTextAreaElement>('#knowledge-chunk-content')?.value).toBe(
+      '修改后的内容',
+    );
+  });
+
+  it('reloads the server chunk and closes the editor after confirming the discard', async () => {
+    documentHandlers();
+    let reloaded = false;
+    server.use(
+      http.patch('/api/knowledge/chunks/kchk_1', () =>
+        HttpResponse.json({ code: 'CONFLICT', message: '分块已被其他修改更新' }, { status: 409 }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({
+          items: [reloaded ? { ...chunk, content: '服务端最新内容' } : chunk],
+          nextCursor: null,
+        }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    await click(button('上线流程'));
+    await click(button('编辑分块 1', dialog('上线流程')));
+    const editor = dialog('编辑分块');
+    await fill('knowledge-chunk-content', '修改后的内容');
+    await click(button('保存', editor));
+    reloaded = true;
+    const chunkRequests = () =>
+      calls.filter(
+        (item) =>
+          item.method === 'GET' && item.path.startsWith('/api/knowledge/documents/kdoc_1/chunks'),
+      ).length;
+    const requestsBefore = chunkRequests();
+    await click(button('重新加载', editor));
+    await click(button('放弃并重新加载', dialog('放弃未保存的更改？')));
+    expect(chunkRequests()).toBeGreaterThan(requestsBefore);
+    expect(document.getElementById('knowledge-chunk-content')).toBeNull();
+    expect(dialog('上线流程').textContent).toContain('服务端最新内容');
+  });
+
   it('deletes a chunk after confirmation', async () => {
     documentHandlers();
     server.use(http.delete('/api/knowledge/chunks/kchk_1', () => HttpResponse.json({})));
@@ -974,7 +1075,7 @@ describe('knowledge source editing', () => {
 });
 
 describe('knowledge document metadata', () => {
-  it('opens document properties from the viewer without losing the list', async () => {
+  function documentHandlers() {
     baseHandlers();
     server.use(
       http.get('/api/knowledge/bases/kb_1/documents', () =>
@@ -984,18 +1085,28 @@ describe('knowledge document metadata', () => {
         HttpResponse.json({ items: [chunk], nextCursor: null }),
       ),
       http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('正文')),
-      http.patch('/api/knowledge/documents/kdoc_1', () =>
-        HttpResponse.json({ ...doc, title: '上线流程 v2' }),
-      ),
       detailsHandler(),
       http.get('/api/knowledge/bases/kb_1/tags', () =>
         HttpResponse.json([{ id: 'ktag_1', baseId: 'kb_1', name: '流程', createdAt: '' }]),
       ),
     );
-    await mount('/knowledge/kb_1');
+  }
+
+  async function openProperties() {
+    const router = await mount('/knowledge/kb_1');
     await click(button('上线流程'));
     await click(button('编辑属性', dialog('上线流程')));
-    const editor = dialog('编辑文档');
+    return { editor: dialog('编辑文档'), router };
+  }
+
+  it('opens document properties from the viewer without losing the list', async () => {
+    documentHandlers();
+    server.use(
+      http.patch('/api/knowledge/documents/kdoc_1', () =>
+        HttpResponse.json({ ...doc, title: '上线流程 v2' }),
+      ),
+    );
+    const { editor } = await openProperties();
     await fill('document-title', '上线流程 v2');
     await click(button('保存', editor));
     expect(patchBody('/api/knowledge/documents/kdoc_1')).toMatchObject({
@@ -1003,6 +1114,146 @@ describe('knowledge document metadata', () => {
       tags: ['流程'],
     });
   });
+
+  it('keeps the properties draft through cancel, Escape and close until it is discarded', async () => {
+    documentHandlers();
+    const { editor } = await openProperties();
+    await fill('document-title', '上线流程 v2');
+
+    await click(button('取消', editor));
+    let confirmation = dialog('放弃未保存的更改？');
+    expect(document.body.textContent).toContain('文档属性草稿会丢失');
+    await click(button('取消', confirmation));
+    expect(document.getElementById('document-title')).toBeTruthy();
+    expect(document.querySelector<HTMLInputElement>('#document-title')?.value).toBe('上线流程 v2');
+
+    await act(async () =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    await flush();
+    confirmation = dialog('放弃未保存的更改？');
+    await click(button('取消', confirmation));
+    expect(document.querySelector<HTMLInputElement>('#document-title')?.value).toBe('上线流程 v2');
+
+    await click(button('关闭', editor));
+    confirmation = dialog('放弃未保存的更改？');
+    await click(button('放弃并关闭', confirmation));
+    expect(document.querySelector<HTMLInputElement>('#document-title')).toBeNull();
+  });
+
+  it('blocks closing the properties dialog while the save is still running', async () => {
+    documentHandlers();
+    const request = deferred<void>();
+    server.use(
+      http.patch('/api/knowledge/documents/kdoc_1', async () => {
+        await request.promise;
+        return HttpResponse.json({ ...doc, title: '上线流程 v2' });
+      }),
+    );
+    const { editor } = await openProperties();
+    await fill('document-title', '上线流程 v2');
+    await click(button('保存', editor));
+
+    expect(button('取消', editor).disabled).toBe(true);
+    expect(button('关闭', editor).disabled).toBe(true);
+    await act(async () =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    await flush();
+    expect(dialog('编辑文档')).toBeDefined();
+    expect(document.body.textContent).not.toContain('放弃未保存的更改？');
+
+    await act(async () => request.resolve());
+    await flush();
+    expect(document.getElementById('document-title')).toBeNull();
+  });
+
+  it('asks before leaving the dirty properties dialog through the router', async () => {
+    documentHandlers();
+    const { router } = await openProperties();
+    await fill('document-title', '上线流程 v2');
+
+    let navigation: Promise<unknown> | undefined;
+    await act(async () => {
+      navigation = router.navigate({ to: '/knowledge/' });
+    });
+    expect(dialog('放弃未保存的更改？')).toBeDefined();
+    await click(button('取消', dialog('放弃未保存的更改？')));
+    expect(document.querySelector<HTMLInputElement>('#document-title')?.value).toBe('上线流程 v2');
+
+    await act(async () => {
+      navigation = router.navigate({ to: '/knowledge/' });
+    });
+    await click(button('放弃并离开', dialog('放弃未保存的更改？')));
+    await act(async () => {
+      await navigation;
+    });
+    expect(document.getElementById('document-title')).toBeNull();
+    expect(router.state.location.pathname).toBe('/knowledge');
+  });
+
+  const blockedWhileSaving = [
+    {
+      name: 'properties',
+      field: 'document-title',
+      value: '上线流程 v2',
+      patch: '/api/knowledge/documents/kdoc_1',
+      async open() {
+        const router = await mount('/knowledge/kb_1');
+        await click(button('上线流程'));
+        await click(button('编辑属性', dialog('上线流程')));
+        return { router, editor: dialog('编辑文档') };
+      },
+    },
+    {
+      name: 'chunk',
+      field: 'knowledge-chunk-content',
+      value: '修改后的内容',
+      patch: '/api/knowledge/chunks/kchk_1',
+      async open() {
+        const router = await mount('/knowledge/kb_1');
+        await click(button('上线流程'));
+        await click(button('编辑分块 1', dialog('上线流程')));
+        return { router, editor: dialog('编辑分块') };
+      },
+    },
+  ];
+
+  for (const editorCase of blockedWhileSaving) {
+    it(`closes the ${editorCase.name} editor after a blocked save without leaving a hanging resolver`, async () => {
+      documentHandlers();
+      const request = deferred<void>();
+      server.use(
+        http.patch(editorCase.patch, async () => {
+          await request.promise;
+          return HttpResponse.json(doc);
+        }),
+      );
+      const { router, editor } = await editorCase.open();
+      await fill(editorCase.field, editorCase.value);
+      await click(button('保存', editor));
+
+      let blocked: Promise<unknown> | undefined;
+      await act(async () => {
+        blocked = router.navigate({ to: '/knowledge/' });
+        // 被拦的导航在界面上只表现为确认框；保存成功后会随编辑器一起被取消。
+        void blocked.catch(() => undefined);
+      });
+      expect(dialog('放弃未保存的更改？')).toBeDefined();
+      expect(router.state.location.pathname).toBe('/knowledge/kb_1');
+
+      await act(async () => request.resolve());
+      await flush();
+      expect(document.getElementById(editorCase.field)).toBeNull();
+      expect(document.body.textContent).not.toContain('放弃未保存的更改？');
+      expect(router.state.location.pathname).toBe('/knowledge/kb_1');
+
+      await act(async () => {
+        await router.navigate({ to: '/knowledge/' });
+      });
+      expect(router.state.location.pathname).toBe('/knowledge');
+    });
+  }
 });
 
 describe('knowledge manual and url import', () => {
@@ -1318,6 +1569,86 @@ describe('knowledge document viewer', () => {
     expect(
       calls.some((item) => item.path.startsWith('/api/knowledge/documents/kdoc_1/chunks')),
     ).toBe(false);
+  });
+
+  it('shows the parsed text once polling turns the open pending document ready', async () => {
+    baseHandlers();
+    let parsed = false;
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({
+          items: [parsed ? doc : { ...doc, status: 'pending', currentVersionId: null }],
+          nextCursor: null,
+        }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({ items: [chunk], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('解析后的正文')),
+      detailsHandler(),
+    );
+    await mount('/knowledge/kb_1');
+    await waitFor(() =>
+      [...document.querySelectorAll('button')].some(
+        (item) => item.textContent?.trim() === '上线流程',
+      ),
+    );
+    await click(button('上线流程'));
+    expect(dialog('上线流程').textContent).toContain('还没有解析完成的版本');
+
+    parsed = true;
+    await act(async () => {
+      await client?.invalidateQueries({ queryKey: ['knowledge', 'documents', 'kb_1'] });
+    });
+    await flush();
+    const viewer = dialog('上线流程');
+    expect(viewer.textContent).toContain('解析后的正文');
+    expect(viewer.textContent).toContain('发布前需要产品与研发双方确认。');
+  });
+
+  it('keeps the newest parsed snapshot when the open document drops out of the list', async () => {
+    baseHandlers();
+    let state: 'pending' | 'ready' | 'missing' = 'pending';
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({
+          items:
+            state === 'missing'
+              ? []
+              : [state === 'ready' ? doc : { ...doc, status: 'pending', currentVersionId: null }],
+          nextCursor: null,
+        }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({ items: [chunk], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('解析后的正文')),
+      detailsHandler(),
+    );
+    await mount('/knowledge/kb_1');
+    await waitFor(() =>
+      [...document.querySelectorAll('button')].some(
+        (item) => item.textContent?.trim() === '上线流程',
+      ),
+    );
+    await click(button('上线流程'));
+    expect(dialog('上线流程').textContent).toContain('还没有解析完成的版本');
+
+    state = 'ready';
+    await act(async () => {
+      await client?.invalidateQueries({ queryKey: ['knowledge', 'documents', 'kb_1'] });
+    });
+    await flush();
+    expect(dialog('上线流程').textContent).toContain('解析后的正文');
+
+    state = 'missing';
+    await act(async () => {
+      await client?.invalidateQueries({ queryKey: ['knowledge', 'documents', 'kb_1'] });
+    });
+    await flush();
+    const viewer = dialog('上线流程');
+    expect(viewer.textContent).toContain('解析后的正文');
+    expect(viewer.textContent).toContain('发布前需要产品与研发双方确认。');
   });
 
   it('surfaces a failed chunk toggle without pretending it succeeded', async () => {
