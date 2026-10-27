@@ -988,7 +988,8 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
 
   const tagNames = new Set<string>();
   for (const tag of manifest.tags) {
-    if (!tagNames.add(tag.name)) invalid(`标签「${tag.name}」重复`);
+    if (tagNames.has(tag.name)) invalid(`标签「${tag.name}」重复`);
+    tagNames.add(tag.name);
   }
 
   const documentIds = new Set<string>();
@@ -1008,7 +1009,8 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
     for (const version of document.versions) {
       if (versionIds.has(version.id)) invalid(`版本「${version.id}」ID 重复`);
       versionIds.add(version.id);
-      if (!numbers.add(version.version)) invalid(`文档「${document.title}」版本号重复`);
+      if (numbers.has(version.version)) invalid(`文档「${document.title}」版本号重复`);
+      numbers.add(version.version);
       const original = contents.get(version.originalPath);
       if (!original) invalid(`版本「${version.id}」缺少原件`, version.originalPath);
       if (version.sizeBytes !== original.length) {
@@ -1053,9 +1055,10 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
       for (const chunk of version.chunks) {
         if (chunkIds.has(chunk.id)) invalid(`分块「${chunk.id}」ID 重复`);
         chunkIds.add(chunk.id);
-        if (!ordinals.add(chunk.ordinal)) {
+        if (ordinals.has(chunk.ordinal)) {
           invalid(`版本「${version.id}」的分块序号 ${chunk.ordinal} 重复`);
         }
+        ordinals.add(chunk.ordinal);
         // 图片定位只认本版本清单里的单段文件名，不接受越界路径或伪造 MIME。
         const hasImage = 'image' in chunk.metadata;
         const hasRole = 'imageRole' in chunk.metadata;
@@ -1101,8 +1104,10 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
     const numbers = new Set<number>();
     const pageVersionIds = new Set<string>();
     for (const version of page.versions) {
-      if (!numbers.add(version.version)) invalid(`Wiki 页面「${page.slug}」版本号重复`);
-      if (!pageVersionIds.add(version.id)) invalid(`Wiki 页面「${page.slug}」版本 ID 重复`);
+      if (numbers.has(version.version)) invalid(`Wiki 页面「${page.slug}」版本号重复`);
+      numbers.add(version.version);
+      if (pageVersionIds.has(version.id)) invalid(`Wiki 页面「${page.slug}」版本 ID 重复`);
+      pageVersionIds.add(version.id);
       for (const id of version.sourceChunkIds) {
         if (!chunkIds.has(id)) invalid(`Wiki 页面「${page.slug}」引用了包内不存在的分块`);
       }
@@ -1128,9 +1133,10 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
         if (!chunkIds.has(source.chunkId)) {
           invalid(`Wiki 页面「${page.slug}」引用了包内不存在的分块`);
         }
-        if (!sourceChunks.add(source.chunkId)) {
+        if (sourceChunks.has(source.chunkId)) {
           invalid(`Wiki 页面「${page.slug}」重复引用同一分块`);
         }
+        sourceChunks.add(source.chunkId);
       }
     }
   }
