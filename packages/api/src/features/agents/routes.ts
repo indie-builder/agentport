@@ -391,17 +391,28 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       const modeError = unsupportedPermissionMode(input.permissionMode);
       if (modeError) return invalid(reply, modeError);
 
-      const current = await repo.getAgent(app.db, request.params.id);
-      if (!current) return notFound(reply);
-      const slugError = assertSlugUnchanged(current.slug, input.slug);
-      if (slugError) return invalid(reply, slugError);
-      if (input.subAgentIds !== undefined) {
-        // 自己已经是子智能体时不能再有子智能体，否则就是两层。
-        if (current.parentId !== null && input.subAgentIds.length > 0) {
-          return invalid(reply, 'a sub-agent cannot have its own sub-agents');
+      // 只有需要旧行做校验的字段才查一次；普通字段更新直接 UPDATE。
+      if (
+        input.slug !== undefined ||
+        input.subAgentIds !== undefined ||
+        input.pluginBindings !== undefined
+      ) {
+        const current = await repo.getAgent(app.db, request.params.id);
+        if (!current) return notFound(reply);
+        const slugError = assertSlugUnchanged(current.slug, input.slug);
+        if (slugError) return invalid(reply, slugError);
+        if (input.subAgentIds !== undefined) {
+          // 自己已经是子智能体时不能再有子智能体，否则就是两层。
+          if (current.parentId !== null && input.subAgentIds.length > 0) {
+            return invalid(reply, 'a sub-agent cannot have its own sub-agents');
+          }
+          const subAgentError = await validateSubAgents(app, current.id, input.subAgentIds);
+          if (subAgentError) return invalid(reply, subAgentError);
         }
-        const subAgentError = await validateSubAgents(app, current.id, input.subAgentIds);
-        if (subAgentError) return invalid(reply, subAgentError);
+        // 插件是会话级能力：子智能体不能绑定，避免出现「配了但实际不隔离」的假能力。
+        if (current.parentId !== null && (input.pluginBindings?.length ?? 0) > 0) {
+          return invalid(reply, '子智能体不能绑定插件；插件在会话级加载');
+        }
       }
 
       // 请求未提交的列必须留给数据库保留，避免并发的不同字段更新互相覆盖。
@@ -424,14 +435,10 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       if (input.maxBudgetUsd !== undefined) patch.maxBudgetUsd = String(input.maxBudgetUsd);
       if (input.timeoutMs !== undefined) patch.timeoutMs = input.timeoutMs;
 
-      // 插件是会话级能力：子智能体不能绑定，避免出现「配了但实际不隔离」的假能力。
-      if (current.parentId !== null && (input.pluginBindings?.length ?? 0) > 0) {
-        return invalid(reply, '子智能体不能绑定插件；插件在会话级加载');
-      }
       try {
         const row = await repo.updateAgent(
           app.db,
-          current.id,
+          request.params.id,
           patch,
           input.serverIds,
           input.skillIds,
@@ -451,17 +458,17 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           requestId: request.id,
         });
         const [serverIds, skillIds, subAgentIds, pluginBindings] = await Promise.all([
-          input.serverIds ?? repo.getAgentServerIds(app.db, current.id),
-          input.skillIds ?? repo.getAgentSkillIds(app.db, current.id),
-          input.subAgentIds ?? repo.getAgentSubAgentIds(app.db, current.id),
-          repo.listAgentPluginBindings(app.db, [current.id]),
+          input.serverIds ?? repo.getAgentServerIds(app.db, row.id),
+          input.skillIds ?? repo.getAgentSkillIds(app.db, row.id),
+          input.subAgentIds ?? repo.getAgentSubAgentIds(app.db, row.id),
+          repo.listAgentPluginBindings(app.db, [row.id]),
         ]);
         return repo.toAgent(
           row,
           serverIds,
           skillIds,
           subAgentIds,
-          pluginBindings.get(current.id) ?? [],
+          pluginBindings.get(row.id) ?? [],
         );
       } catch (err) {
         rethrowConflict(err);
