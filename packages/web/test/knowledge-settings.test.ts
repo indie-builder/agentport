@@ -1,12 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { HttpResponse, http } from 'msw';
 import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   KnowledgeProfilesDialog,
   KnowledgeSettingsDialog,
 } from '../src/components/knowledge-settings.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
+import { createMsw, runCleanup } from './msw.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
@@ -90,16 +92,15 @@ const rerankProfile = {
   updatedAt: '2026-01-01T00:00:00Z',
 };
 
-const state = vi.hoisted(() => ({
-  calls: [] as Array<{ method: string; path: string; body: unknown }>,
-  handlers: {} as Record<string, unknown>,
-  failures: {} as Record<string, { status: number; message: string }>,
-}));
+const msw = createMsw();
+const { server, calls } = msw;
+
+beforeAll(() => msw.listen());
+
+afterAll(() => msw.close());
 
 beforeEach(() => {
-  state.calls.length = 0;
-  state.handlers = {};
-  state.failures = {};
+  msw.reset();
   vi.mocked(toastError).mockClear();
   vi.mocked(toastSuccess).mockClear();
   vi.stubGlobal(
@@ -111,40 +112,35 @@ beforeEach(() => {
     },
   );
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-    const path = String(input);
-    const method = (init?.method ?? 'GET').toUpperCase();
-    const raw = typeof init?.body === 'string' ? init.body : null;
-    const body = raw === null ? undefined : (JSON.parse(raw) as unknown);
-    state.calls.push({ method, path, body });
-    const failure = state.failures[`${method} ${path}`];
-    if (failure) {
-      return Response.json(
-        { code: 'CONFLICT', message: failure.message },
-        { status: failure.status },
-      );
-    }
-    const value = state.handlers[`${method} ${path}`];
-    return Response.json(value ?? null);
-  });
 });
 
 let client: QueryClient | undefined;
 let host: HTMLDivElement | undefined;
 let root: Root | undefined;
 
-afterEach(async () => {
-  if (root) await act(async () => root.unmount());
-  client?.clear();
-  host?.remove();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
+async function cleanup() {
+  const mountedRoot = root,
+    mountedClient = client,
+    mountedHost = host;
+  root = client = host = undefined;
+  await runCleanup([
+    () => mountedRoot && act(async () => mountedRoot.unmount()),
+    () => mountedClient?.clear(),
+    () => mountedHost?.remove(),
+    () => msw.waitForRequests(),
+    () => vi.restoreAllMocks(),
+    () => vi.unstubAllGlobals(),
+    () => msw.assertClean(),
+  ]);
+}
+
+afterEach(() => cleanup());
 
 async function flush() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
+  await msw.waitForRequests();
 }
 
 async function mount(element: ReactElement) {
@@ -222,19 +218,38 @@ function mountProfiles() {
   );
 }
 
+describe('msw cleanup', () => {
+  it('resets the mounted root, client and host for the next case', async () => {
+    // afterEach 真实使用的就是同一个 cleanup；这里手动触发以覆盖引用复位。
+    await mount(createElement('div'));
+    const mounted = host;
+    expect(mounted?.isConnected).toBe(true);
+    await cleanup();
+    expect(root).toBeUndefined();
+    expect(client).toBeUndefined();
+    expect(host).toBeUndefined();
+    expect(mounted?.isConnected).toBe(false);
+  });
+});
+
 describe('knowledge base settings', () => {
   it('saves chunk settings and the rerank profile through the base patch', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [embeddingProfile, rerankProfile];
-    state.handlers['PATCH /api/knowledge/bases/kb_1'] = { ...base, rerankProfileId: null };
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([embeddingProfile, rerankProfile]),
+      ),
+      http.patch('/api/knowledge/bases/kb_1', () =>
+        HttpResponse.json({ ...base, rerankProfileId: null }),
+      ),
+    );
     await mountSettings();
     expect(document.body.textContent).toContain('知识库设置');
     await fill('knowledge-settings-chunk-tokens', '1000');
     await fill('knowledge-settings-chunk-overlap', '150');
     await click(button('保存设置'));
     expect(
-      state.calls.find(
-        (item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1',
-      )?.body,
+      calls.find((item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1')
+        ?.body,
     ).toEqual({
       rerankProfileId: 'profile_rerank',
       settings: {
@@ -248,14 +263,18 @@ describe('knowledge base settings', () => {
   });
 
   it('saves the image processing group with the gateway vision model id', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [cohereProfile, rerankProfile];
-    state.handlers['PATCH /api/knowledge/bases/kb_1'] = cohereBase;
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([cohereProfile, rerankProfile]),
+      ),
+      http.patch('/api/knowledge/bases/kb_1', () => HttpResponse.json(cohereBase)),
+    );
     await mountSettings(cohereBase);
     await fill('knowledge-settings-image-model', 'claude-vision');
     await fill('knowledge-settings-image-language', 'en-US');
     await fill('knowledge-settings-image-instructions', '保留表格结构');
     await click(button('保存设置'));
-    const body = state.calls.find(
+    const body = calls.find(
       (item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1',
     )?.body as { settings: { imageProcessing: Record<string, unknown> } } | undefined;
     expect(body?.settings.imageProcessing).toMatchObject({
@@ -270,20 +289,26 @@ describe('knowledge base settings', () => {
   });
 
   it('refuses to enable image processing without a model or any action', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [cohereProfile, rerankProfile];
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([cohereProfile, rerankProfile]),
+      ),
+    );
     await mountSettings();
     await toggle('knowledge-settings-image-enabled');
     await click(button('保存设置'));
     expect(document.body.textContent).toContain('开启图片处理需要视觉模型');
     expect(
-      state.calls.some(
-        (item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1',
-      ),
+      calls.some((item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1'),
     ).toBe(false);
   });
 
   it('only offers image vectors when the bound profile is Cohere embed-v4.0 with images', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [embeddingProfile, rerankProfile];
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([embeddingProfile, rerankProfile]),
+      ),
+    );
     await mountSettings({ ...cohereBase, embeddingProfileId: 'profile_embed' });
     const vector = document.getElementById('knowledge-settings-image-vector') as HTMLButtonElement;
     expect(vector.disabled).toBe(true);
@@ -291,13 +316,17 @@ describe('knowledge base settings', () => {
   });
 
   it('enables image vectors and the score floor on a capable profile', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [cohereProfile, rerankProfile];
-    state.handlers['PATCH /api/knowledge/bases/kb_1'] = cohereBase;
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([cohereProfile, rerankProfile]),
+      ),
+      http.patch('/api/knowledge/bases/kb_1', () => HttpResponse.json(cohereBase)),
+    );
     await mountSettings(cohereBase);
     await toggle('knowledge-settings-image-vector');
     await fill('knowledge-settings-image-min-score', '0.5');
     await click(button('保存设置'));
-    const body = state.calls.find(
+    const body = calls.find(
       (item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1',
     )?.body as { settings: { imageProcessing: Record<string, unknown> } } | undefined;
     expect(body?.settings.imageProcessing).toMatchObject({
@@ -307,11 +336,17 @@ describe('knowledge base settings', () => {
   });
 
   it('shows the API conflict when image vectors are rejected', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [cohereProfile, rerankProfile];
-    state.failures['PATCH /api/knowledge/bases/kb_1'] = {
-      status: 409,
-      message: '图片向量需要 Cohere embed-v4.0 且 profile 已开启图片输入',
-    };
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([cohereProfile, rerankProfile]),
+      ),
+      http.patch('/api/knowledge/bases/kb_1', () =>
+        HttpResponse.json(
+          { code: 'CONFLICT', message: '图片向量需要 Cohere embed-v4.0 且 profile 已开启图片输入' },
+          { status: 409 },
+        ),
+      ),
+    );
     await mountSettings(cohereBase);
     await click(button('保存设置'));
     expect(vi.mocked(toastError).mock.calls[0]?.[0]).toMatchObject({
@@ -320,14 +355,18 @@ describe('knowledge base settings', () => {
   });
 
   it('asks before a whole rebuild because it overwrites manual chunk edits', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [embeddingProfile, rerankProfile];
-    state.handlers['POST /api/knowledge/bases/kb_1/rebuild'] = { jobId: 'kjob_9' };
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([embeddingProfile, rerankProfile]),
+      ),
+      http.post('/api/knowledge/bases/kb_1/rebuild', () => HttpResponse.json({ jobId: 'kjob_9' })),
+    );
     await mountSettings();
     await click(button('重建全部索引'));
     expect(document.body.textContent).toContain('手动改过的文案会丢失');
     await click(button('确认重建'));
     expect(
-      state.calls.find(
+      calls.find(
         (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/rebuild',
       )?.body,
     ).toEqual({ chunksOnly: false });
@@ -337,24 +376,29 @@ describe('knowledge base settings', () => {
 
 describe('knowledge model profiles', () => {
   it('shows the fix when an embedding endpoint rejects the credentials', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [embeddingProfile];
-    state.handlers['POST /api/knowledge/model-profiles/profile_embed/test'] = {
-      ok: false,
-      kind: 'auth',
-    };
+    server.use(
+      http.get('/api/knowledge/model-profiles', () => HttpResponse.json([embeddingProfile])),
+      http.post('/api/knowledge/model-profiles/profile_embed/test', () =>
+        HttpResponse.json({ ok: false, kind: 'auth' }),
+      ),
+    );
     await mountProfiles();
     await click(button('测试'));
     expect(document.body.textContent).toContain('凭证被端点拒绝');
   });
 
   it('keeps the stored secret when the edit form leaves it blank', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [embeddingProfile];
-    state.handlers['PATCH /api/knowledge/model-profiles/profile_embed'] = embeddingProfile;
+    server.use(
+      http.get('/api/knowledge/model-profiles', () => HttpResponse.json([embeddingProfile])),
+      http.patch('/api/knowledge/model-profiles/profile_embed', () =>
+        HttpResponse.json(embeddingProfile),
+      ),
+    );
     await mountProfiles();
     await click(button('编辑'));
     await fill('knowledge-profile-model', 'bge-m3-v2');
     await click(button('保存'));
-    const body = state.calls.find(
+    const body = calls.find(
       (item) =>
         item.method === 'PATCH' && item.path === '/api/knowledge/model-profiles/profile_embed',
     )?.body;
@@ -363,8 +407,10 @@ describe('knowledge model profiles', () => {
   });
 
   it('sends the embedding protocol and image input on profile create', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [];
-    state.handlers['POST /api/knowledge/model-profiles'] = cohereProfile;
+    server.use(
+      http.get('/api/knowledge/model-profiles', () => HttpResponse.json([])),
+      http.post('/api/knowledge/model-profiles', () => HttpResponse.json(cohereProfile)),
+    );
     await mountProfiles();
     await click(button('新增 profile'));
     await fill('knowledge-profile-name', 'embed-v4.0');
@@ -374,9 +420,8 @@ describe('knowledge model profiles', () => {
     await toggle('knowledge-profile-image-input');
     await click(button('保存'));
     expect(
-      state.calls.find(
-        (item) => item.method === 'POST' && item.path === '/api/knowledge/model-profiles',
-      )?.body,
+      calls.find((item) => item.method === 'POST' && item.path === '/api/knowledge/model-profiles')
+        ?.body,
     ).toMatchObject({
       kind: 'embedding',
       model: 'embed-v4.0',
@@ -386,8 +431,10 @@ describe('knowledge model profiles', () => {
   });
 
   it('keeps image input off for a non-Cohere embedding model', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [];
-    state.handlers['POST /api/knowledge/model-profiles'] = embeddingProfile;
+    server.use(
+      http.get('/api/knowledge/model-profiles', () => HttpResponse.json([])),
+      http.post('/api/knowledge/model-profiles', () => HttpResponse.json(embeddingProfile)),
+    );
     await mountProfiles();
     await click(button('新增 profile'));
     await fill('knowledge-profile-name', 'bge-m3');
@@ -402,11 +449,15 @@ describe('knowledge model profiles', () => {
   });
 
   it('surfaces the binding conflict when deleting a profile still in use', async () => {
-    state.handlers['GET /api/knowledge/model-profiles'] = [embeddingProfile];
-    state.failures['DELETE /api/knowledge/model-profiles/profile_embed'] = {
-      status: 409,
-      message: '该 profile 仍被知识库使用，请先切换或删除知识库',
-    };
+    server.use(
+      http.get('/api/knowledge/model-profiles', () => HttpResponse.json([embeddingProfile])),
+      http.delete('/api/knowledge/model-profiles/profile_embed', () =>
+        HttpResponse.json(
+          { code: 'CONFLICT', message: '该 profile 仍被知识库使用，请先切换或删除知识库' },
+          { status: 409 },
+        ),
+      ),
+    );
     await mountProfiles();
     await click(button('删除'));
     await click(button('确认删除'));

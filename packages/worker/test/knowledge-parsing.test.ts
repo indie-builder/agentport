@@ -47,11 +47,19 @@ beforeAll(async () => {
                 ? 'docling-skipped.json'
                 : route === '/md-blocks'
                   ? 'docling-md-only-blocks.json'
-                  : route === '/pictures'
-                    ? 'docling-pictures.json'
-                    : route === '/invalid'
-                      ? 'docling-invalid.json'
-                      : 'docling-success.json',
+                  : route === '/dedup'
+                    ? 'docling-dedup-blocks.json'
+                    : route === '/pictures'
+                      ? 'docling-pictures.json'
+                      : route === '/invalid'
+                        ? 'docling-invalid.json'
+                        : route === '/fence-trailing'
+                          ? 'docling-fence-trailing.json'
+                          : route === '/fence-short'
+                            ? 'docling-fence-short.json'
+                            : route === '/fence-opposite'
+                              ? 'docling-fence-opposite.json'
+                              : 'docling-success.json',
       );
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(body);
@@ -144,6 +152,69 @@ describe('parseDocument native formats', () => {
     expect(parsed.blocks[0]?.locator).toEqual({ page: 'unknown', kind: 'csv', rows: 4 });
   });
 
+  it('accepts CR-only records and strips a BOM', async () => {
+    const parsed = await parseDocument({
+      bytes: new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode('a,b\r1,2\r3,4')]),
+      filename: 'cr.csv',
+      mimeType: 'text/csv',
+    });
+
+    expect(parsed.markdown).toBe(
+      ['| a | b |', '| --- | --- |', '| 1 | 2 |', '| 3 | 4 |'].join('\n'),
+    );
+    expect(parsed.blocks[0]?.locator).toMatchObject({ rows: 2 });
+  });
+
+  it('keeps quoted newlines in one cell and pads ragged rows', async () => {
+    const parsed = await parseDocument({
+      bytes: new TextEncoder().encode('a,b,c\n"x\ny",2\n1,2,3,4\n,\n'),
+      filename: 'ragged.csv',
+      mimeType: 'text/csv',
+    });
+
+    expect(parsed.markdown).toBe(
+      [
+        '| a | b | c |  |',
+        '| --- | --- | --- | --- |',
+        '| x y | 2 |  |  |',
+        '| 1 | 2 | 3 | 4 |',
+      ].join('\n'),
+    );
+  });
+
+  it('renders 150000 short CSV rows plus a wider trailing row', async () => {
+    const csv = [
+      'c0,c1',
+      ...Array.from({ length: 150_000 }, () => 'x,y'),
+      'tail0,tail1,tail2,tail3,tail4,tail5',
+    ].join('\n');
+    const parsed = await parseDocument({
+      bytes: new TextEncoder().encode(csv),
+      filename: 'large.csv',
+      mimeType: 'text/csv',
+    });
+
+    const lines = parsed.markdown.split('\n');
+    expect(lines.slice(0, 2)).toEqual([
+      '| c0 | c1 |  |  |  |  |',
+      '| --- | --- | --- | --- | --- | --- |',
+    ]);
+    expect(lines.at(-1)).toBe('| tail0 | tail1 | tail2 | tail3 | tail4 | tail5 |');
+    expect(parsed.blocks[0]?.locator).toEqual({ page: 'unknown', kind: 'csv', rows: 150_001 });
+  });
+
+  it('rejects malformed CSV quotes instead of silently rewriting them', async () => {
+    for (const csv of ['a,b\n"x"y,2\n', 'a,b\n"x,2\n']) {
+      await expect(
+        parseDocument({
+          bytes: new TextEncoder().encode(csv),
+          filename: 'bad.csv',
+          mimeType: 'text/csv',
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_input' });
+    }
+  });
+
   it('pretty-prints JSON in a fenced block', async () => {
     const parsed = await parseDocument({
       bytes: fixtureBytes('sample.json'),
@@ -208,6 +279,44 @@ describe('parseDocument native formats', () => {
         mimeType: 'application/pdf',
       }),
     ).rejects.toMatchObject({ code: 'parser_unavailable' });
+  });
+});
+
+describe('markdown line-based blocks', () => {
+  const parseMarkdown = (markdown: string) =>
+    parseDocument({
+      bytes: new TextEncoder().encode(markdown),
+      filename: 'doc.md',
+      mimeType: 'text/markdown',
+    });
+
+  it('keeps a longer fence whole even when it contains triple backticks', async () => {
+    const markdown = ['# 代码', '', '````md', '```ts', 'const a = 1;', '```', '````', '', '结尾。'];
+    const parsed = await parseMarkdown(markdown.join('\n'));
+
+    expect(parsed.blocks.map((block) => [block.heading, block.content])).toEqual([
+      ['代码', '````md\n```ts\nconst a = 1;\n```\n````'],
+      ['代码', '结尾。'],
+    ]);
+  });
+
+  it('treats setext headings as breadcrumbs instead of content', async () => {
+    const parsed = await parseMarkdown('标题\n===\n\n正文。\n');
+
+    expect(parsed.blocks.map((block) => [block.heading, block.content])).toEqual([
+      ['标题', '正文。'],
+    ]);
+  });
+
+  it('keeps GFM tables without outer pipes whole', async () => {
+    const parsed = await parseMarkdown(
+      ['# 数据', '', '名称 | 数量', '--- | ---', '苹果 | 3', '', '结尾。'].join('\n'),
+    );
+
+    expect(parsed.blocks.map((block) => [block.heading, block.content])).toEqual([
+      ['数据', '名称 | 数量\n--- | ---\n苹果 | 3'],
+      ['数据', '结尾。'],
+    ]);
   });
 });
 
@@ -370,6 +479,58 @@ describe('parseDocument Docling', () => {
       page: 'unknown',
     });
   });
+
+  it('deduplicates markdown tables/code against JSON even with different fence or pipe styles', async () => {
+    const parsed = await parseDocument({
+      bytes: new TextEncoder().encode('fake'),
+      filename: 'dedup.pdf',
+      mimeType: 'application/pdf',
+      parserUrl: `${parserUrl}/dedup`,
+    });
+
+    // JSON wins because it carries provenance; the same table/code in md must not be indexed twice.
+    expect(parsed.blocks.map((block) => [block.content, block.locator.page])).toEqual([
+      ['段落一。', 1],
+      ['```ts\nconst a = 1;\n```', 2],
+      [['| 名称 | 数量 |', '| --- | --- |', '| 苹果 | 3 |'].join('\n'), 3],
+    ]);
+  });
+
+  it.each([
+    {
+      route: '/fence-trailing',
+      jsonBlock: '```ts\nconst a = 1;\n```',
+      unclosed: '```ts\nconst a = 1;\n```still code',
+      deduped: '~~~ts\nlet t = 1;\n~~~',
+    },
+    {
+      route: '/fence-short',
+      jsonBlock: '```py\nprint(3)\n```',
+      unclosed: '````py\nprint(3)\n```',
+      deduped: null,
+    },
+    {
+      route: '/fence-opposite',
+      jsonBlock: '```rb\nputs 4\n```',
+      unclosed: '~~~rb\nputs 4\n```',
+      deduped: null,
+    },
+  ])(
+    'keeps an unclosed markdown fence that only looks closed ($route)',
+    async ({ route, jsonBlock, unclosed, deduped }) => {
+      const parsed = await parseDocument({
+        bytes: new TextEncoder().encode('fake'),
+        filename: 'fence.pdf',
+        mimeType: 'application/pdf',
+        parserUrl: `${parserUrl}${route}`,
+      });
+
+      const contents = parsed.blocks.map((block) => block.content);
+      expect(contents).toContain(jsonBlock);
+      expect(contents).toContain(unclosed);
+      if (deduped) expect(contents).not.toContain(deduped);
+    },
+  );
 
   it('surfaces partial_success errors instead of silently accepting content', async () => {
     const failure = parseDocument({
@@ -569,6 +730,21 @@ describe('chunkDocument', () => {
 
     expect(chunks.map((chunk) => chunk.content)).toEqual([table, code]);
     expect(chunks[0]?.locator).not.toHaveProperty('charStart');
+  });
+
+  it('treats tilde fences and longer fences as atomic', () => {
+    const tilde = '~~~ts\nconst a = 1;\nconst b = 2;\n~~~';
+    const longer = '````md\n```\ninner\n```\n````';
+    const parsed: ParsedDocument = {
+      markdown: '',
+      images: [],
+      pageMap: [],
+      blocks: [block(tilde, 'T'), block(longer, 'L')],
+    };
+
+    const chunks = chunkDocument(parsed, { chunkSize: 10, chunkOverlap: 0 });
+
+    expect(chunks.map((chunk) => chunk.content)).toEqual([tilde, longer]);
   });
 
   it('does not cut a surrogate pair when splitting long text', () => {

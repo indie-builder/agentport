@@ -1,3 +1,4 @@
+import { parse as parseCsv } from 'csv-parse/sync';
 import TurndownService from 'turndown';
 import { z } from 'zod';
 import { assertUsableImage } from './image-processing.js';
@@ -129,69 +130,129 @@ function emptyHeading(heading: string[]): string {
   return heading.filter((part) => part !== '').join(' > ');
 }
 
+const FENCE = /^\s*(`{3,}|~{3,})/;
+const TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+const SETEXT = /^ {0,3}(=+|-+)\s*$/;
+
+export function isFenceStart(value: string): boolean {
+  return FENCE.test(value);
+}
+
+/** A fence closes only with its own character repeated at least as many times, then whitespace. */
+function fenceCloser(marker: string): RegExp {
+  const char = marker[0] ?? '`';
+  return new RegExp(`^\\s*${char}{${marker.length},}\\s*$`);
+}
+
+export function isTableDelimiterLine(line: string): boolean {
+  return line.includes('|') && TABLE_DELIMITER.test(line);
+}
+
+export function isTableBlock(content: string): boolean {
+  // A fenced block is code even when its body shows a table.
+  if (isFenceStart(content)) return false;
+  return content.split('\n').some(isTableDelimiterLine);
+}
+
+/** Tables/code stay whole for chunking, including GFM tables without outer pipes. */
+export function isAtomicBlock(content: string): boolean {
+  return isTableBlock(content) || isFenceStart(content);
+}
+
+/** Splits CRLF/CR/LF keeping each line's original offset so page ranges stay exact. */
+function splitLines(markdown: string): { lines: string[]; offsets: number[] } {
+  const lines: string[] = [];
+  const offsets: number[] = [];
+  let start = 0;
+  for (let index = 0; index <= markdown.length; index += 1) {
+    const char = markdown[index];
+    if (index === markdown.length || char === '\n' || char === '\r') {
+      lines.push(markdown.slice(start, index));
+      offsets.push(start);
+      if (char === '\r' && markdown[index + 1] === '\n') index += 1;
+      start = index + 1;
+    }
+  }
+  return { lines, offsets };
+}
+
 /**
  * Line-based Markdown splitter: fenced code and tables stay whole, headings only set the
- * breadcrumb heading, blank lines separate paragraphs.
+ * breadcrumb, blank lines separate paragraphs. Not full CommonMark.
  */
 export function markdownBlocks(
   markdown: string,
-  locator: (line: number) => Record<string, unknown>,
+  locator: (line: number, offset?: number) => Record<string, unknown>,
 ): ParsedBlock[] {
-  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+  const { lines, offsets } = splitLines(markdown);
   const blocks: ParsedBlock[] = [];
   const headings: string[] = [];
   let paragraph: string[] = [];
-  let paragraphLine = 1;
+  let paragraphIndex = 0;
 
   const flush = () => {
     if (paragraph.length === 0) return;
     blocks.push({
       content: paragraph.join('\n').trim(),
       heading: emptyHeading(headings),
-      locator: locator(paragraphLine),
+      locator: locator(paragraphIndex + 1, offsets[paragraphIndex] ?? 0),
     });
     paragraph = [];
+  };
+
+  const setHeading = (level: number, title: string) => {
+    headings.length = Math.min(headings.length, level - 1);
+    headings[level - 1] = title;
   };
 
   let index = 0;
   while (index < lines.length) {
     const line = lines[index] ?? '';
-    const lineNumber = index + 1;
-    const fence = /^\s*(`{3,}|~{3,})/.exec(line);
+    const fence = FENCE.exec(line);
     if (fence) {
       flush();
       const marker = fence[1] ?? '```';
+      const closer = fenceCloser(marker);
+      const start = index;
+      index += 1;
+      while (index < lines.length && !closer.test(lines[index] ?? '')) index += 1;
+      if (index < lines.length) index += 1;
+      blocks.push({
+        content: lines.slice(start, index).join('\n').trim(),
+        heading: emptyHeading(headings),
+        locator: locator(start + 1, offsets[start] ?? 0),
+      });
+      continue;
+    }
+    // A GFM table starts with a pipe row followed by a delimiter row; outer pipes are optional.
+    if (line.includes('|') && isTableDelimiterLine(lines[index + 1] ?? '')) {
+      flush();
       const start = index;
       index += 1;
       while (index < lines.length) {
-        const candidate = lines[index] ?? '';
+        const row = lines[index] ?? '';
+        if (row.trim() === '' || !row.includes('|')) break;
         index += 1;
-        if (candidate.trimStart().startsWith(marker.slice(0, 3))) break;
       }
       blocks.push({
         content: lines.slice(start, index).join('\n').trim(),
         heading: emptyHeading(headings),
-        locator: locator(start + 1),
-      });
-      continue;
-    }
-    if (/^\s*\|/.test(line)) {
-      flush();
-      const start = index;
-      while (index < lines.length && /^\s*\|/.test(lines[index] ?? '')) index += 1;
-      blocks.push({
-        content: lines.slice(start, index).join('\n').trim(),
-        heading: emptyHeading(headings),
-        locator: locator(start + 1),
+        locator: locator(start + 1, offsets[start] ?? 0),
       });
       continue;
     }
     const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
     if (heading) {
       flush();
-      const level = (heading[1] ?? '#').length;
-      headings.length = Math.min(headings.length, level - 1);
-      headings[level - 1] = (heading[2] ?? '').trim();
+      setHeading((heading[1] ?? '#').length, (heading[2] ?? '').trim());
+      index += 1;
+      continue;
+    }
+    // Minimal setext support: only a one-line paragraph followed by its underline.
+    const setext = SETEXT.exec(line);
+    if (setext && paragraph.length === 1) {
+      setHeading(setext[1]?.startsWith('=') ? 1 : 2, (paragraph[0] ?? '').trim());
+      paragraph = [];
       index += 1;
       continue;
     }
@@ -200,7 +261,7 @@ export function markdownBlocks(
       index += 1;
       continue;
     }
-    if (paragraph.length === 0) paragraphLine = lineNumber;
+    if (paragraph.length === 0) paragraphIndex = index;
     paragraph.push(line);
     index += 1;
   }
@@ -217,43 +278,21 @@ function textBlocks(text: string): ParsedBlock[] {
 }
 
 function parseCsvRows(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = '';
-  let quoted = false;
-  const source = text.replace(/^﻿/, '');
-  for (let i = 0; i < source.length; i += 1) {
-    const char = source[i] ?? '';
-    if (quoted) {
-      if (char === '"') {
-        if (source[i + 1] === '"') {
-          cell += '"';
-          i += 1;
-        } else {
-          quoted = false;
-        }
-      } else {
-        cell += char;
-      }
-      continue;
-    }
-    if (char === '"') {
-      quoted = true;
-    } else if (char === ',') {
-      row.push(cell);
-      cell = '';
-    } else if (char === '\n') {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = '';
-    } else if (char !== '\r') {
-      cell += char;
-    }
-  }
-  if (cell !== '' || row.length > 0) {
-    row.push(cell);
-    rows.push(row);
+  let rows: string[][];
+  try {
+    rows = parseCsv(text, {
+      bom: true,
+      skip_empty_lines: true,
+      relax_column_count: true,
+      record_delimiter: ['\r\n', '\n', '\r'],
+      cast: false,
+      trim: false,
+    });
+  } catch (error) {
+    throw new KnowledgeParseError(
+      'invalid_input',
+      `CSV 解析失败: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   return rows.filter((row) => row.some((value) => value.trim() !== ''));
 }
@@ -266,7 +305,7 @@ function escapeCell(value: string): string {
 }
 
 function renderTable(rows: string[][]): string {
-  const width = Math.max(...rows.map((row) => row.length));
+  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
   const cells = rows.map((row) =>
     Array.from({ length: width }, (_, index) => escapeCell(row[index] ?? '')),
   );
@@ -496,18 +535,26 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-/** Tables/code can be rendered differently by md vs json; compare their cells instead. */
+/** Tables/code can be rendered differently by md vs json; compare their cells/content instead. */
 function fingerprint(content: string): string {
-  if (/^\|/.test(content)) {
+  if (isTableBlock(content)) {
     return normalizeText(
       content
         .split('\n')
-        .filter((line) => !/^\s*\|[\s|:-]+\|\s*$/.test(line))
-        .flatMap((line) => line.split('|'))
+        .filter((line) => !isTableDelimiterLine(line))
+        .flatMap((line) => line.split(/(?<!\\)\|/))
+        .map((cell) => cell.replace(/\\\|/g, '|'))
         .join(' '),
     );
   }
-  return normalizeText(content.replace(/^```[^\n]*\n?|```$/g, ''));
+  const lines = content.split('\n');
+  const opener = FENCE.exec(lines[0] ?? '')?.[1];
+  if (opener && lines.length > 1 && fenceCloser(opener).test(lines.at(-1) ?? '')) {
+    lines.shift();
+    lines.pop();
+    return normalizeText(lines.join(' '));
+  }
+  return normalizeText(content);
 }
 
 /** Walks body refs (descending into groups) so blocks keep the document's reading order. */
@@ -561,11 +608,14 @@ function doclingBlocks(json: DoclingJson, markdown: string): ParsedBlock[] {
       }
       if (value === '') continue;
       seenTexts.add(normalizeText(value));
+      const content =
+        label === 'code'
+          ? `\`\`\`${item.code_language && item.code_language !== 'unknown' ? item.code_language : ''}\n${value}\n\`\`\``
+          : value;
+      // 代码在 md 里可能用不同长度的 fence；按内容而非 fence 比较。
+      if (label === 'code') seenBlocks.add(fingerprint(content));
       blocks.push({
-        content:
-          label === 'code'
-            ? `\`\`\`${item.code_language && item.code_language !== 'unknown' ? item.code_language : ''}\n${value}\n\`\`\``
-            : value,
+        content,
         heading: emptyHeading(headings),
         locator: doclingLocator(item),
       });
@@ -836,10 +886,6 @@ export async function parseDocument(input: {
   };
 }
 
-function isAtomic(content: string): boolean {
-  return /^```/.test(content) || /^\|/.test(content);
-}
-
 function mergeLocators(blocks: ParsedBlock[]): Record<string, unknown> {
   const pages = blocks
     .map((block) => block.locator.page)
@@ -903,7 +949,7 @@ export function chunkDocument(
     if (block.content.trim() === '') continue;
     if (block.content.length > chunkSize) {
       flush();
-      if (isAtomic(block.content)) {
+      if (isAtomicBlock(block.content)) {
         chunks.push({ content: block.content, heading: block.heading, locator: block.locator });
       } else {
         splitLong(block);

@@ -9,13 +9,15 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
+import { delay, HttpResponse, http } from 'msw';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { toastError } from '../src/lib/toast.js';
 import { KnowledgePage } from '../src/pages/knowledge.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
+import { createMsw, runCleanup } from './msw.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
@@ -149,34 +151,15 @@ function wikiJob(status: KnowledgeJob['status'], id = 'kjob_gen'): KnowledgeJob 
   };
 }
 
-const state = vi.hoisted(() => ({
-  calls: [] as Array<{ method: string; path: string; body: unknown }>,
-  handlers: {} as Record<
-    string,
-    (call: { method: string; path: string; body: unknown }) => unknown
-  >,
-  failures: {} as Record<string, { status: number; message: string }>,
-}));
+const msw = createMsw();
+const { server, calls } = msw;
 
-function handler(
-  method: string,
-  path: string,
-  body: unknown | ((call: { method: string; path: string; body: unknown }) => unknown),
-) {
-  state.handlers[`${method} ${path}`] =
-    typeof body === 'function'
-      ? (body as (call: { method: string; path: string; body: unknown }) => unknown)
-      : () => body;
-}
+beforeAll(() => msw.listen());
 
-function text(body: string): Response {
-  return new Response(body, { headers: { 'content-type': 'text/markdown; charset=utf-8' } });
-}
+afterAll(() => msw.close());
 
 beforeEach(() => {
-  state.calls.length = 0;
-  state.handlers = {};
-  state.failures = {};
+  msw.reset();
   vi.mocked(toastError).mockClear();
   vi.stubGlobal(
     'ResizeObserver',
@@ -187,50 +170,35 @@ beforeEach(() => {
     },
   );
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-    const path = String(input);
-    const method = (init?.method ?? 'GET').toUpperCase();
-    const raw = typeof init?.body === 'string' ? init.body : null;
-    const body =
-      raw === null
-        ? init?.body instanceof Blob
-          ? { __blob: init.body.type }
-          : undefined
-        : (JSON.parse(raw) as unknown);
-    state.calls.push({ method, path, body });
-    const failure = state.failures[`${method} ${path}`];
-    if (failure) {
-      return Response.json(
-        { code: 'CONFLICT', message: failure.message },
-        { status: failure.status },
-      );
-    }
-    const bare = path.split('?')[0] ?? path;
-    const found = state.handlers[`${method} ${path}`] ?? state.handlers[`${method} ${bare}`];
-    if (found) {
-      const value = found({ method, path, body });
-      return value instanceof Response ? value : Response.json(value);
-    }
-    return Response.json({ items: [], nextCursor: null });
-  });
 });
 
 let client: QueryClient | undefined;
 let host: HTMLDivElement | undefined;
 let root: Root | undefined;
 
-afterEach(async () => {
-  if (root) await act(async () => root.unmount());
-  client?.clear();
-  host?.remove();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
+async function cleanup(unmount?: () => Promise<void>) {
+  const mountedRoot = root,
+    mountedClient = client,
+    mountedHost = host;
+  root = client = host = undefined;
+  await runCleanup([
+    unmount ?? (() => mountedRoot && act(async () => mountedRoot.unmount())),
+    () => mountedClient?.clear(),
+    () => mountedHost?.remove(),
+    () => msw.waitForRequests(),
+    () => vi.restoreAllMocks(),
+    () => vi.unstubAllGlobals(),
+    () => msw.assertClean(),
+  ]);
+}
+
+afterEach(() => cleanup());
 
 async function flush() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
+  await msw.waitForRequests();
 }
 
 async function mount(path: string, search: Record<string, string> = {}) {
@@ -342,25 +310,52 @@ async function fill(id: string, value: string) {
   });
 }
 
-function baseHandlers() {
-  handler('GET', '/api/knowledge/bases', { items: [base], nextCursor: null });
-  handler('GET', '/api/knowledge/bases/kb_1', base);
-  handler('GET', '/api/knowledge/bases/kb_1/folders', []);
-  handler('GET', '/api/knowledge/bases/kb_1/tags', [
-    { id: 'ktag_1', baseId: 'kb_1', name: '流程', createdAt: '' },
-  ]);
-  handler('GET', '/api/knowledge/bases/kb_1/sources', { items: [source], nextCursor: null });
-  handler('GET', '/api/knowledge/bases/kb_1/wiki-pages', {
-    items: [wikiPageSummary],
-    nextCursor: null,
+function markdownResponse(body: string): Response {
+  return HttpResponse.text(body, {
+    headers: { 'content-type': 'text/markdown; charset=utf-8' },
   });
-  handler('GET', '/api/knowledge/jobs', { items: [], nextCursor: null });
-  handler('GET', '/api/knowledge/model-profiles', []);
-  handler('GET', '/api/agents', []);
+}
+
+function detailsHandler() {
+  return http.get('/api/knowledge/versions/kdv_1/details', () =>
+    HttpResponse.json({
+      id: 'kdv_1',
+      documentId: 'kdoc_1',
+      version: 1,
+      originalFilename: 'release.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 1024,
+      sourceRevision: null,
+      parseStatus: 'parsed',
+      pageMap: [],
+      images: [],
+      createdAt: '2026-01-01T00:00:00Z',
+    }),
+  );
+}
+
+function baseHandlers() {
+  server.use(
+    http.get('/api/knowledge/bases', () => HttpResponse.json({ items: [base], nextCursor: null })),
+    http.get('/api/knowledge/bases/kb_1', () => HttpResponse.json(base)),
+    http.get('/api/knowledge/bases/kb_1/folders', () => HttpResponse.json([])),
+    http.get('/api/knowledge/bases/kb_1/tags', () =>
+      HttpResponse.json([{ id: 'ktag_1', baseId: 'kb_1', name: '流程', createdAt: '' }]),
+    ),
+    http.get('/api/knowledge/bases/kb_1/sources', () =>
+      HttpResponse.json({ items: [source], nextCursor: null }),
+    ),
+    http.get('/api/knowledge/bases/kb_1/wiki-pages', () =>
+      HttpResponse.json({ items: [wikiPageSummary], nextCursor: null }),
+    ),
+    http.get('/api/knowledge/jobs', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/knowledge/model-profiles', () => HttpResponse.json([])),
+    http.get('/api/agents', () => HttpResponse.json([])),
+  );
 }
 
 function patchBody(path: string) {
-  return state.calls.find((item) => item.method === 'PATCH' && item.path === path)?.body;
+  return calls.find((item) => item.method === 'PATCH' && item.path === path)?.body;
 }
 
 describe('knowledge polling window', () => {
@@ -410,7 +405,10 @@ describe('knowledge polling window', () => {
 
 describe('knowledge library list', () => {
   it('offers creation and shows a single h1 when there is no base', async () => {
-    handler('GET', '/api/knowledge/bases', { items: [], nextCursor: null });
+    server.use(
+      http.get('/api/knowledge/bases', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents', () => HttpResponse.json([])),
+    );
     await mount('/knowledge');
     expect(document.querySelectorAll('h1')).toHaveLength(1);
     expect(document.body.textContent).toContain('还没有知识库');
@@ -419,7 +417,11 @@ describe('knowledge library list', () => {
 
   it('links each base to its detail route with status and count', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', { items: [doc], nextCursor: null });
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+    );
     await mount('/knowledge');
     const link = document.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]');
     expect(link?.textContent).toContain('产品手册');
@@ -428,7 +430,7 @@ describe('knowledge library list', () => {
     expect(document.querySelectorAll('h1')).toHaveLength(1);
     // 列表不再逐库拉 200 条文档只为算数量。
     expect(
-      state.calls.some(
+      calls.some(
         (item) =>
           item.path.startsWith('/api/knowledge/bases/kb_1/documents') &&
           item.path.includes('limit=200'),
@@ -437,25 +439,32 @@ describe('knowledge library list', () => {
   });
 
   it('pulls the remaining base pages so the count covers the whole library', async () => {
-    handler('GET', '/api/knowledge/bases', ({ path }) =>
-      path.includes('cursor=kb_cursor')
-        ? {
-            items: [{ ...base, id: 'kb_2', name: '研发手册', slug: 'engineering' }],
-            nextCursor: null,
-          }
-        : { items: [base], nextCursor: 'kb_cursor' },
+    server.use(
+      http.get('/api/knowledge/bases', ({ request }) =>
+        new URL(request.url).searchParams.get('cursor') === 'kb_cursor'
+          ? HttpResponse.json({
+              items: [{ ...base, id: 'kb_2', name: '研发手册', slug: 'engineering' }],
+              nextCursor: null,
+            })
+          : HttpResponse.json({ items: [base], nextCursor: 'kb_cursor' }),
+      ),
+      http.get('/api/agents', () => HttpResponse.json([])),
     );
     await mount('/knowledge');
     expect(document.body.textContent).toContain('研发手册');
     expect(document.body.textContent).toContain('共 2 个知识库');
-    expect(state.calls.some((item) => item.path.includes('cursor=kb_cursor'))).toBe(true);
+    expect(calls.some((item) => item.path.includes('cursor=kb_cursor'))).toBe(true);
   });
 });
 
 describe('knowledge library lifecycle', () => {
   it('renames a base', async () => {
     baseHandlers();
-    handler('PATCH', '/api/knowledge/bases/kb_1', { ...base, name: '研发手册' });
+    server.use(
+      http.patch('/api/knowledge/bases/kb_1', () =>
+        HttpResponse.json({ ...base, name: '研发手册' }),
+      ),
+    );
     await mount('/knowledge');
     await openMenu('操作 产品手册');
     await chooseMenuItem('重命名');
@@ -466,7 +475,11 @@ describe('knowledge library lifecycle', () => {
 
   it('toggles base status without resending other settings', async () => {
     baseHandlers();
-    handler('PATCH', '/api/knowledge/bases/kb_1', { ...base, status: 'disabled' });
+    server.use(
+      http.patch('/api/knowledge/bases/kb_1', () =>
+        HttpResponse.json({ ...base, status: 'disabled' }),
+      ),
+    );
     await mount('/knowledge');
     await openMenu('操作 产品手册');
     await chooseMenuItem('停用');
@@ -475,11 +488,15 @@ describe('knowledge library lifecycle', () => {
 
   it('names the experts that lose the binding before deleting', async () => {
     baseHandlers();
-    handler('GET', '/api/agents', [
-      { id: 'agent_1', name: '产品专家', serverIds: ['srv_1'] },
-      { id: 'agent_2', name: '无关专家', serverIds: [] },
-    ]);
-    handler('DELETE', '/api/knowledge/bases/kb_1', {});
+    server.use(
+      http.get('/api/agents', () =>
+        HttpResponse.json([
+          { id: 'agent_1', name: '产品专家', serverIds: ['srv_1'] },
+          { id: 'agent_2', name: '无关专家', serverIds: [] },
+        ]),
+      ),
+      http.delete('/api/knowledge/bases/kb_1', () => HttpResponse.json({})),
+    );
     await mount('/knowledge');
     await openMenu('操作 产品手册');
     await chooseMenuItem('删除');
@@ -488,16 +505,18 @@ describe('knowledge library lifecycle', () => {
     expect(confirmation.textContent).not.toContain('无关专家');
     await click(button('删除', confirmation));
     expect(
-      state.calls.some(
-        (item) => item.method === 'DELETE' && item.path === '/api/knowledge/bases/kb_1',
-      ),
+      calls.some((item) => item.method === 'DELETE' && item.path === '/api/knowledge/bases/kb_1'),
     ).toBe(true);
   });
 
   it('deletes a base with no bound experts without mentioning unbound experts', async () => {
     baseHandlers();
-    handler('GET', '/api/agents', [{ id: 'agent_2', name: '无关专家', serverIds: [] }]);
-    handler('DELETE', '/api/knowledge/bases/kb_1', {});
+    server.use(
+      http.get('/api/agents', () =>
+        HttpResponse.json([{ id: 'agent_2', name: '无关专家', serverIds: [] }]),
+      ),
+      http.delete('/api/knowledge/bases/kb_1', () => HttpResponse.json({})),
+    );
     await mount('/knowledge');
     await openMenu('操作 产品手册');
     await chooseMenuItem('删除');
@@ -506,9 +525,7 @@ describe('knowledge library lifecycle', () => {
     expect(confirmation.textContent).not.toContain('无关专家');
     await click(button('删除', confirmation));
     expect(
-      state.calls.some(
-        (item) => item.method === 'DELETE' && item.path === '/api/knowledge/bases/kb_1',
-      ),
+      calls.some((item) => item.method === 'DELETE' && item.path === '/api/knowledge/bases/kb_1'),
     ).toBe(true);
   });
 });
@@ -516,44 +533,62 @@ describe('knowledge library lifecycle', () => {
 describe('knowledge folder and tag management', () => {
   function folderHandlers() {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', {
-      items: [doc],
-      nextCursor: null,
-    });
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+    );
   }
 
   it('creates, renames and deletes folders', async () => {
     folderHandlers();
-    handler('POST', '/api/knowledge/bases/kb_1/folders', {
-      id: 'kfd_1',
-      baseId: 'kb_1',
-      parentId: null,
-      name: '规范',
-      path: '/规范',
-      createdAt: '',
-    });
-    handler('PATCH', '/api/knowledge/folders/kfd_1', {
-      id: 'kfd_1',
-      baseId: 'kb_1',
-      parentId: null,
-      name: '研发规范',
-      path: '/研发规范',
-      createdAt: '',
-    });
-    handler('DELETE', '/api/knowledge/folders/kfd_1', {});
+    server.use(
+      http.post('/api/knowledge/bases/kb_1/folders', () =>
+        HttpResponse.json({
+          id: 'kfd_1',
+          baseId: 'kb_1',
+          parentId: null,
+          name: '规范',
+          path: '/规范',
+          createdAt: '',
+        }),
+      ),
+      http.patch('/api/knowledge/folders/kfd_1', () =>
+        HttpResponse.json({
+          id: 'kfd_1',
+          baseId: 'kb_1',
+          parentId: null,
+          name: '研发规范',
+          path: '/研发规范',
+          createdAt: '',
+        }),
+      ),
+      http.delete('/api/knowledge/folders/kfd_1', () => HttpResponse.json({})),
+    );
     await mount('/knowledge/kb_1');
     await click(button('新建文件夹'));
     await fill('knowledge-folder-name', '规范');
     await click(button('创建', dialog('新建文件夹')));
     expect(
-      state.calls.find(
+      calls.find(
         (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/folders',
       )?.body,
     ).toEqual({ parentId: null, name: '规范' });
 
-    handler('GET', '/api/knowledge/bases/kb_1/folders', [
-      { id: 'kfd_1', baseId: 'kb_1', parentId: null, name: '规范', path: '/规范', createdAt: '' },
-    ]);
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/folders', () =>
+        HttpResponse.json([
+          {
+            id: 'kfd_1',
+            baseId: 'kb_1',
+            parentId: null,
+            name: '规范',
+            path: '/规范',
+            createdAt: '',
+          },
+        ]),
+      ),
+    );
     await client.invalidateQueries({ queryKey: ['knowledge', 'folders', 'kb_1'] });
     await flush();
     await openMenu('文件夹操作 规范');
@@ -566,7 +601,7 @@ describe('knowledge folder and tag management', () => {
     await chooseMenuItem('删除');
     await click(button('删除', dialog('删除文件夹')));
     expect(
-      state.calls.some(
+      calls.some(
         (item) => item.method === 'DELETE' && item.path === '/api/knowledge/folders/kfd_1',
       ),
     ).toBe(true);
@@ -574,28 +609,24 @@ describe('knowledge folder and tag management', () => {
 
   it('adds and removes a tag', async () => {
     folderHandlers();
-    handler('POST', '/api/knowledge/bases/kb_1/tags', {
-      id: 'ktag_2',
-      baseId: 'kb_1',
-      name: '合规',
-      createdAt: '',
-    });
-    handler('DELETE', '/api/knowledge/tags/ktag_1', {});
+    server.use(
+      http.post('/api/knowledge/bases/kb_1/tags', () =>
+        HttpResponse.json({ id: 'ktag_2', baseId: 'kb_1', name: '合规', createdAt: '' }),
+      ),
+      http.delete('/api/knowledge/tags/ktag_1', () => HttpResponse.json({})),
+    );
     await mount('/knowledge/kb_1');
     await click(button('管理标签'));
     await fill('knowledge-tag-name', '合规');
     await click(button('添加', dialog('管理标签')));
     expect(
-      state.calls.find(
-        (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/tags',
-      )?.body,
+      calls.find((item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/tags')
+        ?.body,
     ).toEqual({ name: '合规' });
     await click(button('删除标签 流程', dialog('管理标签')));
     await click(button('删除', dialog('删除标签')));
     expect(
-      state.calls.some(
-        (item) => item.method === 'DELETE' && item.path === '/api/knowledge/tags/ktag_1',
-      ),
+      calls.some((item) => item.method === 'DELETE' && item.path === '/api/knowledge/tags/ktag_1'),
     ).toBe(true);
   });
 });
@@ -603,23 +634,28 @@ describe('knowledge folder and tag management', () => {
 describe('knowledge document inspection', () => {
   function documentHandlers() {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', {
-      items: [doc],
-      nextCursor: null,
-    });
-    handler('GET', '/api/knowledge/documents/kdoc_1', doc);
-    handler('GET', '/api/knowledge/documents/kdoc_1/chunks', {
-      items: [chunk],
-      nextCursor: null,
-    });
-    handler('GET', '/api/knowledge/versions/kdv_1/markdown', () =>
-      text('## 发布前检查\n\n发布前需要产品与研发双方确认。'),
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1', () => HttpResponse.json(doc)),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({ items: [chunk], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () =>
+        markdownResponse('## 发布前检查\n\n发布前需要产品与研发双方确认。'),
+      ),
+      detailsHandler(),
     );
   }
 
   it('shows the original file, parsed text and toggles a chunk', async () => {
     documentHandlers();
-    handler('PATCH', '/api/knowledge/chunks/kchk_1', { ...chunk, enabled: false });
+    server.use(
+      http.patch('/api/knowledge/chunks/kchk_1', () =>
+        HttpResponse.json({ ...chunk, enabled: false }),
+      ),
+    );
     await mount('/knowledge/kb_1');
     await click(button('上线流程'));
     const viewer = dialog('上线流程');
@@ -634,7 +670,11 @@ describe('knowledge document inspection', () => {
 
   it('warns that reprocessing drops manually edited chunks and confirms it', async () => {
     documentHandlers();
-    handler('POST', '/api/knowledge/documents/kdoc_1/reprocess', { jobId: 'kjob_1' });
+    server.use(
+      http.post('/api/knowledge/documents/kdoc_1/reprocess', () =>
+        HttpResponse.json({ jobId: 'kjob_1' }),
+      ),
+    );
     await mount('/knowledge/kb_1');
     await openMenu('操作 上线流程');
     await chooseMenuItem('重新解析');
@@ -642,7 +682,7 @@ describe('knowledge document inspection', () => {
     expect(confirmation.textContent).toContain('人工编辑');
     await click(button('重新解析', confirmation));
     expect(
-      state.calls.find(
+      calls.find(
         (item) =>
           item.method === 'POST' && item.path === '/api/knowledge/documents/kdoc_1/reprocess',
       )?.body,
@@ -651,10 +691,11 @@ describe('knowledge document inspection', () => {
 
   it('keeps the edited chunk draft after a conflict and reloads only on request', async () => {
     documentHandlers();
-    state.failures['PATCH /api/knowledge/chunks/kchk_1'] = {
-      status: 409,
-      message: '分块已被其他修改更新',
-    };
+    server.use(
+      http.patch('/api/knowledge/chunks/kchk_1', () =>
+        HttpResponse.json({ code: 'CONFLICT', message: '分块已被其他修改更新' }, { status: 409 }),
+      ),
+    );
     await mount('/knowledge/kb_1');
     await click(button('上线流程'));
     await click(button('编辑分块 1', dialog('上线流程')));
@@ -671,13 +712,13 @@ describe('knowledge document inspection', () => {
 
   it('deletes a chunk after confirmation', async () => {
     documentHandlers();
-    handler('DELETE', '/api/knowledge/chunks/kchk_1', {});
+    server.use(http.delete('/api/knowledge/chunks/kchk_1', () => HttpResponse.json({})));
     await mount('/knowledge/kb_1');
     await click(button('上线流程'));
     await click(button('删除分块 1', dialog('上线流程')));
     await click(button('删除', dialog('删除分块')));
     expect(
-      state.calls.some(
+      calls.some(
         (item) => item.method === 'DELETE' && item.path === '/api/knowledge/chunks/kchk_1',
       ),
     ).toBe(true);
@@ -689,24 +730,28 @@ describe('knowledge document inspection', () => {
       image: { name: '图 1.png', mimeType: 'image/png', page: 3 },
       imageRole: 'vector',
     };
-    handler('GET', '/api/knowledge/documents/kdoc_1/chunks', {
-      items: [
-        {
-          ...chunk,
-          id: 'kchk_ocr',
-          kind: 'image',
-          metadata: { ...imageMetadata, imageRole: 'ocr' },
-        },
-        {
-          ...chunk,
-          id: 'kchk_cap',
-          kind: 'image',
-          metadata: { ...imageMetadata, imageRole: 'caption' },
-        },
-        { ...chunk, id: 'kchk_vec', kind: 'image', metadata: imageMetadata },
-      ],
-      nextCursor: null,
-    });
+    server.use(
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({
+          items: [
+            {
+              ...chunk,
+              id: 'kchk_ocr',
+              kind: 'image',
+              metadata: { ...imageMetadata, imageRole: 'ocr' },
+            },
+            {
+              ...chunk,
+              id: 'kchk_cap',
+              kind: 'image',
+              metadata: { ...imageMetadata, imageRole: 'caption' },
+            },
+            { ...chunk, id: 'kchk_vec', kind: 'image', metadata: imageMetadata },
+          ],
+          nextCursor: null,
+        }),
+      ),
+    );
     await mount('/knowledge/kb_1');
     await click(button('上线流程'));
     const viewer = dialog('上线流程');
@@ -723,14 +768,14 @@ describe('knowledge document inspection', () => {
 describe('knowledge source editing', () => {
   it('deletes with an explicit choice between keeping and removing documents', async () => {
     baseHandlers();
-    handler('DELETE', '/api/knowledge/sources/ksrc_1', {});
+    server.use(http.delete('/api/knowledge/sources/ksrc_1', () => HttpResponse.json({})));
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('删除来源 产品仓库'));
     const confirmation = dialog('删除来源');
     expect(confirmation.textContent).toContain('保留但停用');
     await click(button('删除', confirmation));
     expect(
-      state.calls.some(
+      calls.some(
         (item) =>
           item.method === 'DELETE' && item.path === '/api/knowledge/sources/ksrc_1?documents=keep',
       ),
@@ -739,7 +784,7 @@ describe('knowledge source editing', () => {
 
   it('keeps the stored credential when the field is left empty', async () => {
     baseHandlers();
-    handler('PATCH', '/api/knowledge/sources/ksrc_1', source);
+    server.use(http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(source)));
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('编辑来源 产品仓库'));
     const editor = dialog('编辑来源');
@@ -756,7 +801,7 @@ describe('knowledge source editing', () => {
 
   it('rotates the credential when a new value is entered', async () => {
     baseHandlers();
-    handler('PATCH', '/api/knowledge/sources/ksrc_1', source);
+    server.use(http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(source)));
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('编辑来源 产品仓库'));
     await fill('knowledge-source-secret', 'glpat-new');
@@ -768,7 +813,7 @@ describe('knowledge source editing', () => {
 
   it('sends the edited range instead of echoing the stored one back', async () => {
     baseHandlers();
-    handler('PATCH', '/api/knowledge/sources/ksrc_1', source);
+    server.use(http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(source)));
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('编辑来源 产品仓库'));
     const editor = dialog('编辑来源');
@@ -789,7 +834,7 @@ describe('knowledge source editing', () => {
 
   it('adds a second range and saves both', async () => {
     baseHandlers();
-    handler('PATCH', '/api/knowledge/sources/ksrc_1', source);
+    server.use(http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(source)));
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('编辑来源 产品仓库'));
     const editor = dialog('编辑来源');
@@ -811,7 +856,7 @@ describe('knowledge source editing', () => {
 
   it('keeps the surviving range value and focus after deleting the first row', async () => {
     baseHandlers();
-    handler('PATCH', '/api/knowledge/sources/ksrc_1', source);
+    server.use(http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(source)));
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('编辑来源 产品仓库'));
     const editor = dialog('编辑来源');
@@ -835,7 +880,7 @@ describe('knowledge source editing', () => {
 
   it('blocks saving after the last range is removed', async () => {
     baseHandlers();
-    handler('PATCH', '/api/knowledge/sources/ksrc_1', source);
+    server.use(http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(source)));
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('编辑来源 产品仓库'));
     const editor = dialog('编辑来源');
@@ -848,7 +893,7 @@ describe('knowledge source editing', () => {
 
   it('blocks saving when every remaining range is disabled', async () => {
     baseHandlers();
-    handler('PATCH', '/api/knowledge/sources/ksrc_1', source);
+    server.use(http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(source)));
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('编辑来源 产品仓库'));
     const editor = dialog('编辑来源');
@@ -859,29 +904,33 @@ describe('knowledge source editing', () => {
 
   it('does not offer eviction-based deletion for a feed', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/sources', {
-      items: [
-        {
-          ...source,
-          id: 'ksrc_2',
-          type: 'feed',
-          name: '行业资讯',
-          config: {},
-          hasSecret: false,
-          ranges: [
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/sources', () =>
+        HttpResponse.json({
+          items: [
             {
-              id: 'krng_2',
-              kind: 'feed',
-              externalId: 'https://example.com/feed.xml',
-              ref: null,
-              paths: [],
-              enabled: true,
+              ...source,
+              id: 'ksrc_2',
+              type: 'feed',
+              name: '行业资讯',
+              config: {},
+              hasSecret: false,
+              ranges: [
+                {
+                  id: 'krng_2',
+                  kind: 'feed',
+                  externalId: 'https://example.com/feed.xml',
+                  ref: null,
+                  paths: [],
+                  enabled: true,
+                },
+              ],
             },
           ],
-        },
-      ],
-      nextCursor: null,
-    });
+          nextCursor: null,
+        }),
+      ),
+    );
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('编辑来源 行业资讯'));
     const editor = dialog('编辑来源');
@@ -890,7 +939,11 @@ describe('knowledge source editing', () => {
   });
   it('creates a source with the range entered in its single row', async () => {
     baseHandlers();
-    handler('POST', '/api/knowledge/bases/kb_1/sources', { ...source, id: 'ksrc_new' });
+    server.use(
+      http.post('/api/knowledge/bases/kb_1/sources', () =>
+        HttpResponse.json({ ...source, id: 'ksrc_new' }),
+      ),
+    );
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('新建来源'));
     const creator = dialog('新建来源');
@@ -900,7 +953,7 @@ describe('knowledge source editing', () => {
     await fill('source-app-secret', 'secret');
     await click(button('创建', creator));
     expect(
-      state.calls.find(
+      calls.find(
         (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/sources',
       )?.body,
     ).toMatchObject({
@@ -913,16 +966,22 @@ describe('knowledge source editing', () => {
 describe('knowledge document metadata', () => {
   it('opens document properties from the viewer without losing the list', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', { items: [doc], nextCursor: null });
-    handler('GET', '/api/knowledge/documents/kdoc_1/chunks', {
-      items: [chunk],
-      nextCursor: null,
-    });
-    handler('GET', '/api/knowledge/versions/kdv_1/markdown', () => text('正文'));
-    handler('PATCH', '/api/knowledge/documents/kdoc_1', { ...doc, title: '上线流程 v2' });
-    handler('GET', '/api/knowledge/bases/kb_1/tags', [
-      { id: 'ktag_1', baseId: 'kb_1', name: '流程', createdAt: '' },
-    ]);
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({ items: [chunk], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('正文')),
+      http.patch('/api/knowledge/documents/kdoc_1', () =>
+        HttpResponse.json({ ...doc, title: '上线流程 v2' }),
+      ),
+      detailsHandler(),
+      http.get('/api/knowledge/bases/kb_1/tags', () =>
+        HttpResponse.json([{ id: 'ktag_1', baseId: 'kb_1', name: '流程', createdAt: '' }]),
+      ),
+    );
     await mount('/knowledge/kb_1');
     await click(button('上线流程'));
     await click(button('编辑属性', dialog('上线流程')));
@@ -939,15 +998,20 @@ describe('knowledge document metadata', () => {
 describe('knowledge manual and url import', () => {
   function documentList() {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', { items: [doc], nextCursor: null });
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+    );
   }
 
   it('creates a manual document with title, content, folder and tags', async () => {
     documentList();
-    handler('POST', '/api/knowledge/bases/kb_1/documents/manual', {
-      documentId: 'kdoc_2',
-      jobId: 'kjob_2',
-    });
+    server.use(
+      http.post('/api/knowledge/bases/kb_1/documents/manual', () =>
+        HttpResponse.json({ documentId: 'kdoc_2', jobId: 'kjob_2' }),
+      ),
+    );
     await mount('/knowledge/kb_1');
     await click(button('导入文档'));
     await chooseMenuItem('手写文档');
@@ -957,7 +1021,7 @@ describe('knowledge manual and url import', () => {
     await fill('knowledge-manual-tags', '流程, 发布');
     await click(button('导入', editor));
     expect(
-      state.calls.find(
+      calls.find(
         (item) =>
           item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/documents/manual',
       )?.body,
@@ -971,14 +1035,14 @@ describe('knowledge manual and url import', () => {
 
   it('imports a URL into the current folder and keeps a readable error', async () => {
     documentList();
-    handler('POST', '/api/knowledge/bases/kb_1/documents/url', {
-      documentId: 'kdoc_3',
-      jobId: 'kjob_3',
-    });
-    state.failures['POST /api/knowledge/bases/kb_1/documents/url'] = {
-      status: 400,
-      message: '目标地址返回重定向；请直接填写最终地址',
-    };
+    server.use(
+      http.post('/api/knowledge/bases/kb_1/documents/url', () =>
+        HttpResponse.json(
+          { code: 'CONFLICT', message: '目标地址返回重定向；请直接填写最终地址' },
+          { status: 400 },
+        ),
+      ),
+    );
     await mount('/knowledge/kb_1');
     await click(button('导入文档'));
     await chooseMenuItem('导入网址');
@@ -986,7 +1050,7 @@ describe('knowledge manual and url import', () => {
     await fill('knowledge-url', 'https://example.com/docs');
     await click(button('导入', editor));
     expect(
-      state.calls.find(
+      calls.find(
         (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/documents/url',
       )?.body,
     ).toEqual({ url: 'https://example.com/docs', folderId: null });
@@ -997,24 +1061,40 @@ describe('knowledge manual and url import', () => {
 describe('knowledge package export and import', () => {
   it('downloads the exported zip through the normal api request', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/export', () => new Response(new Blob(['zip'])));
+    server.use(
+      http.get(
+        '/api/knowledge/bases/kb_1/export',
+        () => new HttpResponse('zip', { headers: { 'content-type': 'application/zip' } }),
+      ),
+    );
     const createObjectURL = vi.fn(() => 'blob:kit');
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
     await mount('/knowledge');
     await openMenu('操作 产品手册');
     await chooseMenuItem('导出知识包');
     await flush();
-    expect(state.calls.some((item) => item.path === '/api/knowledge/bases/kb_1/export')).toBe(true);
+    expect(calls.some((item) => item.path === '/api/knowledge/bases/kb_1/export')).toBe(true);
     expect(createObjectURL).toHaveBeenCalled();
+    const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+    expect(await blob.text()).toBe('zip');
   });
 
   it('shows the recoverable conflict when the imported profile is missing', async () => {
-    handler('GET', '/api/knowledge/bases', { items: [], nextCursor: null });
-    handler('POST', '/api/knowledge/bases/import', {});
-    state.failures['POST /api/knowledge/bases/import'] = {
-      status: 409,
-      message: '缺少 embedding 模型 profile「bge-m3」；请先创建同名 profile 再导入',
-    };
+    let uploaded = '';
+    server.use(
+      http.get('/api/knowledge/bases', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents', () => HttpResponse.json([])),
+      http.post('/api/knowledge/bases/import', async ({ request }) => {
+        uploaded = new TextDecoder().decode(await request.arrayBuffer());
+        return HttpResponse.json(
+          {
+            code: 'CONFLICT',
+            message: '缺少 embedding 模型 profile「bge-m3」；请先创建同名 profile 再导入',
+          },
+          { status: 409 },
+        );
+      }),
+    );
     await mount('/knowledge');
     await click(button('导入知识包'));
     const file = new File(['zip'], 'handbook.zip', { type: 'application/zip' });
@@ -1025,9 +1105,10 @@ describe('knowledge package export and import', () => {
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await flush();
-    expect(state.calls.find((item) => item.path === '/api/knowledge/bases/import')?.body).toEqual({
+    expect(calls.find((item) => item.path === '/api/knowledge/bases/import')?.body).toEqual({
       __blob: 'application/zip',
     });
+    expect(uploaded).toBe('zip');
     // 文件留在页面上，说明原因并可原地重试。
     expect(document.body.textContent).toContain('知识包没有导入');
     expect(document.body.textContent).toContain('缺少 embedding 模型 profile');
@@ -1038,11 +1119,15 @@ describe('knowledge package export and import', () => {
 describe('knowledge source configuration check', () => {
   it('labels the local check as a configuration check, not a connection test', async () => {
     baseHandlers();
-    handler('POST', '/api/knowledge/sources/ksrc_1/test', { ok: true, issues: [] });
+    server.use(
+      http.post('/api/knowledge/sources/ksrc_1/test', () =>
+        HttpResponse.json({ ok: true, issues: [] }),
+      ),
+    );
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('检查配置'));
     expect(
-      state.calls.some(
+      calls.some(
         (item) => item.method === 'POST' && item.path === '/api/knowledge/sources/ksrc_1/test',
       ),
     ).toBe(true);
@@ -1052,31 +1137,38 @@ describe('knowledge source configuration check', () => {
 describe('knowledge pagination', () => {
   it('loads the next document page and appends it', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', ({ path }) =>
-      path.includes('cursor=kdoc_cursor')
-        ? {
-            items: [{ ...doc, id: 'kdoc_2', title: '第二页文档' }],
-            nextCursor: null,
-          }
-        : { items: [doc], nextCursor: 'kdoc_cursor' },
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', ({ request }) =>
+        new URL(request.url).searchParams.get('cursor') === 'kdoc_cursor'
+          ? HttpResponse.json({
+              items: [{ ...doc, id: 'kdoc_2', title: '第二页文档' }],
+              nextCursor: null,
+            })
+          : HttpResponse.json({ items: [doc], nextCursor: 'kdoc_cursor' }),
+      ),
     );
     await mount('/knowledge/kb_1');
     await click(button('加载更多文档'));
     expect(document.body.textContent).toContain('第二页文档');
-    expect(state.calls.some((item) => item.path.includes('cursor=kdoc_cursor'))).toBe(true);
+    expect(calls.some((item) => item.path.includes('cursor=kdoc_cursor'))).toBe(true);
   });
 
   it('loads the next chunk page inside the document viewer', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', { items: [doc], nextCursor: null });
-    handler('GET', '/api/knowledge/versions/kdv_1/markdown', () => text('正文'));
-    handler('GET', '/api/knowledge/documents/kdoc_1/chunks', ({ path }) =>
-      path.includes('cursor=kchk_cursor')
-        ? {
-            items: [{ ...chunk, id: 'kchk_2', ordinal: 1, content: '第二页分块内容' }],
-            nextCursor: null,
-          }
-        : { items: [chunk], nextCursor: 'kchk_cursor' },
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('正文')),
+      detailsHandler(),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', ({ request }) =>
+        new URL(request.url).searchParams.get('cursor') === 'kchk_cursor'
+          ? HttpResponse.json({
+              items: [{ ...chunk, id: 'kchk_2', ordinal: 1, content: '第二页分块内容' }],
+              nextCursor: null,
+            })
+          : HttpResponse.json({ items: [chunk], nextCursor: 'kchk_cursor' }),
+      ),
     );
     await mount('/knowledge/kb_1');
     await click(button('上线流程'));
@@ -1088,10 +1180,14 @@ describe('knowledge pagination', () => {
 describe('knowledge document viewer', () => {
   it('says a document without a parsed version has no chunks instead of querying an empty version', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', {
-      items: [{ ...doc, status: 'pending', currentVersionId: null }],
-      nextCursor: null,
-    });
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({
+          items: [{ ...doc, status: 'pending', currentVersionId: null }],
+          nextCursor: null,
+        }),
+      ),
+    );
     await mount('/knowledge/kb_1');
     // 文档列表按需轮询，等待首屏数据落定再打开查看器。
     for (
@@ -1109,22 +1205,25 @@ describe('knowledge document viewer', () => {
     expect(viewer.textContent).toContain('还没有解析完成的版本');
     expect(viewer.textContent).toContain('还没有分块');
     expect(
-      state.calls.some((item) => item.path.startsWith('/api/knowledge/documents/kdoc_1/chunks')),
+      calls.some((item) => item.path.startsWith('/api/knowledge/documents/kdoc_1/chunks')),
     ).toBe(false);
   });
 
   it('surfaces a failed chunk toggle without pretending it succeeded', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', { items: [doc], nextCursor: null });
-    handler('GET', '/api/knowledge/documents/kdoc_1/chunks', {
-      items: [chunk],
-      nextCursor: null,
-    });
-    handler('GET', '/api/knowledge/versions/kdv_1/markdown', () => text('正文'));
-    state.failures['PATCH /api/knowledge/chunks/kchk_1'] = {
-      status: 409,
-      message: '分块已属于旧版本',
-    };
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({ items: [chunk], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('正文')),
+      detailsHandler(),
+      http.patch('/api/knowledge/chunks/kchk_1', () =>
+        HttpResponse.json({ code: 'CONFLICT', message: '分块已属于旧版本' }, { status: 409 }),
+      ),
+    );
     await mount('/knowledge/kb_1');
     await click(button('上线流程'));
     await click(button('停用分块 1', dialog('上线流程')));
@@ -1135,25 +1234,29 @@ describe('knowledge document viewer', () => {
 describe('knowledge search citations', () => {
   it('opens the parsed text of a hit with the quote highlighted and an original link', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/search', {
-      hits: [
-        {
-          chunkId: 'kchk_1',
-          documentId: 'kdoc_1',
-          versionId: 'kdv_1',
-          title: '上线流程',
-          heading: '发布前检查',
-          quote: '发布前需要产品与研发双方确认。',
-          pageFrom: 2,
-          pageTo: 2,
-          sourceUrl: null,
-          score: 0.82,
-        },
-      ],
-      degraded: false,
-    });
-    handler('GET', '/api/knowledge/versions/kdv_1/markdown', () =>
-      text('## 发布前检查\n\n发布前需要产品与研发双方确认。'),
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/search', () =>
+        HttpResponse.json({
+          hits: [
+            {
+              chunkId: 'kchk_1',
+              documentId: 'kdoc_1',
+              versionId: 'kdv_1',
+              title: '上线流程',
+              heading: '发布前检查',
+              quote: '发布前需要产品与研发双方确认。',
+              pageFrom: 2,
+              pageTo: 2,
+              sourceUrl: null,
+              score: 0.82,
+            },
+          ],
+          degraded: false,
+        }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () =>
+        markdownResponse('## 发布前检查\n\n发布前需要产品与研发双方确认。'),
+      ),
     );
     await mount('/knowledge/kb_1', { panel: 'search' });
     await fill('knowledge-search', '发布');
@@ -1173,29 +1276,35 @@ describe('knowledge search citations', () => {
 
   it('shows the hit image with the quote as alt text and explains a failed load', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/search', {
-      hits: [
-        {
-          chunkId: 'kchk_img',
-          documentId: 'kdoc_1',
-          versionId: 'kdv_1',
-          title: '上线流程',
-          heading: null,
-          quote: '发布前需要产品与研发双方确认。',
-          pageFrom: 3,
-          pageTo: 3,
-          sourceUrl: null,
-          score: 0.72,
-          image: { name: '图 1.png', mimeType: 'image/png', page: 3 },
-        },
-      ],
-      degraded: false,
-    });
-    handler('GET', '/api/knowledge/versions/kdv_1/markdown', () => text('正文'));
-    handler(
-      'GET',
-      '/api/knowledge/versions/kdv_1/images/%E5%9B%BE%201.png',
-      () => new Response(new Blob(['png'], { type: 'image/png' })),
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/search', () =>
+        HttpResponse.json({
+          hits: [
+            {
+              chunkId: 'kchk_img',
+              documentId: 'kdoc_1',
+              versionId: 'kdv_1',
+              title: '上线流程',
+              heading: null,
+              quote: '发布前需要产品与研发双方确认。',
+              pageFrom: 3,
+              pageTo: 3,
+              sourceUrl: null,
+              score: 0.72,
+              image: { name: '图 1.png', mimeType: 'image/png', page: 3 },
+            },
+          ],
+          degraded: false,
+        }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('正文')),
+      http.get(
+        '/api/knowledge/versions/kdv_1/images/%E5%9B%BE%201.png',
+        () =>
+          new HttpResponse(Uint8Array.from([1, 2, 3]), {
+            headers: { 'content-type': 'image/png' },
+          }),
+      ),
     );
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:image');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
@@ -1217,27 +1326,31 @@ describe('knowledge search citations', () => {
 
   it('explains a revoked image with the 403 message instead of a generic failure', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/search', {
-      hits: [
-        {
-          chunkId: 'kchk_img',
-          documentId: 'kdoc_1',
-          versionId: 'kdv_1',
-          title: '上线流程',
-          heading: null,
-          quote: '发布前需要产品与研发双方确认。',
-          pageFrom: 3,
-          pageTo: 3,
-          sourceUrl: null,
-          score: 0.72,
-          image: { name: '图 1.png', mimeType: 'image/png', page: 3 },
-        },
-      ],
-      degraded: false,
-    });
-    handler('GET', '/api/knowledge/versions/kdv_1/markdown', () => text('正文'));
-    handler('GET', '/api/knowledge/versions/kdv_1/images/%E5%9B%BE%201.png', () =>
-      Response.json({ code: 'FORBIDDEN', message: '无权读取' }, { status: 403 }),
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/search', () =>
+        HttpResponse.json({
+          hits: [
+            {
+              chunkId: 'kchk_img',
+              documentId: 'kdoc_1',
+              versionId: 'kdv_1',
+              title: '上线流程',
+              heading: null,
+              quote: '发布前需要产品与研发双方确认。',
+              pageFrom: 3,
+              pageTo: 3,
+              sourceUrl: null,
+              score: 0.72,
+              image: { name: '图 1.png', mimeType: 'image/png', page: 3 },
+            },
+          ],
+          degraded: false,
+        }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('正文')),
+      http.get('/api/knowledge/versions/kdv_1/images/%E5%9B%BE%201.png', () =>
+        HttpResponse.json({ code: 'FORBIDDEN', message: '无权读取' }, { status: 403 }),
+      ),
     );
     await mount('/knowledge/kb_1', { panel: 'search' });
     await fill('knowledge-search', '发布');
@@ -1260,20 +1373,27 @@ describe('knowledge search citations', () => {
 describe('knowledge document upload', () => {
   function uploadHandlers() {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', { items: [doc], nextCursor: null });
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+    );
   }
 
   it('uploads every selected file, reports failed ones and keeps going', async () => {
     uploadHandlers();
-    handler('PUT', '/api/knowledge/bases/kb_1/documents/upload', ({ body }) => {
-      const filename = (body as { filename: string }).filename;
-      if (filename === 'bad.pdf') {
-        return new Response(JSON.stringify({ code: 'CONFLICT', message: '同名文档已存在' }), {
-          status: 409,
-        });
-      }
-      return { documentId: 'kdoc_new', jobId: 'kjob_new' };
-    });
+    server.use(
+      http.put('/api/knowledge/bases/kb_1/documents/upload', async ({ request }) => {
+        const filename = ((await request.json()) as { filename: string }).filename;
+        if (filename === 'bad.pdf') {
+          return HttpResponse.json(
+            { code: 'CONFLICT', message: '同名文档已存在' },
+            { status: 409 },
+          );
+        }
+        return HttpResponse.json({ documentId: 'kdoc_new', jobId: 'kjob_new' });
+      }),
+    );
     await mount('/knowledge/kb_1');
     await click(button('导入文档'));
     await chooseMenuItem('上传文件');
@@ -1290,7 +1410,7 @@ describe('knowledge document upload', () => {
       await new Promise((resolve) => setTimeout(resolve, 120));
     });
     await flush();
-    const uploads = state.calls.filter(
+    const uploads = calls.filter(
       (item) => item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
     );
     expect(uploads).toHaveLength(2);
@@ -1299,10 +1419,11 @@ describe('knowledge document upload', () => {
 
   it('keeps the folder path visible when uploading a directory', async () => {
     uploadHandlers();
-    handler('PUT', '/api/knowledge/bases/kb_1/documents/upload', {
-      documentId: 'kdoc_new',
-      jobId: 'kjob_new',
-    });
+    server.use(
+      http.put('/api/knowledge/bases/kb_1/documents/upload', () =>
+        HttpResponse.json({ documentId: 'kdoc_new', jobId: 'kjob_new' }),
+      ),
+    );
     await mount('/knowledge/kb_1');
     await click(button('导入文档'));
     await chooseMenuItem('上传文件夹');
@@ -1318,7 +1439,7 @@ describe('knowledge document upload', () => {
       await new Promise((resolve) => setTimeout(resolve, 120));
     });
     await flush();
-    const body = state.calls.find(
+    const body = calls.find(
       (item) => item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
     )?.body as { filename: string; title?: string } | undefined;
     // 相对路径保留为文件名，并写进标题；后端不会按路径自动建目录树。
@@ -1330,15 +1451,19 @@ describe('knowledge document upload', () => {
 describe('knowledge wiki versions', () => {
   it('lists the real version shape and rolls back to an older version', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/wiki-pages/kwp_1', () => wikiPage);
-    handler('POST', '/api/knowledge/wiki-pages/kwp_1/rollback', wikiPage.versions[1]);
+    server.use(
+      http.get('/api/knowledge/wiki-pages/kwp_1', () => HttpResponse.json(wikiPage)),
+      http.post('/api/knowledge/wiki-pages/kwp_1/rollback', () =>
+        HttpResponse.json(wikiPage.versions[1]),
+      ),
+    );
     await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
     expect(document.body.textContent).toContain('v2');
     expect(document.body.textContent).toContain('v1');
     await click(button('回退到此版本'));
     await click(button('回退', dialog('回退 Wiki 版本')));
     expect(
-      state.calls.find(
+      calls.find(
         (item) =>
           item.method === 'POST' && item.path === '/api/knowledge/wiki-pages/kwp_1/rollback',
       )?.body,
@@ -1348,30 +1473,36 @@ describe('knowledge wiki versions', () => {
   it('keeps the version captured on open even after a background refetch, and keeps the draft on 409', async () => {
     baseHandlers();
     let currentVersionId = 'kwv_2';
-    handler('GET', '/api/knowledge/wiki-pages/kwp_1', () => ({
-      ...wikiPage,
-      currentVersionId,
-      versions:
-        currentVersionId === 'kwv_2'
-          ? wikiPage.versions
-          : [
-              {
-                id: 'kwv_3',
-                pageId: 'kwp_1',
-                version: 3,
-                markdown: '## 别人刚发布\n\n第三步。',
-                sourceChunkIds: [],
-                model: 'manual',
-                generatedBy: 'manual',
-                createdAt: '2026-01-03T00:00:00Z',
-              },
-              ...wikiPage.versions,
-            ],
-    }));
-    state.failures['PATCH /api/knowledge/wiki-pages/kwp_1'] = {
-      status: 409,
-      message: 'Wiki 页面已被修改，请刷新后重试',
-    };
+    server.use(
+      http.get('/api/knowledge/wiki-pages/kwp_1', () =>
+        HttpResponse.json({
+          ...wikiPage,
+          currentVersionId,
+          versions:
+            currentVersionId === 'kwv_2'
+              ? wikiPage.versions
+              : [
+                  {
+                    id: 'kwv_3',
+                    pageId: 'kwp_1',
+                    version: 3,
+                    markdown: '## 别人刚发布\n\n第三步。',
+                    sourceChunkIds: [],
+                    model: 'manual',
+                    generatedBy: 'manual',
+                    createdAt: '2026-01-03T00:00:00Z',
+                  },
+                  ...wikiPage.versions,
+                ],
+        }),
+      ),
+      http.patch('/api/knowledge/wiki-pages/kwp_1', () =>
+        HttpResponse.json(
+          { code: 'CONFLICT', message: 'Wiki 页面已被修改，请刷新后重试' },
+          { status: 409 },
+        ),
+      ),
+    );
     await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
     await click(button('编辑正文'));
     const editor = dialog('编辑 Wiki 正文');
@@ -1400,7 +1531,7 @@ describe('knowledge wiki versions', () => {
     expect(toastError).not.toHaveBeenCalled();
 
     const detailCalls = () =>
-      state.calls.filter((item) => item.path === '/api/knowledge/wiki-pages/kwp_1').length;
+      calls.filter((item) => item.path === '/api/knowledge/wiki-pages/kwp_1').length;
     const before = detailCalls();
     await click(button('重新加载', editor));
     await click(button('重新加载', dialog('重新加载 Wiki 正文')));
@@ -1412,23 +1543,25 @@ describe('knowledge wiki versions', () => {
   it('tracks the submitted generation job and refreshes page and list once it finishes', async () => {
     baseHandlers();
     let jobs: KnowledgeJob[] = [];
-    handler('GET', '/api/knowledge/jobs', () => ({ items: jobs, nextCursor: null }));
     let pageCalls = 0;
     let listCalls = 0;
-    handler('GET', '/api/knowledge/wiki-pages/kwp_1', () => {
-      pageCalls += 1;
-      return wikiPage;
-    });
-    handler('GET', '/api/knowledge/bases/kb_1/wiki-pages', () => {
-      listCalls += 1;
-      return { items: [wikiPageSummary], nextCursor: null };
-    });
+    server.use(
+      http.get('/api/knowledge/jobs', () => HttpResponse.json({ items: jobs, nextCursor: null })),
+      http.get('/api/knowledge/wiki-pages/kwp_1', () => {
+        pageCalls += 1;
+        return HttpResponse.json(wikiPage);
+      }),
+      http.get('/api/knowledge/bases/kb_1/wiki-pages', () => {
+        listCalls += 1;
+        return HttpResponse.json({ items: [wikiPageSummary], nextCursor: null });
+      }),
+      http.post('/api/knowledge/wiki-pages/kwp_1/generate', () => {
+        jobs = [wikiJob('queued'), ...jobs];
+        return HttpResponse.json({ jobId: 'kjob_gen' });
+      }),
+    );
     // 其他页面或其他来源的终态任务留在列表里，但不显示在这一页。
     jobs = [wikiJob('succeeded', 'kjob_other')];
-    handler('POST', '/api/knowledge/wiki-pages/kwp_1/generate', () => {
-      jobs = [wikiJob('queued'), ...jobs];
-      return { jobId: 'kjob_gen' };
-    });
     await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
     expect(document.body.textContent).not.toContain('生成任务');
     await click(button('编辑正文'));
@@ -1446,10 +1579,11 @@ describe('knowledge wiki versions', () => {
     expect(listCalls).toBe(listBefore);
 
     // 任务终态刷新页面失败时保留页面数据与编辑草稿，只做局部报错。
-    state.failures['GET /api/knowledge/wiki-pages/kwp_1'] = {
-      status: 500,
-      message: '页面刷新失败',
-    };
+    server.use(
+      http.get('/api/knowledge/wiki-pages/kwp_1', () =>
+        HttpResponse.json({ code: 'INTERNAL', message: '页面刷新失败' }, { status: 500 }),
+      ),
+    );
     jobs = [wikiJob('succeeded'), wikiJob('succeeded', 'kjob_other')];
     await act(async () => {
       await client?.invalidateQueries({ queryKey: ['knowledge', 'jobs', 'kb_1'] });
@@ -1462,7 +1596,12 @@ describe('knowledge wiki versions', () => {
     );
     expect(document.body.textContent).toContain('Wiki 页面没有刷新成功');
 
-    delete state.failures['GET /api/knowledge/wiki-pages/kwp_1'];
+    server.use(
+      http.get('/api/knowledge/wiki-pages/kwp_1', () => {
+        pageCalls += 1;
+        return HttpResponse.json(wikiPage);
+      }),
+    );
     await click(button('重试'));
     await flush();
     expect(editor.isConnected).toBe(true);
@@ -1486,16 +1625,18 @@ describe('knowledge wiki versions', () => {
 
   it('loads every wiki page page so older pages stay selectable', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/wiki-pages', ({ path }) =>
-      path.includes('cursor=kwp_cursor')
-        ? {
-            items: [{ ...wikiPageSummary, id: 'kwp_old', title: '旧页面', slug: 'old' }],
-            nextCursor: null,
-          }
-        : { items: [wikiPageSummary], nextCursor: 'kwp_cursor' },
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/wiki-pages', ({ request }) =>
+        new URL(request.url).searchParams.get('cursor') === 'kwp_cursor'
+          ? HttpResponse.json({
+              items: [{ ...wikiPageSummary, id: 'kwp_old', title: '旧页面', slug: 'old' }],
+              nextCursor: null,
+            })
+          : HttpResponse.json({ items: [wikiPageSummary], nextCursor: 'kwp_cursor' }),
+      ),
     );
     await mount('/knowledge/kb_1', { panel: 'wiki' });
-    expect(state.calls.some((item) => item.path.includes('cursor=kwp_cursor'))).toBe(true);
+    expect(calls.some((item) => item.path.includes('cursor=kwp_cursor'))).toBe(true);
     expect(document.body.textContent).toContain('旧页面');
   });
 });
@@ -1503,16 +1644,18 @@ describe('knowledge wiki versions', () => {
 describe('knowledge source pagination', () => {
   it('loads every source page so older sources can still be edited or synced', async () => {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/sources', ({ path }) =>
-      path.includes('cursor=ksrc_cursor')
-        ? {
-            items: [{ ...source, id: 'ksrc_old', name: '旧仓库' }],
-            nextCursor: null,
-          }
-        : { items: [source], nextCursor: 'ksrc_cursor' },
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/sources', ({ request }) =>
+        new URL(request.url).searchParams.get('cursor') === 'ksrc_cursor'
+          ? HttpResponse.json({
+              items: [{ ...source, id: 'ksrc_old', name: '旧仓库' }],
+              nextCursor: null,
+            })
+          : HttpResponse.json({ items: [source], nextCursor: 'ksrc_cursor' }),
+      ),
     );
     await mount('/knowledge/kb_1', { panel: 'sources' });
-    expect(state.calls.some((item) => item.path.includes('cursor=ksrc_cursor'))).toBe(true);
+    expect(calls.some((item) => item.path.includes('cursor=ksrc_cursor'))).toBe(true);
     expect(document.body.textContent).toContain('旧仓库');
     expect(document.body.textContent).toContain('2 个来源');
   });
@@ -1521,34 +1664,46 @@ describe('knowledge source pagination', () => {
 describe('knowledge version images', () => {
   function imageDocHandlers() {
     baseHandlers();
-    handler('GET', '/api/knowledge/bases/kb_1/documents', { items: [doc], nextCursor: null });
-    handler('GET', '/api/knowledge/documents/kdoc_1/chunks', { items: [chunk], nextCursor: null });
-    handler('GET', '/api/knowledge/versions/kdv_1/markdown', () => text('正文'));
-    handler('GET', '/api/knowledge/versions/kdv_1/details', {
-      id: 'kdv_1',
-      documentId: 'kdoc_1',
-      version: 1,
-      originalFilename: 'release.pdf',
-      mimeType: 'application/pdf',
-      sizeBytes: 1024,
-      sourceRevision: null,
-      parseStatus: 'parsed',
-      pageMap: [{ page: 2, startOffset: 0, endOffset: 4 }],
-      images: [
-        { name: '白图 1.png', sha256: 'abc', mimeType: 'image/png', page: 2 },
-        { name: 'chart.png', sha256: 'def', mimeType: 'image/png', page: 5 },
-      ],
-      createdAt: '2026-01-01T00:00:00Z',
-    });
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({ items: [chunk], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('正文')),
+      http.get('/api/knowledge/versions/kdv_1/details', () =>
+        HttpResponse.json({
+          id: 'kdv_1',
+          documentId: 'kdoc_1',
+          version: 1,
+          originalFilename: 'release.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 1024,
+          sourceRevision: null,
+          parseStatus: 'parsed',
+          pageMap: [{ page: 2, startOffset: 0, endOffset: 4 }],
+          images: [
+            { name: '白图 1.png', sha256: 'abc', mimeType: 'image/png', page: 2 },
+            { name: 'chart.png', sha256: 'def', mimeType: 'image/png', page: 5 },
+          ],
+          createdAt: '2026-01-01T00:00:00Z',
+        }),
+      ),
+    );
   }
 
   it('renders the extracted images with their page numbers and the whitelisted image URL', async () => {
     imageDocHandlers();
     for (const name of ['%E7%99%BD%E5%9B%BE%201.png', 'chart.png']) {
-      handler(
-        'GET',
-        `/api/knowledge/versions/kdv_1/images/${name}`,
-        () => new Response(new Blob(['png'], { type: 'image/png' })),
+      server.use(
+        http.get(`/api/knowledge/versions/kdv_1/images/${name}`, async () => {
+          // 两张图都挂载后按 DOM 顺序取对象 URL；让第二张稍后返回，保持映射稳定。
+          if (name === 'chart.png') await delay(20);
+          return new HttpResponse(Uint8Array.from([1, 2, 3]), {
+            headers: { 'content-type': 'image/png' },
+          });
+        }),
       );
     }
     vi.spyOn(URL, 'createObjectURL').mockReturnValueOnce('blob:one').mockReturnValue('blob:two');
@@ -1559,7 +1714,7 @@ describe('knowledge version images', () => {
     await flush();
     const images = [...viewer.querySelectorAll<HTMLImageElement>('img')];
     expect(images.map((image) => image.getAttribute('src'))).toEqual(['blob:one', 'blob:two']);
-    expect(state.calls.some((call) => call.path.includes('/images/chart.png'))).toBe(true);
+    expect(calls.some((call) => call.path.includes('/images/chart.png'))).toBe(true);
     expect(viewer.textContent).toContain('第 2 页');
     expect(viewer.textContent).toContain('第 5 页');
     expect(
@@ -1569,11 +1724,13 @@ describe('knowledge version images', () => {
 
   it('states a missing image instead of leaving a blank placeholder and keeps the original link', async () => {
     imageDocHandlers();
-    handler('GET', '/api/knowledge/versions/kdv_1/images/%E7%99%BD%E5%9B%BE%201.png', () =>
-      Response.json({ code: 'NOT_FOUND', message: '图片不存在' }, { status: 404 }),
-    );
-    handler('GET', '/api/knowledge/versions/kdv_1/images/chart.png', () =>
-      Response.json({ code: 'NOT_FOUND', message: '图片不存在' }, { status: 404 }),
+    server.use(
+      http.get('/api/knowledge/versions/kdv_1/images/%E7%99%BD%E5%9B%BE%201.png', () =>
+        HttpResponse.json({ code: 'NOT_FOUND', message: '图片不存在' }, { status: 404 }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/images/chart.png', () =>
+        HttpResponse.json({ code: 'NOT_FOUND', message: '图片不存在' }, { status: 404 }),
+      ),
     );
     await mount('/knowledge/kb_1');
     await click(button('上线流程'));
@@ -1581,5 +1738,180 @@ describe('knowledge version images', () => {
     await flush();
     expect(viewer.textContent).toContain('图片已删除或不存在，请重新解析该版本。');
     expect(viewer.querySelectorAll('img')).toHaveLength(0);
+  });
+});
+
+describe('knowledge request transport', () => {
+  it('turns a real network failure into the offline message', async () => {
+    server.use(
+      http.get('/api/knowledge/bases', () => HttpResponse.error()),
+      http.get('/api/agents', () => HttpResponse.json([])),
+    );
+    await mount('/knowledge');
+    expect(document.body.textContent).toContain('连不上 API 服务');
+  });
+
+  it('does not treat a jsdom cookie as a real logged-in session', async () => {
+    // biome-ignore lint/suspicious/noDocumentCookie: jsdom 没有 Cookie Store API，这里只验证不伪造登录。
+    document.cookie = 'session=jsdom-only';
+    let cookie: string | null = null;
+    server.use(
+      http.get('/api/knowledge/model-profiles', ({ request }) => {
+        cookie = request.headers.get('cookie');
+        return HttpResponse.json([]);
+      }),
+    );
+    const { api } = await import('../src/lib/api.js');
+    await api.knowledgeModelProfiles();
+    // jsdom 的 cookie 没有真实登录会话，Node fetch 也不会自动带上；这里只守住「不伪造登录」。
+    expect(cookie).toBeNull();
+    // biome-ignore lint/suspicious/noDocumentCookie: 同上，清理 jsdom 测试 cookie。
+    document.cookie = 'session=; Max-Age=0';
+  });
+
+  it('propagates an abort after the handler starts as AbortError instead of a network failure', async () => {
+    let entered!: () => void;
+    const handlerEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const releaseHandler = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.get('/api/knowledge/versions/kdv_abort/markdown', async () => {
+        entered();
+        await releaseHandler;
+        return markdownResponse('正文');
+      }),
+    );
+    const { api } = await import('../src/lib/api.js');
+    const controller = new AbortController();
+    try {
+      const pending = api.knowledgeMarkdown('kdv_abort', controller.signal);
+      await handlerEntered;
+      controller.abort();
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    } finally {
+      // 让被取消的 handler 及时结束，不留下挂起的 promise 或计时器。
+      release();
+    }
+  });
+});
+
+describe('msw request body capture', () => {
+  it('waits for a delayed request body and fails on a read error', async () => {
+    // 流式 fetch 在 body 发送完前不会触发 request:start，这里直接发事件以控制读取时机。
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const delayedBody = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        await released;
+        controller.enqueue(new TextEncoder().encode('{"delayed":true}'));
+        controller.close();
+      },
+    });
+    const delayed = new Request('http://localhost/api/msw/body', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: delayedBody,
+      duplex: 'half',
+    } as RequestInit);
+    server.events.emit({ type: 'request:start', request: delayed } as never);
+    // 未等 body 读完时这里就是 undefined；负向断言不能靠「看起来没有」通过。
+    expect(calls[0]?.body).toBeUndefined();
+    release();
+    await msw.waitForRequests();
+    expect(calls[0]?.body).toEqual({ delayed: true });
+
+    const failedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"broken":'));
+        controller.error(new Error('body read failed'));
+      },
+    });
+    const failed = new Request('http://localhost/api/msw/body', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: failedBody,
+      duplex: 'half',
+    } as RequestInit);
+    server.events.emit({ type: 'request:start', request: failed } as never);
+    await expect(msw.waitForRequests()).rejects.toThrow('body read failed');
+  });
+});
+
+describe('msw cleanup fault injection', () => {
+  it('runs every shared cleanup step and rethrows the first failure', async () => {
+    const steps: string[] = [];
+    await expect(
+      runCleanup([
+        () => {
+          steps.push('clear');
+          throw new Error('clear failed');
+        },
+        () => {
+          steps.push('remove');
+          throw new Error('remove failed');
+        },
+        () => {
+          steps.push('assertClean');
+        },
+      ]),
+    ).rejects.toThrow('clear failed');
+    expect(steps).toEqual(['clear', 'remove', 'assertClean']);
+  });
+
+  function expectRestored() {
+    expect(server.listHandlers()).toHaveLength(0);
+    expect('ResizeObserver' in globalThis).toBe(false);
+    expect(vi.isMockFunction(window.scrollTo)).toBe(false);
+    expect(root).toBeUndefined();
+    expect(client).toBeUndefined();
+    expect(host).toBeUndefined();
+  }
+
+  it('still restores handlers, globals and mocks after a body read rejection', async () => {
+    server.use(http.get('/api/knowledge/bases', () => HttpResponse.json([])));
+    const failedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"broken":'));
+        controller.error(new Error('body read failed'));
+      },
+    });
+    server.events.emit({
+      type: 'request:start',
+      request: new Request('http://localhost/api/msw/body', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: failedBody,
+        duplex: 'half',
+      } as RequestInit),
+    } as never);
+    await expect(cleanup()).rejects.toThrow('body read failed');
+    expectRestored();
+  });
+
+  it('still restores handlers, globals and mocks when unmount throws', async () => {
+    server.use(http.get('/api/knowledge/bases', () => HttpResponse.json([])));
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    const mountedRoot = root,
+      mountedHost = host;
+    await act(async () => mountedRoot.render(createElement('p', null, 'mounted')));
+    expect(mountedHost.childNodes).toHaveLength(1);
+    // cleanup 会先清空 root，回调必须用快照才能真正卸载；先卸载再抛错只替代「unmount 抛出」信号。
+    await expect(
+      cleanup(async () => {
+        await act(async () => mountedRoot.unmount());
+        throw new Error('unmount failed');
+      }),
+    ).rejects.toThrow('unmount failed');
+    // host.remove() 只摘节点不清空子树：子节点消失才是 React root 真卸载的证据。
+    expect(mountedHost.childNodes).toHaveLength(0);
+    expectRestored();
   });
 });
