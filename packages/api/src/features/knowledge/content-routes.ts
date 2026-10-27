@@ -209,11 +209,12 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
     try {
       await repo.knowledge.updateDocument(app.db, document.id, { contentHash: sha });
       if (input.tags.length > 0) {
-        const ids: string[] = [];
-        for (const name of new Set(input.tags)) {
-          ids.push((await repo.knowledge.upsertTag(app.db, input.baseId, name)).id);
-        }
-        await repo.knowledge.setDocumentTags(app.db, document.id, ids);
+        const rows = await repo.knowledge.upsertTags(app.db, input.baseId, input.tags);
+        await repo.knowledge.setDocumentTags(
+          app.db,
+          document.id,
+          rows.map((tag) => tag.id),
+        );
       }
       const job = await enqueue(document.id, input.baseId);
       await writeAudit(app.db, input.log, {
