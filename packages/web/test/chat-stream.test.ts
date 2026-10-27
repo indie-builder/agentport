@@ -202,6 +202,49 @@ describe('chat request ownership', () => {
     expect(useChatStore.getState().input).toBe('还没发出去的草稿');
     expect(useChatStore.getState().items).toEqual([{ kind: 'user', text: '看这个渠道' }]);
   });
+
+  it.each([
+    ['新输入', 'B'],
+    ['只有空格', ' '],
+  ])('请求失败时保留等待期间输入的%s，不用原消息覆盖', async (_label, draft) => {
+    const pending = deferredSend();
+    const stream = render();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    expect(useChatStore.getState().input).toBe('');
+    useChatStore.getState().setInput(draft);
+    pending.reject(new Error('request failed'));
+    await sending;
+    expect(useChatStore.getState().input).toBe(draft);
+  });
+
+  it('请求失败且没有新草稿时恢复原消息', async () => {
+    const pending = deferredSend();
+    const stream = render();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    pending.reject(new Error('request failed'));
+    await sending;
+    expect(useChatStore.getState().input).toBe('original message');
+  });
+
+  it('显式动作失败不回填动作正文，草稿原样保留', async () => {
+    const pending = deferredSend();
+    const stream = render();
+    useChatStore.getState().setInput('还没发出去的草稿');
+    const action = { type: 'continue_conversation' as const, params: {}, message: '看这个渠道' };
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send(action.message, action);
+    });
+    pending.reject(new Error('request failed'));
+    await sending;
+    expect(useChatStore.getState().input).toBe('还没发出去的草稿');
+  });
 });
 
 describe('disconnected runs', () => {

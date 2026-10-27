@@ -15,8 +15,8 @@
 | `api-integration-surface-strategy` | samber/developer-platform-skills | 按回滚成本与受众排序 REST/CLI/SDK/MCP 等各集成面的建设顺序 |
 | `vercel-react-best-practices` | vercel-labs/agent-skills | React 19 组件与性能 |
 | `supabase-postgres-best-practices` | supabase/agent-skills | PostgreSQL 18 查询、索引、RLS |
-| `test-driven-development` | obra/superpowers | 框架无关的 TDD：先写测试看失败，再写最小实现（Vitest 只是项目默认执行器） |
-| `verification-before-completion` | obra/superpowers | 交付前的验证纪律 |
+| `test-driven-development` | obra/superpowers | 按需参考的红绿步骤：先写失败测试 → 最小实现 → 重构；Vitest 为项目默认执行器，不替代 `ub-mode` |
+| `verification-before-completion` | obra/superpowers | 交付前先跑验证命令并看真实输出，再声明完成 / 修复 / 通过 |
 | `shadcn` | shadcn-ui/ui | 组件库（本项目唯一 UI 组件来源） |
 | `migrate-radix-to-base` | shadcn-ui/ui | Radix 组件迁移到 Base UI（交互原语已统一 Base UI） |
 | `tailwind-design-system` | wshobson/agents | Tailwind 4 token 与设计系统 |
@@ -32,6 +32,7 @@
 | `pnpm` | antfu/skills | pnpm workspace 与依赖管理 |
 | `drizzle-orm-patterns` | giuseppe-trisciuoglio/developer-kit | Drizzle ORM schema、查询与迁移模式 |
 | `react-hook-form` | pproenca/dot-skills | React Hook Form 表单状态与校验 |
+| `ub-mode` | unclebob/ub-mode | 默认日常工程纪律：First Make it Work → Then Make it Right → Follow Practice；编排与并行仍归 pstack |
 
 ## 范围
 
@@ -84,6 +85,19 @@
 - **Vitest**：技能文本可能来自高于 lock 的版本，使用前核对已安装版本，不为示例升级依赖；测试仍走根 `vitest.config.ts` 的 `backend`/`web` projects。
 
 安装依据与许可：`better-auth-best-practices` 按上游 <https://www.better-auth.com/docs/ai-resources/skills> 发布的安装命令装入；上游仓库未提供 LICENSE 文件，此处只登记本地安装与来源事实。
+
+### ub-mode（原样安装）
+
+`ub-mode` 的 `SKILL.md` 与 `README.md` 保持上游原版，无本地适配；更新或重装后核对与上游逐字节一致
+（`diff -r --exclude=.git <上游快照> .agents/skills/ub-mode`）。上游 README 提到的 crapper / dryer /
+mutator / uml-viewer 配套工具本次未安装。上游仓库无 LICENSE 文件，此处只登记来源与安装事实。
+
+职责分工（用户 2026-10-28 决定，流程细节以 `docs/DEV-WORKFLOW.md` 为准，不在此复制）：
+
+- `ub-mode`：默认日常工程纪律，阶段固定为 First Make it Work → Then Make it Right → Follow Practice（先实现目标功能 → 再完善设计与实现 → 遵循工作纪律）；随手可用，不要求 `/ub-mode`。
+- `pstack`：模型选择、任务编排、并行拆分与独立 review；不承担工程纪律本身。
+- `test-driven-development`：按需参考红绿步骤，不是硬性门禁。
+- `verification-before-completion`：交付前跑验证、看真实输出再声明完成。
 
 ## 插件更新
 

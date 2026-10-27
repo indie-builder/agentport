@@ -187,7 +187,7 @@ export function EvalPage() {
     compareButtonRef.current?.isConnected ? compareButtonRef.current : createButtonRef.current;
 
   const startRun = (): void => {
-    if (!effectiveAgentId) return;
+    if (!effectiveAgentId || startDisabledReason !== null) return;
     start.mutate(effectiveAgentId, {
       onSuccess: () => toastSuccess('评估已开始，结果会自动刷新'),
       onError: toastError,
@@ -273,21 +273,23 @@ export function EvalPage() {
   const terminalRuns = runItems.filter((run) => run.status !== 'running');
   const startDisabledReason = start.isPending
     ? '正在启动评估'
-    : agents.isPending
-      ? '专家加载中，稍后再试'
-      : agents.isError
-        ? '专家加载失败，请重试'
-        : missingAgent
-          ? '所选专家不存在，请清除筛选或重新选择'
-          : !effectiveAgentId
-            ? '先创建一个专家'
-            : cases.isPending
-              ? '用例加载中，稍后再试'
-              : cases.isError
-                ? '用例加载失败，请重试'
-                : cases.data.length === 0
-                  ? '先新建至少一个用例'
-                  : null;
+    : runningRun
+      ? '已有评估正在运行，请等待结束或先停止'
+      : agents.isPending
+        ? '专家加载中，稍后再试'
+        : agents.isError
+          ? '专家加载失败，请重试'
+          : missingAgent
+            ? '所选专家不存在，请清除筛选或重新选择'
+            : !effectiveAgentId
+              ? '先创建一个专家'
+              : cases.isPending
+                ? '用例加载中，稍后再试'
+                : cases.isError
+                  ? '用例加载失败，请重试'
+                  : cases.data.length === 0
+                    ? '先新建至少一个用例'
+                    : null;
 
   const agentOptions = (agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }));
 
@@ -596,8 +598,9 @@ function EvalRunResults({ id }: { id: string }) {
   const detail = useEvalRun(id);
   const [exporting, setExporting] = useState(false);
 
+  // 只有从没拿到过详情时才整块报错；后台轮询/手动刷新失败要保留已有结果树。
   if (detail.isPending) return <LoadingState rows={2} />;
-  if (detail.isError) {
+  if (!detail.data) {
     return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
   }
 
@@ -627,6 +630,13 @@ function EvalRunResults({ id }: { id: string }) {
 
   return (
     <>
+      {detail.isError ? (
+        <ErrorState
+          error={detail.error}
+          title="刷新失败，内容仍是上次结果"
+          onRetry={() => void detail.refetch()}
+        />
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
         <p className="text-xs text-muted-foreground">
           导出已记录结果；专家配置未固定，文件不构成完整复现包。

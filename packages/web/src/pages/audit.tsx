@@ -92,6 +92,22 @@ const columns: DataColumn<AuditEntry>[] = [
   },
 ];
 
+/** 只展示接口已有的字段；输入原文本就不落库，摘要为空时如实给「—」。 */
+function auditDetails(row: AuditEntry) {
+  return (
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
+      <dt className="text-muted-foreground">操作者</dt>
+      <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">{row.actor}</dd>
+      <dt className="text-muted-foreground">事件 ID</dt>
+      <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">{row.id}</dd>
+      <dt className="text-muted-foreground">输入摘要</dt>
+      <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
+        {row.inputDigest ?? <span className="text-muted-foreground">—</span>}
+      </dd>
+    </dl>
+  );
+}
+
 export function AuditPage() {
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/audit' });
@@ -246,6 +262,7 @@ export function AuditPage() {
               label="审计事件"
               loading={audit.isPending || searchPending}
               empty="登录或修改配置后会自动记录对应事件。"
+              renderExpanded={auditDetails}
             />
           )}
           {audit.isFetchNextPageError ? (

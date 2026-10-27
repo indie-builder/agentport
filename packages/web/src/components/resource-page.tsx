@@ -38,7 +38,8 @@ export function ResourcePage({
   onQueryChange: (value: string) => void;
   sort: 'newest' | 'name';
   onSortChange: (value: 'newest' | 'name') => void;
-  count: number;
+  /** 省略时不展示数量（例如搜索词太短，结果数没有意义）。 */
+  count?: number | undefined;
   status: 'pending' | 'error' | 'success';
   filters?: ReactNode;
   leadingFilters?: ReactNode;
@@ -58,9 +59,19 @@ export function ResourcePage({
       <PageHeader title={label} className="sr-only" />
       <Tabs value={section} className="flex-col gap-5">
         <div className="flex flex-wrap items-center justify-between gap-4 pt-3">
-          <TabsList variant="line" aria-label="资源类型" className="gap-4">
+          <TabsList
+            variant="line"
+            aria-label="资源类型"
+            className="max-w-full flex-wrap justify-start gap-x-4 gap-y-2 group-data-[orientation=horizontal]/tabs:h-auto min-h-8"
+          >
             {sections.map(({ id, to, label: title, icon: Icon }) => (
-              <TabsTrigger key={id} value={id} nativeButton={false} render={<Link to={to} />}>
+              <TabsTrigger
+                key={id}
+                value={id}
+                nativeButton={false}
+                render={<Link to={to} />}
+                className="flex-none h-[25px]"
+              >
                 <Icon data-icon="inline-start" />
                 {title}
               </TabsTrigger>
@@ -71,13 +82,15 @@ export function ResourcePage({
         <PageToolbar>
           <div className="flex min-w-0 flex-wrap items-center gap-3">
             {leadingFilters}
-            <span role="status" className="text-xs text-muted-foreground">
-              {status === 'pending'
-                ? '加载中…'
-                : status === 'error'
-                  ? '数量不可用'
-                  : `共 ${count} 个${label}`}
-            </span>
+            {status === 'success' && count === undefined ? null : (
+              <span role="status" className="text-xs text-muted-foreground">
+                {status === 'pending'
+                  ? '加载中…'
+                  : status === 'error'
+                    ? '数量不可用'
+                    : `共 ${count} 个${label}`}
+              </span>
+            )}
           </div>
           <div className="ml-auto flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
             <SearchInput

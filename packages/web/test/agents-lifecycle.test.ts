@@ -598,6 +598,122 @@ describe('expert review details', () => {
     expect(history.textContent).toContain('Write');
   });
 
+  const fieldOnlyCases = [
+    {
+      label: '回复格式',
+      current: { ...agent, uiFormat: 'openui' as const },
+      target: { ...agent, uiFormat: 'markdown' as const },
+      from: 'openui',
+      to: 'markdown',
+    },
+    {
+      label: '插件绑定',
+      current: {
+        ...agent,
+        pluginBindings: [{ pluginId: 'plugin-1', allowHooks: true, allowMcp: true }],
+      },
+      target: {
+        ...agent,
+        pluginBindings: [{ pluginId: 'plugin-1', allowHooks: false, allowMcp: true }],
+      },
+      from: '"allowHooks": true',
+      to: '"allowHooks": false',
+    },
+  ];
+
+  it.each(fieldOnlyCases)(
+    'reports a $label-only difference instead of claiming the fields are unchanged',
+    async ({ label, current, target, from, to }) => {
+      client.setQueryData(['agents'], [current]);
+      vi.spyOn(api, 'agentVersion').mockResolvedValue({
+        version: 1,
+        snapshot: target,
+        createdAt: agent.createdAt,
+      });
+      await mount();
+      await openHistory();
+      await click(button('查看差异'));
+      await flush();
+      const history = dialog('版本历史');
+      expect(history.textContent).not.toContain('与当前配置一致');
+      expect(history.textContent).toContain(label);
+      expect(history.textContent).toContain(from);
+      expect(history.textContent).toContain(to);
+
+      await click(button('回滚', history));
+      const confirmation = dialog('回滚到 v1');
+      expect(confirmation.textContent).toContain(`将把 1 个字段改为该版本的值：${label}`);
+      expect(confirmation.textContent).not.toContain('回滚不会改变字段');
+    },
+  );
+
+  it.each([
+    {
+      name: '回复格式',
+      section: '运行限制',
+      current: { ...agent, uiFormat: 'openui' as const },
+      target: { ...agent, uiFormat: 'markdown' as const, updatedAt: '2026-02-01T00:00:00Z' },
+      restored: (): void =>
+        expect(document.getElementById('agent-ui-format')?.textContent).toContain('Markdown'),
+    },
+    {
+      name: '插件绑定',
+      section: '能力',
+      current: {
+        ...agent,
+        pluginBindings: [{ pluginId: 'plugin-1', allowHooks: true, allowMcp: true }],
+      },
+      target: {
+        ...agent,
+        pluginBindings: [{ pluginId: 'plugin-1', allowHooks: false, allowMcp: true }],
+        updatedAt: '2026-02-01T00:00:00Z',
+      },
+      // hooks 授权被回滚掉，MCP 授权原样保留。
+      restored: (): void => {
+        expect(document.querySelector<HTMLInputElement>('#plugin-plugin-1-hooks')?.checked).toBe(
+          false,
+        );
+        expect(document.querySelector<HTMLInputElement>('#plugin-plugin-1-mcp')?.checked).toBe(
+          true,
+        );
+      },
+    },
+  ])('loads the rolled-back $name configuration and clears dirty', async (entry) => {
+    const plugin = {
+      id: 'plugin-1',
+      slug: 'demo',
+      runtimeName: 'demo',
+      name: '演示插件',
+      description: '',
+      version: '1.0.0',
+      sourceId: null,
+      capabilities: { skills: [], agents: [], hasHooks: true, mcpServers: ['inline-server'] },
+      files: [],
+      createdAt: agent.createdAt,
+      updatedAt: agent.updatedAt,
+      agentCount: 1,
+    };
+    vi.spyOn(api, 'plugins').mockResolvedValue([plugin]);
+    client.setQueryData(['plugins'], [plugin]);
+    client.setQueryData(['agents'], [entry.current]);
+    vi.spyOn(api, 'agentVersion').mockResolvedValue({
+      version: 1,
+      snapshot: entry.target,
+      createdAt: agent.createdAt,
+    });
+    vi.spyOn(api, 'rollbackAgent').mockResolvedValue(entry.target);
+    vi.mocked(api.agents).mockResolvedValue([entry.target]);
+    await mount();
+    await openHistory(true);
+    await confirmRollback();
+    await flush();
+    expect(document.body.textContent).not.toContain('未保存');
+    expect(button('已保存').disabled).toBe(true);
+    await click(button(entry.section));
+    await flush();
+    entry.restored();
+  });
+
   it('loads a version snapshot only after the diff expands', async () => {
     const detail = vi.spyOn(api, 'agentVersion');
     await mount();

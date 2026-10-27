@@ -84,6 +84,7 @@ import {
   type KnowledgeWikiVersion,
 } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
 import {
   knowledgeKeys,
@@ -308,7 +309,11 @@ function DocumentsTab({
   const [confirmReprocess, setConfirmReprocess] = useState<KnowledgeDocument | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
   const [editing, setEditing] = useState<KnowledgeDocument | null>(null);
-  const [viewing, setViewing] = useState<KnowledgeDocument | null>(null);
+  // 只记 ID 与打开时快照：列表轮询到新版本时查看器要跟着更新，列表暂时不含该文档时保留快照不关闭。
+  const [viewing, setViewing] = useState<{
+    id: string;
+    snapshot: KnowledgeDocument;
+  } | null>(null);
   const [folderDialog, setFolderDialog] = useState<
     { mode: 'create'; parentId: string | null } | { mode: 'rename'; folder: KnowledgeFolder } | null
   >(null);
@@ -318,6 +323,15 @@ function DocumentsTab({
   const [manualOpen, setManualOpen] = useState(false);
   const [urlOpen, setUrlOpen] = useState(false);
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
+
+  // 列表查到更新的对象时刷新快照：之后列表暂时不含该文档，也能显示最近一次看到的内容。
+  const viewingMatch = viewing ? documentItems.find((item) => item.id === viewing.id) : undefined;
+  useEffect(() => {
+    if (viewing && viewingMatch && viewingMatch !== viewing.snapshot) {
+      setViewing({ id: viewing.id, snapshot: viewingMatch });
+    }
+  }, [viewing, viewingMatch]);
+  const viewingDocument = viewingMatch ?? viewing?.snapshot ?? null;
 
   const targetFolderId = folderId === undefined || folderId === 'null' ? null : folderId;
 
@@ -611,7 +625,7 @@ function DocumentsTab({
                       title={document.title}
                       onClick={() => {
                         setActionTrigger(null);
-                        setViewing(document);
+                        setViewing({ id: document.id, snapshot: document });
                       }}
                     >
                       {document.title}
@@ -727,12 +741,12 @@ function DocumentsTab({
             onClose={() => setEditing(null)}
           />
         ) : null}
-        {viewing ? (
+        {viewingDocument ? (
           <DocumentViewer
-            document={viewing}
+            document={viewingDocument}
             onClose={() => setViewing(null)}
             onEdit={() => {
-              setEditing(viewing);
+              setEditing(viewingDocument);
               setViewing(null);
             }}
           />
@@ -1006,13 +1020,40 @@ function DocumentDialog({
   onClose: () => void;
 }) {
   const update = useUpdateKnowledgeDocument(baseId);
-  const [title, setTitle] = useState(document.title);
-  const [folderId, setFolderId] = useState(document.folderId ?? 'null');
-  const [tags, setTags] = useState(document.tags.join(', '));
-  const [status, setStatus] = useState<'ready' | 'disabled'>(
-    document.status === 'disabled' ? 'disabled' : 'ready',
-  );
+  // 基线取打开时的值，列表轮询刷新文档对象不重置用户草稿。
+  const [initial] = useState(() => ({
+    title: document.title,
+    folderId: document.folderId ?? 'null',
+    tags: document.tags.join(', '),
+    status: document.status === 'disabled' ? ('disabled' as const) : ('ready' as const),
+  }));
+  const [title, setTitle] = useState(initial.title);
+  const [folderId, setFolderId] = useState(initial.folderId);
+  const [tags, setTags] = useState(initial.tags);
+  const [status, setStatus] = useState<'ready' | 'disabled'>(initial.status);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pending = update.isPending;
+  const dirty =
+    title !== initial.title ||
+    folderId !== initial.folderId ||
+    tags !== initial.tags ||
+    status !== initial.status;
+  const blocker = useFormBlocker(dirty, pending);
+  // 保存回调在拦截发生前创建，不能读当时的 blocker 快照。
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则其 resolver 永远挂着。
+  const finish = (): void => {
+    blockerRef.current.reset?.();
+    onClose();
+  };
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) setConfirmDiscard(true);
+    else finish();
+  };
 
   return (
     <Dialog
@@ -1022,7 +1063,7 @@ function DocumentDialog({
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) close();
       }}
     >
       <DialogShell title="编辑文档" closeDisabled={pending}>
@@ -1048,7 +1089,7 @@ function DocumentDialog({
               {
                 onSuccess: () => {
                   toastSuccess('文档已更新');
-                  onClose();
+                  finish();
                 },
                 onError: toastError,
               },
@@ -1138,7 +1179,7 @@ function DocumentDialog({
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
+            <Button variant="outline" onClick={close} disabled={pending}>
               取消
             </Button>
             <Button type="submit" disabled={pending || title.trim() === ''} aria-busy={pending}>
@@ -1146,6 +1187,26 @@ function DocumentDialog({
             </Button>
           </div>
         </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后文档属性草稿会丢失。"
+          confirmLabel="放弃并关闭"
+          confirmDisabled={pending}
+          onConfirm={async () => {
+            if (!pending) finish();
+          }}
+        />
+        <ConfirmDialog
+          open={blocker.status === 'blocked'}
+          onClose={() => blocker.reset?.()}
+          title="放弃未保存的更改？"
+          description={pending ? '正在保存，请等待请求完成。' : '离开后文档属性草稿会丢失。'}
+          confirmLabel="放弃并离开"
+          confirmDisabled={pending}
+          onConfirm={async () => blocker.proceed()}
+        />
       </DialogShell>
     </Dialog>
   );
@@ -1406,10 +1467,26 @@ function ChunkDialog({
   onReload: () => Promise<void>;
 }) {
   const update = useUpdateKnowledgeChunk(baseId, documentId);
-  const [content, setContent] = useState(chunk.content);
+  // 基线取打开时的正文：父级分块查询刷新不能覆盖用户正在改的草稿。
+  const [initial] = useState(chunk.content);
+  const [content, setContent] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmReload, setConfirmReload] = useState(false);
   const pending = update.isPending;
   const trimmed = content.trim();
+  const dirty = content !== initial;
+  const blocker = useFormBlocker(dirty, pending);
+  // 保存/重载回调在拦截发生前创建，不能读当时的 blocker 快照。
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则其 resolver 永远挂着。
+  const finish = (): void => {
+    blockerRef.current.reset?.();
+    onClose();
+  };
   // 图片向量是真实图 embedding；改正文会让它和图片脱节，只允许在列表里启停。
   const vectorChunk = chunk.metadata?.imageRole === 'vector';
 
@@ -1432,6 +1509,12 @@ function ChunkDialog({
     );
   }
 
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) setConfirmDiscard(true);
+    else finish();
+  };
+
   return (
     <Dialog
       open
@@ -1440,7 +1523,7 @@ function ChunkDialog({
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) close();
       }}
     >
       <DialogShell title="编辑分块" closeDisabled={pending}>
@@ -1454,7 +1537,7 @@ function ChunkDialog({
               {
                 onSuccess: () => {
                   toastSuccess('分块已保存，正在补建向量');
-                  onClose();
+                  finish();
                 },
                 onError: (reason) => {
                   // 保留草稿；服务端拒绝时给出明确的重载入口，不静默丢弃修改。
@@ -1483,14 +1566,17 @@ function ChunkDialog({
                 variant="outline"
                 disabled={pending}
                 onClick={() => {
-                  void update.reset();
-                  void onReload();
+                  if (dirty) setConfirmReload(true);
+                  else {
+                    update.reset();
+                    void onReload();
+                  }
                 }}
               >
                 重新加载
               </Button>
             ) : null}
-            <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
+            <Button type="button" variant="outline" onClick={close} disabled={pending}>
               取消
             </Button>
             <Button type="submit" disabled={pending || trimmed === ''} aria-busy={pending}>
@@ -1498,6 +1584,39 @@ function ChunkDialog({
             </Button>
           </div>
         </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后分块正文草稿会丢失。"
+          confirmLabel="放弃并关闭"
+          confirmDisabled={pending}
+          onConfirm={async () => {
+            if (!pending) finish();
+          }}
+        />
+        <ConfirmDialog
+          open={confirmReload}
+          onClose={() => setConfirmReload(false)}
+          title="放弃未保存的更改？"
+          description="重新加载会用服务端版本覆盖当前草稿。"
+          confirmLabel="放弃并重新加载"
+          confirmDisabled={pending}
+          onConfirm={async () => {
+            if (pending) return;
+            await update.reset();
+            await onReload();
+          }}
+        />
+        <ConfirmDialog
+          open={blocker.status === 'blocked'}
+          onClose={() => blocker.reset?.()}
+          title="放弃未保存的更改？"
+          description={pending ? '正在保存，请等待请求完成。' : '离开后分块正文草稿会丢失。'}
+          confirmLabel="放弃并离开"
+          confirmDisabled={pending}
+          onConfirm={async () => blocker.proceed()}
+        />
       </DialogShell>
     </Dialog>
   );
