@@ -229,11 +229,12 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
     if (!('installed' in output)) {
       return reject(reply, 'UPSTREAM_FAILED', '安装器没有返回已安装列表，请稍后重试');
     }
-    const installed: Array<NativeInstalledPlugin & { imported: boolean }> = await Promise.all(
-      output.installed.map(async (plugin) => ({
-        ...plugin,
-        imported: (await repo.getPluginBySourceId(app.db, plugin.pluginId)) !== null,
-      })),
+    const importedSourceIds = await repo.getImportedPluginSourceIds(
+      app.db,
+      output.installed.map((plugin) => plugin.pluginId),
+    );
+    const installed: Array<NativeInstalledPlugin & { imported: boolean }> = output.installed.map(
+      (plugin) => ({ ...plugin, imported: importedSourceIds.has(plugin.pluginId) }),
     );
     return { installed };
   });

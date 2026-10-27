@@ -49,6 +49,24 @@ describe.skipIf(!ready)('native plugin routes', () => {
 
   const auth = () => ({ cookie });
 
+  /** 真实 pool.query 直通 spy：只收集发往 plugins 的 SELECT，用于验证查询次数与投影。 */
+  async function capturePluginQueries<T>(
+    run: () => Promise<T>,
+  ): Promise<{ value: T; queries: string[] }> {
+    const spy = vi.spyOn(app.pool, 'query');
+    try {
+      const value = await run();
+      return {
+        value,
+        queries: spy.mock.calls
+          .map(([query]) => (typeof query === 'string' ? query : query.text))
+          .filter((text) => /^select .*from "plugins"/i.test(text)),
+      };
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
@@ -183,6 +201,57 @@ describe.skipIf(!ready)('native plugin routes', () => {
       ],
     });
     expect(calls).toEqual([{ action: 'read', pluginId: `${local}@repo` }, { action: 'list' }]);
+  });
+
+  it('matches the full pluginId, keeps duplicate rows in order and reads plugins once', async () => {
+    const local = unique('market');
+    const importedId = `${local}@owner-a-repo`;
+    result = installOutput(importedId);
+    const seed = await inject(app, {
+      method: 'POST',
+      url: '/api/plugins/native/import',
+      headers: auth(),
+      payload: { pluginId: importedId },
+    });
+    expect(seed.statusCode, seed.body).toBe(201);
+    pluginIds.push(seed.json<{ plugin: { id: string } }>().plugin.id);
+
+    result = {
+      ok: true,
+      installed: [
+        { pluginId: importedId, version: '2.0.0' },
+        { pluginId: `${local}@owner-b-repo`, version: '2.0.0' },
+        { pluginId: importedId, version: '1.0.0' },
+      ],
+    };
+    const { value: list, queries } = await capturePluginQueries(() =>
+      inject(app, { method: 'GET', url: '/api/plugins/native', headers: auth() }),
+    );
+    expect(list.statusCode, list.body).toBe(200);
+    // 同名不同市场是不同来源；同 ID 的不同版本重复项保持原序，命中按完整 ID 判定。
+    expect(list.json()).toEqual({
+      installed: [
+        { pluginId: importedId, version: '2.0.0', imported: true },
+        { pluginId: `${local}@owner-b-repo`, version: '2.0.0', imported: false },
+        { pluginId: importedId, version: '1.0.0', imported: true },
+      ],
+    });
+    // N 条已安装项只查一次库，且只投影 source_id，不读整行插件定义。
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toMatch(/^select\s+"source_id"\s+from\s+"plugins"/i);
+    expect(queries[0]).not.toMatch(/select\s+"plugins"\."id"/i);
+    expect(calls).toEqual([{ action: 'read', pluginId: importedId }, { action: 'list' }]);
+  });
+
+  it('returns an empty list without querying plugins', async () => {
+    result = { ok: true, installed: [] };
+    const { value: list, queries } = await capturePluginQueries(() =>
+      inject(app, { method: 'GET', url: '/api/plugins/native', headers: auth() }),
+    );
+    expect(list.statusCode, list.body).toBe(200);
+    expect(list.json()).toEqual({ installed: [] });
+    expect(queries).toEqual([]);
+    expect(calls).toEqual([{ action: 'list' }]);
   });
 
   it('adopts an already cached plugin by reading files without installing', async () => {
