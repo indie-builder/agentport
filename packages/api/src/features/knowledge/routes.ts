@@ -1292,15 +1292,15 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         (rest.imageInputEnabled !== undefined &&
           rest.imageInputEnabled !== current.imageInputEnabled)
       ) {
-        const referenced = await app.pool.query<{ count: string }>(
-          `select count(*)::text as count from (
+        const referenced = await app.pool.query<{ referenced: boolean }>(
+          `select exists(
              select 1 from knowledge_bases where embedding_profile_id = $1
              union all
              select 1 from knowledge_document_versions where embedding_profile_id = $1
-           ) rows`,
+           ) as referenced`,
           [current.id],
         );
-        if (Number(referenced.rows[0]?.count ?? 0) > 0) {
+        if (referenced.rows[0]?.referenced) {
           return reject(
             reply,
             'CONFLICT',
@@ -1330,8 +1330,8 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         if (result.rowCount === 0) return notFound(reply, '模型 profile');
         return reply.status(204).send();
       } catch (err) {
-        // 仍被知识库引用时外键是 restrict。
-        if (isPgCode(err, '23503')) {
+        // 仍被引用时外键走 RESTRICT：23001=restrict_violation，23503=foreign_key_violation。
+        if (isPgCode(err, '23001') || isPgCode(err, '23503')) {
           return reject(reply, 'CONFLICT', '该 profile 仍被知识库使用，请先切换或删除知识库');
         }
         throw err;
