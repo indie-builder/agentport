@@ -1214,17 +1214,13 @@ export async function saveWikiVersion(
       manualSources = checked.usable;
     }
 
-    const [last] = await tx
-      .select({ max: sql<number>`coalesce(max(${knowledgeWikiVersions.version}), 0)` })
-      .from(knowledgeWikiVersions)
-      .where(eq(knowledgeWikiVersions.pageId, pageId));
-    const max = last?.max ?? 0;
     const [version] = await tx
       .insert(knowledgeWikiVersions)
       .values({
         id: newId('knowledgeWikiVersion'),
         pageId,
-        version: max + 1,
+        // 版本号在 INSERT 内计算，少一次往返；并发由上面的页面行锁与唯一索引兜底。
+        version: sql`(select coalesce(max(${knowledgeWikiVersions.version}), 0) + 1 from ${knowledgeWikiVersions} where ${knowledgeWikiVersions.pageId} = ${pageId})`,
         markdown: input.markdown,
         sourceChunkIds: input.sourceChunkIds,
         model: input.model,

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   type FastifyInstance,
   infraReady,
@@ -216,6 +216,142 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const currentId = detail.json<{ currentVersionId: string }>().currentVersionId;
     const current = versions.find((row) => row.id === currentId);
     expect(current?.markdown).toBe('# 第二版');
+  });
+
+  it('writes each wiki version with one insert that computes the next number in SQL', async () => {
+    const page = await createPage();
+
+    const statements: string[] = [];
+    const clientProto = (
+      app.pool as unknown as { Client: { prototype: { query: (...args: unknown[]) => unknown } } }
+    ).Client.prototype;
+    const originalQuery = clientProto.query;
+    const spy = vi.spyOn(clientProto, 'query').mockImplementation(function (
+      this: unknown,
+      first: unknown,
+      ...rest: unknown[]
+    ) {
+      if (typeof first === 'string') statements.push(first);
+      else if (first && typeof first === 'object' && 'text' in first) {
+        statements.push(String((first as { text: unknown }).text));
+      }
+      return originalQuery.apply(this, [first, ...rest]);
+    });
+    let first: Awaited<ReturnType<typeof repo.knowledge.saveWikiVersion>>;
+    let second: Awaited<ReturnType<typeof repo.knowledge.saveWikiVersion>>;
+    try {
+      first = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+        markdown: '# 第一稿',
+        sourceChunkIds: [],
+        model: 'wiki-model',
+        generatedBy: 'sdk',
+      });
+      second = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+        markdown: '# 第二稿',
+        sourceChunkIds: [],
+        model: 'wiki-model',
+        generatedBy: 'sdk',
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect([first?.version, second?.version]).toEqual([1, 2]);
+    const writes = statements.filter((text) => /insert into "knowledge_wiki_versions"/i.test(text));
+    expect(writes).toHaveLength(2);
+    for (const text of writes) {
+      expect(text).toMatch(
+        /select coalesce\(max\("knowledge_wiki_versions"\."version"\), 0\) \+ 1 from "knowledge_wiki_versions" where "knowledge_wiki_versions"\."page_id" =/i,
+      );
+    }
+    expect(
+      statements.filter(
+        (text) =>
+          /\bmax\("knowledge_wiki_versions"\."version"\)/i.test(text) &&
+          !/insert into "knowledge_wiki_versions"/i.test(text),
+      ),
+    ).toEqual([]);
+  });
+
+  it('serializes two concurrent saves on one page into versions 1 and 2', async () => {
+    const page = await createPage();
+    const saved = await Promise.all([
+      repo.knowledge.saveWikiVersion(app.db, page.id, {
+        markdown: '# 并发 A',
+        sourceChunkIds: [],
+        model: 'wiki-model',
+        generatedBy: 'sdk',
+      }),
+      repo.knowledge.saveWikiVersion(app.db, page.id, {
+        markdown: '# 并发 B',
+        sourceChunkIds: [],
+        model: 'wiki-model',
+        generatedBy: 'sdk',
+      }),
+    ]);
+    expect(saved.map((row) => row?.version).sort()).toEqual([1, 2]);
+
+    const versions = await app.pool.query<{ version: number; markdown: string }>(
+      'select version, markdown from knowledge_wiki_versions where page_id = $1 order by version',
+      [page.id],
+    );
+    expect(versions.rows).toEqual([
+      { version: 1, markdown: expect.stringMatching(/^# 并发 [AB]$/) },
+      { version: 2, markdown: expect.stringMatching(/^# 并发 [AB]$/) },
+    ]);
+    expect(versions.rows[0]?.markdown).not.toBe(versions.rows[1]?.markdown);
+  });
+
+  it('rolls back the version, current pointer and sources when a source write fails', async () => {
+    const page = await createPage();
+    const documentId = await seedSourceDocument();
+    const source = await addSourceVersion(documentId, 1);
+    const baseline = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+      markdown: '# 基线草稿',
+      sourceChunkIds: [source.chunkId],
+      model: 'wiki-model',
+      generatedBy: 'sdk',
+      sources: [{ documentId, versionId: source.versionId, chunkId: source.chunkId }],
+    });
+    expect(baseline?.version).toBe(1);
+
+    await expect(
+      repo.knowledge.saveWikiVersion(app.db, page.id, {
+        markdown: '# 失败稿',
+        sourceChunkIds: [],
+        model: 'wiki-model',
+        generatedBy: 'sdk',
+        sources: [
+          {
+            documentId: 'kdoc_missing_wiki',
+            versionId: 'kdv_missing_wiki',
+            chunkId: 'kchk_missing_wiki',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ cause: { code: '23503' } });
+
+    expect(await repo.knowledge.getWikiPage(app.db, page.id)).toMatchObject({
+      status: 'draft',
+      currentVersionId: baseline?.id,
+    });
+    const versions = await app.pool.query<{ version: number; markdown: string }>(
+      'select version, markdown from knowledge_wiki_versions where page_id = $1 order by version',
+      [page.id],
+    );
+    expect(versions.rows).toEqual([{ version: 1, markdown: '# 基线草稿' }]);
+    const sources = await app.pool.query(
+      'select document_id, version_id, chunk_id, stale from knowledge_wiki_sources where page_id = $1',
+      [page.id],
+    );
+    expect(sources.rows).toEqual([
+      {
+        document_id: documentId,
+        version_id: source.versionId,
+        chunk_id: source.chunkId,
+        stale: false,
+      },
+    ]);
   });
 
   it('rollback copies the target version into a new published version', async () => {
