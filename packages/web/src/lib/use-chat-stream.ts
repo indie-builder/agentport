@@ -508,9 +508,11 @@ export function useChatStream({
       openStream(accepted, generation);
     } catch (error) {
       if (!ownsRequest()) return;
-      store.setRun(null);
+      // 等待期间可能已经输入了新草稿；读最新 store，只有输入框仍为空才回填原消息。
+      const latest = useChatStore.getState();
+      latest.setRun(null);
       // 动作发送没有动过草稿，失败时也不回填按钮文案。
-      if (text === undefined) store.setInput(body);
+      if (text === undefined && latest.input === '') latest.setInput(body);
       // 没有 run 产生任何回答：撤回本地用户气泡，只留一条错误通知。
       store.setItems([...items, { kind: 'notice', tone: 'error', text: errorMessage(error) }]);
       toastError(error);
