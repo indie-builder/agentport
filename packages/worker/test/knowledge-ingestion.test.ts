@@ -8,7 +8,7 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeBaseSettings } from '@agentport/shared';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ImageQueryFn } from '../src/knowledge/image-processing.js';
 import {
   type ChunkDraft,
@@ -1036,18 +1036,28 @@ async function allChunks(versionId: string) {
   return items;
 }
 
+type DocumentStatus = NonNullable<(typeof schema.knowledgeDocuments.$inferInsert)['status']>;
+type DocumentSourceType = NonNullable<
+  (typeof schema.knowledgeDocuments.$inferInsert)['sourceType']
+>;
+
 async function seedDocuments(
   fixtureBase: Fixture,
   count: number,
   values: {
-    sourceType?: 'upload' | 'feed' | 'gitlab';
-    sourceId?: (index: number) => string;
-    metadata?: Record<string, unknown>;
+    sourceType?: DocumentSourceType;
+    sourceId?: (index: number) => string | null;
+    metadata?: Record<string, unknown> | ((index: number) => Record<string, unknown>);
     contentHash?: string;
-    status?: 'ready';
+    status?: DocumentStatus | ((index: number) => DocumentStatus);
+    createdAt?: (index: number) => Date;
   },
 ): Promise<string[]> {
   const ids = Array.from({ length: count }, () => newId('knowledgeDocument'));
+  const metadataOf = (index: number): Record<string, unknown> =>
+    typeof values.metadata === 'function' ? values.metadata(index) : (values.metadata ?? {});
+  const statusOf = (index: number): DocumentStatus =>
+    typeof values.status === 'function' ? values.status(index) : (values.status ?? 'pending');
   await db.insert(schema.knowledgeDocuments).values(
     ids.map((id, index) => ({
       id,
@@ -1057,9 +1067,10 @@ async function seedDocuments(
       sourceId: values.sourceId?.(index) ?? null,
       mimeType: 'text/markdown',
       sizeBytes: 0,
-      status: values.status ?? ('pending' as const),
+      status: statusOf(index),
       contentHash: values.contentHash ?? null,
-      metadata: values.metadata ?? {},
+      metadata: metadataOf(index),
+      ...(values.createdAt ? { createdAt: values.createdAt(index) } : {}),
     })),
   );
   return ids;
@@ -1344,6 +1355,180 @@ describe('runSync', () => {
       (item) => item.id === run.id,
     );
     expect(syncRun?.stats.disabled).toBe(OVER_PAGE);
+  });
+
+  it('filters stale detection to the current source in SQL while keeping every other status', async () => {
+    const fixtureBase = await makeBase();
+    const connector: KnowledgeConnector = {
+      async *sync({ onCheckpoint }) {
+        for (const id of ['keep-0', 'keep-1']) {
+          yield {
+            sourceId: id,
+            sourceUrl: null,
+            sourcePath: null,
+            title: id,
+            mimeType: 'text/markdown',
+            revision: id,
+            content: { markdown: `# ${id}` },
+          };
+        }
+        await onCheckpoint({}, { complete: true });
+      },
+    };
+    const { sourceId, syncRunId, jobId } = await makeSource(fixtureBase, connector, {
+      type: 'gitlab',
+    });
+
+    // 210 个本来源 ready 文档跨两页；0/1 在列举结果里，其余应被推导删除。
+    const createdAtBase = Date.now() - 60 * 60 * 1000;
+    const currentIds = await seedDocuments(fixtureBase, 210, {
+      status: 'ready',
+      sourceType: 'gitlab',
+      sourceId: (index) => (index < 2 ? `keep-${index}` : `gone-${index}`),
+      metadata: (index) => ({ knowledgeSourceId: sourceId, originalFilename: `doc-${index}.md` }),
+      createdAt: (index) => new Date(createdAtBase - index * 1000),
+    });
+    const otherSource = `gitlab:other-${suffix()}`;
+    const otherIds = await seedDocuments(fixtureBase, 30, {
+      status: 'ready',
+      sourceType: 'gitlab',
+      sourceId: (index) => `other-${index}`,
+      metadata: { knowledgeSourceId: otherSource },
+    });
+    const [manualId] = await seedDocuments(fixtureBase, 1, {
+      status: 'ready',
+      sourceType: 'manual',
+    });
+    const [missingId] = await seedDocuments(fixtureBase, 1, {
+      status: 'ready',
+      sourceType: 'gitlab',
+      sourceId: () => 'missing-0',
+      metadata: { originalFilename: 'missing.md' },
+    });
+    const [nullValueId] = await seedDocuments(fixtureBase, 1, {
+      status: 'ready',
+      sourceType: 'gitlab',
+      sourceId: () => 'null-value-0',
+      metadata: { knowledgeSourceId: null },
+    });
+    const [jsonNullId] = await seedDocuments(fixtureBase, 1, {
+      status: 'ready',
+      sourceType: 'gitlab',
+      sourceId: () => 'json-null-0',
+    });
+    await dbHandle.pool.query(
+      "update knowledge_documents set metadata = 'null'::jsonb where id = $1",
+      [jsonNullId],
+    );
+    const nonReadyStatuses = ['pending', 'failed', 'disabled'] as const;
+    const nonReadyIds = await seedDocuments(fixtureBase, 3, {
+      status: (index) => nonReadyStatuses[index] ?? 'pending',
+      sourceType: 'gitlab',
+      sourceId: (index) => `non-ready-${index}`,
+      metadata: { knowledgeSourceId: sourceId },
+    });
+
+    const wikiDocumentId = currentIds[10];
+    if (!wikiDocumentId) throw new Error('document missing');
+    const wikiPage = await repo.knowledge.createWikiPage(db, {
+      baseId: fixtureBase.baseId,
+      slug: `stale-${suffix()}`,
+      title: '过期引用',
+    });
+    await repo.knowledge.saveWikiVersion(db, wikiPage.id, {
+      markdown: '# 过期引用',
+      sourceChunkIds: [],
+      model: 'manual',
+      generatedBy: 'manual',
+    });
+    await db.insert(schema.knowledgeWikiSources).values({
+      pageId: wikiPage.id,
+      documentId: wikiDocumentId,
+      stale: false,
+    });
+
+    const spy = vi.spyOn(dbHandle.pool, 'query');
+    let documentCalls: Array<{
+      text: string;
+      values: unknown[];
+      result: Promise<{ rows: unknown[] }>;
+    }> = [];
+    try {
+      const syncJob = await repo.knowledge.getJob(db, jobId);
+      if (!syncJob) throw new Error('job missing');
+      await runSync(fixtureBase.deps, syncJob, new AbortController().signal);
+    } finally {
+      documentCalls = spy.mock.calls
+        .map((call, index) => {
+          const query = call[0] as string | { text?: string };
+          return {
+            text: typeof query === 'string' ? query : (query?.text ?? ''),
+            values: (call[1] ?? []) as unknown[],
+            result: spy.mock.results[index]?.value as Promise<{ rows: unknown[] }>,
+          };
+        })
+        .filter((call) => call.text.includes('order by "knowledge_documents"."created_at" desc'));
+      spy.mockRestore();
+    }
+
+    // 真正下推到 SQL 的取数：两页合计 210 行（每页多取 1 行探测下一页），
+    // 而不是整库 244 个 ready 文档。旧实现这里会是 201 + 43。
+    expect(documentCalls).toHaveLength(2);
+    for (const call of documentCalls) {
+      expect(call.text).toContain('metadata');
+      expect(call.text).toContain("->>'knowledgeSourceId'");
+      expect(call.values).toContain(sourceId);
+    }
+    const fetchedRows = await Promise.all(
+      documentCalls.map(async (call) => (await call.result).rows.length),
+    );
+    expect(fetchedRows).toEqual([201, 10]);
+
+    const rows = await db
+      .select()
+      .from(schema.knowledgeDocuments)
+      .where(eq(schema.knowledgeDocuments.baseId, fixtureBase.baseId));
+    const byId = new Map(rows.map((document) => [document.id, document]));
+    for (const id of currentIds.slice(0, 2)) {
+      expect(byId.get(id)?.status).toBe('ready');
+    }
+    // 208 个本来源缺失文档全部停用，包括第一页与第二页的行。
+    for (const id of currentIds.slice(2)) {
+      expect(byId.get(id)?.status).toBe('disabled');
+    }
+    expect(currentIds[199]).toBeDefined();
+    expect(currentIds[200]).toBeDefined();
+    for (const id of otherIds) {
+      expect(byId.get(id)?.status).toBe('ready');
+    }
+    for (const id of [manualId, missingId, nullValueId, jsonNullId]) {
+      expect(byId.get(id)?.status).toBe('ready');
+    }
+    nonReadyIds.forEach((id, index) => {
+      expect(byId.get(id)?.status).toBe(nonReadyStatuses[index]);
+    });
+
+    const run = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
+      (item) => item.id === syncRunId,
+    );
+    expect(run?.status).toBe('succeeded');
+    expect(run?.stats).toMatchObject({ listed: 2, disabled: 208 });
+
+    const [link] = await db
+      .select({ stale: schema.knowledgeWikiSources.stale })
+      .from(schema.knowledgeWikiSources)
+      .where(
+        and(
+          eq(schema.knowledgeWikiSources.pageId, wikiPage.id),
+          eq(schema.knowledgeWikiSources.documentId, wikiDocumentId),
+        ),
+      );
+    expect(link?.stale).toBe(true);
+    const [pageRow] = await db
+      .select({ status: schema.knowledgeWikiPages.status })
+      .from(schema.knowledgeWikiPages)
+      .where(eq(schema.knowledgeWikiPages.id, wikiPage.id));
+    expect(pageRow?.status).toBe('stale');
   });
 
   it('does not disable untouched documents on a second sync that still lists them', async () => {
