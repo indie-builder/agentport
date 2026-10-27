@@ -160,6 +160,42 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(res.statusCode, res.body).toBe(200);
     return res.json<ApiToolResponse[]>();
   };
+  const createSkillWithResources = async (
+    skillSlug: string,
+    name: string,
+    description: string,
+    resources: Array<{ path: string; content: string }>,
+  ): Promise<Skill> => {
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/skills',
+      headers: { cookie },
+      payload: { slug: skillSlug, name, description },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const skill = created.json<Skill>();
+    for (const resource of resources) {
+      const written = await inject(app, {
+        method: 'PUT',
+        url: `/api/skills/${skill.id}/files/${resource.path}`,
+        headers: { cookie },
+        payload: { content: resource.content },
+      });
+      expect(written.statusCode, written.body).toBe(200);
+    }
+    return skill;
+  };
+  const skillResources = async (
+    skillId: string,
+  ): Promise<Array<{ path: string; content: string }>> => {
+    const res = await inject(app, {
+      method: 'GET',
+      url: `/api/skills/${skillId}/files`,
+      headers: { cookie },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    return res.json<Array<{ path: string; content: string }>>();
+  };
 
   it('exports a ZIP whose only definition is official .claude files', async () => {
     const slug = unique('pkg-zip');
@@ -859,6 +895,115 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       compatibility: 'claude-code',
       metadata: { author: 'existing', version: 1 },
     });
+  });
+
+  it('keeps resource files isolated when reused skills share a path', async () => {
+    const slug = unique('imp-skill-isolated');
+    const firstSlug = unique('imp-skill-isolated-a');
+    const secondSlug = unique('imp-skill-isolated-b');
+    createdAgents.push(slug);
+    createdSkills.push(firstSlug, secondSlug);
+    const first = await createSkillWithResources(firstSlug, 'First', 'shared path', [
+      { path: 'notes.md', content: 'first-original' },
+    ]);
+    const second = await createSkillWithResources(secondSlug, 'Second', 'shared path', [
+      { path: 'notes.md', content: 'second-original' },
+    ]);
+
+    const res = await importZip(
+      packageZip({
+        agent: { slug, name: slug, skillSlugs: [firstSlug, secondSlug] },
+        skills: [
+          {
+            slug: firstSlug,
+            name: 'First',
+            description: 'shared path',
+            body: '',
+            files: [{ path: 'notes.md', content: 'first-original' }],
+          },
+          {
+            // 与 first 的原文件相同：若两个技能共用/交换已有文件桶，警告集合会偏离预期。
+            slug: secondSlug,
+            name: 'Second',
+            description: 'shared path',
+            body: '',
+            files: [{ path: 'notes.md', content: 'first-original' }],
+          },
+        ],
+      }),
+    );
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.createdSkills).toEqual([]);
+    expect(body.warnings.filter((warning) => warning.includes('资源文件与导入包不同'))).toEqual([
+      `已存在同名技能「${secondSlug}」，其资源文件与导入包不同，已保留原文件`,
+    ]);
+    expect(await skillResources(first.id)).toMatchObject([
+      { path: 'notes.md', content: 'first-original' },
+    ]);
+    expect(await skillResources(second.id)).toMatchObject([
+      { path: 'notes.md', content: 'second-original' },
+    ]);
+  });
+
+  it('warns about missing, extra and changed resources in package skill order', async () => {
+    const slug = unique('imp-skill-drift-kinds');
+    const zeroSlug = unique('imp-drift-a-missing');
+    const extraSlug = unique('imp-drift-b-extra');
+    const changedSlug = unique('imp-drift-c-changed');
+    createdAgents.push(slug);
+    createdSkills.push(zeroSlug, extraSlug, changedSlug);
+    const zero = await createSkillWithResources(zeroSlug, 'Zero', 'no resources', []);
+    const extra = await createSkillWithResources(extraSlug, 'Extra', 'extra resource', [
+      { path: 'notes.md', content: 'same' },
+      { path: 'only-existing.md', content: 'old-only' },
+    ]);
+    const changed = await createSkillWithResources(changedSlug, 'Changed', 'changed resource', [
+      { path: 'notes.md', content: 'old' },
+    ]);
+
+    const res = await importZip(
+      packageZip({
+        agent: { slug, name: slug, skillSlugs: [zeroSlug, extraSlug, changedSlug] },
+        skills: [
+          {
+            slug: zeroSlug,
+            name: 'Zero',
+            description: 'no resources',
+            body: '',
+            files: [{ path: 'package-only.md', content: 'package-only' }],
+          },
+          {
+            slug: extraSlug,
+            name: 'Extra',
+            description: 'extra resource',
+            body: '',
+            files: [{ path: 'notes.md', content: 'same' }],
+          },
+          {
+            slug: changedSlug,
+            name: 'Changed',
+            description: 'changed resource',
+            body: '',
+            files: [{ path: 'notes.md', content: 'new' }],
+          },
+        ],
+      }),
+    );
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json<AgentImportResult>();
+    expect(body.createdSkills).toEqual([]);
+    expect(body.warnings.filter((warning) => warning.includes('资源文件与导入包不同'))).toEqual([
+      `已存在同名技能「${zeroSlug}」，其资源文件与导入包不同，已保留原文件`,
+      `已存在同名技能「${extraSlug}」，其资源文件与导入包不同，已保留原文件`,
+      `已存在同名技能「${changedSlug}」，其资源文件与导入包不同，已保留原文件`,
+    ]);
+    expect(await skillResources(zero.id)).toEqual([]);
+    expect(await skillResources(extra.id)).toMatchObject([
+      { path: 'notes.md', content: 'same' },
+      { path: 'only-existing.md', content: 'old-only' },
+    ]);
+    expect(await skillResources(changed.id)).toMatchObject([{ path: 'notes.md', content: 'old' }]);
   });
 
   it('rejects duplicate server names without partial writes', async () => {
