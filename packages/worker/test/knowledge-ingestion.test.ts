@@ -365,8 +365,11 @@ describe('runIngest', () => {
         get(target, prop) {
           if (prop === 'insert') {
             return (table: Parameters<typeof target.insert>[0]) => {
-              inserted = true;
-              signalForCall.abort();
+              // 只拦 chunk 插入：createVersion 现在也走 db.insert，拦全部会在创建版本时就 abort。
+              if (table === schema.knowledgeChunks) {
+                inserted = true;
+                signalForCall.abort();
+              }
               return target.insert(table);
             };
           }
@@ -381,6 +384,11 @@ describe('runIngest', () => {
     expect(signalForCall.signal.aborted).toBe(true);
     expect(inserted).toBe(true);
     // abort 发生在 chunk 插入之后：守卫之前就已观察，绝不能再切版。
+    const versions = await repo.knowledge.listVersions(db, first.documentId);
+    const newVersion = versions.items.find((version) => version.id !== oldVersionId);
+    expect(newVersion).toBeDefined();
+    const newChunks = await repo.knowledge.listChunks(db, newVersion?.id ?? '');
+    expect(newChunks.items.map((chunk) => chunk.content)).toEqual(['# 新标题', '新的正文。']);
     const after = await repo.knowledge.getDocument(db, first.documentId);
     expect(after?.currentVersionId).toBe(oldVersionId);
     expect(after?.status).toBe('ready');
