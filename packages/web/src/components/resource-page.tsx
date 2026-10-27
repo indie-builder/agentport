@@ -59,9 +59,19 @@ export function ResourcePage({
       <PageHeader title={label} className="sr-only" />
       <Tabs value={section} className="flex-col gap-5">
         <div className="flex flex-wrap items-center justify-between gap-4 pt-3">
-          <TabsList variant="line" aria-label="资源类型" className="gap-4">
+          <TabsList
+            variant="line"
+            aria-label="资源类型"
+            className="max-w-full flex-wrap justify-start gap-x-4 gap-y-2 group-data-[orientation=horizontal]/tabs:h-auto min-h-8"
+          >
             {sections.map(({ id, to, label: title, icon: Icon }) => (
-              <TabsTrigger key={id} value={id} nativeButton={false} render={<Link to={to} />}>
+              <TabsTrigger
+                key={id}
+                value={id}
+                nativeButton={false}
+                render={<Link to={to} />}
+                className="flex-none h-[25px]"
+              >
                 <Icon data-icon="inline-start" />
                 {title}
               </TabsTrigger>
