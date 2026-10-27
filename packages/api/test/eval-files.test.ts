@@ -1,6 +1,6 @@
 import type { Agent, EvalDataset, EvalDatasetImportResult } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   cleanup,
   createAgent,
@@ -246,6 +246,104 @@ describe.skipIf(!ready)('eval dataset files', () => {
     expect(byName.get('dup')?.prompt).toBe('original');
     expect(byName.get('fresh')?.prompt).toBe('first');
     expect(await countCases(agent.id)).toBe(2);
+  });
+
+  it('checks only candidate names when importing into a large dataset', async () => {
+    const agent = await newAgent();
+    const other = await newAgent();
+    await seedCases(agent.id, 1000, 'original');
+
+    const candidates = [
+      { name: 'seeded-2', prompt: 'overwrite-2', expectation: 'new' },
+      { name: 'brand-new', prompt: 'first', expectation: '' },
+      { name: 'seeded-1', prompt: 'overwrite-1', expectation: 'new' },
+      { name: 'brand-new', prompt: 'second', expectation: '' },
+    ];
+
+    type TxClient = { query: (...args: unknown[]) => unknown };
+    const captured: Array<{ sql: string; params: unknown[]; rows: number }> = [];
+    // 池会复用 client，必须按 client 记录原始 query 才能在 finally 还原，避免污染后续请求。
+    const wrappedClients: Array<{ client: TxClient; originalQuery: TxClient['query'] }> = [];
+    const originalConnect = app.pool.connect.bind(app.pool) as (
+      callback?: (...args: unknown[]) => void,
+    ) => unknown;
+    const connectSpy = vi.spyOn(app.pool, 'connect').mockImplementation(((
+      callback?: (...args: unknown[]) => void,
+    ) => {
+      // Pool.query 走回调式 connect；只包裹事务直接取到的 client。
+      if (callback) return originalConnect(callback);
+      return (originalConnect() as Promise<TxClient>).then((client) => {
+        if (wrappedClients.some((entry) => entry.client === client)) return client;
+        const originalQuery = client.query;
+        wrappedClients.push({ client, originalQuery });
+        client.query = (...args: unknown[]) => {
+          const result = originalQuery.apply(client, args);
+          // Drizzle 带字段的查询把 SQL 放进 QueryConfig 对象，而不是第一个字符串参数。
+          const first = args[0] as { text?: unknown } | undefined;
+          const sql =
+            typeof first === 'string' ? first : typeof first?.text === 'string' ? first.text : '';
+          if (!/^select "name" from "eval_cases"/i.test(sql)) return result;
+          // 透传真实查询结果，只读取返回行数作为过滤生效的证据。
+          return Promise.resolve(result).then((res) => {
+            captured.push({
+              sql,
+              params: Array.isArray(args[1]) ? args[1] : [],
+              rows: (res as { rows: unknown[] }).rows.length,
+            });
+            return res;
+          });
+        };
+        return client;
+      });
+    }) as never);
+
+    let res: Awaited<ReturnType<typeof importCases>>;
+    try {
+      res = await importCases(agent.id, dataset(candidates));
+    } finally {
+      for (const { client, originalQuery } of wrappedClients) client.query = originalQuery;
+      connectSpy.mockRestore();
+    }
+
+    for (const { client, originalQuery } of wrappedClients) {
+      expect(client.query).toBe(originalQuery);
+    }
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json<EvalDatasetImportResult>()).toEqual({
+      imported: 1,
+      skipped: 3,
+      warnings: [
+        '用例「seeded-2」已存在，已跳过',
+        '用例「seeded-1」已存在，已跳过',
+        '用例「brand-new」已存在，已跳过',
+      ],
+    });
+
+    expect(captured).toHaveLength(1);
+    const [nameQuery] = captured;
+    expect(nameQuery?.sql).toMatch(/"name"\s+in\s+\(\$/i);
+    expect(nameQuery?.params.length).toBeLessThan(10);
+    expect(nameQuery?.rows).toBe(2);
+
+    const byName = new Map((await listCases(agent.id)).map((row) => [row.name, row]));
+    expect(byName.get('seeded-1')).toMatchObject({ prompt: 'original', expectation: '' });
+    expect(byName.get('seeded-2')).toMatchObject({ prompt: 'original', expectation: '' });
+    expect(byName.get('brand-new')).toMatchObject({ prompt: 'first', expectation: '' });
+    expect(await countCases(agent.id)).toBe(1001);
+
+    const otherRes = await importCases(
+      other.id,
+      dataset([{ name: 'seeded-1', prompt: 'other', expectation: '' }]),
+    );
+    expect(otherRes.statusCode).toBe(201);
+    expect(otherRes.json<EvalDatasetImportResult>()).toEqual({
+      imported: 1,
+      skipped: 0,
+      warnings: [],
+    });
+    // 还原证据：后续请求复用池 client 时不能再写入旧的 captured 数组。
+    expect(captured).toHaveLength(1);
   });
 
   it('serializes concurrent imports of the same file', async () => {

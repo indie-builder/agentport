@@ -12,7 +12,7 @@ import {
   idParams,
   RUN_QUEUE_MAX_WAITING,
 } from '@agentport/shared';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
@@ -191,7 +191,15 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
         const existing = await tx
           .select({ name: schema.evalCases.name })
           .from(schema.evalCases)
-          .where(eq(schema.evalCases.agentId, agentId));
+          .where(
+            and(
+              eq(schema.evalCases.agentId, agentId),
+              inArray(
+                schema.evalCases.name,
+                dataset.cases.map((evalCase) => evalCase.name),
+              ),
+            ),
+          );
         const taken = new Set(existing.map((row) => row.name));
 
         const rows: Array<typeof schema.evalCases.$inferInsert> = [];
