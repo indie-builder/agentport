@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { repo } from '@agentport/db';
 import type { FastifyInstance } from 'fastify';
 import { unzipSync, zipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type KnowledgeDeps, runReindex } from '../../worker/src/knowledge/ingestion.js';
 import { createParsingAdapter } from '../../worker/src/knowledge/parsing-adapter.js';
 import { buildApp } from '../src/app.js';
@@ -245,20 +245,69 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
       expect(baseRes.statusCode, baseRes.body).toBe(201);
 
-      // 保持能力组合合法，确保命中「已被引用不可原地更换」而不是输入校验。
-      for (const payload of [
-        { model: 'other-model', imageInputEnabled: false },
-        { embeddingProtocol: 'openai', imageInputEnabled: false },
-        { imageInputEnabled: false },
-      ]) {
-        const res = await inject(app, {
-          method: 'PATCH',
-          url: `/api/knowledge/model-profiles/${cohereId}`,
-          headers: { cookie },
-          payload,
-        });
-        expect(res.statusCode, `${JSON.stringify(payload)} ${res.body}`).toBe(409);
+      // 真实 pool.query 正对照：引用判断必须发 EXISTS 布尔查询，而不是数完再比较。
+      const statements: string[] = [];
+      const realQuery = app.pool.query.bind(app.pool);
+      const querySpy = vi.spyOn(app.pool, 'query').mockImplementation(((
+        sql: string,
+        params?: unknown[],
+      ) => {
+        statements.push(sql);
+        return Reflect.apply(realQuery, app.pool, params === undefined ? [sql] : [sql, params]);
+      }) as never);
+      try {
+        // 保持能力组合合法，确保命中「已被引用不可原地更换」而不是输入校验。
+        for (const payload of [
+          { model: 'other-model', imageInputEnabled: false },
+          { embeddingProtocol: 'openai', imageInputEnabled: false },
+          { imageInputEnabled: false },
+        ]) {
+          const res = await inject(app, {
+            method: 'PATCH',
+            url: `/api/knowledge/model-profiles/${cohereId}`,
+            headers: { cookie },
+            payload,
+          });
+          expect(res.statusCode, `${JSON.stringify(payload)} ${res.body}`).toBe(409);
+        }
+      } finally {
+        querySpy.mockRestore();
       }
+      const referenceQueries = statements.filter(
+        (sql) => /exists\s*\(/i.test(sql) && sql.includes('knowledge_document_versions'),
+      );
+      expect(referenceQueries).toHaveLength(3);
+      for (const sql of referenceQueries) {
+        expect(sql).not.toMatch(/count\s*\(/i);
+        expect(sql).toMatch(
+          /select\s+exists\s*\(\s*select 1 from knowledge_bases[\s\S]*union all[\s\S]*select 1 from knowledge_document_versions/is,
+        );
+      }
+
+      // 409 不能留下部分配置。
+      const stored = await app.pool.query<{
+        model: string;
+        embedding_protocol: string;
+        image_input_enabled: boolean;
+      }>(
+        'select model, embedding_protocol, image_input_enabled from knowledge_model_profiles where id = $1',
+        [cohereId],
+      );
+      expect(stored.rows[0]).toEqual({
+        model: 'embed-v4.0',
+        embedding_protocol: 'cohere_v2',
+        image_input_enabled: true,
+      });
+
+      // 能力校验先于引用判断：非法组合仍是 400，不因被引用而改判 409。
+      const invalid = await inject(app, {
+        method: 'PATCH',
+        url: `/api/knowledge/model-profiles/${cohereId}`,
+        headers: { cookie },
+        payload: { embeddingProtocol: 'openai', imageInputEnabled: true },
+      });
+      expect(invalid.statusCode, invalid.body).toBe(400);
+
       const rename = await inject(app, {
         method: 'PATCH',
         url: `/api/knowledge/model-profiles/${cohereId}`,
@@ -266,6 +315,62 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         payload: { name: unique('renamed-emb') },
       });
       expect(rename.statusCode, rename.body).toBe(200);
+    });
+
+    it('allows capability changes and deletion while the profile is unreferenced', async () => {
+      const profileId = await imageProfile();
+      const changed = await inject(app, {
+        method: 'PATCH',
+        url: `/api/knowledge/model-profiles/${profileId}`,
+        headers: { cookie },
+        payload: { model: 'other-model', imageInputEnabled: false },
+      });
+      expect(changed.statusCode, changed.body).toBe(200);
+      expect(changed.json()).toMatchObject({ model: 'other-model', imageInputEnabled: false });
+
+      const missing = await inject(app, {
+        method: 'PATCH',
+        url: '/api/knowledge/model-profiles/kmp_missing',
+        headers: { cookie },
+        payload: { name: unique('missing') },
+      });
+      expect(missing.statusCode, missing.body).toBe(404);
+
+      const deleted = await inject(app, {
+        method: 'DELETE',
+        url: `/api/knowledge/model-profiles/${profileId}`,
+        headers: { cookie },
+      });
+      expect(deleted.statusCode, deleted.body).toBe(204);
+    });
+
+    it('rejects deleting a profile still referenced by a base', async () => {
+      const profileId = await textProfile();
+      const base = await createBase({
+        slug: unique('mm-ref'),
+        name: '引用库',
+        embeddingProfileId: profileId,
+      });
+      expect(base.statusCode, base.body).toBe(201);
+      const baseId = base.json<{ id: string }>().id;
+
+      const deleted = await inject(app, {
+        method: 'DELETE',
+        url: `/api/knowledge/model-profiles/${profileId}`,
+        headers: { cookie },
+      });
+      expect(deleted.statusCode, deleted.body).toBe(409);
+
+      const profile = await app.pool.query<{ count: string }>(
+        'select count(*)::text as count from knowledge_model_profiles where id = $1',
+        [profileId],
+      );
+      expect(profile.rows[0]?.count).toBe('1');
+      const stillReferenced = await app.pool.query<{ count: string }>(
+        'select count(*)::text as count from knowledge_bases where id = $1 and embedding_profile_id = $2',
+        [baseId, profileId],
+      );
+      expect(stillReferenced.rows[0]?.count).toBe('1');
     });
 
     it('rejects switching to a rerank or disabled profile on both embedding and rerank slots', async () => {
@@ -689,6 +794,59 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         { secretKey: app.config.APP_SECRET_KEY },
       );
       expect(result.hits).toHaveLength(0);
+    });
+
+    it('keeps rejecting capability changes while only historical versions reference the profile', async () => {
+      const first = await imageProfile();
+      const { baseId } = await seedImageLibrary(first);
+      const second = await textProfile();
+      const switched = await inject(app, {
+        method: 'PATCH',
+        url: `/api/knowledge/bases/${baseId}`,
+        headers: { cookie },
+        payload: {
+          embeddingProfileId: second,
+          settings: { imageProcessing: { imageVectorEnabled: false } },
+        },
+      });
+      expect(switched.statusCode, switched.body).toBe(200);
+
+      // 切库后没有 base 再引用 first，但历史版本仍保留引用。
+      const bases = await app.pool.query<{ count: string }>(
+        'select count(*)::text as count from knowledge_bases where embedding_profile_id = $1',
+        [first],
+      );
+      expect(bases.rows[0]?.count).toBe('0');
+      const versions = await app.pool.query<{ count: string }>(
+        'select count(*)::text as count from knowledge_document_versions where embedding_profile_id = $1',
+        [first],
+      );
+      expect(Number(versions.rows[0]?.count)).toBeGreaterThan(0);
+
+      const changed = await inject(app, {
+        method: 'PATCH',
+        url: `/api/knowledge/model-profiles/${first}`,
+        headers: { cookie },
+        payload: { model: 'other-model', imageInputEnabled: false },
+      });
+      expect(changed.statusCode, changed.body).toBe(409);
+
+      const deleted = await inject(app, {
+        method: 'DELETE',
+        url: `/api/knowledge/model-profiles/${first}`,
+        headers: { cookie },
+      });
+      expect(deleted.statusCode, deleted.body).toBe(409);
+      const profile = await app.pool.query<{ count: string }>(
+        'select count(*)::text as count from knowledge_model_profiles where id = $1',
+        [first],
+      );
+      expect(profile.rows[0]?.count).toBe('1');
+      const versionsAfter = await app.pool.query<{ count: string }>(
+        'select count(*)::text as count from knowledge_document_versions where embedding_profile_id = $1',
+        [first],
+      );
+      expect(Number(versionsAfter.rows[0]?.count)).toBeGreaterThan(0);
     });
   });
 
