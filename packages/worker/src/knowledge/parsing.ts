@@ -179,6 +179,8 @@ function splitLines(markdown: string): { lines: string[]; offsets: number[] } {
 /**
  * Line-based Markdown splitter: fenced code and tables stay whole, headings only set the
  * breadcrumb, blank lines separate paragraphs. Not full CommonMark.
+ *
+ * 没有正文承接的标题（连续同级标题、文末标题）落成自己的内容块，OCR 纯标题页才不会被丢掉。
  */
 export function markdownBlocks(
   markdown: string,
@@ -187,6 +189,14 @@ export function markdownBlocks(
   const { lines, offsets } = splitLines(markdown);
   const blocks: ParsedBlock[] = [];
   const headings: string[] = [];
+  // 标题先挂起，等正文消费成面包屑；被同级/上级标题覆盖或文末仍挂起时转成内容块。
+  let pending: Array<{
+    level: number;
+    title: string;
+    line: number;
+    startOffset: number;
+    endOffset: number;
+  }> = [];
   let paragraph: string[] = [];
   let paragraphIndex = 0;
   let paragraphEnd = 0;
@@ -216,11 +226,37 @@ export function markdownBlocks(
     headings[level - 1] = title;
   };
 
+  /** 正文承接挂起标题：它们只是面包屑，不进内容。 */
+  const commitPending = () => {
+    for (const entry of pending) setHeading(entry.level, entry.title);
+    pending = [];
+  };
+
+  // 被覆盖的子标题之前，尚无正文的祖先也按阅读顺序保留下来。
+  const flushPending = (level: number) => {
+    if (!pending.some((entry) => entry.level >= level)) return;
+    for (const entry of pending) {
+      setHeading(entry.level, entry.title);
+      blocks.push({
+        content: entry.title,
+        heading: emptyHeading(headings),
+        locator: locator(entry.line + 1, entry.startOffset, entry.endOffset),
+      });
+    }
+    pending = [];
+  };
+
+  const pushHeading = (level: number, title: string, line: number, startOffset: number) => {
+    flushPending(level);
+    pending.push({ level, title, line, startOffset, endOffset: startOffset + title.length });
+  };
+
   let index = 0;
   while (index < lines.length) {
     const line = lines[index] ?? '';
     const fence = FENCE.exec(line);
     if (fence) {
+      commitPending();
       flush();
       const marker = fence[1] ?? '```';
       const closer = fenceCloser(marker);
@@ -237,6 +273,7 @@ export function markdownBlocks(
     }
     // A GFM table starts with a pipe row followed by a delimiter row; outer pipes are optional.
     if (line.includes('|') && isTableDelimiterLine(lines[index + 1] ?? '')) {
+      commitPending();
       flush();
       const start = index;
       index += 1;
@@ -255,14 +292,26 @@ export function markdownBlocks(
     const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
     if (heading) {
       flush();
-      setHeading((heading[1] ?? '#').length, (heading[2] ?? '').trim());
+      const title = (heading[2] ?? '').trim();
+      const titleAt = line.indexOf(title);
+      pushHeading(
+        (heading[1] ?? '#').length,
+        title,
+        index,
+        titleAt === -1 ? contentStart(index) : (offsets[index] ?? 0) + titleAt,
+      );
       index += 1;
       continue;
     }
     // Minimal setext support: only a one-line paragraph followed by its underline.
     const setext = SETEXT.exec(line);
     if (setext && paragraph.length === 1) {
-      setHeading(setext[1]?.startsWith('=') ? 1 : 2, (paragraph[0] ?? '').trim());
+      pushHeading(
+        setext[1]?.startsWith('=') ? 1 : 2,
+        (paragraph[0] ?? '').trim(),
+        paragraphIndex,
+        contentStart(paragraphIndex),
+      );
       paragraph = [];
       index += 1;
       continue;
@@ -272,11 +321,13 @@ export function markdownBlocks(
       index += 1;
       continue;
     }
+    if (paragraph.length > 0 || !SETEXT.test(lines[index + 1] ?? '')) commitPending();
     if (paragraph.length === 0) paragraphIndex = index;
     paragraphEnd = index;
     paragraph.push(line);
     index += 1;
   }
+  flushPending(1);
   flush();
   return blocks;
 }
@@ -608,6 +659,15 @@ function doclingBlocks(json: DoclingJson, markdown: string): ParsedBlock[] {
   const headings: string[] = [];
   const seenTexts = new Set<string>();
   const seenBlocks = new Set<string>();
+  let pending: Array<{ level: number; block: ParsedBlock }> = [];
+  const flushPending = (level: number) => {
+    if (!pending.some((entry) => entry.level >= level)) return;
+    for (const { block } of pending) {
+      blocks.push(block);
+      seenTexts.add(normalizeText(block.content));
+    }
+    pending = [];
+  };
 
   for (const ref of orderedRefs(json)) {
     const textRef = /^#\/texts\/(\d+)$/.exec(ref);
@@ -616,14 +676,19 @@ function doclingBlocks(json: DoclingJson, markdown: string): ParsedBlock[] {
       if (!item) continue;
       const label = item.label ?? '';
       const value = (item.text ?? '').trim();
-      if (label === 'page_header' || label === 'page_footer') continue;
+      if (label === 'page_header' || label === 'page_footer' || value === '') continue;
       if (label === 'section_header' || label === 'title') {
         const level = label === 'title' ? 1 : Math.max(1, Math.min(6, item.level ?? 1));
+        flushPending(level);
         headings.length = Math.min(headings.length, level - 1);
         headings[level - 1] = value;
+        pending.push({
+          level,
+          block: { content: value, heading: emptyHeading(headings), locator: doclingLocator(item) },
+        });
         continue;
       }
-      if (value === '') continue;
+      pending = [];
       seenTexts.add(normalizeText(value));
       const content =
         label === 'code'
@@ -644,6 +709,7 @@ function doclingBlocks(json: DoclingJson, markdown: string): ParsedBlock[] {
       if (!table) continue;
       const content = tableMarkdownFromCells(table);
       if (content === '') continue;
+      pending = [];
       for (const cell of table.data?.table_cells ?? []) seenTexts.add(normalizeText(cell.text));
       seenBlocks.add(fingerprint(content));
       blocks.push({
@@ -653,6 +719,8 @@ function doclingBlocks(json: DoclingJson, markdown: string): ParsedBlock[] {
       });
     }
   }
+
+  flushPending(1);
 
   // Items the JSON body never referenced still belong in the output; nothing is dropped silently.
   // JSON wins over the md rendering of the same table/code (it carries page provenance).

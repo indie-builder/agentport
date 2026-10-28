@@ -357,7 +357,7 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 
 知识库已作为与专家/技能/连接器/插件并列的资源页签接入：`/knowledge`列表含新建、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId`含文档/检索/Wiki/来源/任务五个面板。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘；未完成真实企业与真实模型服务验收，当前不能据此宣称生产可用。
 
-**真实闭环仍未完整验收**：上传 → 真实 worker 消费 → Docling/OCR → 真实 embedding/rerank → 检索、真实飞书/GitLab 凭证、真实 Wiki 模型生成都还没有跑过真模型或真实企业服务；现有运行用的是本地协议夹具（确定性向量与自建 feed/article 服务），只能证明协议形状与任务生命周期，**不代表真实企业来源已接通**。Docling 的 compose profile 也从未实际拉起。已有的运行记录、发现的问题与未验证项见 [任务记录](tasks/knowledge-runtime-verification.md) 与 [审查整改](tasks/knowledge-review-findings.md)，不能把模块测试通过当成端到端通过。
+**真实闭环仍未完整验收**：上传 → 真实 embedding/rerank → 检索、真实飞书/GitLab 凭证、真实 Wiki 模型生成仍没有跑过真模型或真实企业服务；现有 embedding/feed 运行用的是本地协议夹具（确定性向量与自建 feed/article 服务），只能证明协议形状与任务生命周期，**不代表真实企业来源已接通**。Docling 的 PDF/OCR 适配已在独立容器用固定镜像实测真实 PDF（文本、图片、表格、OCR 开关与 failure 返回），但 compose profile 从未实际拉起，Office 格式、完整真实 embedding 与企业链仍未验；仅标题 OCR 文本在 chunk 丢失的缺陷已在本分支修复并验证通过（见 [任务记录](tasks/real-runtime-acceptance.md)），尚未合入 main。已有的运行记录、发现的问题与未验证项见 [任务记录](tasks/knowledge-runtime-verification.md) 与 [审查整改](tasks/knowledge-review-findings.md)，不能把模块测试通过当成端到端通过。
 
 ## 7. 关键设计决策
 

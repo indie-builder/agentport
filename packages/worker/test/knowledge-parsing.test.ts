@@ -74,7 +74,9 @@ beforeAll(async () => {
                                           ? 'docling-crlf-lines.json'
                                           : route === '/same-paragraph'
                                             ? 'docling-same-paragraph.json'
-                                            : 'docling-success.json',
+                                            : route === '/heading-only'
+                                              ? 'docling-heading-only.json'
+                                              : 'docling-success.json',
       );
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(body);
@@ -321,6 +323,20 @@ describe('markdown line-based blocks', () => {
     expect(parsed.blocks.map((block) => [block.heading, block.content])).toEqual([
       ['标题', '正文。'],
     ]);
+  });
+
+  it.each([
+    ['# Parent\n## First\n## Second\n正文', ['Parent', 'First', '正文']],
+    ['# Parent\nChild\n---\n## Second\n正文', ['Parent', 'Child', '正文']],
+    ['# Parent\nChild\n---\n正文', ['正文']],
+    ['# Parent\n## Child\n```ts\nconst a = 1;\n```', ['```ts\nconst a = 1;\n```']],
+    ['# Parent\n## Child\nA | B\n--- | ---\n1 | 2', ['A | B\n--- | ---\n1 | 2']],
+  ])('preserves unconsumed ancestors in reading order for %s', async (markdown, contents) => {
+    const parsed = await parseMarkdown(markdown);
+    expect(parsed.blocks.map((block) => block.content)).toEqual(contents);
+    expect(parsed.blocks.at(-1)?.heading).toBe(
+      markdown.includes('Second') ? 'Parent > Second' : 'Parent > Child',
+    );
   });
 
   it('keeps GFM tables without outer pipes whole', async () => {
@@ -834,6 +850,57 @@ describe('parseDocument Docling', () => {
     ]);
     expect(parsed.markdown.slice(0, 5)).toBe('Alpha');
     expect(parsed.markdown.slice(6, 10)).toBe('Beta');
+  });
+
+  it('keeps heading-only Docling items as content and never repeats the breadcrumb in body', async () => {
+    const parsed = await parseDocument({
+      bytes: new TextEncoder().encode('fake'),
+      filename: 'headings.pdf',
+      mimeType: 'application/pdf',
+      parserUrl: `${parserUrl}/heading-only`,
+    });
+
+    // Parent/First 一直没等到正文：保留为内容块；Second 由正文承接，只做面包屑且不重复。
+    expect(parsed.blocks.map((block) => [block.content, block.locator.page])).toEqual([
+      ['Parent', 1],
+      ['First', 2],
+      ['INVOICE NUMBER4207', 4],
+      ['EOF TITLE', 4],
+      ['HEAD ONE', 4],
+      ['HEAD TWO', 4],
+      ['HEAD THREE', 4],
+    ]);
+    expect(parsed.blocks.find((block) => block.content === 'INVOICE NUMBER4207')?.heading).toBe(
+      'Parent > Second',
+    );
+    const range = (text: string) => ({
+      startOffset: parsed.markdown.indexOf(text),
+      endOffset: parsed.markdown.indexOf(text) + text.length,
+    });
+    expect(parsed.pageMap).toEqual([
+      { page: 1, ...range('Parent') },
+      { page: 2, ...range('First') },
+      { page: 4, ...range('INVOICE NUMBER4207') },
+      { page: 4, ...range('EOF TITLE') },
+      { page: 4, ...range('HEAD ONE') },
+      { page: 4, ...range('HEAD TWO') },
+      { page: 4, ...range('HEAD THREE') },
+    ]);
+
+    const adapter = createParsingAdapter({ parserUrl: `${parserUrl}/heading-only` });
+    const viaAdapter = await adapter.parse({
+      filename: 'headings.pdf',
+      mimeType: 'application/pdf',
+      data: Buffer.from('%PDF-1.7'),
+    });
+    const chunks = adapter.chunkMarkdown(viaAdapter.markdown, viaAdapter.pageMap, {
+      chunkTokens: 1200,
+      overlap: 0,
+    });
+    expect(chunks.find((chunk) => chunk.content.includes('INVOICE NUMBER4207'))).toMatchObject({
+      pageFrom: 4,
+    });
+    expect(chunks.map((chunk) => chunk.content).join('\n')).toContain('INVOICE NUMBER4207');
   });
 
   it('reports upstream HTTP failures with status', async () => {
