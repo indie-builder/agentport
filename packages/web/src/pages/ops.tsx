@@ -2,7 +2,7 @@ import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentpo
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CalendarClock, CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
@@ -27,7 +27,7 @@ import { Switch } from '../components/ui/switch.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { fieldErrors } from '../lib/form.js';
+import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import {
   formatCost,
   formatDateTime,
@@ -75,6 +75,9 @@ export function SchedulesPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [deleting, setDeleting] = useState<Schedule | null>(null);
+  const createButtonRef = useRef<HTMLButtonElement>(null);
+  // 删除成功标记：finalFocus 在弹层卸载时才读取，用 ref 保证读到的是本次结果。
+  const deletedRef = useRef(false);
   const invalidate = (): void => {
     void client.invalidateQueries({ queryKey: ['schedules'] });
   };
@@ -101,7 +104,7 @@ export function SchedulesPage() {
       <PageHeader
         title="定时任务"
         actions={
-          <Button onClick={() => setCreating(true)}>
+          <Button ref={createButtonRef} onClick={() => setCreating(true)}>
             <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务
           </Button>
         }
@@ -217,7 +220,10 @@ export function SchedulesPage() {
                         variant="ghost"
                         size="icon-sm"
                         aria-label={`删除 ${schedule.name}`}
-                        onClick={() => setDeleting(schedule)}
+                        onClick={() => {
+                          deletedRef.current = false;
+                          setDeleting(schedule);
+                        }}
                       >
                         <Trash2 />
                       </Button>
@@ -246,8 +252,11 @@ export function SchedulesPage() {
           title="删除定时任务"
           description={`将删除「${deleting.name}」，之后不再按计划自动运行。`}
           onClose={() => setDeleting(null)}
+          // 被删行会随刷新消失；只有删除成功才把焦点交给页头创建按钮，失败或取消走默认返回触发控件。
+          finalFocus={() => (deletedRef.current ? createButtonRef.current : null)}
           onConfirm={async () => {
             await remove.mutateAsync(deleting.id);
+            deletedRef.current = true;
           }}
         />
       ) : null}
@@ -287,7 +296,7 @@ function ScheduleDialog({
     mutationFn: (input: ScheduleInput) => api.createSchedule(input),
     onSuccess: () => {
       toastSuccess('定时任务已创建');
-      onClose();
+      finish();
     },
     onError: toastError,
     onSettled: invalidate,
@@ -297,17 +306,28 @@ function ScheduleDialog({
       api.updateSchedule(schedule?.id ?? '', input),
     onSuccess: () => {
       toastSuccess('定时任务已更新');
-      onClose();
+      finish();
     },
     onError: toastError,
     onSettled: invalidate,
   });
   const pending = create.isPending || update.isPending;
+  const blocker = useFormBlocker(dirty, pending);
+  // 成功回调在拦截发生前创建，读不到后来的 blocker：用 ref 拿最新一次。
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 关闭会卸载弹层并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
+  const finish = (): void => {
+    blockerRef.current.reset?.();
+    onClose();
+  };
   // Esc、遮罩、取消和关闭按钮走同一路径：有未保存输入时先确认。
   const close = (): void => {
     if (pending) return;
     if (dirty) setConfirmDiscard(true);
-    else onClose();
+    else finish();
   };
 
   const agentOptions = [
@@ -489,9 +509,22 @@ function ScheduleDialog({
           title="放弃未保存的更改？"
           description="关闭后这次填写的定时任务内容会丢失。"
           confirmLabel="放弃并关闭"
+          confirmDisabled={pending}
           onConfirm={async () => {
-            if (!pending) onClose();
+            if (!pending) finish();
           }}
+        />
+        {/* 路由离开/刷新与弹层关闭共用同一确认文案；取消保留草稿，确认才真正离开。 */}
+        <ConfirmDialog
+          open={blocker.status === 'blocked'}
+          onClose={() => blocker.reset?.()}
+          title="放弃未保存的更改？"
+          description={
+            pending ? '正在保存，请等待请求完成。' : '离开后这次填写的定时任务内容会丢失。'
+          }
+          confirmLabel="放弃并离开"
+          confirmDisabled={pending}
+          onConfirm={async () => blocker.proceed()}
         />
       </DialogShell>
     </Dialog>
