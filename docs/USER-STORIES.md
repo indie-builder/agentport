@@ -57,7 +57,8 @@
 **作为** 管理员，**我想** 定义名称、模型、系统提示词，**以便** 建立人格与行为边界。
 
 验收：
-- slug 唯一，创建后不可改（目录名）。
+- slug 唯一，创建后不可改（目录名）；界面以名称为首个必填项，标识可留空自动生成，冲突保留草稿并提示。
+- 创建后详情页有「开始对话」，链接直接选中该专家。
 - model 可为任意模型 ID；提供常用建议值。
 - 系统提示词写入 `CLAUDE.md`。
 
@@ -82,7 +83,7 @@
 **作为** 管理员，**我想** 控制智能体能做什么、花多少、跑多久。
 
 验收：
-- 可配置 `permissionMode`、`allowedTools`、`disallowedTools`。
+- 可配置 `permissionMode`、`allowedTools`、`disallowedTools`。权限页面明确 SDK `allowedTools` 预批准与工具自身 `requiresApproval` 的服务端审批是两层约束；`default` 不提供 SDK 层交互审批宿主，不意味着跳过工具自身审批。
 - `permissionMode` 支持 `dontAsk`（默认）、`plan`、`default` 与 `acceptEdits`，直接透传 Agent SDK；`auto` 依赖模型分类器，平台无法审计其决定，保存时返回 400。权限模式不会解除平台固定禁用的内置工具。
 - 可配置 `maxTurns`、`maxBudgetUsd`、`timeoutMs`。
 - 可配置 `effort` 与 `maxThinkingTokens`（可选）。
@@ -111,6 +112,8 @@
 - 返回 202 与 `runId`、`conversationId`。
 - 智能体不存在返回 404；停用返回 409 `AGENT_DISABLED`。
 - 触发限流时返回 429。
+- 欢迎态无需打开会话历史即可看到当前专家并切换；搜索支持名称、角色和标识。
+- 未发送草稿按会话保存在当前标签页，刷新恢复，切换会话不串稿；发送请求未接受前仍保留原稿，接受后不清除等待期间新写的草稿。
 
 ### US-3.2 流式输出
 **作为** 操作员，**我想** 实时看到文本与工具调用，**以便** 知道它在做什么。

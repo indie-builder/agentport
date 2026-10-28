@@ -188,8 +188,8 @@ async function type(text: string) {
 
 async function openWorkspace() {
   // 深链选中成果时面板已展开；只在仍是收起态时点开关。
-  if (host.querySelector('button[aria-label="隐藏工作区"]')) return;
-  const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示工作区"]');
+  if (host.querySelector('button[aria-label="隐藏会话成果"]')) return;
+  const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="打开会话成果"]');
   if (!toggle) throw new Error('Missing workspace toggle');
   await act(async () => toggle.click());
   await flush();
@@ -334,7 +334,7 @@ describe('output preview and versions', () => {
       expect.any(AbortSignal),
     );
     // 深链直接展开工作区，选中版本来自 URL 而不是列表最新一版。
-    expect(host.querySelector('button[aria-label="隐藏工作区"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="隐藏会话成果"]')).not.toBeNull();
     const pre = workspace().querySelector('pre');
     expect(pre?.textContent).toContain('# Older report');
 
@@ -614,7 +614,7 @@ describe('feedback with an output version', () => {
       expect(document.activeElement).toBe(message());
       expect(message().value).toBe('keep this draft');
       expect(useChatStore.getState().outputRef).toEqual({ runId: 'run-2', path: 'report.md' });
-      expect(host.querySelector('button[aria-label="隐藏工作区"]') !== null).toBe(width >= 1280);
+      expect(host.querySelector('button[aria-label="隐藏会话成果"]') !== null).toBe(width >= 1280);
       expect(host.querySelector('aside[aria-label="会话成果"]') !== null).toBe(width >= 1280);
     },
   );
@@ -638,7 +638,7 @@ describe('feedback with an output version', () => {
     await act(async () => close.click());
     await flush();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(document.activeElement).toBe(host.querySelector('button[aria-label="显示工作区"]'));
+    expect(document.activeElement).toBe(host.querySelector('button[aria-label="打开会话成果"]'));
   });
 
   it('keeps the draft, sends the output reference and clears the chip after acceptance', async () => {

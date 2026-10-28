@@ -76,7 +76,7 @@ import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import {
   Card,
   CardAction,
@@ -299,9 +299,16 @@ const agentFormSchema = agentInputSchema
     }
   });
 
-/** 新建时名称可以留空，提交时回退到 slug；编辑时名称必须非空。 */
 const agentCreateFormSchema = agentFormSchema.safeExtend({
-  name: z.string().max(128, '最多 128 个字符，请精简后再保存'),
+  name: z
+    .string()
+    .trim()
+    .min(1, '不能为空，请填写后再保存')
+    .max(128, '最多 128 个字符，请精简后再保存'),
+  slug: z
+    .string()
+    .trim()
+    .pipe(z.union([z.literal(''), agentInputSchema.shape.slug])),
 });
 
 const duplicateFormSchema = agentDuplicateInputSchema.extend({
@@ -769,9 +776,19 @@ export function AgentDetailPage() {
             </StatusBadge>
           }
           actions={
-            <Button variant="outline" onClick={backToList} disabled={pending}>
-              <ArrowLeft data-icon="inline-start" /> 返回列表
-            </Button>
+            <>
+              <Button variant="outline" onClick={backToList} disabled={pending}>
+                <ArrowLeft data-icon="inline-start" /> 返回列表
+              </Button>
+              <Link
+                to="/chat"
+                search={{ agent: current.id }}
+                className={buttonVariants()}
+                disabled={pending}
+              >
+                开始对话
+              </Link>
+            </>
           }
         />
         {current.description ? (
@@ -2247,9 +2264,15 @@ export function AgentEditor({
 
                 {activeSection === 'permissions' ? (
                   <Section id="permissions" title="权限">
-                    <p className="rounded-item bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
-                      放行内置工具会扩大攻击面：Bash、文件写入和网络访问都绕过沙盒的只读约定。
-                    </p>
+                    <div className="flex flex-col gap-2 rounded-item bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
+                      <p>
+                        内置工具：放行会扩大攻击面，Bash、文件写入和网络访问都绕过沙盒的只读约定。
+                      </p>
+                      <p>
+                        平台将绑定连接器的全部工具加入 SDK allowedTools 预批准；工具若设置
+                        requiresApproval，仍须通过服务端审批，可挂起等待批准。请仅绑定可信连接器。
+                      </p>
+                    </div>
                     <FieldGroup className="grid gap-5 sm:grid-cols-2">
                       <Field data-disabled={pending} className="gap-1.5">
                         <FieldLabel htmlFor="agent-perm">权限模式</FieldLabel>
@@ -2263,7 +2286,11 @@ export function AgentEditor({
                           }}
                           items={permissionOptions}
                         >
-                          <SelectTrigger id="agent-perm" className="w-full min-w-0">
+                          <SelectTrigger
+                            id="agent-perm"
+                            className="w-full min-w-0"
+                            aria-describedby="agent-perm-hint"
+                          >
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -2276,6 +2303,10 @@ export function AgentEditor({
                             </SelectGroup>
                           </SelectContent>
                         </Select>
+                        <FieldDescription id="agent-perm-hint">
+                          default 在沙盒中不提供 SDK
+                          层交互审批宿主；连接器工具仍可能触发服务端审批。
+                        </FieldDescription>
                       </Field>
                       <Field
                         data-disabled={pending}
@@ -2304,7 +2335,8 @@ export function AgentEditor({
                           </FieldError>
                         ) : (
                           <FieldDescription id="agent-allowed-tools-hint">
-                            每行一个模式，如 mcp__crm__*；留空表示全部已绑定工具。
+                            每行一个额外允许的工具名或模式，如
+                            mcp__crm__*；不会限制已绑定连接器的工具。
                           </FieldDescription>
                         )}
                       </Field>
@@ -3296,11 +3328,18 @@ export function CreateAgentDialog({
 
   const submit = rhf.handleSubmit((draft) => {
     if (create.isPending) return;
-    // 名称留空时回退到 slug：schema 只要求 name 非空，这里补上用户没填时的可读名称。
-    const input = inputFromDraft({ ...draft, name: draft.name.trim() || draft.slug });
+    const generatedSlug = draft.name
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^[-_]+|[-_]+$/g, '')
+      .slice(0, 64);
+    const input = inputFromDraft({
+      ...draft,
+      slug: draft.slug || generatedSlug || `agent-${crypto.randomUUID().slice(0, 8)}`,
+    });
     create.mutate(input, {
       onSuccess: (agent) => {
-        toastSuccess('智能体已创建');
+        toastSuccess('专家已创建');
         setCreated(agent);
       },
       onError: (error) => toastError(error),
@@ -3337,34 +3376,6 @@ export function CreateAgentDialog({
           <FieldGroup className="grid gap-3 sm:grid-cols-2">
             <Field
               data-disabled={create.isPending}
-              className="gap-1.5 sm:col-span-2"
-              data-invalid={Boolean(errors.slug)}
-            >
-              <FieldLabel htmlFor="new-agent-slug">
-                Slug
-                <RequiredMark />
-              </FieldLabel>
-              <Input
-                {...rhf.register('slug')}
-                disabled={create.isPending}
-                id="new-agent-slug"
-                placeholder="support-bot"
-                // Keep monospace for the technical slug instead of the base sans-serif input.
-                className="font-mono"
-                aria-required="true"
-                aria-invalid={Boolean(errors.slug)}
-                aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
-              />
-              {errors.slug ? (
-                <FieldError id="new-agent-slug-error">{errors.slug?.message}</FieldError>
-              ) : (
-                <FieldDescription id="new-agent-slug-hint">
-                  小写字母、数字、- 和 _；创建后不可修改。
-                </FieldDescription>
-              )}
-            </Field>
-            <Field
-              data-disabled={create.isPending}
               className={cn(
                 'gap-1.5',
                 isTwin &&
@@ -3379,16 +3390,44 @@ export function CreateAgentDialog({
                   className="row-span-3 size-16 rounded-full object-cover"
                 />
               ) : null}
-              <FieldLabel htmlFor="new-agent-name">名称</FieldLabel>
+              <FieldLabel htmlFor="new-agent-name">
+                名称
+                <RequiredMark />
+              </FieldLabel>
               <Input
                 {...rhf.register('name')}
                 disabled={create.isPending}
                 id="new-agent-name"
+                aria-required="true"
                 aria-invalid={Boolean(errors.name)}
                 aria-describedby={errors.name ? 'new-agent-name-error' : undefined}
                 placeholder="客服助手"
               />
               <FieldError id="new-agent-name-error">{errors.name?.message}</FieldError>
+            </Field>
+            <Field
+              data-disabled={create.isPending}
+              className="gap-1.5 sm:col-span-2"
+              data-invalid={Boolean(errors.slug)}
+            >
+              <FieldLabel htmlFor="new-agent-slug">标识（可选）</FieldLabel>
+              <Input
+                {...rhf.register('slug')}
+                disabled={create.isPending}
+                id="new-agent-slug"
+                placeholder="support-bot"
+                // Keep monospace for the technical slug instead of the base sans-serif input.
+                className="font-mono"
+                aria-invalid={Boolean(errors.slug)}
+                aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
+              />
+              {errors.slug ? (
+                <FieldError id="new-agent-slug-error">{errors.slug?.message}</FieldError>
+              ) : (
+                <FieldDescription id="new-agent-slug-hint">
+                  留空时由名称自动生成；仅支持小写字母、数字、- 和 _，创建后不可修改。
+                </FieldDescription>
+              )}
             </Field>
             {isTwin ? (
               <div className="sm:col-span-2">

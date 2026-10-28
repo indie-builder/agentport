@@ -42,6 +42,8 @@
 
 ## P2
 
+- **桌面首次用户 QA 后续项（2026-10-28）**：会话有消息后缺少当前专家身份、会话标题为首条消息截断、资源导航名称过长、空会话操作禁用提示、停止无输出后仍显示“等待回复”、专家下拉退场残影需实测归因。共享库机器名专家是数据环境因素，不自动改名。首轮与复跑证据见 [QA 任务](tasks/launch-qa-first-run.md)，移动端按用户明确要求排除。
+
 7. ✅ **清死代码与无效配置（2026-10-24 完成）**
    - 删除 `components/ui/{input-group,popover,table,message}.tsx` 中无外部引用的具名导出：`InputGroupText`/`InputGroupTextarea`、`PopoverHeader`/`PopoverTitle`/`PopoverDescription`、`TableFooter`/`TableCaption`、`MessageAvatar`/`MessageHeader`/`MessageFooter`（连同定义与随之未使用的 import），净删 123 行。
    - 删除 `docs/OPERATIONS.md` 中幻影配置 `AGENT_DEFAULT_MODEL`、`AGENT_MAX_BUDGET_USD`（`packages/api/src/config.ts` schema 从未解析，文档“仅校验”说法有误）。

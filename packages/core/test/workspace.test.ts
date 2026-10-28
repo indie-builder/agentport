@@ -83,6 +83,9 @@ describe('delivered outputs section', () => {
 
     expect(claudeMd).toContain('/mnt/outputs/');
     expect(claudeMd).toContain('同一路径');
+    // 回复里统一叫「会话成果」，指向对话右上角的按钮。
+    expect(claudeMd).toContain('会话成果');
+    expect(claudeMd).not.toContain('输出文件区');
     // 记忆仍是 Markdown、范围仍是记忆目录：交付目录不是第二份记忆。
     expect(claudeMd).toContain('/mnt/agent-memory/');
     expect(claudeMd).toMatch(/原生记忆[^。]*Markdown/);

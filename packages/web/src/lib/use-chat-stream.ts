@@ -484,7 +484,8 @@ export function useChatStream({
     const ownsRequest = () => mountedRef.current && generationRef.current === generation;
     replayTruncatedRef.current = false;
     // 只有显式读输入框的那一次才清空；动作发送不碰草稿。
-    if (text === undefined) store.setInput('');
+    // 原槽先留着这次发送的原文，等请求被接受再清，等待期间切走/刷新都不丢稿。
+    if (text === undefined) store.setInput('', false);
     store.setLastRun(null);
     store.setLastRunId(null);
     // base 必须包含刚追加的用户气泡：重连会整体回放事件，不能把它丢掉。
@@ -508,6 +509,9 @@ export function useChatStream({
         ...(outputRef ? { output: outputRef } : {}),
       });
       if (!ownsRequest()) return;
+      if (text === undefined && useChatStore.getState().input === '') {
+        store.clearDraft(conversationId, input);
+      }
       store.setConversationId(accepted.conversationId);
       store.setLastRunId(accepted.runId);
       // 只消费本次发送的引用；等待期间重新挂的引用留给下一次，失败时也保留。
@@ -522,8 +526,8 @@ export function useChatStream({
       // 等待期间可能已经输入了新草稿；读最新 store，只有输入框仍为空才回填原消息。
       const latest = useChatStore.getState();
       latest.setRun(null);
-      // 动作发送没有动过草稿，失败时也不回填按钮文案。
-      if (text === undefined && latest.input === '') latest.setInput(body);
+      // 动作发送没有动过草稿，失败时也不回填按钮文案；恢复原文而不带 trim。
+      if (text === undefined && latest.input === '') latest.setInput(input);
       // 没有 run 产生任何回答：撤回本地用户气泡，只留一条错误通知。
       store.setItems([...items, { kind: 'notice', tone: 'error', text: errorMessage(error) }]);
       toastError(error);

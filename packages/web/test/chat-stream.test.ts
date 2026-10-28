@@ -47,6 +47,12 @@ function sourceAt(index: number) {
 }
 
 const accepted: ChatAccepted = { runId: 'run-a', conversationId: 'conversation-a' };
+
+const DRAFTS_KEY = 'pace.chat.drafts';
+function savedDrafts(): Record<string, string> {
+  return JSON.parse(sessionStorage.getItem(DRAFTS_KEY) ?? '{}') as Record<string, string>;
+}
+
 let currentStream: ReturnType<typeof useChatStream>;
 function Probe({
   agentId,
@@ -166,6 +172,7 @@ describe('chat request ownership', () => {
 
   it('blocks sending until the selected history has hydrated', async () => {
     useChatStore.getState().resetConversation('history');
+    useChatStore.getState().setInput('original message');
     const stream = render();
     await act(async () => {
       await stream.send();
@@ -261,6 +268,104 @@ describe('chat request ownership', () => {
     await sending;
     expect(useChatStore.getState().input).toBe('还没发出去的草稿');
   });
+
+  it('发送开始后输入框清空，原稿留在原槽直到这次请求被接受', () => {
+    const pending = deferredSend();
+    const stream = render();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    expect(useChatStore.getState().input).toBe('');
+    expect(savedDrafts()).toEqual({ '': 'original message' });
+    void sending;
+    void pending;
+  });
+
+  it('接受发送时清掉原槽，没有新稿就不留任何草稿', async () => {
+    const pending = deferredSend();
+    const stream = render();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    await act(async () => {
+      pending.resolve(accepted);
+      await sending;
+    });
+    expect(useChatStore.getState().input).toBe('');
+    expect(savedDrafts()).toEqual({});
+  });
+
+  it('等待期间写的新稿只迁移到新会话，原稿随接受清掉', async () => {
+    const pending = deferredSend();
+    const stream = render();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    useChatStore.getState().setInput('next draft');
+    expect(savedDrafts()).toEqual({ '': 'next draft' });
+    await act(async () => {
+      pending.resolve(accepted);
+      await sending;
+    });
+    expect(useChatStore.getState().conversationId).toBe('conversation-a');
+    expect(useChatStore.getState().input).toBe('next draft');
+    expect(savedDrafts()).toEqual({ 'conversation-a': 'next draft' });
+  });
+
+  it('切走后迟到的接受不改任何草稿，当前 store 对象完全不变', async () => {
+    const pending = deferredSend();
+    const stream = render();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    act(() => {
+      stream.closeStream();
+      useChatStore.getState().resetConversation('conversation-b');
+    });
+    useChatStore.getState().setInput('draft b');
+    const expected = useChatStore.getState();
+    await act(async () => {
+      pending.resolve(accepted);
+      await sending;
+    });
+    expect(useChatStore.getState()).toBe(expected);
+    expect(savedDrafts()).toEqual({ '': 'original message', 'conversation-b': 'draft b' });
+  });
+
+  it('失败时按原文（含首尾空白）精确恢复草稿', async () => {
+    useChatStore.getState().setInput('  原文  ');
+    const pending = deferredSend();
+    const stream = render();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    expect(harness.sendChat).toHaveBeenCalledWith({ agentId: 'agent-a', message: '原文' });
+    expect(useChatStore.getState().input).toBe('');
+    pending.reject(new Error('request failed'));
+    await sending;
+    expect(useChatStore.getState().input).toBe('  原文  ');
+    expect(savedDrafts()).toEqual({ '': '  原文  ' });
+  });
+
+  it('新会话里切换专家不擦掉等待中仍留在原槽的原稿', () => {
+    const pending = deferredSend();
+    const stream = render();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = stream.send();
+    });
+    expect(useChatStore.getState().input).toBe('');
+    act(() => useChatStore.getState().resetConversation(null, true));
+    expect(useChatStore.getState().input).toBe('original message');
+    expect(savedDrafts()).toEqual({ '': 'original message' });
+    void sending;
+    void pending;
+  });
 });
 
 describe('disconnected runs', () => {
@@ -283,6 +388,7 @@ describe('disconnected runs', () => {
     const stream = render();
     act(() => {
       useChatStore.getState().resetConversation('conversation-a');
+      useChatStore.getState().setInput('original message');
       useChatStore.getState().setItems([
         { kind: 'user', text: 'old prompt' },
         { kind: 'text', text: 'old reply' },
