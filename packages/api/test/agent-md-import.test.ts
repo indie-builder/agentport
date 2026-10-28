@@ -1,6 +1,7 @@
 import type { Agent, WorkspaceFiles } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { parseAgentPackage } from '../src/features/agent-package.js';
 import {
   cleanup,
   expectProblem,
@@ -10,6 +11,22 @@ import {
   startApp,
   unique,
 } from './helpers.js';
+
+describe('official package permission defaults', () => {
+  it('defaults a child definition without sidecar metadata to default', () => {
+    const parsed = parseAgentPackage(
+      new Map([
+        ['CLAUDE.md', '# root\n\nRoot prompt.'],
+        [
+          '.claude/agents/reviewer.md',
+          '---\nname: reviewer\ndescription: Reviews code\nmodel: claude-sonnet-5-5\n---\n\nReview carefully.',
+        ],
+      ]),
+      { slug: 'root' },
+    );
+    expect(parsed.children[0]?.input.permissionMode).toBe('default');
+  });
+});
 
 const ready = await infraReady;
 
@@ -83,7 +100,7 @@ describe.skipIf(!ready)('agent.md import', () => {
       systemPrompt,
       model: 'claude-sonnet-5-5',
       maxTurns: 20,
-      permissionMode: 'dontAsk',
+      permissionMode: 'default',
       serverIds: [],
       skillIds: [],
       subAgentIds: [],

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { runTriggerSchema } from './ops.js';
+import { publicRunQuestionSchema } from './questions.js';
 
 /**
  * 前端真正解析的响应形状。路由声明 `response` 后，Fastify 会按 schema 序列化：
@@ -51,6 +52,8 @@ export const runStepSchema = z.discriminatedUnion('kind', [
     /** 调用结果；与 content（参数）分开。 */
     result: z.unknown().optional(),
     parentToolUseId: z.string().nullable(),
+    /** 原生提问工具的最终展示快照；只有提问工具行才带。 */
+    question: publicRunQuestionSchema.optional(),
   }),
 ]);
 

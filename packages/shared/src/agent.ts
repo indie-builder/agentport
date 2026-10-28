@@ -83,7 +83,7 @@ export const agentInputSchema = z.object({
   allowedTools: z.array(z.string()).default([]),
   /** 额外禁用的工具；内置工具默认全部禁用，这里是补充项。 */
   disallowedTools: z.array(z.string()).default([]),
-  permissionMode: permissionModeSchema.default('dontAsk'),
+  permissionMode: permissionModeSchema.default('default'),
   /** 助手回复格式；openui 时系统提示词追加 OpenUI Lang 约定，前端按生成式 UI 渲染。 */
   uiFormat: uiFormatSchema.default('markdown'),
   maxTurns: z.number().int().positive().default(20),

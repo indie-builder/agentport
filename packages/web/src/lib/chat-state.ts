@@ -2,7 +2,9 @@ import {
   type ChatEvent,
   type ConversationMessage,
   type ProgressTodo,
+  type PublicRunQuestion,
   progressTodoSchema,
+  publicRunQuestionSchema,
 } from '@agentport/shared';
 import type { ConversationDetail } from './api.js';
 
@@ -52,6 +54,8 @@ export type ChatItem =
       runId?: string;
       /** 最近一次确认的任务清单快照；空数组表示已清空。 */
       todos?: ProgressTodo[];
+      /** 原生提问的落库快照；取消/失败没有 tool_result 时也靠它展示问题。 */
+      question?: PublicRunQuestion;
       /**
        * 快照确认顺序：tool_result 到达才编号，trace 位置仍留在 tool_start。
        * 早开始的调用可能晚确认，选清单必须按它而不是数组位置。
@@ -299,6 +303,16 @@ function historyTodos(record: Record<string, unknown>): { todos?: ProgressTodo[]
   return parsed.success ? { todos: parsed.data } : {};
 }
 
+/**
+ * 工具历史 content 上的原生提问快照（worker 在 use/result 里都写入）。
+ * DB 内容是未校验的 unknown，按 shared 契约收窄；非法快照当作没有。
+ */
+export function questionFromContent(content: unknown): PublicRunQuestion | undefined {
+  if (typeof content !== 'object' || content === null) return undefined;
+  const parsed = publicRunQuestionSchema.safeParse((content as Record<string, unknown>).question);
+  return parsed.success ? parsed.data : undefined;
+}
+
 /** DB 里存的是 SDK 原始内容块；历史渲染只挑可读部分，工具调用按 tool_use_id 合并结果。 */
 export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
   const items: ChatItem[] = [];
@@ -360,6 +374,7 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
       if (typeof block !== 'object' || block === null) continue;
       const record = block as Record<string, unknown>;
       if (record.type === 'tool_use' && (typeof record.name === 'string' || record.id)) {
+        const question = questionFromContent(record);
         items.push({
           id,
           kind: 'tool',
@@ -371,6 +386,7 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
                 : crypto.randomUUID(),
           name: typeof record.name === 'string' ? record.name : '未知工具',
           input: JSON.stringify(record.input ?? {}, null, 2),
+          ...(question === undefined ? {} : { question }),
           ...run,
           ...(typeof record.parentToolUseId === 'string'
             ? { parentToolUseId: record.parentToolUseId }
@@ -396,12 +412,14 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
           typeof record.parentToolUseId === 'string'
             ? { parentToolUseId: record.parentToolUseId }
             : {};
+        const question = questionFromContent(record);
+        const snapshot = question === undefined ? {} : { question };
         const index = items.findIndex(
           (item) => item.kind === 'tool' && item.toolUseId === toolUseId,
         );
         const existing = items[index];
         if (existing?.kind === 'tool') {
-          items[index] = { ...existing, result, ...todos, ...seq, ...parent };
+          items[index] = { ...existing, result, ...todos, ...seq, ...parent, ...snapshot };
         } else {
           // 找不到 tool_use 时也保留归属：否则子智能体卡片会被当成顶层调用。
           items.push({
@@ -413,6 +431,7 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
             ...todos,
             ...seq,
             ...parent,
+            ...snapshot,
           });
         }
       }

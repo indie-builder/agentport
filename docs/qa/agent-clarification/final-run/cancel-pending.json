@@ -1,0 +1,14 @@
+{
+  "case": "cancel-pending",
+  "runId": "run_01m615wxnpfzyvzsqtf5y0gk08",
+  "conversationId": "conv_01m615wxnkfzyvzsqh15m5tsnv",
+  "requestId": "371ad6a7-4d3d-48df-8bbf-560d575427dc",
+  "runStatus": "cancelled",
+  "questions": [
+    {
+      "requestId": "371ad6a7-4d3d-48df-8bbf-560d575427dc",
+      "status": "closed",
+      "closeReason": "closed"
+    }
+  ]
+}

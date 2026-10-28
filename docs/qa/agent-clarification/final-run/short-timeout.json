@@ -1,0 +1,15 @@
+{
+  "case": "short-timeout",
+  "runId": "run_01m615x4rjfzyvzssza5fdyqx8",
+  "conversationId": "conv_01m615x4rffzyvzssg672jgkkd",
+  "requestId": "ca27ebd5-f119-4f7e-939b-8842beb68118",
+  "timeoutMs": 20000,
+  "runStatus": "timeout",
+  "questions": [
+    {
+      "requestId": "ca27ebd5-f119-4f7e-939b-8842beb68118",
+      "status": "closed",
+      "closeReason": "closed"
+    }
+  ]
+}

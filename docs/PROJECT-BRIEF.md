@@ -446,7 +446,9 @@ workspaces/<agent-slug>/
    └─ settings.json             # 可选：项目级权限
 ```
 
-渲染流程：DB 是真相源 → 每次运行前由 `domain/workspace.ts` 重新渲染 → 文件是给 Agent SDK 看的快照。
+渲染流程：DB 是编辑来源 → 每次运行前由 `packages/core/src/workspace.ts` 渲染 → 文件是交给 Agent SDK 加载的唯一运行投影。
+
+以下为早期受限运行示例，不代表当前全部能力；当前工具路径、原生记忆、成果与澄清接入以 `packages/sandbox/src/runner.ts`、`docs/ARCHITECTURE.md` §3 为准。新建智能体默认 `default`，显式 `dontAsk` 保留其拒绝交互语义。
 
 调用方式：
 
@@ -858,7 +860,7 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 | 问题 | 表现 | 修复 |
 |---|---|---|
 | `.mcp.json` 里的 `mcp__*` 通配无效 | 模型调用 MCP 工具被拒：`Permission ... denied because ... don't ask mode` | allow 规则只支持 `mcp__<server>__` 之后通配。runner 从任务载荷的 `mcpServers` 逐个生成 `mcp__<name>__*` |
-| `permissionMode: 'dontAsk'` 会拒绝未预批准的一切 | 仅靠 `allowedTools` 不够 | 用精确 allow 规则 + `disallowedTools` 移除内置工具；`dontAsk` 保持，因为沙盒里没有交互审批渠道 |
+| `permissionMode: 'dontAsk'` 会拒绝未预批准的一切 | 仅靠 `allowedTools` 不够 | 用精确 allow 规则 + `disallowedTools` 移除内置工具；显式dontAsk保持拒绝语义。原生提问接入采用default与专用canUseTool，进展及验收见D-68 |
 | 容器内 `127.0.0.1` 指向容器自身 | 本机代理 `ANTHROPIC_BASE_URL=http://127.0.0.1:3425` 在容器里 ECONNREFUSED | worker 把 loopback 改写成 `host.docker.internal`，并加 `--add-host host.docker.internal:host-gateway`（Linux 必需） |
 | generated server 的测试连错地址 | 测试按钮连上游 baseUrl，返回 `Error POSTing to endpoint` | 改为连平台自己的 `/mcp/:id` 并带 `mcpToken`；新增 `SELF_URL` 配置 |
 | 改了 schema 忘记重新生成迁移 | `column "path_template" does not exist` | 改 `schema.ts` 后必须 `pnpm db:generate`；SQLite/Postgres 迁移文件不通用 |

@@ -22,7 +22,12 @@ import {
   snapshotHistory,
 } from './chat-state.js';
 import { useChatStore } from './chat-store.js';
-import { runQuery } from './queries.js';
+import {
+  type RunQuestionList,
+  runQuery,
+  runQuestionsQueryKey,
+  withRunQuestion,
+} from './queries.js';
 import { toastError } from './toast.js';
 
 /** 终态事件里的落库块：按运行内稳定 id 对齐实时文本。 */
@@ -259,6 +264,14 @@ export function useChatStream({
         const event = parsed.data;
         if (event.type === 'replay_truncated') replayTruncatedRef.current = true;
         store.setItems((previous) => applyEvent(previous, event));
+        if (event.type === 'question_updated') {
+          // 回答状态只进 Query 缓存：卡片按 run+requestId 读它，SSE 迟到也不会写进别的会话。
+          client.setQueryData<RunQuestionList>(
+            runQuestionsQueryKey(event.question.runId),
+            (previous) => ({ items: withRunQuestion(previous?.items, event.question) }),
+          );
+          return;
+        }
         if (event.type === 'error') {
           errored = true;
           return;
@@ -289,15 +302,27 @@ export function useChatStream({
             // 没有用户项时无从判断本轮起点，宁可什么都不补，也不能给整段历史打上本轮 id。
             if (userIndex < 0) return previous;
             const matched = matchPersistedBlocks(previous, userIndex, event.messageIds ?? []);
+            // 下一轮开始后 Query 只跟新 run：把本轮提问终态落到工具项，历史卡片仍显示已回答/已关闭。
+            const questions = new Map(
+              (
+                client.getQueryData<RunQuestionList>(runQuestionsQueryKey(accepted.runId))?.items ??
+                []
+              ).map((question) => [question.toolUseId, question]),
+            );
             return previous.map((item, index) => {
               if (index <= userIndex) return item;
               if (item.kind !== 'text' && item.kind !== 'tool') return item;
               const block = matched.get(index);
               // 普通消息仍补本轮 runId；没有匹配块时保持原有行为，只补 runId。
               if (item.runId !== undefined && block === undefined) return item;
+              const question =
+                item.kind === 'tool' && item.question === undefined
+                  ? questions.get(item.toolUseId)
+                  : undefined;
               return {
                 ...item,
                 ...(item.runId === undefined ? { runId: accepted.runId } : {}),
+                ...(question === undefined ? {} : { question }),
                 ...(block === undefined
                   ? {}
                   : {

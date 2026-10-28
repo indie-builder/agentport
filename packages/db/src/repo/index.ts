@@ -9,6 +9,7 @@ export * as openui from './openui.js';
 export * as ops from './ops.js';
 export * as outputStyles from './output-styles.js';
 export * as plugins from './plugins.js';
+export * as questions from './questions.js';
 export * as rules from './rules.js';
 export * as runs from './runs.js';
 export * as servers from './servers.js';

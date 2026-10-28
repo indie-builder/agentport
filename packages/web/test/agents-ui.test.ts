@@ -345,6 +345,7 @@ describe('expert editor regressions', () => {
         expect(state.create.mock.calls[0]?.[0]).toMatchObject({
           slug: 'support-expert',
           name: 'Support Expert',
+          permissionMode: 'default',
         });
       },
     );

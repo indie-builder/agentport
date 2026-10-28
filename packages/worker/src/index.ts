@@ -723,6 +723,20 @@ const worker = new Worker(
         ],
         provider,
         logger: logger.child({ runId }),
+        // 问题先落库再推界面；轮询答案也只读这条 run 的记录。
+        questions: {
+          // 期限由 runner 在容器实际开始时给出，创建耗时不计入。
+          request: (event, expiresAt) =>
+            repo.questions.createQuestion(db, {
+              runId,
+              requestId: event.requestId,
+              toolUseId: event.toolUseId,
+              questions: event.questions,
+              expiresAt,
+            }),
+          list: () => repo.questions.listQuestions(db, runId),
+          close: (reason, requestId) => repo.questions.closeQuestions(db, runId, reason, requestId),
+        },
       });
       runLatencyMs = Date.now() - runStartedAt;
     } catch (err) {

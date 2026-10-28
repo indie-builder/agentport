@@ -111,7 +111,7 @@ export const packageServerSchema = z.discriminatedUnion('kind', [
 ]);
 
 const platformFields = {
-  permissionMode: packagePermissionModeSchema.default('dontAsk'),
+  permissionMode: packagePermissionModeSchema.default('default'),
   uiFormat: uiFormatSchema.default('markdown'),
   maxTurns: z.number().int().positive().default(20),
   maxBudgetUsd: z.number().positive().default(2),
@@ -131,7 +131,7 @@ const platformFields = {
 export const packageSubAgentSchema = z
   .object({
     slug: slugSchema,
-    permissionMode: packagePermissionModeSchema.default('dontAsk'),
+    permissionMode: packagePermissionModeSchema.default('default'),
     maxBudgetUsd: z.number().positive().default(2),
     timeoutMs: z.number().int().positive().default(600_000),
     maxThinkingTokens: z.number().int().positive().optional(),

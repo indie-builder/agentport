@@ -190,7 +190,7 @@ const emptyInput: AgentInput = {
   subAgentIds: [],
   allowedTools: [],
   disallowedTools: [],
-  permissionMode: 'dontAsk',
+  permissionMode: 'default',
   uiFormat: 'markdown',
   maxTurns: 20,
   maxBudgetUsd: 2,
@@ -2304,8 +2304,8 @@ export function AgentEditor({
                           </SelectContent>
                         </Select>
                         <FieldDescription id="agent-perm-hint">
-                          default 在沙盒中不提供 SDK
-                          层交互审批宿主；连接器工具仍可能触发服务端审批。
+                          default 支持原生澄清问答，dontAsk 拒绝原生提问；其他未预批准的工具请求会被拒绝。
+                          连接器工具仍可能触发服务端审批。
                         </FieldDescription>
                       </Field>
                       <Field

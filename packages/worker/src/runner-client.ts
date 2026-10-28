@@ -2,18 +2,39 @@ import { isRetryableFailure, RunFailure } from '@agentport/core';
 import {
   type ChatEvent,
   chatEventSchema,
+  type NativeQuestion,
+  type QuestionResponse,
   RUN_STREAM_MAXLEN,
+  type RunQuestion,
   runCancelKey,
   runStreamKey,
+  type SandboxInputCommand,
   type SandboxTaskInput,
 } from '@agentport/shared';
 import { Deferred, Effect, Exit, type Scope } from 'effect';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { redactSecrets } from './redact.js';
+import { publicRunQuestion, redactChatEvent, redactSecrets } from './redact.js';
 import type { Sandbox, SandboxProvider } from './sandbox/provider.js';
 
 export type RunStatus = 'succeeded' | 'failed' | 'cancelled' | 'timeout';
+
+/** 原生澄清提问的宿主存储；由 index 绑定到 DB repo。 */
+export interface SandboxQuestionCallbacks {
+  /**
+   * `expiresAt` 由 runner 在容器实际开始执行时给出：创建耗时不能挤占问答期限。
+   */
+  request(
+    event: {
+      requestId: string;
+      toolUseId: string;
+      questions: NativeQuestion[];
+    },
+    expiresAt: Date,
+  ): Promise<RunQuestion>;
+  list(): Promise<RunQuestion[]>;
+  close(reason: string, requestId?: string): Promise<RunQuestion[]>;
+}
 
 export interface SandboxRunInput {
   runId: string;
@@ -28,6 +49,8 @@ export interface SandboxRunInput {
   extraMounts?: Array<{ hostPath: string; containerPath: string; readonly?: boolean }>;
   provider: SandboxProvider;
   logger: Logger;
+  /** 缺省时不支持提问：runner 的提问会被本地拒绝，不会假装已落库。 */
+  questions?: SandboxQuestionCallbacks;
 }
 
 /** 可重试 = 基础设施瞬时故障；业务失败不重试。分类来自 RunFailure，不再匹配错误文本。 */
@@ -152,6 +175,183 @@ interface StderrTap {
   dropped: number;
 }
 
+/** 收尾时 runner-client 需要把未决问题一起关闭；handle 在 effect 内注入。 */
+interface QuestionHandle {
+  settle?: (reason: string) => Promise<void>;
+  error?: () => string | undefined;
+}
+
+/** 答案由 API 写入 DB；宿主每 500ms 看一次，只有自己这次 attempt 的 pending 才回写 stdin。 */
+const QUESTION_POLL_MS = 500;
+
+/**
+ * 提问的宿主侧状态机：
+ * - question_requested 先落库，再推 question_updated；
+ * - 答案由 API 写库，轮询只负责把 answered/declined 写回当前沙盒的 stdin，一次且仅一次；
+ * - 游走在两端的迟到/重复答案不会命中断言之外的 pending；
+ * - 收尾必须等异步落库排空，然后关闭所有未决卡片。
+ */
+function createQuestionRuntime(input: {
+  runId: string;
+  callbacks: SandboxQuestionCallbacks | undefined;
+  logger: Logger;
+  record: (event: ChatEvent) => void;
+  /** 轮询不可用时终止整个 run：不能让 SDK 等满整体超时。 */
+  abort: (message: string) => void;
+}): {
+  handle(event: ChatEvent): boolean;
+  attach(write: (command: SandboxInputCommand) => void, expiresAt: Date): void;
+  settle(reason: string): Promise<void>;
+  error(): string | undefined;
+} {
+  const pending = new Map<string, RunQuestion>();
+  const sent = new Set<string>();
+  let chain: Promise<void> = Promise.resolve();
+  let polling: Promise<void> | undefined;
+  let stopped = false;
+  let sawQuestions = false;
+  let failure: string | undefined;
+  let write: ((command: SandboxInputCommand) => void) | undefined;
+  let expiresAt: Date | undefined;
+
+  const record = (question: RunQuestion): void => {
+    input.record({ type: 'question_updated', question: publicRunQuestion(question) });
+  };
+  const fail = (err: unknown, message: string): string => {
+    const detail = err instanceof Error ? err.message : String(err);
+    failure ??= detail;
+    input.logger.error({ err, runId: input.runId }, message);
+    return detail;
+  };
+  const respond = (question: RunQuestion): void => {
+    if (sent.has(question.requestId)) return;
+    sent.add(question.requestId);
+    pending.delete(question.requestId);
+    // 给模型的答案必须是库里的原值；展示用的脱敏只发生在 record()。
+    const response: QuestionResponse =
+      question.status === 'answered' && question.answers !== null
+        ? { answers: question.answers }
+        : { decline: true };
+    write?.({ type: 'question_response', requestId: question.requestId, response });
+  };
+  /** 明确拒绝所有 pending 并清空，避免 SDK 一直等一个不会到来的回答。 */
+  const denyAll = (): void => {
+    for (const requestId of [...pending.keys()]) {
+      if (sent.has(requestId)) continue;
+      sent.add(requestId);
+      write?.({ type: 'question_response', requestId, response: { decline: true } });
+    }
+    pending.clear();
+  };
+  const startPolling = (): void => {
+    if (polling !== undefined || stopped) return;
+    polling = (async () => {
+      try {
+        while (!stopped && pending.size > 0) {
+          await new Promise((resolve) => setTimeout(resolve, QUESTION_POLL_MS));
+          if (stopped || pending.size === 0) break;
+          const callbacks = input.callbacks;
+          if (callbacks === undefined) break;
+          let items: RunQuestion[];
+          try {
+            items = await callbacks.list();
+          } catch (err) {
+            const detail = fail(err, 'failed to poll questions');
+            // 明确拒绝所有 pending，再终止 run；否则 SDK 会空等到整体超时。
+            stopped = true;
+            denyAll();
+            input.abort(detail);
+            break;
+          }
+          for (const item of items) {
+            if (!pending.has(item.requestId) || item.status === 'pending') continue;
+            respond(item);
+          }
+        }
+      } finally {
+        polling = undefined;
+      }
+    })();
+  };
+  const enqueue = (operation: () => Promise<void>): void => {
+    chain = chain.then(operation).catch((err: unknown) => {
+      fail(err, 'question operation failed');
+    });
+  };
+
+  return {
+    handle(event) {
+      if (event.type === 'question_requested') {
+        // 收尾开始后不再接受新问题：否则会在 close 之后又落一行 pending。
+        if (stopped) return true;
+        sawQuestions = true;
+        const { requestId, toolUseId, questions } = event;
+        enqueue(async () => {
+          const callbacks = input.callbacks;
+          if (callbacks === undefined) {
+            fail(new Error('question store is not configured'), 'question store unavailable');
+            // fail closed：不让工具无限等一个无法持久化的回答。
+            write?.({ type: 'question_response', requestId, response: { decline: true } });
+            return;
+          }
+          try {
+            if (expiresAt === undefined) throw new Error('question runtime is not attached');
+            const question = await callbacks.request(
+              { requestId, toolUseId, questions },
+              expiresAt,
+            );
+            pending.set(question.requestId, question);
+            record(question);
+            startPolling();
+          } catch (err) {
+            fail(err, 'failed to persist a question');
+            write?.({ type: 'question_response', requestId, response: { decline: true } });
+          }
+        });
+        return true;
+      }
+      if (event.type === 'question_closed') {
+        const { requestId } = event;
+        enqueue(async () => {
+          const callbacks = input.callbacks;
+          if (callbacks === undefined) return;
+          try {
+            for (const question of await callbacks.close('closed', requestId)) record(question);
+            pending.delete(requestId);
+          } catch (err) {
+            fail(err, 'failed to close a question');
+          }
+        });
+        return true;
+      }
+      return false;
+    },
+    attach(writeCommand, deadline) {
+      write = writeCommand;
+      expiresAt = deadline;
+    },
+    async settle(reason) {
+      if (!sawQuestions) return;
+      stopped = true;
+      // 先等所有异步写库完成，run_finished 不能越过它们。
+      await chain;
+      if (polling !== undefined) await polling;
+      const callbacks = input.callbacks;
+      if (callbacks === undefined) return;
+      try {
+        for (const question of await callbacks.close(reason)) record(question);
+        // 回答可能发生在最后一次轮询与收尾之间：刷新最终快照再落历史。
+        for (const question of await callbacks.list()) record(question);
+      } catch (err) {
+        fail(err, 'failed to settle pending questions');
+      }
+    },
+    error() {
+      return failure;
+    },
+  };
+}
+
 function appendStderr(tap: StderrTap, chunk: string): void {
   tap.text += chunk;
   const excess = tap.text.length - STDERR_KEEP_CHARS;
@@ -266,8 +466,9 @@ function reasonFor(signal: ExitSignal): RunFailure['reason'] {
 export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOutcome> {
   // 容器销毁由 scope 在返回值确定后执行；清理结果只能在这个外层合并回 outcome。
   const cleanup: { error?: string } = {};
-  const outcome = await Effect.runPromise(
-    Effect.scoped(runInSandboxEffect(input, cleanup)).pipe(
+  const questions: QuestionHandle = {};
+  let outcome = await Effect.runPromise(
+    Effect.scoped(runInSandboxEffect(input, cleanup, questions)).pipe(
       // 订阅取消频道失败属于基础设施故障：交给 BullMQ 重试，而不是伪装成 agent 失败。
       Effect.catch((failure) =>
         Effect.succeed<SandboxRunOutcome>({
@@ -280,12 +481,25 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
       ),
     ),
   );
+  if (questions.settle !== undefined) {
+    // 先把未决问题按终态关闭并等落库排空，再让调用方发布 run_finished。
+    await questions.settle(outcome.status === 'succeeded' ? 'finished' : outcome.status);
+    const failure = questions.error?.();
+    if (failure !== undefined) {
+      // 落库失败不能吞：运行结果里必须能看见，但不改写已经确定的终态。
+      outcome = {
+        ...outcome,
+        error: `${outcome.error ?? outcome.status}；问题记录失败：${failure}`,
+      };
+    }
+  }
   return cleanup.error === undefined ? outcome : { ...outcome, cleanupError: cleanup.error };
 }
 
 function runInSandboxEffect(
   input: SandboxRunInput,
   cleanup: { error?: string },
+  questionHandle: QuestionHandle,
 ): Effect.Effect<SandboxRunOutcome, RunFailure, Scope.Scope> {
   return Effect.gen(function* () {
     const { logger, runId } = input;
@@ -315,6 +529,20 @@ function runInSandboxEffect(
       });
     };
 
+    const questionFailed = yield* Deferred.make<string>();
+    const questionRuntime = createQuestionRuntime({
+      runId,
+      callbacks: input.questions,
+      logger,
+      record: (event) => {
+        events.push(event);
+        publish(event);
+      },
+      abort: (message) => Deferred.doneUnsafe(questionFailed, Exit.succeed(message)),
+    });
+    questionHandle.settle = questionRuntime.settle;
+    questionHandle.error = questionRuntime.error;
+
     const onEvent = (line: string): void => {
       const parsed = parseLine(line, logger);
       if (!parsed) return;
@@ -322,21 +550,27 @@ function runInSandboxEffect(
       const event = assignStreamBlockId(parsed);
       runnerStarted = true;
 
-      if (event.type === 'run_finished') {
+      // runner 的提问事件只用于落库/回写，不直接进 SSE（对外只发 question_updated）。
+      if (questionRuntime.handle(event)) return;
+
+      // 对外只公开脱敏后的事件；问题投影已在 record() 完成，不能二次处理。
+      const publicEvent = redactChatEvent(event);
+
+      if (publicEvent.type === 'run_finished') {
         // 只记下终态，由调用方统一发布，保证每个 run 恰好一条。
-        reportedStatus = event.status;
-        reportedCost = event.costUsd;
-        reportedTurns = event.turns;
-        reportedError = event.error === undefined ? undefined : redactSecrets(event.error);
-        reportedFailure = event.failureKind;
-        reportedSessionId = event.sessionId;
-        reportedInput = event.inputTokens;
-        reportedOutput = event.outputTokens;
+        reportedStatus = publicEvent.status;
+        reportedCost = publicEvent.costUsd;
+        reportedTurns = publicEvent.turns;
+        reportedError = publicEvent.error;
+        reportedFailure = publicEvent.failureKind;
+        reportedSessionId = publicEvent.sessionId;
+        reportedInput = publicEvent.inputTokens;
+        reportedOutput = publicEvent.outputTokens;
         return;
       }
 
       const bytes = Buffer.byteLength(line);
-      if (isPersistable(event)) {
+      if (isPersistable(publicEvent)) {
         if (persistOverflowed) return;
         if (events.length >= MAX_PERSISTED_EVENTS || persistedBytes + bytes > MAX_PERSISTED_BYTES) {
           persistOverflowed = true;
@@ -349,8 +583,8 @@ function runInSandboxEffect(
           return;
         }
         persistedBytes += bytes;
-        events.push(event);
-        publish(event);
+        events.push(publicEvent);
+        publish(publicEvent);
         return;
       }
 
@@ -367,7 +601,7 @@ function runInSandboxEffect(
       }
       transientEvents += 1;
       transientBytes += bytes;
-      publish(event);
+      publish(publicEvent);
     };
 
     const exitSignal = yield* Deferred.make<ExitSignal>();
@@ -426,6 +660,13 @@ function runInSandboxEffect(
         }
       });
       proc.stdin.on('error', (err) => logger.warn({ err, runId }, 'sandbox stdin closed'));
+      // 期限从容器实际开始执行时起算；创建耗时不能提前挤占问答时间。
+      questionRuntime.attach(
+        (command) => {
+          if (!proc.stdin.destroyed) proc.stdin.write(`${JSON.stringify(command)}\n`);
+        },
+        new Date(Date.now() + input.timeoutMs),
+      );
 
       const done = (signal: ExitSignal): void => {
         Deferred.doneUnsafe(exitSignal, Exit.succeed(signal));
@@ -531,7 +772,7 @@ function runInSandboxEffect(
     yield* Effect.acquireRelease(Effect.succeed(sandbox), (s) => Effect.promise(() => destroy(s)));
     attach(sandbox);
 
-    // 谁先到谁赢：正常退出 / 用户取消 / 超时。
+    // 谁先到谁赢：正常退出 / 用户取消 / 超时 / 问题轮询失败。
     const stopped = yield* Effect.raceAll([
       Deferred.await(exitSignal).pipe(Effect.map((s) => ({ kind: s.kind, signal: s }))),
       Deferred.await(cancelled).pipe(Effect.map(() => ({ kind: 'cancelled' as const }))),
@@ -541,8 +782,24 @@ function runInSandboxEffect(
           runnerStarted ? Effect.never : Effect.succeed({ kind: 'infra' as const }),
         ),
       ),
+      Deferred.await(questionFailed).pipe(
+        Effect.map((message) => ({ kind: 'question_failed' as const, message })),
+      ),
     ]);
 
+    if (stopped.kind === 'question_failed') {
+      // 宿主已无法读取答案：拒绝 pending 后立即终止，不能空等到整体超时。
+      yield* Effect.promise(() => unsubscribe());
+      const error = `问题状态读取失败：${stopped.message}`;
+      logger.error({ runId, error }, 'aborting run: question polling failed');
+      return {
+        status: 'failed',
+        sandboxId: sandbox.id,
+        error,
+        failure: new RunFailure('infra', error),
+        events,
+      };
+    }
     if (stopped.kind === 'infra') {
       const error = `sandbox startup timed out after ${CREATE_TIMEOUT_MS}ms`;
       return {

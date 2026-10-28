@@ -2,6 +2,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
+  type NativeQuestion,
   type ProgressTodo,
   progressTodoSchema,
   SANDBOX_RUNTIME_ENV,
@@ -10,6 +11,7 @@ import {
 } from '@agentport/shared';
 import { forkSession, query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { createFileBoundaryHook, OUTPUTS_DIR } from './memory-permissions.js';
+import { createQuestionChannel } from './questions.js';
 import { createSubAgentBoundaryHook } from './sub-agent-permissions.js';
 
 /**
@@ -30,12 +32,17 @@ interface RunnerEvent {
     | 'tool_input'
     | 'tool_result'
     | 'session_forked'
+    | 'question_requested'
+    | 'question_closed'
     | 'error'
     | 'run_finished';
   text?: string;
   /** error 事件的文本。 */
   message?: string;
   toolUseId?: string;
+  /** question_requested：宿主据此落库；回答只经 stdin 回到这个工具。 */
+  requestId?: string;
+  questions?: NativeQuestion[];
   /** SDK 消息 uuid；落库后用于按历史点 fork。 */
   sdkUuid?: string;
   /** session_forked：新会话 id。 */
@@ -101,19 +108,31 @@ function capWithMarker(value: string, maxBytes: number): string {
   return truncated ? `${text}${TRUNCATED}` : text;
 }
 
-/** 只取第一行，不读 EOF：宿主写完任务后保持 stdin 打开。 */
-async function readTask(): Promise<SandboxTask> {
+/**
+ * 首行是 SandboxTask；之后保持同一个行读取器，接收 `question_response` 等
+ * 宿主动态下发的 stdin 命令，不再像单任务模式那样读完首行就关闭。
+ */
+async function openTaskInput(): Promise<{
+  task: SandboxTask;
+  readLine: () => Promise<string | null>;
+  close: () => void;
+}> {
   const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
-  try {
-    for await (const line of rl) {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      return sandboxTaskSchema.parse(JSON.parse(trimmed));
+  const lines = rl[Symbol.asyncIterator]();
+  const readLine = async (): Promise<string | null> => {
+    for (;;) {
+      const { value, done } = await lines.next();
+      if (done === true) return null;
+      const trimmed = String(value).trim();
+      if (trimmed.length > 0) return trimmed;
     }
-  } finally {
+  };
+  const first = await readLine();
+  if (first === null) {
     rl.close();
+    throw new Error('stdin closed before task JSON arrived');
   }
-  throw new Error('stdin closed before task JSON arrived');
+  return { task: sandboxTaskSchema.parse(JSON.parse(first)), readLine, close: () => rl.close() };
 }
 
 /** 汇总所有模型的 token 用量；modelUsage 是权威口径。 */
@@ -210,8 +229,9 @@ async function findSessionFile(sessionId: string): Promise<string | null> {
   return null;
 }
 
-const task = await readTask();
+const { task, readLine, close: closeInput } = await openTaskInput();
 const maxFieldBytes = task.maxFieldBytes ?? DEFAULT_MAX_FIELD_BYTES;
+const permissionMode = task.permissionMode ?? 'dontAsk';
 
 /**
  * 插件 MCP 工具名是 `mcp__plugin_<plugin>_<server>__<tool>`，插件名与 server 名里
@@ -307,6 +327,21 @@ function failRun(kind: FailureKind, message: string): void {
 }
 
 /**
+ * 原生澄清提问：dontAsk 下 SDK 根本不会调用 canUseTool，问题会被直接拒绝，
+ * 因此不安装回调，也不把该模式暗映射成可提问。其他模式下只放行 AskUserQuestion。
+ */
+const questionChannel = createQuestionChannel({
+  readLine,
+  events: {
+    requested: (event) => emit({ type: 'question_requested', ...event }),
+    closed: (requestId) => emit({ type: 'question_closed', requestId }),
+  },
+  log,
+});
+// SIGTERM 中止整个 query 时，挂起的提问也必须收尾，不能把容器留在等答案上。
+abortController.signal.addEventListener('abort', () => questionChannel.close());
+
+/**
  * 解析本次运行的 SDK session：
  * - 空会话：不 resume，让 CLI 新建；
  * - 续聊：resume 已有 session；
@@ -343,6 +378,8 @@ async function resolveSession(input: SandboxTask): Promise<{
 const session = await resolveSession(task);
 if (session.error !== undefined) {
   failRun('infra', session.error);
+  questionChannel.close();
+  closeInput();
 } else {
   // 先告诉宿主 fork 结果：即便这一轮随后失败，页面的历史映射也已经可写回。
   if (session.fork !== undefined) {
@@ -390,7 +427,9 @@ if (session.error !== undefined) {
         // 容器进程 env 与工作区 settings 同源；这里再兜一层，避免 project settings 未加载时丢约束。
         env: { ...process.env, ...SANDBOX_RUNTIME_ENV },
         forwardSubagentText: true,
-        permissionMode: task.permissionMode ?? 'dontAsk',
+        permissionMode,
+        // dontAsk 不提示也不调用回调；安装它只会给其他模式多一条 fail-closed 路径。
+        ...(permissionMode === 'dontAsk' ? {} : { canUseTool: questionChannel.canUseTool }),
         allowedTools,
         disallowedTools: [...new Set(disallowedTools)],
         hooks: {
@@ -618,6 +657,10 @@ if (session.error !== undefined) {
     const message = err instanceof Error ? err.message : String(err);
     log(`query failed: ${message}`);
     failRun(abortController.signal.aborted ? 'cancelled' : 'agent', message);
+  } finally {
+    // 运行已结束：未决提问收尾并停止读取 stdin，进程才能正常退出。
+    questionChannel.close();
+    closeInput();
   }
 }
 

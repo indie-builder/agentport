@@ -1,3 +1,4 @@
+import type { PublicRunQuestion } from '@agentport/shared';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
@@ -13,9 +14,11 @@ import { type ReactNode, useRef } from 'react';
 import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block.js';
 import { CopyButton } from '../components/copy-button.js';
 import { Page, PageHeader, PageSection } from '../components/page.js';
+import { RunQuestionCard } from '../components/run-question.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import type { ApprovalRequest, RunStep } from '../lib/api.js';
+import { questionFromContent } from '../lib/chat-state.js';
 import { cn } from '../lib/cn.js';
 import {
   formatCost,
@@ -31,6 +34,7 @@ import {
   useRerun,
   useRun,
   useRunApprovals,
+  useRunQuestions,
   useSkillDraftFromRun,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -57,6 +61,10 @@ export function RunDetailPage() {
   // 状态尚未读取或仍在排队时也轮询，终态转换负责最后刷新。
   const status = run.data?.run.status;
   const approvals = useRunApprovals(
+    params.runId,
+    !status || status === 'queued' || status === 'running',
+  );
+  const questions = useRunQuestions(
     params.runId,
     !status || status === 'queued' || status === 'running',
   );
@@ -214,6 +222,21 @@ export function RunDetailPage() {
   }
 
   const { run: detail, steps, conversation } = run.data;
+  const liveQuestions = new Map(
+    (questions.data?.items ?? []).map((question) => [question.toolUseId, question]),
+  );
+  // 运行步骤可能只留下用户消息或还没写入工具事件；未被任何步骤引用的提问仍要给回答入口。
+  const attached = new Set<string>();
+  for (const step of steps) {
+    if (step.kind !== 'tool') continue;
+    if (step.toolUseId !== null) attached.add(step.toolUseId);
+    const snapshot =
+      step.question ?? questionFromContent(step.content) ?? questionFromContent(step.result);
+    if (snapshot) attached.add(snapshot.requestId);
+  }
+  const orphanQuestions = (questions.data?.items ?? []).filter(
+    (question) => !attached.has(question.toolUseId) && !attached.has(question.requestId),
+  );
   const start = detail.startedAt ?? steps[0]?.at ?? null;
   const failed = detail.status === 'failed' || detail.status === 'timeout';
   const pending = (approvals.data?.items ?? []).filter((item) => item.approvedAt === null);
@@ -321,6 +344,14 @@ export function RunDetailPage() {
         </div>
       ) : null}
 
+      {orphanQuestions.length > 0 ? (
+        <div className="flex flex-col gap-3">
+          {orphanQuestions.map((question) => (
+            <RunQuestionCard key={question.requestId} question={question} live={cancellable} />
+          ))}
+        </div>
+      ) : null}
+
       <div className="grid min-w-0 gap-4 border-t pt-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <section className="flex min-w-0 flex-col gap-4" aria-label="步骤">
           <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
@@ -385,7 +416,14 @@ export function RunDetailPage() {
           className="min-w-0 border-t pt-5 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-4"
           aria-label="步骤详情"
         >
-          {activeStep ? <StepInspector step={activeStep} index={activeIndex} /> : null}
+          {activeStep ? (
+            <StepInspector
+              step={activeStep}
+              index={activeIndex}
+              question={questionForStep(activeStep, liveQuestions, cancellable)}
+              live={cancellable}
+            />
+          ) : null}
         </section>
       </div>
 
@@ -444,7 +482,34 @@ function ContextRow({
   );
 }
 
-function StepInspector({ step, index }: { step: RunStep; index: number }) {
+/**
+ * 工具步骤对应的提问：以该 run 的提问列表为准（回答状态会变化）。
+ * 运行步骤可能只保留工具参数，因此再按 toolUseId 对齐；历史快照作兜底。
+ * 运行结束后提问不会再有新状态，以落库的最终快照为准，避免接口旧 pending 或 404。
+ */
+function questionForStep(
+  step: RunStep,
+  questionsByToolUseId: ReadonlyMap<string, PublicRunQuestion>,
+  live: boolean,
+): PublicRunQuestion | undefined {
+  if (step.kind !== 'tool') return undefined;
+  const snapshot =
+    step.question ?? questionFromContent(step.content) ?? questionFromContent(step.result);
+  const current = step.toolUseId === null ? undefined : questionsByToolUseId.get(step.toolUseId);
+  return live ? (current ?? snapshot) : (snapshot ?? current);
+}
+
+function StepInspector({
+  step,
+  index,
+  question,
+  live,
+}: {
+  step: RunStep;
+  index: number;
+  question?: PublicRunQuestion | undefined;
+  live: boolean;
+}) {
   const input = step.kind === 'tool' ? (step.content ?? null) : null;
   const output = step.kind === 'tool' ? (step.result ?? null) : null;
   const nested = step.kind === 'tool' && step.parentToolUseId !== null;
@@ -471,6 +536,10 @@ function StepInspector({ step, index }: { step: RunStep; index: number }) {
           </span>
         ) : null}
       </div>
+
+      {question ? (
+        <RunQuestionCard key={question.requestId} question={question} live={live} />
+      ) : null}
 
       {step.kind === 'assistant' || step.kind === 'user' ? (
         <CollapsibleText

@@ -21,6 +21,8 @@ import type {
   Plugin,
   PluginInput,
   PluginWithAgentCount,
+  PublicQuestionResponse,
+  PublicRunQuestion,
   Rule,
   Schedule,
   Server,
@@ -438,6 +440,93 @@ export function useCancelRun() {
     onSuccess: (_data, runId) => {
       void client.invalidateQueries({ queryKey: ['run', runId] });
       void client.invalidateQueries({ queryKey: ['runs'] });
+    },
+  });
+}
+
+/** 一个 run 的全部原生提问；回答状态只放 Query 缓存，SSE 快照与提交结果都写这里。 */
+export interface RunQuestionList {
+  items: PublicRunQuestion[];
+}
+
+export const runQuestionsQueryKey = (runId: string) => ['run-questions', runId];
+
+/** 状态只向前走：已回答/已拒答/已关闭的快照不会被迟到的 pending 覆盖。 */
+function mergeRunQuestion(
+  previous: PublicRunQuestion,
+  incoming: PublicRunQuestion,
+): PublicRunQuestion {
+  return previous.status !== 'pending' && incoming.status === 'pending' ? previous : incoming;
+}
+
+export function withRunQuestion(
+  items: PublicRunQuestion[] | undefined,
+  question: PublicRunQuestion,
+): PublicRunQuestion[] {
+  if (items === undefined) return [question];
+  const index = items.findIndex((item) => item.requestId === question.requestId);
+  if (index < 0) return [...items, question];
+  const current = items[index];
+  return current === undefined ? items : items.with(index, mergeRunQuestion(current, question));
+}
+
+/** GET 结果与已缓存的较新状态合并，避免在途请求把刚回答的卡片打回待回答。 */
+export function mergeRunQuestions(
+  previous: PublicRunQuestion[] | undefined,
+  incoming: PublicRunQuestion[],
+): PublicRunQuestion[] {
+  const merged = [...incoming];
+  for (const item of previous ?? []) {
+    const index = merged.findIndex((question) => question.requestId === item.requestId);
+    if (index < 0) merged.push(item);
+    else {
+      const current = merged[index];
+      if (current !== undefined) merged[index] = mergeRunQuestion(item, current);
+    }
+  }
+  return merged;
+}
+
+/** 实时运行才轮询；结束后保留最后一次快照，刷新页面时历史里的工具快照仍可读。 */
+export function useRunQuestions(runId: string | null, active = true) {
+  const client = useQueryClient();
+  const previous = useRef({ runId, active });
+  useEffect(() => {
+    const wasActive = previous.current.runId === runId && previous.current.active;
+    previous.current = { runId, active };
+    if (!runId || active || !wasActive) return;
+    // 终态时再取一次，确保关闭/回答结果不只依赖最后一条 SSE。
+    const queryKey = runQuestionsQueryKey(runId);
+    void client.cancelQueries({ queryKey }).then(() => client.invalidateQueries({ queryKey }));
+  }, [runId, active, client]);
+  return useQuery<RunQuestionList>({
+    queryKey: runQuestionsQueryKey(runId ?? ''),
+    queryFn: async () => {
+      const key = runQuestionsQueryKey(runId ?? '');
+      const fetched = await api.runQuestions(runId ?? '');
+      return {
+        items: mergeRunQuestions(client.getQueryData<RunQuestionList>(key)?.items, fetched.items),
+      };
+    },
+    enabled: runId !== null,
+    staleTime: 5_000,
+    refetchInterval: active ? 2_000 : false,
+  });
+}
+
+/** 提交回答或暂不回答；更新对应 run 的提问缓存，不新建运行。 */
+export function useRespondToQuestion() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { runId: string; requestId: string; response: PublicQuestionResponse }) =>
+      api.respondToQuestion(input.runId, input.requestId, input.response),
+    onSuccess: async (question) => {
+      const queryKey = runQuestionsQueryKey(question.runId);
+      // 先取消在途 GET，避免它带着旧的 pending 结果稍后覆盖这次回答。
+      await client.cancelQueries({ queryKey });
+      client.setQueryData<RunQuestionList>(queryKey, (previous) => ({
+        items: withRunQuestion(previous?.items, question),
+      }));
     },
   });
 }
