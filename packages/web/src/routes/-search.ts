@@ -43,6 +43,10 @@ export const pluginDetailSearchSchema = z.object({
 export const chatSearchSchema = z.object({
   agent: z.string().min(1).optional().catch(undefined),
   conversation: z.string().min(1).optional().catch(undefined),
+  /** 会话成果：选中的版本与文件进 URL，刷新后回到同一预览。 */
+  outputRun: z.string().min(1).optional().catch(undefined),
+  outputPath: z.string().min(1).optional().catch(undefined),
+  outputMode: z.enum(['read', 'source']).optional().catch(undefined),
 });
 
 export const auditSearchSchema = z.object({

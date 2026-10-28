@@ -1,3 +1,4 @@
+import type { OutputRef } from '@agentport/shared';
 import { create } from 'zustand';
 import type { ChatItem } from './chat-state.js';
 
@@ -31,6 +32,8 @@ interface ChatWorkspaceState {
   lastRun: RunMetrics | null;
   /** 审批针对产生错误的 run；run_finished 后 run 会被清空，所以单独保留 id。 */
   lastRunId: string | null;
+  /** 「基于此版本修改」选中的成果；随下次发送一次性带走，切会话不保留。 */
+  outputRef: OutputRef | null;
   historyOpen: boolean;
   setConversationId: (conversationId: string | null) => void;
   setItems: (items: ChatItem[] | ((previous: ChatItem[]) => ChatItem[])) => void;
@@ -38,6 +41,7 @@ interface ChatWorkspaceState {
   setRun: (run: RunState | null | ((previous: RunState | null) => RunState | null)) => void;
   setLastRun: (run: RunMetrics | null) => void;
   setLastRunId: (runId: string | null) => void;
+  setOutputRef: (ref: OutputRef | null) => void;
   setHistoryOpen: (open: boolean) => void;
   /** 切换会话：清空消息与本轮运行结果。输入框内容保留。 */
   resetConversation: (conversationId: string | null) => void;
@@ -51,6 +55,7 @@ const initial = {
   run: null,
   lastRun: null,
   lastRunId: null,
+  outputRef: null,
   historyOpen: false,
 };
 
@@ -68,8 +73,16 @@ export const useChatStore = create<ChatWorkspaceState>()((set) => ({
     })),
   setLastRun: (lastRun) => set({ lastRun }),
   setLastRunId: (lastRunId) => set({ lastRunId }),
+  setOutputRef: (outputRef) => set({ outputRef }),
   setHistoryOpen: (historyOpen) => set({ historyOpen }),
   resetConversation: (conversationId) =>
-    set({ conversationId, items: [], run: null, lastRun: null, lastRunId: null }),
+    set({
+      conversationId,
+      items: [],
+      run: null,
+      lastRun: null,
+      lastRunId: null,
+      outputRef: null,
+    }),
   reset: () => set(initial),
 }));

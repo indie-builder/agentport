@@ -16,6 +16,7 @@ import type {
   MemoryFileList,
   NativePluginImportInput,
   NativePluginInstallInput,
+  OutputContent,
   OutputStyle,
   Plugin,
   PluginInput,
@@ -356,6 +357,45 @@ export function useRun(runId: string) {
       query.state.data?.run.status === 'running' || query.state.data?.run.status === 'queued'
         ? 2_000
         : false,
+  });
+}
+
+/**
+ * 会话成果按发布版本倒序；同一路径由页面分组。
+ * 旧版可能落在后续页，按 `nextBefore` 继续翻页，不静默丢弃。
+ */
+export function useConversationOutputs(conversationId: string | null) {
+  return useInfiniteQuery({
+    queryKey: ['conversation-outputs', conversationId],
+    queryFn: ({ pageParam, signal }) =>
+      api.outputs(
+        conversationId ?? '',
+        { limit: 50, ...(pageParam === null ? {} : { before: pageParam }) },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextBefore ?? undefined,
+    enabled: conversationId !== null,
+    staleTime: 0,
+    select: (data) => ({
+      items: data.pages.flatMap((page) => page.items),
+      nextBefore: data.pages.at(-1)?.nextBefore ?? null,
+    }),
+  });
+}
+
+/** 选中成果的文本正文；非文本或超过预览上限时由后端拒绝，页面改为下载。 */
+export function useOutputContent(
+  conversationId: string | null,
+  runId: string | null,
+  path: string | null,
+) {
+  return useQuery<OutputContent>({
+    queryKey: ['conversation-output-content', conversationId, runId, path],
+    queryFn: ({ signal }) =>
+      api.outputContent(conversationId ?? '', runId ?? '', path ?? '', signal),
+    enabled: conversationId !== null && runId !== null && path !== null,
+    staleTime: 5 * 60_000,
   });
 }
 

@@ -41,6 +41,15 @@ import { type PersistedMessage, persistRunMessages } from './messages.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
 import { registerNativePlugins } from './native-plugins.js';
 import { promptWithOpenUiAction } from './openui-action.js';
+import {
+  lastMessageIdOfRun,
+  outputsMount,
+  prepareRunOutputs,
+  promptWithSelectedOutput,
+  publishRunOutputsIfSettled,
+  recordOutputSandboxSettlement,
+  selectedOutput,
+} from './outputs.js';
 import { startReconciler } from './reconcile.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
@@ -451,6 +460,10 @@ const worker = new Worker(
     let runLatencyMs: number | null = null;
     let workspaceDirForRun: string | null = null;
     let sessionsDirForRun: string | null = null;
+    let userMessageIdForRun: string | null = null;
+    let agentSlugForRun = '';
+    /** 本轮草稿挂载；只有准备成功且容器创建过才有值。 */
+    let outputsHostPath: string | null = null;
     /** 本轮智能体的回复格式；在 try 内读取，收尾落库时仍要用。 */
     let runUiFormat: 'markdown' | 'openui' = 'markdown';
     try {
@@ -460,6 +473,7 @@ const worker = new Worker(
         .where(eq(schema.agents.id, agentId))
         .limit(1);
       if (!agent) throw new Error(`agent ${agentId} not found`);
+      agentSlugForRun = agent.slug;
       // 消息级快照：历史渲染按这一轮落库的格式，切换开关不影响已存消息。
       runUiFormat = agent.uiFormat === 'openui' ? 'openui' : 'markdown';
 
@@ -498,8 +512,14 @@ const worker = new Worker(
         )
         .limit(1);
       if (!userMessage) throw new Error(`user message for run ${runId} not found`);
+      userMessageIdForRun = userMessage.id;
+      // 用户可能在消息里选择了一个已交付文件作为修改对象：复制成草稿并在提示里给出路径。
+      const chosenOutput = selectedOutput(userMessage.content);
       // 动作回传要把上下文与表单值一起交给模型；纯文本消息仍是原文。
-      const taskPrompt = promptWithOpenUiAction(userMessage.content, prompt);
+      const taskPrompt = promptWithSelectedOutput(
+        promptWithOpenUiAction(userMessage.content, prompt),
+        chosenOutput,
+      );
       // 非浏览器入口（定时、评估、外部调用）不经过准入；uuid 由平台生成后显式发给 SDK，
       // 因此它仍是真实 transcript 身份，不是事后拼的映射。
       const userMessageUuid = userMessage.sdkMessageUuid ?? randomUUID();
@@ -629,6 +649,20 @@ const worker = new Worker(
         );
       }
 
+      // 草稿以最新完整快照为基线，仅用用户所选旧版覆盖指定文件。
+      // 独立 rw 挂载到 /mnt/outputs，定义挂载 /workspace 仍只读。
+      const preparedOutputs = await prepareRunOutputs({
+        workspacesDir,
+        hostWorkspacesDir,
+        slug: agent.slug,
+        conversationId,
+        runId,
+        ...(chosenOutput === null
+          ? {}
+          : { sourceRunId: chosenOutput.runId, sourcePath: chosenOutput.path }),
+      });
+      outputsHostPath = preparedOutputs.hostPath;
+
       runStartedAt = Date.now();
       const task: SandboxTaskInput = {
         prompt: taskPrompt,
@@ -682,6 +716,10 @@ const worker = new Worker(
             containerPath: '/home/node/.claude',
             readonly: false,
           },
+          {
+            // 本轮产出草稿：独立 rw 目录，容器停稳后才发布成快照。
+            ...outputsMount(preparedOutputs.hostPath),
+          },
         ],
         provider,
         logger: logger.child({ runId }),
@@ -691,6 +729,19 @@ const worker = new Worker(
       const error = err instanceof Error ? err.message : String(err);
       logger.error({ err, runId }, 'agent run crashed');
       outcome = { status: 'failed', sandboxId: '', error, events: [] };
+    }
+
+    let outputSettlementError: string | undefined;
+    if (outputsHostPath !== null) {
+      try {
+        await recordOutputSandboxSettlement(
+          { workspacesDir, hostWorkspacesDir, slug: agentSlugForRun, conversationId, runId },
+          outcome,
+        );
+      } catch (err) {
+        outputSettlementError = err instanceof Error ? err.message : String(err);
+        logger.error({ err, runId }, 'failed to record output sandbox settlement');
+      }
     }
 
     // run 结束（含崩溃）就吊销短期 token；reconcile 对卡死 run 也走同样的收尾。
@@ -708,6 +759,8 @@ const worker = new Worker(
     // "worker lost track of this run"，真实原因反而被覆盖。记日志，继续写终态。
     const forked = outcome.events.find((event) => event.type === 'session_forked');
     let persistedMessages: PersistedMessage[] = [];
+    let messagesWritten = false;
+    let messageSaveError: string | undefined;
     try {
       // 分支首轮：从宿主 transcript 的 forkedFrom 算新旧 uuid 映射，再与消息同事务写入。
       const uuidMap =
@@ -727,14 +780,78 @@ const worker = new Worker(
         ...(uuidMap === undefined ? {} : { uuidMap }),
         uiFormat: runUiFormat,
       });
+      messagesWritten = persisted.written;
       persistedMessages = persisted.messages;
+      if (!persisted.written) messageSaveError = '消息保存被拒绝，运行或会话已由外部终止';
     } catch (err) {
-      // agent_runs.error 说明的是沙盒失败原因；消息丢失是另一件事，只进日志。
+      messageSaveError = err instanceof Error ? err.message : String(err);
       logger.error({ err, runId }, 'failed to persist run messages');
     }
 
     const retryable = isRetryable(outcome);
-    if (retryable && job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {
+    const willRetry = retryable && job.attemptsMade + 1 < (job.opts.attempts ?? 1);
+    if (!messagesWritten && !willRetry) {
+      outcome = {
+        ...outcome,
+        error: `${outcome.error ?? outcome.status}；消息未保存，产出未发布：${messageSaveError ?? '消息保存被拒绝'}`,
+      };
+    }
+    if (outputSettlementError !== undefined && !willRetry) {
+      outcome = {
+        ...outcome,
+        error: `${outcome.error ?? outcome.status}；产出停稳状态保存失败，产出未发布：${outputSettlementError}`,
+      };
+    }
+    if (
+      outputsHostPath !== null &&
+      userMessageIdForRun !== null &&
+      messagesWritten &&
+      outputSettlementError === undefined
+    ) {
+      try {
+        // 消息边界取真实消息行：只有工具调用的轮次没有助手文本，也必须能定位到本轮。
+        // 容器停稳且不再重试才发布；否则草稿保留，也不覆盖同 run 已发布的快照。
+        const published = await publishRunOutputsIfSettled(
+          {
+            workspacesDir,
+            hostWorkspacesDir,
+            slug: agentSlugForRun,
+            conversationId,
+            runId,
+          },
+          {
+            status: outcome.status,
+            userMessageId: userMessageIdForRun,
+            afterMessageId: () => lastMessageIdOfRun(db, runId),
+            messagesWritten,
+            retrying: willRetry,
+            ...(outcome.cleanupError === undefined ? {} : { cleanupError: outcome.cleanupError }),
+          },
+        );
+        if (published.problem !== undefined) {
+          logger.warn({ runId, problem: published.problem }, 'run outputs not published');
+          // 重试会把这一轮整个重跑；不要把「暂未发布」写进运行错误里干扰重试原因。
+          if (!willRetry) {
+            outcome = {
+              ...outcome,
+              error: `${outcome.error ?? outcome.status}；${published.problem}`,
+            };
+          }
+        }
+      } catch (err) {
+        // 发布失败不掩盖运行本身的结果；草稿仍在，页面据此明确提示没有发布快照。
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error({ err, runId }, 'failed to publish run outputs');
+        if (!willRetry) {
+          outcome = {
+            ...outcome,
+            error: `${outcome.error ?? outcome.status}；产出发布失败：${message}`,
+          };
+        }
+      }
+    }
+
+    if (willRetry) {
       // 认领只接受 queued，所以重试前必须把行改回 queued 再抛错；
       // 否则下一次投递会被自己的守卫当成「外部已终止」而跳过。
       const requeued = await db

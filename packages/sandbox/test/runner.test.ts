@@ -279,6 +279,56 @@ describe('runner task wiring', () => {
     }
   });
 
+  it('allows native file tools on the rw outputs mount without SDK additionalDirectories', async () => {
+    await run({});
+    const options = io.options as Options;
+
+    // 交付目录是独立挂载：cwd 仍是只读的 /workspace，也没有被当作可写配置目录加载。
+    expect(options.cwd).toBe('/workspace');
+    expect(options).not.toHaveProperty('additionalDirectories');
+    expect(options.allowedTools).toEqual(
+      expect.arrayContaining(['Read(//mnt/outputs/**)', 'Edit(//mnt/outputs/**)']),
+    );
+    // 记忆仍只允许 Markdown（hook 逐次校验），产出目录不限类型。
+    expect(options.allowedTools).toContain('Read(//mnt/agent-memory/**)');
+    expect(options.disallowedTools).toContain('Bash');
+    expect(options.disallowedTools).toContain('Glob');
+    expect(options.disallowedTools).toContain('Grep');
+    expect(options.disallowedTools).not.toContain('Write');
+  });
+
+  it('keeps the file boundary hook off non-file tools and sub-agents', async () => {
+    await run({});
+    const hook = (io.options as Options).hooks?.PreToolUse?.[0]?.hooks[0];
+    expect(hook).toBeTypeOf('function');
+    const call = (tool: string, file_path: string, agentId?: string) =>
+      hook?.(
+        {
+          hook_event_name: 'PreToolUse',
+          session_id: 's',
+          transcript_path: '/tmp/transcript',
+          cwd: '/workspace',
+          tool_name: tool,
+          tool_input: { file_path },
+          tool_use_id: 't',
+          ...(agentId === undefined ? {} : { agent_id: agentId }),
+        },
+        't',
+        { signal: new AbortController().signal },
+      );
+    // 定义目录不在任何可写根下；子智能体即使指向合法目录也被拒绝。
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      expect(await call(tool, '/workspace/CLAUDE.md')).toMatchObject({
+        hookSpecificOutput: { permissionDecision: 'deny' },
+      });
+      expect(await call(tool, '/mnt/agent-memory/MEMORY.md', 'child')).toMatchObject({
+        hookSpecificOutput: { permissionDecision: 'deny' },
+      });
+    }
+    // 非文件工具交给权限系统：Bash 仍由 disallowedTools 拒绝。
+    expect(await call('Bash', '/mnt/outputs/report.md')).toEqual({});
+  });
+
   it('does not auto-approve child-only MCP servers for the parent', async () => {
     await run({
       mcpServers: ['root-mcp'],

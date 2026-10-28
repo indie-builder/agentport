@@ -70,6 +70,10 @@
 
 runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`autoMemoryDirectory`，通过 Read/Edit 的绝对路径许可与 SDK PreToolUse 双重约束，仅主会话可读写目录内普通 `.md` 文件。子智能体、软链接、硬链接、非普通文件、相对路径及越界请求均在检查时点拒绝。API 与沙盒访问同一存储；请把该目录单独纳入文件备份。专项测试不调用付费模型，真实跨 run 的自动写入、主题读取仍需模型验收。
 
+### 会话成果存储
+
+`WORKSPACES_DIR/<slug>/conversation-outputs/<conversationId>/` 保存会话成果：`drafts/<runId>/` 是本轮唯一可写草稿，`runs/<runId>/{manifest.json,files/**}` 是发布后不可变快照。它不属于 `run_*`，run 保留期清理不会删除；删除会话或专家时回收对应目录。`scripts/backup.sh` 备份整个 workspaces 卷，因此成果随工作区备份，不需要新增变量或独立存储。成果内容不做聊天密钥脱敏；读取与下载由 API 鉴权，路径/链接边界在存储层校验。
+
 ### 1.4 数据保留
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |

@@ -6,17 +6,26 @@ import type { HookCallback, PreToolUseHookSpecificOutput } from '@anthropic-ai/c
 const MEMORY_TOOLS = new Set(['Read', 'Write', 'Edit']);
 const OTHER_FILE_TOOLS = new Set(['Glob', 'Grep', 'NotebookEdit']);
 
+/** 本轮产出草稿的容器内路径；worker 以独立 rw 挂载到这里。 */
+export const OUTPUTS_DIR = '/mnt/outputs';
+
 export const createMemoryHook = createFileBoundaryHook;
 
+/** 是否位于 base 之内且不是 base 本身。 */
+function inside(local: string): boolean {
+  return local.length > 0 && local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local);
+}
+
 /**
- * 文件工具边界：主会话可写记忆目录内的普通 .md；只读可及记忆目录、
- * 技能参考文件（`.claude/skills/<slug>/references/`）以及插件技能资源
- * （`.claude/plugins/<slug>/skills/<name>/`）。其余文件工具请求一律拒绝。
+ * 文件工具边界：主会话可写记忆目录内的普通 .md，也可在本轮产出目录内读写交付文件；
+ * 只读可及技能参考文件（`.claude/skills/<slug>/references/`）与插件技能资源
+ * （`.claude/plugins/<slug>/skills/<name>/`）。其余文件工具请求、以及子智能体的请求一律拒绝。
  */
 export function createFileBoundaryHook(
   memoryDir: string,
   skillsDir = '/workspace/.claude/skills',
   pluginsDir = '/workspace/.claude/plugins',
+  outputsDir = OUTPUTS_DIR,
 ): HookCallback {
   return async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};
@@ -26,7 +35,7 @@ export function createFileBoundaryHook(
       hookEventName: 'PreToolUse',
       permissionDecision: 'deny',
       permissionDecisionReason:
-        'File tools are limited to native memory and skill reference Markdown for the main agent.',
+        'File tools are limited to native memory, this run’s outputs, and skill reference Markdown.',
     };
     const deny = { hookSpecificOutput: output };
     const allow = (): { hookSpecificOutput: PreToolUseHookSpecificOutput } => {
@@ -43,47 +52,46 @@ export function createFileBoundaryHook(
       typeof path !== 'string' ||
       !isAbsolute(path) ||
       path.includes('\0') ||
-      !path.endsWith('.md') ||
       path.split(sep).some((part) => part === '..' || part === '.')
     )
       return deny;
 
-    // 记忆目录：主会话可读写。技能参考文件：只读、且必须落在 .claude/skills/<slug>/references/ 下。
-    let base = memoryDir;
-    let writable = true;
+    const hasMarkdown = path.endsWith('.md');
+    // 记忆目录与产出目录：主会话可读写（记忆仅 .md，产出交付文件不限类型）。
+    // 技能参考文件与插件资源：只读 .md，且必须落在各自的目录约定里。
+    let base: string;
+    let writable: boolean;
     const memoryLocal = relative(memoryDir, path);
-    if (
-      !memoryLocal ||
-      memoryLocal.startsWith(`..${sep}`) ||
-      memoryLocal === '..' ||
-      isAbsolute(memoryLocal)
-    ) {
-      const skillLocal = relative(skillsDir, path);
-      const [slug, kind, ...rest] = skillLocal.split(sep);
-      const insideSkillRefs =
-        input.tool_name === 'Read' &&
-        Boolean(slug) &&
-        kind === 'references' &&
-        rest.length > 0 &&
-        /^[a-z0-9][a-z0-9_-]*$/.test(slug ?? '') &&
-        path.endsWith('.md');
+    const outputLocal = relative(outputsDir, path);
+    if (inside(memoryLocal)) {
+      if (!hasMarkdown) return deny;
+      base = memoryDir;
+      writable = true;
+    } else if (inside(outputLocal)) {
+      base = outputsDir;
+      writable = true;
+    } else {
       // 插件技能资源：Read 打开技能正文或它的 references 时，CLI 给的是真实路径。
-      const pluginLocal = relative(pluginsDir, path);
-      const [pluginSlug, skillsSegment, skillName] = pluginLocal.split(sep);
+      const [pluginSlug, skillsSegment, skillName] = relative(pluginsDir, path).split(sep);
       const insidePluginSkill =
         input.tool_name === 'Read' &&
-        Boolean(pluginSlug) &&
-        skillsSegment === 'skills' &&
-        Boolean(skillName) &&
+        hasMarkdown &&
         /^[a-z0-9][a-z0-9_-]*$/.test(pluginSlug ?? '') &&
-        /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(skillName ?? '') &&
-        path.endsWith('.md');
-      if (!insideSkillRefs && !insidePluginSkill) return deny;
-      base = insideSkillRefs ? skillsDir : pluginsDir;
+        skillsSegment === 'skills' &&
+        /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(skillName ?? '');
+      const [slug, kind, ...rest] = relative(skillsDir, path).split(sep);
+      const insideSkillRefs =
+        input.tool_name === 'Read' &&
+        hasMarkdown &&
+        kind === 'references' &&
+        rest.length > 0 &&
+        /^[a-z0-9][a-z0-9_-]*$/.test(slug ?? '');
+      if (!insidePluginSkill && !insideSkillRefs) return deny;
+      base = insidePluginSkill ? pluginsDir : skillsDir;
       writable = false;
     }
     const local = relative(base, path);
-    if (!local || local.startsWith(`..${sep}`) || local === '..' || isAbsolute(local)) return deny;
+    if (!inside(local)) return deny;
 
     try {
       // Recheck every call: neither a symlink nor a hard link may alias another agent's files.

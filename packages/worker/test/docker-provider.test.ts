@@ -156,6 +156,17 @@ describe('docker sandbox provider', () => {
     expect(args.join(' ')).toContain('--tmpfs /home/node/.claude:');
   });
 
+  it('mounts the definition workspace read-only and the outputs draft read-write', async () => {
+    const { args } = await create({
+      extraMounts: [{ hostPath: '/host/runs/run_1', containerPath: '/mnt/outputs' }],
+    });
+    const command = args.join(' ');
+    expect(command).toContain('-v /tmp/workspace:/workspace:ro');
+    expect(command).toContain('-v /host/runs/run_1:/mnt/outputs:rw');
+    // 显式只读挂载才会加 :ro；交付目录不能被当成定义目录。
+    expect(command).not.toContain('/mnt/outputs:ro');
+  });
+
   it('overrides the entrypoint only when asked', async () => {
     const probe = await create({ entrypoint: 'node' });
     expect(probe.args.join(' ')).toContain('--entrypoint node sandbox:test dist/probe.js');

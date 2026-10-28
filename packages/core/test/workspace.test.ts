@@ -76,3 +76,26 @@ describe('native todo tracking', () => {
     expect(claudeMd).toContain('简单');
   });
 });
+
+describe('delivered outputs section', () => {
+  it('tells the agent to write deliverables to the outputs mount and overwrite the same path', () => {
+    const { claudeMd } = renderWorkspace({ agent, servers: [] });
+
+    expect(claudeMd).toContain('/mnt/outputs/');
+    expect(claudeMd).toContain('同一路径');
+    // 记忆仍是 Markdown、范围仍是记忆目录：交付目录不是第二份记忆。
+    expect(claudeMd).toContain('/mnt/agent-memory/');
+    expect(claudeMd).toMatch(/原生记忆[^。]*Markdown/);
+  });
+
+  it('keeps sub-agents without file access in their own definition', () => {
+    const files = renderWorkspace({
+      agent,
+      servers: [],
+      subAgents: [{ slug: 'child', name: 'Child', model: 'm', systemPrompt: 'p', maxTurns: 3 }],
+    });
+
+    expect(files.claudeMd).toContain('/mnt/outputs/');
+    expect(files.subAgents[0]?.content).not.toContain('/mnt/outputs/');
+  });
+});

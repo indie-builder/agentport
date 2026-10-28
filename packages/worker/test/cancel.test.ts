@@ -268,5 +268,7 @@ describe.skipIf(!ready)('runInSandbox cancellation', () => {
     expect(outcome.failure).toMatchObject({ reason: 'cancelled' });
     expect(outcome.error).toBeUndefined();
     expect(isRetryable(outcome)).toBe(false);
+    // 但容器没停稳这件事必须传出去：调用方据此不发布产出快照。
+    expect(outcome.cleanupError).toBe('docker rm -f fake failed');
   });
 });

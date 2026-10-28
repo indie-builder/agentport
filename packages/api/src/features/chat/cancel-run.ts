@@ -1,11 +1,14 @@
 import { repo, schema } from '@agentport/db';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { getQueue, publishRun } from '../../queue/producer.js';
+import { getQueue, publishRun, requestRunCancel } from '../../queue/producer.js';
 
 /**
- * 把 run 推进到 cancelled 并发对应信号；只有真正发生状态迁移才返回 true。
- * queued → cancelled 用 CAS 与 worker claim 竞争，赢的一方负责终态事件。
+ * 请求取消一个 run；只有真正发出信号才返回 true。
+ *
+ * - queued：用 CAS 和 worker claim 竞争，赢下的一方直接写终态并发布 run_finished。
+ * - running：容器和已写文件由 worker 收尾，这里只发取消信号。
+ *   提前写终态会让 worker 的 updateRun（status='running'）落空，成果快照也会丢。
  */
 export async function cancelAgentRun(app: FastifyInstance, runId: string): Promise<boolean> {
   const [queued] = await app.db
@@ -24,9 +27,9 @@ export async function cancelAgentRun(app: FastifyInstance, runId: string): Promi
     return true;
   }
 
-  // CAS 失败：worker 可能已领取（running），也可能已终态；后者返回 false。
-  const cancelled = await repo.chat.cancelRun(app.db, runId);
-  if (!cancelled) return false;
-  await publishRun(runId, { type: 'cancel' });
-  return true;
+  // CAS 失败：worker 可能已领取（running），也可能已终态；后者不再发信号。
+  const run = await repo.chat.getRun(app.db, runId);
+  if (run?.status !== 'running') return false;
+  // 发布失败必须抛出：静默返回成功会让界面显示「正在停止」而容器继续跑。
+  return requestRunCancel(runId);
 }

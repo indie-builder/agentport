@@ -201,6 +201,102 @@ describe('skill reference read-only boundary', () => {
   });
 });
 
+describe('run outputs boundary', () => {
+  let outputs: string;
+  let outputHook: ReturnType<typeof createFileBoundaryHook>;
+
+  /** 记忆目录与产出目录是两个独立挂载，hook 按各自根判断。 */
+  const call = (tool: string, file_path: string, agentId?: string) =>
+    outputHook(
+      {
+        hook_event_name: 'PreToolUse',
+        session_id: 's',
+        transcript_path: '/tmp/t',
+        cwd: memory,
+        tool_name: tool,
+        tool_input: { file_path },
+        tool_use_id: 't',
+        ...(agentId === undefined ? {} : { agent_id: agentId }),
+      },
+      'tool',
+      { signal: new AbortController().signal },
+    );
+
+  beforeEach(async () => {
+    outputs = join(dir, 'outputs');
+    outputHook = createFileBoundaryHook(memory, join(dir, 'skills'), join(dir, 'plugins'), outputs);
+    await mkdir(join(outputs, 'reports'), { recursive: true });
+    await writeFile(join(outputs, 'reports', 'final.md'), '# final');
+    await writeFile(join(outputs, 'data.csv'), 'a,b');
+    await writeFile(join(outputs, 'sheet.xlsx'), 'binary');
+  });
+
+  it('lets the main agent read and write any delivered file type inside outputs', async () => {
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      for (const name of ['reports/final.md', 'data.csv', 'sheet.xlsx']) {
+        expect(await call(tool, join(outputs, name)), `${tool} ${name}`).toMatchObject(
+          decision('allow'),
+        );
+      }
+    }
+  });
+
+  it('allows Write to a missing nested outputs path but not a missing Read target', async () => {
+    const file_path = join(outputs, 'new', 'deep', 'report.md');
+    expect(await call('Write', file_path)).toMatchObject(decision('allow'));
+    expect(await call('Read', file_path)).toMatchObject(decision('deny'));
+  });
+
+  it('keeps memory markdown-only while outputs accept any file', async () => {
+    const notes = join(memory, 'notes.txt');
+    expect(await call('Write', notes)).toMatchObject(decision('deny'));
+    expect(await call('Write', join(outputs, 'notes.txt'))).toMatchObject(decision('allow'));
+  });
+
+  it('rejects sub-agent output access, traversal, and paths outside both roots', async () => {
+    await mkdir(join(dir, 'outputs-other'));
+    await writeFile(join(dir, 'outputs-other', 'secret.csv'), 'secret');
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      expect(await call(tool, join(outputs, 'data.csv'), 'child')).toMatchObject(decision('deny'));
+      for (const file_path of [
+        `${outputs}/../outside.md`,
+        `${outputs}/reports/../../outside.md`,
+        join(dir, 'outside.md'),
+        // 前缀相同但不是同一目录。
+        join(dir, 'outputs-other', 'secret.csv'),
+        outputs,
+        'data.csv',
+      ]) {
+        expect(await call(tool, file_path), file_path).toMatchObject(decision('deny'));
+      }
+    }
+  });
+
+  it('rejects symlinked or hard-linked output files and directories', async () => {
+    await symlink(join(dir, 'outside.md'), join(outputs, 'link.csv'));
+    await symlink(dir, join(outputs, 'linked-dir'));
+    await link(join(dir, 'outside.md'), join(outputs, 'hard.csv'));
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      for (const name of ['link.csv', 'linked-dir/outside.md', 'hard.csv']) {
+        expect(await call(tool, join(outputs, name)), name).toMatchObject(decision('deny'));
+      }
+    }
+  });
+
+  it('rejects a missing or symlinked outputs mount', async () => {
+    await rm(outputs, { recursive: true });
+    expect(await call('Write', join(outputs, 'new.csv'))).toMatchObject(decision('deny'));
+    await symlink(dir, outputs);
+    expect(await call('Read', join(outputs, 'outside.md'))).toMatchObject(decision('deny'));
+  });
+
+  it('keeps Glob/Grep/NotebookEdit denied', async () => {
+    for (const tool of ['Glob', 'Grep', 'NotebookEdit']) {
+      expect(await call(tool, join(outputs, 'data.csv'))).toMatchObject(decision('deny'));
+    }
+  });
+});
+
 describe('plugin skill read-only boundary', () => {
   let pluginHook: ReturnType<typeof createFileBoundaryHook>;
   let plugRoot: string;

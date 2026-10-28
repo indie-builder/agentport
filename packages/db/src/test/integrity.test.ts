@@ -67,6 +67,41 @@ describe('history integrity', () => {
     ]);
   });
 
+  it('returns the source → branch message id map for output snapshot copying', async () => {
+    const conv = newId('conversation');
+    const branchId = newId('conversation');
+    await chat.createConversation(db, { id: conv, agentId, title: 'map source' });
+    await db
+      .update(conversations)
+      .set({ sdkSessionId: '77777777-8888-4999-8aaa-bbbbbbbbbbbb' })
+      .where(eq(conversations.id, conv));
+    await chat.insertMessages(db, [
+      {
+        id: newId('message'),
+        conversationId: conv,
+        role: 'user',
+        content: { text: 'first' },
+        sdkMessageUuid: '11111111-2222-4333-8444-555555555555',
+      },
+      {
+        id: newId('message'),
+        conversationId: conv,
+        role: 'assistant',
+        content: { text: 'second' },
+        sdkMessageUuid: '22222222-3333-4444-8555-666666666666',
+      },
+    ]);
+    const source = await chat.listMessages(db, conv);
+
+    const branched = await chat.branchConversation(db, { id: branchId, conversationId: conv });
+    if (!branched) throw new Error('branchConversation returned null');
+    // 映射只含被复制的历史消息，且新 id 全部指向分支里的真实行。
+    expect(Object.keys(branched.messageIds).sort()).toEqual(source.map((row) => row.id).sort());
+    const copies = await chat.listMessages(db, branchId);
+    expect(copies.map((row) => row.id).sort()).toEqual(Object.values(branched.messageIds).sort());
+    expect(copies.map((row) => row.content)).toEqual(source.map((row) => row.content));
+  });
+
   it('keeps SDK session state consistent through the run finish path', async () => {
     const conv = newId('conversation');
     const runId = newId('run');

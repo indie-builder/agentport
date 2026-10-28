@@ -9,7 +9,7 @@ import {
   sandboxTaskSchema,
 } from '@agentport/shared';
 import { forkSession, query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { createFileBoundaryHook } from './memory-permissions.js';
+import { createFileBoundaryHook, OUTPUTS_DIR } from './memory-permissions.js';
 import { createSubAgentBoundaryHook } from './sub-agent-permissions.js';
 
 /**
@@ -243,6 +243,9 @@ const allowedTools = [
   ...(task.plugins.length === 0 ? [] : ['Read(//workspace/.claude/plugins/*/skills/*/**)']),
   // Edit(path) also authorizes Write; Write(path) is not a file permission rule.
   `Edit(/${memoryDirectory}/**)`,
+  // 本轮产出草稿：独立 rw 挂载，交付文件用原生 Read/Write/Edit 直接写这里。
+  `Read(/${OUTPUTS_DIR}/**)`,
+  `Edit(/${OUTPUTS_DIR}/**)`,
   ...task.mcpServers.map((name) => `mcp__${name}__*`),
   // 插件 MCP 只在绑定方显式授权后才出现在 task.plugins 里。
   ...pluginServers.map((server) => `mcp__${server}__*`),

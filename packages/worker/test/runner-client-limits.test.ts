@@ -340,6 +340,20 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
       fields: expect.objectContaining({ runId, sandbox: 'fake' }),
       message: 'sandbox cleanup failed',
     });
+    // 调用方要据此判断「容器可能还在写文件」：失败的清理必须显式带出，而不是只进日志。
+    expect(outcome.cleanupError).toBe('docker rm -f fake failed');
+
+    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    await redis.del(runStreamKey(runId));
+    redis.disconnect();
+  });
+
+  it('reports no cleanupError when the sandbox stopped cleanly', async () => {
+    const runId = `run-cleanup-${randomUUID()}`;
+    const { outcome } = await runWith([{ type: 'run_finished', status: 'succeeded' }], runId);
+
+    expect(outcome.cleanupError).toBeUndefined();
+    expect(outcome).not.toHaveProperty('cleanupError');
 
     const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
     await redis.del(runStreamKey(runId));

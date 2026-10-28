@@ -1,8 +1,9 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Agent } from '@agentport/shared';
-import { chatEventSchema } from '@agentport/shared';
+import { chatEventSchema, RUN_CANCEL_PAYLOAD, runCancelKey } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
+import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildMessageRows } from '../../worker/src/messages.js';
 import { getQueue } from '../src/queue/producer.js';
@@ -15,6 +16,7 @@ import {
   loginCookie,
   queueIdle,
   startApp,
+  testConfig,
   unique,
 } from './helpers.js';
 
@@ -24,6 +26,7 @@ const ready = (await infraReady) && (await queueIdle);
 describe.skipIf(!ready)('chat', () => {
   let app: FastifyInstance;
   let cookie: string;
+  let testRedis: Redis;
   const createdAgents: string[] = [];
   const runIds: string[] = [];
   const createdServers: string[] = [];
@@ -31,6 +34,7 @@ describe.skipIf(!ready)('chat', () => {
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
+    testRedis = new Redis(testConfig().REDIS_URL);
   });
 
   afterAll(async () => {
@@ -41,6 +45,7 @@ describe.skipIf(!ready)('chat', () => {
         .then((job) => job?.remove())
         .catch(() => undefined);
     }
+    await testRedis.quit().catch(() => undefined);
     await cleanup(app, { agentSlugs: createdAgents, runIds, serverNames: createdServers });
     await app.close();
   });
@@ -439,7 +444,7 @@ describe.skipIf(!ready)('chat', () => {
     expect(await cancelAuditCount(runId)).toBe(1);
   });
 
-  it('cancel of a running run keeps the queued job untouched', async () => {
+  it('cancel of a running run keeps the queued job untouched and leaves the terminal state to the worker', async () => {
     const agent = await newAgent();
     const created = await inject(app, {
       method: 'POST',
@@ -458,8 +463,10 @@ describe.skipIf(!ready)('chat', () => {
       headers: auth(),
     });
     expect(res.statusCode, res.body).toBe(202);
-    expect(await runStatus(runId)).toBe('cancelled');
+    // 终态由 worker 写完消息与产出后落库；API 只发信号，不抢 worker 的 updateRun。
+    expect(await runStatus(runId)).toBe('running');
     expect(await getQueue().getJob(runId)).toBeDefined();
     expect(await cancelAuditCount(runId)).toBe(1);
+    expect(await testRedis.get(runCancelKey(runId))).toBe(RUN_CANCEL_PAYLOAD);
   });
 });

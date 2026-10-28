@@ -7,6 +7,7 @@ export * from './mcp-token.js';
 export * from './official-files.js';
 export * from './openui-prompt.js';
 export * from './openui-response.js';
+export * from './outputs.js';
 export * from './plugin-render.js';
 export * from './process-guards.js';
 export * from './secrets.js';

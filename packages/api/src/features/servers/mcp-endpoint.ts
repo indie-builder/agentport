@@ -8,6 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { reject } from '../../plugins/errors.js';
 import { mcpRateLimit } from '../../plugins/security.js';
+import { isRunCancelRequested } from '../../queue/producer.js';
 import { typed } from '../../types.js';
 import { buildKnowledgeServer } from '../knowledge/mcp.js';
 import { bearerToken, tokenMatches } from './bearer.js';
@@ -49,7 +50,10 @@ function handlerFor(app: FastifyInstance, serverId: string, runId: string | null
         : {
             refreshApprovals: () => repo.runs.getApprovedToolNames(app.db, trustedRunId, serverId),
             // run 结束后挂起的调用要立刻停下，不能等批准或把请求发到上游。
-            isRunActive: () => repo.runs.isRunActive(app.db, trustedRunId),
+            // running 的取消只发 Redis 信号，终态由 worker 收尾；等待方据此提前停止。
+            isRunActive: async () =>
+              (await repo.runs.isRunActive(app.db, trustedRunId)) &&
+              !(await isRunCancelRequested(trustedRunId)),
             onApprovalRequired: (toolName, expiresAt) =>
               repo.runs.requestApproval(app.db, {
                 runId: trustedRunId,

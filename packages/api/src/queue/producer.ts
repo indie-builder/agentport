@@ -15,9 +15,6 @@ import {
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 
-/** worker 用 ChatEvent 回传，API 用 cancel 通知 worker 终止。 */
-export type RunSignal = ChatEvent | { type: 'cancel' };
-
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
 /**
@@ -188,21 +185,8 @@ function throwOnCommandError(results: [Error | null, unknown][] | null): void {
   }
 }
 
-export async function publishRun(runId: string, event: RunSignal): Promise<void> {
+export async function publishRun(runId: string, event: ChatEvent): Promise<void> {
   const redis = getClient();
-  // cancel 走独立键：它不是 ChatEvent，也不该出现在事件流里被前端看到。
-  if (event.type === 'cancel') {
-    const key = runCancelKey(runId);
-    throwOnCommandError(
-      await redis
-        .pipeline()
-        .set(key, RUN_CANCEL_PAYLOAD, 'EX', STREAM_TTL_SECONDS)
-        .publish(key, RUN_CANCEL_PAYLOAD)
-        .exec(),
-    );
-    return;
-  }
-
   const key = runStreamKey(runId);
   // 事件流不会被读取者删除（可回放），单独给 TTL 兜底；两条命令合成一次往返。
   throwOnCommandError(
@@ -212,6 +196,30 @@ export async function publishRun(runId: string, event: RunSignal): Promise<void>
       .expire(key, STREAM_TTL_SECONDS)
       .exec(),
   );
+}
+
+/**
+ * running 运行的取消信号：只发通知，终态由 worker 停止容器、写完消息与产出后落库。
+ * 键本身也是信号（worker 订阅后先查一次），`publish` 负责唤醒已订阅的 worker；
+ * NX 让重复点击只写一条审计。
+ */
+export async function requestRunCancel(runId: string): Promise<boolean> {
+  const redis = getClient();
+  const key = runCancelKey(runId);
+  const replies = await redis
+    .pipeline()
+    .set(key, RUN_CANCEL_PAYLOAD, 'EX', STREAM_TTL_SECONDS, 'NX')
+    .publish(key, RUN_CANCEL_PAYLOAD)
+    .exec();
+  throwOnCommandError(replies);
+  // SET NX 已有键时返回 null：这次没有真正发出新信号。
+  const setResult = replies?.[0]?.[1];
+  return setResult !== null && setResult !== undefined;
+}
+
+/** 挂起的工具调用据此在 worker 收尾前就停止等待。 */
+export async function isRunCancelRequested(runId: string): Promise<boolean> {
+  return (await getClient().exists(runCancelKey(runId))) === 1;
 }
 
 export interface RunSubscription {
