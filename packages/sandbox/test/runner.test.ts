@@ -357,6 +357,9 @@ describe('runner task wiring', () => {
     expect(options.allowedTools).toEqual(
       expect.arrayContaining(['Read(//mnt/outputs/**)', 'Edit(//mnt/outputs/**)']),
     );
+    // 附件目录只读：主会话可用原生 Read 读取，不能写。
+    expect(options.allowedTools).toContain('Read(//mnt/inputs/**)');
+    expect(options.allowedTools).not.toContain('Edit(//mnt/inputs/**)');
     // 记忆仍只允许 Markdown（hook 逐次校验），产出目录不限类型。
     expect(options.allowedTools).toContain('Read(//mnt/agent-memory/**)');
     expect(options.disallowedTools).toContain('Bash');

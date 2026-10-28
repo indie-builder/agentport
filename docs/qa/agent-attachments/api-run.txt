@@ -1,0 +1,22 @@
+已登录（live_57da50c4287e）
+已创建专家 live-6eee2a9e38ed（model=group/flash）
+会话详情保留 3 个附件元数据 ✓
+第一轮 Read 三个 /mnt/inputs 附件 ✓
+report.md 内容顺序、下载与磁盘 sha256 一致 ✓
+三个附件下载 200 且 sha256 与夹具一致 ✓
+第二轮重新 Read 历史 CSV 并产出 second.md ✓
+已按历史点分支 conv_01m619fd72enatec8b1bbcq6jy
+已删除源会话
+删除源会话后分支附件下载 200 且内容一致 ✓
+分支续聊读取原附件并产出 branch.md ✓
+另一会话下载附件 404 ✓
+伪 PNG 与超限文件均 400 ✓
+
+PASS
+  第一轮会话: conv_01m619czwwenatec6mxd7wdp9t / run run_01m619czx1enatec6vgmk17svs
+  第二轮流:   run run_01m619f443enatec7gxgjm6dxf
+  分支会话:   conv_01m619fd72enatec8b1bbcq6jy / run run_01m619fd85enatec9f75c7vmb5
+  专家:       live-6eee2a9e38ed (agt_01m619czwjenatec5ttcxfw5jg)
+
+
+[exited with code 0]

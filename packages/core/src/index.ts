@@ -1,4 +1,5 @@
 export * from './agent-md.js';
+export * from './attachments.js';
 export * from './effect-runtime.js';
 export * from './errors.js';
 export * from './knowledge-models.js';

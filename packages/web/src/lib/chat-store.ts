@@ -69,6 +69,8 @@ interface ChatWorkspaceState {
   lastRunId: string | null;
   /** 「基于此版本修改」选中的成果；随下次发送一次性带走，切会话不保留。 */
   outputRef: OutputRef | null;
+  /** 待发送资料；只在内存里，随本次发送消费，切会话/专家不串带。 */
+  pendingAttachments: File[];
   historyOpen: boolean;
   setConversationId: (conversationId: string | null) => void;
   setItems: (items: ChatItem[] | ((previous: ChatItem[]) => ChatItem[])) => void;
@@ -82,6 +84,7 @@ interface ChatWorkspaceState {
   setLastRun: (run: RunMetrics | null) => void;
   setLastRunId: (runId: string | null) => void;
   setOutputRef: (ref: OutputRef | null) => void;
+  setPendingAttachments: (files: File[]) => void;
   setHistoryOpen: (open: boolean) => void;
   /**
    * 切换会话：清空消息与本轮运行结果，并载入目标会话自己的草稿。
@@ -98,6 +101,7 @@ const initial = {
   lastRun: null,
   lastRunId: null,
   outputRef: null,
+  pendingAttachments: [] as File[],
   historyOpen: false,
 };
 
@@ -115,7 +119,13 @@ export const useChatStore = create<ChatWorkspaceState>()((set) => ({
           writeDraft(null, '');
         }
       }
-      return { conversationId };
+      return {
+        conversationId,
+        // 换到另一个已有会话才清空未发送资料；新会话首次落 URL 是接受发送的结果，交给发送方按身份清理。
+        ...(state.conversationId !== null && state.conversationId !== conversationId
+          ? { pendingAttachments: [] }
+          : {}),
+      };
     }),
   setItems: (items) =>
     set((state) => ({
@@ -136,6 +146,7 @@ export const useChatStore = create<ChatWorkspaceState>()((set) => ({
   setLastRun: (lastRun) => set({ lastRun }),
   setLastRunId: (lastRunId) => set({ lastRunId }),
   setOutputRef: (outputRef) => set({ outputRef }),
+  setPendingAttachments: (pendingAttachments) => set({ pendingAttachments }),
   setHistoryOpen: (historyOpen) => set({ historyOpen }),
   resetConversation: (conversationId, carryInput = false) =>
     set((state) => {
@@ -151,6 +162,7 @@ export const useChatStore = create<ChatWorkspaceState>()((set) => ({
         lastRun: null,
         lastRunId: null,
         outputRef: null,
+        pendingAttachments: [],
       };
     }),
   reset: () => {

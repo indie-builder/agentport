@@ -1,6 +1,7 @@
 import {
   type ChatEvent,
   type ConversationMessage,
+  messageAttachments,
   type ProgressTodo,
   type PublicRunQuestion,
   progressTodoSchema,
@@ -8,8 +9,23 @@ import {
 } from '@agentport/shared';
 import type { ConversationDetail } from './api.js';
 
+/** 用户消息上的附件：只有历史项带下载地址，刚发送的乐观项只展示元数据。 */
+export interface UserAttachment {
+  id?: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  downloadUrl?: string;
+}
+
 export type ChatItem =
-  | { id?: string; kind: 'user'; text: string; messageId?: string }
+  | {
+      id?: string;
+      kind: 'user';
+      text: string;
+      attachments?: UserAttachment[];
+      messageId?: string;
+    }
   | {
       id?: string;
       kind: 'text';
@@ -313,6 +329,26 @@ export function questionFromContent(content: unknown): PublicRunQuestion | undef
   return parsed.success ? parsed.data : undefined;
 }
 
+/** 附件下载地址只由会话与附件 id 决定；历史消息与刚发送的消息共用。 */
+export function attachmentDownloadUrl(conversationId: string, attachmentId: string): string {
+  return `/api/conversations/${encodeURIComponent(conversationId)}/attachments/${encodeURIComponent(attachmentId)}/download`;
+}
+
+/** 历史用户消息的附件；损坏数据由 shared 契约整体丢弃，不拖垮整段历史。 */
+function historyAttachments(
+  content: unknown,
+  conversationId: string | undefined,
+): UserAttachment[] {
+  return messageAttachments(content).map(({ id, filename, mimeType, size }) => ({
+    id,
+    filename,
+    mimeType,
+    size,
+    // 只有落库消息才有真实会话与附件 id；运行详情重建的合成 id 不能拼下载地址。
+    ...(conversationId ? { downloadUrl: attachmentDownloadUrl(conversationId, id) } : {}),
+  }));
+}
+
 /** DB 里存的是 SDK 原始内容块；历史渲染只挑可读部分，工具调用按 tool_use_id 合并结果。 */
 export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
   const items: ChatItem[] = [];
@@ -325,8 +361,10 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
       // 运行详情重建的步骤没有真实 conversationId，id 是合成的，不能作为分支锚点。
       const anchor = message.conversationId ? { messageId: message.id } : {};
       const text = blockText(content);
+      const attachments = historyAttachments(content, message.conversationId);
+      const extra = attachments.length > 0 ? { attachments } : {};
       if (text !== null) {
-        items.push({ id: `${message.id}:0`, kind: 'user', text, ...anchor });
+        items.push({ id: `${message.id}:0`, kind: 'user', text, ...extra, ...anchor });
         continue;
       }
       if (Array.isArray(content)) {
@@ -334,7 +372,9 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
           .map(blockText)
           .filter((part): part is string => part !== null)
           .join('\n');
-        if (joined) items.push({ id: `${message.id}:0`, kind: 'user', text: joined, ...anchor });
+        if (joined || attachments.length > 0) {
+          items.push({ id: `${message.id}:0`, kind: 'user', text: joined, ...extra, ...anchor });
+        }
       }
       continue;
     }

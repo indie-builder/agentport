@@ -34,8 +34,11 @@ RUN pnpm --filter @agentport/api deploy --prod /out/api \
 # 必须放在 runtime 之前，默认 target 仍是 api/worker 镜像。
 FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS sandbox
 
-# 原生插件安装由官方 CLI 克隆市场仓库，需要 git；不装其余工具。
-RUN apk add --no-cache git
+# git：原生插件安装由官方 CLI 克隆市场仓库；poppler-utils：官方长 PDF 分页读取依赖
+# （pdftoppm/pdfinfo）。不装其余工具。
+RUN apk add --no-cache git poppler-utils \
+ && command -v pdftoppm \
+ && command -v pdfinfo
 
 WORKDIR /app
 COPY --from=build --chown=node:node /out/sandbox ./

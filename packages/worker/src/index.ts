@@ -20,6 +20,7 @@ import {
   effortSchema,
   evalRunJobSchema,
   knowledgeMcpEntry,
+  messageAttachments,
   permissionModeSchema,
   previewMcpEntry,
   RUNS_QUEUE,
@@ -30,6 +31,7 @@ import {
 import { Worker } from 'bullmq';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
+import { conversationInputsMount, promptWithAttachments } from './attachments.js';
 import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
 import { readForkUuidMap } from './fork-uuids.js';
@@ -516,9 +518,9 @@ const worker = new Worker(
       // 用户可能在消息里选择了一个已交付文件作为修改对象：复制成草稿并在提示里给出路径。
       const chosenOutput = selectedOutput(userMessage.content);
       // 动作回传要把上下文与表单值一起交给模型；纯文本消息仍是原文。
-      const taskPrompt = promptWithSelectedOutput(
-        promptWithOpenUiAction(userMessage.content, prompt),
-        chosenOutput,
+      const taskPrompt = promptWithAttachments(
+        promptWithSelectedOutput(promptWithOpenUiAction(userMessage.content, prompt), chosenOutput),
+        messageAttachments(userMessage.content),
       );
       // 非浏览器入口（定时、评估、外部调用）不经过准入；uuid 由平台生成后显式发给 SDK，
       // 因此它仍是真实 transcript 身份，不是事后拼的映射。
@@ -624,8 +626,8 @@ const worker = new Worker(
       logger.info({ runId, agentId, workspaceDir }, 'agent run started');
 
       // 持久目录不在 run 清理范围。容器部署时 API/worker/sandbox 都是 uid 1000，
-      // 用 0700 只允许同用户访问；非容器（本地 pnpm dev，uid 非 1000）同样可行，
-      // 因为三者以同一宿主用户运行，跨 UID 不成立。真正的边界是文件权限与目录归属。
+      // 用 0700 只允许同用户访问；Compose 三端同为 uid 1000 才能保证读写，
+      // 宿主直跑（如本地 pnpm dev 用非 1000 UID）时沙盒可能无法访问，需用 Compose。
       const memoryHostDir = join(workspacesDir, agent.slug, 'agent-memory');
       await mkdir(memoryHostDir, { recursive: true, mode: 0o700 });
       const memoryDir = await lstat(memoryHostDir);
@@ -648,6 +650,14 @@ const worker = new Worker(
           `SDK session storage path must be a real directory: ${sessionsHostDir}. See docs/OPERATIONS.md.`,
         );
       }
+
+      // 本会话附件目录由 API 写入；只有存在时才只读挂载，历史附件路径因此跨轮仍可读。
+      const inputsMount = await conversationInputsMount({
+        workspacesDir,
+        hostWorkspacesDir,
+        slug: agent.slug,
+        conversationId,
+      });
 
       // 草稿以最新完整快照为基线，仅用用户所选旧版覆盖指定文件。
       // 独立 rw 挂载到 /mnt/outputs，定义挂载 /workspace 仍只读。
@@ -720,6 +730,7 @@ const worker = new Worker(
             // 本轮产出草稿：独立 rw 目录，容器停稳后才发布成快照。
             ...outputsMount(preparedOutputs.hostPath),
           },
+          ...(inputsMount === null ? [] : [inputsMount]),
         ],
         provider,
         logger: logger.child({ runId }),

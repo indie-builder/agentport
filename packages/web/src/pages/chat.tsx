@@ -1,4 +1,6 @@
 import {
+  ATTACHMENT_LIMITS,
+  attachmentMimeForFilename,
   conversationRenameSchema,
   type OpenUiAction,
   type OpenUiToolResult,
@@ -18,6 +20,8 @@ import {
   CircleAlert,
   CircleCheck,
   CircleStop,
+  Download,
+  FileText,
   GitBranch,
   ListChecks,
   LoaderCircle,
@@ -118,7 +122,7 @@ import {
 } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
-import { formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
+import { formatBytes, formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
 import {
   useAgents,
   useConversation,
@@ -1525,6 +1529,33 @@ function ChatColumn({
   );
 }
 
+/** 与 shared 扩展名映射保持一致：映射不接受的写法不会进入选择器。 */
+const ATTACHMENT_ACCEPT = [
+  'txt',
+  'md',
+  'csv',
+  'tsv',
+  'json',
+  'jsonl',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'pdf',
+]
+  .filter((extension) => attachmentMimeForFilename(`file.${extension}`) !== null)
+  .map((extension) => `.${extension}`)
+  .join(',');
+
+/** 单文件上限按规范类型取，类型本身由 shared 扩展名映射决定。 */
+function attachmentLimitFor(filename: string): number | null {
+  const mime = attachmentMimeForFilename(filename);
+  if (mime === null) return null;
+  if (mime === 'application/pdf') return ATTACHMENT_LIMITS.pdfBytes;
+  return mime.startsWith('image/') ? ATTACHMENT_LIMITS.imageBytes : ATTACHMENT_LIMITS.textBytes;
+}
+
 /** 输入与底部操作共用 InputGroup 的一层焦点边框。 */
 export function Composer({
   agent,
@@ -1554,12 +1585,17 @@ export function Composer({
   const run = useChatStore((state) => state.run);
   const outputRef = useChatStore((state) => state.outputRef);
   const setOutputRef = useChatStore((state) => state.setOutputRef);
-  // Enter 与发送按钮共用：每次提交都覆盖交班意图，只有欢迎态、正文非空且焦点原本在输入框才交接。
+  const pendingAttachments = useChatStore((state) => state.pendingAttachments);
+  const setPendingAttachments = useChatStore((state) => state.setPendingAttachments);
+  const hasContent = Boolean(input.trim()) || pendingAttachments.length > 0;
+  const attachmentsLocked = !agent || !historyReady || Boolean(run);
+
+  // Enter 与发送按钮共用：每次提交都覆盖交班意图，只有欢迎态、有内容且焦点原本在输入框才交接。
   const submit = (): void => {
     if (!historyReady || run) return;
     if (focusHandoff)
       focusHandoff.current =
-        welcome && Boolean(input.trim()) && document.activeElement === textareaRef.current;
+        welcome && hasContent && document.activeElement === textareaRef.current;
     void send();
   };
   return (
@@ -1590,6 +1626,40 @@ export function Composer({
               </Button>
             </div>
           ) : null}
+          {pendingAttachments.length > 0 ? (
+            <ul
+              aria-label="待发送资料"
+              className="flex w-full min-w-0 flex-wrap items-center gap-2 px-4 pt-3"
+            >
+              {pendingAttachments.map((file, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 同名文件可重复选择，位置即身份
+                <li key={`${file.name}-${index}`} className="flex min-w-0 items-center gap-1">
+                  <Badge variant="outline" className="min-w-0 max-w-full">
+                    <FileText aria-hidden="true" />
+                    <span className="truncate">{file.name}</span>
+                    <span className="shrink-0 text-2xs text-muted-foreground">
+                      {formatBytes(file.size)}
+                    </span>
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`移除 ${file.name}`}
+                    title="移除资料"
+                    disabled={Boolean(run)}
+                    onClick={() =>
+                      setPendingAttachments(
+                        pendingAttachments.filter((_, position) => position !== index),
+                      )
+                    }
+                    className="text-muted-foreground"
+                  >
+                    <X />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <InputGroupTextarea
             ref={textareaRef}
             aria-label="消息"
@@ -1613,6 +1683,7 @@ export function Composer({
           />
           <InputGroupAddon align="block-end" className="justify-between gap-3 px-4 pb-3 pt-0">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs font-normal text-muted-foreground">
+              <AttachmentPicker disabled={attachmentsLocked} />
               <span className="hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>
               {lastRunId ? (
                 <Link
@@ -1643,7 +1714,7 @@ export function Composer({
                 type="submit"
                 variant="default"
                 size="icon-sm"
-                disabled={!agent || Boolean(run) || !input.trim() || !historyReady}
+                disabled={!agent || Boolean(run) || !hasContent || !historyReady}
                 aria-label="发送消息"
                 title={run ? '本轮结束后可发送' : undefined}
                 className="ml-auto size-11 sm:size-8"
@@ -1655,6 +1726,79 @@ export function Composer({
         </InputGroup>
       </div>
     </form>
+  );
+}
+
+/**
+ * 资料选择：本地错误与文件框只在真正渲染时用 React 状态。
+ * Composer 保持可直接调用（键盘单测），因此不在这里以外新增 hook。
+ */
+function AttachmentPicker({ disabled }: { disabled: boolean }) {
+  const pendingAttachments = useChatStore((state) => state.pendingAttachments);
+  const setPendingAttachments = useChatStore((state) => state.setPendingAttachments);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const pick = (files: FileList | null): void => {
+    if (!files || files.length === 0) return;
+    const selected = [...files];
+    if (pendingAttachments.length + selected.length > ATTACHMENT_LIMITS.count) {
+      setError(`最多添加 ${ATTACHMENT_LIMITS.count} 个资料`);
+      return;
+    }
+    let total = pendingAttachments.reduce((sum, file) => sum + file.size, 0);
+    for (const file of selected) {
+      const limit = attachmentLimitFor(file.name);
+      if (limit === null) {
+        setError(`不支持「${file.name}」的文件类型`);
+        return;
+      }
+      if (file.size > limit) {
+        setError(`「${file.name}」超过 ${formatBytes(limit)}`);
+        return;
+      }
+      total += file.size;
+    }
+    if (total > ATTACHMENT_LIMITS.totalBytes) {
+      setError(`资料合计不能超过 ${formatBytes(ATTACHMENT_LIMITS.totalBytes)}`);
+      return;
+    }
+    setPendingAttachments([...pendingAttachments, ...selected]);
+    setError(null);
+  };
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={ATTACHMENT_ACCEPT}
+        className="hidden"
+        tabIndex={-1}
+        aria-label="选择资料文件"
+        disabled={disabled}
+        onChange={(event) => {
+          pick(event.target.files);
+          event.target.value = '';
+        }}
+      />
+      <InputGroupButton
+        size="icon-sm"
+        aria-label="添加资料"
+        title="添加资料（文本、图片、PDF）"
+        disabled={disabled}
+        onClick={() => inputRef.current?.click()}
+        className="size-11 shrink-0 sm:size-8"
+      >
+        <Paperclip />
+      </InputGroupButton>
+      {error ? (
+        <span role="alert" className="min-w-0 text-danger [overflow-wrap:anywhere]">
+          {error}
+        </span>
+      ) : null}
+    </>
   );
 }
 
@@ -2313,8 +2457,44 @@ const MessagePart = memo(function MessagePart({
       : openUi;
   switch (item.kind) {
     case 'user':
-      // 不覆盖行高：气泡与助手正文共用 md 的阅读行高。
-      return <p className="whitespace-pre-wrap break-words">{item.text}</p>;
+      // 不覆盖行高：气泡与助手正文共用 md 的阅读行高。附图消息可以没有正文。
+      return (
+        <div className="flex min-w-0 flex-col gap-2">
+          {item.text ? <p className="whitespace-pre-wrap break-words">{item.text}</p> : null}
+          {item.attachments && item.attachments.length > 0 ? (
+            <ul aria-label="附件" className="flex min-w-0 flex-wrap gap-2">
+              {item.attachments.map((attachment, index) => (
+                <li
+                  key={attachment.id ?? `${attachment.filename}-${index}`}
+                  className="flex min-w-0"
+                >
+                  {/* 历史项才有下载地址：整枚标签就是链接，键盘与读屏都能直接触发。 */}
+                  <Badge
+                    variant="outline"
+                    render={
+                      attachment.downloadUrl ? (
+                        // biome-ignore lint/a11y/useAnchorContent: 名称由 aria-label 提供，可见内容由 Badge 子节点注入
+                        <a
+                          href={attachment.downloadUrl}
+                          aria-label={`下载 ${attachment.filename}（${formatBytes(attachment.size)}）`}
+                        />
+                      ) : undefined
+                    }
+                    className="min-w-0 max-w-full"
+                  >
+                    <FileText aria-hidden="true" />
+                    <span className="truncate">{attachment.filename}</span>
+                    <span className="shrink-0 text-2xs text-muted-foreground">
+                      {formatBytes(attachment.size)}
+                    </span>
+                    {attachment.downloadUrl ? <Download aria-hidden="true" /> : null}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      );
     case 'text':
       return (
         <>
