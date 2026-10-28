@@ -272,6 +272,9 @@ export function useChatStream({
           void client.invalidateQueries({
             queryKey: ['conversation', accepted.conversationId],
           });
+          void client.invalidateQueries({
+            queryKey: ['conversation-outputs', accepted.conversationId],
+          });
           void client.invalidateQueries({ queryKey: ['conversations'] });
           return;
         }
@@ -320,6 +323,9 @@ export function useChatStream({
           });
           void client.invalidateQueries({
             queryKey: ['conversation', accepted.conversationId],
+          });
+          void client.invalidateQueries({
+            queryKey: ['conversation-outputs', accepted.conversationId],
           });
           void client.invalidateQueries({ queryKey: ['conversations'] });
           // 截断后流里只有部分事件：用落库的完整步骤替换本轮尾部。
@@ -470,6 +476,7 @@ export function useChatStream({
   const send = async (text?: string, action?: ChatRequest['openuiAction']): Promise<void> => {
     const store = useChatStore.getState();
     const { input, items, run, conversationId } = store;
+    const outputRef = text === undefined ? store.outputRef : null;
     const body = (text ?? input).trim();
     if (!mountedRef.current || !body || !agentId || run) return;
     if (conversationId !== null && hydratedRef.current !== conversationId) return;
@@ -497,10 +504,14 @@ export function useChatStream({
         message: body,
         ...(conversationId ? { conversationId } : {}),
         ...(action ? { openuiAction: action } : {}),
+        // 引用只跟随用户自己发送的正文；组件动作不带走未发出的引用。
+        ...(outputRef ? { output: outputRef } : {}),
       });
       if (!ownsRequest()) return;
       store.setConversationId(accepted.conversationId);
       store.setLastRunId(accepted.runId);
+      // 只消费本次发送的引用；等待期间重新挂的引用留给下一次，失败时也保留。
+      if (outputRef && useChatStore.getState().outputRef === outputRef) store.setOutputRef(null);
       hydratedRef.current = accepted.conversationId;
       store.setRun({ ...accepted, status: 'streaming', startedAt: startedAtRef.current });
       onAccepted(accepted, body);
@@ -569,6 +580,9 @@ export function useChatStream({
         ...(detail.error === null ? {} : { error: detail.error }),
       });
       void client.invalidateQueries({ queryKey: ['conversations', agentId] });
+      void client.invalidateQueries({
+        queryKey: ['conversation-outputs', current.conversationId],
+      });
     },
     [closeStream, client, agentId],
   );

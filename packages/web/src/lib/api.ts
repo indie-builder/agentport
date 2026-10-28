@@ -26,6 +26,8 @@ import type {
   NativePluginImportInput,
   NativePluginInstallInput,
   OpenUiToolResult,
+  OutputContent,
+  OutputList,
   OutputStyle,
   OverviewTimeseriesPoint,
   Plugin,
@@ -843,6 +845,33 @@ export const api = {
     const query = params.size > 0 ? `?${params.toString()}` : '';
     return request(`/conversations/${id}${query}`, 'GET', undefined, signal);
   },
+  /** 会话成果按版本倒序分页；同一路径的多版由调用方分组，后端不做合并。 */
+  outputs: (
+    conversationId: string,
+    options: { limit?: number; before?: string } = {},
+    signal?: AbortSignal,
+  ): Promise<OutputList> => {
+    const params = new URLSearchParams();
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    if (options.before !== undefined) params.set('before', options.before);
+    const query = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/conversations/${conversationId}/outputs${query}`, 'GET', undefined, signal);
+  },
+  /** 文本预览只读已发布快照；超过后端上限时返回明确错误，由页面改为下载。 */
+  outputContent: (
+    conversationId: string,
+    runId: string,
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<OutputContent> =>
+    request(
+      `/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}/content?path=${encodeURIComponent(path)}`,
+      'GET',
+      undefined,
+      signal,
+    ),
+  outputDownloadUrl: (conversationId: string, runId: string, path: string): string =>
+    `/api/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}/download?path=${encodeURIComponent(path)}`,
   branchConversation: (id: string, fromMessageId?: string): Promise<{ id: string }> =>
     request(`/conversations/${id}/branch`, 'POST', {
       ...(fromMessageId === undefined ? {} : { fromMessageId }),

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { effortSchema, permissionModeSchema } from './agent.js';
 import { openUiActionSchema } from './openui/protocol.js';
+import { outputRefSchema } from './outputs.js';
 
 /**
  * 官方可移植的 TodoWrite 开关：专家包 `.claude/settings.json` 与沙盒运行时共用这一份值。
@@ -38,6 +39,11 @@ export const chatRequestSchema = z
      * `message` 仍是展示与落库的用户文本。
      */
     openuiAction: openUiActionSchema.optional(),
+    /**
+     * 「基于此版本修改」：用户选中的已发布快照文件随消息持久化。
+     * 归属校验与草稿复制在 API/worker 侧完成，队列格式不变。
+     */
+    output: outputRefSchema.optional(),
   })
   // 字段名拼错必须报错：这条请求体曾因 strip 模式静默丢掉动作值。
   .strict();

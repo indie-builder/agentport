@@ -14,6 +14,7 @@ export * from './mcp.js';
 export * from './native-plugins.js';
 export * from './openui/index.js';
 export * from './ops.js';
+export * from './outputs.js';
 export * from './params.js';
 export * from './plugin.js';
 export * from './run-stream.js';

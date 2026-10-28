@@ -6,7 +6,12 @@ import {
 } from '@agentport/shared';
 import { Redis } from 'ioredis';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
+import {
+  closeProducer,
+  publishRun,
+  requestRunCancel,
+  subscribeRun,
+} from '../src/queue/producer.js';
 
 const mockState = vi.hoisted(() => ({
   pipelines: [] as Array<Record<string, ReturnType<typeof vi.fn>>>,
@@ -137,11 +142,14 @@ describe('producer shared stream contract', () => {
   });
 
   it('batches the cancel flag and notification under the shared cancel key', async () => {
-    await publishRun('run-1', { type: 'cancel' });
+    expect(await requestRunCancel('run-1')).toBe(true);
     const pipe = mockState.pipelines.at(-1);
-    expect(pipe?.set).toHaveBeenCalledWith(runCancelKey('run-1'), '1', 'EX', 3600);
+    // NX：重复取消不重复写审计，也不重复打扰 worker。
+    expect(pipe?.set).toHaveBeenCalledWith(runCancelKey('run-1'), '1', 'EX', 3600, 'NX');
     expect(pipe?.publish).toHaveBeenCalledWith(runCancelKey('run-1'), '1');
     expect(pipe?.exec).toHaveBeenCalledTimes(1);
+    // 取消不是事件流的一部分：不能写 xadd。
+    expect(pipe?.xadd).not.toHaveBeenCalled();
   });
 
   it('keeps the existing Redis wire format byte-identical', async () => {

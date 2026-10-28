@@ -264,7 +264,7 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
     expect(active.rows[0]?.count).toBe(0);
   });
 
-  it('signals a running run on deadline expiry without taking over its job', {
+  it('signals a running run on deadline expiry without taking over its job or terminal state', {
     timeout: 15_000,
   }, async () => {
     const agent = await newAgent('timeout-running');
@@ -309,8 +309,9 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
       expect(received).toBe(RUN_CANCEL_PAYLOAD);
       // 订阅连接处于 pub/sub 模式，读键必须用独立连接。
       expect(await redis.get(channel)).toBe(RUN_CANCEL_PAYLOAD);
-      expect((await runsOf(agent.id))[0]?.status).toBe('cancelled');
-      // running 的 job 由 worker 负责清理，取消只撤销 run。
+      // 终态由 worker 停止容器、写完消息与产出后落库；这里没有 worker，状态仍是 running。
+      expect((await runsOf(agent.id))[0]?.status).toBe('running');
+      // running 的 job 由 worker 负责清理，取消只发信号。
       expect(await getQueue().getJob(run.id)).toBeDefined();
     } finally {
       await subscriber.quit().catch(() => undefined);

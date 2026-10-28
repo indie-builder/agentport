@@ -129,8 +129,9 @@ describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', 
     expect(await settledWithin(signalled, 5_000)).toBe(true);
     expect(received).toBe(RUN_CANCEL_PAYLOAD);
     expect(await redis.get(channel)).toBe(RUN_CANCEL_PAYLOAD);
-    expect(await statusOf(runId)).toBe('cancelled');
-    // running 已被领取，清 job 是 worker 的职责；取消只应撤销 run。
+    // 只发信号：终态要等 worker 停稳容器、写完消息与成果快照后自己落库。
+    expect(await statusOf(runId)).toBe('running');
+    // running 已被领取，清 job 是 worker 的职责；取消只应发信号。
     expect(await getQueue().getJob(runId)).toBeDefined();
   });
 

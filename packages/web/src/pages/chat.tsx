@@ -2,6 +2,7 @@ import {
   conversationRenameSchema,
   type OpenUiAction,
   type OpenUiToolResult,
+  type OutputRef,
   type ProgressTodo,
 } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -23,6 +24,7 @@ import {
   MoreHorizontal,
   PanelLeftDashed,
   PanelRightDashed,
+  Paperclip,
   Pencil,
   Plus,
   RefreshCw,
@@ -47,6 +49,7 @@ import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-re
 import { AgentAvatar } from '../components/agent-avatar.js';
 import { CollapsibleText, JsonBlock, LARGE_CONTENT_CHARS } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { ConversationOutputs, type OutputSelection } from '../components/conversation-outputs.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { KnowledgeCitations, knowledgeHitsFromTool } from '../components/knowledge-citations.js';
 import {
@@ -59,6 +62,7 @@ import { Page, PageHeader } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { Badge } from '../components/ui/badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import {
   Combobox,
@@ -203,16 +207,44 @@ export function ChatPage() {
       agents={agents.data ?? []}
       agentId={activeAgentId}
       conversationId={conversationId}
+      output={
+        search.outputRun && search.outputPath
+          ? {
+              runId: search.outputRun,
+              path: search.outputPath,
+              mode: search.outputMode ?? 'read',
+            }
+          : null
+      }
+      onSelectOutput={(selection) => {
+        void navigate({
+          to: '/chat',
+          search: (previous) => ({
+            ...previous,
+            outputRun: selection.runId,
+            outputPath: selection.path,
+            outputMode: selection.mode,
+          }),
+          replace: true,
+        });
+      }}
       // 会话切换走 push：后退能回到上一条会话。新会话首次落 URL 用 replace。
       onConversationChange={(id, replace = false) => {
         void navigate({
           to: '/chat',
-          search: {
+          search: (previous) => ({
+            ...(id !== null && id === previous.conversation
+              ? {
+                  outputRun: previous.outputRun,
+                  outputPath: previous.outputPath,
+                  outputMode: previous.outputMode,
+                }
+              : {}),
             ...(activeAgentId && agents.data.some((item) => item.id === activeAgentId)
               ? { agent: activeAgentId }
               : {}),
             ...(id ? { conversation: id } : {}),
-          },
+          }),
           replace,
         });
       }}
@@ -259,12 +291,16 @@ function ChatWorkspace({
   agents,
   agentId,
   conversationId,
+  output,
+  onSelectOutput,
   onConversationChange,
   onAgentChange,
 }: {
   agents: NonNullable<ReturnType<typeof useAgents>['data']>;
   agentId: string | null;
   conversationId: string | null;
+  output: OutputSelection | null;
+  onSelectOutput: (selection: OutputSelection) => void;
   onConversationChange: (conversationId: string | null, replace?: boolean) => void;
   onAgentChange: (agentId: string) => void;
 }) {
@@ -309,8 +345,9 @@ function ChatWorkspace({
   const lastHistorySize = useRef(
     storedHistoryPct > 0 ? (`${storedHistoryPct}%` as const) : ('240px' as const),
   );
-  // 右侧工作区展示会话成果，与历史列表互相独立。
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  // 右侧工作区展示会话成果，与历史列表互相独立。深链带选中成果时直接展开。
+  const [workspaceOpen, setWorkspaceOpen] = useState(output !== null);
+  const workspaceFeedbackRef = useRef(false);
   const reduce = useReducedMotion();
 
   // 空数组也要稳定：否则轮询之外的重渲染会给工具行换一个新身份。
@@ -424,6 +461,12 @@ function ChatWorkspace({
     if (!run?.runId) return;
     cancelMutation.mutate(run.runId);
   };
+
+  // 引用只挂在输入框上，不自动发送：用户仍可改写文案或取消引用再发。
+  const attachOutputRef = useCallback((ref: OutputRef): void => {
+    useChatStore.getState().setOutputRef(ref);
+    composerRef.current?.focus();
+  }, []);
 
   // 固定身份：工具行的 memo 依赖这个回调，每次渲染都换新函数会让整列重渲染。
   const approve = useCallback(
@@ -673,6 +716,7 @@ function ChatWorkspace({
       <Sheet
         open={workspaceOpen && !wide}
         onOpenChange={(open) => {
+          workspaceFeedbackRef.current = false;
           // 关闭时立刻把焦点交回开关，不等退场动画（finalFocus 在动画后才生效）。
           if (!open) workspaceToggleRef.current?.focus();
           setWorkspaceOpen(open);
@@ -681,11 +725,22 @@ function ChatWorkspace({
         <SheetContent
           side="right"
           aria-describedby={undefined}
-          finalFocus={workspaceToggleRef}
+          finalFocus={() =>
+            workspaceFeedbackRef.current ? composerRef.current : workspaceToggleRef.current
+          }
           className="w-[320px]! max-w-full! gap-0 p-0"
         >
           <SheetTitle className="sr-only">会话成果</SheetTitle>
-          <WorkspacePanel />
+          <ConversationOutputs
+            conversationId={conversationId}
+            selection={output}
+            onSelect={onSelectOutput}
+            onFeedback={(ref) => {
+              useChatStore.getState().setOutputRef(ref);
+              workspaceFeedbackRef.current = true;
+              setWorkspaceOpen(false);
+            }}
+          />
         </SheetContent>
       </Sheet>
 
@@ -751,7 +806,13 @@ function ChatWorkspace({
                     aria-hidden={!workspaceOpen}
                     className="h-full max-w-[40%] shrink-0 overflow-hidden"
                   >
-                    <WorkspacePanel inline />
+                    <ConversationOutputs
+                      inline
+                      conversationId={conversationId}
+                      selection={output}
+                      onSelect={onSelectOutput}
+                      onFeedback={attachOutputRef}
+                    />
                   </motion.div>
                 ) : null}
               </div>
@@ -977,27 +1038,6 @@ function AgentPicker({
         </ComboboxList>
       </ComboboxContent>
     </Combobox>
-  );
-}
-
-/** 右侧工作区：会话成果的查看位置。目前会话还没有产出文件能力，先给空态。 */
-function WorkspacePanel({ inline = false }: { inline?: boolean }) {
-  return (
-    <aside
-      id={inline ? 'chat-workspace' : undefined}
-      aria-label="会话成果"
-      className={cn(
-        'flex h-full flex-col overflow-y-auto bg-surface',
-        inline ? 'border-l' : 'min-h-0 flex-1',
-      )}
-    >
-      <div className="flex shrink-0 items-center border-b px-3 py-2.5">
-        <h2 className="min-w-0 truncate text-sm font-medium text-fg">会话成果</h2>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <EmptyState title="当前会话没有成果文件" description="此处用于查看报告等会话成果。" />
-      </div>
-    </aside>
   );
 }
 
@@ -1468,6 +1508,8 @@ export function Composer({
   const input = useChatStore((state) => state.input);
   const setInput = useChatStore((state) => state.setInput);
   const run = useChatStore((state) => state.run);
+  const outputRef = useChatStore((state) => state.outputRef);
+  const setOutputRef = useChatStore((state) => state.setOutputRef);
   // Enter 与发送按钮共用：每次提交都覆盖交班意图，只有欢迎态、正文非空且焦点原本在输入框才交接。
   const submit = (): void => {
     if (!historyReady || run) return;
@@ -1486,6 +1528,24 @@ export function Composer({
     >
       <div className="mx-auto w-full max-w-[728px]">
         <InputGroup className="h-auto rounded-card">
+          {outputRef ? (
+            <div className="flex min-w-0 items-center gap-2 px-4 pt-3">
+              <Badge variant="outline" className="min-w-0 max-w-full">
+                <Paperclip aria-hidden="true" />
+                <span className="truncate">{outputRef.path}</span>
+              </Badge>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="取消引用"
+                title="取消引用"
+                onClick={() => setOutputRef(null)}
+                className="text-muted-foreground"
+              >
+                <X />
+              </Button>
+            </div>
+          ) : null}
           <InputGroupTextarea
             ref={textareaRef}
             aria-label="消息"

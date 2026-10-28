@@ -8,7 +8,12 @@ import {
   configureRunnerClient,
   publishRun as publishFromWorker,
 } from '../../worker/src/runner-client.js';
-import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
+import {
+  closeProducer,
+  publishRun,
+  requestRunCancel,
+  subscribeRun,
+} from '../src/queue/producer.js';
 import { infraReady, testConfig, unique, waitFor } from './helpers.js';
 
 const ready = await infraReady;
@@ -89,11 +94,13 @@ describe.skipIf(!ready)('run stream contract', () => {
     }
   });
 
-  it('cancel writes only the cancel key', async () => {
+  it('cancel sets only the cancel key and never writes the event stream', async () => {
     const runId = newRun();
-    await publishRun(runId, { type: 'cancel' });
+    expect(await requestRunCancel(runId)).toBe(true);
     expect(await redis.exists(runCancelKey(runId))).toBe(1);
     expect(await eventCount(runId)).toBe(0);
+    // 键已存在：重复取消不再发通知。
+    expect(await requestRunCancel(runId)).toBe(false);
   });
 
   it.each([

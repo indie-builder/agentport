@@ -496,6 +496,13 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         }).catch((err: unknown) => {
           request.log.warn({ err, agentId: request.params.id }, 'sdk session cleanup failed');
         });
+        // 会话行已级联删除，成果目录失去所有索引；整个专家目录一起回收。
+        await rm(join(app.config.WORKSPACES_DIR, row.slug, 'conversation-outputs'), {
+          recursive: true,
+          force: true,
+        }).catch((err: unknown) => {
+          request.log.warn({ err, agentId: request.params.id }, 'output cleanup failed');
+        });
       }
       await writeAudit(app.db, request.log, {
         actor: 'admin',

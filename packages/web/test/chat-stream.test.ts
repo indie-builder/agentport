@@ -179,6 +179,8 @@ describe('chat request ownership', () => {
   it('sends an explicit action without touching the unsent draft', async () => {
     const stream = render();
     useChatStore.getState().setInput('还没发出去的草稿');
+    const output = { runId: 'output-run', path: 'report.md' };
+    useChatStore.getState().setOutputRef(output);
     const action = {
       type: 'continue_conversation' as const,
       params: { context: { chart: 'revenue' } },
@@ -201,6 +203,20 @@ describe('chat request ownership', () => {
     // 动作不占输入框：草稿原样保留。
     expect(useChatStore.getState().input).toBe('还没发出去的草稿');
     expect(useChatStore.getState().items).toEqual([{ kind: 'user', text: '看这个渠道' }]);
+    expect(useChatStore.getState().outputRef).toEqual(output);
+
+    await act(async () => {
+      sourceAt(-1).emit({ type: 'run_finished', status: 'succeeded' });
+      await currentStream.send();
+    });
+    expect(harness.sendChat).toHaveBeenLastCalledWith({
+      agentId: 'agent-a',
+      conversationId: 'conversation-a',
+      message: '还没发出去的草稿',
+      output,
+    });
+    expect(useChatStore.getState().input).toBe('');
+    expect(useChatStore.getState().outputRef).toBeNull();
   });
 
   it.each([

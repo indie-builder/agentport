@@ -46,6 +46,8 @@ export interface SandboxRunOutcome {
   error?: string;
   /** 失败分类；只有 infra 会交给 BullMQ 重试。 */
   failure?: RunFailure;
+  /** 容器清理失败：容器可能还在写文件，调用方不能发布产出快照。 */
+  cleanupError?: string;
   /** 本次 run 产生的完整事件，供调用方落库。 */
   events: ChatEvent[];
 }
@@ -262,8 +264,10 @@ function reasonFor(signal: ExitSignal): RunFailure['reason'] {
  * 取消、超时、进程退出三者用 race 表达，谁先到谁赢；容器销毁由 Scope 保证。
  */
 export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOutcome> {
-  return Effect.runPromise(
-    Effect.scoped(runInSandboxEffect(input)).pipe(
+  // 容器销毁由 scope 在返回值确定后执行；清理结果只能在这个外层合并回 outcome。
+  const cleanup: { error?: string } = {};
+  const outcome = await Effect.runPromise(
+    Effect.scoped(runInSandboxEffect(input, cleanup)).pipe(
       // 订阅取消频道失败属于基础设施故障：交给 BullMQ 重试，而不是伪装成 agent 失败。
       Effect.catch((failure) =>
         Effect.succeed<SandboxRunOutcome>({
@@ -276,10 +280,12 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
       ),
     ),
   );
+  return cleanup.error === undefined ? outcome : { ...outcome, cleanupError: cleanup.error };
 }
 
 function runInSandboxEffect(
   input: SandboxRunInput,
+  cleanup: { error?: string },
 ): Effect.Effect<SandboxRunOutcome, RunFailure, Scope.Scope> {
   return Effect.gen(function* () {
     const { logger, runId } = input;
@@ -391,6 +397,8 @@ function runInSandboxEffect(
       } catch (err) {
         sandbox.child.kill('SIGKILL');
         // 清理失败只影响容器回收，不能改写已完成的业务结果；容器仍由 provider tracking 兜底。
+        // 但容器没停稳时文件可能还在变：把失败显式带出去，调用方据此不发布产出快照。
+        cleanup.error = toError(err);
         logger.warn({ err, runId, sandbox: sandbox.id }, 'sandbox cleanup failed');
       } finally {
         if (timer !== undefined) clearTimeout(timer);

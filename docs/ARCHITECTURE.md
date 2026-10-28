@@ -139,7 +139,15 @@
 - **展示**：实时流、历史恢复与重连回放复用同一字段；每个用户轮次只显示最后一次确认的顶层快照。子智能体清单不进入主清单，空快照隐藏清单；没有清单时保留原有工具与运行状态行，不新增空态。
 - **边界**：清单是模型自报的步骤进度，不是运行成功、完成度或成果质量的判据；停止、失败或成功都不会自动改写步骤状态，运行终态也不会替模型补完未完成项。没有任务表、endpoint、队列或 schema 迁移。
 
-能力状态（2026-10-28）：实现位于 `worktree-platform-capability-gaps` 工作区，尚未合入 main。真实 SDK→沙盒→SSE→历史保存已通过14项验收；浏览器刷新后保留同一份清单。独立 review 的导出设置、快照大小、确认顺序与字号问题已落地修复，正在最终复核；测试和完整证据见 [任务记录](tasks/platform-capability-gaps.md)。本次只验证用户故事 US-6.3 的进度环节，不代表子智能体与整个复杂任务故事均已验收。官方依据见 <https://code.claude.com/docs/en/agent-sdk/todo-tracking>。
+能力状态（2026-10-28）：已由 [PR #96](https://github.com/indie-builder/agentport/pull/96) 合入 main（`cd95b19`）。真实 SDK→沙盒→SSE→历史保存已通过14项验收；浏览器刷新后保留同一份清单。独立 review 的导出设置、快照大小、确认顺序与字号问题已修复并复核通过；测试和完整证据见 [任务记录](tasks/platform-capability-gaps.md)。此证据只验证用户故事 US-6.3 的进度环节，不代表子智能体与整个复杂任务故事均已验收。官方依据见 <https://code.claude.com/docs/en/agent-sdk/todo-tracking>。
+
+### 3.2 会话成果的生成、版本与查看
+
+成果是运行数据，不是智能体定义；不新增成果表，也不把 `.claude/` 文件当成果。用户消息可携带 `output: { runId, path }`，API 校验该版本属于当前会话后随用户消息落库；worker 读取它准备下一轮草稿。每轮发布后，`GET /api/conversations/:id/outputs` 按版本返回有变化的文件，`.../outputs/:runId/content` 返回完整 UTF-8 文本，`.../download` 返回原件。前端右侧成果面板按路径分组、可选版本、阅读/源码切换和下载；“基于此版本修改”只挂引用，不自动发送，用户可继续编辑或取消。Fork 只复制历史边界内且两个消息锚点都能映射的版本，并把锚点重写为分支消息 ID；删除会话或专家回收成果，run 保留期清理不删除成果。
+
+边界：当前模型没有删除工具，多文件中的单文件删除不作为支持路径；二进制只下载，Office 无预览；HTML/SVG 只按源码展示；正文超过 1MiB 只下载。成果正文是交付内容，不套用聊天的密钥脱敏；路径逃逸、符号/硬链接和跨会话读取在存储与 API 边界拒绝。
+
+实现状态（2026-10-28）：真实两轮12/12、分支8/8、停止后保留2/2、浏览器预览/下载与反馈挂引用通过；串行后端1824/1824、Web905/905、API9/9、typecheck/build通过，独立评审通过。Office/PDF不预览、无删除工具、成果内容不做聊天脱敏；详见 [任务记录](tasks/agent-output-viewing.md) 与 D-67。成果查看不代表成果质量自动通过。
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
@@ -182,10 +190,15 @@ data/workspaces/<agent-slug>/
 │     └─ skills/
 │        └─ <skill-slug>/SKILL.md
 ├─ agent-memory/                  跨 run 持久：原生 auto-memory
-└─ sdk-sessions/<conversationId>/ 跨 run 持久：SDK transcript（按会话隔离）
+├─ sdk-sessions/<conversationId>/ 跨 run 持久：SDK transcript（按会话隔离）
+└─ conversation-outputs/<conversationId>/
+   ├─ drafts/<runId>/             本轮唯一可写草稿，挂到容器 /mnt/outputs
+   └─ runs/<runId>/
+      ├─ manifest.json            平台索引（成员、hash、状态、消息边界）
+      └─ files/**                 发布后不可变的完整文件快照
 ```
 
-工作区按 run 隔离，run 结束删除；重试复用同一目录。目录 0700、文件 0600。`agent-memory/` 与 `sdk-sessions/` 不属于单次运行，清理与备份都按持久数据处理。
+工作区按 run 隔离，run 结束删除；重试复用同一目录。目录 0700、文件 0600。`agent-memory/`、`sdk-sessions/` 与 `conversation-outputs/` 不属于单次运行，清理与备份都按持久数据处理；run 保留期清理不删除会话成果，会话或专家删除时回收对应成果目录。
 
 | 文件 | 内容来源 | 说明 |
 |---|---|---|
@@ -197,7 +210,9 @@ data/workspaces/<agent-slug>/
 运行时约定：
 
 - 每次 run 先删除并重建 `.claude/agents/` 与 `.claude/skills/`，解绑后的旧文件不会残留。不要手工往这两个目录放东西。
-- 工作区以只读方式挂载到容器 `/workspace`；agent 不能修改自己的定义。
+- 工作区以只读方式挂载到容器 `/workspace`；agent 不能修改自己的定义。每轮另将 `conversation-outputs/<conversationId>/drafts/<runId>` 以 rw 挂到 `/mnt/outputs`，主会话用原生 Read/Write/Edit 交付文件；不使用 SDK `additionalDirectories`，避免可写目录被当作配置来源加载。
+- 运行结束后 worker 等容器确认停止，再以当前最新完整快照为基线发布不可变快照；用户选定旧版时只把所选文件覆盖到草稿，其他最新文件保持原样。正在重试、消息保存失败或容器未停稳时不发布并保留草稿；空基线清空后发布空快照。
+- API 鉴权读取成果列表、完整 UTF-8 文本（≤1MiB）与原件下载；读取只接受 manifest 成员，HTML/SVG 仅按源码返回，不执行。二进制提供下载，不在服务端伪造文本预览。
 - 内置工具默认全部从上下文移除；`allowedTools` 只负责自动批准。原生 `TodoWrite` 是显式启用的例外（§3.1），只用于展示进度。MCP 工具的允许规则按 server name 逐个生成 `mcp__<name>__*`，`mcp__*` 通配无效。
 - 父级绑定技能slug从worker传给SDK的`skills`选项；无绑定明确传`[]`，仅控制自动批准的Skill(name)清单，不代表CLI发现清单隐藏其他技能。CLAUDE.md仅列父绑定技能。启用子智能体的绑定技能经批量查询合并到工作区文件，其子定义独立写`skills`预加载字段，不扩展父级SDK许可。真实CLI已发现子定义和技能文件；初始化接口不暴露预加载状态，子级正文加载及实际模型调用仍未验证，支持资源目录另行验收。
 - 有子智能体时才放行 `Agent` / `TaskStop`；子智能体自身不再获得委派能力。

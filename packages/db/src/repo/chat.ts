@@ -278,7 +278,12 @@ export async function listConversationMessageUuids(
 export async function branchConversation(
   db: Database,
   input: { id: string; conversationId: string; fromMessageId?: string; title?: string },
-): Promise<{ conversation: Conversation; copied: number } | null> {
+): Promise<{
+  conversation: Conversation;
+  copied: number;
+  /** 来源消息 id → 分支新消息 id；调用方据此复制历史边界内的文件快照。 */
+  messageIds: Record<string, string>;
+} | null> {
   return db.transaction(async (tx) => {
     const source = await getConversation(tx, input.conversationId);
     if (!source) return null;
@@ -319,11 +324,13 @@ export async function branchConversation(
       .returning();
     if (!conversation) throw new Error('conversation insert returned no row');
 
+    const messageIds: Record<string, string> = {};
     if (copy.length > 0) {
-      await insertMessages(
-        tx,
-        copy.map((row) => ({
-          id: newId('message'),
+      const copies = copy.map((row) => {
+        const id = newId('message');
+        messageIds[row.id] = id;
+        return {
+          id,
           conversationId: conversation.id,
           role: row.role,
           content: row.content,
@@ -335,11 +342,12 @@ export async function branchConversation(
           uiProgram: row.uiProgram,
           uiState: row.uiState,
           createdAt: row.createdAt,
-        })),
-      );
+        };
+      });
+      await insertMessages(tx, copies);
     }
 
-    return { conversation, copied: copy.length };
+    return { conversation, copied: copy.length, messageIds };
   });
 }
 
