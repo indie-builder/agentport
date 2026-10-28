@@ -2,6 +2,7 @@ import { act, createElement, isValidElement, type ReactElement, type ReactNode }
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PageNote } from '../src/components/page.js';
+import { ResourcePage } from '../src/components/resource-page.js';
 import { ErrorState, LoadingState } from '../src/components/states.js';
 import { Button } from '../src/components/ui/button.js';
 import { SkillsPage } from '../src/pages/skills.js';
@@ -10,6 +11,7 @@ import { SkillsPage } from '../src/pages/skills.js';
 
 const state = vi.hoisted(() => ({
   search: {} as Record<string, string | undefined>,
+  lastReplace: undefined as boolean | undefined,
   skills: {} as Record<string, unknown>,
   market: {} as Record<string, unknown>,
   install: {} as Record<string, unknown>,
@@ -18,9 +20,12 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('@tanstack/react-router', () => ({
-  useNavigate: () => (options: { search?: (current: Record<string, unknown>) => object }) => {
-    Object.assign(state.search, options.search?.(state.search) ?? {});
-  },
+  useNavigate:
+    () =>
+    (options: { search?: (current: Record<string, unknown>) => object; replace?: boolean }) => {
+      Object.assign(state.search, options.search?.(state.search) ?? {});
+      state.lastReplace = options.replace;
+    },
   useSearch: () => state.search,
   Link: 'a',
   useBlocker: () => ({ status: 'idle' }),
@@ -176,6 +181,26 @@ describe('internal skill library empty state', () => {
   });
 });
 
+describe('shared resource search', () => {
+  it('writes typing to the URL with replace so search does not stack history', async () => {
+    let page: Element | undefined;
+    await inspect(SkillsPage, (tree) => {
+      page = required(tree, (node) => node.type === ResourcePage);
+    });
+    if (!page) throw new Error('Missing resource page');
+    const resource = page;
+    await inspect(
+      () => (resource.type as (props: Record<string, unknown>) => ReactNode)(resource.props),
+      (tree) => {
+        const search = required(tree, (node) => node.props.label === '搜索技能');
+        (search.props.onChange as (value: string) => void)('pdf');
+      },
+    );
+    expect(state.search.q).toBe('pdf');
+    expect(state.lastReplace).toBe(true);
+  });
+});
+
 describe('market readiness', () => {
   beforeEach(() => {
     state.search = { scope: 'market' };
@@ -258,6 +283,14 @@ describe('market readiness', () => {
       expect(button.props.disabled).toBe(true);
       expect(button.props.children).toBe('已安装');
     });
+  });
+
+  it('installs the exact market item behind the clicked action', async () => {
+    await inspectMarket((tree) => {
+      const button = required(tree, (node) => installButtons([node]).length === 1);
+      (button.props.onClick as () => void)();
+    });
+    expect(state.install.mutate).toHaveBeenCalledWith({ id: 'owner/repo/pdf' });
   });
 
   it('offers a refresh action when the empty ranking is not a failed search', async () => {

@@ -398,3 +398,40 @@ export const conversationDetailSchema = z.object({
 });
 
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
+
+/** 全局历史搜索：q 去空白后 0..200 字；空查询按最近活动返回。 */
+export const conversationSearchQuerySchema = z.object({
+  q: z.string().trim().max(200).default(''),
+  agentId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  before: z.string().min(1).optional(),
+});
+
+export type ConversationSearchQuery = z.infer<typeof conversationSearchQuerySchema>;
+
+export const conversationSearchMatchSchema = z.object({
+  kind: z.enum(['id', 'title', 'message']),
+  excerpt: z.string().nullable(),
+});
+
+export type ConversationSearchMatch = z.infer<typeof conversationSearchMatchSchema>;
+
+/** 每个会话最多一项；同一会话同时命中多处时按 id → title → message 取优先级最高的一项。 */
+export const conversationSearchItemSchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  agentName: z.string(),
+  title: z.string(),
+  /** 会话活动时间（last_message_at）的 ISO 字符串。 */
+  updatedAt: z.string(),
+  match: conversationSearchMatchSchema.nullable(),
+});
+
+export type ConversationSearchItem = z.infer<typeof conversationSearchItemSchema>;
+
+export const conversationSearchResponseSchema = z.object({
+  items: z.array(conversationSearchItemSchema),
+  nextBefore: z.string().nullable(),
+});
+
+export type ConversationSearchResponse = z.infer<typeof conversationSearchResponseSchema>;

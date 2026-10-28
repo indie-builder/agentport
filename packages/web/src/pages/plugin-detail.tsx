@@ -1,9 +1,10 @@
 import { readPluginMarkdown } from '@agentport/core/plugin-display';
 import type { Plugin, PluginFileInput } from '@agentport/shared';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { ArrowLeft, Download, FileText, FolderOpen } from 'lucide-react';
+import { ArrowLeft, Download, FileText, FolderOpen, PanelLeftDashed } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
+import { CodeBlockCopyAllowed } from '../components/code-block.js';
 import {
   Collapsible,
   CollapsibleContent,
@@ -16,6 +17,7 @@ import {
   pluginFileTitle,
 } from '../components/plugin-document.js';
 import { PluginFileTree } from '../components/plugin-file-tree.js';
+import { ReaderToolbar } from '../components/reader-toolbar.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import {
@@ -27,17 +29,11 @@ import {
 } from '../components/ui/breadcrumb.js';
 import { Button } from '../components/ui/button.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
-import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { ApiError } from '../lib/api.js';
 import { usePlugin } from '../lib/queries.js';
 
 type Mode = 'read' | 'source';
 type Tab = 'intro' | 'content';
-
-const MODES: Array<{ value: Mode; label: string }> = [
-  { value: 'read', label: '阅读' },
-  { value: 'source', label: '源码' },
-];
 
 /** 与 Tailwind 的 lg 断点一致：宽屏分栏，窄屏堆叠。 */
 const WIDE = '(min-width: 64rem)';
@@ -316,6 +312,7 @@ function PluginContent({
   const wide = useMediaQuery(WIDE);
   const layout = useDefaultLayout({ id: 'plugin-detail-content' });
   const [filesOpen, setFilesOpen] = useState(false);
+  const [filesOpenWide, setFilesOpenWide] = useState(true);
   const filesButton = useRef<HTMLButtonElement>(null);
   const docScroll = useRef<HTMLDivElement>(null);
 
@@ -345,50 +342,29 @@ function PluginContent({
 
   const documentBody = (
     <div className="flex min-w-0 flex-col gap-4">
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <Breadcrumb aria-label="文件路径" className="min-w-0 flex-1">
-          <BreadcrumbList className="min-w-0 gap-1 text-xs">
-            {selected.path.split('/').map((segment, index, segments) => (
-              <Fragment key={segments.slice(0, index + 1).join('/')}>
-                {index > 0 ? <BreadcrumbSeparator /> : null}
-                <BreadcrumbItem className="min-w-0 break-all">
-                  {index === segments.length - 1 ? (
-                    <BreadcrumbPage className="break-all">{segment}</BreadcrumbPage>
-                  ) : (
-                    <span className="break-all text-muted-foreground">{segment}</span>
-                  )}
-                </BreadcrumbItem>
-              </Fragment>
-            ))}
-          </BreadcrumbList>
-        </Breadcrumb>
-        <div className="ms-auto flex shrink-0 flex-wrap items-center gap-2">
-          {selected.executable ? <Badge variant="outline">可执行</Badge> : null}
-          {parsed ? (
-            <ToggleGroup
-              aria-label="查看方式"
-              multiple={false}
-              spacing={0}
-              className="rounded-lg bg-muted text-muted-foreground"
-              value={[mode]}
-              onValueChange={(values) => {
-                const next = MODES.find((item) => item.value === values[0])?.value;
-                if (next) onSelectMode(next);
-              }}
-            >
-              {MODES.map((item) => (
-                <ToggleGroupItem
-                  key={item.value}
-                  value={item.value}
-                  className="aria-pressed:bg-background aria-pressed:text-foreground"
-                >
-                  {item.label}
-                </ToggleGroupItem>
+      <ReaderToolbar
+        identity={
+          <Breadcrumb aria-label="文件路径">
+            <BreadcrumbList className="gap-1 text-xs">
+              {selected.path.split('/').map((segment, index, segments) => (
+                <Fragment key={segments.slice(0, index + 1).join('/')}>
+                  {index > 0 ? <BreadcrumbSeparator /> : null}
+                  <BreadcrumbItem className="min-w-0 break-all">
+                    {index === segments.length - 1 ? (
+                      <BreadcrumbPage className="break-all">{segment}</BreadcrumbPage>
+                    ) : (
+                      <span className="break-all text-muted-foreground">{segment}</span>
+                    )}
+                  </BreadcrumbItem>
+                </Fragment>
               ))}
-            </ToggleGroup>
-          ) : null}
-        </div>
-      </div>
+            </BreadcrumbList>
+          </Breadcrumb>
+        }
+        {...(selected.executable ? { meta: <Badge variant="outline">可执行</Badge> } : {})}
+        {...(parsed ? { mode, onModeChange: onSelectMode } : {})}
+        copy={{ value: selected.content, label: `复制 ${selected.path}` }}
+      />
 
       {showTitle || parsed?.description ? (
         <div className="flex min-w-0 flex-col gap-2">
@@ -407,47 +383,76 @@ function PluginContent({
         <PageNote title="找不到这个文件" description={`插件里没有 ${file}，已显示默认文件。`} />
       ) : null}
 
-      <PluginDocument
-        file={selected}
-        mode={mode}
-        files={plugin.files}
-        onSelectFile={onSelectFile}
-      />
+      <CodeBlockCopyAllowed.Provider value={false}>
+        <PluginDocument
+          file={selected}
+          mode={mode}
+          files={plugin.files}
+          onSelectFile={onSelectFile}
+        />
+      </CodeBlockCopyAllowed.Provider>
+    </div>
+  );
+
+  const documentPane = (
+    <div
+      ref={docScroll}
+      data-slot="plugin-content-scroll"
+      className="h-full min-h-0 overflow-y-auto px-6 pb-4"
+    >
+      <div className="max-w-[75ch]">{documentBody}</div>
     </div>
   );
 
   return (
-    <div className="h-[max(28rem,calc(100dvh_-_12rem))] min-h-0">
+    <div className="flex h-[max(28rem,calc(100dvh_-_12rem))] min-h-0 flex-col">
       {wide ? (
-        <Group
-          orientation="horizontal"
-          defaultLayout={layout.defaultLayout}
-          onLayoutChanged={layout.onLayoutChanged}
-          className="h-full min-h-0"
-        >
-          <Panel id="files" defaultSize={240} minSize={180} maxSize={360} className="min-h-0">
-            <div className="h-full min-h-0 overflow-y-auto pb-4 pe-4">
-              <PluginFileTree
-                files={plugin.files}
-                {...(selectedPath === undefined ? {} : { selectedPath })}
-                onSelect={onSelectFile}
-                idPrefix="plugin-detail-files"
-              />
-            </div>
-          </Panel>
-          <Separator className="w-px border-r" aria-label="调整文件树宽度" />
-          <Panel id="document" minSize={320} className="min-h-0">
-            <div
-              ref={docScroll}
-              data-slot="plugin-content-scroll"
-              className="h-full min-h-0 overflow-y-auto px-6 pb-4"
+        <>
+          <div className="flex shrink-0 items-center pb-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={filesOpenWide ? '收起文件列表' : '展开文件列表'}
+              title={filesOpenWide ? '收起文件列表' : '展开文件列表'}
+              aria-expanded={filesOpenWide}
+              aria-controls="plugin-detail-files-panel"
+              onClick={() => setFilesOpenWide((open) => !open)}
+              className="text-muted-foreground hover:text-fg"
             >
-              <div className="max-w-[75ch]">{documentBody}</div>
-            </div>
-          </Panel>
-        </Group>
+              <PanelLeftDashed />
+            </Button>
+          </div>
+          {filesOpenWide ? (
+            <Group
+              orientation="horizontal"
+              defaultLayout={layout.defaultLayout}
+              onLayoutChanged={layout.onLayoutChanged}
+              className="min-h-0 flex-1"
+            >
+              <Panel id="files" defaultSize={240} minSize={180} maxSize={360} className="min-h-0">
+                <div
+                  id="plugin-detail-files-panel"
+                  className="h-full min-h-0 overflow-y-auto pb-4 pe-4"
+                >
+                  <PluginFileTree
+                    files={plugin.files}
+                    {...(selectedPath === undefined ? {} : { selectedPath })}
+                    onSelect={onSelectFile}
+                    idPrefix="plugin-detail-files"
+                  />
+                </div>
+              </Panel>
+              <Separator className="w-px border-r" aria-label="调整文件树宽度" />
+              <Panel id="document" minSize={320} className="min-h-0">
+                {documentPane}
+              </Panel>
+            </Group>
+          ) : (
+            <div className="min-h-0 flex-1">{documentPane}</div>
+          )}
+        </>
       ) : (
-        <div className="flex h-full min-h-0 flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
           <Collapsible open={filesOpen} onOpenChange={setFilesOpen}>
             <div className="border-b py-2">
               <CollapsibleTrigger ref={filesButton} render={<Button variant="ghost" size="sm" />}>

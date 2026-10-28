@@ -1,5 +1,5 @@
 import type { OutputFile, OutputList, OutputRef } from '@agentport/shared';
-import { Download, History, Pencil } from 'lucide-react';
+import { History, Pencil } from 'lucide-react';
 import { useMemo } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
@@ -7,6 +7,7 @@ import { formatBytes, formatDateTime, formatRelative } from '../lib/format.js';
 import { useConversationOutputs, useOutputContent } from '../lib/queries.js';
 import { CodeBlock } from './code-block.js';
 import { Markdown } from './markdown.js';
+import { ReaderToolbar } from './reader-toolbar.js';
 import { EmptyState, ErrorState, LoadingState } from './states.js';
 import { Button } from './ui/button.js';
 import {
@@ -16,7 +17,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu.js';
-import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group.js';
 
 export interface OutputSelection {
   runId: string;
@@ -92,7 +92,7 @@ export function ConversationOutputs({
       <div className="flex shrink-0 items-center border-b px-3 py-2.5">
         <h2 className="min-w-0 truncate text-sm font-medium text-fg">会话成果</h2>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="@container min-h-0 flex-1 overflow-y-auto p-3">
         {conversationId === null ? (
           <EmptyState title="当前会话没有成果文件" description="此处用于查看报告等会话成果。" />
         ) : outputs.isPending ? (
@@ -102,120 +102,129 @@ export function ConversationOutputs({
         ) : files.length === 0 ? (
           <EmptyState title="当前会话没有成果文件" description="此处用于查看报告等会话成果。" />
         ) : (
-          <div className="flex flex-col gap-3">
-            <ul className="flex flex-col gap-0.5">
-              {files.map((file) => {
-                const active = selection?.path === file.path;
-                return (
-                  <li key={file.path}>
-                    <Button
-                      variant="ghost"
-                      aria-current={active ? 'true' : undefined}
-                      onClick={() =>
-                        onSelect({
-                          runId: file.runId,
-                          path: file.path,
-                          mode: previewKind(file) === 'markdown' ? 'read' : 'source',
-                        })
-                      }
-                      className={cn(
-                        'h-auto w-full min-w-0 items-start justify-between gap-2 px-2 py-1.5 text-left font-normal whitespace-normal',
-                        active ? 'bg-hover text-fg' : 'text-muted-foreground hover:bg-hover',
-                      )}
-                    >
-                      <span className="min-w-0 break-words text-sm">{file.path}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatRelative(file.createdAt)}
-                      </span>
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
+          <div
+            className={cn(
+              'grid min-w-0 gap-4',
+              selection !== null && '@2xl:grid-cols-[320px_minmax(0,1fr)] @2xl:items-start',
+            )}
+          >
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <ul className="flex flex-col gap-0.5">
+                {files.map((file) => {
+                  const active = selection?.path === file.path;
+                  return (
+                    <li key={file.path}>
+                      <Button
+                        variant="ghost"
+                        aria-current={active ? 'true' : undefined}
+                        onClick={() =>
+                          onSelect({
+                            runId: file.runId,
+                            path: file.path,
+                            mode: previewKind(file) === 'markdown' ? 'read' : 'source',
+                          })
+                        }
+                        className={cn(
+                          'h-auto w-full min-w-0 items-start justify-between gap-2 px-2 py-1.5 text-left font-normal whitespace-normal',
+                          active ? 'bg-selected text-fg' : 'text-muted-foreground hover:bg-hover',
+                        )}
+                      >
+                        <span className="min-w-0 break-words text-sm">{file.path}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {formatRelative(file.createdAt)}
+                        </span>
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
 
-            {outputs.hasNextPage ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="self-start text-muted-foreground"
-                disabled={outputs.isFetchingNextPage}
-                onClick={() => void outputs.fetchNextPage()}
-              >
-                {outputs.isFetchingNextPage ? '正在加载…' : '加载更多版本'}
-              </Button>
-            ) : null}
+              {outputs.hasNextPage ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="self-start text-muted-foreground"
+                  disabled={outputs.isFetchingNextPage}
+                  onClick={() => void outputs.fetchNextPage()}
+                >
+                  {outputs.isFetchingNextPage ? '正在加载…' : '加载更多版本'}
+                </Button>
+              ) : null}
+            </div>
 
             {selection ? (
-              <div className="flex flex-col gap-2 border-t pt-3">
-                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  {shownKind === 'markdown' ? (
-                    <ToggleGroup
-                      value={[selection.mode]}
-                      onValueChange={(value) => {
-                        const mode = value[0];
-                        if (mode === 'read' || mode === 'source') onSelect({ ...selection, mode });
-                      }}
-                      variant="outline"
-                      size="sm"
-                    >
-                      <ToggleGroupItem value="read">阅读</ToggleGroupItem>
-                      <ToggleGroupItem value="source">源码</ToggleGroupItem>
-                    </ToggleGroup>
-                  ) : null}
-                  {versions.length > 1 ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            aria-label="选择版本"
-                            className="text-muted-foreground"
-                          />
-                        }
+              <div className="flex min-w-0 flex-col gap-2 border-t pt-3 @2xl:border-t-0 @2xl:pt-0">
+                <ReaderToolbar
+                  identity={
+                    <span className="block truncate" title={selection.path}>
+                      {selection.path}
+                    </span>
+                  }
+                  {...(shown ? { meta: <span>{formatBytes(shown.size)}</span> } : {})}
+                  {...(shownKind === 'markdown'
+                    ? {
+                        mode: selection.mode,
+                        onModeChange: (mode: 'read' | 'source') => onSelect({ ...selection, mode }),
+                      }
+                    : {})}
+                  {...(shownKind !== 'binary' && content.data
+                    ? { copy: { value: content.data.content, label: `复制 ${selection.path}` } }
+                    : {})}
+                  download={{
+                    href: api.outputDownloadUrl(
+                      conversationId ?? '',
+                      selection.runId,
+                      selection.path,
+                    ),
+                    label: `下载 ${selection.path}`,
+                    text: '下载',
+                  }}
+                  actions={
+                    <>
+                      {versions.length > 1 ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label="选择版本"
+                                className="text-muted-foreground"
+                              />
+                            }
+                          >
+                            <History />
+                            {formatDateTime(shown?.createdAt)}
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-44">
+                            <DropdownMenuGroup>
+                              {versions.map((file) => (
+                                <DropdownMenuItem
+                                  key={file.runId}
+                                  onClick={() => onSelect({ ...selection, runId: file.runId })}
+                                >
+                                  {formatDateTime(file.createdAt)}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {formatDateTime(shown?.createdAt)}
+                        </span>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onFeedback({ runId: selection.runId, path: selection.path })}
                       >
-                        <History />
-                        {formatDateTime(shown?.createdAt)}
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" className="w-44">
-                        <DropdownMenuGroup>
-                          {versions.map((file) => (
-                            <DropdownMenuItem
-                              key={file.runId}
-                              onClick={() => onSelect({ ...selection, runId: file.runId })}
-                            >
-                              {formatDateTime(file.createdAt)}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : (
-                    <span>{formatDateTime(shown?.createdAt)}</span>
-                  )}
-                  {shown ? <span>{formatBytes(shown.size)}</span> : null}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    nativeButton={false}
-                    aria-label={`下载 ${selection.path}`}
-                    title={`下载 ${selection.path}`}
-                    className="ml-auto text-muted-foreground"
-                    render={
-                      <a
-                        href={api.outputDownloadUrl(
-                          conversationId ?? '',
-                          selection.runId,
-                          selection.path,
-                        )}
-                        download
-                      />
-                    }
-                  >
-                    <Download />
-                    下载
-                  </Button>
-                </div>
+                        <Pencil data-icon="inline-start" />
+                        基于此版本修改
+                      </Button>
+                    </>
+                  }
+                />
 
                 {shownKind === 'binary' ? (
                   <p className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-xs leading-relaxed text-muted-foreground">
@@ -236,6 +245,7 @@ export function ConversationOutputs({
                     <CodeBlock
                       code={content.data.content}
                       maxHeight="50vh"
+                      copyable={false}
                       json={
                         content.data.file.mediaType === 'application/json' ||
                         /\.json$/i.test(content.data.file.path)
@@ -243,16 +253,6 @@ export function ConversationOutputs({
                     />
                   )
                 ) : null}
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="self-start"
-                  onClick={() => onFeedback({ runId: selection.runId, path: selection.path })}
-                >
-                  <Pencil data-icon="inline-start" />
-                  基于此版本修改
-                </Button>
               </div>
             ) : null}
           </div>

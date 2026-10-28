@@ -686,6 +686,79 @@ describe('knowledge document inspection', () => {
     expect(patchBody('/api/knowledge/chunks/kchk_1')).toEqual({ enabled: false });
   });
 
+  it('reads loaded documents in one toolbar and keeps the selection while copying, switching modes and files', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    documentHandlers();
+    const second = { ...doc, id: 'kdoc_2', title: '部署流程', currentVersionId: 'kdv_2' };
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc, second], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_2/chunks', () =>
+        HttpResponse.json({ items: [], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_2/markdown', () =>
+        markdownResponse('## 部署\n\n第二篇正文。'),
+      ),
+      http.get('/api/knowledge/versions/kdv_2/details', () =>
+        HttpResponse.json({
+          id: 'kdv_2',
+          documentId: 'kdoc_2',
+          version: 1,
+          originalFilename: 'deploy.md',
+          mimeType: 'text/markdown',
+          sizeBytes: 10,
+          sourceRevision: null,
+          parseStatus: 'parsed',
+          pageMap: [],
+          images: [],
+          createdAt: '2026-01-01T00:00:00Z',
+        }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    await click(button('上线流程'));
+    let viewer = dialog('上线流程');
+    expect(viewer.textContent).toContain('发布前需要产品与研发双方确认。');
+    const download = viewer.querySelector<HTMLAnchorElement>('a[aria-label="下载原件"]');
+    expect(download?.getAttribute('href')).toBe('/api/knowledge/versions/kdv_1/content');
+    expect(download?.hasAttribute('download')).toBe(true);
+
+    const copy = viewer.querySelector<HTMLButtonElement>('button[aria-label="复制 上线流程"]');
+    if (!copy) throw new Error('Missing copy action');
+    await act(async () => copy.click());
+    await flush();
+    expect(writeText).toHaveBeenLastCalledWith('## 发布前检查\n\n发布前需要产品与研发双方确认。');
+
+    await click(button('源码', viewer));
+    viewer = dialog('上线流程');
+    expect(viewer.querySelector('pre')?.textContent).toContain('## 发布前检查');
+
+    const target = [...viewer.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
+      item.textContent?.includes('部署流程'),
+    );
+    if (!target) throw new Error('Missing loaded document row');
+    await click(target);
+    viewer = dialog('部署流程');
+    expect(viewer.textContent).toContain('第二篇正文。');
+    expect(viewer.querySelector('[aria-current="true"]')?.textContent).toContain('部署流程');
+
+    // 换文档后先看到新文档的复制动作，再复制新正文。
+    const switchedCopy = viewer.querySelector<HTMLButtonElement>(
+      'button[aria-label="复制 部署流程"]',
+    );
+    if (!switchedCopy) throw new Error('Missing copy action after switching documents');
+    const copies = [...viewer.querySelectorAll<HTMLButtonElement>('button')].filter((item) =>
+      item.getAttribute('aria-label')?.startsWith('复制'),
+    );
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).toBe(switchedCopy);
+    await act(async () => switchedCopy.click());
+    await flush();
+    expect(writeText).toHaveBeenLastCalledWith('## 部署\n\n第二篇正文。');
+  });
+
   it('warns that reprocessing drops manually edited chunks and confirms it', async () => {
     documentHandlers();
     server.use(
@@ -1649,6 +1722,55 @@ describe('knowledge document viewer', () => {
     const viewer = dialog('上线流程');
     expect(viewer.textContent).toContain('解析后的正文');
     expect(viewer.textContent).toContain('发布前需要产品与研发双方确认。');
+    // 列表暂时不含当前文档时，目录仍保留当前快照并标出当前位置，不显示“没有文档”。
+    const nav = viewer.querySelector('nav[aria-label="知识文档"]');
+    const current = nav?.querySelector('[aria-current="true"]');
+    expect(current?.textContent).toContain('上线流程');
+    expect(nav?.querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+    expect(nav?.textContent).not.toContain('当前筛选没有文档');
+  });
+
+  it('collapses and expands the document sidebar without losing the current document or focus', async () => {
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({ items: [chunk], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('解析后的正文')),
+      detailsHandler(),
+    );
+    await mount('/knowledge/kb_1');
+    await waitFor(() =>
+      [...document.querySelectorAll('button')].some(
+        (item) => item.textContent?.trim() === '上线流程',
+      ),
+    );
+    await click(button('上线流程'));
+    const viewer = dialog('上线流程');
+    const nav = viewer.querySelector('nav[aria-label="知识文档"]');
+    if (!nav) throw new Error('Missing document sidebar');
+    const toggle = button('收起文件列表', viewer);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const controls = toggle.getAttribute('aria-controls');
+    if (!controls) throw new Error('Missing aria-controls target');
+    expect(viewer.querySelector(`#${controls}`)).not.toBeNull();
+
+    toggle.focus();
+    await click(toggle);
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(viewer.querySelector('nav[aria-label="知识文档"]')).toBeNull();
+    expect(viewer.textContent).toContain('解析后的正文');
+
+    await click(toggle);
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const restored = viewer.querySelector('nav[aria-label="知识文档"]');
+    expect(restored?.querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+    expect(restored?.querySelector('[aria-current="true"]')?.textContent).toContain('上线流程');
   });
 
   it('surfaces a failed chunk toggle without pretending it succeeded', async () => {
@@ -1923,6 +2045,29 @@ describe('knowledge wiki versions', () => {
           item.method === 'POST' && item.path === '/api/knowledge/wiki-pages/kwp_1/rollback',
       )?.body,
     ).toEqual({ versionId: 'kwv_1' });
+  });
+
+  it('switches the current page between reading and source and copies it from the same toolbar', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    baseHandlers();
+    server.use(http.get('/api/knowledge/wiki-pages/kwp_1', () => HttpResponse.json(wikiPage)));
+    await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
+    expect(document.body.textContent).toContain('第二步。');
+
+    await click(button('源码'));
+    expect(document.querySelector('pre')?.textContent).toContain('## 当前');
+    const copies = [...document.querySelectorAll<HTMLButtonElement>('button')].filter((item) =>
+      item.getAttribute('aria-label')?.startsWith('复制'),
+    );
+    expect(copies).toHaveLength(1);
+    expect(copies[0]?.getAttribute('aria-label')).toBe('复制 发布指南');
+
+    const copy = document.querySelector<HTMLButtonElement>('button[aria-label="复制 发布指南"]');
+    if (!copy) throw new Error('Missing copy action');
+    await act(async () => copy.click());
+    await flush();
+    expect(writeText).toHaveBeenLastCalledWith('## 当前\n\n第二步。');
   });
 
   it('keeps the version captured on open even after a background refetch, and keeps the draft on 409', async () => {

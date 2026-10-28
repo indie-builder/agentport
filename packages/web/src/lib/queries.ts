@@ -32,6 +32,7 @@ import type {
   SkillWithAgentCount,
 } from '@agentport/shared';
 import {
+  infiniteQueryOptions,
   QueryClient,
   queryOptions,
   useInfiniteQuery,
@@ -51,6 +52,7 @@ import {
   api,
   type Conversation,
   type ConversationDetail,
+  type ConversationSearchOptions,
   type EvalCase,
   type EvalCaseInput,
   type EvalComparison,
@@ -295,6 +297,26 @@ export function useConversations(agentId: string | null) {
     staleTime: 0,
   });
 }
+
+/** 全局历史搜索的 Query options；空 q 返回最近会话，nextBefore 作为下一页游标。 */
+export const searchConversationsOptions = (options: ConversationSearchOptions) =>
+  infiniteQueryOptions({
+    queryKey: [
+      'conversation-search',
+      options.q ?? '',
+      options.agentId ?? null,
+      options.limit ?? 20,
+      options.before ?? null,
+    ],
+    queryFn: ({ pageParam, signal }) =>
+      api.searchConversations(
+        { ...options, ...(pageParam === null ? {} : { before: pageParam }) },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextBefore ?? undefined,
+    staleTime: 0,
+  });
 
 const CONVERSATION_PAGE_SIZE = 50;
 

@@ -1,4 +1,4 @@
-import type { Agent, Schedule } from '@agentport/shared';
+import type { Agent, Schedule, ScheduleInput } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
@@ -95,16 +95,46 @@ function button(label: string): HTMLButtonElement {
   return match;
 }
 
+async function clickElement(element: HTMLElement) {
+  await act(async () => element.click());
+}
+
 async function click(label: string) {
-  await act(async () => button(label).click());
+  await clickElement(button(label));
 }
 
 async function fill(id: string, value: string) {
-  const input = document.getElementById(id) as HTMLInputElement;
+  const element = document.getElementById(id);
+  if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+    throw new Error(`Missing input: ${id}`);
+  }
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const prototype =
+      element instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
   });
+}
+
+async function selectOption(id: string, label: string) {
+  const trigger = document.getElementById(id);
+  if (!trigger) throw new Error(`Missing select: ${id}`);
+  await clickElement(trigger);
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (item) => item.textContent?.trim() === label,
+  );
+  if (!option) throw new Error(`Missing option: ${label}`);
+  await clickElement(option);
+}
+
+function dialogByTitle(title: string): HTMLElement | null {
+  return (
+    [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
+      (element) => element.querySelector('h2')?.textContent === title,
+    ) ?? null
+  );
 }
 
 function unloadPrevented() {
@@ -124,6 +154,20 @@ beforeEach(() => {
   msw.server.use(
     http.get('/api/agents', () => HttpResponse.json([agent])),
     http.get('/api/schedules', () => HttpResponse.json(schedules)),
+    http.post('/api/schedules', async ({ request }) => {
+      const input = (await request.json()) as ScheduleInput;
+      const next: Schedule = {
+        ...schedule,
+        ...input,
+        id: 'sch_2',
+        agentName: agent.name,
+        lastRunAt: null,
+        createdAt: '2026-10-02T00:00:00.000Z',
+        updatedAt: '2026-10-02T00:00:00.000Z',
+      };
+      schedules = [...schedules, next];
+      return HttpResponse.json(next);
+    }),
     http.patch('/api/schedules/sch_1', async ({ request }) => {
       const patch = (await request.json()) as Partial<Schedule>;
       const next = { ...schedules[0], ...patch } as Schedule;
@@ -242,6 +286,146 @@ describe('schedule draft navigation', () => {
       await router.navigate({ to: '/away' });
     });
     expect(container.textContent).toBe('Destination');
+  });
+});
+
+describe('schedule dialog fields and payload', () => {
+  it('places the main editor fields before the execution conditions and states the UTC cron rule', async () => {
+    await mount();
+    await click('新建定时任务');
+
+    const name = document.getElementById('schedule-name');
+    const prompt = document.getElementById('schedule-prompt');
+    const agentField = document.getElementById('schedule-agent');
+    const cron = document.getElementById('schedule-cron');
+    const enabled = document.getElementById('schedule-enabled');
+    expect(name && prompt && agentField && cron && enabled).toBeTruthy();
+
+    const groupOf = (element: Element | null) =>
+      element?.closest('[data-slot="field-group"]') ?? null;
+    expect(groupOf(name)).not.toBeNull();
+    expect(groupOf(prompt)).toBe(groupOf(name));
+    expect(groupOf(agentField)).not.toBe(groupOf(name));
+    expect(groupOf(cron)).toBe(groupOf(agentField));
+    expect(groupOf(enabled)).toBe(groupOf(agentField));
+
+    // 主编辑区先于执行条件，键盘与读屏顺序和视觉左右一致。
+    const order = [...document.querySelectorAll('[data-slot="field"]')]
+      .map((element) => element.querySelector('input[id], textarea[id], button[id]')?.id)
+      .filter(Boolean);
+    expect(order).toEqual([
+      'schedule-name',
+      'schedule-prompt',
+      'schedule-agent',
+      'schedule-cron',
+      'schedule-enabled',
+    ]);
+
+    const labelOf = (id: string) => document.querySelector(`label[for="${id}"]`)?.textContent ?? '';
+    for (const [id, text] of [
+      ['schedule-name', '名称'],
+      ['schedule-prompt', '提示词'],
+      ['schedule-agent', '专家'],
+      ['schedule-cron', 'cron'],
+    ]) {
+      expect(labelOf(id)).toContain(text);
+      expect(labelOf(id)).toContain('必填');
+    }
+    expect(labelOf('schedule-enabled')).toContain('启用');
+    expect(labelOf('schedule-enabled')).not.toContain('必填');
+
+    expect(cron?.getAttribute('aria-describedby')).toContain('schedule-cron-hint');
+    expect(document.getElementById('schedule-cron-hint')?.textContent).toContain('UTC');
+  });
+
+  it('submits the full create payload from both regions', async () => {
+    await mount();
+    await click('新建定时任务');
+    await selectOption('schedule-agent', 'Expert A');
+    await fill('schedule-name', 'Nightly digest');
+    await fill('schedule-cron', '30 1 * * *');
+    await fill('schedule-prompt', 'Summarize the day');
+    await click('保存');
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+    await msw.waitForRequests();
+    const call = msw.calls.find(
+      (entry) => entry.method === 'POST' && entry.path === '/api/schedules',
+    );
+    expect(call?.body).toEqual({
+      agentId: 'agent-1',
+      name: 'Nightly digest',
+      cron: '30 1 * * *',
+      prompt: 'Summarize the day',
+      enabled: true,
+    });
+  });
+
+  it('keeps the edit payload and expected version when conditions change', async () => {
+    await mount();
+    await click('编辑 Morning report');
+    await fill('schedule-name', 'Evening report');
+    await fill('schedule-cron', '0 18 * * *');
+    await fill('schedule-prompt', 'Summarize the evening');
+    await clickElement(document.getElementById('schedule-enabled') as HTMLElement);
+    await click('保存');
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+    await msw.waitForRequests();
+    const call = msw.calls.find(
+      (entry) => entry.method === 'PATCH' && entry.path === '/api/schedules/sch_1',
+    );
+    expect(call?.body).toEqual({
+      name: 'Evening report',
+      cron: '0 18 * * *',
+      prompt: 'Summarize the evening',
+      enabled: false,
+      expectedUpdatedAt: schedule.updatedAt,
+    });
+  });
+
+  it('reports missing fields in place, focuses the first invalid one, and keeps the dialog open', async () => {
+    await mount();
+    await click('新建定时任务');
+    await click('保存');
+
+    await vi.waitFor(() =>
+      expect(document.getElementById('schedule-cron-error')?.textContent).toContain(
+        'cron 需要 5 段',
+      ),
+    );
+    expect(document.getElementById('schedule-name-error')?.textContent).toContain('不能为空');
+    expect(document.getElementById('schedule-prompt-error')?.textContent).toContain('不能为空');
+    const firstInvalid = document.querySelector<HTMLElement>('[aria-invalid="true"]');
+    expect(firstInvalid).not.toBeNull();
+    await vi.waitFor(() => expect(document.activeElement).toBe(firstInvalid));
+    expect(msw.calls.some((entry) => entry.method === 'POST')).toBe(false);
+    expect(document.getElementById('schedule-name')).not.toBeNull();
+  });
+
+  it('confirms before discarding a dirty dialog and keeps the draft when cancelled', async () => {
+    await mount();
+    await click('编辑 Morning report');
+    await fill('schedule-name', 'Draft name');
+    await click('取消');
+
+    const firstConfirm = dialogByTitle('放弃未保存的更改？');
+    if (!firstConfirm) throw new Error('Missing discard confirm');
+    const keepEditing = [...firstConfirm.querySelectorAll('button')].find(
+      (element) => element.textContent?.trim() === '取消',
+    );
+    if (!keepEditing) throw new Error('Missing confirm cancel');
+    await clickElement(keepEditing);
+    await vi.waitFor(() => expect(dialogByTitle('放弃未保存的更改？')).toBeNull());
+    expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe('Draft name');
+
+    await click('取消');
+    const secondConfirm = dialogByTitle('放弃未保存的更改？');
+    if (!secondConfirm) throw new Error('Missing discard confirm');
+    const discard = [...secondConfirm.querySelectorAll('button')].find(
+      (element) => element.textContent?.trim() === '放弃并关闭',
+    );
+    if (!discard) throw new Error('Missing discard button');
+    await clickElement(discard);
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
   });
 });
 

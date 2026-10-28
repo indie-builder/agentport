@@ -13,7 +13,13 @@ import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
-import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
   Select,
@@ -363,55 +369,14 @@ function ScheduleDialog({
         if (!next) close();
       }}
     >
-      <DialogShell title={schedule ? '编辑定时任务' : '新建定时任务'} closeDisabled={pending}>
-        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
-          <FieldGroup className="gap-3">
-            <Field
-              className="gap-1.5"
-              data-disabled={pending || Boolean(schedule)}
-              data-invalid={Boolean(errors.agentId)}
-            >
-              <FieldLabel htmlFor="schedule-agent">
-                专家 <RequiredMark />
-              </FieldLabel>
-              <Controller
-                control={control}
-                name="agentId"
-                render={({ field }) => (
-                  <Select
-                    disabled={pending || Boolean(schedule)}
-                    value={field.value}
-                    items={agentOptions}
-                    onValueChange={(next) => {
-                      if (next !== null) field.onChange(next);
-                    }}
-                  >
-                    <SelectTrigger
-                      id="schedule-agent"
-                      className="w-full min-w-0"
-                      ref={field.ref}
-                      onBlur={field.onBlur}
-                      aria-invalid={Boolean(errors.agentId)}
-                      aria-describedby={errors.agentId ? 'schedule-agent-error' : undefined}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {agentOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              <FieldError id="schedule-agent-error">{errors.agentId?.message}</FieldError>
-            </Field>
-
-            <FieldGroup className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+      <DialogShell
+        title={schedule ? '编辑定时任务' : '新建定时任务'}
+        closeDisabled={pending}
+        className="max-w-[760px] sm:max-w-[760px]"
+      >
+        <form onSubmit={submit} className="@container flex flex-col gap-4" noValidate>
+          <div className="grid grid-cols-1 gap-5 @min-[560px]:grid-cols-[minmax(0,1fr)_minmax(240px,280px)]">
+            <FieldGroup className="gap-4">
               <Field
                 className="gap-1.5"
                 data-disabled={pending}
@@ -431,6 +396,75 @@ function ScheduleDialog({
                 />
                 <FieldError id="schedule-name-error">{errors.name?.message}</FieldError>
               </Field>
+
+              <Field
+                className="gap-1.5"
+                data-disabled={pending}
+                data-invalid={Boolean(errors.prompt)}
+              >
+                <FieldLabel htmlFor="schedule-prompt">
+                  提示词 <RequiredMark />
+                </FieldLabel>
+                <Textarea
+                  {...register('prompt')}
+                  value={watched.prompt}
+                  id="schedule-prompt"
+                  disabled={pending}
+                  className="min-h-48"
+                  aria-required="true"
+                  aria-invalid={Boolean(errors.prompt)}
+                  aria-describedby={errors.prompt ? 'schedule-prompt-error' : undefined}
+                />
+                <FieldError id="schedule-prompt-error">{errors.prompt?.message}</FieldError>
+              </Field>
+            </FieldGroup>
+
+            <FieldGroup className="gap-4 @min-[560px]:border-l @min-[560px]:border-line @min-[560px]:pl-5">
+              <Field
+                className="gap-1.5"
+                data-disabled={pending || Boolean(schedule)}
+                data-invalid={Boolean(errors.agentId)}
+              >
+                <FieldLabel htmlFor="schedule-agent">
+                  专家 <RequiredMark />
+                </FieldLabel>
+                <Controller
+                  control={control}
+                  name="agentId"
+                  render={({ field }) => (
+                    <Select
+                      disabled={pending || Boolean(schedule)}
+                      value={field.value}
+                      items={agentOptions}
+                      onValueChange={(next) => {
+                        if (next !== null) field.onChange(next);
+                      }}
+                    >
+                      <SelectTrigger
+                        id="schedule-agent"
+                        className="w-full min-w-0"
+                        ref={field.ref}
+                        onBlur={field.onBlur}
+                        aria-invalid={Boolean(errors.agentId)}
+                        aria-describedby={errors.agentId ? 'schedule-agent-error' : undefined}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {agentOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <FieldError id="schedule-agent-error">{errors.agentId?.message}</FieldError>
+              </Field>
+
               <Field
                 className="gap-1.5"
                 data-disabled={pending}
@@ -448,51 +482,37 @@ function ScheduleDialog({
                   className="font-mono"
                   aria-required="true"
                   aria-invalid={Boolean(errors.cron)}
-                  aria-describedby={errors.cron ? 'schedule-cron-error' : undefined}
+                  aria-describedby={
+                    errors.cron ? 'schedule-cron-hint schedule-cron-error' : 'schedule-cron-hint'
+                  }
                 />
+                <FieldDescription id="schedule-cron-hint">按 UTC 解析</FieldDescription>
                 <FieldError id="schedule-cron-error">{errors.cron?.message}</FieldError>
               </Field>
+
+              <Field
+                orientation="horizontal"
+                className="items-center gap-3"
+                data-disabled={pending}
+              >
+                <FieldLabel htmlFor="schedule-enabled">启用</FieldLabel>
+                <Controller
+                  control={control}
+                  name="enabled"
+                  render={({ field }) => (
+                    <Switch
+                      ref={field.ref}
+                      id="schedule-enabled"
+                      checked={field.value}
+                      disabled={pending}
+                      onCheckedChange={(enabled) => field.onChange(enabled)}
+                      onBlur={field.onBlur}
+                    />
+                  )}
+                />
+              </Field>
             </FieldGroup>
-
-            <Field
-              className="gap-1.5"
-              data-disabled={pending}
-              data-invalid={Boolean(errors.prompt)}
-            >
-              <FieldLabel htmlFor="schedule-prompt">
-                提示词 <RequiredMark />
-              </FieldLabel>
-              <Textarea
-                {...register('prompt')}
-                value={watched.prompt}
-                id="schedule-prompt"
-                disabled={pending}
-                rows={6}
-                aria-required="true"
-                aria-invalid={Boolean(errors.prompt)}
-                aria-describedby={errors.prompt ? 'schedule-prompt-error' : undefined}
-              />
-              <FieldError id="schedule-prompt-error">{errors.prompt?.message}</FieldError>
-            </Field>
-
-            <Field orientation="horizontal" className="items-center gap-3" data-disabled={pending}>
-              <FieldLabel htmlFor="schedule-enabled">启用</FieldLabel>
-              <Controller
-                control={control}
-                name="enabled"
-                render={({ field }) => (
-                  <Switch
-                    ref={field.ref}
-                    id="schedule-enabled"
-                    checked={field.value}
-                    disabled={pending}
-                    onCheckedChange={(enabled) => field.onChange(enabled)}
-                    onBlur={field.onBlur}
-                  />
-                )}
-              />
-            </Field>
-          </FieldGroup>
+          </div>
 
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={close} disabled={pending}>

@@ -58,4 +58,35 @@ describe('CopyButton feedback', () => {
     expect(checkIcon.classList.contains('opacity-0')).toBe(true);
     expect(button.getAttribute('aria-label')).toBe('复制编号');
   });
+
+  it('drops the copied state and its timer when the copied value changes', async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+
+    const render = (value: string) =>
+      act(() =>
+        root.render(createElement(CopyButton, { value, label: '复制编号', showLabel: true })),
+      );
+    render('A');
+
+    const button = host.querySelector('button');
+    if (!button) throw new Error('missing copy button');
+    await act(async () => button.click());
+    expect(writeText).toHaveBeenLastCalledWith('A');
+    expect(button.getAttribute('aria-label')).toBe('已复制');
+
+    render('B');
+    expect(host.querySelector('button')).toBe(button);
+    expect(button.getAttribute('aria-label')).toBe('复制编号');
+
+    await act(async () => button.click());
+    expect(writeText).toHaveBeenLastCalledWith('B');
+
+    // A 的旧计时器不能在切到 B 后把反馈提前收掉。
+    await act(async () => vi.advanceTimersByTime(750));
+    expect(button.getAttribute('aria-label')).toBe('已复制');
+    await act(async () => vi.advanceTimersByTime(750));
+    expect(button.getAttribute('aria-label')).toBe('复制编号');
+  });
 });

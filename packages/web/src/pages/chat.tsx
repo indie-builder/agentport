@@ -1,6 +1,7 @@
 import {
   ATTACHMENT_LIMITS,
   attachmentMimeForFilename,
+  type ConversationSearchItem,
   conversationRenameSchema,
   type OpenUiAction,
   type OpenUiToolResult,
@@ -15,7 +16,6 @@ import {
   ArrowUp,
   Bot,
   Check,
-  ChevronDown,
   Circle,
   CircleAlert,
   CircleCheck,
@@ -33,11 +33,12 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Trash2,
   Wrench,
   X,
 } from 'lucide-react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import {
   type ComponentProps,
   type FormEvent,
@@ -55,18 +56,13 @@ import { AgentAvatar } from '../components/agent-avatar.js';
 import { CollapsibleText, JsonBlock, LARGE_CONTENT_CHARS } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { ConversationOutputs, type OutputSelection } from '../components/conversation-outputs.js';
+import { ConversationSearch } from '../components/conversation-search.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { KnowledgeCitations, knowledgeHitsFromTool } from '../components/knowledge-citations.js';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '../components/motion-collapsible.js';
 import { AssistantText } from '../components/openui-message.js';
 import { Page, PageHeader } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { RunQuestionCard } from '../components/run-question.js';
-import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
@@ -106,6 +102,16 @@ import {
   useMessageScroller,
 } from '../components/ui/message-scroller.js';
 import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
+import {
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from '../components/ui/trace.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
 import {
   type ChatItem,
@@ -258,6 +264,13 @@ export function ChatPage() {
       onAgentChange={(id) => {
         void navigate({ to: '/chat', search: { agent: id } });
       }}
+      // 搜索结果一次导航同时写入专家与会话；不能走 switchAgent，那会清空目标会话。
+      onSelectSearchResult={(item) => {
+        void navigate({
+          to: '/chat',
+          search: { agent: item.agentId, conversation: item.id },
+        });
+      }}
     />
   );
 }
@@ -302,6 +315,7 @@ function ChatWorkspace({
   onSelectOutput,
   onConversationChange,
   onAgentChange,
+  onSelectSearchResult,
 }: {
   agents: NonNullable<ReturnType<typeof useAgents>['data']>;
   agentId: string | null;
@@ -310,6 +324,7 @@ function ChatWorkspace({
   onSelectOutput: (selection: OutputSelection) => void;
   onConversationChange: (conversationId: string | null, replace?: boolean) => void;
   onAgentChange: (agentId: string) => void;
+  onSelectSearchResult: (item: ConversationSearchItem) => void;
 }) {
   const agent = agents.find((item) => item.id === agentId) ?? null;
   const agentOptions = agents.map((item) => ({
@@ -360,6 +375,8 @@ function ChatWorkspace({
   );
   // 右侧工作区展示会话成果，与历史列表互相独立。深链带选中成果时直接展开。
   const [workspaceOpen, setWorkspaceOpen] = useState(output !== null);
+  // 两个入口共用同一个搜索浮层；记下来源，以便关闭后焦点回到触发按钮。
+  const [search, setSearch] = useState<{ trigger: HTMLElement; inSheet: boolean } | null>(null);
   const workspaceFeedbackRef = useRef(false);
   const reduce = useReducedMotion();
 
@@ -561,7 +578,8 @@ function ChatWorkspace({
   const showWelcome =
     items.length === 0 && !run && !detail.isError && (conversationId === null || !detail.isPending);
 
-  const historyPanel = (
+  // inSheet 决定浮层挂在哪棵子树：抽屉会把外部 portal 当作外部节点隐藏。
+  const renderHistoryPanel = (inSheet: boolean) => (
     <HistoryPanel
       history={history}
       pending={conversations.isPending}
@@ -571,9 +589,25 @@ function ChatWorkspace({
       branching={branchMutation.isPending ? (branchMutation.variables?.id ?? null) : null}
       onOpen={openConversation}
       onBranch={branch}
+      onOpenSearch={(trigger) => setSearch({ trigger, inSheet })}
       onRename={(conversation, trigger) => setRenaming({ entry: conversation, trigger })}
     />
   );
+
+  const searchDialog = search ? (
+    <ConversationSearch
+      open
+      onOpenChange={(open) => {
+        if (!open) setSearch(null);
+      }}
+      finalFocus={() => (search.trigger.isConnected ? search.trigger : null)}
+      onSelect={(item) => {
+        setSearch(null);
+        setHistoryOpen(false);
+        onSelectSearchResult(item);
+      }}
+    />
+  ) : null;
 
   const title = conversationId && detail.data ? titleFromDetail(detail.data) : '未命名会话';
 
@@ -591,6 +625,7 @@ function ChatWorkspace({
       workspaceToggleRef={workspaceToggleRef}
       historyVisible={desktop ? !historyCollapsed : historyOpen}
       historyPanelId="chat-history"
+      onOpenSearch={(trigger) => setSearch({ trigger, inSheet: false })}
       onToggleHistory={() => {
         if (desktop) {
           if (historyCollapsed) historyPanelRef.current?.resize(lastHistorySize.current);
@@ -725,9 +760,10 @@ function ChatWorkspace({
             agentOptions={agentOptions}
             onSwitchAgent={switchAgent}
           />
-          {historyPanel}
+          {renderHistoryPanel(true)}
           {/* 必须挂在抽屉的 React 子树里：否则抽屉会把重命名对话框的 portal 当成外部节点隐藏。 */}
           {desktop ? null : renameDialog}
+          {search?.inSheet ? searchDialog : null}
         </SheetContent>
       </Sheet>
 
@@ -803,7 +839,7 @@ function ChatWorkspace({
                     agentOptions={agentOptions}
                     onSwitchAgent={switchAgent}
                   />
-                  {historyPanel}
+                  {renderHistoryPanel(false)}
                 </aside>
               )}
             </Panel>
@@ -849,6 +885,7 @@ function ChatWorkspace({
           {deleteDialog}
         </div>
       )}
+      {search && !search.inSheet ? searchDialog : null}
     </div>
   );
 }
@@ -1078,11 +1115,6 @@ interface HistoryEntry {
   updatedAt: string;
 }
 
-function filterHistory(history: HistoryEntry[], query: string): HistoryEntry[] {
-  const needle = query.trim().toLowerCase();
-  return needle ? history.filter((item) => item.title.toLowerCase().includes(needle)) : history;
-}
-
 function HistoryPanel({
   history,
   pending,
@@ -1092,6 +1124,7 @@ function HistoryPanel({
   branching,
   onOpen,
   onBranch,
+  onOpenSearch,
   onRename,
 }: {
   history: HistoryEntry[];
@@ -1102,37 +1135,33 @@ function HistoryPanel({
   branching: string | null;
   onOpen: (id: string) => void;
   onBranch: (id: string) => void;
+  onOpenSearch: (trigger: HTMLElement) => void;
   onRename: (conversation: HistoryEntry, trigger: HTMLElement) => void;
 }) {
   // 同一时刻只开一个菜单：触发器的 DOM 身份在点击时记下，菜单项卸载后仍能把焦点交还。
   const menuTriggerRef = useRef<HTMLElement | null>(null);
-  const [query, setQuery] = useState('');
-  const needle = query.trim();
-  const filtered = useMemo(() => filterHistory(history, needle), [history, needle]);
   return (
     <>
       <div className="shrink-0 px-3">
-        <SearchInput
-          label="搜索会话"
-          placeholder="搜索对话"
-          value={query}
-          onChange={setQuery}
-          className="w-full"
-        />
+        <Button
+          variant="outline"
+          onClick={(event) => onOpenSearch(event.currentTarget)}
+          className="h-8 w-full justify-start gap-2 px-2.5 font-normal text-muted-foreground"
+        >
+          <Search aria-hidden="true" className="size-4" />
+          <span className="min-w-0 flex-1 truncate text-left text-sm">搜索全部会话</span>
+        </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {pending ? <LoadingState rows={4} /> : null}
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
-        {history.length === 0 && !pending && !error && !needle ? (
+        {history.length === 0 && !pending && !error ? (
           <p className="px-2 py-5 text-xs leading-relaxed text-muted-foreground">
             开始对话后，记录会出现在这里。
           </p>
         ) : null}
-        {needle && filtered.length === 0 && !pending && !error ? (
-          <p className="px-2 py-6 text-xs leading-relaxed text-muted-foreground">没有匹配的会话</p>
-        ) : null}
         <ul className="flex flex-col gap-0.5">
-          {filtered.map((conversation) => (
+          {history.map((conversation) => (
             <li key={conversation.id} className="group relative">
               <Button
                 variant="ghost"
@@ -1217,6 +1246,7 @@ function ChatColumn({
   workspaceToggleRef,
   historyVisible,
   historyPanelId,
+  onOpenSearch,
   onToggleHistory,
   conversationId,
   detail,
@@ -1259,6 +1289,7 @@ function ChatColumn({
   workspaceToggleRef: RefObject<HTMLButtonElement | null>;
   historyVisible: boolean;
   historyPanelId: string;
+  onOpenSearch: (trigger: HTMLElement) => void;
   onToggleHistory: () => void;
   conversationId: string | null;
   detail: ReturnType<typeof useConversation>;
@@ -1402,6 +1433,19 @@ function ChatColumn({
           >
             <PanelLeftDashed />
           </Button>
+          {/* 历史面板收起时仍保留搜索入口；展开时入口在面板内，避免重复。 */}
+          {historyVisible ? null : (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="搜索会话"
+              title="搜索会话"
+              onClick={(event) => onOpenSearch(event.currentTarget)}
+              className="shrink-0 text-muted-foreground hover:text-fg"
+            >
+              <Search />
+            </Button>
+          )}
           <div className="flex min-w-0 flex-1 items-center gap-1">
             <h1
               title={title}
@@ -1969,19 +2013,19 @@ export function MessagePane({
   prevTools.current = tools;
   const structure = useMemo(() => buildStructure(tools), [tools]);
 
-  // 审批匹配表只在工具或审批变化时重算（依赖不变时 useMemo 返回同一个 Map）。
-  const matches = useMemo(() => {
-    const map = new Map<string, ApprovalRequest | undefined>();
-    for (const tool of tools) map.set(tool.toolUseId, findApproval(tool, approvalItems));
-    return map;
-  }, [tools, approvalItems]);
+  // 审批只落到当前轮唯一匹配的工具位；历史同名成功调用仍留在各自的执行过程里。
+  const latestTurn = turns.at(-1);
+  const approvalHosts = useMemo(() => {
+    if (!latestTurn || latestTurn.user) return new Map<string, ApprovalRequest>();
+    return assignApprovals(latestTurn.items.filter(isTool), approvalItems);
+  }, [latestTurn, approvalItems]);
 
   // 已放置的审批：兜底卡不能重复出现。
   const placed = useMemo(() => {
     const ids = new Set<string>();
-    for (const approval of matches.values()) if (approval) ids.add(approval.id);
+    for (const approval of approvalHosts.values()) ids.add(approval.id);
     return ids;
-  }, [matches]);
+  }, [approvalHosts]);
 
   // 发送是明确动作：新的一轮用户消息出现就把视图拉回最新，即使此前往上翻过。
   // 认「末尾那个用户项对象」而不是轮次 id：旧消息前插会让索引兜底 id 整体后移，误判成新轮。
@@ -2044,8 +2088,20 @@ export function MessagePane({
                       : turnRunId
                         ? historyMetrics.get(turnRunId)
                         : undefined;
+                  // 失败与超时的原因常驻；其余历史读数仍按悬停/聚焦显影。
+                  const persistentRun =
+                    historyRun !== undefined &&
+                    (historyRun.status === 'failed' ||
+                      historyRun.status === 'timeout' ||
+                      Boolean(historyRun.error));
                   // 清单是这一轮的最后一份顶层确认快照；子智能体与空快照都不显示。
                   const turnTodos = turn.user ? undefined : latestTopLevelTodos(turn.items);
+                  // 正常工具集中到本轮唯一的执行过程；待批/提问/失败/缺失结果留在折叠外。
+                  const foldableRoots = turn.user
+                    ? ([] as ToolItem[])
+                    : foldableToolRoots(turn.items, structure, approvalHosts, questionsByToolUseId);
+                  const foldableIds = new Set(foldableRoots.map((tool) => tool.toolUseId));
+                  let tracePlaced = false;
                   // 每个 item 自带 content-visibility（绘制隔离），越界的悬浮层会被裁掉。
                   return (
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
@@ -2069,12 +2125,29 @@ export function MessagePane({
                                 // 有归属的子调用由父行渲染，不在顶层重复出现。
                                 if (item.kind === 'tool') {
                                   if (structure.root.has(item.toolUseId)) return null;
+                                  if (foldableIds.has(item.toolUseId)) {
+                                    if (tracePlaced) return null;
+                                    tracePlaced = true;
+                                    return (
+                                      <TurnTrace
+                                        key={`trace-${turn.id}`}
+                                        roots={foldableRoots}
+                                        kids={structure.kids}
+                                        approvalHosts={approvalHosts}
+                                        pending={approvals.pending}
+                                        onApprove={approvals.onApprove}
+                                        questionsByToolUseId={questionsByToolUseId}
+                                        liveRunId={liveRunId ?? null}
+                                        live={latest && running}
+                                      />
+                                    );
+                                  }
                                   return (
                                     <ToolGroup
                                       key={item.toolUseId}
                                       tool={item}
                                       kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
-                                      approvalItems={approvalItems}
+                                      approvalHosts={approvalHosts}
                                       pending={approvals.pending}
                                       onApprove={approvals.onApprove}
                                       questionsByToolUseId={questionsByToolUseId}
@@ -2119,7 +2192,14 @@ export function MessagePane({
                             键盘聚焦到它时本轮 group-focus-within 显影，链接不会突然消失。
                             不用绝对定位——item 的 content-visibility 会裁掉越界内容。 */}
                         {historyRun ? (
-                          <div className="mt-1 opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within/turn:opacity-100 group-hover/turn:opacity-100 pointer-coarse:opacity-100 motion-reduce:transition-none">
+                          <div
+                            className={cn(
+                              'mt-1 transition-opacity duration-150 ease-out-soft motion-reduce:transition-none',
+                              persistentRun
+                                ? 'opacity-100'
+                                : 'opacity-0 group-focus-within/turn:opacity-100 group-hover/turn:opacity-100 pointer-coarse:opacity-100',
+                            )}
+                          >
                             <RunMetricsLine
                               run={historyRun}
                               {...(historyRun.endedAt
@@ -2169,6 +2249,102 @@ export function MessagePane({
   );
 }
 
+function toolRunning(item: ToolItem): boolean {
+  return item.result === undefined && item.startedAt !== undefined && item.endedAt === undefined;
+}
+
+/** 待批、原生提问、失败与缺失结果不能藏进执行过程；有这类子调用时整个父组留在折叠外。 */
+function toolNeedsAttention(
+  item: ToolItem,
+  kids: ToolItem[],
+  approvalHosts: ReadonlyMap<string, ApprovalRequest>,
+  questionsByToolUseId: ReadonlyMap<string, PublicRunQuestion> | undefined,
+): boolean {
+  if (approvalHosts.has(item.toolUseId)) return true;
+  if ((questionsByToolUseId?.get(item.toolUseId) ?? item.question) !== undefined) return true;
+  if (item.result === undefined ? !toolRunning(item) : toolFailed(item.result)) return true;
+  return kids.some((kid) => toolNeedsAttention(kid, NO_KIDS, approvalHosts, questionsByToolUseId));
+}
+
+/** 本轮可收进「执行过程」的顶层调用：自身与全部子调用都不需要用户处理。 */
+function foldableToolRoots(
+  items: ChatItem[],
+  structure: ReturnType<typeof buildStructure>,
+  approvalHosts: ReadonlyMap<string, ApprovalRequest>,
+  questionsByToolUseId: ReadonlyMap<string, PublicRunQuestion> | undefined,
+): ToolItem[] {
+  return items.filter(
+    (item): item is ToolItem =>
+      item.kind === 'tool' &&
+      !structure.root.has(item.toolUseId) &&
+      !toolNeedsAttention(
+        item,
+        structure.kids.get(item.toolUseId) ?? NO_KIDS,
+        approvalHosts,
+        questionsByToolUseId,
+      ),
+  );
+}
+
+/** 本轮唯一的「执行过程」：运行中自动展开，结束后收起，用户仍可手动开合。 */
+const TurnTrace = memo(function TurnTrace({
+  roots,
+  kids,
+  approvalHosts,
+  pending,
+  onApprove,
+  questionsByToolUseId,
+  liveRunId,
+  live,
+}: {
+  roots: ToolItem[];
+  kids: ReadonlyMap<string, ToolItem[]>;
+  approvalHosts: ReadonlyMap<string, ApprovalRequest>;
+  pending: string | null;
+  onApprove: (item: ApprovalRequest) => void;
+  questionsByToolUseId?: ReadonlyMap<string, PublicRunQuestion> | undefined;
+  liveRunId: string | null;
+  live: boolean;
+}) {
+  const anyRunning = roots.some(
+    (root) => toolRunning(root) || (kids.get(root.toolUseId) ?? NO_KIDS).some(toolRunning),
+  );
+  const [open, setOpen] = useState(live || anyRunning);
+  // 整轮运行期间保持展开，避免两个工具之间短暂无运行项时反复开合；结束后收起。
+  useEffect(() => setOpen(live || anyRunning), [live, anyRunning]);
+  return (
+    <Trace>
+      <TraceCollapsible open={open} onOpenChange={setOpen}>
+        <TraceCollapsibleTrigger>
+          <TraceLine status={anyRunning ? 'running' : undefined}>
+            <TraceIcon>
+              {anyRunning ? <LoaderCircle className="animate-spin" /> : <ListChecks />}
+            </TraceIcon>
+            <TraceTitle>执行过程</TraceTitle>
+            <TraceDescription>{anyRunning ? '运行中' : '已完成'}</TraceDescription>
+          </TraceLine>
+        </TraceCollapsibleTrigger>
+        <TraceCollapsibleContent>
+          <div className="flex flex-col gap-1">
+            {roots.map((root) => (
+              <ToolGroup
+                key={root.toolUseId}
+                tool={root}
+                kids={kids.get(root.toolUseId) ?? NO_KIDS}
+                approvalHosts={approvalHosts}
+                pending={pending}
+                onApprove={onApprove}
+                questionsByToolUseId={questionsByToolUseId}
+                liveRunId={liveRunId}
+              />
+            ))}
+          </div>
+        </TraceCollapsibleContent>
+      </TraceCollapsible>
+    </Trace>
+  );
+});
+
 /**
  * 新用户轮出现时回到底部；必须挂在 Provider 内才能拿到滚动控制。
  * 用对象身份而不是轮次 id：补旧消息时索引兜底 id 会整体后移，导致误判。
@@ -2217,7 +2393,7 @@ function messageTurns(items: ChatItem[], hasFooter: boolean) {
 const ToolGroup = memo(function ToolGroup({
   tool,
   kids,
-  approvalItems,
+  approvalHosts,
   pending,
   onApprove,
   questionsByToolUseId,
@@ -2225,13 +2401,13 @@ const ToolGroup = memo(function ToolGroup({
 }: {
   tool: ToolItem;
   kids: ToolItem[];
-  approvalItems: ApprovalRequest[];
+  approvalHosts: ReadonlyMap<string, ApprovalRequest>;
   pending: string | null;
   onApprove: (item: ApprovalRequest) => void;
   questionsByToolUseId?: ReadonlyMap<string, PublicRunQuestion> | undefined;
   liveRunId: string | null;
 }) {
-  const approval = findApproval(tool, approvalItems);
+  const approval = approvalHosts.get(tool.toolUseId);
   const question = questionsByToolUseId?.get(tool.toolUseId) ?? tool.question;
   return (
     <>
@@ -2252,7 +2428,7 @@ const ToolGroup = memo(function ToolGroup({
         {approval ? <ApprovalCard item={approval} pending={pending} onApprove={onApprove} /> : null}
       </div>
       {kids.map((child) => {
-        const childApproval = findApproval(child, approvalItems);
+        const childApproval = approvalHosts.get(child.toolUseId);
         const childQuestion = questionsByToolUseId?.get(child.toolUseId) ?? child.question;
         return (
           <div key={`${child.toolUseId}-child`} className="flex flex-col gap-1.5">
@@ -2275,20 +2451,43 @@ const ToolGroup = memo(function ToolGroup({
   );
 });
 
+/** 审批与工具调用是否同名同 server；放置、折叠和兜底共用这一条匹配规则。 */
+function approvalMatchesTool(item: ToolItem, approval: ApprovalRequest): boolean {
+  return approval.serverName
+    ? item.name === `mcp__${approval.serverName}__${approval.toolName}`
+    : item.name === approval.toolName || item.name.endsWith(`__${approval.toolName}`);
+}
+
+/**
+ * 每个审批只落到一个工具位：唯一候选直接用；多个同名时只认唯一未结束的调用。
+ * 无法唯一匹配就不放置，交给末尾兜底卡，避免历史成功调用把同一审批复制到每一行。
+ */
+function assignApprovals(
+  turnTools: ToolItem[],
+  approvalItems: ApprovalRequest[],
+): Map<string, ApprovalRequest> {
+  const hosts = new Map<string, ApprovalRequest>();
+  for (const approval of approvalItems) {
+    const candidates = turnTools.filter((tool) => approvalMatchesTool(tool, approval));
+    const awaiting = candidates.filter((tool) => tool.result === undefined);
+    const host =
+      candidates.length === 1 ? candidates[0] : awaiting.length === 1 ? awaiting[0] : undefined;
+    if (host) hosts.set(host.toolUseId, approval);
+  }
+  return hosts;
+}
+
 /** 审批卡放在被拒工具的原位置；匹配不上的兜底放在末尾，不能吞掉。 */
 export function findApproval(
   item: ToolItem,
   approvalItems: ApprovalRequest[],
 ): ApprovalRequest | undefined {
   const exact = approvalItems.filter(
-    (approval) =>
-      approval.serverName && item.name === `mcp__${approval.serverName}__${approval.toolName}`,
+    (approval) => approval.serverName && approvalMatchesTool(item, approval),
   );
   if (exact.length > 0) return exact.length === 1 ? exact[0] : undefined;
   const candidates = approvalItems.filter(
-    (approval) =>
-      !approval.serverName &&
-      (item.name === approval.toolName || item.name.endsWith(`__${approval.toolName}`)),
+    (approval) => !approval.serverName && approvalMatchesTool(item, approval),
   );
   return candidates.length === 1 ? candidates[0] : undefined;
 }
@@ -2754,8 +2953,8 @@ const ToolRow = memo(function ToolRow({
   // 有结构化引用时在收起状态也提示来源数量，否则用户不会知道要展开 trace。
   const cited = knowledgeHitsFromTool(item.name, item.result)?.length ?? 0;
   const status = running ? '运行中' : missing ? '未收到结果' : failed ? '失败' : '完成';
+  const lineStatus = running ? 'running' : missing ? 'pending' : failed ? 'error' : undefined;
   const [open, setOpen] = useState(running);
-  const reduce = useReducedMotion();
 
   // 跑着的自动展开，结束后收起；用户仍可手动再展开。
   useEffect(() => {
@@ -2767,98 +2966,58 @@ const ToolRow = memo(function ToolRow({
       ? item.endedAt - item.startedAt
       : undefined;
 
-  // Collapsible is unstyled; keep the tool surface, 9px corners, hover, and keyboard focus ring.
   return (
-    <Collapsible
+    <TraceCollapsible
       open={open}
       onOpenChange={setOpen}
-      className={cn('overflow-hidden rounded-item bg-surface', nested && 'ml-4')}
+      className={cn('min-w-0', nested && 'ml-4')}
     >
-      <CollapsibleTrigger className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-        <Wrench className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{item.name}</code>
-        <span className="sr-only">{status}</span>
-        {running ? (
-          <LoaderCircle className="size-3 shrink-0 animate-spin text-fg" aria-hidden="true" />
-        ) : missing ? (
-          <CircleAlert className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-        ) : failed ? (
-          <CircleAlert className="size-3 shrink-0 text-danger" aria-hidden="true" />
-        ) : (
-          <Check className="size-3 shrink-0 text-success" aria-hidden="true" />
-        )}
-        <span className="shrink-0 text-xs text-muted-foreground" aria-hidden="true">
-          {status}
-        </span>
-        {cited > 0 ? (
-          <span className="shrink-0 text-2xs text-muted-foreground">{cited} 来源</span>
+      <TraceCollapsibleTrigger>
+        <TraceLine status={lineStatus}>
+          <TraceIcon>
+            {running ? (
+              <LoaderCircle className="animate-spin" />
+            ) : missing || failed ? (
+              <CircleAlert />
+            ) : (
+              <Wrench />
+            )}
+          </TraceIcon>
+          <TraceTitle className="font-mono text-xs text-fg">{item.name}</TraceTitle>
+          <TraceDescription>
+            {status}
+            {duration === undefined ? '' : ` · ${formatDuration(duration)}`}
+            {cited > 0 ? ` · ${cited} 来源` : ''}
+          </TraceDescription>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent className="flex flex-col gap-2">
+        {childCount > 0 ? (
+          <p className="text-xs text-muted-foreground">子智能体 · {childCount} 次调用</p>
         ) : null}
-        {duration !== undefined ? (
-          <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
-            {formatDuration(duration)}
-          </span>
-        ) : null}
-        <ChevronDown
-          className={cn(
-            'size-3 shrink-0 text-muted-foreground transition-transform',
-            open && 'rotate-180',
+        <div className="min-w-0">
+          <div className="mb-1 text-2xs uppercase tracking-[0.06em] text-subtle">参数</div>
+          {item.input !== undefined ? (
+            <JsonBlock value={item.input} maxHeight="16rem" />
+          ) : (
+            <p className="text-2xs text-muted-foreground">{running ? '等待参数…' : '未收到参数'}</p>
           )}
-          aria-hidden="true"
-        />
-      </CollapsibleTrigger>
-      {/* keepMounted：保留面板，inert 隔离收起内容，Motion 完成高度退出动画。 */}
-      <CollapsibleContent keepMounted>
-        <AnimatePresence initial={false}>
-          {open ? (
-            <motion.div
-              key="body"
-              initial={{ height: 0 }}
-              animate={{ height: 'auto' }}
-              exit={{ height: 0 }}
-              transition={reduce ? STILL : EXPAND}
-              className="overflow-hidden"
-            >
-              {childCount > 0 ? (
-                <p className="px-3 pt-2 text-xs text-muted-foreground">
-                  子智能体 · {childCount} 次调用
-                </p>
-              ) : null}
-              <div className="grid gap-2 border-t p-2">
-                <div className="min-w-0">
-                  <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-muted-foreground">
-                    参数
-                  </div>
-                  {item.input !== undefined ? (
-                    <JsonBlock value={item.input} maxHeight="16rem" />
-                  ) : (
-                    <p className="px-1 text-2xs text-muted-foreground">
-                      {running ? '等待参数…' : '未收到参数'}
-                    </p>
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <div className="mb-1 px-1 text-2xs uppercase tracking-[0.06em] text-muted-foreground">
-                    结果
-                  </div>
-                  {item.result !== undefined ? (
-                    <>
-                      <JsonBlock value={item.result} maxHeight="20rem" />
-                      {/* 知识库检索结果另给可点开的来源；原文在查看器里读，不执行来源页脚本。 */}
-                      <div className="mt-2">
-                        <KnowledgeCitations name={item.name} result={item.result} />
-                      </div>
-                    </>
-                  ) : (
-                    <p className="px-1 text-2xs text-muted-foreground">
-                      {running ? '等待结果…' : '未收到结果'}
-                    </p>
-                  )}
-                </div>
+        </div>
+        <div className="min-w-0">
+          <div className="mb-1 text-2xs uppercase tracking-[0.06em] text-subtle">结果</div>
+          {item.result !== undefined ? (
+            <>
+              <JsonBlock value={item.result} maxHeight="20rem" />
+              {/* 知识库检索结果另给可点开的来源；原文在查看器里读，不执行来源页脚本。 */}
+              <div className="mt-2">
+                <KnowledgeCitations name={item.name} result={item.result} />
               </div>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
-      </CollapsibleContent>
-    </Collapsible>
+            </>
+          ) : (
+            <p className="text-2xs text-muted-foreground">{running ? '等待结果…' : '未收到结果'}</p>
+          )}
+        </div>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
   );
 });

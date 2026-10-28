@@ -109,6 +109,7 @@ import {
 } from '../components/ui/dropdown-menu.js';
 import {
   Field,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldGroup,
@@ -1661,8 +1662,8 @@ export function AgentEditor({
 
                 {activeSection === 'behavior' ? (
                   <Section id="behavior" title="行为">
-                    <FieldGroup className="grid gap-5 sm:grid-cols-2">
-                      <Field data-disabled={pending} className="gap-1.5">
+                    <FieldGroup className="gap-5">
+                      <Field data-disabled={pending} orientation="horizontal" className="gap-3">
                         <FieldLabel htmlFor="agent-model">模型</FieldLabel>
                         <Input
                           {...rhf.register('model')}
@@ -1670,7 +1671,7 @@ export function AgentEditor({
                           id="agent-model"
                           list="agent-models"
                           // Keep monospace technical identifiers instead of the base sans-serif input.
-                          className="font-mono"
+                          className="w-64 font-mono"
                         />
                         <datalist id="agent-models">
                           {models.map((model) => (
@@ -1678,7 +1679,7 @@ export function AgentEditor({
                           ))}
                         </datalist>
                       </Field>
-                      <Field data-disabled={pending} className="gap-1.5">
+                      <Field data-disabled={pending} orientation="horizontal" className="gap-3">
                         <FieldLabel htmlFor="agent-effort">推理强度</FieldLabel>
                         <Select
                           disabled={pending}
@@ -1692,7 +1693,7 @@ export function AgentEditor({
                           }}
                           items={effortOptions}
                         >
-                          <SelectTrigger id="agent-effort" className="w-full min-w-0">
+                          <SelectTrigger id="agent-effort" className="w-40">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -2273,9 +2274,16 @@ export function AgentEditor({
                         requiresApproval，仍须通过服务端审批，可挂起等待批准。请仅绑定可信连接器。
                       </p>
                     </div>
-                    <FieldGroup className="grid gap-5 sm:grid-cols-2">
-                      <Field data-disabled={pending} className="gap-1.5">
-                        <FieldLabel htmlFor="agent-perm">权限模式</FieldLabel>
+                    <FieldGroup className="gap-5">
+                      <Field data-disabled={pending} orientation="horizontal" className="gap-3">
+                        <FieldContent>
+                          <FieldLabel htmlFor="agent-perm">权限模式</FieldLabel>
+                          <FieldDescription id="agent-perm-hint">
+                            default 支持原生澄清问答，dontAsk
+                            拒绝原生提问；其他未预批准的工具请求会被拒绝。
+                            连接器工具仍可能触发服务端审批。
+                          </FieldDescription>
+                        </FieldContent>
                         <Select
                           disabled={pending}
                           value={permissionModeField.value}
@@ -2288,7 +2296,7 @@ export function AgentEditor({
                         >
                           <SelectTrigger
                             id="agent-perm"
-                            className="w-full min-w-0"
+                            className="w-64"
                             aria-describedby="agent-perm-hint"
                           >
                             <SelectValue />
@@ -2303,10 +2311,6 @@ export function AgentEditor({
                             </SelectGroup>
                           </SelectContent>
                         </Select>
-                        <FieldDescription id="agent-perm-hint">
-                          default 支持原生澄清问答，dontAsk 拒绝原生提问；其他未预批准的工具请求会被拒绝。
-                          连接器工具仍可能触发服务端审批。
-                        </FieldDescription>
                       </Field>
                       <Field
                         data-disabled={pending}
@@ -2382,13 +2386,17 @@ export function AgentEditor({
 
                 {activeSection === 'limits' ? (
                   <Section id="limits" title="运行限制">
-                    <FieldGroup className="grid gap-5 sm:grid-cols-2">
+                    <FieldGroup className="gap-5">
                       <Field
                         data-disabled={pending}
-                        className="gap-1.5"
+                        orientation="horizontal"
+                        className="gap-3"
                         data-invalid={Boolean(errors.maxTurns)}
                       >
-                        <FieldLabel htmlFor="agent-turns">最大轮次</FieldLabel>
+                        <FieldContent>
+                          <FieldLabel htmlFor="agent-turns">最大轮次</FieldLabel>
+                          <FieldError id="agent-turns-error">{errors.maxTurns?.message}</FieldError>
+                        </FieldContent>
                         <Input
                           {...rhf.register('maxTurns', { valueAsNumber: true })}
                           disabled={pending}
@@ -2398,15 +2406,21 @@ export function AgentEditor({
                           inputMode="numeric"
                           aria-invalid={Boolean(errors.maxTurns)}
                           aria-describedby={errors.maxTurns ? 'agent-turns-error' : undefined}
+                          className="w-40"
                         />
-                        <FieldError id="agent-turns-error">{errors.maxTurns?.message}</FieldError>
                       </Field>
                       <Field
                         data-disabled={pending}
-                        className="gap-1.5"
+                        orientation="horizontal"
+                        className="gap-3"
                         data-invalid={Boolean(errors.maxBudgetUsd)}
                       >
-                        <FieldLabel htmlFor="agent-budget">预算上限 (USD)</FieldLabel>
+                        <FieldContent>
+                          <FieldLabel htmlFor="agent-budget">预算上限 (USD)</FieldLabel>
+                          <FieldError id="agent-budget-error">
+                            {errors.maxBudgetUsd?.message}
+                          </FieldError>
+                        </FieldContent>
                         <Input
                           {...rhf.register('maxBudgetUsd', { valueAsNumber: true })}
                           disabled={pending}
@@ -2417,17 +2431,21 @@ export function AgentEditor({
                           inputMode="decimal"
                           aria-invalid={Boolean(errors.maxBudgetUsd)}
                           aria-describedby={errors.maxBudgetUsd ? 'agent-budget-error' : undefined}
+                          className="w-40"
                         />
-                        <FieldError id="agent-budget-error">
-                          {errors.maxBudgetUsd?.message}
-                        </FieldError>
                       </Field>
                       <Field
                         data-disabled={pending}
-                        className="gap-1.5"
+                        orientation="horizontal"
+                        className="gap-3"
                         data-invalid={Boolean(errors.timeoutMs)}
                       >
-                        <FieldLabel htmlFor="agent-timeout">超时 (毫秒)</FieldLabel>
+                        <FieldContent>
+                          <FieldLabel htmlFor="agent-timeout">超时 (毫秒)</FieldLabel>
+                          <FieldError id="agent-timeout-error">
+                            {errors.timeoutMs?.message}
+                          </FieldError>
+                        </FieldContent>
                         <Input
                           {...rhf.register('timeoutMs', { valueAsNumber: true })}
                           disabled={pending}
@@ -2438,17 +2456,27 @@ export function AgentEditor({
                           inputMode="numeric"
                           aria-invalid={Boolean(errors.timeoutMs)}
                           aria-describedby={errors.timeoutMs ? 'agent-timeout-error' : undefined}
+                          className="w-40"
                         />
-                        <FieldError id="agent-timeout-error">
-                          {errors.timeoutMs?.message}
-                        </FieldError>
                       </Field>
                       <Field
                         data-disabled={pending}
-                        className="gap-1.5"
+                        orientation="horizontal"
+                        className="gap-3"
                         data-invalid={thinkingInvalid}
                       >
-                        <FieldLabel htmlFor="agent-thinking">最大思考 tokens</FieldLabel>
+                        <FieldContent>
+                          <FieldLabel htmlFor="agent-thinking">最大思考 tokens</FieldLabel>
+                          {thinkingInvalid ? (
+                            <FieldError id="agent-thinking-error">
+                              {errors.maxThinkingTokens?.message}
+                            </FieldError>
+                          ) : (
+                            <FieldDescription id="agent-thinking-hint">
+                              留空表示不设置。
+                            </FieldDescription>
+                          )}
+                        </FieldContent>
                         <Input
                           {...rhf.register('maxThinkingTokens')}
                           disabled={pending}
@@ -2462,18 +2490,10 @@ export function AgentEditor({
                           aria-describedby={
                             thinkingInvalid ? 'agent-thinking-error' : 'agent-thinking-hint'
                           }
+                          className="w-40"
                         />
-                        {thinkingInvalid ? (
-                          <FieldError id="agent-thinking-error">
-                            {errors.maxThinkingTokens?.message}
-                          </FieldError>
-                        ) : (
-                          <FieldDescription id="agent-thinking-hint">
-                            留空表示不设置。
-                          </FieldDescription>
-                        )}
                       </Field>
-                      <Field data-disabled={pending} className="gap-1.5">
+                      <Field data-disabled={pending} orientation="horizontal" className="gap-3">
                         <FieldLabel htmlFor="agent-ui-format">回复格式</FieldLabel>
                         <Select
                           disabled={pending}
@@ -2485,7 +2505,7 @@ export function AgentEditor({
                           }}
                           items={uiFormatOptions}
                         >
-                          <SelectTrigger id="agent-ui-format" className="w-full min-w-0">
+                          <SelectTrigger id="agent-ui-format" className="w-48">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>

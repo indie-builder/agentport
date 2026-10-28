@@ -347,6 +347,107 @@ describe('output preview and versions', () => {
     expect(workspace().querySelector('pre')?.textContent).toContain('# Latest report');
   });
 
+  it('copies the selected version content and keeps downloading the same file', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    // 两个版本的正文都已缓存：切版本不卸载工具条，能验证复制反馈随正文重置。
+    client.setQueryData(['conversation-output-content', 'conversation-a', 'run-1', 'report.md'], {
+      file: reportOlder,
+      content: contents['run-1:report.md'],
+    });
+    await mount();
+    await openWorkspace();
+    await selectFile('report.md');
+    const copy = workspace().querySelector<HTMLButtonElement>(
+      'button[aria-label="复制 report.md"]',
+    );
+    if (!copy) throw new Error('Missing copy action');
+    await act(async () => copy.click());
+    expect(writeText).toHaveBeenLastCalledWith('# Latest report\n\nbody');
+
+    await pickVersion(reportOlder.createdAt);
+    // 切到旧版后先看到可复制的动作，不能沿用上一版的「已复制」。
+    const copied = workspace().querySelector<HTMLButtonElement>(
+      'button[aria-label="复制 report.md"]',
+    );
+    if (!copied) throw new Error('Missing copy action after switching versions');
+    await act(async () => copied.click());
+    expect(writeText).toHaveBeenLastCalledWith('# Older report\n\nbody');
+    expect(
+      workspace()
+        .querySelector<HTMLAnchorElement>('a[aria-label="下载 report.md"]')
+        ?.getAttribute('href'),
+    ).toBe('/api/conversations/conversation-a/outputs/run-1/download?path=report.md');
+  });
+
+  it('keeps every version operation inside the reader toolbar in a narrow panel', async () => {
+    await mount();
+    await openWorkspace();
+    await selectFile('report.md');
+    const copy = workspace().querySelector<HTMLButtonElement>(
+      'button[aria-label="复制 report.md"]',
+    );
+    if (!copy) throw new Error('Missing copy action');
+    const actions = copy.parentElement;
+    if (!actions) throw new Error('Missing toolbar actions');
+    // jsdom 没有布局：这里守住宽度上限与可聚焦契约，320px 的实际几何由浏览器复核。
+    expect(actions.className).toContain('max-w-full');
+    expect(actions.contains(workspace().querySelector('button[aria-label="选择版本"]'))).toBe(true);
+
+    for (const selector of [
+      'button[aria-label="选择版本"]',
+      'button[aria-label="复制 report.md"]',
+      'a[aria-label="下载 report.md"]',
+    ]) {
+      const control = workspace().querySelector<HTMLElement>(selector);
+      if (!control) throw new Error(`Missing toolbar control: ${selector}`);
+      expect(actions.contains(control)).toBe(true);
+      control.focus();
+      expect(document.activeElement).toBe(control);
+    }
+    const feedback = [...actions.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === '基于此版本修改',
+    );
+    if (!feedback) throw new Error('Missing feedback action');
+    feedback.focus();
+    expect(document.activeElement).toBe(feedback);
+    for (const label of ['阅读', '源码']) {
+      const mode = [...actions.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent?.trim() === label,
+      );
+      if (!mode) throw new Error(`Missing mode toggle: ${label}`);
+      mode.focus();
+      expect(document.activeElement).toBe(mode);
+    }
+  });
+
+  it('pages through older output versions without dropping the selected file', async () => {
+    const archived = output({
+      runId: 'run-0',
+      path: 'archived.md',
+      createdAt: '2026-10-27T10:00:00.000Z',
+    });
+    vi.mocked(api.outputs)
+      .mockResolvedValueOnce({ items: list.items, nextBefore: 'cursor-1' })
+      .mockResolvedValueOnce({ items: [archived], nextBefore: null });
+    await mount();
+    await openWorkspace();
+    await selectFile('report.md');
+    const more = [...workspace().querySelectorAll<HTMLButtonElement>('button')].find(
+      (item) => item.textContent?.trim() === '加载更多版本',
+    );
+    if (!more) throw new Error('Missing older versions action');
+    await act(async () => more.click());
+    await flush();
+    expect(vi.mocked(api.outputs)).toHaveBeenLastCalledWith(
+      'conversation-a',
+      { limit: 50, before: 'cursor-1' },
+      expect.any(AbortSignal),
+    );
+    expect(workspace().textContent).toContain('archived.md');
+    expect(router.state.location.search).toMatchObject({ outputRun: 'run-2' });
+  });
+
   it('switches a Markdown file between reading and source modes through the URL', async () => {
     await mount();
     await openWorkspace();
@@ -366,6 +467,11 @@ describe('output preview and versions', () => {
     await flush();
     expect(router.state.location.search).toMatchObject({ outputMode: 'source' });
     expect(workspace().querySelector('pre')?.textContent).toContain('# Latest report');
+    const copies = [...workspace().querySelectorAll<HTMLButtonElement>('button')].filter((item) =>
+      item.getAttribute('aria-label')?.startsWith('复制'),
+    );
+    expect(copies).toHaveLength(1);
+    expect(copies[0]?.getAttribute('aria-label')).toBe('复制 report.md');
   });
 
   it('keeps an explicitly chosen old version when the list refreshes with a new one', async () => {

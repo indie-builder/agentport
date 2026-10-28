@@ -58,7 +58,7 @@ export function ResourcePage({
     <Page>
       <PageHeader title={label} className="sr-only" />
       <Tabs value={section} className="flex-col gap-5">
-        <div className="flex flex-wrap items-center justify-between gap-4 pt-3">
+        <div className="flex flex-wrap items-center gap-3 pt-3">
           <TabsList
             variant="line"
             aria-label="资源类型"
@@ -77,7 +77,16 @@ export function ResourcePage({
               </TabsTrigger>
             ))}
           </TabsList>
-          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+            <SearchInput
+              label={`搜索${label}`}
+              placeholder={`搜索${label}…`}
+              value={query}
+              onChange={onQueryChange}
+              className="min-w-40 flex-1 sm:w-56 sm:flex-none"
+            />
+            {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+          </div>
         </div>
         <PageToolbar>
           <div className="flex min-w-0 flex-wrap items-center gap-3">
@@ -93,13 +102,6 @@ export function ResourcePage({
             )}
           </div>
           <div className="ml-auto flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
-            <SearchInput
-              label={`搜索${label}`}
-              placeholder={`搜索${label}…`}
-              value={query}
-              onChange={onQueryChange}
-              className="min-w-40 flex-1 sm:w-56 sm:flex-none"
-            />
             {filters}
             {hideSort ? null : (
               <FilterSelect
