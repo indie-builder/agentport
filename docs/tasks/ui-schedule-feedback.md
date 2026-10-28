@@ -58,7 +58,7 @@
 - [x] Sonnet 实现与真实行为测试（先红后绿），按白名单交付。
 - [x] Opus 独立 review 通过（`a466` 未发现功能 blocker，指出测试缺口；补强后 `a76` 最终通过）。
 - [x] 按改动范围验证（定向测试、typecheck、Biome、焦点与契约检查），更新本记录；全量 build/web 套件已由主会话补齐。
-- [ ] 主会话按授权 commit / push / PR / merge，并清理本轮 worktree（交付 pending；合并前需先集成 `origin/main` 的 PR #92 技术升级，见「并发集成待验证」）。
+- [ ] 主会话按授权 commit / push / PR / merge，并清理本轮 worktree（交付 pending；已无冲突合并 `origin/main` 的 PR #92 至 `6eaecce`，新依赖验证通过且集成 Opus review 已通过，见「并发集成已验证」；主会话立即 push / PR / merge / 清理）。
 
 ## 改动文件
 
@@ -68,14 +68,17 @@
 
 ## 下一步
 
-1. 主会话按授权在本 worktree 提交并推送，开 PR。
-2. 集成 `origin/main` 的 PR #92 技术升级（`6b41754`），在**新依赖下重新验证**（至少定向测试、typecheck、build、Biome、focus/contract）后再合并本 PR；新依赖下的结果尚未产生，不作预判。
+1. 集成后的 Opus review `ad1dc` 已通过：任务源码与测试 hash 不变，Query / Router / resolver / Base UI 相关 API 语义未回归。
+2. 主会话立即在本 worktree 推送、开 PR、合并并清理 worktree；完整授权持续有效。
 
-## 并发集成待验证
+## 并发集成已验证
 
-- 本任务起点固定为 `6db7a98`（PR #91 合并后），所有上面记录的验证均在该基线与当时的依赖上完成。
-- 期间 `origin/main` 已前进到 PR #92 的技术升级提交（`6b41754`），本分支尚未合并该变更。
-- 因此「799 全过 / build 通过」等结果**只对旧依赖成立**；合并前需 rebase/merge 到最新 `origin/main` 并按改动范围重跑验证，结果回填本节。在实测完成前，不得声称新依赖下已通过。
+- 本任务起点固定为 `6db7a98`（PR #91 合并后）；`07:57` 起记录的验证均在旧依赖上完成。该轮全套首跑为知识管理 1 例失败、798 通过，随后定向 68 例与全套 799 例均通过；失败原因未确认，按偶发/环境待观察保留，不作「已修」声明。
+- 期间 `origin/main` 前进到 PR #92 技术升级（`6b41754`）。已在该提交上无冲突合并，集成提交 `6eaecce`；任务源码与测试的 hash 未变，集成未改动本任务产出。
+- 新锁安装成功。`08:03:35` 主会话在新依赖下 `test:web` → `82 files / 799 passed`；`web` typecheck、build 均通过；两个改动文件的 Biome 检查、`lint:focus`、`lint:contract` 全部通过。即新依赖下全套与按改动范围验证均通过。
+- 因此旧依赖上的偶发失败不代表新依赖，新依赖结果是全套通过；但未在该失败用例上单独复现或归因。
+- 集成后的 Opus review `ad1dc` 通过：任务源码与测试 hash 不变，Query / Router / resolver / Base UI 相关 API 语义未回归。
+- 下方「浏览器验证（browser）」是升级前、旧依赖上的结果；新依赖只做了上述自动化重验，未重跑浏览器。
 
 ## 验证
 
@@ -110,7 +113,7 @@
 
 ## 浏览器验证（browser）
 
-日期 2026-10-28，ego-browser（space 固定名 `ui-schedule-feedback`，page `p1`），临时真实 `SchedulesPage` + 全局 `styles.css` + TanStack Router（BrowserHistory）+ QueryClient，受控 `window.fetch` 提供 `/api/agents`、`/api/schedules`，保存/删除可挂起（gate）或置 500；独立 Vite 5199，无真实登录/数据库/模型。本节取代上文「浏览器实测未做」的旧表述（该句已同步改写）。
+日期 2026-10-28，ego-browser（space 固定名 `ui-schedule-feedback`，page `p1`）。**本节为升级前、旧依赖上的验证；合并 PR #92 后未重跑浏览器，新依赖只做了自动化重验（见「并发集成已验证」）。** 临时真实 `SchedulesPage` + 全局 `styles.css` + TanStack Router（BrowserHistory）+ QueryClient，受控 `window.fetch` 提供 `/api/agents`、`/api/schedules`，保存/删除可挂起（gate）或置 500；独立 Vite 5199，无真实登录/数据库/模型。本节取代上文「浏览器实测未做」的旧表述（该句已同步改写）。
 
 实际观测（真实事件、DOM 状态、焦点；均为 `page.evaluate` 读数）：
 
