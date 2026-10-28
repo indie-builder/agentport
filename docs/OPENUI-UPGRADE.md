@@ -1,7 +1,18 @@
 # OpenUI 升级手册
 
 > 目标：OpenUI 发新版时，用最小改动、可验证的步骤完成升级，而不是靠记忆改代码。
-> 当前基线见 `docs/tasks/openui-integration.md`。
+> 当前批量升级的基线见 `docs/tasks/openui-integration.md`。
+
+## 版本基线
+
+| 包 | 锁定版本 | 用途 |
+|---|---|---|
+| `@openuidev/react-ui` | 0.18.1 | 生成期：官方 chat 库与 `definitions.ts` 对照 |
+| `@openuidev/cli` | 0.6.1 | 生成期：从 web 库产出 `openui.spec.json` |
+| `@openuidev/lang-core`（core） | 1.0.2 | 运行期：解析与系统提示词 |
+| `@openuidev/react-lang`（web） | 1.0.2 | 运行期：渲染与 hooks |
+
+升级任一行后按本文「升级步骤」执行，并把上表改成实装版本。
 
 ## 定义来源（先看这张图再动手）
 
@@ -69,7 +80,7 @@ packages/shared/src/openui/definitions.ts   真实 Zod 契约（唯一手工维�
    解析行为与官方是否一致（不是只看 schema 文本）。
 6. **补 web 实现**：`packages/web/test/openui-component-coverage.test.ts` 会点名
    没有渲染样例的组件；`packages/web/test/openui-renderer.test.ts` 要求每个组件都有实现。
-7. **更新本手册的基线**与 `docs/tasks/openui-integration.md` 的版本记录。
+7. **更新本文「版本基线」表**与 `docs/tasks/openui-integration.md` 的版本记录。
 
 ## `openui:check` 检查什么
 

@@ -26,7 +26,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+    image: redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b
     restart: unless-stopped
     # 密码由 compose 在启动时注入；healthcheck 里用同一个变量名，避免两处不一致。
     environment:
@@ -69,14 +69,17 @@ services:
         condition: service_healthy
 
   # 复杂格式解析（PDF/Office/OCR）。默认不启动：`docker compose --profile docling up -d docling`。
-  # 镜像 index digest 已用 ghcr manifest 核验（v0.8.0，amd64/arm64 均存在），但本仓库未实际拉起过该服务；
-  # 首次运行会下载模型。不想内置时把 DOCLING_URL 指向外部 Docling，鉴权同样用 DOCLING_TOKEN（X-Api-Key）。
+  # 镜像 index digest 已用 ghcr manifest 核验（v1.38.2，amd64/arm64 均存在）；该版本镜像已预装
+  # layout/tableformer/picture_classifier/rapidocr/easyocr 模型，启动不再下载。
+  # 不想内置时把 DOCLING_URL 指向外部 Docling，鉴权同样用 DOCLING_TOKEN（X-Api-Key）。
   docling:
     profiles: ['docling']
-    image: ghcr.io/docling-project/docling-serve-cpu:v0.8.0@sha256:51b5c7172b5d01bdb0bc9c73a21ee4396cb904c0262a898a8002195564f30286
+    image: ghcr.io/docling-project/docling-serve-cpu:v1.38.2@sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0
     restart: unless-stopped
     environment:
       DOCLING_SERVE_API_KEY: ${DOCLING_TOKEN:-}
+      # 默认同步只等 120s；对齐客户端 10 分钟上限，否则大文件在服务端先 504。
+      DOCLING_SERVE_MAX_SYNC_WAIT: '600'
     ports:
       - '127.0.0.1:5001:5001'
 

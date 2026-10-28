@@ -1,4 +1,4 @@
 {
   "status": "skipped",
-  "errors": [{ "message": "audio tracks are not supported" }]
+  "errors": [{ "error_message": "audio tracks are not supported" }]
 }
