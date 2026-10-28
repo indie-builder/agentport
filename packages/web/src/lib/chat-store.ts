@@ -24,6 +24,41 @@ export interface RunMetrics {
   endedAt?: string;
 }
 
+/** 未发送草稿按会话分槽；新会话用空字符串当键。 */
+const DRAFTS_KEY = 'pace.chat.drafts';
+const draftKey = (conversationId: string | null): string => conversationId ?? '';
+
+function readDrafts(): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(sessionStorage.getItem(DRAFTS_KEY) ?? '{}');
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string',
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function readDraft(conversationId: string | null): string {
+  return readDrafts()[draftKey(conversationId)] ?? '';
+}
+
+function writeDraft(conversationId: string | null, input: string): void {
+  const drafts = readDrafts();
+  const key = draftKey(conversationId);
+  if (input) drafts[key] = input;
+  else delete drafts[key];
+  try {
+    if (Object.keys(drafts).length === 0) sessionStorage.removeItem(DRAFTS_KEY);
+    else sessionStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {
+    // 存储不可写时草稿只在当前页面生效。
+  }
+}
+
 interface ChatWorkspaceState {
   conversationId: string | null;
   items: ChatItem[];
@@ -37,21 +72,28 @@ interface ChatWorkspaceState {
   historyOpen: boolean;
   setConversationId: (conversationId: string | null) => void;
   setItems: (items: ChatItem[] | ((previous: ChatItem[]) => ChatItem[])) => void;
-  setInput: (input: string) => void;
+  setInput: (input: string, persist?: boolean) => void;
+  /**
+   * 发送被接受时清掉原槽：只有槽里仍是这次发出的原文才清，
+   * 等待期间写的新稿不能被误清。只动存储，不碰 Zustand 状态。
+   */
+  clearDraft: (conversationId: string | null, expectedInput: string) => void;
   setRun: (run: RunState | null | ((previous: RunState | null) => RunState | null)) => void;
   setLastRun: (run: RunMetrics | null) => void;
   setLastRunId: (runId: string | null) => void;
   setOutputRef: (ref: OutputRef | null) => void;
   setHistoryOpen: (open: boolean) => void;
-  /** 切换会话：清空消息与本轮运行结果。输入框内容保留。 */
-  resetConversation: (conversationId: string | null) => void;
+  /**
+   * 切换会话：清空消息与本轮运行结果，并载入目标会话自己的草稿。
+   * carryInput 用于切换专家：把当前草稿带到新会话的空槽。
+   */
+  resetConversation: (conversationId: string | null, carryInput?: boolean) => void;
   reset: () => void;
 }
 
 const initial = {
   conversationId: null,
   items: [] as ChatItem[],
-  input: '',
   run: null,
   lastRun: null,
   lastRunId: null,
@@ -61,12 +103,32 @@ const initial = {
 
 export const useChatStore = create<ChatWorkspaceState>()((set) => ({
   ...initial,
-  setConversationId: (conversationId) => set({ conversationId }),
+  // 新会话的草稿在模块初始化时恢复；已有会话由 resetConversation 按 URL 载入。
+  input: readDraft(null),
+  setConversationId: (conversationId) =>
+    set((state) => {
+      // 发送被接受前用户又写了新草稿：把它从空槽挪到刚创建的会话。
+      if (state.conversationId === null && conversationId !== null) {
+        const pending = readDraft(null);
+        if (pending) {
+          writeDraft(conversationId, pending);
+          writeDraft(null, '');
+        }
+      }
+      return { conversationId };
+    }),
   setItems: (items) =>
     set((state) => ({
       items: typeof items === 'function' ? items(state.items) : items,
     })),
-  setInput: (input) => set({ input }),
+  setInput: (input, persist = true) =>
+    set((state) => {
+      if (persist) writeDraft(state.conversationId, input);
+      return { input };
+    }),
+  clearDraft: (conversationId, expectedInput) => {
+    if (readDraft(conversationId) === expectedInput) writeDraft(conversationId, '');
+  },
   setRun: (run) =>
     set((state) => ({
       run: typeof run === 'function' ? run(state.run) : run,
@@ -75,14 +137,28 @@ export const useChatStore = create<ChatWorkspaceState>()((set) => ({
   setLastRunId: (lastRunId) => set({ lastRunId }),
   setOutputRef: (outputRef) => set({ outputRef }),
   setHistoryOpen: (historyOpen) => set({ historyOpen }),
-  resetConversation: (conversationId) =>
-    set({
-      conversationId,
-      items: [],
-      run: null,
-      lastRun: null,
-      lastRunId: null,
-      outputRef: null,
+  resetConversation: (conversationId, carryInput = false) =>
+    set((state) => {
+      // 同槽切换（新会话间换专家）时槽里可能是等待被接受的原稿，不能被清空的输入框覆盖。
+      if (carryInput && state.conversationId !== conversationId) {
+        writeDraft(conversationId, state.input);
+      }
+      return {
+        conversationId,
+        input: readDraft(conversationId),
+        items: [],
+        run: null,
+        lastRun: null,
+        lastRunId: null,
+        outputRef: null,
+      };
     }),
-  reset: () => set(initial),
+  reset: () => {
+    try {
+      sessionStorage.removeItem(DRAFTS_KEY);
+    } catch {
+      // 存储不可写时没有草稿需要清理。
+    }
+    set({ ...initial, input: '' });
+  },
 }));

@@ -327,15 +327,15 @@ describe('expert editor regressions', () => {
     });
   });
 
-  it('falls back to the slug when creating without a name', async () => {
+  it('generates a slug when creating with only a name', async () => {
     await inspect(
       () => CreateAgentDialog({ onClose() {}, onCreated() {}, finalFocus: () => null }),
       async (tree, pass) => {
-        const slug = tree.find((node) => node.props.id === 'new-agent-slug');
-        if (!slug) throw new Error('Missing slug field');
+        const name = tree.find((node) => node.props.id === 'new-agent-name');
+        if (!name) throw new Error('Missing name field');
         if (pass === 0) {
-          (slug.props.onChange as (event: unknown) => void)({
-            target: { name: 'slug', value: 'fallback-name' },
+          (name.props.onChange as (event: unknown) => void)({
+            target: { name: 'name', value: 'Support Expert' },
           });
           return true;
         }
@@ -343,8 +343,8 @@ describe('expert editor regressions', () => {
         if (!form) throw new Error('Missing create form');
         await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
         expect(state.create.mock.calls[0]?.[0]).toMatchObject({
-          slug: 'fallback-name',
-          name: 'fallback-name',
+          slug: 'support-expert',
+          name: 'Support Expert',
         });
       },
     );

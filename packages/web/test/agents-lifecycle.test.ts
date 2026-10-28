@@ -11,8 +11,9 @@ import {
 } from '@tanstack/react-router';
 import { act, createElement, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../src/lib/api.js';
+import { ApiError, api } from '../src/lib/api.js';
 import { useAgent } from '../src/lib/queries.js';
 import { AgentDetailPage, AgentsPage } from '../src/pages/agents.js';
 
@@ -317,6 +318,79 @@ describe('useAgent cache selection', () => {
 });
 
 describe('expert creation lifecycle', () => {
+  it('puts the required name before the optional identifier and associates validation errors', async () => {
+    const create = vi.spyOn(api, 'createAgent');
+    await mount();
+    await click(button('新建专家'));
+    const setup = dialog('新建专家');
+    const name = setup.querySelector<HTMLInputElement>('#new-agent-name');
+    const slug = setup.querySelector<HTMLInputElement>('#new-agent-slug');
+    if (!name || !slug) throw new Error('Missing creation fields');
+    expect(name.compareDocumentPosition(slug)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(setup.querySelector('label[for="new-agent-slug"]')?.textContent).toBe('标识（可选）');
+    expect(slug?.getAttribute('aria-required')).not.toBe('true');
+    expect(name?.getAttribute('aria-required')).toBe('true');
+    await click(button('创建', setup));
+    expect(create).not.toHaveBeenCalled();
+    expect(name?.getAttribute('aria-invalid')).toBe('true');
+    expect(name?.getAttribute('aria-describedby')).toBe('new-agent-name-error');
+    expect(document.getElementById('new-agent-name-error')?.textContent).toBeTruthy();
+    await editInput('new-agent-name', 'Expert');
+    await editInput('new-agent-slug', 'INVALID slug');
+    await click(button('创建', setup));
+    expect(create).not.toHaveBeenCalled();
+    expect(slug?.getAttribute('aria-invalid')).toBe('true');
+    expect(slug?.getAttribute('aria-describedby')).toBe('new-agent-slug-error');
+    expect(document.getElementById('new-agent-slug-error')?.textContent).toBeTruthy();
+  });
+
+  it.each([
+    ['  Support Expert!  ', 'support-expert'],
+    ['---QA__Expert---', 'qa__expert'],
+    ['A'.repeat(100), 'a'.repeat(64)],
+    ['客服专家', /^agent-[a-z0-9]{8}$/],
+    ['✨---___', /^agent-[a-z0-9]{8}$/],
+  ])(
+    'creates from name %s with an automatically generated compliant identifier',
+    async (name, slug) => {
+      const created = { ...agent, id: 'created', name: name.trim() };
+      const create = vi.spyOn(api, 'createAgent').mockResolvedValue(created);
+      const success = vi.spyOn(toast, 'success');
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json([agent, created]));
+      const router = await mount();
+      await click(button('新建专家'));
+      await editInput('new-agent-name', name);
+      await click(button('创建', dialog('新建专家')));
+      await waitFor(() => router.state.location.pathname === '/agents/created');
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: name.trim(),
+          slug: typeof slug === 'string' ? slug : expect.stringMatching(slug),
+        }),
+      );
+      expect(success).toHaveBeenCalledWith('专家已创建');
+    },
+  );
+
+  it('preserves the draft and reports API identifier conflicts', async () => {
+    const conflict = new ApiError(409, '标识已存在，请换一个标识。', { code: 'CONFLICT' });
+    const create = vi.spyOn(api, 'createAgent').mockRejectedValue(conflict);
+    const error = vi.spyOn(toast, 'error');
+    const router = await mount();
+    await click(button('新建专家'));
+    await editInput('new-agent-name', 'Support Expert');
+    await click(button('创建', dialog('新建专家')));
+    await waitFor(() => error.mock.calls.length > 0);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ slug: 'support-expert' }));
+    expect(error).toHaveBeenCalledWith(conflict.message, expect.anything());
+    expect(router.state.location.pathname).toBe('/agents');
+    const setup = dialog('新建专家');
+    expect(setup.querySelector<HTMLInputElement>('#new-agent-name')?.value).toBe('Support Expert');
+    expect(button('创建', setup).disabled).toBe(false);
+    await click(button('取消', setup));
+    expect(dialog('放弃未保存的更改？')).toBeDefined();
+  });
+
   it('submits the selected occupation and reaches the created expert without a discard prompt', async () => {
     const created = {
       ...agent,
@@ -337,8 +411,44 @@ describe('expert creation lifecycle', () => {
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ role: '测试工程师' }));
     expect(router.state.location.pathname).toBe('/agents/new-expert');
     expect(document.body.textContent).not.toContain('放弃未保存的更改？');
+    const start = [...host.querySelectorAll<HTMLAnchorElement>('a')].find(
+      (item) => item.textContent?.trim() === '开始对话',
+    );
+    expect(start?.getAttribute('href')).toBe('/chat?agent=new-expert');
+    expect(start?.getAttribute('role')).not.toBe('button');
+    expect(button('返回列表')).toBeDefined();
+    expect(button('更多操作')).toBeDefined();
     await waitFor(() => document.querySelector('#agent-name'));
     expect(field().value).toBe('New expert');
+  });
+
+  it('explains connector preapproval separately from built-in tools and the sandbox default mode', async () => {
+    await mount();
+    await click(button('配置 Expert'));
+    await click(await waitFor(() => button('权限')));
+    const section = document.getElementById('agent-permissions');
+    expect(section?.textContent).toContain('内置工具');
+    expect(section?.textContent).toContain('Bash、文件写入和网络访问');
+    expect(section?.textContent).toContain('绑定连接器的全部工具加入 SDK allowedTools 预批准');
+    expect(section?.textContent).toContain('工具若设置 requiresApproval，仍须通过服务端审批');
+    expect(section?.textContent).toContain('可挂起等待批准');
+    expect(section?.textContent).not.toContain('无需逐次批准');
+    expect(section?.textContent).not.toContain('留空表示全部已绑定工具');
+    const allowedHint = document.getElementById('agent-allowed-tools-hint')?.textContent;
+    expect(allowedHint).toContain('额外允许的工具名或模式');
+    expect(allowedHint).toContain('不会限制已绑定连接器的工具');
+    const mode = document.getElementById('agent-perm');
+    expect(mode?.getAttribute('aria-describedby')).toBe('agent-perm-hint');
+    const expectApprovalHint = () => {
+      const hint = document.getElementById('agent-perm-hint')?.textContent;
+      expect(hint).toContain('default 在沙盒中不提供 SDK 层交互审批宿主');
+      expect(hint).toContain('连接器工具仍可能触发服务端审批');
+      expect(hint).not.toContain('不会发起人工审批');
+    };
+    expectApprovalHint();
+    await selectRole('default — 标准权限', 'agent-perm');
+    expectApprovalHint();
+    expect(button('Bash：已禁用')).toBeDefined();
   });
 
   it('initializes twin defaults cleanly and protects edited working background', async () => {

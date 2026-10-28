@@ -113,6 +113,35 @@ async function type(text: string) {
     message().dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+// 真实断点切换：只解析本页用到的 min-width 查询，并在跨过阈值时发 change。
+function stubViewport(initialWidth: number) {
+  let width = initialWidth;
+  const entries = new Map<string, Set<() => void>>();
+  const matches = (query: string) => {
+    const min = /min-width:\s*([\d.]+)rem/.exec(query);
+    return min ? width >= Number(min[1]) * 16 : false;
+  };
+  vi.stubGlobal('matchMedia', (query: string) => {
+    const listeners = entries.get(query) ?? new Set<() => void>();
+    entries.set(query, listeners);
+    return {
+      get matches() {
+        return matches(query);
+      },
+      addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+      removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+      addListener() {},
+      removeListener() {},
+    };
+  });
+  return (next: number) => {
+    const before = new Map([...entries.keys()].map((query) => [query, matches(query)]));
+    width = next;
+    for (const [query, listeners] of entries) {
+      if (matches(query) !== before.get(query)) for (const fn of listeners) fn();
+    }
+  };
+}
 beforeEach(() => {
   useChatStore.getState().reset();
   vi.mocked(toastError).mockClear();
@@ -360,10 +389,17 @@ describe('confirmed chat UX defects', () => {
 });
 
 describe('chat shell layout', () => {
-  it('keeps the expert picker inside the history area only', async () => {
+  it('shows the expert picker in the welcome state without opening history', async () => {
     await mount();
-    // 消息区页头没有专家选择；手机打开历史抽屉后才出现。
-    expect(host.querySelector('[aria-label="选择专家"]')).toBeNull();
+    // 空态直接显示当前专家，不用先展开历史抽屉。
+    const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label="选择专家"]');
+    expect(welcomePicker).not.toBeNull();
+    expect(welcomePicker?.textContent).toContain('Expert');
+    expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
+      '未命名会话',
+    ]);
+
+    // 抽屉打开后由历史头部承担选择器，欢迎态不再重复一个。
     await act(async () => {
       useChatStore.setState({ historyOpen: true });
     });
@@ -372,11 +408,39 @@ describe('chat shell layout', () => {
     expect(sheet).not.toBeNull();
     expect(sheet?.querySelector('h1')).toBeNull();
     expect(sheet?.querySelector('[aria-label="选择专家"]')).not.toBeNull();
-    // 抽屉 portal 挂在 body 下，用整页计数确认全页只有这一处专家选择。
+    expect(host.querySelector('[aria-label="选择专家"]')).toBeNull();
     expect(document.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
       '未命名会话',
     ]);
+  });
+
+  it('searches experts by slug in the welcome picker', async () => {
+    const slugOnly = {
+      ...agentInputSchema.parse({ slug: 'hidden-slug-x', name: 'Plain Name' }),
+      id: 'agent-slug',
+      parentId: null,
+      createdAt: '',
+      updatedAt: '',
+    };
+    client.setQueryData(['agents'], [agent, slugOnly]);
+    vi.mocked(api.agents).mockResolvedValue([agent, slugOnly]);
+    await mount();
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="选择专家"]')?.click(),
+    );
+    await flush();
+    const search = document.querySelector<HTMLInputElement>('[aria-label="搜索专家"]');
+    if (!search) throw new Error('Missing expert search');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(search, slugOnly.slug);
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+    const options = [...document.querySelectorAll('[role="option"]')];
+    expect(options.some((item) => item.textContent?.includes('Plain Name'))).toBe(true);
+    expect(options.some((item) => item.textContent?.includes('Expert'))).toBe(false);
   });
 
   it('hides history by default on desktop and toggles it from the header', async () => {
@@ -389,6 +453,8 @@ describe('chat shell layout', () => {
     }));
     await mount();
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
+    // 历史收起时，欢迎态自己提供当前专家。
+    expect(host.querySelector('[aria-label="选择专家"]')).not.toBeNull();
     const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
     if (!toggle) throw new Error('Missing history toggle');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -396,7 +462,7 @@ describe('chat shell layout', () => {
     await act(async () => toggle.click());
     const history = host.querySelector('aside[aria-label="会话历史"]');
     expect(history).not.toBeNull();
-    // 专家选择随历史面板一起出现，且只在历史内。
+    // 专家选择随历史面板出现，且只保留这一处。
     const picker = history?.querySelector<HTMLButtonElement>('[aria-label="选择专家"]');
     expect(picker).not.toBeNull();
     // 触发器同时显示头像、名称与 ComboboxTrigger 默认的下箭头。
@@ -415,6 +481,68 @@ describe('chat shell layout', () => {
       host.querySelector<HTMLButtonElement>('button[aria-label="隐藏会话历史"]')?.click(),
     );
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
+  });
+
+  it('keeps the expert picker reachable when resize crosses the desktop breakpoint', async () => {
+    const resize = stubViewport(600);
+    await mount();
+
+    // 窄屏打开抽屉：选择器在抽屉里，欢迎态不重复。
+    await act(async () => useChatStore.setState({ historyOpen: true }));
+    await flush();
+    expect(document.querySelector('[role="dialog"] [aria-label="选择专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="选择专家"]')).toBeNull();
+
+    // 放大到 lg：抽屉消失、桌面历史仍折叠，欢迎态必须重新给出选择器。
+    await act(async () => resize(1024));
+    await flush();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label="选择专家"]');
+    expect(welcomePicker).not.toBeNull();
+    expect(welcomePicker?.textContent).toContain('Expert');
+    expect(host.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
+    expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
+      '未命名会话',
+    ]);
+
+    // 再缩回窄屏：historyOpen 仍为 true，抽屉恢复，欢迎态选择器让位给抽屉。
+    await act(async () => resize(600));
+    await flush();
+    expect(document.querySelector('[role="dialog"] [aria-label="选择专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="选择专家"]')).toBeNull();
+    expect(document.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
+  });
+
+  it('restores the welcome picker when narrowing with desktop history closed', async () => {
+    const resize = stubViewport(1024);
+    await mount();
+
+    // 桌面展开历史：选择器只在历史面板里。
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]')?.click(),
+    );
+    await flush();
+    expect(
+      host.querySelector('aside[aria-label="会话历史"] [aria-label="选择专家"]'),
+    ).not.toBeNull();
+    expect(host.querySelector('[aria-label="选择专家"]')).not.toBeNull();
+
+    // 缩窄到 lg 以下且 historyOpen=false：没有抽屉，欢迎态必须给出选择器。
+    await act(async () => resize(600));
+    await flush();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
+    expect(host.querySelector('[aria-label="选择专家"]')?.textContent).toContain('Expert');
+    expect(host.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
+    expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
+      '未命名会话',
+    ]);
+
+    // 再放大回去：历史面板重新出现，选择器仍恰好一处。
+    await act(async () => resize(1024));
+    await flush();
+    expect(document.querySelector('[aria-label="选择专家"]')).not.toBeNull();
+    expect(document.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
   });
 
   it('switches experts with an open conversation and starts fresh under the new expert', async () => {
@@ -539,8 +667,11 @@ describe('chat shell layout', () => {
       removeListener() {},
     }));
     await mount();
-    const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示工作区"]');
+    const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="打开会话成果"]');
     if (!toggle) throw new Error('Missing workspace toggle');
+    // 桌面端按钮带可见文字，不再只是一个无标签图标。
+    expect(toggle.textContent).toContain('会话成果');
+    expect(toggle.getAttribute('title')).toBe('打开会话成果');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(toggle.getAttribute('aria-controls')).toBe('chat-workspace');
 
@@ -557,14 +688,14 @@ describe('chat shell layout', () => {
       '未命名会话',
     ]);
 
-    const hide = host.querySelector<HTMLButtonElement>('button[aria-label="隐藏工作区"]');
+    const hide = host.querySelector<HTMLButtonElement>('button[aria-label="隐藏会话成果"]');
     await act(async () => hide?.click());
     // 折叠只收起宽度：子树保留，但收起后离开焦点顺序与无障碍树。
     const collapsed = host.querySelector('aside[aria-label="会话成果"]');
     expect(collapsed).not.toBeNull();
     expect(collapsed?.closest('[inert]')).not.toBeNull();
     expect(collapsed?.closest('[aria-hidden="true"]')).not.toBeNull();
-    expect(host.querySelector('button[aria-label="显示工作区"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="打开会话成果"]')).not.toBeNull();
   });
 
   it('keeps the draft editable after the workspace width collapses', async () => {
@@ -578,10 +709,10 @@ describe('chat shell layout', () => {
     await mount();
     await type('workspace draft');
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('button[aria-label="显示工作区"]')?.click(),
+      host.querySelector<HTMLButtonElement>('button[aria-label="打开会话成果"]')?.click(),
     );
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('button[aria-label="隐藏工作区"]')?.click(),
+      host.querySelector<HTMLButtonElement>('button[aria-label="隐藏会话成果"]')?.click(),
     );
     expect(message().value).toBe('workspace draft');
     await type('still editable');
@@ -603,7 +734,7 @@ describe('chat shell layout', () => {
     const expertBefore = router.state.location.search;
     expect(expertBefore).toMatchObject({ agent: 'agent-a' });
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('button[aria-label="显示工作区"]')?.click(),
+      host.querySelector<HTMLButtonElement>('button[aria-label="打开会话成果"]')?.click(),
     );
     expect(host.querySelector('aside[aria-label="会话成果"]')).not.toBeNull();
     expect(message().value).toBe('unfinished draft');
@@ -612,7 +743,7 @@ describe('chat shell layout', () => {
 
   it('returns focus to the workspace toggle after closing the narrow-screen sheet', async () => {
     await mount();
-    const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示工作区"]');
+    const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="打开会话成果"]');
     if (!toggle) throw new Error('Missing workspace toggle');
     await act(async () => toggle.click());
     expect(document.querySelector('[role="dialog"] aside[aria-label="会话成果"]')).not.toBeNull();
@@ -622,7 +753,7 @@ describe('chat shell layout', () => {
         ?.click(),
     );
     await flush();
-    expect(document.activeElement).toBe(host.querySelector('button[aria-label="显示工作区"]'));
+    expect(document.activeElement).toBe(host.querySelector('button[aria-label="打开会话成果"]'));
   });
 });
 

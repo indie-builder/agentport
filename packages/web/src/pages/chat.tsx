@@ -450,7 +450,7 @@ function ChatWorkspace({
       // 级联删除了该会话的运行记录，运行列表与概况跟着刷新。
       void client.invalidateQueries({ queryKey: ['runs'] });
       void client.invalidateQueries({ queryKey: ['overview'] });
-      if (id === conversationId) newConversation();
+      if (id === conversationId) newConversation(true);
       toastSuccess('会话已删除');
     },
     // 失败交给 ConfirmDialog 统一提示：保留当前会话与草稿，对话框可重试。
@@ -485,10 +485,11 @@ function ChatWorkspace({
     setHistoryOpen(false);
   };
 
-  const newConversation = (): void => {
+  // 删除当前会话时没有可返回的会话，未发送输入跟到新会话，避免随删除丢失。
+  const newConversation = (carryDraft = false): void => {
     stream.closeStream();
     stream.hydratedRef.current = null;
-    useChatStore.getState().resetConversation(null);
+    useChatStore.getState().resetConversation(null, carryDraft);
     onConversationChange(null);
     setHistoryOpen(false);
     composerRef.current?.focus();
@@ -539,7 +540,8 @@ function ChatWorkspace({
     if (id === agentId) return;
     stream.closeStream();
     stream.hydratedRef.current = null;
-    useChatStore.getState().resetConversation(null);
+    // 切换专家进入该专家的新会话，但没发出的输入要跟过去。
+    useChatStore.getState().resetConversation(null, true);
     onAgentChange(id);
   };
 
@@ -565,6 +567,8 @@ function ChatWorkspace({
   const column = (
     <ChatColumn
       agent={agent}
+      agentOptions={agentOptions}
+      onSwitchAgent={switchAgent}
       workspaceOpen={workspaceOpen}
       workspacePanelId="chat-workspace"
       onToggleWorkspace={() => {
@@ -572,7 +576,7 @@ function ChatWorkspace({
         setWorkspaceOpen(!workspaceOpen);
       }}
       workspaceToggleRef={workspaceToggleRef}
-      historyVisible={!historyCollapsed}
+      historyVisible={desktop ? !historyCollapsed : historyOpen}
       historyPanelId="chat-history"
       onToggleHistory={() => {
         if (desktop) {
@@ -950,7 +954,13 @@ function HistoryHeader({
       ) : (
         <div className="flex-1" />
       )}
-      <Button variant="ghost" size="icon" aria-label="新建会话" title="新建会话" onClick={onNew}>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="新建会话"
+        title="新建会话"
+        onClick={() => onNew()}
+      >
         <Plus />
       </Button>
       {onClose ? (
@@ -968,7 +978,7 @@ function HistoryHeader({
   );
 }
 
-/** 专家选择：在会话历史面板内；触发器是头像+名称+箭头的按钮，弹层内搜索。 */
+/** 专家选择：欢迎态与历史面板共用；触发器是头像+名称+箭头的按钮，弹层内搜索。 */
 function AgentPicker({
   agent,
   agentId,
@@ -994,7 +1004,9 @@ function AgentPicker({
       }
       filter={(option: (typeof agentOptions)[number], query: string) => {
         const needle = query.trim().toLowerCase();
-        return `${option.label} ${option.agent?.role ?? ''}`.toLowerCase().includes(needle);
+        return `${option.label} ${option.agent?.role ?? ''} ${option.agent?.slug ?? ''}`
+          .toLowerCase()
+          .includes(needle);
       }}
     >
       <ComboboxTrigger
@@ -1017,7 +1029,11 @@ function AgentPicker({
         </span>
       </ComboboxTrigger>
       <ComboboxContent className="min-w-[16rem]">
-        <ComboboxInput aria-label="搜索专家" placeholder="搜索名称或角色…" showTrigger={false} />
+        <ComboboxInput
+          aria-label="搜索专家"
+          placeholder="搜索名称、角色或 Slug…"
+          showTrigger={false}
+        />
         <ComboboxEmpty>没有匹配的专家</ComboboxEmpty>
         <ComboboxList>
           {(option: (typeof agentOptions)[number]) => (
@@ -1177,6 +1193,8 @@ function HistoryPanel({
 
 function ChatColumn({
   agent,
+  agentOptions,
+  onSwitchAgent,
   title,
   workspaceOpen,
   workspacePanelId,
@@ -1215,6 +1233,8 @@ function ChatColumn({
   onDelete,
 }: {
   agent: AgentView | null;
+  agentOptions: Array<{ value: string; label: string; agent?: AgentView }>;
+  onSwitchAgent: (id: string) => void;
   title: string;
   workspaceOpen: boolean;
   workspacePanelId: string;
@@ -1424,14 +1444,15 @@ function ChatColumn({
             ref={workspaceToggleRef}
             variant="ghost"
             size="icon"
-            aria-label={workspaceOpen ? '隐藏工作区' : '显示工作区'}
-            title={workspaceOpen ? '隐藏工作区' : '显示工作区'}
+            aria-label={workspaceOpen ? '隐藏会话成果' : '打开会话成果'}
+            title={workspaceOpen ? '隐藏会话成果' : '打开会话成果'}
             aria-expanded={workspaceOpen}
             aria-controls={workspacePanelId}
             onClick={onToggleWorkspace}
-            className="shrink-0 text-muted-foreground hover:text-fg"
+            className="shrink-0 gap-1.5 text-muted-foreground hover:text-fg lg:w-auto lg:px-2"
           >
             <PanelRightDashed />
+            <span className="hidden text-sm lg:inline">会话成果</span>
           </Button>
         </div>
         <MessagePane
@@ -1459,7 +1480,13 @@ function ChatColumn({
           openUiSnapshot={openUiSnapshot}
           welcome={
             showWelcome ? (
-              <WelcomeState agent={agent} onPick={onPickSuggestion}>
+              <WelcomeState
+                agent={agent}
+                agentOptions={agentOptions}
+                onSwitchAgent={onSwitchAgent}
+                pickerVisible={!historyVisible}
+                onPick={onPickSuggestion}
+              >
                 {composer}
               </WelcomeState>
             ) : null
@@ -2145,16 +2172,22 @@ const welcomeSuggestions = [
 /** 欢迎区共用 728px 轴线：小幅角色插画、单行标题、多行输入与简短任务入口。 */
 function WelcomeState({
   agent,
+  agentOptions,
+  onSwitchAgent,
+  pickerVisible,
   onPick,
   children,
 }: {
   agent: AgentView | null;
+  agentOptions: Array<{ value: string; label: string; agent?: AgentView }>;
+  onSwitchAgent: (id: string) => void;
+  pickerVisible: boolean;
   onPick: (text: string) => void;
   children: ReactNode;
 }) {
   return (
     <div className="mx-auto flex min-h-fit w-full max-w-[760px] flex-1 flex-col justify-center gap-6 px-4 py-10 sm:py-12">
-      <div className="flex items-center gap-4 sm:gap-5">
+      <div className="flex flex-wrap items-center gap-4 sm:gap-5">
         <img
           src="/brand/pace-chat-woodworker.svg"
           alt=""
@@ -2163,9 +2196,19 @@ function WelcomeState({
           height={637}
           className="h-auto w-20 shrink-0 object-contain sm:w-24"
         />
-        <h2 className="min-w-0 text-2xl font-medium tracking-[-0.02em] text-fg sm:text-3xl">
+        <h2 className="min-w-0 flex-1 text-2xl font-medium tracking-[-0.02em] text-fg sm:text-3xl">
           今天想完成什么？
         </h2>
+        {pickerVisible ? (
+          <div className="w-full min-w-0 sm:w-56">
+            <AgentPicker
+              agent={agent}
+              agentId={agent?.id ?? null}
+              agentOptions={agentOptions}
+              onSwitchAgent={onSwitchAgent}
+            />
+          </div>
+        ) : null}
       </div>
 
       {children}
