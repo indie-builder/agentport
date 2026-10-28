@@ -32,6 +32,12 @@ const envSchema = z
       .default('1g'),
     SANDBOX_CPUS: z.coerce.number().positive().default(1),
     SANDBOX_PIDS: z.coerce.number().int().positive().default(128),
+    /**
+     * 会话沙盒在无执行任务后的保留时间（毫秒），忙或等待用户回答时不算空闲。
+     * 与智能体的 timeoutMs 执行超时独立；AGENT_TIMEOUT_MS 只用于孤儿 run 对账，不是执行超时。
+     * 不支持 0/-1 无限保活。
+     */
+    SANDBOX_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
     AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
     /** 维护任务的保留天数；0 不合法，要保留更久就调大。 */
     RETAIN_RUN_DAYS: z.coerce.number().int().positive().default(90),

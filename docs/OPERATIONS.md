@@ -22,8 +22,8 @@
 | `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥，≥32 字符 |
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问域名（如 `https://agentport.example.com`），不要用 `*`。本机 Portless 可加通配符 `https://*.agentport.localhost`（仅 HTTPS 默认端口），一次覆盖变化的 worktree 子域名，精确的 `https://agentport.localhost` 仍保留；生产只有确实要覆盖子域名时才用通配符 |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
-| `AGENT_MAX_CONCURRENT` | 否 | `2` | api、worker 均解析；worker 使用 | `agent-runs` 队列并发数（api 解析但不读） |
-| `AGENT_TIMEOUT_MS` | 否 | `600000` | api、worker | 单个 run 的默认超时；agent 自身 `timeoutMs` 优先 |
+| `AGENT_MAX_CONCURRENT` | 否 | `2` | api、worker 均解析；worker 使用 | `agent-runs` 队列并发数（api 解析但不读）；只限制同时执行的 run，热空闲的会话容器不计入该并发 |
+| `AGENT_TIMEOUT_MS` | 否 | `600000` | api 解析但不读；worker 用于对账 | **不是执行超时**。真实执行超时取该智能体的 `timeoutMs`（默认 `600000`）；本变量只作为孤儿 run 对账的时间窗口：queued run 超过 `AGENT_TIMEOUT_MS` + 5 分钟宽限后先探测队列，job 消失或已终态才置 failed；running run 改用该智能体当前配置的 `timeout_ms` |
 
 以下变量不在 schema 中，由代码直接读 `process.env` 或只由 compose 使用：
 
@@ -42,17 +42,19 @@
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
-| `ANTHROPIC_API_KEY` | 二选一 | — | worker → 沙盒 | 模型 API key；注入容器，不落工作区 |
-| `ANTHROPIC_AUTH_TOKEN` | 二选一 | — | worker → 沙盒 | 以 Bearer token 发送；与上一项二选一 |
-| `ANTHROPIC_BASE_URL` | 否 | — | worker → 沙盒 | 自建网关地址；loopback 会自动改写为 `host.docker.internal` |
-| `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 单个 run 的默认超时（api 也解析，见 §1.1） |
-| `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 队列并发数 |
+| `ANTHROPIC_API_KEY` | 二选一 | — | worker | 模型 API key 的配置入口；默认只由 worker 的模型凭证代理持有，不注入容器 |
+| `ANTHROPIC_AUTH_TOKEN` | 二选一 | — | worker | 以 Bearer token 发送；与上一项二选一，同样由 worker 持有 |
+| `ANTHROPIC_BASE_URL` | 否 | — | worker | 自建网关地址，作为模型凭证代理的上游；容器内不可达的 loopback 由 worker 改写为 `host.docker.internal` |
+| `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 仅用于孤儿 run 对账：queued run 超过该值 + 5 分钟宽限且队列探测确认 job 消失/已终态才置 failed；running run 用该智能体当前配置的 `timeout_ms`。不是执行超时，执行取 `agent.timeoutMs`（默认 `600000`）；api 也解析但不读 |
+| `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 队列并发数；只限制同时执行的 run，正常完成或成功取消后的热空闲会话容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内继续占用资源 |
+
+**配置入口与容器 env 不同。** 配置任一模型凭证后，worker 在 `MODEL_PROXY_PORT`（默认 3426）启动模型凭证代理（D-17）：真实凭证只留在 worker 进程，沙盒每轮只拿到 `ANTHROPIC_BASE_URL=<代理地址>` 与短期 `ANTHROPIC_AUTH_TOKEN=run_...`（`ANTHROPIC_API_KEY` 置空），run 结束即吊销（不论容器清理是否成功）。未配置凭证时代理不启动，`sandboxEnv` 保留直接把配置值注入容器的回退路径，并打印警告。
 
 ### 1.3 沙盒（worker schema）
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
-| `SANDBOX_IMAGE` | 否 | `agentport/sandbox:dev` | worker | 每次 run 启动的镜像 |
+| `SANDBOX_IMAGE` | 否 | `agentport/sandbox:dev` | worker | 会话沙盒使用的镜像；同一会话短期复用容器，不是每轮新建 |
 | `WORKSPACES_DIR` | 否 | `./data/workspaces` | worker | 工作区根目录。compose 下为 `/workspaces`，必须与 api 同路径 |
 | `HOST_WORKSPACES_DIR` | 否 | 同 `WORKSPACES_DIR` | worker | 宿主视角的工作区路径，`docker -v` 的源路径；compose 默认 `/var/lib/docker/volumes/agentport_workspaces/_data` |
 | `SANDBOX_API_URL` | 否 | `http://host.docker.internal:3000` | worker、api（预览） | 沙盒视角的平台地址，写入 generated server 的 `.mcp.json` |
@@ -60,7 +62,22 @@
 | `SANDBOX_MEMORY` | 否 | `1g` | worker | 容器内存上限（Docker 格式，如 `1g`、`512m`） |
 | `SANDBOX_CPUS` | 否 | `1` | worker | CPU 核数上限 |
 | `SANDBOX_PIDS` | 否 | `128` | worker | PID 上限 |
-| `SANDBOX_MAX_FIELD_BYTES` | 否 | `1048576` | worker | 沙盒单块文本/工具负载上限（字节）。超限只截断该块并随事件标 `truncated`，不再静默丢尾部。最坏 JSON 转义约 6 倍，宿主单行上限 8MiB；调到 1MiB 以上必须同步调高 `runner-client` 的 `MAX_LINE_BYTES`，否则整块会被丢弃 |
+| `SANDBOX_IDLE_TIMEOUT_MS` | 否 | `300000` | worker | 会话沙盒无执行任务后的保留时间（毫秒）。执行中或等待用户回答不算空闲；只接受正整数，不支持 `0`/`-1` 无限保活，可用短阈值实测 |
+| `SANDBOX_MAX_FIELD_BYTES` | 否 | `1048576` | worker | 沙盒单块文本/工具负载上限（字节）。超限只截断该块并随事件标 `truncated`，不再静默丢尾部。上限固定 1MiB：最坏 JSON 转义约 6 倍，仍落在 shared `SUPERVISOR_INPUT_MAX_BYTES`（8MiB，`packages/shared/src/sandbox-session.ts`，supervisor 输入/输出与 worker 侧协议共用）的单行上限内；配置超过 1MiB 时 worker 启动直接报错，不靠调高单行上限兜底。supervisor 协议帧超限按显式失败处理（输入 `INVALID_COMMAND`、输出本轮失败），不再静默丢弃 |
+
+#### 会话沙盒生命周期
+
+- 一个平台会话最多一个沙盒容器；同一会话的连续 run 短期复用，不同会话各自独立，不跨会话共享。
+- 正常完成与成功取消后保留容器；只有无法确认本轮进程已停稳（清理失败、状态不明或超时）时才销毁，避免复用仍在写入的容器。
+- 销毁失败仍保留跟踪并阻止复用；后续获取该会话时先重试清理，确认旧容器删除后才重建，无需重启 worker；仍失败该请求失败。
+- worker 现有沙盒模块负责空闲回收：没有执行任务且未在等待用户回答超过 `SANDBOX_IDLE_TIMEOUT_MS`（默认 5 分钟）后回收容器。该阈值是正整数，不支持 `0`/`-1` 保活，可用短值实测。
+- 回收只删除容器，不删除宿主上的持久数据（`agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/`、`conversation-inputs/<conversationId>/`）；后续 run 新建容器时从 `sdk-sessions` 与 `agent-memory` 恢复同一 SDK 会话与记忆。
+- 容器内是常驻 supervisor，每轮启动新的 runner（新 SDK query）；复用只省容器创建与启动（缓存镜像基线约 122ms/次），不算也不承诺 SDK 冷启动优化。
+- 会话级稳定目录为 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/{workspace,outputs}`：`workspace` 渲染本轮官方定义后只读挂入 `/workspace`，`outputs` 可写挂入 `/mnt/outputs`，`/mnt/inputs` 始终挂载（会话目录即使本轮无附件也预建）。整个 `session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存（`workspace` 每轮按数据库重渲染，`outputs` 停稳后复制进 `conversation-outputs`），不是不可丢失的持久交付；容器回收与关停不删除、也不 rename 该根目录，丢失后可由数据库与持久数据重建；删除会话时由 API 回收该会话目录。
+- 每轮重新渲染官方定义并刷新到 `workspace`；运行专属 MCP 与模型凭证只进当轮 runner。运行结束时不论容器清理是否成功都吊销本轮 token；终态停稳后删除 `.mcp.json`，空闲容器不保留上一轮身份，下一轮重新渲染。
+- `agent-memory/` 仍按智能体共享，不随会话隔离；只有 `sdk-sessions/<conversationId>/` 按会话隔离。
+- `sandbox-probe` 试连与 `native-plugins` 安装仍使用一次性容器，不进入会话复用。
+- 实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核；最终联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK 4 例）。真实付费模型与浏览器全链路未测。详见 [任务记录](tasks/session-sandbox-lifecycle.md)。
 
 ### 原生记忆存储（native memory storage）
 
@@ -72,13 +89,13 @@ runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`a
 
 ### 会话成果存储
 
-`WORKSPACES_DIR/<slug>/conversation-outputs/<conversationId>/` 保存会话成果：`drafts/<runId>/` 是本轮唯一可写草稿，`runs/<runId>/{manifest.json,files/**}` 是发布后不可变快照。它不属于 `run_*`，run 保留期清理不会删除；删除会话或专家时回收对应目录。`scripts/backup.sh` 备份整个 workspaces 卷，因此成果随工作区备份，不需要新增变量或独立存储。成果内容不做聊天密钥脱敏；读取与下载由 API 鉴权，路径/链接边界在存储层校验。
+`WORKSPACES_DIR/<slug>/conversation-outputs/<conversationId>/` 保存会话成果：`drafts/<runId>/` 是本轮草稿，`runs/<runId>/{manifest.json,files/**}` 是发布后不可变快照。沙盒实际写入会话级稳定的 `session-sandboxes/<conversationId>/outputs`（`/mnt/outputs` 可写）；停稳后由 `captureOutputDraft` 复制回 `drafts/<runId>/`。复制不动源目录，也保留 `drafts/<runId>.base`、`drafts/<runId>.blocked` 与已发布快照的原有语义。它不属于 `run_*`，run 保留期清理不会删除；删除会话或专家时回收对应目录。`scripts/backup.sh` 备份整个 workspaces 卷，因此成果随工作区备份，不需要新增变量或独立存储。成果内容不做聊天密钥脱敏；读取与下载由 API 鉴权，路径/链接边界在存储层校验。
 
 ### 会话输入附件存储
 
 `WORKSPACES_DIR/<slug>/conversation-inputs/<conversationId>/<attachmentId><ext>` 保存随消息上传的临时资料。发送时经 `POST /api/chat` 的 base64 JSON 写入（路由上限 16MiB）；每条消息最多 5 个文件，原件合计 ≤10MiB；文本 ≤1MiB，图片 ≤5MiB，PDF ≤10MiB。只接受 txt/md/csv/tsv/json/jsonl、PNG/JPEG/GIF/WebP 与未加密 PDF；Office/ODF、压缩包、音视频等请在知识库处理或转成文本。目录 0700、文件 0600，磁盘名只用服务端 UUID 与规范扩展名，原文件名仅作显示。
 
-worker 在该会话目录存在时把整个目录只读挂到 `/mnt/inputs`，prompt 列出本轮文件并要求主智能体用原生 `Read` 读取；图片与 PDF 由 Read 原生处理。子智能体不能直接读文件；输入不可写，交付仍写 `/mnt/outputs`。附件按会话保留，分支只复制被复制消息引用的文件，删除会话或专家时回收目录；run 保留清理会保留带附件的用户消息，因此历史下载入口不随旧 run 消失。
+worker 预建该会话目录（即使本轮没有附件）并把整个目录只读挂到 `/mnt/inputs`，挂载始终存在且只指向当前会话目录；prompt 列出本轮文件并要求主智能体用原生 `Read` 读取；图片与 PDF 由 Read 原生处理。子智能体不能直接读文件；输入不可写，交付仍写 `/mnt/outputs`。附件按会话保留，分支只复制被复制消息引用的文件，删除会话或专家时回收目录；run 保留清理会保留带附件的用户消息，因此历史下载入口不随旧 run 消失。
 
 Compose 中 API/worker/沙盒同为 uid 1000，可直接读写这些 0700/0600 目录。Linux 宿主以其他 UID 直跑 `pnpm dev` 时，沙盒以 1000 运行将无法读取附件（与原生记忆的既有 UID 限制相同）；需要附件时请用 Compose 启动，不要递归放宽目录权限。
 
@@ -256,7 +273,7 @@ pnpm backup
 | 成员 | 内容 |
 |---|---|
 | `database.dump` | `pg_dump --format=custom` 的一致性快照（不带 `--clean`，由恢复侧 `pg_restore --clean` 替换） |
-| `workspaces/` | 持久工作区，排除每次 run 重建的 `<slug>/run_*`；含 `agent-memory/` 与 SDK 会话目录 |
+| `workspaces/` | 持久工作区，排除每次 run 重建的 `<slug>/run_*`；含 `agent-memory/`、`sdk-sessions/`、`conversation-inputs/`、`conversation-outputs/` 与 `session-sandboxes/`。`session-sandboxes/` 的 `workspace`/`outputs` 是可按会话再生的派生缓存，随包备份但不视为不可丢失的持久交付 |
 | `knowledge/` | 知识库原件 blob 与解析产物；从未启用知识库时该成员不存在，manifest 记 `knowledge: null` |
 | `env` | `.env` 副本（0600），恢复主密钥与模型凭证 |
 | `manifest.json` | 格式版本、数据库/配置/工作区/知识库的 sha256、字节数与文件数；不含任何密钥或连接串 |
@@ -296,7 +313,7 @@ docker compose start api worker
 2. compose 的 api/worker 仍在运行时直接拒绝（脚本不替你停共享服务）。
 3. 先写 `pre-restore-<ts>.tar.gz`（当前数据库 + 工作区 + 知识库 + 配置）和 `pre-restore-<ts>.env`；任一步失败即中止，不改动任何目标。当前知识库已配置却读不到时同样中止，不留一个缺知识库的回退点。
 4. `pg_restore --clean --if-exists --single-transaction --exit-on-error`：数据库失败整体回滚，库保持原样。
-5. 恢复 `env`（可用 `RESTORE_ENV_TARGET` 改路径；`--target-workspaces` 旁路验证默认不改配置），再按“暂存 → 权限收紧 → 顶层换入”恢复工作区，保留现有 `run_*`；知识库用同一套换入（宿主目录在宿主执行，`knowledgedata` 卷用一次性容器），最后执行 `pnpm db:migrate`。
+5. 恢复 `env`（可用 `RESTORE_ENV_TARGET` 改路径；`--target-workspaces` 旁路验证默认不改配置），再按“暂存 → 权限收紧 → 顶层换入”恢复工作区，保留现有 `run_*`（`session-sandboxes/` 属普通工作区内容随包换入，是可再生的会话派生缓存）；知识库用同一套换入（宿主目录在宿主执行，`knowledgedata` 卷用一次性容器），最后执行 `pnpm db:migrate`。
 
 要点：
 
@@ -380,7 +397,7 @@ pnpm --filter @agentport/worker maintenance
 - 普通聊天入队失败只将仍queued的运行收口为failed/infra，用户消息保留，可重提；固定503及统一安全日志不附原始队列cause，认领/终态保留。数据库收尾失败可能等待既有协调清理，详见D-59。
 - 连接器编辑与token轮换共用行锁内合并，避免并发覆盖或旧token复活；提交expectedUpdatedAt过期返回409且保留最新配置，版本时间至少前进一毫秒。省略版本仍是同字段后写优先，详见D-51。
 - 终态 run 及其消息会被每日维护任务按 `RETAIN_RUN_DAYS` 清理；`/api/runs` 只展示仍保留的数据。
-- 取消queued运行会写入终态并尽力移除等待job；worker若先认领则转入running取消路径，发布停止键与信号供沙盒异步终止，已发出的上游请求不保证撤回。
+- 取消queued运行会写入终态并尽力移除等待job；worker若先认领则转入running取消路径，停止本轮执行。正常停稳时保留会话容器，无法确认停稳时才销毁；已发出的上游请求不保证撤回。
 - 平台MCP的timeoutMs必须是正有限数，等待时间最长30分钟；截止会取消对应运行，不只断开等待。入队失败返回固定错误并仅将仍queued的运行收口为failed/infra，已认领或终态不被覆盖；数据库或Redis故障可能推迟清理，详见D-47。
 - 评估入队失败返回固定503，仅收口尚未认领的running批次并尽力移除job；已认领或终态保留。数据库收尾失败时可取消或等待既有一小时清理；Redis命令故障可能推迟响应，错误日志不携带原始队列cause，详见D-56。
 
@@ -420,7 +437,7 @@ curl -s -b "agentport_token=<登录后的会话 cookie>" localhost:3000/health/m
 set -a; . ./.env; set +a
 redis-cli -u "$REDIS_URL" llen bull:agent-runs:wait
 redis-cli -u "$REDIS_URL" xlen run:<runId>:events
-docker ps --filter name=agentport-
+docker ps --filter 'name=^(pace-session-|agentport-)'
 ```
 
 `redis-cli` 不是项目依赖；本机没装时用 `docker compose exec redis redis-cli -a "$REDIS_PASSWORD" ...`。
@@ -517,7 +534,7 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 3. **连接池确实在排队**：每个 `/api/overview` 请求执行 6 条 SQL（部分并行），池只有 10 条连接；200 并发时 `db.waiting` 峰值 115，`/api/agents`（4 条查询）峰值 498。`/api/runs` 只有 1 条查询，同样并发下仍有 4706 req/s、p50 29.7 ms，说明瓶颈是“查询条数 × 池大小”，而不是数据量或索引。
 4. **数据库与 CPU 尚未打满**：测试数据集很小（14 runs），Postgres CPU 峰值约 1.1 核，Redis 约 2%，宿主机 12 核。提高池上限或减少查询条数可以直接换取吞吐，不需要先扩容机器。
 
-第二个瓶颈是 **worker 并发 `AGENT_MAX_CONCURRENT=2`**：单次 run 固定成本约 2.5–3.3 s（主要是拉容器和启动 SDK，简单 prompt 也一样），因此 run 吞吐约 0.7 个/秒。10 个 run 同时投递时 p95 排队 10.5 s、峰值 waiting 8，与理论 FIFO 完全吻合，队列本身没有额外异常，只是并发上限低。
+第二个瓶颈是 **worker 并发 `AGENT_MAX_CONCURRENT=2`**：单次 run 固定成本约 2.5–3.3 s（主要是拉容器和启动 SDK，简单 prompt 也一样；该基线为每次新建容器，同会话复用只省容器部分，不省每轮 SDK query 启动），因此 run 吞吐约 0.7 个/秒。10 个 run 同时投递时 p95 排队 10.5 s、峰值 waiting 8，与理论 FIFO 完全吻合，队列本身没有额外异常，只是并发上限低。
 
 未发现 SSE、MCP、写接口在本次并发量下有问题：SSE 内存不增长（同一 run 的多个订阅者共用一条 Redis 订阅），MCP 每个请求重建 handler 的取舍在 20 并发下仍是 10–20 ms。
 
@@ -526,7 +543,7 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 1. **先改读接口的查询形态**（收益最大、无配置风险）：`/api/overview` 的 counts（servers/agents/running/runs）合并成一条 SQL，其余两条重查询与它并行；`packages/api/src/features/agents/routes.ts` 的 4 条查询已是 1+3 并行，可只把首条列表查询与关联查询合并。预期 200 并发下 p95 从约 100 ms 降到 40–50 ms，吞吐约翻倍。
 2. **连接池可配置（已实现）**：`packages/db/src/client.ts` 读取 `DB_POOL_MAX`（默认 10）。单 API 实例、Postgres `max_connections=100` 时，20–30 安全；但若不同时做第 1 条，翻倍池只是把压力更早推给 Postgres。worker 另有独立连接池，扩容时一并计入。
 3. **读接口补限流**：当前 `global: false`，只有显式配置的路由计数（登录 10/min、chat 20/min、`/mcp` 与 `/mcp/:serverId` 各 60/min、连接测试 20/min、评估发起 10/min），读接口完全不计流（压测中 2000 次读请求无 429）。若要暴露到 localhost 之外，建议读接口加 600 次/分/IP；单管理员场景下 chat 的 20 次/分偏低（两次突发落在同一分钟就会 429，本次压测已复现 2/10 被拒），可提到 60 次/分或按登录用户计数。
-4. **worker 并发按内存定**：每个沙盒上限 `SANDBOX_MEMORY=1g`，把 `AGENT_MAX_CONCURRENT` 从 2 提到 4 可把 10 个 run 的 p95 排队从约 10.5 s 降到约 5 s，代价是 4 GB 沙盒内存与更多宿主 CPU；若 run 量继续增长，优先做容器预热池来消掉每次 2.5–3.3 s 的固定启动成本。
+4. **worker 并发按资源定**：每个沙盒受 `SANDBOX_MEMORY=1g` 上限约束，把 `AGENT_MAX_CONCURRENT` 从 2 提到 4 可把 10 个 run 的 p95 排队从约 10.5 s 降到约 5 s，代价是活跃沙盒按该上限占用的内存与更多宿主 CPU。以上是一次性容器压测数据；会话复用后，正常完成或成功取消的容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内热空闲并继续占用资源，实际容器总数可能高于活跃 run 数。本机未实测热空闲容器的内存，也不据此给出新的并发上限；扩容前按容器数（含热空闲）观察资源水位。同会话复用减少容器创建/启动，但不跳过每轮 SDK query 启动，不算 SDK 冷启动优化。
 5. **观测告警线**：`/health/metrics` 的 `db.waiting > 5` 持续 10 s，或队列 `waiting > 10`，即可认为已进入本次测出的瓶颈区。
 
 ### 8.5 复现注意

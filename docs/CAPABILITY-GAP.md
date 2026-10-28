@@ -281,7 +281,7 @@
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
-| 工作区按 run 隔离 | ✅ | `WORKSPACES_DIR/<slug>/<runId>/`；run 结束删除，重试复用同一目录 |
+| 工作区按 run 隔离 | ✅ | `WORKSPACES_DIR/<slug>/<runId>/`（`run_*`）；run 结束删除，重试复用同一目录；会话复用另用 `session-sandboxes/<conversationId>/{workspace,outputs}`（实施中，见 [任务记录](tasks/session-sandbox-lifecycle.md)） |
 | 工具卡片持久化 | ✅ | worker 同时落 `tool_use` 与 `tool_result`；刷新后可重建卡片 |
 | Redis 健康检查修复 | ✅ | compose healthcheck 使用容器内 `REDIS_PASSWORD`，新部署不再卡在 unhealthy |
 | 取消与孤儿收敛 | ✅ | SIGTERM → SIGKILL 升级；5 分钟周期把超时仍 `running` 的 run 置 `failed` 并补发 `run_finished` |
@@ -335,7 +335,7 @@
 | ~~P2~~ | 评估集（手工用例 + 回归） | ✅ |
 | ~~P2~~ | 子智能体（单层委派） | ✅ |
 | P1 | 持久化 HITL（暂停 → 落盘 → 恢复） | 未做；当前是最小审批闭环（D-3） |
-| P1 | 模型凭证代理（M12 剩余项） | 未做；文件权限与 run token 已完成。见 [SECURITY.md](SECURITY.md) |
+| ~~P1~~ | 模型凭证代理（M12 剩余项） | ✅ 已按 D-17 实现：worker 持有真实凭证，沙盒每 run 只拿短期 token；文件权限与 run token 已先行完成。见 [SECURITY.md](SECURITY.md) |
 | P3 | RAG / 知识库 | 未做；技能可覆盖多数场景（D-9）——循环 1 时的排序。当前已按 D-9 建设（模块与前端落盘，真实闭环验收未完成），见 [ARCHITECTURE.md §6.8](ARCHITECTURE.md#68-当前实现状态) 与 [运行验证记录](tasks/knowledge-runtime-verification.md) |
 
 ---

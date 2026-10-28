@@ -33,13 +33,13 @@
 | `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`toMcpJsonEntry()`、`embedTexts()` / `rerankDocuments()` / `segmentForSearch()` | 不碰数据库、不读写宿主文件；`knowledge-models.ts` 只发 HTTP |
 | `db` | 表定义、repo、TypeID 生成、迁移 | 不含 HTTP 或业务编排 |
 | `api` | 路由、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不写工作区 |
-| `worker` | 消费队列、渲染并写入工作区、管理沙盒、回传事件、维护任务 | 不暴露 HTTP |
-| `sandbox` | 容器内 runner：读一行任务 JSON，逐行输出 NDJSON 事件 | 不含业务代码与智能体定义 |
+| `worker` | 消费队列、每轮渲染定义到会话工作区、管理会话沙盒（复用/空闲回收）、回传事件、维护任务 | 不暴露 HTTP |
+| `sandbox` | 容器内 supervisor 常驻；每轮启动新 runner query，读任务并逐行输出 NDJSON 事件 | 不含业务代码与智能体定义 |
 | `web` | SPA；生产由 api 托管静态产物 | 不 import db/api/worker，也不 import core 根入口（根入口含 `node:crypto` 模块）；仅引用 core 的纯函数子路径 `workspace`、`tools`、`plugin-display` |
 
 进程之间只通过 PostgreSQL、Redis、HTTP 通信，不共享内存对象。
 
-**关停顺序**（api）：收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`；关停与超时竞速，超时后强制关闭残留 socket。compose 的 `stop_grace_period` 为 30s。worker 退出时清扫自己遗留的工作区目录，仍为 running 的 run 由 reconciler 收敛。
+**关停顺序**（api）：收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`；关停与超时竞速，超时后强制关闭残留 socket。compose 的 `stop_grace_period` 为 30s。worker 关停时由会话沙盒管理器 `close()` 收口 active/idle/pending 容器；stdin EOF 让 supervisor 收尾退出，容器以 `--rm` 删除。稳定的会话工作区与成果根不随 run 或关停删除；仍为 running 的 run 由 reconciler 收敛。
 
 ### 1.1 前端页面地图
 
@@ -73,13 +73,14 @@
                             │                │           │
                     ┌───────┴────────────────┴───────────┴──┐
                     │ worker (同一镜像，不同入口)             │
-                    │  BullMQ 消费 + 工作区渲染 + 沙盒生命周期 │
+                    │  BullMQ 消费 + 每轮渲染 + 会话沙盒生命周期 │
                     └───────────────────┬────────────────────┘
-                                        │ docker create/start（宿主 daemon）
+                                        │ acquire 会话容器（宿主 daemon）
                                         ▼
                     ┌───────────────────────────────────────┐
-                    │ sandbox 容器                          │
-                    │ 只读 /workspace + 只读根 + tmpfs 配置目录│
+                    │ sandbox 会话容器（每会话一个）          │
+                    │ supervisor 常驻；每轮新 runner query    │
+                    │ /workspace 只读 + /mnt/outputs 可写     │
                     │ runner → Claude Agent SDK → 模型 API   │
                     │        └─ MCP 工具 ──▶ api /mcp/:id    │
                     └───────────────────────────────────────┘
@@ -89,7 +90,7 @@
 
 - **api 与 worker 共用镜像**（根 `Dockerfile` 的 `runtime` target），默认入口 `api/dist/index.js`；compose 用 `command` 覆盖为 `worker/dist/index.js`。沙盒镜像由同一 Dockerfile 的 `sandbox` target 产出，构建上下文同为仓库根。
 - **web 没有独立生产容器**：`WEB_DIST=/app/web`，由 api 静态托管；SPA 路由回退到 `index.html`，`/api`、`/mcp`、`/health` 未命中仍返回 JSON 404。
-- **沙盒由宿主 Docker daemon 启动**：worker 挂载 `/var/run/docker.sock`，容器内外使用同一工作区绝对路径。
+- **沙盒由宿主 Docker daemon 启动**：worker 挂载 `/var/run/docker.sock`，容器内外使用同一工作区绝对路径。同一会话短期复用一个容器，空闲 `SANDBOX_IDLE_TIMEOUT_MS`（默认 5 分钟）后回收；试连与 native plugin 动作仍走一次性容器。
 - **沙盒网络模式**：`open` / `proxy` 使用 `bridge`，并加 `--add-host host.docker.internal:host-gateway`；`none` 使用 `--network none`。
 - **Redis 承担四件事**：BullMQ 队列、运行事件流、取消通知、限流计数；知识任务使用独立队列 `knowledge-jobs`。
 - **知识存储另挂 `knowledgedata:/knowledge`**：api 与 worker 共卷，原件与解析产物不进数据库、不进工作区。
@@ -105,8 +106,8 @@
   │◀─ 202 {runId} ─────┤                      │                    │                    │
   │                    │                      │  消费 job           │                    │
   │                    │                      ├───────────────────▶│ 读 agent/servers    │
-  │                    │                      │                    │ 渲染工作区到宿主     │
-  │ GET /events        │                      │                    │ create/start        │
+  │                    │                      │                    │ 每轮渲染会话定义    │
+  │ GET /events        │                      │                    │ 复用会话容器        │
   ├───────────────────▶│ XRANGE 回放 + 订阅    │                    ├───────────────────▶│
   │                    │◀─────────────────────┤ XADD run:*:events  │◀─ NDJSON stdout ───┤
   │◀─ SSE data ────────┤                      │                    │                    │
@@ -121,13 +122,15 @@
 1. `POST /api/chat` 校验 agent 是否存在，创建或复用 conversation，写 user 消息，创建 `agent_runs` 行（`queued`），投递 `agent-runs` 队列（`jobId = runId`；载荷只有 `runId`、`agentId`、`conversationId` 与本轮 `prompt`，不携带历史文本；`attempts: 2`，指数退避 5s；仅当排队数 ≤ 100 时才入队，否则 503），写审计，返回 202。续聊/分支状态由 worker 从 DB 读取。
 2. `GET /api/chat/:runId/events` 先订阅 Redis Stream，从 `0` 开始回放，因此 POST 与建连之间的事件不会丢；已结束的 run 直接补发终态。
 3. worker 消费 job：若 run 已被取消则跳过；置为 `running` 并发布 `run_started`。
-4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 生成文件并写入 `WORKSPACES_DIR/<slug>/<runId>/`。
-5. worker 通过 `DockerSandboxProvider` 检查本地镜像；缺失时先执行可取消的 `docker pull`，再以 `docker create --pull=never` 固定容器并 `docker start -ai` 启动，通过 stdin 写入任务 JSON。创建请求已经发出后取消会等待创建结果并删除，绝不继续启动；不再依赖容器出现的一秒轮询窗口。
-6. 容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`（可选带 `todos` 快照，见 §3.1）、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
-7. worker 逐行解析并按事件写入 Redis Stream（每次 `XADD` 与 TTL 续期合并为一次 pipeline）；工具调用经 `.mcp.json` 中的地址访问 api。
-8. 取消：api 写 `run:<runId>:cancel` 键并 publish；创建阶段的取消信号中止拉取，已发出的 create 则等待返回后删除、不启动。已启动容器由 Docker provider 统一 `docker stop --time 5` 优雅停止，再执行 `docker rm -f` 确认删除（未启动的 created 容器不能仅凭 stop 成功判定已删）；删除失败保留跟踪并上报。运行与试连共用容器收尾语义。
+4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 把官方定义刷新写入 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/workspace/`；该会话目录只读挂载，每轮覆盖定义内容，根目录不按 run 重命名或删除。
+5. worker 通过会话沙盒管理器 `SessionSandboxes.acquire(conversationId)` 取得该会话的容器：首次创建并启动常驻 supervisor，之后复用空闲容器；镜像缺失时先执行可取消的 `docker pull`。supervisor 轻量驻留，每轮由 worker 经 stdin 投递任务，并在容器内启动新的 runner query，不复用上一轮的 query 或进程环境。旧 `DockerSandboxProvider.create/destroy` 只保留给试连与 native plugin 等一次性容器。create 请求已经发出后取消会等待创建结果并删除，绝不继续启动。
+6. 会话容器准确挂载 `sdk-sessions/<conversationId>`（→ `/home/node/.claude`）、`agent-memory`、`conversation-inputs`（首轮无附件也预建并挂载）与只读 `/workspace`；`/mnt/outputs` 指向稳定的 session outputs 目录，读写。每轮凭证只经新 runner 的进程环境与当轮 `.mcp.json` 注入。容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`（可选带 `todos` 快照，见 §3.1）、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
+7. worker 逐行解析并按事件写入 Redis Stream（每次 `XADD` 与 TTL 续期合并为一次 pipeline）；supervisor 的业务事件保持原 `ChatEvent` 契约，`ready`/`started`/`settled`/`rejected` 等 control 事件只用于宿主握手，不写 SSE。工具调用经 `.mcp.json` 中的地址访问 api。
+8. 取消：api 写 `run:<runId>:cancel` 键并 publish；worker 通知 supervisor 停止本轮。supervisor 发出 `settled` 并确认所有 run 进程停稳后，正常完成或成功取消可 `release(reuse=true)` 进入空闲；超时、异常或无法确认停稳则销毁容器。创建阶段的取消信号中止拉取，已发出的 create 则等待返回后删除、不启动。试连与 native plugin 仍由 `DockerSandboxProvider` 一次性 `create/destroy`，不走会话复用。
 9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。事件展示额度与落库额度分开：`text_delta`、块边界等瞬时事件超出展示上限只停止展示，完整 `assistant_text` 与工具事件另有落库上限，不会被增量挤出。真正超过落库上限时保留已收集结果，将成功改为带明确原因的不可重试失败，避免缺失尾部仍报告成功。
-10. 只有业务执行本身的基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会触发 BullMQ 重试；业务失败不重试。执行结果已确定后的容器清理失败只记录运行/容器上下文并保留清理跟踪，不改业务终态，避免完整任务重复计费或工具副作用重放。
+10. 只有业务执行本身的基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会触发 BullMQ 重试；业务失败不重试。清理失败不作为基础设施失败重跑；已确定的终态与取消收尾的 `sessionId`、费用 metadata 保留。销毁失败会阻止发布成果并保留草稿，避免把未停稳的一轮当成已交付。
+
+会话串行与范围：同一会话的 run 通过 lease 串行执行，lease 持续到消息与本轮成果发布完成；不同会话相互独立。首版仍是现有单 worker 的进程内管理，不包含多 worker 路由、容器池、快照或新 provider；空闲容器计入资源占用，但不计入 `AGENT_MAX_CONCURRENT` 的同时执行数。容器复用只省创建/启动（缓存镜像基线约 122ms/次），不跳过每轮 SDK query 启动，不算也不承诺 SDK 冷启动优化。实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核。最终联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK + 本地假 Anthropic SSE 4 例，均从当前源码独立临时编译）；真实付费模型与浏览器全链路未测，不据此声称生产可用或多 worker 支持。
 
 ### 3.1 原生任务清单进度（TodoWrite）
 
@@ -153,7 +156,7 @@
 
 US-6.2以官方 `AskUserQuestion → canUseTool → updatedInput` 接回用户答案，继续同一次工具调用。问题与答案属于运行数据，智能体定义仍由官方文件表达；不新增自定义提问工具或第二执行循环。
 
-当前固定方案：runner保留首行任务之后的stdin通道；主会话回调发问题请求，worker先持久化运行问题再发布SSE快照；用户经鉴权API回答，worker沿现有PG轮询模式把答案回传当前容器。消息内容保留问题最终快照，使历史与分支只读展示不依赖run保留期。等待计入原整体运行timeout，停止/超时使待答问题关闭。
+当前固定方案：supervisor 保留常驻 stdin 通道；本轮 runner 经 supervisor 发问题请求，worker 先持久化运行问题再发布 SSE 快照；用户经鉴权 API 回答，worker 沿现有 PG 轮询模式把答案回传给本轮 runner。消息内容保留问题最终快照，使历史与分支只读展示不依赖 run 保留期。等待计入原整体运行 timeout，停止/超时使待答问题关闭。
 
 权限边界：官方 `dontAsk` 直接拒绝需要交互的工具、不会进入回调；新建默认采用 `default`，显式模式不重写。回调只处理主会话原生提问，其余未预批准工具拒绝；文件访问hook、禁用工具、子级边界与MCP服务端审批保留。回答问题不表示批准副作用。子智能体官方暂不支持原生提问。
 
@@ -163,7 +166,7 @@ US-6.2以官方 `AskUserQuestion → canUseTool → updatedInput` 接回用户�
 
 用户在 Composer 选择文件后，随 `POST /api/chat` 以 base64 JSON 一次提交；服务端按扩展名映射规范 MIME，校验规范 base64、真实大小、文件签名与文本 UTF-8，再写入 `WORKSPACES_DIR/<slug>/conversation-inputs/<conversationId>/<attachmentId><ext>`。用户消息只保存 `{id, filename, mimeType, size, sha256}` 元数据，队列与 SSE 不携带文件字节。入口上限：每条消息 5 个、合计 10MiB，文本 1MiB、图片 5MiB、PDF 10MiB，JSON body 16MiB；Office/ODF、压缩包、音视频等明确拒绝并提示改用知识库或文本。
 
-worker 在该会话目录存在时把整个目录只读挂到 `/mnt/inputs`，prompt 追加受控清单（显示名 JSON 转义、容器路径、类型、字节数），要求主智能体先 `Read` 再分析、读取失败必须说明。图片由官方 Read 返回视觉内容；PDF 短文件整份读取，长文件按 `pages` 分页，沙盒镜像安装 `poppler-utils`。输入目录只允许主会话 `Read`，Write/Edit、子智能体、未挂载路径、软链/硬链与越界继续拒绝；交付仍写 `/mnt/outputs`。
+worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也预建并挂载），prompt 追加受控清单（显示名 JSON 转义、容器路径、类型、字节数），要求主智能体先 `Read` 再分析、读取失败必须说明。图片由官方 Read 返回视觉内容；PDF 短文件整份读取，长文件按 `pages` 分页，沙盒镜像安装 `poppler-utils`。输入目录只允许主会话 `Read`，Write/Edit、子智能体、未挂载路径、软链/硬链与越界继续拒绝；交付仍写 `/mnt/outputs`。
 
 附件按会话保留：分支只复制被复制消息引用的文件（字节复制，删源后独立）；删除会话/专家回收目录；`pruneRuns` 保留带附件的用户消息并置空 `runId`，孤儿清理永不删除附件消息，保证历史与下载入口不随旧 run 消失。下载经鉴权且只接受该会话消息引用的附件。附件是运行数据，不进入智能体定义，也不替代知识库。
 
@@ -177,7 +180,7 @@ worker 在该会话目录存在时把整个目录只读挂到 `/mnt/inputs`，pr
 |---|---|---|---|
 | 解决什么 | 把已有 HTTP API 变成 MCP 工具 | 把平台内的智能体变成 MCP 工具 | 让绑定专家在 run 内只读检索一个知识库 |
 | 工具来源 | `api_tools` 表，每个 generated server 一组 | 所有 `enabled = true` 的智能体，工具名 `run_<slug>` | 固定四个只读工具：`knowledge_search` / `knowledge_read` / `knowledge_list` / `knowledge_read_image` |
-| 鉴权 | 沙盒内用按 run 签发的短期 token（DB 存 sha256，run 结束清空）；外部客户端用长期 `mcpToken` | 单个 `PLATFORM_MCP_TOKEN`；未设置则不注册该端点 | 只接受绑定该 server 的 run 短期 token；没有长期 token，无效一律 401 |
+| 鉴权 | 沙盒内用按 run 签发的短期 token（DB 存 sha256，终态停稳后清空）；外部客户端用长期 `mcpToken` | 单个 `PLATFORM_MCP_TOKEN`；未设置则不注册该端点 | 只接受绑定该 server 的 run 短期 token；没有长期 token，无效一律 401 |
 | 调用发生什么 | 按 method / path 模板 / `paramsIn` 转发上游 HTTP | 创建 conversation 与 run，入队，轮询 DB 直到终态，返回最终 assistant 文本 | 在 api 进程内查 pgvector/全文索引并读解析正文；工具不能跨库、不能写入 |
 | 执行位置 | api 进程内 `fetch` | worker + 沙盒（与浏览器发起的对话同一条链路） | api 进程内 `retrieval.ts` + 文件读取 |
 | 工具定义变更 | 下一次请求重建 handler，立即生效 | 下一次请求重建 handler，立即生效 | 由代码固定，不随用户配置变化 |
@@ -197,28 +200,23 @@ worker 在该会话目录存在时把整个目录只读挂到 `/mnt/inputs`，pr
 
 ## 5. 工作区文件模型
 
-数据库是真相源；文件是每次运行前重新渲染的只读快照。
+数据库是真相源；定义文件仍是每次运行前重新渲染的只读快照，会话级目录只提供稳定挂载根。
 
 ```
 data/workspaces/<agent-slug>/
-├─ <run-id>/                      每次运行重建，run 结束删除
-│  ├─ .mcp.json
-│  ├─ CLAUDE.md
-│  └─ .claude/
-│     ├─ agents/
-│     │  └─ <child-slug>.md       子智能体（仅单层；主智能体自己不落盘）
-│     └─ skills/
-│        └─ <skill-slug>/SKILL.md
+├─ session-sandboxes/<conversationId>/
+│  ├─ workspace/                  每轮按 DB 刷新官方定义；只读挂 /workspace；根不按 run 改名或删除
+│  └─ outputs/                    会话内唯一可写草稿，rw 挂 /mnt/outputs；根不发布、不删除
 ├─ agent-memory/                  跨 run 持久：原生 auto-memory
 ├─ sdk-sessions/<conversationId>/ 跨 run 持久：SDK transcript（按会话隔离）
 └─ conversation-outputs/<conversationId>/
-   ├─ drafts/<runId>/             本轮唯一可写草稿，挂到容器 /mnt/outputs
+   ├─ drafts/<runId>/             停稳后由 captureOutputDraft 从 stable outputs 复制
    └─ runs/<runId>/
       ├─ manifest.json            平台索引（成员、hash、状态、消息边界）
       └─ files/**                 发布后不可变的完整文件快照
 ```
 
-工作区按 run 隔离，run 结束删除；重试复用同一目录。目录 0700、文件 0600。`agent-memory/`、`sdk-sessions/` 与 `conversation-outputs/` 不属于单次运行，清理与备份都按持久数据处理；run 保留期清理不删除会话成果，会话或专家删除时回收对应成果目录。
+工作区按会话稳定复用，每轮只刷新定义内容；根目录不按 run 重命名或删除。目录 0700、文件 0600。持久数据只有 `agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/`；`session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存：`workspace` 每轮由数据库重渲染，`outputs` 在停稳后复制进 `conversation-outputs`，容器回收或关停不删除它，但它不是不可丢失的持久交付。run 保留期清理不删除会话成果，会话或专家删除时回收对应目录。
 
 | 文件 | 内容来源 | 说明 |
 |---|---|---|
@@ -229,9 +227,10 @@ data/workspaces/<agent-slug>/
 
 运行时约定：
 
-- 每次 run 先删除并重建 `.claude/agents/` 与 `.claude/skills/`，解绑后的旧文件不会残留。不要手工往这两个目录放东西。
-- 工作区以只读方式挂载到容器 `/workspace`；agent 不能修改自己的定义。每轮另将 `conversation-outputs/<conversationId>/drafts/<runId>` 以 rw 挂到 `/mnt/outputs`，主会话用原生 Read/Write/Edit 交付文件；不使用 SDK `additionalDirectories`，避免可写目录被当作配置来源加载。
-- 运行结束后 worker 等容器确认停止，再以当前最新完整快照为基线发布不可变快照；用户选定旧版时只把所选文件覆盖到草稿，其他最新文件保持原样。正在重试、消息保存失败或容器未停稳时不发布并保留草稿；空基线清空后发布空快照。
+- 每轮在会话 workspace 内先删除并重建 `.claude/agents/` 与 `.claude/skills/`，解绑后的旧文件不会残留。不要手工往这两个目录放东西。
+- 会话 workspace 以只读方式挂载到容器 `/workspace`；agent 不能修改自己的定义。稳定的 `session-sandboxes/<conversationId>/outputs` 以 rw 挂到 `/mnt/outputs`，主会话用原生 Read/Write/Edit 交付文件；不使用 SDK `additionalDirectories`，避免可写目录被当作配置来源加载。容器另准确挂载 `sdk-sessions/<conversationId>`、`agent-memory` 与预建的 `conversation-inputs`，不挂整个 agent 目录。
+- 每轮 `.mcp.json` 与 runner 进程环境只携带本轮短期凭证；运行结束时不论容器清理是否成功都吊销本轮 MCP/模型 token，终态停稳后移除 `.mcp.json`，空闲容器不保留上一轮身份，下一轮重新渲染。
+- 运行结束后 worker 等本轮 runner 停稳（`settled`），由 core 的 `captureOutputDraft` 从 stable outputs 复制出本轮草稿，再以当前最新完整快照为基线发布不可变快照；stable outputs 根只读复制，不发布也不删除。用户选定旧版时只把所选文件覆盖到草稿，其他最新文件保持原样。正在重试、消息保存失败、容器未停稳或销毁失败时不发布并保留草稿；空基线清空后发布空快照。
 - API 鉴权读取成果列表、完整 UTF-8 文本（≤1MiB）与原件下载；读取只接受 manifest 成员，HTML/SVG 仅按源码返回，不执行。二进制提供下载，不在服务端伪造文本预览。
 - 内置工具默认全部从上下文移除；`allowedTools` 只负责自动批准。原生 `TodoWrite` 是显式启用的例外（§3.1），只用于展示进度。MCP 工具的允许规则按 server name 逐个生成 `mcp__<name>__*`，`mcp__*` 通配无效。
 - 父级绑定技能slug从worker传给SDK的`skills`选项；无绑定明确传`[]`，仅控制自动批准的Skill(name)清单，不代表CLI发现清单隐藏其他技能。CLAUDE.md仅列父绑定技能。启用子智能体的绑定技能经批量查询合并到工作区文件，其子定义独立写`skills`预加载字段，不扩展父级SDK许可。真实CLI已发现子定义和技能文件；初始化接口不暴露预加载状态，子级正文加载及实际模型调用仍未验证，支持资源目录另行验收。
@@ -413,7 +412,7 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 | 运行时挂载 MCP，不生成代码 | 改工具定义立即生效；测试与调用走同一端点；其他 Host 也能连 | 每次请求重建 handler；工具执行在 api 进程内 |
 | DB 为真相源，文件为快照 | 页面字段与文件一一对应；同一智能体可被其他 Host 直接使用 | 每次 run 都有渲染与写盘开销 |
 | 宿主目录 bind mount，不打进镜像 | 一个镜像服务所有智能体；改配置不需重建 | 只支持单机，workspace 必须与 worker 同机 |
-| 整个 runner 在容器内 | Agent SDK 自带的 sandbox 只隔离 shell，不能隔离 stdio MCP | 镜像体积更大；每次 run 启动容器 |
+| 整个 runner 在容器内，会话级复用 | Agent SDK 自带的 sandbox 只隔离 shell，不能隔离 stdio MCP；同会话复用省容器创建/启动 | 镜像体积更大；空闲会话容器继续占用资源；不省每轮 SDK query 启动 |
 | Redis 流契约只在 `shared/run-stream.ts` 定义 | api 与 worker 分属两个进程，键名/通道/取消载荷一旦漂移就是「事件写了没人读」这类静默故障；第 1 轮发现两处独立副本后收敛 | `@agentport/shared` 因此成为沙盒镜像的运行时依赖（见下） |
 | 审计写入支持 `dedupeKey` | BullMQ 基础设施重试会重放同一件事；没有幂等键时每次重试都多写一行审计 | 有键时用 `onConflictDoNothing` 而不是覆盖，重复上报被丢弃 |
 | 内置工具默认禁用 | 用户可配置任意 stdio server，必须收紧默认权限 | 需要显式绑定 MCP 才能做事 |

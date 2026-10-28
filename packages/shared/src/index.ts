@@ -22,5 +22,6 @@ export * from './questions.js';
 export * from './redact.js';
 export * from './run-stream.js';
 export * from './sandbox-probe.js';
+export * from './sandbox-session.js';
 export * from './schedules.js';
 export * from './schemas.js';

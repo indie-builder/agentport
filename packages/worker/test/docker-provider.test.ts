@@ -94,6 +94,7 @@ interface CreateOptions {
   entrypoint?: string;
   name?: string;
   signal?: AbortSignal;
+  init?: boolean;
 }
 
 async function makeProvider() {
@@ -117,6 +118,7 @@ function createOptions(options: CreateOptions = {}) {
       ? {}
       : { entrypoint: options.entrypoint, command: ['dist/probe.js'] }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.init === undefined ? {} : { init: options.init }),
   };
 }
 
@@ -172,6 +174,13 @@ describe('docker sandbox provider', () => {
     expect(probe.args.join(' ')).toContain('--entrypoint node sandbox:test dist/probe.js');
     const run = await create();
     expect(run.args.join(' ')).not.toContain('--entrypoint');
+  });
+
+  it('adds an init process only when requested, keeping the old path unchanged', async () => {
+    const supervised = await create({ init: true });
+    expect(supervised.args).toContain('--init');
+    const oneShot = await create();
+    expect(oneShot.args).not.toContain('--init');
   });
 
   it('does not pull when the image already exists locally', async () => {

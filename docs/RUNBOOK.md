@@ -326,10 +326,10 @@ curl -sS $AUTH http://localhost:3000/health/metrics | jq '.queue'
 
 ```bash
 grep '^AGENT_MAX_CONCURRENT=' .env
-docker stats --no-stream --format '{{.Name}}\t{{.MemUsage}}' | grep -E 'agentport-'
+docker stats --no-stream --format '{{.Name}}\t{{.MemUsage}}' | grep -E '^(pace-session-|agentport-)'
 ```
 
-**处置**：按内存定并发。每个沙盒上限 `SANDBOX_MEMORY`（默认 `1g`），把 `AGENT_MAX_CONCURRENT` 提到 4 需要至少 4 GB 余量。
+**处置**：按资源定并发。每个沙盒受 `SANDBOX_MEMORY`（默认 `1g`）上限约束；会话复用后，正常完成或成功取消的容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内热空闲并继续占用资源，实际容器数可能高于活跃 run 数。活跃并发上限不等于容器总数；本机没有实测热空闲容器的内存，不要据此推算新的并发上限。扩容前用上面的 `docker stats` 按全部会话容器观察。
 
 ```bash
 # 编辑 .env: AGENT_MAX_CONCURRENT=4
@@ -343,21 +343,22 @@ docker compose up -d --force-recreate worker
 **判断**
 
 ```bash
-docker ps --filter name=agentport- --format '{{.Names}}\t{{.Status}}\t{{.Image}}'
+docker ps --filter 'name=^pace-session-' --format '{{.Names}}\t{{.Status}}\t{{.Image}}'
 docker logs --tail=100 <容器名>
 docker compose logs --tail=100 worker | grep -i '<runId>'
 ```
 
 **处置**（从轻到重）
 
-1. 页面「运行 → 详情」点取消；取消 running 会给容器发 SIGTERM。
-2. 取消无效时强制删容器，runner 会以失败收尾：
+1. 页面「运行 → 详情」点取消：停止本轮执行，不再直接向整个会话容器发 SIGTERM。本轮确认停稳后保留容器供同一会话后续复用；重复取消幂等。
+2. 无法确认本轮停稳（清理失败、状态不明或超时）时，宿主兜底删除该会话容器。回收容器不删除宿主上的 `sdk-sessions/` 与 `agent-memory/`，下一轮可新建容器并恢复同一会话。
+3. 取消后本轮仍不结束时，先看 worker 日志里的 runId 与容器状态，确认没有工具副作用后再强制删容器；这属于异常兜底，会销毁复用容器：
 
 ```bash
 docker rm -f <容器名>
 ```
 
-3. worker 整体卡住时重启；running 的 run 由 reconcile 在超时后收敛：
+4. worker 整体卡住时重启；running 的 run 由 reconcile 在超时后收敛：
 
 ```bash
 docker compose restart worker
@@ -849,7 +850,8 @@ docker compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-war
 docker compose exec -T postgres psql -U agentport -d agentport -c 'select 1'
 
 # 沙盒
-docker ps --filter name=agentport-
+docker ps --filter 'name=^pace-session-' --format '{{.Names}}\t{{.Status}}'   # 复用的会话容器
+docker ps --filter 'name=^agentport-(probe|native-plugin)-'                    # 一次性试连/插件安装容器
 docker compose exec -T worker docker ps
 
 # 磁盘

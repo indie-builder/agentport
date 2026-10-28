@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { createDb, newId, repo, schema } from '@agentport/db';
-import type { ChatEvent } from '@agentport/shared';
+import type { ChatEvent, ExecutionSettlement } from '@agentport/shared';
 import { runStreamKey } from '@agentport/shared';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { persistRunMessages } from '../src/messages.js';
 import {
   closeRunnerClient,
@@ -15,7 +15,7 @@ import {
   isRetryable,
   runInSandbox,
 } from '../src/runner-client.js';
-import type { Sandbox, SandboxProvider } from '../src/sandbox/provider.js';
+import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
 
 async function probeRedis(): Promise<boolean> {
   const redisUrl = process.env.REDIS_URL;
@@ -86,7 +86,7 @@ interface RunOptions {
   timeoutMs?: number;
   logger?: Logger;
   /** 覆盖默认 provider，用于观察 create 收到的 AbortSignal。 */
-  provider?: SandboxProvider;
+  provider?: SessionSandboxLease;
   /** 写出全部 NDJSON 后模拟容器结局；默认正常退出。 */
   finish?: (child: FakeChild) => void;
 }
@@ -101,7 +101,7 @@ const task = {
 
 function runInput(
   runId: string,
-  provider: SandboxProvider,
+  lease: SessionSandboxLease,
   logger: Logger = quietLogger,
   timeoutMs = 5_000,
 ) {
@@ -109,10 +109,8 @@ function runInput(
     runId,
     timeoutMs,
     task,
-    workspaceDir: '/tmp/fake',
-    image: 'fake',
     env: {},
-    provider,
+    lease,
     logger,
   };
 }
@@ -122,13 +120,31 @@ function fakeProvider(
   child: FakeChild,
   emitLines: () => void,
   destroy: () => Promise<void> = async () => undefined,
-): SandboxProvider {
+): SessionSandboxLease {
   return {
-    create: async () => {
+    sandboxId: 'fake',
+    start: async ({ onEvent, onStderr }) => {
+      let finish: (value: ExecutionSettlement) => void = () => undefined;
+      const done = new Promise<ExecutionSettlement>((resolve) => {
+        finish = resolve;
+      });
+      child.stdout.on('data', (chunk) => {
+        for (const line of String(chunk).trim().split('\n')) if (line) onEvent(JSON.parse(line));
+      });
+      child.stderr.on('data', (chunk) => onStderr(String(chunk)));
+      child.once('close', (code, signal) => finish({ state: 'stopped', code, signal }));
+      child.once('error', (error) => finish({ state: 'unconfirmed', error: error.message }));
       setTimeout(emitLines, 5);
-      return { id: 'fake', child } as unknown as Sandbox;
+      return {
+        done,
+        send() {},
+        cancel: async () => {
+          finish({ state: 'unconfirmed', error: 'cancel unconfirmed' });
+          return done;
+        },
+      };
     },
-    destroy,
+    release: destroy,
   };
 }
 
@@ -301,7 +317,7 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
     throw new Error('docker rm -f fake failed');
   };
 
-  it('keeps a succeeded run complete and non-retryable when cleanup fails', async () => {
+  it('keeps a succeeded run complete without releasing its lease', async () => {
     const { logger, warnings } = recordingLogger();
     const runId = `run-cleanup-${randomUUID()}`;
     const lines: ChatEvent[] = [
@@ -335,14 +351,8 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
     expect(outcome.events).toEqual([
       expect.objectContaining({ type: 'assistant_text', text: '完成' }),
     ]);
-    // 清理失败仍要可见，只是不能改写业务结果。
-    expect(warnings).toContainEqual({
-      fields: expect.objectContaining({ runId, sandbox: 'fake' }),
-      message: 'sandbox cleanup failed',
-    });
-    // 调用方要据此判断「容器可能还在写文件」：失败的清理必须显式带出，而不是只进日志。
-    expect(outcome.cleanupError).toBe('docker rm -f fake failed');
-
+    expect(warnings).toEqual([]);
+    expect(outcome.cleanupError).toBeUndefined();
     const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
     await redis.del(runStreamKey(runId));
     redis.disconnect();
@@ -405,110 +415,19 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
     redis.disconnect();
   });
 
-  it('keeps the original infra error so a run that never started still retries', async () => {
+  it('does not retry an uncertain execution when cleanup fails', async () => {
     const runId = `run-cleanup-${randomUUID()}`;
     const { outcome } = await runWith([], runId, {
       destroy: failingDestroy,
       finish: (child) => child.emit('error', new Error('docker run failed')),
     });
 
-    // 基础设施失败仍要按原错误分类交给 BullMQ 重试，清理错误只进日志。
+    // 执行状态不明且销毁失败时不能重跑副作用。
     expect(outcome.status).toBe('failed');
     expect(outcome.error).toBe('docker run failed');
-    expect(outcome.failure).toMatchObject({ reason: 'infra', message: 'docker run failed' });
-    expect(isRetryable(outcome)).toBe(true);
-
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
-    await redis.del(runStreamKey(runId));
-    redis.disconnect();
-  });
-});
-
-describe.skipIf(!ready)('runInSandbox create signal lifecycle', () => {
-  it('aborts a pending create when CREATE_TIMEOUT_MS elapses', async () => {
-    configureRunnerClient(redisUrl);
-    // 先建立 redis 连接，避免 fake timers 干扰 ioredis 的建连计时器。
-    const warmupChild = new FakeChild();
-    await runInSandbox(
-      runInput(`run-warmup-${randomUUID()}`, {
-        create: async () => {
-          setTimeout(() => {
-            warmupChild.stdout.write(
-              `${JSON.stringify({ type: 'run_finished', status: 'succeeded' })}\n`,
-            );
-            warmupChild.emit('close', 0, null);
-          }, 0);
-          return { id: 'warmup', child: warmupChild } as unknown as Sandbox;
-        },
-        destroy: async () => undefined,
-      }),
-    );
-
-    const runId = `run-create-timeout-${randomUUID()}`;
-    let createSignal: AbortSignal | undefined;
-    let createStarted: () => void = () => undefined;
-    const started = new Promise<void>((resolve) => {
-      createStarted = resolve;
-    });
-
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      const running = runInSandbox(
-        runInput(runId, {
-          create: (options) => {
-            createSignal = options.signal;
-            createStarted();
-            return new Promise<Sandbox>(() => undefined);
-          },
-          destroy: async () => undefined,
-        }),
-      );
-      await started;
-      expect(createSignal?.aborted).toBe(false);
-
-      // 创建预算耗尽：create 分支被 race 打断，signal 必须 abort 才能终止 docker pull。
-      await vi.advanceTimersByTimeAsync(30_000);
-      const outcome = await running;
-
-      expect(outcome.status).toBe('failed');
-      expect(outcome.failure).toMatchObject({ reason: 'infra' });
-      expect(outcome.error).toMatch(/timed out/);
-      expect(createSignal?.aborted).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('keeps the create signal un-aborted for a completed run and its cleanup', async () => {
-    configureRunnerClient(redisUrl);
-    const runId = `run-signal-${randomUUID()}`;
-    const child = new FakeChild();
-    let createSignal: AbortSignal | undefined;
-    let abortedDuringDestroy: boolean | undefined;
-
-    const { outcome } = await runWith([], runId, {
-      provider: {
-        create: async (options) => {
-          createSignal = options.signal;
-          setTimeout(() => {
-            child.stdout.write(
-              `${JSON.stringify({ type: 'run_finished', status: 'succeeded' })}\n`,
-            );
-            child.emit('close', 0, null);
-          }, 5);
-          return { id: 'fake', child } as unknown as Sandbox;
-        },
-        destroy: async () => {
-          abortedDuringDestroy = createSignal?.aborted;
-        },
-      },
-    });
-
-    // 正常完成后清理阶段不能看到 abort，否则 provider 可能把成功结果当取消处理。
-    expect(outcome.status).toBe('succeeded');
-    expect(createSignal).toBeDefined();
-    expect(createSignal?.aborted).toBe(false);
-    expect(abortedDuringDestroy).toBe(false);
+    expect(outcome.failure).toMatchObject({ reason: 'sandbox', message: 'docker run failed' });
+    expect(outcome.cleanupError).toBe('docker rm -f fake failed');
+    expect(isRetryable(outcome)).toBe(false);
 
     const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
     await redis.del(runStreamKey(runId));

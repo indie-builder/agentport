@@ -47,9 +47,9 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 ## 当前已知限制（与 DELIVERY.md 合并去重，以代码为准）
 
 1. **单机部署**：worker 挂载 `docker.sock`，等价宿主 root；只适合单机自用（D-16）。生产需 socket proxy、独立沙盒节点或 microVM。
-2. **同一智能体的并发仍共享宿主资源**：工作区已按 `runId` 隔离，但沙盒容器共享宿主 CPU/内存，吞吐受 `AGENT_MAX_CONCURRENT` 限制。
-3. **模型凭证已代理（D-17）**：worker 起回环代理，沙盒只拿按 run 的短期 token；未配置凭证时才回退直接注入。代理只转发白名单路径。
-4. **工作区仍含 MCP 明文密钥**：stdio / http server 解密后的 env/headers 会写入 `.mcp.json`；文件 0600、目录 0700，run 结束删除。Linux 宿主 uid 非 1000 时容器内可能读不到 0600 的 bind mount（macOS Docker Desktop 已实测可读）。
+2. **同一智能体的并发仍共享宿主资源**：改为会话沙盒——每个平台会话一个容器并短期复用，容器内常驻 supervisor，每轮 run 仍启动新的 runner 执行；`agent-memory/` 按智能体共享，`sdk-sessions/<conversationId>/` 按会话隔离。不同会话的容器共享宿主 CPU/内存，吞吐受 `AGENT_MAX_CONCURRENT` 限制。会话复用与空闲回收的独立分范围 review 已通过，最终联合回归 root backend 458 passed / 0 failed / 0 skipped（2026-10-29 更新），真实付费模型与浏览器全链路未测（见 [OPERATIONS.md](OPERATIONS.md) 会话沙盒生命周期）。
+3. **模型凭证已代理（D-17）**：worker 起回环代理，沙盒只拿按 run 的短期 token；未配置凭证时才回退直接注入。代理只转发白名单路径。会话容器复用时 token 每轮重新签发，运行结束时不论容器清理是否成功都撤销。
+4. **工作区仍含 MCP 明文密钥**：stdio / http server 解密后的 env/headers 会写入 `.mcp.json`；文件 0600、目录 0700，run 停稳后删除，空闲容器不保留。Linux 宿主 uid 非 1000 时容器内可能读不到 0600 的 bind mount（macOS Docker Desktop 已实测可读）。
 5. **工具审批是挂起式暂停（D-18）**：未批准时 MCP 调用挂起，批准后同一次调用继续并返回结果；`APPROVAL_WAIT_MS`（默认 300s）超时按拒绝处理。外部客户端没有 run 上下文时仍立即拒绝。
 6. **权限模式**：`dontAsk`、`plan`、`default`、`acceptEdits` 可保存；`auto` 依赖模型分类器，平台无法审计，返回 400（D-20）。
 7. **会话上下文靠注入最近 20 条消息**，不是 SDK 原生 session resume；长对话会截断。

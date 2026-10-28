@@ -157,6 +157,8 @@ services:
       # rootless / 自定义 data-root 时用 HOST_WORKSPACES_DIR 覆盖。
       HOST_WORKSPACES_DIR: ${HOST_WORKSPACES_DIR:-/var/lib/docker/volumes/agentport_workspaces/_data}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-agentport/sandbox:dev}
+      # 会话沙盒无执行任务后的保留时间；忙/等待用户时不算空闲。
+      SANDBOX_IDLE_TIMEOUT_MS: ${SANDBOX_IDLE_TIMEOUT_MS:-300000}
       # 沙盒在默认 bridge 上，通过 host.docker.internal 回到宿主发布的 3000 端口。
       SANDBOX_API_URL: http://host.docker.internal:3000
       # 模型代理端口：必须发布到宿主，沙盒（默认 bridge）才能经 host.docker.internal 访问。

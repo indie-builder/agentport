@@ -9,10 +9,11 @@ import { buildMessageRows } from '../src/messages.js';
 import {
   closeRunnerClient,
   configureRunnerClient,
+  isRetryable,
   runInSandbox,
   type SandboxQuestionCallbacks,
 } from '../src/runner-client.js';
-import type { Sandbox, SandboxProvider } from '../src/sandbox/provider.js';
+import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
 
 // 取消订阅是每个 run 的前置：必须指向本轮测试的独享 Redis，而不是开发实例。
 configureRunnerClient(process.env.REDIS_URL ?? 'redis://127.0.0.1:1/9');
@@ -167,25 +168,39 @@ async function run(
     return originalWrite(chunk);
   }) as typeof child.stdin.write;
 
-  const provider: SandboxProvider = {
-    create: async () => {
+  const lease: SessionSandboxLease = {
+    sandboxId: 'fake',
+    start: async ({ onEvent, task }) => {
       await new Promise((resolve) => setTimeout(resolve, options.createDelayMs ?? 0));
-      // 创建返回即 attach，问答期限从这里起算。
       createdAt = Date.now();
+      const done = new Promise<import('@agentport/shared').ExecutionSettlement>((resolve) => {
+        child.once('close', () => resolve({ state: 'stopped', code: 0, signal: null }));
+      });
+      child.stdout.on('data', (chunk) => {
+        for (const line of String(chunk).trim().split('\n')) if (line) onEvent(JSON.parse(line));
+      });
+      child.stdin.write(`${JSON.stringify(task)}\n`);
       setTimeout(() => emit(child), 5);
-      return { id: 'fake', child } as unknown as Sandbox;
+      return {
+        done,
+        send: (command) => {
+          child.stdin.write(`${JSON.stringify(command)}\n`);
+        },
+        cancel: async () => {
+          child.emit('close', 0, null);
+          return done;
+        },
+      };
     },
-    destroy: async () => undefined,
+    release: async () => undefined,
   };
 
   const outcome = await runInSandbox({
     runId,
     timeoutMs: options.timeoutMs ?? 5_000,
     task,
-    workspaceDir: '/tmp/fake',
-    image: 'fake',
     env: {},
-    provider,
+    lease,
     logger,
     ...(options.store === undefined ? {} : { questions: options.store.callbacks }),
   });
@@ -554,6 +569,9 @@ describe('runInSandbox question flow', () => {
     expect(Date.now() - startedAt).toBeLessThan(1_000);
     expect(outcome.status).toBe('failed');
     expect(outcome.error).toMatch(/db down/);
+    expect(outcome.failure?.reason).toBe('infra');
+    expect(isRetryable(outcome)).toBe(true);
+    expect(store.closeCalls.at(-1)).toEqual({ reason: 'failed' });
     expect(child.writes.map((line) => JSON.parse(line))).toContainEqual({
       type: 'question_response',
       requestId: 'req-1',

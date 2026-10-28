@@ -6,20 +6,11 @@ import {
   setOutputDraftBlocked,
 } from '@agentport/core';
 import { type Database, schema } from '@agentport/db';
-import { type OutputRef, outputRefSchema } from '@agentport/shared';
+import { type ExecutionSettlement, type OutputRef, outputRefSchema } from '@agentport/shared';
 import { desc, eq } from 'drizzle-orm';
 
 /** 容器内的交付目录；worker 只把本 run 的草稿挂到这里。 */
 export const OUTPUTS_CONTAINER_DIR = '/mnt/outputs';
-
-/** 草稿挂载：独立 rw 目录；定义挂载仍由 provider 以只读方式加。 */
-export function outputsMount(hostPath: string): {
-  hostPath: string;
-  containerPath: string;
-  readonly: false;
-} {
-  return { hostPath, containerPath: OUTPUTS_CONTAINER_DIR, readonly: false };
-}
 
 export interface RunOutputsIdentity {
   workspacesDir: string;
@@ -116,17 +107,15 @@ export async function lastMessageIdOfRun(db: Database, runId: string): Promise<s
   return row.id;
 }
 
-/** 只有真正创建过的容器无清理错误地返回，才确认本次尝试已停稳。 */
+/** 只用 runner 停稳 ACK 或容器销毁成功作为成果发布证据。 */
 export async function recordOutputSandboxSettlement(
   identity: RunOutputsIdentity,
-  outcome: { sandboxId: string; cleanupError?: string },
+  outcome: { settlement: ExecutionSettlement },
 ): Promise<void> {
-  const input = { root: identity.workspacesDir, ...identity };
-  if (outcome.cleanupError !== undefined) {
-    await setOutputDraftBlocked(input, outcome.cleanupError);
-  } else if (outcome.sandboxId !== '') {
-    await setOutputDraftBlocked(input, null);
-  }
+  await setOutputDraftBlocked(
+    { root: identity.workspacesDir, ...identity },
+    outcome.settlement.state === 'stopped' ? null : outcome.settlement.error,
+  );
 }
 
 /**

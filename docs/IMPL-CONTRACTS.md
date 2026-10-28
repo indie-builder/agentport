@@ -200,8 +200,8 @@ packages/sandbox/Dockerfile
 
 **流程**：
 1. 消费 `agent-runs`，`concurrency = AGENT_MAX_CONCURRENT`。
-2. 从 DB 读 agent + 绑定 servers → 调 `@agentport/core` 的 `renderWorkspace` 写到 `WORKSPACES_DIR/<slug>`（**直接调用 API 包之外的核心函数**，不要 import api 包）。
-3. `DockerSandboxProvider.create({ image: SANDBOX_IMAGE, workspaceDir, env })`：`docker run --rm -i --network <SANDBOX_NETWORK 或 host> -v <abs>:/workspace:ro -e ... agentport/sandbox:dev`。
+2. 从 DB 读 agent + 绑定 servers → 调 `@agentport/core` 的 `renderWorkspace` 先渲染到本轮临时目录 `WORKSPACES_DIR/<slug>/<runId>`（**直接调用 API 包之外的核心函数**，不要 import api 包），再刷新到会话稳定目录 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/workspace`；容器只读挂载的是后者，同一会话跨 run 保持同一挂载根。
+3. `DockerSandboxProvider.create({ image: SANDBOX_IMAGE, workspaceDir, env })`：历史写法是每 run 执行一次 `docker run --rm`。当前已改为 `SessionSandboxes` 按平台会话创建并复用容器：稳定目录 `session-sandboxes/<conversationId>/{workspace,outputs}`，`workspace` 只读、`outputs` 可写，每轮由容器内 supervisor 启动新 runner（见 [OPERATIONS.md](OPERATIONS.md) 会话沙盒生命周期；实施中）。
    - 用 `node:child_process.spawn` 直接调 `docker` CLI（不引入 dockerode），`stdio: ['pipe','pipe','pipe']`。
 4. 把 task JSON 写入子进程 stdin，逐行读 stdout NDJSON（`ChatEvent`），用 `publishRun(runId, event)` 发到 Redis。
 5. 结束/失败/超时（`agent.timeoutMs`）都要 publish `run_finished`，并更新 `agentRuns` 状态、cost、turns。

@@ -311,6 +311,8 @@ const disallowedTools = baseDisallowed.filter((tool) => {
 // 不再手工解析同一文件再 inline 覆盖，避免两处合并语义漂移。
 
 let emittedTerminal = false;
+/** init 里拿到的真实会话 id；取消时 result 可能来不及到达，也要能上报。 */
+let initSessionId: string | undefined;
 // run_finished 只能有一条：宿主按它落库并结束 SSE。
 function emit(event: RunnerEvent): void {
   if (event.type === 'run_finished') emittedTerminal = true;
@@ -325,6 +327,7 @@ function failRun(kind: FailureKind, message: string): void {
     status: kind === 'cancelled' ? 'cancelled' : 'failed',
     error: message,
     failureKind: kind,
+    ...(initSessionId === undefined ? {} : { sessionId: initSessionId }),
   });
 }
 
@@ -402,6 +405,7 @@ if (session.error !== undefined) {
     };
   }
 
+  let activeQuery: ReturnType<typeof query> | undefined;
   try {
     /**
      * 每个 parent 当前正在流式输出的块。SDK 的完整 assistant 消息只带自己那一个块，
@@ -413,7 +417,7 @@ if (session.error !== undefined) {
     const todoToolIds = new Set<string>();
     const parentKey = (id: string | null): string => id ?? '';
 
-    for await (const message of query({
+    activeQuery = query({
       prompt: userPrompt(),
       options: {
         cwd: workspaceDir,
@@ -478,8 +482,10 @@ if (session.error !== undefined) {
         model: task.model,
         ...(session.resume === undefined ? {} : { resume: session.resume }),
       },
-    })) {
+    });
+    for await (const message of activeQuery) {
       if (message.type === 'system' && message.subtype === 'init') {
+        initSessionId = message.session_id;
         // MCP 起不来时 SDK 仍会正常跑完：模型只能用内置工具，最后报「成功」。
         // 这里必须显式暴露，否则用户在 UI 上看到的是「完成但什么都没做」。
         const failed = message.mcp_servers?.filter((s) => s.status !== 'connected') ?? [];
@@ -663,6 +669,8 @@ if (session.error !== undefined) {
     // 运行已结束：未决提问收尾并停止读取 stdin，进程才能正常退出。
     questionChannel.close();
     closeInput();
+    // 显式关闭 query：中止后 SDK 的 CLI/MCP 子进程不能只靠父进程退出被动收尾。
+    activeQuery?.close();
   }
 }
 

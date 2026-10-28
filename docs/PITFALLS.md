@@ -254,3 +254,15 @@
 - **现象**：`pnpm dev` 上传成功，但模型读取 `/mnt/inputs` 失败；或 Linux 宿主以非 1000 UID 运行时同样读不到。
 - **原因**：API 与 worker 各自以包目录为 cwd 解析相对 `WORKSPACES_DIR`，附件（以及记忆、成果）落在不同目录；附件目录按 0700/0600 创建，而沙盒固定以 uid 1000 运行，宿主直跑非 1000 UID 时无法遍历。
 - **规避**：本地开发把 `WORKSPACES_DIR` 设为同一个绝对路径，或使用 Compose；需要沙盒读取持久目录时用 Compose 的 uid 1000 三端配置，不要用 0755/0777 放宽权限掩盖 UID 差异。
+
+## 运行：Node 子进程的 exit 与 close 不能混用，等 close 会与后代互等
+
+- **现象**：runner 已退出，`close` 却迟迟不触发；在等 `close` 期间再杀后代进程会互相卡住；stdio 为 inherit 或 detached 的测试更容易复现。
+- **原因**：`close` 要等子进程退出且所有 stdio 管道关闭；后代继承了 stdout/stderr 时管道仍打开，`close` 被拖后。若顺序是「先 await close，再清理后代」，而后代又阻塞在管道上，就互等。EOF 收尾只设 `exitCode` 而留着 pipe handles 时同样不会收敛。
+- **规避**：按 `exit` 事件启动后代清理，再排空/结束输出管道并确认已 settled；测试覆盖 stdio inherit 与 detached；EOF 收尾显式结束管道，不只设 `exitCode`。
+
+## 测试：真实容器测试可能加载旧 dist，产物存在不等于来自当前源码
+
+- **现象**：真实 Docker / SDK 测试全绿，实际行为却对应旧代码；镜像或挂载里是旧的 `shared`/`sandbox` 构建。
+- **原因**：测试只检测 `dist` 是否存在，或复用镜像中旧的 `shared` 产物，没有确认产物来自本轮源码；根 `vitest` 入口只跑测试，不等于执行构建。
+- **规避**：每轮为 `shared`/`sandbox` 编译独占临时产物或显式构建最新版本，并记录产物来源；验收跑真实 Docker 与 SDK fake API；不要把根 `vitest` 入口当作构建步骤。

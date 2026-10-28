@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { mkdir, rm, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
@@ -287,6 +289,26 @@ describe.skipIf(!ready)('conversations', () => {
       [id],
     );
     expect(audit.rows).toHaveLength(1);
+  });
+
+  it('removes only the deleted conversation session sandbox', async () => {
+    const agent = await newAgent();
+    const id = await newConversation(agent.id, '待清理');
+    const keptId = await newConversation(agent.id, '保留');
+    const sandboxes = join(app.config.WORKSPACES_DIR, agent.slug, 'session-sandboxes');
+    const target = join(sandboxes, id);
+    const kept = join(sandboxes, keptId);
+    for (const session of [target, kept]) {
+      await mkdir(join(session, 'workspace'), { recursive: true });
+      await mkdir(join(session, 'outputs'), { recursive: true });
+    }
+
+    const res = await remove(id);
+    expect(res.statusCode, res.body).toBe(204);
+    expect(await stat(target).catch(() => null)).toBeNull();
+    expect((await stat(kept)).isDirectory()).toBe(true);
+
+    await rm(join(app.config.WORKSPACES_DIR, agent.slug), { recursive: true, force: true });
   });
 
   it('rejects deleting a conversation with a queued run and keeps both rows', async () => {

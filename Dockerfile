@@ -43,7 +43,9 @@ RUN apk add --no-cache git poppler-utils \
 WORKDIR /app
 COPY --from=build --chown=node:node /out/sandbox ./
 # 原生 CLI 在 optionalDependencies；构建期验证 pnpm deploy 确实装入了可执行文件。
+# 容器默认入口仍是 runner（probe 与单次运行）；worker 复用容器时显式改用 supervisor。
 RUN test -f dist/runner.js \
+ && test -f dist/session-supervisor.js \
  && node -e "const {createRequire}=require('node:module');const base=createRequire('/app/package.json');const sdk=createRequire(base.resolve('@anthropic-ai/claude-agent-sdk'));const cli=sdk.resolve('@anthropic-ai/claude-agent-sdk-linux-'+process.arch+'-musl/claude');if(!(require('node:fs').statSync(cli).mode&0o111))throw new Error('SDK native CLI is not executable: '+cli)"
 
 # 只读根文件系统运行时，SDK 需要写会话/缓存目录；worker 会给这个路径挂 tmpfs，

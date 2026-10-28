@@ -428,6 +428,75 @@ export async function prepareOutputDraft(input: PrepareOutputDraftInput): Promis
   return draftDir;
 }
 
+/**
+ * 把已停止写入的稳定 outputs 挂载目录捕获回本轮草稿。
+ *
+ * 复用容器时 `/mnt/outputs` 不再按 run 挂载，发布后也不能删除这个稳定目录；
+ * 这里只复制内容，源目录、`drafts/<runId>.base`、`.blocked` 与已发布快照都保持原样。
+ * 先完整读取到 staging（逐文件沿用草稿的路径/普通文件/软硬链接校验），
+ * 成功后才替换未挂载的草稿；任何失败都保留原草稿。
+ */
+export async function captureOutputDraft(input: {
+  root: string;
+  slug: string;
+  conversationId: string;
+  runId: string;
+  /** 内部配置的稳定挂载目录（须位于 root 内）；目录可信，内容仍按沙盒可写数据校验。 */
+  sourceDir: string;
+}): Promise<void> {
+  const conversationRoot = await trustedPath(input, conversationSegments(input), 'conversationId');
+  const runId = runIdOf(input.runId);
+  const draftDir = await trustedPath(input, [...conversationSegments(input), DRAFTS, runId], runId);
+  const sourceDir = await trustedPath(
+    input,
+    relative(resolve(input.root), resolve(input.sourceDir)).split(sep),
+    'sourceDir',
+  );
+  const sourceInfo = await lstat(sourceDir).catch((error: unknown) => {
+    if (hasCode(error, 'ENOENT')) fail('NOT_FOUND', '产出挂载目录不存在', { path: '/sourceDir' });
+    throw error;
+  });
+  if (sourceInfo.isSymbolicLink() || !sourceInfo.isDirectory()) {
+    fail('INVALID_INPUT', '产出挂载目录非法', { path: '/sourceDir' });
+  }
+
+  const files = await draftEntries(input, sourceDir);
+
+  const staging = join(conversationRoot, DRAFTS, `.tmp-${runId}-${randomUUID()}`);
+  await mkdir(staging, { recursive: true });
+  let previous: string | null = null;
+  try {
+    for (const file of files) {
+      const destination = join(staging, ...file.path.split('/'));
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, file.data);
+    }
+
+    const existing = await lstat(draftDir).catch((error: unknown) => {
+      if (hasCode(error, 'ENOENT')) return null;
+      throw error;
+    });
+    if (existing !== null) {
+      if (existing.isSymbolicLink() || !existing.isDirectory()) {
+        fail('INVALID_INPUT', '产出草稿目录非法', { path: `/${runId}` });
+      }
+      // 同目录改名备份：换入失败时把原草稿放回去，不能先删后写。
+      previous = join(conversationRoot, DRAFTS, `.tmp-${runId}-${randomUUID()}`);
+      await rename(draftDir, previous);
+    }
+    try {
+      await rename(staging, draftDir);
+    } catch (error) {
+      if (previous !== null) await rename(previous, draftDir);
+      throw error;
+    }
+  } catch (error) {
+    await removeQuietly(staging);
+    throw error;
+  }
+  if (previous !== null) await removeQuietly(previous);
+}
+
 export interface PublishOutputSnapshotInput {
   root: string;
   slug: string;

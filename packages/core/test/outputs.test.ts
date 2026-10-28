@@ -11,17 +11,44 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppError } from '../src/errors.js';
 import {
+  captureOutputDraft,
   copyConversationOutputs,
   listOutputFiles,
+  outputDraftBlockedReason,
   prepareOutputDraft,
   publishOutputSnapshot,
   readOutputFile,
   removeConversationOutputs,
+  setOutputDraftBlocked,
 } from '../src/outputs.js';
+
+/** 只在用例显式打开时注入一次 rename 失败；其余测试走真实实现。 */
+const renameFault = vi.hoisted(() => ({
+  match: null as null | ((from: string, to: string) => boolean),
+  injected: 0,
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    rename: async (
+      from: Parameters<typeof actual.rename>[0],
+      to: Parameters<typeof actual.rename>[1],
+    ) => {
+      if (renameFault.match?.(String(from), String(to))) {
+        renameFault.match = null;
+        renameFault.injected += 1;
+        throw Object.assign(new Error('injected rename failure'), { code: 'EIO' });
+      }
+      await actual.rename(from, to);
+    },
+  };
+});
 
 const slug = 'agent-a';
 const conversationId = 'conv_1';
@@ -37,9 +64,24 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  renameFault.match = null;
+  renameFault.injected = 0;
   vi.useRealTimers();
   await rm(root, { recursive: true, force: true });
 });
+
+async function writeFiles(dir: string, files: Record<string, string | Buffer>): Promise<void> {
+  for (const [path, content] of Object.entries(files)) {
+    const target = join(dir, ...path.split('/'));
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, content);
+  }
+}
+
+/** 复用容器时 /mnt/outputs 的稳定宿主目录；这里放在产出根内，与 worker 配置一致。 */
+function sessionOutputsDir(conversation = conversationId): string {
+  return join(root, slug, 'session-outputs', conversation);
+}
 
 async function publish(
   runId: string,
@@ -47,11 +89,7 @@ async function publish(
   anchors = { userMessageId: `msg-${runId}`, afterMessageId: `msg-after-${runId}` },
 ): Promise<void> {
   const draft = await prepareOutputDraft({ root, slug, conversationId, runId });
-  for (const [path, content] of Object.entries(files)) {
-    const target = join(draft, ...path.split('/'));
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, content);
-  }
+  await writeFiles(draft, files);
   await publishOutputSnapshot({
     root,
     slug,
@@ -238,6 +276,126 @@ describe('draft lineage', () => {
     await expect(
       prepareOutputDraft({ root, slug, conversationId, runId: 'run_1', sourcePath: 'a.md' }),
     ).rejects.toBeInstanceOf(AppError);
+  });
+});
+
+describe('capture settled outputs mount', () => {
+  it('captures the stopped mount into the draft and keeps the mount, base and blocked marker', async () => {
+    await publish('run_1', { 'a.md': 'first', 'keep.md': 'keep' });
+    const draft = await prepareOutputDraft({ root, slug, conversationId, runId: 'run_2' });
+    const source = sessionOutputsDir();
+    await writeFiles(source, { 'a.md': 'second', 'keep.md': 'keep', 'nested/b.md': 'new' });
+    const storage = { root, slug, conversationId, runId: 'run_2' };
+    await setOutputDraftBlocked(storage, 'still settling');
+
+    await captureOutputDraft({ ...storage, sourceDir: source });
+
+    expect(await readFile(join(draft, 'a.md'), 'utf8')).toBe('second');
+    expect(await readFile(join(draft, 'nested/b.md'), 'utf8')).toBe('new');
+    expect(await readFile(`${draft}.base`, 'utf8')).toBe('run_1');
+    expect(await outputDraftBlockedReason(storage)).toBe('still settling');
+    // 稳定挂载目录本身仍在：捕获只复制，不搬走或删除源目录。
+    expect(await readFile(join(source, 'nested/b.md'), 'utf8')).toBe('new');
+  });
+
+  it('publishes a cancelled run from the captured draft with changes against the inherited base', async () => {
+    await publish('run_1', { 'a.md': 'first', 'keep.md': 'keep' });
+    await prepareOutputDraft({ root, slug, conversationId, runId: 'run_2' });
+    const source = sessionOutputsDir();
+    await writeFiles(source, { 'a.md': 'second', 'keep.md': 'keep', 'new.md': 'new' });
+    await captureOutputDraft({ root, slug, conversationId, runId: 'run_2', sourceDir: source });
+
+    await publishOutputSnapshot({
+      root,
+      slug,
+      conversationId,
+      runId: 'run_2',
+      status: 'cancelled',
+      userMessageId: 'msg-u2',
+      afterMessageId: 'msg-a2',
+    });
+
+    const { items } = await listOutputFiles({ root, slug, conversationId, limit: 50 });
+    expect(items.filter((item) => item.runId === 'run_2').map((item) => item.path)).toEqual([
+      'a.md',
+      'new.md',
+    ]);
+    expect(items.find((item) => item.runId === 'run_2' && item.path === 'a.md')?.status).toBe(
+      'cancelled',
+    );
+    // 已发布旧快照与捕获到的内容各自独立。
+    const old = await readOutputFile({ root, slug, conversationId, runId: 'run_1', path: 'a.md' });
+    expect(old.data.toString()).toBe('first');
+    const captured = await readOutputFile({
+      root,
+      slug,
+      conversationId,
+      runId: 'run_2',
+      path: 'a.md',
+    });
+    expect(captured.data.toString()).toBe('second');
+  });
+
+  it.each(['symbolic', 'hard', 'invalid-path'] as const)(
+    'rejects a %s source file and keeps the previous draft',
+    async (kind) => {
+      await publish('run_1', { 'a.md': 'baseline' });
+      const draft = await prepareOutputDraft({ root, slug, conversationId, runId: 'run_2' });
+      const source = sessionOutputsDir();
+      await writeFiles(source, { 'a.md': 'from-mount' });
+      const outside = join(root, `outside-${kind}.txt`);
+      await writeFile(outside, 'secret');
+      if (kind === 'symbolic') await symlink(outside, join(source, 'link.md'));
+      else if (kind === 'hard') await link(outside, join(source, 'hard.md'));
+      else await writeFiles(source, { 'bad\\name.md': 'x' });
+
+      await expect(
+        captureOutputDraft({ root, slug, conversationId, runId: 'run_2', sourceDir: source }),
+      ).rejects.toBeInstanceOf(AppError);
+
+      expect(await readFile(join(draft, 'a.md'), 'utf8')).toBe('baseline');
+      expect(await readFile(`${draft}.base`, 'utf8')).toBe('run_1');
+      await expect(
+        readFile(
+          join(
+            root,
+            slug,
+            'conversation-outputs',
+            conversationId,
+            'runs',
+            'run_2',
+            'manifest.json',
+          ),
+          'utf8',
+        ),
+      ).rejects.toThrow(/ENOENT/);
+    },
+  );
+
+  it('restores the previous draft when swapping the captured staging directory fails', async () => {
+    await publish('run_1', { 'a.md': 'baseline' });
+    const draft = await prepareOutputDraft({ root, slug, conversationId, runId: 'run_2' });
+    const source = sessionOutputsDir();
+    await writeFiles(source, { 'a.md': 'from-mount', 'nested/b.md': 'new' });
+    const storage = { root, slug, conversationId, runId: 'run_2' };
+    await setOutputDraftBlocked(storage, 'still settling');
+    const draftsDir = join(root, slug, 'conversation-outputs', conversationId, 'drafts');
+
+    // 只让首次「staging → 草稿」改名失败；备份改名与随后的恢复改名都走真实实现。
+    renameFault.match = (from, to) => to === draft && basename(from).startsWith('.tmp-run_2-');
+    await expect(captureOutputDraft({ ...storage, sourceDir: source })).rejects.toThrow(
+      'injected rename failure',
+    );
+    expect(renameFault.injected).toBe(1);
+
+    // 原草稿、基线标记、blocked 标记都还在，源挂载也没有被搬走。
+    expect(await readFile(join(draft, 'a.md'), 'utf8')).toBe('baseline');
+    expect(await readFile(`${draft}.base`, 'utf8')).toBe('run_1');
+    expect(await outputDraftBlockedReason(storage)).toBe('still settling');
+    expect(await readFile(join(source, 'a.md'), 'utf8')).toBe('from-mount');
+    expect(await readFile(join(source, 'nested/b.md'), 'utf8')).toBe('new');
+    // 失败的 staging 与恢复后的备份目录都不残留。
+    expect((await readdir(draftsDir)).sort()).toEqual(['run_2', 'run_2.base', 'run_2.blocked']);
   });
 });
 
