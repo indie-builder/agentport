@@ -74,6 +74,16 @@ runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`a
 
 `WORKSPACES_DIR/<slug>/conversation-outputs/<conversationId>/` 保存会话成果：`drafts/<runId>/` 是本轮唯一可写草稿，`runs/<runId>/{manifest.json,files/**}` 是发布后不可变快照。它不属于 `run_*`，run 保留期清理不会删除；删除会话或专家时回收对应目录。`scripts/backup.sh` 备份整个 workspaces 卷，因此成果随工作区备份，不需要新增变量或独立存储。成果内容不做聊天密钥脱敏；读取与下载由 API 鉴权，路径/链接边界在存储层校验。
 
+### 会话输入附件存储
+
+`WORKSPACES_DIR/<slug>/conversation-inputs/<conversationId>/<attachmentId><ext>` 保存随消息上传的临时资料。发送时经 `POST /api/chat` 的 base64 JSON 写入（路由上限 16MiB）；每条消息最多 5 个文件，原件合计 ≤10MiB；文本 ≤1MiB，图片 ≤5MiB，PDF ≤10MiB。只接受 txt/md/csv/tsv/json/jsonl、PNG/JPEG/GIF/WebP 与未加密 PDF；Office/ODF、压缩包、音视频等请在知识库处理或转成文本。目录 0700、文件 0600，磁盘名只用服务端 UUID 与规范扩展名，原文件名仅作显示。
+
+worker 在该会话目录存在时把整个目录只读挂到 `/mnt/inputs`，prompt 列出本轮文件并要求主智能体用原生 `Read` 读取；图片与 PDF 由 Read 原生处理。子智能体不能直接读文件；输入不可写，交付仍写 `/mnt/outputs`。附件按会话保留，分支只复制被复制消息引用的文件，删除会话或专家时回收目录；run 保留清理会保留带附件的用户消息，因此历史下载入口不随旧 run 消失。
+
+Compose 中 API/worker/沙盒同为 uid 1000，可直接读写这些 0700/0600 目录。Linux 宿主以其他 UID 直跑 `pnpm dev` 时，沙盒以 1000 运行将无法读取附件（与原生记忆的既有 UID 限制相同）；需要附件时请用 Compose 启动，不要递归放宽目录权限。
+
+Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两者看到同一目录。本地 `pnpm dev` 时 API 与 worker 各自以包目录为 cwd 解析 `.env` 里的相对 `WORKSPACES_DIR`，附件、原生记忆与成果会分别落到两个目录；本地开发请把 `WORKSPACES_DIR` 设为同一个绝对路径（例如 `/abs/path/data/workspaces`），或改用 Compose。这与上面的 UID 限制同属本地启动方式带来的差异，不是附件功能本身的缺陷。
+
 ### 1.4 数据保留
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |

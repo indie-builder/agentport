@@ -6,7 +6,6 @@ import type {
   ApiTool,
   ApiToolInput,
   Attention,
-  ChatRequest,
   ConnectorCatalogItem,
   ConversationSummary,
   EvalDataset,
@@ -23,6 +22,7 @@ import type {
   MarketView,
   MemoryFileContent,
   MemoryFileList,
+  MessageAttachment,
   NativePluginImportInput,
   NativePluginInstallInput,
   OpenUiToolResult,
@@ -43,6 +43,7 @@ import type {
   Server,
   ServerInput,
   ServerTestResult,
+  ChatRequest as SharedChatRequest,
   ConversationDetail as SharedConversationDetail,
   EvalComparison as SharedEvalComparison,
   EvalRunPage as SharedEvalRunPage,
@@ -110,7 +111,15 @@ export interface Me {
 export interface ChatAccepted {
   runId: string;
   conversationId: string;
+  /** 仅本次带附件发送时返回元数据；字节只上行，响应里没有 base64 与宿主路径。 */
+  attachments?: MessageAttachment[];
 }
+
+/** 附件随消息一次性提交；字节只在这里出现，落库与回放只保留元数据。 */
+export type ChatAttachmentInput = NonNullable<SharedChatRequest['attachments']>[number];
+
+/** 发送契约来自 shared；本地别名让 Web 调用方只依赖 api 模块。 */
+export type ChatRequest = SharedChatRequest;
 
 export interface AgentVersionSummary {
   id: string;

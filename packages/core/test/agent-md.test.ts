@@ -15,7 +15,7 @@ const defaults = {
   subAgentIds: [],
   allowedTools: [],
   disallowedTools: [],
-  permissionMode: 'dontAsk',
+  permissionMode: 'default',
   uiFormat: 'markdown',
   maxTurns: 20,
   maxBudgetUsd: 2,

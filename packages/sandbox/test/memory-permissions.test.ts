@@ -297,6 +297,81 @@ describe('run outputs boundary', () => {
   });
 });
 
+describe('conversation inputs read-only boundary', () => {
+  let inputs: string;
+  let inputsHook: ReturnType<typeof createFileBoundaryHook>;
+
+  const call = (tool: string, file_path: string, agentId?: string) =>
+    inputsHook(
+      {
+        hook_event_name: 'PreToolUse',
+        session_id: 's',
+        transcript_path: '/tmp/t',
+        cwd: memory,
+        tool_name: tool,
+        tool_input: { file_path },
+        tool_use_id: 't',
+        ...(agentId === undefined ? {} : { agent_id: agentId }),
+      },
+      'tool',
+      { signal: new AbortController().signal },
+    );
+
+  beforeEach(async () => {
+    inputs = join(dir, 'inputs');
+    inputsHook = createFileBoundaryHook(
+      memory,
+      join(dir, 'skills'),
+      join(dir, 'plugins'),
+      join(dir, 'outputs'),
+      inputs,
+    );
+    await mkdir(join(inputs, 'reports'), { recursive: true });
+    for (const name of ['brief.pdf', 'photo.png', 'data.csv', 'notes.txt', 'reports/a.json']) {
+      await writeFile(join(inputs, name), 'content');
+    }
+  });
+
+  it('lets the main session Read any ordinary file type under inputs', async () => {
+    for (const name of ['brief.pdf', 'photo.png', 'data.csv', 'notes.txt', 'reports/a.json']) {
+      expect(await call('Read', join(inputs, name)), name).toMatchObject(decision('allow'));
+    }
+  });
+
+  it('keeps inputs read-only and rejects sub-agent reads', async () => {
+    for (const tool of ['Write', 'Edit']) {
+      expect(await call(tool, join(inputs, 'data.csv')), tool).toMatchObject(decision('deny'));
+    }
+    expect(await call('Read', join(inputs, 'brief.pdf'), 'child')).toMatchObject(decision('deny'));
+  });
+
+  it('rejects symlinked and hard-linked input files', async () => {
+    await symlink(join(dir, 'outside.md'), join(inputs, 'link.pdf'));
+    await symlink(dir, join(inputs, 'linked-dir'));
+    await link(join(dir, 'outside.md'), join(inputs, 'hard.pdf'));
+    for (const name of ['link.pdf', 'linked-dir/outside.md', 'hard.pdf']) {
+      expect(await call('Read', join(inputs, name)), name).toMatchObject(decision('deny'));
+    }
+  });
+
+  it('rejects missing files, the mount root itself, and paths outside inputs', async () => {
+    for (const file_path of [
+      join(inputs, 'missing.pdf'),
+      inputs,
+      `${inputs}/../outside.md`,
+      join(dir, 'outside.md'),
+      'data.csv',
+    ]) {
+      expect(await call('Read', file_path), file_path).toMatchObject(decision('deny'));
+    }
+  });
+
+  it('rejects reads when the inputs mount is absent', async () => {
+    await rm(inputs, { recursive: true });
+    expect(await call('Read', join(inputs, 'data.csv'))).toMatchObject(decision('deny'));
+  });
+});
+
 describe('plugin skill read-only boundary', () => {
   let pluginHook: ReturnType<typeof createFileBoundaryHook>;
   let plugRoot: string;

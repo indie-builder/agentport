@@ -49,9 +49,30 @@ export async function pruneRuns(db: Database, olderThanDays: number): Promise<Pr
         and coalesce(${agentRuns.endedAt}, ${agentRuns.startedAt})
           < now() - make_interval(days => ${days})
     ),
+    detached as (
+      update ${messages}
+      set run_id = null
+      where ${messages.runId} in (select id from doomed)
+        and ${messages.role} = 'user'
+        and jsonb_typeof(${messages.content}->'attachments') = 'array'
+        and jsonb_array_length(${messages.content}->'attachments') > 0
+      returning 1
+    ),
     deleted as (
       delete from ${messages}
       where ${messages.runId} in (select id from doomed)
+        -- 数据修改 CTE 共享同一快照：detached 的更新对这里不可见，必须显式排除。
+        and not (
+          ${messages.role} = 'user'
+          and coalesce(
+            case
+              when jsonb_typeof(${messages.content}->'attachments') = 'array'
+                then jsonb_array_length(${messages.content}->'attachments')
+              else 0
+            end,
+            0
+          ) > 0
+        )
       returning 1
     ),
     pruned as (
@@ -67,13 +88,24 @@ export async function pruneRuns(db: Database, olderThanDays: number): Promise<Pr
   return { runs: Number(row?.runs ?? 0), messages: Number(row?.messages ?? 0) };
 }
 
-/** 没有 run_id 的旧消息；分支副本归会话保留，父会话删除后仍受保护。 */
+/**
+ * 没有 run_id 的旧消息；分支副本归会话保留，父会话删除后仍受保护。
+ * 附件是用户显式交给会话的输入，没有运行也会在历史里继续引用，永不按孤儿清理。
+ */
 export async function pruneOrphanMessages(db: Database, olderThanDays: number): Promise<number> {
   const days = positive(olderThanDays, 'olderThanDays');
   const result = await db.execute(sql`
     delete from ${messages}
     where ${messages.runId} is null
       and ${messages.createdAt} < now() - make_interval(days => ${days})
+      and coalesce(
+        case
+          when jsonb_typeof(${messages.content}->'attachments') = 'array'
+            then jsonb_array_length(${messages.content}->'attachments')
+          else 0
+        end,
+        0
+      ) = 0
       and not exists (
         select 1 from conversations c
         where c.id = ${messages.conversationId} and c.branch_of_message_id is not null

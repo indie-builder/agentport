@@ -503,6 +503,13 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         }).catch((err: unknown) => {
           request.log.warn({ err, agentId: request.params.id }, 'output cleanup failed');
         });
+        // 附件同样是会话行产生的运行数据：专家删除后没有任何索引可再引用。
+        await rm(join(app.config.WORKSPACES_DIR, row.slug, 'conversation-inputs'), {
+          recursive: true,
+          force: true,
+        }).catch((err: unknown) => {
+          request.log.warn({ err, agentId: request.params.id }, 'input cleanup failed');
+        });
       }
       await writeAudit(app.db, request.log, {
         actor: 'admin',

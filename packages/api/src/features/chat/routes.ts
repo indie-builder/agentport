@@ -1,12 +1,23 @@
 import { cp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { copyConversationOutputs, fail, removeConversationOutputs } from '@agentport/core';
+import { join, resolve, sep } from 'node:path';
+import {
+  conversationInputsDir,
+  copyConversationInputs,
+  copyConversationOutputs,
+  displayAttachmentFilename,
+  fail,
+  removeConversationInputs,
+  removeConversationOutputs,
+  writeConversationAttachments,
+} from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import {
+  attachmentExtension,
   type ChatEvent,
   chatRequestSchema,
   conversationRenameSchema,
   idParams,
+  type MessageAttachment,
   RUN_QUEUE_MAX_WAITING,
   runEnqueueOptions,
   wireFailureKind,
@@ -19,6 +30,7 @@ import { reject } from '../../plugins/errors.js';
 import { chatRateLimit } from '../../plugins/security.js';
 import { closeProducer, getQueue, subscribeRun } from '../../queue/producer.js';
 import { typed } from '../../types.js';
+import { registerAttachmentRoutes } from './attachments.js';
 import { cancelAgentRun } from './cancel-run.js';
 import {
   actionBytes,
@@ -46,6 +58,36 @@ const historyQuery = z.object({
 
 /** worker 已把终态写进数据库但没能发出 run_finished 时，观众靠这个间隔兜底。 */
 const TERMINAL_RECHECK_MS = 2_000;
+
+/** 附件以 base64 随 JSON 发送：5×10MiB 原件编码后仍要留出正文与协议开销。 */
+const CHAT_BODY_LIMIT = 16 * 1024 * 1024;
+
+/** 新会话标题：正文优先，空正文用净化后的首个附件名，都没有时给出可读占位。 */
+function attachmentConversationTitle(
+  message: string,
+  attachments: Array<{ filename: string }>,
+): string {
+  if (message.trim().length > 0) return message.slice(0, 80);
+  const filename = displayAttachmentFilename(attachments[0]?.filename ?? '');
+  return filename.length > 0 ? filename.slice(0, 80) : '附件';
+}
+
+/** 准入失败时只删本次写入的附件；路径按服务端元数据拼装并复核在会话目录内。 */
+async function removeWrittenAttachments(input: {
+  root: string;
+  slug: string;
+  conversationId: string;
+  attachments: MessageAttachment[];
+}): Promise<void> {
+  const dir = resolve(conversationInputsDir(input));
+  await Promise.all(
+    input.attachments.map((attachment) => {
+      const file = resolve(dir, `${attachment.id}${attachmentExtension(attachment.mimeType)}`);
+      if (!file.startsWith(`${dir}${sep}`)) return Promise.resolve();
+      return rm(file, { force: true });
+    }),
+  );
+}
 
 type RunRow = NonNullable<Awaited<ReturnType<typeof chatRepo.getRun>>>;
 
@@ -92,11 +134,19 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     {
       preHandler: [rawApp.requireAuth],
       ...chatRateLimit,
+      bodyLimit: CHAT_BODY_LIMIT,
       schema: { body: chatRequestSchema },
     },
     async (request, reply) => {
-      const { openuiAction, ...chatInput } = request.body;
+      const { openuiAction, attachments, ...chatInput } = request.body;
       const { agentId, message, output } = chatInput;
+      // 只有附件时正文是 null；下游统一按空字符串处理。
+      const messageText = message ?? '';
+
+      // 附件与生成式 UI 动作是两条互斥的输入通道：同时出现时客户端状态已错，明确拒绝。
+      if (attachments !== undefined && openuiAction !== undefined) {
+        return reject(reply, 'INVALID_INPUT', '附件与生成式 UI 动作不能同时发送，请只保留一种');
+      }
 
       // 来源成对：两个字段要么都有、要么都没有；缺一半是客户端拼错。open_url 也按此拒绝。
       const pairingProblem = openuiAction === undefined ? null : sourcePairingProblem(openuiAction);
@@ -152,29 +202,117 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       }
 
       const agentVersion = await repo.agentVersions.latestAgentVersion(app.db, agentId);
-      // 所选成果随用户消息落库（worker 从消息读它决定复制哪一版草稿），不改变队列载荷。
+
+      // 新会话必须先落行才能拿到目录名；已有会话先校验归属，避免把文件写进别人的会话。
+      let createdConversationId: string | undefined;
+      let attachmentSlug: string | undefined;
+      let requestedConversationId = request.body.conversationId;
+      let writtenAttachments: MessageAttachment[] | undefined;
+      if (attachments !== undefined) {
+        if (requestedConversationId === undefined) {
+          createdConversationId = newId('conversation');
+          await chatRepo.createConversation(app.db, {
+            id: createdConversationId,
+            agentId,
+            title: attachmentConversationTitle(messageText, attachments),
+          });
+          requestedConversationId = createdConversationId;
+        } else {
+          const conversation = await chatRepo.getConversation(app.db, requestedConversationId);
+          if (!conversation || conversation.agentId !== agentId) {
+            return reject(
+              reply,
+              'CONVERSATION_NOT_FOUND',
+              '会话不存在或不属于该智能体；请从会话列表重新打开',
+            );
+          }
+        }
+
+        const [agent] = await app.db
+          .select({ slug: schema.agents.slug })
+          .from(schema.agents)
+          .where(eq(schema.agents.id, agentId))
+          .limit(1);
+        if (!agent) {
+          if (createdConversationId !== undefined) {
+            await chatRepo.deleteConversation(app.db, createdConversationId).catch(() => undefined);
+          }
+          return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
+        }
+        attachmentSlug = agent.slug;
+        try {
+          writtenAttachments = await writeConversationAttachments({
+            root: app.config.WORKSPACES_DIR,
+            slug: agent.slug,
+            conversationId: requestedConversationId,
+            inputs: attachments,
+          });
+        } catch (err) {
+          // 文件没写成就没有可回滚的消息；新建的会话行也要一起清掉。
+          if (createdConversationId !== undefined) {
+            await chatRepo.deleteConversation(app.db, createdConversationId).catch(() => undefined);
+          }
+          throw err;
+        }
+      }
+
+      // 所选成果与附件随用户消息落库（worker 从消息读，不改变队列载荷）。
       const userContent =
-        output === undefined
-          ? openuiAction === undefined
-            ? undefined
-            : openUiActionContent(openuiAction)
-          : outputUserContent({
-              text: message,
-              output,
-              ...(openuiAction === undefined ? {} : { openuiAction }),
-            });
+        writtenAttachments === undefined
+          ? output === undefined
+            ? openuiAction === undefined
+              ? undefined
+              : openUiActionContent(openuiAction)
+            : outputUserContent({
+                text: messageText,
+                output,
+                ...(openuiAction === undefined ? {} : { openuiAction }),
+              })
+          : {
+              type: 'text',
+              text: messageText,
+              attachments: writtenAttachments,
+              ...(output === undefined ? {} : { output }),
+            };
       // 动作内容在准入前构造完，与 run、用户消息同一次事务写入：
       // 先落纯文本再补写，补写失败会留下一个没有 job 的 queued run。
-      const { run, conversationId, inherited } = await chatRepo.admitChatRun(app.db, {
-        agentId,
-        message,
-        ...(agentVersion === null ? {} : { agentVersion }),
-        trigger: 'chat',
-        ...(request.body.conversationId === undefined
-          ? {}
-          : { conversationId: request.body.conversationId }),
-        ...(userContent === undefined ? {} : { userContent }),
-      });
+      let admitted: Awaited<ReturnType<typeof chatRepo.admitChatRun>>;
+      try {
+        admitted = await chatRepo.admitChatRun(app.db, {
+          agentId,
+          message: messageText,
+          ...(agentVersion === null ? {} : { agentVersion }),
+          trigger: 'chat',
+          ...(requestedConversationId === undefined
+            ? {}
+            : { conversationId: requestedConversationId }),
+          ...(userContent === undefined ? {} : { userContent }),
+        });
+      } catch (err) {
+        // 准入失败时消息没有落库：只回收本次写入的文件，旧附件保持原样。
+        if (
+          writtenAttachments !== undefined &&
+          attachmentSlug !== undefined &&
+          requestedConversationId !== undefined
+        ) {
+          await removeWrittenAttachments({
+            root: app.config.WORKSPACES_DIR,
+            slug: attachmentSlug,
+            conversationId: requestedConversationId,
+            attachments: writtenAttachments,
+          }).catch((cleanupErr: unknown) => {
+            request.log.warn(
+              { err: cleanupErr },
+              'attachment cleanup after admission failure failed',
+            );
+          });
+        }
+        if (createdConversationId !== undefined) {
+          await chatRepo.deleteConversation(app.db, createdConversationId).catch(() => undefined);
+        }
+        throw err;
+      }
+      const { run, conversationId, inherited } = admitted;
 
       // jobId = runId，重复投递天然幂等。job 只带标识与本次输入：
       // 续聊 / fork 状态由 worker 从 DB 读取，不把历史文本塞进队列。
@@ -185,7 +323,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
             runId: run.id,
             agentId,
             conversationId,
-            prompt: message,
+            prompt: messageText,
           },
           runEnqueueOptions(run.id),
         );
@@ -212,7 +350,14 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         target: run.id,
         input: {
           agentId,
-          prompt: message,
+          prompt: messageText,
+          // 附件只记数量与显示名；base64 内容永不进审计。
+          ...(writtenAttachments === undefined
+            ? {}
+            : {
+                attachmentCount: writtenAttachments.length,
+                attachmentNames: writtenAttachments.map(({ filename }) => filename),
+              }),
           // 生成式 UI 动作的来源段：用于把一次点击追到具体消息，实时消息可能没有 id。
           ...(openuiAction === undefined
             ? {}
@@ -241,7 +386,14 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         });
       }
 
-      return reply.status(202).send({ runId: run.id, conversationId });
+      return reply.status(202).send({
+        runId: run.id,
+        conversationId,
+        // 只回传落库的展示元数据，不含 base64 与宿主路径；没有实际附件时不带该字段。
+        ...(writtenAttachments === undefined || writtenAttachments.length === 0
+          ? {}
+          : { attachments: writtenAttachments }),
+      });
     },
   );
 
@@ -538,6 +690,14 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
             }).catch((err: unknown) => {
               request.log.warn({ err, conversationId: conversation.id }, 'output cleanup failed');
             }),
+            // 附件是随会话产生的运行数据；消息行删除后下载入口已不可达，文件一并回收。
+            removeConversationInputs({
+              root: app.config.WORKSPACES_DIR,
+              slug: agent.slug,
+              conversationId: conversation.id,
+            }).catch((err: unknown) => {
+              request.log.warn({ err, conversationId: conversation.id }, 'input cleanup failed');
+            }),
           ]);
         }
       }
@@ -623,6 +783,11 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
             slug: agent.slug,
             conversationId: result.conversation.id,
           }).catch(() => undefined);
+          await removeConversationInputs({
+            root: app.config.WORKSPACES_DIR,
+            slug: agent.slug,
+            conversationId: result.conversation.id,
+          }).catch(() => undefined);
         }
       };
       if (sourceDir !== null && targetDir !== null && result.copied > 0) {
@@ -652,6 +817,27 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         } catch (err) {
           await rollback('conversation output copy failed', err);
           return reject(reply, 'CONFLICT', '该会话的历史成果不可用，无法按历史点分支；请稍后重试');
+        }
+
+        // 附件 id 与消息元数据保持不变，只复制被保留消息实际引用的文件；
+        // 缺任意文件都回滚分支，否则历史里会出现无法读取的附件。
+        try {
+          const attachmentIds = await chatRepo.attachmentIdsForMessages(
+            app.db,
+            Object.keys(result.messageIds),
+          );
+          if (attachmentIds.length > 0) {
+            await copyConversationInputs({
+              root: app.config.WORKSPACES_DIR,
+              slug: agent.slug,
+              sourceConversationId: request.params.id,
+              targetConversationId: result.conversation.id,
+              attachmentIds,
+            });
+          }
+        } catch (err) {
+          await rollback('conversation input copy failed', err);
+          return reject(reply, 'CONFLICT', '该会话的历史附件不可用，无法按历史点分支；请稍后重试');
         }
       }
       await writeAudit(app.db, request.log, {
@@ -694,4 +880,5 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
   registerOpenUiStateRoutes(rawApp);
   registerOpenUiToolRoutes(rawApp);
   registerOutputRoutes(rawApp);
+  registerAttachmentRoutes(rawApp);
 }

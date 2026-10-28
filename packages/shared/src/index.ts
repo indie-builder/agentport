@@ -5,6 +5,7 @@ z.config(z.locales.zhCN());
 
 export * from './agent.js';
 export * from './agent-package.js';
+export * from './attachments.js';
 export * from './chat.js';
 export * from './config.js';
 export * from './connector-catalog.js';

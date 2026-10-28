@@ -1,4 +1,5 @@
 import {
+  attachmentMimeForFilename,
   type ChatEvent,
   type ChatRequest,
   type ConversationMessage,
@@ -10,12 +11,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   api,
   type ChatAccepted,
+  type ChatAttachmentInput,
   type ConversationDetail,
   errorMessage,
   type RunDetail,
 } from './api.js';
 import {
   applyEvent,
+  attachmentDownloadUrl,
   type ChatItem,
   type HistorySnapshot,
   historyToItems,
@@ -38,6 +41,23 @@ type PersistedBlock = NonNullable<
 /** 已保存消息的分页上限；一个 run 的输出再多也不无限拉历史。 */
 const RECOVERY_PAGE_SIZE = 100;
 const RECOVERY_MAX_PAGES = 10;
+
+/** FileReader 给出 data URL；请求体只收裸 base64，不把 data: 前缀发给服务端。 */
+function readBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error(`无法读取「${file.name}」`));
+        return;
+      }
+      resolve(result.slice(result.indexOf(',') + 1));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error(`无法读取「${file.name}」`));
+    reader.readAsDataURL(file);
+  });
+}
 
 /**
  * 按 `runId` 翻到本 run 的第一条消息。消息按时间正序、同一 run 连续，
@@ -502,8 +522,10 @@ export function useChatStream({
     const store = useChatStore.getState();
     const { input, items, run, conversationId } = store;
     const outputRef = text === undefined ? store.outputRef : null;
+    // 附件只随用户编辑的那次发送消费；组件动作不带走输入框里未发送的资料。
+    const attachments = text === undefined ? store.pendingAttachments : [];
     const body = (text ?? input).trim();
-    if (!mountedRef.current || !body || !agentId || run) return;
+    if (!mountedRef.current || (!body && attachments.length === 0) || !agentId || run) return;
     if (conversationId !== null && hydratedRef.current !== conversationId) return;
     const generation = ++generationRef.current;
     const ownsRequest = () => mountedRef.current && generationRef.current === generation;
@@ -514,7 +536,15 @@ export function useChatStream({
     store.setLastRun(null);
     store.setLastRunId(null);
     // base 必须包含刚追加的用户气泡：重连会整体回放事件，不能把它丢掉。
-    const nextItems: ChatItem[] = [...items, { kind: 'user', text: body }];
+    const optimistic = attachments.map((file) => ({
+      filename: file.name,
+      mimeType: file.type || attachmentMimeForFilename(file.name) || 'application/octet-stream',
+      size: file.size,
+    }));
+    const nextItems: ChatItem[] = [
+      ...items,
+      { kind: 'user', text: body, ...(optimistic.length > 0 ? { attachments: optimistic } : {}) },
+    ];
     baseItemsRef.current = nextItems;
     store.setItems(nextItems);
     startedAtRef.current = Date.now();
@@ -525,11 +555,25 @@ export function useChatStream({
       startedAt: startedAtRef.current,
     });
     try {
+      // 读数在提交前完成：请求体只带 base64，不带 File 对象或 data: 前缀。
+      // 没有附件时不插队等微任务，保持普通文本发送仍在当前 tick 内提交。
+      const payload: ChatAttachmentInput[] =
+        attachments.length > 0
+          ? await Promise.all(
+              attachments.map(async (file) => ({
+                filename: file.name,
+                dataBase64: await readBase64(file),
+              })),
+            )
+          : [];
+      // 读取期间切会话/专家/新建已让本轮失效：不再上传，也不发起旧请求。
+      if (!ownsRequest()) return;
       const accepted = await api.sendChat({
         agentId,
         message: body,
         ...(conversationId ? { conversationId } : {}),
         ...(action ? { openuiAction: action } : {}),
+        ...(payload.length > 0 ? { attachments: payload } : {}),
         // 引用只跟随用户自己发送的正文；组件动作不带走未发出的引用。
         ...(outputRef ? { output: outputRef } : {}),
       });
@@ -538,9 +582,37 @@ export function useChatStream({
         store.clearDraft(conversationId, input);
       }
       store.setConversationId(accepted.conversationId);
+      if (accepted.attachments !== undefined) {
+        // 用服务端落库的元数据替换乐观项附件，只补 id 与下载地址，不重建消息。
+        const serverAttachments = accepted.attachments.map(({ id, filename, mimeType, size }) => ({
+          id,
+          filename,
+          mimeType,
+          size,
+          downloadUrl: attachmentDownloadUrl(accepted.conversationId, id),
+        }));
+        // base 与 store 必须共用同一个用户项：截断恢复按引用从 store 里定位本轮起点。
+        const baseIndex = baseItemsRef.current.findLastIndex((item) => item.kind === 'user');
+        const basePrompt = baseIndex < 0 ? undefined : baseItemsRef.current[baseIndex];
+        if (basePrompt?.kind === 'user') {
+          const prompt: ChatItem = { ...basePrompt, attachments: serverAttachments };
+          const replacePrompt = (list: ChatItem[]): ChatItem[] => {
+            const index = list.findLastIndex((item) => item.kind === 'user');
+            return index < 0
+              ? list
+              : list.map((item, position) => (position === index ? prompt : item));
+          };
+          baseItemsRef.current = replacePrompt(baseItemsRef.current);
+          useChatStore.getState().setItems(replacePrompt);
+        }
+      }
       store.setLastRunId(accepted.runId);
       // 只消费本次发送的引用；等待期间重新挂的引用留给下一次，失败时也保留。
       if (outputRef && useChatStore.getState().outputRef === outputRef) store.setOutputRef(null);
+      // 只清本次选中的资料；等待期间改选的新数组必须保留。
+      if (attachments.length > 0 && useChatStore.getState().pendingAttachments === attachments) {
+        store.setPendingAttachments([]);
+      }
       hydratedRef.current = accepted.conversationId;
       store.setRun({ ...accepted, status: 'streaming', startedAt: startedAtRef.current });
       onAccepted(accepted, body);

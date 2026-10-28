@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { effortSchema, permissionModeSchema } from './agent.js';
+import { ATTACHMENT_LIMITS, chatAttachmentInputsSchema } from './attachments.js';
 import { openUiActionSchema } from './openui/protocol.js';
 import { outputRefSchema } from './outputs.js';
 import { nativeQuestionsSchema, publicRunQuestionSchema } from './questions.js';
@@ -25,15 +26,33 @@ export const SANDBOX_RUNTIME_ENV = {
   ...PORTABLE_TODO_ENV,
 } as const;
 
+/**
+ * shared 不带 Node/DOM lib；按码点手算 UTF-8 字节数，与 TextEncoder 结果一致，
+ * 浏览器与 Node 都能用。这里校验的是编码后的字节，不是字符串长度。
+ */
+function utf8Bytes(value: string): number {
+  let bytes = 0;
+  for (const ch of value) {
+    const cp = ch.codePointAt(0) ?? 0;
+    bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
 export const chatRequestSchema = z
   .object({
     agentId: z.string(),
     conversationId: z.string().optional(),
-    // 沙盒把 prompt 走 stdin，超大输入会拖垮 worker；在入口统一限制为 64KB。
+    // 沙盒把 prompt 走 stdin，超大输入会拖垮 worker；按 UTF-8 字节统一限制为 64KiB。
     message: z
       .string()
-      .min(1)
-      .max(64 * 1024, 'message exceeds 64KB'),
+      .refine(
+        (value) => utf8Bytes(value) <= ATTACHMENT_LIMITS.messageBytes,
+        `消息超过 ${ATTACHMENT_LIMITS.messageBytes / 1024} KiB（UTF-8 编码）`,
+      )
+      .nullable(),
+    /** 本次随消息上传的附件；数据只在这里出现，落库后仅保留元数据。 */
+    attachments: chatAttachmentInputsSchema.optional(),
     /**
      * 生成式 UI 的动作上下文：按钮点击额外带回表单值与隐藏上下文。
      * 形状与 `openUiActionSchema` 一致（含 `type`），前后端只认这一份定义。
@@ -47,7 +66,14 @@ export const chatRequestSchema = z
     output: outputRefSchema.optional(),
   })
   // 字段名拼错必须报错：这条请求体曾因 strip 模式静默丢掉动作值。
-  .strict();
+  .strict()
+  // 正文与附件至少一项；附件与 openuiAction 的互斥需要 API 结合动作语义判断。
+  .refine(
+    (value) =>
+      (value.message !== null && value.message.trim().length > 0) ||
+      (value.attachments?.length ?? 0) > 0,
+    { message: '消息正文或附件至少提供一项', path: ['message'] },
+  );
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 

@@ -9,6 +9,9 @@ const OTHER_FILE_TOOLS = new Set(['Glob', 'Grep', 'NotebookEdit']);
 /** 本轮产出草稿的容器内路径；worker 以独立 rw 挂载到这里。 */
 export const OUTPUTS_DIR = '/mnt/outputs';
 
+/** 本会话附件输入的容器内路径；worker 仅在会话输入目录存在时只读挂载。 */
+export const INPUTS_DIR = '/mnt/inputs';
+
 export const createMemoryHook = createFileBoundaryHook;
 
 /** 是否位于 base 之内且不是 base 本身。 */
@@ -18,14 +21,16 @@ function inside(local: string): boolean {
 
 /**
  * 文件工具边界：主会话可写记忆目录内的普通 .md，也可在本轮产出目录内读写交付文件；
- * 只读可及技能参考文件（`.claude/skills/<slug>/references/`）与插件技能资源
- * （`.claude/plugins/<slug>/skills/<name>/`）。其余文件工具请求、以及子智能体的请求一律拒绝。
+ * 只读可及本轮附件（任意普通文件）、技能参考文件（`.claude/skills/<slug>/references/`）
+ * 与插件技能资源（`.claude/plugins/<slug>/skills/<name>/`）。
+ * 其余文件工具请求、以及子智能体的请求一律拒绝。
  */
 export function createFileBoundaryHook(
   memoryDir: string,
   skillsDir = '/workspace/.claude/skills',
   pluginsDir = '/workspace/.claude/plugins',
   outputsDir = OUTPUTS_DIR,
+  inputsDir = INPUTS_DIR,
 ): HookCallback {
   return async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};
@@ -58,12 +63,17 @@ export function createFileBoundaryHook(
 
     const hasMarkdown = path.endsWith('.md');
     // 记忆目录与产出目录：主会话可读写（记忆仅 .md，产出交付文件不限类型）。
-    // 技能参考文件与插件资源：只读 .md，且必须落在各自的目录约定里。
+    // 本轮附件：只读，扩展名不限；技能参考与插件资源：只读 .md，且必须落在各自目录约定里。
     let base: string;
     let writable: boolean;
+    const inputsLocal = relative(inputsDir, path);
     const memoryLocal = relative(memoryDir, path);
     const outputLocal = relative(outputsDir, path);
-    if (inside(memoryLocal)) {
+    if (inside(inputsLocal)) {
+      if (input.tool_name !== 'Read') return deny;
+      base = inputsDir;
+      writable = false;
+    } else if (inside(memoryLocal)) {
       if (!hasMarkdown) return deny;
       base = memoryDir;
       writable = true;

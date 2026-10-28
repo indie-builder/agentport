@@ -159,6 +159,16 @@ US-6.2以官方 `AskUserQuestion → canUseTool → updatedInput` 接回用户�
 
 本地SDK0.3.311探针已验证default回答后继续、dontAsk拒绝；隔离Linux沙盒与桌面浏览器已完成提问→刷新→回答→同run成果交付，并在最终源码上复测4条真实run（主场景、拒答、停止、超时）通过。回答后MCP副作用仍等待独立批准。公开问题以题序号与选项序号提交，API映射回原SDK键值；DB/SDK保留原文，GET/POST/SSE/历史统一脱敏投影。已知限制：流式增量按单帧脱敏；等待占用整体run超时。详见 [任务记录](tasks/agent-clarification.md)。
 
+### 3.4 会话输入附件
+
+用户在 Composer 选择文件后，随 `POST /api/chat` 以 base64 JSON 一次提交；服务端按扩展名映射规范 MIME，校验规范 base64、真实大小、文件签名与文本 UTF-8，再写入 `WORKSPACES_DIR/<slug>/conversation-inputs/<conversationId>/<attachmentId><ext>`。用户消息只保存 `{id, filename, mimeType, size, sha256}` 元数据，队列与 SSE 不携带文件字节。入口上限：每条消息 5 个、合计 10MiB，文本 1MiB、图片 5MiB、PDF 10MiB，JSON body 16MiB；Office/ODF、压缩包、音视频等明确拒绝并提示改用知识库或文本。
+
+worker 在该会话目录存在时把整个目录只读挂到 `/mnt/inputs`，prompt 追加受控清单（显示名 JSON 转义、容器路径、类型、字节数），要求主智能体先 `Read` 再分析、读取失败必须说明。图片由官方 Read 返回视觉内容；PDF 短文件整份读取，长文件按 `pages` 分页，沙盒镜像安装 `poppler-utils`。输入目录只允许主会话 `Read`，Write/Edit、子智能体、未挂载路径、软链/硬链与越界继续拒绝；交付仍写 `/mnt/outputs`。
+
+附件按会话保留：分支只复制被复制消息引用的文件（字节复制，删源后独立）；删除会话/专家回收目录；`pruneRuns` 保留带附件的用户消息并置空 `runId`，孤儿清理永不删除附件消息，保证历史与下载入口不随旧 run 消失。下载经鉴权且只接受该会话消息引用的附件。附件是运行数据，不进入智能体定义，也不替代知识库。
+
+实现状态（2026-10-28）：隔离环境真实模型验证 CSV/PNG/14 页 PDF 的原生读取、报告内容与下载哈希一致、同会话第二轮读取历史附件、分支删源后继续读取；跨会话下载 404、伪类型/超限 400。Compose 为完整支持环境；宿主直跑需同一绝对 `WORKSPACES_DIR`，非 uid 1000 宿主与沙盒的 0700 目录限制见 `docs/OPERATIONS.md`。详见 [任务记录](tasks/agent-attachments.md)。
+
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
 前两个方向共用 MCP 协议与同一个 Node 适配器，但目的不同；`/mcp/:serverId` 还承载平台为知识库自动生成的内置连接（第三种用途）。

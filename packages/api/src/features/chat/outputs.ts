@@ -135,7 +135,7 @@ export function outputUserContent(input: {
 }
 
 /** RFC 5987 文件名：ASCII 回退 + UTF-8 原名，换行等控制字符被编码，不能注入响应头。 */
-function contentDisposition(path: string): string {
+export function contentDisposition(path: string): string {
   const name = path.split('/').at(-1) ?? 'download';
   const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_') || 'download';
   const encoded = encodeURIComponent(name).replace(
