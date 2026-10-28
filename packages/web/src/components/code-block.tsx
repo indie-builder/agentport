@@ -1,7 +1,10 @@
-import { type ReactNode, useState } from 'react';
+import { createContext, type ReactNode, useContext, useState } from 'react';
 import { cn } from '../lib/cn.js';
 import { CopyButton } from './copy-button.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './motion-collapsible.js';
+
+/** 阅读页的工具栏已经提供复制时，代码块不再重复一个复制动作。 */
+export const CodeBlockCopyAllowed = createContext(true);
 
 const JSON_TOKEN =
   /"(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"\s*:|"(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"|\b(?:true|false|(null))\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
@@ -85,6 +88,7 @@ export function CodeBlock({
   className,
   copyLabel = '复制',
   json = false,
+  copyable = true,
 }: {
   code: string;
   lineNumbers?: boolean;
@@ -92,7 +96,10 @@ export function CodeBlock({
   className?: string;
   copyLabel?: string;
   json?: boolean;
+  /** 阅读页源码视图由工具栏负责复制时传 false。 */
+  copyable?: boolean;
 }) {
+  const copyAllowed = useContext(CodeBlockCopyAllowed);
   // 超大内容默认折叠，只有展开时 Panel 才挂载内容。
   const [expanded, setExpanded] = useState(false);
   const large = code.length > LARGE_CONTENT_CHARS;
@@ -112,12 +119,14 @@ export function CodeBlock({
         </CollapsibleTrigger>
       )}
       <CollapsibleContent animated>
-        <CopyButton
-          value={code}
-          label={copyLabel}
-          showLabel
-          className="absolute right-2 top-2 z-10 bg-surface/90 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
-        />
+        {copyable && copyAllowed ? (
+          <CopyButton
+            value={code}
+            label={copyLabel}
+            showLabel
+            className="absolute right-2 top-2 z-10 bg-surface/90 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+          />
+        ) : null}
         {/* 滚动区可聚焦，键盘用户才能用方向键/PageDown 浏览超长内容。 */}
         <section
           // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动

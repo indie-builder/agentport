@@ -555,6 +555,75 @@ describe('plugin detail', () => {
     expect(content.querySelector('h1')).toBeNull();
   });
 
+  it('copies the selected file through the reading toolbar and follows file switches', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    state.search = { tab: 'content', file: 'skills/alpha/SKILL.md' };
+    mount();
+    const copy = body().querySelector<HTMLButtonElement>(
+      'button[aria-label="复制 skills/alpha/SKILL.md"]',
+    );
+    if (!copy) throw new Error('Missing copy action');
+    await click(copy);
+    expect(writeText).toHaveBeenLastCalledWith(
+      plugin.files.find((file) => file.path === 'skills/alpha/SKILL.md')?.content,
+    );
+
+    await expandAll(tree());
+    await click(fileRow('agents/review/api-reviewer.md', tree()));
+    rerender();
+    // 换文件后应看到新文件的复制动作，而不是上一个文件留下的「已复制」。
+    const switched = body().querySelector<HTMLButtonElement>(
+      'button[aria-label="复制 agents/review/api-reviewer.md"]',
+    );
+    if (!switched) throw new Error('Missing copy action after switching files');
+    await click(switched);
+    expect(writeText).toHaveBeenLastCalledWith('---\nname: API 审查\n---\nAGENT-TOKEN-NESTED');
+  });
+
+  it('collapses and expands the wide file sidebar without losing the selected file or focus', async () => {
+    state.search = { tab: 'content', file: 'skills/alpha/SKILL.md' };
+    mount();
+    const toggle = body().querySelector<HTMLButtonElement>('button[aria-label="收起文件列表"]');
+    if (!toggle) throw new Error('Missing files toggle');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const controls = toggle.getAttribute('aria-controls');
+    if (!controls) throw new Error('Missing aria-controls target');
+    expect(document.getElementById(controls)).not.toBeNull();
+    expect(tree().querySelector('[aria-current="true"]')?.getAttribute('title')).toBe(
+      'skills/alpha/SKILL.md',
+    );
+
+    toggle.focus();
+    await click(toggle);
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(panel('content').querySelector('nav[aria-label="插件文件"]')).toBeNull();
+    expect(scroller().textContent).toContain('SKILL-TOKEN-ALPHA');
+
+    await click(toggle);
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(current()).toBe('skills/alpha/SKILL.md');
+  });
+
+  it('keeps a single copy action in source mode and copies the current file', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    state.search = { tab: 'content', file: 'skills/alpha/SKILL.md', mode: 'source' };
+    mount();
+    expect(scroller().textContent).toContain('unknownField: keep');
+    const copies = buttons().filter((item) => item.getAttribute('aria-label')?.startsWith('复制'));
+    expect(copies).toHaveLength(1);
+    const copy = copies[0];
+    if (!copy) throw new Error('Missing copy action');
+    expect(copy.getAttribute('aria-label')).toBe('复制 skills/alpha/SKILL.md');
+    await click(copy);
+    expect(writeText).toHaveBeenLastCalledWith(
+      plugin.files.find((file) => file.path === 'skills/alpha/SKILL.md')?.content,
+    );
+  });
+
   it('keeps the reading position across mode changes and tab switches', async () => {
     state.search = { tab: 'content', file: 'skills/alpha/SKILL.md' };
     mount();

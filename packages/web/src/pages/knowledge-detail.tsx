@@ -14,6 +14,7 @@ import {
   Folder,
   FolderOpen,
   MoreHorizontal,
+  PanelLeftDashed,
   Pencil,
   Plus,
   RefreshCw,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
@@ -31,6 +33,7 @@ import { KnowledgeImage, stripImageReferences } from '../components/knowledge-ci
 import { Markdown } from '../components/markdown.js';
 import { Collapsible, CollapsibleContent } from '../components/motion-collapsible.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
+import { ReaderToolbar } from '../components/reader-toolbar.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
 import { SourceEditor } from '../components/source-editor.js';
@@ -332,6 +335,11 @@ function DocumentsTab({
     }
   }, [viewing, viewingMatch]);
   const viewingDocument = viewingMatch ?? viewing?.snapshot ?? null;
+  // 目录补上当前快照：筛选或轮询暂时不含它时仍能标出当前位置，也不改动已挂载的查看器。
+  const viewerDocuments =
+    viewingDocument !== null && !documentItems.some((item) => item.id === viewingDocument.id)
+      ? [...documentItems, viewingDocument]
+      : documentItems;
 
   const targetFolderId = folderId === undefined || folderId === 'null' ? null : folderId;
 
@@ -744,6 +752,8 @@ function DocumentsTab({
         {viewingDocument ? (
           <DocumentViewer
             document={viewingDocument}
+            documents={viewerDocuments}
+            onSelect={(document) => setViewing({ id: document.id, snapshot: document })}
             onClose={() => setViewing(null)}
             onEdit={() => {
               setEditing(viewingDocument);
@@ -1237,10 +1247,14 @@ function VersionImage({ versionId, image }: { versionId: string; image: Knowledg
 
 function DocumentViewer({
   document,
+  documents,
+  onSelect,
   onClose,
   onEdit,
 }: {
   document: KnowledgeDocument;
+  documents: KnowledgeDocument[];
+  onSelect: (document: KnowledgeDocument) => void;
   onClose: () => void;
   onEdit: () => void;
 }) {
@@ -1251,176 +1265,261 @@ function DocumentViewer({
   const chunks = useKnowledgeDocumentChunks(document.id, versionId);
   const toggle = useUpdateKnowledgeChunk(document.baseId, document.id);
   const remove = useDeleteKnowledgeChunk(document.id);
+  const [mode, setMode] = useState<'read' | 'source'>('read');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [editing, setEditing] = useState<KnowledgeChunk | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeChunk | null>(null);
   const chunkItems = chunks.data?.pages.flatMap((page) => page.items) ?? [];
+  const identity = document.sourcePath ?? details.data?.originalFilename ?? document.title;
 
   return (
     <>
       <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
         <DialogShell
           title={document.title}
-          className="max-w-[860px] sm:max-w-[860px]"
+          className="max-h-[85dvh] max-w-[1100px] sm:max-w-[1100px]"
           closeDisabled={toggle.isPending || remove.isPending}
         >
-          <div className="flex min-w-0 flex-col gap-5">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <StatusBadge tone={documentStatusTone[document.status]}>
-                {documentStatusLabel[document.status]}
-              </StatusBadge>
-              <span className="text-xs text-muted-foreground">{document.mimeType}</span>
-              {versionId ? (
-                <a
-                  href={api.knowledgeOriginalUrl(versionId)}
-                  className="text-xs underline underline-offset-2"
-                  download
-                >
-                  下载原件
-                </a>
-              ) : null}
-              <Button variant="outline" size="sm" className="ml-auto" onClick={onEdit}>
-                编辑属性
-              </Button>
-            </div>
-            {document.sourceUrl ? (
-              <a
-                href={document.sourceUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="w-fit text-xs underline underline-offset-2"
+          <div
+            className={cn(
+              'grid min-w-0 gap-5 md:items-start',
+              sidebarOpen ? 'md:grid-cols-[320px_minmax(0,1fr)]' : 'md:grid-cols-1',
+            )}
+          >
+            {sidebarOpen ? (
+              <nav
+                id="knowledge-document-files"
+                aria-label="知识文档"
+                className="flex min-w-0 flex-col gap-0.5 md:sticky md:top-0 md:max-h-[calc(85dvh-9rem)] md:overflow-y-auto"
               >
-                查看来源
-              </a>
+                {documents.length === 0 ? <InlineEmpty>当前筛选没有文档</InlineEmpty> : null}
+                {documents.map((item) => {
+                  const active = item.id === document.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-current={active ? 'true' : undefined}
+                      onClick={() => onSelect(item)}
+                      className={cn(
+                        'flex w-full min-w-0 flex-col gap-0.5 rounded-item px-2 py-1.5 text-left text-sm transition-colors',
+                        active
+                          ? 'bg-selected font-medium text-fg'
+                          : 'text-muted-foreground hover:bg-hover hover:text-fg',
+                      )}
+                    >
+                      <span className="truncate" title={item.title}>
+                        {item.title}
+                      </span>
+                      <span className="truncate text-2xs">{documentStatusLabel[item.status]}</span>
+                    </button>
+                  );
+                })}
+              </nav>
             ) : null}
 
-            <PageSection title="解析正文" divided={false}>
-              {!versionId ? <InlineEmpty>还没有解析完成的版本</InlineEmpty> : null}
-              {markdown.isPending ? <LoadingState rows={3} /> : null}
-              {markdown.isError ? (
-                <ErrorState error={markdown.error} onRetry={() => void markdown.refetch()} />
-              ) : null}
-              {markdown.data ? <Markdown text={stripImageReferences(markdown.data)} /> : null}
-            </PageSection>
+            <div className="flex min-w-0 flex-col gap-4">
+              <div className="flex min-w-0 items-start gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={sidebarOpen ? '收起文件列表' : '展开文件列表'}
+                  title={sidebarOpen ? '收起文件列表' : '展开文件列表'}
+                  aria-expanded={sidebarOpen}
+                  aria-controls="knowledge-document-files"
+                  onClick={() => setSidebarOpen((open) => !open)}
+                  className="hidden shrink-0 text-muted-foreground hover:text-fg md:inline-flex"
+                >
+                  <PanelLeftDashed />
+                </Button>
+                <div className="min-w-0 flex-1">
+                  <ReaderToolbar
+                    identity={
+                      <span className="block truncate" title={identity}>
+                        {identity}
+                      </span>
+                    }
+                    meta={
+                      <>
+                        <StatusBadge tone={documentStatusTone[document.status]}>
+                          {documentStatusLabel[document.status]}
+                        </StatusBadge>
+                        <span>{document.mimeType}</span>
+                        <span>{formatRelative(document.updatedAt)}</span>
+                      </>
+                    }
+                    {...(versionId && markdown.data !== undefined
+                      ? { mode, onModeChange: setMode }
+                      : {})}
+                    {...(markdown.data !== undefined
+                      ? { copy: { value: markdown.data, label: `复制 ${document.title}` } }
+                      : {})}
+                    {...(versionId
+                      ? {
+                          download: {
+                            href: api.knowledgeOriginalUrl(versionId),
+                            label: '下载原件',
+                            text: '下载原件',
+                          },
+                        }
+                      : {})}
+                    actions={
+                      <Button variant="outline" size="sm" onClick={onEdit}>
+                        编辑属性
+                      </Button>
+                    }
+                  />
+                </div>
+              </div>
 
-            {versionId ? (
-              <PageSection title="图片">
-                {details.isPending ? <LoadingState rows={2} /> : null}
-                {details.isError ? (
-                  <ErrorState error={details.error} onRetry={() => void details.refetch()} />
+              {document.sourceUrl ? (
+                <a
+                  href={document.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-fit text-xs underline underline-offset-2"
+                >
+                  查看来源
+                </a>
+              ) : null}
+
+              <PageSection title="解析正文" divided={false}>
+                {!versionId ? <InlineEmpty>还没有解析完成的版本</InlineEmpty> : null}
+                {markdown.isPending ? <LoadingState rows={3} /> : null}
+                {markdown.isError ? (
+                  <ErrorState error={markdown.error} onRetry={() => void markdown.refetch()} />
                 ) : null}
-                {details.isSuccess && versionImages.length === 0 ? (
-                  <InlineEmpty>该版本没有提取到图片</InlineEmpty>
+                {markdown.data ? (
+                  mode === 'read' ? (
+                    <Markdown text={stripImageReferences(markdown.data)} />
+                  ) : (
+                    <CodeBlock code={markdown.data} lineNumbers maxHeight="60vh" copyable={false} />
+                  )
                 ) : null}
-                {versionImages.length > 0 ? (
-                  <ul className="grid gap-3 sm:grid-cols-2">
-                    {versionImages.map((image) => (
-                      <li key={image.name} className="flex min-w-0 flex-col gap-1">
-                        <VersionImage versionId={versionId} image={image} />
-                        <span className="truncate text-2xs text-muted-foreground">
-                          第 {image.page} 页 · {image.name}
+              </PageSection>
+
+              {versionId ? (
+                <PageSection title="图片">
+                  {details.isPending ? <LoadingState rows={2} /> : null}
+                  {details.isError ? (
+                    <ErrorState error={details.error} onRetry={() => void details.refetch()} />
+                  ) : null}
+                  {details.isSuccess && versionImages.length === 0 ? (
+                    <InlineEmpty>该版本没有提取到图片</InlineEmpty>
+                  ) : null}
+                  {versionImages.length > 0 ? (
+                    <ul className="grid gap-3 sm:grid-cols-2">
+                      {versionImages.map((image) => (
+                        <li key={image.name} className="flex min-w-0 flex-col gap-1">
+                          <VersionImage versionId={versionId} image={image} />
+                          <span className="truncate text-2xs text-muted-foreground">
+                            第 {image.page} 页 · {image.name}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </PageSection>
+              ) : null}
+
+              <PageSection title="分块">
+                {!versionId ? <InlineEmpty>还没有分块</InlineEmpty> : null}
+                {chunks.isPending ? <LoadingState rows={3} /> : null}
+                {chunks.isError ? (
+                  <ErrorState error={chunks.error} onRetry={() => void chunks.refetch()} />
+                ) : null}
+                {chunks.isSuccess && chunkItems.length === 0 ? (
+                  <InlineEmpty>还没有分块</InlineEmpty>
+                ) : null}
+                {chunkItems.length > 0 ? (
+                  <ul className="flex flex-col">
+                    {chunkItems.map((chunk, index) => (
+                      <li
+                        key={chunk.id}
+                        className="flex min-w-0 items-start gap-3 border-b py-3 last:border-b-0"
+                      >
+                        <span className="w-6 shrink-0 pt-0.5 text-right font-mono text-2xs text-muted-foreground">
+                          {index + 1}
                         </span>
+                        <div className="flex min-w-0 flex-1 flex-col gap-1">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            {chunk.heading ? (
+                              <span className="min-w-0 truncate text-xs font-medium text-fg">
+                                {chunk.heading}
+                              </span>
+                            ) : null}
+                            {chunk.editedByUser ? (
+                              <StatusBadge tone="warn">人工编辑</StatusBadge>
+                            ) : null}
+                            {!chunk.enabled ? (
+                              <StatusBadge tone="outline">已停用</StatusBadge>
+                            ) : null}
+                            <span className="text-2xs text-muted-foreground">
+                              {imageRoleLabel(chunk) ?? chunk.kind}
+                              {chunk.pageFrom === null
+                                ? ''
+                                : ` · 第 ${chunk.pageFrom}${chunk.pageTo && chunk.pageTo !== chunk.pageFrom ? `–${chunk.pageTo}` : ''} 页`}
+                            </span>
+                          </div>
+                          <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                            {chunk.content}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`${chunk.enabled ? '停用' : '启用'}分块 ${index + 1}`}
+                            disabled={toggle.isPending}
+                            onClick={() =>
+                              toggle.mutate(
+                                { chunkId: chunk.id, patch: { enabled: !chunk.enabled } },
+                                {
+                                  onSuccess: () =>
+                                    toastSuccess(chunk.enabled ? '分块已停用' : '分块已启用'),
+                                  onError: toastError,
+                                },
+                              )
+                            }
+                          >
+                            {chunk.enabled ? '停用' : '启用'}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`编辑分块 ${index + 1}`}
+                            onClick={() => setEditing(chunk)}
+                          >
+                            <Pencil />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`删除分块 ${index + 1}`}
+                            disabled={remove.isPending}
+                            onClick={() => setDeleting(chunk)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
                       </li>
                     ))}
                   </ul>
                 ) : null}
+                {chunks.hasNextPage ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="self-start"
+                    disabled={chunks.isFetchingNextPage}
+                    aria-busy={chunks.isFetchingNextPage}
+                    onClick={() => void chunks.fetchNextPage()}
+                  >
+                    {chunks.isFetchingNextPage ? '加载中…' : '加载更多分块'}
+                  </Button>
+                ) : null}
               </PageSection>
-            ) : null}
-
-            <PageSection title="分块">
-              {!versionId ? <InlineEmpty>还没有分块</InlineEmpty> : null}
-              {chunks.isPending ? <LoadingState rows={3} /> : null}
-              {chunks.isError ? (
-                <ErrorState error={chunks.error} onRetry={() => void chunks.refetch()} />
-              ) : null}
-              {chunks.isSuccess && chunkItems.length === 0 ? (
-                <InlineEmpty>还没有分块</InlineEmpty>
-              ) : null}
-              {chunkItems.length > 0 ? (
-                <ul className="flex flex-col">
-                  {chunkItems.map((chunk, index) => (
-                    <li
-                      key={chunk.id}
-                      className="flex min-w-0 items-start gap-3 border-b py-3 last:border-b-0"
-                    >
-                      <span className="w-6 shrink-0 pt-0.5 text-right font-mono text-2xs text-muted-foreground">
-                        {index + 1}
-                      </span>
-                      <div className="flex min-w-0 flex-1 flex-col gap-1">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          {chunk.heading ? (
-                            <span className="min-w-0 truncate text-xs font-medium text-fg">
-                              {chunk.heading}
-                            </span>
-                          ) : null}
-                          {chunk.editedByUser ? (
-                            <StatusBadge tone="warn">人工编辑</StatusBadge>
-                          ) : null}
-                          {!chunk.enabled ? <StatusBadge tone="outline">已停用</StatusBadge> : null}
-                          <span className="text-2xs text-muted-foreground">
-                            {imageRoleLabel(chunk) ?? chunk.kind}
-                            {chunk.pageFrom === null
-                              ? ''
-                              : ` · 第 ${chunk.pageFrom}${chunk.pageTo && chunk.pageTo !== chunk.pageFrom ? `–${chunk.pageTo}` : ''} 页`}
-                          </span>
-                        </div>
-                        <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-                          {chunk.content}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`${chunk.enabled ? '停用' : '启用'}分块 ${index + 1}`}
-                          disabled={toggle.isPending}
-                          onClick={() =>
-                            toggle.mutate(
-                              { chunkId: chunk.id, patch: { enabled: !chunk.enabled } },
-                              {
-                                onSuccess: () =>
-                                  toastSuccess(chunk.enabled ? '分块已停用' : '分块已启用'),
-                                onError: toastError,
-                              },
-                            )
-                          }
-                        >
-                          {chunk.enabled ? '停用' : '启用'}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`编辑分块 ${index + 1}`}
-                          onClick={() => setEditing(chunk)}
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`删除分块 ${index + 1}`}
-                          disabled={remove.isPending}
-                          onClick={() => setDeleting(chunk)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {chunks.hasNextPage ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="self-start"
-                  disabled={chunks.isFetchingNextPage}
-                  aria-busy={chunks.isFetchingNextPage}
-                  onClick={() => void chunks.fetchNextPage()}
-                >
-                  {chunks.isFetchingNextPage ? '加载中…' : '加载更多分块'}
-                </Button>
-              ) : null}
-            </PageSection>
+            </div>
           </div>
         </DialogShell>
       </Dialog>
@@ -2170,6 +2269,7 @@ function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) 
   const jobs = useKnowledgeJobs(baseId);
   const client = useQueryClient();
   const [instruction, setInstruction] = useState('');
+  const [mode, setMode] = useState<'read' | 'source'>('read');
   const [generateJobId, setGenerateJobId] = useState<string | null>(null);
   const settledJobRef = useRef<string | null>(null);
   const [rollbackTarget, setRollbackTarget] = useState<string | null>(null);
@@ -2222,54 +2322,64 @@ function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) 
           onRetry={() => void detail.refetch()}
         />
       ) : null}
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <h2 className="min-w-0 truncate text-sm font-medium text-fg" title={page.title}>
-          {page.title}
-        </h2>
-        <StatusBadge
-          tone={
-            page.status === 'published'
-              ? 'success'
-              : page.status === 'failed'
-                ? 'danger'
-                : 'outline'
-          }
-        >
-          {pageStatusLabel[page.status]}
-        </StatusBadge>
-        <span className="text-2xs text-muted-foreground">{formatRelative(page.updatedAt)}</span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={pending || current === undefined}
-            onClick={() => setEditing(current ?? null)}
-          >
-            编辑正文
-          </Button>
-          <Button
-            size="sm"
-            disabled={pending}
-            aria-busy={generate.isPending}
-            onClick={() =>
-              generate.mutate(
-                { pageId, ...(instruction.trim() ? { instruction: instruction.trim() } : {}) },
-                {
-                  onSuccess: (result) => {
-                    setGenerateJobId(result.jobId);
-                    // Pick up the new job once so its polling starts; terminal handling comes from the job status.
-                    void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
-                    toastSuccess('已提交生成任务');
+      <ReaderToolbar
+        identity={
+          <span className="block truncate" title={page.title}>
+            {page.title}
+          </span>
+        }
+        meta={
+          <>
+            <StatusBadge
+              tone={
+                page.status === 'published'
+                  ? 'success'
+                  : page.status === 'failed'
+                    ? 'danger'
+                    : 'outline'
+              }
+            >
+              {pageStatusLabel[page.status]}
+            </StatusBadge>
+            <span>{formatRelative(page.updatedAt)}</span>
+          </>
+        }
+        {...(current ? { mode, onModeChange: setMode } : {})}
+        {...(current ? { copy: { value: current.markdown, label: `复制 ${page.title}` } } : {})}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pending || current === undefined}
+              onClick={() => setEditing(current ?? null)}
+            >
+              编辑正文
+            </Button>
+            <Button
+              size="sm"
+              disabled={pending}
+              aria-busy={generate.isPending}
+              onClick={() =>
+                generate.mutate(
+                  { pageId, ...(instruction.trim() ? { instruction: instruction.trim() } : {}) },
+                  {
+                    onSuccess: (result) => {
+                      setGenerateJobId(result.jobId);
+                      // Pick up the new job once so its polling starts; terminal handling comes from the job status.
+                      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+                      toastSuccess('已提交生成任务');
+                    },
+                    onError: toastError,
                   },
-                  onError: toastError,
-                },
-              )
-            }
-          >
-            重新生成
-          </Button>
-        </div>
-      </div>
+                )
+              }
+            >
+              重新生成
+            </Button>
+          </>
+        }
+      />
       {generateJob ? (
         <PageNote
           title={`生成任务 ${jobStatusLabel[generateJob.status]}`}
@@ -2286,7 +2396,15 @@ function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) 
           placeholder="可选，说明这次生成要补充什么"
         />
       </Field>
-      {current ? <Markdown text={current.markdown} /> : <InlineEmpty>还没有正文</InlineEmpty>}
+      {current ? (
+        mode === 'read' ? (
+          <Markdown text={current.markdown} />
+        ) : (
+          <CodeBlock code={current.markdown} lineNumbers maxHeight="60vh" copyable={false} />
+        )
+      ) : (
+        <InlineEmpty>还没有正文</InlineEmpty>
+      )}
       <PageSection title="版本" divided>
         {versions.length === 0 ? <InlineEmpty>还没有版本</InlineEmpty> : null}
         <ul className="flex flex-col">

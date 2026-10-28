@@ -16,6 +16,7 @@ import {
   type ChatEvent,
   chatRequestSchema,
   conversationRenameSchema,
+  conversationSearchQuerySchema,
   idParams,
   type MessageAttachment,
   RUN_QUEUE_MAX_WAITING,
@@ -550,6 +551,24 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
 
       // 仍在进行的 run：worker 可能只把终态写进数据库而没能发事件。
       scheduleRecheck();
+    },
+  );
+
+  app.get(
+    '/api/conversations/search',
+    {
+      preHandler: [rawApp.requireAuth],
+      schema: { querystring: conversationSearchQuerySchema },
+    },
+    async (request) => {
+      const result = await chatRepo.searchConversations(app.db, request.query);
+      return {
+        items: result.items.map(({ updatedAt, ...item }) => ({
+          ...item,
+          updatedAt: updatedAt.toISOString(),
+        })),
+        nextBefore: result.nextBefore,
+      };
     },
   );
 

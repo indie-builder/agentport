@@ -558,32 +558,29 @@ function MarketSkillsPage({
       !market.isDebouncing &&
       market.data &&
       market.data.length > 0 ? (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          {market.data.map((item, index) => {
-            const installed = installedIds.has(item.id);
-            const pending = install.isPending && install.variables?.id === item.id;
-            return (
-              <li key={item.id} className="min-w-0">
-                <Card className="h-full">
-                  <CardHeader className="grid-cols-[auto_minmax(0,1fr)]!">
-                    <span className="flex size-10 shrink-0 items-center justify-center self-center rounded-item bg-muted font-mono text-sm text-muted-foreground">
-                      #{index + 1}
+        <div className="@container">
+          <ul className="grid grid-cols-1 gap-x-6 gap-y-0.5 @4xl:grid-cols-2">
+            {market.data.map((item) => {
+              const installed = installedIds.has(item.id);
+              const pending = install.isPending && install.variables?.id === item.id;
+              return (
+                <li key={item.id} className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-3 px-2 py-2.5">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-item bg-muted text-muted-foreground">
+                      <Sparkles aria-hidden="true" />
                     </span>
-                    <CardTitle className="col-start-2 min-w-0">
-                      <h2 className="truncate" title={item.name}>
+                    <div className="min-w-0 flex-1">
+                      <h2 className="truncate text-base font-medium text-fg" title={item.name}>
                         {item.name}
                       </h2>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-1 flex-col gap-3">
-                    <Badge variant="secondary" className="max-w-full font-mono">
-                      <span className="truncate">{item.source}</span>
-                    </Badge>
-                  </CardContent>
-                  <CardFooter className="mt-auto justify-between gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      {formatTokens(item.installs)} 次安装
-                    </span>
+                      <p className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                        <span className="truncate font-mono" title={item.source}>
+                          {item.source}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span className="shrink-0">{formatTokens(item.installs)} 次安装</span>
+                      </p>
+                    </div>
                     <Button
                       size="sm"
                       variant="outline"
@@ -595,12 +592,12 @@ function MarketSkillsPage({
                     >
                       {installed ? '已安装' : pending ? '安装中…' : '安装'}
                     </Button>
-                  </CardFooter>
-                </Card>
-              </li>
-            );
-          })}
-        </ul>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       ) : null}
     </ResourcePage>
   );

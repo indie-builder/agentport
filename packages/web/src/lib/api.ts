@@ -7,6 +7,7 @@ import type {
   ApiToolInput,
   Attention,
   ConnectorCatalogItem,
+  ConversationSearchResponse,
   ConversationSummary,
   EvalDataset,
   EvalDatasetImportResult,
@@ -275,6 +276,14 @@ export type ConversationDetail = SharedConversationDetail;
 
 /** 会话消息分页：默认 50 条、上限 100；before 为上一页最早消息的 id。 */
 export interface ConversationPageOptions {
+  limit?: number;
+  before?: string;
+}
+
+/** 全局历史搜索：空 q 按最近活动返回；before 是服务端下发的下一页游标。 */
+export interface ConversationSearchOptions {
+  q?: string;
+  agentId?: string;
   limit?: number;
   before?: string;
 }
@@ -846,6 +855,18 @@ export const api = {
   conversations: (agentId?: string, signal?: AbortSignal): Promise<Conversation[]> => {
     const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
     return request(`/conversations${query}`, 'GET', undefined, signal);
+  },
+  searchConversations: (
+    options: ConversationSearchOptions = {},
+    signal?: AbortSignal,
+  ): Promise<ConversationSearchResponse> => {
+    const params = new URLSearchParams();
+    if (options.q !== undefined) params.set('q', options.q);
+    if (options.agentId !== undefined) params.set('agentId', options.agentId);
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    if (options.before !== undefined) params.set('before', options.before);
+    const query = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/conversations/search${query}`, 'GET', undefined, signal);
   },
   conversation: (
     id: string,

@@ -19,20 +19,23 @@ export function CopyButton({
   showLabel?: boolean;
   className?: string;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  // 用值本身而不是布尔标记判断反馈：正文换成另一份时立刻回到「复制」，不会闪回上一份的「已复制」。
+  const copied = copiedValue === value;
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    setCopiedValue((current) => (current === value ? current : null));
+    return () => {
       if (resetTimer.current !== null) clearTimeout(resetTimer.current);
-    },
-    [],
-  );
+      resetTimer.current = null;
+    };
+  }, [value]);
   const copy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(value);
       if (resetTimer.current !== null) clearTimeout(resetTimer.current);
-      setCopied(true);
-      resetTimer.current = setTimeout(() => setCopied(false), 1500);
+      setCopiedValue(value);
+      resetTimer.current = setTimeout(() => setCopiedValue(null), 1500);
     } catch {
       toastError(new Error('无法复制，请选择内容后手动复制。'));
     }
