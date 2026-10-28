@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { registerRunQuestionRoutes } from './questions.js';
 
 const runsRepo = repo.runs;
 
@@ -33,6 +34,7 @@ function toItem(run: Awaited<ReturnType<typeof runsRepo.listRuns>>[number]) {
 export function registerRunRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   const auth = { preHandler: [rawApp.requireAuth] };
+  registerRunQuestionRoutes(rawApp);
 
   app.get(
     '/api/runs',

@@ -133,7 +133,7 @@
 
 平台不新增任务表或第二个执行循环，进度只来自官方 `TodoWrite` 的结构化结果：
 
-- **启用**：`PORTABLE_TODO_ENV` 设置 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` 与 `CLAUDE_CODE_ENABLE_TASKS=0`，选择原生 `TodoWrite` 而非四个 Task 工具；`SANDBOX_RUNTIME_ENV` 复用它写入工作区 `.claude/settings.json.env`，runner 启动 SDK 时合并进程环境。显式 `disallowedTools` 仍然生效；默认 `dontAsk` 下已完成真实调用验收。专家导出包携带两个可移植 TodoWrite env 及选中的 `outputStyle`，不携带沙盒专有的后台任务与委派深度约束；导入仍不执行外来 env，导出按平台必需项重新生成。
+- **启用**：`PORTABLE_TODO_ENV` 设置 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` 与 `CLAUDE_CODE_ENABLE_TASKS=0`，选择原生 `TodoWrite` 而非四个 Task 工具；`SANDBOX_RUNTIME_ENV` 复用它写入工作区 `.claude/settings.json.env`，runner 启动 SDK 时合并进程环境。显式 `disallowedTools` 仍然生效；当轮在 `dontAsk` 下已完成真实调用验收。专家导出包携带两个可移植 TodoWrite env 及选中的 `outputStyle`，不携带沙盒专有的后台任务与委派深度约束；导入仍不执行外来 env，导出按平台必需项重新生成。
 - **快照来源**：runner 只记录主会话（`parent_tool_use_id === null`）的 `TodoWrite` 调用 id；只有该调用成功、且同一 user 消息的 `tool_use_result.newTodos` 通过 `progressTodoSchema` 校验时，才发出完整列表快照。工具失败、结果缺失或损坏、子智能体调用都不更新清单。
 - **事件与持久化**：`tool_result` 事件新增可选 `todos`（`{content, activeForm, status}` 数组）。省略表示本事件不改清单，空数组表示清空，出现时整体替换；worker 把它与同一 `tool_result` 行一起落库，`content`/`activeForm` 走现有脱敏。快照 JSON 超过 `maxFieldBytes` 时整份不发送并在 stderr 记录原因，保留上一份确认清单，不发送删减后冒充完整的快照。
 - **展示**：实时流、历史恢复与重连回放复用同一字段；每个用户轮次只显示最后一次确认的顶层快照。子智能体清单不进入主清单，空快照隐藏清单；没有清单时保留原有工具与运行状态行，不新增空态。
@@ -148,6 +148,16 @@
 边界：当前模型没有删除工具，多文件中的单文件删除不作为支持路径；二进制只下载，Office 无预览；HTML/SVG 只按源码展示；正文超过 1MiB 只下载。成果正文是交付内容，不套用聊天的密钥脱敏；路径逃逸、符号/硬链接和跨会话读取在存储与 API 边界拒绝。
 
 实现状态（2026-10-28）：真实两轮12/12、分支8/8、停止后保留2/2、浏览器预览/下载与反馈挂引用通过；串行后端1824/1824、Web905/905、API9/9、typecheck/build通过，独立评审通过。Office/PDF不预览、无删除工具、成果内容不做聊天脱敏；详见 [任务记录](tasks/agent-output-viewing.md) 与 D-67。成果查看不代表成果质量自动通过。
+
+### 3.3 原生澄清提问（已接通）
+
+US-6.2以官方 `AskUserQuestion → canUseTool → updatedInput` 接回用户答案，继续同一次工具调用。问题与答案属于运行数据，智能体定义仍由官方文件表达；不新增自定义提问工具或第二执行循环。
+
+当前固定方案：runner保留首行任务之后的stdin通道；主会话回调发问题请求，worker先持久化运行问题再发布SSE快照；用户经鉴权API回答，worker沿现有PG轮询模式把答案回传当前容器。消息内容保留问题最终快照，使历史与分支只读展示不依赖run保留期。等待计入原整体运行timeout，停止/超时使待答问题关闭。
+
+权限边界：官方 `dontAsk` 直接拒绝需要交互的工具、不会进入回调；新建默认采用 `default`，显式模式不重写。回调只处理主会话原生提问，其余未预批准工具拒绝；文件访问hook、禁用工具、子级边界与MCP服务端审批保留。回答问题不表示批准副作用。子智能体官方暂不支持原生提问。
+
+本地SDK0.3.311探针已验证default回答后继续、dontAsk拒绝；隔离Linux沙盒与桌面浏览器已完成提问→刷新→回答→同run成果交付，并在最终源码上复测4条真实run（主场景、拒答、停止、超时）通过。回答后MCP副作用仍等待独立批准。公开问题以题序号与选项序号提交，API映射回原SDK键值；DB/SDK保留原文，GET/POST/SSE/历史统一脱敏投影。已知限制：流式增量按单帧脱敏；等待占用整体run超时。详见 [任务记录](tasks/agent-clarification.md)。
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 

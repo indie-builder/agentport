@@ -18,6 +18,7 @@ export const idPrefixes = {
   conversation: 'conv',
   message: 'msg',
   run: 'run',
+  question: 'q',
   approval: 'apr',
   schedule: 'sch',
   audit: 'aud',

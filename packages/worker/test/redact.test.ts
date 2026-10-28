@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { redactSecrets } from '../src/redact.js';
+import { publicRunQuestion, redactChatEvent, redactJson, redactSecrets } from '../src/redact.js';
 
 describe('redactSecrets', () => {
   it('masks bearer tokens but keeps the scheme', () => {
@@ -60,5 +60,88 @@ describe('redactSecrets', () => {
 
   it('is a no-op without secrets', () => {
     expect(redactSecrets('sandbox exited with code 1')).toBe('sandbox exited with code 1');
+  });
+});
+
+describe('redactJson', () => {
+  it('redacts string values without consuming the JSON closing quote', () => {
+    const raw = JSON.stringify({ cmd: 'export PASSWORD=hunter2', list: ['TOKEN=abcdef'] });
+    const redacted = redactJson(raw);
+    expect(JSON.parse(redacted)).toEqual({
+      cmd: 'export PASSWORD=hunt***',
+      list: ['TOKEN=abcd***'],
+    });
+  });
+
+  it('falls back to text redaction for truncated JSON', () => {
+    expect(redactJson('{"cmd":"export PASSWORD=hunter2')).toBe('{"cmd":"export PASSWORD=hunt***');
+  });
+});
+
+describe('redactChatEvent', () => {
+  const secret = 'sk-abcdefghijklmnop';
+
+  it('redacts every native text field', () => {
+    expect(redactChatEvent({ type: 'assistant_text', text: `x ${secret}` })).toMatchObject({
+      text: 'x sk-a***',
+    });
+    expect(redactChatEvent({ type: 'text_delta', text: `x ${secret}` })).toMatchObject({
+      text: 'x sk-a***',
+    });
+    expect(redactChatEvent({ type: 'error', message: `x ${secret}` })).toMatchObject({
+      message: 'x sk-a***',
+    });
+    expect(redactChatEvent({ type: 'run_unavailable', message: `x ${secret}` })).toMatchObject({
+      message: 'x sk-a***',
+    });
+    expect(
+      redactChatEvent({ type: 'run_finished', status: 'failed', error: `x ${secret}` }),
+    ).toMatchObject({ error: 'x sk-a***' });
+    expect(
+      redactChatEvent({
+        type: 'tool_result',
+        toolUseId: 't',
+        content: `x ${secret}`,
+        todos: [{ content: `x ${secret}`, activeForm: `x ${secret}`, status: 'pending' }],
+      }),
+    ).toMatchObject({
+      content: 'x sk-a***',
+      todos: [{ content: 'x sk-a***', activeForm: 'x sk-a***' }],
+    });
+    const input = redactChatEvent({
+      type: 'tool_input',
+      toolUseId: 't',
+      json: JSON.stringify({ question: `x ${secret}` }),
+    });
+    expect(input.type === 'tool_input' ? JSON.parse(input.json) : undefined).toEqual({
+      question: 'x sk-a***',
+    });
+  });
+
+  it('does not reproject an already public question', () => {
+    const question = publicRunQuestion({
+      requestId: 'req',
+      runId: 'run',
+      toolUseId: 'tool',
+      questions: [
+        {
+          question: '原题',
+          header: '标题',
+          options: [
+            { label: 'A', description: '' },
+            { label: 'B', description: '' },
+          ],
+          multiSelect: false,
+        },
+      ],
+      status: 'answered',
+      answers: { 原题: '答案' },
+      createdAt: '2026-10-28T00:00:00.000Z',
+      resolvedAt: '2026-10-28T00:01:00.000Z',
+      expiresAt: '2026-10-28T00:10:00.000Z',
+      closeReason: null,
+    });
+    const event = { type: 'question_updated' as const, question };
+    expect(redactChatEvent(event)).toBe(event);
   });
 });

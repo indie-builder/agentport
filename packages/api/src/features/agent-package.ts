@@ -897,7 +897,7 @@ export function parseAgentPackage(
         disallowedTools: parsed.disallowedTools,
         // 插件是会话级能力，专家包里的子智能体不携带插件绑定。
         pluginBindings: [],
-        permissionMode: meta?.permissionMode ?? 'dontAsk',
+        permissionMode: meta?.permissionMode ?? 'default',
         // 子智能体只把文本交回父级，渲染格式只对根智能体有意义。
         uiFormat: 'markdown',
         maxTurns: parsed.maxTurns,

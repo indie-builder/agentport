@@ -59,6 +59,33 @@ describe('renderClaudeMd skill access rules', () => {
   });
 });
 
+describe('clarifying questions prompt', () => {
+  it('tells the main session to ask before guessing when the mode can prompt', () => {
+    for (const permissionMode of ['default', 'acceptEdits', 'plan', 'auto']) {
+      const { claudeMd } = renderWorkspace({ agent: { ...agent, permissionMode }, servers: [] });
+      expect(claudeMd).toContain('AskUserQuestion');
+      expect(claudeMd).toContain('澄清提问');
+    }
+  });
+
+  it('does not promise questions under dontAsk, which denies them without a prompt', () => {
+    const { claudeMd } = renderWorkspace({
+      agent: { ...agent, permissionMode: 'dontAsk' },
+      servers: [],
+    });
+    expect(claudeMd).not.toContain('AskUserQuestion');
+  });
+
+  it('tells sub-agents they cannot ask the user', () => {
+    const { subAgents } = renderWorkspace({
+      agent: { ...agent, slug: 'parent' },
+      servers: [],
+      subAgents: [{ ...agent, slug: 'child', name: 'Child' }],
+    });
+    expect(subAgents[0]?.content).toContain('不能向用户提问');
+  });
+});
+
 describe('native todo tracking', () => {
   it('enables TodoWrite instead of the Task tools in the rendered settings env', () => {
     const files = renderWorkspace({ agent, servers: [] });

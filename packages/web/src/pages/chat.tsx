@@ -4,6 +4,7 @@ import {
   type OpenUiToolResult,
   type OutputRef,
   type ProgressTodo,
+  type PublicRunQuestion,
 } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
@@ -60,6 +61,7 @@ import {
 import { AssistantText } from '../components/openui-message.js';
 import { Page, PageHeader } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
+import { RunQuestionCard } from '../components/run-question.js';
 import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
@@ -123,6 +125,7 @@ import {
   useConversations,
   useRun,
   useRunApprovals,
+  useRunQuestions,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useChatStream } from '../lib/use-chat-stream.js';
@@ -335,6 +338,12 @@ function ChatWorkspace({
   const conversations = useConversations(agentId);
   const detail = useConversation(conversationId);
   const runApprovals = useRunApprovals(run?.runId || lastRunId, Boolean(run?.runId));
+  // 提问状态来自 Query：SSE 快照和回答结果都写这里，不在 Zustand 里再存一份。
+  const runQuestions = useRunQuestions(run?.runId || lastRunId, Boolean(run?.runId));
+  const questionsByToolUseId = useMemo(
+    () => new Map((runQuestions.data?.items ?? []).map((item) => [item.toolUseId, item])),
+    [runQuestions.data],
+  );
   const historyLayout = useDefaultLayout({ id: 'chat-history-v2' });
   const historyPanelRef = usePanelRef();
   // 历史默认隐藏：每次进入都从折叠态开始。
@@ -600,6 +609,8 @@ function ChatWorkspace({
       approving={approveMutation.isPending ? (approveMutation.variables?.id ?? null) : null}
       cancelling={cancelMutation.isPending}
       approvalItems={approvalData}
+      questionsByToolUseId={questionsByToolUseId}
+      liveRunId={run?.runId ?? null}
       onApprove={approve}
       onCancel={cancel}
       onPickSuggestion={(text) => {
@@ -1216,6 +1227,8 @@ function ChatColumn({
   approving,
   cancelling,
   approvalItems,
+  questionsByToolUseId,
+  liveRunId,
   onApprove,
   onCancel,
   onPickSuggestion,
@@ -1256,6 +1269,8 @@ function ChatColumn({
   approving: string | null;
   cancelling: boolean;
   approvalItems: ApprovalRequest[];
+  questionsByToolUseId: ReadonlyMap<string, PublicRunQuestion>;
+  liveRunId: string | null;
   onApprove: (item: ApprovalRequest) => void;
   onCancel: () => void;
   onPickSuggestion: (text: string) => void;
@@ -1466,6 +1481,8 @@ function ChatColumn({
           olderDisabled={detail.isFetching || Boolean(run)}
           approvals={approvals}
           approvalItems={pendingApprovals}
+          questionsByToolUseId={questionsByToolUseId}
+          liveRunId={liveRunId}
           lastRun={lastRun}
           historyMetrics={historyMetrics}
           runFooter={runFooter}
@@ -1734,6 +1751,7 @@ function runStatusText(run: RunState, items: ChatItem[]): string {
   if (run.status === 'reconnecting') return '连接已中断，正在重连';
   if (run.status === 'detached') return '连接已中断 · 运行状态未知';
   const tool = runningTool(items);
+  if (tool?.name === 'AskUserQuestion') return '等待你的回答';
   return tool ? `正在调用 ${tool.name}` : '等待回复';
 }
 
@@ -1749,6 +1767,8 @@ export function MessagePane({
   welcome,
   approvals,
   approvalItems,
+  questionsByToolUseId,
+  liveRunId,
   lastRun,
   historyMetrics,
   runFooter,
@@ -1774,6 +1794,9 @@ export function MessagePane({
     onApprove: (item: ApprovalRequest) => void;
   };
   approvalItems: ApprovalRequest[];
+  /** 当前运行的提问快照，按 toolUseId 对齐到工具位；历史快照仍用 item.question。 */
+  questionsByToolUseId?: ReadonlyMap<string, PublicRunQuestion>;
+  liveRunId?: string | null;
   lastRun: RunMetrics | null;
   historyMetrics: ReadonlyMap<string, RunMetrics>;
   runFooter?: ReactNode;
@@ -1910,6 +1933,8 @@ export function MessagePane({
                                       approvalItems={approvalItems}
                                       pending={approvals.pending}
                                       onApprove={approvals.onApprove}
+                                      questionsByToolUseId={questionsByToolUseId}
+                                      liveRunId={liveRunId ?? null}
                                     />
                                   );
                                 }
@@ -2051,25 +2076,51 @@ const ToolGroup = memo(function ToolGroup({
   approvalItems,
   pending,
   onApprove,
+  questionsByToolUseId,
+  liveRunId,
 }: {
   tool: ToolItem;
   kids: ToolItem[];
   approvalItems: ApprovalRequest[];
   pending: string | null;
   onApprove: (item: ApprovalRequest) => void;
+  questionsByToolUseId?: ReadonlyMap<string, PublicRunQuestion> | undefined;
+  liveRunId: string | null;
 }) {
   const approval = findApproval(tool, approvalItems);
+  const question = questionsByToolUseId?.get(tool.toolUseId) ?? tool.question;
   return (
     <>
       <div className="flex flex-col gap-1.5">
-        <ToolRow item={tool} nested={tool.parentToolUseId !== undefined} childCount={kids.length} />
+        {question ? (
+          <RunQuestionCard
+            key={question.requestId}
+            question={question}
+            live={liveRunId !== null && question.runId === liveRunId}
+          />
+        ) : (
+          <ToolRow
+            item={tool}
+            nested={tool.parentToolUseId !== undefined}
+            childCount={kids.length}
+          />
+        )}
         {approval ? <ApprovalCard item={approval} pending={pending} onApprove={onApprove} /> : null}
       </div>
       {kids.map((child) => {
         const childApproval = findApproval(child, approvalItems);
+        const childQuestion = questionsByToolUseId?.get(child.toolUseId) ?? child.question;
         return (
           <div key={`${child.toolUseId}-child`} className="flex flex-col gap-1.5">
-            <ToolRow item={child} nested={true} childCount={0} />
+            {childQuestion ? (
+              <RunQuestionCard
+                key={childQuestion.requestId}
+                question={childQuestion}
+                live={liveRunId !== null && childQuestion.runId === liveRunId}
+              />
+            ) : (
+              <ToolRow item={child} nested={true} childCount={0} />
+            )}
             {childApproval ? (
               <ApprovalCard item={childApproval} pending={pending} onApprove={onApprove} />
             ) : null}

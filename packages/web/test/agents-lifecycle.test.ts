@@ -441,7 +441,9 @@ describe('expert creation lifecycle', () => {
     expect(mode?.getAttribute('aria-describedby')).toBe('agent-perm-hint');
     const expectApprovalHint = () => {
       const hint = document.getElementById('agent-perm-hint')?.textContent;
-      expect(hint).toContain('default 在沙盒中不提供 SDK 层交互审批宿主');
+      expect(hint).toContain('default 支持原生澄清问答');
+      expect(hint).toContain('dontAsk 拒绝原生提问');
+      expect(hint).toContain('其他未预批准的工具请求会被拒绝');
       expect(hint).toContain('连接器工具仍可能触发服务端审批');
       expect(hint).not.toContain('不会发起人工审批');
     };

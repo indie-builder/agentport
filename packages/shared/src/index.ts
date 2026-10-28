@@ -17,6 +17,8 @@ export * from './ops.js';
 export * from './outputs.js';
 export * from './params.js';
 export * from './plugin.js';
+export * from './questions.js';
+export * from './redact.js';
 export * from './run-stream.js';
 export * from './sandbox-probe.js';
 export * from './schedules.js';

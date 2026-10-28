@@ -185,7 +185,7 @@
 
 **问题**：现在是「拒绝 → 人工批准 → 模型重新发起」，不是暂停；批准后模型可能不再调用，或在别的时机调用。
 
-**决定**：用 SDK 的 `canUseTool` 回调实现真暂停。工具需要审批时，`canUseTool` 挂起等待宿主批准（轮询 DB），批准后**同一次调用直接继续**，不再要求模型重试。
+**决定**：挂起发生在 MCP 工具调用内部（轮询 DB），批准后**同一次调用直接继续**，不再要求模型重试。此路径不依赖 SDK `canUseTool`；原生澄清提问是另一条交互链路。
 
 **边界**：
 - 等待有上限（`APPROVAL_WAIT_MS`，默认 300s）；超时按拒绝处理并说明原因。
@@ -213,7 +213,7 @@
 
 **决定**：`default` 与 `acceptEdits` 直接透传（SDK 已支持）；`auto` 依赖模型分类器，平台无法审计它的决定，继续拒绝；`bypassPermissions` 永不开放。
 
-**已知边界**：`default` 在沙盒里没有可交互的宿主，实际行为接近 `dontAsk`；等挂起式审批覆盖全部工具（不只是 `requiresApproval`）后，`default` 才会有真正的交互语义。
+**已知边界**：`default` 可通过 `canUseTool` 把原生 AskUserQuestion 转成用户输入，等待用户回答后同一次运行继续；其他未预批准的工具仍按拒绝处理。原生提问接入正在实施与验收，见D-68；MCP副作用审批继续独立执行，不承诺通用SDK工具审批宿主。
 
 **影响面**：`packages/api/src/features/agents/routes.ts`、`packages/shared/src/agent.ts`。
 
@@ -524,6 +524,16 @@
 **边界**：当前模型无删除工具，多文件中的单文件删除不支持；Office无预览；成果内容不做聊天密钥脱敏；路径逃逸、符号/硬链接、模拟链接祖先和跨会话读取在存储/API边界拒绝。实现与固定契约见 [任务记录](tasks/agent-output-viewing.md)。
 
 **验证（2026-10-28）**：隔离真实模型两轮12/12（Write→列表/content/download字节一致；Read/Edit→新版本且旧版字节不变）；分支8/8（复制、删源、下载、续改）；停止2/2（partial.md可列出/预览/下载）；浏览器预览与下载哈希一致、反馈挂引用；串行后端1824/1824、Web 905/905（一次并行UI时序抖动单跑通过）、API 9/9、typecheck/build通过；独立Opus评审通过。未覆盖：Office/PDF浏览器预览、真实知识库检索、真实读屏与原生缩放；结果查看本身不是成果质量自动验收。
+
+## D-68 ✅ 原生澄清提问与显式权限模式（2026-10-28）
+
+**用户故事**：US-6.2资料不足→主智能体原生AskUserQuestion→用户回答→同一调用/run继续→成果交付。工具副作用批准仍走既有MCP服务端审批。
+
+**依据**：官方 [user-input](https://code.claude.com/docs/en/agent-sdk/user-input) 与 [permissions](https://code.claude.com/docs/en/agent-sdk/permissions)；安装SDK0.3.311真实探针验证default回调1次、回传答案后继续，dontAsk回调0次并permission_denied。
+
+**决定**：新建智能体默认使用default；显式dontAsk原样保留，不偷偷改写。canUseTool仅处理主会话AskUserQuestion，对其余未预批准调用拒绝，既有文件/子级hook和MCP审批保留。运行记录保存问题与回答，沿现有PG轮询、SSE与保持打开的容器stdin完成宿主往返，不加第二harness、独立服务或自定义提问工具。问题表是运行数据，不替代官方智能体定义。
+
+**边界**：等待占用现有整体运行timeout，拒答不代表批准副作用；停止/超时关闭未决问题。子智能体官方暂不支持AskUserQuestion。已完成4次真实模型run（主场景/拒答/停止/超时）与浏览器回答，证据见 [任务记录](tasks/agent-clarification.md)；多问题/多选真实模型组合、凭证跨流式帧显示仍为未覆盖项。
 
 ## 决策记录格式
 

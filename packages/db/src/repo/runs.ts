@@ -1,4 +1,5 @@
 import { fail } from '@agentport/core';
+import type { PublicRunQuestion } from '@agentport/shared';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -60,6 +61,8 @@ export type RunStep =
       result?: unknown;
       /** 子智能体内部的调用：父侧 Agent 的 tool_use id；顶层为空。 */
       parentToolUseId: string | null;
+      /** 原生提问的最终展示快照；只有提问工具行才带。 */
+      question?: PublicRunQuestion;
     };
 
 /**
@@ -84,6 +87,8 @@ export function mergeToolSteps(steps: RunStep[]): RunStep[] {
     // 后到的 result 补进已有步骤；后到的 use 补回 input。
     if (step.result !== undefined) existing.result = step.result;
     if (step.content !== null && step.content !== undefined) existing.content = step.content;
+    // 最终快照可能落在任一半上；后到的快照覆盖旧的 pending。
+    if (step.question !== undefined) existing.question = step.question;
   }
   return merged;
 }
@@ -140,6 +145,14 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
 }
 
+/** 消息内容里的公开问题快照；写入时已经脱敏投影。 */
+function questionOf(content: Record<string, unknown>): PublicRunQuestion | undefined {
+  const question = content.question;
+  return typeof question === 'object' && question !== null
+    ? (question as PublicRunQuestion)
+    : undefined;
+}
+
 /** messages 行 → trace 步骤。无法识别的行直接跳过，避免脏数据打断回放。 */
 export function toStep(message: {
   role: string;
@@ -157,6 +170,7 @@ export function toStep(message: {
     return { kind: 'assistant', at, text };
   }
   if (message.role === 'tool' && content?.type === 'tool_use') {
+    const question = questionOf(content);
     return {
       kind: 'tool',
       at,
@@ -164,9 +178,11 @@ export function toStep(message: {
       toolUseId: typeof content.id === 'string' ? content.id : null,
       content: content.input,
       parentToolUseId: typeof content.parentToolUseId === 'string' ? content.parentToolUseId : null,
+      ...(question === undefined ? {} : { question }),
     };
   }
   if (message.role === 'tool' && content?.type === 'tool_result') {
+    const question = questionOf(content);
     return {
       kind: 'tool',
       at,
@@ -176,6 +192,7 @@ export function toStep(message: {
       content: null,
       result: content.content,
       parentToolUseId: typeof content.parentToolUseId === 'string' ? content.parentToolUseId : null,
+      ...(question === undefined ? {} : { question }),
     };
   }
   return null;

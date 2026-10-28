@@ -1,4 +1,4 @@
-import type { Agent, KnowledgeBaseSettings } from '@agentport/shared';
+import type { Agent, KnowledgeBaseSettings, NativeQuestions } from '@agentport/shared';
 import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -89,7 +89,7 @@ export const agents = pgTable(
     /** [] 继承所有已绑定 MCP server 的工具；非空为显式自动批准规则，禁用用 disallowedTools。 */
     allowedTools: jsonb('allowed_tools').$type<string[]>().notNull().default([]),
     disallowedTools: jsonb('disallowed_tools').$type<string[]>().notNull().default([]),
-    permissionMode: text('permission_mode').notNull().default('dontAsk'),
+    permissionMode: text('permission_mode').notNull().default('default'),
     /** 助手回复格式：markdown 或生成式 UI（OpenUI Lang 围栏）。 */
     uiFormat: text('ui_format').notNull().default('markdown'),
     effort: text('effort'),
@@ -474,6 +474,38 @@ export const agentRuns = pgTable(
       t.status,
       t.startedAt.desc().nullsLast(),
       t.id.desc(),
+    ),
+  ],
+);
+
+/**
+ * 原生 AskUserQuestion 的运行记录：问题属于一次 run，不是智能体定义。
+ * requestId 是 SDK 回调的外部标识，同一 run 内唯一；answers 以问题文本为键。
+ */
+export const runQuestions = pgTable(
+  'run_questions',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    requestId: text('request_id').notNull(),
+    toolUseId: text('tool_use_id').notNull(),
+    questions: jsonb('questions').$type<NativeQuestions>().notNull(),
+    status: text('status', { enum: ['pending', 'answered', 'declined', 'closed'] })
+      .notNull()
+      .default('pending'),
+    answers: jsonb('answers').$type<Record<string, string>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    closeReason: text('close_reason'),
+  },
+  (t) => [
+    uniqueIndex('run_questions_run_request_idx').on(t.runId, t.requestId),
+    check(
+      'run_questions_status_check',
+      sql`${t.status} in ('pending', 'answered', 'declined', 'closed')`,
     ),
   ],
 );

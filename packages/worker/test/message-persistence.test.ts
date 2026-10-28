@@ -1,5 +1,6 @@
 import { createDb, newId, repo, schema } from '@agentport/db';
-import type { ChatEvent } from '@agentport/shared';
+import type { ChatEvent, RunQuestion } from '@agentport/shared';
+import { type PublicRunQuestion, publicRunQuestion } from '@agentport/shared';
 import { and, count, eq, inArray, ne } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import * as messages from '../src/messages.js';
@@ -243,6 +244,97 @@ describe.skipIf(!ready)('buildMessageRows keeps assistant block identity', () =>
       { type: 'tool_result', toolUseId: 'tu1', content: 'ok', todos: [] },
     ]);
     expect(rows[1]?.content).toMatchObject({ type: 'tool_result', todos: [] });
+  });
+
+  const questionFor = (overrides: Partial<RunQuestion> = {}): RunQuestion => ({
+    requestId: 'req-1',
+    runId: 'run-1',
+    toolUseId: 'tu-q',
+    questions: [
+      {
+        question: '用哪种语言？',
+        header: '语言',
+        options: [
+          { label: 'TypeScript', description: '默认选择' },
+          { label: 'Python', description: '数据脚本' },
+        ],
+        multiSelect: false,
+      },
+    ],
+    status: 'pending',
+    answers: null,
+    createdAt: '2026-10-28T00:00:00.000Z',
+    resolvedAt: null,
+    expiresAt: '2026-10-28T00:10:00.000Z',
+    closeReason: null,
+    ...overrides,
+  });
+
+  const publicQuestionFor = (overrides: Partial<RunQuestion> = {}) =>
+    publicRunQuestion(questionFor(overrides));
+  const questionOf = (row: { content: unknown } | undefined): PublicRunQuestion | undefined =>
+    row === undefined ? undefined : (row.content as { question?: PublicRunQuestion }).question;
+
+  it('keeps the latest question snapshot on both tool halves, redacted for display', () => {
+    const rows = messages.buildMessageRows([
+      { type: 'tool_start', toolUseId: 'tu-q', name: 'AskUserQuestion' },
+      { type: 'tool_input', toolUseId: 'tu-q', json: '{"questions":[]}' },
+      { type: 'question_updated', question: publicQuestionFor() },
+      { type: 'tool_result', toolUseId: 'tu-q', content: 'answered' },
+      // 收尾阶段才写入的最终快照排在 tool_result 之后，也必须覆盖 pending。
+      {
+        type: 'question_updated',
+        question: publicQuestionFor({
+          status: 'answered',
+          answers: { '用哪种语言？': 'sk-abcdefghijklmnopqrstuvwx' },
+          resolvedAt: '2026-10-28T00:01:00.000Z',
+        }),
+      },
+    ]);
+
+    // 两份快照只留最新一份，答案与问题同样脱敏。
+    const question = questionOf(rows[0]);
+    expect(question).toMatchObject({
+      status: 'answered',
+      answers: { '0': 'sk-a***' },
+    });
+    expect(questionOf(rows[1])).toEqual(question);
+  });
+
+  it('uses a late cancellation snapshot for both halves of an existing tool result', () => {
+    const cancelled = publicQuestionFor({ status: 'closed', closeReason: 'cancelled' });
+    const rows = messages.buildMessageRows([
+      { type: 'tool_start', toolUseId: 'tu-q', name: 'AskUserQuestion' },
+      { type: 'question_updated', question: publicQuestionFor() },
+      { type: 'tool_result', toolUseId: 'tu-q', content: 'User declined' },
+      { type: 'question_updated', question: cancelled },
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(questionOf(rows[0])).toEqual(cancelled);
+    expect(questionOf(rows[1])).toEqual(cancelled);
+  });
+
+  it('keeps a question snapshot even when the run ended without a tool_result', () => {
+    const rows = messages.buildMessageRows([
+      { type: 'tool_start', toolUseId: 'tu-q', name: 'AskUserQuestion' },
+      { type: 'tool_input', toolUseId: 'tu-q', json: '{"questions":[]}' },
+      {
+        type: 'question_updated',
+        question: publicQuestionFor({
+          status: 'closed',
+          closeReason: 'cancelled',
+          resolvedAt: '2026-10-28T00:01:00.000Z',
+        }),
+      },
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.content).toMatchObject({
+      type: 'tool_use',
+      id: 'tu-q',
+      name: 'AskUserQuestion',
+      question: { requestId: 'req-1', status: 'closed', closeReason: 'cancelled' },
+    });
   });
 });
 

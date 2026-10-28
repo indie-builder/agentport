@@ -3,25 +3,66 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderWorkspace } from '../../core/src/workspace.js';
 
 // 外部 I/O 只有 SDK 与 stdin/stdout；runner 的 schema、选项组装和事件编码全走真实代码。
-const io = vi.hoisted(() => ({
-  line: '',
-  options: undefined as Record<string, unknown> | undefined,
-  forkCalls: [] as Array<{ sessionId: string; upToMessageId?: string }>,
-  /** 挂载目录里实际存在的 session（含 fork 产物）。 */
-  sessions: new Set<string>(),
-  /** 自定义 SDK 消息序列；为 null 时用默认的单文本块回合。 */
-  messages: null as unknown[] | null,
-  /** init 消息里报告已加载的插件；undefined 表示按任务里的 path 全部加载。 */
-  initPlugins: undefined as Array<{ name: string; path: string }> | undefined,
-  pluginErrors: undefined as Array<{ plugin: string; type: string; message: string }> | undefined,
-}));
+const io = vi.hoisted(() => {
+  const stdin: string[] = [];
+  const waiters: Array<(line: string | null) => void> = [];
+  let stdinClosed = false;
+  return {
+    stdin,
+    /** 读取任务行之后的下一条 stdin 命令；EOF 返回 null。 */
+    readLine(): Promise<string | null> {
+      const line = stdin.shift();
+      if (line !== undefined) return Promise.resolve(line);
+      if (stdinClosed) return Promise.resolve(null);
+      return new Promise((resolve) => waiters.push(resolve));
+    },
+    push(line: string): void {
+      const waiter = waiters.shift();
+      if (waiter) waiter(line);
+      else stdin.push(line);
+    },
+    endStdin(): void {
+      stdinClosed = true;
+      for (const waiter of waiters.splice(0)) waiter(null);
+    },
+    resetStdin(): void {
+      for (const waiter of waiters.splice(0)) waiter(null);
+      stdin.length = 0;
+      stdinClosed = false;
+    },
+    options: undefined as Record<string, unknown> | undefined,
+    forkCalls: [] as Array<{ sessionId: string; upToMessageId?: string }>,
+    /** 挂载目录里实际存在的 session（含 fork 产物）。 */
+    sessions: new Set<string>(),
+    /** 自定义 SDK 消息序列；为 null 时用默认的单文本块回合。 */
+    messages: null as unknown[] | null,
+    /** init 消息里报告已加载的插件；undefined 表示按任务里的 path 全部加载。 */
+    initPlugins: undefined as Array<{ name: string; path: string }> | undefined,
+    pluginErrors: undefined as Array<{ plugin: string; type: string; message: string }> | undefined,
+    /** 模拟一次 SDK 工具审批/提问；respond 在回调登记后写入 stdin。 */
+    ask: undefined as
+      | {
+          toolName: string;
+          input: Record<string, unknown>;
+          requestId?: string;
+          toolUseID?: string;
+          agentID?: string;
+          respond?: () => void;
+        }
+      | undefined,
+    askResults: [] as unknown[],
+  };
+});
 
 vi.mock('node:readline', () => ({
   createInterface: () => ({
     close() {},
-    async *[Symbol.asyncIterator]() {
-      yield io.line;
-    },
+    [Symbol.asyncIterator]: () => ({
+      next: async () => {
+        const line = await io.readLine();
+        return line === null ? { value: undefined, done: true } : { value: line, done: false };
+      },
+    }),
   }),
 }));
 
@@ -57,6 +98,26 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
         path: plugin.path,
       }));
     return (async function* () {
+      // 复现 SDK 在运行中调用 canUseTool；respond 在回调登记 pending 之后写入答案。
+      if (io.ask !== undefined) {
+        const canUseTool = options.canUseTool as
+          | ((
+              tool: string,
+              input: Record<string, unknown>,
+              context: Record<string, unknown>,
+            ) => Promise<unknown>)
+          | undefined;
+        if (canUseTool !== undefined) {
+          const pending = canUseTool(io.ask.toolName, io.ask.input, {
+            signal: new AbortController().signal,
+            toolUseID: io.ask.toolUseID ?? 'tool-1',
+            requestId: io.ask.requestId ?? 'req-1',
+            ...(io.ask.agentID === undefined ? {} : { agentID: io.ask.agentID }),
+          });
+          io.ask.respond?.();
+          io.askResults.push(await pending);
+        }
+      }
       if (io.messages !== null) {
         yield* io.messages as AsyncIterable<unknown>;
         return;
@@ -103,6 +164,9 @@ interface Event {
   parentToolUseId?: string;
   truncated?: boolean;
   todos?: Array<{ content: string; activeForm: string; status: string }>;
+  requestId?: string;
+  toolUseId?: string;
+  questions?: unknown[];
 }
 
 async function run(
@@ -113,20 +177,24 @@ async function run(
     pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
   } = {},
 ): Promise<{ events: Event[]; stderr: string }> {
-  io.line = JSON.stringify({
-    prompt: 'hi',
-    model: 'test-model',
-    maxTurns: 2,
-    maxBudgetUsd: 1,
-    userMessageUuid: USER_UUID,
-    ...task,
-  });
+  io.resetStdin();
+  io.stdin.push(
+    JSON.stringify({
+      prompt: 'hi',
+      model: 'test-model',
+      maxTurns: 2,
+      maxBudgetUsd: 1,
+      userMessageUuid: USER_UUID,
+      ...task,
+    }),
+  );
   io.forkCalls = [];
   io.options = undefined;
   io.messages = messages ?? null;
   io.sessions = new Set(['existing-session', 'source-session']);
   io.initPlugins = init.plugins;
   io.pluginErrors = init.pluginErrors;
+  io.askResults = [];
   vi.resetModules();
   const events: Event[] = [];
   let stderr = '';
@@ -457,6 +525,88 @@ describe('runner task wiring', () => {
 
   it('rejects a task without a user message uuid', async () => {
     await expect(run({ userMessageUuid: 'not-a-uuid' })).rejects.toThrow();
+  });
+});
+
+describe('native clarification questions', () => {
+  const questions = [
+    {
+      question: '用哪种语言？',
+      header: '语言',
+      options: [
+        { label: 'TypeScript', description: '默认选择' },
+        { label: 'Python', description: '数据脚本' },
+      ],
+      multiSelect: false,
+    },
+  ];
+
+  it('does not install canUseTool under dontAsk', async () => {
+    const { events } = await run({});
+    expect(io.options?.permissionMode).toBe('dontAsk');
+    expect(io.options).not.toHaveProperty('canUseTool');
+    expect(events.some((event) => event.type === 'question_requested')).toBe(false);
+  });
+
+  it('asks through stdin and continues the same run with the original questions', async () => {
+    const answers = { '用哪种语言？': 'TypeScript' };
+    io.ask = {
+      toolName: 'AskUserQuestion',
+      input: { questions },
+      respond: () =>
+        io.push(
+          JSON.stringify({
+            type: 'question_response',
+            requestId: 'req-1',
+            response: { answers },
+          }),
+        ),
+    };
+
+    const { events } = await run({ permissionMode: 'default' });
+
+    expect(io.options?.permissionMode).toBe('default');
+    expect(io.options?.canUseTool).toBeTypeOf('function');
+    expect(io.askResults).toEqual([{ behavior: 'allow', updatedInput: { questions, answers } }]);
+    expect(events).toContainEqual({
+      type: 'question_requested',
+      requestId: 'req-1',
+      toolUseId: 'tool-1',
+      questions,
+    });
+    // 回答后继续同一次运行，不新起 run，也不发关闭事件。
+    expect(events.filter((event) => event.type === 'question_closed')).toEqual([]);
+    expect(events.at(-1)).toMatchObject({ type: 'run_finished', status: 'succeeded' });
+  });
+
+  it('fails closed for every non-question tool approval', async () => {
+    io.ask = { toolName: 'Bash', input: { command: 'rm -rf /' } };
+
+    const { events } = await run({ permissionMode: 'default' });
+
+    expect(io.askResults).toEqual([expect.objectContaining({ behavior: 'deny' })]);
+    expect(events.some((event) => event.type === 'question_requested')).toBe(false);
+  });
+
+  it('refuses questions from sub-agents', async () => {
+    io.ask = { toolName: 'AskUserQuestion', input: { questions }, agentID: 'sub-agent' };
+
+    await run({ permissionMode: 'default' });
+
+    expect(io.askResults).toEqual([expect.objectContaining({ behavior: 'deny' })]);
+  });
+
+  it('closes a pending question when stdin ends', async () => {
+    io.ask = {
+      toolName: 'AskUserQuestion',
+      input: { questions },
+      respond: () => io.endStdin(),
+    };
+
+    const { events } = await run({ permissionMode: 'default' });
+
+    expect(io.askResults).toEqual([expect.objectContaining({ behavior: 'deny' })]);
+    expect(events).toContainEqual({ type: 'question_closed', requestId: 'req-1' });
   });
 });
 

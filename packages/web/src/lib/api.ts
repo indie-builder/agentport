@@ -34,6 +34,8 @@ import type {
   PluginInput,
   PluginWithAgentCount,
   Problem,
+  PublicQuestionResponse,
+  PublicRunQuestion,
   Rule,
   Schedule,
   ScheduleInput,
@@ -157,6 +159,8 @@ export type RunStep =
       /** 调用结果；与 content（参数）分开。 */
       result?: unknown;
       parentToolUseId: string | null;
+      /** 原生提问的最终展示快照；只有提问工具行才带。 */
+      question?: PublicRunQuestion;
     };
 
 export interface RunDetail {
@@ -925,6 +929,14 @@ export const api = {
   },
   run: (id: string, signal?: AbortSignal): Promise<RunDetail> =>
     request(`/runs/${id}`, 'GET', undefined, signal),
+  runQuestions: (id: string): Promise<{ items: PublicRunQuestion[] }> =>
+    request(`/runs/${id}/questions`),
+  respondToQuestion: (
+    runId: string,
+    requestId: string,
+    response: PublicQuestionResponse,
+  ): Promise<PublicRunQuestion> =>
+    request(`/runs/${runId}/questions/${encodeURIComponent(requestId)}/response`, 'POST', response),
   skillDraftFromRun: (runId: string): Promise<Skill> =>
     request(`/runs/${runId}/skill-draft`, 'POST'),
   attention: (): Promise<Attention> => request('/attention'),

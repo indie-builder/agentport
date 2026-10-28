@@ -1,8 +1,8 @@
 import { resolveOpenUiResponse } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
-import { type ChatEvent, segmentOpenUi } from '@agentport/shared';
+import { type ChatEvent, type PublicRunQuestion, segmentOpenUi } from '@agentport/shared';
 import { and, desc, eq, isNotNull, ne, sql } from 'drizzle-orm';
-import { redactSecrets } from './redact.js';
+import { redactJson, redactSecrets } from './redact.js';
 
 /** 工具入参在事件里是 JSON 字符串；落库时还原成对象，前端与 trace 都按对象渲染。 */
 function parseToolInput(raw: string | undefined): unknown {
@@ -37,6 +37,16 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
   const toolInputs = new Map<string, string>();
   const toolParents = new Map<string, string>();
   const toolUuids = new Map<string, string>();
+  /** 每个提问工具调用的最新快照；按 toolUseId 附到工具历史，刷新后仍能还原卡片。 */
+  const questions = new Map<string, PublicRunQuestion>();
+  // 先收集全部快照：收尾时才写入的 answered/closed 排在 tool_result 之后，
+  // 单遍处理会把旧的 pending 快照留在历史里。
+  for (const event of events) {
+    if (event.type === 'question_updated') {
+      questions.set(event.question.toolUseId, event.question);
+    }
+  }
+  const answeredToolIds = new Set<string>();
 
   for (const event of events) {
     if (event.type === 'assistant_text' && event.text.trim().length > 0) {
@@ -63,8 +73,10 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
         toolParents.set(event.toolUseId, event.parentToolUseId);
       }
     } else if (event.type === 'tool_input') {
-      toolInputs.set(event.toolUseId, redactSecrets(event.json));
+      toolInputs.set(event.toolUseId, redactJson(event.json));
     } else if (event.type === 'tool_result') {
+      answeredToolIds.add(event.toolUseId);
+      const question = questions.get(event.toolUseId);
       // 子智能体内部的调用：标出它属于哪个父侧 Agent 调用，前端据此缩进。
       const parentToolUseId = event.parentToolUseId ?? toolParents.get(event.toolUseId);
       const parent = parentToolUseId === undefined ? {} : { parentToolUseId };
@@ -80,6 +92,7 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
           name: toolNames.get(event.toolUseId) ?? null,
           input: parseToolInput(toolInputs.get(event.toolUseId)),
           ...parent,
+          ...(question === undefined ? {} : { question }),
         },
         ...sdk,
       });
@@ -101,10 +114,30 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
                 })),
               }),
           ...parent,
+          ...(question === undefined ? {} : { question }),
         },
         ...sdk,
       });
     }
+  }
+
+  // 取消/超时没有原生 tool_result：提问卡片仍要保留，否则刷新后问题凭空消失。
+  for (const [toolUseId, question] of questions) {
+    if (answeredToolIds.has(toolUseId)) continue;
+    const parentToolUseId = toolParents.get(toolUseId);
+    const sdkMessageUuid = toolUuids.get(toolUseId);
+    rows.push({
+      role: 'tool',
+      content: {
+        type: 'tool_use',
+        id: toolUseId,
+        name: toolNames.get(toolUseId) ?? 'AskUserQuestion',
+        input: parseToolInput(toolInputs.get(toolUseId)),
+        ...(parentToolUseId === undefined ? {} : { parentToolUseId }),
+        question,
+      },
+      ...(sdkMessageUuid === undefined ? {} : { sdkMessageUuid }),
+    });
   }
 
   return rows;

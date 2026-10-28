@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { effortSchema, permissionModeSchema } from './agent.js';
 import { openUiActionSchema } from './openui/protocol.js';
 import { outputRefSchema } from './outputs.js';
+import { nativeQuestionsSchema, publicRunQuestionSchema } from './questions.js';
 
 /**
  * 官方可移植的 TodoWrite 开关：专家包 `.claude/settings.json` 与沙盒运行时共用这一份值。
@@ -135,6 +136,17 @@ export const chatEventSchema = z.discriminatedUnion('type', [
     /** 超过单块上限被截断：text 是已保留的前缀，不是完整内容。 */
     truncated: z.boolean().optional(),
   }),
+  /** 原生 AskUserQuestion 请求：先落库成 RunQuestion，再推给界面。 */
+  z.object({
+    type: z.literal('question_requested'),
+    requestId: z.string(),
+    toolUseId: z.string(),
+    questions: nativeQuestionsSchema,
+  }),
+  /** 问题已被关闭（取消/超时/失败）；只发标识，完整记录走 question_updated。 */
+  z.object({ type: z.literal('question_closed'), requestId: z.string() }),
+  /** 问题的完整快照：worker 落库后推给 SSE 与历史。 */
+  z.object({ type: z.literal('question_updated'), question: publicRunQuestionSchema }),
   /**
    * 按历史点 fork 完成，新会话 id 已产生。新旧 uuid 映射由 worker 从宿主
    * transcript 的 `forkedFrom` 字段计算，不经事件传输（避免体积与条数上限）。

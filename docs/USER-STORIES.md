@@ -83,8 +83,8 @@
 **作为** 管理员，**我想** 控制智能体能做什么、花多少、跑多久。
 
 验收：
-- 可配置 `permissionMode`、`allowedTools`、`disallowedTools`。权限页面明确 SDK `allowedTools` 预批准与工具自身 `requiresApproval` 的服务端审批是两层约束；`default` 不提供 SDK 层交互审批宿主，不意味着跳过工具自身审批。
-- `permissionMode` 支持 `dontAsk`（默认）、`plan`、`default` 与 `acceptEdits`，直接透传 Agent SDK；`auto` 依赖模型分类器，平台无法审计其决定，保存时返回 400。权限模式不会解除平台固定禁用的内置工具。
+- 可配置 `permissionMode`、`allowedTools`、`disallowedTools`。权限页面明确 SDK `allowedTools` 预批准与工具自身 `requiresApproval` 的服务端审批是两层约束；`default` 的宿主回调仅处理原生澄清提问，其余未预批准调用仍拒绝，不替代工具自身审批。
+- `permissionMode` 支持 `default`（新建默认）、`plan`、`dontAsk` 与 `acceptEdits`，直接透传 Agent SDK；显式 `dontAsk` 拒绝原生交互提问，不进入回调。`auto` 依赖模型分类器，平台无法审计其决定，保存时返回 400。权限模式不会解除平台固定禁用的内置工具。
 - 可配置 `maxTurns`、`maxBudgetUsd`、`timeoutMs`。
 - 可配置 `effort` 与 `maxThinkingTokens`（可选）。
 - 内置工具默认全部从上下文移除（Bash/Read/Write/Edit/WebFetch…）；例外是主会话的原生记忆：`Read`/`Write`/`Edit` 仅可访问 `/mnt/agent-memory/` 下的 Markdown，`Read` 另可只读技能 `references/` 与插件技能资源；子智能体与其他路径仍被拒绝。原生 `TodoWrite` 按运行时配置单独启用。
@@ -228,7 +228,7 @@
 
 **产出与反馈**：待批准与已回答状态在对话和运行详情中一致可见（US-3.5）；副作用只在批准后发生，拒绝不产生。
 
-**待核对验收**：官方 `AskUserQuestion` 在当前非交互 SDK 运行中是否可用、是否真正等待回答未验证；现有审批只覆盖 MCP/生成式 UI 工具，等待型调用批准后可继续、非等待型需重试同一调用；澄清问题的持久化与跨运行状态未验证。
+**已验证与待核对验收**：原生 `AskUserQuestion` 已接通。SDK0.3.311真实探针确认 `default` 回调回答后继续、`dontAsk` 直接拒绝；隔离环境4次真实模型run通过：提问→刷新与运行详情均可回答→回答后同一run继续原生`Write`交付（列表/正文/下载哈希一致），`requiresApproval`工具在批准前副作用计数0、批准后1；拒答、等待中停止、整体超时均关闭问题并正确结束。公开问题以题序号/选项序号提交，服务端映射回原始SDK键值，对外统一脱敏。未覆盖：多问题/多选在真实模型下的组合、真实读屏与原生缩放；关闭原因在SDK取消路径记为通用`closed`。证据见 [任务记录](tasks/agent-clarification.md)。澄清提问只是US-6.2的一部分；当前仍没有通用的“任意工具调用挂起等待人工批准”宿主，MCP审批继续独立执行，不把本条视为整个故事全部完成。
 
 ### US-6.3 多步骤执行与子智能体协作
 **目标**：较复杂任务被拆成可见步骤执行，必要时委派给子智能体，最后汇总成完整结果。
@@ -239,7 +239,7 @@
 
 **产出与反馈**：步骤清单只表示模型自报进度，不作为成功或成果质量判据；子智能体的清单不覆盖主清单；子智能体的最终结果纳入主会话答复并可查看。
 
-**已验证与待核对验收**：默认 `dontAsk` 下原生 `TodoWrite` 已在真实沙盒执行，4 次快照通过 SSE 与历史保存且浏览器刷新恢复；快照字节上限与导出可移植 env 已补行为测试。此证据仅覆盖进度环节；子智能体真实加载调用与最终汇总仍需独立验收。详细证据见 [任务记录](tasks/platform-capability-gaps.md)。
+**已验证与待核对验收**：当轮默认 `dontAsk` 下原生 `TodoWrite` 已在真实沙盒执行，4 次快照通过 SSE 与历史保存且浏览器刷新恢复；快照字节上限与导出可移植 env 已补行为测试。此证据仅覆盖进度环节；子智能体真实加载调用与最终汇总仍需独立验收。详细证据见 [任务记录](tasks/platform-capability-gaps.md)。
 
 ### US-6.4 记忆与规则跨会话复用
 **目标**：在会话 A 中确立的偏好、结论或规则，在后续新会话中可直接复用，不必重复交代。

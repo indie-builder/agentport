@@ -1,0 +1,25 @@
+{
+  "case": "main-question-answer-continue",
+  "runId": "run_01m615835wend8jchq4n0rqmfj",
+  "conversationId": "conv_01m615835vend8jch9hqm4xan3",
+  "requestId": "c2af0ee0-8316-4db3-a35c-b414c143976c",
+  "question": "这份报告的目标受众是谁？",
+  "selected": "产品经理",
+  "questionStatus": "answered",
+  "output": {
+    "runId": "run_01m615835wend8jchq4n0rqmfj",
+    "path": "report.md",
+    "size": 196,
+    "sha256": "cf9446f00c63dd2145f7145158589d2042894a40ba727fb30633f183873e951b",
+    "mediaType": "text/markdown",
+    "createdAt": "2026-10-28T11:48:35.473Z",
+    "status": "succeeded"
+  },
+  "contentHash": "cf9446f00c63dd2145f7145158589d2042894a40ba727fb30633f183873e951b",
+  "downloadHash": "cf9446f00c63dd2145f7145158589d2042894a40ba727fb30633f183873e951b",
+  "approval": {
+    "serverId": "srv_01m615834zend8jcfpxvw2thsq",
+    "toolName": "effect-0e5ec3",
+    "calls": 1
+  }
+}

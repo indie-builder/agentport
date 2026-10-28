@@ -1,0 +1,66 @@
+{
+  "runs": 4,
+  "results": [
+    {
+      "case": "main-question-answer-continue",
+      "runId": "run_01m615w7fvfzyvzskf0df95hm3",
+      "conversationId": "conv_01m615w7ftfzyvzsk2cxr09pgx",
+      "requestId": "3d5a96af-add1-437b-8dec-4162e0a4e77e",
+      "question": "这份报告的目标受众是谁？",
+      "selected": "产品经理",
+      "questionStatus": "answered",
+      "output": {
+        "runId": "run_01m615w7fvfzyvzskf0df95hm3",
+        "path": "report.md",
+        "size": 340,
+        "sha256": "a5a259c8b4c6fca7068d3dfe64cc736155258b35ca02c32b0cb4b1919afe4be6",
+        "mediaType": "text/markdown",
+        "createdAt": "2026-10-28T11:56:22.297Z",
+        "status": "succeeded"
+      },
+      "contentHash": "a5a259c8b4c6fca7068d3dfe64cc736155258b35ca02c32b0cb4b1919afe4be6",
+      "downloadHash": "a5a259c8b4c6fca7068d3dfe64cc736155258b35ca02c32b0cb4b1919afe4be6",
+      "approval": {
+        "serverId": "srv_01m615w7esfzyvzshe0nthr07z",
+        "toolName": "effect-b1c318",
+        "calls": 1
+      }
+    },
+    {
+      "case": "decline",
+      "runId": "run_01m615wnmefzyvzsnzysgdp7zz",
+      "conversationId": "conv_01m615wnmcfzyvzsnkr07e8k75",
+      "questionStatus": "declined",
+      "runStatus": "succeeded"
+    },
+    {
+      "case": "cancel-pending",
+      "runId": "run_01m615wxnpfzyvzsqtf5y0gk08",
+      "conversationId": "conv_01m615wxnkfzyvzsqh15m5tsnv",
+      "requestId": "371ad6a7-4d3d-48df-8bbf-560d575427dc",
+      "runStatus": "cancelled",
+      "questions": [
+        {
+          "requestId": "371ad6a7-4d3d-48df-8bbf-560d575427dc",
+          "status": "closed",
+          "closeReason": "closed"
+        }
+      ]
+    },
+    {
+      "case": "short-timeout",
+      "runId": "run_01m615x4rjfzyvzssza5fdyqx8",
+      "conversationId": "conv_01m615x4rffzyvzssg672jgkkd",
+      "requestId": "ca27ebd5-f119-4f7e-939b-8842beb68118",
+      "timeoutMs": 20000,
+      "runStatus": "timeout",
+      "questions": [
+        {
+          "requestId": "ca27ebd5-f119-4f7e-939b-8842beb68118",
+          "status": "closed",
+          "closeReason": "closed"
+        }
+      ]
+    }
+  ]
+}

@@ -325,6 +325,16 @@ function renderClaudeMd(input: WorkspaceInput): string {
     '',
     '多步骤任务（三步以上）用原生 `TodoWrite` 维护清单：每项写 `content` 与进行中的 `activeForm`，完成一步就更新状态，用户会在界面上看到进度。',
     '简单问答或单步操作不需要清单。',
+    // dontAsk 下 SDK 直接拒绝提问（见官方权限流程），提示词不能承诺做不到的事。
+    ...(agent.permissionMode === 'dontAsk'
+      ? []
+      : [
+          '',
+          '## 澄清提问',
+          '',
+          '目标缺少关键信息、不同选择会明显改变交付结果时，用原生 `AskUserQuestion` 向用户确认（1–4 个问题，每题 2–4 个选项），不要猜测后直接交付。',
+          '它只用于澄清需求，不是工具授权；需要批准的副作用仍按上面的等待规则处理。',
+        ]),
     ...skillLines,
     ...delegationWaitSection(input),
     ...subAgentLines,
@@ -409,6 +419,7 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
           // 子智能体没有自己的 CLAUDE.md，等待语义只能写在它自己的 md 里。
           '你是被父智能体同步调用的：直接执行任务并返回最终文本。',
           '不要再委派给其他智能体（`Agent`/`TaskStop` 已禁用）。',
+          '不能向用户提问（`AskUserQuestion` 仅主会话可用）；缺少关键信息时在最终文本里说明，由父智能体决定是否向用户确认。',
           ...(agent.timeoutMs
             ? [`父智能体最多等你 ${Math.round(agent.timeoutMs / 1000)} 秒，超时本次委派即失败。`]
             : []),
