@@ -256,7 +256,7 @@ shared  ◀── web
 | `api` | `api` + `core` + `db` | HTTP、SSE、MCP 端点、配置 CRUD、入队 | 是 |
 | `worker` | `worker` + `core` + `db` | 消费队列、创建/销毁沙盒、转发事件 | 是 |
 | `web` | `web` | SPA，构建产物由 api 托管 | 否（静态） |
-| `sandbox runner` | `sandbox` | 容器内执行 Agent SDK，一次性 | 否（每次 run） |
+| `sandbox runner` | `sandbox` | 容器内常驻 supervisor + 每轮新 runner 执行 Agent SDK；容器按会话短期复用 | 是（同一会话容器，空闲 5 分钟回收） |
 
 **MQ 的层定位**：BullMQ 是 `worker` 与 `api` 之间的**传输层**，不是业务层。业务层只定义「任务是什么」（`core` 里的 `AgentRunJob` 类型），`api` 负责生产、`worker` 负责消费。两边共享的只有 `shared` 里的 job schema，避免 producer/consumer 字段漂移。
 
@@ -550,7 +550,7 @@ interface SandboxProvider {
 ### 6.5 沙盒内的网络与凭证
 
 - 沙盒访问 API：用 `SANDBOX_API_URL`，默认 `http://host.docker.internal:3000`，由 worker 的 `--add-host` 解析；其他网络模式改用宿主可达地址。
-- **不要把 model API key 写进挂载文件**。用 `env` 注入 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY`；更高要求时用宿主侧代理注入，使沙盒内进程永远看不到明文密钥。
+- **不要把 model API key 写进挂载文件。** 默认由 worker 的模型凭证代理（D-17）持有真实凭证：配置 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN` 后，沙盒只注入代理地址与按 run 签发的短期 `ANTHROPIC_AUTH_TOKEN`，容器内进程看不到明文密钥；未配置凭证时代理不启动，保留直接注入配置值的回退路径并打印警告。
 - 出站默认拒绝，按需放行：模型 API 域名 + 用户配置的 MCP HTTP server 域名 + 平台自身域名。
 - 挂载一律只读；需要写的工作区单独给一个可写子目录。
 

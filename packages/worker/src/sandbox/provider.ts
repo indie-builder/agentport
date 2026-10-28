@@ -17,6 +17,8 @@ export interface SandboxCreateOptions {
   entrypoint?: string;
   /** ENTRYPOINT 之后的参数。 */
   command?: string[];
+  /** 给容器 PID 1 加 init 进程，长驻 supervisor 需要回收每轮子进程。 */
+  init?: boolean;
   /** 取消创建：拉取结束前取消则不创建；create 已发出则等它结束、rm 且不 start。 */
   signal?: AbortSignal;
 }

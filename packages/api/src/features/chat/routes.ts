@@ -682,6 +682,16 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
                 'sdk session cleanup failed',
               );
             }),
+            // 会话沙盒目录按会话派生，含定义草稿与成果；DB 删掉后不再有入口。
+            rm(join(app.config.WORKSPACES_DIR, agent.slug, 'session-sandboxes', conversation.id), {
+              recursive: true,
+              force: true,
+            }).catch((err: unknown) => {
+              request.log.warn(
+                { err, conversationId: conversation.id },
+                'session sandbox cleanup failed',
+              );
+            }),
             // 成果按会话独立保存：DB 删掉后目录不再有任何索引，必须一起清理。
             removeConversationOutputs({
               root: app.config.WORKSPACES_DIR,

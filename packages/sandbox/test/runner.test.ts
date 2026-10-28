@@ -51,6 +51,10 @@ const io = vi.hoisted(() => {
         }
       | undefined,
     askResults: [] as unknown[],
+    /** 在 init 之后中止 query，模拟用户取消。 */
+    abort: false,
+    /** query.close() 是否被显式调用。 */
+    closed: false,
   };
 });
 
@@ -97,7 +101,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
         name: plugin.path.split('/').pop() ?? plugin.path,
         path: plugin.path,
       }));
-    return (async function* () {
+    const stream = (async function* () {
       // 复现 SDK 在运行中调用 canUseTool；respond 在回调登记 pending 之后写入答案。
       if (io.ask !== undefined) {
         const canUseTool = options.canUseTool as
@@ -125,10 +129,16 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
       yield {
         type: 'system',
         subtype: 'init',
+        session_id: 'session-init',
         mcp_servers: [],
         plugins: loaded,
         ...(io.pluginErrors === undefined ? {} : { plugin_errors: io.pluginErrors }),
       };
+      if (io.abort) {
+        // 用户取消：SDK 的 query 以异常结束，可能来不及发 result。
+        (options.abortController as AbortController).abort();
+        throw new Error('aborted by test');
+      }
       yield {
         type: 'assistant',
         parent_tool_use_id: null,
@@ -145,6 +155,11 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
         modelUsage: { model: { inputTokens: 3, outputTokens: 4 } },
       };
     })();
+    return Object.assign(stream, {
+      close: () => {
+        io.closed = true;
+      },
+    });
   },
 }));
 
@@ -175,6 +190,7 @@ async function run(
   init: {
     plugins?: Array<{ name: string; path: string }>;
     pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
+    abort?: boolean;
   } = {},
 ): Promise<{ events: Event[]; stderr: string }> {
   io.resetStdin();
@@ -195,6 +211,8 @@ async function run(
   io.initPlugins = init.plugins;
   io.pluginErrors = init.pluginErrors;
   io.askResults = [];
+  io.abort = init.abort ?? false;
+  io.closed = false;
   vi.resetModules();
   const events: Event[] = [];
   let stderr = '';
@@ -332,6 +350,23 @@ describe('runner task wiring', () => {
       },
     ]);
     expect(io.options).toBeUndefined();
+  });
+
+  it('closes the query after a normal run', async () => {
+    await run({});
+    expect(io.closed).toBe(true);
+  });
+
+  it('reports the init session id and closes the query when cancelled early', async () => {
+    const { events } = await run({}, undefined, { abort: true });
+
+    expect(events.at(-1)).toMatchObject({
+      type: 'run_finished',
+      status: 'cancelled',
+      sessionId: 'session-init',
+      failureKind: 'cancelled',
+    });
+    expect(io.closed).toBe(true);
   });
 
   it('keeps file tools denied in generated child frontmatter', () => {

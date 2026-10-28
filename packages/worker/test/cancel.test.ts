@@ -1,17 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
+import type { ExecutionSettlement } from '@agentport/shared';
 import { runCancelKey } from '@agentport/shared';
-import { Effect, Fiber } from 'effect';
 import { Redis } from 'ioredis';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  acquireSessionSandbox,
   closeRunnerClient,
   configureRunnerClient,
   isRetryable,
   runInSandbox,
 } from '../src/runner-client.js';
-import type { Sandbox, SandboxProvider } from '../src/sandbox/provider.js';
+import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
 
 async function probeRedis(): Promise<boolean> {
   const redisUrl = process.env.REDIS_URL;
@@ -34,17 +33,6 @@ async function probeRedis(): Promise<boolean> {
 const redisUrl = process.env.REDIS_URL ?? '';
 const ready = await probeRedis();
 
-class FakeChild extends EventEmitter {
-  readonly stdin = new PassThrough();
-  readonly stdout = new PassThrough();
-  readonly stderr = new PassThrough();
-  readonly signals: NodeJS.Signals[] = [];
-  kill(signal: NodeJS.Signals): boolean {
-    this.signals.push(signal);
-    return true;
-  }
-}
-
 const quietLogger = {
   info: () => undefined,
   warn: () => undefined,
@@ -61,15 +49,13 @@ const task = {
   userMessageUuid: '11111111-2222-4333-8444-555555555555',
 };
 
-function input(runId: string, provider: SandboxProvider) {
+function input(runId: string, lease: SessionSandboxLease) {
   return {
     runId,
     timeoutMs: 5_000,
     task,
-    workspaceDir: '/tmp/fake',
-    image: 'fake',
     env: {},
-    provider,
+    lease,
     logger: quietLogger,
   };
 }
@@ -88,187 +74,124 @@ afterAll(async () => {
   await closeRunnerClient();
 });
 
-describe('runInSandbox task payload', () => {
-  it('serializes the shared sandbox task to the runner unchanged', async () => {
+describe.skipIf(!ready)('runInSandbox task payload', () => {
+  it('passes task and per-run environment to the lease unchanged', async () => {
     configureRunnerClient(redisUrl);
-    const child = new FakeChild();
-
-    // 宿主写任务只经过 stdin；截下原始文本，再回一条终态让 run 收尾。
-    const written: string[] = [];
-    const originalWrite = child.stdin.write.bind(child.stdin);
-    child.stdin.write = ((chunk: string) => {
-      written.push(chunk);
-      child.stdout.write(`${JSON.stringify({ type: 'run_finished', status: 'succeeded' })}\n`);
-      child.emit('close', 0, null);
-      return originalWrite(chunk);
-    }) as typeof child.stdin.write;
-
-    await runInSandbox(
+    let received: unknown;
+    const outcome = await runInSandbox(
       input(`run-payload-${randomUUID()}`, {
-        create: async () => ({ id: 'fake', child }) as unknown as Sandbox,
-        destroy: async () => undefined,
+        sandboxId: 'fake',
+        start: async (options) => {
+          received = options.task;
+          options.onEvent({ type: 'run_finished', status: 'succeeded' });
+          return {
+            done: Promise.resolve({ state: 'stopped', code: 0, signal: null }),
+            send() {},
+            cancel: async () => ({ state: 'stopped', code: 0, signal: null }),
+          };
+        },
+        release: async () => {
+          throw new Error('completed run must retain its lease');
+        },
       }),
     );
-
-    expect(JSON.parse(written.join('').trim())).toEqual(task);
+    expect(outcome.status).toBe('succeeded');
+    expect(received).toEqual(task);
   });
 });
 
-describe('Effect.tryPromise signal semantics', () => {
-  it('aborts the signal when a racing branch wins but not when the promise completes', async () => {
-    let raced: AbortSignal | undefined;
-    await Effect.runPromise(
-      Effect.raceAllFirst([
-        Effect.tryPromise({
-          try: (signal) => {
-            raced = signal;
-            return new Promise<never>(() => undefined);
-          },
-          catch: (err) => err,
-        }),
-        Effect.sleep(10),
-      ]),
-    );
-    // create 分支被 race 打断时必须 abort，provider 才能中断 docker pull。
-    expect(raced?.aborted).toBe(true);
-
-    let completed: AbortSignal | undefined;
-    await Effect.runPromise(
-      Effect.tryPromise({
-        try: (signal) => {
-          completed = signal;
-          return Promise.resolve('ok');
+describe.skipIf(!ready)('session acquire cancellation', () => {
+  it('aborts a pending acquire when the user cancels through Redis', async () => {
+    configureRunnerClient(redisUrl);
+    const runId = `acquire-cancel-${randomUUID()}`;
+    let started: () => void = () => undefined;
+    const reached = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let received: AbortSignal | undefined;
+    const running = acquireSessionSandbox({
+      runId,
+      logger: quietLogger,
+      signal: new AbortController().signal,
+      spec: {
+        agentId: 'a',
+        conversationId: 'c',
+        image: 'i',
+        workspaceDir: '/w',
+        outputsDir: '/o',
+        inputsDir: '/i',
+        memoryDir: '/m',
+        sessionsDir: '/s',
+      },
+      manager: {
+        acquire: (_spec, signal) => {
+          received = signal;
+          started();
+          return new Promise<SessionSandboxLease>(() => undefined);
         },
-        catch: (err) => err,
-      }),
-    );
-    // 正常完成不 abort：create 成功后 provider 仍要 start 容器。
-    expect(completed?.aborted).toBe(false);
-
-    let interrupted: AbortSignal | undefined;
-    const fiber = Effect.runFork(
-      Effect.tryPromise({
-        try: (signal) => {
-          interrupted = signal;
-          return new Promise<never>(() => undefined);
-        },
-        catch: (err) => err,
-      }),
-    );
-    await Effect.runPromise(Effect.sleep(10));
-    await Effect.runPromise(Fiber.interrupt(fiber));
-    // Effect 被停止（worker 关停/上层中断）时也会 abort create。
-    expect(interrupted?.aborted).toBe(true);
+      },
+    });
+    const rejected = expect(running).rejects.toMatchObject({ reason: 'cancelled' });
+    await reached;
+    await requestCancel(runId);
+    await rejected;
+    expect(received?.aborted).toBe(true);
   });
 });
 
 describe.skipIf(!ready)('runInSandbox cancellation', () => {
-  it('aborts a create that is still pending when the user cancels', async () => {
-    configureRunnerClient(redisUrl);
-    const runId = `run-cancel-create-${randomUUID()}`;
-    let createSignal: AbortSignal | undefined;
-    let createStarted: () => void = () => undefined;
-    const started = new Promise<void>((resolve) => {
-      createStarted = resolve;
-    });
-
-    const running = runInSandbox(
-      input(runId, {
-        create: (options) => {
-          createSignal = options.signal;
-          createStarted();
-          return new Promise<Sandbox>(() => undefined);
-        },
-        destroy: async () => undefined,
-      }),
-    );
-    await started;
-    expect(createSignal?.aborted).toBe(false);
-
-    await requestCancel(runId);
-    const outcome = await running;
-
-    expect(outcome.status).toBe('cancelled');
-    expect(createSignal?.aborted).toBe(true);
-  });
-
-  it('lets the provider own container shutdown instead of killing the docker client', async () => {
-    configureRunnerClient(redisUrl);
-    const runId = `run-cancel-${randomUUID()}`;
-    const child = new FakeChild();
-    const destroyed: string[] = [];
-
-    const running = runInSandbox(
-      input(runId, {
-        create: async () => ({ id: 'fake', child }) as unknown as Sandbox,
-        destroy: async (sandbox) => {
-          destroyed.push(sandbox.id);
-        },
-      }),
-    );
-    // 等 create 完成、取消订阅建立，再发真实取消信号。
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    await requestCancel(runId);
-    const outcome = await running;
-
-    expect(outcome.status).toBe('cancelled');
-    expect(destroyed).toEqual(['fake']);
-    expect(child.signals).toEqual([]);
-  });
-
-  it('destroys a sandbox that finishes creating after the cancel', async () => {
-    configureRunnerClient(redisUrl);
-    const runId = `run-cancel-late-${randomUUID()}`;
-    const child = new FakeChild();
-    const destroyed: string[] = [];
-    let finishCreate: ((sandbox: Sandbox) => void) | undefined;
-
-    const running = runInSandbox(
-      input(runId, {
-        create: () =>
-          new Promise<Sandbox>((resolve) => {
-            finishCreate = resolve;
-          }),
-        destroy: async (sandbox) => {
-          destroyed.push(sandbox.id);
-        },
-      }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    await requestCancel(runId);
-    const outcome = await running;
-    expect(outcome.status).toBe('cancelled');
-
-    // 取消先返回时容器可能随后才创建完成；必须走 provider 销毁，不能直接杀 docker 客户端。
-    finishCreate?.({ id: 'late', child } as unknown as Sandbox);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(destroyed).toEqual(['late']);
-    expect(child.signals).toEqual([]);
-  });
-
-  it('keeps the cancelled result when cleanup fails', async () => {
-    configureRunnerClient(redisUrl);
-    const runId = `run-cancel-cleanup-${randomUUID()}`;
-    const child = new FakeChild();
-
-    const running = runInSandbox(
-      input(runId, {
-        create: async () => ({ id: 'fake', child }) as unknown as Sandbox,
-        destroy: async () => {
-          throw new Error('docker rm -f fake failed');
-        },
-      }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    await requestCancel(runId);
-    const outcome = await running;
-
-    // 清理失败不能把取消改判成可重试的 infra。
-    expect(outcome.status).toBe('cancelled');
-    expect(outcome.failure).toMatchObject({ reason: 'cancelled' });
-    expect(outcome.error).toBeUndefined();
-    expect(isRetryable(outcome)).toBe(false);
-    // 但容器没停稳这件事必须传出去：调用方据此不发布产出快照。
-    expect(outcome.cleanupError).toBe('docker rm -f fake failed');
-  });
+  it.each([false, true])(
+    'waits for cancel ACK, preserves metadata and reports cleanup failure=%s',
+    async (cleanupFails) => {
+      configureRunnerClient(redisUrl);
+      const runId = `run-cancel-${randomUUID()}`;
+      let started: () => void = () => undefined;
+      const starting = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let releases = 0;
+      const running = runInSandbox(
+        input(runId, {
+          sandboxId: 'fake',
+          start: async ({ onEvent }) => {
+            let finish: (value: ExecutionSettlement) => void = () => undefined;
+            const done = new Promise<ExecutionSettlement>((resolve) => {
+              finish = resolve;
+            });
+            started();
+            return {
+              done,
+              send() {},
+              cancel: async () => {
+                onEvent({
+                  type: 'run_finished',
+                  status: 'cancelled',
+                  sessionId: 'sdk-cancel',
+                  costUsd: 0.1,
+                });
+                const settlement: ExecutionSettlement = cleanupFails
+                  ? { state: 'unconfirmed', error: 'cancel failed' }
+                  : { state: 'stopped', code: 0, signal: null };
+                finish(settlement);
+                return settlement;
+              },
+            };
+          },
+          release: async ({ reuse }) => {
+            expect(reuse).toBe(false);
+            releases++;
+            throw new Error('destroy failed');
+          },
+        }),
+      );
+      await starting;
+      await requestCancel(runId);
+      const outcome = await running;
+      expect(outcome).toMatchObject({ status: 'cancelled', sessionId: 'sdk-cancel', costUsd: 0.1 });
+      expect(isRetryable(outcome)).toBe(false);
+      expect(releases).toBe(cleanupFails ? 1 : 0);
+      expect(outcome.cleanupError).toBe(cleanupFails ? 'destroy failed' : undefined);
+      expect(outcome.settlement.state).toBe(cleanupFails ? 'unconfirmed' : 'stopped');
+    },
+  );
 });

@@ -17,6 +17,8 @@ describe('build context and sandbox image', () => {
     // docker build . must keep producing the api/worker image; sandbox needs --target.
     expect(stages.at(-1)).toBe('runtime');
     expect(dockerfile).toContain('pnpm --filter @agentport/sandbox deploy --prod /out/sandbox');
+    // Worker reuses the image with an explicit supervisor entrypoint, but the default stays runner.
+    expect(dockerfile).toContain('test -f dist/session-supervisor.js');
     expect(dockerfile).toContain('ENTRYPOINT ["node", "dist/runner.js"]');
   });
 

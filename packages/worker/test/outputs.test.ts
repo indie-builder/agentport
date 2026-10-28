@@ -2,15 +2,14 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { captureOutputDraft } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { inArray } from 'drizzle-orm';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { persistRunMessages } from '../src/messages.js';
 import {
   lastMessageIdOfRun,
-  OUTPUTS_CONTAINER_DIR,
   outputPublishProblem,
-  outputsMount,
   prepareRunOutputs,
   promptWithSelectedOutput,
   publishRunOutputsIfSettled,
@@ -94,15 +93,6 @@ describe('run outputs mount and identity', () => {
     // 草稿目录真实存在：docker 挂载不会因为缺目录创建成 root 属主的空目录。
     await expect(readFile(join(prepared.hostPath, 'missing'), 'utf8')).rejects.toThrow(/ENOENT/);
   });
-
-  it('mounts outputs read-write at the contract container path', () => {
-    expect(outputsMount('/tmp/draft')).toEqual({
-      hostPath: '/tmp/draft',
-      containerPath: OUTPUTS_CONTAINER_DIR,
-      readonly: false,
-    });
-    expect(OUTPUTS_CONTAINER_DIR).toBe('/mnt/outputs');
-  });
 });
 
 describe('selected output in the user message', () => {
@@ -155,6 +145,34 @@ describe('publishing run outputs', () => {
     await expect(readFile(join(hostPath, 'note.md'), 'utf8')).rejects.toThrow(/ENOENT/);
   });
 
+  it('captures stable outputs and leaves the mounted root intact after publishing an immutable snapshot', async () => {
+    await prepareRunOutputs(identity);
+    const stable = join(
+      identity.workspacesDir,
+      identity.slug,
+      'session-sandboxes',
+      identity.conversationId,
+      'outputs',
+    );
+    await mkdir(stable, { recursive: true });
+    await writeFile(join(stable, 'note.md'), 'first');
+    await captureOutputDraft({ root: identity.workspacesDir, ...identity, sourceDir: stable });
+    await recordOutputSandboxSettlement(identity, {
+      settlement: { state: 'stopped', code: 0, signal: null },
+    });
+    await publishRunOutputsIfSettled(identity, {
+      status: 'succeeded',
+      userMessageId: 'u',
+      afterMessageId: 'a',
+      retrying: false,
+    });
+    expect(await readFile(join(stable, 'note.md'), 'utf8')).toBe('first');
+    await writeFile(join(stable, 'note.md'), 'second');
+    expect(
+      await readFile(join(conversationDir(), 'runs', identity.runId, 'files', 'note.md'), 'utf8'),
+    ).toBe('first');
+  });
+
   it('keeps the draft and publishes nothing when cleanup failed', async () => {
     const { hostPath } = await prepareRunOutputs(identity);
     await writeFile(join(hostPath, 'note.md'), '# 还在写');
@@ -200,7 +218,9 @@ describe('publishing run outputs', () => {
     await expect(
       readFile(join(conversationDir(), 'runs', identity.runId, 'manifest.json')),
     ).rejects.toThrow(/ENOENT/);
-    await recordOutputSandboxSettlement(identity, { sandboxId: '' });
+    await recordOutputSandboxSettlement(identity, {
+      settlement: { state: 'unconfirmed', error: 'no stop ACK' },
+    });
     expect(
       (
         await publishRunOutputsIfSettled(identity, {
@@ -211,7 +231,9 @@ describe('publishing run outputs', () => {
         })
       ).published,
     ).toBe(false);
-    await recordOutputSandboxSettlement(identity, { sandboxId: 'new-container' });
+    await recordOutputSandboxSettlement(identity, {
+      settlement: { state: 'stopped', code: 0, signal: null },
+    });
     expect(
       (
         await publishRunOutputsIfSettled(identity, {

@@ -126,6 +126,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       '--pids-limit',
       String(this.options.pids),
       ...readOnlyArgs(options.extraMounts),
+      ...(options.init === true ? ['--init'] : []),
       '-v',
       `${workspace}:/workspace:ro`,
       ...(options.extraMounts ?? []).flatMap((mount) => [

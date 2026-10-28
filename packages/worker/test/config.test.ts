@@ -35,6 +35,36 @@ describe('SANDBOX_MAX_FIELD_BYTES', () => {
   });
 });
 
+describe('SANDBOX_IDLE_TIMEOUT_MS', () => {
+  it('defaults to five idle minutes and accepts a short value for real reclaim checks', () => {
+    expect(loadConfig(base).SANDBOX_IDLE_TIMEOUT_MS).toBe(300_000);
+    expect(loadConfig({ ...base, SANDBOX_IDLE_TIMEOUT_MS: '1500' }).SANDBOX_IDLE_TIMEOUT_MS).toBe(
+      1500,
+    );
+  });
+
+  it('rejects zero, negatives and non-integers instead of treating them as keep-alive', () => {
+    for (const value of ['0', '-1', '1500.5', 'forever']) {
+      expect(() => loadConfig({ ...base, SANDBOX_IDLE_TIMEOUT_MS: value })).toThrow(
+        /SANDBOX_IDLE_TIMEOUT_MS/,
+      );
+    }
+  });
+
+  it('stays independent from the run reconciliation window', () => {
+    const config = loadConfig({
+      ...base,
+      AGENT_TIMEOUT_MS: '60000',
+      SANDBOX_IDLE_TIMEOUT_MS: '9000',
+    });
+    expect(config.AGENT_TIMEOUT_MS).toBe(60_000);
+    expect(config.SANDBOX_IDLE_TIMEOUT_MS).toBe(9_000);
+    expect(loadConfig({ ...base, AGENT_TIMEOUT_MS: '60000' }).SANDBOX_IDLE_TIMEOUT_MS).toBe(
+      300_000,
+    );
+  });
+});
+
 describe('SANDBOX_EGRESS', () => {
   it('defaults to open', () => {
     expect(loadConfig(base).SANDBOX_EGRESS).toBe('open');
