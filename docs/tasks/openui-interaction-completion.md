@@ -36,7 +36,8 @@
 - [x] 独立 Opus 评审通过（card 与 parity 补修后复核）。
 - [x] 本地提交 `c5a3c13`（仅本地，未推送）。
 - [x] 基于缓存 `origin/main` = `d6aacd3` 的 merge 集成验证完成（no-commit；冲突仅 `docs/OPENUI-UPGRADE.md`，已解决且独立 Opus 通过）。
-- [ ] merge commit / push / PR / 远端合并 / 删除 worktree / 更新 main：受本机 TLS 证书链阻断，当前只有本地 commit。
+- [x] merge commit `dfab33b` 已完成（基于缓存 `origin/main` = `d6aacd3`，已整合验证）。
+- [ ] push / PR / 远端合并 / 删除 worktree / 更新 main：`git push -u origin docs/openui-integration-audit` 实际失败（SSL unable to get local issuer certificate），未 PR、未远端合并、未清 worktree。
 
 ## 本轮结果（只补指定 7 项，不代表其余组件已全部覆盖）
 
@@ -50,7 +51,7 @@
 
 ## 下一步
 
-顺序固定为：本地提交（已完成）→ merge 缓存 main 的集成验证（已完成）→ merge commit / push / PR 由主会话执行（尚未完成）。
+顺序固定为：本地提交（已完成 `c5a3c13`）→ merge 缓存 main 的集成验证（已完成）→ merge commit（已完成 `dfab33b`）→ push / PR / 远端合并 → 清理 worktree 并更新 main（受阻，见下）。
 
 - 独立 Opus 复核已完成：card 评审 2 个测试缺口与 parity 评审 2 项 must-fix（具体错误断言、cleanup 缺失）均已补修并通过。
 - 新依赖实装：`@openuidev/lang-core`（core）/`@openuidev/react-lang`（web）1.0.2、`@openuidev/cli` 0.6.1；`pnpm install --frozen-lockfile --offline` 通过；shared/core/db build 与 web typecheck/build 通过。
@@ -58,6 +59,7 @@
 - `openui:check` 11 项全过；`openui:audit`：behavior 14 / render 39 / nested 29（嵌套有交互、尚无行为证据 0）/ missing 2。
 - 本轮 merge 集成验证后 Renderer chunk gzip 256.05 kB，仅作记录，不构成性能承诺。
 - 完整 diff review 产品代码无阻断项；card locator 与 context 2 处缺口已补修，独立 Opus 通过。
-- 仍受本机 TLS 证书链阻断：不能 fetch/push/PR，无法确认远端最新；当前只有本地 commit `c5a3c13`。merge commit 留给主会话，未 PR、未远端合并，也未删除 worktree。不等待 CI，不重建 cron。
+- 仍受本机 TLS 证书链阻断：不能 fetch/push/PR，无法确认远端最新。本地已有 `c5a3c13` 与 merge `dfab33b`；实际执行 `git push -u origin docs/openui-integration-audit` 失败于 SSL issuer 校验，未 PR、未远端合并，也未删除 worktree。不等待 CI，不重建 cron。
 - 本树 `.vitest/json/output.json` 已 `git restore`（与 HEAD 一致，操作等同 no-op）；主 checkout 同名差异未触碰。
 - commit 授权有效，不再询问；不在缺少远端证据时声称已合并。
+- 恢复 GitHub 可信 TLS 连接后继续既有授权（push → PR → 远端合并 → 清理 worktree），无需再问。
