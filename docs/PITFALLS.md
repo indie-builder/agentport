@@ -236,3 +236,9 @@
 - **现象**：`pnpm db:migrate` 报 `column ... already exists`，`drizzle.__drizzle_migrations` 仍停在上一号，后续迁移一条都没跑。
 - **原因**：多个 worktree 共用同一个本地库；列可能被手工 DDL 或另一分支加过，账本没记录，列定义也可能与本分支 schema 不同（例如 `not null default ''` vs 可空）。
 - **规避**：迁移前先 `\d <table>` 对照 schema；差异列确认无数据后按本分支 schema 重建，再跑迁移。不要手改账本，也不要把 `ADD COLUMN` 改成 `IF NOT EXISTS`，否则新库与旧库定义会分叉。
+
+## 测试：组件覆盖的「豁免清单」会冒充已覆盖
+
+- **现象**：`pnpm openui:check` 11 项全绿、组件覆盖测试 38 项全绿，实际仍有日期早存一天、复选默认项不进载荷、表格流式补行后仍 0 行、日期弹层点击打不开。
+- **原因**：覆盖测试断言的是「渲染出非空内容」；可交互组件被写进 `NESTED_ONLY` 并注释「由父组件用例覆盖」，而豁免只是一个名字，没有任何交互断言。`openui:check` 只比对 schema/spec，不进入 DOM 交互。
+- **规避**：改动 OpenUI 组件后跑 `pnpm openui:audit`，看 behavior / render / nested（可交互但尚未登记证据）/ missing 四类数字；缺口按同一范围比较不应上升，新增组件或能力可以登记新缺口并写明，不算回归；审计只读登记表，不解析断言也不计算覆盖率。每个新发现的 bug 先落一条会失败的行为用例再修；不要靠往豁免清单加名字让测试变绿。
