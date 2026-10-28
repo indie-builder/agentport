@@ -31,7 +31,8 @@
     "infra:up": "docker compose up -d postgres redis",
     "infra:down": "docker compose down",
     "clean": "pnpm -r exec rm -rf dist node_modules && rm -rf node_modules",
-    "openui:check": "node scripts/check-openui.mjs"
+    "openui:check": "node scripts/check-openui.mjs",
+    "openui:audit": "node scripts/audit-openui-coverage.mjs"
   },
   "devDependencies": {
     "@ai-sdk/openai-compatible": "^3.0.79",

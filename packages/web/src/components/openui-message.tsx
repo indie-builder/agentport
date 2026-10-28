@@ -143,9 +143,11 @@ function OpenUiSegment({
   onSaveState?: (input: OpenUiStateSaveInput) => Promise<unknown>;
   onApprove?: (input: OpenUiApprovalInput) => Promise<unknown>;
 }) {
-  const [invalid, setInvalid] = useState(false);
+  // 记录「哪个 program 解析失败」，而不是一个永久开关：有效程序到达时自动恢复。
+  // 同时用 program 文本作标记，旧渲染器迟到的 onInvalid 不会污染新快照。
+  const [invalid, setInvalid] = useState<string | null>(null);
 
-  if (invalid) {
+  if (invalid === program) {
     return <Markdown text={`\`\`\`openui-lang\n${program}\n\`\`\``} />;
   }
 
@@ -170,7 +172,7 @@ function OpenUiSegment({
         program={program}
         streaming={streaming}
         blockKey={blockKey}
-        onInvalid={() => setInvalid(true)}
+        onInvalid={(failed) => setInvalid(failed)}
         onAction={onAction}
         {...(messageId === undefined ? {} : { messageId })}
         {...(conversationId === undefined ? {} : { conversationId })}

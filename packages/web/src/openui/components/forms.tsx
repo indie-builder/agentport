@@ -276,51 +276,27 @@ export function SelectItemRenderer() {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** 纯日期按本地年月日往返，不走 UTC：东八区上午选 28 不能存成 27。 */
 function toDate(value: unknown): Date | undefined {
   if (value instanceof Date) return value;
-  if (typeof value === 'string' && ISO_DATE.test(value.slice(0, 10))) {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  if (typeof value !== 'string') return undefined;
+  const [year, month, day] = value.slice(0, 10).split('-');
+  if (
+    !ISO_DATE.test(value.slice(0, 10)) ||
+    year === undefined ||
+    month === undefined ||
+    day === undefined
+  ) {
+    return undefined;
   }
-  return undefined;
+  return new Date(Number(year), Number(month) - 1, Number(day));
 }
 
 function toIso(date: Date | undefined): string | undefined {
-  return date ? date.toISOString().slice(0, 10) : undefined;
-}
-
-function DateTrigger({
-  id,
-  label,
-  invalid,
-  describedBy,
-  disabled,
-}: {
-  id: string | undefined;
-  label: string;
-  invalid: boolean;
-  describedBy: string | undefined;
-  disabled: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      id={id}
-      aria-invalid={invalid || undefined}
-      aria-describedby={describedBy}
-      disabled={disabled}
-      className={cn(
-        'flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border border-input px-2.5 text-sm transition-colors',
-        'focus-visible:border-ring focus-visible:outline-none',
-        'disabled:cursor-not-allowed disabled:opacity-50',
-        'aria-invalid:border-destructive',
-        label ? 'text-fg' : 'text-muted-foreground',
-      )}
-    >
-      {label || 'Select date...'}
-      <CalendarDays aria-hidden="true" className="size-4 text-muted-foreground" />
-    </button>
-  );
+  if (!date) return undefined;
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 export function DatePickerRenderer({
@@ -349,20 +325,28 @@ export function DatePickerRenderer({
     <Popover>
       <PopoverTrigger
         render={
-          <DateTrigger
+          <UiButton
+            variant="outline"
             id={wiring?.controlId ?? field.name}
-            label={label}
-            invalid={!!field.error}
-            describedBy={wiring?.describedBy}
+            aria-invalid={field.error ? true : undefined}
+            aria-describedby={wiring?.describedBy}
             disabled={field.streaming}
+            className={cn(
+              'flex h-8 w-full justify-between gap-1.5 px-2.5 font-normal',
+              label ? 'text-fg' : 'text-muted-foreground',
+            )}
           />
         }
-      />
+      >
+        {label || 'Select date...'}
+        <CalendarDays aria-hidden="true" className="size-4 text-muted-foreground" />
+      </PopoverTrigger>
       <PopoverContent align="start" className="w-auto p-0">
         {mode === 'range' ? (
           <Calendar
             mode="range"
             selected={{ from, to }}
+            {...(from ? { defaultMonth: from } : {})}
             onSelect={(range) => {
               const next = { from: toIso(range?.from), to: toIso(range?.to) };
               field.setValue(next);
@@ -373,8 +357,10 @@ export function DatePickerRenderer({
           <Calendar
             mode="single"
             selected={selected}
+            {...(selected ? { defaultMonth: selected } : {})}
             onSelect={(date) => {
-              const next = toIso(date);
+              // 空字符串而非 undefined：官方 fieldGetter 回退会把 undefined 还原成 props 字面量初值。
+              const next = toIso(date) ?? '';
               field.setValue(next);
               field.validate(next);
             }}
@@ -458,10 +444,10 @@ export function CheckBoxGroupRenderer({
         !!item,
     );
   const stored = (field.value ?? {}) as Record<string, unknown>;
-  const checkedFor = (itemName: string) =>
-    Boolean(
-      stored[itemName] ?? items.find((item) => item.name === itemName)?.defaultChecked ?? false,
-    );
+  // 与官方一致：写回整组聚合值，defaultChecked 与显式 false 都要带上。
+  const aggregate: Record<string, boolean> = Object.fromEntries(
+    items.map((item) => [item.name, Boolean(stored[item.name] ?? item.defaultChecked ?? false)]),
+  );
 
   if (items.length === 0) return null;
   return (
@@ -477,12 +463,12 @@ export function CheckBoxGroupRenderer({
           <div key={item.name} className="flex items-start gap-2">
             <Checkbox
               id={id}
-              checked={checkedFor(item.name)}
+              checked={aggregate[item.name]}
               disabled={field.streaming}
               aria-invalid={field.error ? true : undefined}
               aria-describedby={wiring?.describedBy}
               onCheckedChange={(checked) => {
-                const next = { ...stored, [item.name]: checked === true };
+                const next = { ...aggregate, [item.name]: checked === true };
                 field.setValue(next);
                 field.validate(next);
               }}
@@ -587,10 +573,9 @@ export function SwitchGroupRenderer({
         !!item,
     );
   const stored = (field.value ?? {}) as Record<string, unknown>;
-  const checkedFor = (itemName: string) =>
-    Boolean(
-      stored[itemName] ?? items.find((item) => item.name === itemName)?.defaultChecked ?? false,
-    );
+  const aggregate: Record<string, boolean> = Object.fromEntries(
+    items.map((item) => [item.name, Boolean(stored[item.name] ?? item.defaultChecked ?? false)]),
+  );
   if (items.length === 0) return null;
   return (
     <div
@@ -612,10 +597,10 @@ export function SwitchGroupRenderer({
             </div>
             <Switch
               id={id}
-              checked={checkedFor(item.name)}
+              checked={aggregate[item.name]}
               disabled={field.streaming}
               onCheckedChange={(checked) =>
-                field.setValue({ ...stored, [item.name]: checked === true })
+                field.setValue({ ...aggregate, [item.name]: checked === true })
               }
             />
           </div>

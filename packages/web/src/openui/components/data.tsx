@@ -4,9 +4,19 @@ import {
   useSetFieldValue,
   useTriggerAction,
 } from '@openuidev/react-lang';
-import { Fragment, useMemo, useRef, useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Button } from '../../components/ui/button.js';
+import { Calendar } from '../../components/ui/calendar.js';
 import { Input } from '../../components/ui/input.js';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select.js';
 import {
   Table,
   TableBody,
@@ -106,6 +116,113 @@ type EditableColumn = {
 
 type EditableRow = { id: string; values: Array<string | number> };
 
+/** 编辑草稿：首次编辑时从当前来源冻结列顺序、单元格值与 baseline，来源更新不再覆盖。 */
+type EditableDraft = {
+  tableName: string;
+  keys: string[];
+  rows: Array<{ id: string; values: string[] }>;
+  baseline: string[][];
+};
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** 日期按本地年月日读写，避免 toISOString 的 UTC 偏移把日子挪一天。 */
+function toDateString(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function parseDateString(value: string): Date | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : undefined;
+}
+
+function EditableCell({
+  column,
+  rowIndex,
+  value,
+  disabled,
+  onChange,
+}: {
+  column: EditableColumn;
+  rowIndex: number;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const label = `${column.header} 第 ${rowIndex + 1} 行`;
+
+  if (column.type === 'select') {
+    const options = column.options ?? [];
+    return (
+      <Select
+        value={value === '' ? null : value}
+        items={options}
+        disabled={disabled}
+        onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}
+      >
+        <SelectTrigger aria-label={label} className="h-8 w-full border-transparent bg-transparent">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    );
+  }
+
+  if (column.type === 'date-single') {
+    const date = parseDateString(value);
+    return (
+      <Popover>
+        <PopoverTrigger
+          render={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-label={label}
+              disabled={disabled}
+              className="h-8 w-full justify-start border-transparent bg-transparent font-normal"
+            >
+              {value || '选择日期'}
+            </Button>
+          }
+        />
+        <PopoverContent align="start" className="w-auto p-0">
+          <Calendar
+            mode="single"
+            {...(date ? { defaultMonth: date } : {})}
+            selected={date}
+            onSelect={(date) => onChange(date ? toDateString(date) : '')}
+          />
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
+  return (
+    <Input
+      aria-label={label}
+      type={column.type === 'number' ? 'number' : column.type === 'url' ? 'url' : 'text'}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+      className={cn(
+        'h-8 border-transparent bg-transparent',
+        column.type === 'number' && 'text-right font-mono tabular-nums',
+      )}
+    />
+  );
+}
+
 export function EditableTableRenderer({
   props,
 }: RenderProps<{ name: string; columns: EditableColumn[]; data: EditableRow[] }>) {
@@ -115,39 +232,79 @@ export function EditableTableRenderer({
   const getFieldValue = useGetFieldValue();
   const columns = props.columns ?? [];
   const tableName = props.name;
+  const columnKeys = columns.map((column) => column.key);
 
-  const toValues = (data: EditableRow[]) => data.map((row) => [...row.values]);
-  const stored = getFieldValue(undefined, tableName) as EditableRow[] | undefined;
-  // 初始值只取一次：之后的编辑由本地 state 持有，避免每次父级重渲染覆盖用户输入。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 同上，刻意不跟随 stored/data 变化。
-  const initial = useMemo(() => toValues(stored ?? props.data ?? []), []);
-  const [values, setValues] = useState<string[][]>(() => initial.map((row) => row.map(String)));
-  const dirty = useRef(false);
-
-  const update = (rowIndex: number, columnIndex: number, value: string) => {
-    dirty.current = true;
-    setValues((previous) =>
-      previous.map((row, index) =>
-        index === rowIndex
-          ? row.map((cell, cellIndex) => (cellIndex === columnIndex ? value : cell))
-          : row,
-      ),
-    );
-  };
+  // 官方表字段按 tableName 命名空间读写；干净态直接渲染最新来源，流式补行与 initialState 恢复随之生效。
+  const stored = getFieldValue(tableName, tableName) as EditableRow[] | undefined;
+  const source = stored ?? props.data ?? [];
+  const [draft, setDraft] = useState<EditableDraft | null>(null);
+  // 同一渲染节点换成另一张表：草稿属于旧表，渲染期同步丢弃，避免旧值显示或被存进新表。
+  if (draft !== null && draft.tableName !== tableName) setDraft(null);
+  const activeDraft = draft?.tableName === tableName ? draft : null;
 
   if (columns.length === 0) return null;
 
-  const save = () => {
-    const next: EditableRow[] = (props.data ?? []).map((row, rowIndex) => ({
+  const fromSource = (): EditableDraft => {
+    const rows = source.map((row) => ({
       id: row.id,
-      values: (values[rowIndex] ?? []).map((cell, columnIndex) => {
-        const column = columns[columnIndex];
-        return column?.type === 'number' ? Number(cell) || 0 : cell;
+      values: columnKeys.map((_, index) => String(row.values[index] ?? '')),
+    }));
+    return { tableName, keys: columnKeys, rows, baseline: rows.map((row) => [...row.values]) };
+  };
+
+  const draftOrSource = activeDraft ?? fromSource();
+  const cellValue = (rowIndex: number, column: EditableColumn): string => {
+    const row = draftOrSource.rows[rowIndex];
+    const index = draftOrSource.keys.indexOf(column.key);
+    return index === -1 ? '' : (row?.values[index] ?? '');
+  };
+
+  const dirtyCount = activeDraft
+    ? activeDraft.rows.reduce(
+        (total, row, rowIndex) =>
+          total +
+          row.values.filter(
+            (value, index) => value !== (activeDraft.baseline[rowIndex]?.[index] ?? ''),
+          ).length,
+        0,
+      )
+    : 0;
+
+  const update = (rowId: string, columnKey: string, value: string) => {
+    setDraft((previous) => {
+      const current = previous?.tableName === tableName ? previous : fromSource();
+      const rows = current.rows.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              values: row.values.map((cell, index) =>
+                current.keys[index] === columnKey ? value : cell,
+              ),
+            }
+          : row,
+      );
+      const dirty = rows.some((row, rowIndex) =>
+        row.values.some((cell, index) => cell !== (current.baseline[rowIndex]?.[index] ?? '')),
+      );
+      return dirty ? { ...current, rows } : null;
+    });
+  };
+
+  const save = () => {
+    const current = draftOrSource;
+    const rows: EditableRow[] = current.rows.map((row) => ({
+      id: row.id,
+      values: columns.map((column) => {
+        const index = current.keys.indexOf(column.key);
+        const cell = index === -1 ? '' : (row.values[index] ?? '');
+        if (column.type !== 'number') return cell;
+        const parsed = Number(cell);
+        return Number.isNaN(parsed) ? 0 : parsed;
       }),
     }));
-    setFieldValue(undefined, 'EditableTable', tableName, next, true);
+    setFieldValue(tableName, 'EditableTable', tableName, rows, true);
     void trigger('Save Changes', tableName);
-    dirty.current = false;
+    setDraft(null);
   };
 
   return (
@@ -168,23 +325,16 @@ export function EditableTableRenderer({
             </tr>
           </thead>
           <tbody>
-            {values.map((row, rowIndex) => (
-              <tr
-                key={(props.data ?? [])[rowIndex]?.id ?? rowIndex}
-                className="border-b border-line"
-              >
-                {columns.map((column, columnIndex) => (
+            {draftOrSource.rows.map((row, rowIndex) => (
+              <tr key={row.id} className="border-b border-line">
+                {columns.map((column) => (
                   <td key={column.key} className="p-1 align-middle">
-                    <Input
-                      aria-label={`${column.header} 第 ${rowIndex + 1} 行`}
-                      type={column.type === 'number' ? 'number' : 'text'}
-                      value={row[columnIndex] ?? ''}
+                    <EditableCell
+                      column={column}
+                      rowIndex={rowIndex}
+                      value={cellValue(rowIndex, column)}
                       disabled={streaming}
-                      onChange={(event) => update(rowIndex, columnIndex, event.target.value)}
-                      className={cn(
-                        'h-8 border-transparent bg-transparent',
-                        column.type === 'number' && 'text-right font-mono tabular-nums',
-                      )}
+                      onChange={(value) => update(row.id, column.key, value)}
                     />
                   </td>
                 ))}
@@ -193,8 +343,21 @@ export function EditableTableRenderer({
           </tbody>
         </table>
       </div>
-      <div className="flex justify-end">
-        <Button size="sm" variant="outline" disabled={streaming} onClick={save}>
+      <div className="flex items-center justify-end gap-2">
+        {dirtyCount > 0 ? (
+          <span className="text-xs text-muted-foreground" role="status">
+            {dirtyCount} 处修改
+          </span>
+        ) : null}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={streaming || dirtyCount === 0}
+          onClick={() => setDraft(null)}
+        >
+          Reset
+        </Button>
+        <Button size="sm" variant="outline" disabled={streaming || dirtyCount === 0} onClick={save}>
           Save Changes
         </Button>
       </div>

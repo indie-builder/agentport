@@ -36,6 +36,3 @@ export const library: Library = createLibrary({
 
 /** 提示词示例与规则（官方原文 + 平台的 inline/edit 模式），随 spec 一起生成。 */
 export const promptOptions = openUiPromptOptions();
-
-/** 兼容旧导出名；同一实例，不要另行 createLibrary。 */
-export const openUiLibrary = library;

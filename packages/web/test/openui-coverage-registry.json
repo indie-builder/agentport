@@ -1,0 +1,312 @@
+{
+  "samples": {
+    "TextContent": {
+      "program": ["t = TextContent(\"文本内容\")"],
+      "expect": "文本内容"
+    },
+    "MarkDownRenderer": {
+      "program": ["t = MarkDownRenderer(\"**粗体**\")"],
+      "expect": "粗体"
+    },
+    "CardHeader": {
+      "program": ["t = CardHeader(\"标题文字\", \"副标题\")"],
+      "expect": "标题文字"
+    },
+    "Callout": {
+      "program": ["t = Callout(\"info\", \"提示标题\", \"提示正文\")"],
+      "expect": "提示正文"
+    },
+    "TextCallout": {
+      "program": ["t = TextCallout(\"neutral\", \"内联提示\")"],
+      "expect": "内联提示"
+    },
+    "CodeBlock": {
+      "program": ["t = CodeBlock(\"ts\", \"const a = 1;\")"],
+      "expect": "const a = 1;"
+    },
+    "Image": {
+      "program": ["t = Image(\"示例图\", \"https://example.com/a.png\")"],
+      "expect": ""
+    },
+    "ImageBlock": {
+      "program": ["t = ImageBlock(\"https://example.com/b.png\", \"图块说明\")"],
+      "expect": ""
+    },
+    "ImageGallery": {
+      "program": ["t = ImageGallery([{ src: \"https://example.com/c.png\", alt: \"画廊一\" }])"],
+      "expect": ""
+    },
+    "Separator": {
+      "program": ["t = Separator()"],
+      "expect": ""
+    },
+    "Table": {
+      "program": ["t = Table([Col(\"列名\", [\"值一\"])])"],
+      "expect": "值一"
+    },
+    "Tag": {
+      "program": ["t = Tag(\"标签文字\", \"info\")"],
+      "expect": "标签文字"
+    },
+    "TagBlock": {
+      "program": ["t = TagBlock([\"甲\", \"乙\"])"],
+      "expect": "甲"
+    },
+    "ListBlock": {
+      "program": ["t = ListBlock([ListItem(\"条目一\"), ListItem(\"条目二\")])"],
+      "expect": "条目一"
+    },
+    "SectionBlock": {
+      "program": [
+        "t = SectionBlock([SectionItem(\"s1\", \"分区标题\", [TextContent(\"分区内容\")])], false)"
+      ],
+      "expect": "分区内容"
+    },
+    "Tabs": {
+      "program": ["t = Tabs([TabItem(\"a\", \"页签一\", [TextContent(\"页签内容\")])])"],
+      "expect": "页签内容"
+    },
+    "Accordion": {
+      "program": [
+        "t = Accordion([AccordionItem(\"a\", \"折叠标题\", [TextContent(\"折叠内容\")])])"
+      ],
+      "expect": "折叠标题"
+    },
+    "Steps": {
+      "program": ["t = Steps([StepsItem(\"步骤一\", \"步骤说明\")])"],
+      "expect": "步骤一"
+    },
+    "Carousel": {
+      "program": ["t = Carousel([[TextContent(\"轮播内容\")], [TextContent(\"第二页\")]])"],
+      "expect": "轮播内容"
+    },
+    "InlineHeader": {
+      "program": ["t = InlineHeader(\"小节标题\", \"小节说明\")"],
+      "expect": "小节标题"
+    },
+    "Icon": {
+      "program": ["t = Icon(\"circle\", \"shapes\")"],
+      "expect": ""
+    },
+    "Text": {
+      "program": [
+        "t = CompositeCardBlock([ci], \"grid\", true)",
+        "ci = CompositeCardItem(\"c1\", hdr, [Text(\"text\", \"键值文本\", \"补充说明\", \"text\", \"sm\")])",
+        "hdr = IconText(ic, \"neutral\", \"m\", \"标题\", \"副标题\", false, \"horizontal\")",
+        "ic = Icon(\"circle\", \"shapes\")"
+      ],
+      "expect": "键值文本"
+    },
+    "BoldText": {
+      "program": [
+        "t = CompositeCardBlock([ci], \"grid\", true)",
+        "ci = CompositeCardItem(\"c1\", hdr, [BoldText(\"text\", \"强调文字\", \"\", \"text\", \"sm\")])",
+        "hdr = IconText(ic, \"neutral\", \"m\", \"标题\", \"副标题\", false, \"horizontal\")",
+        "ic = Icon(\"circle\", \"shapes\")"
+      ],
+      "expect": "强调文字"
+    },
+    "IconText": {
+      "program": [
+        "t = CompositeCardBlock([ci], \"grid\", true)",
+        "ci = CompositeCardItem(\"c1\", hdr, [BoldText(\"text\", \"正文\", \"\", \"text\", \"sm\")])",
+        "hdr = IconText(ic, \"neutral\", \"m\", \"图标文本\", \"说明\", false, \"horizontal\")",
+        "ic = Icon(\"circle\", \"shapes\")"
+      ],
+      "expect": "图标文本"
+    },
+    "ImageText": {
+      "program": [
+        "t = CompositeCardBlock([ci], \"grid\", true)",
+        "ci = CompositeCardItem(\"c1\", hdr, [BoldText(\"text\", \"正文\", \"\", \"text\", \"sm\")])",
+        "hdr = ImageText(\"https://example.com/d.png\", null, \"图片文本\", null, false, \"horizontal\")"
+      ],
+      "expect": "图片文本"
+    },
+    "ImageTextLarge": {
+      "program": [
+        "t = CompositeCardBlock([ci], \"grid\", true)",
+        "ci = CompositeCardItem(\"c1\", hdr, [BoldText(\"text\", \"正文\", \"\", \"text\", \"sm\")])",
+        "hdr = ImageTextLarge(\"https://example.com/e.png\", null, \"大图文本\", null, false)"
+      ],
+      "expect": "大图文本"
+    },
+    "EntityList": {
+      "program": [
+        "t = CompositeCardBlock([ci], \"grid\", true)",
+        "ci = CompositeCardItem(\"c1\", hdr, [EntityList([{ left: \"键\", right: \"值\", rightVariant: \"text\" }], \"small\")])",
+        "hdr = IconText(ic, \"neutral\", \"m\", \"标题\", \"副标题\", false, \"horizontal\")",
+        "ic = Icon(\"circle\", \"shapes\")"
+      ],
+      "expect": "键"
+    },
+    "StepsItem": {
+      "program": ["t = Steps([StepsItem(\"步骤\", \"说明\")])"],
+      "expect": "步骤"
+    },
+    "BarChart": {
+      "program": ["t = BarChart([\"一月\", \"二月\"], [Series(\"收入\", [1, 2])], \"grouped\")"],
+      "expect": ""
+    },
+    "LineChart": {
+      "program": ["t = LineChart([\"一月\", \"二月\"], [Series(\"趋势\", [1, 2])], \"natural\")"],
+      "expect": ""
+    },
+    "AreaChart": {
+      "program": ["t = AreaChart([\"一月\", \"二月\"], [Series(\"面积\", [1, 2])], \"linear\")"],
+      "expect": ""
+    },
+    "HorizontalBarChart": {
+      "program": [
+        "t = HorizontalBarChart([\"甲\", \"乙\"], [Series(\"数量\", [3, 4])], \"grouped\")"
+      ],
+      "expect": ""
+    },
+    "PieChart": {
+      "program": ["t = PieChart([\"甲\", \"乙\"], [40, 60], \"donut\")"],
+      "expect": ""
+    },
+    "RadarChart": {
+      "program": ["t = RadarChart([\"甲\", \"乙\"], [Series(\"维度\", [3, 4])])"],
+      "expect": ""
+    },
+    "RadialChart": {
+      "program": ["t = RadialChart([\"甲\", \"乙\"], [30, 70])"],
+      "expect": ""
+    },
+    "SingleStackedBarChart": {
+      "program": ["t = SingleStackedBarChart([\"甲\", \"乙\"], [30, 70])"],
+      "expect": ""
+    },
+    "ScatterChart": {
+      "program": [
+        "t = ScatterChart([ScatterSeries(\"组\", [Point(1, 2), Point(3, 4)])], \"X\", \"Y\")"
+      ],
+      "expect": ""
+    }
+  },
+  "nestedOnly": [
+    "AccordionItem",
+    "Card",
+    "CheckBoxItem",
+    "ChipItem",
+    "Chips",
+    "Col",
+    "CompositeCardBlock",
+    "CompositeCardItem",
+    "ContextCardItem",
+    "FollowUpItem",
+    "Form",
+    "FormControl",
+    "Input",
+    "Label",
+    "ListItem",
+    "OptionCard",
+    "OptionCards",
+    "OverviewCardItem",
+    "Point",
+    "RadioGroup",
+    "RadioItem",
+    "ScatterSeries",
+    "SectionItem",
+    "SelectItem",
+    "Series",
+    "Slice",
+    "SnippetCardItem",
+    "SwitchItem",
+    "VisualCardItem"
+  ],
+  "nestedInteractive": [],
+  "specialized": [
+    {
+      "name": "CheckBoxGroup",
+      "evidence": "openui-form-fixes.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "SwitchGroup",
+      "evidence": "openui-form-fixes.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "Button",
+      "evidence": "openui-form-ui.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "Buttons",
+      "evidence": "openui-form-ui.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "IconButton",
+      "evidence": null,
+      "kind": "missing"
+    },
+    {
+      "name": "DatePicker",
+      "evidence": "openui-form-fixes.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "Slider",
+      "evidence": "openui-form-ui.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "EditableTable",
+      "evidence": "openui-editable-table.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "ContextCardBlock",
+      "evidence": "openui-card-actions.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "FollowUpBlock",
+      "evidence": "openui-card-actions.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "OverviewCardBlock",
+      "evidence": "openui-card-actions.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "SnippetCardBlock",
+      "evidence": "openui-card-actions.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "VisualCardBlock",
+      "evidence": "openui-card-actions.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "Select",
+      "evidence": "openui-input-actions.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "TextArea",
+      "evidence": "openui-input-actions.test.ts",
+      "kind": "behavior"
+    },
+    {
+      "name": "MetricIndicatorInline",
+      "evidence": "openui-card-layout-ui.test.ts",
+      "kind": "render"
+    },
+    {
+      "name": "MetricIndicatorWithStrikethrough",
+      "evidence": null,
+      "kind": "missing"
+    },
+    {
+      "name": "TabItem",
+      "evidence": "openui-renderer.test.ts",
+      "kind": "render"
+    }
+  ]
+}
