@@ -6,7 +6,7 @@
 
 本任务**不承诺降低 SDK 冷启动**：容器复用不会跳过每轮新建的 SDK query，SDK 进程与查询仍会在每轮重新启动。因此收益与验收只针对容器生命周期，不把“降低 SDK 冷启动”写成目标或指标。
 
-验收以行为为准：同一会话多轮复用、不同会话隔离、取消后仍可续用、空闲回收后可 resume、每轮身份与成果边界不串、试连与关停不回归。**截至 2026-10-29：上一轮 runtime 与 integration 已实现并稳定，session manager、supervisor、core 限定 review 与取消链路独立复审均通过；上一轮联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含 12 个真实 Docker/SDK 用例）仅作更早的历史基线。本轮按用户授权修复复核项 1+3/4/5/7（2/6 保留）；复核项 1 首修后又被独立 review 发现 `deleteEntry → create` 的 microtask 空档（原 Node probe 确定可复现），已最小修复；manager 36 passed、主会话 root 局部 7 files 112 passed / 0 failed / 0 skipped。此前记录的 109 passed 与真实 Docker/SDK 12 passed 是中间版本证据，已被最终结果取代。**最终结果（2026-10-29 收尾）：真实 Docker/SDK 共 12 passed / 0 failed / 0 skipped（Docker 8 + SDK 4，`/tmp/session-review-handoff-live-final.json`）；主会话 root 局部 7 files 112 passed / 0 failed / 0 skipped（`/tmp/session-review-handoff-validation.json`）；独立 final Opus review 明确通过，新增 handoff 校验无遗漏；shared/worker build 与 typecheck、6 个 TS 文件 Biome、diff check 均通过；测试后 docker 无遗留测试 container/image，无 tracked Vitest 报告差异。本轮实现无待办。用户最新已明确授权 commit / push / PR / merge 且不等待 CI；截至本记录更新尚未执行这些操作，本记录不宣称已提交或合入 main。**
+验收以行为为准：同一会话多轮复用、不同会话隔离、取消后仍可续用、空闲回收后可 resume、每轮身份与成果边界不串、试连与关停不回归。**截至 2026-10-29：上一轮 runtime 与 integration 已实现并稳定，session manager、supervisor、core 限定 review 与取消链路独立复审均通过；上一轮联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含 12 个真实 Docker/SDK 用例）仅作更早的历史基线。本轮按用户授权修复复核项 1+3/4/5/7（2/6 保留）；复核项 1 首修后又被独立 review 发现 `deleteEntry → create` 的 microtask 空档（原 Node probe 确定可复现），已最小修复；manager 36 passed、主会话 root 局部 7 files 112 passed / 0 failed / 0 skipped。此前记录的 109 passed 与真实 Docker/SDK 12 passed 是中间版本证据，已被最终结果取代。**最终结果（2026-10-29 收尾）：真实 Docker/SDK 共 12 passed / 0 failed / 0 skipped（Docker 8 + SDK 4，`/tmp/session-review-handoff-live-final.json`）；主会话 root 局部 7 files 112 passed / 0 failed / 0 skipped（`/tmp/session-review-handoff-validation.json`）；独立 final Opus review 明确通过，新增 handoff 校验无遗漏；shared/worker build 与 typecheck、6 个 TS 文件 Biome、diff check 均通过；测试后 docker 无遗留测试 container/image，无 tracked Vitest 报告差异。本轮实现无待办。用户最新已明确授权 commit / push / PR / merge 且不等待 CI；实现已提交 `dddcd35` 并推送，PR [#103](https://github.com/indie-builder/agentport/pull/103)（base `main` ← head `worktree-session-sandbox-lifecycle`）已创建，当前尚未合并，合并状态以该 PR 为准；上文“未提交/未执行”的说法为历史截至旧轮。**
 
 ## 方案
 
@@ -27,7 +27,7 @@
 - 工作树：`/Users/xbjt/Documents/myself/agentport/.claude/worktrees/session-sandbox-lifecycle`。
 - 起点：`6b6b3f1d9cb903ab4ad67306d41a3cf1b8288914`，与 `origin/main` 一致。
 - 进入会话时 `git status` 为空。落笔前复核出现 `M .vitest/json/output.json`；已确认归属为 Vitest 自动生成的报告产物，不是本任务改的业务文件。测试结束后主会话核对 diff 确认该报告由本任务运行生成，已用 `git restore` 恢复，`git diff --quiet` 通过。本轮报告统一写到 `/tmp`，无 tracked Vitest 产物污染。
-- 用户已授权整体实现。上一轮记录时**未授权 commit / push / merge**，该描述为历史截至上一轮；用户最新已明确授权 commit / push / PR / merge，且不触发、不等待 CI，当前有效授权见“授权边界”与“下一步”。此前“本轮只写记录”是记录子任务的边界，不是整体任务授权。
+- 用户已授权整体实现。上一轮记录时**未授权 commit / push / merge**，该描述为历史截至上一轮；用户最新已明确授权 commit / push / PR / merge，且不触发、不等待 CI；实现已提交 `dddcd35`、推送并创建 PR #103，尚未合并。当前有效授权见“授权边界”与“下一步”。此前“本轮只写记录”是记录子任务的边界，不是整体任务授权。
 - 上一轮（2026-10-29，复核修复）只更新本记录与 `docs/OPERATIONS.md` 的 `SANDBOX_MAX_FIELD_BYTES` 一行，当时不改其它文件、不提交（历史，截至上一轮；当前授权已更新，见“授权边界”）；实现与测试由并行代理及主会话完成。上一阶段文档收尾曾更新本记录、`docs/ARCHITECTURE.md`、`docs/OPERATIONS.md`、`docs/HANDOFF.md`，保留为历史记录。
 
 ## 当前有效决定
@@ -68,7 +68,7 @@
 9. PITFALLS 已有对应两条记录（Node 子进程 `exit`/`close` 不能混用、真实容器测试可能加载旧 dist）；本轮不改该文件。
 10. **上一轮最终联合回归（2026-10-29）**：主会话在 root backend 跑 38 个文件，**458 passed / 0 failed / 0 skipped**，报告 `/tmp/session-sandbox-final-regression.json`；其中 12 个为真实 Docker/SDK 用例（Docker 8 例使用新版继承 stdio fixture，SDK 4 例 + 本地假 Anthropic SSE）。`pnpm typecheck`、`pnpm build`、31 个 TS 文件 Biome、lint focus、contract 与 `git diff` 检查均通过；测试结束后 `docker ps` 无 `pace-session` 残留。旧阶段数字只作过程证据；458 是上一轮联合回归基线，本轮结果另记，不累加、不替换。
 
-## 复核整理、恢复与 handoff 修复（2026-10-29，未提交）
+## 复核整理、恢复与 handoff 修复（2026-10-29；“未提交”为历史截至旧轮，后续已在 `dddcd35` 提交）
 
 复核 7 项里只有第 1 项是实际恢复缺口，2/6 经裁决保留不改，3/4/5/7 属整理，不把 7 项都说成 bug。本轮按用户授权修复 1+3/4/5/7。此前 review 结论：1 需要修；3/4/5/7 整理已过；2/6 保留。
 
@@ -152,15 +152,15 @@
 - `docs/tasks/docker-sandboxes-kit-research.md`：他人未提交、未合 main 的研究记录，保留原样，不纳入本任务交付或验收依据。提交时排除该未跟踪文件；如它存在于本 worktree，清理/收尾不得移动或删除它，worktree 清理与收尾受该文件约束，须待其归属者处置。
 - `.vitest/json/output.json` 等测试自动生成的报告产物：不是业务改动；主会话已核对 diff 确认由本任务测试生成，并 `git restore` 恢复，`git diff --quiet` 通过。本轮报告写到 `/tmp/session-review-handoff-*`，不产生 tracked 产物。
 
-授权边界（当前有效）：用户最新已明确授权 commit / push / PR / merge，且不触发、不等待 CI。截至本记录更新尚未执行这些操作，不宣称已提交或已合入 main；上一轮“只实现、未 commit / push / merge”的描述为历史截至上一轮。提交时排除未跟踪的 `docs/tasks/docker-sandboxes-kit-research.md`，且不得移动或删除该他人文件。
+授权边界（当前有效）：用户最新已明确授权 commit / push / PR / merge，且不触发、不等待 CI。实现已提交 `dddcd35` 并推送，PR #103 已创建（base `main` ← head `worktree-session-sandbox-lifecycle`），**尚未合并**，合并状态以 PR 链接为准；上一轮“只实现、未 commit / push / merge”及“尚未执行”的描述为历史截至旧轮。提交时已排除未跟踪的 `docs/tasks/docker-sandboxes-kit-research.md`，该他人文件保留原样，不移动或删除。
 
 ## 下一步
 
 - 真实 Docker/SDK 已跑完：Docker 8 + SDK 4 共 12 passed / 0 failed / 0 skipped（`/tmp/session-review-handoff-live-final.json`）。
 - 独立 final Opus review 已明确通过（含 handoff 修复与新增校验，无遗漏）；本轮实现无待办。
 - 458 passed / 0 failed / 0 skipped 是更早基线，本轮未重跑全量；109 passed / 真实 Docker+SDK 12 passed 是中间版本证据，已被最终结果取代；三组数字分属不同范围，不累加、不替换。
-- **当前有效授权与下一步**：用户已明确授权 commit / push / 创建 PR / merge，且不触发或等待 CI、不自动开启 PR 监控。下一步由主会话执行：提交本任务改动（排除他人未跟踪文件 `docs/tasks/docker-sandboxes-kit-research.md`）→ push → 创建 PR → 合并；执行后回填实际 commit / PR / merge 结果，未发生前不伪造。
-- **worktree 清理**：合并后删除 worktree 前须确认该 worktree 内他人未跟踪的 `docs/tasks/docker-sandboxes-kit-research.md` 已有归属处置；不得移动或删除该文件，存在该文件时清理受其约束，必要时先报告再由用户处置。
+- **当前有效授权与下一步**：用户已明确授权 commit / push / 创建 PR / merge，且不触发或等待 CI、不自动开启 PR 监控。**已完成**：提交 `dddcd35`、push、创建 PR #103（base `main` ← head `worktree-session-sandbox-lifecycle`）。**待执行**：merge，由主会话按授权进行，无 CI 等待、无监控；合并状态以 PR #103 为准，未合并前不宣称已合入 main。
+- **worktree 清理**：尚未合并，worktree 暂不清理。当前 tree 含他人未跟踪的 `docs/tasks/docker-sandboxes-kit-research.md`，主会话将 Exit keep；不得清理 dirty tree、不得移动或删除该文件，待其归属者处置后再定。
 - 真实付费模型与浏览器全链路仍未测，需用户另行授权后展开。
 
 ## 验证
