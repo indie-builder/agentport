@@ -3,6 +3,15 @@ import { effortSchema, permissionModeSchema } from './agent.js';
 import { openUiActionSchema } from './openui/protocol.js';
 
 /**
+ * 官方可移植的 TodoWrite 开关：专家包 `.claude/settings.json` 与沙盒运行时共用这一份值。
+ * 导出只带这两项；后台任务、委派深度等沙盒执行约束属于平台，不随定义包迁移。
+ */
+export const PORTABLE_TODO_ENV = {
+  CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
+  CLAUDE_CODE_ENABLE_TASKS: '0',
+} as const;
+
+/**
  * 沙盒运行时的硬约束：前台执行 + 单层委派。
  * 写进工作区 `.claude/settings.json` 的 env，并由 runner 放进子进程 env；
  * core 渲染文件、sandbox 启动进程共用这一份，避免两处漂移。
@@ -10,6 +19,8 @@ import { openUiActionSchema } from './openui/protocol.js';
 export const SANDBOX_RUNTIME_ENV = {
   CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
   CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1',
+  // 启用原生 TodoWrite（而非四个 Task 工具），平台据此渲染任务进度。
+  ...PORTABLE_TODO_ENV,
 } as const;
 
 export const chatRequestSchema = z
@@ -32,6 +43,15 @@ export const chatRequestSchema = z
   .strict();
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
+
+/** 原生 TodoWrite 的一项；状态即模型自己维护的生命周期。 */
+export const progressTodoSchema = z.object({
+  content: z.string(),
+  activeForm: z.string(),
+  status: z.enum(['pending', 'in_progress', 'completed']),
+});
+
+export type ProgressTodo = z.infer<typeof progressTodoSchema>;
 
 /** SSE 事件：前端按 `type` 分派。 */
 export const chatEventSchema = z.discriminatedUnion('type', [
@@ -86,6 +106,11 @@ export const chatEventSchema = z.discriminatedUnion('type', [
     type: z.literal('tool_result'),
     toolUseId: z.string(),
     content: z.string(),
+    /**
+     * 该工具调用确认后的完整任务清单快照。省略表示本事件不改清单，
+     * 空数组表示清空；出现时整体替换，不做增量合并。
+     */
+    todos: z.array(progressTodoSchema).optional(),
     sdkUuid: z.string().optional(),
     parentToolUseId: z.string().optional(),
   }),

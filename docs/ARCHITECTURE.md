@@ -123,11 +123,23 @@
 3. worker 消费 job：若 run 已被取消则跳过；置为 `running` 并发布 `run_started`。
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 生成文件并写入 `WORKSPACES_DIR/<slug>/<runId>/`。
 5. worker 通过 `DockerSandboxProvider` 检查本地镜像；缺失时先执行可取消的 `docker pull`，再以 `docker create --pull=never` 固定容器并 `docker start -ai` 启动，通过 stdin 写入任务 JSON。创建请求已经发出后取消会等待创建结果并删除，绝不继续启动；不再依赖容器出现的一秒轮询窗口。
-6. 容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
+6. 容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`（可选带 `todos` 快照，见 §3.1）、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
 7. worker 逐行解析并按事件写入 Redis Stream（每次 `XADD` 与 TTL 续期合并为一次 pipeline）；工具调用经 `.mcp.json` 中的地址访问 api。
 8. 取消：api 写 `run:<runId>:cancel` 键并 publish；创建阶段的取消信号中止拉取，已发出的 create 则等待返回后删除、不启动。已启动容器由 Docker provider 统一 `docker stop --time 5` 优雅停止，再执行 `docker rm -f` 确认删除（未启动的 created 容器不能仅凭 stop 成功判定已删）；删除失败保留跟踪并上报。运行与试连共用容器收尾语义。
 9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。事件展示额度与落库额度分开：`text_delta`、块边界等瞬时事件超出展示上限只停止展示，完整 `assistant_text` 与工具事件另有落库上限，不会被增量挤出。真正超过落库上限时保留已收集结果，将成功改为带明确原因的不可重试失败，避免缺失尾部仍报告成功。
 10. 只有业务执行本身的基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会触发 BullMQ 重试；业务失败不重试。执行结果已确定后的容器清理失败只记录运行/容器上下文并保留清理跟踪，不改业务终态，避免完整任务重复计费或工具副作用重放。
+
+### 3.1 原生任务清单进度（TodoWrite）
+
+平台不新增任务表或第二个执行循环，进度只来自官方 `TodoWrite` 的结构化结果：
+
+- **启用**：`PORTABLE_TODO_ENV` 设置 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` 与 `CLAUDE_CODE_ENABLE_TASKS=0`，选择原生 `TodoWrite` 而非四个 Task 工具；`SANDBOX_RUNTIME_ENV` 复用它写入工作区 `.claude/settings.json.env`，runner 启动 SDK 时合并进程环境。显式 `disallowedTools` 仍然生效；默认 `dontAsk` 下已完成真实调用验收。专家导出包携带两个可移植 TodoWrite env 及选中的 `outputStyle`，不携带沙盒专有的后台任务与委派深度约束；导入仍不执行外来 env，导出按平台必需项重新生成。
+- **快照来源**：runner 只记录主会话（`parent_tool_use_id === null`）的 `TodoWrite` 调用 id；只有该调用成功、且同一 user 消息的 `tool_use_result.newTodos` 通过 `progressTodoSchema` 校验时，才发出完整列表快照。工具失败、结果缺失或损坏、子智能体调用都不更新清单。
+- **事件与持久化**：`tool_result` 事件新增可选 `todos`（`{content, activeForm, status}` 数组）。省略表示本事件不改清单，空数组表示清空，出现时整体替换；worker 把它与同一 `tool_result` 行一起落库，`content`/`activeForm` 走现有脱敏。快照 JSON 超过 `maxFieldBytes` 时整份不发送并在 stderr 记录原因，保留上一份确认清单，不发送删减后冒充完整的快照。
+- **展示**：实时流、历史恢复与重连回放复用同一字段；每个用户轮次只显示最后一次确认的顶层快照。子智能体清单不进入主清单，空快照隐藏清单；没有清单时保留原有工具与运行状态行，不新增空态。
+- **边界**：清单是模型自报的步骤进度，不是运行成功、完成度或成果质量的判据；停止、失败或成功都不会自动改写步骤状态，运行终态也不会替模型补完未完成项。没有任务表、endpoint、队列或 schema 迁移。
+
+能力状态（2026-10-28）：实现位于 `worktree-platform-capability-gaps` 工作区，尚未合入 main。真实 SDK→沙盒→SSE→历史保存已通过14项验收；浏览器刷新后保留同一份清单。独立 review 的导出设置、快照大小、确认顺序与字号问题已落地修复，正在最终复核；测试和完整证据见 [任务记录](tasks/platform-capability-gaps.md)。本次只验证用户故事 US-6.3 的进度环节，不代表子智能体与整个复杂任务故事均已验收。官方依据见 <https://code.claude.com/docs/en/agent-sdk/todo-tracking>。
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
@@ -178,7 +190,7 @@ data/workspaces/<agent-slug>/
 | 文件 | 内容来源 | 说明 |
 |---|---|---|
 | `.mcp.json` | `agent_servers` + `servers` | `mcpServers` 映射；stdio 写 command/args/env，http 写 url/headers，generated 写 `${SANDBOX_API_URL}/mcp/<id>` + 按 run 的短期 Bearer token 与 `x-agentport-run-id` |
-| `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 技能 + 子智能体清单（含超时）；前台执行与单层委派由运行时环境变量强制，不再逐次写在提示里 |
+| `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 技能 + 子智能体清单（含超时）+ 多步骤任务用原生 `TodoWrite` 维护清单的约束；前台执行与单层委派由运行时环境变量强制，不再逐次写在提示里 |
 | `.claude/agents/<child-slug>.md` | 子智能体配置 | YAML frontmatter：`name`、`description`、`model`、`mcpServers`（按名引用根 `.mcp.json`）、`disallowedTools`、`maxTurns` 及子级绑定的 `skills`；**不写 `tools`**，否则 SDK 派生时按名字解析 MCP 工具会得到空集并拒绝启动。父级不写 server 级 `disallowedTools`：子级继承会话权限，server 级 deny 会把子级工具一起移除，父级越权改由 PreToolUse 边界 hook 拒绝。主智能体自己的 md 只用于预览（`GET /api/agents/:id/files`），不落盘，避免被当成可委派子智能体 |
 | `.claude/skills/<slug>/SKILL.md` | `skills` 表 | frontmatter：`name`、`description`，正文为技能步骤 |
 
@@ -186,7 +198,7 @@ data/workspaces/<agent-slug>/
 
 - 每次 run 先删除并重建 `.claude/agents/` 与 `.claude/skills/`，解绑后的旧文件不会残留。不要手工往这两个目录放东西。
 - 工作区以只读方式挂载到容器 `/workspace`；agent 不能修改自己的定义。
-- 内置工具默认全部从上下文移除；`allowedTools` 只负责自动批准。MCP 工具的允许规则按 server name 逐个生成 `mcp__<name>__*`，`mcp__*` 通配无效。
+- 内置工具默认全部从上下文移除；`allowedTools` 只负责自动批准。原生 `TodoWrite` 是显式启用的例外（§3.1），只用于展示进度。MCP 工具的允许规则按 server name 逐个生成 `mcp__<name>__*`，`mcp__*` 通配无效。
 - 父级绑定技能slug从worker传给SDK的`skills`选项；无绑定明确传`[]`，仅控制自动批准的Skill(name)清单，不代表CLI发现清单隐藏其他技能。CLAUDE.md仅列父绑定技能。启用子智能体的绑定技能经批量查询合并到工作区文件，其子定义独立写`skills`预加载字段，不扩展父级SDK许可。真实CLI已发现子定义和技能文件；初始化接口不暴露预加载状态，子级正文加载及实际模型调用仍未验证，支持资源目录另行验收。
 - 有子智能体时才放行 `Agent` / `TaskStop`；子智能体自身不再获得委派能力。
 - 会话间消息工具（`ListAgents`、`SendMessage`、`SendUserMessage`、`EndConversation`、`Monitor`）默认禁用：
@@ -357,7 +369,7 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 
 知识库已作为与专家/技能/连接器/插件并列的资源页签接入：`/knowledge`列表含新建、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId`含文档/检索/Wiki/来源/任务五个面板。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘；未完成真实企业与真实模型服务验收，当前不能据此宣称生产可用。
 
-**真实闭环仍未完整验收**：上传 → 真实 embedding/rerank → 检索、真实飞书/GitLab 凭证、真实 Wiki 模型生成仍没有跑过真模型或真实企业服务；现有 embedding/feed 运行用的是本地协议夹具（确定性向量与自建 feed/article 服务），只能证明协议形状与任务生命周期，**不代表真实企业来源已接通**。Docling 的 PDF/OCR 适配已在独立容器用固定镜像实测真实 PDF（文本、图片、表格、OCR 开关与 failure 返回），但 compose profile 从未实际拉起，Office 格式、完整真实 embedding 与企业链仍未验；仅标题 OCR 文本在 chunk 丢失的缺陷已在本分支修复并验证通过（见 [任务记录](tasks/real-runtime-acceptance.md)），尚未合入 main。已有的运行记录、发现的问题与未验证项见 [任务记录](tasks/knowledge-runtime-verification.md) 与 [审查整改](tasks/knowledge-review-findings.md)，不能把模块测试通过当成端到端通过。
+**真实闭环仍未完整验收**：上传 → 真实 embedding/rerank → 检索、真实飞书/GitLab 凭证、真实 Wiki 模型生成仍没有跑过真模型或真实企业服务；现有 embedding/feed 运行用的是本地协议夹具（确定性向量与自建 feed/article 服务），只能证明协议形状与任务生命周期，**不代表真实企业来源已接通**。Docling 的 PDF/OCR 适配已在独立容器用固定镜像实测真实 PDF（文本、图片、表格、OCR 开关与 failure 返回），但 compose profile 从未实际拉起，Office 格式、完整真实 embedding 与企业链仍未验；仅标题 OCR 文本在 chunk 丢失的缺陷已由 PR #95（`b28d3e6`）合入 main 并验证通过（见 [任务记录](tasks/real-runtime-acceptance.md)）。已有的运行记录、发现的问题与未验证项见 [任务记录](tasks/knowledge-runtime-verification.md) 与 [审查整改](tasks/knowledge-review-findings.md)，不能把模块测试通过当成端到端通过。
 
 ## 7. 关键设计决策
 

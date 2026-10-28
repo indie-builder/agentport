@@ -331,6 +331,7 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
       expect(sidecarText).not.toContain(body);
     }
     expect(JSON.parse(files.get('.claude/settings.json') ?? '{}')).toEqual({
+      env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', CLAUDE_CODE_ENABLE_TASKS: '0' },
       outputStyle: 'brief',
     });
   });

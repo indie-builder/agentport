@@ -2,6 +2,7 @@ import {
   conversationRenameSchema,
   type OpenUiAction,
   type OpenUiToolResult,
+  type ProgressTodo,
 } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
@@ -11,9 +12,12 @@ import {
   Bot,
   Check,
   ChevronDown,
+  Circle,
   CircleAlert,
+  CircleCheck,
   CircleStop,
   GitBranch,
+  ListChecks,
   LoaderCircle,
   MessageSquare,
   MoreHorizontal,
@@ -95,6 +99,7 @@ import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
 import {
   type ChatItem,
+  latestTopLevelTodos,
   mergeOlderHistory,
   titleFromDetail,
   toolFailed,
@@ -1785,6 +1790,8 @@ export function MessagePane({
                       : turnRunId
                         ? historyMetrics.get(turnRunId)
                         : undefined;
+                  // 清单是这一轮的最后一份顶层确认快照；子智能体与空快照都不显示。
+                  const turnTodos = turn.user ? undefined : latestTopLevelTodos(turn.items);
                   // 每个 item 自带 content-visibility（绘制隔离），越界的悬浮层会被裁掉。
                   return (
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
@@ -1832,6 +1839,7 @@ export function MessagePane({
                                 );
                               })}
                             </MessageGroup>
+                            {turnTodos ? <TodoProgress todos={turnTodos} /> : null}
                             {!turn.user && latest ? (
                               <>
                                 {runFooter}
@@ -2338,6 +2346,61 @@ export const ApprovalCard = memo(function ApprovalCard({
         {busy ? '批准中…' : item.waiting ? '批准本次调用' : '批准后续调用'}
       </Button>
     </motion.div>
+  );
+});
+
+/** 本轮任务清单：只呈现最后一次确认的快照，停止/失败/成功都不改写步骤状态。 */
+const TodoProgress = memo(function TodoProgress({ todos }: { todos: ProgressTodo[] }) {
+  const completed = todos.filter((todo) => todo.status === 'completed').length;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-1.5">
+        <ListChecks className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="font-mono text-xs tabular-nums text-fg" aria-hidden="true">
+          {completed}/{todos.length}
+        </span>
+        <span className="sr-only">
+          已完成 {completed} 项，共 {todos.length} 项
+        </span>
+      </div>
+      <ul aria-label="任务清单" className="flex flex-col gap-1">
+        {todos.map((todo, index) => {
+          const status =
+            todo.status === 'completed'
+              ? '已完成'
+              : todo.status === 'in_progress'
+                ? '进行中'
+                : '待处理';
+          return (
+            <li
+              // biome-ignore lint/suspicious/noArrayIndexKey: 清单没有稳定 id，位置即身份
+              key={index}
+              className="flex items-start gap-1.5 text-md"
+            >
+              {todo.status === 'completed' ? (
+                <CircleCheck className="mt-1 size-4 shrink-0 text-success" aria-hidden="true" />
+              ) : todo.status === 'in_progress' ? (
+                <LoaderCircle
+                  className="mt-1 size-4 shrink-0 animate-spin text-fg"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Circle className="mt-1 size-4 shrink-0 text-subtle" aria-hidden="true" />
+              )}
+              <span
+                className={cn(
+                  'min-w-0 [overflow-wrap:anywhere]',
+                  todo.status === 'in_progress' ? 'text-fg' : 'text-muted-foreground',
+                )}
+              >
+                <span className="sr-only">{status}：</span>
+                {todo.status === 'in_progress' ? todo.activeForm : todo.content}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 });
 

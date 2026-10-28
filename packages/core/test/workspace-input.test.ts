@@ -244,6 +244,8 @@ describe('toWorkspaceInput', () => {
       env: {
         CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
         CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1',
+        CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
+        CLAUDE_CODE_ENABLE_TASKS: '0',
       },
     });
   });

@@ -90,6 +90,16 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
           toolUseId: event.toolUseId,
           name: toolNames.get(event.toolUseId) ?? null,
           content: redactSecrets(event.content),
+          // 清单与工具结果同一条消息落库；模型生成的可见文本同样要脱敏。
+          ...(event.todos === undefined
+            ? {}
+            : {
+                todos: event.todos.map((todo) => ({
+                  content: redactSecrets(todo.content),
+                  activeForm: redactSecrets(todo.activeForm),
+                  status: todo.status,
+                })),
+              }),
           ...parent,
         },
         ...sdk,

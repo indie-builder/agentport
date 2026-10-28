@@ -194,6 +194,56 @@ describe.skipIf(!ready)('buildMessageRows keeps assistant block identity', () =>
       { role: 'assistant', content: { type: 'text', text: 'hello', blockIndex: 0 } },
     ]);
   });
+
+  it('keeps the todo snapshot on the tool result and redacts both visible fields', () => {
+    const rows = messages.buildMessageRows([
+      { type: 'tool_start', toolUseId: 'tu1', name: 'TodoWrite' },
+      { type: 'tool_input', toolUseId: 'tu1', json: '{"todos":[]}' },
+      {
+        type: 'tool_result',
+        toolUseId: 'tu1',
+        content: 'ok',
+        todos: [
+          {
+            content: 'use sk-abcdefghijklmnopqrstuvwxyz',
+            activeForm: 'using sk-abcdefghijklmnopqrstuvwxyz',
+            status: 'in_progress',
+          },
+          { content: 'plain', activeForm: 'plain', status: 'completed' },
+        ],
+      },
+    ]);
+
+    // 工具卡片本身保持原样，快照只挂在结果行上。
+    expect(rows[0]?.content).toEqual({
+      type: 'tool_use',
+      id: 'tu1',
+      name: 'TodoWrite',
+      input: { todos: [] },
+    });
+    expect(rows[1]?.content).toEqual({
+      type: 'tool_result',
+      toolUseId: 'tu1',
+      name: 'TodoWrite',
+      content: 'ok',
+      todos: [
+        {
+          content: 'use sk-a***',
+          activeForm: 'using sk-a***',
+          status: 'in_progress',
+        },
+        { content: 'plain', activeForm: 'plain', status: 'completed' },
+      ],
+    });
+  });
+
+  it('persists an empty todo snapshot instead of dropping it', () => {
+    const rows = messages.buildMessageRows([
+      { type: 'tool_start', toolUseId: 'tu1', name: 'TodoWrite' },
+      { type: 'tool_result', toolUseId: 'tu1', content: 'ok', todos: [] },
+    ]);
+    expect(rows[1]?.content).toMatchObject({ type: 'tool_result', todos: [] });
+  });
 });
 
 describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
@@ -310,6 +360,35 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     expect(output[0]?.text).toBe('key sk-a***');
     // 重放只删本 run 的输出；用户消息带同一个 run_id，必须保留且不重复。
     expect(await userCount(runId)).toBe(1);
+  });
+
+  it('stores the redacted todo snapshot with its tool result row', async () => {
+    const fixture = await newFixture();
+    const runId = await seedRun(fixture);
+    expect(
+      await persist(fixture, runId, [
+        { type: 'tool_start', toolUseId: 'tu1', name: 'TodoWrite' },
+        {
+          type: 'tool_result',
+          toolUseId: 'tu1',
+          content: 'ok',
+          todos: [
+            {
+              content: 'use sk-abcdefghijklmnopqrstuvwxyz',
+              activeForm: 'using sk-abcdefghijklmnopqrstuvwxyz',
+              status: 'in_progress',
+            },
+          ],
+        },
+      ]),
+    ).toBe(true);
+
+    const stored = (await outputOf(runId)).find((row) => row.type === 'tool_result') as
+      | { todos?: unknown }
+      | undefined;
+    expect(stored?.todos).toEqual([
+      { content: 'use sk-a***', activeForm: 'using sk-a***', status: 'in_progress' },
+    ]);
   });
 
   it('persists the messages collected before a byte overflow without choking on a huge token', async () => {

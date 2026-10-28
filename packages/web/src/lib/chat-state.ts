@@ -1,4 +1,9 @@
-import type { ChatEvent, ConversationMessage } from '@agentport/shared';
+import {
+  type ChatEvent,
+  type ConversationMessage,
+  type ProgressTodo,
+  progressTodoSchema,
+} from '@agentport/shared';
 import type { ConversationDetail } from './api.js';
 
 export type ChatItem =
@@ -45,6 +50,13 @@ export type ChatItem =
       startedAt?: number;
       endedAt?: number;
       runId?: string;
+      /** 最近一次确认的任务清单快照；空数组表示已清空。 */
+      todos?: ProgressTodo[];
+      /**
+       * 快照确认顺序：tool_result 到达才编号，trace 位置仍留在 tool_start。
+       * 早开始的调用可能晚确认，选清单必须按它而不是数组位置。
+       */
+      todoSeq?: number;
     }
   | { id?: string; kind: 'notice'; text: string; tone: 'ok' | 'error' | 'muted' };
 
@@ -221,12 +233,22 @@ export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
           ? { ...item, input: event.json }
           : item,
       );
-    case 'tool_result':
+    case 'tool_result': {
+      // 确认顺序按结果到达编号：tool_start 的位置只决定 trace，早开始的调用可能晚确认。
+      const seq =
+        event.todos === undefined ? {} : { todos: event.todos, todoSeq: highestTodoSeq(items) + 1 };
       return items.map((item) =>
         item.kind === 'tool' && item.toolUseId === event.toolUseId
-          ? { ...item, result: event.content, endedAt: Date.now() }
+          ? {
+              ...item,
+              result: event.content,
+              endedAt: Date.now(),
+              // 省略表示不改清单；空数组表示清空，出现时整体替换。
+              ...seq,
+            }
           : item,
       );
+    }
     case 'replay_truncated':
       // 只是说明回放不完整；run_finished 后再用服务端已保存的步骤补全。
       return [
@@ -267,9 +289,21 @@ function blockText(block: unknown): string | null {
   return null;
 }
 
+/**
+ * 入库内容来自数据库，是未校验的 unknown：这里按 shared schema 收窄一次。
+ * 非法快照直接当作没有，不能让整段历史渲染失败。
+ */
+function historyTodos(record: Record<string, unknown>): { todos?: ProgressTodo[] } {
+  if (record.todos === undefined) return {};
+  const parsed = progressTodoSchema.array().safeParse(record.todos);
+  return parsed.success ? { todos: parsed.data } : {};
+}
+
 /** DB 里存的是 SDK 原始内容块；历史渲染只挑可读部分，工具调用按 tool_use_id 合并结果。 */
 export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
   const items: ChatItem[] = [];
+  // 历史按消息与块顺序重放：tool_result 出现的次序就是确认次序，与工具行位置无关。
+  let todoSeq = 0;
   for (const message of messages) {
     const { content, role } = message;
 
@@ -351,6 +385,13 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
               ? record.tool_use_id
               : '';
         const result = blockText(record.content) ?? '';
+        const todos = historyTodos(record);
+        // 有快照的结果才占一个确认序号；补更早的 tool_use 不参与编号，因此跨页结论不变。
+        let seq: { todoSeq?: number } = {};
+        if (todos.todos !== undefined) {
+          todoSeq += 1;
+          seq = { todoSeq };
+        }
         const parent =
           typeof record.parentToolUseId === 'string'
             ? { parentToolUseId: record.parentToolUseId }
@@ -360,7 +401,7 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
         );
         const existing = items[index];
         if (existing?.kind === 'tool') {
-          items[index] = { ...existing, result, ...parent };
+          items[index] = { ...existing, result, ...todos, ...seq, ...parent };
         } else {
           // 找不到 tool_use 时也保留归属：否则子智能体卡片会被当成顶层调用。
           items.push({
@@ -369,6 +410,8 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
             toolUseId,
             name: '未知工具',
             result,
+            ...todos,
+            ...seq,
             ...parent,
           });
         }
@@ -376,6 +419,35 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
     }
   }
   return items;
+}
+
+/**
+ * 一轮里最后确认的顶层工具清单快照。顺序按 tool_result 确认编号（todoSeq），
+ * 不按数组位置：早开始的调用可能晚确认，补更早的 tool_use 也不会改变结论。
+ * 子智能体的调用（parentToolUseId）不能覆盖主清单；空快照表示已清空，更早的非空快照不再显示。
+ */
+export function latestTopLevelTodos(items: ChatItem[]): ProgressTodo[] | undefined {
+  let latest: Extract<ChatItem, { kind: 'tool' }> | undefined;
+  for (const item of items) {
+    if (item.kind !== 'tool' || item.parentToolUseId !== undefined || item.todos === undefined)
+      continue;
+    // 没有编号的旧数据退回数组位置。
+    if (latest === undefined || (item.todoSeq ?? 0) >= (latest.todoSeq ?? 0)) latest = item;
+  }
+  return latest === undefined || latest.todos === undefined || latest.todos.length === 0
+    ? undefined
+    : latest.todos;
+}
+
+/** 已确认快照的最大编号；下一条结果取它 +1，重放或重试时编号仍保持单调。 */
+function highestTodoSeq(items: ChatItem[]): number {
+  let highest = 0;
+  for (const item of items) {
+    if (item.kind === 'tool' && item.todoSeq !== undefined && item.todoSeq > highest) {
+      highest = item.todoSeq;
+    }
+  }
+  return highest;
 }
 
 /* ---------- 分页历史：已加载前缀 + 本轮流式尾部 ---------- */
