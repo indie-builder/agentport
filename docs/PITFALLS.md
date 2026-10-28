@@ -231,6 +231,12 @@
 - **原因**：测试模块在 import 时捕获 `DATABASE_URL`、擅自改 `process.env`，或把地址重写回固定历史库；复用的旧迁移账本不含后来合入的表，迁移异常又被吞成 infra 不可用。
 - **规避**：默认入口由 backend globalSetup 每轮创建随机库并迁移，经 `provide`/`inject` + `setupFiles` 在导入测试前写入 `process.env`；套件确需独立库时调用 `createIsolatedDatabase(prefix, adminUrl)`，显式使用返回的 `url`（不再隐式改 env），关闭连接后只删自己创建的库。建库/迁移失败必须抛错；只有 PG/Docker 不可用才发布不可连地址并跳过，不能回落开发库或共享 Redis。核验清理时只认本次函数返回的库名及唯一容器名/句柄：同一 worktree 可能有并行代理在跑测试，不要按 `backend_test_*` 前缀或镜像名批量删库/删容器。
 
+## 解析：Docling pageMap 不能用整文 indexOf 反查来源
+
+- **现象**：表格 chunk 丢失来源页码；图片 OCR 的 `1` 被匹进正文数字 `1234`，页码错位。
+- **原因**：Docling JSON 的表格是紧凑序列化，与官方 Markdown 中带对齐空格的表格文本不同，整文 `indexOf` 找不到表格；短 OCR 串也会落到任意相同数字里。CRLF 原文还会让偏移与返回文本位置不一致。
+- **规避**：复用 `markdownBlocks` 已算出的原文 offset 与 fingerprint，按同类匹配并维护已认领区间，不随意 substring。真实解析验收要看 `adapter.chunkMarkdown` 产出的 `pageFrom`，不能只看 JSON blocks 的 locator；CRLF 必须返回原文 offset。
+
 ## 数据库：共享库已有列会让 Drizzle 迁移整批中止
 
 - **现象**：`pnpm db:migrate` 报 `column ... already exists`，`drizzle.__drizzle_migrations` 仍停在上一号，后续迁移一条都没跑。

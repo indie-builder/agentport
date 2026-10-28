@@ -1,4 +1,10 @@
 {
   "status": "failure",
-  "errors": ["conversion crashed"]
+  "errors": [
+    {
+      "component_type": "conversion",
+      "module_name": "docling",
+      "error_message": "conversion crashed"
+    }
+  ]
 }

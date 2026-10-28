@@ -33,8 +33,10 @@
 - [x] Opus 定契约与任务分工。
 - [x] 并行新增 card-actions / input-actions 行为测试。
 - [x] 单一写者更新 coverage registry；跑 `openui:audit` 对比同范围缺口。
-- [ ] 独立 Opus 评审通过（进行中）。
-- [ ] commit / push / PR / 合并 / 删除干净 worktree / 更新 main，不等待 CI。
+- [x] 独立 Opus 评审通过（card 与 parity 补修后复核）。
+- [x] 本地提交 `c5a3c13`（仅本地，未推送）。
+- [x] 基于缓存 `origin/main` = `d6aacd3` 的 merge 集成验证完成（no-commit；冲突仅 `docs/OPENUI-UPGRADE.md`，已解决且独立 Opus 通过）。
+- [ ] merge commit / push / PR / 远端合并 / 删除 worktree / 更新 main：受本机 TLS 证书链阻断，当前只有本地 commit。
 
 ## 本轮结果（只补指定 7 项，不代表其余组件已全部覆盖）
 
@@ -48,9 +50,14 @@
 
 ## 下一步
 
-顺序固定为：待最后独立 Opus 复核结论 → 提交 → 集成验证。复核未回前不宣称通过。
+顺序固定为：本地提交（已完成）→ merge 缓存 main 的集成验证（已完成）→ merge commit / push / PR 由主会话执行（尚未完成）。
 
-- 待复核：card 评审指出 2 个测试缺口，已补强并以 mutation 证明用例能真实激活（非空跑）；parity 评审 2 项 must-fix（具体错误断言、cleanup 缺失）已补修；补修后 parity + card 共 18 项通过。最后一道 Opus 复核仍在等待，不预告结果。
-- 本地已验证：7 项新增 15 条行为测试全过（表单 8、card 7）；registry 为 behavior 14 / render 39 / nested 29（其中嵌套有交互、尚无行为证据 0）/ missing 2；完整 OpenUI 19 文件 216 项通过（此前 registry 中间写入失败导致的 1 项失败有记录，稳定后复跑通过）；web typecheck / build、Biome、focus、contract 通过（旧 deps 1.0.1），`openui:check` 11 项通过。
-- 网络仍因本机 TLS 证书链不可信阻断 git/gh：不能 fetch/push/PR/merge，只能基于本地缓存 `origin/main` = `d6aacd3`。提交后再用 1.0.2 新 deps 完成集成验证；不增重试或绕过。
-- commit 授权有效，无需再问；仍不预告 merge 结果，也不在没有远端证据时声称已合并。
+- 独立 Opus 复核已完成：card 评审 2 个测试缺口与 parity 评审 2 项 must-fix（具体错误断言、cleanup 缺失）均已补修并通过。
+- 新依赖实装：`@openuidev/lang-core`（core）/`@openuidev/react-lang`（web）1.0.2、`@openuidev/cli` 0.6.1；`pnpm install --frozen-lockfile --offline` 通过；shared/core/db build 与 web typecheck/build 通过。
+- OpenUI 19 个测试文件 216 项在旧 deps 1.0.1 与实装 1.0.2 下均通过（中间一次 card+parity 首轮 17/18、随后转绿，发生在临时 mutation 验证同期间，原因未确证，不据此归因；主会话稳定后复跑 216 通过）。
+- `openui:check` 11 项全过；`openui:audit`：behavior 14 / render 39 / nested 29（嵌套有交互、尚无行为证据 0）/ missing 2。
+- 本轮 merge 集成验证后 Renderer chunk gzip 256.05 kB，仅作记录，不构成性能承诺。
+- 完整 diff review 产品代码无阻断项；card locator 与 context 2 处缺口已补修，独立 Opus 通过。
+- 仍受本机 TLS 证书链阻断：不能 fetch/push/PR，无法确认远端最新；当前只有本地 commit `c5a3c13`。merge commit 留给主会话，未 PR、未远端合并，也未删除 worktree。不等待 CI，不重建 cron。
+- 本树 `.vitest/json/output.json` 已 `git restore`（与 HEAD 一致，操作等同 no-op）；主 checkout 同名差异未触碰。
+- commit 授权有效，不再询问；不在缺少远端证据时声称已合并。

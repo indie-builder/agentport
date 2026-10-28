@@ -3,6 +3,17 @@
 > 目标：OpenUI 发新版时，用最小改动、可验证的步骤完成升级，而不是靠记忆改代码。
 > 当前基线见 `docs/tasks/openui-integration.md`；行为复核与修复进展见 `docs/tasks/openui-integration-fixes.md`。
 
+## 版本基线
+
+| 包 | 锁定版本 | 用途 |
+|---|---|---|
+| `@openuidev/react-ui` | 0.18.1 | 生成期：官方 chat 库与 `definitions.ts` 对照 |
+| `@openuidev/cli` | 0.6.1 | 生成期：从 web 库产出 `openui.spec.json` |
+| `@openuidev/lang-core`（core） | 1.0.2 | 运行期：解析与系统提示词 |
+| `@openuidev/react-lang`（web） | 1.0.2 | 运行期：渲染与 hooks |
+
+升级任一行后按本文「升级步骤」执行，并把上表改成实装版本。
+
 ## 定义来源（先看这张图再动手）
 
 ```
@@ -83,7 +94,7 @@ packages/shared/src/openui/definitions.ts   真实 Zod 契约（唯一手工维�
    - DatePicker：日历点击能打开，single/range 在正负时区下按本地年月日往返；
    - CheckBoxGroup / SwitchGroup：默认项与改动项聚合后，显示值与提交载荷一致；
    - message：无效程序 → 有效程序能恢复渲染，正常表单不因该路径重挂。
-7. **更新本手册的基线**与 `docs/tasks/openui-integration.md` 的版本记录；
+7. **更新本文「版本基线」表**与 `docs/tasks/openui-integration.md` 的版本记录；
    本轮行为修复的证据见 `docs/tasks/openui-integration-fixes.md`：实现、范围验证与独立复核已完成，
    改动仍未提交、未合入 main。
 

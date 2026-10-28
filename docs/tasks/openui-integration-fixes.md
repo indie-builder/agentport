@@ -57,13 +57,7 @@
 
 ## 下一步
 
-顺序：待最后独立 Opus 复核 → 提交 → 集成验证。复核未回前不宣称通过。
-
-- card 评审的 2 个测试缺口已补强，并以 mutation 证明测试真实激活；parity 评审 2 项 must-fix（具体错误断言、cleanup）已补修，补修后 parity + card 18 项通过。
-- 本轮实跑：7 项新增 15 条行为测试全过（表单 8、card 7）；registry 14 behavior / 39 render / 29 nested（互动缺口 0）/ 2 missing；完整 OpenUI 19 文件 216 项通过（此前 registry 中间写入失败 1 项有记录，稳定后复跑通过）。
-- web typecheck / build、Biome、focus、contract 通过（旧 deps 1.0.1）；`openui:check` 11 项通过。
-- 网络 TLS 证书链不可信，git/gh 仍无法 fetch/push/PR/merge；只能基于本地缓存 `origin/main` = `d6aacd3`，提交后再用 1.0.2 新 deps 验证集成。
-- commit 已获有效授权，不再询问；不预告复核或 merge 结果。前轮修复与验证记录保留不变。
+当前状态与逐项证据见 `docs/tasks/openui-interaction-completion.md`：本地提交 `c5a3c13` 已完成，基于缓存 `origin/main` = `d6aacd3` 的 merge 集成验证完成，独立 Opus 复核通过；只剩 merge commit / push / PR 受本机 TLS 证书链阻断，尚未合入远端。不等待 CI，不重建 cron。
 
 ### 网络状态（2026-10-28）
 
