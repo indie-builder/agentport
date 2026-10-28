@@ -58,3 +58,21 @@ describe('renderClaudeMd skill access rules', () => {
     expect(claudeMd).not.toContain('不要用 `Read` 打开 `.claude/skills/`');
   });
 });
+
+describe('native todo tracking', () => {
+  it('enables TodoWrite instead of the Task tools in the rendered settings env', () => {
+    const files = renderWorkspace({ agent, servers: [] });
+
+    expect(JSON.parse(files.settingsJson ?? '{}').env).toMatchObject({
+      CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
+      CLAUDE_CODE_ENABLE_TASKS: '0',
+    });
+  });
+
+  it('tells the agent to keep the native list for multi-step work only', () => {
+    const { claudeMd } = renderWorkspace({ agent, servers: [] });
+
+    expect(claudeMd).toContain('TodoWrite');
+    expect(claudeMd).toContain('简单');
+  });
+});

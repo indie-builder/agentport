@@ -50,6 +50,7 @@ import {
   AGENT_PACKAGE_SIDECAR_VERSION,
   agentPackageSidecarSchema,
   knowledgeTokenEnv,
+  PORTABLE_TODO_ENV,
   slugSchema,
 } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
@@ -424,6 +425,7 @@ export async function buildAgentPackage(
     name: server.name,
     entry: toPreviewEntry(server, selfUrl),
   }));
+  const selectedOutputStyle = rootStyles.find((style) => style.isSelected)?.slug ?? null;
   const workspace = renderWorkspace(
     toWorkspaceInput({
       agent: { ...row, serverNames: rootServers.map((server) => server.name) },
@@ -436,7 +438,7 @@ export async function buildAgentPackage(
       })),
       rules: toPortableRules(rootRules),
       outputStyles: toPortableStyles(rootStyles),
-      selectedOutputStyle: rootStyles.find((style) => style.isSelected)?.slug ?? null,
+      selectedOutputStyle,
     }),
   );
   files[AGENT_PACKAGE_PATHS.claudeMd] = workspace.claudeMd;
@@ -447,14 +449,16 @@ export async function buildAgentPackage(
   for (const style of rootStyles) {
     files[`${AGENT_PACKAGE_PATHS.outputStylesDir}${style.slug}.md`] = renderOutputStyleMd(style);
   }
-  if (rootStyles.some((style) => style.isSelected)) {
-    // 包里只携带可移植的 outputStyle；运行时的沙盒 env 属于平台，不进入定义包。
-    files[AGENT_PACKAGE_PATHS.settings] = `${JSON.stringify(
-      { outputStyle: rootStyles.find((style) => style.isSelected)?.slug },
-      null,
-      2,
-    )}\n`;
-  }
+  // 包里只携带官方可移植配置：TodoWrite 开关让 CLAUDE.md 的任务清单提示在别处可执行；
+  // 沙盒专有的后台任务与委派深度约束属于平台，不进入定义包。
+  files[AGENT_PACKAGE_PATHS.settings] = `${JSON.stringify(
+    {
+      env: PORTABLE_TODO_ENV,
+      ...(selectedOutputStyle === null ? {} : { outputStyle: selectedOutputStyle }),
+    },
+    null,
+    2,
+  )}\n`;
 
   for (const skill of allSkills) {
     const base = `${AGENT_PACKAGE_PATHS.skillsDir}${skill.slug}/`;

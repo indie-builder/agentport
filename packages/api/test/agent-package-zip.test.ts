@@ -1113,6 +1113,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(files.get('.claude/rules/root-rule.md')).toContain('Keep root rules.');
     expect(files.get('.claude/output-styles/brief.md')).toContain('Be brief.');
     expect(JSON.parse(files.get('.claude/settings.json') ?? '{}')).toEqual({
+      env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', CLAUDE_CODE_ENABLE_TASKS: '0' },
       outputStyle: 'brief',
     });
     expect(files.get(`.claude/skills/${skillSlug}/references/guide.md`)).toBe('# Guide');
@@ -1160,6 +1161,8 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(roundTrip.get('.claude/output-styles/brief.md')).toBe(
       files.get('.claude/output-styles/brief.md'),
     );
+    // 导入忽略 env，导出端按自己的必需项重新生成，往返后内容一致。
+    expect(roundTrip.get('.claude/settings.json')).toBe(files.get('.claude/settings.json'));
     expect(roundTrip.get(`.claude/skills/${skillSlug}/references/guide.md`)).toBe('# Guide');
     const roundTripSidecar = sidecarOf(roundTrip);
     expect(roundTripSidecar.subAgents[0]?.rules).toEqual(exported.subAgents[0]?.rules);
@@ -1690,6 +1693,21 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
   it('rejects an import body over the ZIP limit', async () => {
     const oversized = Buffer.alloc(AGENT_PACKAGE_MAX_BYTES + 1, 0x50);
     expectProblem(await importZip(oversized), 'PAYLOAD_TOO_LARGE');
+  });
+
+  it('exports the portable TodoWrite env even without a selected output style', async () => {
+    const slug = unique('pkg-settings-env');
+    createdAgents.push(slug);
+    const agent = (await createAgent(app, cookie, { slug, track: createdAgents })).json<Agent>();
+
+    const files = await exportFiles(agent.id);
+    const settings = files.get('.claude/settings.json') ?? '';
+    expect(JSON.parse(settings)).toEqual({
+      env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', CLAUDE_CODE_ENABLE_TASKS: '0' },
+    });
+    // 沙盒专有的后台任务与委派深度限制不随定义包迁移。
+    expect(settings).not.toContain('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS');
+    expect(settings).not.toContain('CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH');
   });
 
   it('redacts the per-server secret mask from an exported .mcp.json', async () => {

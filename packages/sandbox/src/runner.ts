@@ -1,7 +1,13 @@
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { SANDBOX_RUNTIME_ENV, type SandboxTask, sandboxTaskSchema } from '@agentport/shared';
+import {
+  type ProgressTodo,
+  progressTodoSchema,
+  SANDBOX_RUNTIME_ENV,
+  type SandboxTask,
+  sandboxTaskSchema,
+} from '@agentport/shared';
 import { forkSession, query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { createFileBoundaryHook } from './memory-permissions.js';
 import { createSubAgentBoundaryHook } from './sub-agent-permissions.js';
@@ -45,6 +51,8 @@ interface RunnerEvent {
   name?: string;
   json?: string;
   content?: string;
+  /** 顶层 TodoWrite 成功确认后的完整清单快照；省略表示本事件不改清单。 */
+  todos?: ProgressTodo[];
   status?: 'succeeded' | 'failed' | 'cancelled' | 'timeout';
   costUsd?: number;
   turns?: number;
@@ -148,6 +156,33 @@ function toolResultText(content: unknown): string {
 /** 顶层消息 parent_tool_use_id 为 null：事件里省略该字段，宿主侧按 undefined 处理。 */
 function parentTag(id: string | null): { parentToolUseId?: string } {
   return id === null ? {} : { parentToolUseId: id };
+}
+
+/**
+ * TodoWrite 的清单只认官方成功输出：同一条 user 消息上的 tool_use_result.newTodos。
+ * 工具输入只用于配对顶层调用 id；失败、子智能体、缺失或损坏的输出都不更新清单。
+ */
+function todoSnapshot(input: {
+  toolUseId: string;
+  isError: boolean | undefined;
+  parentToolUseId: string | null;
+  result: unknown;
+  todoToolIds: ReadonlySet<string>;
+}): ProgressTodo[] | undefined {
+  if (input.parentToolUseId !== null || input.isError === true) return undefined;
+  if (!input.todoToolIds.has(input.toolUseId)) return undefined;
+  if (typeof input.result !== 'object' || input.result === null) return undefined;
+  const parsed = progressTodoSchema
+    .array()
+    .safeParse((input.result as { newTodos?: unknown }).newTodos);
+  if (!parsed.success) return undefined;
+  // 快照必须整份到达：截断 JSON 会变成假清单，所以超限时整份省略，宿主保留上一份。
+  const bytes = Buffer.byteLength(JSON.stringify(parsed.data));
+  if (bytes > maxFieldBytes) {
+    log(`omitted a ${bytes} byte todo snapshot over the ${maxFieldBytes} byte limit`);
+    return undefined;
+  }
+  return parsed.data;
 }
 
 /** 会话 transcript 是否已在挂载目录里；缺失意味着挂载/清理出错，不能假装是空会话。 */
@@ -332,6 +367,8 @@ if (session.error !== undefined) {
      * 也不能与流事件的真实 index 对齐；完整消息在 content_block_stop 之前到达，按此对齐。
      */
     const openBlocks = new Map<string, { index: number; kind: string }>();
+    /** 只记录顶层 TodoWrite 的调用 id；子智能体与失败结果都不能改主清单。 */
+    const todoToolIds = new Set<string>();
     const parentKey = (id: string | null): string => id ?? '';
 
     for await (const message of query({
@@ -456,6 +493,9 @@ if (session.error !== undefined) {
             continue;
           }
           if (block.type !== 'tool_use') continue;
+          if (block.name === 'TodoWrite' && message.parent_tool_use_id === null) {
+            todoToolIds.add(block.id);
+          }
           emit({
             type: 'tool_start',
             toolUseId: block.id,
@@ -479,12 +519,20 @@ if (session.error !== undefined) {
         const parent = parentTag(message.parent_tool_use_id);
         for (const block of content) {
           if (block.type !== 'tool_result') continue;
+          const todos = todoSnapshot({
+            toolUseId: block.tool_use_id,
+            isError: block.is_error,
+            parentToolUseId: message.parent_tool_use_id,
+            result: message.tool_use_result,
+            todoToolIds,
+          });
           emit({
             type: 'tool_result',
             toolUseId: block.tool_use_id,
             content: capWithMarker(toolResultText(block.content), maxFieldBytes),
             ...(message.uuid === undefined ? {} : { sdkUuid: message.uuid }),
             ...parent,
+            ...(todos === undefined ? {} : { todos }),
           });
         }
         continue;

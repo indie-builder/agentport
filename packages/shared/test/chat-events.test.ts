@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chatEventSchema } from '../src/chat.js';
+import { chatEventSchema, progressTodoSchema } from '../src/chat.js';
 
 const parse = (event: unknown) => chatEventSchema.parse(event);
 
@@ -59,5 +59,42 @@ describe('assistant block boundaries', () => {
     expect(
       parse({ type: 'assistant_text', text: 'cut', blockIndex: 0, truncated: true }),
     ).toMatchObject({ blockIndex: 0, truncated: true });
+  });
+});
+
+describe('progress todo snapshots', () => {
+  const todos = [
+    { content: '读取文件', activeForm: '正在读取文件', status: 'in_progress' },
+    { content: '修改实现', activeForm: '正在修改实现', status: 'pending' },
+    { content: '运行测试', activeForm: '正在运行测试', status: 'completed' },
+  ] as const;
+
+  it('attaches a full snapshot to a tool result', () => {
+    expect(parse({ type: 'tool_result', toolUseId: 't1', content: 'ok', todos })).toMatchObject({
+      todos,
+    });
+  });
+
+  it('omits todos when there was no change and accepts an empty list to clear', () => {
+    const unchanged = parse({ type: 'tool_result', toolUseId: 't1', content: 'ok' });
+    expect(unchanged).not.toHaveProperty('todos');
+    expect(parse({ type: 'tool_result', toolUseId: 't1', content: 'ok', todos: [] })).toMatchObject(
+      { todos: [] },
+    );
+  });
+
+  it('rejects statuses outside the native todo lifecycle', () => {
+    expect(
+      chatEventSchema.safeParse({
+        type: 'tool_result',
+        toolUseId: 't1',
+        content: 'ok',
+        todos: [{ content: 'a', activeForm: 'b', status: 'deleted' }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('exports the same schema used by the event', () => {
+    expect(progressTodoSchema.parse(todos[0])).toEqual(todos[0]);
   });
 });

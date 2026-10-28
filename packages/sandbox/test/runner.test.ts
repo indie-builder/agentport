@@ -102,6 +102,7 @@ interface Event {
   kind?: string;
   parentToolUseId?: string;
   truncated?: boolean;
+  todos?: Array<{ content: string; activeForm: string; status: string }>;
 }
 
 async function run(
@@ -654,5 +655,185 @@ describe('assistant block streaming', () => {
     expect(text?.truncated).toBe(true);
     expect(text?.text).toBe('x'.repeat(1024));
     expect(stderr).toContain('truncated');
+  });
+});
+
+describe('TodoWrite todo snapshots', () => {
+  const SDK_UUID = '33333333-4444-4555-8666-777777777777';
+  const RESULT_UUID = '44444444-5555-4666-8777-888888888888';
+  const TODO_ID = 'toolu_todo';
+  const init = [{ type: 'system', subtype: 'init', mcp_servers: [] }];
+  const result = [
+    {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      total_cost_usd: 0,
+      num_turns: 1,
+      session_id: 'session-1',
+      modelUsage: {},
+    },
+  ];
+  const todos = [
+    { content: 'read code', activeForm: 'reading code', status: 'in_progress' },
+    { content: 'write test', activeForm: 'writing test', status: 'completed' },
+  ];
+  const toolUse = (id: string, name = 'TodoWrite', parent: string | null = null): unknown => ({
+    type: 'assistant',
+    parent_tool_use_id: parent,
+    uuid: SDK_UUID,
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id,
+          name,
+          // 输入只用于配对调用 id；成功快照必须来自 user 消息的 tool_use_result。
+          input: {
+            todos: [{ content: 'from input', activeForm: 'from input', status: 'pending' }],
+          },
+        },
+      ],
+    },
+  });
+  const toolResult = (
+    toolUseId: string,
+    toolUseResult?: unknown,
+    options: { isError?: boolean; parent?: string | null } = {},
+  ): unknown => ({
+    type: 'user',
+    parent_tool_use_id: options.parent ?? null,
+    uuid: RESULT_UUID,
+    ...(toolUseResult === undefined ? {} : { tool_use_result: toolUseResult }),
+    message: {
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: toolUseId,
+          content: 'Updated todo list',
+          ...(options.isError === true ? { is_error: true } : {}),
+        },
+      ],
+    },
+  });
+  const toolResultOf = (events: Event[]): Event | undefined =>
+    events.find((event) => event.type === 'tool_result');
+
+  it('forwards the successful structured snapshot instead of the tool input', async () => {
+    const { events } = await run({}, [
+      ...init,
+      toolUse(TODO_ID),
+      toolResult(TODO_ID, { oldTodos: [], newTodos: todos }),
+      ...result,
+    ]);
+
+    expect(toolResultOf(events)).toEqual({
+      type: 'tool_result',
+      toolUseId: TODO_ID,
+      content: 'Updated todo list',
+      sdkUuid: RESULT_UUID,
+      todos,
+    });
+  });
+
+  it('accepts an empty snapshot as clearing the list', async () => {
+    const { events } = await run({}, [
+      ...init,
+      toolUse(TODO_ID),
+      toolResult(TODO_ID, { oldTodos: todos, newTodos: [] }),
+      ...result,
+    ]);
+
+    expect(toolResultOf(events)).toMatchObject({ todos: [] });
+  });
+
+  it.each([
+    {
+      label: 'an errored result',
+      toolUseId: TODO_ID,
+      message: toolResult(TODO_ID, { oldTodos: [], newTodos: todos }, { isError: true }),
+    },
+    {
+      label: 'a malformed snapshot',
+      toolUseId: TODO_ID,
+      message: toolResult(TODO_ID, { newTodos: [{ content: 'missing activeForm' }] }),
+    },
+    {
+      label: 'a missing structured result',
+      toolUseId: TODO_ID,
+      message: toolResult(TODO_ID),
+    },
+    {
+      label: 'an untracked tool call',
+      toolUseId: 'toolu_other',
+      message: toolResult('toolu_other', { oldTodos: [], newTodos: todos }),
+    },
+  ])('keeps tool details but does not update todos for $label', async ({ toolUseId, message }) => {
+    const { events } = await run({}, [...init, toolUse(TODO_ID), message, ...result]);
+
+    expect(toolResultOf(events)).toEqual({
+      type: 'tool_result',
+      toolUseId,
+      content: 'Updated todo list',
+      sdkUuid: RESULT_UUID,
+    });
+  });
+
+  it('drops an over-limit snapshot but keeps the tool result and logs why', async () => {
+    const huge = todos.map((todo) => ({ ...todo, content: 'x'.repeat(2048) }));
+    const { events, stderr } = await run({ maxFieldBytes: 1024 }, [
+      ...init,
+      toolUse(TODO_ID),
+      toolResult(TODO_ID, { oldTodos: [], newTodos: huge }),
+      ...result,
+    ]);
+
+    // 省略 todos：宿主保留上一份已确认清单，不拿截断内容冒充完整快照。
+    expect(toolResultOf(events)).toEqual({
+      type: 'tool_result',
+      toolUseId: TODO_ID,
+      content: 'Updated todo list',
+      sdkUuid: RESULT_UUID,
+    });
+    expect(stderr).toMatch(/todo snapshot/);
+  });
+
+  it('counts the snapshot as UTF-8 bytes, not characters', async () => {
+    const multibyte = [{ content: '汉'.repeat(400), activeForm: '处理中', status: 'pending' }];
+    const json = JSON.stringify(multibyte);
+    expect(json.length).toBeLessThan(1024);
+    expect(Buffer.byteLength(json)).toBeGreaterThan(1024);
+
+    const { events, stderr } = await run({ maxFieldBytes: 1024 }, [
+      ...init,
+      toolUse(TODO_ID),
+      toolResult(TODO_ID, { oldTodos: [], newTodos: multibyte }),
+      ...result,
+    ]);
+
+    expect(toolResultOf(events)).toEqual({
+      type: 'tool_result',
+      toolUseId: TODO_ID,
+      content: 'Updated todo list',
+      sdkUuid: RESULT_UUID,
+    });
+    expect(stderr).toMatch(/todo snapshot/);
+  });
+
+  it('does not let a sub-agent snapshot replace the main list', async () => {
+    const { events } = await run({}, [
+      ...init,
+      toolUse('toolu_child_todo', 'TodoWrite', 'toolu_parent'),
+      toolResult('toolu_child_todo', { oldTodos: [], newTodos: todos }, { parent: 'toolu_parent' }),
+      ...result,
+    ]);
+
+    expect(toolResultOf(events)).toEqual({
+      type: 'tool_result',
+      toolUseId: 'toolu_child_todo',
+      content: 'Updated todo list',
+      sdkUuid: RESULT_UUID,
+      parentToolUseId: 'toolu_parent',
+    });
   });
 });
