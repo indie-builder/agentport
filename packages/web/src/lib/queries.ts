@@ -128,7 +128,7 @@ export const overviewQuery = queryOptions<Overview>({
   staleTime: 15_000,
 });
 
-export const overviewTimeseriesQuery = (days = 14) =>
+export const overviewTimeseriesQuery = (days = 7) =>
   queryOptions<OverviewTimeseriesPoint[]>({
     queryKey: ['overview', 'timeseries', days],
     queryFn: () => api.overviewTimeseries(days),
@@ -218,7 +218,7 @@ export function useOverview() {
   return useQuery(overviewQuery);
 }
 
-export function useOverviewTimeseries(days = 14) {
+export function useOverviewTimeseries(days = 7) {
   return useQuery(overviewTimeseriesQuery(days));
 }
 

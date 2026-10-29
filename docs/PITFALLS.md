@@ -279,6 +279,12 @@
 - **原因**：外层通过子表单 effect 接收 pending；成功回调先卸载子表单，随后子表单的 `setSaving(false)` 无法再触发回报，外层保留最后的 true。
 - **规避**：拥有弹窗生命周期的外层在成功回调中明确结算 pending/dirty，再卸载子表单；行为测试必须覆盖保存成功后关闭、继续新建和路由离开，不只断言请求完成。
 
+## UI：CodeMirror 的 id 不等于可访问名称
+
+- **现象**：正文已有可见 `label[for]`，浏览器 AX 树里的 CodeMirror `textbox` 名称仍为空；加载前 textarea 与加载后编辑区还可能表现不同。
+- **原因**：CodeMirror 使用 `contenteditable`，不能靠原生表单控件的 label 关联命名；只向 `SourceEditor` 传 id 不会生成可访问名称。
+- **规避**：调用 `SourceEditor` 时同时传与可见标签一致的 `aria-label`；用真实加载后的 AX 树核对名称，并验证回退 textarea，不能只断言 label 或 id 存在。
+
 ## UI：URL 成为状态唯一来源后，导航 mock 必须反映 search 更新
 
 - **现象**：完整文件页签实际可用，按需加载测试却始终不请求；评估结果已改 URL 选择，旧测试仍调用不存在的 `renderExpanded`。

@@ -1,11 +1,9 @@
 import { schema } from '@agentport/db';
-import { overviewSchema, overviewTimeseriesSchema } from '@agentport/shared';
+import { overviewSchema, overviewTimeseriesSchema, utcWindowStart } from '@agentport/shared';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { typed } from '../../types.js';
-
-const daysAgo = (days: number): Date => new Date(Date.now() - days * 86_400_000);
 
 /** drizzle 的 sql<Date> 在运行时可能是字符串（pg 驱动按列类型返回），统一归一。 */
 function toIso(value: unknown): string | null {
@@ -36,13 +34,14 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
     },
     async (request) => {
       const { days } = request.query;
-      const since = daysAgo(days);
+      const since = utcWindowStart(days);
 
       const inWindow = sql`${schema.agentRuns.startedAt} >= ${since}`;
       const [[runAgg], agentRows, recent] = await Promise.all([
         app.db
           .select({
-            servers: sql<number>`(select count(*)::int from ${schema.servers})`,
+            // 知识库连接器由知识库生命周期管理，与 /api/servers 列表同一口径。
+            servers: sql<number>`(select count(*)::int from ${schema.servers} where ${schema.servers.kind} <> 'knowledge')`,
             agents: sql<number>`(select count(*)::int from ${schema.agents})`,
             running: sql<number>`count(*) filter (where ${schema.agentRuns.status} = 'running')::int`,
             total: sql<number>`count(*) filter (where ${inWindow})::int`,
@@ -141,20 +140,21 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
       ...auth,
       schema: {
         querystring: z.object({
-          days: z.coerce.number().int().min(1).max(3650).default(14),
+          days: z.coerce.number().int().min(1).max(3650).default(7),
         }),
         response: { 200: overviewTimeseriesSchema },
       },
     },
     async (request) => {
       const { days } = request.query;
-      const since = daysAgo(days);
+      const since = utcWindowStart(days);
 
+      // 与 /api/overview 同一个 UTC 自然日窗口：起点 days-1 天前的 UTC 零点，恰好 N 个点。
       const result = await app.db.execute(sql`
         with days as (
           select generate_series(
-            date_trunc('day', ${since}::timestamptz),
-            date_trunc('day', now()),
+            date_trunc('day', ${since}::timestamptz at time zone 'UTC'),
+            date_trunc('day', now() at time zone 'UTC'),
             interval '1 day'
           ) as day
         )
@@ -168,7 +168,7 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
           )::float8 as tokens
         from days d
         left join ${schema.agentRuns} r
-          on date_trunc('day', r.started_at) = d.day
+          on date_trunc('day', r.started_at at time zone 'UTC') = d.day
          and r.started_at >= ${since}
         group by d.day
         order by d.day

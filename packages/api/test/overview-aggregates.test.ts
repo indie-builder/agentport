@@ -1,5 +1,16 @@
+import { recentUtcDays, utcWindowStart } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
+
+const DAY_MS = 86_400_000;
+
+/** 固定到当前 UTC 自然日，避免用例在午夜附近跨天。 */
+function utcMidnight(offsetDays = 0): Date {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + offsetDays * DAY_MS,
+  );
+}
 
 // 每次创建一次性数据库：概览是全表聚合，既不读其他用例数据，也不能清空共享测试库。
 const isolated = await createIsolatedDatabase('api_overview', process.env.DATABASE_URL ?? '');
@@ -76,8 +87,17 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
       lastRunStartTime: string | null;
       latencyP50: number | null;
       latencyP99: number | null;
+      runCount: number;
     }[];
     recent: { agentId: string; startedAt: string | null; endedAt: string | null }[];
+  }
+
+  interface TrendPoint {
+    date: string;
+    runs: number;
+    failed: number;
+    costUsd: number;
+    tokens: number;
   }
 
   function overview(days: number): Promise<OverviewBody> {
@@ -93,6 +113,15 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
 
   function counts(days: number): Promise<Record<string, number | null>> {
     return overview(days).then((body) => body.counts);
+  }
+
+  function timeseries(days?: number): Promise<TrendPoint[]> {
+    const url =
+      days === undefined ? '/api/overview/timeseries' : `/api/overview/timeseries?days=${days}`;
+    return inject(app, { method: 'GET', url, headers: { cookie } }).then((res) => {
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json<TrendPoint[]>();
+    });
   }
 
   it('reports zero aggregates for an empty database', async () => {
@@ -113,7 +142,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
 
   it('keeps NULL latency and ISO dates when only the narrow window contains a run', async () => {
     const agentId = await seedAgent();
-    const startedAt = new Date(Date.now() - 3_600_000);
+    const startedAt = new Date(utcMidnight().getTime() + 60_000);
     await seedRun(agentId, 'succeeded', startedAt, { input: null, output: 5 }, null);
     const result = await overview(1);
     expect(result.counts).toMatchObject({ runs: 1, tokens: 5, costUsd: 0.25, avgLatencyMs: null });
@@ -209,5 +238,100 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     expect(typeof after.counts.tokens).toBe('number');
     expect(after.counts.tokens as number).toBe(tokensBefore + 3_000_000_000);
     expect(after.agents.find((a) => a.agentId === agentId)?.totalTokens).toBe(3_000_000_000);
+  });
+
+  it('counts only user-manageable servers, matching the server list', async () => {
+    await app.pool.query(
+      "insert into servers (id, name, kind, config) values ($1, $1, 'http', '{}')",
+      [unique('overview-server-list')],
+    );
+    await app.pool.query(
+      "insert into servers (id, name, kind, config) values ($1, $1, 'knowledge', '{}')",
+      [unique('overview-knowledge')],
+    );
+
+    const [body, list] = await Promise.all([
+      overview(7),
+      inject(app, { method: 'GET', url: '/api/servers', headers: { cookie } }),
+    ]);
+    expect(list.statusCode, list.body).toBe(200);
+    expect(body.counts.servers).toBe(list.json<unknown[]>().length);
+  });
+
+  it('uses UTC natural days for the window boundary', async () => {
+    const agentId = await seedAgent();
+    const since = utcWindowStart(2);
+    const before = await counts(2);
+    // 窗口起点那一毫秒计入，再早一毫秒就不计入。
+    await seedRun(agentId, 'succeeded', since, { input: 1, output: 0 });
+    await seedRun(agentId, 'failed', new Date(since.getTime() - 1), { input: 1, output: 0 });
+
+    const result = await overview(2);
+    expect(new Date(result.window.since).getTime()).toBe(since.getTime());
+    expect(result.counts.runs).toBe((before.runs as number) + 1);
+    expect(result.counts.failed).toBe(before.failed);
+  });
+
+  it('defaults both overview endpoints to the same 7 UTC days', async () => {
+    const [body, points] = await Promise.all([
+      inject(app, { method: 'GET', url: '/api/overview', headers: { cookie } }).then((res) => {
+        expect(res.statusCode, res.body).toBe(200);
+        return res.json<OverviewBody>();
+      }),
+      timeseries(),
+    ]);
+    expect(body.window.days).toBe(7);
+    expect(points.map((point) => point.date)).toEqual(recentUtcDays(7));
+  });
+
+  it('returns exactly N UTC dates and groups runs by UTC day across a month boundary', async () => {
+    const agentId = await seedAgent();
+    const today = utcMidnight();
+    // 32 天必然跨月：最长月份只有 31 天；31 天在 10/31、12/31 恰好落在同一个月。
+    const expected = recentUtcDays(32);
+    const before = await timeseries(32);
+
+    await seedRun(agentId, 'succeeded', new Date(today.getTime() + 60_000), {
+      input: 2,
+      output: 3,
+    });
+    await seedRun(agentId, 'succeeded', new Date(today.getTime() - 86_340_000), {
+      input: 1,
+      output: 1,
+    });
+
+    const points = await timeseries(32);
+    expect(points.map((point) => point.date)).toEqual(expected);
+    // 跨月点也必须连续补 0。
+    expect(new Set(expected.map((date) => date.slice(0, 7))).size).toBeGreaterThan(1);
+
+    const runsOn = (list: TrendPoint[], date: string) =>
+      list.find((point) => point.date === date)?.runs ?? 0;
+    expect(runsOn(points, expected.at(-1) as string)).toBe(
+      runsOn(before, expected.at(-1) as string) + 1,
+    );
+    expect(runsOn(points, expected.at(-2) as string)).toBe(
+      runsOn(before, expected.at(-2) as string) + 1,
+    );
+  });
+
+  it('matches overview aggregates over the same window and sources', async () => {
+    const [body, points] = await Promise.all([overview(7), timeseries(7)]);
+    expect(points).toHaveLength(7);
+    const sums = points.reduce(
+      (total, point) => ({
+        runs: total.runs + point.runs,
+        failed: total.failed + point.failed,
+        tokens: total.tokens + point.tokens,
+        costUsd: total.costUsd + point.costUsd,
+      }),
+      { runs: 0, failed: 0, tokens: 0, costUsd: 0 },
+    );
+    expect(sums.runs).toBe(body.counts.runs);
+    expect(sums.failed).toBe(body.counts.failed);
+    expect(sums.tokens).toBe(body.counts.tokens);
+    expect(sums.costUsd).toBeCloseTo(body.counts.costUsd as number, 6);
+    // 专家行与汇总共用同一个窗口与数据源。
+    expect(body.agents.reduce((total, agent) => total + agent.runCount, 0)).toBe(body.counts.runs);
   });
 });
