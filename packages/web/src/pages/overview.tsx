@@ -1,8 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Activity, Bot, Plus, Server, Sparkles } from 'lucide-react';
-import { Area, AreaChart, CartesianGrid, XAxis } from 'recharts';
+import { useState } from 'react';
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { type DataColumn, DataTable } from '../components/data-table.js';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../components/motion-collapsible.js';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
@@ -23,6 +29,14 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '../components/ui/chart.js';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table.js';
 import type { OverviewAgentRow, RecentRun } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
@@ -47,7 +61,8 @@ const agentColumns: DataColumn<OverviewAgentRow>[] = [
     sortValue: (row) => row.name,
     cell: (row) => (
       <Link
-        to="/agents"
+        to="/agents/$agentId"
+        params={{ agentId: row.agentId }}
         className="flex min-w-0 flex-wrap items-center gap-2 font-medium text-fg hover:underline hover:underline-offset-4"
         onClick={(e) => e.stopPropagation()}
       >
@@ -288,8 +303,9 @@ const trendConfig = {
   failed: { label: '失败', color: 'var(--color-chart-failed)' },
 } satisfies ChartConfig;
 
-function RunTrendCard() {
-  const { data, isPending, isError, error, refetch } = useOverviewTimeseries();
+export function RunTrendCard({ days }: { days: number }) {
+  const { data, isPending, isError, error, refetch } = useOverviewTimeseries(days);
+  const [open, setOpen] = useState(false);
   const points = data ?? [];
   const hasRuns = points.some((point) => point.runs > 0);
 
@@ -304,43 +320,118 @@ function RunTrendCard() {
         ) : isPending ? (
           <LoadingState rows={4} />
         ) : hasRuns ? (
-          <ChartContainer config={trendConfig} className="aspect-auto h-56 w-full">
-            <AreaChart
-              accessibilityLayer
-              data={points}
-              margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
-            >
-              <CartesianGrid vertical={false} />
-              <XAxis
-                dataKey="date"
-                tickLine={false}
-                axisLine={false}
-                tickMargin={8}
-                minTickGap={24}
-                tickFormatter={(value: string) => value.slice(5)}
-              />
-              <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-              <ChartLegend content={<ChartLegendContent />} />
-              <Area
-                dataKey="runs"
-                type="monotone"
-                fill="var(--color-runs)"
-                fillOpacity={0.08}
-                stroke="var(--color-runs)"
-                strokeWidth={1.5}
-                isAnimationActive={false}
-              />
-              <Area
-                dataKey="failed"
-                type="monotone"
-                fill="var(--color-failed)"
-                fillOpacity={0.16}
-                stroke="var(--color-failed)"
-                strokeWidth={1.5}
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ChartContainer>
+          <div className="flex flex-col gap-2">
+            {/* 图表仅视觉展示，读屏改走下方同源数据表。 */}
+            <div aria-hidden="true">
+              <ChartContainer config={trendConfig} className="aspect-auto h-56 w-full">
+                {/* Recharts 3 默认开启 accessibilityLayer，会生成无名称的可聚焦 application。 */}
+                <AreaChart
+                  accessibilityLayer={false}
+                  data={points}
+                  margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
+                >
+                  <CartesianGrid vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    minTickGap={24}
+                    tickFormatter={(value: string) => value.slice(5)}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    axisLine={false}
+                    tickLine={false}
+                    tickMargin={8}
+                    width={28}
+                  />
+                  <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
+                  <ChartLegend content={<ChartLegendContent />} />
+                  <Area
+                    dataKey="runs"
+                    type="monotone"
+                    fill="var(--color-runs)"
+                    fillOpacity={0.08}
+                    stroke="var(--color-runs)"
+                    strokeWidth={1.5}
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    dataKey="failed"
+                    type="monotone"
+                    fill="var(--color-failed)"
+                    fillOpacity={0.16}
+                    stroke="var(--color-failed)"
+                    strokeWidth={1.5}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ChartContainer>
+            </div>
+            <Collapsible open={open} onOpenChange={setOpen}>
+              <CollapsibleTrigger
+                className="self-start text-muted-foreground"
+                render={<Button variant="ghost" />}
+              >
+                {open ? '收起趋势数据' : '查看趋势数据'}
+              </CollapsibleTrigger>
+              <CollapsibleContent animated className="pt-2">
+                {/* 滚动区可聚焦，键盘用户才能浏览超出一屏的趋势行。 */}
+                <section
+                  // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
+                  tabIndex={0}
+                  aria-label="趋势数据"
+                  className="max-h-64 overflow-y-auto overscroll-contain"
+                >
+                  <Table>
+                    <caption className="sr-only">最近 {days} 天运行趋势明细</caption>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs text-muted-foreground">日期</TableHead>
+                        <TableHead className="text-right text-xs text-muted-foreground">
+                          运行
+                        </TableHead>
+                        <TableHead className="text-right text-xs text-muted-foreground">
+                          失败
+                        </TableHead>
+                        <TableHead className="text-right text-xs text-muted-foreground">
+                          成本
+                        </TableHead>
+                        <TableHead className="text-right text-xs text-muted-foreground">
+                          Tokens
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {points.map((point) => (
+                        <TableRow key={point.date}>
+                          <TableHead
+                            scope="row"
+                            className="h-auto text-xs font-normal text-muted-foreground"
+                          >
+                            {point.date}
+                          </TableHead>
+                          <TableCell className="text-right font-mono tabular-nums">
+                            {point.runs}
+                          </TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">
+                            {point.failed}
+                          </TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">
+                            {formatCost(point.costUsd)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">
+                            {formatTokens(point.tokens)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </section>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
         ) : (
           <EmptyState title="发起对话后生成趋势" />
         )}
@@ -366,7 +457,8 @@ export function OverviewPage() {
     data.counts.running === 0 &&
     data.recent.length === 0;
 
-  const windowLabel = data ? `最近 ${data.window.days} 天` : '';
+  const days = data?.window.days ?? 7;
+  const windowLabel = data ? `最近 ${days} 天` : '';
   const failedCount = data?.counts.failed ?? 0;
 
   return (
@@ -438,7 +530,7 @@ export function OverviewPage() {
             </div>
           </section>
 
-          <RunTrendCard />
+          <RunTrendCard days={days} />
 
           <PageSection title="需要处理" divided={false}>
             <AttentionPanel hideTitle />

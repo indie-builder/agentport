@@ -498,7 +498,8 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 | `GET /health/live` | 进程存活 | 无 |
 | `GET /health/ready` | DB 查询 + Redis ping；任一失败返回 503 与 `status: degraded` | 无 |
 | `GET /health/metrics` | 进程（uptime、RSS、Node 版本）、队列计数、连接池、Redis ping 延迟；单项失败返回 `null`，整体仍 200 | 登录（`requireAuth`） |
-| `/api/overview` | 统计卡、智能体聚合（运行数、成本、错误率、P50/P99、tokens）、最近 20 条运行；`days` 限制 1–3650 | 登录 |
+| `/api/overview` | 统计卡、智能体聚合（运行数、成本、错误率、P50/P99、tokens）、最近 20 条运行；`days` 限制 1–3650、默认 7，统计最近 N 个 UTC 自然日（含今天）；连接器计数排除内部知识连接 | 登录 |
+| `/api/overview/timeseries` | 与概况相同自然日窗口，默认 7；恰好 N 个 UTC 日期点，包含无运行日期的零值 | 登录 |
 | `/api/runs`、`/api/runs/:id` | 运行列表与 trace 步骤 | 登录 |
 | `/api/audit` | 审计事件，可按 action / status / 时间过滤 | 登录 |
 | 页面「审计」 | 同上，按时间倒序 | 登录 |

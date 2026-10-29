@@ -1738,6 +1738,30 @@ describe('knowledge manual and url import', () => {
     );
   }
 
+  it('names the manual Markdown editor before and after CodeMirror loads', async () => {
+    documentList();
+    await mount('/knowledge/kb_1');
+    await click(button('导入'));
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (element) => element.textContent?.trim() === '手写文档',
+    );
+    if (!item) throw new Error('Missing menu item: 手写文档');
+    // 不等待懒加载：先看到 Suspense 回退的 textarea，再看到 CodeMirror 的 contenteditable。
+    // 本文件里这是首次挂载 SourceEditor，懒模块必然先回退；之后按真实 DOM 条件等它换入。
+    await act(async () => item.click());
+    const loading = document.getElementById('knowledge-manual-content');
+    expect(loading?.tagName).toBe('TEXTAREA');
+    expect(loading?.getAttribute('aria-label')).toBe('正文（Markdown）');
+
+    await waitFor(
+      () =>
+        document.getElementById('knowledge-manual-content')?.getAttribute('contenteditable') ===
+        'true',
+    );
+    const loaded = document.getElementById('knowledge-manual-content');
+    expect(loaded?.getAttribute('aria-label')).toBe('正文（Markdown）');
+  });
+
   it('creates a manual document with title, content, folder and tags', async () => {
     documentList();
     server.use(

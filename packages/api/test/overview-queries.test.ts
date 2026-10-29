@@ -43,6 +43,7 @@ it('loads overview with three concurrent queries and one combined counts stateme
     );
     expect(counts).toBeDefined();
     expect(counts?.text.match(/from "agent_runs"/g)).toHaveLength(1);
+    expect(counts?.text).toContain(`<> 'knowledge'`);
     expect(counts?.text).toContain('filter (where');
     expect(counts?.values.some((value) => value instanceof Date)).toBe(true);
     expect(result.json().counts).toEqual({

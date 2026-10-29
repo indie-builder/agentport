@@ -2104,6 +2104,7 @@ function ManualDocumentDialog({
               </FieldLabel>
               <SourceEditor
                 id="knowledge-manual-content"
+                aria-label="正文（Markdown）"
                 value={content}
                 onChange={setContent}
                 language="markdown"
