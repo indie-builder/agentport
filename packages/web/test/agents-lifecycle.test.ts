@@ -609,6 +609,162 @@ describe('expert creation lifecycle', () => {
   });
 });
 
+describe('expert file tool permissions', () => {
+  function toolToggle(tool: string): HTMLButtonElement {
+    const element = [...document.querySelectorAll<HTMLButtonElement>('[data-slot="toggle"]')].find(
+      (item) => item.textContent?.trim().startsWith(tool),
+    );
+    if (!element) throw new Error(`Missing tool toggle: ${tool}`);
+    return element;
+  }
+  async function openPermissions(): Promise<HTMLElement> {
+    await click(await waitFor(() => button('配置 Expert')));
+    await click(await waitFor(() => button('权限')));
+    await waitFor(() => document.getElementById('agent-permissions'));
+    return document.getElementById('agent-permissions') as HTMLElement;
+  }
+  // 真实重载：卸载组件并清空查询缓存，重新 mount 后只能从持久化 store 恢复。
+  async function remount(): Promise<void> {
+    await act(async () => root.unmount());
+    history?.destroy();
+    client.clear();
+    root = createRoot(host);
+    await mount();
+  }
+
+  it('shows the three native file tools as enabled under path limits by default', async () => {
+    await mount();
+    const section = await openPermissions();
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      const toggle = toolToggle(tool);
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      expect(toggle.textContent).toContain('已启用（受路径限制）');
+    }
+    expect(section.textContent).toContain('读写记忆 Markdown 与本轮成果');
+    expect(section.textContent).toContain('Bash 仍受 Docker 挂载边界约束');
+    expect(button('已保存').disabled).toBe(true);
+  });
+
+  it('lets a bare deny override a legacy allow without claiming unrestricted access', async () => {
+    const restricted = { ...agent, allowedTools: ['Read'], disallowedTools: ['Read'] };
+    client.setQueryData(['agents'], [restricted]);
+    vi.mocked(api.agents).mockResolvedValue([restricted]);
+    await mount();
+    const section = await openPermissions();
+    expect(toolToggle('Read').getAttribute('aria-pressed')).toBe('false');
+    expect(toolToggle('Read').textContent).toContain('已禁用');
+    expect(toolToggle('Write').getAttribute('aria-pressed')).toBe('true');
+    expect(section.textContent).toContain('受路径限制');
+    expect(button('已保存').disabled).toBe(true);
+  });
+
+  it.each(['Read', 'Write', 'Edit'] as const)(
+    'persists %s disable and restore across a reload without rewriting path rules',
+    async (tool) => {
+      const originalRules = [
+        ...new Set([
+          `${tool}(/target/**)`,
+          'Edit(/secret/**)',
+          'Write(/unknown/**)',
+          'Grep',
+          'mcp__crm__lookup',
+        ]),
+      ];
+      const allowPathRules = [`${tool}(/target/**)`, 'Edit(/docs/**)'];
+      // 模拟真实存储：保存写入 store，请求始终返回 store，重载后也只能读到它。
+      const store = {
+        current: {
+          ...agent,
+          allowedTools: [tool, 'Bash', ...allowPathRules],
+          disallowedTools: originalRules,
+        },
+      };
+      // agentsQuery 在模块加载时已捕获原始 api.agents，只有 fetch 层能影响重载读取。
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const path = String(input).split('?')[0];
+        if (path === '/api/agents') return Response.json([store.current]);
+        if (path === '/api/runtime-environments') {
+          return Response.json([defaultEnvironment, namedEnvironment]);
+        }
+        // 知识库是分页对象，其它绑定来源是数组。
+        if (path?.startsWith('/api/knowledge/bases')) {
+          return Response.json({ items: [], nextCursor: null });
+        }
+        return Response.json([]);
+      });
+      client.setQueryData(['agents'], [store.current]);
+      const update = vi.spyOn(api, 'updateAgent').mockImplementation(async (_id, input) => {
+        store.current = {
+          ...store.current,
+          allowedTools: input.allowedTools ?? store.current.allowedTools,
+          disallowedTools: input.disallowedTools ?? store.current.disallowedTools,
+          updatedAt: '2026-02-01T00:00:00Z',
+        };
+        return store.current;
+      });
+
+      await mount();
+      const section = await openPermissions();
+      // Edit(path) 对 Write 的覆盖与 Write(path) 的语义都不由平台判断，只原样保留。
+      expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('true');
+      expect(section.textContent).toContain('文件工具的自定义允许项不扩大平台范围');
+      expect(section.textContent).not.toContain('额外路径限制');
+
+      await click(toolToggle(tool));
+      expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('false');
+      await click(button('保存更改'));
+      await waitFor(() => update.mock.calls.length === 1, 10);
+      // 关闭只删裸 allow，文件路径 allow 原样保留，不替用户改配置。
+      expect(update.mock.calls[0]?.[1].allowedTools).toEqual(['Bash', ...allowPathRules]);
+      expect(update.mock.calls[0]?.[1].disallowedTools).toEqual([...originalRules, tool]);
+
+      // 重新进入表单必须从 store 恢复禁用状态，而不是沿用乐观缓存或上一次渲染。
+      await remount();
+      let reopened = await openPermissions();
+      expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('false');
+      expect(reopened.textContent).toContain('已禁用');
+      expect(button('已保存').disabled).toBe(true);
+
+      await click(toolToggle(tool));
+      expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('true');
+      await click(button('保存更改'));
+      await waitFor(() => update.mock.calls.length === 2, 10);
+      // 恢复不写回裸 allow，也不移除文件路径 allow、路径 deny、未知语义规则或其它工具规则。
+      expect(update.mock.calls[1]?.[1].allowedTools).toEqual(['Bash', ...allowPathRules]);
+      expect(update.mock.calls[1]?.[1].disallowedTools).toEqual(originalRules);
+
+      await remount();
+      reopened = await openPermissions();
+      expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('true');
+      expect(reopened.textContent).toContain('已启用（受路径限制）');
+      expect(button('已保存').disabled).toBe(true);
+    },
+  );
+
+  it('keeps sub-agent file tools fixed off and ignores legacy allows', async () => {
+    const child = {
+      ...agent,
+      parentId: 'parent',
+      allowedTools: ['Read', 'Bash'],
+      disallowedTools: [],
+    };
+    client.setQueryData(['agents'], [child]);
+    vi.mocked(api.agents).mockResolvedValue([child]);
+    const update = vi.spyOn(api, 'updateAgent');
+    await mount();
+    const section = await openPermissions();
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      const toggle = toolToggle(tool);
+      expect(toggle.getAttribute('aria-pressed')).toBe('false');
+      expect(toggle.disabled).toBe(true);
+    }
+    expect(section.textContent).toContain('子智能体的原生文件工具由平台禁用');
+    await click(toolToggle('Read'));
+    expect(button('已保存').disabled).toBe(true);
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
 describe('expert rollback lifecycle', () => {
   it('warns about losing unsaved changes and preserves the draft when cancelled', async () => {
     await mount();
