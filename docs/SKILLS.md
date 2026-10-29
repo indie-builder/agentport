@@ -20,6 +20,19 @@
 | `shadcn` | shadcn-ui/ui | 组件库（本项目唯一 UI 组件来源） |
 | `migrate-radix-to-base` | shadcn-ui/ui | Radix 组件迁移到 Base UI（交互原语已统一 Base UI） |
 | `tailwind-design-system` | wshobson/agents | Tailwind 4 token 与设计系统 |
+| `animate` | emilkowalski/skills | 从零构建动效：动画决策顺序与实现（Motion/CSS） |
+| `animation-performance` | emilkowalski/skills | 动效掉帧定位与合成层性能 |
+| `animation-vocabulary` | emilkowalski/skills | 动效术语反查与命名 |
+| `apple-design` | emilkowalski/skills | Apple 交互、弹性动效与手势原则（桌面 Web 范围内） |
+| `ask-sonner` | emilkowalski/skills | Sonner toast 用法与排障（复用现有 Toaster） |
+| `break-ui` | emilkowalski/skills | 极值数据压力测试与破坏点报告（桌面） |
+| `emil-design-eng` | emilkowalski/skills | UI 打磨与动效审美原则 |
+| `find-animation-opportunities` | emilkowalski/skills | 只读发现应加动效的位置 |
+| `improve-animations` | emilkowalski/skills | 动效审计与实施计划（写入 `docs/tasks/`） |
+| `pick-ui-library` | emilkowalski/skills | 前端库选型（遵守项目能力选型顺序） |
+| `prototype` | emilkowalski/skills | 多方案 UI 原型与可视化挑选 |
+| `remove-animations` | emilkowalski/skills | 删除无必要动效 |
+| `review-animations` | emilkowalski/skills | 动效代码评审（以 DESIGN-SYSTEM 为基线） |
 | `openui` | thesysdev/skills | 明确涉及 OpenUI / OpenUI Lang / `@openuidev/*` / Gateway / Autofix / CLI 的生成式 UI 任务；不用于普通 chat/dashboard，也不替代本项目 UI 实现 |
 | `fastify-best-practices` | mcollina/skills | Fastify 5 路由、schema 校验、插件与生命周期 |
 | `better-auth-best-practices` | better-auth/skills | Better Auth 会话、插件与鉴权配置 |
@@ -85,6 +98,22 @@
 - **Vitest**：技能文本可能来自高于 lock 的版本，使用前核对已安装版本，不为示例升级依赖；测试仍走根 `vitest.config.ts` 的 `backend`/`web` projects。
 
 安装依据与许可：`better-auth-best-practices` 按上游 <https://www.better-auth.com/docs/ai-resources/skills> 发布的安装命令装入；上游仓库未提供 LICENSE 文件，此处只登记本地安装与来源事实。
+
+### emilkowalski/skills（桌面 Web 动效与设计工程）
+
+上游 `emilkowalski/skills`（MIT，Copyright (c) 2026 Emil Kowalski）本次安装其中的桌面 Web 技能，排除 `animate-expo`、`write-swift`、`mobile-native`（与本项目栈不符）。上游根目录有 `LICENSE`，但 CLI 安装只复制技能目录内容，因此每个新技能目录补了一份上游 `LICENSE`；`SKILL.md` 其余内容与关联引用文件保持上游原样，`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。
+
+每个 `SKILL.md` 只在 frontmatter 后加一段中文 `Project convention`（原 `name`/`description` 不变），共同约定：仅桌面 Web；复用 shadcn/ui、Base UI、Tailwind 4 `@theme` token 与 Motion；视觉和动效数值以 `docs/DESIGN-SYSTEM.md` 为准；不换栈、不新增重复依赖。技能特有约定：
+
+- `animate`：键盘、高频交互与既定动效按项目规范处理，保留 hover/focus 同等反馈，不套用上游一律禁止的规则。
+- `improve-animations`：计划写入 `docs/tasks/`，不建 `plans/`；审计与计划的范围、属性、数值及 reduced-motion 以 `docs/DESIGN-SYSTEM.md` 为准，上游硬性要求与已定项目动效冲突时以项目为准。
+- `remove-animations`：依赖清理按当次授权执行，确认零引用后直接清理，不重复确认。
+- `prototype`：picker 交互照 PICKER.md，视觉控件用项目组件与 token。
+- `break-ui`：只验证桌面容器宽度、200% 缩放、键盘与长内容/极值，不强制移动端、未支持主题或 RTL。
+- `pick-ui-library`：遵守现有 → 原生/已装 → 开源 → 自研，不因清单换栈。
+- `ask-sonner`：复用 `packages/web/src/App.tsx` 已挂载的唯一 Toaster。
+
+升级或重装（`add`/`update`）后需补回上述 Project convention 与各目录 `LICENSE`（CLI 不会带上这两项），再跑「完成核验」。
 
 ### ub-mode（原样安装）
 
