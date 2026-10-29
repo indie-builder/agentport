@@ -114,8 +114,8 @@ test('knowledge tab, document inspector and search highlight read the seeded bas
   await expect(screen.getByRole('heading', { level: 1 })).toHaveCount(1);
   await expect(screen.getByText(/共 \d+ 个知识库/)).toBeVisible();
 
-  // 卡片标题用 Button + Link 渲染，可访问角色是 button。
-  await screen.getByRole('button', SEEDED_BASE_NAME, { exact: true }).tap();
+  // 卡片整卡是一个带 aria-label 的 Link，按链接角色定位。
+  await screen.getByRole('link', `查看知识库 ${SEEDED_BASE_NAME}`, { exact: true }).tap();
   await expect(browser).toHaveURL(/\/knowledge\/kb_/);
   // 详情标题只有一个 h1，内容是知识库名。
   await expect(screen.getByRole('heading', { level: 1, name: SEEDED_BASE_NAME })).toBeVisible();
@@ -171,19 +171,17 @@ knowledgeTest(
     await screen.getByRole('button', '创建', { exact: true }).tap();
     await expect(screen.getByText(`已创建「${name}」`)).toBeVisible();
 
-    await screen.getByRole('button', name, { exact: true }).tap();
+    await screen.getByRole('link', `查看知识库 ${name}`, { exact: true }).tap();
     await expect(browser).toHaveURL(/\/knowledge\/kb_/);
     await expect(screen.getByRole('heading', { level: 1, name })).toBeVisible();
     const baseId = (await browser.url()).split('/').pop() ?? '';
     expect(baseId).toMatch(/^kb_/);
 
-    // 来源配置 UI：RSS 只需名称 + Feed 地址，创建后出现在来源列表。
+    // 来源配置 UI：先在对话框里选来源类型，再填名称与 Feed 地址。
     await screen.getByRole('tab', '来源', { exact: true }).tap();
     // 工具栏与空状态各有一个入口。
     await screen.getByRole('button', '新建来源', { exact: true }).first().tap();
-    // 对话框里还有「范围类型」；来源类型是最外层那个。
-    await screen.getByRole('dialog').getByRole('combobox', '类型', { exact: true }).first().tap();
-    await screen.getByRole('option', 'RSS', { exact: true }).tap();
+    await screen.getByRole('dialog').getByRole('button', { name: /^RSS/ }).tap();
     await browser.locator('#source-name').fill(`E2E Feed ${workspace.suffix}`);
     await browser.locator('#source-range-0-external').fill(FIXTURE_FEED_URL);
     await screen.getByRole('button', '创建', { exact: true }).tap();

@@ -37,7 +37,10 @@ async function startServer(handler: Handler): Promise<{ url: string; close: () =
  * Flushes headers and a partial body but never ends the response, so the server
  * only observes `close` after the client cancels the body or drops the connection.
  */
-async function startHoldingServer(status: number): Promise<{
+async function startHoldingServer(
+  status: number,
+  body = 'held response body',
+): Promise<{
   url: string;
   responseClosed: Promise<void>;
   close: () => Promise<void>;
@@ -49,7 +52,7 @@ async function startHoldingServer(status: number): Promise<{
   const server = createServer((_request, response) => {
     response.on('close', markClosed);
     response.writeHead(status, { 'content-type': 'text/plain' });
-    response.write('held response body');
+    response.write(body);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address() as AddressInfo;
@@ -105,6 +108,14 @@ const state = {
   gitlabTreeError: false,
   gitlabRepeatPage: false,
   gitlabPage2: [...gitlabPage2Default],
+  githubForbidden: false,
+  githubRateLimited: false,
+  githubSecondaryRateLimited: false,
+  githubTooManyRequests: false,
+  githubNotFound: false,
+  githubTreeError: false,
+  githubTruncated: false,
+  githubNoDefaultBranch: false,
   feishuTokenStatus: 200,
   feishuTokenCode: 0,
   feishuNodesStatus: 200,
@@ -119,6 +130,14 @@ function resetState(): void {
   state.gitlabTreeError = false;
   state.gitlabRepeatPage = false;
   state.gitlabPage2 = [...gitlabPage2Default];
+  state.githubForbidden = false;
+  state.githubRateLimited = false;
+  state.githubSecondaryRateLimited = false;
+  state.githubTooManyRequests = false;
+  state.githubNotFound = false;
+  state.githubTreeError = false;
+  state.githubTruncated = false;
+  state.githubNoDefaultBranch = false;
   state.feishuTokenStatus = 200;
   state.feishuTokenCode = 0;
   state.feishuNodesStatus = 200;
@@ -475,6 +494,95 @@ async function handleMain(request: IncomingMessage, response: ServerResponse): P
     }
   }
 
+  if (path.startsWith('/github/')) {
+    if (state.githubForbidden) {
+      json(response, 403, { message: '403 Forbidden' });
+      return;
+    }
+    if (state.githubRateLimited) {
+      response.writeHead(403, {
+        'content-type': 'application/json',
+        'x-ratelimit-remaining': '0',
+        'retry-after': '60',
+      });
+      response.end(JSON.stringify({ message: 'API rate limit exceeded' }));
+      return;
+    }
+    if (state.githubSecondaryRateLimited) {
+      // 官方次级限流：403、配额未耗尽、无 retry-after，只在 body 里说明。
+      response.writeHead(403, {
+        'content-type': 'application/json',
+        'x-ratelimit-remaining': '4999',
+      });
+      response.end(
+        JSON.stringify({
+          message: 'You have exceeded a secondary rate limit. Please wait a few minutes.',
+        }),
+      );
+      return;
+    }
+    if (state.githubTooManyRequests) {
+      json(response, 429, { message: 'secondary rate limit' });
+      return;
+    }
+    if (state.githubNotFound) {
+      json(response, 404, { message: 'Not Found' });
+      return;
+    }
+    if (path === '/github/api/v3/repos/octo/proj') {
+      json(response, 200, {
+        id: 1001,
+        default_branch: state.githubNoDefaultBranch ? undefined : 'trunk',
+        html_url: `${mainUrl}/octo/proj`,
+      });
+      return;
+    }
+    if (path === '/github/api/v3/repos/octo/proj/git/trees/trunk') {
+      if (state.githubTreeError) {
+        json(response, 500, { message: 'tree failed' });
+        return;
+      }
+      json(response, 200, {
+        tree: [
+          { path: 'docs', type: 'tree', sha: 'shaDocs' },
+          { path: 'docs/a.md', type: 'blob', sha: 'shaA' },
+          { path: 'docs/FAQ#setup.md', type: 'blob', sha: 'shaFaq' },
+          { path: 'docs/empty.txt', type: 'blob', sha: 'shaEmpty' },
+          { path: 'docs/link.md', type: 'blob', sha: 'shaLink', mode: '120000' },
+          { path: 'docs/image.png', type: 'blob', sha: 'shaPng' },
+          { path: 'src/b.txt', type: 'blob', sha: 'shaB' },
+          { path: 'other/c.md', type: 'blob', sha: 'shaC' },
+        ],
+        truncated: state.githubTruncated,
+      });
+      return;
+    }
+    if (path.startsWith('/github/api/v3/repos/octo/proj/git/trees/')) {
+      json(response, 200, {
+        tree: [{ path: 'docs/a.md', type: 'blob', sha: 'shaA' }],
+        truncated: false,
+      });
+      return;
+    }
+    const blob = /^\/github\/api\/v3\/repos\/octo\/proj\/git\/blobs\/([^/]+)$/.exec(path);
+    if (blob?.[1]) {
+      const bodies: Record<string, string> = {
+        shaA: '# GitHub doc\n',
+        shaFaq: '# FAQ setup\n',
+        shaEmpty: '',
+        shaB: 'b text',
+      };
+      const body = bodies[blob[1]];
+      if (body === undefined) {
+        json(response, 404, { message: 'Not Found' });
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'application/vnd.github.raw' });
+      response.end(body);
+      return;
+    }
+  }
+
   if (path.startsWith('/feishu/')) {
     if (path === '/feishu/open-apis/auth/v3/tenant_access_token/internal') {
       if (state.feishuTokenStatus !== 200) {
@@ -598,6 +706,20 @@ function gitlabConfig(settings: Record<string, unknown> = {}): SourceConfig {
     allowLoopback: true,
     settings: {
       project: 'group/proj',
+      paths: ['docs', 'src/b.txt'],
+      ...settings,
+    },
+  };
+}
+
+function githubConfig(settings: Record<string, unknown> = {}): SourceConfig {
+  return {
+    type: 'github',
+    url: `${mainUrl}/github/api/v3`,
+    credentials: { token: '{{SECRET_ghp_example}}' },
+    allowLoopback: true,
+    settings: {
+      project: 'octo/proj',
       paths: ['docs', 'src/b.txt'],
       ...settings,
     },
@@ -809,7 +931,8 @@ describe('RSS/Atom/JSON sources', () => {
 describe('HTTP failure responses', () => {
   it.each([
     { status: 401, auth: true },
-    { status: 403, auth: true },
+    // A 403 body that cannot be read fully must not revoke credentials.
+    { status: 403, auth: false },
     { status: 429, auth: false },
     { status: 500, auth: false },
   ])(
@@ -830,6 +953,45 @@ describe('HTTP failure responses', () => {
       }
     },
   );
+
+  it('keeps a held 403 secondary-rate-limit body transient instead of revoked credentials', async () => {
+    const upstream = await startHoldingServer(
+      403,
+      'You have exceeded a secondary rate limit. Please wait a few minutes.',
+    );
+    try {
+      const error = await readSource(rssConfig(`${upstream.url}/held`)).catch(
+        (reason: unknown) => reason,
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(SourceAuthError);
+      expect((error as Error).message).toContain('HTTP 403');
+      await within(2_000, upstream.responseClosed, 'upstream 403 connection stayed open');
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it('propagates caller cancellation while reading a 403 body without waiting for the timeout', async () => {
+    const upstream = await startHoldingServer(403);
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = readSource(
+      rssConfig(`${upstream.url}/held`),
+      undefined,
+      controller.signal,
+    ).catch((reason: unknown) => reason);
+    setTimeout(() => controller.abort(), 50);
+    try {
+      const error = await pending;
+      expect(error).not.toBeInstanceOf(SourceAuthError);
+      expect((error as Error).name).toBe('AbortError');
+      expect(Date.now() - started).toBeLessThan(1_500);
+      await within(2_000, upstream.responseClosed, 'upstream 403 connection stayed open');
+    } finally {
+      await upstream.close();
+    }
+  });
 });
 
 describe('GitLab source', () => {
@@ -878,6 +1040,141 @@ describe('GitLab source', () => {
     resetState();
     state.gitlabRepeatPage = true;
     await expect(readSource(gitlabConfig())).rejects.toThrow(/pagination/i);
+  });
+});
+
+describe('GitHub source', () => {
+  it('reads text blobs from the default branch tree and filters range, type and binaries', async () => {
+    const snapshot = await readSource(githubConfig());
+
+    expect(snapshot.complete).toBe(true);
+    expect(snapshot.items.map((item) => item.path).sort()).toEqual([
+      'docs/FAQ#setup.md',
+      'docs/a.md',
+      'docs/empty.txt',
+      'src/b.txt',
+    ]);
+    const file = snapshot.items.find((item) => item.path === 'docs/a.md');
+    expect(file?.title).toBe('a.md');
+    expect(file?.content).toBe('# GitHub doc\n');
+    expect(file?.mimeType).toBe('text/markdown');
+    expect(file?.sourceUrl).toBe(`${mainUrl}/octo/proj/blob/trunk/docs/a.md`);
+    expect(file?.externalId).toBe(`github:${mainUrl}/github/api/v3:1001:trunk:docs/a.md`);
+
+    // URL 中含保留字符的文件名按段编码，链接可用但 externalId/path 保留原文。
+    const faq = snapshot.items.find((item) => item.path === 'docs/FAQ#setup.md');
+    expect(faq?.content).toBe('# FAQ setup\n');
+    expect(faq?.sourceUrl).toBe(`${mainUrl}/octo/proj/blob/trunk/docs/FAQ%23setup.md`);
+    expect(faq?.externalId).toBe(`github:${mainUrl}/github/api/v3:1001:trunk:docs/FAQ#setup.md`);
+
+    // 空文件也要覆盖旧正文，而不是保留上一次内容。
+    const empty = snapshot.items.find((item) => item.path === 'docs/empty.txt');
+    expect(empty?.content).toBe('# docs/empty.txt\n');
+    // 二进制扩展名与范围外路径都不进入快照。
+    expect(snapshot.items.some((item) => item.path === 'docs/image.png')).toBe(false);
+    // mode 120000 是符号链接，即使扩展名是 .md 也不能当普通文件读。
+    expect(snapshot.items.some((item) => item.path === 'docs/link.md')).toBe(false);
+    expect(state.mainRequests.some((request) => request.path.endsWith('/git/blobs/shaLink'))).toBe(
+      false,
+    );
+    expect(snapshot.items.some((item) => item.path === 'other/c.md')).toBe(false);
+
+    const repoRequest = state.mainRequests.find(
+      (request) => request.path === '/github/api/v3/repos/octo/proj',
+    );
+    expect(repoRequest?.headers.authorization).toBe('Bearer {{SECRET_ghp_example}}');
+    const treeRequest = state.mainRequests.find((request) =>
+      request.path.endsWith('/git/trees/trunk'),
+    );
+    expect(treeRequest?.headers.accept).toBe('application/vnd.github+json');
+    const blobRequest = state.mainRequests.find((request) =>
+      request.path.endsWith('/git/blobs/shaA'),
+    );
+    expect(blobRequest?.headers.accept).toBe('application/vnd.github.raw+json');
+    expect(cursorOf(snapshot).initial).toBe(true);
+
+    const second = await readSource(githubConfig(), snapshot.cursor);
+    expect(cursorOf(second).initial).toBe(false);
+  });
+
+  it('uses the explicit ref for the tree and blob links', async () => {
+    const snapshot = await readSource(githubConfig({ ref: 'release/1.0' }));
+
+    expect(
+      state.mainRequests.some((request) => request.path.endsWith('/git/trees/release/1.0')),
+    ).toBe(true);
+    expect(snapshot.items[0]?.sourceUrl).toBe(`${mainUrl}/octo/proj/blob/release/1.0/docs/a.md`);
+    expect(snapshot.items[0]?.externalId).toBe(
+      `github:${mainUrl}/github/api/v3:1001:release/1.0:docs/a.md`,
+    );
+  });
+
+  it('refuses a truncated tree instead of enumerating it partially', async () => {
+    state.githubTruncated = true;
+    await expect(readSource(githubConfig())).rejects.toThrow(/100,000/);
+  });
+
+  it('surfaces auth, missing repo, server and missing default-branch failures', async () => {
+    state.githubForbidden = true;
+    await expect(readSource(githubConfig())).rejects.toThrow(/403/);
+    await expect(readSource(githubConfig())).rejects.toBeInstanceOf(SourceAuthError);
+
+    resetState();
+    state.githubNotFound = true;
+    await expect(readSource(githubConfig())).rejects.toThrow(/404/);
+
+    resetState();
+    state.githubTreeError = true;
+    await expect(readSource(githubConfig())).rejects.toThrow(/500/);
+    await expect(readSource(githubConfig())).rejects.not.toBeInstanceOf(SourceAuthError);
+
+    resetState();
+    state.githubNoDefaultBranch = true;
+    await expect(readSource(githubConfig())).rejects.toThrow(/default branch/);
+  });
+
+  it('treats rate-limited 403 and 429 as transient instead of revoked credentials', async () => {
+    state.githubRateLimited = true;
+    const limited = await readSource(githubConfig()).catch((reason: unknown) => reason);
+    expect(limited).toBeInstanceOf(Error);
+    expect(limited).not.toBeInstanceOf(SourceAuthError);
+    expect((limited as Error).message).toContain('HTTP 403');
+    expect((limited as Error).message).toContain('/repos/octo/proj');
+    expect((limited as Error).message).toContain('retry after 60s');
+
+    resetState();
+    state.githubTooManyRequests = true;
+    const throttled = await readSource(githubConfig()).catch((reason: unknown) => reason);
+    expect(throttled).not.toBeInstanceOf(SourceAuthError);
+    expect((throttled as Error).message).toContain('HTTP 429');
+  });
+
+  it('treats a 403 secondary rate limit body as transient even with quota left', async () => {
+    state.githubSecondaryRateLimited = true;
+    const error = await readSource(githubConfig()).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(SourceAuthError);
+    expect((error as Error).message).toContain('HTTP 403');
+    expect((error as Error).message).not.toContain('retry after');
+  });
+
+  it('rejects a project that is not owner/repo and absolute range paths', async () => {
+    await expect(readSource(githubConfig({ project: '/octo/proj' }))).rejects.toThrow(
+      /owner\/repo/,
+    );
+    await expect(readSource(githubConfig({ project: 'octo/proj?x' }))).rejects.toThrow(
+      /owner\/repo/,
+    );
+    await expect(readSource(githubConfig({ project: 'octo/..' }))).rejects.toThrow(/owner\/repo/);
+    await expect(readSource(githubConfig({ project: 'octo/pro j' }))).rejects.toThrow(
+      /owner\/repo/,
+    );
+    await expect(readSource(githubConfig({ paths: ['/abs'] }))).rejects.toThrow(
+      /repository-relative/,
+    );
+    await expect(readSource(githubConfig({ paths: ['docs/../secret'] }))).rejects.toThrow(
+      /repository-relative/,
+    );
   });
 });
 

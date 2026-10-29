@@ -156,6 +156,218 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(list.body).not.toContain('glpat-plaintext-token');
   });
 
+  it('creates a github source with optional ref and API base, and validates its shape locally', async () => {
+    const baseId = await createBase();
+    const payload = (overrides: Record<string, unknown> = {}) => ({
+      type: 'github',
+      name: 'github',
+      config: { projectId: 'octo/proj' },
+      secrets: { token: '{{SECRET_ghp_example}}' },
+      ranges: [{ kind: 'github_repo', externalId: 'octo/proj', paths: ['docs'] }],
+      ...overrides,
+    });
+
+    const created = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/sources`,
+      headers: { cookie },
+      payload: payload({
+        config: { baseUrl: 'https://ghe.example.com/api/v3', projectId: 'octo/proj' },
+      }),
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const source = created.json<{
+      id: string;
+      hasSecret: boolean;
+      config: Record<string, unknown>;
+      ranges: Array<{ kind: string; externalId: string; paths: string[] }>;
+    }>();
+    expect(source.hasSecret).toBe(true);
+    expect(source.config).toEqual({
+      baseUrl: 'https://ghe.example.com/api/v3',
+      projectId: 'octo/proj',
+      syncDeletions: false,
+    });
+    expect(source.ranges).toEqual([
+      expect.objectContaining({ kind: 'github_repo', externalId: 'octo/proj', paths: ['docs'] }),
+    ]);
+    expect(JSON.stringify(source)).not.toContain('{{SECRET_ghp_example}}');
+
+    // ref 可空：不填时由 worker 回落到仓库 default branch。
+    const noBase = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/sources`,
+      headers: { cookie },
+      payload: payload({ name: 'github-default' }),
+    });
+    expect(noBase.statusCode, noBase.body).toBe(201);
+
+    const missingToken = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/sources`,
+      headers: { cookie },
+      payload: payload({ secrets: {} }),
+    });
+    expect(missingToken.statusCode, missingToken.body).toBe(400);
+
+    const invalidUrl = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/sources`,
+      headers: { cookie },
+      payload: payload({ config: { baseUrl: 'not-a-url', projectId: 'octo/proj' } }),
+    });
+    expect(invalidUrl.statusCode, invalidUrl.body).toBe(400);
+
+    const missingProject = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/sources`,
+      headers: { cookie },
+      payload: payload({ config: {} }),
+    });
+    expect(missingProject.statusCode, missingProject.body).toBe(400);
+
+    // PATCH 不重建 schema，仍按同一套本地规则拒绝缺 projectId 的配置。
+    const badPatch = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/sources/${source.id}`,
+      headers: { cookie },
+      payload: { config: {} },
+    });
+    expect(badPatch.statusCode, badPatch.body).toBe(400);
+    expect(badPatch.json()).toMatchObject({ code: 'INVALID_INPUT' });
+
+    const count = await app.pool.query<{ n: string }>(
+      'select count(*)::text as n from knowledge_sources where base_id = $1',
+      [baseId],
+    );
+    expect(count.rows[0]!.n).toBe('2');
+  });
+
+  function githubPayload(overrides: Record<string, unknown> = {}) {
+    return {
+      type: 'github',
+      name: 'github-ranges',
+      config: { projectId: 'octo/proj' },
+      secrets: { token: 't' },
+      ranges: [{ kind: 'github_repo', externalId: 'octo/proj', paths: ['docs'] }],
+      ...overrides,
+    };
+  }
+
+  it('rejects invalid github ranges on create and on a ranges-only PATCH', async () => {
+    const baseId = await createBase();
+    const invalidRanges = [
+      { kind: 'github_repo', externalId: 'octo/..' },
+      { kind: 'github_repo', externalId: 'bad repo/proj' },
+      { kind: 'github_repo', externalId: 'nested/proj/extra' },
+      { kind: 'github_repo', externalId: 'octo/../..', enabled: false },
+      { kind: 'gitlab_project', externalId: 'octo/wrong-kind' },
+    ];
+    const rejected = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/sources`,
+      headers: { cookie },
+      payload: githubPayload({ ranges: invalidRanges }),
+    });
+    expect(rejected.statusCode, rejected.body).toBe(400);
+    expect(rejected.json()).toMatchObject({ code: 'INVALID_INPUT' });
+    const message = rejected.json<{ message: string }>().message;
+    expect(message).toContain('octo/.. 需为 owner/repo');
+    expect(message).toContain('octo/wrong-kind 的类型必须是仓库');
+
+    const count = await app.pool.query<{ n: string }>(
+      'select count(*)::text as n from knowledge_sources where base_id = $1',
+      [baseId],
+    );
+    expect(count.rows[0]!.n).toBe('0');
+
+    const created = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/sources`,
+      headers: { cookie },
+      payload: githubPayload(),
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const source = created.json<{ id: string }>();
+
+    // 只改 ranges、不带 config/secrets，也必须走同一套校验。
+    const badRepos = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/sources/${source.id}`,
+      headers: { cookie },
+      payload: {
+        ranges: [
+          { kind: 'github_repo', externalId: 'octo/..' },
+          { kind: 'gitlab_project', externalId: 'octo/proj' },
+        ],
+      },
+    });
+    expect(badRepos.statusCode, badRepos.body).toBe(400);
+    expect(badRepos.json()).toMatchObject({ code: 'INVALID_INPUT' });
+    expect(badRepos.json<{ message: string }>().message).toContain('owner/repo');
+    expect(badRepos.json<{ message: string }>().message).toContain('类型必须是仓库');
+
+    const ranges = await app.pool.query<{ kind: string; external_id: string }>(
+      'select kind, external_id from knowledge_source_ranges where source_id = $1 order by id',
+      [source.id],
+    );
+    expect(ranges.rows).toEqual([{ kind: 'github_repo', external_id: 'octo/proj' }]);
+  });
+
+  it('reports every enabled invalid range and still allows a rename-only patch', async () => {
+    const baseId = await createBase();
+    const created = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/sources`,
+      headers: { cookie },
+      payload: githubPayload(),
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const source = created.json<{ id: string }>();
+
+    // 历史数据可能已带非法范围：绕过接口直接落库，验证 test 与部分 PATCH 的行为。
+    const legacy = [
+      ['krng_a1', 'github_repo', 'octo/..', true],
+      ['krng_a2', 'github_repo', 'bad repo/proj', true],
+      ['krng_a3', 'github_repo', 'nested/proj/extra', true],
+      ['krng_a4', 'github_repo', 'octo/../..', false],
+      ['krng_a5', 'gitlab_project', 'octo/wrong-kind', true],
+    ] as const;
+    for (const [id, kind, externalId, enabled] of legacy) {
+      await app.pool.query(
+        `insert into knowledge_source_ranges (id, source_id, kind, external_id, paths, enabled)
+         values ($1, $2, $3, $4, '[]'::jsonb, $5)`,
+        [id, source.id, kind, externalId, enabled],
+      );
+    }
+
+    const tested = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/sources/${source.id}/test`,
+      headers: { cookie },
+    });
+    expect(tested.statusCode, tested.body).toBe(200);
+    const { ok, issues } = tested.json<{ ok: boolean; issues: string[] }>();
+    expect(ok).toBe(false);
+    // 停用的范围不参与校验；其余每个启用的非法范围各给一条明确文案。
+    expect(issues).toEqual([
+      '范围 octo/.. 需为 owner/repo（owner 仅字母、数字、连字符，repo 不能是 . 或 ..）',
+      '范围 bad repo/proj 需为 owner/repo（owner 仅字母、数字、连字符，repo 不能是 . 或 ..）',
+      '范围 nested/proj/extra 需为 owner/repo（owner 仅字母、数字、连字符，repo 不能是 . 或 ..）',
+      '范围 octo/wrong-kind 的类型必须是仓库（github_repo）',
+    ]);
+
+    // 只改 name 时不被历史非法范围阻断。
+    const renamed = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/sources/${source.id}`,
+      headers: { cookie },
+      payload: { name: 'renamed' },
+    });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    expect(renamed.json()).toMatchObject({ name: 'renamed' });
+  });
+
   it('rejects empty ranges with 400', async () => {
     const baseId = await createBase();
     for (const ranges of [[], undefined]) {
@@ -308,6 +520,44 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       [retryRunId],
     );
     expect(newRun.rows[0]!.status).toBe('queued');
+  });
+
+  it('rejects manual sync for a non-active source or while one is already queued', async () => {
+    const baseId = await createBase();
+    const source = await createSource(baseId);
+    const paused = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/sources/${source.id}`,
+      headers: { cookie },
+      payload: { status: 'paused' },
+    });
+    expect(paused.statusCode, paused.body).toBe(200);
+    const inactive = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/sources/${source.id}/sync`,
+      headers: { cookie },
+    });
+    expect(inactive.statusCode, inactive.body).toBe(409);
+
+    const activated = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/sources/${source.id}`,
+      headers: { cookie },
+      payload: { status: 'active' },
+    });
+    expect(activated.statusCode, activated.body).toBe(200);
+    const first = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/sources/${source.id}/sync`,
+      headers: { cookie },
+    });
+    expect(first.statusCode, first.body).toBe(202);
+    const duplicate = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/sources/${source.id}/sync`,
+      headers: { cookie },
+    });
+    expect(duplicate.statusCode, duplicate.body).toBe(409);
   });
 
   async function seedSourceDocument(baseId: string, sourceId: string): Promise<string> {

@@ -123,6 +123,7 @@ export const knowledgeSourceTypeSchema = z.enum([
   'feishu_wiki',
   'feishu_drive',
   'gitlab',
+  'github',
   'feed',
   'manual',
 ]);
@@ -238,7 +239,14 @@ const cron5Schema = z
   .regex(/^\S+ \S+ \S+ \S+ \S+$/, '需为 5 段 cron（分 时 日 月 周），UTC');
 
 export const knowledgeSourceRangeInputSchema = z.object({
-  kind: z.enum(['wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'feed']),
+  kind: z.enum([
+    'wiki_space',
+    'wiki_node',
+    'drive_folder',
+    'gitlab_project',
+    'github_repo',
+    'feed',
+  ]),
   externalId: z.string().min(1),
   ref: z.string().nullable().default(null),
   paths: z.array(z.string()).default([]),
@@ -282,6 +290,19 @@ export const knowledgeSourceInputSchema = z.discriminatedUnion('type', [
       baseUrl: z.string().url(),
       projectId: z.string().min(1),
       ref: z.string().min(1),
+      ...sourceSyncOptions,
+    }),
+    secrets: z.object({ token: z.string().min(1) }),
+  }),
+  z.object({
+    ...sourceBase,
+    type: z.literal('github'),
+    config: z.object({
+      // 缺省是 https://api.github.com；GitHub Enterprise 填 API 根（如 https://ghe.example.com/api/v3）。
+      baseUrl: z.string().url().optional(),
+      projectId: z.string().trim().min(1),
+      // 可空：worker 回落到仓库 default_branch。
+      ref: z.string().min(1).optional(),
       ...sourceSyncOptions,
     }),
     secrets: z.object({ token: z.string().min(1) }),

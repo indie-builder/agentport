@@ -6,7 +6,7 @@ import { type SourceItem as LeafSourceItem, readSource, type SourceConfig } from
  *
  * 一个 range 就是一次独立读取：各自有游标、各自证明是否完整枚举。
  * 全部 range 都读完才把 complete 汇总上报，摄取层只在这时推导删除。
- * 数据来源：feed 每个 range 是一个订阅地址；gitlab 每个 range 是一个 project/ref；
+ * 数据来源：feed 每个 range 是一个订阅地址；gitlab/github 每个 range 是一个 repo/ref；
  * 飞书 wiki 每个 range 是一个 space 或 node；drive 每个 range 是一个 folder。
  */
 
@@ -15,8 +15,8 @@ type RangeInput = { kind: string; externalId: string; ref: string | null; paths:
 /** 游标按 range 分开存，同一个来源内增删 range 不会互相覆盖。 */
 function rangeKey(type: string, range: RangeInput): string {
   const parts = [type, range.kind, range.externalId, range.ref ?? ''];
-  // gitlab 的 paths 是范围的一部分：缩小 paths 后不能沿用旧游标误判完整。
-  if (type === 'gitlab') parts.push(range.paths.join(','));
+  // gitlab/github 的 paths 是范围的一部分：缩小 paths 后不能沿用旧游标误判完整。
+  if (type === 'gitlab' || type === 'github') parts.push(range.paths.join(','));
   return parts.join('|');
 }
 
@@ -48,6 +48,20 @@ function toSourceConfig(
         settings: {
           project: range.externalId || config.projectId,
           ref: range.ref ?? config.ref,
+          paths: range.paths,
+        },
+      };
+    }
+    case 'github': {
+      const ref = range.ref?.trim();
+      return {
+        ...base,
+        type: 'github',
+        url: typeof config.baseUrl === 'string' ? config.baseUrl : '',
+        settings: {
+          project: range.externalId || config.projectId,
+          // ref 属于每个仓库范围：空值交给 readGithub 用该仓库的 default_branch。
+          ...(ref ? { ref } : {}),
           paths: range.paths,
         },
       };
@@ -118,5 +132,6 @@ export const knowledgeConnectors = {
   feishu_wiki: createConnector('feishu_wiki'),
   feishu_drive: createConnector('feishu_drive'),
   gitlab: createConnector('gitlab'),
+  github: createConnector('github'),
   feed: createConnector('feed'),
 } satisfies Record<string, KnowledgeConnector>;

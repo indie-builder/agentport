@@ -10,7 +10,7 @@ import { z } from 'zod';
  * the ingestion jobs can adopt it without a schema change.
  */
 export type SourceConfig = {
-  type: 'rss' | 'gitlab' | 'feishu';
+  type: 'rss' | 'gitlab' | 'github' | 'feishu';
   url: string;
   credentials: Record<string, string>;
   settings: Record<string, unknown>;
@@ -74,6 +74,8 @@ const TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 5;
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_FEISHU_BLOCKS = 50_000;
+/** An error body only classifies the failure; never let a stalled one hold the request. */
+const ERROR_BODY_TIMEOUT_MS = 2_000;
 
 const PRIVATE_V4: Array<[string, number]> = [
   ['0.0.0.0', 8],
@@ -208,7 +210,7 @@ type FetchOptions = {
 
 async function fetchChecked(raw: string, options: FetchOptions): Promise<Response> {
   let current = new URL(raw);
-  const signal = requestSignal(options.signal);
+  const timeout = requestSignal(options.signal);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     await validateSourceUrl(current.href, {
       ...(options.allowLoopback === undefined ? {} : { allowLoopback: options.allowLoopback }),
@@ -217,6 +219,9 @@ async function fetchChecked(raw: string, options: FetchOptions): Promise<Respons
     const sendAuth = options.authOrigin !== undefined && current.origin === options.authOrigin;
     // A redirected POST drops its body along with the credentials it carries.
     const method = sendAuth ? (options.method ?? 'GET') : 'GET';
+    // 403 的 error body 需要单独读取，给它一条可提前取消的通道。
+    const bodyAbort = new AbortController();
+    const signal = AbortSignal.any([timeout, bodyAbort.signal]);
     const response = await fetch(current.href, {
       method,
       redirect: 'manual',
@@ -235,9 +240,34 @@ async function fetchChecked(raw: string, options: FetchOptions): Promise<Respons
       continue;
     }
     if (!response.ok) {
-      await response.body?.cancel();
-      const message = `HTTP ${response.status} from ${current.origin}${current.pathname}`;
-      if (response.status === 401 || response.status === 403) {
+      let body = '';
+      // 403 的 body 读不完就不能判定为撤权：既可能藏着次级限流说明，也可能是网络问题。
+      let bodyUnavailable = false;
+      if (response.status === 403) {
+        const stop = setTimeout(() => bodyAbort.abort(), ERROR_BODY_TIMEOUT_MS);
+        try {
+          body = await readCapped(response, 'error response');
+        } catch (error) {
+          // 调用方取消必须保留取消语义，不能被当成来源失败。
+          if (options.signal?.aborted) throw options.signal.reason ?? error;
+          bodyUnavailable = true;
+        } finally {
+          clearTimeout(stop);
+        }
+      } else {
+        await response.body?.cancel();
+      }
+      const retryAfter = response.headers.get('retry-after');
+      // GitHub 限流与权限不足同为 403：只有限流信号存在时才算可重试的普通错误。
+      // 次级限流不带 retry-after、配额也没耗尽，只能在 body 里识别。
+      const rateLimited =
+        response.status === 403 &&
+        (response.headers.get('x-ratelimit-remaining') === '0' ||
+          retryAfter !== null ||
+          /secondary rate limit|abuse detection/i.test(body));
+      const retry = rateLimited && retryAfter ? ` (retry after ${retryAfter}s)` : '';
+      const message = `HTTP ${response.status} from ${current.origin}${current.pathname}${retry}`;
+      if (response.status === 401 || (response.status === 403 && !rateLimited && !bodyUnavailable)) {
         throw new SourceAuthError(message);
       }
       throw new Error(message);
@@ -529,7 +559,7 @@ async function readRss(
 }
 
 // ---------------------------------------------------------------------------
-// GitLab repository files
+// GitLab / GitHub repository files
 // ---------------------------------------------------------------------------
 
 const TEXT_EXTENSIONS = new Set([
@@ -589,6 +619,11 @@ function extensionOf(path: string): string {
 function inScope(file: string, roots: string[]): boolean {
   if (roots.length === 0) return true;
   return roots.some((root) => file === root || file.startsWith(`${root.replace(/\/+$/, '')}/`));
+}
+
+/** Human-facing link: encode each segment (`#`, `?`, spaces) but keep `/` as hierarchy. */
+function encodePathSegments(value: string): string {
+  return value.split('/').map(encodeURIComponent).join('/');
 }
 
 async function readGitlab(
@@ -676,6 +711,134 @@ async function readGitlab(
     items,
     cursor: { version: 1, initial: previous === undefined },
     // The tree was read completely above; any HTTP/pagination failure threw.
+    complete: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GitHub repository files
+// ---------------------------------------------------------------------------
+
+const GITHUB_DEFAULT_API_BASE = 'https://api.github.com';
+
+const githubRepoSchema = z.object({
+  id: z.union([z.string(), z.number()]),
+  default_branch: z.string().optional(),
+  html_url: z.string().optional(),
+});
+
+const githubTreeNodeSchema = z.object({
+  path: z.string(),
+  type: z.string(),
+  sha: z.string(),
+  /** `120000` marks a symlink; its blob body is a target path, not file content. */
+  mode: z.string().optional(),
+});
+
+const githubTreeSchema = z.object({
+  tree: z.array(githubTreeNodeSchema),
+  truncated: z.boolean().optional(),
+});
+
+const githubConfigSchema = z.object({
+  project: z.union([z.string(), z.number()]).transform(String),
+  ref: z.string().optional(),
+  paths: z.array(z.string()).optional(),
+});
+
+async function readGithub(
+  config: SourceConfig,
+  cursor: Record<string, unknown> | undefined,
+  signal: AbortSignal | undefined,
+): Promise<SourceSnapshot> {
+  const previous = parseCursor('github', sourceCursorSchema, cursor);
+  const settings = githubConfigSchema.parse(config.settings);
+  const token = config.credentials.token?.trim();
+  if (!token) throw new Error('github credentials.token is required');
+  // project 直接拼进 API 路径：只接受 GitHub 合法的 owner/repo 字符，避免 `..`、`?`、`#` 改写路径。
+  const project = settings.project.trim();
+  const [owner, repoName, ...rest] = project.split('/');
+  if (
+    rest.length > 0 ||
+    !/^[A-Za-z0-9-]+$/.test(owner ?? '') ||
+    !/^[A-Za-z0-9._-]+$/.test(repoName ?? '') ||
+    repoName === '.' ||
+    repoName === '..'
+  ) {
+    throw new Error(`github project must be owner/repo: ${project}`);
+  }
+  const paths = settings.paths ?? [];
+  for (const selected of paths) {
+    if (selected.startsWith('/') || selected.includes('..')) {
+      throw new Error(`github path is not a repository-relative path: ${selected}`);
+    }
+  }
+
+  const origins = urlOptions(config);
+  const base = new URL(
+    await validateSourceUrl(config.url.trim() || GITHUB_DEFAULT_API_BASE, origins),
+  );
+  // baseUrl 已是 API 根（github.com 或 GHE 的 /api/v3），不再补路径。
+  const apiBase = base.href.replace(/\/$/, '');
+  const authOrigin = base.origin;
+  const fetchOptions = (accept = 'application/vnd.github+json'): FetchOptions => ({
+    headers: { authorization: `Bearer ${token}`, accept, 'x-github-api-version': '2022-11-28' },
+    authOrigin,
+    ...origins,
+    ...(signal === undefined ? {} : { signal }),
+  });
+
+  const repo = await fetchJson(
+    `${apiBase}/repos/${project}`,
+    githubRepoSchema,
+    fetchOptions(),
+    'github repository',
+  );
+  const ref = settings.ref?.trim() || repo.default_branch;
+  if (!ref) throw new Error('github repository has no default branch; set settings.ref');
+  const repoId = String(repo.id);
+  const htmlUrl = (repo.html_url ?? `${base.origin}/${project}`).replace(/\/$/, '');
+
+  const tree = await fetchJson(
+    `${apiBase}/repos/${project}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+    githubTreeSchema,
+    fetchOptions(),
+    'github tree',
+  );
+  // GitHub recursive tree 在 100,000 条处截断；截断时不能假装枚举完整。
+  if (tree.truncated === true) {
+    throw new Error('仓库树超过 100,000 条，无法完整枚举；请缩小仓库范围');
+  }
+
+  const usedPaths = new Set<string>();
+  const items: SourceItem[] = [];
+  for (const entry of tree.tree) {
+    if (entry.type !== 'blob' || entry.mode === '120000') continue;
+    const extension = extensionOf(entry.path);
+    if (!TEXT_EXTENSIONS.has(extension)) continue;
+    if (!inScope(entry.path, paths)) continue;
+    let content = await fetchText(
+      `${apiBase}/repos/${project}/git/blobs/${encodeURIComponent(entry.sha)}`,
+      fetchOptions('application/vnd.github.raw+json'),
+      'github file',
+    );
+    // An emptied file must replace the stored body instead of silently keeping it.
+    if (content === '') content = `# ${entry.path}\n`;
+    const title = entry.path.slice(entry.path.lastIndexOf('/') + 1);
+    items.push({
+      externalId: `github:${apiBase}:${repoId}:${ref}:${entry.path}`,
+      title,
+      path: uniquePath(entry.path, usedPaths, entry.path),
+      sourceUrl: `${htmlUrl}/blob/${encodePathSegments(ref)}/${encodePathSegments(entry.path)}`,
+      content,
+      mimeType: MIME_BY_EXTENSION[extension] ?? 'text/plain',
+    });
+  }
+
+  return {
+    items,
+    cursor: { version: 1, initial: previous === undefined },
+    // truncated 已在上面明确抛错；能走到这里说明树是完整的。
     complete: true,
   };
 }
@@ -1291,6 +1454,8 @@ export async function readSource(
       return readRss(config, cursor, signal);
     case 'gitlab':
       return readGitlab(config, cursor, signal);
+    case 'github':
+      return readGithub(config, cursor, signal);
     case 'feishu':
       return readFeishu(config, cursor, signal);
     default:
