@@ -229,6 +229,13 @@ const positiveIntMessage = '必须大于 0，请调整后再保存';
 const invalidNumberMessage = '请填写有效内容';
 const thinkingMessage = '请输入大于 0 的整数，或留空表示不设置。';
 
+/** 原生文件工具：运行时对主会话按路径放行，对子智能体一律禁用。 */
+const FILE_TOOLS = ['Read', 'Write', 'Edit'] as const;
+
+function isFileTool(tool: string): tool is (typeof FILE_TOOLS)[number] {
+  return FILE_TOOLS.includes(tool as (typeof FILE_TOOLS)[number]);
+}
+
 /** 每行一个工具名；空白行忽略，中间空白行不会把未完成的草稿规范化掉。 */
 function toolLines(text: string): string[] {
   return text
@@ -1371,6 +1378,28 @@ export function AgentEditor({
     );
   };
 
+  /**
+   * 主会话的原生文件工具默认按路径放行：关闭只加裸 deny，恢复只删裸 allow/deny，
+   * 回到平台默认范围；路径规则和其它工具的规则一律保留。
+   */
+  const toggleFileTool = (tool: string): void => {
+    if (agent.parentId !== null) return;
+    const current = rhf.getValues() as AgentDraft;
+    const enabled = !current.disallowedTools.includes(tool);
+    set(
+      'allowedTools',
+      toolLines(current.allowedTools)
+        .filter((rule) => rule !== tool)
+        .join('\n'),
+    );
+    set(
+      'disallowedTools',
+      enabled
+        ? [...new Set([...current.disallowedTools, tool])]
+        : current.disallowedTools.filter((rule) => rule !== tool),
+    );
+  };
+
   // 这两项也由 zod 校验；保存被拦下时，按钮上的提示要指向所在分区。
   const invalidField = allowedInvalid
     ? ('permissions' as const)
@@ -2482,9 +2511,20 @@ export function AgentEditor({
 
                     <div>
                       <h3 className="mb-2 text-sm font-medium text-fg">内置工具</h3>
+                      <p className="mb-2 max-w-[70ch] text-xs leading-relaxed text-muted-foreground">
+                        {agent.parentId === null
+                          ? '主会话可用原生文件工具读写记忆 Markdown 与本轮成果，并只读附件与技能参考；关闭某个工具不等于 Bash 无法读写文件，Bash 仍受 Docker 挂载边界约束。恢复保留已有规则；文件工具的自定义允许项不扩大平台范围，路径禁用规则由 SDK 判断；平台文件边界始终保留。'
+                          : '子智能体的原生文件工具由平台禁用。'}
+                      </p>
                       <div className="flex flex-wrap gap-2">
                         {BUILTIN_TOOLS.map((tool) => {
-                          const enabled = builtinEnabled(toolDraft, tool);
+                          const fileTool = isFileTool(tool);
+                          const childFileTool = fileTool && agent.parentId !== null;
+                          const enabled = childFileTool
+                            ? false
+                            : fileTool
+                              ? !toolDraft.disallowedTools.includes(tool)
+                              : builtinEnabled(toolDraft, tool);
                           const fixed = tool === 'Agent' || tool === 'TaskStop';
                           return (
                             <Toggle
@@ -2492,23 +2532,36 @@ export function AgentEditor({
                               variant="outline"
                               size="sm"
                               pressed={enabled}
-                              onPressedChange={() => toggleBuiltin(tool)}
-                              disabled={fixed || pending}
+                              onPressedChange={() =>
+                                fileTool ? toggleFileTool(tool) : toggleBuiltin(tool)
+                              }
+                              disabled={fixed || childFileTool || pending}
                               title={
-                                fixed
-                                  ? enabled
-                                    ? '由子智能体绑定放行；解绑子智能体后自动禁用'
-                                    : '绑定子智能体后自动放行'
-                                  : enabled
-                                    ? '已放行：点击禁用'
-                                    : '已禁用：点击放行'
+                                childFileTool
+                                  ? '子智能体的原生文件工具由平台禁用'
+                                  : fixed
+                                    ? enabled
+                                      ? '由子智能体绑定放行；解绑子智能体后自动禁用'
+                                      : '绑定子智能体后自动放行'
+                                    : fileTool
+                                      ? enabled
+                                        ? '已启用（受路径限制）：点击禁用'
+                                        : '已禁用：点击恢复默认文件范围'
+                                      : enabled
+                                        ? '已放行：点击禁用'
+                                        : '已禁用：点击放行'
                               }
                               className="font-mono"
                             >
                               {tool}
                               <span className="sr-only">
-                                {enabled ? '：已启用' : '：已禁用'}
+                                {enabled
+                                  ? fileTool
+                                    ? '：已启用（受路径限制）'
+                                    : '：已启用'
+                                  : '：已禁用'}
                                 {fixed ? '，由子智能体绑定决定' : ''}
+                                {childFileTool ? '，子智能体的原生文件工具由平台禁用' : ''}
                               </span>
                             </Toggle>
                           );
