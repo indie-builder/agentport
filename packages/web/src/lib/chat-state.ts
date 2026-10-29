@@ -25,6 +25,8 @@ export type ChatItem =
       text: string;
       attachments?: UserAttachment[];
       messageId?: string;
+      /** 产生这一轮运行的 id；没有助手输出时，终态读数由这条用户消息承载。 */
+      runId?: string;
     }
   | {
       id?: string;
@@ -360,11 +362,12 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
     if (role === 'user') {
       // 运行详情重建的步骤没有真实 conversationId，id 是合成的，不能作为分支锚点。
       const anchor = message.conversationId ? { messageId: message.id } : {};
+      const run = message.runId ? { runId: message.runId } : {};
       const text = blockText(content);
       const attachments = historyAttachments(content, message.conversationId);
       const extra = attachments.length > 0 ? { attachments } : {};
       if (text !== null) {
-        items.push({ id: `${message.id}:0`, kind: 'user', text, ...extra, ...anchor });
+        items.push({ id: `${message.id}:0`, kind: 'user', text, ...run, ...extra, ...anchor });
         continue;
       }
       if (Array.isArray(content)) {
@@ -373,7 +376,14 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
           .filter((part): part is string => part !== null)
           .join('\n');
         if (joined || attachments.length > 0) {
-          items.push({ id: `${message.id}:0`, kind: 'user', text: joined, ...extra, ...anchor });
+          items.push({
+            id: `${message.id}:0`,
+            kind: 'user',
+            text: joined,
+            ...run,
+            ...extra,
+            ...anchor,
+          });
         }
       }
       continue;

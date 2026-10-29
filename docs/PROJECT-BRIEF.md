@@ -2,7 +2,7 @@
 
 > 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [HANDOFF.md](HANDOFF.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
 > 最后更新：2026-10-28 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本；其余结论保持原样。
-> 项目名：**Agentport**（展示名 AgentPort，中文「智能体港」）
+> 项目名：**Agentport**（仓库与包名保持 `agentport`；对外展示名 **PACE**，见 [USER-STORIES.md](USER-STORIES.md)）
 > 包前缀：`@agentport/*`
 > 本文是该项目的唯一需求基线。项目改名后，本文继续有效；改名只影响仓库名与包名，不影响任何结论。
 
@@ -705,7 +705,7 @@ interface SandboxProvider {
 1. ~~**项目名称**~~ 已定：**Agentport**（包前缀 `@agentport/*`）。重名检查结果：npm `agentport` 已被占用（0.1.1，非知名项目），GitHub 有 `yakkomajuri/agentport`（30 stars）。因此：
    - **npm 使用 scope**：`@agentport/api`、`@agentport/web`、`@agentport/shared`、`@agentport/worker`（scope 需在 npm 注册，若不用公开 npm 则直接使用）。
    - **Docker 镜像名**：`agentport/api`、`agentport/worker`、`agentport/sandbox`。
-   - **展示名**：AgentPort。
+   - **展示名**：PACE（仓库与包名仍为 `agentport`）。
 2. **登录方式**：当前为单管理员 + Better Auth（会话落库，httpOnly cookie `agentport_token`）。是否需要多用户 / RBAC？
 3. **HTTP→MCP 的输入方式**：当前先做手动建工具，表结构按可导入 OpenAPI 设计。是否要 OpenAPI 导入？
 4. **智能体是否允许非 MCP 工具**：Bash 默认启用；原生 Read/Write/Edit 仅限记忆、产出、附件与技能参考；其余内置工具默认禁止。

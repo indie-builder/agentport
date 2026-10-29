@@ -465,6 +465,7 @@ describe('composer attachments', () => {
         kind: 'user',
         text: '分析一下',
         messageId: 'message-user',
+        runId: 'run-1',
         attachments: [
           {
             id: attachmentId,
@@ -571,6 +572,7 @@ describe('history attachments', () => {
         kind: 'user',
         text: '',
         messageId: 'message-1',
+        runId: 'run-1',
         attachments: [
           {
             id: attachmentId,
