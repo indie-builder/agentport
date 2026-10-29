@@ -217,6 +217,21 @@ describe('error and focus states share one border/ring signal', () => {
     }
   });
 
+  it('shows one visible focus ring on every button variant and keeps the outline border neutral', () => {
+    for (const name of ['button-default', 'button-outline', 'button-ghost']) {
+      const classNames = probeClasses(name);
+      // 未聚焦不画环。
+      expect(ringVisible(rules, classNames, {}, false)).toBe(false);
+      // 键盘聚焦必须有一层真实可见的环，而不是全透明的 2px 阴影。
+      expect(ringVisible(rules, classNames, {}, true)).toBe(true);
+      expect(winning(rules, classNames, {}, true, '--tw-ring-color')).toBe('var(--color-ring)');
+    }
+    // outline 的边框保持中性色，不参与焦点表达；本测试不模拟暗色媒体查询，dark:border-input 恒命中。
+    expect(['var(--color-border)', 'var(--color-input)']).toContain(
+      winning(rules, probeClasses('button-outline'), {}, true, 'border-color'),
+    );
+  });
+
   it('keeps one signal per toggle variant', () => {
     const normal = probeClasses('toggle-default');
     const outline = probeClasses('toggle-outline');
