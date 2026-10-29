@@ -65,6 +65,20 @@ const statusOptions = [
   { value: 'failed', label: '失败' },
 ];
 
+function StatusLabel({ status }: { status: BuildStatus }) {
+  const meta = statusMeta[status];
+  const Icon = meta.icon;
+  return (
+    <span className={`flex items-center gap-1.5 ${meta.className}`}>
+      <Icon
+        className={status === 'building' ? 'size-3.5 animate-spin' : 'size-3.5'}
+        aria-hidden="true"
+      />
+      {meta.label}
+    </span>
+  );
+}
+
 export function RuntimeEnvironmentDetailPage() {
   const { environmentId } = useParams({
     from: '/_shell/runtime-environments/$environmentId',
@@ -82,6 +96,8 @@ export function RuntimeEnvironmentDetailPage() {
   const [dockerfile, setDockerfile] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // 删除成功后实体已不存在，草稿无需再保护；用状态确保重渲染后 guard 立即解除。
+  const [leaving, setLeaving] = useState(false);
   const logTriggerRef = useRef<HTMLElement | null>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement>(null);
   // 线上指针变化也会刷新环境；有未保存草稿时不能被这次刷新盖掉。
@@ -118,11 +134,19 @@ export function RuntimeEnvironmentDetailPage() {
     });
   };
 
-  const dirty = Boolean(
-    savedRef.current &&
-      (name !== savedRef.current.name || dockerfile !== savedRef.current.dockerfile),
-  );
-  const blocker = useFormBlocker(dirty, update.isPending, { ignoreSamePath: true });
+  const dirty =
+    !leaving &&
+    Boolean(
+      savedRef.current &&
+        (name !== savedRef.current.name || dockerfile !== savedRef.current.dockerfile),
+    );
+  const pending = update.isPending || remove.isPending;
+  const blocker = useFormBlocker(dirty, pending, { ignoreSamePath: true });
+  // 成功回调读不到拦截发生后的 blocker 实例：用 ref 拿最新一次再结算。
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
   const shownVersions = useMemo(() => {
     const list = [...(versions.data ?? [])].sort(
       (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
@@ -195,8 +219,12 @@ export function RuntimeEnvironmentDetailPage() {
 
   const deleteEnvironment = async (): Promise<void> => {
     await remove.mutateAsync(current.id);
+    // 删除成功后实体已不存在；先结算期间被拦下的离开，再解除草稿保护返回列表。
+    blockerRef.current.reset?.();
+    setLeaving(true);
     toastSuccess('已删除运行环境');
-    void navigate({ to: '/runtime-environments' });
+    // 忽略 blocker 的旧快照，避免刚解除的草稿拦截抢先拦住这次返回。
+    void navigate({ to: '/runtime-environments', ignoreBlocker: true });
   };
 
   return (
@@ -341,8 +369,6 @@ export function RuntimeEnvironmentDetailPage() {
             </TableHeader>
             <TableBody>
               {shownVersions.map((version) => {
-                const meta = statusMeta[version.status];
-                const StatusIcon = meta.icon;
                 const online = version.id === current.onlineVersionId;
                 return (
                   <TableRow key={version.id}>
@@ -355,15 +381,7 @@ export function RuntimeEnvironmentDetailPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className={`flex items-center gap-1.5 ${meta.className}`}>
-                        <StatusIcon
-                          className={
-                            version.status === 'building' ? 'size-3.5 animate-spin' : 'size-3.5'
-                          }
-                          aria-hidden="true"
-                        />
-                        {meta.label}
-                      </span>
+                      <StatusLabel status={version.status} />
                     </TableCell>
                     <TableCell>
                       {version.imageId ? (
@@ -420,7 +438,7 @@ export function RuntimeEnvironmentDetailPage() {
           }}
         >
           <DialogShell
-            title={`构建日志 · ${shortId(search.version)}`}
+            title={`版本详情 · ${shortId(search.version)}`}
             closeDisabled={false}
             finalFocus={() => (logTriggerRef.current?.isConnected ? logTriggerRef.current : null)}
             className="max-w-3xl sm:max-w-3xl"
@@ -433,24 +451,77 @@ export function RuntimeEnvironmentDetailPage() {
               />
             ) : null}
             {selectedVersion.data ? (
-              <>
-                {selectedVersion.data.logTruncated ? (
-                  <p className="mb-2 text-xs text-muted-foreground">日志已截断，仅保留最近部分。</p>
+              <div className="flex flex-col gap-4">
+                <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
+                  <dt className="text-muted-foreground">状态</dt>
+                  <dd>
+                    <StatusLabel status={selectedVersion.data.status} />
+                  </dd>
+                  <dt className="text-muted-foreground">版本 ID</dt>
+                  <dd className="min-w-0 font-mono text-fg [overflow-wrap:anywhere]">
+                    {selectedVersion.data.id}
+                  </dd>
+                  <dt className="text-muted-foreground">镜像</dt>
+                  <dd className="min-w-0 font-mono text-fg [overflow-wrap:anywhere]">
+                    {selectedVersion.data.imageId ?? '—'}
+                  </dd>
+                  <dt className="text-muted-foreground">开始</dt>
+                  <dd className="text-fg">
+                    {formatRelative(
+                      selectedVersion.data.startedAt ?? selectedVersion.data.createdAt,
+                    )}
+                  </dd>
+                  <dt className="text-muted-foreground">完成</dt>
+                  <dd className="text-fg">
+                    {selectedVersion.data.finishedAt
+                      ? formatRelative(selectedVersion.data.finishedAt)
+                      : '—'}
+                  </dd>
+                </dl>
+                {selectedVersion.data.error ? (
+                  <div className="flex flex-col gap-1.5">
+                    <ErrorState error={new Error(selectedVersion.data.error)} title="构建失败" />
+                    <p className="text-xs text-muted-foreground">
+                      检查 Dockerfile 并保存更改，再点「构建新版本」重试。
+                    </p>
+                  </div>
                 ) : null}
-                <Textarea
-                  readOnly
-                  rows={20}
-                  aria-label="构建日志"
-                  value={selectedVersion.data.buildLog || selectedVersion.data.error || ''}
-                  placeholder={
-                    selectedVersion.data.status === 'queued' ||
-                    selectedVersion.data.status === 'building'
-                      ? '构建还没有输出日志'
-                      : '没有日志'
-                  }
-                  className="min-h-72 font-mono text-xs leading-relaxed"
-                />
-              </>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="runtime-environment-version-dockerfile">
+                      Dockerfile 快照
+                    </FieldLabel>
+                    <Textarea
+                      id="runtime-environment-version-dockerfile"
+                      readOnly
+                      rows={10}
+                      spellCheck={false}
+                      value={selectedVersion.data.dockerfile}
+                      className="font-mono text-xs leading-relaxed"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="runtime-environment-version-log">构建日志</FieldLabel>
+                    <Textarea
+                      id="runtime-environment-version-log"
+                      readOnly
+                      rows={16}
+                      spellCheck={false}
+                      value={selectedVersion.data.buildLog}
+                      placeholder={
+                        selectedVersion.data.status === 'queued' ||
+                        selectedVersion.data.status === 'building'
+                          ? '构建还没有输出日志'
+                          : '没有日志'
+                      }
+                      className="min-h-72 font-mono text-xs leading-relaxed"
+                    />
+                    {selectedVersion.data.logTruncated ? (
+                      <p className="text-xs text-muted-foreground">日志已截断，仅保留最近部分。</p>
+                    ) : null}
+                  </Field>
+                </FieldGroup>
+              </div>
             ) : null}
           </DialogShell>
         </Dialog>
@@ -472,10 +543,14 @@ export function RuntimeEnvironmentDetailPage() {
         onClose={() => blocker.reset?.()}
         title="放弃未保存的更改？"
         description={
-          update.isPending ? '正在保存，请等待请求完成。' : '离开后运行环境配置的修改会丢失。'
+          update.isPending
+            ? '正在保存，请等待请求完成。'
+            : remove.isPending
+              ? '正在删除，请等待请求完成。'
+              : '离开后运行环境配置的修改会丢失。'
         }
         confirmLabel="放弃并离开"
-        confirmDisabled={update.isPending}
+        confirmDisabled={pending}
         onConfirm={async () => blocker.proceed()}
       />
     </Page>

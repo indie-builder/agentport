@@ -313,10 +313,19 @@ export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
   const reduce = useReducedMotion();
+  const locationHref = useRouterState({ select: (state) => state.location.href });
 
   useEffect(() => {
-    if (me.data && !me.data.authenticated) void navigate({ to: '/login' });
-  }, [me.data, navigate]);
+    if (!me.data || me.data.authenticated) return;
+    // 路由切换的瞬间可能已经到达登录地址；只跳过真正的 /login，避免把 /login-other 卡住或形成循环。
+    if (/^\/login(?:[?#]|$)/.test(locationHref)) return;
+    // 未登录也保留原目标；replace 避免后退回到受保护页面再被弹回。
+    void navigate({
+      to: '/login',
+      search: { returnTo: locationHref },
+      replace: true,
+    });
+  }, [me.data, navigate, locationHref]);
 
   useEffect(() => {
     document.title = `${pageTitle} · 控制台`;

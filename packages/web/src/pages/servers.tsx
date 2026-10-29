@@ -198,7 +198,6 @@ export function ServersPage() {
   const [catalogInitial, setCatalogInitial] = useState<ConnectorCatalogItem | null>(null);
   const [tested, setTested] = useState<Map<string, LastTest>>(() => new Map());
   const [testingServer, setTestingServer] = useState<Server | null>(null);
-  const [testEnvironmentId, setTestEnvironmentId] = useState('default');
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   // 弹层关闭后焦点回到真正打开它的控件，而不是统一回到「新建」。
@@ -208,6 +207,11 @@ export function ServersPage() {
 
   const catalogTest = catalogServer ? tested.get(catalogServer.id) : undefined;
   const all = servers.data ?? [];
+  // 环境列表不可用时不允许确认：默认项只是占位，无法核对上次实际环境。
+  // 有缓存时刷新失败同样算不可用：缓存可能已经过时，先重试再测。
+  const environmentList = environments.data ?? [];
+  const environmentsLoading = environments.isFetching && environments.data === undefined;
+  const environmentsError = environments.isError ? environments.error : null;
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -248,11 +252,10 @@ export function ServersPage() {
     setFormOpen(true);
   };
 
-  const runTest = (server: Server, environmentId = testEnvironmentId): void => {
+  const runTest = (server: Server, environmentId: string | null = null): void => {
     if (test.isPending) return;
-    // 只有 stdio 在沙盒里执行；HTTP/generated 不能带上一次 stdio 选择的环境。
-    const runtimeEnvironmentId =
-      server.kind === 'stdio' && environmentId !== 'default' ? environmentId : null;
+    // 只有 stdio 在沙盒里执行；HTTP/generated 由平台直连，不能带运行环境。
+    const runtimeEnvironmentId = server.kind === 'stdio' ? environmentId : null;
     test.mutate(
       {
         id: server.id,
@@ -274,6 +277,13 @@ export function ServersPage() {
         onError: (error) => toastError(error),
       },
     );
+  };
+
+  // stdio 的每个入口都先经过环境确认；HTTP/generated 直接测试。
+  const startTest = (server: Server, trigger: HTMLElement): void => {
+    triggerRef.current = trigger;
+    if (server.kind === 'stdio') setTestingServer(server);
+    else runTest(server);
   };
 
   const importFile = async (file: File): Promise<void> => {
@@ -412,10 +422,7 @@ export function ServersPage() {
                 testing={test.isPending && test.variables?.id === server.id}
                 testPending={test.isPending}
                 onTest={(trigger) => {
-                  triggerRef.current = trigger;
-                  // 只有 stdio 会在沙盒里执行；HTTP/generated 由平台直连，不选环境。
-                  if (server.kind === 'stdio') setTestingServer(server);
-                  else runTest(server);
+                  startTest(server, trigger);
                 }}
                 onTools={(trigger) => {
                   triggerRef.current = trigger;
@@ -485,7 +492,7 @@ export function ServersPage() {
           lastTest={catalogTest ?? null}
           pending={test.isPending}
           testing={test.isPending && test.variables?.id === catalogServer.id}
-          onRetest={() => runTest(catalogServer)}
+          onRetest={(trigger) => startTest(catalogServer, trigger)}
           getReturnFocus={focusTrigger}
           onClose={() => setCatalogServer(null)}
         />
@@ -509,15 +516,16 @@ export function ServersPage() {
       {testingServer ? (
         <TestEnvironmentDialog
           server={testingServer}
-          environments={environments.data ?? []}
-          environmentsError={environments.isError}
-          initialEnvironmentId={testEnvironmentId}
+          lastTest={tested.get(testingServer.id) ?? null}
+          environments={environmentList}
+          environmentsLoading={environmentsLoading}
+          environmentsError={environmentsError}
+          onRetryEnvironments={() => void environments.refetch()}
           getReturnFocus={focusTrigger}
           onClose={() => setTestingServer(null)}
           onConfirm={(environmentId) => {
-            setTestEnvironmentId(environmentId);
             setTestingServer(null);
-            runTest(testingServer, environmentId);
+            runTest(testingServer, environmentId === 'default' ? null : environmentId);
           }}
         />
       ) : null}
@@ -541,25 +549,56 @@ export function ServersPage() {
   );
 }
 
-/** 试连前选环境：结果会带版本身份，避免把一次成功当成跨环境成功。 */
+/** 试连前选环境：默认预选该 server 上次实际用的环境，避免沿用别的连接器选择。 */
 function TestEnvironmentDialog({
   server,
+  lastTest,
   environments,
+  environmentsLoading,
   environmentsError,
-  initialEnvironmentId,
+  onRetryEnvironments,
   getReturnFocus,
   onClose,
   onConfirm,
 }: {
   server: Server;
+  lastTest: LastTest | null;
   environments: RuntimeEnvironment[];
-  environmentsError: boolean;
-  initialEnvironmentId: string;
+  environmentsLoading: boolean;
+  environmentsError: unknown;
+  onRetryEnvironments: () => void;
   getReturnFocus: () => HTMLElement | null;
   onClose: () => void;
   onConfirm: (environmentId: string) => void;
 }) {
-  const [environmentId, setEnvironmentId] = useState(initialEnvironmentId);
+  const defaultEnvironment = environments.find((environment) => environment.isDefault);
+  const options = [
+    { value: 'default', label: defaultEnvironment?.name ?? '平台默认环境' },
+    ...environments
+      .filter((environment) => !environment.isDefault)
+      .map((environment) => ({ value: environment.id, label: environment.name })),
+  ];
+  // 本次页面结果优先；刷新后回退到后端持久化的上次试连身份。
+  const lastEnvironment = lastTest
+    ? (lastTest.result.runtimeEnvironment ?? null)
+    : (server.lastTestRuntimeEnvironment ?? null);
+  const lastEnvironmentId = lastEnvironment?.environmentId ?? null;
+  // 客户端只知道「不在当前列表里」，删除只是最常见的原因。
+  const lastEnvironmentMissing =
+    lastEnvironmentId !== null &&
+    !environments.some((environment) => environment.id === lastEnvironmentId);
+  // 上次环境已不可用时回到默认，不能留一个列表里不存在的值。
+  const initialEnvironmentId =
+    lastEnvironmentId !== null &&
+    environments.some(
+      (environment) => environment.id === lastEnvironmentId && !environment.isDefault,
+    )
+      ? lastEnvironmentId
+      : 'default';
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | null>(null);
+  const environmentId = selectedEnvironmentId ?? initialEnvironmentId;
+  const environmentsAvailable = !environmentsLoading && environmentsError === null;
+
   return (
     <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogShell
@@ -570,47 +609,60 @@ function TestEnvironmentDialog({
         <FieldGroup>
           <Field>
             <FieldLabel htmlFor="server-test-environment">运行环境</FieldLabel>
-            <Select
-              value={environmentId}
-              items={[
-                { value: 'default', label: '平台默认环境' },
-                ...environments
-                  .filter((environment) => !environment.isDefault)
-                  .map((environment) => ({
-                    value: environment.id,
-                    label: environment.name,
-                  })),
-              ]}
-              onValueChange={(next) => {
-                if (next !== null) setEnvironmentId(next);
-              }}
-            >
-              <SelectTrigger id="server-test-environment" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="default">平台默认环境</SelectItem>
-                  {environments
-                    .filter((environment) => !environment.isDefault)
-                    .map((environment) => (
-                      <SelectItem key={environment.id} value={environment.id}>
-                        {environment.name}
-                      </SelectItem>
-                    ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {environmentsError ? (
-              <FieldError>运行环境列表没有加载出来，只能使用默认环境。</FieldError>
-            ) : null}
+            {environmentsLoading ? (
+              <FieldDescription role="status">正在加载运行环境…</FieldDescription>
+            ) : environmentsError !== null ? (
+              <ErrorState
+                title="运行环境列表没有加载出来"
+                error={environmentsError}
+                onRetry={onRetryEnvironments}
+              />
+            ) : (
+              <>
+                <Select
+                  value={environmentId}
+                  items={options}
+                  onValueChange={(next) => {
+                    if (next !== null) setSelectedEnvironmentId(next);
+                  }}
+                >
+                  <SelectTrigger
+                    id="server-test-environment"
+                    className="w-full"
+                    aria-describedby={
+                      lastEnvironmentMissing ? 'server-test-environment-hint' : undefined
+                    }
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {options.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                {lastEnvironmentMissing ? (
+                  <FieldDescription id="server-test-environment-hint">
+                    上次使用的环境已不在当前列表中，已预选默认环境；确认后按所选环境测试。
+                  </FieldDescription>
+                ) : null}
+              </>
+            )}
           </Field>
         </FieldGroup>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onClose}>
             取消
           </Button>
-          <Button size="sm" onClick={() => onConfirm(environmentId)}>
+          <Button
+            size="sm"
+            disabled={!environmentsAvailable}
+            onClick={() => onConfirm(environmentId)}
+          >
             开始测试
           </Button>
         </div>
@@ -912,7 +964,9 @@ function ConnectorCatalogDialog({
                         需要环境变量：{item.envKeys.join('、')}
                       </p>
                     ) : null}
-                    <p className="text-danger">保存并测试时会在宿主执行上述命令。</p>
+                    <p className="text-danger">
+                      保存并测试时会在隔离沙盒中执行上述命令；仍请确认命令来源可信。
+                    </p>
                   </div>
                 ) : null}
                 <a
@@ -946,7 +1000,7 @@ function ToolCatalogDialog({
   lastTest: LastTest | null;
   pending: boolean;
   testing: boolean;
-  onRetest: () => void;
+  onRetest: (trigger: HTMLElement) => void;
   onClose: () => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
@@ -994,7 +1048,7 @@ function ToolCatalogDialog({
               className="ml-auto"
               disabled={pending}
               aria-busy={testing}
-              onClick={onRetest}
+              onClick={(event) => onRetest(event.currentTarget)}
             >
               <RefreshCw data-icon="inline-start" />
               {testing ? '测试中…' : '重新测试'}

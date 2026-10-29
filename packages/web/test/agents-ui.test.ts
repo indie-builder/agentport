@@ -11,7 +11,7 @@ import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from '../src/components/confirm-dialog.js';
 import { PageHeader } from '../src/components/page.js';
-import { ErrorState } from '../src/components/states.js';
+import { ErrorState, LoadingState } from '../src/components/states.js';
 import { Combobox } from '../src/components/ui/combobox.js';
 import { DropdownMenuTrigger } from '../src/components/ui/dropdown-menu.js';
 import { Field } from '../src/components/ui/field.js';
@@ -55,12 +55,23 @@ const state = vi.hoisted(() => ({
     updatedAt: string;
   }>,
   runtimeEnvironments: [] as Array<{ id: string; name: string; isDefault?: boolean }>,
+  runtimeEnvironmentsError: false,
+  runtimeEnvironmentsRetry: vi.fn(),
+  agentsPending: false,
+  agentsError: false,
+  agentsRetry: vi.fn(),
   detail: {} as { isPending: boolean; isError: boolean; data?: unknown },
   rollback: vi.fn(),
   retry: vi.fn(),
   mutate: vi.fn(),
   create: vi.fn(),
-  blockerOptions: [] as Array<{ shouldBlockFn: () => boolean; enableBeforeUnload: boolean }>,
+  blockerOptions: [] as Array<{
+    shouldBlockFn: (args?: {
+      current: { pathname: string; search: Record<string, unknown> };
+      next: { pathname: string; search: Record<string, unknown> };
+    }) => boolean;
+    enableBeforeUnload: boolean;
+  }>,
   blockerStatus: 'idle' as 'idle' | 'blocked',
   proceed: vi.fn(),
   reset: vi.fn(),
@@ -68,15 +79,22 @@ const state = vi.hoisted(() => ({
   search: {} as Record<string, string | undefined>,
 }));
 vi.mock('../src/lib/queries.js', () => ({
-  useAgents: () => ({ data: state.agents }),
+  useAgents: () => ({
+    data: state.agents,
+    isPending: state.agentsPending,
+    isError: state.agentsError,
+    error: new Error('Agents unavailable'),
+    refetch: state.agentsRetry,
+  }),
   useAgent: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
   useServers: () => ({ data: state.servers }),
   useKnowledgeBases: () => ({ data: state.knowledgeBases, isPending: false, isError: false }),
   useRuntimeEnvironments: () => ({
     data: state.runtimeEnvironments,
     isPending: false,
-    isError: false,
-    refetch: vi.fn(),
+    isError: state.runtimeEnvironmentsError,
+    error: new Error('Runtime environments unavailable'),
+    refetch: state.runtimeEnvironmentsRetry,
   }),
   usePlugins: () => ({ data: [], isPending: false, isError: false, status: 'success' }),
   useSkills: () => ({
@@ -223,6 +241,9 @@ beforeEach(() => {
   state.servers = [];
   state.knowledgeBases = [];
   state.runtimeEnvironments = [];
+  state.runtimeEnvironmentsError = false;
+  state.agentsPending = false;
+  state.agentsError = false;
   state.detail = { isPending: false, isError: false };
   state.blockerOptions = [];
   state.blockerStatus = 'idle';
@@ -623,6 +644,152 @@ describe('expert editor regressions', () => {
     });
   });
 
+  it('offers retry when runtime environments fail without dropping the binding', async () => {
+    state.runtimeEnvironmentsError = true;
+    const bound = { ...parent, runtimeEnvironmentId: 'rte_named' };
+    await inspect(
+      () =>
+        AgentEditor({
+          agent: bound,
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
+      async (tree, pass) => {
+        if (pass === 0) {
+          selectSection(tree, '运行限制');
+          return true;
+        }
+        if (pass === 1) {
+          const error = tree.find((node) => node.type === ErrorState);
+          expect(error).toBeDefined();
+          if (!error) throw new Error('Missing runtime environment retry');
+          (error.props.onRetry as () => void)();
+          expect(state.runtimeEnvironmentsRetry).toHaveBeenCalledOnce();
+          const picker = tree.find(
+            (node) =>
+              node.type === Select &&
+              elements(node).some((child) => child.props.id === 'agent-runtime-environment'),
+          );
+          expect(picker?.props.value).toBe('rte_named');
+          expect(picker?.props.disabled).toBe(true);
+          const thinking = tree.find((node) => node.props.id === 'agent-thinking');
+          if (!thinking) throw new Error('Missing thinking field');
+          (thinking.props.onChange as (event: unknown) => void)({
+            target: { name: 'maxThinkingTokens', value: '1000' },
+          });
+          return true;
+        }
+        const form = tree.find((node) => node.type === 'form');
+        if (!form) throw new Error('Missing editor form');
+        await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+          preventDefault() {},
+        });
+        expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+          input: { runtimeEnvironmentId: 'rte_named' },
+        });
+      },
+    );
+  });
+
+  it('shows loading and retry for delegate options without changing bound drafts', async () => {
+    state.agentsPending = true;
+    await inspect(editor, async (tree, pass) => {
+      if (pass === 0) {
+        const name = tree.find((node) => node.props.id === 'agent-name');
+        if (!name) throw new Error('Missing name field');
+        (name.props.onChange as (event: unknown) => void)({
+          target: { name: 'name', value: 'Edited' },
+        });
+        selectSection(tree, '能力');
+        return true;
+      }
+      if (pass === 1) {
+        expect(tree.some((node) => node.type === LoadingState)).toBe(true);
+        state.agentsPending = false;
+        state.agentsError = true;
+        return true;
+      }
+      if (pass === 2) {
+        const error = tree.find((node) => node.type === ErrorState);
+        expect(error).toBeDefined();
+        if (!error) throw new Error('Missing delegate retry');
+        (error.props.onRetry as () => void)();
+        expect(state.agentsRetry).toHaveBeenCalledOnce();
+        return true;
+      }
+      const form = tree.find((node) => node.type === 'form');
+      if (!form) throw new Error('Missing editor form');
+      await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+        preventDefault() {},
+      });
+      expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+        input: { name: 'Edited', subAgentIds: ['child'] },
+      });
+    });
+  });
+
+  it('offers a clickable create route when there are no other experts to delegate', async () => {
+    state.agents = [];
+    await inspect(editor, (tree, pass) => {
+      if (pass === 0) {
+        selectSection(tree, '能力');
+        return;
+      }
+      expect(flatText(tree.map((node) => node.props.children) as ReactNode)).toContain(
+        '还没有可委派的专家',
+      );
+      const create = tree.find(
+        (node) => (node.props.render as Element | undefined)?.props.to === '/agents',
+      );
+      expect(create).toBeDefined();
+    });
+  });
+
+  it.each(['通用助手', '数字分身'])(
+    'accepts an arbitrary model id for a %s creation',
+    async (role) => {
+      await inspect(
+        () =>
+          CreateAgentDialog({
+            initialRole: role as '通用助手',
+            onClose() {},
+            onCreated() {},
+            finalFocus: () => null,
+          }),
+        async (tree, pass) => {
+          if (pass === 0) {
+            const model = tree.find((node) => node.props.id === 'new-agent-model');
+            if (!model) throw new Error('Missing model input');
+            expect(model.type).toBe(Input);
+            expect(model.props.list).toBe('new-agent-models');
+            const suggestions = tree.find((node) => node.props.id === 'new-agent-models');
+            expect(
+              elements(suggestions?.props.children as ReactNode).map((node) => node.props.value),
+            ).toContain('group/flash');
+            const name = tree.find((node) => node.props.id === 'new-agent-name');
+            if (!name) throw new Error('Missing name field');
+            (name.props.onChange as (event: unknown) => void)({
+              target: { name: 'name', value: 'Custom model' },
+            });
+            (model.props.onChange as (event: unknown) => void)({
+              target: { name: 'model', value: 'gateway/custom-model' },
+            });
+            return true;
+          }
+          const form = tree.find((node) => node.type === 'form');
+          if (!form) throw new Error('Missing create form');
+          await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+            preventDefault() {},
+          });
+          expect(state.create.mock.calls[0]?.[0]).toMatchObject({
+            model: 'gateway/custom-model',
+          });
+        },
+      );
+    },
+  );
+
   it.each([false, true])(
     'protects new expert navigation and unload while pending: %s',
     async (pending) => {
@@ -786,7 +953,7 @@ describe('expert editor regressions', () => {
     expect(state.search.tab).toBe('memory');
   });
 
-  it('does not let the route blocker treat a task switch as leaving the page', async () => {
+  it('allows a task switch with only the main draft dirty and still blocks leaving', async () => {
     await inspect(editor, (tree, pass) => {
       if (pass === 0) {
         const name = tree.find((node) => node.props.id === 'agent-name');
@@ -797,24 +964,39 @@ describe('expert editor regressions', () => {
         return;
       }
       if (pass !== 1) return;
-      const options = state.blockerOptions.at(-1) as unknown as {
-        shouldBlockFn: (args: {
-          current: { pathname: string };
-          next: { pathname: string };
-        }) => boolean;
-      };
+      const options = state.blockerOptions.at(-1);
+      const args = (next: { pathname: string; search: Record<string, unknown> }) => ({
+        current: { pathname: '/agents/parent', search: {} },
+        next,
+      });
       expect(
-        options.shouldBlockFn({
-          current: { pathname: '/agents/parent' },
-          next: { pathname: '/agents/parent' },
-        }),
+        options?.shouldBlockFn(
+          args({ pathname: '/agents/parent', search: { section: 'behavior' } }),
+        ),
       ).toBe(false);
       expect(
-        options.shouldBlockFn({
-          current: { pathname: '/agents/parent' },
-          next: { pathname: '/agents' },
+        options?.shouldBlockFn(args({ pathname: '/agents/parent', search: { tab: 'memory' } })),
+      ).toBe(false);
+      expect(options?.shouldBlockFn(args({ pathname: '/agents', search: {} }))).toBe(true);
+    });
+  });
+
+  it('blocks same-page task changes while a save is pending', async () => {
+    state.saving = true;
+    await inspect(editor, () => {
+      const options = state.blockerOptions.at(-1);
+      expect(
+        options?.shouldBlockFn({
+          current: { pathname: '/agents/parent', search: {} },
+          next: { pathname: '/agents/parent', search: { tab: 'memory' } },
         }),
       ).toBe(true);
+      expect(
+        options?.shouldBlockFn({
+          current: { pathname: '/agents/parent', search: {} },
+          next: { pathname: '/agents/parent', search: { section: 'behavior' } },
+        }),
+      ).toBe(false);
     });
   });
 

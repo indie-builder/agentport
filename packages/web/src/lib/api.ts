@@ -61,6 +61,7 @@ import type {
   SkillWithAgentCount,
   WorkspaceFiles,
 } from '@agentport/shared';
+import { loginPath } from './auth-redirect.js';
 
 export type AgentFiles = WorkspaceFiles;
 
@@ -647,9 +648,10 @@ async function request<T>(
     throw new ApiError(0, '连不上 API 服务，请确认它已启动并检查网络后重试。');
   }
 
-  // EventSource 无法自定义 header，前端统一靠 cookie 会话；失效时回到登录页。
-  if (res.status === 401 && !path.startsWith('/auth/') && !location.pathname.startsWith('/login')) {
-    location.assign('/login');
+  // EventSource 无法自定义 header，前端统一靠 cookie 会话；失效时带着原目标回到登录页。
+  if (res.status === 401 && !path.startsWith('/auth/') && location.pathname !== '/login') {
+    const returnTo = `${location.pathname}${location.search ?? ''}${location.hash ?? ''}`;
+    location.assign(loginPath(returnTo, 'expired'));
     throw new ApiError(401, '登录已失效，请重新登录后再试。');
   }
 
@@ -1220,6 +1222,7 @@ export const api = {
 
   knowledgeJobs: (baseId: string): Promise<KnowledgePage<KnowledgeJob>> =>
     request(`/knowledge/jobs?baseId=${encodeURIComponent(baseId)}`),
+  knowledgeJob: (jobId: string): Promise<KnowledgeJob> => request(`/knowledge/jobs/${jobId}`),
   retryKnowledgeJob: (jobId: string): Promise<{ jobId: string }> =>
     request(`/knowledge/jobs/${jobId}/retry`, 'POST'),
   cancelKnowledgeJob: (jobId: string): Promise<KnowledgeJob> =>

@@ -257,7 +257,16 @@ export function RunsPage() {
           loading={runs.isPending}
           storageKey="pace.runs.columns"
           empty="没有匹配的运行"
-          onRowClick={(run) => void navigate({ to: '/runs/$runId', params: { runId: run.id } })}
+          onRowClick={(run) =>
+            void navigate({
+              to: '/runs/$runId',
+              params: { runId: run.id },
+              search: {
+                ...(agentId ? { fromAgent: agentId } : {}),
+                ...(status ? { fromStatus: status as RunStatus } : {}),
+              },
+            })
+          }
         />
       )}
     </Page>

@@ -73,7 +73,11 @@ export function RunDetailPage() {
   const draftMutation = useSkillDraftFromRun();
   const approveMutation = useApproveRun();
   const approvalInFlight = useRef(false);
-  // 选中的步骤由 URL 决定：刷新、分享、前进后退都保留。
+  // 列表来源筛选随 URL 往返，返回时恢复；直接打开详情就回到未筛选列表。
+  const listSearch = {
+    ...(search.fromAgent ? { agent: search.fromAgent } : {}),
+    ...(search.fromStatus ? { status: search.fromStatus } : {}),
+  };
   const selected = search.step ?? null;
 
   const selectStep = (index: number): void => {
@@ -149,7 +153,7 @@ export function RunDetailPage() {
       <Button
         variant="outline"
         size="icon"
-        render={<Link to="/runs" />}
+        render={<Link to="/runs" search={listSearch} />}
         nativeButton={false}
         role="link"
         aria-label="返回运行列表"
@@ -254,11 +258,13 @@ export function RunDetailPage() {
         />
       ) : null}
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-2 text-xs">
-        {conversation.title ? (
-          <span className="min-w-0 [overflow-wrap:anywhere] text-muted-foreground">
-            {conversation.title}
-          </span>
-        ) : null}
+        <Link
+          to="/chat"
+          search={{ agent: conversation.agentId, conversation: conversation.id }}
+          className="min-w-0 text-muted-foreground underline underline-offset-2 [overflow-wrap:anywhere] hover:text-fg"
+        >
+          {conversation.title || '返回会话'}
+        </Link>
         <Metric
           label="运行耗时"
           value={formatDuration(detail.latencyMs)}
@@ -290,6 +296,14 @@ export function RunDetailPage() {
 
       {approvals.isError ? (
         <ErrorState error={approvals.error} onRetry={() => void approvals.refetch()} />
+      ) : null}
+
+      {questions.isError ? (
+        <ErrorState
+          title="提问状态没有加载出来"
+          error={questions.error}
+          onRetry={() => void questions.refetch()}
+        />
       ) : null}
 
       {pending.length > 0 ? (

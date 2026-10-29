@@ -19,6 +19,7 @@ import {
   type EvalRunPage,
 } from '../src/lib/api.js';
 import { EvalPage } from '../src/pages/eval.js';
+import { evalSearchSchema } from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
@@ -89,9 +90,7 @@ async function mount() {
   const evalRoute = createRoute({
     getParentRoute: () => shell,
     path: '/eval',
-    validateSearch: (search: Record<string, unknown>) => ({
-      agent: search.agent as string | undefined,
-    }),
+    validateSearch: evalSearchSchema,
     component: EvalPage,
   });
   window.history.replaceState(null, '', '/eval?agent=agent-a');
@@ -134,6 +133,12 @@ async function click(label: string) {
   await act(async () => button(label).click());
 }
 
+async function openRun(id: string) {
+  const trigger = document.querySelector<HTMLButtonElement>(`[aria-label="打开 ${id}"]`);
+  if (!trigger) throw new Error(`Missing run: ${id}`);
+  await act(async () => trigger.click());
+}
+
 beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   container = document.createElement('div');
@@ -170,11 +175,18 @@ describe('evaluation run detail refresh feedback', () => {
       );
 
     await mount();
-    await click(`展开 ${runningRun.id}`);
+    await openRun(runningRun.id);
     expect(container.querySelector('[aria-label="加载中"]')).not.toBeNull();
 
     await act(async () => resolveInitial(detail('running', [result('Result One', LARGE)])));
     await actWaitFor(() => expect(container.textContent).toContain('Result One'));
+    const summary = (): string =>
+      container.querySelector('[data-slot="eval-run-summary"]')?.textContent ?? '';
+    expect(summary()).toContain('运行中');
+    expect(summary()).toContain('已记录 1 / 2');
+    expect(summary()).toContain('无记录 1');
+    expect(summary()).toContain('通过 1');
+    expect(container.textContent).toContain('当前用例可能继续执行；停止后不再开始后续用例。');
     await click('内容过大，点击查看');
     expect(button('收起内容')).not.toBeUndefined();
     expect((container.querySelector('pre')?.textContent ?? '').length).toBeGreaterThan(64 * 1024);
@@ -206,20 +218,27 @@ describe('evaluation run detail refresh feedback', () => {
     expect(container.textContent).not.toContain('刷新失败，内容仍是上次结果');
     expect(button('导出结果').disabled).toBe(false);
     expect(button('收起内容')).not.toBeUndefined();
+    expect(summary()).toContain('全部通过');
+    expect(summary()).toContain('已记录 2 / 2');
+    expect(summary()).toContain('无记录 0');
+    expect(summary()).toContain('通过 1');
   });
 
   it('shows the full error state and retries when no detail data was ever loaded', async () => {
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [runningRun], nextCursor: null });
-    vi.spyOn(api, 'evalRun')
-      .mockRejectedValueOnce(new Error('cannot load'))
-      .mockResolvedValueOnce(detail('succeeded', [result('Result One', '恢复输出')]));
+    let failing = true;
+    vi.spyOn(api, 'evalRun').mockImplementation(async () => {
+      if (failing) throw new Error('cannot load');
+      return detail('succeeded', [result('Result One', '恢复输出')]);
+    });
 
     await mount();
-    await click(`展开 ${runningRun.id}`);
+    await openRun(runningRun.id);
     await actWaitFor(() => expect(container.textContent).toContain('cannot load'));
     expect(container.textContent).toContain('内容没有加载出来');
     expect(container.textContent).not.toContain('刷新失败，内容仍是上次结果');
 
+    failing = false;
     await click('重试');
     await actWaitFor(() => expect(container.textContent).toContain('恢复输出'));
     expect(container.textContent).not.toContain('内容没有加载出来');
@@ -230,9 +249,49 @@ describe('evaluation run detail refresh feedback', () => {
     vi.spyOn(api, 'evalRun').mockResolvedValue(detail('succeeded', []));
 
     await mount();
-    await click(`展开 ${runningRun.id}`);
+    await openRun(runningRun.id);
     await actWaitFor(() => expect(container.textContent).toContain('评估已完成，没有结果记录'));
     expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('keeps partial results and says later cases stopped when a batch is cancelled', async () => {
+    vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [runningRun], nextCursor: null });
+    vi.spyOn(api, 'evalRun').mockResolvedValue(detail('cancelled', [result('First Case', '完成')]));
+
+    await mount();
+    await openRun(runningRun.id);
+    await actWaitFor(() => expect(container.textContent).toContain('已停止后续用例'));
+    const summary = container.querySelector('[data-slot="eval-run-summary"]')?.textContent ?? '';
+    expect(summary).toContain('已取消');
+    expect(summary).toContain('已记录 1 / 2');
+    expect(summary).toContain('无记录 1');
+    expect(container.textContent).toContain('First Case');
+    expect(container.textContent).toContain('后续用例不会再开始');
+    expect(container.textContent).toContain('有 1 条用例没有结果记录，当前用例可能仍在执行');
+  });
+
+  it('keeps the failure reason and results while showing the batch counts', async () => {
+    vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [runningRun], nextCursor: null });
+    vi.spyOn(api, 'evalRun').mockResolvedValue({
+      evalRun: {
+        ...runningRun,
+        status: 'failed',
+        error: 'worker crashed',
+        finishedAt: finishedRun.finishedAt,
+      },
+      results: [result('Surviving Case', '保留输出')],
+    });
+
+    await mount();
+    await openRun(runningRun.id);
+    await actWaitFor(() => expect(container.textContent).toContain('worker crashed'));
+    const summary = container.querySelector('[data-slot="eval-run-summary"]')?.textContent ?? '';
+    expect(summary).toContain('有失败');
+    expect(summary).toContain('已记录 1 / 2');
+    expect(summary).toContain('无记录 1');
+    expect(container.textContent).toContain('评估失败');
+    expect(container.textContent).toContain('Surviving Case');
+    expect(container.textContent).toContain('保留输出');
   });
 });
 

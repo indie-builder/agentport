@@ -273,6 +273,18 @@
 - **原因**：Claude Code 原生 CLI 按 PATH 查找 bash/zsh 来执行 shell 工具，不把 busybox ash 当兼容 shell；自制 sh 兼容壳只能骗过部分测试，不是开箱能力。
 - **规避**：sandbox 基座安装 `bash`，构建期用 `bash --version` 确认是 GNU bash；运行环境 verify 再确认 PATH 上存在 bash。
 
+## UI：子表单卸载不会自动结算外层 pending
+
+- **现象**：模型 profile 保存成功、编辑表单消失，外层弹窗的关闭、新增和编辑仍永久禁用。
+- **原因**：外层通过子表单 effect 接收 pending；成功回调先卸载子表单，随后子表单的 `setSaving(false)` 无法再触发回报，外层保留最后的 true。
+- **规避**：拥有弹窗生命周期的外层在成功回调中明确结算 pending/dirty，再卸载子表单；行为测试必须覆盖保存成功后关闭、继续新建和路由离开，不只断言请求完成。
+
+## UI：URL 成为状态唯一来源后，导航 mock 必须反映 search 更新
+
+- **现象**：完整文件页签实际可用，按需加载测试却始终不请求；评估结果已改 URL 选择，旧测试仍调用不存在的 `renderExpanded`。
+- **原因**：测试将 `useSearch` 固定为空、`useNavigate` 固定为无行为函数，仍以旧的本地状态/行内展开假设断言。
+- **规避**：涉及 URL 导航、历史、blocker 时优先真实 Router 与实际 `validateSearch`；保留原用户行为断言，不能只替换成函数是否被调用，也不能删除失败断言凑绿。
+
 ## 测试：真实容器测试可能加载旧 dist，产物存在不等于来自当前源码
 
 - **现象**：真实 Docker / SDK 测试全绿，实际行为却对应旧代码；镜像或挂载里是旧的 `shared`/`sandbox` 构建。新建 worktree 首次跑 Vitest 还可能在业务用例前报 `TypeError: code.charCodeAt is not a function`。

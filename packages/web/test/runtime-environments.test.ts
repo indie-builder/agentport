@@ -1,4 +1,16 @@
-import type { RuntimeEnvironment, RuntimeEnvironmentVersionSummary } from '@agentport/shared';
+import type {
+  RuntimeEnvironment,
+  RuntimeEnvironmentVersion,
+  RuntimeEnvironmentVersionSummary,
+} from '@agentport/shared';
+import {
+  createBrowserHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
 import { act, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -12,41 +24,76 @@ import { RuntimeEnvironmentsPage } from '../src/pages/runtime-environments.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
-const state = vi.hoisted(() => ({
-  environments: [] as unknown[],
-  environment: null as unknown,
-  versions: [] as unknown[],
-  versionDetail: null as unknown,
-  search: {} as Record<string, string | undefined>,
-  navigate: vi.fn(),
-  build: vi.fn(),
-  publish: vi.fn(),
-  update: vi.fn(),
-  remove: vi.fn(),
-  updatePending: false,
-  blockerOptions: [] as Array<{
-    shouldBlockFn: (args?: {
-      current: { pathname: string };
-      next: { pathname: string };
-    }) => boolean;
-    enableBeforeUnload: boolean;
-  }>,
-}));
+const state = vi.hoisted(() => {
+  const createListeners = new Set<() => void>();
+  const state = {
+    environments: [] as unknown[],
+    environment: null as unknown,
+    versions: [] as unknown[],
+    versionDetail: null as unknown,
+    search: {} as Record<string, string | undefined>,
+    navigate: vi.fn(),
+    build: vi.fn(),
+    publish: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+    updatePending: false,
+    createPending: false,
+    removePending: false,
+    create: vi.fn(),
+    realRouter: false,
+    setCreatePending(value: boolean) {
+      state.createPending = value;
+      for (const listener of createListeners) listener();
+    },
+    subscribeCreatePending(listener: () => void) {
+      createListeners.add(listener);
+      return () => {
+        createListeners.delete(listener);
+      };
+    },
+    blockerOptions: [] as Array<{
+      shouldBlockFn: (args?: {
+        current: { pathname: string };
+        next: { pathname: string };
+      }) => boolean;
+      enableBeforeUnload: boolean;
+    }>,
+  };
+  return state;
+});
 
-vi.mock('@tanstack/react-router', () => ({
-  Link: ({ to, children }: { to: string; children: React.ReactNode }) =>
-    createElement('a', { href: to }, children),
-  useNavigate: () => state.navigate,
-  useSearch: () => state.search,
-  useParams: () => ({ environmentId: 'rte_1' }),
-  useBlocker: (options: (typeof state.blockerOptions)[number]) => {
-    state.blockerOptions.push(options);
-    return { status: 'idle', proceed: vi.fn(), reset: vi.fn() };
-  },
-}));
+// 同一份用例既覆盖轻量 mock，也在 realRouter 下跑真实 Router 的离开/刷新拦截。
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  // 别名调用避开 hooks 命名规则：用例整体切换真实/轻量 Router，挂载期间标志不变。
+  const realNavigate = actual.useNavigate;
+  const realSearch = actual.useSearch;
+  const realParams = actual.useParams;
+  const realBlocker = actual.useBlocker;
+  return {
+    ...actual,
+    Link: (props: { to: string; children?: ReactNode }) =>
+      state.realRouter
+        ? createElement(actual.Link, props as never)
+        : createElement('a', { href: props.to }, props.children),
+    useNavigate: () => (state.realRouter ? realNavigate() : state.navigate),
+    useSearch: (options?: never) => (state.realRouter ? realSearch(options) : state.search),
+    useParams: (options?: never) =>
+      state.realRouter ? realParams(options) : { environmentId: 'rte_1' },
+    useBlocker: (options?: never) => {
+      if (state.realRouter) return realBlocker(options);
+      state.blockerOptions.push(options as (typeof state.blockerOptions)[number]);
+      return { status: 'idle', proceed: vi.fn(), reset: vi.fn() };
+    },
+  };
+});
 
 vi.mock('../src/lib/queries.js', async (original) => {
-  const queries = await original<typeof import('../src/lib/queries.js')>();
+  const [queries, React] = await Promise.all([
+    original<typeof import('../src/lib/queries.js')>(),
+    import('react'),
+  ]);
   return {
     ...queries,
     useRuntimeEnvironments: () => ({
@@ -77,12 +124,29 @@ vi.mock('../src/lib/queries.js', async (original) => {
       error: null,
       refetch: vi.fn(),
     }),
-    useCreateRuntimeEnvironment: () => ({ isPending: false, mutateAsync: vi.fn() }),
+    useCreateRuntimeEnvironment: () => {
+      // 真实 Router 用例需要请求中状态在提交后实时生效，模拟 React Query 的重渲染。
+      React.useSyncExternalStore(state.subscribeCreatePending, () => state.createPending);
+      return {
+        isPending: state.createPending,
+        mutateAsync: async (input: unknown) => {
+          state.setCreatePending(true);
+          try {
+            return await state.create(input);
+          } finally {
+            state.setCreatePending(false);
+          }
+        },
+      };
+    },
     useUpdateRuntimeEnvironment: () => ({
       isPending: state.updatePending,
       mutateAsync: state.update,
     }),
-    useDeleteRuntimeEnvironment: () => ({ isPending: false, mutateAsync: state.remove }),
+    useDeleteRuntimeEnvironment: () => ({
+      isPending: state.removePending,
+      mutateAsync: state.remove,
+    }),
     useBuildRuntimeEnvironment: () => ({ isPending: false, mutate: state.build }),
     usePublishRuntimeEnvironment: () => ({ isPending: false, mutate: state.publish }),
   };
@@ -115,6 +179,30 @@ function version(
     startedAt: '2026-01-02T00:00:00.000Z',
     finishedAt: status === 'ready' ? '2026-01-02T00:01:00.000Z' : null,
     createdAt: '2026-01-02T00:00:00.000Z',
+  };
+}
+
+function versionDetail(
+  id: string,
+  status: RuntimeEnvironmentVersion['status'],
+  imageId: string | null,
+  overrides: Partial<RuntimeEnvironmentVersion> = {},
+): RuntimeEnvironmentVersion {
+  return {
+    id,
+    environmentId: environment.id,
+    dockerfile: 'FROM base',
+    baseImageId: 'base',
+    status,
+    imageTag: null,
+    imageId,
+    buildLog: '',
+    logTruncated: false,
+    error: null,
+    startedAt: '2026-01-02T00:00:00.000Z',
+    finishedAt: status === 'ready' ? '2026-01-02T00:01:00.000Z' : null,
+    createdAt: '2026-01-02T00:00:00.000Z',
+    ...overrides,
   };
 }
 
@@ -167,6 +255,71 @@ async function mountPage(page: ReactNode) {
   };
 }
 
+// 真实 Router：用 createBrowserHistory 才能触发后退（POP）拦截与 beforeunload。
+async function mountWithRouter(initialPath: string) {
+  state.realRouter = true;
+  window.history.replaceState(null, '', initialPath);
+  const history = createBrowserHistory();
+  const blockedNavigations: Promise<boolean>[] = [];
+  const block = history.block.bind(history);
+  // 包装真实注册，捕获 useBlocker 交给 history 的 Promise，观察它最终 resolve 什么。
+  vi.spyOn(history, 'block').mockImplementation((blocker) =>
+    block({
+      ...blocker,
+      blockerFn: (args) => {
+        const pending = Promise.resolve(blocker.blockerFn(args)) as Promise<boolean>;
+        blockedNavigations.push(pending);
+        return pending;
+      },
+    }),
+  );
+  const rootRoute = createRootRoute({ component: Outlet });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
+  const list = createRoute({
+    getParentRoute: () => shell,
+    path: '/runtime-environments/',
+    component: RuntimeEnvironmentsPage,
+  });
+  const detail = createRoute({
+    getParentRoute: () => shell,
+    path: '/runtime-environments/$environmentId',
+    component: RuntimeEnvironmentDetailPage,
+  });
+  const away = createRoute({
+    getParentRoute: () => shell,
+    path: '/away',
+    component: () => createElement('h1', null, 'Destination'),
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([shell.addChildren([list, detail, away])]),
+    history,
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    await router.load();
+    root.render(createElement(RouterProvider, { router }));
+  });
+  await flush();
+  return {
+    router,
+    host,
+    blockedNavigations,
+    async unmount() {
+      await act(async () => root.unmount());
+      host.remove();
+      history.destroy();
+    },
+  };
+}
+
+function unloadPrevented(): boolean {
+  const event = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
 function button(label: string, scope: ParentNode = document): HTMLButtonElement {
   const element = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(
     (item) => item.textContent?.trim() === label || item.getAttribute('aria-label') === label,
@@ -181,6 +334,12 @@ function dialog(title: string): HTMLElement {
   );
   if (!element) throw new Error(`Missing dialog: ${title}`);
   return element;
+}
+
+function hasDialog(title: string): boolean {
+  return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].some(
+    (item) => item.querySelector('h2')?.textContent === title,
+  );
 }
 
 async function click(element: HTMLElement): Promise<void> {
@@ -198,7 +357,12 @@ async function editInput(element: HTMLInputElement, value: string): Promise<void
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.realRouter = false;
   state.updatePending = false;
+  state.createPending = false;
+  state.removePending = false;
+  state.create = vi.fn();
+  state.remove = vi.fn();
   state.blockerOptions = [];
   vi.stubGlobal(
     'ResizeObserver',
@@ -250,6 +414,96 @@ describe('runtime environments page', () => {
   });
 });
 
+describe('create environment dialog', () => {
+  it('asks before discarding a dirty draft, and keeps it when the user stays', async () => {
+    state.environments = [];
+    state.search = {};
+    const page = await mountPage(createElement(RuntimeEnvironmentsPage));
+    await click(button('新建环境'));
+    const form = dialog('新建运行环境');
+    const name = form.querySelector<HTMLInputElement>('#runtime-environment-name');
+    if (!name) throw new Error('Missing create name');
+    await editInput(name, '未保存的新环境');
+    await click(button('取消', form));
+    const confirmation = dialog('放弃未保存的更改？');
+    expect(hasDialog('新建运行环境')).toBe(true);
+    await click(button('取消', confirmation));
+    expect(hasDialog('放弃未保存的更改？')).toBe(false);
+    expect(hasDialog('新建运行环境')).toBe(true);
+    await click(button('取消', form));
+    await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
+    expect(hasDialog('新建运行环境')).toBe(false);
+    await page.unmount();
+  });
+
+  it('routes cancel, Escape, the close button and the backdrop through the discard confirmation', async () => {
+    state.environments = [];
+    state.search = {};
+    const page = await mountPage(createElement(RuntimeEnvironmentsPage));
+    await click(button('新建环境'));
+    const form = dialog('新建运行环境');
+    const name = form.querySelector<HTMLInputElement>('#runtime-environment-name');
+    if (!name) throw new Error('Missing create name');
+    await editInput(name, '未保存的新环境');
+
+    await click(button('取消', form));
+    await click(button('取消', dialog('放弃未保存的更改？')));
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await flush();
+    await click(button('取消', dialog('放弃未保存的更改？')));
+
+    await click(button('关闭', form));
+    await click(button('取消', dialog('放弃未保存的更改？')));
+
+    const overlay = document.querySelector<HTMLElement>('[data-slot="dialog-overlay"]');
+    if (!overlay) throw new Error('Missing dialog overlay');
+    await click(overlay);
+    expect(hasDialog('放弃未保存的更改？')).toBe(true);
+    await click(button('取消', dialog('放弃未保存的更改？')));
+    expect(hasDialog('新建运行环境')).toBe(true);
+    await page.unmount();
+  });
+
+  it('cancels close attempts while creation is pending', async () => {
+    state.environments = [];
+    state.search = {};
+    state.createPending = true;
+    const page = await mountPage(createElement(RuntimeEnvironmentsPage));
+    await click(button('新建环境'));
+    const form = dialog('新建运行环境');
+    expect(button('取消', form).disabled).toBe(true);
+    expect(form.querySelector<HTMLInputElement>('#runtime-environment-name')?.disabled).toBe(true);
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await flush();
+    expect(hasDialog('新建运行环境')).toBe(true);
+    await page.unmount();
+  });
+
+  it('keeps the draft and the dialog when creation fails', async () => {
+    state.environments = [];
+    state.search = {};
+    state.create.mockRejectedValueOnce(new Error('网络错误'));
+    const page = await mountPage(createElement(RuntimeEnvironmentsPage));
+    await click(button('新建环境'));
+    const form = dialog('新建运行环境');
+    const name = form.querySelector<HTMLInputElement>('#runtime-environment-name');
+    if (!name) throw new Error('Missing create name');
+    await editInput(name, '失败后保留');
+    await click(button('创建', form));
+    expect(toastError).toHaveBeenCalled();
+    expect(hasDialog('新建运行环境')).toBe(true);
+    expect(form.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
+      '失败后保留',
+    );
+    await page.unmount();
+  });
+});
+
 describe('runtime environment detail page', () => {
   it('marks the online version and only offers publishing for other ready versions', () => {
     state.environment = environment;
@@ -278,6 +532,46 @@ describe('runtime environment detail page', () => {
     const html = renderToStaticMarkup(createElement(RuntimeEnvironmentDetailPage));
     expect(html).toContain('bbbbbbbb');
     expect(html).not.toContain('aaaaaaaa');
+  });
+
+  it('shows the frozen Dockerfile and the build log for a version', async () => {
+    state.environment = environment;
+    state.versions = [version('rtev_cccccccc', 'failed', null)];
+    state.search = { version: 'rtev_cccccccc' };
+    state.versionDetail = versionDetail('rtev_cccccccc', 'failed', null, {
+      dockerfile: 'FROM registry/custom:1\nRUN echo hi',
+      buildLog: 'step 1/2\nstep 2/2',
+      error: 'exit code 1',
+    });
+    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    const details = dialog('版本详情 · cccccccc');
+    expect(details.textContent).toContain('失败');
+    expect(
+      details.querySelector<HTMLTextAreaElement>('#runtime-environment-version-dockerfile')?.value,
+    ).toBe('FROM registry/custom:1\nRUN echo hi');
+    expect(
+      details.querySelector<HTMLTextAreaElement>('#runtime-environment-version-log')?.value,
+    ).toBe('step 1/2\nstep 2/2');
+    expect(details.textContent).toContain('rtev_cccccccc');
+    expect(details.textContent).toContain('exit code 1');
+    expect(details.textContent).toContain('检查 Dockerfile');
+    await page.unmount();
+  });
+
+  it('shows the failure reason even when the build log is empty', async () => {
+    state.environment = environment;
+    state.versions = [version('rtev_cccccccc', 'failed', null)];
+    state.search = { version: 'rtev_cccccccc' };
+    state.versionDetail = versionDetail('rtev_cccccccc', 'failed', null, {
+      error: '基础镜像拉取失败',
+    });
+    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    const details = dialog('版本详情 · cccccccc');
+    expect(details.textContent).toContain('基础镜像拉取失败');
+    expect(
+      details.querySelector<HTMLTextAreaElement>('#runtime-environment-version-log')?.value,
+    ).toBe('');
+    await page.unmount();
   });
 
   it('publishes only the chosen ready version from the version row', () => {
@@ -317,7 +611,10 @@ describe('runtime environment detail page', () => {
     await click(button('删除', confirmation));
     expect(state.remove).toHaveBeenCalledWith('rte_1');
     expect(toastSuccess).toHaveBeenCalledWith('已删除运行环境');
-    expect(state.navigate).toHaveBeenCalledWith({ to: '/runtime-environments' });
+    expect(state.navigate).toHaveBeenCalledWith({
+      to: '/runtime-environments',
+      ignoreBlocker: true,
+    });
     await page.unmount();
   });
 
@@ -347,6 +644,58 @@ describe('runtime environment detail page', () => {
     const remove = button('删除');
     expect(remove.disabled).toBe(true);
     expect(remove.title).toBe('默认运行环境不能删除');
+    await page.unmount();
+  });
+
+  it('releases the draft guard and returns to the list after a dirty environment is deleted', async () => {
+    state.environment = environment;
+    state.versions = [];
+    state.search = {};
+    state.remove.mockResolvedValueOnce(undefined);
+    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    const input = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
+    if (!input) throw new Error('Missing environment name');
+    await editInput(input, '删除前的草稿');
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
+    await click(button('删除'));
+    await click(button('删除', dialog('删除运行环境')));
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(false);
+    expect(state.navigate).toHaveBeenCalledWith({
+      to: '/runtime-environments',
+      ignoreBlocker: true,
+    });
+    await page.unmount();
+  });
+
+  it('keeps the leave guard while the deletion request is pending', async () => {
+    state.environment = environment;
+    state.versions = [];
+    state.search = {};
+    state.removePending = true;
+    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    const blocker = state.blockerOptions.at(-1);
+    expect(blocker?.shouldBlockFn()).toBe(true);
+    expect(blocker?.enableBeforeUnload).toBe(true);
+    await page.unmount();
+  });
+
+  it('keeps the draft and stays on the page when deletion fails', async () => {
+    const conflict = new ApiError(409, '运行环境仍被智能体绑定，请先解除绑定');
+    state.environment = environment;
+    state.versions = [];
+    state.search = {};
+    state.remove.mockRejectedValueOnce(conflict);
+    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    const input = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
+    if (!input) throw new Error('Missing environment name');
+    await editInput(input, '失败后保留的草稿');
+    await click(button('删除'));
+    await click(button('删除', dialog('删除运行环境')));
+    expect(state.navigate).not.toHaveBeenCalled();
+    expect(page.host.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
+      '失败后保留的草稿',
+    );
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
     await page.unmount();
   });
 
@@ -419,6 +768,187 @@ describe('runtime environment detail page', () => {
     expect(button('保存更改').disabled).toBe(true);
     await click(button('构建新版本'));
     expect(state.build).toHaveBeenCalledWith('rte_1', expect.anything());
+    await page.unmount();
+  });
+});
+
+describe('runtime environment navigation guards with the real router', () => {
+  it('keeps a dirty create draft when a back navigation is cancelled and leaves when confirmed', async () => {
+    state.environments = [];
+    state.search = {};
+    const page = await mountWithRouter('/away');
+    await act(async () => {
+      await page.router.navigate({ to: '/runtime-environments/' });
+    });
+    await flush();
+    await click(button('新建环境'));
+    const form = dialog('新建运行环境');
+    const name = form.querySelector<HTMLInputElement>('#runtime-environment-name');
+    if (!name) throw new Error('Missing create name');
+    await editInput(name, '未保存的新环境');
+    expect(unloadPrevented()).toBe(true);
+
+    await act(async () => {
+      page.router.history.back();
+    });
+    await vi.waitFor(() => expect(hasDialog('放弃未保存的更改？')).toBe(true));
+    expect(page.router.state.location.pathname).not.toBe('/away');
+
+    await click(button('取消', dialog('放弃未保存的更改？')));
+    expect(hasDialog('新建运行环境')).toBe(true);
+    expect(form.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
+      '未保存的新环境',
+    );
+
+    await act(async () => {
+      page.router.history.back();
+    });
+    await vi.waitFor(() => expect(hasDialog('放弃未保存的更改？')).toBe(true));
+    await click(button('放弃并离开', dialog('放弃未保存的更改？')));
+    await vi.waitFor(() => expect(page.router.state.location.pathname).toBe('/away'));
+    expect(page.host.textContent).toContain('Destination');
+    expect(unloadPrevented()).toBe(false);
+    await page.unmount();
+  });
+
+  it('blocks a back navigation while creation is pending and says to wait', async () => {
+    state.environments = [];
+    state.search = {};
+    state.createPending = true;
+    const page = await mountWithRouter('/away');
+    await act(async () => {
+      await page.router.navigate({ to: '/runtime-environments/' });
+    });
+    await flush();
+    await click(button('新建环境'));
+    expect(hasDialog('新建运行环境')).toBe(true);
+
+    await act(async () => {
+      page.router.history.back();
+    });
+    await vi.waitFor(() => expect(hasDialog('放弃未保存的更改？')).toBe(true));
+    const confirmation = dialog('放弃未保存的更改？');
+    expect(confirmation.textContent).toContain('正在创建，请等待请求完成。');
+    expect(button('放弃并离开', confirmation).disabled).toBe(true);
+    expect(page.router.state.location.pathname).not.toBe('/away');
+
+    await click(button('取消', confirmation));
+    expect(hasDialog('新建运行环境')).toBe(true);
+    await page.unmount();
+  });
+
+  it('releases the guard and settles the blocked navigation once creation succeeds', async () => {
+    state.environments = [];
+    state.search = {};
+    let finish!: (environment: RuntimeEnvironment) => void;
+    state.create.mockImplementation(
+      () =>
+        new Promise<RuntimeEnvironment>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const page = await mountWithRouter('/away');
+    await act(async () => {
+      await page.router.navigate({ to: '/runtime-environments/' });
+    });
+    await flush();
+    await click(button('新建环境'));
+    const form = dialog('新建运行环境');
+    const name = form.querySelector<HTMLInputElement>('#runtime-environment-name');
+    if (!name) throw new Error('Missing create name');
+    await editInput(name, '待创建');
+    await click(button('创建', form));
+    expect(button('创建中…', form).disabled).toBe(true);
+
+    await act(async () => {
+      page.router.history.back();
+    });
+    await vi.waitFor(() => expect(page.blockedNavigations).toHaveLength(1));
+    expect(button('放弃并离开', dialog('放弃未保存的更改？')).disabled).toBe(true);
+
+    const created: RuntimeEnvironment = { ...environment, id: 'rte_new', name: '待创建' };
+    state.environment = created;
+    state.versions = [];
+    await act(async () => {
+      finish(created);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    // 不点取消：创建成功必须亲自结算被拦下的导航。
+    await expect(
+      Promise.race([
+        page.blockedNavigations[0],
+        new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 0)),
+      ]),
+    ).resolves.toBe(true);
+    await vi.waitFor(() =>
+      expect(page.router.state.location.pathname).toBe('/runtime-environments/rte_new'),
+    );
+    expect(hasDialog('新建运行环境')).toBe(false);
+    expect(unloadPrevented()).toBe(false);
+    await page.unmount();
+  });
+
+  it('keeps a dirty environment draft on a real back navigation until leaving is confirmed', async () => {
+    state.environment = environment;
+    state.versions = [];
+    state.search = {};
+    const page = await mountWithRouter('/away');
+    await act(async () => {
+      await page.router.navigate({
+        to: '/runtime-environments/$environmentId',
+        params: { environmentId: 'rte_1' },
+      });
+    });
+    await flush();
+    const input = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
+    if (!input) throw new Error('Missing environment name');
+    await editInput(input, '未保存的环境');
+    expect(unloadPrevented()).toBe(true);
+
+    await act(async () => {
+      page.router.history.back();
+    });
+    await vi.waitFor(() => expect(hasDialog('放弃未保存的更改？')).toBe(true));
+    await click(button('取消', dialog('放弃未保存的更改？')));
+    expect(page.host.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
+      '未保存的环境',
+    );
+
+    await act(async () => {
+      page.router.history.back();
+    });
+    await vi.waitFor(() => expect(hasDialog('放弃未保存的更改？')).toBe(true));
+    await click(button('放弃并离开', dialog('放弃未保存的更改？')));
+    await vi.waitFor(() => expect(page.router.state.location.pathname).toBe('/away'));
+    expect(unloadPrevented()).toBe(false);
+    await page.unmount();
+  });
+
+  it('states that deletion is pending and refuses the leave confirmation', async () => {
+    state.environment = environment;
+    state.versions = [];
+    state.search = {};
+    state.removePending = true;
+    const page = await mountWithRouter('/away');
+    await act(async () => {
+      await page.router.navigate({
+        to: '/runtime-environments/$environmentId',
+        params: { environmentId: 'rte_1' },
+      });
+    });
+    await flush();
+
+    await act(async () => {
+      page.router.history.back();
+    });
+    await vi.waitFor(() => expect(hasDialog('放弃未保存的更改？')).toBe(true));
+    const confirmation = dialog('放弃未保存的更改？');
+    expect(confirmation.textContent).toContain('正在删除，请等待请求完成。');
+    expect(button('放弃并离开', confirmation).disabled).toBe(true);
+    expect(page.router.state.location.pathname).toBe('/runtime-environments/rte_1');
+
+    await click(button('取消', confirmation));
+    expect(page.router.state.location.pathname).toBe('/runtime-environments/rte_1');
     await page.unmount();
   });
 });

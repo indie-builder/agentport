@@ -35,6 +35,14 @@ const schedule: Schedule = {
   updatedAt: '2026-10-01T00:00:00.000Z',
 };
 
+const other: Schedule = {
+  ...schedule,
+  id: 'sch_2',
+  name: 'Evening digest',
+  cron: '0 18 * * *',
+  prompt: 'Summarize the evening',
+};
+
 let root: Root;
 let client: QueryClient;
 let container: HTMLDivElement;
@@ -95,6 +103,16 @@ function button(label: string): HTMLButtonElement {
   return match;
 }
 
+function rowSwitch(label: string): HTMLElement {
+  const match = document.querySelector<HTMLElement>(`[role="switch"][aria-label="${label}"]`);
+  if (!match) throw new Error(`Missing switch: ${label}`);
+  return match;
+}
+
+function switchDisabled(label: string): boolean {
+  return rowSwitch(label).hasAttribute('data-disabled');
+}
+
 async function clickElement(element: HTMLElement) {
   await act(async () => element.click());
 }
@@ -148,7 +166,7 @@ afterAll(() => msw.close());
 
 beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
-  schedules = [{ ...schedule }];
+  schedules = [{ ...schedule }, { ...other }];
   blockedNavigations = [];
   msw.reset();
   msw.server.use(
@@ -171,7 +189,7 @@ beforeEach(() => {
     http.patch('/api/schedules/sch_1', async ({ request }) => {
       const patch = (await request.json()) as Partial<Schedule>;
       const next = { ...schedules[0], ...patch } as Schedule;
-      schedules = [next];
+      schedules = [next, ...schedules.slice(1)];
       return HttpResponse.json(next);
     }),
     http.delete('/api/schedules/sch_1', () => {
@@ -460,5 +478,296 @@ describe('schedule delete focus', () => {
     await vi.waitFor(() => expect(document.activeElement).toBe(rowDelete));
     expect(document.activeElement).not.toBe(document.body);
     expect(container.textContent).toContain('Morning report');
+  });
+});
+
+describe('schedule row mutation locking', () => {
+  it('locks every row operation while a toggle is pending and recovers after success', async () => {
+    let finish!: () => void;
+    msw.server.use(
+      http.patch(
+        '/api/schedules/sch_1',
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = () => {
+              schedules = schedules.map((item) =>
+                item.id === 'sch_1' ? { ...item, enabled: false } : item,
+              );
+              resolve(HttpResponse.json(schedules[0]));
+            };
+          }),
+      ),
+    );
+    await mount();
+    await clickElement(rowSwitch('暂停 Morning report'));
+
+    // 共用一个 mutation 时不能只锁最新 variables 那一行：其余行也必须停用。
+    await vi.waitFor(() => expect(switchDisabled('暂停 Evening digest')).toBe(true));
+    expect(switchDisabled('暂停 Morning report')).toBe(true);
+    expect(button('编辑 Evening digest').disabled).toBe(true);
+    expect(button('删除 Evening digest').disabled).toBe(true);
+
+    const patchCalls = msw.calls.filter((entry) => entry.method === 'PATCH').length;
+    await clickElement(rowSwitch('暂停 Evening digest'));
+    await clickElement(button('编辑 Evening digest'));
+    await clickElement(button('删除 Evening digest'));
+    await msw.waitForRequests();
+    expect(msw.calls.filter((entry) => entry.method === 'PATCH')).toHaveLength(patchCalls);
+    expect(document.getElementById('schedule-name')).toBeNull();
+    expect(dialogByTitle('删除定时任务')).toBeNull();
+
+    await act(async () => {
+      finish();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(rowSwitch('启用 Morning report')).toBeTruthy());
+    expect(switchDisabled('暂停 Evening digest')).toBe(false);
+    expect(button('编辑 Evening digest').disabled).toBe(false);
+    expect(button('删除 Evening digest').disabled).toBe(false);
+  });
+
+  it('re-enables every row after a failed toggle and keeps the server state', async () => {
+    msw.server.use(
+      http.patch('/api/schedules/sch_1', () =>
+        HttpResponse.json({ message: 'Toggle failed' }, { status: 500 }),
+      ),
+    );
+    await mount();
+    await clickElement(rowSwitch('暂停 Morning report'));
+    await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
+    await vi.waitFor(() => expect(button('编辑 Evening digest').disabled).toBe(false));
+    expect(switchDisabled('暂停 Morning report')).toBe(false);
+    expect(switchDisabled('暂停 Evening digest')).toBe(false);
+    expect(button('删除 Evening digest').disabled).toBe(false);
+  });
+
+  it('locks other rows while deletion is pending and refuses duplicate deletes', async () => {
+    let finish!: () => void;
+    msw.server.use(
+      http.delete(
+        '/api/schedules/sch_1',
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = () => {
+              schedules = schedules.filter((item) => item.id !== 'sch_1');
+              resolve(new HttpResponse(null, { status: 204 }));
+            };
+          }),
+      ),
+    );
+    await mount();
+    await click('删除 Morning report');
+    await click('删除');
+    await vi.waitFor(() => expect(button('编辑 Evening digest').disabled).toBe(true));
+    expect(switchDisabled('暂停 Evening digest')).toBe(true);
+    expect(switchDisabled('暂停 Morning report')).toBe(true);
+
+    const deleteCalls = msw.calls.filter((entry) => entry.method === 'DELETE').length;
+    await clickElement(button('处理中…'));
+    await msw.waitForRequests();
+    expect(msw.calls.filter((entry) => entry.method === 'DELETE')).toHaveLength(deleteCalls);
+
+    await act(async () => {
+      finish();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(container.textContent).not.toContain('Morning report'));
+    expect(button('编辑 Evening digest').disabled).toBe(false);
+  });
+});
+
+describe('schedule stale conflict recovery', () => {
+  const stale = () =>
+    HttpResponse.json(
+      { code: 'CONFLICT_STALE', message: '该定时任务已被修改，请刷新后重试' },
+      { status: 409 },
+    );
+
+  it('keeps the draft in place on a stale conflict and never resends it as a new schedule', async () => {
+    msw.server.use(http.patch('/api/schedules/sch_1', stale));
+    await mount();
+    await click('编辑 Morning report');
+    await fill('schedule-name', 'Local draft');
+    await click('保存');
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain('当前草稿已保留'));
+    expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
+      'Local draft',
+    );
+    expect(button('重新加载')).toBeTruthy();
+    expect(msw.calls.filter((entry) => entry.method === 'POST')).toHaveLength(0);
+    expect(msw.calls.filter((entry) => entry.method === 'PATCH')).toHaveLength(1);
+  });
+
+  it('reloads the latest schedule, resets every field, and advances the version baseline', async () => {
+    let patchCount = 0;
+    msw.server.use(
+      http.patch('/api/schedules/sch_1', async ({ request }) => {
+        patchCount += 1;
+        if (patchCount === 1) return stale();
+        const patch = (await request.json()) as Partial<Schedule>;
+        const next = { ...schedules[0], ...patch } as Schedule;
+        schedules = [next, ...schedules.slice(1)];
+        return HttpResponse.json(next);
+      }),
+    );
+    await mount();
+    await click('编辑 Morning report');
+    await fill('schedule-name', 'Local draft');
+    await click('保存');
+    await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
+
+    const remote: Schedule = {
+      ...schedule,
+      name: 'Remote name',
+      cron: '15 2 * * *',
+      prompt: 'Remote prompt',
+      enabled: false,
+      updatedAt: '2026-10-05T00:00:00.000Z',
+    };
+    schedules = [remote, schedules[1]];
+
+    await click('重新加载');
+    expect(dialogByTitle('放弃草稿并加载最新版本？')).not.toBeNull();
+    await click('放弃并加载');
+    await vi.waitFor(() =>
+      expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
+        'Remote name',
+      ),
+    );
+    expect((document.getElementById('schedule-cron') as HTMLInputElement).value).toBe('15 2 * * *');
+    expect((document.getElementById('schedule-prompt') as HTMLTextAreaElement).value).toBe(
+      'Remote prompt',
+    );
+    expect((document.getElementById('schedule-enabled') as HTMLInputElement).checked).toBe(false);
+    expect(document.body.textContent).not.toContain('当前草稿已保留');
+
+    await fill('schedule-name', 'After reload');
+    await click('保存');
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+    await msw.waitForRequests();
+    const saves = msw.calls.filter(
+      (entry) => entry.method === 'PATCH' && entry.path === '/api/schedules/sch_1',
+    );
+    expect(saves).toHaveLength(2);
+    expect(saves[1].body).toMatchObject({
+      name: 'After reload',
+      expectedUpdatedAt: remote.updatedAt,
+    });
+  });
+
+  it('keeps the draft when reload confirmation is cancelled', async () => {
+    msw.server.use(http.patch('/api/schedules/sch_1', stale));
+    await mount();
+    await click('编辑 Morning report');
+    await fill('schedule-name', 'Local draft');
+    await click('保存');
+    await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
+
+    await click('重新加载');
+    await click('取消');
+    await vi.waitFor(() => expect(dialogByTitle('放弃草稿并加载最新版本？')).toBeNull());
+    expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
+      'Local draft',
+    );
+    expect(document.body.textContent).toContain('当前草稿已保留');
+  });
+
+  it('keeps the draft when loading the latest schedule fails', async () => {
+    msw.server.use(http.patch('/api/schedules/sch_1', stale));
+    await mount();
+    await click('编辑 Morning report');
+    await fill('schedule-name', 'Local draft');
+    await click('保存');
+    await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
+
+    msw.server.use(
+      http.get('/api/schedules', () =>
+        HttpResponse.json({ message: 'Reload failed' }, { status: 500 }),
+      ),
+    );
+    vi.mocked(toastError).mockClear();
+    await vi.waitFor(() => expect(button('重新加载').disabled).toBe(false));
+    await click('重新加载');
+    await click('放弃并加载');
+    await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
+      'Local draft',
+    );
+    expect(document.body.textContent).toContain('当前草稿已保留');
+  });
+
+  it('reports a deleted schedule and only saves the draft as new on request', async () => {
+    msw.server.use(http.patch('/api/schedules/sch_1', stale));
+    await mount();
+    await click('编辑 Morning report');
+    await fill('schedule-name', 'Local draft');
+    await click('保存');
+    await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
+
+    msw.server.use(http.get('/api/schedules', () => HttpResponse.json([])));
+    vi.mocked(toastError).mockClear();
+    await click('重新加载');
+    await click('放弃并加载');
+    await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
+    const lastCall = vi.mocked(toastError).mock.calls.at(-1);
+    if (!lastCall) throw new Error('Missing toast');
+    const message = (lastCall[0] as Error).message;
+    expect(message).toContain('已被删除');
+    expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
+      'Local draft',
+    );
+    expect(document.body.textContent).toContain('当前草稿已保留');
+    expect(msw.calls.filter((entry) => entry.method === 'POST')).toHaveLength(0);
+    expect(msw.calls.filter((entry) => entry.method === 'PATCH')).toHaveLength(1);
+
+    await click('另存为新建');
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+    await msw.waitForRequests();
+    const created = msw.calls.find((entry) => entry.method === 'POST');
+    expect(created?.body).toMatchObject({
+      agentId: schedule.agentId,
+      name: 'Local draft',
+      cron: schedule.cron,
+      prompt: schedule.prompt,
+      enabled: true,
+    });
+  });
+
+  it('treats a 404 on save as deleted and only creates on explicit save-as', async () => {
+    msw.server.use(
+      http.patch('/api/schedules/sch_1', () =>
+        HttpResponse.json({ code: 'NOT_FOUND', message: '定时任务不存在' }, { status: 404 }),
+      ),
+    );
+    await mount();
+    await click('编辑 Morning report');
+    await fill('schedule-name', 'Local draft');
+    await click('保存');
+
+    await vi.waitFor(() => expect(button('另存为新建')).toBeTruthy());
+    const lastCall = vi.mocked(toastError).mock.calls.at(-1);
+    if (!lastCall) throw new Error('Missing toast');
+    expect((lastCall[0] as Error).message).toContain('已被删除');
+    expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
+      'Local draft',
+    );
+    expect(document.body.textContent).toContain('当前草稿已保留');
+    expect(document.body.textContent).not.toContain('重新加载');
+    expect(msw.calls.filter((entry) => entry.method === 'POST')).toHaveLength(0);
+    expect(msw.calls.filter((entry) => entry.method === 'PATCH')).toHaveLength(1);
+
+    await click('另存为新建');
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+    await msw.waitForRequests();
+    expect(msw.calls.filter((entry) => entry.method === 'PATCH')).toHaveLength(1);
+    const created = msw.calls.find((entry) => entry.method === 'POST');
+    expect(created?.body).toMatchObject({
+      agentId: schedule.agentId,
+      name: 'Local draft',
+      cron: schedule.cron,
+      prompt: schedule.prompt,
+      enabled: true,
+    });
   });
 });

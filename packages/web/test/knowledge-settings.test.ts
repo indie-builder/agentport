@@ -1,4 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router';
 import { HttpResponse, http } from 'msw';
 import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -150,10 +156,20 @@ async function mount(element: ReactElement) {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
+  // 弹层会注册路由离开保护，必须挂在真实 router 上下文里。
+  const rootRoute = createRootRoute({ component: () => element });
+  const router = createRouter({
+    routeTree: rootRoute,
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  });
   await act(async () => {
-    root?.render(createElement(QueryClientProvider, { client }, element));
+    await router.load();
+    root?.render(
+      createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
+    );
   });
   await flush();
+  return router;
 }
 
 async function click(element: HTMLElement) {
@@ -196,26 +212,40 @@ async function selectOption(id: string, label: string) {
   await click(option);
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((yes) => {
+    resolve = yes;
+  });
+  return { promise, resolve };
+}
+
 async function toggle(id: string) {
   const element = document.getElementById(id);
   if (!element) throw new Error(`Missing switch: ${id}`);
   await click(element);
 }
 
-function mountSettings(selected = base) {
+function dialog(title: string): HTMLElement {
+  const element = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
+    (item) => item.querySelector('h2')?.textContent === title,
+  );
+  if (!element) throw new Error(`Missing dialog: ${title}`);
+  return element;
+}
+
+function mountSettings(selected = base, onClose = vi.fn()) {
   return mount(
     createElement(KnowledgeSettingsDialog, {
       base: selected,
-      onClose: vi.fn(),
+      onClose,
       finalFocus: () => null,
     }),
   );
 }
 
-function mountProfiles() {
-  return mount(
-    createElement(KnowledgeProfilesDialog, { onClose: vi.fn(), finalFocus: () => null }),
-  );
+function mountProfiles(onClose = vi.fn()) {
+  return mount(createElement(KnowledgeProfilesDialog, { onClose, finalFocus: () => null }));
 }
 
 describe('msw cleanup', () => {
@@ -297,7 +327,7 @@ describe('knowledge base settings', () => {
     await mountSettings();
     await toggle('knowledge-settings-image-enabled');
     await click(button('保存设置'));
-    expect(document.body.textContent).toContain('开启图片处理需要视觉模型');
+    expect(document.body.textContent).toContain('请填写视觉模型 ID');
     expect(
       calls.some((item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1'),
     ).toBe(false);
@@ -371,6 +401,140 @@ describe('knowledge base settings', () => {
       )?.body,
     ).toEqual({ chunksOnly: false });
     expect(toastSuccess).toHaveBeenCalled();
+  });
+});
+
+describe('knowledge settings draft protection', () => {
+  it('asks before discarding edited chunk settings', async () => {
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([embeddingProfile, rerankProfile]),
+      ),
+    );
+    const onClose = vi.fn();
+    await mountSettings(base, onClose);
+    await fill('knowledge-settings-chunk-tokens', '1000');
+    await click(button('取消'));
+    const confirmation = dialog('放弃未保存的更改？');
+    await click(button('取消', confirmation));
+    expect(
+      (document.getElementById('knowledge-settings-chunk-tokens') as HTMLInputElement).value,
+    ).toBe('1000');
+    await click(button('取消'));
+    await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('associates chunk validation errors with the field and blocks the request', async () => {
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([embeddingProfile, rerankProfile]),
+      ),
+    );
+    await mountSettings();
+    await fill('knowledge-settings-chunk-tokens', '100');
+    await fill('knowledge-settings-chunk-overlap', '150');
+    await click(button('保存设置'));
+    const input = document.getElementById('knowledge-settings-chunk-tokens') as HTMLInputElement;
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    const describedBy = input.getAttribute('aria-describedby');
+    expect(describedBy).not.toBeNull();
+    expect(document.getElementById(describedBy as string)?.textContent).toContain('200–4000');
+    expect(
+      calls.some((item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1'),
+    ).toBe(false);
+  });
+});
+
+describe('knowledge model profile draft protection', () => {
+  it('asks before discarding a dirty profile edit on cancel or switch', async () => {
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([embeddingProfile, rerankProfile]),
+      ),
+    );
+    await mountProfiles();
+    await click(button('编辑'));
+    await fill('knowledge-profile-model', 'changed-model');
+    await click(button('取消'));
+    const discard = dialog('放弃未保存的更改？');
+    await click(button('取消', discard));
+    expect((document.getElementById('knowledge-profile-model') as HTMLInputElement).value).toBe(
+      'changed-model',
+    );
+
+    const editButtons = () =>
+      [...document.querySelectorAll<HTMLButtonElement>('button')].filter(
+        (item) => item.textContent?.trim() === '编辑',
+      );
+    await click(editButtons()[1] as HTMLButtonElement);
+    await click(button('放弃并切换', dialog('放弃未保存的更改？')));
+    expect((document.getElementById('knowledge-profile-name') as HTMLInputElement).value).toBe(
+      'bge-reranker',
+    );
+  });
+
+  it('blocks closing and switching profiles while a profile save is in flight', async () => {
+    const request = deferred<void>();
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([embeddingProfile, rerankProfile]),
+      ),
+      http.patch('/api/knowledge/model-profiles/profile_embed', async () => {
+        await request.promise;
+        return HttpResponse.json(embeddingProfile);
+      }),
+    );
+    await mountProfiles();
+    await click(button('编辑'));
+    await fill('knowledge-profile-model', 'changed-model');
+    await click(button('保存'));
+    expect(button('关闭').disabled).toBe(true);
+    expect(button('取消').disabled).toBe(true);
+    await act(async () =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    await flush();
+    expect(document.getElementById('knowledge-profile-model')).toBeTruthy();
+    expect(
+      [...document.querySelectorAll<HTMLButtonElement>('button')].filter(
+        (item) => item.textContent?.trim() === '编辑',
+      )[0]?.disabled,
+    ).toBe(true);
+    await act(async () => request.resolve());
+    await flush();
+  });
+
+  it('unlocks closing and creating after a profile save succeeds', async () => {
+    server.use(
+      http.get('/api/knowledge/model-profiles', () => HttpResponse.json([embeddingProfile])),
+      http.patch('/api/knowledge/model-profiles/profile_embed', () =>
+        HttpResponse.json(embeddingProfile),
+      ),
+    );
+    const onClose = vi.fn();
+    await mountProfiles(onClose);
+    await click(button('编辑'));
+    await fill('knowledge-profile-model', 'bge-m3-v2');
+    await click(button('保存'));
+    // 保存成功后表单卸载，外层 pending 必须已解锁，否则关闭与新增会永久不可用。
+    expect(button('关闭').disabled).toBe(false);
+    expect(button('新增 profile').disabled).toBe(false);
+    await click(button('关闭'));
+    expect(document.body.textContent).not.toContain('放弃未保存的更改？');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('shows a retry instead of pretending profiles are empty when loading fails', async () => {
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json({ code: 'INTERNAL', message: 'profile 加载失败' }, { status: 500 }),
+      ),
+    );
+    await mountProfiles();
+    expect(document.body.textContent).toContain('模型 profile 没有加载出来');
+    expect(document.body.textContent).not.toContain('还没有模型 profile');
+    expect(button('重试')).toBeDefined();
   });
 });
 

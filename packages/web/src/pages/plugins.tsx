@@ -46,6 +46,7 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
+import { useFormBlocker } from '../lib/form.js';
 import {
   useDeletePlugin,
   useImportNativePlugin,
@@ -118,6 +119,8 @@ export function PluginsPage() {
       const result = await importPlugin.mutateAsync({ file, slug });
       toastSuccess(`已导入「${result.plugin.name}」`);
       for (const warning of result.warnings) toast.warning(warning);
+      // 当前搜索/排序可能正好把新插件藏起来；压入详情页，返回时列表仍带原筛选。
+      await navigate({ to: '/plugins/$pluginId', params: { pluginId: result.plugin.id } });
     } catch (error) {
       toastError(error);
     }
@@ -370,6 +373,15 @@ function InstallPluginDialog({
   const install = useInstallNativePlugin();
   const importNative = useImportNativePlugin();
   const [tab, setTab] = useState<'market' | 'installed'>('market');
+  // 批量安装时不关弹层：把每次结果的插件 ID 留在这里，直接给出打开详情的入口。
+  const [results, setResults] = useState<Array<{ id: string; name: string }>>([]);
+  const remember = (plugin: { id: string; name: string }): void => {
+    setResults((previous) =>
+      previous.some((item) => item.id === plugin.id)
+        ? previous
+        : [...previous, { id: plugin.id, name: plugin.name }],
+    );
+  };
   const native = useNativePlugins(tab === 'installed');
   const pending = install.isPending || importNative.isPending;
   const form = useZodForm(installFormSchema, {
@@ -386,9 +398,10 @@ function InstallPluginDialog({
         ...(values.slug === '' ? {} : { slug: values.slug }),
       },
       {
-        onSuccess: ({ warnings, reused }) => {
+        onSuccess: ({ plugin, warnings, reused }) => {
           toastSuccess(reused ? '已在插件库' : '已安装');
           for (const warning of warnings) toast.warning(warning);
+          remember(plugin);
         },
         onError: toastError,
       },
@@ -401,9 +414,10 @@ function InstallPluginDialog({
     importNative.mutate(
       { pluginId },
       {
-        onSuccess: ({ warnings, reused }) => {
+        onSuccess: ({ plugin, warnings, reused }) => {
           toastSuccess(reused ? '已在插件库' : '已加入插件库');
           for (const warning of warnings) toast.warning(warning);
+          remember(plugin);
         },
         onError: toastError,
       },
@@ -422,6 +436,21 @@ function InstallPluginDialog({
       }}
     >
       <DialogShell title="安装插件" closeDisabled={pending} finalFocus={finalFocus}>
+        {results.length > 0 ? (
+          <div role="status" className="flex flex-col gap-1 border-y py-2 text-sm">
+            <span className="text-xs text-muted-foreground">已加入插件库，可继续打开详情：</span>
+            {results.map((item) => (
+              <Link
+                key={item.id}
+                to="/plugins/$pluginId"
+                params={{ pluginId: item.id }}
+                className="w-fit rounded-sm text-fg underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                打开「{item.name}」
+              </Link>
+            ))}
+          </div>
+        ) : null}
         <Tabs value={tab} onValueChange={(next) => setTab(next as 'market' | 'installed')}>
           <TabsList aria-label="安装方式">
             <TabsTrigger value="market" disabled={pending}>
@@ -600,6 +629,7 @@ export function PluginDialog({
   });
   const errors = form.formState.errors;
   const dirty = form.formState.isDirty;
+  const blocker = useFormBlocker(dirty, pending);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中一律不能关闭。
   const close = (): void => {
@@ -668,8 +698,9 @@ export function PluginDialog({
                 {...form.register('description')}
                 disabled={pending}
                 aria-invalid={errors.description ? true : undefined}
+                aria-describedby={errors.description ? 'plugin-description-error' : undefined}
               />
-              <FieldError>{errors.description?.message}</FieldError>
+              <FieldError id="plugin-description-error">{errors.description?.message}</FieldError>
             </Field>
           </FieldGroup>
           <div className="mt-4 flex justify-end gap-2">
@@ -691,6 +722,17 @@ export function PluginDialog({
           onConfirm={async () => {
             if (!pending) onClose();
           }}
+        />
+        <ConfirmDialog
+          open={blocker.status === 'blocked'}
+          onClose={() => blocker.reset?.()}
+          title="放弃未保存的更改？"
+          description={
+            pending ? '正在保存，请等待请求完成。' : '离开后插件名称与描述的修改会丢失。'
+          }
+          confirmLabel="放弃并离开"
+          confirmDisabled={pending}
+          onConfirm={async () => blocker.proceed()}
         />
       </DialogShell>
     </Dialog>

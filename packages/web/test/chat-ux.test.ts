@@ -1,6 +1,7 @@
-import { agentInputSchema } from '@agentport/shared';
+import { agentInputSchema, type PublicRunQuestion } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
+  createBrowserHistory,
   createMemoryHistory,
   createRootRoute,
   createRoute,
@@ -20,6 +21,7 @@ import {
   type RunDetail,
 } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
+import { runQuestionsQueryKey } from '../src/lib/queries.js';
 import { toastError } from '../src/lib/toast.js';
 import { ChatPage } from '../src/pages/chat.js';
 
@@ -62,12 +64,20 @@ class Source {
 let client: QueryClient;
 let host: HTMLDivElement;
 let root: Root;
+let browserHistory: ReturnType<typeof createBrowserHistory> | null = null;
 async function flush() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
 }
-async function mount(initialEntry = '/chat') {
+async function mount(
+  initialEntry = '/chat',
+  history:
+    | ReturnType<typeof createMemoryHistory>
+    | ReturnType<typeof createBrowserHistory> = createMemoryHistory({
+    initialEntries: [initialEntry],
+  }),
+) {
   const route = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => route, id: '_shell', component: Outlet });
   const chat = createRoute({
@@ -76,6 +86,9 @@ async function mount(initialEntry = '/chat') {
     validateSearch: z.object({
       agent: z.string().min(1).optional().catch(undefined),
       conversation: z.string().min(1).optional().catch(undefined),
+      outputRun: z.string().min(1).optional().catch(undefined),
+      outputPath: z.string().min(1).optional().catch(undefined),
+      outputMode: z.enum(['read', 'source']).optional().catch(undefined),
     }),
     component: ChatPage,
   });
@@ -87,7 +100,7 @@ async function mount(initialEntry = '/chat') {
   });
   const router = createRouter({
     routeTree: route.addChildren([shell.addChildren([chat]), away, run]),
-    history: createMemoryHistory({ initialEntries: [initialEntry] }),
+    history,
   });
   await act(async () => {
     await router.load();
@@ -185,12 +198,15 @@ beforeEach(() => {
   });
   vi.spyOn(api, 'run').mockResolvedValue(terminal);
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'runQuestions').mockResolvedValue({ items: [] });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  browserHistory?.destroy();
+  browserHistory = null;
   client.clear();
   host.remove();
   vi.restoreAllMocks();
@@ -389,17 +405,17 @@ describe('confirmed chat UX defects', () => {
 });
 
 describe('chat shell layout', () => {
-  it('shows the expert picker in the welcome state without opening history', async () => {
+  it('shows the current expert in the chat header without opening history', async () => {
     await mount();
-    // 空态直接显示当前专家，不用先展开历史抽屉。
-    const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label="选择专家"]');
+    // 历史收起时头部直接显示当前专家，不用先展开历史抽屉。
+    const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
     expect(welcomePicker).not.toBeNull();
     expect(welcomePicker?.textContent).toContain('Expert');
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
       '未命名会话',
     ]);
 
-    // 抽屉打开后由历史头部承担选择器，欢迎态不再重复一个。
+    // 抽屉打开后由历史头部承担选择器，聊天头部不再重复一个。
     await act(async () => {
       useChatStore.setState({ historyOpen: true });
     });
@@ -407,15 +423,54 @@ describe('chat shell layout', () => {
     const sheet = document.querySelector('[role="dialog"]');
     expect(sheet).not.toBeNull();
     expect(sheet?.querySelector('h1')).toBeNull();
-    expect(sheet?.querySelector('[aria-label="选择专家"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label="选择专家"]')).toBeNull();
-    expect(document.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
+    expect(sheet?.querySelector('[aria-label^="选择专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="选择专家"]')).toBeNull();
+    expect(document.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
       '未命名会话',
     ]);
   });
 
-  it('searches experts by slug in the welcome picker', async () => {
+  it('keeps the current expert switchable from the header with existing messages', async () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    }));
+    const other = {
+      ...agentInputSchema.parse({ slug: 'other', name: 'Other Expert' }),
+      id: 'agent-b',
+      parentId: null,
+      createdAt: '',
+      updatedAt: '',
+    };
+    client.setQueryData(['agents'], [agent, other]);
+    vi.mocked(api.agents).mockResolvedValue([agent, other]);
+    vi.mocked(api.conversations).mockResolvedValue([]);
+    const router = await mount('/chat?agent=agent-a&conversation=conversation-a');
+    await flush();
+
+    expect(host.textContent).toContain('old prompt');
+    expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
+    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="选择专家：Expert"]');
+    if (!picker) throw new Error('Missing header expert picker');
+    await act(async () => picker.click());
+    await flush();
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) =>
+      entry.textContent?.includes('Other Expert'),
+    );
+    if (!option) throw new Error('Missing expert option');
+    await act(async () => option.click());
+    await flush();
+
+    expect(router.state.location.search).toEqual({ agent: 'agent-b' });
+    expect(host.textContent).not.toContain('old prompt');
+    expect(host.textContent).toContain('未命名会话');
+  });
+
+  it('searches experts by slug in the header picker', async () => {
     const slugOnly = {
       ...agentInputSchema.parse({ slug: 'hidden-slug-x', name: 'Plain Name' }),
       id: 'agent-slug',
@@ -427,7 +482,7 @@ describe('chat shell layout', () => {
     vi.mocked(api.agents).mockResolvedValue([agent, slugOnly]);
     await mount();
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('[aria-label="选择专家"]')?.click(),
+      host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]')?.click(),
     );
     await flush();
     const search = document.querySelector<HTMLInputElement>('[aria-label="搜索专家"]');
@@ -454,7 +509,7 @@ describe('chat shell layout', () => {
     await mount();
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
     // 历史收起时，欢迎态自己提供当前专家。
-    expect(host.querySelector('[aria-label="选择专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="选择专家"]')).not.toBeNull();
     const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
     if (!toggle) throw new Error('Missing history toggle');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -463,13 +518,13 @@ describe('chat shell layout', () => {
     const history = host.querySelector('aside[aria-label="会话历史"]');
     expect(history).not.toBeNull();
     // 专家选择随历史面板出现，且只保留这一处。
-    const picker = history?.querySelector<HTMLButtonElement>('[aria-label="选择专家"]');
+    const picker = history?.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
     expect(picker).not.toBeNull();
     // 触发器同时显示头像、名称与 ComboboxTrigger 默认的下箭头。
     expect(picker?.querySelector('img')).not.toBeNull();
     expect(picker?.textContent).toContain('Expert');
     expect(picker?.querySelectorAll('svg.lucide-chevron-down')).toHaveLength(1);
-    expect(host.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
     expect(
       host.querySelector('button[aria-label="隐藏会话历史"]')?.getAttribute('aria-expanded'),
     ).toBe('true');
@@ -490,17 +545,17 @@ describe('chat shell layout', () => {
     // 窄屏打开抽屉：选择器在抽屉里，欢迎态不重复。
     await act(async () => useChatStore.setState({ historyOpen: true }));
     await flush();
-    expect(document.querySelector('[role="dialog"] [aria-label="选择专家"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label="选择专家"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"] [aria-label^="选择专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="选择专家"]')).toBeNull();
 
     // 放大到 lg：抽屉消失、桌面历史仍折叠，欢迎态必须重新给出选择器。
     await act(async () => resize(1024));
     await flush();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label="选择专家"]');
+    const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
     expect(welcomePicker).not.toBeNull();
     expect(welcomePicker?.textContent).toContain('Expert');
-    expect(host.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
       '未命名会话',
     ]);
@@ -508,12 +563,12 @@ describe('chat shell layout', () => {
     // 再缩回窄屏：historyOpen 仍为 true，抽屉恢复，欢迎态选择器让位给抽屉。
     await act(async () => resize(600));
     await flush();
-    expect(document.querySelector('[role="dialog"] [aria-label="选择专家"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label="选择专家"]')).toBeNull();
-    expect(document.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
+    expect(document.querySelector('[role="dialog"] [aria-label^="选择专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="选择专家"]')).toBeNull();
+    expect(document.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
   });
 
-  it('restores the welcome picker when narrowing with desktop history closed', async () => {
+  it('restores the header picker when narrowing with desktop history closed', async () => {
     const resize = stubViewport(1024);
     await mount();
 
@@ -523,17 +578,17 @@ describe('chat shell layout', () => {
     );
     await flush();
     expect(
-      host.querySelector('aside[aria-label="会话历史"] [aria-label="选择专家"]'),
+      host.querySelector('aside[aria-label="会话历史"] [aria-label^="选择专家"]'),
     ).not.toBeNull();
-    expect(host.querySelector('[aria-label="选择专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="选择专家"]')).not.toBeNull();
 
     // 缩窄到 lg 以下且 historyOpen=false：没有抽屉，欢迎态必须给出选择器。
     await act(async () => resize(600));
     await flush();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
-    expect(host.querySelector('[aria-label="选择专家"]')?.textContent).toContain('Expert');
-    expect(host.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
+    expect(host.querySelector('[aria-label^="选择专家"]')?.textContent).toContain('Expert');
+    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
       '未命名会话',
     ]);
@@ -541,8 +596,8 @@ describe('chat shell layout', () => {
     // 再放大回去：历史面板重新出现，选择器仍恰好一处。
     await act(async () => resize(1024));
     await flush();
-    expect(document.querySelector('[aria-label="选择专家"]')).not.toBeNull();
-    expect(document.querySelectorAll('[aria-label="选择专家"]')).toHaveLength(1);
+    expect(document.querySelector('[aria-label^="选择专家"]')).not.toBeNull();
+    expect(document.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
   });
 
   it('switches experts with an open conversation and starts fresh under the new expert', async () => {
@@ -594,7 +649,7 @@ describe('chat shell layout', () => {
     await flush();
     expect(host.textContent).toContain('old prompt');
 
-    const picker = host.querySelector<HTMLButtonElement>('[aria-label="选择专家"]');
+    const picker = host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
     if (!picker) throw new Error('Missing expert picker');
     expect(picker.disabled).toBe(false);
     await act(async () => picker.click());
@@ -916,6 +971,31 @@ describe('conversation header menu', () => {
       (button) => button.textContent?.trim() === label,
     );
   }
+  function discardDialog() {
+    return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((element) =>
+      element.textContent?.includes('放弃未保存的更改？'),
+    );
+  }
+  function discardButton(label: string) {
+    return [...(discardDialog()?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+      (button) => button.textContent?.trim() === label,
+    );
+  }
+  async function openRename() {
+    await openMenu();
+    await act(async () => menuItem('重命名')?.click());
+    await flush();
+    const input = dialog()?.querySelector<HTMLInputElement>('#conversation-title');
+    if (!input) throw new Error('Missing rename input');
+    return input;
+  }
+  async function editTitle(input: HTMLInputElement, title: string) {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, title);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
 
   it('keeps the full title while the menu button follows the truncated heading', async () => {
     await mount('/chat?agent=agent-a&conversation=conversation-a');
@@ -923,7 +1003,9 @@ describe('conversation header menu', () => {
     expect(heading?.textContent).toBe('History');
     expect(heading?.getAttribute('title')).toBe('History');
     expect(heading?.className).toContain('truncate');
-    expect(heading?.className).toContain('lg:max-w-[8em]');
+    expect(heading?.className).toContain('max-w-[8em]');
+    expect(heading?.className).not.toContain('max-w-[10em]');
+    expect(heading?.className).not.toContain('lg:max-w-');
     // 「…」紧跟标题，而不是被推到最右侧。
     expect(heading?.nextElementSibling?.contains(menuButton())).toBe(true);
   });
@@ -998,5 +1080,337 @@ describe('conversation header menu', () => {
     expect(router.state.location.search).toMatchObject({ conversation: 'conversation-a' });
     expect(headerTitle()?.textContent).toBe('History');
     expect(message().value).toBe('unfinished draft');
+  });
+
+  it('allows same-session search changes but blocks a conversation switch during rename', async () => {
+    browserHistory = createBrowserHistory();
+    browserHistory.push('/chat?agent=agent-a&conversation=conversation-a');
+    const router = await mount('/chat', browserHistory);
+    const input = await openRename();
+    await editTitle(input, 'Renamed draft');
+
+    // 同页只换成果：agent/conversation 没变，不卸载对话框，直接放行。
+    await act(async () => {
+      await router.navigate({
+        to: '/chat',
+        search: {
+          agent: 'agent-a',
+          conversation: 'conversation-a',
+          outputRun: 'run-old',
+          outputPath: 'report.md',
+          outputMode: 'read',
+        },
+      });
+    });
+    expect(discardDialog()).toBeUndefined();
+    expect(router.state.location.search).toMatchObject({ outputRun: 'run-old' });
+    expect(dialog()?.querySelector<HTMLInputElement>('#conversation-title')?.value).toBe(
+      'Renamed draft',
+    );
+
+    // 同页换专家同样会让工作区切走：也要拦下。
+    let switching: Promise<void> | undefined;
+    await act(async () => {
+      switching = router.navigate({
+        to: '/chat',
+        search: { agent: 'agent-b' },
+      }) as Promise<void>;
+    });
+    await flush();
+    expect(discardDialog()).toBeDefined();
+    expect(router.state.location.search).toMatchObject({ agent: 'agent-a' });
+    await act(async () => discardButton('取消')?.click());
+    await flush();
+    expect(discardDialog()).toBeUndefined();
+
+    // 同页换会话会让工作区切到别的对话：必须拦下。
+    await act(async () => {
+      switching = router.navigate({
+        to: '/chat',
+        search: { agent: 'agent-a', conversation: 'conversation-b' },
+      }) as Promise<void>;
+    });
+    await flush();
+    expect(discardDialog()).toBeDefined();
+    expect(router.state.location.search).toMatchObject({ conversation: 'conversation-a' });
+
+    // 取消：留在原会话，草稿不丢。被取消的导航不会提交，也不再等它的 promise。
+    await act(async () => discardButton('取消')?.click());
+    await flush();
+    expect(switching).toBeDefined();
+    expect(discardDialog()).toBeUndefined();
+    expect(router.state.location.search).toMatchObject({ conversation: 'conversation-a' });
+    expect(dialog()?.querySelector<HTMLInputElement>('#conversation-title')?.value).toBe(
+      'Renamed draft',
+    );
+
+    // 放弃并离开：导航放行，对话框一起收起。
+    await act(async () => {
+      switching = router.navigate({
+        to: '/chat',
+        search: { agent: 'agent-a', conversation: 'conversation-b' },
+      }) as Promise<void>;
+    });
+    await flush();
+    await act(async () => discardButton('放弃并离开')?.click());
+    await act(async () => {
+      await switching;
+    });
+    expect(router.state.location.search).toMatchObject({ conversation: 'conversation-b' });
+    expect(dialog()).toBeNull();
+  });
+
+  it('blocks browser back switching conversations during a dirty rename', async () => {
+    vi.mocked(api.conversation).mockImplementation(async (id) => ({
+      conversation: { id, agentId: 'agent-a', title: `History ${id}`, createdAt: '' },
+      runMetrics: [],
+      nextBefore: null,
+      messages: [
+        {
+          id: `message-${id}`,
+          conversationId: id,
+          role: 'user',
+          content: 'old prompt',
+          runId: null,
+          createdAt: '',
+        },
+      ],
+    }));
+    browserHistory = createBrowserHistory();
+    browserHistory.push('/chat?agent=agent-a&conversation=conversation-a');
+    browserHistory.flush();
+    browserHistory.push('/chat?agent=agent-a&conversation=conversation-b');
+    browserHistory.flush();
+    const router = await mount('/chat?agent=agent-a&conversation=conversation-b', browserHistory);
+    const input = await openRename();
+    await editTitle(input, 'Draft on B');
+
+    await act(async () => {
+      router.history.back();
+    });
+    await flush();
+    expect(discardDialog()).toBeDefined();
+    expect(router.state.location.search).toMatchObject({ conversation: 'conversation-b' });
+
+    await act(async () => discardButton('取消')?.click());
+    await flush();
+    expect(router.state.location.search).toMatchObject({ conversation: 'conversation-b' });
+    expect(dialog()?.querySelector<HTMLInputElement>('#conversation-title')?.value).toBe(
+      'Draft on B',
+    );
+
+    await act(async () => {
+      router.history.back();
+    });
+    await flush();
+    await act(async () => discardButton('放弃并离开')?.click());
+    await flush();
+    expect(router.state.location.search).toMatchObject({ conversation: 'conversation-a' });
+  });
+
+  it('blocks cross-page navigation and refresh during a dirty rename', async () => {
+    browserHistory = createBrowserHistory();
+    browserHistory.push('/chat?agent=agent-a&conversation=conversation-a');
+    const router = await mount('/chat', browserHistory);
+    const input = await openRename();
+    await editTitle(input, 'Renamed draft');
+
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    let leaving: Promise<void> | undefined;
+    await act(async () => {
+      leaving = router.navigate({ to: '/away' }) as Promise<void>;
+    });
+    await flush();
+    expect(discardDialog()).toBeDefined();
+    await act(async () => discardButton('放弃并离开')?.click());
+    await act(async () => {
+      await leaving;
+    });
+    expect(router.state.location.pathname).toBe('/away');
+  });
+
+  it('keeps the save pending guarded and settles the blocked leave after success', async () => {
+    let finish!: (value: Awaited<ReturnType<typeof api.renameConversation>>) => void;
+    vi.spyOn(api, 'renameConversation').mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    browserHistory = createBrowserHistory();
+    browserHistory.push('/chat?agent=agent-a&conversation=conversation-a');
+    const router = await mount('/chat', browserHistory);
+    const input = await openRename();
+    await editTitle(input, 'Renamed');
+    await act(async () => dialogButton('保存')?.click());
+    await flush();
+
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    let leaving: Promise<void> | undefined;
+    await act(async () => {
+      leaving = router.navigate({ to: '/away' }) as Promise<void>;
+    });
+    await flush();
+    expect(discardDialog()?.textContent).toContain('正在保存，请等待请求完成。');
+    expect(discardButton('放弃并离开')?.disabled).toBe(true);
+
+    await act(async () => finish({ ...terminal.conversation, title: 'Renamed', createdAt: '' }));
+    await flush();
+    await act(async () => {
+      await leaving;
+    });
+    expect(router.state.location.pathname).toBe('/away');
+  });
+
+  it('guards leaving while deletion is pending and never blocks its own navigation', async () => {
+    let finish!: () => void;
+    const remove = vi.spyOn(api, 'deleteConversation').mockReturnValue(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    browserHistory = createBrowserHistory();
+    browserHistory.push('/chat?agent=agent-a&conversation=conversation-a');
+    const router = await mount('/chat', browserHistory);
+    await type('unfinished draft');
+    await openMenu();
+    await act(async () => menuItem('删除会话')?.click());
+    await flush();
+    await act(async () => dialogButton('删除会话')?.click());
+    await flush();
+    expect(remove).toHaveBeenCalledWith('conversation-a');
+
+    // 删除中刷新受保护。
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    // 删除中离开会被拦下，且不提供离开确认。
+    let leaving: Promise<void> | undefined;
+    await act(async () => {
+      leaving = router.navigate({ to: '/away' }) as Promise<void>;
+    });
+    await flush();
+    const pendingLeave = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
+      (element) => element.textContent?.includes('正在删除会话'),
+    );
+    expect(pendingLeave).toBeDefined();
+    const leaveButton = [
+      ...(pendingLeave?.querySelectorAll<HTMLButtonElement>('button') ?? []),
+    ].find((button) => button.textContent?.trim() === '放弃并离开');
+    expect(leaveButton?.disabled).toBe(true);
+
+    // 删除成功：内部切到新会话不被自身拦住，挂起的离开导航作废。
+    await act(async () => finish());
+    await flush();
+    expect(leaving).toBeDefined();
+    expect(router.state.location.pathname).toBe('/chat');
+    expect(router.state.location.search).not.toMatchObject({ conversation: 'conversation-a' });
+    expect(headerTitle()?.textContent).toBe('未命名会话');
+    expect(message().value).toBe('unfinished draft');
+  });
+
+  it('settles the rename blocker after a successful save', async () => {
+    vi.spyOn(api, 'renameConversation').mockResolvedValue({
+      ...terminal.conversation,
+      title: 'Renamed',
+      createdAt: '',
+    });
+    const router = await mount('/chat?agent=agent-a&conversation=conversation-a');
+    const input = await openRename();
+    await editTitle(input, 'Renamed');
+    await act(async () => dialogButton('保存')?.click());
+    await flush();
+    expect(dialog()).toBeNull();
+
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(false);
+
+    await act(async () => {
+      await router.navigate({ to: '/away' });
+    });
+    expect(router.state.location.pathname).toBe('/away');
+  });
+});
+
+describe('live run question failures', () => {
+  it('keeps the loaded question, tool step and stop control while questions fail', async () => {
+    const question: PublicRunQuestion = {
+      requestId: 'qreq_live',
+      runId: 'run-live',
+      toolUseId: 'toolu_1',
+      questions: [
+        {
+          question: '选择部署环境',
+          header: '环境',
+          options: [
+            { value: '0', label: '预发', description: '' },
+            { value: '1', label: '生产', description: '' },
+          ],
+          multiSelect: false,
+        },
+      ],
+      status: 'pending',
+      answers: null,
+      createdAt: '2026-10-28T00:00:00.000Z',
+      resolvedAt: null,
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      closeReason: null,
+    };
+    vi.spyOn(api, 'runQuestions').mockRejectedValue(new Error('questions offline'));
+    vi.mocked(api.runApprovals).mockResolvedValue({ items: [] });
+    // 历史仍在加载：保留 store 里的实时项，不让历史回填覆盖本轮步骤。
+    vi.mocked(api.conversation).mockReturnValue(new Promise(() => {}));
+    client
+      .getQueryCache()
+      .build(client, { queryKey: runQuestionsQueryKey('run-live') })
+      .setState({
+        data: { items: [question] },
+        dataUpdatedAt: 0,
+        status: 'success',
+        error: null,
+        fetchStatus: 'idle',
+      });
+    useChatStore.setState({
+      conversationId: 'conversation-a',
+      items: [
+        { kind: 'tool', toolUseId: 'toolu_1', name: 'AskUserQuestion', startedAt: 1 },
+        { kind: 'tool', toolUseId: 'toolu_2', name: 'Read', startedAt: 2 },
+      ],
+      run: {
+        runId: 'run-live',
+        conversationId: 'conversation-a',
+        status: 'streaming',
+        startedAt: Date.now(),
+      },
+    });
+    await mount('/chat?agent=agent-a&conversation=conversation-a');
+    await act(async () => {
+      await vi.waitFor(() => expect(host.textContent).toContain('questions offline'));
+    });
+
+    expect(host.textContent).toContain('提问状态没有加载出来');
+    expect(host.textContent).toContain('选择部署环境');
+    expect(host.textContent).toContain('Read');
+    expect(host.querySelector('button[aria-label="停止运行"]')).not.toBeNull();
+    expect(host.textContent).toContain('提交回答');
+
+    const before = vi.mocked(api.runQuestions).mock.calls.length;
+    const retry = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === '重试',
+    );
+    if (!retry) throw new Error('Missing question retry');
+    await act(async () => retry.click());
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(vi.mocked(api.runQuestions).mock.calls.length).toBeGreaterThan(before),
+      );
+    });
   });
 });

@@ -919,7 +919,7 @@ describe('output refresh and conversation isolation', () => {
     if (!toggle) throw new Error('Missing history toggle');
     await act(async () => toggle.click());
     await flush();
-    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="选择专家"]');
+    const picker = host.querySelector<HTMLButtonElement>('button[aria-label^="选择专家"]');
     if (!picker) throw new Error('Missing expert picker');
     await act(async () => picker.click());
     await flush();

@@ -4,7 +4,7 @@ import type {
   KnowledgeSearchHit,
   KnowledgeSourceInput,
 } from '@agentport/shared';
-import { useQueryClient } from '@tanstack/react-query';
+import { type Query, useQueries, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
@@ -81,6 +81,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import {
+  ApiError,
   api,
   errorMessage,
   type KnowledgeChunk,
@@ -173,6 +174,15 @@ const jobStatusLabel = {
   cancelled: '已取消',
 } as const;
 
+function isTerminalJobStatus(status: string | undefined): boolean {
+  return status === 'succeeded' || status === 'failed' || status === 'cancelled';
+}
+
+/** 删除来源会级联删除它的任务：详情 404 表示任务已不存在，不是暂时故障。 */
+function isMissingJob(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
 const jobStatusTone = {
   queued: 'default',
   running: 'warn',
@@ -243,6 +253,63 @@ const pageStatusLabel = {
   stale: '待刷新',
   failed: '生成失败',
 } as const;
+
+/** 弹层草稿保护：dirty 关闭先确认，pending 期间禁止关闭与路由离开。 */
+function useDraftGuard(dirty: boolean, pending: boolean, onClose: () => void) {
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const blocker = useFormBlocker(dirty, pending);
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则其 resolver 永远挂着。
+  const finish = (): void => {
+    blockerRef.current.reset?.();
+    onClose();
+  };
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) setConfirmDiscard(true);
+    else finish();
+  };
+  return { blocker, confirmDiscard, setConfirmDiscard, finish, close };
+}
+
+/** 弹层内统一的放弃草稿与路由离开确认。 */
+function DraftGuardDialogs({
+  guard,
+  draft,
+  pending,
+}: {
+  guard: ReturnType<typeof useDraftGuard>;
+  draft: string;
+  pending: boolean;
+}) {
+  return (
+    <>
+      <ConfirmDialog
+        open={guard.confirmDiscard}
+        onClose={() => guard.setConfirmDiscard(false)}
+        title="放弃未保存的更改？"
+        description={`关闭后${draft}`}
+        confirmLabel="放弃并关闭"
+        confirmDisabled={pending}
+        onConfirm={async () => {
+          if (!pending) guard.finish();
+        }}
+      />
+      <ConfirmDialog
+        open={guard.blocker.status === 'blocked'}
+        onClose={() => guard.blocker.reset?.()}
+        title="放弃未保存的更改？"
+        description={pending ? '正在保存，请等待请求完成。' : `离开后${draft}`}
+        confirmLabel="放弃并离开"
+        confirmDisabled={pending}
+        onConfirm={async () => guard.blocker.proceed()}
+      />
+    </>
+  );
+}
 
 export function KnowledgeDetailPage() {
   const { baseId } = useParams({ from: '/_shell/knowledge/$baseId' });
@@ -358,12 +425,24 @@ function DocumentsTab({
   const [folderDialog, setFolderDialog] = useState<
     { mode: 'create'; parentId: string | null } | { mode: 'rename'; folder: KnowledgeFolder } | null
   >(null);
+  // 创建成功的弹层卸载、blocker 注销后才切 URL：同一 tick 内导航仍会被旧的 dirty/pending 拦下。
+  const [createdFolder, setCreatedFolder] = useState<string | null>(null);
+  useEffect(() => {
+    if (folderDialog !== null || createdFolder === null) return;
+    onFolderChange(createdFolder);
+    setCreatedFolder(null);
+  }, [createdFolder, folderDialog, onFolderChange]);
   const [deletingFolder, setDeletingFolder] = useState<KnowledgeFolder | null>(null);
   const [managingTags, setManagingTags] = useState(false);
   const [folderTrigger, setFolderTrigger] = useState<HTMLElement | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [urlOpen, setUrlOpen] = useState(false);
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
+  // 上传批次结束前不卸载这个面板：切页签、换文件夹或离开路由都会丢失批次状态。
+  const uploadBlocker = useFormBlocker(false, uploading !== null);
+  useEffect(() => {
+    if (uploading === null && uploadBlocker.status === 'blocked') uploadBlocker.proceed();
+  }, [uploading, uploadBlocker]);
 
   // 列表查到更新的对象时刷新快照：之后列表暂时不含该文档，也能显示最近一次看到的内容。
   const viewingMatch = viewing ? documentItems.find((item) => item.id === viewing.id) : undefined;
@@ -380,6 +459,15 @@ function DocumentsTab({
       : documentItems;
 
   const targetFolderId = folderId === undefined || folderId === 'null' ? null : folderId;
+  // 任一筛选生效时，空结果给「清除筛选」而不是「还没有文档」的误导。
+  const filtersActive =
+    settledQuery !== '' || status !== 'all' || tag !== 'all' || folderId !== undefined;
+  const clearFilters = (): void => {
+    setQuery('');
+    setStatus('all');
+    setTag('all');
+    onFolderChange(undefined);
+  };
 
   /**
    * 多文件按顺序上传：每个文件单独一个请求（后端只收单文件），
@@ -551,6 +639,11 @@ function DocumentsTab({
                 className="w-36"
               />
             ) : null}
+            {tags.isError ? (
+              <Button variant="link" size="xs" onClick={() => void tags.refetch()}>
+                标签没有加载出来，重试
+              </Button>
+            ) : null}
           </div>
           <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
             <SearchInput
@@ -641,11 +734,17 @@ function DocumentsTab({
         {documents.isSuccess && documentItems.length === 0 ? (
           <EmptyState
             icon={<FileText className="size-5" />}
-            title={settledQuery ? '没有匹配的文档' : '还没有文档'}
+            title={filtersActive ? '没有匹配的文档' : '还没有文档'}
             action={
-              <Button variant="outline" size="sm" onClick={() => uploadInput.current?.click()}>
-                <Upload data-icon="inline-start" aria-hidden="true" /> 上传文件
-              </Button>
+              filtersActive ? (
+                <Button variant="outline" size="sm" onClick={clearFilters}>
+                  清除筛选
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => uploadInput.current?.click()}>
+                  <Upload data-icon="inline-start" aria-hidden="true" /> 上传文件
+                </Button>
+              )
             }
           />
         ) : null}
@@ -806,7 +905,7 @@ function DocumentsTab({
             finalFocus={() => (folderTrigger?.isConnected ? folderTrigger : null)}
             onCreated={(folder) => {
               setFolderDialog(null);
-              onFolderChange(folder.id);
+              setCreatedFolder(folder.id);
             }}
             onClose={() => setFolderDialog(null)}
           />
@@ -842,6 +941,15 @@ function DocumentsTab({
             onClose={() => setUrlOpen(false)}
           />
         ) : null}
+        <ConfirmDialog
+          open={uploadBlocker.status === 'blocked'}
+          title="上传尚未完成"
+          description="文件正在上传；批次结束前不能切换页签或离开知识库。"
+          confirmLabel="继续离开"
+          confirmDisabled={uploading !== null}
+          onClose={() => uploadBlocker.reset?.()}
+          onConfirm={async () => uploadBlocker.proceed()}
+        />
       </div>
     </div>
   );
@@ -862,11 +970,13 @@ function FolderDialog({
 }) {
   const create = useCreateKnowledgeFolder(baseId);
   const update = useUpdateKnowledgeFolder(baseId);
-  const [name, setName] = useState(state.mode === 'rename' ? state.folder.name : '');
+  const initialName = state.mode === 'rename' ? state.folder.name : '';
+  const [name, setName] = useState(initialName);
   const pending = create.isPending || update.isPending;
   const trimmed = name.trim();
   const unchanged = state.mode === 'rename' && trimmed === state.folder.name;
   const title = state.mode === 'rename' ? '重命名文件夹' : '新建文件夹';
+  const guard = useDraftGuard(name !== initialName, pending, onClose);
 
   const submit = (): void => {
     if (state.mode === 'rename') {
@@ -875,7 +985,7 @@ function FolderDialog({
         {
           onSuccess: () => {
             toastSuccess('文件夹已重命名');
-            onClose();
+            guard.finish();
           },
           onError: toastError,
         },
@@ -887,6 +997,8 @@ function FolderDialog({
       {
         onSuccess: (folder) => {
           toastSuccess('文件夹已创建');
+          // 先解除本弹层的离开拦截，再让父级切到新文件夹。
+          guard.finish();
           onCreated(folder);
         },
         onError: toastError,
@@ -902,7 +1014,7 @@ function FolderDialog({
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title={title} closeDisabled={pending} finalFocus={finalFocus}>
@@ -926,7 +1038,7 @@ function FolderDialog({
             />
           </Field>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button
@@ -938,6 +1050,7 @@ function FolderDialog({
             </Button>
           </div>
         </form>
+        <DraftGuardDialogs guard={guard} draft="文件夹名称草稿会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -951,6 +1064,7 @@ function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void })
   const [deleting, setDeleting] = useState<KnowledgeTag | null>(null);
   const trimmed = name.trim();
   const pending = create.isPending || remove.isPending;
+  const guard = useDraftGuard(trimmed !== '', pending, onClose);
 
   return (
     <>
@@ -961,7 +1075,7 @@ function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void })
             details.cancel();
             return;
           }
-          if (!next) onClose();
+          if (!next) guard.close();
         }}
       >
         <DialogShell title="管理标签" closeDisabled={pending}>
@@ -1018,6 +1132,7 @@ function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void })
               ))}
             </ul>
           ) : null}
+          <DraftGuardDialogs guard={guard} draft="标签草稿会丢失。" pending={pending} />
         </DialogShell>
       </Dialog>
       {deleting ? (
@@ -1423,8 +1538,8 @@ function DocumentViewer({
 
               <PageSection title="解析正文" divided={false}>
                 {!versionId ? <InlineEmpty>还没有解析完成的版本</InlineEmpty> : null}
-                {markdown.isPending ? <LoadingState rows={3} /> : null}
-                {markdown.isError ? (
+                {versionId && markdown.isPending ? <LoadingState rows={3} /> : null}
+                {versionId && markdown.isError ? (
                   <ErrorState error={markdown.error} onRetry={() => void markdown.refetch()} />
                 ) : null}
                 {markdown.data ? (
@@ -1462,11 +1577,11 @@ function DocumentViewer({
 
               <PageSection title="分块">
                 {!versionId ? <InlineEmpty>还没有分块</InlineEmpty> : null}
-                {chunks.isPending ? <LoadingState rows={3} /> : null}
-                {chunks.isError ? (
+                {versionId && chunks.isPending ? <LoadingState rows={3} /> : null}
+                {versionId && chunks.isError ? (
                   <ErrorState error={chunks.error} onRetry={() => void chunks.refetch()} />
                 ) : null}
-                {chunks.isSuccess && chunkItems.length === 0 ? (
+                {versionId && chunks.isSuccess && chunkItems.length === 0 ? (
                   <InlineEmpty>还没有分块</InlineEmpty>
                 ) : null}
                 {chunkItems.length > 0 ? (
@@ -1910,9 +2025,12 @@ function ManualDocumentDialog({
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [tags, setTags] = useState('');
-  const [target, setTarget] = useState(folderId ?? 'null');
+  const initialTarget = folderId ?? 'null';
+  const [target, setTarget] = useState(initialTarget);
   const pending = create.isPending;
   const invalid = title.trim() === '' || content.trim() === '';
+  const dirty = title !== '' || content !== '' || tags !== '' || target !== initialTarget;
+  const guard = useDraftGuard(dirty, pending, onClose);
 
   return (
     <Dialog
@@ -1922,7 +2040,7 @@ function ManualDocumentDialog({
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title="手写文档" closeDisabled={pending}>
@@ -1943,7 +2061,7 @@ function ManualDocumentDialog({
               {
                 onSuccess: () => {
                   toastSuccess('已创建手写文档，正在解析');
-                  onClose();
+                  guard.finish();
                 },
                 onError: toastError,
               },
@@ -1995,7 +2113,7 @@ function ManualDocumentDialog({
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button type="submit" disabled={pending || invalid} aria-busy={pending}>
@@ -2003,6 +2121,7 @@ function ManualDocumentDialog({
             </Button>
           </div>
         </form>
+        <DraftGuardDialogs guard={guard} draft="手写文档草稿会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -2021,10 +2140,14 @@ function UrlImportDialog({
 }) {
   const create = useImportKnowledgeUrl(baseId);
   const [url, setUrl] = useState('');
-  const [target, setTarget] = useState(folderId ?? 'null');
+  const initialTarget = folderId ?? 'null';
+  const [target, setTarget] = useState(initialTarget);
   const pending = create.isPending;
   // 后端 httpUrlSchema 只收 http(s)；这里只做按钮可用性判断，最终由入口校验。
   const validUrl = /^https?:\/\/\S+$/i.test(url.trim());
+  const invalidUrl = url.trim() !== '' && !validUrl;
+  const dirty = url.trim() !== '' || target !== initialTarget;
+  const guard = useDraftGuard(dirty, pending, onClose);
 
   return (
     <Dialog
@@ -2034,7 +2157,7 @@ function UrlImportDialog({
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title="导入网址" closeDisabled={pending}>
@@ -2050,7 +2173,7 @@ function UrlImportDialog({
               {
                 onSuccess: () => {
                   toastSuccess('已提交抓取任务');
-                  onClose();
+                  guard.finish();
                 },
                 onError: toastError,
               },
@@ -2058,7 +2181,7 @@ function UrlImportDialog({
           }}
         >
           <FieldGroup>
-            <Field className="gap-1.5" data-invalid={!validUrl && url !== ''}>
+            <Field className="gap-1.5" data-invalid={invalidUrl}>
               <FieldLabel htmlFor="knowledge-url">
                 网址 <RequiredMark />
               </FieldLabel>
@@ -2069,9 +2192,18 @@ function UrlImportDialog({
                 disabled={pending}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://example.com/doc"
-                aria-invalid={!validUrl && url !== ''}
+                aria-invalid={invalidUrl}
+                aria-describedby={invalidUrl ? 'knowledge-url-error' : 'knowledge-url-hint'}
               />
-              <FieldDescription>支持网页、PDF 与纯文本类文件，最大 32 MB。</FieldDescription>
+              {invalidUrl ? (
+                <FieldError id="knowledge-url-error">
+                  请填写以 http:// 或 https:// 开头的完整地址
+                </FieldError>
+              ) : (
+                <FieldDescription id="knowledge-url-hint">
+                  支持网页、PDF 与纯文本类文件，最大 32 MB。
+                </FieldDescription>
+              )}
             </Field>
             <ImportFolderField
               id="knowledge-url-folder"
@@ -2082,7 +2214,7 @@ function UrlImportDialog({
             />
           </FieldGroup>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button type="submit" disabled={pending || !validUrl} aria-busy={pending}>
@@ -2090,6 +2222,7 @@ function UrlImportDialog({
             </Button>
           </div>
         </form>
+        <DraftGuardDialogs guard={guard} draft="网址导入草稿会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -2221,6 +2354,13 @@ function WikiTab({
   const pages = useKnowledgeWikiPages(baseId);
   useDrainPages(pages);
   const [creating, setCreating] = useState(false);
+  // 等弹层卸载、blocker 注销后再选中新页面，避免导航被创建弹层的旧 dirty/pending 拦下。
+  const [createdPage, setCreatedPage] = useState<string | null>(null);
+  useEffect(() => {
+    if (creating || createdPage === null) return;
+    onSelect(createdPage);
+    setCreatedPage(null);
+  }, [createdPage, creating, onSelect]);
 
   return (
     <div className="grid min-w-0 gap-5 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
@@ -2289,8 +2429,8 @@ function WikiTab({
           baseId={baseId}
           onClose={() => setCreating(false)}
           onCreated={(page) => {
-            onSelect(page.id);
             setCreating(false);
+            setCreatedPage(page.id);
           }}
         />
       ) : null}
@@ -2588,6 +2728,7 @@ function WikiMarkdownDialog({
   const [error, setError] = useState<string | null>(null);
   const [confirmReload, setConfirmReload] = useState(false);
   const pending = save.isPending;
+  const guard = useDraftGuard(value !== markdown, pending, onClose);
 
   return (
     <>
@@ -2598,7 +2739,7 @@ function WikiMarkdownDialog({
             details.cancel();
             return;
           }
-          if (!next) onClose();
+          if (!next) guard.close();
         }}
       >
         <DialogShell title="编辑 Wiki 正文" closeDisabled={pending}>
@@ -2612,7 +2753,7 @@ function WikiMarkdownDialog({
                 {
                   onSuccess: () => {
                     toastSuccess('Wiki 已发布为新版本');
-                    onClose();
+                    guard.finish();
                   },
                   onError: (reason) => {
                     // 保留草稿；别人已发布新版本时由用户确认后再重新加载。
@@ -2646,7 +2787,7 @@ function WikiMarkdownDialog({
                   重新加载
                 </Button>
               ) : null}
-              <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
+              <Button type="button" variant="outline" onClick={guard.close} disabled={pending}>
                 取消
               </Button>
               <Button
@@ -2658,6 +2799,7 @@ function WikiMarkdownDialog({
               </Button>
             </div>
           </form>
+          <DraftGuardDialogs guard={guard} draft="Wiki 正文草稿会丢失。" pending={pending} />
         </DialogShell>
       </Dialog>
       <ConfirmDialog
@@ -2689,6 +2831,7 @@ function CreateWikiPageDialog({
   const [title, setTitle] = useState('');
   const slugValid = /^[a-z0-9][a-z0-9-_]*$/.test(slug);
   const pending = create.isPending;
+  const guard = useDraftGuard(slug !== '' || title !== '', pending, onClose);
 
   return (
     <Dialog
@@ -2698,7 +2841,7 @@ function CreateWikiPageDialog({
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title="新建 Wiki 页面" closeDisabled={pending}>
@@ -2711,6 +2854,7 @@ function CreateWikiPageDialog({
               {
                 onSuccess: (page) => {
                   toastSuccess('Wiki 页面已创建');
+                  guard.finish();
                   onCreated(page);
                 },
                 onError: toastError,
@@ -2738,16 +2882,18 @@ function CreateWikiPageDialog({
                 id="wiki-slug"
                 value={slug}
                 disabled={pending}
+                aria-invalid={slug !== '' && !slugValid}
+                aria-describedby={slug !== '' && !slugValid ? 'wiki-slug-error' : undefined}
                 onChange={(event) => setSlug(event.target.value)}
                 className="font-mono"
               />
               {slug !== '' && !slugValid ? (
-                <FieldError>仅允许小写字母、数字、- 和 _</FieldError>
+                <FieldError id="wiki-slug-error">仅允许小写字母、数字、- 和 _</FieldError>
               ) : null}
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button
@@ -2759,6 +2905,7 @@ function CreateWikiPageDialog({
             </Button>
           </div>
         </form>
+        <DraftGuardDialogs guard={guard} draft="Wiki 页面草稿会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -2772,11 +2919,77 @@ function SourcesTab({ baseId }: { baseId: string }) {
   const remove = useDeleteKnowledgeSource(baseId);
   const test = useTestKnowledgeSource();
   const sync = useSyncKnowledgeSource(baseId);
+  const jobs = useKnowledgeJobs(baseId);
+  const client = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeSource | null>(null);
   const [deleteDocuments, setDeleteDocuments] = useState(false);
   const [editing, setEditing] = useState<KnowledgeSource | null>(null);
+  const [syncJobs, setSyncJobs] = useState<Array<{ id: string; sourceId: string }>>([]);
+  const settledJobs = useRef(new Set<string>());
+  // 自动 Wiki、批量上传等任务会把刚提交的同步任务挤出任务列表前 50 条，只看列表会永远等不到终态。
+  // 列表里缺失的任务改用 GET jobs/:id 定向轮询，终态后与列表中的任务走同一套失效。
+  const missingSyncJobs = syncJobs.filter(
+    (entry) =>
+      !settledJobs.current.has(entry.id) && !jobs.data?.some((item) => item.id === entry.id),
+  );
+  const syncJobDetails = useQueries({
+    queries: missingSyncJobs.map((entry) => ({
+      queryKey: knowledgeKeys.job(entry.id),
+      queryFn: () => api.knowledgeJob(entry.id),
+      // 任务已不存在时重试无意义；网络与 5xx 仍按默认重试一次后继续轮询。
+      retry: (failureCount: number, error: unknown) => !isMissingJob(error) && failureCount < 1,
+      refetchInterval: (query: Query<KnowledgeJob>) =>
+        isTerminalJobStatus(query.state.data?.status) || isMissingJob(query.state.error)
+          ? false
+          : 2_000,
+    })),
+  });
+  const knownSyncJobs = new Map<string, KnowledgeJob>();
+  for (const item of jobs.data ?? []) knownSyncJobs.set(item.id, item);
+  missingSyncJobs.forEach((entry, index) => {
+    const job = syncJobDetails[index]?.data;
+    if (job) knownSyncJobs.set(entry.id, job);
+  });
+
+  // 任务随来源一起被删时 404：停止跟踪并提示刷新，不把缺失当完成，也不无限轮询。
+  useEffect(() => {
+    const gone = missingSyncJobs.filter((entry, index) => {
+      if (settledJobs.current.has(entry.id)) return false;
+      return isMissingJob(syncJobDetails[index]?.error);
+    });
+    if (gone.length === 0) return;
+    for (const entry of gone) settledJobs.current.add(entry.id);
+    setSyncJobs((previous) =>
+      previous.filter((entry) => !gone.some((item) => item.id === entry.id)),
+    );
+    toast.warning('同步任务已不存在，可能来源已删除；请刷新来源列表');
+  }, [missingSyncJobs, syncJobDetails]);
+
+  // 同步任务跨过终态时在页面内失效一次受影响的查询；任务列表本身继续轮询。
+  useEffect(() => {
+    if (syncJobs.length === 0) return;
+    const finished = syncJobs.filter((entry) => {
+      if (settledJobs.current.has(entry.id)) return false;
+      const job = knownSyncJobs.get(entry.id);
+      return job !== undefined && isTerminalJobStatus(job.status);
+    });
+    if (finished.length === 0) return;
+    for (const entry of finished) {
+      settledJobs.current.add(entry.id);
+      void client.invalidateQueries({ queryKey: knowledgeKeys.sourceRuns(entry.sourceId) });
+    }
+    void client.invalidateQueries({ queryKey: knowledgeKeys.sources(baseId) });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+    const failedJob = finished
+      .map((entry) => knownSyncJobs.get(entry.id))
+      .find((job) => job?.status === 'failed');
+    if (failedJob) {
+      toastError(new Error(failedJob.error ?? '来源同步失败，已保留失败原因，可修正后重试'));
+    }
+  }, [baseId, client, knownSyncJobs, syncJobs]);
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -2889,8 +3102,12 @@ function SourcesTab({ baseId }: { baseId: string }) {
                         }
                         onClick={() =>
                           sync.mutate(source.id, {
-                            onSuccess: () => {
+                            onSuccess: (result) => {
                               setSelected(source.id);
+                              setSyncJobs((previous) => [
+                                ...previous,
+                                { id: result.jobId, sourceId: source.id },
+                              ]);
                               toastSuccess('已提交同步任务');
                             },
                             onError: toastError,
@@ -3047,6 +3264,21 @@ function rangeIssue(type: SourceType, ranges: RangeDraft[]): string | null {
   return null;
 }
 
+/** 来源弹层的草稿签名：关闭确认只比较真实字段，不依赖输入框注册顺序。 */
+function sourceDraftSignature(input: {
+  type: SourceType;
+  name: string;
+  secret: string;
+  appId: string;
+  baseUrl: string;
+  cron: string;
+  syncDeletions: boolean;
+  status: KnowledgeSource['status'];
+  ranges: RangeDraft[];
+}): string {
+  return JSON.stringify(input);
+}
+
 /** 列表行的目标摘要：仓库@ref / 飞书范围 / Feed，并带上 cron。 */
 function sourceTargetSummary(source: KnowledgeSource): string {
   const summary = source.ranges
@@ -3073,11 +3305,14 @@ function RangeRows({
   type,
   ranges,
   disabled,
+  errors,
   onChange,
 }: {
   type: SourceType;
   ranges: RangeDraft[];
   disabled: boolean;
+  /** 提交后按行显示缺外部 ID / Ref；未提交时不制造噪音。 */
+  errors: Array<{ externalId: string | null; ref: string | null }>;
   onChange: (ranges: RangeDraft[]) => void;
 }) {
   const kinds = rangeKinds[type];
@@ -3143,7 +3378,7 @@ function RangeRows({
                 </Select>
               </Field>
             ) : null}
-            <Field className="gap-1.5">
+            <Field className="gap-1.5" data-invalid={errors[index]?.externalId !== null}>
               <FieldLabel htmlFor={`source-range-${index}-external`}>
                 {rangeExternalLabel(range.kind)} <RequiredMark />
               </FieldLabel>
@@ -3151,14 +3386,23 @@ function RangeRows({
                 id={`source-range-${index}-external`}
                 value={range.externalId}
                 disabled={disabled}
+                aria-invalid={errors[index]?.externalId !== null}
+                aria-describedby={
+                  errors[index]?.externalId !== null
+                    ? `source-range-${index}-external-error`
+                    : undefined
+                }
                 onChange={(event) => patch(index, { externalId: event.target.value })}
                 placeholder={range.kind === 'github_repo' ? 'owner/repo' : undefined}
                 className="font-mono"
               />
+              <FieldError id={`source-range-${index}-external-error`}>
+                {errors[index]?.externalId}
+              </FieldError>
             </Field>
             {type === 'github' || type === 'gitlab' ? (
               <>
-                <Field className="gap-1.5">
+                <Field className="gap-1.5" data-invalid={errors[index]?.ref !== null}>
                   <FieldLabel htmlFor={`source-range-${index}-ref`}>
                     Ref {type === 'gitlab' ? <RequiredMark /> : null}
                   </FieldLabel>
@@ -3166,10 +3410,17 @@ function RangeRows({
                     id={`source-range-${index}-ref`}
                     value={range.ref ?? ''}
                     disabled={disabled}
+                    aria-invalid={errors[index]?.ref !== null}
+                    aria-describedby={
+                      errors[index]?.ref !== null ? `source-range-${index}-ref-error` : undefined
+                    }
                     onChange={(event) => patch(index, { ref: event.target.value.trim() || null })}
                     placeholder={type === 'github' ? '留空使用默认分支' : '例如 main'}
                     className="font-mono"
                   />
+                  <FieldError id={`source-range-${index}-ref-error`}>
+                    {errors[index]?.ref}
+                  </FieldError>
                 </Field>
                 <Field className="gap-1.5 sm:col-span-2">
                   <FieldLabel htmlFor={`source-range-${index}-paths`}>Paths</FieldLabel>
@@ -3245,34 +3496,93 @@ function SourceDialog({
       ? source.ranges.map(({ id, ...range }) => ({ ...range, clientId: id }))
       : [newRangeDraft(rangeKinds.feishu_wiki[0] as RangeKind)],
   );
+  const [submitted, setSubmitted] = useState(false);
+  const [confirmSwitch, setConfirmSwitch] = useState(false);
+  const [baseline, setBaseline] = useState(() =>
+    sourceDraftSignature({
+      type: source ? source.type : 'feishu_wiki',
+      name: source?.name ?? '',
+      secret: '',
+      appId: configString(source, 'appId'),
+      baseUrl: configString(source, 'baseUrl'),
+      cron: source?.syncCron ?? '',
+      syncDeletions: source?.config.syncDeletions === true,
+      status: source?.status ?? 'active',
+      ranges,
+    }),
+  );
   const provider = sourceProvider(type);
   const ProviderIcon = provider.icon;
   const credential = credentialField(type);
   const secretRequired = credential !== null && !(editing && source.hasSecret);
   const issue = rangeIssue(type, ranges);
-  const connectionReady =
-    type === 'feishu_wiki' || type === 'feishu_drive'
-      ? appId.trim() !== ''
-      : type === 'gitlab'
-        ? baseUrl.trim() !== ''
-        : true;
-  const ready =
-    name.trim() !== '' &&
-    issue === null &&
-    connectionReady &&
-    (credential === null || secret !== '' || (editing && source.hasSecret));
   const normalized = ranges.map(toRangeInput);
   const syncCron = cron.trim() === '' ? null : cron.trim();
+  const dirty =
+    step === 'configure' &&
+    sourceDraftSignature({
+      type,
+      name,
+      secret,
+      appId,
+      baseUrl,
+      cron,
+      syncDeletions,
+      status,
+      ranges,
+    }) !== baseline;
+  const guard = useDraftGuard(dirty, pending, onClose);
+  const fieldIssues = {
+    name: name.trim() === '' ? '请填写来源名称' : null,
+    appId:
+      type === 'feishu_wiki' || type === 'feishu_drive'
+        ? appId.trim() === ''
+          ? '请填写 App ID'
+          : null
+        : null,
+    baseUrl: type === 'gitlab' && baseUrl.trim() === '' ? '请填写实例 URL' : null,
+    secret: secretRequired && secret === '' ? `请填写 ${credential.label}` : null,
+  };
+  const rowIssues = ranges.map((range) => ({
+    externalId: range.externalId.trim() === '' ? `请填写${rangeExternalLabel(range.kind)}` : null,
+    ref: type === 'gitlab' && !range.ref?.trim() ? '请填写 Ref' : null,
+  }));
+  const hasSubmitIssue =
+    Object.values(fieldIssues).some(Boolean) ||
+    rowIssues.some((row) => row.externalId !== null || row.ref !== null) ||
+    issue !== null;
 
   // 各类型的范围 kind 与外键含义不同，切换类型时整套重建，不能把旧行带过去；
   // 凭证与连接地址也只属于原类型，必须清空。
   const chooseType = (next: SourceType): void => {
+    const nextRanges = [newRangeDraft(rangeKinds[next][0] as RangeKind)];
     setType(next);
     setSecret('');
     setBaseUrl('');
     setAppId('');
-    setRanges([newRangeDraft(rangeKinds[next][0] as RangeKind)]);
+    setRanges(nextRanges);
     setStep('configure');
+    setSubmitted(false);
+    // 选类型本身不算草稿；只有真正改过字段才需要离开确认。
+    setBaseline(
+      sourceDraftSignature({
+        type: next,
+        name,
+        secret: '',
+        appId: '',
+        baseUrl: '',
+        cron,
+        syncDeletions,
+        status,
+        ranges: nextRanges,
+      }),
+    );
+  };
+
+  const requestChooseType = (): void => {
+    if (pending) return;
+    if (dirty) setConfirmSwitch(true);
+    else setStep('choose');
   };
 
   const buildConfig = (): Record<string, unknown> => {
@@ -3367,7 +3677,7 @@ function SourceDialog({
 
   const secretInput =
     credential === null ? null : (
-      <Field className="gap-1.5">
+      <Field className="gap-1.5" data-invalid={submitted && fieldIssues.secret !== null}>
         <FieldLabel htmlFor="knowledge-source-secret">
           {credential.label} {secretRequired ? <RequiredMark /> : null}
         </FieldLabel>
@@ -3377,9 +3687,16 @@ function SourceDialog({
           value={secret}
           autoComplete="off"
           disabled={pending}
+          aria-invalid={submitted && fieldIssues.secret !== null}
+          aria-describedby={
+            submitted && fieldIssues.secret ? 'knowledge-source-secret-error' : undefined
+          }
           onChange={(event) => setSecret(event.target.value)}
           placeholder={editing ? (source.hasSecret ? '留空保持原凭证' : '填写凭证') : '填写凭据'}
         />
+        <FieldError id="knowledge-source-secret-error">
+          {submitted ? fieldIssues.secret : null}
+        </FieldError>
         {type === 'github' ? (
           <FieldDescription>需要 Contents 只读权限；私有仓库还需 Metadata 只读。</FieldDescription>
         ) : null}
@@ -3394,7 +3711,7 @@ function SourceDialog({
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) guard.close();
       }}
     >
       <DialogShell
@@ -3404,16 +3721,19 @@ function SourceDialog({
       >
         <form
           className="flex flex-col gap-4"
+          noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (!ready) return;
+            if (pending) return;
+            setSubmitted(true);
+            if (hasSubmitIssue) return;
             if (source) {
               update.mutate(
                 { sourceId: source.id, patch: buildPatch(source) },
                 {
                   onSuccess: () => {
                     toastSuccess('来源已更新');
-                    onClose();
+                    guard.finish();
                   },
                   onError: toastError,
                 },
@@ -3423,7 +3743,7 @@ function SourceDialog({
             create.mutate(buildInput(), {
               onSuccess: () => {
                 toastSuccess('来源已创建');
-                onClose();
+                guard.finish();
               },
               onError: toastError,
             });
@@ -3467,7 +3787,8 @@ function SourceDialog({
                     variant="ghost"
                     size="xs"
                     className="ml-auto"
-                    onClick={() => setStep('choose')}
+                    disabled={pending}
+                    onClick={requestChooseType}
                   >
                     更换来源
                   </Button>
@@ -3476,7 +3797,10 @@ function SourceDialog({
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium text-fg">连接</span>
                 <FieldGroup className="grid gap-3 sm:grid-cols-2">
-                  <Field className={cn('gap-1.5', !editing && 'sm:col-span-2')}>
+                  <Field
+                    className={cn('gap-1.5', !editing && 'sm:col-span-2')}
+                    data-invalid={submitted && fieldIssues.name !== null}
+                  >
                     <FieldLabel htmlFor="source-name">
                       名称 <RequiredMark />
                     </FieldLabel>
@@ -3485,8 +3809,15 @@ function SourceDialog({
                       value={name}
                       maxLength={120}
                       disabled={pending}
+                      aria-invalid={submitted && fieldIssues.name !== null}
+                      aria-describedby={
+                        submitted && fieldIssues.name ? 'source-name-error' : undefined
+                      }
                       onChange={(event) => setName(event.target.value)}
                     />
+                    <FieldError id="source-name-error">
+                      {submitted ? fieldIssues.name : null}
+                    </FieldError>
                   </Field>
                   {editing ? (
                     <Field className="gap-1.5">
@@ -3526,7 +3857,10 @@ function SourceDialog({
                   ) : null}
                   {type === 'feishu_wiki' || type === 'feishu_drive' ? (
                     <>
-                      <Field className="gap-1.5">
+                      <Field
+                        className="gap-1.5"
+                        data-invalid={submitted && fieldIssues.appId !== null}
+                      >
                         <FieldLabel htmlFor="source-app-id">
                           App ID <RequiredMark />
                         </FieldLabel>
@@ -3534,9 +3868,16 @@ function SourceDialog({
                           id="source-app-id"
                           value={appId}
                           disabled={pending}
+                          aria-invalid={submitted && fieldIssues.appId !== null}
+                          aria-describedby={
+                            submitted && fieldIssues.appId ? 'source-app-id-error' : undefined
+                          }
                           onChange={(event) => setAppId(event.target.value)}
                           className="font-mono"
                         />
+                        <FieldError id="source-app-id-error">
+                          {submitted ? fieldIssues.appId : null}
+                        </FieldError>
                       </Field>
                       {secretInput}
                       <Field className="gap-1.5 sm:col-span-2">
@@ -3568,7 +3909,10 @@ function SourceDialog({
                     </>
                   ) : type === 'gitlab' ? (
                     <>
-                      <Field className="gap-1.5">
+                      <Field
+                        className="gap-1.5"
+                        data-invalid={submitted && fieldIssues.baseUrl !== null}
+                      >
                         <FieldLabel htmlFor="source-gitlab-url">
                           实例 URL <RequiredMark />
                         </FieldLabel>
@@ -3576,10 +3920,17 @@ function SourceDialog({
                           id="source-gitlab-url"
                           value={baseUrl}
                           disabled={pending}
+                          aria-invalid={submitted && fieldIssues.baseUrl !== null}
+                          aria-describedby={
+                            submitted && fieldIssues.baseUrl ? 'source-gitlab-url-error' : undefined
+                          }
                           onChange={(event) => setBaseUrl(event.target.value)}
                           placeholder="https://gitlab.example.com"
                           className="font-mono"
                         />
+                        <FieldError id="source-gitlab-url-error">
+                          {submitted ? fieldIssues.baseUrl : null}
+                        </FieldError>
                       </Field>
                       {secretInput}
                     </>
@@ -3588,8 +3939,18 @@ function SourceDialog({
               </div>
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium text-fg">同步范围</span>
-                <RangeRows type={type} ranges={ranges} disabled={pending} onChange={setRanges} />
-                {issue ? <FieldError>{issue}</FieldError> : null}
+                <RangeRows
+                  type={type}
+                  ranges={ranges}
+                  disabled={pending}
+                  errors={ranges.map((_, index) =>
+                    submitted
+                      ? (rowIssues[index] ?? { externalId: null, ref: null })
+                      : { externalId: null, ref: null },
+                  )}
+                  onChange={setRanges}
+                />
+                {issue ? <FieldError id="knowledge-source-ranges-error">{issue}</FieldError> : null}
                 <Field className="gap-1.5">
                   <FieldLabel htmlFor="knowledge-source-cron">同步 cron（UTC）</FieldLabel>
                   <Input
@@ -3620,10 +3981,10 @@ function SourceDialog({
                 )}
               </div>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={onClose} disabled={pending}>
+                <Button variant="outline" onClick={guard.close} disabled={pending}>
                   取消
                 </Button>
-                <Button type="submit" disabled={pending || !ready} aria-busy={pending}>
+                <Button type="submit" disabled={pending} aria-busy={pending}>
                   {pending ? (editing ? '保存中…' : '创建中…') : editing ? '保存' : '创建'}
                 </Button>
               </div>
@@ -3631,12 +3992,25 @@ function SourceDialog({
           )}
           {step === 'choose' ? (
             <div className="flex justify-end">
-              <Button variant="outline" onClick={onClose} disabled={pending}>
+              <Button variant="outline" onClick={guard.close} disabled={pending}>
                 取消
               </Button>
             </div>
           ) : null}
         </form>
+        <DraftGuardDialogs guard={guard} draft="来源配置草稿会丢失。" pending={pending} />
+        <ConfirmDialog
+          open={confirmSwitch}
+          title="放弃未保存的更改？"
+          description="切换来源类型会清空当前连接与范围草稿。"
+          confirmLabel="放弃并切换"
+          confirmDisabled={pending}
+          onClose={() => setConfirmSwitch(false)}
+          onConfirm={async () => {
+            setConfirmSwitch(false);
+            setStep('choose');
+          }}
+        />
       </DialogShell>
     </Dialog>
   );

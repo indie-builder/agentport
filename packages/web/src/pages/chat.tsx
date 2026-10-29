@@ -10,7 +10,7 @@ import {
   type PublicRunQuestion,
 } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   ArrowDown,
   ArrowUp,
@@ -127,7 +127,7 @@ import {
   useChatStore,
 } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
-import { fieldErrors } from '../lib/form.js';
+import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import { formatBytes, formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
 import {
   useAgents,
@@ -343,14 +343,18 @@ function ChatWorkspace({
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const workspaceToggleRef = useRef<HTMLButtonElement>(null);
   // 记下真正发起操作的菜单触发器：菜单与对话框卸载后，焦点要回到它。
-  const [renaming, setRenaming] = useState<{ entry: HistoryEntry; trigger: HTMLElement } | null>(
-    null,
-  );
+  const [renaming, setRenaming] = useState<{
+    entry: HistoryEntry;
+    trigger: HTMLElement;
+    draft: string;
+  } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
     title: string;
     trigger: HTMLElement;
   } | null>(null);
+  // 删除成功后要等 mutation 结算成非 pending，再切到新会话，避免被删除中的离开保护拦住。
+  const [deletedConversation, setDeletedConversation] = useState<string | null>(null);
   const desktop = useMediaQuery(DESKTOP);
   const wide = useMediaQuery(WIDE);
 
@@ -472,6 +476,14 @@ function ChatWorkspace({
     onError: (error) => toastError(error),
   });
 
+  const renameDirty = renaming ? renaming.draft.trim() !== renaming.entry.title : false;
+  const renameBlocker = useRenameBlocker(renameDirty, renameMutation.isPending);
+  // 保存成功后对话框已卸载；把保存期间挂起的离开导航结算掉，否则路由会一直停在 blocked。
+  useEffect(() => {
+    if (renaming || renameMutation.isPending || renameBlocker.status !== 'blocked') return;
+    renameBlocker.proceed?.();
+  }, [renaming, renameMutation.isPending, renameBlocker]);
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.deleteConversation(id),
     onSuccess: (_data, id) => {
@@ -480,11 +492,13 @@ function ChatWorkspace({
       // 级联删除了该会话的运行记录，运行列表与概况跟着刷新。
       void client.invalidateQueries({ queryKey: ['runs'] });
       void client.invalidateQueries({ queryKey: ['overview'] });
-      if (id === conversationId) newConversation(true);
+      // 等请求结算后再换会话：删除中的离开保护会拦住它自己的导航。
+      if (id === conversationId) setDeletedConversation(id);
       toastSuccess('会话已删除');
     },
     // 失败交给 ConfirmDialog 统一提示：保留当前会话与草稿，对话框可重试。
   });
+  const deleteBlocker = useFormBlocker(false, deleteMutation.isPending);
 
   const cancel = (): void => {
     // 没有 runId 时后端还没有可取消的 run；按钮也不会显示。
@@ -516,14 +530,25 @@ function ChatWorkspace({
   };
 
   // 删除当前会话时没有可返回的会话，未发送输入跟到新会话，避免随删除丢失。
-  const newConversation = (carryDraft = false): void => {
-    stream.closeStream();
-    stream.hydratedRef.current = null;
-    useChatStore.getState().resetConversation(null, carryDraft);
-    onConversationChange(null);
-    setHistoryOpen(false);
-    composerRef.current?.focus();
-  };
+  const newConversation = useCallback(
+    (carryDraft = false): void => {
+      stream.closeStream();
+      stream.hydratedRef.current = null;
+      useChatStore.getState().resetConversation(null, carryDraft);
+      onConversationChange(null);
+      setHistoryOpen(false);
+      composerRef.current?.focus();
+    },
+    [stream.closeStream, stream.hydratedRef, onConversationChange, setHistoryOpen],
+  );
+
+  // 删除已结算：先作废删除期间挂起的离开导航，再切到新会话，避免路由残留。
+  useEffect(() => {
+    if (!deletedConversation || deleteMutation.isPending) return;
+    setDeletedConversation(null);
+    if (deleteBlocker.status === 'blocked') deleteBlocker.reset?.();
+    newConversation(true);
+  }, [deletedConversation, deleteMutation.isPending, deleteBlocker, newConversation]);
 
   // 分支：服务端复制消息，前端切到新会话；列表由 query 失效后刷新。
   const branch = (id: string, fromMessageId?: string): void =>
@@ -590,7 +615,9 @@ function ChatWorkspace({
       onOpen={openConversation}
       onBranch={branch}
       onOpenSearch={(trigger) => setSearch({ trigger, inSheet })}
-      onRename={(conversation, trigger) => setRenaming({ entry: conversation, trigger })}
+      onRename={(conversation, trigger) =>
+        setRenaming({ entry: conversation, trigger, draft: conversation.title })
+      }
     />
   );
 
@@ -649,6 +676,8 @@ function ChatWorkspace({
       cancelling={cancelMutation.isPending}
       approvalItems={approvalData}
       questionsByToolUseId={questionsByToolUseId}
+      questionsError={runQuestions.isError ? runQuestions.error : null}
+      onRetryQuestions={() => void runQuestions.refetch()}
       liveRunId={run?.runId ?? null}
       onApprove={approve}
       onCancel={cancel}
@@ -670,7 +699,11 @@ function ChatWorkspace({
       deleting={deleteMutation.isPending}
       onRename={(trigger) => {
         if (conversationId)
-          setRenaming({ entry: { id: conversationId, title, updatedAt: '' }, trigger });
+          setRenaming({
+            entry: { id: conversationId, title, updatedAt: '' },
+            trigger,
+            draft: title,
+          });
       }}
       onFork={() => {
         if (conversationId) branch(conversationId);
@@ -683,8 +716,11 @@ function ChatWorkspace({
 
   const renameDialog = renaming ? (
     <RenameDialog
-      conversation={renaming.entry}
+      title={renaming.draft}
+      dirty={renameDirty}
       pending={renameMutation.isPending}
+      blocker={renameBlocker}
+      onTitleChange={(draft) => setRenaming({ ...renaming, draft })}
       onClose={() => setRenaming(null)}
       onRename={(title) => renameMutation.mutate({ id: renaming.entry.id, title })}
       // 菜单项随菜单卸载；触发器还在就回到它，否则交给 Base UI 的默认落点。
@@ -709,6 +745,19 @@ function ChatWorkspace({
       }
     />
   ) : null;
+
+  // 删除请求在途时离开一律拦下：确认按钮禁用，只能等请求完成。
+  const deleteLeaveDialog = (
+    <ConfirmDialog
+      open={deleteBlocker.status === 'blocked'}
+      onClose={() => deleteBlocker.reset?.()}
+      title="会话正在删除"
+      description="正在删除会话，请等待请求完成。"
+      confirmLabel="放弃并离开"
+      confirmDisabled={deleteMutation.isPending}
+      onConfirm={async () => deleteBlocker.proceed()}
+    />
+  );
 
   // 只有「静默的」深链失败才整页报错；正在跑的这一轮不能被卸载，否则事件流会被掐断。
   if (conversationId && detail.isError && items.length === 0 && !run) {
@@ -875,6 +924,7 @@ function ChatWorkspace({
           </Group>
           {renameDialog}
           {deleteDialog}
+          {deleteLeaveDialog}
         </div>
       ) : (
         // 窄屏没有分栏：标题与开关由内容区的 56px 头部承担，这里不再重复可见标题。
@@ -883,6 +933,7 @@ function ChatWorkspace({
           {/* 抽屉打开时重命名由抽屉子树渲染，避免门户被遮挡；这里补上头部触发的对话框。 */}
           {historyOpen ? null : renameDialog}
           {deleteDialog}
+          {deleteLeaveDialog}
         </div>
       )}
       {search && !search.inSheet ? searchDialog : null}
@@ -890,23 +941,57 @@ function ChatWorkspace({
   );
 }
 
+/**
+ * 重命名草稿的离开保护。同页只换成果（agent/conversation 不变）不会卸载对话框，
+ * 其余换会话、换专家、跨页与刷新一律拦下；保存中也不放行。
+ */
+function useRenameBlocker(dirty: boolean, pending: boolean) {
+  const blocker = useBlocker({
+    shouldBlockFn: ({ current, next }) => {
+      // 只改成果选择不算离开：对话框与草稿都还在。
+      const sameSession =
+        current.pathname === next.pathname &&
+        'agent' in current.search &&
+        'agent' in next.search &&
+        current.search.agent === next.search.agent &&
+        'conversation' in current.search &&
+        'conversation' in next.search &&
+        current.search.conversation === next.search.conversation;
+      if (sameSession) return false;
+      return dirty || pending;
+    },
+    withResolver: true,
+    enableBeforeUnload: dirty || pending,
+  });
+  return {
+    ...blocker,
+    // 保存中不提供离开确认，等请求结算后再放行。
+    proceed: () => {
+      if (!pending) blocker.proceed?.();
+    },
+  };
+}
+
 function RenameDialog({
-  conversation,
+  title,
+  dirty,
   pending,
+  blocker,
+  onTitleChange,
   onClose,
   onRename,
   finalFocus,
 }: {
-  conversation: HistoryEntry;
+  title: string;
+  dirty: boolean;
   pending: boolean;
+  blocker: ReturnType<typeof useRenameBlocker>;
+  onTitleChange: (title: string) => void;
   onClose: () => void;
   onRename: (title: string) => void;
   finalFocus: ComponentProps<typeof DialogShell>['finalFocus'];
 }) {
-  const [title, setTitle] = useState(conversation.title);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  // 只加空格等同于没改：既不该提示丢弃，也不该允许保存。
-  const dirty = title.trim() !== conversation.title;
   // 保存按钮在无效时禁用，所以错误要随输入即时给出，而不是只在提交后出现。
   const parsed = conversationRenameSchema.safeParse({ title });
   const error = parsed.success
@@ -929,6 +1014,9 @@ function RenameDialog({
     onRename(parsed.data.title);
   };
 
+  const leaving = blocker.status === 'blocked';
+  const discardOpen = confirmDiscard || leaving;
+
   return (
     <Dialog
       open
@@ -949,7 +1037,7 @@ function RenameDialog({
               aria-required="true"
               aria-invalid={Boolean(error)}
               aria-describedby={error ? 'conversation-title-error' : undefined}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => onTitleChange(event.target.value)}
             />
             <FieldError id="conversation-title-error">{error}</FieldError>
           </Field>
@@ -963,13 +1051,28 @@ function RenameDialog({
           </div>
         </form>
         <ConfirmDialog
-          open={confirmDiscard}
-          onClose={() => setConfirmDiscard(false)}
+          open={discardOpen}
+          onClose={() => {
+            if (leaving) blocker.reset?.();
+            setConfirmDiscard(false);
+          }}
           title="放弃未保存的更改？"
-          description="关闭后这次修改的标题会丢失。"
-          confirmLabel="放弃并关闭"
+          description={
+            pending
+              ? '正在保存，请等待请求完成。'
+              : leaving
+                ? '离开后这次修改的标题会丢失。'
+                : '关闭后这次修改的标题会丢失。'
+          }
+          confirmLabel={leaving ? '放弃并离开' : '放弃并关闭'}
+          confirmDisabled={pending}
           onConfirm={async () => {
-            onClose();
+            if (pending) return;
+            if (leaving) {
+              // 同页换会话不会卸载工作区：放弃后先收起对话框，再放行导航。
+              blocker.proceed();
+              onClose();
+            } else onClose();
           }}
         />
       </DialogShell>
@@ -1065,7 +1168,7 @@ function AgentPicker({
         render={
           <Button
             variant="ghost"
-            aria-label="选择专家"
+            aria-label={agent ? `选择专家：${agent.name}` : '选择专家'}
             title="切换专家"
             className="h-8 w-full min-w-0 justify-start gap-2 px-2 font-normal"
           />
@@ -1262,6 +1365,8 @@ function ChatColumn({
   cancelling,
   approvalItems,
   questionsByToolUseId,
+  questionsError,
+  onRetryQuestions,
   liveRunId,
   onApprove,
   onCancel,
@@ -1305,6 +1410,8 @@ function ChatColumn({
   cancelling: boolean;
   approvalItems: ApprovalRequest[];
   questionsByToolUseId: ReadonlyMap<string, PublicRunQuestion>;
+  questionsError: unknown | null;
+  onRetryQuestions: () => void;
   liveRunId: string | null;
   onApprove: (item: ApprovalRequest) => void;
   onCancel: () => void;
@@ -1446,10 +1553,21 @@ function ChatColumn({
               <Search />
             </Button>
           )}
+          {/* 历史收起时由头部承担专家入口；展开时只在历史头部保留一处。 */}
+          {historyVisible ? null : (
+            <div className="min-w-0 shrink basis-[11rem]">
+              <AgentPicker
+                agent={agent}
+                agentId={agent?.id ?? null}
+                agentOptions={agentOptions}
+                onSwitchAgent={onSwitchAgent}
+              />
+            </div>
+          )}
           <div className="flex min-w-0 flex-1 items-center gap-1">
             <h1
               title={title}
-              className="min-w-0 max-w-[60vw] truncate text-lg font-medium tracking-[-0.01em] text-fg lg:max-w-[8em]"
+              className="min-w-0 max-w-[8em] truncate text-lg font-medium tracking-[-0.01em] text-fg"
             >
               {title}
             </h1>
@@ -1545,13 +1663,7 @@ function ChatColumn({
           openUiSnapshot={openUiSnapshot}
           welcome={
             showWelcome ? (
-              <WelcomeState
-                agent={agent}
-                agentOptions={agentOptions}
-                onSwitchAgent={onSwitchAgent}
-                pickerVisible={!historyVisible}
-                onPick={onPickSuggestion}
-              >
+              <WelcomeState agent={agent} onPick={onPickSuggestion}>
                 {composer}
               </WelcomeState>
             ) : null
@@ -1565,6 +1677,13 @@ function ChatColumn({
         {run?.runId ? <RunReconciliation run={run} reconcileRun={reconcileRun} /> : null}
         {runApprovals.isError ? (
           <ErrorState error={runApprovals.error} onRetry={() => void runApprovals.refetch()} />
+        ) : null}
+        {questionsError ? (
+          <ErrorState
+            title="提问状态没有加载出来"
+            error={questionsError}
+            onRetry={onRetryQuestions}
+          />
         ) : null}
 
         {showWelcome ? null : composer}
@@ -2566,16 +2685,10 @@ const welcomeSuggestions = [
 /** 欢迎区共用 728px 轴线：小幅角色插画、单行标题、多行输入与简短任务入口。 */
 function WelcomeState({
   agent,
-  agentOptions,
-  onSwitchAgent,
-  pickerVisible,
   onPick,
   children,
 }: {
   agent: AgentView | null;
-  agentOptions: Array<{ value: string; label: string; agent?: AgentView }>;
-  onSwitchAgent: (id: string) => void;
-  pickerVisible: boolean;
   onPick: (text: string) => void;
   children: ReactNode;
 }) {
@@ -2593,16 +2706,6 @@ function WelcomeState({
         <h2 className="min-w-0 flex-1 text-2xl font-medium tracking-[-0.02em] text-fg sm:text-3xl">
           今天想完成什么？
         </h2>
-        {pickerVisible ? (
-          <div className="w-full min-w-0 sm:w-56">
-            <AgentPicker
-              agent={agent}
-              agentId={agent?.id ?? null}
-              agentOptions={agentOptions}
-              onSwitchAgent={onSwitchAgent}
-            />
-          </div>
-        ) : null}
       </div>
 
       {children}

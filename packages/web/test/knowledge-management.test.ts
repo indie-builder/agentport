@@ -12,6 +12,7 @@ import {
 import { delay, HttpResponse, http } from 'msw';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { toast } from 'sonner';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { useKnowledgeSearch } from '../src/lib/queries.js';
@@ -152,6 +153,22 @@ function wikiJob(status: KnowledgeJob['status'], id = 'kjob_gen'): KnowledgeJob 
   };
 }
 
+function syncJob(status: KnowledgeJob['status'], id = 'kjob_sync'): KnowledgeJob {
+  const now = new Date().toISOString();
+  return {
+    id,
+    type: 'sync',
+    status,
+    step: status === 'running' ? '同步中' : null,
+    progress: status === 'succeeded' ? 100 : 0,
+    attempts: 1,
+    error: status === 'failed' ? '远端凭证失效' : null,
+    createdAt: now,
+    startedAt: now,
+    endedAt: status === 'running' ? null : now,
+  };
+}
+
 const msw = createMsw();
 const { server, calls } = msw;
 
@@ -265,6 +282,12 @@ function dialog(title: string): HTMLElement {
   return element;
 }
 
+function dialogShown(title: string): boolean {
+  return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].some(
+    (item) => item.querySelector('h2')?.textContent === title,
+  );
+}
+
 async function click(element: HTMLElement) {
   await act(async () => element.click());
   await flush();
@@ -302,6 +325,30 @@ async function chooseMenuItem(label: string) {
   );
   if (!item) throw new Error(`Missing menu item: ${label}`);
   await click(item);
+}
+
+async function chooseFilter(label: string, optionLabel: string) {
+  const trigger = [...document.querySelectorAll<HTMLElement>('button')].find(
+    (element) => element.getAttribute('aria-label') === label,
+  );
+  if (!trigger) throw new Error(`Missing filter: ${label}`);
+  await click(trigger);
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (element) => element.textContent?.trim() === optionLabel,
+  );
+  if (!option) throw new Error(`Missing filter option: ${optionLabel}`);
+  await click(option);
+}
+
+async function chooseOption(id: string, optionLabel: string) {
+  const trigger = document.getElementById(id);
+  if (!trigger) throw new Error(`Missing select: ${id}`);
+  await click(trigger);
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (element) => element.textContent?.trim() === optionLabel,
+  );
+  if (!option) throw new Error(`Missing option: ${optionLabel}`);
+  await click(option);
 }
 
 async function fill(id: string, value: string) {
@@ -1086,6 +1133,7 @@ describe('knowledge source editing', () => {
       http.get('/api/knowledge/sources/ksrc_1/runs', () =>
         HttpResponse.json({ items: [], nextCursor: null }),
       ),
+      http.get('/api/knowledge/jobs/kjob_1', () => HttpResponse.json(syncJob('running', 'kjob_1'))),
     );
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('立即同步'));
@@ -1163,7 +1211,7 @@ describe('knowledge source editing', () => {
     expect(patch.ranges[0]).not.toHaveProperty('clientId');
   });
 
-  it('blocks saving after the last range is removed', async () => {
+  it('explains a missing range on submit instead of disabling save', async () => {
     baseHandlers();
     server.use(http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(source)));
     await mount('/knowledge/kb_1', { panel: 'sources' });
@@ -1171,12 +1219,13 @@ describe('knowledge source editing', () => {
     const editor = dialog('编辑来源');
     await click(button('删除范围 1', editor));
     expect(editor.textContent).toContain('至少需要一个范围');
-    expect(button('保存', editor).disabled).toBe(true);
-    await click(button('保存', editor));
+    const save = button('保存', editor);
+    expect(save.disabled).toBe(false);
+    await click(save);
     expect(patchBody('/api/knowledge/sources/ksrc_1')).toBeUndefined();
   });
 
-  it('blocks saving when every remaining range is disabled', async () => {
+  it('explains that every range is disabled on submit instead of disabling save', async () => {
     baseHandlers();
     server.use(http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(source)));
     await mount('/knowledge/kb_1', { panel: 'sources' });
@@ -1184,7 +1233,10 @@ describe('knowledge source editing', () => {
     const editor = dialog('编辑来源');
     await click(editor.querySelector<HTMLElement>('#source-range-0-enabled') as HTMLElement);
     expect(editor.textContent).toContain('至少需要一个启用的范围');
-    expect(button('保存', editor).disabled).toBe(true);
+    const save = button('保存', editor);
+    expect(save.disabled).toBe(false);
+    await click(save);
+    expect(patchBody('/api/knowledge/sources/ksrc_1')).toBeUndefined();
   });
 
   it('does not offer eviction-based deletion for a feed', async () => {
@@ -1304,6 +1356,7 @@ describe('knowledge source editing', () => {
     await fill('knowledge-source-secret', 'ghp_secret');
 
     await click(button('更换来源', creator));
+    await click(button('放弃并切换', dialog('放弃未保存的更改？')));
     await click(sourceChoice('GitLab', creator));
     // GitHub PAT / Enterprise 地址不能带进 GitLab。
     expect((document.getElementById('knowledge-source-secret') as HTMLInputElement).value).toBe('');
@@ -1987,6 +2040,8 @@ describe('knowledge document viewer', () => {
     const viewer = dialog('上线流程');
     expect(viewer.textContent).toContain('还没有解析完成的版本');
     expect(viewer.textContent).toContain('还没有分块');
+    // 禁用的查询永远停在 pending：没有版本时不能把骨架当成真实加载。
+    expect(viewer.querySelector('[aria-label="加载中"]')).toBeNull();
     expect(
       calls.some((item) => item.path.startsWith('/api/knowledge/documents/kdoc_1/chunks')),
     ).toBe(false);
@@ -2871,5 +2926,763 @@ describe('msw cleanup fault injection', () => {
     // host.remove() 只摘节点不清空子树：子节点消失才是 React root 真卸载的证据。
     expect(mountedHost.childNodes).toHaveLength(0);
     expectRestored();
+  });
+});
+
+describe('knowledge UX guards', () => {
+  const embeddingProfile = {
+    id: 'profile_1',
+    kind: 'embedding',
+    name: 'bge-m3',
+    endpointUrl: 'https://models.example.com',
+    model: 'bge-m3',
+    dimensions: 1024,
+    enabled: true,
+    hasSecret: true,
+    embeddingProtocol: 'openai',
+    imageInputEnabled: false,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  };
+
+  const rerankProfile = {
+    ...embeddingProfile,
+    id: 'profile_rerank',
+    kind: 'rerank',
+    name: 'bge-reranker',
+    model: 'bge-reranker-v2',
+    dimensions: null,
+    hasSecret: false,
+  };
+
+  function listHandlers() {
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/model-profiles', () => HttpResponse.json([embeddingProfile])),
+    );
+  }
+
+  function documentList() {
+    listHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+    );
+  }
+
+  it('shows exactly one of loading, failure, true empty and filtered empty', async () => {
+    const pending = deferred<void>();
+    server.use(
+      http.get('/api/knowledge/bases', async () => {
+        await pending.promise;
+        return HttpResponse.json({ items: [base], nextCursor: null });
+      }),
+      http.get('/api/agents', () => HttpResponse.json([])),
+    );
+    await mount('/knowledge');
+    expect(document.querySelector('[aria-label="加载中"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain('还没有知识库');
+    expect(document.body.textContent).not.toContain('没有匹配的知识库');
+
+    await act(async () => pending.resolve());
+    await flush();
+    expect(document.querySelector('[aria-label="加载中"]')).toBeNull();
+    expect(document.body.textContent).toContain('产品手册');
+
+    await cleanup();
+    server.use(
+      http.get('/api/knowledge/bases', () =>
+        HttpResponse.json({ code: 'INTERNAL', message: '列表失败' }, { status: 500 }),
+      ),
+      http.get('/api/agents', () => HttpResponse.json([])),
+    );
+    await mount('/knowledge');
+    // 失败分支不再叠一个空态或骨架。
+    expect(document.body.textContent).toContain('服务端暂时无法完成请求');
+    expect(document.body.textContent).toContain('重试');
+    expect(document.body.textContent).not.toContain('还没有知识库');
+    expect(document.querySelector('[aria-label="加载中"]')).toBeNull();
+  });
+
+  it('keeps the loaded bases and offers a retry when refresh fails', async () => {
+    listHandlers();
+    await mount('/knowledge');
+    expect(document.body.textContent).toContain('产品手册');
+    server.use(
+      http.get('/api/knowledge/bases', () =>
+        HttpResponse.json({ code: 'INTERNAL', message: '刷新失败' }, { status: 500 }),
+      ),
+    );
+    await act(async () => {
+      await client?.invalidateQueries({ queryKey: ['knowledge', 'bases'] });
+    });
+    await flush();
+    expect(document.body.textContent).toContain('产品手册');
+    expect(document.body.textContent).toContain('列表没有刷新成功');
+    expect(document.body.textContent).not.toContain('还没有知识库');
+    server.use(
+      http.get('/api/knowledge/bases', () =>
+        HttpResponse.json({ items: [base], nextCursor: null }),
+      ),
+    );
+    await click(button('重试'));
+    expect(document.body.textContent).not.toContain('列表没有刷新成功');
+  });
+
+  it('distinguishes a filtered empty list from a library with no bases', async () => {
+    listHandlers();
+    await mount('/knowledge');
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索知识库"]');
+    if (!input) throw new Error('Missing search input');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        input,
+        '不存在',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+    expect(document.body.textContent).toContain('没有匹配的知识库');
+    expect(document.body.textContent).not.toContain('还没有知识库');
+    await click(button('清除搜索'));
+    expect(document.body.textContent).toContain('产品手册');
+  });
+
+  it('links to a newly created base without clearing the current filter', async () => {
+    listHandlers();
+    server.use(
+      http.post('/api/knowledge/bases', () =>
+        HttpResponse.json({ ...base, id: 'kb_new', slug: 'new-base', name: '新库' }),
+      ),
+    );
+    const router = await mount('/knowledge', { q: '产品' });
+    await click(button('新建知识库'));
+    const creator = dialog('新建知识库');
+    await fill('knowledge-name', '新库');
+    await fill('knowledge-slug', 'new-base');
+    await chooseOption('knowledge-embedding', 'bge-m3');
+    await click(button('创建', creator));
+    const link = document.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_new"]');
+    expect(link).not.toBeNull();
+    expect(link?.textContent).toContain('打开知识库');
+    expect(router.state.location.search).toEqual({ q: '产品' });
+    await click(button('关闭'));
+    expect(document.querySelector('a[href="/knowledge/kb_new"]')).toBeNull();
+    expect(router.state.location.search).toEqual({ q: '产品' });
+  });
+
+  const createDraftChanges: Array<[string, () => Promise<void>]> = [
+    ['embedding profile', () => chooseOption('knowledge-embedding', 'bge-m3')],
+    ['rerank profile', () => chooseOption('knowledge-rerank', 'bge-reranker')],
+    [
+      'wiki auto update',
+      async () => click(document.getElementById('knowledge-wiki-auto') as HTMLElement),
+    ],
+  ];
+
+  for (const [name, change] of createDraftChanges) {
+    it(`guards a create draft made by changing only the ${name}`, async () => {
+      listHandlers();
+      server.use(
+        http.get('/api/knowledge/model-profiles', () =>
+          HttpResponse.json([embeddingProfile, rerankProfile]),
+        ),
+      );
+      const router = await mount('/knowledge');
+      await click(button('新建知识库'));
+      await change();
+
+      await click(button('取消', dialog('新建知识库')));
+      expect(dialog('放弃未保存的更改？')).toBeDefined();
+      await click(button('取消', dialog('放弃未保存的更改？')));
+      expect(dialog('新建知识库')).toBeDefined();
+
+      let navigation: Promise<unknown> | undefined;
+      await act(async () => {
+        navigation = router.navigate({ to: '/knowledge', search: { q: '新库' }, replace: true });
+        void navigation.catch(() => undefined);
+      });
+      expect(dialog('放弃未保存的更改？')).toBeDefined();
+      await click(button('取消', dialog('放弃未保存的更改？')));
+      expect(router.state.location.search).toEqual({});
+      expect(dialog('新建知识库')).toBeDefined();
+
+      await act(async () => {
+        navigation = router.navigate({ to: '/knowledge', search: { q: '新库' } });
+      });
+      await click(button('放弃并离开', dialog('放弃未保存的更改？')));
+      await act(async () => {
+        await navigation;
+      });
+      expect(router.state.location.search).toEqual({ q: '新库' });
+    });
+  }
+
+  it('links to the imported base package', async () => {
+    listHandlers();
+    server.use(
+      http.post('/api/knowledge/bases/import', () =>
+        HttpResponse.json({
+          baseId: 'kb_imported',
+          serverId: 'srv_imported',
+          counts: { folders: 0, tags: 0, documents: 2, versions: 0, chunks: 0, wikiPages: 0 },
+        }),
+      ),
+    );
+    await mount('/knowledge');
+    await click(button('导入知识包'));
+    const file = new File(['zip'], 'handbook.zip', { type: 'application/zip' });
+    await act(async () => {
+      const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+      if (!input) throw new Error('Missing file input');
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    expect(
+      document.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_imported"]')?.textContent,
+    ).toContain('打开知识库');
+    await click(button('关闭'));
+    expect(document.querySelector('a[href="/knowledge/kb_imported"]')).toBeNull();
+  });
+
+  it('associates the 501-character description error with the field', async () => {
+    listHandlers();
+    await mount('/knowledge');
+    await click(button('新建知识库'));
+    const creator = dialog('新建知识库');
+    await fill('knowledge-name', '新库');
+    await fill('knowledge-slug', 'new-base');
+    await fill('knowledge-description', 'x'.repeat(501));
+    await chooseOption('knowledge-embedding', 'bge-m3');
+    await click(button('创建', creator));
+    const description = document.getElementById('knowledge-description') as HTMLTextAreaElement;
+    expect(description.getAttribute('aria-invalid')).toBe('true');
+    expect(
+      document.getElementById(description.getAttribute('aria-describedby') as string)?.textContent,
+    ).toContain('最多 500 个字符');
+    expect(
+      calls.some((item) => item.method === 'POST' && item.path === '/api/knowledge/bases'),
+    ).toBe(false);
+    expect(document.activeElement).toBe(description);
+  });
+
+  it('confirms before discarding rename, manual, URL, Wiki, source and settings drafts', async () => {
+    listHandlers();
+    await mount('/knowledge');
+
+    await openMenu('操作 产品手册');
+    await chooseMenuItem('重命名');
+    await fill('knowledge-base-name', '研发手册');
+    await click(button('取消', dialog('重命名知识库')));
+    expect(dialog('放弃未保存的更改？')).toBeDefined();
+    await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
+    expect(document.body.textContent).not.toContain('重命名知识库');
+
+    await cleanup();
+    documentList();
+    await mount('/knowledge/kb_1');
+    await click(button('导入'));
+    await chooseMenuItem('手写文档');
+    await fill('knowledge-manual-title', '发布检查');
+    await click(button('取消', dialog('手写文档')));
+    expect(dialog('放弃未保存的更改？')).toBeDefined();
+    await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
+    expect(document.body.textContent).not.toContain('手写文档');
+
+    await click(button('导入'));
+    await chooseMenuItem('导入网址');
+    await fill('knowledge-url', 'https://example.com/docs');
+    await click(button('取消', dialog('导入网址')));
+    expect(dialog('放弃未保存的更改？')).toBeDefined();
+    await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
+    expect(document.body.textContent).not.toContain('导入网址');
+  });
+
+  it('guards unsaved edits in the Wiki editor and source dialog', async () => {
+    documentList();
+    server.use(http.get('/api/knowledge/wiki-pages/kwp_1', () => HttpResponse.json(wikiPage)));
+    await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
+    await click(button('编辑正文'));
+    await fill('knowledge-wiki-markdown', '## 草稿');
+    await click(button('取消', dialog('编辑 Wiki 正文')));
+    expect(dialog('放弃未保存的更改？')).toBeDefined();
+    await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
+    expect(document.getElementById('knowledge-wiki-markdown')).toBeNull();
+
+    await cleanup();
+    documentList();
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('编辑来源 产品仓库'));
+    await fill('source-name', '研发仓库');
+    await click(button('取消', dialog('编辑来源')));
+    expect(dialog('放弃未保存的更改？')).toBeDefined();
+    await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
+    expect(document.body.textContent).not.toContain('编辑来源');
+  });
+
+  const folder = {
+    id: 'kfd_new',
+    baseId: 'kb_1',
+    parentId: null,
+    name: '规范',
+    path: '/规范',
+    createdAt: '',
+  };
+
+  /** 走真实文件输入与 FileReader，等到上传请求真正发出。 */
+  async function startUpload() {
+    await click(button('上传文件'));
+    const file = new File(['a'], 'good.txt', { type: 'text/plain' });
+    await act(async () => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[aria-label="选择要上传的文件"]',
+      );
+      if (!input) throw new Error('Missing upload input');
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await waitFor(() =>
+      calls.some(
+        (item) =>
+          item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
+      ),
+    );
+  }
+
+  it('selects a created folder only after its dialog unmounts', async () => {
+    documentList();
+    let folders: Array<typeof folder> = [];
+    const created = deferred<void>();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/folders', () => HttpResponse.json(folders)),
+      http.post('/api/knowledge/bases/kb_1/folders', async () => {
+        await created.promise;
+        return HttpResponse.json(folder);
+      }),
+    );
+    const router = await mount('/knowledge/kb_1');
+    await click(button('新建文件夹'));
+    await fill('knowledge-folder-name', '规范');
+    await click(button('创建', dialog('新建文件夹')));
+
+    let leaving: Promise<unknown> | undefined;
+    await act(async () => {
+      leaving = router.navigate({ to: '/knowledge/' });
+      void leaving.catch(() => undefined);
+    });
+    expect(dialog('放弃未保存的更改？')).toBeDefined();
+    await click(button('取消', dialog('放弃未保存的更改？')));
+    expect(router.state.location.pathname).toBe('/knowledge/kb_1');
+
+    folders = [folder];
+    await act(async () => created.resolve());
+    await waitFor(() => router.state.location.search.folder === 'kfd_new');
+    await flush();
+    expect(dialogShown('新建文件夹')).toBe(false);
+    expect(button('规范').getAttribute('aria-current')).toBe('true');
+  });
+
+  it('selects a created wiki page only after its dialog unmounts', async () => {
+    documentList();
+    const createdPage = {
+      id: 'kwp_new',
+      baseId: 'kb_1',
+      slug: 'guide',
+      title: '新指南',
+      status: 'draft',
+      currentVersionId: null,
+      createdAt: '',
+      updatedAt: '',
+    };
+    let pages: Array<typeof createdPage> = [];
+    const created = deferred<void>();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/wiki-pages', () =>
+        HttpResponse.json({ items: pages, nextCursor: null }),
+      ),
+      http.post('/api/knowledge/bases/kb_1/wiki-pages', async () => {
+        await created.promise;
+        return HttpResponse.json(createdPage);
+      }),
+      http.get('/api/knowledge/wiki-pages/kwp_new', () =>
+        HttpResponse.json({ ...createdPage, versions: [], nextCursor: null }),
+      ),
+    );
+    const router = await mount('/knowledge/kb_1', { panel: 'wiki' });
+    await click(button('新建 Wiki 页面'));
+    await fill('wiki-title', '新指南');
+    await fill('wiki-slug', 'guide');
+    await click(button('创建', dialog('新建 Wiki 页面')));
+
+    let leaving: Promise<unknown> | undefined;
+    await act(async () => {
+      leaving = router.navigate({ to: '/knowledge/kb_1', search: { panel: 'sources' } });
+      void leaving.catch(() => undefined);
+    });
+    expect(dialog('放弃未保存的更改？')).toBeDefined();
+    await click(button('取消', dialog('放弃未保存的更改？')));
+    expect(router.state.location.search).toEqual({ panel: 'wiki' });
+
+    pages = [createdPage];
+    await act(async () => created.resolve());
+    await waitFor(() => router.state.location.search.page === 'kwp_new');
+    await flush();
+    expect(dialogShown('新建 Wiki 页面')).toBe(false);
+    const pageButton = [...document.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
+      item.textContent?.includes('新指南'),
+    );
+    expect(pageButton?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('keeps the draft guard usable after a failed folder create', async () => {
+    documentList();
+    server.use(
+      http.post('/api/knowledge/bases/kb_1/folders', () =>
+        HttpResponse.json({ code: 'CONFLICT', message: '同名文件夹已存在' }, { status: 409 }),
+      ),
+    );
+    const router = await mount('/knowledge/kb_1');
+    await click(button('新建文件夹'));
+    await fill('knowledge-folder-name', '规范');
+    await click(button('创建', dialog('新建文件夹')));
+    expect(toastError).toHaveBeenCalled();
+    expect(dialog('新建文件夹')).toBeDefined();
+
+    let leaving: Promise<unknown> | undefined;
+    await act(async () => {
+      leaving = router.navigate({ to: '/knowledge/' });
+      void leaving.catch(() => undefined);
+    });
+    expect(dialog('放弃未保存的更改？')).toBeDefined();
+    await click(button('放弃并离开', dialog('放弃未保存的更改？')));
+    await act(async () => {
+      await leaving;
+    });
+    expect(router.state.location.pathname).toBe('/knowledge');
+  });
+
+  it('pauses folder changes during an upload batch and resumes after it finishes', async () => {
+    documentList();
+    const upload = deferred<void>();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/folders', () => HttpResponse.json([folder])),
+      http.put('/api/knowledge/bases/kb_1/documents/upload', async () => {
+        await upload.promise;
+        return HttpResponse.json({ documentId: 'kdoc_new', jobId: 'kjob_new' });
+      }),
+    );
+    const router = await mount('/knowledge/kb_1');
+    await startUpload();
+    await click(button('规范'));
+    expect(dialog('上传尚未完成')).toBeDefined();
+    expect(router.state.location.search).toEqual({});
+
+    await act(async () => upload.resolve());
+    await waitFor(() => router.state.location.search.folder === 'kfd_new');
+  });
+
+  it('pauses tab changes during an upload batch and resumes after it finishes', async () => {
+    documentList();
+    const upload = deferred<void>();
+    server.use(
+      http.put('/api/knowledge/bases/kb_1/documents/upload', async () => {
+        await upload.promise;
+        return HttpResponse.json({ documentId: 'kdoc_new', jobId: 'kjob_new' });
+      }),
+    );
+    const router = await mount('/knowledge/kb_1');
+    await startUpload();
+    await click(button('任务'));
+    expect(dialog('上传尚未完成')).toBeDefined();
+    expect(router.state.location.search).toEqual({});
+
+    await act(async () => upload.resolve());
+    await waitFor(() => router.state.location.search.panel === 'jobs');
+  });
+
+  it('pauses history changes during an upload batch and resumes after it finishes', async () => {
+    documentList();
+    const upload = deferred<void>();
+    server.use(
+      http.put('/api/knowledge/bases/kb_1/documents/upload', async () => {
+        await upload.promise;
+        return HttpResponse.json({ documentId: 'kdoc_new', jobId: 'kjob_new' });
+      }),
+    );
+    const router = await mount('/knowledge/kb_1');
+    await startUpload();
+    await act(async () => {
+      router.history.push('/knowledge/');
+    });
+    await flush();
+    expect(dialog('上传尚未完成')).toBeDefined();
+    expect(router.state.location.pathname).toBe('/knowledge/kb_1');
+
+    await act(async () => upload.resolve());
+    // 直接走 history.push 的原始路径不会被 Router 归一化，保留末尾斜杠。
+    await waitFor(() => router.state.location.pathname === '/knowledge/');
+  });
+
+  it('blocks leaving the documents panel until the upload batch finishes', async () => {
+    documentList();
+    const upload = deferred<void>();
+    server.use(
+      http.put('/api/knowledge/bases/kb_1/documents/upload', async () => {
+        await upload.promise;
+        return HttpResponse.json({ documentId: 'kdoc_new', jobId: 'kjob_new' });
+      }),
+    );
+    const router = await mount('/knowledge/kb_1');
+    await click(button('上传文件'));
+    const file = new File(['a'], 'good.txt', { type: 'text/plain' });
+    await act(async () => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[aria-label="选择要上传的文件"]',
+      );
+      if (!input) throw new Error('Missing upload input');
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await waitFor(() =>
+      calls.some(
+        (item) =>
+          item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
+      ),
+    );
+
+    let navigation: Promise<unknown> | undefined;
+    await act(async () => {
+      navigation = router.navigate({ to: '/knowledge/' });
+      void navigation.catch(() => undefined);
+    });
+    expect(dialog('上传尚未完成')).toBeDefined();
+    expect(router.state.location.pathname).toBe('/knowledge/kb_1');
+
+    await act(async () => upload.resolve());
+    await flush();
+    await act(async () => {
+      await navigation;
+    });
+    expect(router.state.location.pathname).toBe('/knowledge');
+  });
+
+  it('shows field and range errors on source submit instead of disabling save', async () => {
+    listHandlers();
+    server.use(http.post('/api/knowledge/bases/kb_1/sources', () => HttpResponse.json(source)));
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('新建来源'));
+    await click(sourceChoice('GitHub', dialog('新建来源')));
+    const creator = dialog('新建来源');
+    const create = button('创建', creator);
+    expect(create.disabled).toBe(false);
+    await click(create);
+    const name = document.getElementById('source-name') as HTMLInputElement;
+    const external = document.getElementById('source-range-0-external') as HTMLInputElement;
+    expect(name.getAttribute('aria-invalid')).toBe('true');
+    expect(external.getAttribute('aria-invalid')).toBe('true');
+    expect(
+      document.getElementById(name.getAttribute('aria-describedby') as string)?.textContent,
+    ).toContain('请填写来源名称');
+    expect(
+      document.getElementById(external.getAttribute('aria-describedby') as string)?.textContent,
+    ).toContain('仓库');
+    expect(
+      calls.some(
+        (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/sources',
+      ),
+    ).toBe(false);
+
+    await fill('source-name', '仓库文档');
+    await fill('source-range-0-external', 'acme/docs');
+    await fill('knowledge-source-secret', 'ghp_x');
+    await click(button('创建', creator));
+    expect(
+      calls.some(
+        (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/sources',
+      ),
+    ).toBe(true);
+  });
+
+  it('polls a sync job pushed out of the latest 50 until it finishes', async () => {
+    listHandlers();
+    // 自动 Wiki 等任务占满前 50 条，刚提交的同步任务不在列表里。
+    const noise = Array.from({ length: 50 }, (_, index) =>
+      wikiJob('succeeded', `kjob_noise_${index}`),
+    );
+    let detailPolls = 0;
+    let documentCalls = 0;
+    let sourceCalls = 0;
+    let runCalls = 0;
+    server.use(
+      http.get('/api/knowledge/jobs', () => HttpResponse.json({ items: noise, nextCursor: null })),
+      http.get('/api/knowledge/jobs/kjob_sync', () => {
+        detailPolls += 1;
+        return HttpResponse.json(syncJob(detailPolls === 1 ? 'running' : 'succeeded'));
+      }),
+      http.get('/api/knowledge/bases/kb_1/documents', () => {
+        documentCalls += 1;
+        return HttpResponse.json({ items: [doc], nextCursor: null });
+      }),
+      http.get('/api/knowledge/bases/kb_1/sources', () => {
+        sourceCalls += 1;
+        return HttpResponse.json({ items: [source], nextCursor: null });
+      }),
+      http.get('/api/knowledge/sources/ksrc_1/runs', () => {
+        runCalls += 1;
+        return HttpResponse.json({ items: [], nextCursor: null });
+      }),
+      http.post('/api/knowledge/sources/ksrc_1/sync', () =>
+        HttpResponse.json({ jobId: 'kjob_sync', syncRunId: 'ksyn_1' }, { status: 202 }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    expect(documentCalls).toBeGreaterThan(0);
+    await click(button('来源'));
+    await click(button('立即同步'));
+    const sourceBefore = sourceCalls;
+    const runBefore = runCalls;
+
+    // 不手动 invalidate：列表已停止轮询，终态只能由产品自己的定向轮询发现。
+    await waitFor(() => detailPolls >= 2, 120);
+    await waitFor(() => sourceCalls > sourceBefore, 60);
+    expect(runCalls).toBeGreaterThan(runBefore);
+    expect(
+      calls.filter((item) => item.method === 'GET' && item.path === '/api/knowledge/jobs/kjob_sync')
+        .length,
+    ).toBeGreaterThanOrEqual(2);
+    // 文档面板已切走：查询被标记失效，下次进入会重新拉取。
+    const documentQueries =
+      client?.getQueryCache().findAll({ queryKey: ['knowledge', 'documents', 'kb_1'] }) ?? [];
+    expect(documentQueries.length).toBeGreaterThan(0);
+    expect(documentQueries.every((query) => query.state.isInvalidated)).toBe(true);
+  });
+
+  it('stops tracking a sync job that the deleted source took with it', async () => {
+    listHandlers();
+    let detailCalls = 0;
+    let runCalls = 0;
+    const warning = vi.spyOn(toast, 'warning');
+    server.use(
+      http.get('/api/knowledge/jobs', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/jobs/kjob_gone', async () => {
+        detailCalls += 1;
+        await delay(30);
+        return HttpResponse.json({ code: 'NOT_FOUND', message: '任务不存在' }, { status: 404 });
+      }),
+      http.get('/api/knowledge/sources/ksrc_1/runs', () => {
+        runCalls += 1;
+        return HttpResponse.json({ items: [], nextCursor: null });
+      }),
+      http.post('/api/knowledge/sources/ksrc_1/sync', () =>
+        HttpResponse.json({ jobId: 'kjob_gone', syncRunId: 'ksyn_1' }, { status: 202 }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    await click(button('来源'));
+    await click(button('立即同步'));
+    await waitFor(() => detailCalls >= 1);
+    await waitFor(() => warning.mock.calls.length > 0);
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith('同步任务已不存在，可能来源已删除；请刷新来源列表');
+    expect(toastError).not.toHaveBeenCalled();
+
+    // 404 不是终态：任务停在失败状态，不伪造完成去失效来源与文档。
+    const jobQuery = client?.getQueryCache().find({ queryKey: ['knowledge', 'job', 'kjob_gone'] });
+    expect(jobQuery?.state.status).toBe('error');
+    const runBefore = runCalls;
+
+    // 跨过两个 2s 轮询周期仍没有新请求：跟踪已停止。
+    for (let tick = 0; tick < 55; tick += 1) await flush();
+    expect(detailCalls).toBe(1);
+    expect(runCalls).toBe(runBefore);
+    expect(warning).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps polling through a 5xx and still settles the sync normally', async () => {
+    listHandlers();
+    let detailCalls = 0;
+    let documentCalls = 0;
+    let runCalls = 0;
+    const warning = vi.spyOn(toast, 'warning');
+    server.use(
+      http.get('/api/knowledge/jobs', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/knowledge/jobs/kjob_sync', () => {
+        detailCalls += 1;
+        if (detailCalls === 1) {
+          return HttpResponse.json(
+            { code: 'INTERNAL', message: '任务服务不可用' },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json(syncJob(detailCalls === 2 ? 'running' : 'succeeded'));
+      }),
+      http.get('/api/knowledge/bases/kb_1/documents', () => {
+        documentCalls += 1;
+        return HttpResponse.json({ items: [doc], nextCursor: null });
+      }),
+      http.get('/api/knowledge/sources/ksrc_1/runs', () => {
+        runCalls += 1;
+        return HttpResponse.json({ items: [], nextCursor: null });
+      }),
+      http.post('/api/knowledge/sources/ksrc_1/sync', () =>
+        HttpResponse.json({ jobId: 'kjob_sync', syncRunId: 'ksyn_1' }, { status: 202 }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    expect(documentCalls).toBeGreaterThan(0);
+    await click(button('来源'));
+    await click(button('立即同步'));
+    const runBefore = runCalls;
+
+    // 500 只让当前这次请求重试，轮询继续到真正的终态。
+    await waitFor(() => detailCalls >= 3, 120);
+    await waitFor(() => runCalls > runBefore, 60);
+    expect(warning).not.toHaveBeenCalled();
+    const documentQueries =
+      client?.getQueryCache().findAll({ queryKey: ['knowledge', 'documents', 'kb_1'] }) ?? [];
+    expect(documentQueries.length).toBeGreaterThan(0);
+    expect(documentQueries.every((query) => query.state.isInvalidated)).toBe(true);
+  });
+
+  it('clears every document filter from the empty result', async () => {
+    listHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', ({ request }) =>
+        HttpResponse.json({
+          items: new URL(request.url).searchParams.get('status') ? [] : [doc],
+          nextCursor: null,
+        }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    await chooseFilter('按状态筛选', '失败');
+    expect(document.body.textContent).toContain('没有匹配的文档');
+    await click(button('清除筛选'));
+    expect(document.body.textContent).toContain('上线流程');
+  });
+
+  it('offers a retry when the tag filter cannot load', async () => {
+    listHandlers();
+    let tagCalls = 0;
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/bases/kb_1/tags', () => {
+        tagCalls += 1;
+        return tagCalls === 1
+          ? HttpResponse.json({ code: 'INTERNAL', message: '标签失败' }, { status: 500 })
+          : HttpResponse.json([{ id: 'ktag_1', baseId: 'kb_1', name: '流程', createdAt: '' }]);
+      }),
+    );
+    await mount('/knowledge/kb_1');
+    expect(document.body.textContent).toContain('标签没有加载出来，重试');
+    await click(button('标签没有加载出来，重试'));
+    expect(button('按标签筛选')).toBeDefined();
   });
 });

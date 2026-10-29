@@ -197,6 +197,8 @@ export async function listRecentFailedRuns(db: Database, limit = 20) {
 
 /** 单个智能体的运行统计（含按天分布，供热力图/工龄页）。 */
 export async function agentStats(db: Database, agentId: string, since: Date) {
+  // 与 API 的 since 同一 UTC 自然日口径；分组、排序、展示必须用同一个表达式。
+  const utcDay = sql`date_trunc('day', ${agentRuns.createdAt} AT TIME ZONE 'UTC')`;
   const [[agg], daily] = await Promise.all([
     db
       .select({
@@ -218,14 +220,14 @@ export async function agentStats(db: Database, agentId: string, since: Date) {
       .where(and(eq(agentRuns.agentId, agentId), sql`${agentRuns.createdAt} >= ${since}`)),
     db
       .select({
-        day: sql<string>`to_char(date_trunc('day', ${agentRuns.createdAt}), 'YYYY-MM-DD')`,
+        day: sql<string>`to_char(${utcDay}, 'YYYY-MM-DD')`,
         runs: sql<number>`count(*)::int`,
         cost: sql<number>`coalesce(sum(${agentRuns.costUsd}), 0)::float`,
       })
       .from(agentRuns)
       .where(and(eq(agentRuns.agentId, agentId), sql`${agentRuns.createdAt} >= ${since}`))
-      .groupBy(sql`date_trunc('day', ${agentRuns.createdAt})`)
-      .orderBy(sql`date_trunc('day', ${agentRuns.createdAt})`),
+      .groupBy(utcDay)
+      .orderBy(utcDay),
   ]);
   const aggSafe = agg ?? {
     runCount: 0,

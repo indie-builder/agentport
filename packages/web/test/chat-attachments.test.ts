@@ -519,7 +519,7 @@ describe('composer attachments', () => {
       host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]')?.click(),
     );
     await flush();
-    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="选择专家"]');
+    const picker = host.querySelector<HTMLButtonElement>('button[aria-label^="选择专家"]');
     if (!picker) throw new Error('Missing expert picker');
     await act(async () => picker.click());
     await flush();

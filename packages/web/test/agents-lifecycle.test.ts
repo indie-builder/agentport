@@ -90,6 +90,13 @@ async function click(element: HTMLElement) {
   await act(async () => element.click());
   await flush();
 }
+function menuItem(text: string): HTMLElement {
+  const element = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent?.trim() === text,
+  );
+  if (!element) throw new Error(`Missing menu item: ${text}`);
+  return element;
+}
 function field(): HTMLInputElement {
   const element = document.querySelector<HTMLInputElement>('#agent-name');
   if (!element) throw new Error('Missing name field');
@@ -704,6 +711,150 @@ describe('expert rollback lifecycle', () => {
   });
 });
 
+describe('expert deletion lifecycle', () => {
+  it('keeps the editor and draft until the server confirms deletion, then returns to the list once', async () => {
+    const request = deferred<void>();
+    vi.spyOn(api, 'deleteAgent').mockReturnValue(request.promise);
+    const router = await mount();
+    await click(button('配置 Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    await editName('Draft kept');
+    await click(button('更多操作'));
+    await waitFor(() => menuItem('删除专家'));
+    await click(menuItem('删除专家'));
+    await click(button('删除', dialog('删除专家「Expert」')));
+
+    // 服务端未确认前：详情仍在、草稿还在，编辑/离开/刷新都被锁住。
+    expect(field().value).toBe('Draft kept');
+    expect(field().disabled).toBe(true);
+    expect(button('返回列表').disabled).toBe(true);
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+    await act(async () => {
+      void router.navigate({ to: '/away' });
+    });
+    await flush();
+    expect(router.state.location.pathname).toBe('/agents/expert');
+    const leave = dialog('放弃未保存的更改？');
+    expect(button('放弃并离开', leave).disabled).toBe(true);
+    await click(button('取消', leave));
+    expect(field().value).toBe('Draft kept');
+
+    vi.mocked(api.agents).mockResolvedValue([]);
+    await act(async () => request.resolve());
+    await flush();
+    await waitFor(() => router.state.location.pathname === '/agents');
+    expect(document.body.textContent).not.toContain('删除专家「Expert」');
+    expect(document.querySelector('#agent-name')).toBeNull();
+  });
+
+  it('keeps the draft and delete confirmation when deletion fails', async () => {
+    const request = deferred<void>();
+    vi.spyOn(api, 'deleteAgent').mockReturnValue(request.promise);
+    await mount();
+    await click(button('配置 Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    await editName('Draft kept');
+    await click(button('更多操作'));
+    await waitFor(() => menuItem('删除专家'));
+    await click(menuItem('删除专家'));
+    await click(button('删除', dialog('删除专家「Expert」')));
+
+    await act(async () => request.reject(new Error('Delete unavailable')));
+    await flush();
+    expect(field().value).toBe('Draft kept');
+    expect(field().disabled).toBe(false);
+    expect(dialog('删除专家「Expert」')).toBeDefined();
+    expect(client.getQueryData<Agent[]>(['agents'])?.map((item) => item.id)).toEqual(['expert']);
+    await click(button('取消', dialog('删除专家「Expert」')));
+    expect(field().value).toBe('Draft kept');
+  });
+});
+
+describe('expert same-page task guard', () => {
+  it('asks before a same-path history move unmounts a dirty child panel and keeps the main draft', async () => {
+    vi.spyOn(api, 'agentRules').mockResolvedValue([]);
+    const router = await mount();
+    await click(button('配置 Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    await editName('Main draft');
+    // 直接 push 一个不同 tab 的同 pathname 记录，才能用 history.back 触发 POP。
+    await act(async () => {
+      await router.navigate({
+        to: '/agents/$agentId',
+        params: { agentId: 'expert' },
+        search: { tab: 'rules' },
+      });
+    });
+    await flush();
+    await waitFor(() => document.getElementById('rule-slug'));
+    await click(button('新建规则'));
+    await editInput('rule-slug', 'no-console');
+
+    await act(async () => {
+      history.back();
+    });
+    await flush();
+    await waitFor(() => document.querySelector('[role="dialog"]'));
+    const confirmation = dialog('放弃未保存的修改并切换？');
+    expect(document.getElementById('rule-slug')?.value).toBe('no-console');
+    await click(button('取消', confirmation));
+    await flush();
+    expect(document.getElementById('rule-slug')?.value).toBe('no-console');
+    expect(router.state.location.search).toMatchObject({ tab: 'rules' });
+
+    await click(button('配置'));
+    const again = dialog('放弃未保存的修改并切换？');
+    expect(document.getElementById('rule-slug')?.value).toBe('no-console');
+    await click(button('放弃并切换', again));
+    await flush();
+    await waitFor(() => router.state.location.search.tab === undefined);
+    expect(document.getElementById('rule-slug')).toBeNull();
+    expect(field().value).toBe('Main draft');
+  });
+
+  it('rejects same-path task changes while a child request is pending', async () => {
+    vi.spyOn(api, 'agentRules').mockResolvedValue([]);
+    const save = deferred<Awaited<ReturnType<typeof api.writeAgentRule>>>();
+    vi.spyOn(api, 'writeAgentRule').mockReturnValue(save.promise);
+    const router = await mount();
+    await click(button('配置 Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    await act(async () => {
+      await router.navigate({
+        to: '/agents/$agentId',
+        params: { agentId: 'expert' },
+        search: { tab: 'rules' },
+      });
+    });
+    await flush();
+    await waitFor(() => document.getElementById('rule-slug'));
+    await click(button('新建规则'));
+    await editInput('rule-slug', 'no-console');
+    await click(button('保存规则'));
+    expect(document.getElementById('rule-slug')?.disabled).toBe(true);
+
+    await act(async () => {
+      void router.navigate({
+        to: '/agents/$agentId',
+        params: { agentId: 'expert' },
+        search: { tab: 'config' },
+      });
+    });
+    await flush();
+    const confirmation = dialog('放弃未保存的修改并切换？');
+    expect(button('放弃并切换', confirmation).disabled).toBe(true);
+    expect(document.getElementById('rule-slug')?.value).toBe('no-console');
+    await click(button('取消', confirmation));
+
+    await act(async () => save.reject(new Error('Save unavailable')));
+    await flush();
+    expect(document.getElementById('rule-slug')?.value).toBe('no-console');
+    expect(router.state.location.search).toMatchObject({ tab: 'rules' });
+  });
+});
+
 describe('expert review details', () => {
   it('exposes the entire old and target prompt and exact same-length binding arrays', async () => {
     const prefix = 'A long prompt shared by both versions with more than forty-eight characters.\n';
@@ -757,6 +908,13 @@ describe('expert review details', () => {
       },
       from: '"allowHooks": true',
       to: '"allowHooks": false',
+    },
+    {
+      label: '运行环境',
+      current: { ...agent, runtimeEnvironmentId: null },
+      target: { ...agent, runtimeEnvironmentId: 'rte_default' },
+      from: '空',
+      to: 'rte_default',
     },
   ];
 
