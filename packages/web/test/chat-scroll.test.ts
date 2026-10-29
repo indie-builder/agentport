@@ -87,6 +87,8 @@ function pane(items: ChatItem[], hasOlder = false) {
       approvalItems: [],
       lastRun: null,
       historyMetrics: new Map(),
+      currentRunId: null,
+      onSelectOutput() {},
       onBranchMessage() {},
       branchingMessageId: null,
       running: false,

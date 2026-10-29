@@ -14,11 +14,11 @@ describe('resource result count', () => {
   it.each([
     ['pending', '加载中…'],
     ['error', '数量不可用'],
-    ['success', '共 0 个专家'],
+    ['success', '共 0 个技能'],
   ] as const)('distinguishes %s from an empty result', (status, expected) => {
     const html = renderToStaticMarkup(
       createElement(ResourcePage, {
-        section: 'agents',
+        section: 'skills',
         query: '',
         onQueryChange() {},
         sort: 'newest',
@@ -30,7 +30,7 @@ describe('resource result count', () => {
       }),
     );
     expect(html).toContain(expected);
-    if (status !== 'success') expect(html).not.toContain('共 0 个专家');
+    if (status !== 'success') expect(html).not.toContain('共 0 个技能');
   });
 
   it.each([

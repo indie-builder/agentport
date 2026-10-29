@@ -12,6 +12,7 @@ export * from './connector-catalog.js';
 export * from './errors.js';
 export * from './knowledge.js';
 export * from './mcp.js';
+export * from './memory.js';
 export * from './native-plugins.js';
 export * from './openui/index.js';
 export * from './ops.js';

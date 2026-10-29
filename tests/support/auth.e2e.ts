@@ -9,8 +9,8 @@ test.setup('sign in as admin', { sessions: ['admin'] }, async ({ app, screen, se
   await app.open('/login');
   await screen.getByLabel('用户名').fill(admin.username);
   await screen.getByLabel('密码').fill(admin.password);
-  await screen.getByRole('button', '进入工作台').tap();
-  // 登录成功后 AppShell 才渲染导航；资源入口名称会随页签增删变化，按开头匹配。
-  await screen.getByRole('link', /^专家/).waitFor();
+  await screen.getByRole('button', '登录').tap();
+  // 登录成功后 AppShell 才渲染导航；等业务首页标记，确认会话已生效。
+  await screen.getByRole('link', '找专家').waitFor();
   await session.save('admin');
 });

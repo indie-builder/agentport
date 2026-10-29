@@ -161,6 +161,8 @@
 
 成果是运行数据，不是智能体定义；不新增成果表，也不把 `.claude/` 文件当成果。用户消息可携带 `output: { runId, path }`，API 校验该版本属于当前会话后随用户消息落库；worker 读取它准备下一轮草稿。每轮发布后，`GET /api/conversations/:id/outputs` 按版本返回有变化的文件，`.../outputs/:runId/content` 返回完整 UTF-8 文本，`.../download` 返回原件。前端右侧成果面板按路径分组、可选版本、阅读/源码切换和下载；“基于此版本修改”只挂引用，不自动发送，用户可继续编辑或取消。Fork 只复制历史边界内且两个消息锚点都能映射的版本，并把锚点重写为分支消息 ID；删除会话或专家回收成果，run 保留期清理不删除成果。
 
+固定版本公开分享单独建 `output_shares`：`POST /api/conversations/:id/output-shares` 锚定 `runId + path` 的真实字节并复用同三元组的有效分享，`GET /api/public/output-shares/:id[/content|/download]` 在未登录下凭 Bearer token 访问，`DELETE /api/output-shares/:id` 幂等撤销。公开元数据只含文件名、大小、类型、哈希与创建时刻；无效、撤销或来源删除统一 404。
+
 边界：当前模型没有删除工具，多文件中的单文件删除不作为支持路径；二进制只下载，Office 无预览；HTML/SVG 只按源码展示；正文超过 1MiB 只下载。成果正文是交付内容，不套用聊天的密钥脱敏；路径逃逸、符号/硬链接和跨会话读取在存储与 API 边界拒绝。
 
 实现状态（2026-10-28）：真实两轮12/12、分支8/8、停止后保留2/2、浏览器预览/下载与反馈挂引用通过；串行后端1824/1824、Web905/905、API9/9、typecheck/build通过，独立评审通过。Office/PDF不预览、无删除工具、成果内容不做聊天脱敏；详见 [任务记录](tasks/agent-output-viewing.md) 与 D-67。成果查看不代表成果质量自动通过。
@@ -306,7 +308,7 @@ data/workspaces/<agent-slug>/
 | `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 已有输出风格管理、文件预览与根级运行落盘；选中者写入 settings.json 的 outputStyle，runner 通过 `settingSources: ['project']` 原生加载，不再手工解析后 inline 覆盖 |
 | Hooks | 由 settings.json 的 hooks 配置或 SDK callbacks 注册；脚本目录本身不是自动发现入口 | 平台层回调与工作区文件Hooks需分别核对，不能仅创建hooks目录声称生效 |
 | 插件根中的 `.claude-plugin/plugin.json`、skills/agents/hooks/.mcp.json | SDK `plugins: [{type:'local', path}]` 指定本地插件根；不是默认扫描项目 `.claude/plugins/` | 插件库文件在 DB 保存一次，多个专家引用，每次运行复制到独立 `.claude/plugins/<slug>/`。支持 ZIP 导入，以及 worker 独立安装沙盒调用 Claude Code CLI 从市场安装、读取平台已下载缓存后纳入插件库；来源记录 `name@marketplace` 去重，缓存不挂载给专家。hooks/MCP 默认关闭，仍按各专家绑定裁剪。平台子智能体不绑定插件；插件自带子智能体可原生委派。已有技能、references、子智能体及 hooks/MCP 开关真实沙盒证据。无升级/版本选择入口，专家 ZIP 不带插件并提示；不支持的组件、二进制和运行依赖明确拒绝，不静默漏文件 |
-| `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 原生 auto-memory 使用 `WORKSPACES_DIR/<slug>/agent-memory/`（uid 1000、0700），API/worker 共卷，沙盒 rw 挂载到 `/mnt/agent-memory` 并设置 `autoMemoryEnabled=true`、`autoMemoryDirectory`。主会话仅预批准该目录的 Read/Edit 路径规则（Edit 含 Write），SDK PreToolUse 每次拒绝越界、链接和非普通 Markdown 文件；该 hook 只覆盖原生文件工具，子智能体的这些工具仍被拒绝，Bash 可写同一可写挂载。保留官方 `MEMORY.md` 与主题文件；权限/挂载测试通过，真实模型跨 run 记忆验收尚未验证。Workflows 仍不接入 |
+| `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 原生 auto-memory 使用 `WORKSPACES_DIR/<slug>/agent-memory/`（uid 1000、0700），API/worker 共卷，沙盒 rw 挂载到 `/mnt/agent-memory` 并设置 `autoMemoryEnabled=true`、`autoMemoryDirectory`。主会话仅预批准该目录的 Read/Edit 路径规则（Edit 含 Write），SDK PreToolUse 每次拒绝越界、链接和非普通 Markdown 文件；该 hook 只覆盖原生文件工具，子智能体的这些工具仍被拒绝，Bash 可写同一可写挂载。**主会话与子智能体分开**：auto-memory 与文件工具权限只作用于主会话；平台不给孩子智能体单独的记忆目录或加载方式，子智能体的记忆需求尚未实现。保留官方 `MEMORY.md` 与主题文件；权限/挂载测试通过，真实模型跨 run 记忆验收尚未验证。Workflows 仍不接入 |
 
 详情接口返回插件库实际保存的完整文件。前端 `/plugins/$pluginId` 是只读详情页：紧凑身份头（名称、版本、简介、导出）下用页内「简介 / 内容」两个 Tabs 切换，不使用抽屉、Sheet 或弹层，页面恰好一个 `h1`。简介页签只展示根 README；无 README 时给简洁空态并指向内容页签，不编写介绍、不拿首个技能冒充说明。内容页签在页内展示真实完整目录树与当前正文：桌面左右可拖动分栏，窄屏目录在同一页内折叠；默认文件为 README → 技能 `SKILL.md` → 首个真实文件。目录树用真实文件/目录名，目录优先、可折叠，只有当前文件铺选中底色，技能目录内 `SKILL.md` 优先，manifest、hooks、MCP、支持文件、空文件全部可达。URL 用 `tab=intro|content`、`file`、`mode=read|source`，默认 `intro` 且无 `file`；切换页签、选择文件与模式进入历史，刷新和前后退可恢复，切到简介保留 `file`/`mode`，切回内容恢复上次选择与滚动位置，失效文件给说明并回退。点击 README 或正文内真实文件链接切到内容页签并定位对应文件。正文显示实际路径 breadcrumb 与 frontmatter 语义名称，Markdown 默认阅读并可切源码，其余文件直接源码并可复制。展示解析只读取 frontmatter 的名称、描述和正文，不改变保存内容或运行定义；Markdown 静态渲染，HTML 作为文本，只有插件内真实存在的相对文件链接可点击。内容区按真实文件路径展示，不另建能力索引；多来源文件在目录树中各自可达。详情是插件库快照，专家运行时仍独立复制并按授权裁剪。
 
@@ -314,7 +316,7 @@ data/workspaces/<agent-slug>/
 
 会话上下文不再拼接历史文本：每个 conversation 的 SDK transcript 持久化在 `WORKSPACES_DIR/<slug>/sdk-sessions/<conversationId>/`，容器只挂这一个目录到 `/home/node/.claude`；续聊传 `resume`，从某条用户消息分支时先复制来源 transcript 再用官方 `forkSession` 截断，成功后写回新 session id。fork 会给消息换新 uuid，映射由 **worker 从宿主 transcript 的 `forkedFrom` 字段计算**（不按位置对齐，压缩过的会话顺序会变），并与消息同事务写库；resume 事件只携带新 session id。transcript 缺失时该轮以 infra 失败，不回退成文本上下文。该目录属于运行时持久数据，随备份保存，但不是可分享定义包的一部分。从历史点复制会话时，来源读取、分支会话行与复制消息在同一个 `db.transaction` 内提交；后续批次失败不会留下半成品分支。
 
-当前 sandbox 明确使用 `cwd:'/workspace'`、`settingSources:['project']`；不加载宿主 user/local 偏好。outputStyle 因此由项目 `settings.json` 原生加载，inline settings 只覆盖同名 key。官方加载默认值可能随版本变化，继续显式配置。文件导入必须经过类型、路径与大小校验，不能直接解压到执行目录或自动运行导入的脚本。
+当前 sandbox 明确使用 `cwd:'/workspace'`、`settingSources:['project']`；不加载宿主 user/local 偏好。个人偏好不是 SDK 自动发现的用户级 `CLAUDE.md`：它是宿主只读挂载的 `/mnt/user/CLAUDE.md`，由平台 `UserPromptSubmit` hook 每轮注入。outputStyle 因此由项目 `settings.json` 原生加载，inline settings 只覆盖同名 key。官方加载默认值可能随版本变化，继续显式配置。文件导入必须经过类型、路径与大小校验，不能直接解压到执行目录或自动运行导入的脚本。
 
 官方来源：
 - https://code.claude.com/docs/en/agent-sdk/claude-code-features
@@ -323,6 +325,28 @@ data/workspaces/<agent-slug>/
 - https://code.claude.com/docs/en/agent-sdk/subagents
 - https://code.claude.com/docs/en/agent-sdk/plugins
 - https://code.claude.com/docs/en/agent-sdk/modifying-system-prompts
+
+### 5.1 记忆、历史回顾与固定版本分享（2026-10-30）
+
+记忆分三类，权威、加载方式与版本能力各不相同：
+
+| 对象 | 权威 | 沙盒加载 | 版本与回滚 |
+|---|---|---|---|
+| 个人偏好 | `user_preferences` 单行（`revision` 乐观锁） | DB 投影到 `WORKSPACES_DIR/_user/CLAUDE.md`（0700/0600，temp + rename），只读挂到 `/mnt/user`；runner 的 `UserPromptSubmit` hook 每轮读取并以 `additionalContext` 注入，上限 9000 字符 / 36 KiB，超限拒绝本轮 | `memory_changes` 账本 |
+| 专家记忆 | `agent-memory/` 官方文件（`MEMORY.md` + 主题文件） | runner 开启原生 auto-memory（`autoMemoryEnabled` + `autoMemoryDirectory`），模型按官方机制自动写，不逐条确认；主会话文件工具受 PreToolUse 路径 hook 限制，子智能体的文件工具仍被拒绝 | 仅 `MEMORY.md` 的采纳、回滚与手工写入进 `memory_changes` |
+| 专家规则 | `agent_rules`（DB） | 渲染为 `.claude/rules/<slug>.md`，每次运行自动生效 | `memory_changes` 完整快照 |
+
+- **个人偏好不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_user/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。DB 写入成功即成功，文件投影失败只记日志；下一次保存会重新投影，当前没有 worker 启动前自动重建。
+- **历史回顾是用户触发的运行**：`agent_runs.trigger='review'`，读已落库的会话快照，`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema` 返回提案。沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停；不建沙盒、不追加消息、不写成果。证据必须是快照消息原文的连续子串。
+- **确认制，不是自动进化**：提案写入个人偏好、专家 `MEMORY.md` 或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用才写目标并落账。没有无人值守的自动提取与发布。
+- **`MEMORY.md` 是索引**：采纳时限制 200 行 / 25KB（官方启动只加载这个范围）；详细内容放主题文件或规则。
+- **专家记忆写入可恢复**：先写 `.memory-journal/` 日志，再原子 rename，再提交账本；账本失败按原字节恢复，恢复不了就保留日志供下次显式恢复，不根据内容等于提案来补记。
+- **完整快照比较**：`memory_changes` 保存 before/after 完整内容（规则含 `globs`）；个人偏好与规则的冲突判断按完整快照，不用局部 diff。
+- **固定版本公开分享**：`output_shares` 锚定 `conversationId + runId + path` 与真实字节 sha256；token 只存哈希与密文，链接为 `/s/<shareId>#<token>`。公开接口校验 token、未撤销、实际字节哈希三重条件，无效统一 404；撤销幂等，已发出的链接不随同一路径的新版本变化。
+
+### 5.2 调研结论：不引入外部记忆服务（2026-10-30）
+
+不引入 Mem0、Zep、Letta、LangMem 等外部记忆服务，也不新增第二套执行底座。借鉴的是产品做法而非依赖：Manus / Fleet 的候选确认、Devin 的来源与索引分离、Letta 的 Git 式版本思想、claude-mem 的索引优先。当前以官方文件和 PostgreSQL 账本实现；只有实测文件检索不足时，才做可重建的检索索引（PostgreSQL 已具备），并需先给出基准证据。详见 D-73。
 
 ## 6. 知识库运行时
 
@@ -404,7 +428,7 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 
 ### 6.6 与原生记忆的边界
 
-知识语料与 SDK 原生 auto-memory 是两类对象：知识库承载有来源的企业文档、版本与引用；`agent-memory/` 承载专家自己的跨会话笔记，仍是工作区内的官方目录能力（§5）。两者不共用表、不互相写入；知识不会被挂载进沙盒，记忆也不会进入检索引擎。
+知识语料、个人偏好与 SDK 原生 auto-memory 是三类对象：知识库承载有来源的企业文档、版本与引用；`agent-memory/` 承载专家自己的跨会话笔记；个人偏好是跨专家共享、DB 权威的偏好文本，经 hook 注入。三者不共用表、不互相写入；知识不会被挂载进沙盒，记忆也不会进入检索引擎。历史回顾只读已落库的会话快照，不读知识库。
 
 ### 6.7 导出与备份
 

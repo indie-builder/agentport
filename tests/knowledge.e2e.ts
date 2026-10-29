@@ -105,11 +105,11 @@ test('knowledge tab, document inspector and search highlight read the seeded bas
   session: 'admin',
   skip: skipUnlessKnowledgeRuntime,
 }, async ({ app, screen, browser }) => {
-  // 第四个资源页签进入知识库；资源类型是真实导航链接，按链接角色定位。
-  await app.open('/agents');
+  // 第四个资源页签进入知识库；资源中心不再包含专家，从资源页开始。
+  await app.open('/skills');
   await screen.getByRole('link', '知识库', { exact: true }).tap();
   await expect(browser).toHaveURL(/\/knowledge$/);
-  await expect(browser).toHaveTitle('知识库 · 控制台');
+  await expect(browser).toHaveTitle('知识库 · PACE');
   await expect(screen.getByRole('heading', { level: 1, name: '知识库' })).toBeVisible();
   await expect(screen.getByRole('heading', { level: 1 })).toHaveCount(1);
   await expect(screen.getByText(/共 \d+ 个知识库/)).toBeVisible();
@@ -117,10 +117,10 @@ test('knowledge tab, document inspector and search highlight read the seeded bas
   // 卡片整卡是一个带 aria-label 的 Link，按链接角色定位。
   await screen.getByRole('link', `查看知识库 ${SEEDED_BASE_NAME}`, { exact: true }).tap();
   await expect(browser).toHaveURL(/\/knowledge\/kb_/);
-  // 详情标题只有一个 h1，内容是知识库名。
+  // 详情标题只有一个 h1，内容是知识库名；document.title 跟随实际 h1。
   await expect(screen.getByRole('heading', { level: 1, name: SEEDED_BASE_NAME })).toBeVisible();
   await expect(screen.getByRole('heading', { level: 1 })).toHaveCount(1);
-  await expect(browser).toHaveTitle('知识库 · 控制台');
+  await expect(browser).toHaveTitle(`${SEEDED_BASE_NAME} · PACE`);
 
   // 文档列表 → 检查器：解析正文、分块与代码块都来自真实索引。
   await screen.getByRole('button', SEEDED_DOCUMENT_TITLE, { exact: true }).tap();

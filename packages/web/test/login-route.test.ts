@@ -127,3 +127,42 @@ describe('login route session check', () => {
     expect(router.state.location.pathname).toBe(TARGET);
   });
 });
+
+function submitButton(): HTMLButtonElement {
+  const button = host.querySelector<HTMLButtonElement>(
+    'form[aria-label="登录"] button[type="submit"]',
+  );
+  if (!button) throw new Error('Missing login submit button');
+  return button;
+}
+
+describe('login primary action', () => {
+  it('labels the idle action as login', async () => {
+    vi.mocked(api.me).mockResolvedValue({ authenticated: false });
+    await mount();
+
+    expect(submitButton().textContent).toBe('登录');
+  });
+
+  it('shows the pending label while the login request is in flight', async () => {
+    vi.mocked(api.me).mockResolvedValue({ authenticated: false });
+    vi.mocked(api.login).mockReturnValue(new Promise(() => {}));
+    await mount();
+
+    await submit('secret');
+
+    expect(submitButton().textContent).toBe('正在登录…');
+    expect(submitButton().disabled).toBe(true);
+  });
+
+  it('offers retry after a failed login attempt', async () => {
+    vi.mocked(api.me).mockResolvedValue({ authenticated: false });
+    vi.mocked(api.login).mockRejectedValue(new Error('offline'));
+    await mount();
+
+    await submit('secret');
+
+    expect(submitButton().textContent).toBe('重试');
+    expect(submitButton().disabled).toBe(false);
+  });
+});

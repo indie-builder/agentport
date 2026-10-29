@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import {
   Activity,
+  ArrowLeft,
+  Brain,
   Cable,
   CalendarClock,
   Container,
@@ -15,6 +17,8 @@ import {
   PanelLeftOpen,
   ScrollText,
   User,
+  Users,
+  Wrench,
   X,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
@@ -36,74 +40,70 @@ import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
 import { Skeleton } from './ui/skeleton.js';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip.js';
 
+type NavItem = { to: string; label: string; icon: typeof Cable };
+
 /**
- * 导航按「使用 → 构建 → 系统」排，不按实体平铺。
- *
- * 依据（docs/UI-REDESIGN.md）：对话是每天多次的最高频动作，构建是低频但
- * 要求高准确度的动作，系统只在出问题时进入。把三者放在同一层级，
- * 等于让用户每次重新判断「我现在要做哪类事」。
+ * 业务导航按「工作 → 构建」排：找专家是入口，对话与定时任务是每天的高频动作，
+ * 资源与评估属于构建。运维观测收在底部次级入口，不占业务主路径。
  */
-const nav = [
+const nav: readonly { label: string; items: readonly NavItem[] }[] = [
   {
-    label: '使用',
+    label: '工作',
     items: [
+      { to: '/agents', label: '找专家', icon: Users },
       { to: '/chat', label: '对话', icon: MessagesSquare },
-      { to: '/runs', label: '运行', icon: Activity },
+      { to: '/memory', label: '记忆', icon: Brain },
       { to: '/schedules', label: '定时任务', icon: CalendarClock },
     ],
   },
   {
     label: '构建',
     items: [
-      { to: '/agents', label: '专家·技能·连接器·插件·知识库', icon: Cable },
+      { to: '/skills', label: '资源', icon: Cable },
       { to: '/eval', label: '评估', icon: FlaskConical },
     ],
   },
-  {
-    label: '系统',
-    items: [
-      { to: '/runtime-environments', label: '运行环境', icon: Container },
-      { to: '/status', label: '健康', icon: HeartPulse },
-      { to: '/audit', label: '审计', icon: ScrollText },
-    ],
+];
+
+const operationsNav: readonly NavItem[] = [
+  { to: '/operations', label: '概况', icon: LayoutDashboard },
+  { to: '/runs', label: '运行', icon: Activity },
+  { to: '/runtime-environments', label: '运行环境', icon: Container },
+  { to: '/status', label: '健康', icon: HeartPulse },
+  { to: '/audit', label: '审计', icon: ScrollText },
+];
+
+const operationsEntry: NavItem = { to: '/operations', label: '运维', icon: Wrench };
+const workspaceEntry: NavItem = { to: '/agents', label: '返回工作区', icon: ArrowLeft };
+const operationsNavTargets = new Set(operationsNav.map((item) => item.to));
+
+/**
+ * 路由归属与文档标题的唯一来源。未列出的路由（`/_shell/$`）既不选中导航，
+ * 也不会被当成某个已知分区。
+ */
+const routeMeta: Record<string, { nav: string; title: string }> = {
+  '/_shell/agents/': { nav: '/agents', title: '找专家' },
+  '/_shell/agents/$agentId': { nav: '/agents', title: '找专家' },
+  '/_shell/chat': { nav: '/chat', title: '对话' },
+  '/_shell/memory': { nav: '/memory', title: '记忆' },
+  '/_shell/schedules': { nav: '/schedules', title: '定时任务' },
+  '/_shell/skills': { nav: '/skills', title: '资源' },
+  '/_shell/servers': { nav: '/skills', title: '连接器' },
+  '/_shell/plugins/': { nav: '/skills', title: '插件' },
+  '/_shell/plugins/$pluginId': { nav: '/skills', title: '插件' },
+  '/_shell/knowledge/': { nav: '/skills', title: '知识库' },
+  '/_shell/knowledge/$baseId': { nav: '/skills', title: '知识库' },
+  '/_shell/eval': { nav: '/eval', title: '评估' },
+  '/_shell/operations': { nav: '/operations', title: '概况' },
+  '/_shell/runs/': { nav: '/runs', title: '运行' },
+  '/_shell/runs/$runId': { nav: '/runs', title: '运行' },
+  '/_shell/runtime-environments/': { nav: '/runtime-environments', title: '运行环境' },
+  '/_shell/runtime-environments/$environmentId': {
+    nav: '/runtime-environments',
+    title: '运行环境',
   },
-] as const;
-
-/** 工作台置顶：它是入口与待办的落点。 */
-const overviewNav = {
-  to: '/',
-  label: '工作台',
-  icon: LayoutDashboard,
-} as const;
-
-const resourceLabels: Record<string, string> = {
-  '/agents': '专家',
-  '/skills': '技能',
-  '/servers': '连接器',
-  '/plugins': '插件',
-  '/knowledge': '知识库',
-};
-
-/** 主导航归属按实际命中的路由判断；未知路由（`/_shell/$`）不在表内，任何导航都不选中。 */
-const navRoutes: Record<string, string> = {
-  '/_shell/': '/',
-  '/_shell/chat': '/chat',
-  '/_shell/runs/': '/runs',
-  '/_shell/runs/$runId': '/runs',
-  '/_shell/schedules': '/schedules',
-  '/_shell/agents/': '/agents',
-  '/_shell/agents/$agentId': '/agents',
-  '/_shell/skills': '/agents',
-  '/_shell/servers': '/agents',
-  '/_shell/plugins/': '/agents',
-  '/_shell/plugins/$pluginId': '/agents',
-  '/_shell/knowledge/': '/agents',
-  '/_shell/knowledge/$baseId': '/agents',
-  '/_shell/eval': '/eval',
-  '/_shell/runtime-environments/': '/runtime-environments',
-  '/_shell/runtime-environments/$environmentId': '/runtime-environments',
-  '/_shell/status': '/status',
-  '/_shell/audit': '/audit',
+  '/_shell/status': { nav: '/status', title: '健康' },
+  '/_shell/audit': { nav: '/audit', title: '审计' },
 };
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
@@ -182,7 +182,7 @@ function SidebarLink({
   onNavigate?: (() => void) | undefined;
 }) {
   const activeRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
-  const active = navRoutes[activeRoute ?? ''] === to;
+  const active = routeMeta[activeRoute ?? '']?.nav === to;
   // 收起态按参考页：整行透明，状态落在 32×32、radius 6 的图标块上。
   const link = (
     <Link
@@ -190,7 +190,7 @@ function SidebarLink({
       onClick={onNavigate}
       aria-label={label}
       aria-current={active ? 'page' : undefined}
-      // 归属由 navRoutes 判定；Link 自带的路径前缀匹配会把未知路由误判为 active。
+      // 归属由 routeMeta 判定；Link 自带的路径前缀匹配会把未知路由误判为 active。
       activeOptions={{ exact: true, includeSearch: false }}
       className={cn(
         'relative flex h-8 items-center text-sm transition-colors duration-150',
@@ -293,25 +293,15 @@ export function AppShell() {
   const me = useQuery(meQuery);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const currentPage = [
-    overviewNav,
-    ...nav.flatMap<{ to: string; label: string }>((group) => group.items),
-  ].find((item) => (item.to === '/' ? pathname === '/' : pathname.startsWith(item.to)));
-  const isNotFound = useRouterState({
-    select: (state) => state.matches.at(-1)?.routeId === '/_shell/$',
-  });
-  // 插件不在主导航里，按实际命中的路由命名，列表与详情共用「插件」。
   const matchedRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
-  const pageTitle = isNotFound
-    ? '页面不存在'
-    : matchedRoute?.startsWith('/_shell/plugins')
-      ? '插件'
-      : (resourceLabels[pathname] ??
-        (pathname.startsWith('/knowledge/') ? '知识库' : currentPage?.label) ??
-        '页面不存在');
-  const baseTitle = `${pageTitle} · 控制台`;
+  const meta = matchedRoute ? routeMeta[matchedRoute] : undefined;
+  const pageTitle = meta?.title ?? '页面不存在';
+  const baseTitle = `${pageTitle} · PACE`;
   // 详情页共用同一个路由模板，固定名称无法区分实体（WCAG 2.4.2），改由页面实际 h1 命名。
-  const isDetailRoute = Boolean(!isNotFound && matchedRoute?.includes('$'));
+  const isDetailRoute = Boolean(meta && matchedRoute?.includes('$'));
+  const isOperationsContext = meta ? operationsNavTargets.has(meta.nav) : false;
+  const navGroups = isOperationsContext ? [{ label: '运维', items: operationsNav }] : nav;
+  const bottomEntry = isOperationsContext ? workspaceEntry : operationsEntry;
   const [collapsed, setCollapsed] = useCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
@@ -333,7 +323,7 @@ export function AppShell() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: pathname 变化要重置基础标题并重接观察；认证就绪后主内容才挂载。
   useEffect(() => {
     const apply = (heading?: string): void => {
-      const next = heading ? `${heading} · 控制台` : baseTitle;
+      const next = heading ? `${heading} · PACE` : baseTitle;
       if (document.title !== next) document.title = next;
     };
     apply();
@@ -428,14 +418,7 @@ export function AppShell() {
       )}
       {/* 收起态标签会横向溢出链接，导航不提供横向滚动。 */}
       <nav aria-label="主导航" className="mt-[18px] flex-1 overflow-y-auto overflow-x-hidden">
-        <SidebarLink
-          to={overviewNav.to}
-          label={overviewNav.label}
-          icon={overviewNav.icon}
-          collapsed={drawer ? false : collapsed}
-          onNavigate={drawer ? () => setMobileOpen(false) : undefined}
-        />
-        {nav.map((group) => (
+        {navGroups.map((group) => (
           <div key={group.label} className="mt-3 first:mt-3">
             {drawer || !collapsed ? (
               <div className="px-2.5 pb-1.5 pt-4 text-xs text-muted-foreground">{group.label}</div>
@@ -457,8 +440,15 @@ export function AppShell() {
           </div>
         ))}
       </nav>
-      {/* 底部：用户信息（参考页把升级入口放在同一位置）。 */}
-      <div className={cn('pt-[18px]', collapsed && !drawer && 'flex justify-center')}>
+      {/* 底部：次级运维入口（或返回工作区）与用户信息。 */}
+      <div className={cn('flex flex-col gap-1 pt-[18px]', collapsed && !drawer && 'items-center')}>
+        <SidebarLink
+          to={bottomEntry.to}
+          label={bottomEntry.label}
+          icon={bottomEntry.icon}
+          collapsed={drawer ? false : collapsed}
+          onNavigate={drawer ? () => setMobileOpen(false) : undefined}
+        />
         {drawer || !collapsed ? (
           <UserMenu username={me.data.username ?? 'admin'} />
         ) : (

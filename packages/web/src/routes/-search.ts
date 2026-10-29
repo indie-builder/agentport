@@ -11,11 +11,12 @@ export const serversSearchSchema = resourceSearchSchema.extend({
 });
 
 export const agentsSearchSchema = resourceSearchSchema.extend({
-  status: z.enum(['enabled', 'disabled']).optional().catch(undefined),
+  // 默认发现已启用的专家；all 与 disabled 是筛选里的显式选项。
+  status: z.enum(['all', 'enabled', 'disabled']).optional().catch(undefined),
   role: z.enum(AGENT_ROLES).optional().catch(undefined),
 });
 
-const agentTabs = ['config', 'memory', 'rules', 'styles', 'files', 'stats'] as const;
+const agentTabs = ['config', 'memory', 'rules', 'styles', 'files'] as const;
 const agentSections = ['identity', 'behavior', 'capability', 'permissions', 'limits'] as const;
 
 /** 专家详情：任务、配置分区与选中文件都进 URL，刷新和分享后回到同一视图。 */
@@ -47,6 +48,12 @@ export const chatSearchSchema = z.object({
   outputRun: z.string().min(1).optional().catch(undefined),
   outputPath: z.string().min(1).optional().catch(undefined),
   outputMode: z.enum(['read', 'source']).optional().catch(undefined),
+});
+
+/** 记忆：任务页签与历史回顾的专家筛选都进 URL，深链可回到同一视图。 */
+export const memorySearchSchema = z.object({
+  tab: z.enum(['personal', 'reviews']).optional().catch(undefined),
+  agent: z.string().min(1).optional().catch(undefined),
 });
 
 export const auditSearchSchema = z.object({

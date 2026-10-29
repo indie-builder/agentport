@@ -90,6 +90,13 @@ async function click(element: HTMLElement) {
   await act(async () => element.click());
   await flush();
 }
+function link(text: string, scope: ParentNode = document): HTMLAnchorElement {
+  const element = [...scope.querySelectorAll<HTMLAnchorElement>('a')].find(
+    (item) => item.textContent?.trim() === text || item.getAttribute('aria-label') === text,
+  );
+  if (!element) throw new Error(`Missing link: ${text}`);
+  return element;
+}
 function menuItem(text: string): HTMLElement {
   const element = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
     (item) => item.textContent?.trim() === text,
@@ -196,7 +203,7 @@ async function mountAgentProbe(id: string) {
 }
 
 async function openHistory(dirty = false) {
-  await click(button('配置 Expert'));
+  await click(link('Expert'));
   await waitFor(() => document.querySelector('#agent-name'));
   if (dirty) await editName('Unsaved draft');
   await click(button('版本历史'));
@@ -456,7 +463,7 @@ describe('expert creation lifecycle', () => {
 
   it('explains connector preapproval separately from built-in tools and the sandbox default mode', async () => {
     await mount();
-    await click(button('配置 Expert'));
+    await click(link('Expert'));
     await click(await waitFor(() => button('权限')));
     const section = document.getElementById('agent-permissions');
     expect(section?.textContent).toContain('内置工具');
@@ -488,16 +495,19 @@ describe('expert creation lifecycle', () => {
   });
 
   it('initializes twin defaults cleanly and protects edited working background', async () => {
-    await mount();
-    await click(button('创建数字分身'));
+    const router = await mount();
+    // 数字分身是角色选项：从角色筛选新建时预填该角色，而不是另开一张入口卡。
+    await act(async () => router.navigate({ to: '/agents', search: { role: '数字分身' } }));
+    await flush();
+    await click(button('新建专家'));
     let setup = dialog('创建数字分身');
     expect(setup.querySelector<HTMLInputElement>('#new-agent-name')?.value).toBe('我的分身');
-    expect(setup.querySelector('#new-agent-role')).toBeNull();
+    expect(setup.querySelector('#new-agent-role')?.textContent).toContain('数字分身');
     expect(setup.textContent).toContain('数字分身');
     expect(setup.querySelector<HTMLTextAreaElement>('#new-agent-prompt')?.value).toBe('');
     await click(button('取消', setup));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    await click(button('创建数字分身'));
+    await click(button('新建专家'));
     setup = dialog('创建数字分身');
     await editInput('new-agent-prompt', '我是产品经理，表达简洁。');
     await click(button('取消', setup));
@@ -542,7 +552,9 @@ describe('expert creation lifecycle', () => {
     vi.spyOn(api, 'createAgent').mockReturnValue(request.promise);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json([agent, created]));
     const router = await mount();
-    await click(button('创建数字分身'));
+    await act(async () => router.navigate({ to: '/agents', search: { role: '数字分身' } }));
+    await flush();
+    await click(button('新建专家'));
     await editInput('new-agent-slug', 'twin');
     await act(async () => {
       void router.navigate({ to: '/away' });
@@ -609,6 +621,163 @@ describe('expert creation lifecycle', () => {
   });
 });
 
+describe('expert discovery', () => {
+  const disabled = { ...agent, id: 'disabled', slug: 'disabled', name: 'Disabled', enabled: false };
+
+  it('shows enabled experts by default and can show all or disabled experts', async () => {
+    client.setQueryData(['agents'], [agent, disabled]);
+    vi.mocked(api.agents).mockResolvedValue([agent, disabled]);
+    const router = await mount();
+    let list = host.querySelector('[aria-label="专家列表"]');
+    expect(list?.textContent).toContain('Expert');
+    expect(list?.textContent).not.toContain('Disabled');
+
+    await act(async () => router.navigate({ to: '/agents', search: { status: 'all' } }));
+    await flush();
+    list = host.querySelector('[aria-label="专家列表"]');
+    expect(list?.textContent).toContain('Expert');
+    expect(list?.textContent).toContain('Disabled');
+
+    await act(async () => router.navigate({ to: '/agents', search: { status: 'disabled' } }));
+    await flush();
+    list = host.querySelector('[aria-label="专家列表"]');
+    expect(list?.textContent).not.toContain('Expert');
+    expect(list?.textContent).toContain('Disabled');
+  });
+
+  it('clears every filter to all experts when only disabled experts are hidden by the default', async () => {
+    client.setQueryData(['agents'], [disabled]);
+    vi.mocked(api.agents).mockResolvedValue([disabled]);
+    const router = await mount();
+    expect(host.querySelector('[aria-label="专家列表"]')).toBeNull();
+    expect(host.textContent).toContain('没有匹配的专家');
+
+    await act(async () =>
+      router.navigate({ to: '/agents', search: { q: 'missing', role: '数字分身' } }),
+    );
+    await flush();
+    await click(button('清除筛选'));
+    await flush();
+
+    expect(router.state.location.search).toMatchObject({ status: 'all' });
+    expect(router.state.location.search.q).toBeUndefined();
+    expect(router.state.location.search.role).toBeUndefined();
+    expect(host.querySelector('[aria-label="专家列表"]')?.textContent).toContain('Disabled');
+  });
+
+  it('restores status, sort and role filters after going back', async () => {
+    const tester = { ...agent, id: 'tester', name: 'QA', role: '测试工程师' };
+    client.setQueryData(['agents'], [agent, tester, disabled]);
+    vi.mocked(api.agents).mockResolvedValue([agent, tester, disabled]);
+    const router = await mount();
+    await act(async () =>
+      router.navigate({
+        to: '/agents',
+        search: { status: 'all', sort: 'name', role: '测试工程师' },
+      }),
+    );
+    await flush();
+    await act(async () => router.navigate({ to: '/away' }));
+    await flush();
+    await waitFor(() => router.state.location.pathname === '/away');
+
+    await act(async () => history.back());
+    await flush();
+    await waitFor(() => router.state.location.pathname === '/agents');
+
+    expect(router.state.location.search).toMatchObject({
+      status: 'all',
+      sort: 'name',
+      role: '测试工程师',
+    });
+    const list = host.querySelector('[aria-label="专家列表"]');
+    expect(list?.textContent).toContain('QA');
+    expect(list?.textContent).not.toContain('Expert');
+    expect(list?.textContent).not.toContain('Disabled');
+  });
+
+  it('links names to the definition page and only starts enabled experts', async () => {
+    client.setQueryData(['agents'], [agent, disabled]);
+    vi.mocked(api.agents).mockResolvedValue([agent, disabled]);
+    const router = await mount();
+    await act(async () => router.navigate({ to: '/agents', search: { status: 'all' } }));
+    await flush();
+    expect(link('Expert').getAttribute('href')).toBe('/agents/expert');
+    expect(link('与 Expert 开始对话').getAttribute('aria-label')).toBe('与 Expert 开始对话');
+    expect(host.querySelector('a[href="/chat?agent=expert"]')).not.toBeNull();
+    expect(host.querySelector('a[href="/chat?agent=disabled"]')).toBeNull();
+    const blocked = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (item) => item.getAttribute('aria-label') === '与 Disabled 开始对话',
+    );
+    expect(blocked?.disabled).toBe(true);
+    expect(blocked?.getAttribute('title')).toContain('已停用');
+    expect(button('新建专家')).toBeDefined();
+  });
+
+  it('offers the first creation when empty and recovers from a filter miss', async () => {
+    client.setQueryData(['agents'], []);
+    vi.mocked(api.agents).mockResolvedValue([]);
+    const router = await mount();
+    expect(host.textContent).toContain('创建第一位专家');
+    expect(host.textContent).not.toContain('创建数字分身');
+    await click(button('创建第一位专家'));
+    expect(dialog('新建专家')).toBeDefined();
+    await click(button('取消', dialog('新建专家')));
+    await flush();
+
+    client.setQueryData(['agents'], [agent]);
+    vi.mocked(api.agents).mockResolvedValue([agent]);
+    await act(async () => router.navigate({ to: '/agents', search: { q: 'missing' } }));
+    await flush();
+    expect(host.textContent).toContain('没有匹配的专家');
+    expect(button('新建专家')).toBeDefined();
+    await click(button('清除筛选'));
+    await flush();
+    expect(host.querySelector('[aria-label="专家列表"]')?.textContent).toContain('Expert');
+  });
+
+  it('prefills the selected role without writing the search into the working style', async () => {
+    const router = await mount();
+    await act(async () =>
+      router.navigate({ to: '/agents', search: { role: '测试工程师', q: 'QA' } }),
+    );
+    await flush();
+    await click(button('新建专家'));
+    const setup = dialog('新建专家');
+    expect(document.getElementById('new-agent-role')?.textContent).toContain('测试工程师');
+    expect(setup.querySelector<HTMLTextAreaElement>('#new-agent-prompt')?.value).toBe('');
+  });
+
+  it('puts name, role and working style before folded model and identifier', async () => {
+    await mount();
+    await click(button('新建专家'));
+    const setup = dialog('新建专家');
+    const name = setup.querySelector('#new-agent-name') as HTMLElement;
+    const role = setup.querySelector('#new-agent-role') as HTMLElement;
+    const prompt = setup.querySelector('#new-agent-prompt') as HTMLElement;
+    const model = setup.querySelector('#new-agent-model') as HTMLElement;
+    const slug = setup.querySelector('#new-agent-slug') as HTMLElement;
+    expect(name.compareDocumentPosition(role)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(role.compareDocumentPosition(prompt)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(prompt.compareDocumentPosition(model)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(model.compareDocumentPosition(slug)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const advanced = setup.querySelector('[data-slot="collapsible-content"]');
+    expect(advanced?.hasAttribute('inert')).toBe(true);
+    expect(setup.textContent).toContain('高级设置');
+  });
+});
+
+describe('expert detail navigation', () => {
+  it('labels the memory task as expert memory and links run history out of the tabs', async () => {
+    await mount();
+    await click(link('Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+    expect(host.textContent).toContain('专家记忆');
+    expect(host.textContent).not.toContain('运行统计');
+    expect(link('查看运行').getAttribute('href')).toBe('/runs?agent=expert');
+  });
+});
+
 describe('expert file tool permissions', () => {
   function toolToggle(tool: string): HTMLButtonElement {
     const element = [...document.querySelectorAll<HTMLButtonElement>('[data-slot="toggle"]')].find(
@@ -618,7 +787,7 @@ describe('expert file tool permissions', () => {
     return element;
   }
   async function openPermissions(): Promise<HTMLElement> {
-    await click(await waitFor(() => button('配置 Expert')));
+    await click(await waitFor(() => link('Expert')));
     await click(await waitFor(() => button('权限')));
     await waitFor(() => document.getElementById('agent-permissions'));
     return document.getElementById('agent-permissions') as HTMLElement;
@@ -872,7 +1041,7 @@ describe('expert deletion lifecycle', () => {
     const request = deferred<void>();
     vi.spyOn(api, 'deleteAgent').mockReturnValue(request.promise);
     const router = await mount();
-    await click(button('配置 Expert'));
+    await click(link('Expert'));
     await waitFor(() => document.querySelector('#agent-name'));
     await editName('Draft kept');
     await click(button('更多操作'));
@@ -909,7 +1078,7 @@ describe('expert deletion lifecycle', () => {
     const request = deferred<void>();
     vi.spyOn(api, 'deleteAgent').mockReturnValue(request.promise);
     await mount();
-    await click(button('配置 Expert'));
+    await click(link('Expert'));
     await waitFor(() => document.querySelector('#agent-name'));
     await editName('Draft kept');
     await click(button('更多操作'));
@@ -932,7 +1101,7 @@ describe('expert same-page task guard', () => {
   it('asks before a same-path history move unmounts a dirty child panel and keeps the main draft', async () => {
     vi.spyOn(api, 'agentRules').mockResolvedValue([]);
     const router = await mount();
-    await click(button('配置 Expert'));
+    await click(link('Expert'));
     await waitFor(() => document.querySelector('#agent-name'));
     await editName('Main draft');
     // 直接 push 一个不同 tab 的同 pathname 记录，才能用 history.back 触发 POP。
@@ -975,7 +1144,7 @@ describe('expert same-page task guard', () => {
     const save = deferred<Awaited<ReturnType<typeof api.writeAgentRule>>>();
     vi.spyOn(api, 'writeAgentRule').mockReturnValue(save.promise);
     const router = await mount();
-    await click(button('配置 Expert'));
+    await click(link('Expert'));
     await waitFor(() => document.querySelector('#agent-name'));
     await act(async () => {
       await router.navigate({
@@ -1292,7 +1461,7 @@ describe('expert draft previews', () => {
     const render = vi.mocked(renderWorkspace);
     render.mockClear();
     await mount();
-    await click(button('配置 Expert'));
+    await click(link('Expert'));
     await waitFor(() => document.querySelector('#agent-name'));
     expect(render).not.toHaveBeenCalled();
 
@@ -1310,7 +1479,7 @@ describe('expert draft previews', () => {
     const render = vi.mocked(renderWorkspace);
     render.mockClear();
     await mount();
-    await click(button('配置 Expert'));
+    await click(link('Expert'));
     await waitFor(() => document.querySelector('#agent-name'));
     await click(button('行为'));
     expect(render).not.toHaveBeenCalled();
@@ -1328,7 +1497,7 @@ describe('expert draft previews', () => {
 
   it('keeps unsaved fields when switching config sections', async () => {
     await mount();
-    await click(button('配置 Expert'));
+    await click(link('Expert'));
     await waitFor(() => document.querySelector('#agent-name'));
     await editName('分区草稿');
     await click(button('行为'));
@@ -1348,7 +1517,7 @@ describe('expert draft previews', () => {
     const update = vi.spyOn(api, 'updateAgent').mockResolvedValue(saved);
     vi.mocked(api.agents).mockResolvedValue([saved]);
     await mount();
-    await click(button('配置 Expert'));
+    await click(link('Expert'));
     await waitFor(() => document.querySelector('#agent-name'));
     await editName('配置验收草稿');
     await click(button('行为'));

@@ -2,9 +2,18 @@ import { execFileSync } from 'node:child_process';
 import { link, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  PreToolUseHookInput,
+  UserPromptSubmitHookInput,
+} from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createFileBoundaryHook, createMemoryHook } from '../src/memory-permissions.js';
+import {
+  createFileBoundaryHook,
+  createMemoryHook,
+  createPersonalMemoryHook,
+  PERSONAL_MEMORY_MAX_BYTES,
+  PERSONAL_MEMORY_MAX_CHARS,
+} from '../src/memory-permissions.js';
 
 let dir: string;
 let memory: string;
@@ -436,5 +445,95 @@ describe('plugin skill read-only boundary', () => {
     ] as const) {
       expect(await read(tool, path), `${tool} ${path}`).toMatchObject(decision('deny'));
     }
+  });
+});
+
+describe('personal memory prompt injection', () => {
+  const file = () => join(dir, 'user', 'CLAUDE.md');
+  const event = (): UserPromptSubmitHookInput => ({
+    hook_event_name: 'UserPromptSubmit',
+    session_id: 'session',
+    transcript_path: '/tmp/transcript',
+    cwd: '/workspace',
+    prompt: 'hi',
+  });
+  const call = (
+    hook: ReturnType<typeof createPersonalMemoryHook>,
+  ): Promise<Awaited<ReturnType<ReturnType<typeof createPersonalMemoryHook>>>> =>
+    hook(event(), undefined, { signal: new AbortController().signal });
+
+  it('returns nothing when the file is missing or blank', async () => {
+    const hook = createPersonalMemoryHook(file());
+    expect(await call(hook)).toEqual({});
+    await mkdir(join(dir, 'user'));
+    await writeFile(file(), '  \n');
+    expect(await call(hook)).toEqual({});
+  });
+
+  it('injects the exact file content and re-reads it every turn', async () => {
+    await mkdir(join(dir, 'user'));
+    const hook = createPersonalMemoryHook(file());
+    await writeFile(file(), '# 偏好\n\n喜欢简洁的答复。\n');
+    expect(await call(hook)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        additionalContext: '# 偏好\n\n喜欢简洁的答复。\n',
+      },
+    });
+    await writeFile(file(), '恢复会话后的新内容');
+    expect(await call(hook)).toMatchObject({
+      hookSpecificOutput: { additionalContext: '恢复会话后的新内容' },
+    });
+  });
+
+  it('injects 9000 Unicode characters and blocks one more', async () => {
+    await mkdir(join(dir, 'user'));
+    const hook = createPersonalMemoryHook(file());
+    const atLimit = '界'.repeat(PERSONAL_MEMORY_MAX_CHARS);
+    await writeFile(file(), atLimit);
+    expect(await call(hook)).toMatchObject({
+      hookSpecificOutput: { additionalContext: atLimit },
+    });
+
+    await writeFile(file(), '界'.repeat(PERSONAL_MEMORY_MAX_CHARS + 1));
+    const result = await call(hook);
+    expect(result).toMatchObject({ decision: 'block' });
+    expect((result as { reason?: string }).reason).toBe('个人偏好最多 9000 个字符，本轮未启动');
+  });
+
+  it('blocks a file above the 36 KiB byte guard', async () => {
+    await mkdir(join(dir, 'user'));
+    await writeFile(file(), 'x'.repeat(PERSONAL_MEMORY_MAX_BYTES + 1));
+    const errors: string[] = [];
+    const result = await call(createPersonalMemoryHook(file(), (message) => errors.push(message)));
+    expect(result).toMatchObject({ decision: 'block' });
+    expect((result as { reason?: string }).reason).toBe('个人偏好最多 9000 个字符，本轮未启动');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('blocks symlinked personal memory instead of following it', async () => {
+    await mkdir(join(dir, 'user'));
+    await symlink(join(dir, 'outside.md'), file());
+    const errors: string[] = [];
+    const result = await call(createPersonalMemoryHook(file(), (message) => errors.push(message)));
+    expect(result).toMatchObject({ decision: 'block' });
+    expect(errors).toHaveLength(1);
+  });
+
+  it('ignores non-prompt hook events', async () => {
+    const hook = createPersonalMemoryHook(file());
+    expect(
+      await hook(
+        {
+          hook_event_name: 'Stop',
+          session_id: 's',
+          transcript_path: '/tmp/t',
+          cwd: '/workspace',
+          stop_hook_active: false,
+        },
+        undefined,
+        { signal: new AbortController().signal },
+      ),
+    ).toEqual({});
   });
 });

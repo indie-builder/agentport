@@ -2,22 +2,26 @@ import type {
   Agent,
   AgentInput,
   AgentPatch,
-  AgentStats,
   ApiTool,
   ApiToolInput,
   Attention,
   ChatRequest,
   ConnectorCatalogItem,
+  CreateMemoryReviewInput,
   EvalDataset,
   KnowledgeSourceInput,
   MarketInstallInput,
   MarketView,
+  MemoryChange,
   MemoryFileContent,
   MemoryFileList,
+  MemoryReview,
+  MemoryReviewTarget,
   NativePluginImportInput,
   NativePluginInstallInput,
   OutputContent,
   OutputStyle,
+  PersonalMemory,
   Plugin,
   PluginInput,
   PluginWithAgentCount,
@@ -68,6 +72,7 @@ import {
   type KnowledgeSearchResponse,
   type Me,
   type NativePlugins,
+  type OutputShareList,
   type Overview,
   type OverviewTimeseriesPoint,
   type RunDetail,
@@ -147,12 +152,6 @@ export const schedulesQuery = queryOptions<Schedule[]>({
   queryFn: api.schedules,
 });
 
-export const agentStatsQuery = (id: string, days = 30) =>
-  queryOptions<AgentStats>({
-    queryKey: ['agent-stats', id, days],
-    queryFn: () => api.agentStats(id, days),
-  });
-
 export const agentMemoryQuery = (id: string) =>
   queryOptions<MemoryFileList>({
     queryKey: ['agent-memory', id],
@@ -183,6 +182,136 @@ export function useAttention() {
 
 export function useSchedules() {
   return useQuery(schedulesQuery);
+}
+
+// ---- 记忆：个人偏好、版本回顾与审核 ---------------------------------------
+
+export const personalMemoryQuery = queryOptions<PersonalMemory>({
+  queryKey: ['personal-memory'],
+  queryFn: () => api.personalMemory(),
+  staleTime: 0,
+});
+
+export const personalMemoryVersionsQuery = queryOptions<{ items: MemoryChange[] }>({
+  queryKey: ['personal-memory-versions'],
+  queryFn: ({ signal }) => api.personalMemoryVersions({}, signal),
+  staleTime: 0,
+});
+
+/** 三类记忆目标各自的变更账本；审核详情与列表据此识别已回滚的采用。 */
+export const memoryVersionsQuery = (target: MemoryReviewTarget) =>
+  queryOptions<{ items: MemoryChange[] }>({
+    queryKey: ['memory-versions', target],
+    queryFn: ({ signal }) => {
+      if (target.kind === 'personal') return api.personalMemoryVersions({}, signal);
+      if (target.kind === 'agent_memory') return api.agentMemoryVersions(target.agentId, signal);
+      return api.agentRuleVersions(target.agentId, target.slug, signal);
+    },
+    staleTime: 0,
+  });
+
+export function usePersonalMemory() {
+  return useQuery(personalMemoryQuery);
+}
+
+export function usePersonalMemoryVersions() {
+  return useQuery(personalMemoryVersionsQuery);
+}
+
+/** 保存只改个人偏好：写回缓存让编辑器立即拿到新内容，再失效偏好与版本账本。 */
+export function useSavePersonalMemory() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { content: string; expectedRevision: number }) =>
+      api.writePersonalMemory(input),
+    onSuccess: (saved) => {
+      client.setQueryData(personalMemoryQuery.queryKey, saved);
+      void client.invalidateQueries({ queryKey: personalMemoryQuery.queryKey });
+      void client.invalidateQueries({ queryKey: personalMemoryVersionsQuery.queryKey });
+      void client.invalidateQueries({ queryKey: ['memory-versions'] });
+    },
+  });
+}
+
+/** 记忆写入会改动偏好、专家文件/规则与变更账本，相关读取一次全部失效。 */
+function invalidateMemoryContent(client: ReturnType<typeof useQueryClient>): void {
+  void client.invalidateQueries({ queryKey: personalMemoryQuery.queryKey });
+  void client.invalidateQueries({ queryKey: personalMemoryVersionsQuery.queryKey });
+  void client.invalidateQueries({ queryKey: ['memory-versions'] });
+  void client.invalidateQueries({ queryKey: ['agent-memory'] });
+  void client.invalidateQueries({ queryKey: ['agent-rules'] });
+}
+
+/** 回滚会改写个人偏好或专家文件/规则，相关列表与实际内容一起失效。 */
+export function useRollbackMemoryChange() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (changeId: string) => api.rollbackMemoryChange(changeId),
+    onSuccess: () => {
+      invalidateMemoryContent(client);
+      invalidateMemoryReviews(client);
+    },
+  });
+}
+
+const memoryReviewKey = (agentId: string | null) => ['memory-reviews', agentId] as const;
+
+function memoryReviewActive(review: MemoryReview): boolean {
+  return review.status === 'queued' || review.status === 'running';
+}
+
+/** 审核在后台排队/运行：3 秒刷新；全部进入终态后停止，卸载自动清理。 */
+export function useMemoryReviews(agentId: string | null) {
+  return useQuery({
+    queryKey: memoryReviewKey(agentId),
+    queryFn: ({ signal }) => api.memoryReviews(agentId === null ? {} : { agentId }, signal),
+    staleTime: 0,
+    refetchInterval: (query) => (query.state.data?.items.some(memoryReviewActive) ? 3_000 : false),
+  });
+}
+
+function invalidateMemoryReviews(client: ReturnType<typeof useQueryClient>): void {
+  void client.invalidateQueries({ queryKey: ['memory-reviews'] });
+}
+
+export function useCreateMemoryReview() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { input: CreateMemoryReviewInput; idempotencyKey: string }) =>
+      api.createMemoryReview(vars.input, vars.idempotencyKey),
+    onSuccess: () => invalidateMemoryReviews(client),
+  });
+}
+
+export function useApplyMemoryReview() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.applyMemoryReview(runId),
+    onSuccess: () => {
+      invalidateMemoryReviews(client);
+      invalidateMemoryContent(client);
+    },
+  });
+}
+
+export function useRejectMemoryReview() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.rejectMemoryReview(runId),
+    onSuccess: () => {
+      invalidateMemoryReviews(client);
+      invalidateMemoryContent(client);
+    },
+  });
+}
+
+/** 取消生成复用运行取消接口；列表继续轮询到服务端终态。 */
+export function useCancelMemoryReview() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.cancelRun(runId),
+    onSuccess: () => invalidateMemoryReviews(client),
+  });
 }
 
 export function useServers() {
@@ -428,6 +557,50 @@ export function useOutputContent(
       api.outputContent(conversationId ?? '', runId ?? '', path ?? '', signal),
     enabled: conversationId !== null && runId !== null && path !== null,
     staleTime: 5 * 60_000,
+  });
+}
+
+export const outputSharesQueryKey = (
+  conversationId: string | null,
+  runId: string | null,
+  path: string | null,
+) => ['output-shares', conversationId, runId, path] as const;
+
+export function useOutputShares(
+  conversationId: string | null,
+  runId: string | null,
+  path: string | null,
+) {
+  return useQuery<OutputShareList>({
+    queryKey: outputSharesQueryKey(conversationId, runId, path),
+    queryFn: ({ signal }) =>
+      api.outputShares(conversationId ?? '', { runId: runId ?? '', path: path ?? '' }, signal),
+    enabled: conversationId !== null && runId !== null && path !== null,
+    staleTime: 0,
+  });
+}
+
+/** 创建后先写回缓存，列表刷新失败也能立刻看到可用链接。 */
+export function useCreateOutputShare() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { conversationId: string; runId: string; path: string }) =>
+      api.createOutputShare(input.conversationId, { runId: input.runId, path: input.path }),
+    onSuccess: (share, input) => {
+      const key = outputSharesQueryKey(input.conversationId, input.runId, input.path);
+      client.setQueryData<OutputShareList>(key, (old) => ({
+        items: [share, ...(old?.items ?? []).filter((item) => item.id !== share.id)],
+      }));
+      void client.invalidateQueries({ queryKey: key });
+    },
+  });
+}
+
+export function useRevokeOutputShare() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.revokeOutputShare(id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['output-shares'] }),
   });
 }
 

@@ -8,6 +8,7 @@ import { useConversationOutputs, useOutputContent } from '../lib/queries.js';
 import { CodeBlock } from './code-block.js';
 import { Markdown } from './markdown.js';
 import { ReaderToolbar } from './reader-toolbar.js';
+import { ShareDialog } from './share-dialog.js';
 import { EmptyState, ErrorState, LoadingState } from './states.js';
 import { Button } from './ui/button.js';
 import {
@@ -215,6 +216,14 @@ export function ConversationOutputs({
                         <span className="text-xs text-muted-foreground">
                           {formatDateTime(shown?.createdAt)}
                         </span>
+                      )}
+                      {conversationId === null ? null : (
+                        <ShareDialog
+                          conversationId={conversationId}
+                          runId={selection.runId}
+                          path={selection.path}
+                          createdAt={shown?.createdAt ?? null}
+                        />
                       )}
                       <Button
                         variant="outline"

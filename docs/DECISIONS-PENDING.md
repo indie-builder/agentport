@@ -479,7 +479,7 @@
 
 ## D-61 ✅ 长期记忆走 Claude Code 原生 auto-memory（2026-10-23）
 
-**采用**：不新建记忆表、不定义私有记忆格式。启用 SDK 原生 auto-memory（`settings.autoMemoryEnabled` + `autoMemoryDirectory`），目录是官方 `MEMORY.md` + 主题文件；宿主落到 `WORKSPACES_DIR/<slug>/agent-memory/`（跨 run 持久、0777 供容器 uid 1000 读写），每次运行以 rw 挂到容器 `/mnt/agent-memory`，runner 指向该目录。平台只做浏览/编辑（`/api/agents/:id/memory[/:name]`，PUT/DELETE，文件名白名单防穿越）。移除旧的 `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`。
+**采用**：不新建记忆表、不定义私有记忆格式。启用 SDK 原生 auto-memory（`settings.autoMemoryEnabled` + `autoMemoryDirectory`），目录是官方 `MEMORY.md` + 主题文件；宿主落到 `WORKSPACES_DIR/<slug>/agent-memory/`（跨 run 持久；后续由 D-71 收紧为 uid 1000、0700），每次运行以 rw 挂到容器 `/mnt/agent-memory`，runner 指向该目录。平台只做浏览/编辑（`/api/agents/:id/memory[/:name]`，PUT/DELETE，文件名白名单防穿越）。移除旧的 `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`。
 
 **边界**：记忆是机器本地、按 agent 的目录，不跨机同步；不得把项目级 `autoMemoryDirectory` 放进仓库 settings（受官方安全限制）。已用真实 dev 栈验证写/读/列表/删除与浏览器记忆页；未跑真实模型长会话以观察自动“保存记忆”。
 
@@ -544,6 +544,36 @@
 **生命周期**：分支复制被复制消息引用的文件并保持独立；删除会话/专家回收目录；旧 run 清理保留带附件的用户消息并置空 runId，孤儿清理不删附件；下载只允许该会话消息引用的附件。
 
 **限制**：Compose 三端 uid 1000 才能完整读写；宿主直跑需同一绝对 `WORKSPACES_DIR` 且注意 UID 差异。未内联 PDF/Office 预览，未做拖放/粘贴。真实隔离验收见 [任务记录](tasks/agent-attachments.md)。
+
+## D-70 ✅ 交付物固定版本公开分享（2026-10-30）
+
+**用户故事**：US-7.1。把某一版本成果发给未登录的人，对方查看或下载同一份内容。
+
+**决定**：新建 `output_shares`，锚定 `conversationId + runId + path` 与真实字节 sha256；创建时读取并按实际字节重算哈希，与快照不一致拒绝。同三元组已有有效分享时复用，不堆多个可用 token。token 32 字节随机值只存哈希与加密密文，链接为 `/s/<shareId>#<token>`，token 只在 URL 片段。公开接口校验 token、未撤销、实际字节哈希三重条件，无效统一普通 404；正文预览 1MiB 上限，下载一律 attachment + no-store + nosniff。撤销幂等。
+
+**边界**：链接固定创建时快照，之后更新同一路径不改变内容；会话删除级联清理分享。路由、服务与 UI 测试已通过；真实浏览器打开有效分享页并核对文件内容尚未完成，不写成已端到端验收。
+
+## D-71 ✅ 个人偏好：DB 权威 + 只读文件投影 + 每轮 hook 注入（2026-10-30）
+
+**用户故事**：US-7.2。所有专家默认遵循用户的长期偏好，不必每次复述。
+
+**决定**：`user_preferences` 单行保存正文与 `revision`，是唯一权威；`memory_changes` 记录 before/after 与回滚。写入在目标 advisory lock 内做条件更新，DB 与账本同事务，成功后原子投影到 `WORKSPACES_DIR/_user/CLAUDE.md`（0700/0600、拒绝链接、temp + rename）。沙盒只读挂载 `_user` 到 `/mnt/user`，runner 的 `UserPromptSubmit` hook 每轮读取并以 `additionalContext` 注入；正文上限 9000 个 Unicode 字符、36 KiB，超限拒绝本轮，不静默截断。
+
+**边界**：这不是 SDK 自动发现的用户级 `CLAUDE.md`，`settingSources` 仍为 `['project']`；不读取宿主 `~/.claude`。DB 写入成功即成功，文件投影失败只记日志；下一次保存会重新投影，当前没有 worker 启动前自动重建；不跨机同步。保存、版本、回滚、注入与权限测试已通过；真实模型中跨专家、跨 run 的实际遵循效果尚未审计。
+
+## D-72 ✅ 历史回顾：用户触发的 `review` 运行，确认后才写入（2026-10-30）
+
+**用户故事**：US-7.3。从已有会话整理可复用的记忆提案，用户审核后决定是否写入。
+
+**决定**：新建 `memory_reviews` 与 `memory_changes`。回顾是 `agent_runs.trigger='review'`，复用官方 `query()`：`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema`；沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停，不建沙盒、不追加消息、不写成果。证据必须是来源消息原文的连续子串。提案目标为个人偏好、专家 `MEMORY.md` 或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用后才写目标并落账。专家记忆先写 `.memory-journal/`、原子 rename、再提交账本，失败按原字节恢复或保留日志。`MEMORY.md` 采纳限制 200 行 / 25KB。
+
+**边界**：这是用户触发、逐次确认的回顾，不是自动进化。真实模型生成提案并采纳的完整链路尚未做浏览器验收；子智能体记忆未实现。
+
+## D-73 不引入外部记忆服务，先用官方文件与 PostgreSQL（2026-10-30）
+
+**决定**：不引入 Mem0、Zep、Letta、LangMem 等服务，也不新增第二套智能体执行底座。借鉴 Manus / Fleet 的候选确认、Devin 的来源与索引分离、Letta 的 Git 式版本思想、claude-mem 的索引优先，但实现仍落官方 `.claude` 文件与现有 PostgreSQL 账本。只有实测文件检索不足时，才做可重建的检索索引（PostgreSQL 已具备），并先给出有代表性的基准证据。
+
+**边界**：不引入独立部署服务、容器或外部账号；若未来需要索引，必须可重建且不成为记忆权威。
 
 ## 决策记录格式
 

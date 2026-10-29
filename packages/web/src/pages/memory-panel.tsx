@@ -32,6 +32,21 @@ interface DraftCallbacks {
   onPendingChange?: (pending: boolean) => void;
 }
 
+/** 从专家记忆进入按该专家筛选的历史回顾。 */
+function MemoryReviewLink({ agentId }: { agentId: string }) {
+  const query = new URLSearchParams({ tab: 'reviews', agent: agentId });
+  return (
+    <div className="flex justify-end">
+      <a
+        href={`/memory?${query.toString()}`}
+        className="text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
+      >
+        历史回顾
+      </a>
+    </div>
+  );
+}
+
 /** 浏览/编辑 Claude Code 原生 auto-memory：MEMORY.md 索引 + 主题 Markdown。 */
 export function MemoryPanel({
   agentId,
@@ -99,169 +114,187 @@ export function MemoryPanel({
     create.mutate(fileName);
   };
 
-  if (memory.isPending) return <LoadingState rows={4} />;
+  if (memory.isPending) {
+    return (
+      <div className="flex flex-col gap-4">
+        <MemoryReviewLink agentId={agentId} />
+        <LoadingState rows={4} />
+      </div>
+    );
+  }
   if (memory.isError) {
-    return <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />;
+    return (
+      <div className="flex flex-col gap-4">
+        <MemoryReviewLink agentId={agentId} />
+        <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
+      </div>
+    );
   }
   if (!memory.data.initialized) {
     return (
-      <EmptyState
-        icon={<FilePlus2 className="size-5" />}
-        title="初始化记忆"
-        description="MEMORY.md 作为索引，跨会话保留这位专家的长期记忆。"
-        action={
-          <Button
-            disabled={create.isPending}
-            aria-busy={create.isPending}
-            onClick={() => create.mutate('MEMORY.md')}
-          >
-            <Plus data-icon="inline-start" aria-hidden="true" /> 初始化 MEMORY.md
-          </Button>
-        }
-      />
+      <div className="flex flex-col gap-4">
+        <MemoryReviewLink agentId={agentId} />
+        <EmptyState
+          icon={<FilePlus2 className="size-5" />}
+          title="初始化记忆"
+          description="MEMORY.md 作为索引，跨会话保留这位专家的长期记忆。"
+          action={
+            <Button
+              disabled={create.isPending}
+              aria-busy={create.isPending}
+              onClick={() => create.mutate('MEMORY.md')}
+            >
+              <Plus data-icon="inline-start" aria-hidden="true" /> 初始化 MEMORY.md
+            </Button>
+          }
+        />
+      </div>
     );
   }
 
   return (
-    <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
-      <div className="min-w-0">
-        <ul className="hidden flex-col gap-0.5 md:flex">
-          {files.map((file) => (
-            <li key={file.name} className="min-w-0 max-w-full">
-              <button
-                type="button"
-                aria-current={file.name === active ? 'true' : undefined}
-                disabled={pending}
-                onClick={() => {
-                  if (file.name === active) return;
-                  if (dirty) setPendingSwitch(file.name);
-                  else setSelected(file.name);
-                }}
-                className={cn(
-                  'flex w-full max-w-full min-w-0 items-center rounded-icon px-2 py-1.5 text-left font-mono text-xs transition-colors',
-                  file.name === active
-                    ? 'bg-selected font-medium text-selected-foreground'
-                    : 'text-muted-foreground hover:bg-hover',
-                )}
-              >
-                <span className="truncate" title={file.name}>
-                  {file.name}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+    <div className="flex flex-col gap-4">
+      <MemoryReviewLink agentId={agentId} />
+      <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <ul className="hidden flex-col gap-0.5 md:flex">
+            {files.map((file) => (
+              <li key={file.name} className="min-w-0 max-w-full">
+                <button
+                  type="button"
+                  aria-current={file.name === active ? 'true' : undefined}
+                  disabled={pending}
+                  onClick={() => {
+                    if (file.name === active) return;
+                    if (dirty) setPendingSwitch(file.name);
+                    else setSelected(file.name);
+                  }}
+                  className={cn(
+                    'flex w-full max-w-full min-w-0 items-center rounded-icon px-2 py-1.5 text-left font-mono text-xs transition-colors',
+                    file.name === active
+                      ? 'bg-selected font-medium text-selected-foreground'
+                      : 'text-muted-foreground hover:bg-hover',
+                  )}
+                >
+                  <span className="truncate" title={file.name}>
+                    {file.name}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
 
-        <Select
-          value={active}
-          disabled={pending}
-          items={files.map((file) => ({ value: file.name, label: file.name }))}
-          onValueChange={(next) => {
-            if (next === null || next === active) return;
-            if (dirty) setPendingSwitch(next);
-            else setSelected(next);
-          }}
-        >
-          <SelectTrigger className="w-full min-w-0 md:hidden" aria-label="记忆文件">
-            <SelectValue className="truncate" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {files.map((file) => (
-                <SelectItem key={file.name} value={file.name}>
-                  {file.name}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        {creating ? (
-          <form onSubmit={submitNewFile} className="mt-2 flex flex-col gap-2">
-            <Input
-              autoFocus
-              value={name}
-              aria-label="记忆文件名"
-              placeholder="主题.md"
-              disabled={create.isPending}
-              onChange={(event) => setName(event.target.value)}
-              className="font-mono"
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') setCreating(false);
-              }}
-            />
-            <div className="flex gap-2">
-              <Button type="submit" disabled={create.isPending || !name.trim()}>
-                {create.isPending ? '创建中…' : '创建'}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={create.isPending}
-                onClick={() => setCreating(false)}
-              >
-                取消
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <Button
-            variant="outline"
-            className="mt-2 justify-start"
+          <Select
+            value={active}
             disabled={pending}
-            onClick={() => {
-              if (dirty) setPendingCreate(true);
-              else setCreating(true);
+            items={files.map((file) => ({ value: file.name, label: file.name }))}
+            onValueChange={(next) => {
+              if (next === null || next === active) return;
+              if (dirty) setPendingSwitch(next);
+              else setSelected(next);
             }}
           >
-            <Plus data-icon="inline-start" aria-hidden="true" /> 新建记忆文件
-          </Button>
-        )}
-      </div>
+            <SelectTrigger className="w-full min-w-0 md:hidden" aria-label="记忆文件">
+              <SelectValue className="truncate" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {files.map((file) => (
+                  <SelectItem key={file.name} value={file.name}>
+                    {file.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
 
-      {active ? (
-        <MemoryFileEditor
-          key={active}
-          agentId={agentId}
-          name={active}
-          onDelete={() => setDeleting(active)}
-          onDirtyChange={setEditorDirty}
-          onPendingChange={setEditorPending}
+          {creating ? (
+            <form onSubmit={submitNewFile} className="mt-2 flex flex-col gap-2">
+              <Input
+                autoFocus
+                value={name}
+                aria-label="记忆文件名"
+                placeholder="主题.md"
+                disabled={create.isPending}
+                onChange={(event) => setName(event.target.value)}
+                className="font-mono"
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') setCreating(false);
+                }}
+              />
+              <div className="flex gap-2">
+                <Button type="submit" disabled={create.isPending || !name.trim()}>
+                  {create.isPending ? '创建中…' : '创建'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={create.isPending}
+                  onClick={() => setCreating(false)}
+                >
+                  取消
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <Button
+              variant="outline"
+              className="mt-2 justify-start"
+              disabled={pending}
+              onClick={() => {
+                if (dirty) setPendingCreate(true);
+                else setCreating(true);
+              }}
+            >
+              <Plus data-icon="inline-start" aria-hidden="true" /> 新建记忆文件
+            </Button>
+          )}
+        </div>
+
+        {active ? (
+          <MemoryFileEditor
+            key={active}
+            agentId={agentId}
+            name={active}
+            onDelete={() => setDeleting(active)}
+            onDirtyChange={setEditorDirty}
+            onPendingChange={setEditorPending}
+          />
+        ) : null}
+
+        <ConfirmDialog
+          open={pendingSwitch !== null || pendingCreate}
+          onClose={() => {
+            if (pending) return;
+            setPendingSwitch(null);
+            setPendingCreate(false);
+          }}
+          title="放弃未保存的修改？"
+          description={`「${active ?? ''}」还有未保存的内容，继续后会丢失。`}
+          confirmLabel="放弃并继续"
+          confirmDisabled={pending}
+          onConfirm={async () => {
+            if (pendingSwitch) setSelected(pendingSwitch);
+            else setCreating(true);
+            setPendingSwitch(null);
+            setPendingCreate(false);
+          }}
         />
-      ) : null}
 
-      <ConfirmDialog
-        open={pendingSwitch !== null || pendingCreate}
-        onClose={() => {
-          if (pending) return;
-          setPendingSwitch(null);
-          setPendingCreate(false);
-        }}
-        title="放弃未保存的修改？"
-        description={`「${active ?? ''}」还有未保存的内容，继续后会丢失。`}
-        confirmLabel="放弃并继续"
-        confirmDisabled={pending}
-        onConfirm={async () => {
-          if (pendingSwitch) setSelected(pendingSwitch);
-          else setCreating(true);
-          setPendingSwitch(null);
-          setPendingCreate(false);
-        }}
-      />
-
-      <ConfirmDialog
-        open={deleting !== null}
-        onClose={() => {
-          if (pending) return;
-          setDeleting(null);
-        }}
-        title="删除记忆文件"
-        description={`将删除「${deleting ?? ''}」，此操作不可撤销。`}
-        confirmDisabled={pending}
-        onConfirm={async () => {
-          if (deleting) await remove.mutateAsync(deleting);
-        }}
-      />
+        <ConfirmDialog
+          open={deleting !== null}
+          onClose={() => {
+            if (pending) return;
+            setDeleting(null);
+          }}
+          title="删除记忆文件"
+          description={`将删除「${deleting ?? ''}」，此操作不可撤销。`}
+          confirmDisabled={pending}
+          onConfirm={async () => {
+            if (deleting) await remove.mutateAsync(deleting);
+          }}
+        />
+      </div>
     </div>
   );
 }

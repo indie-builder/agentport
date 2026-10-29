@@ -61,6 +61,33 @@ describe('stable session workspace', () => {
     expect(await readFile(join(again.inputsDir, 'later.txt'), 'utf8')).toBe('new attachment');
   });
 
+  it('precreates the private personal memory directory at the workspace root', async () => {
+    root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
+    const paths = await ensureSessionWorkspace({
+      workspacesDir: root,
+      slug: 'demo',
+      conversationId: 'conversation-1',
+    });
+    expect(paths.personalDir).toBe(join(root, '_user'));
+    const info = await stat(paths.personalDir);
+    expect(info.isDirectory()).toBe(true);
+    expect(info.mode & 0o777).toBe(0o700);
+  });
+
+  it('rejects a symlinked personal directory', async () => {
+    root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
+    const outside = join(root, 'outside');
+    await mkdir(outside);
+    await symlink(outside, join(root, '_user'));
+    await expect(
+      ensureSessionWorkspace({
+        workspacesDir: root,
+        slug: 'demo',
+        conversationId: 'conversation-1',
+      }),
+    ).rejects.toThrow(/real directory/);
+  });
+
   it('rejects links before clearing the existing mount content', async () => {
     root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
     const paths = await ensureSessionWorkspace({

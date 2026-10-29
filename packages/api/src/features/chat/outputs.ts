@@ -15,7 +15,7 @@ import { typed } from '../../types.js';
 import { openUiActionContent } from './openui-actions.js';
 
 /** 正文预览上限：超过只提供原件下载，绝不截断后冒充完整文本。 */
-const PREVIEW_MAX_BYTES = 1024 * 1024;
+export const PREVIEW_MAX_BYTES = 1024 * 1024;
 
 const ownerParams = z.object({ id: outputOwnerIdSchema });
 const fileParams = z.object({ id: outputOwnerIdSchema, runId: outputOwnerIdSchema });
@@ -26,7 +26,7 @@ const listQuery = z.object({
 });
 
 /** 只有这些类型按文本源码预览；HTML/SVG 也走静态文本，永远不作为同源文档执行。 */
-function isTextPreview(mediaType: string): boolean {
+export function isTextPreview(mediaType: string): boolean {
   return (
     mediaType.startsWith('text/') ||
     mediaType === 'application/json' ||
@@ -35,7 +35,7 @@ function isTextPreview(mediaType: string): boolean {
 }
 
 /** 二进制与非法 UTF-8 不伪造成文本；返回 null 表示不能预览。 */
-function decodeUtf8(data: Buffer): string | null {
+export function decodeUtf8(data: Buffer): string | null {
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(data);
   } catch {
@@ -48,7 +48,7 @@ function conversationNotFound(reply: FastifyReply) {
 }
 
 /** 会话所属智能体的工作区目录名；会话行存在时一定找得到（外键级联删除）。 */
-async function agentSlug(app: FastifyInstance, agentId: string): Promise<string | null> {
+export async function agentSlug(app: FastifyInstance, agentId: string): Promise<string | null> {
   const [row] = await app.db
     .select({ slug: schema.agents.slug })
     .from(schema.agents)
@@ -146,7 +146,7 @@ export function contentDisposition(path: string): string {
 }
 
 /** 只用常见的 `type/subtype` 原样回写；其余一律按二进制，避免奇怪声明进入响应头。 */
-function safeMediaType(mediaType: string): string {
+export function safeMediaType(mediaType: string): string {
   return /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(mediaType)
     ? mediaType
     : 'application/octet-stream';

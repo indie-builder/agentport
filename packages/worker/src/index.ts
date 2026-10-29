@@ -40,6 +40,7 @@ import { startKnowledgeWorker } from './knowledge/queue.js';
 import { startKnowledgeReconciler } from './knowledge/reconcile.js';
 import { startKnowledgeScheduler } from './knowledge/scheduler.js';
 import { startMaintenanceWorker } from './maintenance.js';
+import { executeMemoryReview } from './memory-review.js';
 import { type PersistedMessage, persistRunMessages } from './messages.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
 import { registerNativePlugins } from './native-plugins.js';
@@ -52,6 +53,7 @@ import {
   recordOutputSandboxSettlement,
   selectedOutput,
 } from './outputs.js';
+import { projectPersonalMemory } from './personal-memory.js';
 import { startReconciler } from './reconcile.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
@@ -483,7 +485,11 @@ const worker = new Worker(
     const { runId, agentId, conversationId, prompt } = parsed.data;
 
     const [run] = await db
-      .select({ status: schema.agentRuns.status, agentVersion: schema.agentRuns.agentVersion })
+      .select({
+        status: schema.agentRuns.status,
+        agentVersion: schema.agentRuns.agentVersion,
+        trigger: schema.agentRuns.trigger,
+      })
       .from(schema.agentRuns)
       .where(eq(schema.agentRuns.id, runId))
       .limit(1);
@@ -500,6 +506,15 @@ const worker = new Worker(
       .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')));
     if (claimed.rowCount === 0) {
       logger.info({ runId }, 'run externally terminated before claim, skipping');
+      return;
+    }
+    // 记忆审核不是聊天：不建沙盒、不追加消息、不准备成果，直接读快照产出提案。
+    if (run.trigger === 'review') {
+      await executeMemoryReview(db, {
+        runId,
+        redisUrl: config.REDIS_URL,
+        signal: sandboxClosing.signal,
+      });
       return;
     }
     try {
@@ -549,6 +564,8 @@ const worker = new Worker(
           .limit(1);
         if (!agent) throw new Error(`agent ${agentId} not found`);
         agentSlugForRun = agent.slug;
+        // 个人记忆先按 DB 重写再挂载，崩溃后不会把旧投影带进本轮。
+        await projectPersonalMemory(db, pool, workspacesDir);
         const sessionPaths = await ensureSessionWorkspace({
           workspacesDir,
           slug: agent.slug,
@@ -575,6 +592,7 @@ const worker = new Worker(
             inputsDir: inputsMount.hostPath,
             memoryDir: toHostWorkspacePath(sessionPaths.memoryDir),
             sessionsDir: toHostWorkspacePath(sessionPaths.sessionsDir),
+            personalDir: toHostWorkspacePath(sessionPaths.personalDir),
           },
         });
         stableWorkspaceDir = sessionPaths.workspaceDir;

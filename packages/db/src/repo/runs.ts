@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import type { PublicRunQuestion, ResolvedRuntimeEnvironment } from '@agentport/shared';
+import type { PublicRunQuestion, ResolvedRuntimeEnvironment, RunTrigger } from '@agentport/shared';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -124,7 +124,7 @@ export async function listRuns(
   options: {
     agentId?: string;
     status?: RunStatus;
-    trigger?: 'chat' | 'mcp' | 'schedule' | 'event';
+    trigger?: RunTrigger;
     limit?: number;
   } = {},
 ): Promise<RunListItem[]> {

@@ -302,6 +302,13 @@
       "when": 1793279463439,
       "tag": "0042_curious_pet_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1793318520956,
+      "tag": "0043_nappy_queen_noir",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,7 @@ import {
   writeConversationAttachments,
 } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
+import { outputShareSchema } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMaintenance } from '../../worker/src/maintenance.js';
@@ -206,6 +207,56 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       expect(retained).toHaveLength(2);
     },
   );
+
+  it('serves a share and keeps output anchors branchable after the old run is pruned', async () => {
+    const source = await seed();
+    const shared = await inject(app, {
+      method: 'POST',
+      url: `/api/conversations/${source.conversationId}/output-shares`,
+      headers: { cookie },
+      payload: { runId: source.runId, path: 'original.bin' },
+    });
+    expect(shared.statusCode, shared.body).toBe(201);
+    const share = outputShareSchema.parse(shared.json<unknown>());
+    const token = share.urlPath.split('#')[1] ?? '';
+
+    const summary = await runMaintenance(
+      app.db,
+      app.log,
+      { runDays: 1, messageDays: 1, agentVersions: 1 },
+      root,
+    );
+    expect(summary.runsDeleted).toBe(1);
+    expect(
+      (await app.pool.query('select id from agent_runs where id = $1', [source.runId])).rowCount,
+    ).toBe(0);
+
+    // 分享锚定已发布快照而不是 run 行：run 被清掉后公开下载仍返回原始字节。
+    const download = await inject(app, {
+      method: 'GET',
+      url: `/api/public/output-shares/${share.id}/download`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(download.statusCode, download.body).toBe(200);
+    expect(download.rawPayload).toEqual(source.bytes);
+
+    // 成果锚点消息在清理后仍能分支，分支侧也能按同一 runId/path 读到成果。
+    const fork = await inject(app, {
+      method: 'POST',
+      url: `/api/conversations/${source.conversationId}/branch`,
+      headers: { cookie },
+      payload: { fromMessageId: source.boundaryId },
+    });
+    expect(fork.statusCode, fork.body).toBe(201);
+    const branchId = fork.json<{ id: string }>().id;
+    const branchDownload = await inject(app, {
+      method: 'GET',
+      url: `/api/conversations/${branchId}/outputs/${source.runId}/download?path=original.bin`,
+      headers: { cookie },
+    });
+    expect(branchDownload.statusCode, branchDownload.body).toBe(200);
+    expect(branchDownload.rawPayload).toEqual(source.bytes);
+  });
 
   it('fails before pruning messages if a published manifest cannot be read safely', async () => {
     const source = await seed();

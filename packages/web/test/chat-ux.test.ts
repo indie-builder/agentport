@@ -238,7 +238,8 @@ it('shows the woodworker only in the conversation welcome state', async () => {
 });
 
 it('fills a suggested task and returns focus to the composer without sending', async () => {
-  await mount();
+  // 建议任务只在已选定专家的欢迎态出现：裸 /chat 不替用户挑专家。
+  await mount('/chat?agent=agent-a');
   const suggestion = [...host.querySelectorAll('button')].find(
     (button) => button.textContent?.trim() === '制定计划',
   );
@@ -824,8 +825,28 @@ describe('live terminal outcomes across a follow-up send', () => {
 });
 
 describe('chat shell layout', () => {
-  it('shows the current expert in the chat header without opening history', async () => {
+  it('does not auto-pick an expert on bare /chat and disables the composer', async () => {
     await mount();
+    // 裸 /chat 不替用户选 agents[0]：选择器停在「选择专家」，而不是显示 Expert。
+    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="选择专家"]');
+    expect(picker).not.toBeNull();
+    expect(picker?.textContent).toContain('选择专家');
+    expect(picker?.textContent).not.toContain('Expert');
+    // 没有明确归属时不能输入或发送。
+    expect(message().disabled).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.disabled).toBe(
+      true,
+    );
+    // 未选专家时也不给建议任务，避免点了却没有可发送的对象。
+    expect(
+      [...host.querySelectorAll('button')].some(
+        (button) => button.textContent?.trim() === '制定计划',
+      ),
+    ).toBe(false);
+  });
+
+  it('shows the current expert in the chat header without opening history', async () => {
+    await mount('/chat?agent=agent-a');
     // 历史收起时头部直接显示当前专家，不用先展开历史抽屉。
     const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
     expect(welcomePicker).not.toBeNull();
@@ -925,7 +946,7 @@ describe('chat shell layout', () => {
       addListener() {},
       removeListener() {},
     }));
-    await mount();
+    await mount('/chat?agent=agent-a');
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
     // 历史收起时，欢迎态自己提供当前专家。
     expect(host.querySelector('[aria-label^="选择专家"]')).not.toBeNull();
@@ -959,7 +980,7 @@ describe('chat shell layout', () => {
 
   it('keeps the expert picker reachable when resize crosses the desktop breakpoint', async () => {
     const resize = stubViewport(600);
-    await mount();
+    await mount('/chat?agent=agent-a');
 
     // 窄屏打开抽屉：选择器在抽屉里，欢迎态不重复。
     await act(async () => useChatStore.setState({ historyOpen: true }));
@@ -989,7 +1010,7 @@ describe('chat shell layout', () => {
 
   it('restores the header picker when narrowing with desktop history closed', async () => {
     const resize = stubViewport(1024);
-    await mount();
+    await mount('/chat?agent=agent-a');
 
     // 桌面展开历史：选择器只在历史面板里。
     await act(async () =>

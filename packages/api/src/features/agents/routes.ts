@@ -1,7 +1,7 @@
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fail, isAppError, parseAgentMd } from '@agentport/core';
-import { repo as allRepo, schema } from '@agentport/db';
+import { ADMIN_USER_ID, repo as allRepo, schema } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
 import {
@@ -16,12 +16,17 @@ import {
   slugSchema,
   uiFormatSchema,
 } from '@agentport/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import {
+  assertNoActiveRun,
+  withMemoryTargetLock,
+  writeMemoryTargetLocked,
+} from '../memory/changes.js';
 import {
   deleteMemoryFile,
   listMemoryFiles,
@@ -730,12 +735,28 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const slug = await memorySlug(request.params.id);
       if (!slug) return notFound(reply);
-      const file = await writeMemoryFile(
-        app.config.WORKSPACES_DIR,
-        slug,
-        request.params.name,
-        request.body.content,
-      );
+      const target = { kind: 'agent_memory', agentId: request.params.id } as const;
+      const file = await withMemoryTargetLock(app.pool, target, ADMIN_USER_ID, async () => {
+        if (request.params.name !== 'MEMORY.md') {
+          await assertNoActiveRun(app.db, request.params.id);
+          return writeMemoryFile(
+            app.config.WORKSPACES_DIR,
+            slug,
+            request.params.name,
+            request.body.content,
+          );
+        }
+        await writeMemoryTargetLocked(app.db, {
+          workspacesDir: app.config.WORKSPACES_DIR,
+          userId: ADMIN_USER_ID,
+          target,
+          after: { content: request.body.content, globs: null },
+          logger: request.log,
+        });
+        const written = await readMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
+        if (!written) throw new Error('memory file disappeared after write');
+        return written;
+      });
       await writeAudit(app.db, request.log, {
         actor: 'admin',
         action: 'agent.memory.write',
@@ -754,7 +775,23 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const slug = await memorySlug(request.params.id);
       if (!slug) return notFound(reply);
-      const removed = await deleteMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
+      const target = { kind: 'agent_memory', agentId: request.params.id } as const;
+      const removed = await withMemoryTargetLock(app.pool, target, ADMIN_USER_ID, async () => {
+        if (request.params.name !== 'MEMORY.md') {
+          await assertNoActiveRun(app.db, request.params.id);
+          return deleteMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
+        }
+        const current = await readMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
+        if (!current) return false;
+        await writeMemoryTargetLocked(app.db, {
+          workspacesDir: app.config.WORKSPACES_DIR,
+          userId: ADMIN_USER_ID,
+          target,
+          after: { content: null, globs: null },
+          logger: request.log,
+        });
+        return true;
+      });
       if (!removed) return notFound(reply);
       await writeAudit(app.db, request.log, {
         actor: 'admin',
@@ -794,10 +831,31 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const exists = await memorySlug(request.params.id);
       if (!exists) return notFound(reply);
-      const row = await allRepo.rules.upsertRule(app.db, request.params.id, {
+      const target = {
+        kind: 'agent_rule',
+        agentId: request.params.id,
         slug: request.params.slug,
-        content: request.body.content,
-        globs: request.body.globs,
+      } as const;
+      const row = await withMemoryTargetLock(app.pool, target, ADMIN_USER_ID, async () => {
+        await writeMemoryTargetLocked(app.db, {
+          workspacesDir: app.config.WORKSPACES_DIR,
+          userId: ADMIN_USER_ID,
+          target,
+          after: { content: request.body.content, globs: request.body.globs },
+          logger: request.log,
+        });
+        const [rule] = await app.db
+          .select()
+          .from(schema.agentRules)
+          .where(
+            and(
+              eq(schema.agentRules.agentId, request.params.id),
+              eq(schema.agentRules.slug, request.params.slug),
+            ),
+          )
+          .limit(1);
+        if (!rule) throw new Error('rule disappeared after write');
+        return rule;
       });
       await writeAudit(app.db, request.log, {
         actor: 'admin',
@@ -825,11 +883,32 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const exists = await memorySlug(request.params.id);
       if (!exists) return notFound(reply);
-      const removed = await allRepo.rules.deleteRule(
-        app.db,
-        request.params.id,
-        request.params.slug,
-      );
+      const target = {
+        kind: 'agent_rule',
+        agentId: request.params.id,
+        slug: request.params.slug,
+      } as const;
+      const removed = await withMemoryTargetLock(app.pool, target, ADMIN_USER_ID, async () => {
+        const [rule] = await app.db
+          .select({ id: schema.agentRules.id })
+          .from(schema.agentRules)
+          .where(
+            and(
+              eq(schema.agentRules.agentId, request.params.id),
+              eq(schema.agentRules.slug, request.params.slug),
+            ),
+          )
+          .limit(1);
+        if (!rule) return false;
+        await writeMemoryTargetLocked(app.db, {
+          workspacesDir: app.config.WORKSPACES_DIR,
+          userId: ADMIN_USER_ID,
+          target,
+          after: { content: null, globs: '' },
+          logger: request.log,
+        });
+        return true;
+      });
       if (!removed) return notFound(reply);
       await writeAudit(app.db, request.log, {
         actor: 'admin',

@@ -84,7 +84,7 @@ async function openEditor(
   name = fixture.name,
 ): Promise<void> {
   await app.open(`/agents?q=${encodeURIComponent(fixture.slug)}`);
-  await screen.getByRole('button', `配置 ${name}`).tap();
+  await screen.getByRole('link', name).tap();
 }
 
 async function chooseEffort(screen: Screen, label: string): Promise<void> {

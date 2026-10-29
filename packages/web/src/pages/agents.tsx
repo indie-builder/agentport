@@ -61,7 +61,7 @@ import { type Control, type Path, type PathValue, useController, useWatch } from
 import { toast } from 'sonner';
 import { z } from 'zod';
 import digitalTwinPortrait from '../assets/agents/digital-twin.png';
-import { AgentAvatar, createShowcaseAvatars } from '../components/agent-avatar.js';
+import { AgentAvatar } from '../components/agent-avatar.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -71,16 +71,15 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
-import { Page, PageHeader, PageNote } from '../components/page.js';
+import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
-import { ResourcePage } from '../components/resource-page.js';
+import { SearchInput } from '../components/search-input.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import {
   Card,
   CardAction,
-  CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
@@ -162,7 +161,6 @@ import {
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 import { MemoryPanel, OutputStylesPanel, RulesPanel } from './memory-panel.js';
-import { AgentStatsPanel } from './ops.js';
 
 /**
  * 模型名由部署的网关决定，不是平台常量：直连 Anthropic 时是 claude-*，
@@ -322,10 +320,10 @@ export function AgentsPage() {
   const search = useSearch({ from: '/_shell/agents/' });
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
-  const status = search.status ?? '';
+  // 默认只发现已启用的专家；「全部」需要显式写进 URL，不另造页面状态。
+  const status = search.status ?? 'enabled';
   const role = search.role ?? '';
   const [creating, setCreating] = useState(false);
-  const [initialRole, setInitialRole] = useState('通用助手');
   const [deleting, setDeleting] = useState<Agent | null>(null);
   const [importing, setImporting] = useState(false);
   const [pendingImport, setPendingImport] = useState<File | null>(null);
@@ -375,7 +373,7 @@ export function AgentsPage() {
     return (agents.data ?? [])
       .filter(
         (agent) =>
-          (!status || agent.enabled === (status === 'enabled')) &&
+          (status === 'all' || agent.enabled === (status === 'enabled')) &&
           (!role || (agent.role?.trim() || '通用助手') === role) &&
           [agent.name, agent.slug, agent.description, agent.role?.trim() || '通用助手']
             .join(' ')
@@ -394,32 +392,77 @@ export function AgentsPage() {
   };
 
   return (
-    <ResourcePage
-      section="agents"
-      query={query}
-      onQueryChange={(q) => {
-        void navigate({ to: '/agents', search: { ...search, q: q || undefined }, replace: true });
-      }}
-      sort={sort}
-      onSortChange={(next) => {
-        void navigate({
-          to: '/agents',
-          search: { ...search, sort: next === 'newest' ? undefined : next },
-        });
-      }}
-      count={filtered.length}
-      status={agents.status}
-      filters={
-        <>
+    <Page>
+      <PageHeader
+        title="找专家"
+        actions={
+          <>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/zip,.zip,text/markdown,.md"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (!file) return;
+                // agent.md 沿用原语义直接导入；ZIP 先确认环境映射，取消不执行。
+                if (file.name.toLowerCase().endsWith('.md')) void importFile(file);
+                else setPendingImport(file);
+              }}
+            />
+            <Button
+              variant="outline"
+              title="导入专家 ZIP 或 agent.md"
+              disabled={importing}
+              aria-busy={importing}
+              onClick={(event) => {
+                editorTriggerRef.current = event.currentTarget;
+                fileInput.current?.click();
+              }}
+            >
+              <Upload data-icon="inline-start" /> {importing ? '导入中…' : '导入'}
+            </Button>
+            <Button
+              ref={createButtonRef}
+              disabled={importing}
+              onClick={(event) => {
+                editorTriggerRef.current = event.currentTarget;
+                setCreating(true);
+              }}
+            >
+              <Plus data-icon="inline-start" /> 新建专家
+            </Button>
+          </>
+        }
+      />
+      <PageToolbar>
+        <SearchInput
+          label="搜索专家"
+          placeholder="搜索专家…"
+          value={query}
+          onChange={(next) =>
+            void navigate({
+              to: '/agents',
+              search: { ...search, q: next || undefined },
+              replace: true,
+            })
+          }
+          className="min-w-40 flex-1 sm:w-56 sm:flex-none"
+        />
+        <div className="ml-auto flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
           <FilterSelect
             value={status}
             onValueChange={(next) => {
-              if (next !== '' && next !== 'enabled' && next !== 'disabled') return;
-              void navigate({ to: '/agents', search: { ...search, status: next || undefined } });
+              if (next !== 'all' && next !== 'enabled' && next !== 'disabled') return;
+              void navigate({
+                to: '/agents',
+                search: { ...search, status: next === 'enabled' ? undefined : next },
+              });
             }}
             options={[
-              { value: '', label: '全部状态' },
               { value: 'enabled', label: '已启用' },
+              { value: 'all', label: '全部' },
               { value: 'disabled', label: '已停用' },
             ]}
             label="按启用状态筛选"
@@ -446,50 +489,24 @@ export function AgentsPage() {
             label="按角色筛选"
             className="w-36"
           />
-        </>
-      }
-      actions={
-        <>
-          <input
-            ref={fileInput}
-            type="file"
-            accept="application/zip,.zip,text/markdown,.md"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = '';
-              if (!file) return;
-              // agent.md 沿用原语义直接导入；ZIP 先确认环境映射，取消不执行。
-              if (file.name.toLowerCase().endsWith('.md')) void importFile(file);
-              else setPendingImport(file);
+          <FilterSelect
+            value={sort}
+            onValueChange={(next) => {
+              if (next !== 'newest' && next !== 'name') return;
+              void navigate({
+                to: '/agents',
+                search: { ...search, sort: next === 'newest' ? undefined : next },
+              });
             }}
+            options={[
+              { value: 'newest', label: '最新创建' },
+              { value: 'name', label: '名称排序' },
+            ]}
+            label="专家排序"
+            className="w-32"
           />
-          <Button
-            variant="outline"
-            title="导入专家 ZIP 或 agent.md"
-            disabled={importing}
-            aria-busy={importing}
-            onClick={(event) => {
-              editorTriggerRef.current = event.currentTarget;
-              fileInput.current?.click();
-            }}
-          >
-            <Upload data-icon="inline-start" /> {importing ? '导入中…' : '导入'}
-          </Button>
-          <Button
-            ref={createButtonRef}
-            disabled={importing}
-            onClick={(event) => {
-              editorTriggerRef.current = event.currentTarget;
-              setInitialRole('通用助手');
-              setCreating(true);
-            }}
-          >
-            <Plus data-icon="inline-start" /> 新建专家
-          </Button>
-        </>
-      }
-    >
+        </div>
+      </PageToolbar>
       {agents.isPending ? <LoadingState rows={4} layout="cards" /> : null}
       {agents.isError ? (
         <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
@@ -497,179 +514,152 @@ export function AgentsPage() {
       {agents.data && agents.data.length === 0 ? (
         <PageNote
           icon={<Bot />}
-          title="创建专家，绑定技能和连接器，即可在对话中使用。"
+          title="还没有专家"
           action={
             <Button
               disabled={importing}
               onClick={(event) => {
                 editorTriggerRef.current = event.currentTarget;
-                setInitialRole('通用助手');
                 setCreating(true);
               }}
             >
-              新建专家
+              创建第一位专家
             </Button>
           }
         />
       ) : null}
       {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
         <PageNote
-          title="没有匹配的专家。"
+          title="没有匹配的专家"
           action={
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                void navigate({
-                  to: '/agents',
-                  search: { ...search, q: undefined, status: undefined, role: undefined },
-                })
-              }
-            >
-              清除筛选
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                disabled={importing}
+                onClick={(event) => {
+                  editorTriggerRef.current = event.currentTarget;
+                  setCreating(true);
+                }}
+              >
+                新建专家
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void navigate({
+                    to: '/agents',
+                    // 默认隐式按「已启用」筛选；清除必须显式回到全部，否则只剩停用专家时仍是空列表。
+                    search: { ...search, q: undefined, role: undefined, status: 'all' },
+                  })
+                }
+              >
+                清除筛选
+              </Button>
+            </div>
           }
         />
       ) : null}
 
-      <ul
-        aria-label="专家列表"
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-      >
-        {filtered.length > 0 ? (
-          <li className="min-w-0">
-            <button
-              type="button"
-              aria-label="新建专家"
-              disabled={importing}
-              onClick={(event) => {
-                editorTriggerRef.current = event.currentTarget as HTMLButtonElement;
-                setInitialRole('通用助手');
-                setCreating(true);
-              }}
-              className="agent-create-fan h-full min-h-52 w-full disabled:pointer-events-none disabled:opacity-60"
-            >
-              <span className="agent-create-fan__art" aria-hidden="true">
-                {createShowcaseAvatars.map((src) => (
-                  <span key={src} className="agent-create-fan__chip">
-                    <img src={src} alt="" />
-                  </span>
-                ))}
-              </span>
-              <span className="agent-create-fan__label">
-                <Plus aria-hidden="true" />
-                <span>新建专家</span>
-              </span>
-            </button>
-          </li>
-        ) : null}
-        {agents.data ? (
-          <li className="min-w-0">
-            <Card className="h-full">
-              <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
-                <img
-                  src={digitalTwinPortrait}
-                  alt=""
-                  className="size-20 rounded-full object-cover"
-                />
-                <Button
-                  variant="outline"
-                  disabled={importing}
-                  onClick={(event) => {
-                    editorTriggerRef.current = event.currentTarget;
-                    setInitialRole('数字分身');
-                    setCreating(true);
-                  }}
-                >
-                  <Plus data-icon="inline-start" /> 创建数字分身
-                </Button>
-              </CardContent>
-            </Card>
-          </li>
-        ) : null}
-        {filtered.map((agent) => (
-          <li key={agent.id} className="min-w-0">
-            <Card className="h-full">
-              <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
-                <AgentAvatar agent={agent} className="row-span-2 self-center" />
-                <CardTitle className="col-start-2 min-w-0">
-                  <h2 className="flex min-w-0 items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      aria-label={`配置 ${agent.name}`}
-                      disabled={importing}
-                      className="h-auto min-w-0 flex-1 justify-start p-0 text-left text-base font-medium"
-                      onClick={() => openAgent(agent.id)}
-                    >
-                      <span className="truncate" title={agent.name}>
-                        {agent.name}
-                      </span>
-                    </Button>
-                    <StatusBadge className="max-w-28 min-w-0 shrink">
-                      <span className="truncate" title={agent.role?.trim() || '通用助手'}>
-                        {agent.role?.trim() || '通用助手'}
-                      </span>
-                    </StatusBadge>
-                  </h2>
-                </CardTitle>
-                <CardAction className="col-start-3">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`操作 ${agent.name}`}
-                          onClick={(event) => {
-                            editorTriggerRef.current = event.currentTarget;
-                          }}
+      {filtered.length > 0 ? (
+        <ul
+          aria-label="专家列表"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+        >
+          {filtered.map((agent) => {
+            const agentRole = agent.role?.trim() || '通用助手';
+            return (
+              <li key={agent.id} className="min-w-0">
+                <Card className="h-full">
+                  <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
+                    <AgentAvatar agent={agent} className="row-span-2 self-center" />
+                    <CardTitle className="col-start-2 min-w-0">
+                      <h2 className="flex min-w-0 items-center gap-2">
+                        <Link
+                          to="/agents/$agentId"
+                          params={{ agentId: agent.id }}
+                          title={agent.name}
+                          disabled={importing}
+                          className="min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
-                          <Ellipsis />
+                          {agent.name}
+                        </Link>
+                        <StatusBadge className="max-w-28 min-w-0 shrink">
+                          <span className="truncate" title={agentRole}>
+                            {agentRole}
+                          </span>
+                        </StatusBadge>
+                      </h2>
+                    </CardTitle>
+                    <CardAction className="col-start-3">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`操作 ${agent.name}`}
+                              onClick={(event) => {
+                                editorTriggerRef.current = event.currentTarget;
+                              }}
+                            >
+                              <Ellipsis />
+                            </Button>
+                          }
+                        />
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem
+                              disabled={importing}
+                              onClick={() => openAgent(agent.id)}
+                            >
+                              配置
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => setDeleting(agent)}
+                            >
+                              删除
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </CardAction>
+                    <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10 break-words">
+                      {agent.description}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardFooter className="mt-auto justify-between">
+                    {agent.enabled ? (
+                      <Link
+                        to="/chat"
+                        search={{ agent: agent.id }}
+                        disabled={importing}
+                        aria-label={`与 ${agent.name} 开始对话`}
+                        className={buttonVariants({ size: 'sm' })}
+                      >
+                        开始对话
+                      </Link>
+                    ) : (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled
+                          aria-label={`与 ${agent.name} 开始对话`}
+                          title="专家已停用，启用后才能开始对话"
+                        >
+                          开始对话
                         </Button>
-                      }
-                    />
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem disabled={importing} onClick={() => openAgent(agent.id)}>
-                          配置
-                        </DropdownMenuItem>
-                        <DropdownMenuItem variant="destructive" onClick={() => setDeleting(agent)}>
-                          删除
-                        </DropdownMenuItem>
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </CardAction>
-                <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10 break-words">
-                  {agent.description}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-1.5">
-                <StatusBadge>{agent.enabled ? '已启用' : '已停用'}</StatusBadge>
-                <StatusBadge>
-                  <Plug aria-hidden="true" /> {agent.serverIds.length} 个连接器
-                </StatusBadge>
-                <StatusBadge>
-                  <Sparkles aria-hidden="true" /> {agent.skillIds.length} 项技能
-                </StatusBadge>
-              </CardContent>
-              <CardFooter className="mt-auto justify-between">
-                <span className="truncate font-mono text-xs text-muted-foreground">
-                  {agent.slug}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={importing}
-                  onClick={() => openAgent(agent.id)}
-                >
-                  配置
-                </Button>
-              </CardFooter>
-            </Card>
-          </li>
-        ))}
-      </ul>
+                        <StatusBadge>已停用</StatusBadge>
+                      </>
+                    )}
+                  </CardFooter>
+                </Card>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
 
       <ConfirmDialog
         open={deleting !== null}
@@ -688,7 +678,7 @@ export function AgentsPage() {
 
       {creating ? (
         <CreateAgentDialog
-          initialRole={initialRole}
+          initialRole={role || '通用助手'}
           finalFocus={() =>
             editorTriggerRef.current?.isConnected
               ? editorTriggerRef.current
@@ -720,7 +710,7 @@ export function AgentsPage() {
           }}
         />
       ) : null}
-    </ResourcePage>
+    </Page>
   );
 }
 
@@ -873,6 +863,13 @@ export function AgentDetailPage() {
                 <ArrowLeft data-icon="inline-start" /> 返回列表
               </Button>
               <Link
+                to="/runs"
+                search={{ agent: current.id }}
+                className={buttonVariants({ variant: 'outline' })}
+              >
+                查看运行
+              </Link>
+              <Link
                 to="/chat"
                 search={{ agent: current.id }}
                 className={buttonVariants()}
@@ -931,7 +928,7 @@ export function AgentDetailPage() {
 }
 
 type SectionId = 'identity' | 'behavior' | 'capability' | 'permissions' | 'limits';
-type TabId = 'config' | 'memory' | 'rules' | 'styles' | 'files' | 'stats';
+type TabId = 'config' | 'memory' | 'rules' | 'styles' | 'files';
 
 const sectionItems: ReadonlyArray<{ id: SectionId; label: string }> = [
   { id: 'identity', label: '身份' },
@@ -943,11 +940,10 @@ const sectionItems: ReadonlyArray<{ id: SectionId; label: string }> = [
 
 const tabItems: ReadonlyArray<{ id: TabId; label: string }> = [
   { id: 'config', label: '配置' },
-  { id: 'memory', label: '长期记忆' },
+  { id: 'memory', label: '专家记忆' },
   { id: 'rules', label: '项目规则' },
   { id: 'styles', label: '输出风格' },
   { id: 'files', label: '完整文件' },
-  { id: 'stats', label: '运行统计' },
 ];
 
 const tabOptions = tabItems.map((item) => ({ value: item.id, label: item.label }));
@@ -2800,8 +2796,6 @@ export function AgentEditor({
         </div>
       ) : null}
 
-      {tab === 'stats' ? <AgentStatsPanel agentId={agent.id} /> : null}
-
       <ConfirmDialog
         open={blocker.status === 'blocked'}
         onClose={() => blocker.reset?.()}
@@ -3496,6 +3490,7 @@ export function CreateAgentDialog({
   const roleField = useController({ control, name: 'role' }).field;
   const isTwin = roleField.value === '数字分身';
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [created, setCreated] = useState<Agent | null>(null);
   const dirty = rhf.formState.isDirty;
   const blocker = useFormBlocker(!created && dirty, !created && create.isPending);
@@ -3508,25 +3503,31 @@ export function CreateAgentDialog({
     else onClose();
   };
 
-  const submit = rhf.handleSubmit((draft) => {
-    if (create.isPending) return;
-    const generatedSlug = draft.name
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]+/g, '-')
-      .replace(/^[-_]+|[-_]+$/g, '')
-      .slice(0, 64);
-    const input = inputFromDraft({
-      ...draft,
-      slug: draft.slug || generatedSlug || `agent-${crypto.randomUUID().slice(0, 8)}`,
-    });
-    create.mutate(input, {
-      onSuccess: (agent) => {
-        toastSuccess('专家已创建');
-        setCreated(agent);
-      },
-      onError: (error) => toastError(error),
-    });
-  });
+  const submit = rhf.handleSubmit(
+    (draft) => {
+      if (create.isPending) return;
+      const generatedSlug = draft.name
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^[-_]+|[-_]+$/g, '')
+        .slice(0, 64);
+      const input = inputFromDraft({
+        ...draft,
+        slug: draft.slug || generatedSlug || `agent-${crypto.randomUUID().slice(0, 8)}`,
+      });
+      create.mutate(input, {
+        onSuccess: (agent) => {
+          toastSuccess('专家已创建');
+          setCreated(agent);
+        },
+        onError: (error) => toastError(error),
+      });
+    },
+    (invalid) => {
+      // 标识或模型出错时展开高级设置，错误字段才看得见。
+      if (invalid.model || invalid.slug) setAdvancedOpen(true);
+    },
+  );
 
   return (
     <Dialog
@@ -3558,8 +3559,7 @@ export function CreateAgentDialog({
               data-disabled={create.isPending}
               className={cn(
                 'gap-1.5',
-                isTwin &&
-                  'order-first grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 sm:col-span-2',
+                isTwin && 'grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 sm:col-span-2',
               )}
               data-invalid={Boolean(errors.name)}
             >
@@ -3587,104 +3587,121 @@ export function CreateAgentDialog({
             </Field>
             <Field
               data-disabled={create.isPending}
-              className="gap-1.5 sm:col-span-2"
-              data-invalid={Boolean(errors.slug)}
+              className="gap-1.5"
+              data-invalid={Boolean(errors.role)}
             >
-              <FieldLabel htmlFor="new-agent-slug">标识（可选）</FieldLabel>
-              <Input
-                {...rhf.register('slug')}
+              <FieldLabel htmlFor="new-agent-role">角色</FieldLabel>
+              <Select
                 disabled={create.isPending}
-                id="new-agent-slug"
-                placeholder="support-bot"
-                // Keep monospace for the technical slug instead of the base sans-serif input.
-                className="font-mono"
-                aria-invalid={Boolean(errors.slug)}
-                aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
-              />
-              {errors.slug ? (
-                <FieldError id="new-agent-slug-error">{errors.slug?.message}</FieldError>
-              ) : (
-                <FieldDescription id="new-agent-slug-hint">
-                  留空时由名称自动生成；仅支持小写字母、数字、- 和 _，创建后不可修改。
-                </FieldDescription>
-              )}
-            </Field>
-            {isTwin ? (
-              <div className="sm:col-span-2">
-                <StatusBadge>数字分身</StatusBadge>
-              </div>
-            ) : (
-              <Field
-                data-disabled={create.isPending}
-                className="gap-1.5"
-                data-invalid={Boolean(errors.role)}
+                value={roleField.value}
+                items={roleOptions}
+                onValueChange={(role) => {
+                  if (role === null) return;
+                  roleField.onChange(role);
+                  if (role === '数字分身') {
+                    rhf.setValue('name', rhf.getValues('name') || '我的分身', {
+                      shouldDirty: true,
+                    });
+                  }
+                }}
               >
-                <FieldLabel htmlFor="new-agent-role">角色</FieldLabel>
-                <Select
-                  disabled={create.isPending}
-                  value={roleField.value}
-                  items={roleOptions}
-                  onValueChange={(role) => {
-                    if (role === null) return;
-                    roleField.onChange(role);
-                    if (role === '数字分身') {
-                      rhf.setValue('name', rhf.getValues('name') || '我的分身', {
-                        shouldDirty: true,
-                      });
-                    }
-                  }}
+                <SelectTrigger
+                  id="new-agent-role"
+                  className="w-full min-w-0"
+                  aria-invalid={Boolean(errors.role)}
+                  aria-describedby={errors.role ? 'new-agent-role-error' : undefined}
                 >
-                  <SelectTrigger
-                    id="new-agent-role"
-                    className="w-full min-w-0"
-                    aria-invalid={Boolean(errors.role)}
-                    aria-describedby={errors.role ? 'new-agent-role-error' : undefined}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {roleOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <FieldError id="new-agent-role-error">{errors.role?.message}</FieldError>
-              </Field>
-            )}
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {roleOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <FieldError id="new-agent-role-error">{errors.role?.message}</FieldError>
+            </Field>
           </FieldGroup>
           <Field data-disabled={create.isPending} className="gap-1.5">
-            <FieldLabel htmlFor="new-agent-model">模型</FieldLabel>
-            {/* 网关模型名不是白名单：输入任意 ID，建议值只做补全。 */}
-            <Input
-              {...rhf.register('model')}
-              disabled={create.isPending}
-              id="new-agent-model"
-              list="new-agent-models"
-              className="font-mono"
-            />
-            <datalist id="new-agent-models">
-              {models.map((model) => (
-                <option key={model} value={model} />
-              ))}
-            </datalist>
-          </Field>
-          <Field data-disabled={create.isPending} className="gap-1.5">
             <FieldLabel htmlFor="new-agent-prompt">
-              {isTwin ? '工作背景与表达方式' : '系统提示词'}
+              {isTwin ? '工作背景与表达方式' : '职责与工作方式'}
             </FieldLabel>
             <Textarea
               {...rhf.register('systemPrompt')}
               disabled={create.isPending}
               id="new-agent-prompt"
-              rows={5}
+              rows={6}
               // Keep compact monospace code text instead of the base prose typography.
               className="font-mono text-xs"
             />
           </Field>
+          <Collapsible
+            open={advancedOpen}
+            onOpenChange={setAdvancedOpen}
+            className="rounded-item border"
+          >
+            <CollapsibleTrigger
+              type="button"
+              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ChevronRight
+                className={cn(
+                  'size-3.5 shrink-0 transition-transform',
+                  advancedOpen && 'rotate-90',
+                )}
+                aria-hidden="true"
+              />
+              高级设置
+            </CollapsibleTrigger>
+            <CollapsibleContent keepMounted>
+              <div className="flex flex-col gap-3 border-t p-3">
+                <Field data-disabled={create.isPending} className="gap-1.5">
+                  <FieldLabel htmlFor="new-agent-model">模型</FieldLabel>
+                  {/* 网关模型名不是白名单：输入任意 ID，建议值只做补全。 */}
+                  <Input
+                    {...rhf.register('model')}
+                    disabled={create.isPending}
+                    id="new-agent-model"
+                    list="new-agent-models"
+                    className="font-mono"
+                  />
+                  <datalist id="new-agent-models">
+                    {models.map((model) => (
+                      <option key={model} value={model} />
+                    ))}
+                  </datalist>
+                </Field>
+                <Field
+                  data-disabled={create.isPending}
+                  className="gap-1.5"
+                  data-invalid={Boolean(errors.slug)}
+                >
+                  <FieldLabel htmlFor="new-agent-slug">标识（可选）</FieldLabel>
+                  <Input
+                    {...rhf.register('slug')}
+                    disabled={create.isPending}
+                    id="new-agent-slug"
+                    placeholder="support-bot"
+                    // Keep monospace for the technical slug instead of the base sans-serif input.
+                    className="font-mono"
+                    aria-invalid={Boolean(errors.slug)}
+                    aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
+                  />
+                  {errors.slug ? (
+                    <FieldError id="new-agent-slug-error">{errors.slug?.message}</FieldError>
+                  ) : (
+                    <FieldDescription id="new-agent-slug-hint">
+                      留空时由名称自动生成；仅支持小写字母、数字、- 和 _，创建后不可修改。
+                    </FieldDescription>
+                  )}
+                </Field>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
           <div className="flex justify-end gap-2 border-t pt-3">
             <Button variant="outline" size="sm" onClick={close} disabled={create.isPending}>
               取消

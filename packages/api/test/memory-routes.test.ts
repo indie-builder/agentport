@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { schema } from '@agentport/db';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,8 +18,25 @@ beforeEach(async () => {
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('requireAuth', async () => {});
   app.decorate('config', { WORKSPACES_DIR: root });
-  app.decorate('db', {
-    select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ slug: 'agent' }] }) }) }),
+  // 只模拟路由用到的查询形状：agents 查得到一行，其余（活动 run、变更账本）为空。
+  const chain = (table: unknown) => {
+    const rows = table === schema.agents ? [{ slug: 'agent' }] : [];
+    const result = {
+      from: () => chain(table),
+      where: () => result,
+      orderBy: async () => rows,
+      limit: async () => rows,
+    };
+    return result;
+  };
+  const select = () => ({ from: (table: unknown) => chain(table) });
+  const insert = () => ({
+    values: () => ({ returning: async () => [{ id: 'mch_test' }] }),
+  });
+  const tx = { execute: async () => undefined, select, insert };
+  app.decorate('db', { select, transaction: async (fn: (value: typeof tx) => unknown) => fn(tx) });
+  app.decorate('pool', {
+    connect: async () => ({ query: async () => undefined, release: () => undefined }),
   });
   registerErrorHandler(app);
   registerAgentRoutes(app);

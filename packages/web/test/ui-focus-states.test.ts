@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { compile } from 'tailwindcss';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { Button } from '../src/components/ui/button.js';
+import { Button, buttonVariants } from '../src/components/ui/button.js';
 import { Checkbox } from '../src/components/ui/checkbox.js';
 import { RadioGroup, RadioGroupItem } from '../src/components/ui/radio-group.js';
 import { Switch } from '../src/components/ui/switch.js';
@@ -204,6 +204,10 @@ beforeAll(async () => {
       createElement(Toggle, { className: `probe-toggle-${variant}`, variant }, 'x'),
     );
   }
+  // Link 等场景直接使用 helper，不经过 Button 的 cn，helper 自身必须已合并。
+  for (const variant of ['default', 'outline', 'ghost', 'solid'] as const) {
+    classes.set(`button-helper-${variant}`, buttonVariants({ variant, size: 'sm' }).split(/\s+/));
+  }
 
   const candidates = [...new Set([...classes.values()].flat())];
   const compiler = await compile(THEME, {
@@ -301,6 +305,30 @@ describe('error and focus states share one border/ring signal', () => {
     // outline 的边框保持中性色，不参与焦点表达；本测试不模拟暗色媒体查询，dark:border-input 恒命中。
     expect(['var(--color-border)', 'var(--color-input)']).toContain(
       winning(rules, probeClasses('button-outline'), {}, true, 'border-color'),
+    );
+  });
+
+  it('merges the shared helper so Links keep the primary border', () => {
+    // helper 直接输出 cva 时会同时含 border-transparent 与 border-primary，
+    // Tailwind 按输出顺序让透明色胜出；导出的 class 必须是合并后的单一边框色。
+    const primary = probeClasses('button-helper-default');
+    expect(winning(rules, primary, {}, false, 'border-color')).toBe('var(--color-primary)');
+    expect(primary).not.toContain('border-transparent');
+    // 聚焦仍让位给环：边框透明 + 可见环，与 Button 组件一致。
+    expect(winning(rules, primary, {}, true, 'border-color')).toBe('transparent');
+    expect(ringVisible(rules, primary, {}, true)).toBe(true);
+
+    for (const variant of ['outline', 'ghost', 'solid'] as const) {
+      expect(ringVisible(rules, probeClasses(`button-helper-${variant}`), {}, true)).toBe(true);
+    }
+    expect(['var(--color-border)', 'var(--color-input)']).toContain(
+      winning(rules, probeClasses('button-helper-outline'), {}, false, 'border-color'),
+    );
+    expect(winning(rules, probeClasses('button-helper-ghost'), {}, false, 'border-color')).toBe(
+      'transparent',
+    );
+    expect(winning(rules, probeClasses('button-helper-solid'), {}, false, 'border-color')).toBe(
+      'transparent',
     );
   });
 

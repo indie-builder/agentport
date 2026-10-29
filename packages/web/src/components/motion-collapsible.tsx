@@ -15,14 +15,15 @@ const ANIMATED_PANEL =
 
 /**
  * Registry Collapsible unmounts collapsed content, which cuts the Motion exit animation.
- * keepMounted keeps the panel, inert keeps collapsed content out of the focus order.
+ * keepMounted keeps the panel; hiddenUntilFound hides it with Base UI's native
+ * hidden="until-found" (UA content-visibility), so never override content-visibility
+ * or the closed panel keeps laying out its content. inert keeps it out of the focus order.
  * animated uses Base UI's own height variable instead of Motion.
  */
 function CollapsibleContent({
   keepMounted,
   animated = false,
   className,
-  style,
   render,
   ...props
 }: CollapsibleContentProps) {
@@ -36,15 +37,6 @@ function CollapsibleContent({
           ? (state: CollapsiblePanelState) =>
               cn(ANIMATED_PANEL, typeof className === 'function' ? className(state) : className)
           : className
-      }
-      // until-found 避开 Tailwind 的 hidden 规则；Motion 管高度，inert 阻止收起内容交互。
-      style={
-        keepMounted
-          ? (state) => ({
-              ...(typeof style === 'function' ? style(state) : style),
-              contentVisibility: 'visible',
-            })
-          : style
       }
       render={
         render ??

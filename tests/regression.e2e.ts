@@ -60,7 +60,7 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
     const table = await browser.locator('section[aria-label], table').first().isVisible();
     expect(empty || table).toBe(true);
     await row.tap();
-    await expect(browser).toHaveURL(new RegExp(`/runs/${runId}$`));
+    await expect(browser).toHaveURL(new RegExp(`/runs/${runId}(?:\\?.*)?$`));
     await expect(screen.getByRole('button', '重跑')).toBeVisible();
   } finally {
     await database.pool.query('delete from agents where id = $1', [agentId]);
@@ -123,16 +123,19 @@ test('resource tabs preserve navigation and searchable URL state', { session: 'a
   screen,
   browser,
 }) => {
-  await app.open('/agents');
-  await expect(screen.getByRole('link', '专家·技能·连接器')).toBeVisible();
-  await screen.getByRole('link', '技能', { exact: true }).tap();
+  // 资源中心只剩技能/连接器/插件/知识库；专家独立为业务入口，不再混在资源页签里。
+  await app.open('/servers');
+  const resourceNav = browser.locator('nav[aria-label="资源类型"]');
+  await expect(resourceNav.getByRole('link', '技能', { exact: true })).toBeVisible();
+  await expect(resourceNav.getByRole('link', '专家', { exact: true })).toHaveCount(0);
+  await resourceNav.getByRole('link', '技能', { exact: true }).tap();
   await expect(browser).toHaveURL(/\/skills$/);
   await screen.getByRole('searchbox', '搜索技能').fill('resource-no-match');
   await expect(browser).toHaveURL(/\/skills\?q=resource-no-match$/);
   await expect(screen.getByText('没有匹配的技能', { exact: true })).toBeVisible();
   await screen.getByRole('button', '清除搜索').tap();
   await expect(browser).toHaveURL(/\/skills$/);
-  await screen.getByRole('link', '连接器', { exact: true }).tap();
+  await resourceNav.getByRole('link', '连接器', { exact: true }).tap();
   await expect(browser).toHaveURL(/\/servers$/);
   await screen.getByRole('combobox', '按来源筛选').tap();
   await screen.getByRole('option', '本地命令', { exact: true }).tap();
@@ -146,19 +149,35 @@ test('all workspaces render the shared page shell', { session: 'admin' }, async 
   screen,
   browser,
 }) => {
+  // 业务导航：找专家是入口，运维收在底部独立入口，进入后使用独立导航。
+  await app.open('/agents');
+  for (const label of ['找专家', '对话', '记忆', '定时任务', '资源', '评估']) {
+    await expect(screen.getByRole('link', label, { exact: true })).toBeVisible();
+  }
+  await screen.getByRole('link', '运维', { exact: true }).tap();
+  await expect(browser).toHaveURL(/\/operations$/);
+  await expect(screen.getByRole('link', '返回工作区', { exact: true })).toBeVisible();
+  for (const label of ['概况', '运行', '运行环境', '健康', '审计']) {
+    await expect(screen.getByRole('link', label, { exact: true })).toBeVisible();
+  }
+
   const routes = [
-    ['/', '工作台'],
-    ['/runs', '运行'],
-    ['/agents', '专家'],
+    ['/', '找专家'],
+    ['/agents', '找专家'],
+    ['/schedules', '定时任务'],
     ['/skills', '技能'],
     ['/servers', '连接器'],
+    ['/eval', '评估'],
+    ['/operations', '概况'],
+    ['/runs', '运行'],
     ['/status', '健康'],
     ['/audit', '审计'],
-    ['/eval', '评估'],
     ['/unknown-layout-check', '页面不存在'],
   ] as const;
   for (const [path, title] of routes) {
     await app.open(path);
+    // 默认入口 / 重定向到找专家。
+    if (path === '/') await expect(browser).toHaveURL(/\/agents$/);
     await expect(screen.getByRole('heading', title, { exact: true })).toBeVisible();
     await expect(browser.locator('[data-slot="page"]')).toBeVisible();
   }
@@ -168,4 +187,20 @@ test('eval page renders cases and runs sections', { session: 'admin' }, async ({
   await app.open('/eval');
   await expect(screen.getByRole('heading', '评估')).toBeVisible();
   await expect(screen.getByText('用例', { exact: false }).first()).toBeVisible();
+});
+
+test('memory page shows personal preferences and reviews tabs', { session: 'admin' }, async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/memory');
+  await expect(screen.getByRole('heading', '记忆', { exact: true })).toHaveCount(1);
+  await expect(screen.getByRole('tab', '个人偏好', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('tab', '历史回顾', { exact: true })).toBeVisible();
+  await expect(screen.getByLabel('个人偏好内容（Markdown）')).toBeVisible();
+  const overflows = await browser.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflows).toBe(false);
 });

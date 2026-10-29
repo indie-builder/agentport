@@ -15,6 +15,7 @@ import {
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentRuns, agents, conversations, messages } from '../schema.js';
+import { agentMemoryLockKey, lockMemoryKey } from './locks.js';
 import { inheritApprovals } from './runs.js';
 
 /** 事务句柄：准入逻辑在事务内复用同一批写函数。 */
@@ -776,6 +777,8 @@ export async function admitChatRun(
   userMessageUuid: string;
 }> {
   return db.transaction(async (tx) => {
+    // 与记忆写入共用同一把专家锁：检查无运行与写记忆互斥，新 run 不会在写入中途入队。
+    await lockMemoryKey(tx as unknown as Database, agentMemoryLockKey(input.agentId));
     // 锁序：先 agents 再 conversations；反向会和 agent_runs 的外键检查形成删除死锁。
     const [owner] = await tx
       .select({ id: agents.id })

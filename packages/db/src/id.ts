@@ -41,6 +41,8 @@ export const idPrefixes = {
   knowledgeWikiVersion: 'kwv',
   knowledgeWikiSource: 'kws',
   knowledgeModelProfile: 'kmp',
+  outputShare: 'osh',
+  memoryChange: 'mch',
 } as const;
 
 type Entity = keyof typeof idPrefixes;

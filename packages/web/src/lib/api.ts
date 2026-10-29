@@ -2,13 +2,13 @@ import type {
   Agent,
   AgentInput,
   AgentPatch,
-  AgentStats,
   ApiTool,
   ApiToolInput,
   Attention,
   ConnectorCatalogItem,
   ConversationSearchResponse,
   ConversationSummary,
+  CreateMemoryReviewInput,
   EvalDataset,
   EvalDatasetImportResult,
   EvalRunExport,
@@ -21,20 +21,25 @@ import type {
   MarketInstallInput,
   MarketSkill,
   MarketView,
+  MemoryChange,
   MemoryFileContent,
   MemoryFileList,
+  MemoryReview,
   MessageAttachment,
   NativePluginImportInput,
   NativePluginInstallInput,
   OpenUiToolResult,
   OutputContent,
   OutputList,
+  OutputShare,
   OutputStyle,
   OverviewTimeseriesPoint,
+  PersonalMemory,
   Plugin,
   PluginInput,
   PluginWithAgentCount,
   Problem,
+  PublicOutputShare,
   PublicQuestionResponse,
   PublicRunQuestion,
   ResolvedRuntimeEnvironment,
@@ -60,6 +65,7 @@ import type {
   SkillInput,
   SkillWithAgentCount,
   WorkspaceFiles,
+  WritePersonalMemoryInput,
 } from '@agentport/shared';
 import { loginPath } from './auth-redirect.js';
 
@@ -114,6 +120,26 @@ export interface McpImportResult {
 export interface Me {
   authenticated: boolean;
   username?: string;
+}
+
+/** 个人偏好保存结果：多返回本次写入的变更 id，供页面提示。 */
+export interface PersonalMemoryWriteResult extends PersonalMemory {
+  changeId: string;
+}
+
+export interface MemoryChangeList {
+  items: MemoryChange[];
+}
+
+export interface MemoryReviewQuery {
+  agentId?: string;
+  conversationId?: string;
+  before?: string;
+  limit?: number;
+}
+
+export interface MemoryReviewList {
+  items: MemoryReview[];
 }
 
 export interface ChatAccepted {
@@ -628,19 +654,21 @@ async function request<T>(
   signal?: AbortSignal,
   responseType: 'json' | 'blob' | 'text' = 'json',
   onResponse?: (response: Response) => void,
+  extraHeaders?: Record<string, string>,
 ): Promise<T> {
+  const headers: Record<string, string> = { ...extraHeaders };
+  if (body !== undefined) {
+    headers['content-type'] =
+      body instanceof Blob ? body.type || 'application/zip' : 'application/json';
+  }
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
       method,
       credentials: 'include',
       ...(signal === undefined ? {} : { signal }),
-      ...(body === undefined
-        ? {}
-        : body instanceof Blob
-          ? // 二进制包按原样上传，不能重新序列化；空 type 按接口唯一格式兜底。
-            { headers: { 'content-type': body.type || 'application/zip' }, body }
-          : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      ...(body === undefined ? {} : { body: body instanceof Blob ? body : JSON.stringify(body) }),
     });
   } catch (error) {
     // 取消不是连不上：保持 AbortError 原样，让 TanStack Query 静默丢弃这次请求。
@@ -669,6 +697,46 @@ async function request<T>(
   if (res.status === 204) return undefined as T;
   onResponse?.(res);
   if (responseType === 'text') return (await res.text()) as T;
+  return (responseType === 'blob' ? await res.blob() : await res.json()) as T;
+}
+
+export interface OutputShareList {
+  items: OutputShare[];
+}
+
+export interface PublicOutputShareContent {
+  file: PublicOutputShare['file'];
+  content: string;
+}
+
+/**
+ * 公开分享只认 URL 片段里的 Bearer token，不带管理会话 cookie，也不触发登录跳转。
+ * 无效、撤销与源文件删除都由服务端统一 404，这里原样交给页面显示单一无效状态。
+ */
+async function publicShareRequest<T>(
+  id: string,
+  token: string,
+  suffix: string,
+  responseType: 'json' | 'blob',
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/public/output-shares/${encodeURIComponent(id)}${suffix}`, {
+      headers: { authorization: `Bearer ${token}` },
+      credentials: 'omit',
+      cache: 'no-store',
+    });
+  } catch {
+    throw new ApiError(0, '连不上分享服务，请检查网络后重试。');
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as Partial<Problem> | null;
+    throw new ApiError(res.status, data?.message ?? (res.statusText || `HTTP ${res.status}`), {
+      ...(data?.code === undefined ? {} : { code: data.code }),
+      ...(data?.retryable === undefined ? {} : { retryable: data.retryable }),
+      ...(data?.requestId === undefined ? {} : { requestId: data.requestId }),
+    });
+  }
   return (responseType === 'blob' ? await res.blob() : await res.json()) as T;
 }
 
@@ -777,6 +845,10 @@ export const api = {
   agentFiles: (id: string): Promise<AgentFiles> => request(`/agents/${id}/files`),
   agentVersions: (id: string): Promise<AgentVersionSummary[]> => request(`/agents/${id}/versions`),
   agentMemory: (id: string): Promise<MemoryFileList> => request(`/agents/${id}/memory`),
+  agentMemoryVersions: (id: string, signal?: AbortSignal): Promise<MemoryChangeList> =>
+    request(`/agents/${id}/memory/MEMORY.md/versions`, 'GET', undefined, signal),
+  agentRuleVersions: (id: string, slug: string, signal?: AbortSignal): Promise<MemoryChangeList> =>
+    request(`/agents/${id}/rules/${encodeURIComponent(slug)}/versions`, 'GET', undefined, signal),
   agentRules: (id: string): Promise<Rule[]> => request(`/agents/${id}/rules`),
   writeAgentRule: (
     id: string,
@@ -804,8 +876,6 @@ export const api = {
     request(`/agents/${id}/memory/${encodeURIComponent(name)}`, 'DELETE'),
   agentVersion: (id: string, version: number): Promise<AgentVersionDetail> =>
     request(`/agents/${id}/versions/${version}`),
-  agentStats: (id: string, days = 30): Promise<AgentStats> =>
-    request(`/agents/${id}/stats?days=${days}`),
   rollbackAgent: (id: string, version: number): Promise<Agent> =>
     request(`/agents/${id}/rollback`, 'POST', { version }),
   /** 官方目录包的 ZIP；错误仍是 Problem JSON。 */
@@ -957,6 +1027,32 @@ export const api = {
     ),
   outputDownloadUrl: (conversationId: string, runId: string, path: string): string =>
     `/api/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}/download?path=${encodeURIComponent(path)}`,
+  /** 同一三元组的分享记录，含已撤销状态。 */
+  outputShares: (
+    conversationId: string,
+    input: { runId: string; path: string },
+    signal?: AbortSignal,
+  ): Promise<OutputShareList> => {
+    const params = new URLSearchParams({ runId: input.runId, path: input.path });
+    return request(
+      `/conversations/${conversationId}/output-shares?${params.toString()}`,
+      'GET',
+      undefined,
+      signal,
+    );
+  },
+  createOutputShare: (
+    conversationId: string,
+    input: { runId: string; path: string },
+  ): Promise<OutputShare> =>
+    request(`/conversations/${conversationId}/output-shares`, 'POST', input),
+  revokeOutputShare: (id: string): Promise<void> => request(`/output-shares/${id}`, 'DELETE'),
+  publicOutputShare: (id: string, token: string): Promise<PublicOutputShare> =>
+    publicShareRequest(id, token, '', 'json'),
+  publicOutputShareContent: (id: string, token: string): Promise<PublicOutputShareContent> =>
+    publicShareRequest(id, token, '/content', 'json'),
+  publicOutputShareDownload: (id: string, token: string): Promise<Blob> =>
+    publicShareRequest(id, token, '/download', 'blob'),
   branchConversation: (id: string, fromMessageId?: string): Promise<{ id: string }> =>
     request(`/conversations/${id}/branch`, 'POST', {
       ...(fromMessageId === undefined ? {} : { fromMessageId }),
@@ -1026,6 +1122,49 @@ export const api = {
   updateSchedule: (id: string, input: SchedulePatch): Promise<Schedule> =>
     request(`/schedules/${id}`, 'PATCH', input),
   deleteSchedule: (id: string): Promise<void> => request(`/schedules/${id}`, 'DELETE'),
+
+  personalMemory: (): Promise<PersonalMemory> => request('/me/memory'),
+  writePersonalMemory: (input: WritePersonalMemoryInput): Promise<PersonalMemoryWriteResult> =>
+    request('/me/memory', 'PUT', input),
+  personalMemoryDownloadUrl: '/api/me/memory/download',
+  personalMemoryVersions: (
+    query: { before?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<MemoryChangeList> => {
+    const params = new URLSearchParams();
+    if (query.before !== undefined) params.set('before', query.before);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/me/memory/versions${search}`, 'GET', undefined, signal);
+  },
+  rollbackMemoryChange: (id: string): Promise<MemoryChange> =>
+    request(`/memory/changes/${encodeURIComponent(id)}/rollback`, 'POST'),
+  memoryReviews: (
+    query: MemoryReviewQuery = {},
+    signal?: AbortSignal,
+  ): Promise<MemoryReviewList> => {
+    const params = new URLSearchParams();
+    if (query.agentId) params.set('agentId', query.agentId);
+    if (query.conversationId) params.set('conversationId', query.conversationId);
+    if (query.before) params.set('before', query.before);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/memory-reviews${search}`, 'GET', undefined, signal);
+  },
+  memoryReview: (runId: string, signal?: AbortSignal): Promise<MemoryReview> =>
+    request(`/memory-reviews/${encodeURIComponent(runId)}`, 'GET', undefined, signal),
+  /** 幂等键随请求头提交；同一键重复提交返回同一个 runId。 */
+  createMemoryReview: (
+    input: CreateMemoryReviewInput,
+    idempotencyKey: string,
+  ): Promise<{ runId: string }> =>
+    request('/memory-reviews', 'POST', input, undefined, 'json', undefined, {
+      'idempotency-key': idempotencyKey,
+    }),
+  applyMemoryReview: (runId: string): Promise<MemoryChange> =>
+    request(`/memory-reviews/${encodeURIComponent(runId)}/apply`, 'POST'),
+  rejectMemoryReview: (runId: string): Promise<MemoryReview> =>
+    request(`/memory-reviews/${encodeURIComponent(runId)}`, 'PATCH', { decision: 'rejected' }),
 
   audit: (query: AuditQuery = {}, signal?: AbortSignal): Promise<AuditList> => {
     const params = new URLSearchParams();

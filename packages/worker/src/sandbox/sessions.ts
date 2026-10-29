@@ -31,6 +31,8 @@ export interface SessionSandboxSpec {
   inputsDir: string;
   memoryDir: string;
   sessionsDir: string;
+  /** 个人记忆目录，只读挂载到 /mnt/user；未接入时省略。 */
+  personalDir?: string;
 }
 
 export interface SandboxExecution {
@@ -65,6 +67,7 @@ const CONFIG_DIR = '/home/node/.claude';
 const OUTPUTS_DIR = '/mnt/outputs';
 const INPUTS_DIR = '/mnt/inputs';
 const MEMORY_DIR = '/mnt/agent-memory';
+const USER_DIR = '/mnt/user';
 /** 取消 ACK 等待上限；超时返回 unconfirmed，由调用方 release(false) 销毁容器。 */
 const CANCEL_GRACE_MS = 5_000;
 
@@ -151,7 +154,8 @@ function specMatches(current: SessionSandboxSpec, next: SessionSandboxSpec): boo
     current.outputsDir === next.outputsDir &&
     current.inputsDir === next.inputsDir &&
     current.memoryDir === next.memoryDir &&
-    current.sessionsDir === next.sessionsDir
+    current.sessionsDir === next.sessionsDir &&
+    current.personalDir === next.personalDir
   );
 }
 
@@ -325,6 +329,9 @@ export class SessionSandboxes {
           { hostPath: spec.inputsDir, containerPath: INPUTS_DIR, readonly: true },
           { hostPath: spec.memoryDir, containerPath: MEMORY_DIR },
           { hostPath: spec.sessionsDir, containerPath: CONFIG_DIR },
+          ...(spec.personalDir === undefined
+            ? []
+            : [{ hostPath: spec.personalDir, containerPath: USER_DIR, readonly: true }]),
         ],
         signal: createSignal,
       });
