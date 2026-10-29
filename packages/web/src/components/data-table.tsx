@@ -26,6 +26,7 @@ import {
   functionalUpdate,
   type RowData,
   rowSortingFeature,
+  type SortingState,
   tableFeatures,
   useTable,
 } from '@tanstack/react-table';
@@ -84,6 +85,8 @@ interface DataTableProps<T> {
   /** 行内展开内容；返回 null 表示该行不可展开。 */
   renderExpanded?: (row: T) => ReactNode | null;
   storageKey?: string;
+  /** 首屏排序方向；只在挂载时生效，之后仍由用户点击调整。 */
+  initialSorting?: SortingState;
   onRowClick?: (row: T) => void;
   className?: string;
 }
@@ -270,6 +273,7 @@ export function DataTable<T extends RowData>({
   empty,
   renderExpanded,
   storageKey,
+  initialSorting = [],
   onRowClick,
   className,
 }: DataTableProps<T>) {
@@ -317,7 +321,11 @@ export function DataTable<T extends RowData>({
     columns: tableColumns,
     data: rows,
     getRowId: rowKey,
-    initialState: { columnVisibility: prefs.visibility, columnOrder: prefs.order },
+    initialState: {
+      columnVisibility: prefs.visibility,
+      columnOrder: prefs.order,
+      sorting: initialSorting,
+    },
     state: { columnVisibility: prefs.visibility, columnOrder: prefs.order },
     onColumnVisibilityChange: (updater) =>
       setPrefs((prev) => ({

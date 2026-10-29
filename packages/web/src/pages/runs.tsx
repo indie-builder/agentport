@@ -58,7 +58,7 @@ const columns: DataColumn<RunListItem>[] = [
     id: 'startedAt',
     header: '开始',
     width: '96px',
-    sortValue: (run) => run.startedAt ?? '',
+    sortValue: (run) => run.startedAt,
     cell: (run) => (
       <span className="text-sm text-muted-foreground" title={formatDateTime(run.startedAt)}>
         {formatRelative(run.startedAt)}
@@ -256,6 +256,7 @@ export function RunsPage() {
           label="运行列表"
           loading={runs.isPending}
           storageKey="pace.runs.columns"
+          initialSorting={[{ id: 'startedAt', desc: true }]}
           empty="没有匹配的运行"
           onRowClick={(run) =>
             void navigate({
