@@ -5,6 +5,7 @@ import {
   createRoute,
   createRouter,
   RouterProvider,
+  useParams,
 } from '@tanstack/react-router';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -53,7 +54,11 @@ async function inspectRoute(
   const agentDetail = createRoute({
     getParentRoute: () => shell,
     path: '/agents/$agentId',
-    component: () => createElement(PageHeader, { title: '专家详情' }),
+    // 真实详情页按加载后的实体命名，这里用路由参数模拟不同实体的 h1。
+    component: function AgentDetailPage() {
+      const params = useParams({ strict: false });
+      return createElement(PageHeader, { title: `专家 ${String(params.agentId)}` });
+    },
   });
   const skills = createRoute({
     getParentRoute: () => shell,
@@ -175,20 +180,20 @@ describe('shell route identity', () => {
     },
   );
 
-  it('names a matched knowledge detail as knowledge rather than not found', async () => {
+  it('names a matched knowledge detail by its page heading', async () => {
     const view = await inspectRoute('/knowledge/kb_review', 'success');
     try {
-      expect(document.title).toBe('知识库 · 控制台');
+      expect(document.title).toBe('知识库详情 · 控制台');
       expect(view.host.querySelectorAll('h1')).toHaveLength(1);
     } finally {
       await view.close();
     }
   });
 
-  it('keeps the title for a matched run detail route', async () => {
+  it('names a matched run detail by its page heading', async () => {
     const view = await inspectRoute('/runs/run_review', 'success');
     try {
-      expect(document.title).toBe('运行 · 控制台');
+      expect(document.title).toBe('运行详情 · 控制台');
     } finally {
       await view.close();
     }
@@ -204,10 +209,58 @@ describe('shell route identity', () => {
     }
   });
 
-  it('names the plugin detail route', async () => {
+  it('names the plugin detail route by its page heading', async () => {
     const view = await inspectRoute('/plugins/plugin_review', 'success');
     try {
-      expect(document.title).toBe('插件 · 控制台');
+      expect(document.title).toBe('插件详情 · 控制台');
+    } finally {
+      await view.close();
+    }
+  });
+
+  it('names two different detail pages by their own heading', async () => {
+    for (const [agentId, title] of [
+      ['agent_alpha', '专家 agent_alpha · 控制台'],
+      ['agent_beta', '专家 agent_beta · 控制台'],
+    ] as const) {
+      const view = await inspectRoute(`/agents/${agentId}`, 'success');
+      try {
+        expect(document.title).toBe(title);
+      } finally {
+        await view.close();
+      }
+    }
+  });
+
+  it('follows the main heading when a detail page updates it after loading', async () => {
+    const view = await inspectRoute('/agents/agent_review', 'success');
+    try {
+      expect(document.title).toBe('专家 agent_review · 控制台');
+      const h1 = view.host.querySelector('#main-content h1');
+      if (!h1) throw new Error('missing main heading');
+      await act(async () => {
+        h1.textContent = '数据分析专家';
+      });
+      await vi.waitFor(() => expect(document.title).toBe('数据分析专家 · 控制台'));
+    } finally {
+      await view.close();
+    }
+  });
+
+  it('drops the detail heading after leaving the detail route', async () => {
+    const view = await inspectRoute('/agents/agent_review', 'success');
+    try {
+      expect(document.title).toBe('专家 agent_review · 控制台');
+      await act(async () => {
+        await view.router.navigate({ to: '/' });
+      });
+      expect(document.title).toBe('工作台 · 控制台');
+      const h1 = view.host.querySelector('#main-content h1');
+      if (!h1) throw new Error('missing main heading');
+      await act(async () => {
+        h1.textContent = '不应进入标题';
+      });
+      expect(document.title).toBe('工作台 · 控制台');
     } finally {
       await view.close();
     }

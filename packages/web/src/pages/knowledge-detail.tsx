@@ -94,6 +94,7 @@ import {
 import { cn } from '../lib/cn.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
+import { knowledgeJobErrorText } from '../lib/knowledge-errors.js';
 import {
   knowledgeKeys,
   knowledgeShouldPoll,
@@ -2988,7 +2989,11 @@ function SourcesTab({ baseId }: { baseId: string }) {
       .map((entry) => knownSyncJobs.get(entry.id))
       .find((job) => job?.status === 'failed');
     if (failedJob) {
-      toastError(new Error(failedJob.error ?? '来源同步失败，已保留失败原因，可修正后重试'));
+      toastError(
+        new Error(
+          knowledgeJobErrorText(failedJob.error) ?? '来源同步失败，已保留失败原因，可修正后重试',
+        ),
+      );
     }
   }, [baseId, client, knownSyncJobs, syncJobs]);
 
@@ -4143,6 +4148,7 @@ function JobRow({
 }) {
   const active = job.status === 'queued' || job.status === 'running';
   const runningMs = job.startedAt ? Date.now() - new Date(job.startedAt).getTime() : null;
+  const reason = knowledgeJobErrorText(job.error);
   return (
     <TableRow>
       <TableCell className="text-xs">{jobTypeLabel[job.type]}</TableCell>
@@ -4154,7 +4160,7 @@ function JobRow({
           className="block truncate text-xs text-muted-foreground"
           title={job.error ?? job.step ?? ''}
         >
-          {job.error ?? job.step ?? '—'}
+          {reason ?? job.step ?? '—'}
         </span>
       </TableCell>
       <TableCell className="text-right text-xs tabular-nums">{job.progress}%</TableCell>

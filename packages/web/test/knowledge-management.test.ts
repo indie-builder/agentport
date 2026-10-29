@@ -3710,3 +3710,29 @@ describe('knowledge UX guards', () => {
     expect(button('按标签筛选')).toBeDefined();
   });
 });
+
+describe('knowledge job failure reasons', () => {
+  it('explains a lost worker job in Chinese and keeps the raw reason in the title', async () => {
+    baseHandlers();
+    const lostJob: KnowledgeJob = {
+      id: 'kjob_lost',
+      type: 'ingest',
+      status: 'failed',
+      step: null,
+      progress: 0,
+      attempts: 1,
+      error: 'knowledge worker lost track of this job',
+      createdAt: '2026-01-01T00:00:00Z',
+      startedAt: '2026-01-01T00:00:00Z',
+      endedAt: '2026-01-01T00:01:00Z',
+    };
+    server.use(
+      http.get('/api/knowledge/jobs', () =>
+        HttpResponse.json({ items: [lostJob], nextCursor: null }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'jobs' });
+    const reason = document.querySelector('[title="knowledge worker lost track of this job"]');
+    expect(reason?.textContent).toBe('后台任务中断，本次未完成；重试会重新执行');
+  });
+});

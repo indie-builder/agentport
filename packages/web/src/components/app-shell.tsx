@@ -309,6 +309,9 @@ export function AppShell() {
       : (resourceLabels[pathname] ??
         (pathname.startsWith('/knowledge/') ? '知识库' : currentPage?.label) ??
         '页面不存在');
+  const baseTitle = `${pageTitle} · 控制台`;
+  // 详情页共用同一个路由模板，固定名称无法区分实体（WCAG 2.4.2），改由页面实际 h1 命名。
+  const isDetailRoute = Boolean(!isNotFound && matchedRoute?.includes('$'));
   const [collapsed, setCollapsed] = useCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
@@ -327,9 +330,26 @@ export function AppShell() {
     });
   }, [me.data, navigate, locationHref]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pathname 变化要重置基础标题并重接观察；认证就绪后主内容才挂载。
   useEffect(() => {
-    document.title = `${pageTitle} · 控制台`;
-  }, [pageTitle]);
+    const apply = (heading?: string): void => {
+      const next = heading ? `${heading} · 控制台` : baseTitle;
+      if (document.title !== next) document.title = next;
+    };
+    apply();
+    if (!isDetailRoute) return;
+    // 认证未就绪时主内容还没挂载，me.isPending 变化后 effect 会重跑并接上观察。
+    const main = document.getElementById('main-content');
+    if (!main) return;
+    const sync = (): void => {
+      apply(main.querySelector('h1')?.textContent?.trim() || undefined);
+    };
+    sync();
+    const observer = new MutationObserver(sync);
+    // 只跟主内容的标题节点，不观察 document.title 自身，避免自触发。
+    observer.observe(main, { childList: true, characterData: true, subtree: true });
+    return () => observer.disconnect();
+  }, [baseTitle, isDetailRoute, pathname, me.isPending]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 每次路径变化都要把焦点移入新页面，即使标题相同。
   useEffect(() => {

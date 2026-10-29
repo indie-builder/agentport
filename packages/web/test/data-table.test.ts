@@ -14,6 +14,17 @@ const columns: DataColumn<(typeof rows)[number]>[] = [
   },
 ];
 
+// 运行列表的真实形状：未开始的行为 null，按开始时间倒序时排在最后。
+const runRows = [
+  { id: 'run_old', startedAt: '2026-10-01T00:00:00.000Z' },
+  { id: 'run_new', startedAt: '2026-10-03T00:00:00.000Z' },
+  { id: 'run_mid', startedAt: '2026-10-02T00:00:00.000Z' },
+  { id: 'run_queued', startedAt: null },
+];
+const runColumns: DataColumn<(typeof runRows)[number]>[] = [
+  { id: 'startedAt', header: '开始', sortValue: (run) => run.startedAt },
+];
+
 function renderTable(props: Partial<Parameters<typeof DataTable<(typeof rows)[number]>>[0]> = {}) {
   return renderToStaticMarkup(
     createElement(DataTable<(typeof rows)[number]>, {
@@ -77,6 +88,75 @@ describe('DataTable accessibility', () => {
       expect(html).toMatch(/<tbody\b[\s\S]*?<tr\b[\s\S]*?<td\b[^>]*colSpan="2"/);
     },
   );
+
+  it('keeps an explicitly configured initial sort visible before any click', () => {
+    const html = renderToStaticMarkup(
+      createElement(DataTable<(typeof runRows)[number]>, {
+        rows: runRows,
+        columns: runColumns,
+        rowKey: (row) => row.id,
+        label: '运行列表',
+        initialSorting: [{ id: 'startedAt', desc: true }],
+      }),
+    );
+    expect(html.match(/aria-sort="descending"/g)).toHaveLength(1);
+    expect(html).not.toContain('aria-sort="ascending"');
+    expect(html).toContain('lucide-arrow-down');
+    expect(html).not.toContain('lucide-chevrons-up-down');
+  });
+
+  it('stays unsorted by default', () => {
+    const html = renderToStaticMarkup(
+      createElement(DataTable<(typeof runRows)[number]>, {
+        rows: runRows,
+        columns: runColumns,
+        rowKey: (row) => row.id,
+        label: '运行列表',
+      }),
+    );
+    expect(html).not.toContain('aria-sort');
+    expect(html).toContain('lucide-chevrons-up-down');
+    expect(html.indexOf('2026-10-01')).toBeLessThan(html.indexOf('2026-10-03'));
+  });
+
+  it('orders rows by the initial sort and keeps manual sorting working', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const order = () =>
+      [...container.querySelectorAll('button[data-row]')].map((row) =>
+        row.getAttribute('aria-label')?.replace('打开 ', ''),
+      );
+    const direction = () =>
+      container.querySelector('th[aria-sort]')?.getAttribute('aria-sort') ?? null;
+    try {
+      await act(async () => {
+        root.render(
+          createElement(DataTable<(typeof runRows)[number]>, {
+            rows: runRows,
+            columns: runColumns,
+            rowKey: (row) => row.id,
+            label: '运行列表',
+            initialSorting: [{ id: 'startedAt', desc: true }],
+            onRowClick: () => {},
+          }),
+        );
+      });
+      expect(direction()).toBe('descending');
+      expect(order()).toEqual(['run_new', 'run_mid', 'run_old', 'run_queued']);
+
+      const button = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="开始，按此列排序"]',
+      );
+      if (!button) throw new Error('Missing sort button');
+      await act(async () => button.click());
+      expect(direction()).toBe('ascending');
+      expect(order()).toEqual(['run_old', 'run_mid', 'run_new', 'run_queued']);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
 
   it('keeps null sort values last in both directions', async () => {
     const sortable = [
