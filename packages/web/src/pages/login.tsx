@@ -133,6 +133,7 @@ export function LoginPage() {
             </FieldError>
             <Button
               type="submit"
+              variant="solid"
               className="h-11 w-full"
               disabled={login.isPending}
               aria-busy={login.isPending}

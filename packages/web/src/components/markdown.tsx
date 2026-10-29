@@ -10,7 +10,7 @@ import { cn } from '../lib/cn.js';
 
 /**
  * Shiki 的 css-variables 主题：颜色全部落在 styles.css 的 --shiki-* 变量上，
- * 高亮因此只使用无彩度令牌，不引入任何色相。
+ * 高亮配色（含品牌蓝关键字）只由主题令牌决定。
  */
 function grayscaleTheme(name: string): ThemeInput {
   const token = (key: string) => `var(--shiki-${key})`;
@@ -152,7 +152,7 @@ const components: Components = {
       <a
         {...props}
         href={href}
-        className="break-words font-medium text-fg underline decoration-line-strong underline-offset-2 hover:decoration-fg"
+        className="break-words font-medium text-primary underline decoration-line-strong underline-offset-2 hover:decoration-primary"
         {...(external ? { target: '_blank', rel: 'noreferrer noopener' } : {})}
       >
         {children}
@@ -201,8 +201,7 @@ const STATIC_REHYPE_PLUGINS = Object.entries(defaultRehypePlugins)
 const STATIC_REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), htmlAsText];
 type RemarkPlugins = NonNullable<Parameters<typeof Streamdown>[0]['remarkPlugins']>;
 
-const LINK_CLASS =
-  'break-words font-medium text-fg underline decoration-line-strong underline-offset-2';
+const LINK_CLASS = 'break-words font-medium underline decoration-line-strong underline-offset-2';
 
 /** 本地文件链接的 fragment 前缀；harden 放行纯 fragment，且不会改写其中的路径。 */
 const PLUGIN_FILE_PREFIX = '#plugin-file=';
@@ -326,16 +325,20 @@ const staticAnchor =
     if (path !== undefined) {
       // token 也可能来自正文直接书写，只有白名单里的真实文件才可点击。
       if (fileLinks === undefined || !fileLinks.files.has(path)) {
-        return <span className={LINK_CLASS}>{children}</span>;
+        return <span className={`${LINK_CLASS} text-fg`}>{children}</span>;
       }
       return (
-        <button type="button" onClick={() => fileLinks.onSelect(path)} className={LINK_CLASS}>
+        <button
+          type="button"
+          onClick={() => fileLinks.onSelect(path)}
+          className={`${LINK_CLASS} text-primary`}
+        >
           {children}
         </button>
       );
     }
     if (!url.startsWith('#') && !isSafeExternal(url)) {
-      return <span className={LINK_CLASS}>{children}</span>;
+      return <span className={`${LINK_CLASS} text-fg`}>{children}</span>;
     }
     const external = /^https?:|^\/\//i.test(url);
     // 页内 fragment 不能沿用 harden 加的 target=_blank，否则跳转落在新标签页。
@@ -344,7 +347,7 @@ const staticAnchor =
       <a
         {...props}
         href={url}
-        className={`${LINK_CLASS} hover:decoration-fg`}
+        className={`${LINK_CLASS} text-primary hover:decoration-primary`}
         {...browsing}
         {...(external ? { target: '_blank', rel: 'noreferrer noopener' } : {})}
       >

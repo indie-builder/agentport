@@ -71,9 +71,9 @@ import { asArray, childProps, type RenderProps } from './shared.js';
 
 const DEFAULT_CHART_HEIGHT = 256;
 
-/** 5 档实色灰阶；第 2 条系列起每条叠加独立虚线与纹理，灰阶循环但线型不循环。 */
+/** 首系列映射品牌主色，其余 4 档沿用既有中性灰阶；第 2 条系列起每条叠加独立虚线与纹理。 */
 const SERIES_TONES = [
-  'var(--color-fg)',
+  'var(--color-primary)',
   'color-mix(in srgb, var(--color-fg) 80%, var(--color-surface))',
   'var(--color-muted-foreground)',
   'color-mix(in srgb, var(--color-fg) 62%, var(--color-surface))',

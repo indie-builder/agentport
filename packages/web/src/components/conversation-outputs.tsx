@@ -126,7 +126,9 @@ export function ConversationOutputs({
                         }
                         className={cn(
                           'h-auto w-full min-w-0 items-start justify-between gap-2 px-2 py-1.5 text-left font-normal whitespace-normal',
-                          active ? 'bg-selected text-fg' : 'text-muted-foreground hover:bg-hover',
+                          active
+                            ? 'bg-selected text-selected-foreground hover:bg-selected hover:text-selected-foreground'
+                            : 'text-muted-foreground hover:bg-hover',
                         )}
                       >
                         <span className="min-w-0 break-words text-sm">{file.path}</span>

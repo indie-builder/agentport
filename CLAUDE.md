@@ -54,11 +54,11 @@
 
 - **工程纪律走 ub-mode。** 写改代码前主动加载 `ub-mode` 技能，不需要用户每次输入 `/ub-mode`；阶段划分与要求见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) §2-4。`pstack` 只负责模型/任务/并行/独立 review 编排，工程行为按 ub。与其它通用工程技能（含 ponytail、TDD）在同一工程行为上冲突时，以本项目采用的 ub 纪律为准；TDD 技能即使 description 命中或正文已加载，也只作红/绿操作参考：不要求例外逐次审批、不因已有实现而机械删除重来、不默认固定全套测试。能写诚实的行为测试就先红后绿，否则用能证明目标的证据并记录原因与限制。
 - **项目专属约束照旧高于通用技能。** 本文件的文件系统第一性（§0）、官方最佳实践、技术栈与视觉基准、安全、worktree 与授权规则不因 ub/pstack 或其它技能而改变。
-- **默认执行模式：先 Opus 探索/设计，再拆多个 Sonnet 子代理并行执行**（不需要用户每次交代）。子代理只做执行；设计/评审/审计用 Opus；主会话只定共享契约、派发、合并、按改动范围验证与提交。
+- **默认执行模式：设计、规划、方案、探索判断、评审、审计一律派发 Opus 子代理；方案确定后，源码、测试、配置、脚本等具体代码执行才派发 Sonnet 子代理并行完成**（不需要用户每次交代）。Sonnet 执行中遇到需要设计判断的问题，先交 Opus 确定方案再继续，不得把判断伪装成执行；主会话只定共享契约、派发、合并、按改动范围验证与提交。
 - **主会话永远不写代码（硬性）**：任何代码变更动作——新增/修改/删除源码、测试、配置、脚本、迁移文件——都必须派给 Subagent 执行，主会话不亲自编辑。主会话只做：读代码、定契约、派发任务、审查产出、合并、运行验证命令与提交。唯一例外是用户在本轮明确要求主会话直接改，或单行配置修正（如版本号、路径拼写）且用户已同意；这两种情况要在回复里说明为什么没有派发。
 - **代码写完后先经 Opus 子代理 code review 再提交**；review 未过不提交。
 - 能拆成互不依赖的子任务就并行，不要串行做完一个再下一个；每个子代理要有明确产出边界（改哪些文件、不改哪些文件）与验收方式。
-- 模型选择遵循 `pstack-models.md` 的 per-role 配置，不为并行而降低判断质量。
+- **上述模型分工高于个人 `pstack-models.md` 的 per-role 配置与技能默认值。** 设计、规划、方案、探索判断、评审、审计不适用其中的 ordinary prose 用 Sonnet 或 exceptionally complex 用 Fable 等例外，无论复杂度一律用 Opus；派发时显式指定模型，不为并行而降低判断质量。
 - **完整研发流程（含建树、配置与启动规则）、review 轮次做法、验证与撤销规则统一见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**；开工前读 [docs/PITFALLS.md](docs/PITFALLS.md)，踩坑记入该文件不散落。产出只落在 worktree，主 checkout 保持干净。
 - **已提交并合并的 worktree 任务收尾即删**：分支改动全部提交且已合并到 main 后，对应 worktree 不再有存在价值，`git worktree remove` 删掉（分支与远程保留）；未提交内容一律不删，先报告。判据与做法见 docs/DEV-WORKFLOW.md §2-7。
 
@@ -73,7 +73,7 @@
 ## 前端
 
 - **仅面向桌面端，避免过度设计。** 前端采用桌面布局与控件规格，不做移动端适配，不为手机增加断点、触摸尺寸或替代导航；保留桌面窗口缩放、容器伸缩与无障碍行为。
-- **一切视觉以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 为准**，设计基准是 https://www.openui.com/chat?form_factor=desktop。无彩度（黑白灰 + 透明度）、1px 线与留白、lucide 图标 `strokeWidth={1.75}` 16px、焦点/边框统一（§9）、信息表达「让布局解释结构」（§10，做 UI 前后逐条过）。
+- **一切视觉以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 为准**，设计基准是 https://www.openui.com/chat?form_factor=desktop。界面唯一品牌色为 PACE 蓝 `#315FAD`（链接、当前导航与选中、焦点环、主按钮描边与文字、用户消息、徽章、运行系列），普通主操作为 1px 品牌蓝描边与蓝字，只有发送与登录使用 `#426FBD` 实底（悬停 `#3B64AA`、按下 `#345997`）配白字，界面为冷灰画布 `#F0F2F5`、清白表面 `#FBFCFE` 与冷灰中性层；品牌 Logo 与插画保留原配色；普通图标继承所属文字，危险用 `danger` 红；1px 线与留白、lucide 图标 `strokeWidth={1.75}` 16px、焦点/边框统一（§9）、信息表达「让布局解释结构」（§10，做 UI 前后逐条过）。
 - **布局优先。** "Cut taglines, helper text and secondary labels. If a screen needs them to make sense, fix the layout." 删掉标语、用于解释结构的辅助文案和重复的次级标签；若界面要靠这些文字才看得懂，先改分组/对齐/间距/层级，而不是加字。表单字段标签、约束提示、错误、风险与无障碍说明仍按 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) §10 保留。
 - **组件库只用 shadcn/ui**（`components.json` 已配；`pnpm dlx shadcn@latest add <name>` 后可改源码 token）；交互原语只用 Base UI（`@base-ui/react`），Radix 已移除不再引入；样式只用 Tailwind 4，颜色/间距/字体/圆角只从 `styles.css` 的 `@theme` token 取，禁止硬编码 hex。先看 `components/ui/` 有无可复用再新增。
 - 页面骨架统一用 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`），每个渲染状态恰好一个 `h1`；不写页面级 `mt-*`/`mb-*`。

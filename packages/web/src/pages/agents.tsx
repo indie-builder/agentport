@@ -1476,7 +1476,9 @@ export function AgentEditor({
   const sectionButtonClass = (active: boolean): string =>
     cn(
       'flex w-full items-center rounded-icon px-2 py-1.5 text-sm transition-colors md:text-left',
-      active ? 'bg-selected font-medium text-fg' : 'text-muted-foreground hover:bg-hover',
+      active
+        ? 'bg-selected font-medium text-selected-foreground'
+        : 'text-muted-foreground hover:bg-hover',
     );
 
   /** 分区详情只挂载当前选中项：出错时先切分区，下一帧再聚焦字段。 */

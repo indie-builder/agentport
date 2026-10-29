@@ -83,7 +83,11 @@ export function RuntimeEnvironmentsPage() {
         <EmptyState
           icon={<Box className="size-5" />}
           title="新建第一个运行环境"
-          action={<Button onClick={openCreate}>新建环境</Button>}
+          action={
+            <Button variant="outline" size="sm" onClick={openCreate}>
+              新建环境
+            </Button>
+          }
         />
       ) : null}
 

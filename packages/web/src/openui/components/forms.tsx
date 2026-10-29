@@ -715,7 +715,7 @@ export function ChipsRenderer({
               'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               selected
-                ? 'border-line-strong bg-selected text-fg'
+                ? 'border-line-strong bg-selected text-selected-foreground'
                 : 'border-line bg-transparent text-muted-foreground hover:bg-hover',
               'disabled:cursor-not-allowed disabled:opacity-50',
             )}
@@ -794,7 +794,9 @@ export function OptionCardsRenderer({
             className={cn(
               'flex min-w-0 items-start gap-2 rounded-card border p-3 text-left transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              selected ? 'border-line-strong bg-selected' : 'border-line hover:bg-hover',
+              selected
+                ? 'border-line-strong bg-selected text-selected-foreground'
+                : 'border-line hover:bg-hover',
               'disabled:cursor-not-allowed disabled:opacity-50',
             )}
           >
@@ -802,7 +804,14 @@ export function OptionCardsRenderer({
               <span className="shrink-0">{renderNode(item.topContent)}</span>
             ) : null}
             <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="text-sm font-medium text-fg">{item.title}</span>
+              <span
+                className={cn(
+                  'text-sm font-medium',
+                  selected ? 'text-selected-foreground' : 'text-fg',
+                )}
+              >
+                {item.title}
+              </span>
               {item.subtitle ? (
                 <span className="text-sm text-muted-foreground">{item.subtitle}</span>
               ) : null}

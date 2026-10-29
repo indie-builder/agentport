@@ -140,7 +140,7 @@ export function MemoryPanel({
                 className={cn(
                   'flex w-full max-w-full min-w-0 items-center rounded-icon px-2 py-1.5 text-left font-mono text-xs transition-colors',
                   file.name === active
-                    ? 'bg-selected font-medium text-fg'
+                    ? 'bg-selected font-medium text-selected-foreground'
                     : 'text-muted-foreground hover:bg-hover',
                 )}
               >
@@ -461,8 +461,10 @@ export function RulesPanel({
                 disabled={pending}
                 onClick={() => guard({ type: 'open', rule })}
                 className={cn(
-                  'w-full max-w-full truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
-                  selected === rule.slug && 'bg-selected text-fg',
+                  'w-full max-w-full truncate rounded-item px-2 py-1.5 text-left text-sm',
+                  selected === rule.slug
+                    ? 'bg-selected text-selected-foreground'
+                    : 'hover:bg-hover',
                 )}
               >
                 {rule.slug}
@@ -763,8 +765,10 @@ export function OutputStylesPanel({
                 disabled={pending}
                 onClick={() => guard({ type: 'open', style })}
                 className={cn(
-                  'flex w-full max-w-full items-center gap-1.5 truncate rounded-item px-2 py-1.5 text-left text-sm hover:bg-hover',
-                  selected === style.slug && 'bg-selected text-fg',
+                  'flex w-full max-w-full items-center gap-1.5 truncate rounded-item px-2 py-1.5 text-left text-sm',
+                  selected === style.slug
+                    ? 'bg-selected text-selected-foreground'
+                    : 'hover:bg-hover',
                 )}
               >
                 <span className="truncate">{style.slug}</span>

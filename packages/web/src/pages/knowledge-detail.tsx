@@ -562,7 +562,7 @@ function DocumentsTab({
                   className={cn(
                     'flex min-w-0 flex-1 items-center gap-1.5 rounded-item py-1.5 pr-2 text-left text-sm transition-colors',
                     active
-                      ? 'bg-selected font-medium text-fg'
+                      ? 'bg-selected font-medium text-selected-foreground'
                       : 'text-muted-foreground hover:bg-hover hover:text-fg',
                   )}
                 >
@@ -1458,7 +1458,7 @@ function DocumentViewer({
                       className={cn(
                         'flex w-full min-w-0 flex-col gap-0.5 rounded-item px-2 py-1.5 text-left text-sm transition-colors',
                         active
-                          ? 'bg-selected font-medium text-fg'
+                          ? 'bg-selected font-medium text-selected-foreground'
                           : 'text-muted-foreground hover:bg-hover hover:text-fg',
                       )}
                     >
@@ -2399,7 +2399,7 @@ function WikiTab({
                   className={cn(
                     'flex w-full flex-col gap-0.5 rounded-item px-2 py-1.5 text-left text-sm transition-colors',
                     page.id === pageId
-                      ? 'bg-selected font-medium text-fg'
+                      ? 'bg-selected font-medium text-selected-foreground'
                       : 'text-muted-foreground hover:bg-hover hover:text-fg',
                   )}
                 >

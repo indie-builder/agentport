@@ -52,7 +52,7 @@ const statusMeta: Record<
   { label: string; icon: typeof CircleCheck; className: string }
 > = {
   queued: { label: '排队中', icon: Clock, className: 'text-muted-foreground' },
-  building: { label: '构建中', icon: LoaderCircle, className: 'text-warning' },
+  building: { label: '构建中', icon: LoaderCircle, className: 'text-fg' },
   ready: { label: '就绪', icon: CircleCheck, className: 'text-success' },
   failed: { label: '失败', icon: CircleAlert, className: 'text-danger' },
 };
