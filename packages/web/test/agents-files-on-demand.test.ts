@@ -1,10 +1,19 @@
 import { type Agent, agentInputSchema, type WorkspaceFiles } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  createBrowserHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
 import { AgentEditor } from '../src/pages/agents.js';
+import { agentDetailSearchSchema } from '../src/routes/-search.js';
 
 const state = vi.hoisted(() => ({ agent: null as Agent | null }));
 
@@ -34,14 +43,6 @@ vi.mock('../src/lib/queries.js', async (importOriginal) => {
     useRollbackAgent: () => ({ mutateAsync: vi.fn() }),
   };
 });
-vi.mock('@tanstack/react-router', () => ({
-  Link: 'a',
-  useBlocker: () => ({ status: 'idle', proceed: vi.fn(), reset: vi.fn() }),
-  useNavigate: () => vi.fn(),
-  useSearch: () => ({}),
-  useParams: () => ({ agentId: 'expert' }),
-  useLocation: () => ({ state: undefined }),
-}));
 
 const agent: Agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
@@ -97,18 +98,30 @@ async function click(element: HTMLElement): Promise<void> {
 }
 
 async function renderEditor(): Promise<void> {
+  // 任务状态唯一来源是 URL，用真实 Router 才能验证「点开完整文件才请求」这条契约。
+  const rootRoute = createRootRoute({ component: Outlet });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
+  const detail = createRoute({
+    getParentRoute: () => shell,
+    path: '/agents/$agentId',
+    validateSearch: agentDetailSearchSchema,
+    component: () =>
+      createElement(AgentEditor, {
+        agent,
+        onDirtyChange: () => {},
+        onPendingChange: () => {},
+        onDeleteRequest: () => {},
+      }),
+  });
+  window.history.replaceState(null, '', '/agents/expert');
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([shell.addChildren([detail])]),
+    history: createBrowserHistory(),
+  });
   await act(async () => {
+    await router.load();
     root.render(
-      createElement(
-        QueryClientProvider,
-        { client },
-        createElement(AgentEditor, {
-          agent,
-          onDirtyChange: () => {},
-          onPendingChange: () => {},
-          onDeleteRequest: () => {},
-        }),
-      ),
+      createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
     );
   });
   await flush();

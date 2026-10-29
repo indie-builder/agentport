@@ -87,7 +87,7 @@
 - `permissionMode` 支持 `default`（新建默认）、`plan`、`dontAsk` 与 `acceptEdits`，直接透传 Agent SDK；显式 `dontAsk` 拒绝原生交互提问，不进入回调。`auto` 依赖模型分类器，平台无法审计其决定，保存时返回 400。权限模式不会解除平台固定禁用的内置工具。
 - 可配置 `maxTurns`、`maxBudgetUsd`、`timeoutMs`。
 - 可配置 `effort` 与 `maxThinkingTokens`（可选）。
-- 内置工具默认全部从上下文移除（Bash/Read/Write/Edit/WebFetch…）；例外是主会话的原生记忆：`Read`/`Write`/`Edit` 仅可访问 `/mnt/agent-memory/` 下的 Markdown，`Read` 另可只读技能 `references/` 与插件技能资源；子智能体与其他路径仍被拒绝。原生 `TodoWrite` 按运行时配置单独启用。
+- 内置工具默认禁用；例外是容器内默认启用的 `Bash`（可通过 `disallowedTools` 显式拒绝）、主会话受路径规则约束的 `Read`/`Write`/`Edit`，以及按运行时配置单独启用的 `TodoWrite`。原生文件工具可访问长期记忆 Markdown 与会话成果，`Read` 另可只读已挂载的附件、技能 references 与插件技能资源；子智能体的原生文件工具继续受限。Bash 不经过原生文件工具的路径 hook，读写边界由 Docker 的只读/可写挂载约束。完整边界以 `docs/ARCHITECTURE.md` §3 与沙盒约定为准。
 
 ### US-2.5 预览生成的文件
 **作为** 管理员，**我想** 在保存前看到将要落盘的 `.mcp.json`、`CLAUDE.md`、agent md、skills，**以便** 确认配置正确。
@@ -140,7 +140,7 @@
 ### US-3.5 运行状态与成本
 **作为** 管理员，**我想** 看到每次运行的状态、耗时、轮次、成本。
 
-验收：`agent_runs` 全字段落库；概览页展示最近 20 条与最近 7 天聚合。
+验收：`agent_runs` 全字段落库；工作台展示最近 6 条运行与最近 7 天聚合，完整运行列表在「运行」页查看。
 
 ---
 
@@ -164,7 +164,7 @@
 ### US-4.2 概览
 **作为** 管理员，**我想** 一眼看到规模与最近运行。
 
-验收：servers/agents/runs/running 计数 + 最近 20 条运行。
+验收：运行次数、运行成本、专家、连接器四项概况；最近 6 条运行与完整运行列表入口；审批与失败运行统一进入「需要处理」，健康异常单独链接诊断页。
 
 ### US-4.3 审计
 **作为** 管理员，**我想** 追溯关键操作。

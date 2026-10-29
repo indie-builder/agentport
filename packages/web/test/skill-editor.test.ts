@@ -1,3 +1,4 @@
+import type { SkillFile } from '@agentport/shared';
 import { language } from '@codemirror/language';
 import { EditorView } from '@codemirror/view';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -5,6 +6,7 @@ import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
+import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { SkillDialog } from '../src/pages/skills.js';
 
 const state = vi.hoisted(() => ({
@@ -114,10 +116,34 @@ function fill(id: string, value: string) {
   });
 }
 
+function supportFile(path: string, content: string): SkillFile {
+  return { id: `file-${path}`, path, content, createdAt: '2026-01-01' };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+function byLabel(label: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (item) => item.getAttribute('aria-label') === label,
+  );
+  if (!found) throw new Error(`Missing button labelled: ${label}`);
+  return found;
+}
+
 beforeEach(() => {
   state.saving = false;
   vi.clearAllMocks();
+  state.update.mockImplementation((vars, options) => {
+    options?.onSuccess?.({ ...skill, ...vars.input, updatedAt: 'v2' });
+  });
   vi.spyOn(api, 'skillFiles').mockResolvedValue([]);
+  vi.spyOn(api, 'deleteSkillFile').mockResolvedValue();
   vi.spyOn(api, 'writeSkillFile').mockResolvedValue({
     id: 'file',
     path: 'scripts/run.sh',
@@ -204,5 +230,218 @@ describe('skill support file editor', () => {
 
     await waitFor(() => api.writeSkillFile.mock.calls.length > 0);
     expect(api.writeSkillFile).toHaveBeenCalledWith('skill', 'scripts/run.sh', 'echo hi');
+  });
+
+  it('keeps the dialog open after saving the body while a file draft is unsaved', async () => {
+    const onClose = vi.fn();
+    mount(createElement(SkillDialog, { skill, onClose }));
+    await waitFor(() => editorView('skill-file-content'));
+
+    fill('skill-file-path', 'scripts/draft.sh');
+    await replaceContent('skill-file-content', 'echo draft');
+
+    await click(button('保存'));
+    expect(state.update).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(editorView('skill-file-content').state.doc.toString()).toBe('echo draft');
+    expect((document.getElementById('skill-file-path') as HTMLInputElement).value).toBe(
+      'scripts/draft.sh',
+    );
+
+    // 版本基线已更新，第二次保存不会带旧版本号触发冲突。
+    await click(button('保存'));
+    expect(state.update).toHaveBeenCalledTimes(2);
+    expect(state.update.mock.calls[1]?.[0].expectedUpdatedAt).toBe('v2');
+  });
+
+  it('closes after saving the body when there is no file draft', async () => {
+    const onClose = vi.fn();
+    mount(createElement(SkillDialog, { skill, onClose }));
+    await waitFor(() => editorView('skill-file-content'));
+
+    await click(button('保存'));
+    await flush();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('loads a saved file into the editor and saves back to the same path', async () => {
+    const path = 'references/a-very-long-directory-name/with-an-even-longer-file-name.md';
+    vi.mocked(api.skillFiles).mockResolvedValue([supportFile(path, 'old body')]);
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+
+    const select = await waitFor(() => byLabel(`编辑支持文件 ${path}`));
+    expect(select.textContent).toBe(path);
+    expect(select.title).toBe(path);
+    await click(select);
+
+    const input = document.getElementById('skill-file-path') as HTMLInputElement;
+    expect(input.value).toBe(path);
+    expect(input.readOnly).toBe(true);
+    expect(editorView('skill-file-content').state.doc.toString()).toBe('old body');
+
+    await replaceContent('skill-file-content', 'new body');
+    await click(button('保存文件'));
+    await waitFor(() => api.writeSkillFile.mock.calls.length > 0);
+    expect(api.writeSkillFile).toHaveBeenCalledWith('skill', path, 'new body');
+  });
+
+  it('opens an empty saved file without losing the path', async () => {
+    vi.mocked(api.skillFiles).mockResolvedValue([supportFile('empty.txt', '')]);
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+
+    await click(await waitFor(() => byLabel('编辑支持文件 empty.txt')));
+    expect((document.getElementById('skill-file-path') as HTMLInputElement).value).toBe(
+      'empty.txt',
+    );
+    expect(editorView('skill-file-content').state.doc.toString()).toBe('');
+    expect(document.getElementById('skill-file-content')?.getAttribute('contenteditable')).not.toBe(
+      'false',
+    );
+  });
+
+  it('asks before deleting a saved file', async () => {
+    vi.mocked(api.skillFiles).mockResolvedValue([supportFile('scripts/run.sh', 'echo hi')]);
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+
+    await click(await waitFor(() => byLabel('删除支持文件 scripts/run.sh')));
+    expect(api.deleteSkillFile).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('删除支持文件');
+    expect(document.body.textContent).toContain('scripts/run.sh');
+
+    await click(button('删除文件'));
+    await waitFor(() => api.deleteSkillFile.mock.calls.length > 0);
+    expect(api.deleteSkillFile).toHaveBeenCalledWith('skill', 'scripts/run.sh');
+  });
+
+  it('disables file fields and the dialog close while an add is in flight', async () => {
+    const gate = deferred<SkillFile>();
+    vi.mocked(api.writeSkillFile).mockReturnValueOnce(gate.promise);
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+    await waitFor(() => editorView('skill-file-content'));
+
+    fill('skill-file-path', 'scripts/run.sh');
+    await replaceContent('skill-file-content', 'echo hi');
+    await click(button('添加文件'));
+    await flush();
+
+    expect((document.getElementById('skill-file-path') as HTMLInputElement).disabled).toBe(true);
+    expect(document.getElementById('skill-file-content')?.getAttribute('contenteditable')).toBe(
+      'false',
+    );
+    expect(button('处理中…').disabled).toBe(true);
+    expect(button('保存中…').disabled).toBe(true);
+    expect(byLabel('关闭').disabled).toBe(true);
+
+    gate.resolve(supportFile('scripts/run.sh', 'echo hi'));
+    await flush();
+    expect((document.getElementById('skill-file-path') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('keeps the dialog pending until a slow file list refresh finishes', async () => {
+    vi.mocked(api.skillFiles).mockResolvedValue([supportFile('scripts/run.sh', 'old body')]);
+    const refresh = deferred<SkillFile[]>();
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+
+    await click(await waitFor(() => byLabel('编辑支持文件 scripts/run.sh')));
+    await replaceContent('skill-file-content', 'new body');
+    vi.mocked(api.skillFiles).mockReturnValueOnce(refresh.promise);
+
+    await click(button('保存文件'));
+    await waitFor(() => api.writeSkillFile.mock.calls.length > 0);
+    // 写入已完成，但列表刷新还没回来：仍锁住编辑，避免重选到旧内容。
+    expect((document.getElementById('skill-file-path') as HTMLInputElement).disabled).toBe(true);
+    expect(button('处理中…').disabled).toBe(true);
+    expect(vi.mocked(toastSuccess)).not.toHaveBeenCalled();
+
+    refresh.resolve([supportFile('scripts/run.sh', 'new body')]);
+    await waitFor(() => !(document.getElementById('skill-file-path') as HTMLInputElement).disabled);
+    expect(vi.mocked(toastSuccess)).toHaveBeenCalledWith('支持文件已保存');
+
+    await click(byLabel('编辑支持文件 scripts/run.sh'));
+    expect(editorView('skill-file-content').state.doc.toString()).toBe('new body');
+  });
+
+  it('blocks reselecting stale files after a refresh failure until retry succeeds', async () => {
+    vi.mocked(api.skillFiles).mockResolvedValue([supportFile('scripts/run.sh', 'old body')]);
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+
+    await click(await waitFor(() => byLabel('编辑支持文件 scripts/run.sh')));
+    await replaceContent('skill-file-content', 'new body');
+    vi.mocked(api.skillFiles).mockRejectedValueOnce(new Error('refresh failed'));
+
+    await click(button('保存文件'));
+    await waitFor(() => vi.mocked(toastError).mock.calls.length > 0);
+    expect(vi.mocked(toastSuccess)).not.toHaveBeenCalled();
+    expect((document.getElementById('skill-file-path') as HTMLInputElement).disabled).toBe(false);
+    expect(editorView('skill-file-content').state.doc.toString()).toBe('new body');
+    // 刷新失败时缓存仍是旧内容，重选会载入旧稿覆盖刚写入的版本。
+    expect(byLabel('编辑支持文件 scripts/run.sh').disabled).toBe(true);
+
+    vi.mocked(api.skillFiles).mockResolvedValueOnce([supportFile('scripts/run.sh', 'new body')]);
+    await click(button('重试'));
+    await waitFor(() => !byLabel('编辑支持文件 scripts/run.sh').disabled);
+
+    await click(byLabel('编辑支持文件 scripts/run.sh'));
+    await click(button('放弃更改'));
+    expect(editorView('skill-file-content').state.doc.toString()).toBe('new body');
+  });
+
+  it('keeps the delete confirmation open and retries after a rejected delete', async () => {
+    vi.mocked(api.skillFiles).mockResolvedValue([supportFile('scripts/run.sh', 'echo hi')]);
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+
+    await click(await waitFor(() => byLabel('删除支持文件 scripts/run.sh')));
+    vi.mocked(api.deleteSkillFile).mockRejectedValueOnce(new Error('network down'));
+    await click(button('删除文件'));
+    await flush();
+
+    expect(vi.mocked(toastError)).toHaveBeenCalled();
+    expect(document.body.textContent).toContain('删除支持文件');
+    expect(button('删除文件').disabled).toBe(false);
+
+    await click(button('删除文件'));
+    await waitFor(() => !document.body.textContent?.includes('删除支持文件'));
+    expect(api.deleteSkillFile).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(toastSuccess)).toHaveBeenCalledWith('已删除支持文件');
+  });
+
+  it('protects unsaved file edits when switching files or starting a new one', async () => {
+    vi.mocked(api.skillFiles).mockResolvedValue([
+      supportFile('a.md', 'alpha'),
+      supportFile('b.md', 'beta'),
+    ]);
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+
+    await click(await waitFor(() => byLabel('编辑支持文件 a.md')));
+    await replaceContent('skill-file-content', 'alpha draft');
+    await click(byLabel('编辑支持文件 b.md'));
+
+    expect(document.body.textContent).toContain('放弃未保存的文件更改？');
+    expect(editorView('skill-file-content').state.doc.toString()).toBe('alpha draft');
+
+    await click(button('放弃更改'));
+    expect(editorView('skill-file-content').state.doc.toString()).toBe('beta');
+
+    await replaceContent('skill-file-content', 'beta draft');
+    await click(button('新建文件'));
+    expect(document.body.textContent).toContain('放弃未保存的文件更改？');
+    await click(button('放弃更改'));
+    expect((document.getElementById('skill-file-path') as HTMLInputElement).value).toBe('');
+    expect(editorView('skill-file-content').state.doc.toString()).toBe('');
+  });
+
+  it('protects the file draft when closing the dialog', async () => {
+    const onClose = vi.fn();
+    mount(createElement(SkillDialog, { skill, onClose }));
+    await waitFor(() => editorView('skill-file-content'));
+
+    fill('skill-file-path', 'scripts/draft.sh');
+    await click(button('取消'));
+
+    expect(document.body.textContent).toContain('放弃未保存的更改？');
+    expect(onClose).not.toHaveBeenCalled();
+
+    await click(button('放弃并关闭'));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

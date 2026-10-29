@@ -5,6 +5,7 @@ import {
   scheduleInputSchema,
   schedulePatchSchema,
   scheduleSchema,
+  utcWindowStart,
 } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -259,7 +260,7 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
         .where(eq(schema.agents.id, request.params.id))
         .limit(1);
       if (!agent) return reject(reply, 'NOT_FOUND', '智能体不存在');
-      const since = new Date(Date.now() - request.query.days * 86_400_000);
+      const since = utcWindowStart(request.query.days);
       const { agg, daily } = await opsRepo.agentStats(app.db, request.params.id, since);
       return {
         agentId: request.params.id,

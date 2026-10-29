@@ -105,6 +105,25 @@ export const attentionSchema = z.object({
 
 export type Attention = z.infer<typeof attentionSchema>;
 
+const DAY_MS = 86_400_000;
+
+/**
+ * 统计窗口的唯一口径：最近 days 个 UTC 自然日，起点是 days-1 天前的 UTC 零点。
+ * API 的 since、数据库分组和前端补天都从这里推导，避免滚动 24h 跨出 31 个日期。
+ */
+export function utcWindowStart(days: number, now = new Date()): Date {
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return new Date(today - (days - 1) * DAY_MS);
+}
+
+/** 窗口内每个 UTC 自然日（YYYY-MM-DD），升序。 */
+export function recentUtcDays(days: number, now = new Date()): string[] {
+  const start = utcWindowStart(days, now).getTime();
+  return Array.from({ length: days }, (_, index) =>
+    new Date(start + index * DAY_MS).toISOString().slice(0, 10),
+  );
+}
+
 /** 单个智能体的运行统计（/api/agents/:id/stats 与概览页共用形状）。 */
 export const agentStatsSchema = z.object({
   agentId: z.string(),

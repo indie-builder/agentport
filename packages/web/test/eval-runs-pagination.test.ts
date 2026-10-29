@@ -12,6 +12,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type EvalRun, type EvalRunPage } from '../src/lib/api.js';
 import { EvalPage } from '../src/pages/eval.js';
+import { evalSearchSchema } from '../src/routes/-search.js';
 
 let root: Root;
 let client: QueryClient;
@@ -68,9 +69,7 @@ async function mount(
   const evalRoute = createRoute({
     getParentRoute: () => shell,
     path: '/eval',
-    validateSearch: (search: Record<string, unknown>) => ({
-      agent: search.agent as string | undefined,
-    }),
+    validateSearch: evalSearchSchema,
     component: EvalPage,
   });
   window.history.replaceState(null, '', '/eval?agent=agent-a');

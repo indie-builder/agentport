@@ -125,14 +125,14 @@ test('resource tabs preserve navigation and searchable URL state', { session: 'a
 }) => {
   await app.open('/agents');
   await expect(screen.getByRole('link', '专家·技能·连接器')).toBeVisible();
-  await screen.getByRole('tab', '技能', { exact: true }).tap();
+  await screen.getByRole('link', '技能', { exact: true }).tap();
   await expect(browser).toHaveURL(/\/skills$/);
   await screen.getByRole('searchbox', '搜索技能').fill('resource-no-match');
   await expect(browser).toHaveURL(/\/skills\?q=resource-no-match$/);
   await expect(screen.getByText('没有匹配的技能', { exact: true })).toBeVisible();
   await screen.getByRole('button', '清除搜索').tap();
   await expect(browser).toHaveURL(/\/skills$/);
-  await screen.getByRole('tab', '连接器', { exact: true }).tap();
+  await screen.getByRole('link', '连接器', { exact: true }).tap();
   await expect(browser).toHaveURL(/\/servers$/);
   await screen.getByRole('combobox', '按来源筛选').tap();
   await screen.getByRole('option', '本地命令', { exact: true }).tap();

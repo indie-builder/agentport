@@ -11,7 +11,6 @@ import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from '../src/components/confirm-dialog.js';
 import { ResourcePage } from '../src/components/resource-page.js';
-import { TabsTrigger } from '../src/components/ui/tabs.js';
 import { ApiError, api } from '../src/lib/api.js';
 import { AgentEditor } from '../src/pages/agents.js';
 import { ServerFormDialog, ServersPage } from '../src/pages/servers.js';
@@ -211,9 +210,9 @@ describe('skills toolbar', () => {
   });
 });
 
-describe('resource tabs', () => {
+describe('resource navigation', () => {
   it.each(['agents', 'skills', 'servers', 'plugins', 'knowledge'] as const)(
-    'keeps all five tabs on %s',
+    'renders %s as real navigation links instead of tabs',
     async (section) => {
       await inspect(
         () =>
@@ -228,20 +227,28 @@ describe('resource tabs', () => {
             children: null,
           }),
         (tree) => {
-          expect(
-            tree
-              .filter((node) => node.type === TabsTrigger)
-              .map((node) => {
-                const link = node.props.render as Element;
-                return [node.props.value, link.props.to];
-              }),
-          ).toEqual([
-            ['agents', '/agents'],
-            ['skills', '/skills'],
-            ['servers', '/servers'],
-            ['plugins', '/plugins'],
-            ['knowledge', '/knowledge'],
+          const nav = tree.find(
+            (node) => node.type === 'nav' && node.props['aria-label'] === '资源类型',
+          );
+          if (!nav) throw new Error('Missing resource navigation');
+          const links = elements(nav.props.children as ReactNode).filter(
+            (node) => node.type === 'a',
+          );
+          expect(links.map((node) => [node.props.to, node.props['aria-current']])).toEqual([
+            ['/agents', section === 'agents' ? 'page' : undefined],
+            ['/skills', section === 'skills' ? 'page' : undefined],
+            ['/servers', section === 'servers' ? 'page' : undefined],
+            ['/plugins', section === 'plugins' ? 'page' : undefined],
+            ['/knowledge', section === 'knowledge' ? 'page' : undefined],
           ]);
+          expect(
+            tree.some(
+              (node) =>
+                node.props.role === 'tab' ||
+                node.props.role === 'tablist' ||
+                node.props['data-slot'] === 'tabs-list',
+            ),
+          ).toBe(false);
         },
       );
     },

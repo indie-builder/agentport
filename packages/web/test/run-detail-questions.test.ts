@@ -12,6 +12,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type RunDetail } from '../src/lib/api.js';
+import { runQuestionsQueryKey } from '../src/lib/queries.js';
 import { RunDetailPage } from '../src/pages/run-detail.js';
 import { runDetailSearchSchema } from '../src/routes/-search.js';
 
@@ -95,9 +96,14 @@ async function mount(data: RunDetail = detail) {
     validateSearch: runDetailSearchSchema,
     component: RunDetailPage,
   });
+  const chat = createRoute({
+    getParentRoute: () => shell,
+    path: '/chat',
+    component: () => createElement('h1', null, '对话'),
+  });
   history = createMemoryHistory({ initialEntries: ['/runs/run-1'] });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([shell.addChildren([runs, runDetail])]),
+    routeTree: rootRoute.addChildren([shell.addChildren([runs, runDetail, chat])]),
     history,
   });
   await act(async () => {
@@ -110,7 +116,8 @@ async function mount(data: RunDetail = detail) {
 
 function button(label: string): HTMLButtonElement | undefined {
   return [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-    (element) => element.textContent?.trim() === label,
+    (element) =>
+      element.textContent?.trim() === label || element.getAttribute('aria-label') === label,
   );
 }
 
@@ -238,5 +245,40 @@ describe('run detail answers a live question', () => {
     });
     expect(host.textContent).not.toContain('需要你的回答');
     expect(button('提交回答')).toBeUndefined();
+  });
+
+  it('keeps loaded questions and steps while the live question query fails, then retries', async () => {
+    client = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnMount: 'always' } },
+    });
+    client
+      .getQueryCache()
+      .build(client, { queryKey: runQuestionsQueryKey('run-1') })
+      .setState({
+        data: { items: [question] },
+        dataUpdatedAt: 0,
+        status: 'success',
+        error: null,
+        fetchStatus: 'idle',
+      });
+    vi.mocked(api.runQuestions).mockRejectedValue(new Error('questions offline'));
+    await mount();
+    await act(async () => {
+      await vi.waitFor(() => expect(host.textContent).toContain('questions offline'));
+    });
+
+    expect(host.textContent).toContain('提问状态没有加载出来');
+    expect(host.textContent).toContain('选择部署环境');
+    expect(host.textContent).toContain('AskUserQuestion');
+    expect(button('取消运行')).not.toBeUndefined();
+    expect(button('提交回答')).not.toBeUndefined();
+
+    const before = vi.mocked(api.runQuestions).mock.calls.length;
+    await act(async () => button('重试')?.click());
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(vi.mocked(api.runQuestions).mock.calls.length).toBeGreaterThan(before),
+      );
+    });
   });
 });

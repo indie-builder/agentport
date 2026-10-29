@@ -12,6 +12,10 @@ const state = vi.hoisted(() => ({
   install: vi.fn(),
   importingNative: false,
   importNative: vi.fn(),
+  importZip: vi.fn(),
+  search: {} as Record<string, string>,
+  navigate: [] as Array<{ to?: string; params?: Record<string, string>; search?: unknown }>,
+  blocker: undefined as { shouldBlockFn: () => boolean; enableBeforeUnload: boolean } | undefined,
   native: {
     data: { installed: [] as Array<{ pluginId: string; version: string; imported: boolean }> },
     isPending: false,
@@ -47,7 +51,7 @@ vi.mock('../src/lib/queries.js', () => ({
     refetch: () => {},
   }),
   useUpdatePlugin: () => ({ isPending: state.saving, mutate: state.update }),
-  useImportPlugin: () => ({ mutate: vi.fn(), isPending: false }),
+  useImportPlugin: () => ({ mutateAsync: state.importZip, isPending: false }),
   useDeletePlugin: () => ({ mutate: vi.fn(), isPending: false }),
   useNativePlugins: () => state.native,
   useInstallNativePlugin: () => ({ isPending: state.installing, mutate: state.install }),
@@ -62,8 +66,14 @@ vi.mock('@tanstack/react-router', async () => {
         href: params ? to.replace('$pluginId', params.pluginId ?? '') : to,
         ...rest,
       }),
-    useNavigate: () => () => {},
-    useSearch: () => ({}),
+    useNavigate: () => (options: (typeof state.navigate)[number]) => {
+      state.navigate.push(options);
+    },
+    useSearch: () => state.search,
+    useBlocker: (options: typeof state.blocker) => {
+      state.blocker = options;
+      return { status: 'idle' };
+    },
   };
 });
 
@@ -126,6 +136,10 @@ beforeEach(() => {
   state.saving = false;
   state.installing = false;
   state.importingNative = false;
+  state.search = {};
+  state.navigate = [];
+  state.blocker = undefined;
+  state.importZip = vi.fn().mockResolvedValue({ plugin, warnings: [] });
   state.native = {
     data: { installed: [] },
     isPending: false,
@@ -199,6 +213,37 @@ describe('plugin editor dialog', () => {
     expect(document.body.textContent).not.toContain('编辑插件');
   });
 
+  it('blocks route changes and page unload while the form has unsaved changes', async () => {
+    await openEditor();
+    expect(state.blocker?.shouldBlockFn()).toBe(false);
+
+    await type('plugin-description', '新描述');
+
+    expect(state.blocker?.shouldBlockFn()).toBe(true);
+    expect(state.blocker?.enableBeforeUnload).toBe(true);
+  });
+
+  it('blocks route changes and page unload while saving', async () => {
+    state.saving = true;
+    mount();
+    await click(button('编辑'));
+
+    expect(state.blocker?.shouldBlockFn()).toBe(true);
+    expect(state.blocker?.enableBeforeUnload).toBe(true);
+  });
+
+  it('associates the description error with its field', async () => {
+    await openEditor();
+    await type('plugin-description', 'x'.repeat(501));
+    await submitForm();
+
+    const description = document.getElementById('plugin-description') as HTMLInputElement;
+    expect(description.getAttribute('aria-invalid')).toBe('true');
+    expect(description.getAttribute('aria-describedby')).toBe('plugin-description-error');
+    expect(document.getElementById('plugin-description-error')?.textContent).toBeTruthy();
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
   it('blocks closing while saving', async () => {
     state.saving = true;
     mount();
@@ -208,6 +253,28 @@ describe('plugin editor dialog', () => {
     expect(close?.disabled).toBe(true);
     expect(button('取消').disabled).toBe(true);
     expect(button('保存中…').disabled).toBe(true);
+  });
+});
+
+describe('plugin zip import', () => {
+  it('opens the imported plugin even when the current filter hides it', async () => {
+    state.search = { q: 'missing', sort: 'name' };
+    mount();
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error('Missing import input');
+    const file = new File(['zip'], 'demo.zip', { type: 'application/zip' });
+    Object.defineProperty(input, 'files', { value: [file], configurable: true });
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+    await flush();
+
+    expect(state.importZip).toHaveBeenCalledWith({ file, slug: 'demo' });
+    expect(state.navigate.at(-1)).toEqual({
+      to: '/plugins/$pluginId',
+      params: { pluginId: 'plugin' },
+    });
+    // 只是压入详情页，返回时列表仍保留原筛选。
+    expect(state.navigate.at(-1)?.search).toBeUndefined();
   });
 });
 
@@ -251,6 +318,53 @@ describe('native plugin install dialog', () => {
     const close = document.querySelector<HTMLButtonElement>('button[aria-label="关闭"]');
     expect(close?.disabled).toBe(true);
     expect(button('安装中…').disabled).toBe(true);
+  });
+
+  it('keeps the dialog open and links to the plugin after a market install', async () => {
+    state.install.mockImplementationOnce(
+      (_input: unknown, options: { onSuccess: (result: unknown) => void }) =>
+        options.onSuccess({ plugin, warnings: [], reused: false }),
+    );
+    await openInstall();
+    await type('plugin-marketplace', 'acme/plugins');
+    await type('plugin-name-input', 'demo');
+    await submitForm();
+
+    expect(document.body.textContent).toContain('从市场安装');
+    expect(
+      [...document.querySelectorAll<HTMLAnchorElement>('a[href="/plugins/plugin"]')].some(
+        (link) => link.textContent?.trim() === '打开「Demo 插件」',
+      ),
+    ).toBe(true);
+  });
+
+  it('links every batch add-to-library result without closing the dialog', async () => {
+    state.native.data = {
+      installed: [
+        { pluginId: 'demo@acme', version: '1.0.0', imported: false },
+        { pluginId: 'other@acme', version: '', imported: false },
+      ],
+    };
+    state.importNative.mockImplementation(
+      (input: { pluginId: string }, options: { onSuccess: (result: unknown) => void }) =>
+        options.onSuccess({
+          plugin: { ...plugin, id: `plugin-${input.pluginId}` },
+          warnings: [],
+          reused: false,
+        }),
+    );
+    await openInstall();
+    await click(button('已安装'));
+
+    const addButtons = [...document.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (item) => item.textContent?.trim() === '加入插件库',
+    );
+    expect(addButtons).toHaveLength(2);
+    for (const add of addButtons) await click(add);
+
+    expect(document.body.textContent).toContain('已加入插件库');
+    expect(document.querySelector('a[href="/plugins/plugin-demo@acme"]')).not.toBeNull();
+    expect(document.querySelector('a[href="/plugins/plugin-other@acme"]')).not.toBeNull();
   });
 
   it('lists installed plugins read-only and imports the ones missing from the library', async () => {

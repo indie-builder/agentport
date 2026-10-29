@@ -476,7 +476,7 @@ describe('plugin detail', () => {
     expect(scroller().textContent).toContain('该文件是空的。');
   });
 
-  it('says so once when the plugin has no README', async () => {
+  it('offers a keyboard action to view the content when the plugin has no README', async () => {
     setQuery({
       data: {
         ...plugin,
@@ -489,8 +489,10 @@ describe('plugin detail', () => {
     expect(panel('intro').querySelector('aside')).toBeNull();
     expect(panel('intro').textContent).not.toContain('来源');
     expect(body().querySelectorAll('h1')).toHaveLength(1);
-    // 内容面板仍可打开唯一的真实文件。
-    await click(tab('content'));
+    // 简介没有内容时，用真实按钮给下一步，不要求用户自己找页签。
+    const next = button('查看插件内容', panel('intro'));
+    expect(next.tagName).toBe('BUTTON');
+    await click(next);
     rerender();
     expect(state.search).toEqual({ tab: 'content', file: 'LICENSE' });
     expect(scroller().textContent).toContain('LICENSE-TOKEN');

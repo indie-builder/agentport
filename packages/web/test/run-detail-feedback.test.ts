@@ -92,9 +92,14 @@ async function mount(path = '/runs/run-1') {
     validateSearch: runDetailSearchSchema,
     component: RunDetailPage,
   });
+  const chat = createRoute({
+    getParentRoute: () => shell,
+    path: '/chat',
+    component: () => createElement('h1', null, '对话'),
+  });
   history = createMemoryHistory({ initialEntries: [path] });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([shell.addChildren([runs, runDetail])]),
+    routeTree: rootRoute.addChildren([shell.addChildren([runs, runDetail, chat])]),
     history,
   });
   await act(async () => {

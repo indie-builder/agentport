@@ -120,6 +120,66 @@ describe('status metrics failure feedback', () => {
     expect(container.textContent).not.toContain('总数 0');
   });
 
+  it('shares the queue judgment with the overview instead of ignoring failures or using another limit', async () => {
+    const cases = [
+      [{ failed: 2 }, '队列有 2 个历史失败记录'],
+      [{ waiting: 11, active: 11 }, '队列积压：11 个等待'],
+      [{ waiting: 20, active: 20 }, '队列积压：20 个等待'],
+    ] as const;
+    metricsFetches = [async () => json(metrics)];
+    await mount();
+    await waitFor(() => expect(container.textContent).toContain('v24'));
+    // 同一页面重复刷新即可验证三种事实，无需重挂载。
+    for (const [queue, message] of cases) {
+      metricsFetches = [async () => json({ ...metrics, queue: { ...queueCounts, ...queue } })];
+      await click('刷新');
+      await waitFor(() => expect(container.textContent).toContain(message));
+      expect(container.textContent).toContain('注意');
+      // 历史失败与等待都只是 warn，不应使用失败色的原因块。
+      const reason = [...container.querySelectorAll('div.border-t')].find((element) =>
+        element.textContent?.startsWith(message),
+      );
+      expect(reason?.className).toContain('text-warning');
+      expect(reason?.className).not.toContain('text-danger');
+    }
+    expect(container.textContent).not.toContain('队列指标不可用');
+  });
+
+  it('keeps 10 waiting tasks below the shared backlog limit', async () => {
+    metricsFetches = [
+      async () => json({ ...metrics, queue: { ...queueCounts, waiting: 10, active: 10 } }),
+    ];
+
+    await mount();
+    await waitFor(() => expect(container.textContent).toContain('v24'));
+    expect(container.textContent).not.toContain('队列积压');
+    expect(container.textContent).not.toContain('注意');
+  });
+
+  it('reports a missing queue reading as unavailable instead of zeros', async () => {
+    metricsFetches = [async () => json({ ...metrics, queue: null })];
+
+    await mount();
+    await waitFor(() => expect(container.textContent).toContain('队列指标不可用'));
+
+    expect(container.textContent).toContain('BullMQ');
+    expect(container.textContent).not.toContain('运行中0');
+    expect(container.textContent).not.toContain('延迟0');
+  });
+
+  it('does not claim there is no consumer just because nothing is running', async () => {
+    metricsFetches = [
+      async () => json({ ...metrics, queue: { ...queueCounts, waiting: 3, active: 0 } }),
+    ];
+
+    await mount();
+    await waitFor(() =>
+      expect(container.textContent).toContain('有 3 个任务等待，当前没有运行中的任务'),
+    );
+    expect(container.textContent).toContain('检查 worker 是否存活');
+    expect(container.textContent).not.toContain('消费者');
+  });
+
   it('keeps the last successful readings through a failed refresh, disables retry while pending, and clears the error after recovery', async () => {
     const retry = deferred<Response>();
     metricsFetches = [

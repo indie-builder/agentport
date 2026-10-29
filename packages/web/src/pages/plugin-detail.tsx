@@ -274,7 +274,14 @@ function PluginDetailContent({
                   />
                 </article>
               ) : (
-                <InlineEmpty>未提供插件说明。</InlineEmpty>
+                <InlineEmpty>
+                  <span className="flex flex-col items-center gap-2">
+                    <span>未提供插件说明。</span>
+                    <Button variant="outline" size="sm" onClick={() => changeTab('content')}>
+                      查看插件内容
+                    </Button>
+                  </span>
+                </InlineEmpty>
               )
             ) : null}
           </TabsContent>

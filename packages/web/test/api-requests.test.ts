@@ -53,10 +53,51 @@ describe('agent package transfer', () => {
 
   it('sends an expired session back to login on a ZIP download', async () => {
     const assign = vi.fn();
-    vi.stubGlobal('location', { pathname: '/', assign });
+    vi.stubGlobal('location', { pathname: '/', search: '', hash: '', assign });
     mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效' }, { status: 401 }));
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
-    expect(assign).toHaveBeenCalledWith('/login');
+    expect(assign).toHaveBeenCalledWith('/login?returnTo=%2F&reason=expired');
+  });
+
+  it('keeps the current deep link and marks the session as expired on a 401', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', {
+      pathname: '/plugins/plugin_1',
+      search: '?tab=content&file=skills%2Fdemo%2FSKILL.md&mode=source',
+      hash: '#top',
+      assign,
+    });
+    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效' }, { status: 401 }));
+    await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
+    const path = assign.mock.calls[0]?.[0] as string;
+    const url = new URL(path, 'http://app.local');
+    expect(url.pathname).toBe('/login');
+    expect(url.searchParams.get('returnTo')).toBe(
+      '/plugins/plugin_1?tab=content&file=skills%2Fdemo%2FSKILL.md&mode=source#top',
+    );
+    expect(url.searchParams.get('reason')).toBe('expired');
+  });
+
+  it('keeps 403 responses as plain errors without a login redirect', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { pathname: '/plugins/plugin_1', search: '', hash: '', assign });
+    mockFetch(Response.json({ code: 'FORBIDDEN', message: '没有权限' }, { status: 403 }));
+    await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 403 });
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('redirects from a path that merely starts with login, but not from the login page', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { pathname: '/login-other', search: '', hash: '', assign });
+    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效' }, { status: 401 }));
+    await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
+    expect(assign).toHaveBeenCalledOnce();
+
+    assign.mockClear();
+    vi.stubGlobal('location', { pathname: '/login', search: '', hash: '', assign });
+    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效' }, { status: 401 }));
+    await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('keeps the Problem body when the ZIP export fails', async () => {

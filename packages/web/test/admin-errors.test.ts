@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from 'react';
+import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type EvalRunDetail } from '../src/lib/api.js';
@@ -10,11 +10,17 @@ const state = vi.hoisted(() => ({
   detail: {} as EvalRunDetail,
 }));
 
-vi.mock('@tanstack/react-router', () => ({
-  useNavigate: () => vi.fn(),
-  useSearch: () => ({}),
-}));
+vi.mock('@tanstack/react-router', async () => {
+  const { evalSearchSchema } = await import('../src/routes/-search.js');
+  // 运行结果由 URL 的 run 选中：按真实 schema 造 search，不另造选中状态。
+  const evalSearch = evalSearchSchema.parse({ run: 'eval-1' });
+  return {
+    useNavigate: () => vi.fn(),
+    useSearch: ({ from }: { from?: string } = {}) => (from === '/_shell/eval' ? evalSearch : {}),
+  };
+});
 vi.mock('@tanstack/react-query', () => ({
+  useQuery: () => ({ isFetchedAfterMount: true, isSuccess: true, data: { authenticated: false } }),
   useMutation: ({ onError }: { onError: (error: Error) => void }) => {
     // Deliver the mutation outcome; React owns the resulting render and state update.
     if (state.loginError) {
@@ -27,6 +33,7 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 vi.mock('../src/lib/queries.js', () => ({
   queryClient: {},
+  meQuery: { queryKey: ['me'] },
   useAgents: () => ({ data: [{ id: 'agent', name: 'Expert' }], isSuccess: true }),
   useEvalCases: () => ({ data: [], isSuccess: true }),
   useEvalRuns: () => ({
@@ -45,15 +52,6 @@ vi.mock('../src/lib/queries.js', () => ({
   useUpdateEvalCase: () => ({}),
   useDeleteEvalCase: () => ({}),
 }));
-// SSR cannot click the table disclosure; render its real detail through the public callback.
-vi.mock('../src/components/data-table.js', () => ({
-  DataTable: ({
-    renderExpanded,
-  }: {
-    renderExpanded: (run: EvalRunDetail['evalRun']) => ReactNode;
-  }) => renderExpanded(state.detail.evalRun),
-}));
-
 beforeEach(() => {
   state.loginError = null;
   state.detail = {

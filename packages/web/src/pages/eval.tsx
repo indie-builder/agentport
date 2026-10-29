@@ -36,6 +36,7 @@ import {
 import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
 import {
+  ApiError,
   api,
   type EvalCase,
   type EvalCaseInput,
@@ -147,10 +148,17 @@ const runColumns: DataColumn<EvalRun>[] = [
   },
 ];
 
+type EvalSearchPatch = {
+  agent?: string | undefined;
+  run?: string | undefined;
+  base?: string | undefined;
+  head?: string | undefined;
+};
+
 export function EvalPage() {
   const agents = useAgents();
   const navigate = useNavigate();
-  // 选中的专家放在 URL 里：刷新、分享、前进后退都保留。
+  // 专家、选中的运行和比较两侧都放在 URL 里：刷新、分享、前进后退都保留。
   const search = useSearch({ from: '/_shell/eval' });
   const agentId = search.agent ?? '';
   const selectedAgent = agentId
@@ -158,12 +166,23 @@ export function EvalPage() {
     : agents.data?.[0];
   const effectiveAgentId = selectedAgent?.id ?? null;
   const missingAgent = agents.isSuccess && Boolean(agentId) && !selectedAgent;
-  const setAgentId = (next: string): void => {
+  const selectedRunId = search.run ?? null;
+  const baseId = search.base ?? null;
+  const headId = search.head ?? null;
+  const compareOpen = baseId !== null && headId !== null && baseId !== headId;
+
+  const setSearch = (patch: EvalSearchPatch): void => {
     void navigate({
       to: '/eval',
-      search: { agent: next || undefined },
+      search: { ...search, ...patch },
     });
   };
+  const setAgentId = (next: string): void => {
+    // 切专家时丢掉旧的运行/比较上下文，避免把别的专家的批次带过来。
+    setSearch({ agent: next || undefined, run: undefined, base: undefined, head: undefined });
+  };
+  const selectRun = (runId: string): void => setSearch({ run: runId });
+  const closeRun = (): void => setSearch({ run: undefined });
 
   const cases = useEvalCases(effectiveAgentId);
   const runs = useEvalRuns(effectiveAgentId);
@@ -175,7 +194,6 @@ export function EvalPage() {
 
   const [exporting, setExporting] = useState(false);
   const [creatingAgentId, setCreatingAgentId] = useState<string | null>(null);
-  const [comparing, setComparing] = useState(false);
   const [editing, setEditing] = useState<EvalCase | null>(null);
   const [deleting, setDeleting] = useState<EvalCase | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
@@ -271,6 +289,14 @@ export function EvalPage() {
   };
 
   const terminalRuns = runItems.filter((run) => run.status !== 'running');
+  const compareHead = terminalRuns[0];
+  const compareBase = terminalRuns[1];
+  const openCompare = (): void => {
+    if (!compareBase || !compareHead) return;
+    // runs 按创建时间倒序：默认比较前一次与最新一次。
+    setSearch({ base: compareBase.id, head: compareHead.id });
+  };
+  const closeCompare = (): void => setSearch({ base: undefined, head: undefined });
   const startDisabledReason = start.isPending
     ? '正在启动评估'
     : runningRun
@@ -505,7 +531,7 @@ export function EvalPage() {
               ref={compareButtonRef}
               disabled={terminalRuns.length < 2}
               title={terminalRuns.length < 2 ? '至少需要两次已结束的运行' : undefined}
-              onClick={() => setComparing(true)}
+              onClick={openCompare}
             >
               <GitCompare data-icon="inline-start" aria-hidden="true" /> 比较运行
             </Button>
@@ -538,7 +564,7 @@ export function EvalPage() {
                 rowKey={(run) => run.id}
                 label="评估运行"
                 storageKey="agentport.eval-runs.columns"
-                renderExpanded={(run) => <EvalRunResults id={run.id} />}
+                onRowClick={(run) => selectRun(run.id)}
               />
               {runs.isFetchNextPageError ? (
                 <ErrorState
@@ -566,6 +592,20 @@ export function EvalPage() {
         </PageSection>
       </div>
 
+      {selectedRunId ? (
+        <PageSection
+          title="运行结果"
+          description={`评估 ${shortId(selectedRunId)}`}
+          actions={
+            <Button variant="outline" size="sm" onClick={closeRun}>
+              返回历史
+            </Button>
+          }
+        >
+          <EvalRunResults id={selectedRunId} />
+        </PageSection>
+      ) : null}
+
       {creatingAgentId ? (
         <CaseDialog
           agentId={creatingAgentId}
@@ -583,11 +623,14 @@ export function EvalPage() {
           onClose={() => setDeleting(null)}
         />
       ) : null}
-      {comparing ? (
+      {compareOpen ? (
         <CompareDialog
+          baseId={baseId ?? ''}
+          headId={headId ?? ''}
           runs={terminalRuns}
+          onChange={setSearch}
           finalFocus={compareFinalFocus}
-          onClose={() => setComparing(false)}
+          onClose={closeCompare}
         />
       ) : null}
     </Page>
@@ -601,11 +644,20 @@ function EvalRunResults({ id }: { id: string }) {
   // 只有从没拿到过详情时才整块报错；后台轮询/手动刷新失败要保留已有结果树。
   if (detail.isPending) return <LoadingState rows={2} />;
   if (!detail.data) {
-    return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
+    const missing = detail.error instanceof ApiError && detail.error.status === 404;
+    return (
+      <ErrorState
+        error={detail.error}
+        title={missing ? '这次评估运行不存在' : '内容没有加载出来'}
+        onRetry={() => void detail.refetch()}
+      />
+    );
   }
 
   const { results, evalRun } = detail.data;
   const running = evalRun.status === 'running';
+  const executed = results.length;
+  const pending = Math.max(0, evalRun.total - executed);
 
   const download = async (): Promise<void> => {
     setExporting(true);
@@ -637,6 +689,30 @@ function EvalRunResults({ id }: { id: string }) {
           onRetry={() => void detail.refetch()}
         />
       ) : null}
+      <div
+        data-slot="eval-run-summary"
+        aria-live="polite"
+        className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-3 text-sm"
+      >
+        <StatusBadge tone={evalStatusVariant[evalRun.status]}>
+          {running ? (
+            <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+          ) : null}
+          {evalStatusLabel[evalRun.status]}
+        </StatusBadge>
+        <span className="text-muted-foreground">
+          已记录{' '}
+          <span className="font-mono tabular-nums text-fg">
+            {executed} / {evalRun.total}
+          </span>
+        </span>
+        <span className="text-muted-foreground">
+          无记录 <span className="font-mono tabular-nums text-fg">{pending}</span>
+        </span>
+        <span className="text-muted-foreground">
+          通过 <span className="font-mono tabular-nums text-fg">{evalRun.passed}</span>
+        </span>
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
         <p className="text-xs text-muted-foreground">
           导出已记录结果；专家配置未固定，文件不构成完整复现包。
@@ -664,13 +740,23 @@ function EvalRunResults({ id }: { id: string }) {
           }
         />
       ) : null}
+      {evalRun.status === 'cancelled' ? (
+        <PageNote
+          title="已停止后续用例"
+          description={
+            pending > 0
+              ? `后续用例不会再开始；有 ${pending} 条用例没有结果记录，当前用例可能仍在执行。`
+              : '后续用例不会再开始；已记录的结果保留。'
+          }
+        />
+      ) : null}
       {results.length === 0 ? (
         evalRun.status !== 'failed' ? (
           <p className="text-sm text-muted-foreground">
             {running
               ? '正在逐个执行用例…'
               : evalRun.status === 'cancelled'
-                ? '后续用例已停止，还没有用例完成。'
+                ? '后续用例已停止，还没有结果记录。'
                 : '评估已完成，没有结果记录。'}
           </p>
         ) : null
@@ -731,28 +817,40 @@ function EvalRunResults({ id }: { id: string }) {
 }
 
 function CompareDialog({
+  baseId,
+  headId,
   runs,
+  onChange,
   onClose,
   finalFocus,
 }: {
+  baseId: string;
+  headId: string;
   runs: EvalRun[];
+  onChange: (patch: EvalSearchPatch) => void;
   onClose: () => void;
   finalFocus: ComponentProps<typeof DialogShell>['finalFocus'];
 }) {
-  // runs 按创建时间倒序：默认拿最近两次，比较前一次与最新一次。
-  const [baseId, setBaseId] = useState(runs[1]?.id ?? '');
-  const [headId, setHeadId] = useState(runs[0]?.id ?? '');
-  const comparison = useEvalComparison(baseId || null, headId || null);
+  const comparison = useEvalComparison(baseId, headId);
 
   const runLabel = (run: EvalRun): string =>
     `${shortId(run.id)} · ${evalStatusLabel[run.status]} · ${formatDateTime(run.createdAt)}`;
+  const withSelected = (
+    options: { value: string; label: string }[],
+    selectedId: string,
+  ): { value: string; label: string }[] =>
+    options.some((option) => option.value === selectedId)
+      ? options
+      : [{ value: selectedId, label: `${shortId(selectedId)} · 不在当前列表` }, ...options];
   // 两侧都排除对方已选中的运行，从源头上避免自己和自己比较。
-  const baseOptions = runs
-    .filter((run) => run.id !== headId)
-    .map((run) => ({ value: run.id, label: runLabel(run) }));
-  const headOptions = runs
-    .filter((run) => run.id !== baseId)
-    .map((run) => ({ value: run.id, label: runLabel(run) }));
+  const baseOptions = withSelected(
+    runs.filter((run) => run.id !== headId).map((run) => ({ value: run.id, label: runLabel(run) })),
+    baseId,
+  );
+  const headOptions = withSelected(
+    runs.filter((run) => run.id !== baseId).map((run) => ({ value: run.id, label: runLabel(run) })),
+    headId,
+  );
 
   return (
     <Dialog
@@ -772,7 +870,7 @@ function CompareDialog({
             <span className="text-xs text-muted-foreground">基准运行</span>
             <FilterSelect
               value={baseId}
-              onValueChange={setBaseId}
+              onValueChange={(next) => onChange({ base: next })}
               options={baseOptions}
               label="基准运行"
               className="w-full"
@@ -782,7 +880,7 @@ function CompareDialog({
             <span className="text-xs text-muted-foreground">对比运行</span>
             <FilterSelect
               value={headId}
-              onValueChange={setHeadId}
+              onValueChange={(next) => onChange({ head: next })}
               options={headOptions}
               label="对比运行"
               className="w-full"
@@ -793,7 +891,14 @@ function CompareDialog({
         <div className="mt-4 border-t pt-4">
           {comparison.isPending ? <LoadingState rows={3} /> : null}
           {comparison.isError ? (
-            <ErrorState error={comparison.error} onRetry={() => void comparison.refetch()} />
+            <>
+              <ErrorState error={comparison.error} onRetry={() => void comparison.refetch()} />
+              <div className="mt-2 flex justify-end">
+                <Button variant="outline" size="sm" onClick={onClose}>
+                  返回历史
+                </Button>
+              </div>
+            </>
           ) : null}
           {comparison.isSuccess && comparison.data.rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">两次运行都没有结果记录，无法比较。</p>

@@ -12,8 +12,9 @@ import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
-import { api, type HealthMetrics, type HealthProbe, type HealthReady } from '../lib/api.js';
+import { api, type HealthProbe, type HealthReady } from '../lib/api.js';
 import { formatBytes, formatDuration } from '../lib/format.js';
+import { judgeQueue } from '../lib/health.js';
 import { healthLiveQuery, healthMetricsQuery, healthReadyQuery } from '../lib/queries.js';
 
 type CheckState = 'pending' | 'ok' | 'warn' | 'unknown' | 'error';
@@ -61,10 +62,15 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Reason({ children }: { children: ReactNode }) {
+function Reason({ tone = 'danger', children }: { tone?: 'warn' | 'danger'; children: ReactNode }) {
+  const Icon = tone === 'warn' ? CircleAlert : CircleX;
   return (
-    <div className="flex items-start gap-1.5 border-t pt-2 text-sm leading-relaxed text-danger">
-      <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+    <div
+      className={`flex items-start gap-1.5 border-t pt-2 text-sm leading-relaxed ${
+        tone === 'warn' ? 'text-warning' : 'text-danger'
+      }`}
+    >
+      <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span className="min-w-0 break-words [overflow-wrap:anywhere]">{children}</span>
     </div>
   );
@@ -249,20 +255,15 @@ function SmokeChecklist() {
 export function StatusPage() {
   const live = useQuery(healthLiveQuery);
   const ready = useQuery(healthReadyQuery);
-  // 与概览页共用缓存键，但状态页需要 10 秒粒度；null 在适配器里表示失败，
-  // 概览与冒烟检查仍用它表达「不可用」，这里转成查询失败才能识别刷新失败。
+  // 与概览页共用缓存键与判定；状态页只是刷新粒度更细。
   const metrics = useQuery({
     ...healthMetricsQuery,
-    queryFn: async (): Promise<HealthMetrics | null> => {
-      const data = await api.healthMetrics();
-      if (!data) throw new Error('指标端点不可达或返回非 200');
-      return data;
-    },
     refetchInterval: 10_000,
   });
 
   const data = metrics.data ?? null;
   const queue = data?.queue ?? null;
+  const queueHealth = judgeQueue(queue);
   const redis = data?.redis ?? null;
   const db = data?.db ?? null;
 
@@ -282,11 +283,11 @@ export function StatusPage() {
     ? 'pending'
     : !data
       ? 'unknown'
-      : !queue
+      : queueHealth.condition === 'unavailable'
         ? 'error'
-        : metrics.isError || queue.waiting > 10 || (queue.waiting > 0 && queue.active === 0)
-          ? 'warn'
-          : 'ok';
+        : queueHealth.condition === 'ok' && !metrics.isError
+          ? 'ok'
+          : 'warn';
   const dbState: CheckState = metrics.isPending
     ? 'pending'
     : !data
@@ -430,20 +431,20 @@ export function StatusPage() {
                 <Metric label="失败" value={String(queue.failed)} />
                 <Metric label="延迟" value={String(queue.delayed)} />
               </div>
-              {queue.waiting > 10 ? (
-                <Reason>
-                  队列等待超过 10：worker 可能未运行、并发（AGENT_MAX_CONCURRENT）太低，或单个 run
-                  卡住。
+              {queueHealth.condition === 'ok' ? null : (
+                <Reason tone="warn">
+                  {queueHealth.message}
+                  {queueHealth.hint ? ` ${queueHealth.hint}` : ''}
                 </Reason>
-              ) : null}
-              {queue.waiting > 0 && queue.active === 0 ? (
-                <Reason>有排队任务但没有运行中的任务：检查 worker 容器是否存活。</Reason>
-              ) : null}
+              )}
             </>
           ) : metrics.isPending ? (
             <LoadingState rows={2} />
           ) : data ? (
-            <Reason>BullMQ 查询失败或超过 1.5 秒：Redis 不可用，或队列键被阻塞。</Reason>
+            <Reason>
+              {queueHealth.message}
+              {queueHealth.hint ? ` ${queueHealth.hint}` : ''}
+            </Reason>
           ) : (
             <Unknown />
           )}
@@ -458,7 +459,7 @@ export function StatusPage() {
                 <Metric label="等待" value={String(db.waiting)} />
               </div>
               {db.waiting > 5 ? (
-                <Reason>
+                <Reason tone="warn">
                   连接池在排队（waiting &gt; 5）：调大 DB_POOL_MAX，或先减少单请求的 SQL 条数。
                 </Reason>
               ) : null}

@@ -222,9 +222,14 @@ export function useOverviewTimeseries(days = 14) {
   return useQuery(overviewTimeseriesQuery(days));
 }
 
-export const healthMetricsQuery = queryOptions<HealthMetrics | null>({
+export const healthMetricsQuery = queryOptions<HealthMetrics>({
   queryKey: ['health-metrics'],
-  queryFn: api.healthMetrics,
+  // 失败时抛错而不是回退 null，React Query 才会保留上次成功读数。
+  queryFn: async () => {
+    const data = await api.healthMetrics();
+    if (!data) throw new Error('指标端点不可达或返回非 200');
+    return data;
+  },
   refetchInterval: 30_000,
   staleTime: 0,
 });
@@ -919,18 +924,13 @@ export function useDeleteAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteAgent(id),
-    onMutate: async (id) => {
-      await client.cancelQueries({ queryKey: ['agents'] });
-      const previous = client.getQueryData<Agent[]>(['agents']);
+    // 删除成功才移除缓存：失败时要保留详情与草稿，等用户重试或取消。
+    onSuccess: (_data, id) => {
       client.setQueryData<Agent[]>(['agents'], (old) => old?.filter((agent) => agent.id !== id));
-      return { previous };
-    },
-    onError: (_error, _id, context) => {
-      if (context?.previous) client.setQueryData(['agents'], context.previous);
+      void client.invalidateQueries({ queryKey: ['overview'] });
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['agents'] });
-      void client.invalidateQueries({ queryKey: ['overview'] });
     },
   });
 }
@@ -1218,6 +1218,7 @@ export const knowledgeKeys = {
   search: (baseId: string, q: string, limit: number) =>
     ['knowledge', 'search', baseId, q, limit] as const,
   jobs: (baseId: string) => ['knowledge', 'jobs', baseId] as const,
+  job: (jobId: string) => ['knowledge', 'job', jobId] as const,
   folders: (baseId: string) => ['knowledge', 'folders', baseId] as const,
   tags: (baseId: string) => ['knowledge', 'tags', baseId] as const,
   sources: (baseId: string) => ['knowledge', 'sources', baseId] as const,

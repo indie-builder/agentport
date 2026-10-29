@@ -55,20 +55,26 @@ export const auditSearchSchema = z.object({
   target: z.string().optional().catch(undefined),
 });
 
+const runStatuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'] as const;
+
 export const runsSearchSchema = z.object({
   agent: z.string().optional().catch(undefined),
-  status: z
-    .enum(['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'])
-    .optional()
-    .catch(undefined),
+  status: z.enum(runStatuses).optional().catch(undefined),
 });
 
+/** 运行详情：来源列表的专家/状态筛选随链接带回，刷新后能回到同一批运行。 */
 export const runDetailSearchSchema = z.object({
   step: z.coerce.number().int().nonnegative().optional().catch(undefined),
+  fromAgent: z.string().optional().catch(undefined),
+  fromStatus: z.enum(runStatuses).optional().catch(undefined),
 });
 
+/** 评估：选中运行与比较两侧都进 URL，深链可打开不在当前分页里的批次。 */
 export const evalSearchSchema = z.object({
   agent: z.string().optional().catch(undefined),
+  run: z.string().min(1).optional().catch(undefined),
+  base: z.string().min(1).optional().catch(undefined),
+  head: z.string().min(1).optional().catch(undefined),
 });
 
 export const knowledgeSearchSchema = resourceSearchSchema;

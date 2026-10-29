@@ -43,26 +43,32 @@ vi.mock('react', async (original) => {
     },
   };
 });
-vi.mock('@tanstack/react-router', () => ({
-  Link: ({
-    children,
-    to,
-    params: _params,
-    ...props
-  }: {
-    children: ReactNode;
-    to: string;
-    params?: unknown;
-  }) => createElement('a', { href: to, ...props }, children),
-  useNavigate: () => vi.fn(),
-  useSearch: () => ({}),
-}));
+vi.mock('@tanstack/react-router', async () => {
+  const { evalSearchSchema } = await import('../src/routes/-search.js');
+  // 运行结果由 URL 的 run 选中：按真实 schema 造 search，不另造选中状态。
+  const evalSearch = evalSearchSchema.parse({ run: 'eval-1' });
+  return {
+    Link: ({
+      children,
+      to,
+      params: _params,
+      ...props
+    }: {
+      children: ReactNode;
+      to: string;
+      params?: unknown;
+    }) => createElement('a', { href: to, ...props }, children),
+    useNavigate: () => vi.fn(),
+    useSearch: ({ from }: { from?: string } = {}) => (from === '/_shell/eval' ? evalSearch : {}),
+  };
+});
 vi.mock('@tanstack/react-query', () => ({
   useMutation: () => ({ isPending: state.pending, mutate: state.mutate }),
   useQuery: () => ({ data: state.metrics, isPending: true }),
 }));
 vi.mock('../src/lib/queries.js', () => ({
   queryClient: {},
+  meQuery: { queryKey: ['me'] },
   agentsQuery: {},
   serversQuery: {},
   healthMetricsQuery: {},
@@ -318,12 +324,7 @@ describe('evaluation states', () => {
         evalRun: { ...run, status, error: status === 'failed' ? 'Worker stopped' : null },
         results: [],
       };
-      const page = mount(EvalPage);
-      page.render();
-      const table = page.find((el) => typeof el.props.renderExpanded === 'function');
-      const html = renderToStaticMarkup(
-        (table.props.renderExpanded as (run: EvalRun) => ReactElement)(run),
-      );
+      const html = mount(EvalPage).render();
       if (status === 'running') expect(html).toContain('正在逐个执行用例');
       else {
         expect(html).not.toContain('自动刷新');

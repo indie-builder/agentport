@@ -105,9 +105,9 @@ test('knowledge tab, document inspector and search highlight read the seeded bas
   session: 'admin',
   skip: skipUnlessKnowledgeRuntime,
 }, async ({ app, screen, browser }) => {
-  // 第四个资源页签进入知识库；旧导航名已变，按页签文本定位。
+  // 第四个资源页签进入知识库；资源类型是真实导航链接，按链接角色定位。
   await app.open('/agents');
-  await screen.getByRole('tab', '知识库', { exact: true }).tap();
+  await screen.getByRole('link', '知识库', { exact: true }).tap();
   await expect(browser).toHaveURL(/\/knowledge$/);
   await expect(browser).toHaveTitle('知识库 · 控制台');
   await expect(screen.getByRole('heading', { level: 1, name: '知识库' })).toBeVisible();

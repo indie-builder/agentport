@@ -171,12 +171,6 @@ import { AgentStatsPanel } from './ops.js';
  */
 const models = ['group/flash', 'auto/deepseek-v4.1-flash', 'workbuddy/kimi-k3-2'];
 
-/** 当前值可能不在建议列表里；Select 必须包含它，否则触发器显示为空。 */
-function modelOptions(value: string): Array<{ value: string; label: string }> {
-  const list = !value || models.includes(value) ? models : [value, ...models];
-  return list.map((model) => ({ value: model, label: model }));
-}
-
 const roleOptions = AGENT_ROLES.map((role) => ({ value: role, label: role }));
 
 const emptyInput: AgentInput = {
@@ -819,8 +813,10 @@ export function AgentDetailPage() {
   const agent = useAgent(params.agentId);
   const remove = useDeleteAgent();
   const location = useLocation();
-  const [pending, setPending] = useState(false);
+  const [editorPending, setEditorPending] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // 删除请求在途时编辑、离开与刷新都要先等它结束；失败则保留草稿供重试。
+  const pending = editorPending || remove.isPending;
   // 导入后随导航状态带过来的一次性提示；展示关闭后从本地状态清空。
   const [warnings, setWarnings] = useState<string[]>(() => {
     const state = location.state as { importWarnings?: string[] } | undefined;
@@ -903,8 +899,9 @@ export function AgentDetailPage() {
       <AgentEditor
         key={current.id}
         agent={current}
+        deletePending={remove.isPending}
         onDirtyChange={() => {}}
-        onPendingChange={setPending}
+        onPendingChange={setEditorPending}
         onDeleteRequest={() => setDeleting(true)}
       />
       <ConfirmDialog
@@ -990,11 +987,13 @@ const errorSections: Record<string, SectionId> = {
 
 export function AgentEditor({
   agent,
+  deletePending = false,
   onDirtyChange,
   onPendingChange,
   onDeleteRequest,
 }: {
   agent: Agent;
+  deletePending?: boolean;
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
   onDeleteRequest: () => void;
@@ -1019,17 +1018,15 @@ export function AgentEditor({
   const [confirmReload, setConfirmReload] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
-  const pending = update.isPending || reloading || rollingBack;
+  const pending = update.isPending || reloading || rollingBack || deletePending;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const duplicateTriggerRef = useRef<HTMLButtonElement>(null);
-  const tabFromUrl = search.tab ?? 'config';
   const sectionFromUrl = search.section ?? 'identity';
-  // 本地状态负责即时渲染，URL 负责刷新与分享；浏览器前进后退时再同步回来。
-  const [tab, setTabState] = useState<TabId>(tabFromUrl);
+  // 任务只认 URL：确认放行后才换 URL，子面板才会卸载，草稿不会提前丢。
+  const tab: TabId = search.tab ?? 'config';
   const [activeSection, setActiveSectionState] = useState<SectionId>(sectionFromUrl);
   const activeFile = search.file ?? '.mcp.json';
-  useEffect(() => setTabState(tabFromUrl), [tabFromUrl]);
   useEffect(() => setActiveSectionState(sectionFromUrl), [sectionFromUrl]);
   // 任务、分区与文件都进 URL：刷新或分享后回到同一视图。
   const navigateSearch = (next: { tab?: TabId; section?: SectionId; file?: string }): void => {
@@ -1041,10 +1038,7 @@ export function AgentEditor({
       replace: true,
     });
   };
-  const setTab = (next: TabId): void => {
-    setTabState(next);
-    navigateSearch({ tab: next });
-  };
+  const setTab = (next: TabId): void => navigateSearch({ tab: next });
   const setActiveSection = (next: SectionId): void => {
     setActiveSectionState(next);
     navigateSearch({ section: next });
@@ -1143,23 +1137,30 @@ export function AgentEditor({
   // 子面板（记忆 / 规则 / 输出风格）的草稿也要算进离开和任务切换保护。
   const [childDirty, setChildDirty] = useState(false);
   const [childPending, setChildPending] = useState(false);
-  const [pendingTabState, setPendingTabState] = useState<TabId | null>(null);
   const guarded = dirty || childDirty;
   const locked = pending || childPending;
 
   const blocker = useBlocker({
-    // 任务切换只改同页 search，由 changeTab 单独处理；这里只拦真正离开页面。
-    shouldBlockFn: (args) => {
-      if (args && args.current.pathname === args.next.pathname) return false;
+    shouldBlockFn: ({ current, next }) => {
+      if (current.pathname === next.pathname) {
+        const currentTab = 'tab' in current.search ? (current.search.tab ?? 'config') : 'config';
+        const nextTab = 'tab' in next.search ? (next.search.tab ?? 'config') : 'config';
+        // 分区与文件变化不卸载任务，直接放行。
+        if (currentTab === nextTab) return false;
+        // 主配置草稿随编辑器常驻；只有子面板草稿或在途请求会因切任务丢失。
+        return childDirty || locked;
+      }
       return guarded || locked;
     },
     withResolver: true,
     enableBeforeUnload: guarded || locked,
   });
-  // 保存或子面板请求在途时，已打开的离开确认也不能继续。
+  // 保存、删除或子面板请求在途时，已打开的离开确认也不能继续。
   const proceedLeave = (): void => {
     if (!locked) blocker.proceed?.();
   };
+  const blockedTabSwitch =
+    blocker.status === 'blocked' && blocker.current?.pathname === blocker.next?.pathname;
 
   useEffect(() => {
     onDirtyChange(guarded || locked);
@@ -1172,15 +1173,11 @@ export function AgentEditor({
   }, [locked, onPendingChange]);
 
   /**
-   * 主配置随 AgentEditor 常驻，切任务不丢草稿；子面板卸载会丢，有草稿时先确认。
-   * 保存中不允许切走。
+   * 主配置随 AgentEditor 常驻，切任务不丢草稿；子面板卸载会丢，有草稿时统一交给
+   * 路由 blocker 确认（含浏览器前进后退），确认前不换 URL，面板不会提前卸载。
    */
   const changeTab = (next: TabId): void => {
     if (next === tab || locked) return;
-    if (childDirty) {
-      setPendingTabState(next);
-      return;
-    }
     setTab(next);
   };
 
@@ -2273,10 +2270,28 @@ export function AgentEditor({
                           <p className="text-xs text-muted-foreground">
                             它本身已经是子智能体，不能再委派。子智能体只支持一层。
                           </p>
+                        ) : agents.isPending ? (
+                          <LoadingState rows={1} />
+                        ) : agents.isError ? (
+                          <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
                         ) : subAgentOptions.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            没有可选的主智能体。只有「没有父级」的智能体才能被委派。
-                          </p>
+                          agents.data?.length === 0 ? (
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <span>还没有可委派的专家。</span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                nativeButton={false}
+                                render={<Link to="/agents" />}
+                              >
+                                新建专家
+                              </Button>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              没有可选的主智能体。只有「没有父级」的智能体才能被委派。
+                            </p>
+                          )
                         ) : (
                           <Combobox
                             disabled={pending}
@@ -2510,14 +2525,13 @@ export function AgentEditor({
                         <Field data-disabled={pending} orientation="horizontal" className="gap-3">
                           <FieldContent>
                             <FieldLabel htmlFor="agent-runtime-environment">运行环境</FieldLabel>
-                            {runtimeEnvironments.isError ? (
-                              <FieldError id="agent-runtime-environment-error">
-                                运行环境列表没有加载出来。
-                              </FieldError>
-                            ) : null}
                           </FieldContent>
                           <Select
-                            disabled={pending || runtimeEnvironments.isPending}
+                            disabled={
+                              pending ||
+                              runtimeEnvironments.isPending ||
+                              runtimeEnvironments.isError
+                            }
                             value={runtimeEnvironmentValue}
                             items={runtimeEnvironmentOptions}
                             onValueChange={(next) => {
@@ -2525,15 +2539,7 @@ export function AgentEditor({
                               runtimeEnvironmentField.onChange(next === 'default' ? null : next);
                             }}
                           >
-                            <SelectTrigger
-                              id="agent-runtime-environment"
-                              className="w-64"
-                              aria-describedby={
-                                runtimeEnvironments.isError
-                                  ? 'agent-runtime-environment-error'
-                                  : undefined
-                              }
-                            >
+                            <SelectTrigger id="agent-runtime-environment" className="w-64">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -2547,6 +2553,12 @@ export function AgentEditor({
                             </SelectContent>
                           </Select>
                         </Field>
+                      ) : null}
+                      {agent.parentId === null && runtimeEnvironments.isError ? (
+                        <ErrorState
+                          error={runtimeEnvironments.error}
+                          onRetry={() => void runtimeEnvironments.refetch()}
+                        />
                       ) : null}
                       <Field
                         data-disabled={pending}
@@ -2800,24 +2812,23 @@ export function AgentEditor({
       {tab === 'stats' ? <AgentStatsPanel agentId={agent.id} /> : null}
 
       <ConfirmDialog
-        open={pendingTabState !== null}
-        onClose={() => setPendingTabState(null)}
-        title="放弃未保存的修改并切换？"
-        description="当前记忆、规则或输出风格还有未保存的内容，切换任务后会丢失。配置草稿会保留。"
-        confirmLabel="放弃并切换"
-        confirmDisabled={locked}
-        onConfirm={async () => {
-          if (pendingTabState) setTab(pendingTabState);
-          setPendingTabState(null);
-        }}
-      />
-
-      <ConfirmDialog
         open={blocker.status === 'blocked'}
         onClose={() => blocker.reset?.()}
-        title="放弃未保存的更改？"
-        description={`「${agent.name}」还有未保存的修改，离开后会丢失。可以先取消、保存后再离开。`}
-        confirmLabel="放弃并离开"
+        title={
+          blockedTabSwitch
+            ? childDirty
+              ? '放弃未保存的修改并切换？'
+              : '当前操作尚未完成'
+            : '放弃未保存的更改？'
+        }
+        description={
+          blockedTabSwitch
+            ? childDirty
+              ? '当前记忆、规则或输出风格还有未保存的内容，切换任务后会丢失。配置草稿会保留。'
+              : '当前请求还在进行，请等待完成后再切换任务。'
+            : `「${agent.name}」还有未保存的修改，离开后会丢失。可以先取消、保存后再离开。`
+        }
+        confirmLabel={blockedTabSwitch && childDirty ? '放弃并切换' : '放弃并离开'}
         confirmDisabled={locked}
         onConfirm={async () => {
           proceedLeave();
@@ -3268,6 +3279,7 @@ const diffFields: ReadonlyArray<readonly [keyof Agent, string]> = [
   ['maxTurns', '最大轮次'],
   ['maxBudgetUsd', '预算上限'],
   ['timeoutMs', '超时'],
+  ['runtimeEnvironmentId', '运行环境'],
   ['effort', '推理强度'],
   ['maxThinkingTokens', '最大思考 tokens'],
   ['enabled', '启用状态'],
@@ -3492,7 +3504,6 @@ export function CreateAgentDialog({
   const control = rhf.control as unknown as Control<AgentDraft, unknown, AgentDraft>;
   const errors = rhf.formState.errors;
   const roleField = useController({ control, name: 'role' }).field;
-  const modelField = useController({ control, name: 'model' }).field;
   const isTwin = roleField.value === '数字分身';
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [created, setCreated] = useState<Agent | null>(null);
@@ -3526,8 +3537,6 @@ export function CreateAgentDialog({
       onError: (error) => toastError(error),
     });
   });
-
-  const newModelOptions = modelOptions(modelField.value);
 
   return (
     <Dialog
@@ -3659,27 +3668,19 @@ export function CreateAgentDialog({
           </FieldGroup>
           <Field data-disabled={create.isPending} className="gap-1.5">
             <FieldLabel htmlFor="new-agent-model">模型</FieldLabel>
-            <Select
+            {/* 网关模型名不是白名单：输入任意 ID，建议值只做补全。 */}
+            <Input
+              {...rhf.register('model')}
               disabled={create.isPending}
-              value={modelField.value}
-              onValueChange={(model) => {
-                if (model !== null) modelField.onChange(model);
-              }}
-              items={newModelOptions}
-            >
-              <SelectTrigger id="new-agent-model">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {newModelOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+              id="new-agent-model"
+              list="new-agent-models"
+              className="font-mono"
+            />
+            <datalist id="new-agent-models">
+              {models.map((model) => (
+                <option key={model} value={model} />
+              ))}
+            </datalist>
           </Field>
           <Field data-disabled={create.isPending} className="gap-1.5">
             <FieldLabel htmlFor="new-agent-prompt">

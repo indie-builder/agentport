@@ -1,10 +1,10 @@
 import { Link } from '@tanstack/react-router';
 import { Bot, Cable, LibraryBig, Puzzle, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { cn } from '../lib/cn.js';
 import { FilterSelect } from './filter-select.js';
 import { Page, PageHeader, PageToolbar } from './page.js';
 import { SearchInput } from './search-input.js';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs.js';
 
 const sections = [
   { id: 'agents', to: '/agents', label: '专家', icon: Bot },
@@ -57,26 +57,28 @@ export function ResourcePage({
   return (
     <Page>
       <PageHeader title={label} className="sr-only" />
-      <Tabs value={section} className="flex-col gap-5">
+      <div className="flex flex-col gap-5">
         <div className="flex flex-wrap items-center gap-3 pt-3">
-          <TabsList
-            variant="line"
-            aria-label="资源类型"
-            className="max-w-full flex-wrap justify-start gap-x-4 gap-y-2 group-data-[orientation=horizontal]/tabs:h-auto min-h-8"
-          >
-            {sections.map(({ id, to, label: title, icon: Icon }) => (
-              <TabsTrigger
-                key={id}
-                value={id}
-                nativeButton={false}
-                render={<Link to={to} />}
-                className="flex-none h-[25px]"
-              >
-                <Icon data-icon="inline-start" />
-                {title}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <nav aria-label="资源类型">
+            <ul className="inline-flex min-h-8 w-fit max-w-full flex-wrap items-center justify-start gap-x-4 gap-y-2 p-[3px] text-muted-foreground">
+              {sections.map(({ id, to, label: title, icon: Icon }) => (
+                <li key={id} className="flex-none">
+                  <Link
+                    to={to}
+                    aria-current={id === section ? 'page' : undefined}
+                    className={cn(
+                      "relative inline-flex h-[25px] flex-none items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-[color,background-color,border-color,box-shadow] duration-150 ease-out-soft hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+                      'after:absolute after:inset-x-0 after:bottom-[-5px] after:h-0.5 after:bg-foreground after:opacity-0 after:transition-opacity',
+                      id === section && 'text-foreground after:opacity-100',
+                    )}
+                  >
+                    <Icon data-icon="inline-start" />
+                    {title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
           <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
             <SearchInput
               label={`搜索${label}`}
@@ -116,8 +118,8 @@ export function ResourcePage({
             )}
           </div>
         </PageToolbar>
-        <TabsContent value={section}>{children}</TabsContent>
-      </Tabs>
+        {children}
+      </div>
     </Page>
   );
 }

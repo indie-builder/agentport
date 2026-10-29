@@ -7,7 +7,7 @@ import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
-import { buttonVariants } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import {
   Card,
   CardContent,
@@ -34,6 +34,7 @@ import {
   formatTokens,
   shortId,
 } from '../lib/format.js';
+import { judgeQueue } from '../lib/health.js';
 import { healthMetricsQuery, useOverview, useOverviewTimeseries } from '../lib/queries.js';
 import { AttentionPanel } from './ops.js';
 
@@ -226,36 +227,52 @@ const runColumns: DataColumn<RecentRun>[] = [
 ];
 
 function HealthLine() {
-  const { data, isPending } = useQuery(healthMetricsQuery);
+  const { data, isPending, isError, isFetching, refetch } = useQuery(healthMetricsQuery);
   if (!data) {
     return (
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-2xs text-muted-foreground">
         <span>{isPending ? '健康指标加载中…' : '健康指标不可用'}</span>
+        {isPending ? null : (
+          <Button
+            variant="plain"
+            size="xs"
+            className="h-auto p-0 text-2xs font-normal text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
+            disabled={isFetching}
+            onClick={() => void refetch()}
+          >
+            重试
+          </Button>
+        )}
         <Link
           to="/status"
           className="text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
         >
-          详情
+          查看健康
         </Link>
       </div>
     );
   }
-  const queue = data.queue;
-  // 正常的运维数字不占首页；只有积压、失败或指标缺失才需要在这里出现。
-  const queueIssue = queue === null || (queue?.failed ?? 0) > 0 || (queue?.waiting ?? 0) > 5;
-  const redisIssue = data.redis === null || data.redis === undefined;
-  if (!queueIssue && !redisIssue) return null;
+  const queue = judgeQueue(data.queue);
+  const redisIssue = data.redis === null;
+  // 历史 failed 是队列保留计数，不是当前可用性；首页只提示需要处理的当前问题。
+  const queueIssue = queue.condition !== 'ok' && queue.condition !== 'failed';
+  if (!queueIssue && !redisIssue && !isError) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-2xs tabular-nums text-warning">
-      {queue ? (
-        <span>
-          队列 {queue.waiting} 等待 / {queue.active} 运行
-          {queue.failed ? ` / ${queue.failed} 失败` : ''}
-        </span>
-      ) : (
-        <span>队列指标不可用</span>
-      )}
+      {queueIssue ? <span>{queue.message}</span> : null}
       {redisIssue ? <span>Redis 指标不可用</span> : null}
+      {isError ? <span>健康指标刷新失败，显示上次结果</span> : null}
+      {isError ? (
+        <Button
+          variant="plain"
+          size="xs"
+          className="h-auto p-0 text-2xs font-normal text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
+          disabled={isFetching}
+          onClick={() => void refetch()}
+        >
+          重试
+        </Button>
+      ) : null}
       <Link
         to="/status"
         className="text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
@@ -382,6 +399,7 @@ export function OverviewPage() {
 
       {data && !empty ? (
         <>
+          <HealthLine />
           <section className="flex flex-col gap-3" aria-label="平台概况">
             <p className="text-xs text-muted-foreground">{windowLabel}</p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -478,7 +496,6 @@ export function OverviewPage() {
               <PageNote title="创建专家后开始对话" />
             )}
           </PageSection>
-          <HealthLine />
         </>
       ) : null}
     </Page>

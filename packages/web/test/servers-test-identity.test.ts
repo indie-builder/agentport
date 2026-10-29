@@ -33,6 +33,13 @@ const namedEnvironment: RuntimeEnvironment = {
   isDefault: false,
   onlineVersionId: null,
 };
+const otherEnvironment: RuntimeEnvironment = {
+  ...defaultEnvironment,
+  id: 'rte_other',
+  name: '浏览器工具',
+  isDefault: false,
+  onlineVersionId: null,
+};
 const stdioServer: Server = {
   id: 'server-stdio',
   name: 'stdio-connector',
@@ -54,12 +61,35 @@ const httpServer: Server = {
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
+const generatedServer: Server = {
+  id: 'server-generated',
+  name: 'generated-connector',
+  description: '',
+  kind: 'generated',
+  baseUrl: 'https://api.example.com',
+  headers: {},
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+const secondStdioServer: Server = {
+  ...stdioServer,
+  id: 'server-stdio-second',
+  name: 'stdio-second',
+};
 const resolvedEnvironment = {
   environmentId: namedEnvironment.id,
   environmentName: namedEnvironment.name,
   versionId: 'rtev_1234abcd',
   imageId: 'sha256:image',
 };
+function resolved(environment: RuntimeEnvironment) {
+  return {
+    environmentId: environment.id,
+    environmentName: environment.name,
+    versionId: `rtev_${environment.id}`,
+    imageId: `sha256:${environment.id}`,
+  };
+}
 
 let client: QueryClient;
 let host: HTMLDivElement;
@@ -71,13 +101,21 @@ async function flush(): Promise<void> {
   });
 }
 
-async function mount(servers: Server[]): Promise<void> {
+async function mount(
+  servers: Server[],
+  { cacheEnvironments = true }: { cacheEnvironments?: boolean } = {},
+): Promise<void> {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } },
   });
   client.setQueryData(['servers'], servers);
   client.setQueryData(['agents'], []);
-  client.setQueryData(['runtime-environments'], [defaultEnvironment, namedEnvironment]);
+  if (cacheEnvironments) {
+    client.setQueryData(
+      ['runtime-environments'],
+      [defaultEnvironment, namedEnvironment, otherEnvironment],
+    );
+  }
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -159,7 +197,6 @@ beforeEach(() => {
     value: () => {},
   });
   vi.spyOn(api, 'agents').mockResolvedValue([]);
-  vi.spyOn(api, 'runtimeEnvironments').mockResolvedValue([defaultEnvironment, namedEnvironment]);
 });
 
 afterEach(async () => {
@@ -188,8 +225,8 @@ describe('server test environment identity', () => {
     await vi.waitFor(() => expect(document.activeElement).toBe(reopened));
   });
 
-  it('does not carry a stdio environment into a later HTTP retest', async () => {
-    vi.spyOn(api, 'servers').mockResolvedValue([stdioServer, httpServer]);
+  it('does not carry a stdio environment into a later HTTP or generated retest', async () => {
+    vi.spyOn(api, 'servers').mockResolvedValue([stdioServer, httpServer, generatedServer]);
     const testServer = vi
       .spyOn(api, 'testServer')
       .mockResolvedValueOnce({
@@ -198,8 +235,9 @@ describe('server test environment identity', () => {
         runtimeEnvironment: resolvedEnvironment,
         durationMs: 40,
       })
-      .mockResolvedValueOnce({ ok: true, tools: [{ name: 'http-tool' }], durationMs: 20 });
-    await mount([stdioServer, httpServer]);
+      .mockResolvedValueOnce({ ok: true, tools: [{ name: 'http-tool' }], durationMs: 20 })
+      .mockResolvedValueOnce({ ok: true, tools: [{ name: 'generated-tool' }], durationMs: 20 });
+    await mount([stdioServer, httpServer, generatedServer]);
 
     await openTest(stdioServer.name);
     await selectEnvironment(namedEnvironment.name);
@@ -209,11 +247,60 @@ describe('server test environment identity', () => {
     await openTest(httpServer.name);
     expect(testServer).toHaveBeenNthCalledWith(2, httpServer.id, null);
 
+    await openTest(generatedServer.name);
+    expect(testServer).toHaveBeenNthCalledWith(3, generatedServer.id, null);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
     await click(button(`查看 ${httpServer.name} 工具与测试详情`));
     const tools = dialog(`工具与试连「${httpServer.name}」`);
     expect(tools.textContent).toContain('http-tool');
     expect(tools.textContent).not.toContain(namedEnvironment.name);
     expect(tools.textContent).toContain('只代表这一个环境版本');
+  });
+
+  it('keeps each stdio server on its own last environment across tests and detail retests', async () => {
+    vi.spyOn(api, 'servers').mockResolvedValue([stdioServer, secondStdioServer]);
+    const testServer = vi
+      .spyOn(api, 'testServer')
+      .mockResolvedValueOnce({
+        ok: true,
+        tools: [{ name: 'first-tool' }],
+        runtimeEnvironment: resolved(namedEnvironment),
+        durationMs: 40,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        tools: [{ name: 'second-tool' }],
+        runtimeEnvironment: resolved(otherEnvironment),
+        durationMs: 30,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        tools: [{ name: 'first-tool' }],
+        runtimeEnvironment: resolved(namedEnvironment),
+        durationMs: 20,
+      });
+    await mount([stdioServer, secondStdioServer]);
+
+    await openTest(stdioServer.name);
+    await selectEnvironment(namedEnvironment.name);
+    await click(button('开始测试', dialog(`测试 ${stdioServer.name}`)));
+    expect(testServer).toHaveBeenNthCalledWith(1, stdioServer.id, namedEnvironment.id);
+
+    await openTest(secondStdioServer.name);
+    await selectEnvironment(otherEnvironment.name);
+    await click(button('开始测试', dialog(`测试 ${secondStdioServer.name}`)));
+    expect(testServer).toHaveBeenNthCalledWith(2, secondStdioServer.id, otherEnvironment.id);
+
+    await click(button(`查看 ${stdioServer.name} 工具与测试详情`));
+    const details = dialog(`工具与试连「${stdioServer.name}」`);
+    await click(button('重新测试', details));
+    const environmentDialog = dialog(`测试 ${stdioServer.name}`);
+    expect(document.getElementById('server-test-environment')?.textContent).toContain(
+      namedEnvironment.name,
+    );
+    await click(button('开始测试', environmentDialog));
+    expect(testServer).toHaveBeenNthCalledWith(3, stdioServer.id, namedEnvironment.id);
   });
 
   it('shows the persisted last-test environment after refresh', async () => {
@@ -225,6 +312,12 @@ describe('server test environment identity', () => {
       lastTestRuntimeEnvironment: resolvedEnvironment,
     };
     vi.spyOn(api, 'servers').mockResolvedValue([refreshed]);
+    const testServer = vi.spyOn(api, 'testServer').mockResolvedValue({
+      ok: true,
+      tools: [],
+      runtimeEnvironment: resolvedEnvironment,
+      durationMs: 10,
+    });
     await mount([refreshed]);
 
     const card = serverCard(stdioServer.name);
@@ -235,5 +328,120 @@ describe('server test environment identity', () => {
     const tools = dialog(`工具与试连「${stdioServer.name}」`);
     expect(tools.textContent).toContain(`环境 ${namedEnvironment.name} · 1234abcd`);
     expect(tools.textContent).toContain('重新测试后查看工具目录。');
+
+    await click(button('重新测试', tools));
+    const environmentDialog = dialog(`测试 ${stdioServer.name}`);
+    expect(document.getElementById('server-test-environment')?.textContent).toContain(
+      namedEnvironment.name,
+    );
+    expect(environmentDialog.textContent).not.toContain('上次使用的环境已不在当前列表中');
+    await click(button('开始测试', environmentDialog));
+    expect(testServer).toHaveBeenCalledWith(stdioServer.id, namedEnvironment.id);
+  });
+
+  it('explains when the last environment is gone and tests the preselected default after confirmation', async () => {
+    const removedEnvironment = {
+      ...resolvedEnvironment,
+      environmentId: 'rte_removed',
+      environmentName: '已删除环境',
+    };
+    const refreshed: Server = {
+      ...stdioServer,
+      lastTestedAt: '2026-10-29T08:00:00.000Z',
+      lastTestOk: true,
+      lastToolCount: 1,
+      lastTestRuntimeEnvironment: removedEnvironment,
+    };
+    vi.spyOn(api, 'servers').mockResolvedValue([refreshed]);
+    const testServer = vi
+      .spyOn(api, 'testServer')
+      .mockResolvedValue({ ok: true, tools: [], durationMs: 10 });
+    await mount([refreshed]);
+
+    await openTest(stdioServer.name);
+    const environmentDialog = dialog(`测试 ${stdioServer.name}`);
+    const select = document.getElementById('server-test-environment');
+    expect(select?.textContent).toContain(defaultEnvironment.name);
+    expect(select?.textContent).not.toContain(removedEnvironment.environmentName);
+    expect(environmentDialog.textContent).toContain(
+      '上次使用的环境已不在当前列表中，已预选默认环境',
+    );
+    expect(button('开始测试', environmentDialog).disabled).toBe(false);
+    await click(button('开始测试', environmentDialog));
+    expect(testServer).toHaveBeenCalledWith(stdioServer.id, null);
+  });
+
+  it('blocks starting when the cached environment list fails to refresh, and retries explicitly', async () => {
+    vi.spyOn(api, 'servers').mockResolvedValue([stdioServer]);
+    const testServer = vi
+      .spyOn(api, 'testServer')
+      .mockResolvedValue({ ok: true, tools: [], durationMs: 10 });
+    await mount([stdioServer]);
+
+    const fetchMock = vi.fn().mockRejectedValue(new Error('运行环境服务不可用'));
+    vi.stubGlobal('fetch', fetchMock);
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['runtime-environments'] });
+    });
+    await flush();
+
+    await openTest(stdioServer.name);
+    const environmentDialog = dialog(`测试 ${stdioServer.name}`);
+    expect(environmentDialog.textContent).toContain('运行环境列表没有加载出来');
+    expect(button('开始测试', environmentDialog).disabled).toBe(true);
+    await click(button('开始测试', environmentDialog));
+    expect(testServer).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValueOnce(
+      Response.json([defaultEnvironment, namedEnvironment, otherEnvironment]),
+    );
+    await click(button('重试', environmentDialog));
+    await flush();
+    expect(environmentDialog.textContent).not.toContain('运行环境列表没有加载出来');
+    const start = button('开始测试', environmentDialog);
+    expect(start.disabled).toBe(false);
+    await click(start);
+    expect(testServer).toHaveBeenCalledWith(stdioServer.id, null);
+  });
+
+  it('waits for the environment list and retries it before allowing a test', async () => {
+    let rejectFirst: ((error: Error) => void) | undefined;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockResolvedValueOnce(
+        Response.json([defaultEnvironment, namedEnvironment, otherEnvironment]),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(api, 'servers').mockResolvedValue([stdioServer]);
+    const testServer = vi
+      .spyOn(api, 'testServer')
+      .mockResolvedValue({ ok: true, tools: [], durationMs: 10 });
+    await mount([stdioServer], { cacheEnvironments: false });
+
+    await openTest(stdioServer.name);
+    const environmentDialog = dialog(`测试 ${stdioServer.name}`);
+    expect(environmentDialog.textContent).toContain('正在加载运行环境');
+    expect(button('开始测试', environmentDialog).disabled).toBe(true);
+    await click(button('开始测试', environmentDialog));
+    expect(testServer).not.toHaveBeenCalled();
+
+    await act(async () => rejectFirst?.(new Error('运行环境服务不可用')));
+    await flush();
+    expect(environmentDialog.textContent).toContain('运行环境列表没有加载出来');
+    expect(button('开始测试', environmentDialog).disabled).toBe(true);
+
+    await click(button('重试', environmentDialog));
+    await flush();
+    expect(environmentDialog.textContent).not.toContain('运行环境列表没有加载出来');
+    const start = button('开始测试', environmentDialog);
+    expect(start.disabled).toBe(false);
+    await click(start);
+    expect(testServer).toHaveBeenCalledWith(stdioServer.id, null);
   });
 });

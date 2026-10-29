@@ -12,9 +12,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from '../src/components/app-shell.js';
 import { PageHeader } from '../src/components/page.js';
 
-async function inspectRoute(path: string, auth: 'success' | 'pending' | 'error') {
+async function inspectRoute(
+  path: string,
+  auth: 'success' | 'pending' | 'error' | 'unauthenticated',
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (auth === 'success') client.setQueryData(['me'], { authenticated: true, username: 'review' });
+  if (auth === 'unauthenticated') client.setQueryData(['me'], { authenticated: false });
   client.setQueryDefaults(['me'], {
     queryFn: () =>
       auth === 'error' ? Promise.reject(new Error('offline')) : new Promise(() => {}),
@@ -101,6 +105,11 @@ async function inspectRoute(path: string, auth: 'success' | 'pending' | 'error')
     path: '/plugins/$pluginId',
     component: () => createElement(PageHeader, { title: '插件详情' }),
   });
+  const login = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/login',
+    component: () => createElement(PageHeader, { title: '登录' }),
+  });
   const router = createRouter({
     routeTree: rootRoute.addChildren([
       shell.addChildren([
@@ -121,6 +130,7 @@ async function inspectRoute(path: string, auth: 'success' | 'pending' | 'error')
         pluginsIndex,
         pluginDetail,
       ]),
+      login,
     ]),
     history: createMemoryHistory({ initialEntries: [path] }),
   });
@@ -135,6 +145,7 @@ async function inspectRoute(path: string, auth: 'success' | 'pending' | 'error')
   });
   return {
     host,
+    router,
     close: async () => {
       await act(async () => root.unmount());
       host.remove();
@@ -208,6 +219,29 @@ function activeNavLinks(host: HTMLElement): string[] {
     (link) => link.getAttribute('href') ?? '',
   );
 }
+
+describe('unauthenticated deep links', () => {
+  it('sends the current path, search and hash to login', async () => {
+    const target = '/plugins/plugin_review?tab=content&file=README.md&mode=source#top';
+    const view = await inspectRoute(target, 'unauthenticated');
+    try {
+      await vi.waitFor(() => expect(view.router.state.location.pathname).toBe('/login'));
+      expect(view.router.state.location.search).toEqual({ returnTo: target });
+    } finally {
+      await view.close();
+    }
+  });
+
+  it('still redirects a path that merely starts with login', async () => {
+    const view = await inspectRoute('/login-other', 'unauthenticated');
+    try {
+      await vi.waitFor(() => expect(view.router.state.location.pathname).toBe('/login'));
+      expect(view.router.state.location.search).toEqual({ returnTo: '/login-other' });
+    } finally {
+      await view.close();
+    }
+  });
+});
 
 describe('sidebar active route', () => {
   it.each([

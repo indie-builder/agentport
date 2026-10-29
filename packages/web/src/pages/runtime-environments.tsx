@@ -5,7 +5,8 @@ import {
 } from '@agentport/shared';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Box, Plus } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageToolbar } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
@@ -25,6 +26,7 @@ import {
   TableRow,
 } from '../components/ui/table.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { useFormBlocker } from '../lib/form.js';
 import { formatRelative, shortId } from '../lib/format.js';
 import { useCreateRuntimeEnvironment, useRuntimeEnvironments } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -159,6 +161,7 @@ export function RuntimeEnvironmentsPage() {
             void navigate({
               to: '/runtime-environments/$environmentId',
               params: { environmentId: environment.id },
+              ignoreBlocker: true,
             });
           }}
         />
@@ -177,9 +180,30 @@ function CreateEnvironmentDialog({
   getReturnFocus: () => HTMLElement | null;
 }) {
   const create = useCreateRuntimeEnvironment();
+  const pending = create.isPending;
   const [name, setName] = useState('');
   const [dockerfile, setDockerfile] = useState(DEFAULT_RUNTIME_DOCKERFILE);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [created, setCreated] = useState(false);
+  const dirty = !created && (name !== '' || dockerfile !== DEFAULT_RUNTIME_DOCKERFILE);
+  // 成功回调读不到拦截发生后的 blocker 实例：用 ref 拿最新一次再结算。
+  const blocker = useFormBlocker(dirty, !created && pending, { ignoreSamePath: true });
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 关闭会卸载弹层并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
+  const finish = (): void => {
+    blockerRef.current.reset?.();
+    onClose();
+  };
+  // 半填的配置不能因为 Esc / 点遮罩 / 关闭按钮就消失：脏时先确认；请求中一律不能关闭。
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) setConfirmDiscard(true);
+    else finish();
+  };
 
   const submit = async (): Promise<void> => {
     const trimmed = name.trim();
@@ -191,6 +215,9 @@ function CreateEnvironmentDialog({
     const input: RuntimeEnvironmentInput = { name: trimmed, dockerfile };
     try {
       const environment = await create.mutateAsync(input);
+      // 实体已创建，草稿无需再保护；结算期间被拦下的离开后再进入详情。
+      setCreated(true);
+      blockerRef.current.reset?.();
       toastSuccess(`已创建「${environment.name}」`);
       onCreated(environment);
     } catch (error) {
@@ -199,12 +226,17 @@ function CreateEnvironmentDialog({
   };
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
-      <DialogShell
-        title="新建运行环境"
-        finalFocus={getReturnFocus}
-        closeDisabled={create.isPending}
-      >
+    <Dialog
+      open
+      onOpenChange={(next, details) => {
+        if (pending) {
+          details.cancel();
+          return;
+        }
+        if (!next) close();
+      }}
+    >
+      <DialogShell title="新建运行环境" finalFocus={getReturnFocus} closeDisabled={pending}>
         <form
           className="flex flex-col gap-5"
           onSubmit={(event) => {
@@ -223,7 +255,7 @@ function CreateEnvironmentDialog({
                 value={name}
                 maxLength={64}
                 autoComplete="off"
-                disabled={create.isPending}
+                disabled={pending}
                 aria-required="true"
                 aria-invalid={Boolean(nameError)}
                 aria-describedby={nameError ? 'runtime-environment-name-error' : undefined}
@@ -241,21 +273,42 @@ function CreateEnvironmentDialog({
                 value={dockerfile}
                 rows={14}
                 spellCheck={false}
-                disabled={create.isPending}
+                disabled={pending}
                 className="font-mono text-xs leading-relaxed"
                 onChange={(event) => setDockerfile(event.currentTarget.value)}
               />
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" disabled={create.isPending} onClick={onClose}>
+            <Button type="button" variant="outline" disabled={pending} onClick={close}>
               取消
             </Button>
-            <Button type="submit" disabled={create.isPending || !name.trim()}>
-              {create.isPending ? '创建中…' : '创建'}
+            <Button type="submit" disabled={pending || !name.trim()}>
+              {pending ? '创建中…' : '创建'}
             </Button>
           </div>
         </form>
+        <ConfirmDialog
+          open={confirmDiscard}
+          onClose={() => setConfirmDiscard(false)}
+          title="放弃未保存的更改？"
+          description="关闭后填写的内容会丢失。"
+          confirmLabel="放弃并关闭"
+          confirmDisabled={pending}
+          onConfirm={async () => {
+            if (!pending) finish();
+          }}
+        />
+        {/* 路由离开/刷新与弹层关闭共用同一确认文案；取消保留草稿，确认才真正离开。 */}
+        <ConfirmDialog
+          open={blocker.status === 'blocked'}
+          onClose={() => blocker.reset?.()}
+          title="放弃未保存的更改？"
+          description={pending ? '正在创建，请等待请求完成。' : '离开后填写的内容会丢失。'}
+          confirmLabel="放弃并离开"
+          confirmDisabled={pending}
+          onConfirm={async () => blocker.proceed()}
+        />
       </DialogShell>
     </Dialog>
   );

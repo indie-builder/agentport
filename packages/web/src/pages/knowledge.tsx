@@ -62,6 +62,7 @@ import {
 } from '../components/ui/select.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { errorMessage } from '../lib/api.js';
+import { useFormBlocker } from '../lib/form.js';
 import { formatRelative } from '../lib/format.js';
 import {
   useAgents,
@@ -181,6 +182,63 @@ function KnowledgeCard({
   );
 }
 
+/** 弹层草稿保护：dirty 关闭先确认，pending 期间禁止关闭与路由离开。 */
+function useDraftGuard(dirty: boolean, pending: boolean, onClose: () => void) {
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const blocker = useFormBlocker(dirty, pending);
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则其 resolver 永远挂着。
+  const finish = (): void => {
+    blockerRef.current.reset?.();
+    onClose();
+  };
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) setConfirmDiscard(true);
+    else finish();
+  };
+  return { blocker, confirmDiscard, setConfirmDiscard, finish, close };
+}
+
+/** 弹层内统一的放弃草稿与路由离开确认。 */
+function DraftGuardDialogs({
+  guard,
+  draft,
+  pending,
+}: {
+  guard: ReturnType<typeof useDraftGuard>;
+  draft: string;
+  pending: boolean;
+}) {
+  return (
+    <>
+      <ConfirmDialog
+        open={guard.confirmDiscard}
+        onClose={() => guard.setConfirmDiscard(false)}
+        title="放弃未保存的更改？"
+        description={`关闭后${draft}`}
+        confirmLabel="放弃并关闭"
+        confirmDisabled={pending}
+        onConfirm={async () => {
+          if (!pending) guard.finish();
+        }}
+      />
+      <ConfirmDialog
+        open={guard.blocker.status === 'blocked'}
+        onClose={() => guard.blocker.reset?.()}
+        title="放弃未保存的更改？"
+        description={pending ? '正在保存，请等待请求完成。' : `离开后${draft}`}
+        confirmLabel="放弃并离开"
+        confirmDisabled={pending}
+        onConfirm={async () => guard.blocker.proceed()}
+      />
+    </>
+  );
+}
+
 export function KnowledgePage() {
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/knowledge/' });
@@ -208,6 +266,12 @@ export function KnowledgePage() {
   const [deleting, setDeleting] = useState<KnowledgeBase | null>(null);
   const [actionFocus, setActionFocus] = useState<HTMLElement | null>(null);
   const [failedImport, setFailedImport] = useState<{ file: File; message: string } | null>(null);
+  const [imported, setImported] = useState<{
+    baseId: string;
+    documents: number;
+    wikiPages: number;
+  } | null>(null);
+  const [created, setCreated] = useState<{ id: string; name: string } | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
 
   const boundAgents = deleting
@@ -234,8 +298,15 @@ export function KnowledgePage() {
 
   const onImportFile = (file: File): void => {
     setFailedImport(null);
+    setImported(null);
+    setCreated(null);
     importer.mutate(file, {
       onSuccess: (result) => {
+        setImported({
+          baseId: result.baseId,
+          documents: result.counts.documents,
+          wikiPages: result.counts.wikiPages,
+        });
         toastSuccess(
           `知识库已导入：${result.counts.documents} 个文档、${result.counts.wikiPages} 个 Wiki 页面`,
         );
@@ -269,6 +340,12 @@ export function KnowledgePage() {
     });
   };
 
+  // 四种状态互斥：首屏加载、首屏失败、真空库、筛选无结果；刷新失败只加提示，不替换已有数据。
+  const initialPending = bases.isPending && baseItems.length === 0;
+  const initialError = bases.isError && baseItems.length === 0;
+  const refreshError = (bases.isError || isFetchNextPageError) && baseItems.length > 0;
+  const filteredEmpty = baseItems.length > 0 && visible.length === 0 && query.trim() !== '';
+
   return (
     <ResourcePage
       section="knowledge"
@@ -285,7 +362,7 @@ export function KnowledgePage() {
       status={
         bases.isPending
           ? 'pending'
-          : isFetchNextPageError
+          : bases.isError || isFetchNextPageError
             ? 'error'
             : hasNextPage
               ? 'pending'
@@ -350,11 +427,64 @@ export function KnowledgePage() {
           }
         />
       ) : null}
-      {bases.isPending ? <LoadingState rows={4} layout="cards" /> : null}
-      {bases.isError ? (
+      {imported ? (
+        <PageNote
+          title="知识包已导入"
+          description={`${imported.documents} 个文档、${imported.wikiPages} 个 Wiki 页面`}
+          action={
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link to="/knowledge/$baseId" params={{ baseId: imported.baseId }} />}
+              >
+                打开知识库
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setImported(null)}>
+                关闭
+              </Button>
+            </div>
+          }
+        />
+      ) : null}
+      {created ? (
+        <PageNote
+          title={`已创建「${created.name}」`}
+          action={
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link to="/knowledge/$baseId" params={{ baseId: created.id }} />}
+              >
+                打开知识库
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setCreated(null)}>
+                关闭
+              </Button>
+            </div>
+          }
+        />
+      ) : null}
+      {initialPending ? <LoadingState rows={4} layout="cards" /> : null}
+      {initialError ? (
         <ErrorState error={bases.error} onRetry={() => void bases.refetch()} />
       ) : null}
-      {baseItems.length === 0 ? (
+      {refreshError ? (
+        <PageNote
+          title="列表没有刷新成功"
+          description={errorMessage(bases.error ?? new Error('还有更多知识库没有加载出来'))}
+          tone="danger"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void bases.refetch()}>
+              重试
+            </Button>
+          }
+        />
+      ) : null}
+      {!bases.isPending && !bases.isError && baseItems.length === 0 ? (
         <EmptyState
           icon={<LibraryBig className="size-5" />}
           title="还没有知识库"
@@ -417,7 +547,7 @@ export function KnowledgePage() {
           ) : null}
         </div>
       ) : null}
-      {bases.data && visible.length === 0 && query.trim() !== '' ? (
+      {filteredEmpty ? (
         <EmptyState
           title="没有匹配的知识库"
           action={
@@ -431,6 +561,10 @@ export function KnowledgePage() {
         <CreateBaseDialog
           finalFocus={() => (createButtonRef.current?.isConnected ? createButtonRef.current : null)}
           onClose={() => setCreating(false)}
+          onCreated={(base) => {
+            setImported(null);
+            setCreated({ id: base.id, name: base.name });
+          }}
         />
       ) : null}
       {renaming ? (
@@ -491,6 +625,8 @@ function RenameBaseDialog({
   const [name, setName] = useState(base.name);
   const trimmed = name.trim();
   const pending = update.isPending;
+  const dirty = name !== base.name;
+  const guard = useDraftGuard(dirty, pending, onClose);
 
   return (
     <Dialog
@@ -500,7 +636,7 @@ function RenameBaseDialog({
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title="重命名知识库" closeDisabled={pending} finalFocus={finalFocus}>
@@ -513,7 +649,7 @@ function RenameBaseDialog({
               {
                 onSuccess: () => {
                   toastSuccess('已重命名');
-                  onClose();
+                  guard.finish();
                 },
                 onError: toastError,
               },
@@ -535,7 +671,7 @@ function RenameBaseDialog({
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button
@@ -547,6 +683,7 @@ function RenameBaseDialog({
             </Button>
           </div>
         </form>
+        <DraftGuardDialogs guard={guard} draft="重命名草稿会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -555,9 +692,11 @@ function RenameBaseDialog({
 function CreateBaseDialog({
   onClose,
   finalFocus,
+  onCreated,
 }: {
   onClose: () => void;
   finalFocus: () => HTMLElement | null;
+  onCreated: (base: { id: string; name: string }) => void;
 }) {
   const create = useCreateKnowledgeBase();
   const profiles = useKnowledgeModelProfiles();
@@ -580,8 +719,13 @@ function CreateBaseDialog({
     } satisfies BaseForm,
   });
   const errors = form.formState.errors;
-  const pending = create.isPending;
-  const missingProfiles = profiles.data !== undefined && embedding.length === 0;
+  const [profileDirty, setProfileDirty] = useState(false);
+  const [profilePending, setProfilePending] = useState(false);
+  const pending = create.isPending || profilePending;
+  const dirty = form.formState.isDirty || profileDirty;
+  const guard = useDraftGuard(dirty, pending, onClose);
+  // 加载失败时不能把「没拿到」当成「没有 profile」。
+  const missingProfiles = profiles.isSuccess && embedding.length === 0;
 
   const submit = form.handleSubmit((values) => {
     const chunkTokens = Number(values.chunkTokens);
@@ -606,7 +750,8 @@ function CreateBaseDialog({
       {
         onSuccess: (base) => {
           toastSuccess(`已创建「${base.name}」`);
-          onClose();
+          guard.finish();
+          onCreated({ id: base.id, name: base.name });
         },
         onError: toastError,
       },
@@ -621,7 +766,7 @@ function CreateBaseDialog({
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title="新建知识库" closeDisabled={pending} finalFocus={finalFocus}>
@@ -664,15 +809,26 @@ function CreateBaseDialog({
               <FieldError id="knowledge-slug-error">{errors.slug?.message}</FieldError>
             </Field>
           </FieldGroup>
-          <Field className="gap-1.5">
+          <Field className="gap-1.5" data-invalid={Boolean(errors.description)}>
             <FieldLabel htmlFor="knowledge-description">描述</FieldLabel>
             <Textarea
               {...form.register('description')}
               id="knowledge-description"
               disabled={pending}
               rows={2}
+              aria-invalid={Boolean(errors.description)}
+              aria-describedby={errors.description ? 'knowledge-description-error' : undefined}
             />
+            <FieldError id="knowledge-description-error">{errors.description?.message}</FieldError>
           </Field>
+          {profiles.isError ? (
+            <div className="flex items-center gap-2">
+              <FieldError>模型 profile 没有加载出来</FieldError>
+              <Button variant="link" size="xs" onClick={() => void profiles.refetch()}>
+                重试
+              </Button>
+            </div>
+          ) : null}
           {missingProfiles ? (
             <FieldDescription>
               还没有启用的 embedding profile；先创建一个再回填到上方。
@@ -683,6 +839,8 @@ function CreateBaseDialog({
               onCreated={(profile) => {
                 form.setValue('embeddingProfileId', profile.id, { shouldValidate: true });
               }}
+              onDirtyChange={setProfileDirty}
+              onPendingChange={setProfilePending}
             />
           ) : null}
           <FieldGroup className="grid gap-3 sm:grid-cols-2">
@@ -695,11 +853,21 @@ function CreateBaseDialog({
                 disabled={pending || embedding.length === 0}
                 onValueChange={(next) => {
                   if (next !== null)
-                    form.setValue('embeddingProfileId', next, { shouldValidate: true });
+                    form.setValue('embeddingProfileId', next, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    });
                 }}
                 items={embedding.map((profile) => ({ value: profile.id, label: profile.name }))}
               >
-                <SelectTrigger id="knowledge-embedding" className="w-full">
+                <SelectTrigger
+                  id="knowledge-embedding"
+                  className="w-full"
+                  aria-invalid={Boolean(errors.embeddingProfileId)}
+                  aria-describedby={
+                    errors.embeddingProfileId ? 'knowledge-embedding-error' : undefined
+                  }
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -722,7 +890,7 @@ function CreateBaseDialog({
                 value={form.watch('rerankProfileId')}
                 disabled={pending}
                 onValueChange={(next) => {
-                  if (next !== null) form.setValue('rerankProfileId', next);
+                  if (next !== null) form.setValue('rerankProfileId', next, { shouldDirty: true });
                 }}
                 items={[
                   { value: 'none', label: '不启用' },
@@ -752,8 +920,11 @@ function CreateBaseDialog({
                 inputMode="numeric"
                 disabled={pending}
                 aria-invalid={Boolean(errors.chunkTokens)}
+                aria-describedby={errors.chunkTokens ? 'knowledge-chunk-tokens-error' : undefined}
               />
-              <FieldError>{errors.chunkTokens?.message}</FieldError>
+              <FieldError id="knowledge-chunk-tokens-error">
+                {errors.chunkTokens?.message}
+              </FieldError>
             </Field>
             <Field className="gap-1.5" data-invalid={Boolean(errors.chunkOverlap)}>
               <FieldLabel htmlFor="knowledge-chunk-overlap">分块重叠（字符）</FieldLabel>
@@ -763,8 +934,11 @@ function CreateBaseDialog({
                 inputMode="numeric"
                 disabled={pending}
                 aria-invalid={Boolean(errors.chunkOverlap)}
+                aria-describedby={errors.chunkOverlap ? 'knowledge-chunk-overlap-error' : undefined}
               />
-              <FieldError>{errors.chunkOverlap?.message}</FieldError>
+              <FieldError id="knowledge-chunk-overlap-error">
+                {errors.chunkOverlap?.message}
+              </FieldError>
             </Field>
           </FieldGroup>
           <Field orientation="horizontal" className="items-center gap-2">
@@ -772,12 +946,14 @@ function CreateBaseDialog({
               id="knowledge-wiki-auto"
               checked={form.watch('wikiAutoUpdate')}
               disabled={pending}
-              onCheckedChange={(checked) => form.setValue('wikiAutoUpdate', checked)}
+              onCheckedChange={(checked) =>
+                form.setValue('wikiAutoUpdate', checked, { shouldDirty: true })
+              }
             />
             <FieldLabel htmlFor="knowledge-wiki-auto">文档更新后自动刷新 Wiki</FieldLabel>
           </Field>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button type="submit" disabled={pending || missingProfiles} aria-busy={pending}>
@@ -785,13 +961,22 @@ function CreateBaseDialog({
             </Button>
           </div>
         </form>
+        <DraftGuardDialogs guard={guard} draft="新建知识库草稿会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
 }
 
 /** 首次使用没有可用 profile 时，建库表单里直接补一个 embedding profile。 */
-function NewEmbeddingProfile({ onCreated }: { onCreated: (profile: { id: string }) => void }) {
+function NewEmbeddingProfile({
+  onCreated,
+  onDirtyChange,
+  onPendingChange,
+}: {
+  onCreated: (profile: { id: string }) => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
+}) {
   const create = useCreateKnowledgeModelProfile();
   const [name, setName] = useState('');
   const [endpointUrl, setEndpointUrl] = useState('');
@@ -799,6 +984,10 @@ function NewEmbeddingProfile({ onCreated }: { onCreated: (profile: { id: string 
   const [apiKey, setApiKey] = useState('');
   const pending = create.isPending;
   const invalid = [name, endpointUrl, model].some((value) => value.trim() === '');
+  const dirty = [name, endpointUrl, model, apiKey].some((value) => value.trim() !== '');
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+  useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
   return (
     <FieldGroup className="grid gap-3 rounded-item border border-line p-3 sm:grid-cols-2">

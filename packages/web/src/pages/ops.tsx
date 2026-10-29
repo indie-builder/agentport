@@ -1,9 +1,16 @@
-import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentport/shared';
+import {
+  type AgentStats,
+  recentUtcDays,
+  type Schedule,
+  type ScheduleInput,
+  scheduleInputSchema,
+} from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CalendarClock, CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
+import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -12,6 +19,12 @@ import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
+import {
+  type ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from '../components/ui/chart.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   Field,
@@ -31,7 +44,7 @@ import {
 } from '../components/ui/select.js';
 import { Switch } from '../components/ui/switch.js';
 import { Textarea } from '../components/ui/textarea.js';
-import { api } from '../lib/api.js';
+import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import {
@@ -104,6 +117,8 @@ export function SchedulesPage() {
   });
 
   const items = schedules.data ?? [];
+  // 启停和删除共用列表状态：任一请求在途时锁住所有行，避免用旧列表并发改同一批任务。
+  const rowBusy = toggle.isPending || remove.isPending;
 
   return (
     <Page>
@@ -210,15 +225,22 @@ export function SchedulesPage() {
                       <Switch
                         size="sm"
                         checked={schedule.enabled}
-                        disabled={toggle.isPending && toggle.variables?.id === schedule.id}
+                        disabled={rowBusy}
                         aria-label={`${schedule.enabled ? '暂停' : '启用'} ${schedule.name}`}
-                        onCheckedChange={(enabled) => toggle.mutate({ id: schedule.id, enabled })}
+                        onCheckedChange={(enabled) => {
+                          if (rowBusy) return;
+                          toggle.mutate({ id: schedule.id, enabled });
+                        }}
                       />
                       <Button
                         variant="ghost"
                         size="icon-sm"
                         aria-label={`编辑 ${schedule.name}`}
-                        onClick={() => setEditing(schedule)}
+                        disabled={rowBusy}
+                        onClick={() => {
+                          if (rowBusy) return;
+                          setEditing(schedule);
+                        }}
                       >
                         <Pencil />
                       </Button>
@@ -226,7 +248,9 @@ export function SchedulesPage() {
                         variant="ghost"
                         size="icon-sm"
                         aria-label={`删除 ${schedule.name}`}
+                        disabled={rowBusy}
                         onClick={() => {
+                          if (rowBusy) return;
                           deletedRef.current = false;
                           setDeleting(schedule);
                         }}
@@ -281,17 +305,26 @@ function ScheduleDialog({
 }) {
   const client = useQueryClient();
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const { register, control, handleSubmit, watch, formState } = useZodForm(scheduleFormSchema, {
-    defaultValues: schedule
-      ? {
-          agentId: schedule.agentId,
-          name: schedule.name,
-          cron: schedule.cron,
-          prompt: schedule.prompt,
-          enabled: schedule.enabled,
-        }
-      : emptySchedule,
-  });
+  const [confirmReload, setConfirmReload] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const [deleted, setDeleted] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  // 版本基线独立于打开弹层时的快照：冲突后重新加载才推进基线。
+  const [baseline, setBaseline] = useState(schedule?.updatedAt);
+  const { register, control, handleSubmit, watch, reset, formState } = useZodForm(
+    scheduleFormSchema,
+    {
+      defaultValues: schedule
+        ? {
+            agentId: schedule.agentId,
+            name: schedule.name,
+            cron: schedule.cron,
+            prompt: schedule.prompt,
+            enabled: schedule.enabled,
+          }
+        : emptySchedule,
+    },
+  );
   const { errors, isDirty } = formState;
   const watched = watch();
   const dirty = isDirty;
@@ -314,10 +347,55 @@ function ScheduleDialog({
       toastSuccess('定时任务已更新');
       finish();
     },
-    onError: toastError,
+    onError: (error) => {
+      // 冲突就地保留草稿；只有用户确认重新加载才推进版本基线，绝不自动重发旧稿。
+      if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
+        setConflict(true);
+        toastError(new Error('定时任务已被修改；当前草稿已保留，请加载最新版本后重新编辑。'));
+        return;
+      }
+      // 编辑目标已被删除时同样保留草稿，只提供显式「另存为新建」，不自动转创建。
+      if (error instanceof ApiError && error.code === 'NOT_FOUND') {
+        setConflict(true);
+        setDeleted(true);
+        toastError(new Error('该定时任务已被删除，当前草稿已保留；可另存为新建。'));
+        return;
+      }
+      toastError(error);
+    },
     onSettled: invalidate,
   });
-  const pending = create.isPending || update.isPending;
+  const pending = create.isPending || update.isPending || reloading;
+  const reload = async (): Promise<void> => {
+    if (!schedule || pending) return;
+    setReloading(true);
+    try {
+      // throwOnError 是 refetchQueries 的第二个参数，放进 filters 会被忽略并吞掉失败。
+      await client.refetchQueries({ queryKey: ['schedules'] }, { throwOnError: true });
+      const latest = client
+        .getQueryData<Schedule[]>(['schedules'])
+        ?.find((item) => item.id === schedule.id);
+      if (!latest) {
+        setDeleted(true);
+        throw new Error('该定时任务已被删除，当前草稿已保留；可另存为新建。');
+      }
+      reset({
+        agentId: latest.agentId,
+        name: latest.name,
+        cron: latest.cron,
+        prompt: latest.prompt,
+        enabled: latest.enabled,
+      });
+      setBaseline(latest.updatedAt);
+      setConflict(false);
+      setDeleted(false);
+      setConfirmReload(false);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setReloading(false);
+    }
+  };
   const blocker = useFormBlocker(dirty, pending);
   // 成功回调在拦截发生前创建，读不到后来的 blocker：用 ref 拿最新一次。
   const blockerRef = useRef(blocker);
@@ -351,11 +429,17 @@ function ScheduleDialog({
         cron: values.cron,
         prompt: values.prompt,
         enabled: values.enabled,
-        expectedUpdatedAt: schedule.updatedAt,
+        expectedUpdatedAt: baseline,
       });
     } else {
       create.mutate(values);
     }
+  });
+
+  // 任务已被删除时只有用户显式点「另存为新建」才把草稿建成新任务，不自动重发。
+  const saveAsNew = handleSubmit((values) => {
+    if (pending || !deleted) return;
+    create.mutate(values);
   });
 
   return (
@@ -374,6 +458,29 @@ function ScheduleDialog({
         closeDisabled={pending}
         className="max-w-[760px] sm:max-w-[760px]"
       >
+        {conflict ? (
+          <div role="alert" className="flex flex-wrap items-center gap-2 pb-4 text-sm">
+            <p>
+              {deleted
+                ? '定时任务已被删除，当前草稿已保留。'
+                : '定时任务已被修改，当前草稿已保留。加载最新版本会放弃此草稿。'}
+            </p>
+            {deleted ? (
+              <Button variant="outline" size="sm" disabled={pending} onClick={saveAsNew}>
+                另存为新建
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => setConfirmReload(true)}
+              >
+                重新加载
+              </Button>
+            )}
+          </div>
+        ) : null}
         <form onSubmit={submit} className="@container flex flex-col gap-4" noValidate>
           <div className="grid grid-cols-1 gap-5 @min-[560px]:grid-cols-[minmax(0,1fr)_minmax(240px,280px)]">
             <FieldGroup className="gap-4">
@@ -524,6 +631,17 @@ function ScheduleDialog({
           </div>
         </form>
         <ConfirmDialog
+          open={confirmReload}
+          onClose={() => {
+            if (!pending) setConfirmReload(false);
+          }}
+          title="放弃草稿并加载最新版本？"
+          description="当前未保存的更改会丢失。加载失败时会保留当前草稿。"
+          confirmLabel="放弃并加载"
+          confirmDisabled={pending}
+          onConfirm={reload}
+        />
+        <ConfirmDialog
           open={confirmDiscard}
           onClose={() => setConfirmDiscard(false)}
           title="放弃未保存的更改？"
@@ -631,6 +749,18 @@ export function AttentionPanel({ hideTitle = false }: { hideTitle?: boolean } = 
   );
 }
 
+type DailyRun = AgentStats['daily'][number];
+
+const dailyChartConfig = {
+  runs: { label: '运行次数', color: 'var(--color-chart-runs)' },
+} satisfies ChartConfig;
+
+/** 后端只返回有运行的天；用共享 UTC 窗口补齐 0，与 API 的 since 保持同一口径。 */
+export function fillDailyRuns(daily: DailyRun[], days = 30, now = new Date()): DailyRun[] {
+  const known = new Map(daily.map((entry) => [entry.day, entry]));
+  return recentUtcDays(days, now).map((day) => known.get(day) ?? { day, runs: 0, cost: 0 });
+}
+
 /** 单个智能体的运行统计与活跃度热力图（对标 QoderWake 的概览/工作日志）。 */
 export function AgentStatsPanel({ agentId }: { agentId: string }) {
   const stats = useQuery(agentStatsQuery(agentId, 30));
@@ -650,7 +780,8 @@ export function AgentStatsPanel({ agentId }: { agentId: string }) {
     { label: 'P99 延迟', value: formatDuration(s.latencyP99) },
     { label: '最近运行', value: formatRelative(s.lastRunStartTime) },
   ];
-  const maxRuns = Math.max(1, ...s.daily.map((d) => d.runs));
+  const hasRuns = s.daily.length > 0;
+  const daily = fillDailyRuns(s.daily);
 
   return (
     <div className="flex flex-col gap-5">
@@ -664,20 +795,53 @@ export function AgentStatsPanel({ agentId }: { agentId: string }) {
       </div>
       <div className="rounded-card bg-surface px-4 py-4 ring-1 ring-line">
         <div className="mb-3 text-xs text-muted-foreground">近 30 天活跃度</div>
-        {s.daily.length === 0 ? (
-          <p className="text-sm text-muted-foreground">近 30 天没有运行记录。</p>
-        ) : (
+        {hasRuns ? (
           <>
-            {/* 柱子只是视觉，数据由下方离屏表格提供，键盘与读屏都能读到。 */}
-            <div className="flex items-end gap-1" style={{ height: 64 }} aria-hidden="true">
-              {s.daily.map((d) => (
-                <div
-                  key={d.day}
-                  className="flex-1 rounded-t-sm bg-ink/80"
-                  style={{ height: `${Math.max(4, Math.round((d.runs / maxRuns) * 64))}px` }}
-                  title={`${d.day} · ${d.runs} 次 · ${formatCost(d.cost)}`}
-                />
-              ))}
+            {/* 柱图仅视觉展示（含鼠标提示），读屏改走下方表格。 */}
+            <div aria-hidden="true">
+              <ChartContainer config={dailyChartConfig} className="aspect-auto h-40 w-full">
+                {/* Recharts 3 默认开启 accessibilityLayer，会生成无名称的可聚焦 application。 */}
+                <BarChart
+                  accessibilityLayer={false}
+                  data={daily}
+                  margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
+                >
+                  <CartesianGrid vertical={false} />
+                  <XAxis
+                    dataKey="day"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    minTickGap={24}
+                    tickFormatter={(value: string) => value.slice(5)}
+                  />
+                  <ChartTooltip
+                    cursor={false}
+                    content={
+                      <ChartTooltipContent
+                        formatter={(value, _name, item) => {
+                          const point = item.payload as DailyRun;
+                          return (
+                            <span className="flex items-center gap-2 tabular-nums">
+                              <span className="font-medium text-foreground">{value} 次</span>
+                              <span className="text-muted-foreground">
+                                {formatCost(point.cost)}
+                              </span>
+                            </span>
+                          );
+                        }}
+                      />
+                    }
+                  />
+                  <Bar
+                    dataKey="runs"
+                    fill="var(--color-runs)"
+                    radius={[2, 2, 0, 0]}
+                    maxBarSize={24}
+                    isAnimationActive={false}
+                  />
+                </BarChart>
+              </ChartContainer>
             </div>
             <table className="sr-only">
               <caption>近 30 天每日运行次数与成本</caption>
@@ -689,16 +853,18 @@ export function AgentStatsPanel({ agentId }: { agentId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {s.daily.map((d) => (
-                  <tr key={d.day}>
-                    <th scope="row">{d.day}</th>
-                    <td>{d.runs}</td>
-                    <td>{formatCost(d.cost)}</td>
+                {daily.map((entry) => (
+                  <tr key={entry.day}>
+                    <th scope="row">{entry.day}</th>
+                    <td>{entry.runs}</td>
+                    <td>{formatCost(entry.cost)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </>
+        ) : (
+          <p className="text-sm text-muted-foreground">近 30 天没有运行记录。</p>
         )}
       </div>
     </div>

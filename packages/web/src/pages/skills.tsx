@@ -67,6 +67,7 @@ import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
 const emptySkill: SkillInput = { slug: '', name: '', description: '', body: '' };
+const emptySkillFile = { path: '', content: '' };
 const maxSkillFileBytes = 131_072;
 const usageOptions = [
   { value: 'all', label: '全部技能' },
@@ -630,6 +631,8 @@ export function SkillDialog({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [filesDirty, setFilesDirty] = useState(false);
   const [filesSaving, setFilesSaving] = useState(false);
+  // 保存成功后只前进版本基线，弹层可继续编辑支持文件而不带旧版本号。
+  const [baseline, setBaseline] = useState(skill?.updatedAt);
   const dirty = rhf.formState.isDirty || filesDirty;
 
   const submit = rhf.handleSubmit((values) => {
@@ -644,11 +647,14 @@ export function SkillDialog({
     };
     if (skill) {
       update.mutate(
-        { id: skill.id, input: values, expectedUpdatedAt: skill.updatedAt },
+        { id: skill.id, input: values, expectedUpdatedAt: baseline ?? skill.updatedAt },
         {
-          onSuccess: () => {
+          onSuccess: (saved) => {
             toastSuccess('技能已更新');
-            onClose();
+            rhf.reset(values);
+            setBaseline(saved.updatedAt);
+            // 支持文件草稿由各自编辑器保存，主表单保存不丢弃它们。
+            if (!filesDirty) onClose();
           },
           onError,
         },
@@ -780,6 +786,7 @@ export function SkillDialog({
           {skill ? (
             <SkillFilesEditor
               skillId={skill.id}
+              disabled={pending}
               onDirtyChange={setFilesDirty}
               onSavingChange={setFilesSaving}
             />
@@ -823,10 +830,12 @@ export function SkillDialog({
 /** 官方 SKILL.md 目录的支持资源文件（scripts/、references/ 等），随技能铺到工作区。 */
 function SkillFilesEditor({
   skillId,
+  disabled,
   onDirtyChange,
   onSavingChange,
 }: {
   skillId: string;
+  disabled: boolean;
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange: (saving: boolean) => void;
 }) {
@@ -835,38 +844,72 @@ function SkillFilesEditor({
     queryKey: ['skill-files', skillId],
     queryFn: () => api.skillFiles(skillId),
   });
-  const rhf = useZodForm(skillFileFormSchema, { defaultValues: { path: '', content: '' } });
+  const rhf = useZodForm(skillFileFormSchema, { defaultValues: emptySkillFile });
   const error = rhf.formState.errors.path?.message ?? rhf.formState.errors.content?.message ?? '';
-  const [saving, setSaving] = useState(false);
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
+  const pending = disabled || busy;
 
   // 草稿与在途请求交回父级弹层，Esc / 点遮罩 / 取消都要先确认。
   useEffect(() => onDirtyChange(rhf.formState.isDirty), [rhf.formState.isDirty, onDirtyChange]);
-  useEffect(() => onSavingChange(saving), [saving, onSavingChange]);
+  useEffect(() => onSavingChange(busy), [busy, onSavingChange]);
 
   const invalidate = (): void =>
     void client.invalidateQueries({ queryKey: ['skill-files', skillId] });
 
-  const add = rhf.handleSubmit(async (values) => {
-    setSaving(true);
+  const selectFile = (path: string, content: string): void => {
+    setEditingPath(path);
+    rhf.reset({ path, content });
+  };
+
+  const startNew = (): void => {
+    setEditingPath(null);
+    rhf.reset(emptySkillFile);
+  };
+
+  // 切换文件/新建会覆盖当前草稿，脏时先确认。
+  const switchTo = (action: () => void): void => {
+    if (pending) return;
+    if (rhf.formState.isDirty) setPendingSwitch(() => action);
+    else action();
+  };
+
+  const save = rhf.handleSubmit(async (values) => {
+    if (pending) return;
+    setBusy(true);
     try {
       await api.writeSkillFile(skillId, values.path, values.content);
-      rhf.reset();
-      invalidate();
-      toastSuccess('已添加支持文件');
+      // 等列表真正刷新后再解 busy：慢网下重选不能拿到旧内容覆盖刚保存的版本。
+      const refreshed = await files.refetch();
+      if (refreshed.isError) {
+        toastError(new Error('支持文件已保存，但列表刷新失败，请重试。'));
+        return;
+      }
+      if (editingPath) rhf.reset(values);
+      else rhf.reset(emptySkillFile);
+      toastSuccess(editingPath ? '支持文件已保存' : '已添加支持文件');
     } catch (err) {
       toastError(err);
     } finally {
-      setSaving(false);
+      setBusy(false);
     }
   });
 
+  // 失败交给 ConfirmDialog 统一提示并保留确认框重试；这里吞错会让它误以为完成而关闭。
   const remove = async (target: string): Promise<void> => {
+    setBusy(true);
     try {
       await api.deleteSkillFile(skillId, target);
+      if (editingPath === target) {
+        setEditingPath(null);
+        rhf.reset(emptySkillFile);
+      }
       invalidate();
       toastSuccess('已删除支持文件');
-    } catch (err) {
-      toastError(err);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -880,13 +923,27 @@ function SkillFilesEditor({
       {files.data && files.data.length > 0 ? (
         <ul className="flex flex-col gap-1">
           {files.data.map((f) => (
-            <li key={f.id} className="flex items-center justify-between gap-2">
-              <code className="truncate font-mono text-xs text-fg">{f.path}</code>
+            <li key={f.id} className="flex items-start justify-between gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={`编辑支持文件 ${f.path}`}
+                aria-pressed={editingPath === f.path}
+                title={f.path}
+                // 刷新失败时列表还是旧内容，重试成功前不能载入覆盖刚保存的版本。
+                disabled={pending || files.isError}
+                className="h-auto min-w-0 flex-1 justify-start px-1 py-0.5 text-left font-mono text-xs whitespace-normal break-all"
+                onClick={() => switchTo(() => selectFile(f.path, f.content))}
+              >
+                {f.path}
+              </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`删除支持文件 ${f.path}`}
-                onClick={() => void remove(f.path)}
+                disabled={pending}
+                onClick={() => setDeleteTarget(f.path)}
               >
                 <Trash2 />
               </Button>
@@ -899,6 +956,8 @@ function SkillFilesEditor({
           {...rhf.register('path', { setValueAs: (value: string) => value.trim() })}
           id="skill-file-path"
           placeholder="scripts/run.sh 或 references/api.md"
+          readOnly={editingPath !== null}
+          disabled={pending}
           aria-invalid={Boolean(error)}
           aria-describedby={error ? 'skill-file-path-error' : undefined}
           className="font-mono text-xs"
@@ -916,22 +975,54 @@ function SkillFilesEditor({
               aria-label="文件内容"
               aria-invalid={Boolean(error)}
               aria-describedby={error ? 'skill-file-path-error' : undefined}
+              disabled={pending}
             />
           )}
         />
         {error ? <FieldError id="skill-file-path-error">{error}</FieldError> : null}
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          {editingPath ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() => switchTo(startNew)}
+            >
+              新建文件
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
             size="sm"
-            disabled={saving}
-            onClick={() => void add()}
+            disabled={pending}
+            onClick={() => void save()}
           >
-            {saving ? '添加中…' : '添加文件'}
+            {busy ? '处理中…' : editingPath ? '保存文件' : '添加文件'}
           </Button>
         </div>
       </div>
+      <ConfirmDialog
+        open={pendingSwitch !== null}
+        onClose={() => setPendingSwitch(null)}
+        title="放弃未保存的文件更改？"
+        description="切换文件或新建会丢失当前编辑内容。"
+        confirmLabel="放弃更改"
+        confirmDisabled={pending}
+        onConfirm={async () => {
+          pendingSwitch?.();
+        }}
+      />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="删除支持文件"
+        description={`将删除「${deleteTarget ?? ''}」。此操作不可撤销。`}
+        confirmLabel="删除文件"
+        confirmDisabled={pending}
+        onConfirm={() => (deleteTarget ? remove(deleteTarget) : Promise.resolve())}
+      />
     </Field>
   );
 }
