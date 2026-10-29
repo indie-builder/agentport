@@ -20,17 +20,28 @@ import { Toggle } from '../src/components/ui/toggle.js';
 const require = createRequire(import.meta.url);
 const THEME = `@import "tailwindcss";
 @theme {
-  --color-background: #fdfdfd;
-  --color-foreground: #171717;
-  --color-primary: #171717;
+  --color-canvas: #f0f2f5;
+  --color-surface: #fbfcfe;
+  --color-background: #fbfcfe;
+  --color-foreground: #1e293b;
+  --color-fg: #1e293b;
+  --color-primary: #315fad;
   --color-primary-foreground: #fff;
-  --color-secondary: rgb(15 15 15 / 0.045);
-  --color-secondary-foreground: #171717;
-  --color-muted: #f0f0f0;
+  --color-primary-hover: #284f92;
+  --color-primary-active: #21437d;
+  --color-button-primary: #426fbd;
+  --color-button-primary-hover: #3b64aa;
+  --color-button-primary-active: #345997;
+  --color-secondary: #e9edf2;
+  --color-secondary-foreground: #1e293b;
+  --color-selected: #e7edf7;
+  --color-selected-foreground: #315fad;
+  --color-muted: #e9edf2;
+  --color-control-boundary: #7f8998;
   --color-destructive: #b42318;
-  --color-border: rgb(15 15 15 / 0.09);
-  --color-input: rgb(15 15 15 / 0.09);
-  --color-ring: #8a8a8a;
+  --color-border: #d7dde5;
+  --color-input: #8993a2;
+  --color-ring: #315fad;
   --radius-md: 7px;
   --radius-lg: 9px;
   --radius-4xl: 6px;
@@ -136,6 +147,17 @@ function ringVisible(
   return winning(rules, classNames, attrs, focus, '--tw-ring-color') !== 'transparent';
 }
 
+function outlineVisible(
+  rules: Rule[],
+  classNames: string[],
+  attrs: Record<string, string>,
+  focus: boolean,
+) {
+  const width = winning(rules, classNames, attrs, focus, 'outline-width');
+  if (!width || width === '0px') return false;
+  return winning(rules, classNames, attrs, focus, 'outline-style') !== 'none';
+}
+
 const checked = { 'aria-checked': 'true', 'data-checked': '' };
 const invalid = { 'aria-invalid': 'true' };
 const dom = new JSDOM('<!doctype html><div></div>');
@@ -166,7 +188,7 @@ beforeAll(async () => {
       'aria-invalid': true,
     }),
   );
-  for (const variant of ['default', 'outline', 'ghost'] as const) {
+  for (const variant of ['default', 'outline', 'ghost', 'solid'] as const) {
     probe(
       `button-${variant}`,
       createElement(
@@ -195,6 +217,35 @@ beforeAll(async () => {
 }, 20_000);
 
 describe('error and focus states share one border/ring signal', () => {
+  it('keeps the control boundary for unchecked boxes and brands the checked state', () => {
+    for (const name of ['radio', 'checkbox']) {
+      const classNames = probeClasses(name);
+      expect(winning(rules, classNames, {}, false, 'border-color')).toBe(
+        'var(--color-control-boundary)',
+      );
+      expect(winning(rules, classNames, checked, false, 'border-color')).toBe(
+        'var(--color-primary)',
+      );
+    }
+  });
+
+  it('shows one visible outer outline when the checked radio is keyboard focused', () => {
+    const classNames = probeClasses('radio');
+    // 未选中：聚焦只把边框换成环色，不额外画轮廓或环。
+    expect(winning(rules, classNames, {}, true, 'border-color')).toBe('var(--color-ring)');
+    expect(outlineVisible(rules, classNames, {}, true)).toBe(false);
+    expect(ringVisible(rules, classNames, {}, true)).toBe(false);
+    // 选中未聚焦：主色填充，无轮廓、无环。
+    expect(outlineVisible(rules, classNames, checked, false)).toBe(false);
+    expect(ringVisible(rules, classNames, checked, false)).toBe(false);
+    // 选中聚焦：填充保持主色，只在填充外画 2px 轮廓，并以背景留出间隔。
+    expect(winning(rules, classNames, checked, true, 'border-color')).toBe('var(--color-primary)');
+    expect(ringVisible(rules, classNames, checked, true)).toBe(false);
+    expect(winning(rules, classNames, checked, true, 'outline-width')).toBe('2px');
+    expect(winning(rules, classNames, checked, true, 'outline-color')).toBe('var(--color-ring)');
+    expect(winning(rules, classNames, checked, true, 'outline-offset')).toBe('2px');
+  });
+
   it('keeps destructive border on checked + invalid radio and checkbox', () => {
     for (const name of ['radio', 'checkbox']) {
       const classNames = probeClasses(name);
@@ -208,7 +259,14 @@ describe('error and focus states share one border/ring signal', () => {
   });
 
   it('drops the focus ring on invalid checkbox, switch and all buttons', () => {
-    for (const name of ['checkbox', 'switch', 'button-default', 'button-outline', 'button-ghost']) {
+    for (const name of [
+      'checkbox',
+      'switch',
+      'button-default',
+      'button-outline',
+      'button-ghost',
+      'button-solid',
+    ]) {
       const classNames = probeClasses(name);
       expect(winning(rules, classNames, invalid, true, 'border-color')).toBe(
         'var(--color-destructive)',
@@ -218,7 +276,7 @@ describe('error and focus states share one border/ring signal', () => {
   });
 
   it('shows one visible focus ring on every button variant and keeps the outline border neutral', () => {
-    for (const name of ['button-default', 'button-outline', 'button-ghost']) {
+    for (const name of ['button-default', 'button-outline', 'button-ghost', 'button-solid']) {
       const classNames = probeClasses(name);
       // 未聚焦不画环。
       expect(ringVisible(rules, classNames, {}, false)).toBe(false);
@@ -226,6 +284,20 @@ describe('error and focus states share one border/ring signal', () => {
       expect(ringVisible(rules, classNames, {}, true)).toBe(true);
       expect(winning(rules, classNames, {}, true, '--tw-ring-color')).toBe('var(--color-ring)');
     }
+    // default 是主色描边按钮：平时靠边框分层，聚焦时边框让位给环，避免同色边框与环叠成双层。
+    const primaryOutline = probeClasses('button-default');
+    expect(winning(rules, primaryOutline, {}, false, 'border-color')).toBe('var(--color-primary)');
+    expect(winning(rules, primaryOutline, {}, true, 'border-color')).toBe('transparent');
+    expect(winning(rules, primaryOutline, {}, true, '--tw-ring-offset-width')).toBeUndefined();
+    // solid 保留实底主操作，聚焦时用背景色间隔把环推到填充之外。
+    const solid = probeClasses('button-solid');
+    expect(winning(rules, solid, {}, false, 'background-color')).toBe(
+      'var(--color-button-primary)',
+    );
+    expect(winning(rules, solid, {}, true, '--tw-ring-offset-width')).toBe('2px');
+    expect(winning(rules, solid, {}, true, '--tw-ring-offset-color')).toBe(
+      'var(--color-background)',
+    );
     // outline 的边框保持中性色，不参与焦点表达；本测试不模拟暗色媒体查询，dark:border-input 恒命中。
     expect(['var(--color-border)', 'var(--color-input)']).toContain(
       winning(rules, probeClasses('button-outline'), {}, true, 'border-color'),

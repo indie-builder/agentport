@@ -92,7 +92,7 @@ function FileRow({
         className={cn(
           ROW_CLASS,
           selected
-            ? 'bg-selected font-medium text-fg hover:bg-selected hover:text-fg'
+            ? 'bg-selected font-medium text-selected-foreground hover:bg-selected hover:text-selected-foreground'
             : 'text-muted-foreground hover:bg-hover hover:text-muted-foreground',
         )}
       >
