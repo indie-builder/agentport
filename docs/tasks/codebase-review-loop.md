@@ -26,7 +26,7 @@
 
 - 工作树：`/Users/xbjt/Documents/myself/agentport/.claude/worktrees/codebase-review-loop`
 - 分支：`worktree-codebase-review-loop`
-- 基线：`HEAD` = `origin/main` = `e060e3a559633a0d94adb637516a6d577b86b1aa`
+- 基线：`HEAD` = `origin/main` = `e060e3a559633a0d94adb637516a6d577b86b1aa`；本任务提交 `39cd98a`，已合入 `origin/main` `5ccf9d4`（PR115/116/117 会话终态、技能、品牌蓝），merge 提交 `28a88a3` 已完成并推送。
 - 主会话开工时 `git status --short` 为空；当前工作树差异全部由本任务产生或为本任务测试生成物，不按「开工遗留」处理。
 - `.vitest/json/output.json` 是本任务测试生成的结果文件，仍会被并行测试改写，待统一收尾，不作为源码改动。
 - 主 checkout 保持干净，产出只落在本 worktree。
@@ -37,8 +37,8 @@
 
 - 用户已明确授权全项目审查修复与开发规范整理，已证实的文档冲突直接修正，不再逐项请求确认；并已授权最终 commit / push / merge（提交 PR 后合并），不另开确认流程。
 - 规范沉淀只写已通过独立 review 与主会话验证的规则；按最小整合补进现有权威章节，不新增平行段落、工具或术语表。
-- 已验收的子项：A（后端与专家包、前端共享 schema 管道）、B/C、D/E、knowledge 页面三项、navigation、knowledge cancel/queue 重投、chat 滚动（a12）、thinking 代码 / 测试 / 迁移、agent-md 测试、eval 两项（a1ba）、schedule 两项（a450 / a7c 业务 review；最终测试顺序 a573 复核，主会话 `bxb` 两文件 31 passed / 0 skip）、build 测试（a568；`bquo` 15 passed）、knowledge guard 测试（a0b；`bvn` 3 passed）；这是按子项验收，不代表对应区域全部代码已审通过。native/sandbox-probe 队列（独立 Opus `aa19`）与成果保留期（独立 Opus `a97`）两修复均已通过独立 review 并验收。
-- 历史 chat E2E 补修独立 review 通过（aa5）；最近两轮真实运行 run4/5 各 8 passed / 1 failed，清理无残留；失败项如实保留，不以通过项掩盖。
+- 已验收的子项：A（后端与专家包、前端共享 schema 管道）、B/C、D/E、knowledge 页面三项、navigation、knowledge cancel/queue 重投、chat 滚动（a12）、thinking 代码 / 测试 / 迁移、agent-md 测试、eval 两项（a1ba）、schedule 两项（a450 / a7c 业务 review；最终测试顺序 a573 复核，主会话 `bxb` 两文件 31 passed / 0 skip）、build 测试（a568；`bquo` 15 passed）、knowledge guard 测试（a0b；`bvn` 3 passed）；这是按子项验收，不代表对应区域全部代码已审通过。native/sandbox-probe 队列（独立 Opus `aa19`）与成果保留期（独立 Opus `a97`）两修复均已通过独立 review 并验收；`agent-package-runtime-environment` 全表计数修正经 Opus `a2c` 通过，最终全量已包含该修复。
+- 历史 chat E2E 补修独立 review 通过（aa5）；滚动修复后最终真实运行 9/9（a12 核实，见下），清理无残留。
 - 分页滚动根因已确证：产品侧引用相等识别与 load-older 阻塞原语 prepend；原 `scrollTop < 100` 断言不符阅读锚点。产品修复已独立 Opus a12 通过：a12 核实原始最后两轮 auth + history 各 9/9 及清理；精确 `075 / 025 top60 → 60` 只来自诊断轮逐帧，最后两轮无逐帧输出、以几何断言通过，两类证据不混写。主会话 chat-scroll / chat-ux / chat-stream 3 files / 89 passed / exit 0；E2E 由作者真实运行、a12 核实，主会话未另跑。具体见 `codebase-review-web-chat.md`。
 - thinking 全链路移除 `maxThinkingTokens`：独立 Opus a06 代码 / 测试 / 迁移通过且结论不变；产品文档同步（README / USER-STORIES / CAPABILITY-GAP / ARCHITECTURE）已由 Opus ac822 复核通过；迁移仍只随机 / 临时库执行，未在共享库执行。
 - 下一域 knowledge 执行链审查已返回 2 项：
@@ -50,7 +50,8 @@
 - SDK 镜像子项 `a681` 使用独有镜像 `agentport/sandbox:review-loop-610bd2`，verbose 真实 10/10 通过、无 skip；见 `codebase-review-sdk-image.md`。
 - 恢复审查已最终验收：首轮 39 tests 通过但 Opus 未通过（破坏缺 `.env` 灾难恢复、`run_*` 部分回滚不全）；补修后独立 Opus `a3d703` 通过（最后 URL 反解；缺 env/坏配置中止与 `run_*` 归位同轮通过），主会话 `byw28qy0g` 完整 42 passed / 0 skipped / exit 0（原始输出 `rtk recall 278485a1b40f3648`），`bash -n` 与对应 `git diff --check` 通过。特殊字符 URL 仅 stub 逐字节往返 + Opus `/bin/bash` 两端各 782 组合，无真实特殊密码账户连接；不把 stub 当真实 PG 恢复。
 - OPS 恢复新增段最终已通过独立 Opus `a146`：原 `ac403` 指出的四事实问题已修，结论为通过，不再等待。
-- 恢复代码 42 tests + 独立 review、插件 path 13 + review、permissions 89 + review、7 包 typecheck / build 证据保持有效，不重跑。历史后端 239 files / 2314 passed 与历史 web 115 files / 1277 passed 均早于本批代码，不能当当前全绿。主会话本轮完整 backend：241 files（1 failed / 240 passed）、2340 tests（1 failed / 2339 passed）；唯一失败为 `agent-package-runtime-environment.test` 全表计数并发干扰（expected 34 / actual 32），Sonnet 正在修复，不写全绿。主会话本轮 web 115 files / 1277 passed，typecheck / build 通过。
+- 恢复代码 42 tests + 独立 review、插件 path 13 + review、permissions 89 + review、7 包 typecheck / build 证据保持有效，不重跑。历史后端 239 files / 2314 passed 与历史 web 115 files / 1277 passed 早于本批代码，只作历史。最终验证（合并 `origin/main 5ccf9d4` 后）：backend `b0eg5ns1j` 241 files / 2340 passed / 0 skip / exit 0（完整日志 `tool-results/bd2s74p96.txt`）；web `bo6hv0cif` 115 files / 1291 passed / 0 skip / exit 0；7 包 typecheck `bbi` exit 0；build `bw1` exit 0（仅 chunk >500KB 提示）；focus / contract 合并前通过；合并后主会话再核 focus / contract 与 `git diff --check` 均通过。
+- 提交与合并：本任务 `39cd98a` 已提交；已合入 `origin/main 5ccf9d4`（PR115/116/117 会话终态、技能、品牌蓝），merge 提交 `28a88a3` 已完成并推送。唯一 chat-ux 测试冲突由 Sonnet 解决，保留两边全部测试。Opus 集成 review `aa582` 已通过。main 品牌蓝 / 发送 solid / 终态等待修复完整保留；不改视觉 token 与已合决定。当前已验证，准备推 PR 合并；loop 已删，不重建。
 - 本轮实际发现 4 项，状态如下（只覆盖各自切口，不代表全 eval / 全 ops 深审）：
   - eval 写失败收口（结果未落库却计 passed、批次仍 succeeded）：已修并验收；独立 Opus `a1ba` 通过；主会话 `bdxq197ci` 真实 5 files / 37 passed / 0 skipped。写失败批次 `failed` + `error`，passed 不虚增。
   - eval 失败路径 `runId` 丢失：同上验收；已创建子 run 的失败仍关联真实 `runId`，创建前失败仍为 `null`，每 case context 隔离。
@@ -65,7 +66,7 @@
 - 取代「A 修复运行中 / B/C 补修中 / D/E review 进行中 / web a78 运行中」：这些均已返回，按独立 review 与主会话验证结果记录。
 - 取代「chat 主会话 review/验证待进行、2 条 E2E 因环境未启动未跑」：chat 源码静态 review 已认可；E2E 已真实运行，历史补修 review aa5 通过，滚动失败项保留。
 - 取代「knowledge 补修进行中、navigation review 与主会话验证进行中」：两者均已闭环，证据见对应子记录。
-- 取代「web 全量 114 files / 1268 passed 代表当前全 web」：旧数只作历史；web 115 files / 1277 passed / 0 skip / exit 0 仍只代表本批代码之前的 Web 源码范围（本批未触 Web），含 knowledge 补修、skill 新用例与 chat 滚动。
+- 取代「web 全量 114 files / 1268 passed 代表当前全 web」：旧数只作历史；本批最终 web 为 115 files / 1291 passed / 0 skip / exit 0（`bo6hv0cif`），早先 115 / 1277 只代表本批代码之前的 Web 源码范围。
 - 取代「knowledge 执行链审查进行中、规范两处待复核、cancel 待 Opus review」：审查已返回 2 项，cancel 与 queue 重投均已验收，规范两句 af217 已通过。
 - 取代「thinking 文档新增待独立 review」：产品文档已由 Opus ac822 复核通过；代码 / 测试 / 迁移 a06 结论不变，迁移仍只随机 / 临时库。
 - 取代「agent-md 测试由主会话直接改」：实际代码由 Sonnet 子代理执行，主会话只做记录与验证；已由 bg64 / Opus a134 验收。
@@ -100,10 +101,10 @@
 - [x] build 测试等待：明确 `buildxStarted` 信号 + `close/await` 收尾；主会话 `bquo` 15 passed，Opus `a568` 通过；生产代码未改。
 - [x] knowledge guard 测试配置：复用 `testConfig()` + 正常加密 fixture；主会话 `bvn` 3 passed，Opus `a0b` 通过。
 - [x] native/sandbox-probe 队列：独立 Opus `aa19` 通过并验收；红 3 轮 2 failed / 10 passed、绿多轮 12/12；受控窗口不作历史唯一归因，详见子记录。
-- [x] 主会话本轮完整 backend：241 files（1 failed / 240 passed）、2340 tests（1 failed / 2339 passed）；唯一失败为 `agent-package-runtime-environment.test` 全表计数并发干扰（expected 34 / actual 32），Sonnet 正在修复，不写全绿。
+- [x] 主会话最终完整 backend：241 files / 2340 passed / 0 skip / exit 0（`b0eg5ns1j`，日志 `tool-results/bd2s74p96.txt`）；`agent-package-runtime-environment` 全表计数修正经 Opus `a2c` 通过。
 - [x] 运行保留期 maintenance / `pruneRuns` 与消息附件、成果清理（不含 knowledge 清理）：独立 Opus `a97` 通过并验收（红 3/3、绿 6 files / 79 passed）。
 - [x] 停止扩审：删除定时任务 `d1cce124`，确认 CronList 无任务，不重建 loop。
-- [ ] 最终交付：本轮 backend / web / typecheck / build 已由主会话运行；web 115 files / 1277 passed、typecheck / build 通过；backend 仅剩唯一 `agent-package-runtime-environment.test` 并发干扰失败，Sonnet 修复中。修复后合并最新 `main`（已含品牌配色）、补 PR 验证，再提交 PR 后合并（用户已授权）。
+- [ ] 最终交付：最终 backend / web / typecheck / build 已由主会话运行并全绿（计数见「验证」）；已合入 `origin/main 5ccf9d4`（含品牌蓝），merge 提交 `28a88a3` 已推送，chat-ux 测试冲突由 Sonnet 解决并保留两边测试；合并后主会话 focus / contract / `git diff --check` 均通过；Opus 集成 review `aa582` 已通过。当前已验证、准备推 PR 合并（用户已授权），尚未创建 PR 或确认远端合并结果。
 
 ## 发现与修复
 
@@ -172,7 +173,7 @@
 
 ## 改动文件
 
-本轮仅文档收尾，不改源码；用户已授权最终提交 PR 与合并，待唯一失败修复并合并最新 `main` 后由主会话执行：
+本轮仅文档收尾，不改源码；用户已授权最终提交 PR 与合并。最终验证已全绿、`origin/main 5ccf9d4` 已合入且 merge 提交 `28a88a3` 已推送，Opus 集成 review `aa582` 已通过；当前已验证、准备推 PR 合并：
 
 - `docs/tasks/codebase-review-loop.md`（本记录）
 - `docs/tasks/codebase-review-queue-events.md`（review 状态与 EOF 空行）
@@ -207,17 +208,17 @@
 
 - eval 两项已验收（Opus `a1ba`；主会话 `bdxq197ci` 5 files / 37 passed / 0 skipped），结果见子记录，不据此写全 eval 通过。
 - schedule 两项已验收（a450 / a7c 业务 review；a573 测试顺序复核；主会话 `bxb` 两文件 31 passed / 0 skip）。
-- 已按子项验收：build 15（a568）、knowledge guard 3（a0b）、schedule 31（a450 / a7c + a573 / `bxb`）、eval 37（a1ba / `bdxq197ci`）、queue 12/12（aa19）、成果保留 79（a97）；最终全集已跑，历史 2314 不作当前全绿。
-- 运行保留 maintenance（`a97`）与 native/sandbox-probe 队列（`aa19`）两修复均已通过独立 Opus review 并验收。
-- 主会话本轮完整 backend：241 files（1 failed / 240 passed）、2340 tests（1 failed / 2339 passed）；唯一失败为 `agent-package-runtime-environment.test` 全表计数并发干扰（expected 34 / actual 32），Sonnet 正在修复，不写全绿。历史 239 / 2314 不能当当前全绿。
-- PR 草稿 `.tmp/codebase-review-pr-body.md` 的验证段暂标待补；唯一失败修复并合并最新 `main` 后再补最终计数。
+- 已按子项验收：build 15（a568）、knowledge guard 3（a0b）、schedule 31（a450 / a7c + a573 / `bxb`）、eval 37（a1ba / `bdxq197ci`）、queue 12/12（aa19）、成果保留 79（a97）；最终全量已包含这些用例并全绿（backend 241 / 2340、web 115 / 1291），历史 2314 只作历史。
+- 运行保留 maintenance（`a97`）与 native/sandbox-probe 队列（`aa19`）两修复均已通过独立 Opus review 并验收，最终全量已含其用例。
+- 最终全量：backend `b0eg5ns1j` 241 files / 2340 passed / 0 skip / exit 0（日志 `tool-results/bd2s74p96.txt`）；web `bo6hv0cif` 115 files / 1291 passed / 0 skip / exit 0；typecheck `bbi`、build `bw1` exit 0。`agent-package-runtime-environment` 计数修正 Opus `a2c` 通过。历史 239 / 2314 只作历史。
+- PR 正文 `.tmp/codebase-review-pr-body.md` 已按最终事实修订（事件流回放、部分回滚边界、真实 SDK 未测边界），可直接用于推 PR。
 - 扩审已停止：`d1cce124` 已删除且 CronList 无任务，不重建 loop，不再新增领域轮换。
 - repo 旧注释已改：`packages/db/src/repo/eval.ts` 第 216 行现说明「子 run 创建前失败才为 NULL」，`packages/db/src/repo/ops.ts` 第 92 行现说明「本轮计划时刻 prevMillis」。
 - 保留限制：真实模型调用、SDK hook 实际调用、跨机器灾难恢复演练、eval 真实 Redis / worker 故障链路均未验证；schedule 测试未覆盖真实 worker 停机时序；native/sandbox-probe 的受控窗口不等于历史失败唯一归因。
 - permissions 已验收，但迁移 0042 仍未应用到共享库；部署需正常执行 `pnpm db:migrate`。
-- 最新 `main` 已合入品牌配色，待合并进本分支；合并后保持现有视觉，不修改设计文档 token。
+- `origin/main 5ccf9d4`（含品牌蓝）已合入，merge 提交 `28a88a3` 已推送；main 品牌蓝 / 发送 solid / 终态等待修复完整保留，不修改设计文档 token。
 - `.vitest/json/output.json` 等生成物仍被并行测试改写，待统一收尾。
-- 当前工作树改动尚未提交；用户已授权提交 PR 后合并，待唯一失败修复并合并最新 `main` 后由主会话执行。
+- 提交 `39cd98a` 已完成，`origin/main 5ccf9d4` 已合入、merge 提交 `28a88a3` 已推送；Opus 集成 review `aa582` 已通过；当前已验证、准备推 PR 合并（用户已授权），尚未创建 PR 或确认远端合并结果。
 
 ## 验证
 
@@ -225,18 +226,18 @@
 
 - `pnpm install --frozen-lockfile` → exit 0
 - `pnpm --filter @agentport/shared --filter @agentport/core --filter @agentport/db build` → exit 0
-- `pnpm typecheck` → 全 7 个包 exit 0（主会话本轮通过；历史 `b352`）
-- `pnpm lint:focus` → 通过；`pnpm lint:contract` → project contract OK；`git diff --check` → 无输出
+- `pnpm typecheck` → 全 7 个包 exit 0（最终 `bbi`；历史 `b352`）
+- `pnpm lint:focus` / `pnpm lint:contract` 合并前通过；合并后主会话再核 focus / contract 通过；`git diff --check` 无输出
 - `docker info` → 服务端 29.9.2 可用
-- `SANDBOX_IMAGE=agentport/sandbox:review-loop-610bd2 pnpm exec vitest run --project backend --hookTimeout 300000 --reporter=default` → 239 files / 2314 passed / 0 skip / exit 0（含 backup 42、plugin-permissions 4、SDK 10；完整原始日志 `bdo1m1z6g`）。只作历史，不能当当前全绿
-- 主会话本轮 web → 115 files / 1277 passed / 0 skip / exit 0；含 knowledge 补修、skill 新用例与 chat 滚动。历史结果同为 115 / 1277（`b9ieic9n9`），不代表本批 eval / scheduler
-- `pnpm build`（全 7 个包）→ 主会话本轮 exit 0（历史 `bcfet`）；仅提示 chunk >500KB，无性能结论
-- 主会话本轮完整 backend：241 files（1 failed / 240 passed）、2340 tests（1 failed / 2339 passed）。唯一失败为 `agent-package-runtime-environment.test` 全表计数并发干扰（expected 34 / actual 32）；Sonnet 正在修复，不写全绿。
-- 主会话本轮 typecheck / build 与 web 均通过；完整 backend 仅剩上述 1 条并发干扰失败，修复后需重跑。本批切口 37 / 15 / 16 均已经过验收（15 / 16 对应 schedule 两项，a450 / a7c + a573 + `bxb`）。不得用历史 239 / 2314 替代当前全绿；当前也不写全绿。
+- 历史 backend：`SANDBOX_IMAGE=agentport/sandbox:review-loop-610bd2 pnpm exec vitest run --project backend --hookTimeout 300000 --reporter=default` → 239 files / 2314 passed / 0 skip / exit 0（含 backup 42、plugin-permissions 4、SDK 10；完整原始日志 `bdo1m1z6g`）。该镜像只是本地测试环境，不是部署要求。
+- 历史 web：115 files / 1277 passed / 0 skip / exit 0（`b9ieic9n9`），早于本批 eval / scheduler。
+- 最终 backend：`b0eg5ns1j` 241 files / 2340 passed / 0 skip / exit 0（完整日志 `tool-results/bd2s74p96.txt`），含 queue（aa19）、成果保留（a97）与 `agent-package-runtime-environment` 计数修正用例。
+- 最终 web：`bo6hv0cif` 115 files / 1291 passed / 0 skip / exit 0。
+- 最终 typecheck：7 个包 `bbi` exit 0；build：`bw1` exit 0（仅 chunk >500KB 提示，无性能结论）。
 
 集成证据（历史）：
 
-- 旧 web 114 files / 1268 passed 以及早先 110 files / 1257 passed 都是 knowledge 补修与 skill 新增之前的集成证据，只作历史；本批之前的 Web 源码范围为 115 / 1277（本批未触 Web）。
+- 旧 web 114 files / 1268 passed 以及早先 110 files / 1257 passed 都是 knowledge 补修与 skill 新增之前的集成证据，只作历史；本批最终 web 为 115 / 1291（`bo6hv0cif`），早先 115 / 1277 只作历史。
 
 各修复的当前证据：
 
