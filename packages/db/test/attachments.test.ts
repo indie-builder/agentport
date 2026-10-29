@@ -155,6 +155,46 @@ describe.skipIf(!(ready && isolated))('conversation attachment queries', () => {
     );
   });
 
+  it('detaches published anchor messages before deleting their run', async () => {
+    const agentId = await newAgent();
+    const conversationId = newId('conversation');
+    const runId = newId('run');
+    await chat.createConversation(db, { id: conversationId, agentId, title: 'retained anchors' });
+    await chat.createRun(db, { id: runId, conversationId, agentId });
+    await chat.updateRun(db, runId, { status: 'succeeded', endedAt: old() });
+    const user = newId('message');
+    const after = newId('message');
+    await chat.insertMessages(db, [
+      {
+        id: user,
+        conversationId,
+        runId,
+        role: 'user',
+        content: { type: 'text', text: 'anchor user' },
+        createdAt: old(),
+      },
+      {
+        id: after,
+        conversationId,
+        runId,
+        role: 'assistant',
+        content: { type: 'text', text: 'anchor after' },
+        createdAt: old(),
+      },
+    ]);
+
+    expect(await maintenance.pruneRuns(db, 36_500, { retainedMessageIds: [user, after] })).toEqual({
+      runs: 1,
+      messages: 0,
+    });
+    const rows = await chat.listMessages(db, conversationId);
+    expect(rows.map((row) => [row.id, row.runId])).toEqual([
+      [user, null],
+      [after, null],
+    ]);
+    await pool.query('delete from conversations where id = $1', [conversationId]);
+  });
+
   it('never deletes orphan messages that reference attachments', async () => {
     const agentId = await newAgent();
     const conversationId = newId('conversation');

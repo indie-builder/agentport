@@ -298,6 +298,55 @@ describe('confirmed chat UX defects', () => {
     expect(host.textContent).not.toContain('等待回复');
   });
 
+  it('keeps the workspace, draft and attachments when refreshing experts fails', async () => {
+    await mount('/chat?agent=agent-a&conversation=conversation-a');
+    await type('unfinished draft');
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error('Missing attachment input');
+    await act(async () => {
+      Object.defineProperty(input, 'files', {
+        configurable: true,
+        value: [new File(['hello'], 'notes.md', { type: 'text/markdown' })],
+      });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(host.textContent).toContain('notes.md');
+
+    // 走真实请求层：一次性网络失败，再让同一请求成功。
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+    vi.stubGlobal('fetch', fetchMock);
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['agents'] });
+    });
+    await flush();
+
+    // 缓存仍在：后台刷新失败不能卸载工作区、清空附件/草稿或丢掉已打开会话。
+    expect(host.textContent).toContain('old prompt');
+    expect(message().value).toBe('unfinished draft');
+    expect(host.textContent).toContain('notes.md');
+    expect(useChatStore.getState().pendingAttachments).toHaveLength(1);
+    // 真实刷新错误与重试入口同时可见。
+    expect(host.textContent).toContain('专家列表刷新失败，保留当前会话');
+
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify([agent]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const retry = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === '重试',
+    );
+    if (!retry) throw new Error('Missing expert refresh retry');
+    await act(async () => retry.click());
+    await flush();
+    expect(host.textContent).not.toContain('专家列表刷新失败，保留当前会话');
+
+    await type('still editable');
+    expect(message().value).toBe('still editable');
+    expect(useChatStore.getState().pendingAttachments).toHaveLength(1);
+  });
+
   it.each([
     ['succeeded', '完成'],
     ['cancelled', '已停止'],

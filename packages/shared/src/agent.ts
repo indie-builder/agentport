@@ -93,14 +93,12 @@ export const agentInputSchema = z.object({
   timeoutMs: z.number().int().positive().default(600_000),
   /** 推理强度；不填则用 SDK 默认。 */
   effort: effortSchema.optional(),
-  maxThinkingTokens: z.number().int().positive().optional(),
   enabled: z.boolean().default(true),
 });
 
 export type AgentInput = z.infer<typeof agentInputSchema>;
-export type AgentPatch = Omit<Partial<AgentInput>, 'effort' | 'maxThinkingTokens'> & {
+export type AgentPatch = Omit<Partial<AgentInput>, 'effort'> & {
   effort?: AgentInput['effort'] | null;
-  maxThinkingTokens?: number | null;
 };
 
 export const agentSchema = agentInputSchema.extend({ role: z.string().default('通用助手') }).and(
@@ -147,15 +145,45 @@ export const skillSchema = skillInputSchema.and(
 
 export type Skill = z.infer<typeof skillSchema>;
 
-/** 技能支持资源文件：相对技能目录的安全路径 + 文本内容。 */
+export interface SkillResourcePathConflict {
+  path: string;
+  conflictingPath: string;
+}
+
+/** 不解析单路径；在入口校验后检查整组路径能否与生成的 SKILL.md 一起落盘。 */
+export function findSkillResourcePathConflict(
+  paths: readonly string[],
+): SkillResourcePathConflict | undefined {
+  const seen = new Map<string, string>([['skill.md', 'SKILL.md']]);
+  for (const path of paths) {
+    const folded = path.toLowerCase();
+    for (const [existing, original] of seen) {
+      if (
+        folded === existing ||
+        folded.startsWith(`${existing}/`) ||
+        existing.startsWith(`${folded}/`)
+      ) {
+        return { path, conflictingPath: original };
+      }
+    }
+    seen.set(folded, path);
+  }
+  return undefined;
+}
+
+/** 技能支持资源文件：相对技能目录的规范路径；根级 SKILL.md 留给生成的定义。 */
 export const skillFileInputSchema = z.object({
   path: z
     .string()
     .min(1)
     .max(200)
     .regex(
-      /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._\-/]+$/,
-      '路径必须是相对路径，且不能包含 .. 或绝对路径',
+      /^(?!.*(?:^|\/)\.{1,2}(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/,
+      '路径必须是相对路径，且不能包含 .、.. 或空路径段',
+    )
+    .refine(
+      (path) => findSkillResourcePathConflict([path]) === undefined,
+      '资源路径不能占用 SKILL.md',
     ),
   content: z.string().max(200_000).default(''),
 });

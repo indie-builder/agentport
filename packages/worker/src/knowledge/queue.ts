@@ -5,7 +5,7 @@ import {
   knowledgeEnqueueOptions,
   knowledgeJobPayloadSchema,
 } from '@agentport/shared';
-import { type Job, Queue, Worker } from 'bullmq';
+import { DelayedError, type Job, Queue, Worker } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
@@ -24,6 +24,11 @@ import { runWikiGenerate, type WikiQueryFn } from './wiki.js';
 type KnowledgeJobRow = typeof schema.knowledgeJobs.$inferSelect;
 
 const CANCEL_POLL_MS = 1_000;
+/**
+ * 认领后崩溃的 worker 会把行留在 running，BullMQ 随后重投同一个 job。
+ * 对账每 5 分钟扫描、宽限 5 分钟；1 分钟后重看一次即可接上退回的 queued。
+ */
+const REDELIVERY_DELAY_MS = 60_000;
 
 /** 各任务类型的硬超时；超时按失败收尾，保留游标与旧版本。 */
 export const KNOWLEDGE_TIMEOUT_MS: Record<KnowledgeJobRow['type'], number> = {
@@ -140,10 +145,20 @@ export async function startKnowledgeWorker(
 
   const worker = new Worker(
     KNOWLEDGE_JOBS_QUEUE,
-    async (job: Job<{ jobId: string }>) => {
+    async (job: Job<{ jobId: string }>, token?: string) => {
       const row = await repo.knowledge.claimJob(config.db, job.data.jobId);
-      // 条件认领：重复投递、已取消或已完成时这里拿不到行，直接跳过。
-      if (!row) return;
+      // 条件认领：重复投递、已取消或已完成时这里拿不到行。
+      if (!row) {
+        // 行仍是 running：崩溃 worker 已认领过，BullMQ 把同一个 job 重投了。
+        // 直接返回会把它记 completed，任务再也不会执行；官方延后交还执行权，
+        // 由 reconcile 把超期 running 退回 queued 后再认领（DelayedError 不消耗失败次数）。
+        const existing = await repo.knowledge.getJob(config.db, job.data.jobId);
+        if (existing?.status === 'running') {
+          await job.moveToDelayed(Date.now() + REDELIVERY_DELAY_MS, token);
+          throw new DelayedError();
+        }
+        return;
+      }
 
       const controller = new AbortController();
       activeJobs.add(controller);

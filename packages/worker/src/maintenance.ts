@@ -1,6 +1,8 @@
 import { pathToFileURL } from 'node:url';
-import { createDb, repo } from '@agentport/db';
+import { outputMessageAnchors } from '@agentport/core';
+import { createDb, repo, schema } from '@agentport/db';
 import { Queue, Worker } from 'bullmq';
+import { eq } from 'drizzle-orm';
 import pino, { type Logger } from 'pino';
 import { loadConfig } from './config.js';
 
@@ -26,11 +28,32 @@ export async function runMaintenance(
   db: ReturnType<typeof createDb>['db'],
   logger: Logger,
   retain: Retention,
+  workspacesDir: string,
 ): Promise<MaintenanceSummary> {
   const startedAt = Date.now();
   const agentVersionsDeleted = await repo.maintenance.pruneAgentVersions(db, retain.agentVersions);
-  const runs = await repo.maintenance.pruneRuns(db, retain.runDays);
-  const orphanMessagesDeleted = await repo.maintenance.pruneOrphanMessages(db, retain.messageDays);
+  // 已发布成果的锚点先完整读齐再删消息；任一 manifest 读取失败都中止本轮，不留不可 fork 的成果。
+  const conversations = await db
+    .select({ slug: schema.agents.slug, conversationId: schema.conversations.id })
+    .from(schema.conversations)
+    .innerJoin(schema.agents, eq(schema.agents.id, schema.conversations.agentId));
+  const retainedMessageIds = new Set<string>();
+  for (const conversation of conversations) {
+    for (const id of await outputMessageAnchors({
+      root: workspacesDir,
+      slug: conversation.slug,
+      conversationId: conversation.conversationId,
+    })) {
+      retainedMessageIds.add(id);
+    }
+  }
+  const pruneOptions = { retainedMessageIds: [...retainedMessageIds] };
+  const runs = await repo.maintenance.pruneRuns(db, retain.runDays, pruneOptions);
+  const orphanMessagesDeleted = await repo.maintenance.pruneOrphanMessages(
+    db,
+    retain.messageDays,
+    pruneOptions,
+  );
   const summary: MaintenanceSummary = {
     ...retain,
     agentVersionsDeleted,
@@ -57,6 +80,7 @@ export async function startMaintenanceWorker(input: {
   logger: Logger;
   redisUrl: string;
   retain: Retention;
+  workspacesDir: string;
 }): Promise<Worker> {
   const queue = new Queue(MAINTENANCE_QUEUE, { connection: { url: input.redisUrl } });
   await queue.upsertJobScheduler('daily', { every: DAY_MS });
@@ -64,7 +88,7 @@ export async function startMaintenanceWorker(input: {
 
   const worker = new Worker(
     MAINTENANCE_QUEUE,
-    () => runMaintenance(input.db, input.logger, input.retain),
+    () => runMaintenance(input.db, input.logger, input.retain, input.workspacesDir),
     { connection: { url: input.redisUrl } },
   );
   worker.on('failed', (job, err) => {
@@ -79,11 +103,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const logger = pino({ level: config.LOG_LEVEL });
   const { db, pool } = createDb(config.DATABASE_URL);
   try {
-    await runMaintenance(db, logger, {
-      runDays: config.RETAIN_RUN_DAYS,
-      messageDays: config.RETAIN_MESSAGE_DAYS,
-      agentVersions: config.RETAIN_AGENT_VERSIONS,
-    });
+    await runMaintenance(
+      db,
+      logger,
+      {
+        runDays: config.RETAIN_RUN_DAYS,
+        messageDays: config.RETAIN_MESSAGE_DAYS,
+        agentVersions: config.RETAIN_AGENT_VERSIONS,
+      },
+      config.WORKSPACES_DIR,
+    );
   } finally {
     await pool.end();
   }

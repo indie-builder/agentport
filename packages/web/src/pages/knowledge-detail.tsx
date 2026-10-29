@@ -344,40 +344,51 @@ export function KnowledgeDetailPage() {
         <PageHeader title={base.data?.name ?? '知识库'} className="min-w-0 flex-1" />
       </div>
       {base.isPending ? <LoadingState rows={2} /> : null}
-      {base.isError ? <ErrorState error={base.error} onRetry={() => void base.refetch()} /> : null}
-      {base.isSuccess ? (
-        <Tabs
-          value={tab}
-          onValueChange={(next) => go({ panel: next === 'documents' ? undefined : next }, true)}
-          className="flex-col gap-5"
-        >
-          <TabsList variant="line" aria-label="知识库任务" className="gap-4 border-b pb-3">
-            {tabs.map((item) => (
-              <TabsTrigger key={item.id} value={item.id}>
-                {item.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          <TabsContent value="documents">
-            <DocumentsTab
-              baseId={baseId}
-              folderId={search.folder}
-              onFolderChange={(folderId) => go({ folder: folderId }, true)}
+      {base.isError && base.data === undefined ? (
+        <ErrorState error={base.error} onRetry={() => void base.refetch()} />
+      ) : null}
+      {base.data !== undefined ? (
+        <>
+          {base.isError ? (
+            <ErrorState
+              title="知识库信息没有刷新成功"
+              error={base.error}
+              onRetry={() => void base.refetch()}
             />
-          </TabsContent>
-          <TabsContent value="search">
-            <SearchTab baseId={baseId} />
-          </TabsContent>
-          <TabsContent value="wiki">
-            <WikiTab baseId={baseId} pageId={search.page} onSelect={(page) => go({ page })} />
-          </TabsContent>
-          <TabsContent value="sources">
-            <SourcesTab baseId={baseId} />
-          </TabsContent>
-          <TabsContent value="jobs">
-            <JobsTab baseId={baseId} />
-          </TabsContent>
-        </Tabs>
+          ) : null}
+          <Tabs
+            value={tab}
+            onValueChange={(next) => go({ panel: next === 'documents' ? undefined : next }, true)}
+            className="flex-col gap-5"
+          >
+            <TabsList variant="line" aria-label="知识库任务" className="gap-4 border-b pb-3">
+              {tabs.map((item) => (
+                <TabsTrigger key={item.id} value={item.id}>
+                  {item.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <TabsContent value="documents">
+              <DocumentsTab
+                baseId={baseId}
+                folderId={search.folder}
+                onFolderChange={(folderId) => go({ folder: folderId }, true)}
+              />
+            </TabsContent>
+            <TabsContent value="search">
+              <SearchTab baseId={baseId} />
+            </TabsContent>
+            <TabsContent value="wiki">
+              <WikiTab baseId={baseId} pageId={search.page} onSelect={(page) => go({ page })} />
+            </TabsContent>
+            <TabsContent value="sources">
+              <SourcesTab baseId={baseId} />
+            </TabsContent>
+            <TabsContent value="jobs">
+              <JobsTab baseId={baseId} />
+            </TabsContent>
+          </Tabs>
+        </>
       ) : null}
     </Page>
   );

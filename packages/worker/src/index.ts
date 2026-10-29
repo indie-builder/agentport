@@ -502,7 +502,20 @@ const worker = new Worker(
       logger.info({ runId }, 'run externally terminated before claim, skipping');
       return;
     }
-    await publishRun(runId, { type: 'run_started', runId, conversationId }, logger);
+    try {
+      await publishRun(runId, { type: 'run_started', runId, conversationId }, logger);
+    } catch (err) {
+      // 认领只接受 queued；发布失败若不回退，BullMQ 重试会被 running 守卫跳过。
+      try {
+        await db
+          .update(schema.agentRuns)
+          .set({ status: 'queued', startedAt: null })
+          .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')));
+      } catch (revertError) {
+        logger.error({ err: revertError, runId }, 'failed to requeue after publish failure');
+      }
+      throw err;
+    }
     await repo.audit.writeAudit(db, logger, {
       actor: 'worker',
       action: 'agent.run.started',
@@ -772,9 +785,6 @@ const worker = new Worker(
           extraAllowedTools: agent.allowedTools,
           extraDisallowedTools: agent.disallowedTools,
           ...(agent.effort === null ? {} : { effort: effortSchema.parse(agent.effort) }),
-          ...(agent.maxThinkingTokens === null
-            ? {}
-            : { maxThinkingTokens: agent.maxThinkingTokens }),
           allowSubAgents: hasSubAgents,
           maxFieldBytes: config.SANDBOX_MAX_FIELD_BYTES,
           plugins: runPlugins.map((plugin) => ({
@@ -910,6 +920,9 @@ const worker = new Worker(
       // SDK session 与 fork 后的 uuid 映射同事务落库：只存一半会让续聊对不上 transcript。
       // 写库失败不能抛出：抛出会让 BullMQ 重跑整个沙盒并最终只留 reconcile 的
       // "worker lost track of this run"，真实原因反而被覆盖。记日志，继续写终态。
+      // 落库前先判定是否还会重试：失败轮次的 SDK session 与 fork 映射不能污染下一次续聊。
+      const retryable = isRetryable(outcome);
+      const willRetry = retryable && job.attemptsMade + 1 < (job.opts.attempts ?? 1);
       const forked = outcome.events.find((event) => event.type === 'session_forked');
       let persistedMessages: PersistedMessage[] = [];
       let messagesWritten = false;
@@ -917,7 +930,7 @@ const worker = new Worker(
       try {
         // 分支首轮：从宿主 transcript 的 forkedFrom 算新旧 uuid 映射，再与消息同事务写入。
         const uuidMap =
-          forked?.type === 'session_forked' && sessionsDirForRun !== null
+          !willRetry && forked?.type === 'session_forked' && sessionsDirForRun !== null
             ? await readForkUuidMap(
                 sessionsDirForRun,
                 forked.sessionId,
@@ -929,7 +942,9 @@ const worker = new Worker(
           conversationId,
           runId,
           events: outcome.events,
-          ...(outcome.sessionId === undefined ? {} : { sdkSessionId: outcome.sessionId }),
+          ...(willRetry || outcome.sessionId === undefined
+            ? {}
+            : { sdkSessionId: outcome.sessionId }),
           ...(uuidMap === undefined ? {} : { uuidMap }),
           uiFormat: runUiFormat,
         });
@@ -941,8 +956,6 @@ const worker = new Worker(
         logger.error({ err, runId }, 'failed to persist run messages');
       }
 
-      const retryable = isRetryable(outcome);
-      const willRetry = retryable && job.attemptsMade + 1 < (job.opts.attempts ?? 1);
       if (!messagesWritten && !willRetry) {
         outcome = {
           ...outcome,
@@ -1154,6 +1167,7 @@ const maintenanceWorker = await startMaintenanceWorker({
     messageDays: config.RETAIN_MESSAGE_DAYS,
     agentVersions: config.RETAIN_AGENT_VERSIONS,
   },
+  workspacesDir: config.WORKSPACES_DIR,
 });
 
 // stdio 试连走独立队列与独立容器入口，不影响 run 消费。
@@ -1254,8 +1268,8 @@ await scheduleScheduler.sync().catch((err: unknown) => {
 let shuttingDown = false;
 
 /**
- * SIGTERM：先让聊天 run 排空最多 10s；其余队列并发关闭（知识任务会 abort 活跃任务），
- * 沙盒不等待它们排空，最后关闭 Redis / PG。
+ * SIGTERM：先 abort 取消进行中的沙盒拉取/创建与知识任务；聊天 run 最多等 10s 排空，
+ * 沙盒 stop 与其余队列并发关闭，最后关闭 Redis / PG。
  */
 const shutdown = async (): Promise<void> => {
   if (shuttingDown) return;

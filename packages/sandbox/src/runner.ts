@@ -477,9 +477,6 @@ if (session.error !== undefined) {
         maxTurns: task.maxTurns,
         maxBudgetUsd: task.maxBudgetUsd,
         ...(task.effort === undefined ? {} : { effort: task.effort }),
-        ...(task.maxThinkingTokens === undefined
-          ? {}
-          : { thinking: { type: 'enabled', budgetTokens: task.maxThinkingTokens } }),
         abortController,
         model: task.model,
         ...(session.resume === undefined ? {} : { resume: session.resume }),

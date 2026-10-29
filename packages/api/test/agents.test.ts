@@ -1,5 +1,5 @@
 import { newId } from '@agentport/db';
-import { DEFAULT_RUNTIME_DOCKERFILE, type Agent } from '@agentport/shared';
+import { type Agent, DEFAULT_RUNTIME_DOCKERFILE } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -89,9 +89,10 @@ describe.skipIf(!ready)('agents', () => {
     await cleanup(app, { agentSlugs: createdAgents, serverNames: createdServers });
     for (const id of createdEnvironments) {
       // 先断开线上指针，复合外键才允许删除版本。
-      await app.pool.query('update runtime_environments set online_version_id = null where id = $1', [
-        id,
-      ]);
+      await app.pool.query(
+        'update runtime_environments set online_version_id = null where id = $1',
+        [id],
+      );
       await app.pool.query('delete from runtime_environment_versions where environment_id = $1', [
         id,
       ]);
@@ -462,7 +463,7 @@ describe.skipIf(!ready)('agents', () => {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
-      payload: { slug, name: 'Plain agent', effort: 'high', maxThinkingTokens: 1024 },
+      payload: { slug, name: 'Plain agent', effort: 'high' },
     });
     expect(created.statusCode, created.body).toBe(201);
     const agent = created.json<Agent>();
@@ -498,21 +499,20 @@ describe.skipIf(!ready)('agents', () => {
         method: 'PATCH',
         url: `/api/agents/${agent.id}`,
         headers: auth(),
-        payload: { effort: null, maxThinkingTokens: null },
+        payload: { effort: null },
       });
       expect(cleared.statusCode, cleared.body).toBe(200);
       expect(cleared.json<Agent>().effort).toBeUndefined();
-      expect(cleared.json<Agent>().maxThinkingTokens).toBeUndefined();
       expect(counter.selects).toHaveLength(0);
     } finally {
       counter.restore();
     }
 
-    const stored = await app.pool.query<{
-      effort: string | null;
-      max_thinking_tokens: number | null;
-    }>('select effort, max_thinking_tokens from agents where id = $1', [agent.id]);
-    expect(stored.rows[0]).toEqual({ effort: null, max_thinking_tokens: null });
+    const stored = await app.pool.query<{ effort: string | null }>(
+      'select effort from agents where id = $1',
+      [agent.id],
+    );
+    expect(stored.rows[0]).toEqual({ effort: null });
   });
 
   it('PATCH returns 404 for a missing agent even with a stale expectedUpdatedAt', async () => {

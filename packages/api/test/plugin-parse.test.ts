@@ -89,6 +89,37 @@ describe('plugin import parsing', () => {
     }
   });
 
+  it('rejects a path that is both a file and an ancestor directory in either order', () => {
+    for (const item of [
+      { ancestor: 'references', paths: ['references', 'references/guide.md'] },
+      { ancestor: 'references', paths: ['references/guide.md', 'references'] },
+      { ancestor: 'assets', paths: ['assets/deep/logo.txt', 'assets'] },
+    ]) {
+      let error: unknown;
+      try {
+        parse([manifest({ name: 'demo' }), ...item.paths.map((path) => file(path))]);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toMatchObject({ code: 'INVALID_INPUT', path: item.ancestor });
+    }
+  });
+
+  it('keeps sibling and nested support paths that do not collide', () => {
+    const { input } = parse([
+      manifest({ name: 'demo' }),
+      file('references/guide.md'),
+      file('references-extra/guide.md'),
+      file('references/nested/deep.md'),
+    ]);
+    expect(input.files.map((item) => item.path)).toEqual([
+      '.claude-plugin/plugin.json',
+      'references/guide.md',
+      'references-extra/guide.md',
+      'references/nested/deep.md',
+    ]);
+  });
+
   it('rejects a plugin name that cannot be an SDK namespace', () => {
     expect(() => parse([manifest({ name: 'My Plugin' })])).toThrow();
   });

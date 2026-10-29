@@ -1,3 +1,5 @@
+import { fail } from '@agentport/core';
+import { findSkillResourcePathConflict } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -40,6 +42,19 @@ export async function upsertSkillFile(
   path: string,
   content: string,
 ): Promise<SkillFileRow> {
+  const existing = await db
+    .select({ path: skillFiles.path })
+    .from(skillFiles)
+    .where(eq(skillFiles.skillId, skillId));
+  const conflict = findSkillResourcePathConflict([
+    ...existing.filter((file) => file.path !== path).map((file) => file.path),
+    path,
+  ]);
+  if (conflict) {
+    fail('INVALID_INPUT', `资源路径「${conflict.path}」与「${conflict.conflictingPath}」冲突`, {
+      path: conflict.path,
+    });
+  }
   const [row] = await db
     .insert(skillFiles)
     .values({ id: newId('skillFile'), skillId, path, content })

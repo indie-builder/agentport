@@ -48,14 +48,17 @@ type FakeChild = EventEmitter & {
 function fakeDocker(respond: (args: string[]) => Reply): {
   spawn: SpawnFn;
   commands: string[][];
-  children: FakeChild[];
+  /** buildx 的回复（含 --iidfile 写入）就绪时 resolve；真实 fs 之后的 spawn 不能靠数事件循环轮次等。 */
+  buildxStarted: Promise<FakeChild>;
 } {
   const commands: string[][] = [];
-  const children: FakeChild[] = [];
+  let resolveBuildx!: (child: FakeChild) => void;
+  const buildxStarted = new Promise<FakeChild>((resolve) => {
+    resolveBuildx = resolve;
+  });
   const spawnFn: SpawnFn = (_command, args) => {
     commands.push([...args]);
     const child = new EventEmitter() as FakeChild;
-    children.push(child);
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
     child.kill = () => {
@@ -67,12 +70,13 @@ function fakeDocker(respond: (args: string[]) => Reply): {
       reply.onStart?.();
       if (reply.stdout !== undefined) child.stdout.write(reply.stdout);
       if (reply.stderr !== undefined) child.stderr.write(reply.stderr);
+      if (args[0] === 'buildx') resolveBuildx(child);
       if (reply.holdOpen === true) return;
       queueMicrotask(() => child.emit('close', reply.code ?? 0, null));
     });
     return child as unknown as ChildProcess;
   };
-  return { spawn: spawnFn, commands, children };
+  return { spawn: spawnFn, commands, buildxStarted };
 }
 
 function dockerResponder(
@@ -336,7 +340,7 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
   });
 
   it('日志落库同步抛错后，后续输出仍会落库', async () => {
-    // 修复前 flush 会停在已完成的 drain 上死循环，因此这里不 await handler，只断言迟到日志。
+    // 修复前 flush 会停在已完成的 drain 上死循环：先断言迟到日志，再关闭进程收尾。
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
     });
@@ -358,15 +362,16 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
         timeoutMs: 60_000,
       });
 
-      void handler({ data: { versionId: 'ver_test' } } as Job<RuntimeEnvironmentBuildJob>);
-      let buildIndex = -1;
-      for (let i = 0; i < 20 && buildIndex < 0; i += 1) {
-        await new Promise((resolve) => setImmediate(resolve));
-        buildIndex = fake.commands.findIndex((args) => args[0] === 'buildx');
-      }
-      expect(buildIndex).toBeGreaterThanOrEqual(0);
-      const buildChild = fake.children[buildIndex];
-      if (buildChild === undefined) throw new Error('build process not spawned');
+      const running = handler({
+        data: { versionId: 'ver_test' },
+      } as Job<RuntimeEnvironmentBuildJob>);
+      // spawn buildx 前有真实 fs（mkdtemp/writeFile），等 fake spawn 的信号而不是数事件循环轮次。
+      const buildChild = await Promise.race([
+        fake.buildxStarted,
+        running.then(() => {
+          throw new Error('handler finished before the buildx spawn');
+        }),
+      ]);
 
       buildChild.stdout.write('first-step\n');
       await new Promise((resolve) => setImmediate(resolve));
@@ -377,6 +382,9 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
 
       expect(attempts).toBe(2);
       expect(calls.logs.map((entry) => entry.chunk).join('')).toContain('late-step');
+
+      buildChild.emit('close', 0, null);
+      await running;
     } finally {
       vi.useRealTimers();
     }
@@ -443,14 +451,12 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
       const running = handler({
         data: { versionId: 'ver_test' },
       } as Job<RuntimeEnvironmentBuildJob>);
-      let buildIndex = -1;
-      for (let i = 0; i < 20 && buildIndex < 0; i += 1) {
-        await new Promise((resolve) => setImmediate(resolve));
-        buildIndex = fake.commands.findIndex((args) => args[0] === 'buildx');
-      }
-      expect(buildIndex).toBeGreaterThanOrEqual(0);
-      const buildChild = fake.children[buildIndex];
-      if (buildChild === undefined) throw new Error('build process not spawned');
+      const buildChild = await Promise.race([
+        fake.buildxStarted,
+        running.then(() => {
+          throw new Error('handler finished before the buildx spawn');
+        }),
+      ]);
 
       // 先排空已到达的输出，再让下一次刷新在 pending 为空时执行。
       await vi.advanceTimersByTimeAsync(1_000);

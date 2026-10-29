@@ -211,6 +211,18 @@ export function parsePluginFiles(params: {
     assertCleanPath(file.path);
     rejectUnsupported(file.path);
   }
+  // 同一路径不能既是文件又是另一个文件的祖先目录；否则渲染落盘时二者无法共存。
+  for (const file of params.files) {
+    const segments = file.path.split('/');
+    for (let index = 1; index < segments.length; index += 1) {
+      const ancestor = segments.slice(0, index).join('/');
+      if (seen.has(ancestor)) {
+        fail('INVALID_INPUT', `插件路径「${ancestor}」是文件，不能同时作为「${file.path}」的目录`, {
+          path: ancestor,
+        });
+      }
+    }
+  }
   assertNoRuntimeDependencies(params.files);
 
   const manifest = parseManifest(params.files, warnings);

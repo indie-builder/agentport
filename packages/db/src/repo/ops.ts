@@ -89,7 +89,7 @@ export interface ScheduleTriggerWrite {
   runId: string;
   conversationId: string;
   messageId: string;
-  /** job.timestamp：只允许比上次更新更晚的触发落库，重复投递自然被挡掉。 */
+  /** 本轮计划时刻 prevMillis：只允许比上次更新更晚的触发落库，重复投递自然被挡掉。 */
   triggerAt: number;
 }
 

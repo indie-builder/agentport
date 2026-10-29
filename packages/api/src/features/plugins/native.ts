@@ -41,6 +41,9 @@ export async function runNativePluginAction(
   });
   const events = new QueueEvents(NATIVE_PLUGINS_QUEUE, {
     connection: { ...connection, maxRetriesPerRequest: null },
+    // 首个 XREAD 若在 job 完成之后才开始，默认 $ 会在执行时跳过完成事件。
+    // 从流起点回放（默认保留 1 万条），waitUntilFinished 只监听本 jobId。
+    lastEventId: '0-0',
   });
   const onError = (error: Error) => logger.warn({ err: error }, 'native plugin queue error');
   // Queue 也会转发 backend error；没有 listener 时 EventEmitter 会把它抛成 uncaught。

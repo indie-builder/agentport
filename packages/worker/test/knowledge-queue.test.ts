@@ -7,8 +7,10 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import { KNOWLEDGE_JOBS_QUEUE, knowledgeEnqueueOptions } from '@agentport/shared';
 import { Queue, QueueEvents } from 'bullmq';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { startKnowledgeWorker } from '../src/knowledge/queue.js';
+import { type KnowledgeQueueLike, reconcileKnowledgeJobs } from '../src/knowledge/reconcile.js';
+import { createIsolatedDatabase } from './isolated-db.js';
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
@@ -848,6 +850,157 @@ describe('knowledge worker queue', () => {
       await queue.close();
       await new Promise<void>((resolve) => hanging.close(() => resolve()));
     }
+  });
+});
+
+// 对账扫描整表，必须独占随机库，不能碰共享库中其他套件的 queued/running 行。
+describe('knowledge redelivery after a stalled job', () => {
+  const redeliveryPrefix = `knowledge-redelivery-${randomUUID().slice(0, 8)}`;
+  let isolated: Awaited<ReturnType<typeof createIsolatedDatabase>> = null;
+  let dbHandle!: ReturnType<typeof createDb>;
+  let db!: ReturnType<typeof createDb>['db'];
+  let queue!: Queue<{ jobId: string }>;
+  let worker: Awaited<ReturnType<typeof startKnowledgeWorker>> | undefined;
+
+  const startWorker = () =>
+    startKnowledgeWorker({
+      db,
+      logger: quiet,
+      redisUrl,
+      prefix: redeliveryPrefix,
+      knowledgeDir,
+      decrypt: () => ({}),
+      connectors: {},
+    });
+
+  const queueLike = (): KnowledgeQueueLike => ({
+    getJob: (id) =>
+      queue.getJob(id) as unknown as Promise<{ getState: () => Promise<string> } | undefined>,
+    remove: (id) => queue.remove(id),
+    add: (_name, data, opts) => queue.add('knowledge', data, opts),
+  });
+
+  const waitForState = async (
+    id: string,
+    states: string[],
+    timeoutMs = 10_000,
+  ): Promise<string> => {
+    const deadline = Date.now() + timeoutMs;
+    let last = '';
+    while (Date.now() < deadline) {
+      last = (await (await queue.getJob(id))?.getState()) ?? '';
+      if (states.includes(last)) return last;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return last;
+  };
+
+  const waitForRow = async (id: string, statuses: string[]) => {
+    const deadline = Date.now() + 10_000;
+    let row = await repo.knowledge.getJob(db, id);
+    while (!statuses.includes(row?.status ?? '') && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      row = await repo.knowledge.getJob(db, id);
+    }
+    return row;
+  };
+
+  beforeAll(async () => {
+    // 库只在套件真正执行时创建：被 -t 过滤掉时不会留下空库。
+    isolated = await createIsolatedDatabase('worker_knowledge_redelivery');
+    if (!isolated) return;
+    dbHandle = createDb(isolated.url);
+    db = dbHandle.db;
+    queue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
+      connection: { url: redisUrl },
+      prefix: redeliveryPrefix,
+    });
+  });
+
+  beforeEach(async (ctx) => {
+    // 建库失败时整套跳过，而不是让队列/连接在用例里报空。
+    if (!isolated) ctx.skip('PostgreSQL unavailable');
+    await queue.obliterate({ force: true });
+  });
+
+  afterEach(async () => {
+    await worker?.close();
+    worker = undefined;
+  });
+
+  afterAll(async () => {
+    await worker?.close();
+    if (queue) {
+      await queue.obliterate({ force: true }).catch(() => undefined);
+      await queue.close();
+    }
+    if (dbHandle) await dbHandle.pool.end();
+    await isolated?.close();
+  });
+
+  it('defers a redelivered running job instead of marking it completed, then reconcile and restart finish it', async () => {
+    const job = await repo.knowledge.createJob(db, {
+      type: 'cleanup',
+      baseId: null,
+      documentId: null,
+      sourceId: null,
+      payload: { type: 'cleanup' },
+    });
+    // 模拟已认领后崩溃的 worker：行停在 running，BullMQ 随后把同一个 job 重投。
+    const claimed = await repo.knowledge.claimJob(db, job.id);
+    expect(claimed).toMatchObject({ status: 'running', attempts: 1 });
+
+    worker = await startWorker();
+    await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
+
+    // 认领返回空但行仍是 running：必须延后重投，不能被记 completed。
+    expect(await waitForState(job.id, ['delayed', 'completed', 'failed'])).toBe('delayed');
+    expect((await repo.knowledge.getJob(db, job.id))?.status).toBe('running');
+    const pending = await queue.getJob(job.id);
+    expect(pending?.attemptsMade).toBe(0);
+
+    // delayed job 不占 active，关闭不必等它。
+    const closeStarted = Date.now();
+    await worker.close();
+    worker = undefined;
+    expect(Date.now() - closeStarted).toBeLessThan(5_000);
+
+    // 既有对账把超过宽限的 running 行退回 queued，delayed job 仍在队列里。
+    await db
+      .update(schema.knowledgeJobs)
+      .set({ startedAt: new Date(Date.now() - 10 * 60_000) })
+      .where(eq(schema.knowledgeJobs.id, job.id));
+    const reconciled = await reconcileKnowledgeJobs(db, quiet, queueLike());
+    expect(reconciled.requeued).toBeGreaterThanOrEqual(1);
+    expect((await repo.knowledge.getJob(db, job.id))?.status).toBe('queued');
+
+    worker = await startWorker();
+    await (await queue.getJob(job.id))?.promote();
+    const finished = await waitForRow(job.id, ['succeeded', 'failed']);
+    expect(finished?.status).toBe('succeeded');
+    expect(finished?.attempts).toBe(2);
+    expect(finished?.endedAt).toBeInstanceOf(Date);
+  });
+
+  it('still skips cancelled or missing rows without delaying them', async () => {
+    const cancelled = await repo.knowledge.createJob(db, {
+      type: 'cleanup',
+      baseId: null,
+      documentId: null,
+      sourceId: null,
+      payload: { type: 'cleanup' },
+    });
+    await repo.knowledge.requestCancel(db, cancelled.id);
+    const missing = newId('knowledgeJob');
+
+    worker = await startWorker();
+    await queue.add('knowledge', { jobId: cancelled.id }, knowledgeEnqueueOptions(cancelled.id));
+    await queue.add('knowledge', { jobId: missing }, knowledgeEnqueueOptions(missing));
+
+    expect(await waitForState(cancelled.id, ['completed', 'failed', 'delayed'])).toBe('completed');
+    expect(await waitForState(missing, ['completed', 'failed', 'delayed'])).toBe('completed');
+    expect((await repo.knowledge.getJob(db, cancelled.id))?.status).toBe('cancelled');
+    expect(await repo.knowledge.getJob(db, missing)).toBeNull();
   });
 });
 

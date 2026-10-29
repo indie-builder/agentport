@@ -98,14 +98,12 @@ const skillFormSchema = skillInputSchema.extend({
 });
 
 const skillFileFormSchema = skillFileInputSchema.extend({
+  // 表单只补中文必填/长度提示，规范路径（保留 SKILL.md、拒绝空段与 . / ..）仍由共享 schema 判定。
   path: z
     .string()
     .min(1, '不能为空，请填写后再保存')
     .max(200, '最多 200 个字符，请精简后再保存')
-    .regex(
-      /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._\-/]+$/,
-      '路径必须是相对路径，且不能包含 .. 或绝对路径',
-    ),
+    .pipe(skillFileInputSchema.shape.path),
   content: z.string().max(200_000, '最多 200000 个字符，请精简后再保存').default(''),
 });
 
@@ -650,7 +648,7 @@ export function SkillDialog({
             rhf.reset(values);
             setBaseline(saved.updatedAt);
             // 支持文件草稿由各自编辑器保存，主表单保存不丢弃它们。
-            if (!filesDirty) onClose();
+            if (!filesDirty) finish();
           },
           onError,
         },
@@ -659,7 +657,7 @@ export function SkillDialog({
       create.mutate(values, {
         onSuccess: () => {
           toastSuccess('技能已创建');
-          onClose();
+          finish();
         },
         onError,
       });
@@ -668,11 +666,20 @@ export function SkillDialog({
 
   const pending = create.isPending || update.isPending || filesSaving;
   const blocker = useFormBlocker(dirty, pending);
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
+  const finish = (): void => {
+    blockerRef.current.reset?.();
+    onClose();
+  };
   // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中不能丢弃。
   const close = (): void => {
     if (pending) return;
     if (dirty) setConfirmDiscard(true);
-    else onClose();
+    else finish();
   };
 
   return (
@@ -804,7 +811,7 @@ export function SkillDialog({
           confirmLabel="放弃并关闭"
           confirmDisabled={pending}
           onConfirm={async () => {
-            if (!pending) onClose();
+            if (!pending) finish();
           }}
         />
         <ConfirmDialog

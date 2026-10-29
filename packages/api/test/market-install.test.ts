@@ -1,7 +1,15 @@
 import { repo } from '@agentport/db';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { snapshotToSkill } from '../src/features/market/install.js';
-import { cleanup, infraReady, startApp, unique } from './helpers.js';
+import {
+  cleanup,
+  expectProblem,
+  infraReady,
+  inject,
+  loginCookie,
+  startApp,
+  unique,
+} from './helpers.js';
 
 const skillMd = `---
 name: Find Skills
@@ -57,6 +65,17 @@ describe('snapshotToSkill', () => {
     expect(result.warnings).toHaveLength(3);
   });
 
+  it('warns and skips non-canonical paths and reserved definition names', () => {
+    const paths = ['a//b.md', './refs/a.md', 'skill.md', 'SKILL.md/child.md'];
+    const result = snapshotToSkill('find-skills', [
+      { path: 'SKILL.md', contents: skillMd },
+      ...paths.map((path) => ({ path, contents: 'skip' })),
+      { path: 'references/nested/api.md', contents: 'keep' },
+    ]);
+    expect(result.files).toEqual([{ path: 'references/nested/api.md', content: 'keep' }]);
+    expect(result.warnings).toEqual(paths.map((path) => `跳过路径不合法的文件 ${path}`));
+  });
+
   it('rejects snapshots without SKILL.md', () => {
     expect(() => snapshotToSkill('find-skills', [])).toThrow('缺少 SKILL.md');
   });
@@ -67,11 +86,80 @@ describe('snapshotToSkill', () => {
 });
 
 describe.skipIf(!ready)('market install persistence', () => {
-  it('writes license, compatibility and metadata to the installed skill', async () => {
+  it.each([
+    ['refs', 'refs/child.md'],
+    ['refs/child.md', 'refs'],
+    ['refs/a.md', 'REFS/A.md'],
+    ['refs/a.md', 'refs/a.md'],
+  ])(
+    'rejects a conflicting market installation before persisting %s / %s',
+    async (first, second) => {
+      const app = await startApp();
+      const slug = unique('market-conflict');
+      try {
+        const cookie = await loginCookie(app);
+        vi.stubGlobal(
+          'fetch',
+          vi.fn().mockResolvedValue(
+            Response.json({
+              files: [
+                { path: 'SKILL.md', contents: skillMd },
+                { path: first, contents: 'first' },
+                { path: second, contents: 'second' },
+              ],
+            }),
+          ),
+        );
+        const result = await inject(app, {
+          method: 'POST',
+          url: '/api/market/skills/install',
+          headers: { cookie },
+          payload: { id: `acme/skills/${slug}` },
+        });
+        expectProblem(result, 'INVALID_INPUT');
+        expect(await repo.skills.getSkillBySourceId(app.db, `acme/skills/${slug}`)).toBeNull();
+        expect((await repo.skills.listSkills(app.db)).some((row) => row.slug === slug)).toBe(false);
+      } finally {
+        vi.unstubAllGlobals();
+        await cleanup(app, { skillSlugs: [slug] });
+        await app.close();
+      }
+    },
+  );
+
+  it.each([
+    [
+      { path: 'refs', content: 'file' },
+      { path: 'refs/child.md', content: 'child' },
+    ],
+    [
+      { path: 'refs/a.md', content: 'one' },
+      { path: 'REFS/A.md', content: 'two' },
+    ],
+  ])('rejects a non-projectable batch without creating the skill: %j', async (...files) => {
+    const app = await startApp();
+    const slug = unique('market-batch');
+    try {
+      const { skill } = snapshotToSkill(slug, [{ path: 'SKILL.md', contents: skillMd }]);
+      await expect(repo.skills.createSkillWithFiles(app.db, skill, files)).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+      });
+      expect((await repo.skills.listSkills(app.db)).some((row) => row.slug === slug)).toBe(false);
+    } finally {
+      await cleanup(app, { skillSlugs: [slug] });
+      await app.close();
+    }
+  });
+
+  it('writes provenance and legal nested resources to the installed skill', async () => {
     const app = await startApp();
     const slug = unique('market-provenance');
     try {
-      const snapshot = snapshotToSkill(slug, [{ path: 'SKILL.md', contents: skillMd }]);
+      const snapshot = snapshotToSkill(slug, [
+        { path: 'SKILL.md', contents: skillMd },
+        { path: 'references/nested/api.md', contents: '# API' },
+        { path: 'scripts/run.sh', contents: 'exit 0' },
+      ]);
       const created = await repo.skills.createSkillWithFiles(
         app.db,
         snapshot.skill,
@@ -83,6 +171,12 @@ describe.skipIf(!ready)('market install persistence', () => {
       expect(persisted.license).toBe('MIT');
       expect(persisted.compatibility).toBe('Requires Node 20+');
       expect(persisted.metadata).toEqual(metadata);
+      expect(
+        (await repo.skillFiles.listSkillFiles(app.db, created.id)).map(({ path, content }) => ({
+          path,
+          content,
+        })),
+      ).toEqual(snapshot.files);
       expect(repo.skills.toSkillDefinition(persisted)).toMatchObject({
         license: 'MIT',
         compatibility: 'Requires Node 20+',

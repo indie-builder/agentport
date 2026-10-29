@@ -170,7 +170,9 @@ export function ChatPage() {
     void navigate({ to: '/chat', search: {}, replace: true });
   };
 
-  if (agents.isPending || agents.isError || agents.data.length === 0) {
+  // 只有还没有缓存数据时才整页替换。已有专家缓存但后台刷新失败时继续渲染工作区，
+  // 否则 cleanup 会清掉未发送附件、草稿与当前会话，错误改由工作区内提示并可重试。
+  if (!agents.data || agents.data.length === 0) {
     return (
       <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
@@ -217,9 +219,11 @@ export function ChatPage() {
   // 不会因为新会话的数据刚到就卸载整个工作区、掐断事件流。
   return (
     <ChatWorkspace
-      agents={agents.data ?? []}
+      agents={agents.data}
       agentId={activeAgentId}
       conversationId={conversationId}
+      agentsError={agents.isError ? agents.error : null}
+      onRetryAgents={() => void agents.refetch()}
       output={
         search.outputRun && search.outputPath
           ? {
@@ -311,6 +315,8 @@ function ChatWorkspace({
   agents,
   agentId,
   conversationId,
+  agentsError,
+  onRetryAgents,
   output,
   onSelectOutput,
   onConversationChange,
@@ -320,6 +326,8 @@ function ChatWorkspace({
   agents: NonNullable<ReturnType<typeof useAgents>['data']>;
   agentId: string | null;
   conversationId: string | null;
+  agentsError: unknown | null;
+  onRetryAgents: () => void;
   output: OutputSelection | null;
   onSelectOutput: (selection: OutputSelection) => void;
   onConversationChange: (conversationId: string | null, replace?: boolean) => void;
@@ -664,6 +672,8 @@ function ChatWorkspace({
       }}
       conversationId={conversationId}
       detail={detail}
+      agentsError={agentsError}
+      onRetryAgents={onRetryAgents}
       historyReady={conversationId === null || hydrated.current === conversationId}
       runApprovals={runApprovals}
       onRetryStream={stream.retryStream}
@@ -1353,6 +1363,8 @@ function ChatColumn({
   onToggleHistory,
   conversationId,
   detail,
+  agentsError,
+  onRetryAgents,
   historyReady,
   runApprovals,
   onRetryStream,
@@ -1398,6 +1410,8 @@ function ChatColumn({
   onToggleHistory: () => void;
   conversationId: string | null;
   detail: ReturnType<typeof useConversation>;
+  agentsError: unknown | null;
+  onRetryAgents: () => void;
   historyReady: boolean;
   runApprovals: ReturnType<typeof useRunApprovals>;
   onRetryStream: () => void;
@@ -1675,6 +1689,13 @@ function ChatColumn({
           {run ? runStatusText(run, items) : ''}
         </div>
         {run?.runId ? <RunReconciliation run={run} reconcileRun={reconcileRun} /> : null}
+        {agentsError ? (
+          <ErrorState
+            error={agentsError}
+            onRetry={onRetryAgents}
+            title="专家列表刷新失败，保留当前会话"
+          />
+        ) : null}
         {runApprovals.isError ? (
           <ErrorState error={runApprovals.error} onRetry={() => void runApprovals.refetch()} />
         ) : null}
@@ -2147,7 +2168,7 @@ export function MessagePane({
   }, [approvalHosts]);
 
   // 发送是明确动作：新的一轮用户消息出现就把视图拉回最新，即使此前往上翻过。
-  // 认「末尾那个用户项对象」而不是轮次 id：旧消息前插会让索引兜底 id 整体后移，误判成新轮。
+  // 认「末尾那个用户项」而不是轮次 id：补旧会重建历史项对象，id 才是同一消息。
   const tailItem = items.at(-1);
   const appendedUser = tailItem?.kind === 'user' ? tailItem : null;
 
@@ -2155,22 +2176,23 @@ export function MessagePane({
     <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollEdgeThreshold={80}>
       <MessageScroller className="h-auto flex-1">
         <MessageScrollerViewport aria-label="对话消息">
+          {/* 入口留在视口顶部的正常流里，但不进 Content：原语靠 Content 旧首子项后移识别 prepend。 */}
+          {hasOlder || loadingOlder ? (
+            <div className="mx-auto flex w-full max-w-[760px] justify-center px-4 pt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loadingOlder || olderDisabled}
+                aria-busy={loadingOlder}
+                onClick={onLoadOlder}
+              >
+                {loadingOlder ? '加载中…' : '加载更早消息'}
+              </Button>
+            </div>
+          ) : null}
           <MessageScrollerContent
             className={cn('mx-auto w-full max-w-[760px] gap-4', !welcome && 'p-4')}
           >
-            {hasOlder || loadingOlder ? (
-              <MessageScrollerItem messageId="load-older" className="flex justify-center">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={loadingOlder || olderDisabled}
-                  aria-busy={loadingOlder}
-                  onClick={onLoadOlder}
-                >
-                  {loadingOlder ? '加载中…' : '加载更早消息'}
-                </Button>
-              </MessageScrollerItem>
-            ) : null}
             {loading ? (
               <MessageScrollerItem messageId="loading">
                 <LoadingState rows={4} />
@@ -2455,15 +2477,25 @@ const TurnTrace = memo(function TurnTrace({
   );
 });
 
+type UserChatItem = Extract<ChatItem, { kind: 'user' }>;
+
+/** 历史项有持久 id：补旧重建对象时仍认同一消息。新发送的用户项没有 id，只能按对象身份。 */
+function sameUserItem(previous: UserChatItem | null, next: UserChatItem): boolean {
+  if (previous === next) return true;
+  const previousId = previous?.id ?? previous?.messageId;
+  const nextId = next.id ?? next.messageId;
+  return previousId !== undefined && nextId !== undefined && previousId === nextId;
+}
+
 /**
  * 新用户轮出现时回到底部；必须挂在 Provider 内才能拿到滚动控制。
- * 用对象身份而不是轮次 id：补旧消息时索引兜底 id 会整体后移，导致误判。
+ * 补旧消息会重建历史项对象，比较持久 id 才不会误判成新的一轮。
  */
-function ScrollToLatest({ userItem }: { userItem: ChatItem | null }) {
+function ScrollToLatest({ userItem }: { userItem: UserChatItem | null }) {
   const { scrollToEnd } = useMessageScroller();
   const seen = useRef(userItem);
   useEffect(() => {
-    if (userItem === null || userItem === seen.current) return;
+    if (userItem === null || sameUserItem(seen.current, userItem)) return;
     seen.current = userItem;
     scrollToEnd();
   }, [userItem, scrollToEnd]);

@@ -228,6 +228,15 @@ function flatText(node: ReactNode): string {
   return '';
 }
 
+/** 组件测试不挂载真实 DOM，RHF 的 valueAsNumber 没有 ref 可取；直接传 number 值。 */
+function changeNumberField(tree: Element[], id: string, value: number): void {
+  const field = tree.find((node) => node.props.id === id);
+  if (!field) throw new Error(`Missing number field ${id}`);
+  (field.props.onChange as (event: unknown) => void)({
+    target: { name: field.props.name, value },
+  });
+}
+
 beforeEach(() => {
   state.agents = [
     parent,
@@ -317,7 +326,7 @@ describe('expert editor regressions', () => {
     );
   });
 
-  it('keeps unparseable tool and thinking text as the draft and blocks saving', async () => {
+  it('keeps unparseable tool text as the draft and blocks saving', async () => {
     await inspect(editor, async (tree, pass) => {
       if (pass === 0) {
         selectSection(tree, '权限');
@@ -336,14 +345,6 @@ describe('expert editor regressions', () => {
         return true;
       }
       if (pass === 3) {
-        const thinking = tree.find((node) => node.props.id === 'agent-thinking');
-        if (!thinking) throw new Error('Missing thinking field');
-        (thinking.props.onChange as (event: unknown) => void)({
-          target: { name: 'maxThinkingTokens', value: '1.5' },
-        });
-        return true;
-      }
-      if (pass === 4) {
         // 保存被拦下：非法文本不丢、也不发请求。
         const form = tree.find((node) => node.type === 'form');
         if (!form) throw new Error('Missing editor form');
@@ -456,8 +457,8 @@ describe('expert editor regressions', () => {
     });
   });
 
-  it('offers a default effort and clears a saved thinking limit with an explicit null', async () => {
-    const configured = { ...parent, effort: 'high' as const, maxThinkingTokens: 1024 };
+  it('offers a default effort and clears a saved effort with an explicit null', async () => {
+    const configured = { ...parent, effort: 'high' as const };
     await inspect(
       () =>
         AgentEditor({
@@ -477,26 +478,50 @@ describe('expert editor regressions', () => {
           expect(
             (effort.props.items as Array<{ value: string }>).some((item) => item.value === ''),
           ).toBe(true);
+          (effort.props.onValueChange as (value: string) => void)('');
           selectSection(tree, '运行限制');
-          return;
-        }
-        const thinking = tree.find((node) => node.props.id === 'agent-thinking');
-        if (!thinking) throw new Error('Missing thinking field');
-        if (pass === 2) {
-          (thinking.props.onChange as (event: unknown) => void)({
-            target: { name: 'maxThinkingTokens', value: '' },
-          });
           return true;
         }
-        expect(thinking.props['aria-invalid']).toBe(false);
-        if (pass !== 3) return;
+        // 固定思考预算控件已移除，推理深度只由 effort 表达。
+        expect(tree.find((node) => node.props.id === 'agent-thinking')).toBeUndefined();
         const form = tree.find((node) => node.type === 'form');
         if (!form) throw new Error('Missing editor form');
         await (form.props.onSubmit as (event: unknown) => Promise<void>)({
           preventDefault() {},
         });
         expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
-          input: { maxThinkingTokens: null },
+          input: { effort: null },
+        });
+      },
+    );
+  });
+
+  it('keeps the configured effort when saving a rename', async () => {
+    const configured = { ...parent, effort: 'high' as const };
+    await inspect(
+      () =>
+        AgentEditor({
+          agent: configured,
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
+      async (tree, pass) => {
+        const name = tree.find((node) => node.props.id === 'agent-name');
+        if (!name) throw new Error('Missing name field');
+        if (pass === 0) {
+          (name.props.onChange as (event: unknown) => void)({
+            target: { name: 'name', value: 'Renamed' },
+          });
+          return true;
+        }
+        const form = tree.find((node) => node.type === 'form');
+        if (!form) throw new Error('Missing editor form');
+        await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+          preventDefault() {},
+        });
+        expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+          input: { name: 'Renamed', effort: 'high' },
         });
       },
     );
@@ -590,11 +615,7 @@ describe('expert editor regressions', () => {
         ]);
         expect(items.some((item) => item.value === 'rte_default')).toBe(false);
         if (pass === 1) {
-          const thinking = tree.find((node) => node.props.id === 'agent-thinking');
-          if (!thinking) throw new Error('Missing thinking field');
-          (thinking.props.onChange as (event: unknown) => void)({
-            target: { name: 'maxThinkingTokens', value: '1000' },
-          });
+          changeNumberField(tree, 'agent-turns', 30);
           return true;
         }
         const form = tree.find((node) => node.type === 'form');
@@ -620,11 +641,7 @@ describe('expert editor regressions', () => {
         return true;
       }
       if (pass === 1) {
-        const thinking = tree.find((node) => node.props.id === 'agent-thinking');
-        if (!thinking) throw new Error('Missing thinking field');
-        (thinking.props.onChange as (event: unknown) => void)({
-          target: { name: 'maxThinkingTokens', value: '1000' },
-        });
+        changeNumberField(tree, 'agent-turns', 30);
         return true;
       }
       const picker = tree.find(
@@ -673,11 +690,7 @@ describe('expert editor regressions', () => {
           );
           expect(picker?.props.value).toBe('rte_named');
           expect(picker?.props.disabled).toBe(true);
-          const thinking = tree.find((node) => node.props.id === 'agent-thinking');
-          if (!thinking) throw new Error('Missing thinking field');
-          (thinking.props.onChange as (event: unknown) => void)({
-            target: { name: 'maxThinkingTokens', value: '1000' },
-          });
+          changeNumberField(tree, 'agent-turns', 30);
           return true;
         }
         const form = tree.find((node) => node.type === 'form');

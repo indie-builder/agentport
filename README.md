@@ -12,7 +12,7 @@ PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：�
 | HTTP → MCP | 运行时挂载 `/mcp/:serverId`，按数据库中的工具定义动态构造标准 MCP 端点，不生成代码 |
 | 平台 → MCP | `POST /mcp` 把已启用的智能体暴露为 `run_<slug>` 工具，供其他 Host 调用 |
 | 智能体定义 | `.mcp.json`、`CLAUDE.md`、`.claude/agents/*.md`、`.claude/skills/*/SKILL.md`（含技能支持资源）、`.claude/rules/*.md`、`.claude/output-styles/*.md`；原生 auto-memory（`agent-memory/`，浏览/编辑）；文件预览；版本历史与回滚；导入导出（官方 `.claude/` 目录 ZIP） |
-| 运行时配置 | 提示词、模型、技能、MCP 绑定、子智能体、工具白名单/黑名单、权限模式（`dontAsk` / `plan` / `default` / `acceptEdits`，`auto` 不开放）、effort、思考预算、轮次、预算、超时 |
+| 运行时配置 | 提示词、模型、技能、MCP 绑定、子智能体、工具白名单/黑名单、权限模式（`dontAsk` / `plan` / `default` / `acceptEdits`，`auto` 不开放）、effort、轮次、预算、超时 |
 | 运行 | BullMQ 队列 → Docker 沙盒 → Claude Agent SDK → SSE 流式事件；取消、超时、预算与轮次限制；失败重试与孤儿 run 收敛 |
 | 对话 | 会话历史、分支、工具调用落库、续聊与分支走 SDK 会话续接/分支（`resumeSessionId` / `forkFromSdkMessageUuid`）、队列只带本轮输入、运行详情重跑 |
 | 观测 | 运行列表与 trace 详情、成本/轮次/token/延迟、审计日志、`/health/*`、队列与进程指标、`/status` 系统状态页 |

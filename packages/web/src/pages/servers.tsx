@@ -1615,7 +1615,14 @@ export function ToolForm({
   const pending = disabled || formPending;
   const dirty = isDirty;
   const blocker = useFormBlocker(dirty, pending);
-
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 父级关闭弹层会卸载表单并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
+  const settle = (): void => {
+    blockerRef.current.reset?.();
+  };
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
@@ -1630,6 +1637,8 @@ export function ToolForm({
     },
     [onDirtyChange, onPendingChange],
   );
+  // 父级切换工具或放弃编辑也会直接卸载表单：卸载时结算被拦下的导航，避免 resolver 挂起。
+  useEffect(() => () => blockerRef.current.reset?.(), []);
 
   const submit = handleSubmit((values) => {
     if (pending) return;
@@ -1640,6 +1649,7 @@ export function ToolForm({
     if (!tool) {
       create.mutate(payload, {
         onSuccess: () => {
+          settle();
           reset(blankToolForm);
           toastSuccess('工具已添加');
         },
@@ -1653,6 +1663,7 @@ export function ToolForm({
       { toolId: tool.id, patch: payload },
       {
         onSuccess: () => {
+          settle();
           toastSuccess('工具已更新');
           onDone();
         },
@@ -2039,6 +2050,18 @@ export function ServerFormDialog({
 
   const pending = create.isPending || update.isPending || reloading;
   const blocker = useFormBlocker(dirty, pending);
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 成功后由父级关闭弹层：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
+  const settle = (): void => {
+    blockerRef.current.reset?.();
+  };
+  const finish = (): void => {
+    settle();
+    onClose();
+  };
   const reload = async (): Promise<void> => {
     if (!baseline || pending) return;
     setReloading(true);
@@ -2062,7 +2085,7 @@ export function ServerFormDialog({
       setConfirmDiscard(true);
       return;
     }
-    onClose();
+    finish();
   };
 
   const submit = handleSubmit((values) => {
@@ -2075,6 +2098,7 @@ export function ServerFormDialog({
         { id: baseline.id, input: parsed.data, expectedUpdatedAt: baseline.updatedAt },
         {
           onSuccess: (saved) => {
+            settle();
             toastSuccess('Server 已更新');
             onSaved(saved, false);
           },
@@ -2091,6 +2115,7 @@ export function ServerFormDialog({
     } else {
       create.mutate(parsed.data, {
         onSuccess: (saved) => {
+          settle();
           toastSuccess('Server 已创建');
           onSaved(saved, true);
         },
@@ -2379,7 +2404,7 @@ export function ServerFormDialog({
           confirmLabel="放弃并关闭"
           confirmDisabled={pending}
           onConfirm={async () => {
-            if (!pending) onClose();
+            if (!pending) finish();
           }}
         />
         <ConfirmDialog

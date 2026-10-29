@@ -12,7 +12,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { type ComponentProps, useRef, useState } from 'react';
+import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { CodeBlock } from '../components/code-block.js';
@@ -1020,7 +1020,7 @@ function CaseDialog({
     };
     const done = (): void => {
       toastSuccess(testCase ? '用例已更新' : '用例已创建');
-      onClose();
+      finish();
     };
     if (testCase) {
       update.mutate(
@@ -1037,10 +1037,19 @@ function CaseDialog({
 
   const pending = create.isPending || update.isPending;
   const blocker = useFormBlocker(dirty, pending);
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
+  const finish = (): void => {
+    blockerRef.current.reset?.();
+    onClose();
+  };
   const close = (): void => {
     if (pending) return;
     if (dirty) setConfirmDiscard(true);
-    else onClose();
+    else finish();
   };
 
   return (
@@ -1144,7 +1153,7 @@ function CaseDialog({
           confirmLabel="放弃并关闭"
           confirmDisabled={pending}
           onConfirm={async () => {
-            if (!pending) onClose();
+            if (!pending) finish();
           }}
         />
         <ConfirmDialog

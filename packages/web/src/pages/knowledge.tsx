@@ -837,6 +837,9 @@ function CreateBaseDialog({
           {missingProfiles ? (
             <NewEmbeddingProfile
               onCreated={(profile) => {
+                // 列表刷新会先卸载子表单，它再也回报不了 pending/dirty，外层在这里结算。
+                setProfilePending(false);
+                setProfileDirty(false);
                 form.setValue('embeddingProfileId', profile.id, { shouldValidate: true });
               }}
               onDirtyChange={setProfileDirty}
@@ -988,6 +991,24 @@ function NewEmbeddingProfile({
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
   useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
+  const save = async (): Promise<void> => {
+    try {
+      const profile = await create.mutateAsync({
+        kind: 'embedding',
+        name: name.trim(),
+        endpointUrl: endpointUrl.trim(),
+        model: model.trim(),
+        ...(apiKey === '' ? {} : { apiKey }),
+      });
+      toastSuccess('Embedding profile 已创建');
+      onCreated(profile);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      // 列表刷新可能先卸载子表单，pending 只能由仍存活的异步延续结算。
+      onPendingChange(false);
+    }
+  };
 
   return (
     <FieldGroup className="grid gap-3 rounded-item border border-line p-3 sm:grid-cols-2">
@@ -1037,24 +1058,7 @@ function NewEmbeddingProfile({
           size="sm"
           disabled={pending || invalid}
           aria-busy={pending}
-          onClick={() =>
-            create.mutate(
-              {
-                kind: 'embedding',
-                name: name.trim(),
-                endpointUrl: endpointUrl.trim(),
-                model: model.trim(),
-                ...(apiKey === '' ? {} : { apiKey }),
-              },
-              {
-                onSuccess: (profile) => {
-                  toastSuccess('Embedding profile 已创建');
-                  onCreated(profile);
-                },
-                onError: toastError,
-              },
-            )
-          }
+          onClick={() => void save()}
         >
           {pending ? '创建中…' : '创建 embedding profile'}
         </Button>

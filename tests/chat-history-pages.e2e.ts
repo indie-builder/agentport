@@ -121,6 +121,55 @@ async function scrollChatToTop(browser: Browser): Promise<void> {
   expect(scrolled).toBe(true);
 }
 
+interface MessageGeometry {
+  /** 消息所在轮次项的稳定 id；补旧重新解析后必须不变。 */
+  id: string | null;
+  /** 消息项顶部相对滚动视口顶部的像素，用于判断阅读位置是否保持。 */
+  top: number;
+  visible: boolean;
+  /** 距滚动区域底部的像素数；到底部时接近 0。 */
+  distanceFromBottom: number;
+  scrollTop: number;
+}
+
+/** 按正文前缀定位到消息项，读取稳定 id 与相对视口位置；不经过任何接口。 */
+function messageGeometry(browser: Browser, text: string): Promise<MessageGeometry> {
+  return browser.evaluate((value: string) => {
+    const viewport = document.querySelector('[data-slot="message-scroller-viewport"]');
+    if (!(viewport instanceof HTMLElement)) {
+      return {
+        id: null,
+        top: Number.NaN,
+        visible: false,
+        distanceFromBottom: -1,
+        scrollTop: -1,
+      };
+    }
+    const leaf = [...viewport.querySelectorAll('p, div')].find(
+      (node) => node.children.length === 0 && node.textContent?.trim() === value,
+    );
+    const item = leaf?.closest('[data-slot="message-scroller-item"]');
+    if (!(item instanceof HTMLElement)) {
+      return {
+        id: null,
+        top: Number.NaN,
+        visible: false,
+        distanceFromBottom: -1,
+        scrollTop: viewport.scrollTop,
+      };
+    }
+    const box = viewport.getBoundingClientRect();
+    const rect = item.getBoundingClientRect();
+    return {
+      id: item.getAttribute('data-message-id'),
+      top: rect.top - box.top,
+      visible: rect.bottom > box.top && rect.top < box.bottom,
+      distanceFromBottom: viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight,
+      scrollTop: viewport.scrollTop,
+    };
+  }, text);
+}
+
 /** 每条消息只渲染一个叶子文本节点；总数等于唯一数才说明没有重复拼接。 */
 function leafTexts(browser: Browser, prefix: string): Promise<{ total: number; unique: number }> {
   return browser.evaluate((value: string) => {
@@ -152,7 +201,32 @@ async function wheelChatToTop(browser: Browser): Promise<void> {
       timeout: 5_000,
       message: '滚轮没有把对话滚动到顶部',
     })
-    .toBeLessThan(100);
+    .toBe(0);
+}
+
+/**
+ * 滚轮到达目标后，合成器可能还在收尾平滑滚动；收尾期间测量会把输入动画算进阅读位置。
+ * 优先等 scrollend，浏览器不支持或事件已错过时用短兜底。
+ */
+async function waitForWheelScrollEnd(browser: Browser): Promise<void> {
+  await browser.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const viewport = document.querySelector('[data-slot="message-scroller-viewport"]');
+        if (!(viewport instanceof HTMLElement)) {
+          resolve();
+          return;
+        }
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        viewport.addEventListener('scrollend', finish, { once: true });
+        setTimeout(finish, 600);
+      }),
+  );
 }
 
 async function openConversation(
@@ -184,9 +258,14 @@ test('chat history pages older messages without losing the visible position', {
     // 用真实滚轮把视口推到顶：scroller 靠 wheel/scroll 事件认领“用户在滚动”，
     // 直接改 scrollTop 会被它的自动跟随逻辑再拽回底部。
     await wheelChatToTop(browser);
+    await waitForWheelScrollEnd(browser);
     const older = screen.getByRole('button', '加载更早消息');
     await expect(older).toBeVisible();
     await expect(screen.getByText('history-message-075', { exact: true })).toBeVisible();
+    // 点击前固定阅读锚点：075 所在轮次项的稳定 id 与相对视口顶部的位置。
+    const anchorBefore = await messageGeometry(browser, 'history-message-075');
+    expect(anchorBefore.id).not.toBeNull();
+    expect(anchorBefore.visible).toBe(true);
     const firstResponse = browser.waitForResponse(
       new RegExp(`/api/conversations/${conversation}\\?limit=50&before=`),
     );
@@ -206,27 +285,52 @@ test('chat history pages older messages without losing the visible position', {
     await expect(screen.getByText('history-message-024', { exact: true })).toHaveCount(0);
     expect(await leafTexts(browser, 'history-message-')).toEqual({ total: 100, unique: 100 });
 
-    // 补旧消息不能把视口甩到底部：仍在顶部，且离底部还有一整屏以上。
-    // shortcut: 页面未给消息加 scrollAnchor，锚点像素位移暂不在此断言。
+    // 补旧消息保持阅读位置：075 仍是同一个轮次项，相对视口顶部不移动，且远离底部。
     await expect
       .poll(
         async () => {
-          const next = await measure(browser);
-          return next.scrollTop < 100 && next.distanceFromBottom > 700;
+          const anchor = await messageGeometry(browser, 'history-message-075');
+          return {
+            sameId: anchor.id === anchorBefore.id,
+            offset: Math.abs(anchor.top - anchorBefore.top),
+            steady: Math.abs(anchor.top - anchorBefore.top) <= 4,
+            top: anchor.top,
+            beforeTop: anchorBefore.top,
+            scrollTop: anchor.scrollTop,
+            visible: anchor.visible,
+            distanceFromBottom: anchor.distanceFromBottom,
+          };
         },
-        { timeout: 10_000, message: '加载更早消息后视口跳到了底部' },
+        { timeout: 10_000, message: '加载更早消息后阅读位置被移动' },
       )
-      .toBe(true);
+      .toMatchObject({
+        sameId: true,
+        visible: true,
+        steady: true,
+      });
+    const anchorAfter = await messageGeometry(browser, 'history-message-075');
+    expect(anchorAfter.id).toBe(anchorBefore.id);
+    expect(Math.abs(anchorAfter.top - anchorBefore.top)).toBeLessThanOrEqual(4);
+    expect(anchorAfter.distanceFromBottom).toBeGreaterThan(700);
 
+    // 再向上滚到最后一页入口，记录点击前 025 的相对位置。
+    await wheelChatToTop(browser);
+    await waitForWheelScrollEnd(browser);
+    const last = screen.getByRole('button', '加载更早消息');
+    await expect(last).toBeVisible();
+    await expect(screen.getByText('history-message-025', { exact: true })).toBeVisible();
+    const lastAnchorBefore = await messageGeometry(browser, 'history-message-025');
+    expect(lastAnchorBefore.id).not.toBeNull();
+    expect(lastAnchorBefore.visible).toBe(true);
     const lastResponse = browser.waitForResponse(
       new RegExp(
         `/api/conversations/${conversation}\\?limit=50&before=${messageId(conversation, 25)}`,
       ),
     );
-    await screen.getByRole('button', '加载更早消息').tap();
-    const last = await lastResponse;
-    expect(last.status).toBe(200);
-    const lastBody = await last.json<{
+    await last.tap();
+    const lastPage = await lastResponse;
+    expect(lastPage.status).toBe(200);
+    const lastBody = await lastPage.json<{
       messages: { id: string }[];
       nextBefore: string | null;
     }>();
@@ -234,11 +338,32 @@ test('chat history pages older messages without losing the visible position', {
     expect(lastBody.messages[0]?.id).toBe(messageId(conversation, 0));
     expect(lastBody.nextBefore).toBeNull();
 
-    // 三页拼完：000–124 各出现一次，入口消失。
+    // 三页拼完：000–124 各出现一次，入口消失；025 的相对位置仍保持不变。
     await expect(screen.getByText('history-message-000', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('history-message-124', { exact: true })).toHaveCount(1);
     expect(await leafTexts(browser, 'history-message-')).toEqual({ total: 125, unique: 125 });
     await expect(screen.getByRole('button', '加载更早消息')).toHaveCount(0);
+    await expect
+      .poll(
+        async () => {
+          const anchor = await messageGeometry(browser, 'history-message-025');
+          return {
+            sameId: anchor.id === lastAnchorBefore.id,
+            visible: anchor.visible,
+            steady: Math.abs(anchor.top - lastAnchorBefore.top) <= 4,
+            top: anchor.top,
+            beforeTop: lastAnchorBefore.top,
+            scrollTop: anchor.scrollTop,
+            distanceFromBottom: anchor.distanceFromBottom,
+          };
+        },
+        { timeout: 10_000, message: '最后一页加载后阅读位置被移动' },
+      )
+      .toMatchObject({ sameId: true, visible: true, steady: true });
+    const lastAnchorAfter = await messageGeometry(browser, 'history-message-025');
+    expect(lastAnchorAfter.id).toBe(lastAnchorBefore.id);
+    expect(Math.abs(lastAnchorAfter.top - lastAnchorBefore.top)).toBeLessThanOrEqual(4);
+    expect(lastAnchorAfter.distanceFromBottom).toBeGreaterThan(700);
   } finally {
     await cleanup(agent.id);
   }
@@ -287,11 +412,15 @@ test('switching conversations in the history panel drops the old messages', {
     await expect(screen.getByText('switch-a-000', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('switch-b-000', { exact: true })).toHaveCount(0);
 
+    // 历史默认折叠：先从头部显式展开，再用真实列表行切换会话。
+    await screen.getByRole('button', '显示会话历史').tap();
     await screen.getByText('E2E switch-b-', { exact: true }).first().tap();
     await expect(browser).toHaveURL(new RegExp(`conversation=${second}`));
     await expect(screen.getByText('switch-b-000', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('switch-a-000', { exact: true })).toHaveCount(0);
 
+    // 切换会话会重载工作区并收起历史，重新展开后再点另一条。
+    await screen.getByRole('button', '显示会话历史').tap();
     await screen.getByText('E2E switch-a-', { exact: true }).first().tap();
     await expect(browser).toHaveURL(new RegExp(`conversation=${first}`));
     await expect(screen.getByText('switch-a-000', { exact: true })).toHaveCount(1);
@@ -318,6 +447,8 @@ test('renaming the open conversation keeps the loaded history and pages older on
     // 另一个标签页写进两条更晚的消息，本页没有任何流式事件知道它们。
     await appendMessages(conversation, 60, 2, 'refresh-');
 
+    // 历史默认折叠：重命名入口在历史行菜单里，先显式展开列表。
+    await screen.getByRole('button', '显示会话历史').tap();
     // 真实 UI 触发会话详情重新拉取：历史菜单里的重命名只做这个副作用。
     const trigger = screen.getByRole('button', `操作「E2E refresh-」`);
     await trigger.hover();

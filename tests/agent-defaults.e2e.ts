@@ -39,7 +39,7 @@ test.afterEach(async () => {
   created.length = 0;
 });
 
-async function seed(effort: string | null, maxThinkingTokens: number | null): Promise<Fixture> {
+async function seed(effort: string | null): Promise<Fixture> {
   const suffix = randomUUID().slice(0, 8);
   const fixture: Fixture = {
     id: newId('agent'),
@@ -48,9 +48,9 @@ async function seed(effort: string | null, maxThinkingTokens: number | null): Pr
   };
   const { pool } = await db();
   await pool.query(
-    `insert into agents (id, slug, name, model, effort, max_thinking_tokens)
-     values ($1, $2, $3, 'test-model', $4, $5)`,
-    [fixture.id, fixture.slug, fixture.name, effort, maxThinkingTokens],
+    `insert into agents (id, slug, name, model, effort)
+     values ($1, $2, $3, 'test-model', $4)`,
+    [fixture.id, fixture.slug, fixture.name, effort],
   );
   created.push(fixture);
   return fixture;
@@ -58,8 +58,8 @@ async function seed(effort: string | null, maxThinkingTokens: number | null): Pr
 
 async function stored(id: string) {
   const { pool } = await db();
-  const { rows } = await pool.query<{ effort: string | null; max_thinking_tokens: number | null }>(
-    'select effort, max_thinking_tokens from agents where id = $1',
+  const { rows } = await pool.query<{ effort: string | null }>(
+    'select effort from agents where id = $1',
     [id],
   );
   return rows[0];
@@ -73,7 +73,6 @@ async function freshAgent(browser: Browser, id: string) {
     return {
       name: String(body.name),
       hasEffort: 'effort' in body,
-      hasThinking: 'maxThinkingTokens' in body,
     };
   }, id);
 }
@@ -97,43 +96,36 @@ async function chooseEffort(screen: Screen, label: string): Promise<void> {
 const agentResponse = (browser: Browser, id: string) =>
   browser.waitForResponse(new RegExp(`/api/agents/${id}$`));
 
-test('setting and clearing reasoning on the page survives save and reload', {
+test('setting and clearing effort on the page survives save and reload', {
   session: 'admin',
 }, async ({ app, screen, browser }) => {
-  const fixture = await seed(null, null);
+  const fixture = await seed(null);
   await openEditor(app, screen, fixture);
 
-  // 默认夹具：两个字段都显示为未配置。
+  // 默认夹具：effort 未配置，固定思考预算控件已移除。
   await screen.getByRole('button', '行为', { exact: false }).tap();
   await expect(screen.getByRole('combobox', '推理强度')).toHaveText('默认');
   await screen.getByRole('button', '运行限制', { exact: false }).tap();
-  await expect(browser.locator('#agent-thinking')).toHaveValue('');
+  expect(await browser.locator('#agent-thinking').count()).toBe(0);
 
   await chooseEffort(screen, 'high');
-  await screen.getByRole('button', '运行限制', { exact: false }).tap();
-  await browser.locator('#agent-thinking').fill('2048');
   const configured = agentResponse(browser, fixture.id);
   await screen.getByRole('button', '保存更改').tap();
   const configuredResponse = await configured;
   expect(configuredResponse.status).toBe(200);
   expect(await configuredResponse.json<Record<string, unknown>>()).toMatchObject({
     effort: 'high',
-    maxThinkingTokens: 2048,
   });
-  expect(await stored(fixture.id)).toEqual({ effort: 'high', max_thinking_tokens: 2048 });
+  expect(await stored(fixture.id)).toEqual({ effort: 'high' });
 
-  // 回到默认：选择「默认」并清空输入，保存必须显式发 null。
+  // 回到默认：选择「默认」，保存必须显式发 null。
   await chooseEffort(screen, '默认');
-  await screen.getByRole('button', '运行限制', { exact: false }).tap();
-  await browser.locator('#agent-thinking').clear();
   const cleared = agentResponse(browser, fixture.id);
   await screen.getByRole('button', '保存更改').tap();
   const clearedResponse = await cleared;
   expect(clearedResponse.status).toBe(200);
-  const clearedBody = await clearedResponse.json<Record<string, unknown>>();
-  expect(clearedBody).not.toHaveProperty('effort');
-  expect(clearedBody).not.toHaveProperty('maxThinkingTokens');
-  expect(await stored(fixture.id)).toEqual({ effort: null, max_thinking_tokens: null });
+  expect(await clearedResponse.json<Record<string, unknown>>()).not.toHaveProperty('effort');
+  expect(await stored(fixture.id)).toEqual({ effort: null });
 
   // 不相关字段的全量保存不能把清空后的值带回来。
   const renamed = `E2E 默认值改名 ${randomUUID().slice(0, 8)}`;
@@ -146,42 +138,29 @@ test('setting and clearing reasoning on the page survives save and reload', {
   const renamedBody = await renamedResponse.json<Record<string, unknown>>();
   expect(renamedBody).toMatchObject({ name: renamed });
   expect(renamedBody).not.toHaveProperty('effort');
-  expect(renamedBody).not.toHaveProperty('maxThinkingTokens');
-  expect(await stored(fixture.id)).toEqual({ effort: null, max_thinking_tokens: null });
+  expect(await stored(fixture.id)).toEqual({ effort: null });
   expect(await freshAgent(browser, fixture.id)).toEqual({
     name: renamed,
     hasEffort: false,
-    hasThinking: false,
   });
 
   await browser.reload();
   await openEditor(app, screen, fixture, renamed);
   await screen.getByRole('button', '行为', { exact: false }).tap();
   await expect(screen.getByRole('combobox', '推理强度')).toHaveText('默认');
-  await screen.getByRole('button', '运行限制', { exact: false }).tap();
-  await expect(browser.locator('#agent-thinking')).toHaveValue('');
 });
 
-test('PATCH without reasoning keeps configured values, null clears them', {
+test('PATCH without effort keeps the value, null clears it', {
   session: 'admin',
 }, async ({ app, screen, browser }) => {
-  const fixture = await seed('high', 2048);
+  const fixture = await seed('high');
   await openEditor(app, screen, fixture);
   await screen.getByRole('button', '行为', { exact: false }).tap();
   await expect(screen.getByRole('combobox', '推理强度')).toHaveText('high');
-  await screen.getByRole('button', '运行限制', { exact: false }).tap();
-  await expect(browser.locator('#agent-thinking')).toHaveValue('2048');
 
-  const patch = (body: {
-    name?: string;
-    effort?: string | null;
-    maxThinkingTokens?: number | null;
-  }) =>
+  const patch = (body: { name?: string; effort?: string | null }) =>
     browser.evaluate(
-      async (input: {
-        id: string;
-        body: { name?: string; effort?: string | null; maxThinkingTokens?: number | null };
-      }) => {
+      async (input: { id: string; body: { name?: string; effort?: string | null } }) => {
         const res = await fetch(`/api/agents/${input.id}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
@@ -192,7 +171,6 @@ test('PATCH without reasoning keeps configured values, null clears them', {
             ? ((await res.json()) as {
                 name: string;
                 effort?: string;
-                maxThinkingTokens?: number;
               })
             : null;
         return { status: res.status, body: json };
@@ -202,17 +180,63 @@ test('PATCH without reasoning keeps configured values, null clears them', {
 
   const kept = await patch({ name: 'Renamed' });
   expect(kept.status).toBe(200);
-  expect(kept.body).toMatchObject({ name: 'Renamed', effort: 'high', maxThinkingTokens: 2048 });
-  expect(await stored(fixture.id)).toEqual({ effort: 'high', max_thinking_tokens: 2048 });
+  expect(kept.body).toMatchObject({ name: 'Renamed', effort: 'high' });
+  expect(await stored(fixture.id)).toEqual({ effort: 'high' });
 
-  const cleared = await patch({ effort: null, maxThinkingTokens: null });
+  const cleared = await patch({ effort: null });
   expect(cleared.status).toBe(200);
   expect(cleared.body).not.toHaveProperty('effort');
-  expect(cleared.body).not.toHaveProperty('maxThinkingTokens');
-  expect(await stored(fixture.id)).toEqual({ effort: null, max_thinking_tokens: null });
+  expect(await stored(fixture.id)).toEqual({ effort: null });
   expect(await freshAgent(browser, fixture.id)).toEqual({
     name: 'Renamed',
     hasEffort: false,
-    hasThinking: false,
   });
+});
+
+test('removed fixed thinking budget is rejected without writing', {
+  session: 'admin',
+}, async ({ app, screen, browser }) => {
+  const fixture = await seed('high');
+  await openEditor(app, screen, fixture);
+
+  const result = await browser.evaluate(
+    async (input: { id: string; slug: string }) => {
+      const patchValues = await Promise.all(
+        [2048, null].map(
+          async (value) =>
+            (
+              await fetch(`/api/agents/${input.id}`, {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ maxThinkingTokens: value }),
+              })
+            ).status,
+        ),
+      );
+      const createStatuses = await Promise.all(
+        [2048, null].map(
+          async (value) =>
+            (
+              await fetch('/api/agents', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  slug: input.slug,
+                  name: 'Legacy thinking',
+                  maxThinkingTokens: value,
+                }),
+              })
+            ).status,
+        ),
+      );
+      return { patchValues, createStatuses };
+    },
+    { id: fixture.id, slug: `e2e-thinking-${randomUUID().slice(0, 8)}` },
+  );
+  expect(result.patchValues).toEqual([400, 400]);
+  expect(result.createStatuses).toEqual([400, 400]);
+  expect(await stored(fixture.id)).toEqual({ effort: 'high' });
+  const { pool } = await db();
+  const rows = await pool.query('select id from agents where name = $1', ['Legacy thinking']);
+  expect(rows.rows).toEqual([]);
 });

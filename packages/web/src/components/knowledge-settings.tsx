@@ -571,17 +571,17 @@ export function KnowledgeProfilesDialog({
   };
 
   const test = async (profile: KnowledgeModelProfile): Promise<void> => {
-    setResults({ ...results, [profile.id]: '测试中…' });
+    setResults((prev) => ({ ...prev, [profile.id]: '测试中…' }));
     try {
       const result = await api.testKnowledgeModelProfile(profile.id);
-      setResults({
-        ...results,
+      setResults((prev) => ({
+        ...prev,
         [profile.id]: result.ok
           ? '连接正常'
           : (FAILURE_TEXT[result.kind ?? ''] ?? '端点返回异常，请检查配置'),
-      });
+      }));
     } catch (error) {
-      setResults({ ...results, [profile.id]: errorMessage(error) });
+      setResults((prev) => ({ ...prev, [profile.id]: errorMessage(error) }));
     }
   };
 

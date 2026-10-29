@@ -49,7 +49,6 @@ describe.skipIf(!ready)('runtime environment repo', () => {
       permissionMode: 'default',
       uiFormat: 'markdown',
       effort: null,
-      maxThinkingTokens: null,
       enabled: true,
       maxTurns: 20,
       maxBudgetUsd: '2',

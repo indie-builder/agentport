@@ -164,6 +164,8 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
       '/outside.md',
       'references/./api.md',
       'references//api.md',
+      // ZIP 允许空格，单路径 schema 不允许：导入与 CRUD/导出的规则必须一致。
+      'references/a b.md',
     ].map((paths) => ({
       label: `unsafe skill resource paths ${paths}`,
       build: ({ spec, skill }: Fixture) => {
@@ -195,6 +197,34 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
               name === AGENT_PACKAGE_SIDECAR
                 ? `${JSON.stringify({ ...sidecar, rules: [] })}\n`
                 : content,
+          })),
+        );
+      },
+    },
+    {
+      label: 'legacy fixed thinking budget on the root',
+      build: ({ spec }: Fixture) => {
+        const files = unzipPackage(packageZip(spec));
+        const sidecar = JSON.parse(files.get(AGENT_PACKAGE_SIDECAR) ?? '{}');
+        sidecar.agent.maxThinkingTokens = 2048;
+        return rawZip(
+          [...files].map(([name, content]) => ({
+            name,
+            content: name === AGENT_PACKAGE_SIDECAR ? `${JSON.stringify(sidecar)}\n` : content,
+          })),
+        );
+      },
+    },
+    {
+      label: 'legacy fixed thinking budget on a child',
+      build: ({ spec }: Fixture) => {
+        const files = unzipPackage(packageZip(spec));
+        const sidecar = JSON.parse(files.get(AGENT_PACKAGE_SIDECAR) ?? '{}');
+        sidecar.subAgents[0].maxThinkingTokens = 1024;
+        return rawZip(
+          [...files].map(([name, content]) => ({
+            name,
+            content: name === AGENT_PACKAGE_SIDECAR ? `${JSON.stringify(sidecar)}\n` : content,
           })),
         );
       },
@@ -334,6 +364,16 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
       env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', CLAUDE_CODE_ENABLE_TASKS: '0' },
       outputStyle: 'brief',
     });
+  });
+
+  it('round-trips a legal nested SKILL.md resource', async () => {
+    const value = fixture();
+    const nested = { path: 'references/nested/SKILL.md', content: 'Nested entry.\n' };
+    value.spec.skills[0]!.files = [nested];
+    const imported = await importSpec(value.spec);
+    expect(imported.statusCode, imported.body).toBe(201);
+    const files = await exportFiles(imported.json<{ agent: Agent }>().agent.id);
+    expect(files.get(`.claude/skills/${value.skill}/${nested.path}`)).toBe(nested.content);
   });
 
   it('preserves resource spelling and content when only directory casing differs', async () => {

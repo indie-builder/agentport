@@ -703,7 +703,7 @@ export async function runIngest(
       jobId: job.id,
     });
   } catch (err) {
-    if (err instanceof KnowledgeCancelled) throw err;
+    // 取消也要收尾：首次摄取无旧版本可回退，留着 processing 会永久卡住。
     await repo.knowledge.updateDocument(deps.db, document.id, {
       status: document.currentVersionId ? 'ready' : 'failed',
     });

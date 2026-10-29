@@ -61,7 +61,6 @@ export interface AgentSpec {
   maxBudgetUsd?: number;
   timeoutMs?: number;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-  maxThinkingTokens?: number;
   enabled?: boolean;
   allowedTools?: string[];
   disallowedTools?: string[];
@@ -168,9 +167,6 @@ export function packageFiles(spec: PackageSpec): Record<string, string> {
         maxBudgetUsd: agent.maxBudgetUsd ?? 2,
         timeoutMs: agent.timeoutMs ?? 600_000,
         ...(agent.effort === undefined ? {} : { effort: agent.effort }),
-        ...(agent.maxThinkingTokens === undefined
-          ? {}
-          : { maxThinkingTokens: agent.maxThinkingTokens }),
         enabled: agent.enabled ?? true,
         allowedTools: agent.allowedTools ?? [],
         disallowedTools: agent.disallowedTools ?? [],
@@ -184,9 +180,6 @@ export function packageFiles(spec: PackageSpec): Record<string, string> {
           permissionMode: child.permissionMode ?? 'dontAsk',
           maxBudgetUsd: child.maxBudgetUsd ?? 2,
           timeoutMs: child.timeoutMs ?? 600_000,
-          ...(child.maxThinkingTokens === undefined
-            ? {}
-            : { maxThinkingTokens: child.maxThinkingTokens }),
           enabled: child.enabled ?? true,
           allowedTools: child.allowedTools ?? [],
           disallowedTools: child.disallowedTools ?? [],

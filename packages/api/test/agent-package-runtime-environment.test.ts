@@ -120,8 +120,17 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
   const sidecarOf = (
     files: Map<string, string>,
   ): {
-    agent: { runtimeEnvironmentName?: string };
+    agent: { slug: string; runtimeEnvironmentName?: string };
   } => JSON.parse(files.get(AGENT_PACKAGE_SIDECAR) ?? '{}');
+
+  /** 导入会占用包 slug，重复时改用 slug-2 等；只数这一族，避免并行套件新增的智能体干扰全表计数。 */
+  const countPackageAgents = async (slug: string): Promise<number> => {
+    const rows = await app.pool.query<{ count: string }>(
+      'select count(*) from agents where slug = $1 or slug like $2',
+      [slug, `${slug.slice(0, 60)}-%`],
+    );
+    return Number(rows.rows[0]?.count);
+  };
 
   it('exports only the environment name and imports into the same-name environment', async () => {
     const environment = await createEnvironment();
@@ -174,14 +183,13 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
     sidecar.agent.runtimeEnvironmentName = missing;
     files.set(AGENT_PACKAGE_SIDECAR, `${JSON.stringify(sidecar, null, 2)}\n`);
 
-    const before = await inject(app, { method: 'GET', url: '/api/agents', headers: { cookie } });
-    const countBefore = before.json<Agent[]>().length;
+    const countBefore = await countPackageAgents(sidecar.agent.slug);
+    expect(countBefore).toBe(1);
     const res = await importZip(files);
     const problem = expectProblem(res, 'INVALID_REFERENCE');
     expect(problem.message).toContain(missing);
 
-    const after = await inject(app, { method: 'GET', url: '/api/agents', headers: { cookie } });
-    expect(after.json<Agent[]>().length).toBe(countBefore);
+    expect(await countPackageAgents(sidecar.agent.slug)).toBe(countBefore);
   });
 
   it('leaves the agent on the platform default environment when the package has no reference', async () => {

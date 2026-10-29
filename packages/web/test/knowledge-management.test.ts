@@ -1790,6 +1790,51 @@ describe('knowledge manual and url import', () => {
     });
   });
 
+  it('keeps an unsaved manual editor mounted when the base cache refresh fails', async () => {
+    documentList();
+    await mount('/knowledge/kb_1');
+    await click(button('导入'));
+    await chooseMenuItem('手写文档');
+    const editor = dialog('手写文档');
+    await fill('knowledge-manual-title', '发布检查');
+    const body = '# 发布检查\n\n先确认';
+    await fill('knowledge-manual-content', body);
+    await waitFor(
+      () =>
+        document.getElementById('knowledge-manual-content')?.getAttribute('contenteditable') ===
+        'true',
+    );
+
+    // 真实 Query：缓存 data 仍在，后台刷新失败后 status 变 error。
+    server.use(
+      http.get('/api/knowledge/bases/kb_1', () =>
+        HttpResponse.json({ code: 'INTERNAL', message: '知识库刷新失败' }, { status: 500 }),
+      ),
+    );
+    await act(async () => {
+      await client?.invalidateQueries({ queryKey: ['knowledge', 'base', 'kb_1'] });
+    });
+    await flush();
+
+    expect(dialogShown('手写文档')).toBe(true);
+    const view = EditorView.findFromDOM(
+      document.getElementById('knowledge-manual-content') as HTMLElement,
+    );
+    expect(view?.state.doc.toString()).toBe(body);
+    expect(document.body.textContent).toContain('知识库信息没有刷新成功');
+
+    server.use(http.get('/api/knowledge/bases/kb_1', () => HttpResponse.json(base)));
+    await click(button('重试'));
+    expect(document.body.textContent).not.toContain('知识库信息没有刷新成功');
+    expect(dialogShown('手写文档')).toBe(true);
+    expect(
+      EditorView.findFromDOM(
+        document.getElementById('knowledge-manual-content') as HTMLElement,
+      )?.state.doc.toString(),
+    ).toBe(body);
+    expect(editor.isConnected).toBe(true);
+  });
+
   it('imports a URL into the current folder and keeps a readable error', async () => {
     documentList();
     server.use(
@@ -3190,6 +3235,78 @@ describe('knowledge UX guards', () => {
       calls.some((item) => item.method === 'POST' && item.path === '/api/knowledge/bases'),
     ).toBe(false);
     expect(document.activeElement).toBe(description);
+  });
+
+  it('settles the create form when the profile list refreshes before the create responds', async () => {
+    const request = deferred<void>();
+    const createdProfile = {
+      id: 'profile_new',
+      kind: 'embedding',
+      name: 'bge-m3',
+      endpointUrl: 'https://models.example.com',
+      model: 'bge-m3',
+      dimensions: 1024,
+      enabled: true,
+      hasSecret: false,
+      embeddingProtocol: 'openai',
+      imageInputEnabled: false,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    };
+    let profileCreated = false;
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json(profileCreated ? [createdProfile] : []),
+      ),
+      http.post('/api/knowledge/model-profiles', async () => {
+        // 服务端已落库、响应仍在途：另一条真实 GET 能看到新 profile。
+        profileCreated = true;
+        await request.promise;
+        return HttpResponse.json(createdProfile);
+      }),
+      http.post('/api/knowledge/bases', () =>
+        HttpResponse.json({ ...base, id: 'kb_new', slug: 'new-base', name: '新库' }),
+      ),
+    );
+    await mount('/knowledge');
+    await click(button('新建知识库'));
+    const creator = dialog('新建知识库');
+    expect(document.getElementById('profile-name')).not.toBeNull();
+    await fill('profile-name', 'bge-m3');
+    await fill('profile-endpoint', 'https://models.example.com');
+    await fill('profile-model', 'bge-m3');
+    await click(button('创建 embedding profile'));
+
+    // deferred 让 pending 真实渲染：内联表单与父层创建按钮共享同一 pending，关闭也不可用。
+    const creating = [...creator.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (item) => item.textContent?.trim() === '创建中…',
+    );
+    expect(creating).toHaveLength(2);
+    expect(creating.every((item) => item.disabled)).toBe(true);
+    expect(button('关闭').disabled).toBe(true);
+
+    // POST 仍挂起时，另一次真实 GET 已返回新 profile，子表单带着 pending=true 卸载。
+    await act(async () => {
+      await client?.invalidateQueries({ queryKey: ['knowledge', 'model-profiles'] });
+    });
+    await waitFor(() => document.getElementById('profile-name') === null);
+    expect(creator.textContent).not.toContain('创建 embedding profile');
+    expect(button('关闭').disabled).toBe(true);
+
+    await act(async () => request.resolve());
+    await flush();
+    await waitFor(() => !button('关闭').disabled);
+
+    // 外层必须已结算 pending/dirty，并把正确 profile 回填到建库表单。
+    expect(button('创建', creator).disabled).toBe(false);
+    await fill('knowledge-name', '新库');
+    await fill('knowledge-slug', 'new-base');
+    await click(button('创建', creator));
+    expect(
+      calls.find((item) => item.method === 'POST' && item.path === '/api/knowledge/bases')?.body,
+    ).toMatchObject({ name: '新库', slug: 'new-base', embeddingProfileId: 'profile_new' });
+    expect(dialogShown('新建知识库')).toBe(false);
   });
 
   it('confirms before discarding rename, manual, URL, Wiki, source and settings drafts', async () => {

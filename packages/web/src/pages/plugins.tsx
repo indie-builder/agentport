@@ -15,7 +15,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
@@ -630,12 +630,21 @@ export function PluginDialog({
   const errors = form.formState.errors;
   const dirty = form.formState.isDirty;
   const blocker = useFormBlocker(dirty, pending);
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
+  const finish = (): void => {
+    blockerRef.current.reset?.();
+    onClose();
+  };
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中一律不能关闭。
   const close = (): void => {
     if (pending) return;
     if (dirty) setConfirmDiscard(true);
-    else onClose();
+    else finish();
   };
 
   const submit = form.handleSubmit((values) => {
@@ -650,7 +659,7 @@ export function PluginDialog({
       {
         onSuccess: () => {
           toastSuccess('插件已保存');
-          onClose();
+          finish();
         },
         onError: toastError,
       },
@@ -720,7 +729,7 @@ export function PluginDialog({
           confirmLabel="放弃并关闭"
           confirmDisabled={pending}
           onConfirm={async () => {
-            if (!pending) onClose();
+            if (!pending) finish();
           }}
         />
         <ConfirmDialog

@@ -6,7 +6,7 @@ import { Queue } from 'bullmq';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   processScheduleTrigger,
   type ScheduleTriggerJobLike,
@@ -103,10 +103,18 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
     return db.select().from(schema.agentRuns).where(eq(schema.agentRuns.agentId, agent));
   }
 
-  function fakeJob(data: ScheduleTriggerJob, timestamp = Date.now()): ScheduleTriggerJobLike {
+  async function lastRunAtOf(scheduleId: string): Promise<Date | null> {
+    const [row] = await db
+      .select({ lastRunAt: schema.agentSchedules.lastRunAt })
+      .from(schema.agentSchedules)
+      .where(eq(schema.agentSchedules.id, scheduleId));
+    return row?.lastRunAt ?? null;
+  }
+
+  function fakeJob(data: ScheduleTriggerJob, plannedAt = Date.now()): ScheduleTriggerJobLike {
     const job: ScheduleTriggerJobLike = {
       data,
-      timestamp,
+      opts: { prevMillis: plannedAt },
       updateData: async (next) => {
         job.data = next;
       },
@@ -254,6 +262,38 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
     });
   });
 
+  describe('planned trigger time', () => {
+    it('records the planned time of this round, not when the job was created', async () => {
+      const scheduleId = await insertSchedule({ cron: '*/5 * * * *' });
+      // 先在任何 worker 消费前注册计划 job 并固定本轮预期：worker 一取到 job 就会把
+      // scheduler.next 推进到下一轮，之后再读可能已换成下一轮。
+      const plannedJob = await schedulerQueue.upsertJobScheduler(
+        ...scheduleTriggerArgs(scheduleId, '*/5 * * * *'),
+      );
+      const plannedAt = plannedJob.opts.prevMillis;
+      if (plannedAt === undefined) throw new Error('planned job is missing prevMillis');
+      expect((await schedulerQueue.getJobScheduler(scheduleId))?.next).toBe(plannedAt);
+      // 预期已固定，promote 只影响消费时机，不影响本轮计划时刻。
+      await plannedJob.promote();
+
+      const scheduler = startScheduleScheduler({ db, logger, redisUrl, prefix });
+      try {
+        // 同 cron 已存在，启动对账不能重置刚 promote 的这一轮。
+        await scheduler.sync();
+
+        await vi.waitFor(
+          async () => {
+            expect(await lastRunAtOf(scheduleId)).not.toBeNull();
+          },
+          { timeout: 5_000 },
+        );
+        expect((await lastRunAtOf(scheduleId))?.getTime()).toBe(plannedAt);
+      } finally {
+        await scheduler.close();
+      }
+    });
+  });
+
   describe('processScheduleTrigger', () => {
     it('fires one conversation, run and message', async () => {
       const scheduleId = await insertSchedule({});
@@ -268,7 +308,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
         .select({ lastRunAt: schema.agentSchedules.lastRunAt })
         .from(schema.agentSchedules)
         .where(eq(schema.agentSchedules.id, scheduleId));
-      expect(stored?.lastRunAt?.getTime()).toBe(job.timestamp);
+      expect(stored?.lastRunAt?.getTime()).toBe(job.opts.prevMillis);
       expect(await runsQueue.getJob(runs[0]?.id)).toBeDefined();
     });
 
@@ -280,6 +320,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       const runs = await runsOf(agentId);
       expect(runs).toHaveLength(1);
       expect(await messagesOf(runs[0]?.conversationId)).toHaveLength(1);
+      expect((await lastRunAtOf(scheduleId))?.getTime()).toBe(job.opts.prevMillis);
     });
 
     it('only re-enqueues the existing run after a crash before enqueue', async () => {
@@ -292,6 +333,18 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       expect(await runsOf(agentId)).toHaveLength(1);
       expect(fake.added).toHaveLength(2);
       expect(new Set(fake.added).size).toBe(1);
+    });
+
+    it('skips a trigger without a planned time', async () => {
+      const scheduleId = await insertSchedule({});
+      const job: ScheduleTriggerJobLike = {
+        data: { scheduleId },
+        opts: {},
+        updateData: async () => undefined,
+      };
+      expect(await processScheduleTrigger({ db, logger, runsQueue }, job)).toBe('skipped');
+      expect(await runsOf(agentId)).toHaveLength(0);
+      expect(await lastRunAtOf(scheduleId)).toBeNull();
     });
 
     it('skips a disabled or deleted schedule without creating runs', async () => {
@@ -374,7 +427,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       const scheduleId = await insertSchedule({});
       const newer = fakeJob({ scheduleId });
       await processScheduleTrigger({ db, logger, runsQueue }, newer);
-      const stale = fakeJob({ scheduleId }, newer.timestamp - 60_000);
+      const stale = fakeJob({ scheduleId }, (newer.opts.prevMillis ?? 0) - 60_000);
       expect(await processScheduleTrigger({ db, logger, runsQueue }, stale)).toBe('duplicate');
       expect(await runsOf(agentId)).toHaveLength(1);
     });

@@ -105,6 +105,7 @@ function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, st
     },
   ]);
   mocks.queueAdd.mockResolvedValue({ waitUntilFinished: mocks.waitUntilFinished });
+  mocks.evalRepo.addResult.mockResolvedValue(undefined);
 }
 
 beforeEach(() => {
@@ -257,5 +258,162 @@ describe('executeEvalRun case snapshot', () => {
       passed: 1,
       error: null,
     });
+  });
+
+  it('records a judged-failure case and continues with the next case', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+      { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
+    ];
+    runWith(snapshot, { alpha: 'wrong answer', beta: 'answer beta-ok' });
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(2);
+    expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
+      caseId: 'evalCase-a',
+      runId: 'run-alpha',
+      passed: false,
+      output: 'wrong answer',
+    });
+    expect(mocks.evalRepo.addResult.mock.calls[1]?.[1]).toMatchObject({
+      caseId: 'evalCase-b',
+      runId: 'run-beta',
+      passed: true,
+    });
+    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      status: 'failed',
+      passed: 1,
+      error: null,
+    });
+  });
+
+  it.each(['failed', 'cancelled', 'timeout'] as const)(
+    'records the child run id when the run ends in %s',
+    async (status) => {
+      const snapshot: SnapshotCase[] = [
+        { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+        { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
+      ];
+      runWith(snapshot, { alpha: 'ignored', beta: 'answer beta-ok' });
+      mocks.chat.getRun.mockImplementation(async (_db: Database, id: string) =>
+        id === 'run-alpha' ? { id, status, error: 'boom' } : { id, status: 'succeeded' },
+      );
+
+      await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+      expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(2);
+      expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
+        caseId: 'evalCase-a',
+        runId: 'run-alpha',
+        passed: false,
+        output: `run ended with ${status}: boom`,
+      });
+      expect(mocks.evalRepo.addResult.mock.calls[1]?.[1]).toMatchObject({
+        caseId: 'evalCase-b',
+        runId: 'run-beta',
+        passed: true,
+      });
+      expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+        status: 'failed',
+        passed: 1,
+        error: null,
+      });
+    },
+  );
+
+  it('records the child run id when waiting for the queue fails', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+    ];
+    runWith(snapshot, {});
+    mocks.chat.getRun.mockResolvedValue({ id: 'run-alpha', status: 'running' });
+    mocks.waitUntilFinished.mockRejectedValueOnce(new Error('queue wait failed'));
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.evalRepo.addResult).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        caseId: 'evalCase-a',
+        runId: 'run-alpha',
+        passed: false,
+        output: 'queue wait failed',
+      }),
+      { recordProgress: true },
+    );
+    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      status: 'failed',
+      passed: 0,
+      error: null,
+    });
+  });
+
+  it('keeps the run id null when the child run was never created', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+    ];
+    runWith(snapshot, {});
+    mocks.chat.createConversation.mockRejectedValueOnce(new Error('db down'));
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.addResult).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        caseId: 'evalCase-a',
+        runId: null,
+        passed: false,
+        output: 'db down',
+      }),
+      { recordProgress: true },
+    );
+    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      status: 'failed',
+      passed: 0,
+      error: null,
+    });
+  });
+
+  it('fails the batch without counting a pass when the result write fails', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+      { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
+      { id: 'evalCase-c', name: 'gamma', prompt: 'prompt-gamma', expectation: 'gamma-ok' },
+    ];
+    runWith(snapshot, {
+      alpha: 'answer alpha-ok',
+      beta: 'answer beta-ok',
+      gamma: 'answer gamma-ok',
+    });
+    mocks.evalRepo.addResult
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('result write failed'));
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    // 第二条结果落库失败后不再跑第三条，也不把失败条算进 passed。
+    expect(mocks.queueAdd).toHaveBeenCalledTimes(2);
+    expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(2);
+    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      status: 'failed',
+      passed: 1,
+      error: 'result write failed',
+    });
+  });
+
+  it('skips a duplicate delivery without running cases', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+    ];
+    runWith(snapshot, { alpha: 'answer alpha-ok' });
+    mocks.evalRepo.claimEvalRun.mockResolvedValueOnce(false);
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
   });
 });

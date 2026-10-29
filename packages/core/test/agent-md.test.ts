@@ -13,6 +13,7 @@ const defaults = {
   skillIds: [],
   pluginBindings: [],
   subAgentIds: [],
+  runtimeEnvironmentId: null,
   allowedTools: [],
   disallowedTools: [],
   permissionMode: 'default',

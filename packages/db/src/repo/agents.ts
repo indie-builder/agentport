@@ -30,7 +30,6 @@ export interface AgentWrite {
   permissionMode: string;
   uiFormat: string;
   effort: string | null;
-  maxThinkingTokens: number | null;
   enabled: boolean;
   maxTurns: number;
   /** numeric 列以字符串写入，避免浮点误差。 */
@@ -71,7 +70,6 @@ export function toAgent(
     maxBudgetUsd: Number(row.maxBudgetUsd),
     timeoutMs: row.timeoutMs,
     ...(row.effort === null ? {} : { effort: row.effort as NonNullable<AgentInput['effort']> }),
-    ...(row.maxThinkingTokens === null ? {} : { maxThinkingTokens: row.maxThinkingTokens }),
     enabled: row.enabled,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -275,7 +273,6 @@ export async function duplicateAgent(
               permissionMode: source.permissionMode,
               uiFormat: source.uiFormat,
               effort: source.effort,
-              maxThinkingTokens: source.maxThinkingTokens,
               enabled: source.enabled,
               maxTurns: source.maxTurns,
               maxBudgetUsd: source.maxBudgetUsd,
