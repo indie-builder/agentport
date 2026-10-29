@@ -3099,7 +3099,9 @@ const ToolRow = memo(function ToolRow({
           <p className="text-xs text-muted-foreground">子智能体 · {childCount} 次调用</p>
         ) : null}
         <div className="min-w-0">
-          <div className="mb-1 text-2xs uppercase tracking-[0.06em] text-subtle">参数</div>
+          <div className="mb-1 text-2xs uppercase tracking-[0.06em] text-muted-foreground">
+            参数
+          </div>
           {item.input !== undefined ? (
             <JsonBlock value={item.input} maxHeight="16rem" />
           ) : (
@@ -3107,7 +3109,9 @@ const ToolRow = memo(function ToolRow({
           )}
         </div>
         <div className="min-w-0">
-          <div className="mb-1 text-2xs uppercase tracking-[0.06em] text-subtle">结果</div>
+          <div className="mb-1 text-2xs uppercase tracking-[0.06em] text-muted-foreground">
+            结果
+          </div>
           {item.result !== undefined ? (
             <>
               <JsonBlock value={item.result} maxHeight="20rem" />
