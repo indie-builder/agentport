@@ -3,7 +3,11 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { NATIVE_PLUGINS_QUEUE, type NativePluginAction } from '@agentport/shared';
+import {
+  NATIVE_PLUGINS_QUEUE,
+  type NativePluginAction,
+  type ResolvedRuntimeEnvironment,
+} from '@agentport/shared';
 import { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -77,10 +81,17 @@ const quietLogger = {
   child: () => quietLogger,
 } as unknown as Logger;
 
+const RUNTIME: ResolvedRuntimeEnvironment = {
+  environmentId: 'env_default',
+  environmentName: '默认环境',
+  versionId: 'ver_default',
+  imageId: 'sha256:native-plugin-image',
+};
+
 function deps(provider: FakeProvider['provider'], timeoutMs?: number): NativePluginsDeps {
   return {
     provider,
-    image: 'agentport/sandbox:test',
+    resolveRuntimeEnvironment: async () => RUNTIME,
     workspacesDir,
     hostWorkspacesDir: workspacesDir,
     logger: quietLogger,
@@ -146,6 +157,37 @@ afterAll(async () => {
 });
 
 describe('runNativePluginAction', () => {
+  it('uses the default environment image and creates nothing when it cannot resolve', async () => {
+    const fake = fakeProvider(() => respondingChild({ ok: true, installed: [] }));
+    const seen: Array<string | null> = [];
+
+    await runNativePluginAction(
+      {
+        ...deps(fake.provider),
+        resolveRuntimeEnvironment: async (environmentId) => {
+          seen.push(environmentId);
+          return RUNTIME;
+        },
+      },
+      { action: 'list' },
+    );
+    expect(seen).toEqual([null]);
+    expect(fake.options[0]?.image).toBe(RUNTIME.imageId);
+
+    const failed = await runNativePluginAction(
+      {
+        ...deps(fake.provider),
+        resolveRuntimeEnvironment: async () => {
+          throw new Error('平台默认运行环境还没有可用的线上版本，无法创建沙盒');
+        },
+      },
+      { action: 'list' },
+    );
+    expect(failed).toMatchObject({ ok: false });
+    expect(failed.ok ? '' : failed.error).toMatch(/没有可用的线上版本/);
+    expect(fake.options).toHaveLength(1);
+  });
+
   it('mounts only the cache, uses the action entrypoint and sends one stdin action', async () => {
     const fake = fakeProvider(() =>
       respondingChild({
@@ -162,7 +204,7 @@ describe('runNativePluginAction', () => {
     });
     const [options] = fake.options;
     expect(options).toMatchObject({
-      image: 'agentport/sandbox:test',
+      image: RUNTIME.imageId,
       entrypoint: 'node',
       command: ['dist/native-plugins.js'],
       // 安装不调用模型：容器里只有可写的 HOME/TMPDIR，没有任何平台密钥。
@@ -397,7 +439,7 @@ describe('registerNativePlugins close', () => {
       child.emit('close', 137, 'SIGKILL');
     });
     const queue = await enqueueInstall();
-    const handle = await registerNativePlugins(config());
+    const handle = await registerNativePlugins(config(), async () => RUNTIME);
     try {
       await waitForCreate();
       await handle.close();
@@ -414,7 +456,7 @@ describe('registerNativePlugins close', () => {
 
   it('reports cleanup failure instead of swallowing it', async () => {
     docker.destroyAll.mockRejectedValueOnce(new Error('rm failed'));
-    const handle = await registerNativePlugins(config());
+    const handle = await registerNativePlugins(config(), async () => RUNTIME);
     try {
       await expect(handle.close()).rejects.toMatchObject({
         name: 'AggregateError',
@@ -434,7 +476,7 @@ describe('registerNativePlugins close', () => {
         }),
     );
     const queue = await enqueueInstall();
-    const handle = await registerNativePlugins(config());
+    const handle = await registerNativePlugins(config(), async () => RUNTIME);
     try {
       await waitForCreate();
       // create 未完成时 destroyAll 清不到容器，close 必须自行返回而不是等满安装预算。

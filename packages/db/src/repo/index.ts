@@ -12,6 +12,7 @@ export * as plugins from './plugins.js';
 export * as questions from './questions.js';
 export * as rules from './rules.js';
 export * as runs from './runs.js';
+export * as runtimeEnvironments from './runtime-environments.js';
 export * as servers from './servers.js';
 export * as skillFiles from './skill-files.js';
 export * as skills from './skills.js';

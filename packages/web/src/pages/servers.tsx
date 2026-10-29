@@ -2,6 +2,7 @@ import {
   type ApiTool,
   type ApiToolInput,
   type ConnectorCatalogItem,
+  type RuntimeEnvironment,
   SECRET_MASK,
   type Server,
   type ServerInput,
@@ -64,6 +65,7 @@ import {
   Field,
   FieldDescription,
   FieldError,
+  FieldGroup,
   FieldLabel,
   FieldLegend,
   FieldSet,
@@ -90,7 +92,7 @@ import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
-import { formatDateTime, formatDuration } from '../lib/format.js';
+import { formatDateTime, formatDuration, shortId } from '../lib/format.js';
 import {
   connectorCatalogQuery,
   useAgents,
@@ -100,6 +102,7 @@ import {
   useDeleteTool,
   useImportMcpFile,
   useRotateServerToken,
+  useRuntimeEnvironments,
   useServers,
   useServerToken,
   useSetToolEnabled,
@@ -139,7 +142,7 @@ const kindMeta: Record<Server['kind'], { label: string; hint: string; newHint: s
   },
 };
 
-/** 最近一次连接测试；只存在页面内存里，刷新或换设备后消失（后端没有持久化字段）。 */
+/** 本次页面会话的最近一次试连结果；刷新后只剩 server.lastTest* 持久化字段。 */
 interface LastTest {
   at: string;
   result: ServerTestResult;
@@ -167,6 +170,7 @@ function detailOf(server: Server): string {
 export function ServersPage() {
   const servers = useServers();
   const agents = useAgents();
+  const environments = useRuntimeEnvironments();
   const test = useTestServer();
   const importMcp = useImportMcpFile();
   const search = useSearch({ from: '/_shell/servers' });
@@ -193,6 +197,8 @@ export function ServersPage() {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogInitial, setCatalogInitial] = useState<ConnectorCatalogItem | null>(null);
   const [tested, setTested] = useState<Map<string, LastTest>>(() => new Map());
+  const [testingServer, setTestingServer] = useState<Server | null>(null);
+  const [testEnvironmentId, setTestEnvironmentId] = useState('default');
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   // 弹层关闭后焦点回到真正打开它的控件，而不是统一回到「新建」。
@@ -242,23 +248,32 @@ export function ServersPage() {
     setFormOpen(true);
   };
 
-  const runTest = (server: Server): void => {
+  const runTest = (server: Server, environmentId = testEnvironmentId): void => {
     if (test.isPending) return;
-    test.mutate(server.id, {
-      onSuccess: (result) => {
-        setTested((previous) =>
-          new Map(previous).set(server.id, { at: new Date().toISOString(), result }),
-        );
-        if (!result.ok) {
-          toastError(
-            new Error(
-              `没有连上 ${server.name}：${result.error ?? '服务没有返回原因，请检查地址与网络后重试'}`,
-            ),
-          );
-        }
+    // 只有 stdio 在沙盒里执行；HTTP/generated 不能带上一次 stdio 选择的环境。
+    const runtimeEnvironmentId =
+      server.kind === 'stdio' && environmentId !== 'default' ? environmentId : null;
+    test.mutate(
+      {
+        id: server.id,
+        runtimeEnvironmentId,
       },
-      onError: (error) => toastError(error),
-    });
+      {
+        onSuccess: (result) => {
+          setTested((previous) =>
+            new Map(previous).set(server.id, { at: new Date().toISOString(), result }),
+          );
+          if (!result.ok) {
+            toastError(
+              new Error(
+                `没有连上 ${server.name}：${result.error ?? '服务没有返回原因，请检查地址与网络后重试'}`,
+              ),
+            );
+          }
+        },
+        onError: (error) => toastError(error),
+      },
+    );
   };
 
   const importFile = async (file: File): Promise<void> => {
@@ -394,9 +409,14 @@ export function ServersPage() {
                       : (agentCounts.get(server.id) ?? 0)
                 }
                 lastTest={tested.get(server.id) ?? null}
-                testing={test.isPending && test.variables === server.id}
+                testing={test.isPending && test.variables?.id === server.id}
                 testPending={test.isPending}
-                onTest={() => runTest(server)}
+                onTest={(trigger) => {
+                  triggerRef.current = trigger;
+                  // 只有 stdio 会在沙盒里执行；HTTP/generated 由平台直连，不选环境。
+                  if (server.kind === 'stdio') setTestingServer(server);
+                  else runTest(server);
+                }}
                 onTools={(trigger) => {
                   triggerRef.current = trigger;
                   setToolServer(server);
@@ -459,12 +479,12 @@ export function ServersPage() {
         />
       ) : null}
 
-      {catalogServer && catalogTest ? (
+      {catalogServer ? (
         <ToolCatalogDialog
           server={catalogServer}
-          lastTest={catalogTest}
+          lastTest={catalogTest ?? null}
           pending={test.isPending}
-          testing={test.isPending && test.variables === catalogServer.id}
+          testing={test.isPending && test.variables?.id === catalogServer.id}
           onRetest={() => runTest(catalogServer)}
           getReturnFocus={focusTrigger}
           onClose={() => setCatalogServer(null)}
@@ -482,6 +502,22 @@ export function ServersPage() {
               return next;
             });
             setToolServer(null);
+          }}
+        />
+      ) : null}
+
+      {testingServer ? (
+        <TestEnvironmentDialog
+          server={testingServer}
+          environments={environments.data ?? []}
+          environmentsError={environments.isError}
+          initialEnvironmentId={testEnvironmentId}
+          getReturnFocus={focusTrigger}
+          onClose={() => setTestingServer(null)}
+          onConfirm={(environmentId) => {
+            setTestEnvironmentId(environmentId);
+            setTestingServer(null);
+            runTest(testingServer, environmentId);
           }}
         />
       ) : null}
@@ -505,6 +541,84 @@ export function ServersPage() {
   );
 }
 
+/** 试连前选环境：结果会带版本身份，避免把一次成功当成跨环境成功。 */
+function TestEnvironmentDialog({
+  server,
+  environments,
+  environmentsError,
+  initialEnvironmentId,
+  getReturnFocus,
+  onClose,
+  onConfirm,
+}: {
+  server: Server;
+  environments: RuntimeEnvironment[];
+  environmentsError: boolean;
+  initialEnvironmentId: string;
+  getReturnFocus: () => HTMLElement | null;
+  onClose: () => void;
+  onConfirm: (environmentId: string) => void;
+}) {
+  const [environmentId, setEnvironmentId] = useState(initialEnvironmentId);
+  return (
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogShell
+        title={`测试 ${server.name}`}
+        finalFocus={getReturnFocus}
+        className="max-w-md sm:max-w-md"
+      >
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="server-test-environment">运行环境</FieldLabel>
+            <Select
+              value={environmentId}
+              items={[
+                { value: 'default', label: '平台默认环境' },
+                ...environments
+                  .filter((environment) => !environment.isDefault)
+                  .map((environment) => ({
+                    value: environment.id,
+                    label: environment.name,
+                  })),
+              ]}
+              onValueChange={(next) => {
+                if (next !== null) setEnvironmentId(next);
+              }}
+            >
+              <SelectTrigger id="server-test-environment" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="default">平台默认环境</SelectItem>
+                  {environments
+                    .filter((environment) => !environment.isDefault)
+                    .map((environment) => (
+                      <SelectItem key={environment.id} value={environment.id}>
+                        {environment.name}
+                      </SelectItem>
+                    ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {environmentsError ? (
+              <FieldError>运行环境列表没有加载出来，只能使用默认环境。</FieldError>
+            ) : null}
+          </Field>
+        </FieldGroup>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            取消
+          </Button>
+          <Button size="sm" onClick={() => onConfirm(environmentId)}>
+            开始测试
+          </Button>
+        </div>
+      </DialogShell>
+    </Dialog>
+  );
+}
+
 function ServerCard({
   server,
   agentCount,
@@ -523,7 +637,7 @@ function ServerCard({
   lastTest: LastTest | null;
   testing: boolean;
   testPending: boolean;
-  onTest: () => void;
+  onTest: (trigger: HTMLElement) => void;
   onTools: (trigger: HTMLElement) => void;
   onConnection: (trigger: HTMLElement) => void;
   onCatalog: (trigger: HTMLElement) => void;
@@ -575,7 +689,10 @@ function ServerCard({
             />
             <DropdownMenuContent align="end" sideOffset={4} className="w-40">
               <DropdownMenuGroup>
-                <DropdownMenuItem disabled={testPending} onClick={onTest}>
+                <DropdownMenuItem
+                  disabled={testPending}
+                  onClick={() => menuTriggerRef.current && onTest(menuTriggerRef.current)}
+                >
                   <Plug /> {testing ? '测试中…' : '测试连接'}
                 </DropdownMenuItem>
                 {generated ? (
@@ -621,10 +738,13 @@ function ServerCard({
                 server.lastTestedAt ? `测试于 ${formatDateTime(server.lastTestedAt)}` : undefined
               }
             >
-              连接正常
+              上次试连通过
+              {server.lastTestRuntimeEnvironment
+                ? ` · ${server.lastTestRuntimeEnvironment.environmentName}`
+                : ''}
             </span>
           ) : server.lastTestOk === false ? (
-            <span className="text-xs text-danger">上次测试失败</span>
+            <span className="text-xs text-danger">上次试连失败</span>
           ) : null}
         </div>
         <code className="truncate font-mono text-xs text-muted-foreground" title={detailOf(server)}>
@@ -632,6 +752,7 @@ function ServerCard({
         </code>
         <TestSummary
           state={lastTest}
+          server={server}
           testing={testing}
           serverName={server.name}
           onOpen={(trigger) => onCatalog(trigger)}
@@ -656,11 +777,13 @@ function ServerCard({
 
 function TestSummary({
   state,
+  server,
   testing,
   serverName,
   onOpen,
 }: {
   state: LastTest | null;
+  server: Server;
   testing: boolean;
   serverName: string;
   onOpen: (trigger: HTMLElement) => void;
@@ -673,29 +796,45 @@ function TestSummary({
       </span>
     );
   }
-  if (!state) return <span className="text-xs text-muted-foreground">未测试</span>;
-  const { result, at } = state;
+  const result = state?.result ?? null;
+  const testedAt = state?.at ?? server.lastTestedAt ?? null;
+  if (!testedAt) return <span className="text-xs text-muted-foreground">未测试</span>;
+  const ok = result ? result.ok : server.lastTestOk === true;
+  // 刷新后没有本次页面的结果对象，只展示后端持久化的上次试连身份。
+  const environment = result
+    ? (result.runtimeEnvironment ?? null)
+    : (server.lastTestRuntimeEnvironment ?? null);
   return (
     <div className="flex flex-col gap-2">
       <div className="max-w-[220px] flex flex-col gap-0.5">
         <div className="flex items-center gap-1.5">
-          {result.ok ? (
+          {ok ? (
             <CircleCheck className="size-3.5 shrink-0 text-success" />
           ) : (
             <CircleAlert className="size-3.5 shrink-0 text-danger" />
           )}
-          <span className={cn('text-xs font-medium', result.ok ? 'text-success' : 'text-danger')}>
-            {result.ok ? '连接成功' : '未能连接'}
+          <span className={cn('text-xs font-medium', ok ? 'text-success' : 'text-danger')}>
+            {ok ? '试连成功' : '未能连接'}
           </span>
           <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-            {formatDateTime(at)}
+            {formatDateTime(testedAt)}
           </span>
         </div>
-        <div className="font-mono text-2xs tabular-nums text-muted-foreground">
-          耗时 {formatDuration(result.durationMs)}
-        </div>
+        {result ? (
+          <div className="font-mono text-2xs tabular-nums text-muted-foreground">
+            耗时 {formatDuration(result.durationMs)}
+          </div>
+        ) : null}
+        {environment ? (
+          <p
+            className="truncate font-mono text-2xs text-muted-foreground"
+            title={`${environment.environmentName} · ${environment.versionId} · ${environment.imageId}`}
+          >
+            环境 {environment.environmentName} · {shortId(environment.versionId)}
+          </p>
+        ) : null}
         {/* 列出工具名：只给数量无法判断「连上了但工具没注册」这种情况。 */}
-        {result.ok && result.tools.length > 0 ? (
+        {result?.ok && result.tools.length > 0 ? (
           <p
             className="truncate font-mono text-2xs text-muted-foreground"
             title={result.tools.map((tool) => tool.name).join(', ')}
@@ -703,7 +842,7 @@ function TestSummary({
             {result.tools.map((tool) => tool.name).join(' · ')}
           </p>
         ) : null}
-        {result.error ? (
+        {result?.error ? (
           <p className="truncate text-2xs text-danger" title={result.error}>
             {result.error}
           </p>
@@ -793,7 +932,7 @@ function ConnectorCatalogDialog({
   );
 }
 
-/** 只读最近测试返回的目录与脱敏错误摘要；打开时不发请求。 */
+/** 只读最近试连返回的目录与脱敏错误摘要；打开时不发请求。 */
 function ToolCatalogDialog({
   server,
   lastTest,
@@ -804,34 +943,49 @@ function ToolCatalogDialog({
   getReturnFocus,
 }: {
   server: Server;
-  lastTest: LastTest;
+  lastTest: LastTest | null;
   pending: boolean;
   testing: boolean;
   onRetest: () => void;
   onClose: () => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
-  const result = lastTest.result;
-  const tools = result.ok ? result.tools : [];
+  const result = lastTest?.result ?? null;
+  const tools = result?.ok ? result.tools : [];
+  // 本次页面的结果优先；刷新后回退到后端持久化的上次试连身份。
+  const environment = result
+    ? (result.runtimeEnvironment ?? null)
+    : (server.lastTestRuntimeEnvironment ?? null);
+  const testedAt = lastTest?.at ?? server.lastTestedAt ?? null;
+  const ok = result ? result.ok : server.lastTestOk === true;
 
   return (
     <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogShell
-        title={`工具与测试「${server.name}」`}
-        description="最近一次测试结果"
+        title={`工具与试连「${server.name}」`}
+        description="最近一次试连结果，只代表这一个环境版本。"
         finalFocus={getReturnFocus}
         className="max-w-2xl sm:max-w-2xl"
       >
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            {environment ? (
+              <span
+                className="font-mono"
+                title={`${environment.environmentName} · ${environment.versionId} · ${environment.imageId}`}
+              >
+                环境 {environment.environmentName} · {shortId(environment.versionId)}
+              </span>
+            ) : null}
             {result?.serverInfo ? (
               <span className="font-mono">
                 {result.serverInfo.name} {result.serverInfo.version}
               </span>
             ) : null}
-            {lastTest && result ? (
+            {testedAt ? (
               <span className="font-mono tabular-nums">
-                {formatDateTime(lastTest.at)} · {formatDuration(result.durationMs)}
+                {formatDateTime(testedAt)}
+                {result ? ` · ${formatDuration(result.durationMs)}` : ''}
               </span>
             ) : null}
             <Button
@@ -842,12 +996,12 @@ function ToolCatalogDialog({
               aria-busy={testing}
               onClick={onRetest}
             >
-              <RefreshCw className="size-3.5" aria-hidden="true" />
+              <RefreshCw data-icon="inline-start" />
               {testing ? '测试中…' : '重新测试'}
             </Button>
           </div>
 
-          {!result.ok ? (
+          {result && !result.ok ? (
             <Field className="gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">失败原因</span>
               {/* 原文展示，不截断也不解析：这条文本是定位连不上问题的唯一线索。 */}
@@ -855,6 +1009,12 @@ function ToolCatalogDialog({
                 {result.error ?? '服务没有返回原因。'}
               </p>
             </Field>
+          ) : null}
+
+          {!result ? (
+            <InlineEmpty>
+              {ok ? '重新测试后查看工具目录。' : '重新测试后查看失败原因。'}
+            </InlineEmpty>
           ) : null}
 
           {tools.length === 0 && result?.ok ? (

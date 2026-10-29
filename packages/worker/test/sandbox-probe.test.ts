@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { encryptSecrets } from '@agentport/core';
 import { createDb, newId, schema } from '@agentport/db';
-import { SANDBOX_PROBE_STARTUP_TIMEOUT_MS, SANDBOX_PROBES_QUEUE } from '@agentport/shared';
+import {
+  type ResolvedRuntimeEnvironment,
+  SANDBOX_PROBE_STARTUP_TIMEOUT_MS,
+  SANDBOX_PROBES_QUEUE,
+} from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
@@ -103,12 +107,19 @@ const quietLogger = {
   child: () => quietLogger,
 } as unknown as Logger;
 
+const RUNTIME: ResolvedRuntimeEnvironment = {
+  environmentId: 'env_probe',
+  environmentName: '默认环境',
+  versionId: 'ver_probe',
+  imageId: 'sha256:probe-image',
+};
+
 function deps(provider: FakeProvider['provider']): SandboxProbeDeps {
   return {
     db,
     logger: quietLogger,
     provider,
-    image: 'agentport/sandbox:test',
+    resolveRuntimeEnvironment: async () => RUNTIME,
     workspacesDir,
     hostWorkspacesDir: workspacesDir,
     secretKey: SECRET_KEY,
@@ -155,10 +166,11 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
 
     expect(result.ok).toBe(true);
     expect(result.tools).toEqual([{ name: 'echo' }]);
+    expect(result.runtimeEnvironment).toEqual(RUNTIME);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
     const [options] = fake.options;
     expect(options).toMatchObject({
-      image: 'agentport/sandbox:test',
+      image: RUNTIME.imageId,
       entrypoint: 'node',
       command: ['dist/probe.js'],
       // 试连不调用模型：容器里不能出现任何模型凭证，只给一个可写的 HOME。
@@ -168,6 +180,50 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     expect(options?.workspaceDir).toBe(join(workspacesDir, 'sandbox-probes'));
     // 正常完成的试连不能触发取消，否则 provider 会把已启动的容器当成被放弃。
     expect(options?.signal?.aborted).toBe(false);
+  });
+
+  it('resolves the requested environment only when it starts a container', async () => {
+    const serverId = await seedStdio({});
+    const fake = fakeProvider(() => respondingChild({ ok: true, tools: [] }));
+    const seen: Array<string | null> = [];
+
+    const result = await runSandboxProbe(
+      {
+        ...deps(fake.provider),
+        resolveRuntimeEnvironment: async (environmentId) => {
+          seen.push(environmentId);
+          return { ...RUNTIME, environmentId: environmentId ?? 'env_default' };
+        },
+      },
+      serverId,
+      undefined,
+      'env_custom',
+    );
+
+    expect(seen).toEqual(['env_custom']);
+    expect(fake.options[0]?.image).toBe(RUNTIME.imageId);
+    expect(result.runtimeEnvironment).toEqual({ ...RUNTIME, environmentId: 'env_custom' });
+  });
+
+  it('fails clearly without creating a container when the environment cannot resolve', async () => {
+    const serverId = await seedStdio({});
+    const fake = fakeProvider(() => hangingChild());
+
+    const result = await runSandboxProbe(
+      {
+        ...deps(fake.provider),
+        resolveRuntimeEnvironment: async () => {
+          throw new Error('运行环境 env_custom 没有可用的线上版本，无法创建沙盒');
+        },
+      },
+      serverId,
+      undefined,
+      'env_custom',
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/没有可用的线上版本/);
+    expect(fake.options).toEqual([]);
   });
 
   it('sends the decrypted stdio configuration as the single stdin task', async () => {
@@ -283,11 +339,7 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     const warn = vi.fn();
     const logger = { ...quietLogger, warn } as unknown as Logger;
 
-    const result = await runSandboxProbe(
-      { ...deps(provider), logger, image: 'agentport/sandbox:test' },
-      serverId,
-      220, // 超过启动预算的 200ms
-    );
+    const result = await runSandboxProbe({ ...deps(provider), logger }, serverId, 220);
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/启动超时/);
     // 启动预算用完必须取消 provider.create，否则冷拉取会在超时后继续。
@@ -444,7 +496,7 @@ describe.skipIf(!ready)('registerSandboxProbe close', () => {
 
   it('reports cleanup failure instead of swallowing it', async () => {
     docker.destroyAll.mockRejectedValueOnce(new Error('rm failed'));
-    const handle = await registerSandboxProbe(config());
+    const handle = await registerSandboxProbe(config(), async () => RUNTIME);
 
     await expect(handle.close()).rejects.toMatchObject({
       name: 'AggregateError',

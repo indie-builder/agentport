@@ -117,9 +117,9 @@ describe('agent package transfer', () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'expert.zip', {
       type: 'application/zip',
     });
-    await expect(api.importAgent(file)).resolves.toEqual(result);
+    await expect(api.importAgent(file, undefined, 'rte_default')).resolves.toEqual(result);
     const [url, init] = fetch.mock.calls[0] ?? [];
-    expect(url).toBe('/api/import/agents');
+    expect(url).toBe('/api/import/agents?runtimeEnvironmentId=rte_default');
     expect(init?.method).toBe('POST');
     expect(init?.body).toBe(file);
     expect(init?.headers).toMatchObject({ 'content-type': 'application/zip' });

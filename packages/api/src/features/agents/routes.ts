@@ -119,6 +119,8 @@ const patchSchema = z.object({
     )
     .optional(),
   subAgentIds: z.array(z.string()).optional(),
+  /** null 清除绑定、回平台默认环境；undefined 保持不动。 */
+  runtimeEnvironmentId: z.string().min(1).nullable().optional(),
   allowedTools: allowedToolsSchema.optional(),
   disallowedTools: z.array(z.string()).optional(),
   permissionMode: permissionModeSchema.optional(),
@@ -170,6 +172,7 @@ function toWrite(
     maxTurns: input.maxTurns,
     maxBudgetUsd: String(input.maxBudgetUsd),
     timeoutMs: input.timeoutMs,
+    runtimeEnvironmentId: input.runtimeEnvironmentId,
   };
 }
 
@@ -223,6 +226,23 @@ async function validateSubAgents(
   return undefined;
 }
 
+/**
+ * 绑定必须是「真实存在且已有可用线上版本」的环境。
+ * 没有线上版本时明确报错，不在运行时偷偷回落到默认环境。
+ */
+async function validateRuntimeEnvironment(
+  app: FastifyInstance,
+  id: string | null,
+): Promise<string | undefined> {
+  if (id === null) return undefined;
+  const env = await allRepo.runtimeEnvironments.getRuntimeEnvironment(app.db, id);
+  if (!env) return '选中的运行环境不存在，可能已被删除；请刷新后重新选择';
+  if ((await allRepo.runtimeEnvironments.resolveOnlineRuntimeEnvironment(app.db, id)) === null) {
+    return `「${env.name}」还没有可用的线上版本；请先完成构建并发布后再绑定`;
+  }
+  return undefined;
+}
+
 /** 快照是共享 Agent（camelCase）；回滚时先转回 DB 写入形状，slug 保持不变。 */
 function snapshotToWrite(snapshot: Agent, slug: string, currentRole: string): repo.AgentWrite {
   return {
@@ -244,6 +264,7 @@ function snapshotToWrite(snapshot: Agent, slug: string, currentRole: string): re
     maxTurns: snapshot.maxTurns,
     maxBudgetUsd: String(snapshot.maxBudgetUsd),
     timeoutMs: snapshot.timeoutMs,
+    runtimeEnvironmentId: snapshot.runtimeEnvironmentId ?? null,
   };
 }
 
@@ -282,6 +303,8 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     const { serverIds, skillIds, subAgentIds, pluginBindings, ...rest } = input;
     const subAgentError = await validateSubAgents(app, null, subAgentIds);
     if (subAgentError) return invalid(reply, subAgentError);
+    const envError = await validateRuntimeEnvironment(app, input.runtimeEnvironmentId);
+    if (envError) return invalid(reply, envError);
     try {
       const row = await repo.createAgent(
         app.db,
@@ -390,6 +413,11 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       const input = request.body;
       const modeError = unsupportedPermissionMode(input.permissionMode);
       if (modeError) return invalid(reply, modeError);
+      const envError =
+        input.runtimeEnvironmentId === undefined
+          ? undefined
+          : await validateRuntimeEnvironment(app, input.runtimeEnvironmentId);
+      if (envError) return invalid(reply, envError);
 
       // 只有需要旧行做校验的字段才查一次；普通字段更新直接 UPDATE。
       if (
@@ -434,6 +462,9 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       if (input.maxTurns !== undefined) patch.maxTurns = input.maxTurns;
       if (input.maxBudgetUsd !== undefined) patch.maxBudgetUsd = String(input.maxBudgetUsd);
       if (input.timeoutMs !== undefined) patch.timeoutMs = input.timeoutMs;
+      if (input.runtimeEnvironmentId !== undefined) {
+        patch.runtimeEnvironmentId = input.runtimeEnvironmentId;
+      }
 
       try {
         const row = await repo.updateAgent(
@@ -613,6 +644,8 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       }
 
       const snapshot = target.snapshot;
+      const envError = await validateRuntimeEnvironment(app, snapshot.runtimeEnvironmentId ?? null);
+      if (envError) return invalid(reply, envError);
       const toolError = unsupportedAllowedTool(snapshot.allowedTools);
       if (toolError) return invalid(reply, toolError);
       // 旧快照没有 subAgentIds 字段；缺失时保持现有关系不动。

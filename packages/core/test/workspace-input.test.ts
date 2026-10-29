@@ -67,6 +67,28 @@ describe('toWorkspaceInput', () => {
     expect(files.agentMd).toContain('"WebFetch"');
   });
 
+  it('lists Bash in the parent whitelist with or without a custom allow list', () => {
+    const withoutCustom = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow({ allowedTools: [] }),
+        servers: servers('<已配置>'),
+        skills: [],
+        subAgents: [],
+      }),
+    );
+    expect(withoutCustom.agentMd).toContain('tools: ["Bash"');
+
+    const withCustom = renderWorkspace(
+      toWorkspaceInput({
+        agent: agentRow({ allowedTools: ['mcp__files__*'] }),
+        servers: servers('<已配置>'),
+        skills: [],
+        subAgents: [],
+      }),
+    );
+    expect(withCustom.agentMd).toContain('tools: ["Bash", "mcp__files__*"]');
+  });
+
   it('only renders enabled sub-agents', () => {
     const files = renderWorkspace(
       toWorkspaceInput({

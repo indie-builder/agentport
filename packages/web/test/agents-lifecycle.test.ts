@@ -1,5 +1,5 @@
 import { renderWorkspace } from '@agentport/core/workspace';
-import { type Agent, agentInputSchema } from '@agentport/shared';
+import { type Agent, agentInputSchema, type RuntimeEnvironment } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
@@ -31,6 +31,22 @@ const agent: Agent = {
 };
 const restored = { ...agent, name: 'Restored expert', updatedAt: '2026-02-01T00:00:00Z' };
 const versions = [{ id: 'version-1', version: 1, note: null, createdAt: agent.createdAt }];
+const defaultEnvironment: RuntimeEnvironment = {
+  id: 'rte_default',
+  name: '默认环境',
+  dockerfile: 'FROM base',
+  isDefault: true,
+  onlineVersionId: 'rtev_default',
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+};
+const namedEnvironment: RuntimeEnvironment = {
+  ...defaultEnvironment,
+  id: 'rte_named',
+  name: '数据分析',
+  isDefault: false,
+  onlineVersionId: null,
+};
 let client: QueryClient;
 let host: HTMLDivElement;
 let root: Root;
@@ -183,6 +199,17 @@ async function confirmRollback() {
   const confirmation = dialog('回滚到 v1');
   await click(button('回滚', confirmation));
 }
+async function chooseFile(name: string, content = 'PK'): Promise<File> {
+  const input = host.querySelector<HTMLInputElement>('input[type="file"]');
+  if (!input) throw new Error('Missing import input');
+  const file = new File([content], name, {
+    type: name.toLowerCase().endsWith('.md') ? 'text/markdown' : 'application/zip',
+  });
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  await flush();
+  return file;
+}
 async function importFile(warnings: string[]) {
   vi.spyOn(api, 'importAgent').mockResolvedValue({
     agent,
@@ -191,12 +218,8 @@ async function importFile(warnings: string[]) {
     reusedServers: [],
     createdSkills: [],
   });
-  const input = host.querySelector<HTMLInputElement>('input[type="file"]');
-  if (!input) throw new Error('Missing import input');
-  const file = new File(['PK'], 'expert.zip', { type: 'application/zip' });
-  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
-  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
-  await flush();
+  await chooseFile('expert.zip');
+  await click(button('导入', dialog('导入专家包')));
   await waitFor(() => document.querySelector('#agent-name'));
 }
 
@@ -217,6 +240,7 @@ beforeEach(() => {
   vi.spyOn(api, 'agents').mockResolvedValue([agent]);
   vi.spyOn(api, 'servers').mockResolvedValue([]);
   vi.spyOn(api, 'skills').mockResolvedValue([]);
+  vi.spyOn(api, 'runtimeEnvironments').mockResolvedValue([defaultEnvironment, namedEnvironment]);
   vi.spyOn(api, 'agentVersions').mockResolvedValue(versions);
   vi.spyOn(api, 'agentVersion').mockResolvedValue({
     version: 1,
@@ -229,6 +253,7 @@ beforeEach(() => {
   client.setQueryData(['agents'], [agent]);
   client.setQueryData(['servers'], []);
   client.setQueryData(['skills'], []);
+  client.setQueryData(['runtime-environments'], [defaultEnvironment, namedEnvironment]);
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -428,7 +453,9 @@ describe('expert creation lifecycle', () => {
     await click(await waitFor(() => button('权限')));
     const section = document.getElementById('agent-permissions');
     expect(section?.textContent).toContain('内置工具');
-    expect(section?.textContent).toContain('Bash、文件写入和网络访问');
+    expect(section?.textContent).toContain('Bash');
+    expect(section?.textContent).toContain('默认启用');
+    expect(section?.textContent).toContain('Docker 挂载边界');
     expect(section?.textContent).toContain('绑定连接器的全部工具加入 SDK allowedTools 预批准');
     expect(section?.textContent).toContain('工具若设置 requiresApproval，仍须通过服务端审批');
     expect(section?.textContent).toContain('可挂起等待批准');
@@ -450,7 +477,7 @@ describe('expert creation lifecycle', () => {
     expectApprovalHint();
     await selectRole('default — 标准权限', 'agent-perm');
     expectApprovalHint();
-    expect(button('Bash：已禁用')).toBeDefined();
+    expect(button('Bash：已启用')).toBeDefined();
   });
 
   it('initializes twin defaults cleanly and protects edited working background', async () => {
@@ -840,6 +867,88 @@ describe('expert review details', () => {
     await click(button('查看差异'));
     await flush();
     expect(detail).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for an explicit environment mapping before importing a ZIP and does nothing on cancel', async () => {
+    await mount();
+    const importZip = vi.spyOn(api, 'importAgent');
+    await chooseFile('expert.zip');
+    const setup = dialog('导入专家包');
+    expect(setup.textContent).toContain('expert.zip');
+    expect(setup.textContent).toContain('按包中名称匹配');
+    expect(importZip).not.toHaveBeenCalled();
+    await click(button('取消', setup));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(importZip).not.toHaveBeenCalled();
+  });
+
+  it('imports a ZIP by package name when no environment override is chosen', async () => {
+    const importZip = vi.spyOn(api, 'importAgent').mockResolvedValue({
+      agent,
+      warnings: [],
+      createdServers: [],
+      reusedServers: [],
+      createdSkills: [],
+    });
+    await mount();
+    const file = await chooseFile('expert.zip');
+    await click(button('导入', dialog('导入专家包')));
+    await waitFor(() => document.querySelector('#agent-name'));
+    expect(importZip).toHaveBeenCalledWith(file, undefined, undefined);
+  });
+
+  it.each([
+    ['数据分析', 'rte_named'],
+    ['默认环境', 'rte_default'],
+  ])('maps a ZIP to the explicitly chosen environment %s', async (name, id) => {
+    const importZip = vi.spyOn(api, 'importAgent').mockResolvedValue({
+      agent,
+      warnings: [],
+      createdServers: [],
+      reusedServers: [],
+      createdSkills: [],
+    });
+    await mount();
+    await chooseFile('expert.zip');
+    await selectRole(name, 'agent-import-environment');
+    await click(button('导入', dialog('导入专家包')));
+    await waitFor(() => document.querySelector('#agent-name'));
+    expect(importZip).toHaveBeenCalledWith(expect.any(File), undefined, id);
+  });
+
+  it('shows the default environment name for an explicitly mapped default after ZIP import', async () => {
+    const imported = { ...agent, runtimeEnvironmentId: 'rte_default' };
+    vi.spyOn(api, 'importAgent').mockResolvedValue({
+      agent: imported,
+      warnings: [],
+      createdServers: [],
+      reusedServers: [],
+      createdSkills: [],
+    });
+    vi.mocked(api.agents).mockResolvedValue([imported]);
+    await mount();
+    await chooseFile('expert.zip');
+    await selectRole('默认环境', 'agent-import-environment');
+    await click(button('导入', dialog('导入专家包')));
+    await waitFor(() => document.querySelector('#agent-name'));
+    await click(button('运行限制'));
+    await flush();
+    const picker = document.getElementById('agent-runtime-environment');
+    expect(picker?.textContent).toContain('默认环境');
+    expect(picker?.textContent).not.toContain('平台默认环境');
+    expect(picker?.textContent).not.toContain('rte_default');
+  });
+
+  it('keeps agent.md imports immediate without the environment mapping dialog', async () => {
+    const importMd = vi.spyOn(api, 'importAgentFile').mockResolvedValue({
+      agent,
+      warnings: [],
+    });
+    await mount();
+    await chooseFile('agent.md', '# Expert');
+    expect(importMd).toHaveBeenCalledWith('# Expert');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await waitFor(() => document.querySelector('#agent-name'));
   });
 
   it('retains every import warning until the user dismisses the result', async () => {

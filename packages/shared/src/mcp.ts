@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { slugSchema } from './params.js';
+import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
 
 /** 用户配置的 MCP Server；密钥字段在 API 层加密，返回时脱敏。 */
 export const serverKindSchema = z.enum(['stdio', 'http', 'generated', 'knowledge']);
@@ -143,6 +144,8 @@ const serverIdFields = {
   lastTestedAt: z.string().nullable().optional(),
   lastTestOk: z.boolean().nullable().optional(),
   lastToolCount: z.number().int().nullable().optional(),
+  /** 最近一次测试实际使用的环境身份；非 stdio 或环境解析前失败为 null。 */
+  lastTestRuntimeEnvironment: resolvedRuntimeEnvironmentSchema.nullable().optional(),
 };
 
 /**
@@ -201,6 +204,8 @@ export const serverTestResultSchema = z.object({
     )
     .default([]),
   error: z.string().optional(),
+  /** stdio 试连实际使用的环境身份；http/generated 不创建沙盒，没有这一项。 */
+  runtimeEnvironment: resolvedRuntimeEnvironmentSchema.optional(),
   durationMs: z.number(),
 });
 

@@ -9,6 +9,8 @@ export const idPrefixes = {
   tool: 'tool',
   agent: 'agt',
   agentVersion: 'av',
+  runtimeEnvironment: 'rte',
+  runtimeEnvironmentVersion: 'rtev',
   skill: 'skl',
   skillFile: 'skf',
   plugin: 'plg',

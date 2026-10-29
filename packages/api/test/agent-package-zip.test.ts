@@ -502,6 +502,26 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect((await listAgents()).some((agent) => agent.slug === slug)).toBe(false);
   });
 
+  it('accepts Bash and Bash(...) and keeps an explicit deny through import', async () => {
+    const slug = unique('imp-bash');
+    createdAgents.push(slug);
+    const res = await importZip(
+      packageZip({
+        agent: {
+          slug,
+          name: slug,
+          allowedTools: ['Bash', 'Bash(git:*)'],
+          disallowedTools: ['Bash(rm:*)'],
+        },
+      }),
+    );
+    expect(res.statusCode, res.body).toBe(201);
+    const { agent } = res.json<AgentImportResult>();
+    createdAgents.push(agent.slug);
+    expect(agent.allowedTools).toEqual(['Bash', 'Bash(git:*)']);
+    expect(agent.disallowedTools).toEqual(['Bash(rm:*)']);
+  });
+
   it('rejects a legacy JSON package', async () => {
     const res = await inject(app, {
       method: 'POST',

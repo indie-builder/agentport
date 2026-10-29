@@ -79,9 +79,11 @@ export const agentInputSchema = z.object({
     .default([]),
   /** 可委派的子智能体（最多一层，子智能体不能再委派）。 */
   subAgentIds: z.array(z.string()).default([]),
+  /** 绑定的命名运行环境；null 表示平台默认环境。 */
+  runtimeEnvironmentId: z.string().nullable().default(null),
   /** 允许的 MCP 工具模式；留空表示「所有已绑定 server 的全部工具」。 */
   allowedTools: z.array(z.string()).default([]),
-  /** 额外禁用的工具；内置工具默认全部禁用，这里是补充项。 */
+  /** 额外禁用的工具；内置工具默认禁用，Bash 默认在沙箱容器内放行，这里是补充项。 */
   disallowedTools: z.array(z.string()).default([]),
   permissionMode: permissionModeSchema.default('default'),
   /** 助手回复格式；openui 时系统提示词追加 OpenUI Lang 约定，前端按生成式 UI 渲染。 */

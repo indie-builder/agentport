@@ -16,6 +16,10 @@ const envSchema = z
      * 而 docker -v 的源路径由宿主 daemon 解析，必须换成该卷的宿主目录。默认与 WORKSPACES_DIR 相同。
      */
     HOST_WORKSPACES_DIR: z.string().min(1).optional(),
+    /**
+     * 平台 runner 基座镜像。worker 首次启动用它的本地实际 ID 登记默认运行环境的首个线上版本；
+     * 之后发布/回退只改 DB 指针，不再随这个变量推进。构建运行环境时也用它作为固定基座。
+     */
     SANDBOX_IMAGE: z.string().min(1).default('agentport/sandbox:dev'),
     /**
      * open=bridge 直连（不隔离出站）；none=断网；proxy=仍用 bridge，由 HTTPS_PROXY 指向宿主代理。

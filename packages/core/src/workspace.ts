@@ -160,11 +160,10 @@ export function renderRuleMd(rule: { slug: string; content: string; globs?: stri
 }
 
 /**
- * 内置工具默认全部禁用。限制靠裸工具名从上下文移除；
- * allowedTools 只负责自动批准，不负责限制。
+ * 未显式启用的内置工具默认禁用。Bash 不在此列：运行时默认在沙箱容器内放行。
+ * 限制靠裸工具名从上下文移除；allowedTools 只负责自动批准，不负责限制。
  */
 export const DEFAULT_DISALLOWED_TOOLS = [
-  'Bash',
   'Read',
   'Write',
   'Edit',
@@ -259,12 +258,22 @@ export function delegationWaitSection(input: WorkspaceInput): string[] {
 
 function renderClaudeMd(input: WorkspaceInput): string {
   const { agent, servers, skills = [] } = input;
+  const toolsDeny = input.toolsDeny ?? [];
+  const bashDenied = toolsDeny.includes('Bash');
+  // 命令级 deny（如 `Bash(rm:*)`）只限制具体命令，Bash 本身仍可用。
+  const bashCapability = bashDenied
+    ? null
+    : toolsDeny.some((tool) => tool.startsWith('Bash('))
+      ? '`Bash`（默认启用，受命令级禁用规则约束）'
+      : '`Bash`（默认启用，在沙箱容器内执行命令）';
   const toolLines =
     servers.length === 0
       ? [
           skills.length === 0
-            ? '当前没有绑定 MCP Server，也没有可用技能；主会话仍可使用下述原生记忆。'
-            : '当前没有绑定 MCP Server，你没有 MCP 工具；可用能力只有下方列出的技能与原生记忆。',
+            ? bashCapability
+              ? `当前没有绑定 MCP Server，也没有可用技能；主会话有 ${bashCapability} 与下述原生记忆。`
+              : '当前没有绑定 MCP Server，也没有可用技能；主会话不可使用 `Bash`（已被显式禁用），只有下述原生记忆。'
+            : `当前没有绑定 MCP Server，你没有 MCP 工具；可用能力只有下方列出的技能、原生记忆${bashCapability ? `与${bashCapability}` : ''}。`,
         ]
       : [
           '本工作区通过 `.mcp.json` 绑定以下 MCP Server：',
@@ -316,9 +325,9 @@ function renderClaudeMd(input: WorkspaceInput): string {
       ? ['', '内置的 `Agent` 工具已启用，仅用于委派给上面的子智能体。']
       : []),
     '',
-    '业务能力使用 `mcp__*` MCP 工具；内置 shell 与网络工具已禁用。',
-    '主会话可用 `Read`、`Write`、`Edit` 访问 `/mnt/agent-memory/` 内的 Markdown 原生记忆；只读可用 `Read` 打开 `.claude/skills/<slug>/references/` 下的 Markdown；其他路径与子智能体文件访问均被拒绝。',
-    '交付给用户的文件写到 `/mnt/outputs/`。完成后告诉用户打开右上角「会话成果」即可预览或下载，只用这个叫法。修改已有交付时继续用同一路径覆盖，本轮没有新增或修改的文件不必重写；目录之外的路径不可写。',
+    `业务能力使用 \`mcp__*\` MCP 工具；${bashCapability ?? '`Bash` 已被显式禁用'}，网络工具仍禁用。`,
+    '主会话可用 `Read`、`Write`、`Edit` 访问 `/mnt/agent-memory/` 内的 Markdown 原生记忆；只读可用 `Read` 打开 `.claude/skills/<slug>/references/` 下的 Markdown；其他路径的原生文件工具请求，以及子智能体的原生文件工具请求均被拒绝。',
+    `交付给用户的文件写到 \`/mnt/outputs/\`。完成后告诉用户打开右上角「会话成果」即可预览或下载，只用这个叫法。修改已有交付时继续用同一路径覆盖，本轮没有新增或修改的文件不必重写；原生文件工具在目录之外不可写${bashCapability ? '，`Bash` 在容器内执行，可访问容器内已挂载的目录' : ''}。`,
     '如需更多能力，请让管理员在平台中为智能体绑定对应的 MCP Server。',
     '',
     '## 任务清单',
@@ -353,10 +362,15 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
   const bound = agent.serverNames;
   const ownNames = bound ?? servers.map((s) => s.name);
   const ownServers = servers.filter((s) => ownNames.includes(s.name));
-  const tools =
-    input.toolsAllow && input.toolsAllow.length > 0
-      ? input.toolsAllow
-      : ownServers.map((s) => `mcp__${s.name}__*`);
+  // Bash 由运行时默认放行；预览白名单必须与运行一致，即使智能体配置了自己的 allow 列表。
+  const tools = [
+    ...new Set([
+      'Bash',
+      ...(input.toolsAllow && input.toolsAllow.length > 0
+        ? input.toolsAllow
+        : ownServers.map((s) => `mcp__${s.name}__*`)),
+    ]),
+  ];
   const hasSubAgents = (input.subAgents ?? []).length > 0;
   // 智能体可显式放行 ListAgents/SendMessage（D-19）；其余默认项不能通过配置解除。
   const allowedByConfig = new Set(input.toolsAllow ?? []);
@@ -393,7 +407,9 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
     // 子智能体不能声明 tools：SDK 在派生时先按主会话解析这些名字，MCP 工具此时尚未注册，
     // `mcp__<server>__*` 解析为空会被直接拒绝（"would be spawned with zero tools"）。
     // 省略 tools 即继承父会话工具集；子级 disallowedTools 保持禁用文件工具。
-    ...(standalone ? [] : [`tools: ${yamlList(hasSubAgents ? [...tools, 'Agent'] : tools)}`]),
+    ...(standalone
+      ? []
+      : [`tools: ${yamlList(hasSubAgents ? [...new Set([...tools, 'Agent'])] : tools)}`]),
     // 子级按名字引用根 .mcp.json 的条目：inline 配置在非交互/未信任目录会被跳过。
     ...(standalone && bound !== undefined && ownServers.length > 0
       ? ['mcpServers:', ...ownServers.map((s) => `  - ${yamlString(s.name)}`)]

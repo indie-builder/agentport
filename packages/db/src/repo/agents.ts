@@ -37,6 +37,8 @@ export interface AgentWrite {
   maxBudgetUsd: string;
   timeoutMs: number;
   parentId?: string | null;
+  /** 绑定的运行环境；null 表示平台默认环境。 */
+  runtimeEnvironmentId?: string | null;
 }
 
 /** DB 行 → 共享 Agent；所有字段映射只在这里做一次。 */
@@ -60,6 +62,7 @@ export function toAgent(
     pluginBindings,
     subAgentIds,
     parentId: row.parentId,
+    runtimeEnvironmentId: row.runtimeEnvironmentId,
     allowedTools: row.allowedTools,
     disallowedTools: row.disallowedTools,
     permissionMode: row.permissionMode as AgentInput['permissionMode'],
@@ -278,6 +281,8 @@ export async function duplicateAgent(
               maxBudgetUsd: source.maxBudgetUsd,
               timeoutMs: source.timeoutMs,
               parentId: null,
+              // 复制的是环境绑定（不是构建版本）；源环境的版本历史不跟着复制。
+              runtimeEnvironmentId: source.runtimeEnvironmentId,
             })
             .returning();
           if (!created) throw new Error('agent insert returned no row');

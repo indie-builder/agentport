@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import {
   type ChatEvent,
   type ExecutionSettlement,
+  type ResolvedRuntimeEnvironment,
   type SandboxInputCommand,
   type SandboxTaskInput,
   SUPERVISOR_INPUT_MAX_BYTES,
@@ -11,6 +12,7 @@ import {
 } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { redactSecrets } from '../redact.js';
+import type { RuntimeEnvironmentResolver } from '../runtime-environments/resolve.js';
 import type { Sandbox, SandboxProvider } from './provider.js';
 
 /**
@@ -21,7 +23,8 @@ import type { Sandbox, SandboxProvider } from './provider.js';
 export interface SessionSandboxSpec {
   agentId: string;
   conversationId: string;
-  image: string;
+  /** null 表示平台默认环境；只在新建容器时解析线上版本。 */
+  runtimeEnvironmentId: string | null;
   /** 以下目录都是宿主 daemon 视角的绝对路径。 */
   workspaceDir: string;
   outputsDir: string;
@@ -38,6 +41,8 @@ export interface SandboxExecution {
 
 export interface SessionSandboxLease {
   sandboxId: string;
+  /** 该容器实际创建时的环境身份；复用旧容器时仍是旧版本，不读当前线上。 */
+  runtimeEnvironment: ResolvedRuntimeEnvironment;
   start(input: {
     runId: string;
     task: SandboxTaskInput;
@@ -52,6 +57,8 @@ export interface SessionSandboxesOptions {
   provider: SandboxProvider;
   idleTimeoutMs: number;
   logger: Logger;
+  /** 只在真实创建容器时调用；复用存活容器不读线上版本。 */
+  resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
 }
 
 const CONFIG_DIR = '/home/node/.claude';
@@ -122,6 +129,8 @@ interface SessionEntry {
   agentId: string;
   spec: SessionSandboxSpec;
   sandbox: Sandbox | null;
+  /** 容器实际创建时解析出的环境身份；存活期间不随线上版本变化。 */
+  runtimeEnvironment: ResolvedRuntimeEnvironment | null;
   leaseHeld: boolean;
   /** 已有 acquire 占用这次 entry（销毁收口期间也保留占位），第二个请求按 busy 拒绝。 */
   acquirePending: boolean;
@@ -136,7 +145,8 @@ interface SessionEntry {
 
 function specMatches(current: SessionSandboxSpec, next: SessionSandboxSpec): boolean {
   return (
-    current.image === next.image &&
+    // 只比绑定身份，不比对线上解析结果：发布/回退不能替换存活容器。
+    current.runtimeEnvironmentId === next.runtimeEnvironmentId &&
     current.workspaceDir === next.workspaceDir &&
     current.outputsDir === next.outputsDir &&
     current.inputsDir === next.inputsDir &&
@@ -149,6 +159,7 @@ export class SessionSandboxes {
   private readonly provider: SandboxProvider;
   private readonly idleTimeoutMs: number;
   private readonly logger: Logger;
+  private readonly resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
   private readonly entries = new Map<string, SessionEntry>();
   /** 创建/重建中的 acquire；close 必须等它们按取消语义收尾。 */
   private readonly pending = new Set<Promise<unknown>>();
@@ -159,6 +170,7 @@ export class SessionSandboxes {
     this.provider = options.provider;
     this.idleTimeoutMs = options.idleTimeoutMs;
     this.logger = options.logger;
+    this.resolveRuntimeEnvironment = options.resolveRuntimeEnvironment;
   }
 
   acquire(spec: SessionSandboxSpec, signal: AbortSignal): Promise<SessionSandboxLease> {
@@ -272,6 +284,7 @@ export class SessionSandboxes {
       agentId: spec.agentId,
       spec,
       sandbox: null,
+      runtimeEnvironment: null,
       leaseHeld: true,
       acquirePending: false,
       alive: true,
@@ -285,10 +298,21 @@ export class SessionSandboxes {
     this.entries.set(spec.conversationId, entry);
     const createSignal = AbortSignal.any([signal, this.closed.signal]);
 
+    let runtimeEnvironment: ResolvedRuntimeEnvironment;
+    try {
+      // 只有真正新建容器才读线上版本；复用路径不经过这里。
+      runtimeEnvironment = await this.resolveRuntimeEnvironment(spec.runtimeEnvironmentId);
+      if (createSignal.aborted) throw abortError();
+    } catch (err) {
+      this.removeEntry(entry);
+      throw err;
+    }
+    entry.runtimeEnvironment = runtimeEnvironment;
+
     let sandbox: Sandbox;
     try {
       sandbox = await this.provider.create({
-        image: spec.image,
+        image: runtimeEnvironment.imageId,
         workspaceDir: spec.workspaceDir,
         // 创建环境不含任何 run 凭证；每轮凭证由 start 帧带入 supervisor。
         env: {},
@@ -361,8 +385,13 @@ export class SessionSandboxes {
   private leaseFor(entry: SessionEntry): SessionSandboxLease {
     const state: LeaseState = { released: false, releasing: null };
     const sandboxId = entry.sandbox?.id ?? '';
+    const runtimeEnvironment = entry.runtimeEnvironment;
+    if (runtimeEnvironment === null) {
+      throw new Error(`session sandbox has no runtime environment: ${entry.conversationId}`);
+    }
     return {
       sandboxId,
+      runtimeEnvironment,
       start: (input) => this.start(entry, state, input),
       release: (input) => {
         state.released = true;

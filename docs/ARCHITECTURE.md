@@ -52,7 +52,7 @@
 | `knowledge-detail.tsx` | 单个知识库：文档、来源、Wiki、检索调试 | `knowledge-citations.tsx`、`source-editor.tsx`、`markdown.tsx`、`filter-select.tsx` |
 | `servers.tsx` | 连接器：MCP/stdio/生成式 server、工具目录、测试连接 | `resource-page.tsx`、`dialog-shell.tsx`、`filter-select.tsx`、`source-editor.tsx` |
 | `eval.tsx` | 评估：数据集、跑批、结果对比 | `data-table.tsx`、`dialog-shell.tsx` |
-| 其余（`skills`、`plugins`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge-settings.tsx` | 同上，优先复用而不是新写 |
+| 其余（`skills`、`plugins`、`runtime-environments`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge-settings.tsx` | 同上，优先复用而不是新写 |
 
 页面骨架统一走 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`）；每个渲染状态恰好一个 `h1`。共享状态在 `lib/`（`api.ts`、`queries.ts`），路由表由 `routes/` 生成到 `routeTree.gen.ts`。
 
@@ -88,12 +88,25 @@
 
 要点：
 
-- **api 与 worker 共用镜像**（根 `Dockerfile` 的 `runtime` target），默认入口 `api/dist/index.js`；compose 用 `command` 覆盖为 `worker/dist/index.js`。沙盒镜像由同一 Dockerfile 的 `sandbox` target 产出，构建上下文同为仓库根。
+- **api 与 worker 共用镜像**（根 `Dockerfile` 的 `runtime` target），默认入口 `api/dist/index.js`；compose 用 `command` 覆盖为 `worker/dist/index.js`。沙盒基座镜像由同一 Dockerfile 的 `sandbox` target 产出，构建上下文同为仓库根；它是命名运行环境构建的固定基座，会话容器实际使用环境线上版本记录的本地 image ID。
 - **web 没有独立生产容器**：`WEB_DIST=/app/web`，由 api 静态托管；SPA 路由回退到 `index.html`，`/api`、`/mcp`、`/health` 未命中仍返回 JSON 404。
-- **沙盒由宿主 Docker daemon 启动**：worker 挂载 `/var/run/docker.sock`，容器内外使用同一工作区绝对路径。同一会话短期复用一个容器，空闲 `SANDBOX_IDLE_TIMEOUT_MS`（默认 5 分钟）后回收；试连与 native plugin 动作仍走一次性容器。
+- **沙盒由宿主 Docker daemon 启动**：worker 挂载 `/var/run/docker.sock`，容器内外使用同一工作区绝对路径。同一会话短期复用一个容器，空闲 `SANDBOX_IDLE_TIMEOUT_MS`（默认 5 分钟）后回收；试连与 native plugin 动作仍走一次性容器。容器镜像来自所属运行环境创建时解析的线上版本，存活容器不随发布/回退替换。
 - **沙盒网络模式**：`open` / `proxy` 使用 `bridge`，并加 `--add-host host.docker.internal:host-gateway`；`none` 使用 `--network none`。
 - **Redis 承担四件事**：BullMQ 队列、运行事件流、取消通知、限流计数；知识任务使用独立队列 `knowledge-jobs`。
 - **知识存储另挂 `knowledgedata:/knowledge`**：api 与 worker 共卷，原件与解析产物不进数据库、不进工作区。
+
+### 2.1 命名运行环境
+
+运行环境是平台基础设施，不是官方 `.claude/` 能力，也不向智能体目录写私有字段。需要额外系统依赖时改环境 Dockerfile，而不是把包写进智能体定义。
+
+- **数据与身份**：`runtime_environments` 保存名称、Dockerfile 草稿、`is_default` 与 `online_version_id`；`runtime_environment_versions` 每次构建一行，保存 Dockerfile 快照、`base_image_id`、状态（`queued/building/ready/failed`）、`image_tag`/`image_id` 与截断日志。版本不可覆盖；智能体绑定环境，不绑定版本。
+- **构建**：独立队列 `runtime-environment-builds`，并发 1，jobId = versionId，失败不自动重试。构建上下文是只含冻结 Dockerfile 的临时空目录，不发送仓库、工作区或 env；基座先解析为本地 image ID 并派生不可变 tag，经 `ARG RUNTIME_BASE_IMAGE` 传入，默认复用 BuildKit 层缓存。日志按 1 秒或 16 KiB 窗口流式落库，DB 只保留 64 KiB 尾部并置 `log_truncated`；日志写入失败时版本收敛为 `failed`，不会变成 `ready`。构建成功前的真实容器校验会拒绝镜像声明的任何 `VOLUME`（防止 `/app/dist` 变成可写匿名卷），实际启动 runner/supervisor/probe/native-plugins 入口到各自协议边界，执行 SDK 原生 CLI `--version`，确认 PATH 上有 Bash，并要求 uid 1000、只读根文件系统与 `/app` 不可写。多阶段构建只保留运行时内容；安装归档与缓存清理由用户 Dockerfile 在同一 RUN 层完成。worker 运行镜像的 `runtime` target 需带 `docker-cli-buildx`（根 Dockerfile 已装），它不进入沙盒基座。
+- **线上指针**：构建成功只写 `ready` 版本，不自动发布；发布与回退共用 `PUT /api/runtime-environments/:id/online-version`，只移动指针。
+- **容器**：只有真实创建容器的路径调用 resolver 读取线上版本；复用存活容器不读线上，发布/回退或下一轮对话都不会替换它。容器消亡后重建才使用当时的线上版本，`agent_runs` 记录容器实际使用的环境 ID/名称、版本 ID 与镜像 ID。
+- **默认环境**：worker 首次启动登记默认环境：本地没有 `SANDBOX_IMAGE` 时先复用 `DockerSandboxProvider.ensureImage` 拉取，再用真实本地 image ID 登记默认环境和首个 `ready` 版本（`image_id` 与 `base_image_id` 都是该 image ID，不是 tag）。默认环境已存在时完全不 inspect/pull、不推进线上指针；`SANDBOX_IMAGE` 只作为新构建的基座。
+- **绑定与导入**：`agents.runtime_environment_id` 为 `null` 表示平台默认环境，非空为明确绑定；绑定前要求该环境已有可用线上版本。专家包 sidecar 只写环境名称，导入时按显式选择或同名环境映射，不导入镜像、版本历史，也不执行构建。子智能体不单独选择环境。
+- **边界**：环境只决定容器镜像及其中预装的运行时依赖；`.claude/` 定义仍每轮渲染并只读挂载。没有可用线上版本时明确报错，不偷偷换环境。
+- **入口**：系统导航「运行环境」提供列表、Dockerfile 草稿、构建版本/日志、设为线上与删除（默认环境、仍被绑定或存在排队/构建中版本时 409）；专家「运行限制」与 stdio 试连可选环境；专家包导入可选目标环境或按同名环境映射。实现状态以当次代码和任务记录为准。
 
 ## 3. 一次对话的数据流
 
@@ -123,10 +136,10 @@
 2. `GET /api/chat/:runId/events` 先订阅 Redis Stream，从 `0` 开始回放，因此 POST 与建连之间的事件不会丢；已结束的 run 直接补发终态。
 3. worker 消费 job：若 run 已被取消则跳过；置为 `running` 并发布 `run_started`。
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 把官方定义刷新写入 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/workspace/`；该会话目录只读挂载，每轮覆盖定义内容，根目录不按 run 重命名或删除。
-5. worker 通过会话沙盒管理器 `SessionSandboxes.acquire(conversationId)` 取得该会话的容器：首次创建并启动常驻 supervisor，之后复用空闲容器；镜像缺失时先执行可取消的 `docker pull`。supervisor 轻量驻留，每轮由 worker 经 stdin 投递任务，并在容器内启动新的 runner query，不复用上一轮的 query 或进程环境。旧 `DockerSandboxProvider.create/destroy` 只保留给试连与 native plugin 等一次性容器。create 请求已经发出后取消会等待创建结果并删除，绝不继续启动。
+5. worker 通过会话沙盒管理器 `SessionSandboxes.acquire(conversationId)` 取得该会话的容器：首次创建时按智能体绑定环境（`null` 为平台默认环境）解析当时线上版本，用版本记录的本地不可变 image ID 创建并启动常驻 supervisor，之后复用空闲容器；已存活容器保持创建时的旧版本，发布/回退只影响之后新建的容器。线上版本缺失或本地镜像不存在时明确失败，不隐式 pull、不回落其他环境。supervisor 轻量驻留，每轮由 worker 经 stdin 投递任务，并在容器内启动新的 runner query，不复用上一轮的 query 或进程环境。会话容器与试连、native plugin 的一次性容器共用同一个 `DockerSandboxProvider.create/destroy` 底层接口；一次性容器不走会话复用。create 请求已经发出后取消会等待创建结果并删除，绝不继续启动。
 6. 会话容器准确挂载 `sdk-sessions/<conversationId>`（→ `/home/node/.claude`）、`agent-memory`、`conversation-inputs`（首轮无附件也预建并挂载）与只读 `/workspace`；`/mnt/outputs` 指向稳定的 session outputs 目录，读写。每轮凭证只经新 runner 的进程环境与当轮 `.mcp.json` 注入。容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`（可选带 `todos` 快照，见 §3.1）、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
 7. worker 逐行解析并按事件写入 Redis Stream（每次 `XADD` 与 TTL 续期合并为一次 pipeline）；supervisor 的业务事件保持原 `ChatEvent` 契约，`ready`/`started`/`settled`/`rejected` 等 control 事件只用于宿主握手，不写 SSE。工具调用经 `.mcp.json` 中的地址访问 api。
-8. 取消：api 写 `run:<runId>:cancel` 键并 publish；worker 通知 supervisor 停止本轮。supervisor 发出 `settled` 并确认所有 run 进程停稳后，正常完成或成功取消可 `release(reuse=true)` 进入空闲；超时、异常或无法确认停稳则销毁容器。创建阶段的取消信号中止拉取，已发出的 create 则等待返回后删除、不启动。试连与 native plugin 仍由 `DockerSandboxProvider` 一次性 `create/destroy`，不走会话复用。
+8. 取消：api 写 `run:<runId>:cancel` 键并 publish；worker 通知 supervisor 停止本轮。supervisor 发出 `settled` 并确认所有 run 进程停稳后，正常完成或成功取消可 `release(reuse=true)` 进入空闲；超时、异常或无法确认停稳则销毁容器。创建阶段的取消信号中止拉取，已发出的 create 则等待返回后删除、不启动。试连与 native plugin 也走同一 provider，但每次一次性 `create/destroy`，不进入会话复用。
 9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。事件展示额度与落库额度分开：`text_delta`、块边界等瞬时事件超出展示上限只停止展示，完整 `assistant_text` 与工具事件另有落库上限，不会被增量挤出。真正超过落库上限时保留已收集结果，将成功改为带明确原因的不可重试失败，避免缺失尾部仍报告成功。
 10. 只有业务执行本身的基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会触发 BullMQ 重试；业务失败不重试。清理失败不作为基础设施失败重跑；已确定的终态与取消收尾的 `sessionId`、费用 metadata 保留。销毁失败会阻止发布成果并保留草稿，避免把未停稳的一轮当成已交付。
 
@@ -166,7 +179,7 @@ US-6.2以官方 `AskUserQuestion → canUseTool → updatedInput` 接回用户�
 
 用户在 Composer 选择文件后，随 `POST /api/chat` 以 base64 JSON 一次提交；服务端按扩展名映射规范 MIME，校验规范 base64、真实大小、文件签名与文本 UTF-8，再写入 `WORKSPACES_DIR/<slug>/conversation-inputs/<conversationId>/<attachmentId><ext>`。用户消息只保存 `{id, filename, mimeType, size, sha256}` 元数据，队列与 SSE 不携带文件字节。入口上限：每条消息 5 个、合计 10MiB，文本 1MiB、图片 5MiB、PDF 10MiB，JSON body 16MiB；Office/ODF、压缩包、音视频等明确拒绝并提示改用知识库或文本。
 
-worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也预建并挂载），prompt 追加受控清单（显示名 JSON 转义、容器路径、类型、字节数），要求主智能体先 `Read` 再分析、读取失败必须说明。图片由官方 Read 返回视觉内容；PDF 短文件整份读取，长文件按 `pages` 分页，沙盒镜像安装 `poppler-utils`。输入目录只允许主会话 `Read`，Write/Edit、子智能体、未挂载路径、软链/硬链与越界继续拒绝；交付仍写 `/mnt/outputs`。
+worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也预建并挂载），prompt 追加受控清单（显示名 JSON 转义、容器路径、类型、字节数），要求主智能体先 `Read` 再分析、读取失败必须说明。图片由官方 Read 返回视觉内容；PDF 短文件整份读取，长文件按 `pages` 分页，沙盒镜像安装 `poppler-utils`。输入目录的原生文件工具只允许主会话 `Read`，Write/Edit、子智能体的文件工具、未挂载路径、软链/硬链与越界继续拒绝；Bash 不在该 hook 内，但 `/mnt/inputs` 为只读挂载，shell 也只能读取。交付仍写 `/mnt/outputs`。
 
 附件按会话保留：分支只复制被复制消息引用的文件（字节复制，删源后独立）；删除会话/专家回收目录；`pruneRuns` 保留带附件的用户消息并置空 `runId`，孤儿清理永不删除附件消息，保证历史与下载入口不随旧 run 消失。下载经鉴权且只接受该会话消息引用的附件。附件是运行数据，不进入智能体定义，也不替代知识库。
 
@@ -216,7 +229,7 @@ data/workspaces/<agent-slug>/
       └─ files/**                 发布后不可变的完整文件快照
 ```
 
-工作区按会话稳定复用，每轮只刷新定义内容；根目录不按 run 重命名或删除。目录 0700、文件 0600。持久数据只有 `agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/`；`session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存：`workspace` 每轮由数据库重渲染，`outputs` 在停稳后复制进 `conversation-outputs`，容器回收或关停不删除它，但它不是不可丢失的持久交付。run 保留期清理不删除会话成果，会话或专家删除时回收对应目录。
+工作区按会话稳定复用，每轮只刷新定义内容；根目录不按 run 重命名或删除。目录 0700、文件 0600。持久数据只有 `agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/`；`session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存：`workspace` 每轮由数据库重渲染，`outputs` 在停稳后复制进 `conversation-outputs`，容器回收或关停不删除它，但它不是不可丢失的持久交付。run 保留期清理不删除会话成果；删除会话时 API 回收 `sdk-sessions/<conversationId>/`、`session-sandboxes/<conversationId>/`、成果与附件目录；删除专家只回收 `sdk-sessions/`、成果与附件目录，当前不清理 `session-sandboxes/`。
 
 | 文件 | 内容来源 | 说明 |
 |---|---|---|
@@ -228,11 +241,11 @@ data/workspaces/<agent-slug>/
 运行时约定：
 
 - 每轮在会话 workspace 内先删除并重建 `.claude/agents/` 与 `.claude/skills/`，解绑后的旧文件不会残留。不要手工往这两个目录放东西。
-- 会话 workspace 以只读方式挂载到容器 `/workspace`；agent 不能修改自己的定义。稳定的 `session-sandboxes/<conversationId>/outputs` 以 rw 挂到 `/mnt/outputs`，主会话用原生 Read/Write/Edit 交付文件；不使用 SDK `additionalDirectories`，避免可写目录被当作配置来源加载。容器另准确挂载 `sdk-sessions/<conversationId>`、`agent-memory` 与预建的 `conversation-inputs`，不挂整个 agent 目录。
+- 会话 workspace 以只读方式挂载到容器 `/workspace`；agent 不能修改自己的定义。稳定的 `session-sandboxes/<conversationId>/outputs` 以 rw 挂到 `/mnt/outputs`，主会话用原生 Read/Write/Edit 交付文件；不使用 SDK `additionalDirectories`，避免可写目录被当作配置来源加载。原生 Read/Write/Edit/Glob/Grep/NotebookEdit 另有 PreToolUse 边界 hook 逐次校验路径；Bash 不在该 hook 内，文件边界由只读/可写挂载决定，无法写入只读挂载。容器另准确挂载 `sdk-sessions/<conversationId>`、`agent-memory` 与预建的 `conversation-inputs`，不挂整个 agent 目录。
 - 每轮 `.mcp.json` 与 runner 进程环境只携带本轮短期凭证；运行结束时不论容器清理是否成功都吊销本轮 MCP/模型 token，终态停稳后移除 `.mcp.json`，空闲容器不保留上一轮身份，下一轮重新渲染。
 - 运行结束后 worker 等本轮 runner 停稳（`settled`），由 core 的 `captureOutputDraft` 从 stable outputs 复制出本轮草稿，再以当前最新完整快照为基线发布不可变快照；stable outputs 根只读复制，不发布也不删除。用户选定旧版时只把所选文件覆盖到草稿，其他最新文件保持原样。正在重试、消息保存失败、容器未停稳或销毁失败时不发布并保留草稿；空基线清空后发布空快照。
 - API 鉴权读取成果列表、完整 UTF-8 文本（≤1MiB）与原件下载；读取只接受 manifest 成员，HTML/SVG 仅按源码返回，不执行。二进制提供下载，不在服务端伪造文本预览。
-- 内置工具默认全部从上下文移除；`allowedTools` 只负责自动批准。原生 `TodoWrite` 是显式启用的例外（§3.1），只用于展示进度。MCP 工具的允许规则按 server name 逐个生成 `mcp__<name>__*`，`mcp__*` 通配无效。
+- 内置工具默认禁用；例外是 Bash（默认启用，用户可在 `disallowedTools` 中显式拒绝）、主会话受路径规则约束的原生 Read/Write/Edit，以及显式启用的 `TodoWrite`（§3.1，只用于展示进度）。`allowedTools` 只负责自动批准。MCP 工具的允许规则按 server name 逐个生成 `mcp__<name>__*`，`mcp__*` 通配无效。
 - 父级绑定技能slug从worker传给SDK的`skills`选项；无绑定明确传`[]`，仅控制自动批准的Skill(name)清单，不代表CLI发现清单隐藏其他技能。CLAUDE.md仅列父绑定技能。启用子智能体的绑定技能经批量查询合并到工作区文件，其子定义独立写`skills`预加载字段，不扩展父级SDK许可。真实CLI已发现子定义和技能文件；初始化接口不暴露预加载状态，子级正文加载及实际模型调用仍未验证，支持资源目录另行验收。
 - 有子智能体时才放行 `Agent` / `TaskStop`；子智能体自身不再获得委派能力。
 - 会话间消息工具（`ListAgents`、`SendMessage`、`SendUserMessage`、`EndConversation`、`Monitor`）默认禁用：
@@ -287,13 +300,13 @@ data/workspaces/<agent-slug>/
 | `.claude/settings.json` | cwd 下 project settings；权限、环境、Hooks 等按该键允许的作用域生效 | 已生成选中输出风格的 outputStyle；其余主要通过 query options，尚未完整文件往返。**原生 auto-memory 已配置**：runner 通过 `settings.autoMemoryEnabled/autoMemoryDirectory` 指向挂载目录，文件工具权限及验收状态见下方记忆行 |
 | `.claude/settings.local.json`、根 `CLAUDE.local.md` | local source；本地覆盖，不作为共享包默认内容 | 当前只启用 project，不默认加载 |
 | `.mcp.json`（工作区根） | project source；连接与工具权限需实际验证 | 已生成运行时配置；受限HTTP/stdio文件可事务导入且凭证加密，不执行命令/测试连接；不支持字段与模板明确拒绝，导出不含密钥 |
-| `.claude/skills/<name>/SKILL.md` 与其支持资源 | project source 发现；技能启用、可用工具由 SDK 配置控制 | 单文件生成、下载、受限导入及支持资源增删改查已实现；目录包携带父子绑定技能的支持资源。父子绑定技能均落盘，父会话可用 `Read` 只读打开 `.claude/skills/<slug>/references/**/*.md`（写入仍仅限原生记忆目录）；真实CLI正负发现通过，绑定slug原生许可已接入；实际模型按需读取 references 仍未实测 |
+| `.claude/skills/<name>/SKILL.md` 与其支持资源 | project source 发现；技能启用、可用工具由 SDK 配置控制 | 单文件生成、下载、受限导入及支持资源增删改查已实现；目录包携带父子绑定技能的支持资源。父子绑定技能均落盘，父会话可用 `Read` 只读打开 `.claude/skills/<slug>/references/**/*.md`（原生文件工具写入仍仅限记忆与本轮产出目录）；真实CLI正负发现通过，绑定slug原生许可已接入；实际模型按需读取 references 仍未实测 |
 | `.claude/agents/*.md` | 文件子智能体定义；程序式同名定义优先 | 已生成子定义与子级 skills 字段，父编辑器可下载已保存且启用定义，预览与运行共用渲染器。**子智能体 MCP 绑定已接通**：子定义写官方 `mcpServers` 名称引用根 `.mcp.json`，运行时用 PreToolUse 边界 hook 保证子级只用自己的 server/技能、父级不隐式获得子级工具；CLI 发现通过，子级实际加载仍以真实模型调试验收（单层约束由 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` 强制）；主定义预览不下载为子文件 |
 | `.claude/commands/*.md` | 官方保留的旧式命令文件；新能力优先 skills | 尚未接入，不另造命令引擎 |
 | `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 已有输出风格管理、文件预览与根级运行落盘；选中者写入 settings.json 的 outputStyle，runner 通过 `settingSources: ['project']` 原生加载，不再手工解析后 inline 覆盖 |
 | Hooks | 由 settings.json 的 hooks 配置或 SDK callbacks 注册；脚本目录本身不是自动发现入口 | 平台层回调与工作区文件Hooks需分别核对，不能仅创建hooks目录声称生效 |
 | 插件根中的 `.claude-plugin/plugin.json`、skills/agents/hooks/.mcp.json | SDK `plugins: [{type:'local', path}]` 指定本地插件根；不是默认扫描项目 `.claude/plugins/` | 插件库文件在 DB 保存一次，多个专家引用，每次运行复制到独立 `.claude/plugins/<slug>/`。支持 ZIP 导入，以及 worker 独立安装沙盒调用 Claude Code CLI 从市场安装、读取平台已下载缓存后纳入插件库；来源记录 `name@marketplace` 去重，缓存不挂载给专家。hooks/MCP 默认关闭，仍按各专家绑定裁剪。平台子智能体不绑定插件；插件自带子智能体可原生委派。已有技能、references、子智能体及 hooks/MCP 开关真实沙盒证据。无升级/版本选择入口，专家 ZIP 不带插件并提示；不支持的组件、二进制和运行依赖明确拒绝，不静默漏文件 |
-| `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 原生 auto-memory 使用 `WORKSPACES_DIR/<slug>/agent-memory/`（uid 1000、0700），API/worker 共卷，沙盒 rw 挂载到 `/mnt/agent-memory` 并设置 `autoMemoryEnabled=true`、`autoMemoryDirectory`。主会话仅预批准该目录的 Read/Edit 路径规则（Edit 含 Write），SDK PreToolUse 每次拒绝越界、链接和非普通 Markdown 文件；子智能体仍禁用文件工具。保留官方 `MEMORY.md` 与主题文件；权限/挂载测试通过，真实模型跨 run 记忆验收尚未验证。Workflows 仍不接入 |
+| `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 原生 auto-memory 使用 `WORKSPACES_DIR/<slug>/agent-memory/`（uid 1000、0700），API/worker 共卷，沙盒 rw 挂载到 `/mnt/agent-memory` 并设置 `autoMemoryEnabled=true`、`autoMemoryDirectory`。主会话仅预批准该目录的 Read/Edit 路径规则（Edit 含 Write），SDK PreToolUse 每次拒绝越界、链接和非普通 Markdown 文件；该 hook 只覆盖原生文件工具，子智能体的这些工具仍被拒绝，Bash 可写同一可写挂载。保留官方 `MEMORY.md` 与主题文件；权限/挂载测试通过，真实模型跨 run 记忆验收尚未验证。Workflows 仍不接入 |
 
 详情接口返回插件库实际保存的完整文件。前端 `/plugins/$pluginId` 是只读详情页：紧凑身份头（名称、版本、简介、导出）下用页内「简介 / 内容」两个 Tabs 切换，不使用抽屉、Sheet 或弹层，页面恰好一个 `h1`。简介页签只展示根 README；无 README 时给简洁空态并指向内容页签，不编写介绍、不拿首个技能冒充说明。内容页签在页内展示真实完整目录树与当前正文：桌面左右可拖动分栏，窄屏目录在同一页内折叠；默认文件为 README → 技能 `SKILL.md` → 首个真实文件。目录树用真实文件/目录名，目录优先、可折叠，只有当前文件铺选中底色，技能目录内 `SKILL.md` 优先，manifest、hooks、MCP、支持文件、空文件全部可达。URL 用 `tab=intro|content`、`file`、`mode=read|source`，默认 `intro` 且无 `file`；切换页签、选择文件与模式进入历史，刷新和前后退可恢复，切到简介保留 `file`/`mode`，切回内容恢复上次选择与滚动位置，失效文件给说明并回退。点击 README 或正文内真实文件链接切到内容页签并定位对应文件。正文显示实际路径 breadcrumb 与 frontmatter 语义名称，Markdown 默认阅读并可切源码，其余文件直接源码并可复制。展示解析只读取 frontmatter 的名称、描述和正文，不改变保存内容或运行定义；Markdown 静态渲染，HTML 作为文本，只有插件内真实存在的相对文件链接可点击。内容区按真实文件路径展示，不另建能力索引；多来源文件在目录树中各自可达。详情是插件库快照，专家运行时仍独立复制并按授权裁剪。
 
@@ -415,11 +428,11 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 |---|---|---|
 | 运行时挂载 MCP，不生成代码 | 改工具定义立即生效；测试与调用走同一端点；其他 Host 也能连 | 每次请求重建 handler；工具执行在 api 进程内 |
 | DB 为真相源，文件为快照 | 页面字段与文件一一对应；同一智能体可被其他 Host 直接使用 | 每次 run 都有渲染与写盘开销 |
-| 宿主目录 bind mount，不打进镜像 | 一个镜像服务所有智能体；改配置不需重建 | 只支持单机，workspace 必须与 worker 同机 |
+| 宿主目录 bind mount，不打进镜像 | 定义不进镜像，改配置不需重建；镜像只承载运行时，可按命名环境扩展依赖 | 只支持单机，workspace 必须与 worker 同机 |
 | 整个 runner 在容器内，会话级复用 | Agent SDK 自带的 sandbox 只隔离 shell，不能隔离 stdio MCP；同会话复用省容器创建/启动 | 镜像体积更大；空闲会话容器继续占用资源；不省每轮 SDK query 启动 |
 | Redis 流契约只在 `shared/run-stream.ts` 定义 | api 与 worker 分属两个进程，键名/通道/取消载荷一旦漂移就是「事件写了没人读」这类静默故障；第 1 轮发现两处独立副本后收敛 | `@agentport/shared` 因此成为沙盒镜像的运行时依赖（见下） |
 | 审计写入支持 `dedupeKey` | BullMQ 基础设施重试会重放同一件事；没有幂等键时每次重试都多写一行审计 | 有键时用 `onConflictDoNothing` 而不是覆盖，重复上报被丢弃 |
-| 内置工具默认禁用 | 用户可配置任意 stdio server，必须收紧默认权限 | 需要显式绑定 MCP 才能做事 |
+| 内置工具默认禁用（Bash 与受路径规则约束的文件工具例外） | 用户可配置任意 stdio server，必须收紧默认权限；Bash 在容器内运行，文件边界由只读挂载约束 | 无需 MCP 即可执行命令；Bash 可访问容器可写挂载，网络按出站配置 |
 | SSE 走 Redis Stream + 阻塞读取 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库；每个观众一条独立订阅连接（`XREAD BLOCK`）；回调过慢导致未读事件被 MAXLEN 裁剪时不再补截断提示 |
 | MCP容量按执行计数 | 握手、SSE、平台invoke与审批等待不占上游执行槽，避免自等待 | 每进程执行4槽、排队8项；审批等待独立4槽且满时立即需批准，invoke既有4并发入场；非全局多进程限额 |
 | 会话历史使用独占游标页 | 网页默认50条、最多100条，按(created_at,id)倒取后正序展示；before须属于当前会话 | nextBefore为空则结束；消息内容字节未单独限制，内部完整复制调用保持原语义 |
@@ -460,7 +473,8 @@ runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`ag
 **镜像的运行时依赖**。镜像不再从宿主复制 `dist` 或维护独立 manifest：
 
 - 根 Dockerfile 的 build stage 安装 workspace 依赖并执行 `pnpm -r build`，再用 `pnpm --filter @agentport/sandbox deploy --prod /out/sandbox` 生成自包含目录（dist、生产依赖与 workspace 包，含 shared 的 dist）。
-- `sandbox` target 只复制 deploy 结果并验证 `dist/runner.js` 与 Agent SDK 原生 CLI 可执行；`git` 仅为官方插件市场安装保留。
+- `sandbox` target 只复制 deploy 结果并验证 `dist/runner.js` 与 Agent SDK 原生 CLI 可执行；`git` 仅为官方插件市场安装保留，`poppler-utils` 供官方长 PDF 分页读取，`bash` 是官方 CLI 执行 Bash 工具所需的真实 shell（缺失会报 `No suitable shell found`）。
+- 命名运行环境以该 target 的本地镜像为基座：构建时只发送冻结 Dockerfile，基座固定为 image ID 派生的不可变 tag，产物是独立版本、默认复用 BuildKit 缓存；`docker-cli`/`buildx` 只装进 worker 的 `runtime` target，不进沙盒基座。
 - api、worker、sandbox 三个镜像都从仓库根 context 构建；沙盒命令是 `docker build --target sandbox -t agentport/sandbox:dev .`，CI 与 release 同样使用根 context + target。
 - 根 `.dockerignore` 排除 `.git`、docs、data、`node_modules`、`dist` 等；旧版 `packages/sandbox/shared` 暂存目录、`package.shared.json`/`package.docker.json` 与 `packages/sandbox/.dockerignore` 均已删除。
 - 步骤见 [OPERATIONS.md §2.2.1](OPERATIONS.md#221-手动构建沙盒镜像)；`pnpm run up --rebuild` 与 `pnpm --filter @agentport/sandbox image` 都走这条路径。

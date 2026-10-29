@@ -54,6 +54,7 @@ const state = vi.hoisted(() => ({
     status: string;
     updatedAt: string;
   }>,
+  runtimeEnvironments: [] as Array<{ id: string; name: string; isDefault?: boolean }>,
   detail: {} as { isPending: boolean; isError: boolean; data?: unknown },
   rollback: vi.fn(),
   retry: vi.fn(),
@@ -71,6 +72,12 @@ vi.mock('../src/lib/queries.js', () => ({
   useAgent: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
   useServers: () => ({ data: state.servers }),
   useKnowledgeBases: () => ({ data: state.knowledgeBases, isPending: false, isError: false }),
+  useRuntimeEnvironments: () => ({
+    data: state.runtimeEnvironments,
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(),
+  }),
   usePlugins: () => ({ data: [], isPending: false, isError: false, status: 'success' }),
   useSkills: () => ({
     isError: state.skillsError,
@@ -134,6 +141,7 @@ const parent = {
   timeoutMs: 600_000,
   enabled: true,
   parentId: null,
+  runtimeEnvironmentId: null,
   createdAt: '2026-01-01',
   updatedAt: '2026-01-01',
 } as Agent;
@@ -214,6 +222,7 @@ beforeEach(() => {
   state.skillsError = false;
   state.servers = [];
   state.knowledgeBases = [];
+  state.runtimeEnvironments = [];
   state.detail = { isPending: false, isError: false };
   state.blockerOptions = [];
   state.blockerStatus = 'idle';
@@ -470,6 +479,148 @@ describe('expert editor regressions', () => {
         });
       },
     );
+  });
+
+  it('binds a top-level expert to a named runtime environment and hides the choice for sub-agents', async () => {
+    state.runtimeEnvironments = [{ id: 'rte_1', name: '数据分析' }];
+    await inspect(editor, async (tree, pass) => {
+      if (pass === 0) {
+        selectSection(tree, '运行限制');
+        return true;
+      }
+      const picker = tree.find(
+        (node) =>
+          node.type === Select &&
+          elements(node).some((child) => child.props.id === 'agent-runtime-environment'),
+      );
+      if (!picker) throw new Error('Missing runtime environment field');
+      if (pass === 1) {
+        expect(picker.props.value).toBe('default');
+        expect(
+          (picker.props.items as Array<{ value: string; label: string }>).some(
+            (item) => item.value === 'rte_1' && item.label === '数据分析',
+          ),
+        ).toBe(true);
+        (picker.props.onValueChange as (value: string) => void)('rte_1');
+        return true;
+      }
+      const form = tree.find((node) => node.type === 'form');
+      if (!form) throw new Error('Missing editor form');
+      await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+        preventDefault() {},
+      });
+      expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+        input: { runtimeEnvironmentId: 'rte_1' },
+      });
+    });
+
+    await inspect(
+      () =>
+        AgentEditor({
+          agent: { ...parent, parentId: 'parent' },
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
+      (tree, pass) => {
+        if (pass === 0) {
+          selectSection(tree, '运行限制');
+          return true;
+        }
+        expect(
+          tree.find(
+            (node) =>
+              node.type === Select &&
+              elements(node).some((child) => child.props.id === 'agent-runtime-environment'),
+          ),
+        ).toBeUndefined();
+      },
+    );
+  });
+
+  it('shows the real default environment name and keeps its explicit id on save', async () => {
+    state.runtimeEnvironments = [
+      { id: 'rte_default', name: '默认环境', isDefault: true },
+      { id: 'rte_named', name: '数据分析' },
+    ];
+    await inspect(
+      () =>
+        AgentEditor({
+          agent: { ...parent, runtimeEnvironmentId: 'rte_default' },
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
+      async (tree, pass) => {
+        if (pass === 0) {
+          selectSection(tree, '运行限制');
+          return true;
+        }
+        const picker = tree.find(
+          (node) =>
+            node.type === Select &&
+            elements(node).some((child) => child.props.id === 'agent-runtime-environment'),
+        );
+        if (!picker) throw new Error('Missing runtime environment field');
+        const items = picker.props.items as Array<{ value: string; label: string }>;
+        expect(picker.props.value).toBe('default');
+        expect(items.filter((item) => item.value === 'default')).toEqual([
+          { value: 'default', label: '默认环境' },
+        ]);
+        expect(items.some((item) => item.value === 'rte_default')).toBe(false);
+        if (pass === 1) {
+          const thinking = tree.find((node) => node.props.id === 'agent-thinking');
+          if (!thinking) throw new Error('Missing thinking field');
+          (thinking.props.onChange as (event: unknown) => void)({
+            target: { name: 'maxThinkingTokens', value: '1000' },
+          });
+          return true;
+        }
+        const form = tree.find((node) => node.type === 'form');
+        if (!form) throw new Error('Missing editor form');
+        await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+          preventDefault() {},
+        });
+        expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+          input: { runtimeEnvironmentId: 'rte_default' },
+        });
+      },
+    );
+  });
+
+  it('keeps the null default binding when saving an unrelated field', async () => {
+    state.runtimeEnvironments = [
+      { id: 'rte_default', name: '默认环境', isDefault: true },
+      { id: 'rte_named', name: '数据分析' },
+    ];
+    await inspect(editor, async (tree, pass) => {
+      if (pass === 0) {
+        selectSection(tree, '运行限制');
+        return true;
+      }
+      if (pass === 1) {
+        const thinking = tree.find((node) => node.props.id === 'agent-thinking');
+        if (!thinking) throw new Error('Missing thinking field');
+        (thinking.props.onChange as (event: unknown) => void)({
+          target: { name: 'maxThinkingTokens', value: '1000' },
+        });
+        return true;
+      }
+      const picker = tree.find(
+        (node) =>
+          node.type === Select &&
+          elements(node).some((child) => child.props.id === 'agent-runtime-environment'),
+      );
+      expect(picker?.props.value).toBe('default');
+      const form = tree.find((node) => node.type === 'form');
+      if (!form) throw new Error('Missing editor form');
+      await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+        preventDefault() {},
+      });
+      expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+        input: { runtimeEnvironmentId: null },
+      });
+    });
   });
 
   it.each([false, true])(

@@ -12,8 +12,12 @@ export const SANDBOX_PROBE_WAIT_TIMEOUT_MS = 25_000;
 /** 容器 stderr 只留尾部：失败时这是「为什么起不来」的唯一证据。 */
 export const SANDBOX_PROBE_STDERR_MAX_BYTES = 8 * 1024;
 
-/** job 只带 serverId：配置与密钥由 worker 从库里读并解密，不经队列。 */
-export const sandboxProbeJobSchema = z.object({ serverId: z.string().min(1) });
+/** job 只带 serverId 与可选运行环境：配置与密钥由 worker 从库里读并解密，不经队列。 */
+export const sandboxProbeJobSchema = z.object({
+  serverId: z.string().min(1),
+  /** 缺省/null 表示平台默认环境；只影响这次试连实际使用的容器镜像。 */
+  runtimeEnvironmentId: z.string().min(1).nullable().optional(),
+});
 export type SandboxProbeJob = z.infer<typeof sandboxProbeJobSchema>;
 
 /** 容器 stdin 的唯一任务形状；kind 固定，因为 http/generated 仍走 API 现路径。 */

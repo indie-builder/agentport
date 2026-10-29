@@ -12,6 +12,7 @@ import type { ChatEvent, SandboxTaskInput } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { renderWorkspace, type WorkspaceAgent } from '../../core/src/workspace.js';
 import { type DockerSandboxOptions, DockerSandboxProvider } from '../src/sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions } from '../src/sandbox/provider.js';
 import {
@@ -21,13 +22,14 @@ import {
 } from '../src/sandbox/sessions.js';
 
 /**
- * 真实验收：官方 SDK 0.3.311 的原生 CLI 在 sandbox:dev 镜像里经 supervisor 执行，
- * 模型流量全部打到宿主本地假 Anthropic SSE，不读 .env、不向外发模型请求。
+ * 真实验收：官方 SDK 0.3.311 的原生 CLI 在 SANDBOX_IMAGE（默认 sandbox:dev）里经 supervisor
+ * 执行，模型流量全部打到宿主本地假 Anthropic SSE，不读 .env、不向外发模型请求。
+ * Bash 用例直接使用镜像自带的真实 bash，不再放测试专用包装脚本。
  *
  * 每次运行都从当前 shared/sandbox 源码编译到本次独占的临时目录，只读挂载覆盖镜像里
  * 旧版本；不重建共享镜像 tag，也不给 runtime 增加测试专用参数。
  */
-const IMAGE = 'agentport/sandbox:dev';
+const IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const MODEL = 'claude-sonnet-5-5';
 const SDK_VERSION = '0.3.311';
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
@@ -304,6 +306,7 @@ interface FakeAnthropic {
 
 const HANG_MARKER = 'HANG_MARKER';
 
+/** 最近一条带文本的 user 消息的最后一个文本块：前面的块是 CLI 注入的 system-reminder。 */
 function lastUserText(body: unknown): string {
   if (typeof body !== 'object' || body === null) return '';
   const messages = (body as { messages?: unknown }).messages;
@@ -313,9 +316,12 @@ function lastUserText(body: unknown): string {
     if (typeof message !== 'object' || message === null) continue;
     if ((message as { role?: unknown }).role !== 'user') continue;
     const content = (message as { content?: unknown }).content;
-    if (typeof content === 'string') return content;
+    if (typeof content === 'string') {
+      if (content.length > 0) return content;
+      continue;
+    }
     if (!Array.isArray(content)) continue;
-    return content
+    const texts = content
       .map((block) =>
         typeof block === 'object' &&
         block !== null &&
@@ -324,10 +330,54 @@ function lastUserText(body: unknown): string {
           ? (block as { text: string }).text
           : '',
       )
-      .join('');
+      .filter((text) => text.length > 0);
+    const text = texts.at(-1);
+    if (text !== undefined) return text;
   }
   return '';
 }
+
+/** 当前会话已执行的工具结果数；每次请求都带着完整历史，用它推进脚本步骤。 */
+function countToolResults(body: unknown): number {
+  if (typeof body !== 'object' || body === null) return 0;
+  const messages = (body as { messages?: unknown }).messages;
+  if (!Array.isArray(messages)) return 0;
+  let count = 0;
+  for (const message of messages) {
+    if (typeof message !== 'object' || message === null) continue;
+    if ((message as { role?: unknown }).role !== 'user') continue;
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (
+        typeof block === 'object' &&
+        block !== null &&
+        (block as { type?: unknown }).type === 'tool_result'
+      ) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+interface ToolStep {
+  name: string;
+  input: Record<string, unknown>;
+}
+
+interface ToolScenario {
+  /** 该场景只响应提示词里含此标记的请求。 */
+  marker: string;
+  steps: ToolStep[];
+  finalText: string;
+}
+
+/**
+ * Bash 行为用例共用一个假 API；每个用例在运行前声明自己的确定性脚本，
+ * 请求按「最近一条用户提示词」认领场景，按已有 tool_result 数推进到下一步。
+ */
+let toolScenarios: ToolScenario[] = [];
 
 function sse(res: import('node:http').ServerResponse, event: string, data: unknown): void {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -371,6 +421,52 @@ function sendMessage(
   sse(res, 'message_delta', {
     type: 'message_delta',
     delta: { stop_reason: 'end_turn', stop_sequence: null },
+    usage: { output_tokens: 3 },
+  });
+  sse(res, 'message_stop', { type: 'message_stop' });
+  res.end();
+}
+
+/** 与官方流式 tool_use 一致：content_block_start + input_json_delta + stop_reason=tool_use。 */
+function sendToolUse(
+  res: import('node:http').ServerResponse,
+  model: string,
+  messageId: string,
+  toolUseId: string,
+  step: ToolStep,
+): void {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+  });
+  sse(res, 'message_start', {
+    type: 'message_start',
+    message: {
+      id: messageId,
+      type: 'message',
+      role: 'assistant',
+      model,
+      content: [],
+      stop_reason: null,
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 1 },
+    },
+  });
+  sse(res, 'content_block_start', {
+    type: 'content_block_start',
+    index: 0,
+    content_block: { type: 'tool_use', id: toolUseId, name: step.name, input: {} },
+  });
+  sse(res, 'content_block_delta', {
+    type: 'content_block_delta',
+    index: 0,
+    delta: { type: 'input_json_delta', partial_json: JSON.stringify(step.input) },
+  });
+  sse(res, 'content_block_stop', { type: 'content_block_stop', index: 0 });
+  sse(res, 'message_delta', {
+    type: 'message_delta',
+    delta: { stop_reason: 'tool_use', stop_sequence: null },
     usage: { output_tokens: 3 },
   });
   sse(res, 'message_stop', { type: 'message_stop' });
@@ -456,6 +552,16 @@ async function startFakeAnthropic(requestLog: string): Promise<FakeAnthropic> {
       }
 
       nextId += 1;
+      const scenario = toolScenarios.find((candidate) => prompt.includes(candidate.marker));
+      if (scenario !== undefined) {
+        const step = scenario.steps[countToolResults(body)];
+        if (step === undefined) {
+          sendMessage(res, model, scenario.finalText, `msg_fake_${nextId}`);
+        } else {
+          sendToolUse(res, model, `msg_fake_${nextId}`, `toolu_fake_${nextId}`, step);
+        }
+        return;
+      }
       sendMessage(res, model, `REPLY:${prompt}`, `msg_fake_${nextId}`);
     });
   });
@@ -507,11 +613,57 @@ function sandboxEnv(baseUrl: string): Record<string, string> {
   };
 }
 
+interface ToolCall {
+  id: string;
+  name: string;
+  parentToolUseId?: string;
+  input?: string;
+  result?: string;
+}
+
+/** 把分散的 tool_start/tool_input/tool_result 事件按 tool_use id 配对。 */
+function toolCalls(events: ChatEvent[]): ToolCall[] {
+  const calls = new Map<string, ToolCall>();
+  for (const event of events) {
+    if (event.type === 'tool_start') {
+      calls.set(event.toolUseId, {
+        id: event.toolUseId,
+        name: event.name,
+        ...(event.parentToolUseId === undefined ? {} : { parentToolUseId: event.parentToolUseId }),
+      });
+      continue;
+    }
+    if (event.type !== 'tool_input' && event.type !== 'tool_result') continue;
+    const call = calls.get(event.toolUseId);
+    if (call === undefined) continue;
+    if (event.type === 'tool_input') call.input = event.json;
+    else call.result = event.content;
+  }
+  return [...calls.values()];
+}
+
+/** 工具权限拒绝的文案随 SDK/规则来源变化，只判定共同语义，不锁死某一版措辞。 */
+const DENIED_RESULT = /denied|not allowed|not permitted|unavailable|no such tool|permission/i;
+
+function readIfExists(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
 interface TestSpecs {
   single: SessionSandboxSpec;
   reuse: SessionSandboxSpec;
   idle: SessionSandboxSpec;
   cancel: SessionSandboxSpec;
+  bashDefault: SessionSandboxSpec;
+  bashDontAsk: SessionSandboxSpec;
+  bashPlatformDeny: SessionSandboxSpec;
+  bashCommandDeny: SessionSandboxSpec;
+  bashChild: SessionSandboxSpec;
+  bashChildDeny: SessionSandboxSpec;
 }
 
 describeDocker('session sandbox with the real SDK native CLI', () => {
@@ -536,7 +688,7 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     return {
       agentId: `agent-${name}`,
       conversationId: `conversation-${name}`,
-      image: IMAGE,
+      runtimeEnvironmentId: null,
       workspaceDir: dirs.workspace,
       outputsDir: dirs.outputs,
       inputsDir: dirs.inputs,
@@ -552,10 +704,26 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     );
   }
 
+  /** 本套件直接使用已存在的 sandbox:dev，用固定环境身份解析到该镜像。 */
+  function sessionsFor(provider: DockerSandboxProvider, idleTimeoutMs = 60_000): SessionSandboxes {
+    return new SessionSandboxes({
+      provider,
+      idleTimeoutMs,
+      logger: quiet,
+      resolveRuntimeEnvironment: async () => ({
+        environmentId: 'env_test',
+        environmentName: 'test',
+        versionId: 'version_test',
+        imageId: IMAGE,
+      }),
+    });
+  }
+
   async function startRun(
     lease: SessionSandboxLease,
     prompt: string,
     resumeSessionId?: string,
+    overrides: Partial<SandboxTaskInput> = {},
   ): Promise<{
     events: ChatEvent[];
     stderr: string[];
@@ -565,12 +733,76 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     const stderr: string[] = [];
     const execution = await lease.start({
       runId: `run-${randomUUID()}`,
-      task: taskInput(prompt, resumeSessionId),
+      task: { ...taskInput(prompt, resumeSessionId), ...overrides },
       env: sandboxEnv(fake.baseUrl),
       onEvent: (event) => events.push(event),
       onStderr: (text) => stderr.push(text),
     });
     return { events, stderr, execution };
+  }
+
+  /** 用当前 core 渲染器生成官方工作区文件，避免测试手写与产品渲染分叉。 */
+  async function writeWorkspaceFixture(
+    spec: SessionSandboxSpec,
+    options: {
+      subAgents?: WorkspaceAgent[];
+      toolsDeny?: string[];
+    } = {},
+  ): Promise<void> {
+    const files = renderWorkspace({
+      agent: {
+        slug: 'bash-parent',
+        name: 'Bash Parent',
+        model: MODEL,
+        systemPrompt: '按用户要求执行命令并回报结果。',
+        maxTurns: 10,
+        ...(options.toolsDeny === undefined ? {} : { disallowedTools: options.toolsDeny }),
+      },
+      servers: [],
+      ...(options.subAgents === undefined ? {} : { subAgents: options.subAgents }),
+    });
+    await writeFile(join(spec.workspaceDir, 'CLAUDE.md'), files.claudeMd);
+    await writeFile(join(spec.workspaceDir, '.mcp.json'), files.mcpJson);
+    const claudeDir = join(spec.workspaceDir, '.claude');
+    await mkdir(claudeDir, { recursive: true });
+    if (files.subAgents.length > 0) {
+      const agentsDir = join(claudeDir, 'agents');
+      await mkdir(agentsDir, { recursive: true });
+      for (const child of files.subAgents) {
+        await writeFile(join(agentsDir, `${child.slug}.md`), child.content);
+      }
+    }
+  }
+
+  function childAgent(slug: string, disallowedTools?: string[]): WorkspaceAgent {
+    return {
+      slug,
+      name: slug,
+      model: MODEL,
+      systemPrompt: '执行父智能体交给你的命令并返回结果。',
+      maxTurns: 8,
+      ...(disallowedTools === undefined ? {} : { disallowedTools }),
+    };
+  }
+
+  /** 每次行为用例独占一个容器；结束后统一销毁，不把用例状态串到下一轮。 */
+  async function execute(
+    spec: SessionSandboxSpec,
+    prompt: string,
+    overrides: Partial<SandboxTaskInput> = {},
+    timeoutMs = 60_000,
+  ) {
+    const provider = createProvider();
+    const sessions = sessionsFor(provider);
+    try {
+      const lease = await sessions.acquire(spec, new AbortController().signal);
+      const run = await startRun(lease, prompt, undefined, overrides);
+      const settlement = await withTimeout(run.execution.done, timeoutMs, 'bash behavior run');
+      return { settlement, events: run.events, stderr: run.stderr };
+    } finally {
+      await sessions.close();
+      await provider.destroyAll().catch(() => undefined);
+    }
   }
 
   async function containerExists(id: string): Promise<boolean> {
@@ -588,6 +820,28 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     if (image.code !== 0) {
       throw new Error(
         `sandbox image ${IMAGE} is missing; build it with pnpm --filter @agentport/sandbox image`,
+      );
+    }
+
+    // 开箱证据：真实 GNU bash、poppler 工具齐全，默认用户 1000；不满足就不跑用例。
+    const bash = await run(
+      'docker',
+      ['run', '--rm', '--entrypoint', 'bash', IMAGE, '--version'],
+      30_000,
+    );
+    if (bash.code !== 0 || !bash.stdout.includes('GNU bash')) {
+      throw new Error(`${IMAGE} does not ship a real GNU bash: ${bash.stderr.trim()}`);
+    }
+    for (const tool of ['pdftoppm', 'pdfinfo']) {
+      const probe = await run('docker', ['run', '--rm', '--entrypoint', tool, IMAGE, '-v'], 30_000);
+      if (probe.code !== 0) {
+        throw new Error(`${IMAGE} is missing ${tool}: ${probe.stderr.trim()}`);
+      }
+    }
+    const uid = await run('docker', ['run', '--rm', '--entrypoint', 'id', IMAGE, '-u'], 30_000);
+    if (uid.code !== 0 || uid.stdout.trim() !== '1000') {
+      throw new Error(
+        `${IMAGE} must run as uid 1000, got ${uid.stdout.trim()}: ${uid.stderr.trim()}`,
       );
     }
 
@@ -644,7 +898,26 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
       reuse: await sandboxSpec('reuse'),
       idle: await sandboxSpec('idle'),
       cancel: await sandboxSpec('cancel'),
+      bashDefault: await sandboxSpec('bash-default'),
+      bashDontAsk: await sandboxSpec('bash-dontask'),
+      bashPlatformDeny: await sandboxSpec('bash-platform-deny'),
+      bashCommandDeny: await sandboxSpec('bash-command-deny'),
+      bashChild: await sandboxSpec('bash-child'),
+      bashChildDeny: await sandboxSpec('bash-child-deny'),
     };
+
+    await Promise.all([
+      writeWorkspaceFixture(specs.bashDefault),
+      writeWorkspaceFixture(specs.bashDontAsk),
+      writeWorkspaceFixture(specs.bashPlatformDeny),
+      writeWorkspaceFixture(specs.bashCommandDeny),
+      writeWorkspaceFixture(specs.bashChild, {
+        subAgents: [childAgent('bash-child')],
+      }),
+      writeWorkspaceFixture(specs.bashChildDeny, {
+        subAgents: [childAgent('bash-child-denied', ['Bash'])],
+      }),
+    ]);
 
     // 沙盒固定以 uid 1000 运行；只调整本测试自己的 /tmp 目录。
     const chown = await run(
@@ -676,6 +949,7 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
   beforeEach(() => {
     // 各用例只断言自己这轮的模型请求；落盘日志仍保留完整序列。
     fake.requests.length = 0;
+    toolScenarios = [];
   });
 
   afterAll(async () => {
@@ -687,11 +961,7 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
 
   it('runs one real SDK turn through the local fake Anthropic API', async () => {
     const provider = createProvider();
-    const sessions = new SessionSandboxes({
-      provider,
-      idleTimeoutMs: 60_000,
-      logger: quiet,
-    });
+    const sessions = sessionsFor(provider);
     try {
       const lease = await sessions.acquire(specs.single, new AbortController().signal);
       const run = await startRun(lease, '单轮：请回复 SPIKE-ONE');
@@ -724,11 +994,7 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
 
   it('reuses one container and resumes the same SDK session across runs', async () => {
     const provider = createProvider();
-    const sessions = new SessionSandboxes({
-      provider,
-      idleTimeoutMs: 60_000,
-      logger: quiet,
-    });
+    const sessions = sessionsFor(provider);
     try {
       const firstLease = await sessions.acquire(specs.reuse, new AbortController().signal);
       const firstSandboxId = firstLease.sandboxId;
@@ -771,11 +1037,7 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
   it('recycles an idle container and resumes from the persistent session on disk', async () => {
     const provider = createProvider();
     // 短阈值让真实回收可被观察；生产默认值仍由 worker 配置控制。
-    const sessions = new SessionSandboxes({
-      provider,
-      idleTimeoutMs: 1_200,
-      logger: quiet,
-    });
+    const sessions = sessionsFor(provider, 1_200);
     try {
       const firstLease = await sessions.acquire(specs.idle, new AbortController().signal);
       const firstSandboxId = firstLease.sandboxId;
@@ -815,11 +1077,7 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
 
   it('confirms a cancelled hung run, keeps the session id, and resumes on the same container', async () => {
     const provider = createProvider();
-    const sessions = new SessionSandboxes({
-      provider,
-      idleTimeoutMs: 60_000,
-      logger: quiet,
-    });
+    const sessions = sessionsFor(provider);
     try {
       const firstLease = await sessions.acquire(specs.cancel, new AbortController().signal);
       const sandboxId = firstLease.sandboxId;
@@ -870,4 +1128,251 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
       await provider.destroyAll().catch(() => undefined);
     }
   }, 60_000);
+
+  it.each(['default', 'dontAsk'] as const)(
+    'lets the parent agent run Bash under %s and write only to /mnt/outputs',
+    async (mode) => {
+      const marker = `BASH-${mode.toUpperCase()}`;
+      const spec = mode === 'default' ? specs.bashDefault : specs.bashDontAsk;
+      const outputName = `parent-${mode}.txt`;
+      const command = [
+        `printf 'ok' > /mnt/outputs/${outputName}`,
+        `if printf 'no' > /workspace/should-not-exist-${mode}.txt 2>/dev/null; then echo WORKSPACE_WRITABLE; else echo WORKSPACE_READONLY; fi`,
+      ].join('; ');
+      toolScenarios = [
+        {
+          marker,
+          steps: [
+            {
+              name: 'Bash',
+              input: { command, description: 'write outputs and probe the readonly workspace' },
+            },
+          ],
+          finalText: `DONE:${marker}`,
+        },
+      ];
+
+      const result = await execute(spec, `${marker} 请执行 Bash 行为验收`, {
+        permissionMode: mode,
+        maxTurns: 6,
+      });
+
+      expect(result.settlement.state).toBe('stopped');
+      expect(finishedEvent(result.events)?.status).toBe('succeeded');
+      const bash = toolCalls(result.events).filter((call) => call.name === 'Bash');
+      expect(bash).toHaveLength(1);
+      // 父级自己的调用没有 parent_tool_use_id。
+      expect(bash[0]?.parentToolUseId).toBeUndefined();
+      expect(bash[0]?.result).toContain('WORKSPACE_READONLY');
+      expect(readIfExists(join(spec.outputsDir, outputName))).toBe('ok');
+      expect(readIfExists(join(spec.workspaceDir, `should-not-exist-${mode}.txt`))).toBeUndefined();
+    },
+    90_000,
+  );
+
+  it('keeps an explicit parent Bash deny effective', async () => {
+    const marker = 'BASH-PLATFORM-DENY';
+    const deniedFile = join(specs.bashPlatformDeny.outputsDir, 'platform-denied.txt');
+    toolScenarios = [
+      {
+        marker,
+        steps: [
+          {
+            name: 'Bash',
+            input: { command: 'echo DENIED > /mnt/outputs/platform-denied.txt' },
+          },
+        ],
+        finalText: `DONE:${marker}`,
+      },
+    ];
+
+    const result = await execute(specs.bashPlatformDeny, `${marker} 尝试写入产出目录`, {
+      extraDisallowedTools: ['Bash'],
+      maxTurns: 6,
+    });
+
+    expect(finishedEvent(result.events)?.status).toBe('succeeded');
+    const bash = toolCalls(result.events).filter((call) => call.name === 'Bash');
+    expect(bash).toHaveLength(1);
+    expect(bash[0]?.result).toMatch(DENIED_RESULT);
+    expect(readIfExists(deniedFile)).toBeUndefined();
+  }, 90_000);
+
+  it('keeps a command-level Bash deny effective while allowing other commands', async () => {
+    const marker = 'BASH-COMMAND-DENY';
+    const allowedFile = join(specs.bashCommandDeny.outputsDir, 'command-allowed.txt');
+    const deniedFile = join(specs.bashCommandDeny.outputsDir, 'command-denied.txt');
+    toolScenarios = [
+      {
+        marker,
+        steps: [
+          {
+            name: 'Bash',
+            input: {
+              command:
+                "printf 'ALLOWED_OUTPUT\\n' > /mnt/outputs/command-allowed.txt && cat /mnt/outputs/command-allowed.txt",
+            },
+          },
+          {
+            name: 'Bash',
+            input: {
+              command: 'echo DENIED_OUTPUT > /mnt/outputs/command-denied.txt',
+            },
+          },
+        ],
+        finalText: `DONE:${marker}`,
+      },
+    ];
+
+    const result = await execute(specs.bashCommandDeny, `${marker} 依次执行两条命令`, {
+      extraDisallowedTools: ['Bash(echo:*)'],
+      maxTurns: 8,
+    });
+
+    expect(finishedEvent(result.events)?.status).toBe('succeeded');
+    const bash = toolCalls(result.events).filter((call) => call.name === 'Bash');
+    expect(bash).toHaveLength(2);
+    expect(bash[0]?.result).toContain('ALLOWED_OUTPUT');
+    expect(bash[0]?.result).not.toMatch(DENIED_RESULT);
+    expect(readIfExists(allowedFile)).toBe('ALLOWED_OUTPUT\n');
+    expect(bash[1]?.result).toMatch(DENIED_RESULT);
+    expect(readIfExists(deniedFile)).toBeUndefined();
+  }, 90_000);
+
+  it('lets a delegated subagent run Bash and write outputs', async () => {
+    const parentMarker = 'BASH-CHILD-PARENT';
+    const childMarker = 'BASH-CHILD-WORK';
+    const childFile = join(specs.bashChild.outputsDir, 'child.txt');
+    toolScenarios = [
+      {
+        marker: parentMarker,
+        steps: [
+          {
+            name: 'Agent',
+            input: {
+              subagent_type: 'bash-child',
+              description: 'child bash check',
+              prompt: `${childMarker} 在子智能体里执行 Bash`,
+            },
+          },
+        ],
+        finalText: `DONE:${parentMarker}`,
+      },
+      {
+        marker: childMarker,
+        steps: [
+          {
+            name: 'Bash',
+            input: { command: 'echo CHILD-RAN > /mnt/outputs/child.txt && echo CHILD-RAN' },
+          },
+        ],
+        finalText: `DONE:${childMarker}`,
+      },
+    ];
+
+    const result = await execute(
+      specs.bashChild,
+      `${parentMarker} 委派子智能体执行 Bash`,
+      {
+        allowSubAgents: true,
+        subAgents: [{ slug: 'bash-child' }],
+        maxTurns: 10,
+      },
+      120_000,
+    );
+
+    expect(finishedEvent(result.events)?.status).toBe('succeeded');
+    const calls = toolCalls(result.events);
+    const agent = calls.find((call) => call.name === 'Agent');
+    expect(agent?.input).toContain(childMarker);
+    const childBash = calls.find(
+      (call) => call.name === 'Bash' && call.parentToolUseId !== undefined,
+    );
+    expect(childBash?.parentToolUseId).toBe(agent?.id);
+    expect(childBash?.result).toContain('CHILD-RAN');
+    expect(readIfExists(childFile)).toBe('CHILD-RAN\n');
+    // 子智能体的最终文本带父侧 Agent 的 tool_use id，证明确实由该委派产生。
+    expect(
+      result.events.some(
+        (event) => event.type === 'assistant_text' && event.parentToolUseId === agent?.id,
+      ),
+    ).toBe(true);
+  }, 120_000);
+
+  it('keeps a subagent Bash deny scoped to that subagent', async () => {
+    const parentMarker = 'BASH-CHILD-DENY-PARENT';
+    const childMarker = 'BASH-CHILD-DENY-WORK';
+    const beforeFile = join(specs.bashChildDeny.outputsDir, 'parent-before.txt');
+    const afterFile = join(specs.bashChildDeny.outputsDir, 'parent-after.txt');
+    const childFile = join(specs.bashChildDeny.outputsDir, 'child-denied.txt');
+    toolScenarios = [
+      {
+        marker: parentMarker,
+        steps: [
+          {
+            name: 'Bash',
+            input: {
+              command:
+                'echo PARENT-BEFORE > /mnt/outputs/parent-before.txt && echo PARENT-BEFORE-RAN',
+            },
+          },
+          {
+            name: 'Agent',
+            input: {
+              subagent_type: 'bash-child-denied',
+              description: 'child denied bash',
+              prompt: `${childMarker} 在子智能体里尝试 Bash`,
+            },
+          },
+          {
+            name: 'Bash',
+            input: {
+              command: 'echo PARENT-AFTER > /mnt/outputs/parent-after.txt && echo PARENT-AFTER-RAN',
+            },
+          },
+        ],
+        finalText: `DONE:${parentMarker}`,
+      },
+      {
+        marker: childMarker,
+        steps: [
+          {
+            name: 'Bash',
+            input: { command: 'echo CHILD-DENIED > /mnt/outputs/child-denied.txt' },
+          },
+        ],
+        finalText: `DONE:${childMarker}`,
+      },
+    ];
+
+    const result = await execute(
+      specs.bashChildDeny,
+      `${parentMarker} 先执行 Bash，再委派拒绝 Bash 的子智能体`,
+      {
+        allowSubAgents: true,
+        subAgents: [{ slug: 'bash-child-denied' }],
+        maxTurns: 12,
+      },
+      120_000,
+    );
+
+    expect(finishedEvent(result.events)?.status).toBe('succeeded');
+    const calls = toolCalls(result.events);
+    const parentBash = calls.filter(
+      (call) => call.name === 'Bash' && call.parentToolUseId === undefined,
+    );
+    expect(parentBash).toHaveLength(2);
+    expect(parentBash[0]?.result).toContain('PARENT-BEFORE-RAN');
+    expect(parentBash[1]?.result).toContain('PARENT-AFTER-RAN');
+    expect(readIfExists(beforeFile)).toBe('PARENT-BEFORE\n');
+    expect(readIfExists(afterFile)).toBe('PARENT-AFTER\n');
+
+    const agent = calls.find((call) => call.name === 'Agent');
+    const childBash = calls.find(
+      (call) => call.name === 'Bash' && call.parentToolUseId !== undefined,
+    );
+    expect(childBash?.parentToolUseId).toBe(agent?.id);
+    expect(childBash?.result).toMatch(DENIED_RESULT);
+    expect(readIfExists(childFile)).toBeUndefined();
+  }, 120_000);
 });

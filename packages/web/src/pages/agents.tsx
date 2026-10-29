@@ -154,6 +154,7 @@ import {
   useKnowledgeBases,
   usePlugins,
   useRollbackAgent,
+  useRuntimeEnvironments,
   useServers,
   useSkills,
   useUpdateAgent,
@@ -197,6 +198,7 @@ const emptyInput: AgentInput = {
   maxBudgetUsd: 2,
   timeoutMs: 600_000,
   enabled: true,
+  runtimeEnvironmentId: null,
 };
 
 function toInput(agent: Agent): AgentInput {
@@ -219,6 +221,7 @@ function toInput(agent: Agent): AgentInput {
     maxBudgetUsd: agent.maxBudgetUsd,
     timeoutMs: agent.timeoutMs,
     enabled: agent.enabled,
+    runtimeEnvironmentId: agent.runtimeEnvironmentId,
     // 显式保留 undefined 键：RHF 的 defaultValues 必须覆盖每个受控字段，
     // 否则 reset 后 useController 写回的 undefined 会让表单再次判定为 dirty。
     effort: agent.effort,
@@ -338,12 +341,14 @@ export function AgentsPage() {
   const [initialRole, setInitialRole] = useState('通用助手');
   const [deleting, setDeleting] = useState<Agent | null>(null);
   const [importing, setImporting] = useState(false);
+  const [pendingImport, setPendingImport] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const editorTriggerRef = useRef<HTMLButtonElement | null>(null);
   const remove = useDeleteAgent();
+  const runtimeEnvironments = useRuntimeEnvironments();
 
-  const importFile = async (file: File): Promise<void> => {
+  const importFile = async (file: File, runtimeEnvironmentId?: string): Promise<void> => {
     setImporting(true);
     try {
       const isMarkdown = file.name.toLowerCase().endsWith('.md');
@@ -357,7 +362,7 @@ export function AgentsPage() {
       }
       const result = isMarkdown
         ? await api.importAgentFile(await file.text())
-        : await api.importAgent(file);
+        : await api.importAgent(file, undefined, runtimeEnvironmentId);
       await Promise.all(
         ['agents', 'servers', 'skills', 'overview'].map((key) =>
           queryClient.invalidateQueries({ queryKey: [key] }),
@@ -466,7 +471,10 @@ export function AgentsPage() {
             onChange={(event) => {
               const file = event.target.files?.[0];
               event.target.value = '';
-              if (file) void importFile(file);
+              if (!file) return;
+              // agent.md 沿用原语义直接导入；ZIP 先确认环境映射，取消不执行。
+              if (file.name.toLowerCase().endsWith('.md')) void importFile(file);
+              else setPendingImport(file);
             }}
           />
           <Button
@@ -706,7 +714,101 @@ export function AgentsPage() {
           }}
         />
       ) : null}
+
+      {pendingImport ? (
+        <ImportAgentDialog
+          file={pendingImport}
+          environments={runtimeEnvironments.data ?? []}
+          environmentsError={runtimeEnvironments.isError}
+          finalFocus={() =>
+            editorTriggerRef.current?.isConnected
+              ? editorTriggerRef.current
+              : createButtonRef.current
+          }
+          onClose={() => setPendingImport(null)}
+          onImport={(runtimeEnvironmentId) => {
+            const file = pendingImport;
+            setPendingImport(null);
+            void importFile(file, runtimeEnvironmentId);
+          }}
+        />
+      ) : null}
     </ResourcePage>
+  );
+}
+
+function ImportAgentDialog({
+  file,
+  environments,
+  environmentsError,
+  finalFocus,
+  onClose,
+  onImport,
+}: {
+  file: File;
+  environments: Array<{ id: string; name: string }>;
+  environmentsError: boolean;
+  finalFocus: () => HTMLElement | null;
+  onClose: () => void;
+  onImport: (runtimeEnvironmentId: string | undefined) => void;
+}) {
+  const [environmentId, setEnvironmentId] = useState('match');
+  return (
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogShell
+        title="导入专家包"
+        description={file.name}
+        finalFocus={finalFocus}
+        className="max-w-md sm:max-w-md"
+      >
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="agent-import-environment">目标运行环境</FieldLabel>
+            <Select
+              value={environmentId}
+              items={[
+                { value: 'match', label: '按包中名称匹配' },
+                ...environments.map((environment) => ({
+                  value: environment.id,
+                  label: environment.name,
+                })),
+              ]}
+              onValueChange={(next) => {
+                if (next !== null) setEnvironmentId(next);
+              }}
+            >
+              <SelectTrigger id="agent-import-environment" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="match">按包中名称匹配</SelectItem>
+                  {environments.map((environment) => (
+                    <SelectItem key={environment.id} value={environment.id}>
+                      {environment.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {environmentsError ? (
+              <FieldError>运行环境列表没有加载出来，只能按包中名称匹配。</FieldError>
+            ) : null}
+          </Field>
+        </FieldGroup>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            取消
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => onImport(environmentId === 'match' ? undefined : environmentId)}
+          >
+            导入
+          </Button>
+        </div>
+      </DialogShell>
+    </Dialog>
   );
 }
 
@@ -903,6 +1005,7 @@ export function AgentEditor({
   const skills = useSkills();
   const plugins = usePlugins();
   const agents = useAgents();
+  const runtimeEnvironments = useRuntimeEnvironments();
   // 绑定来源路由后，navigate 的 current 只含本路由 search，不会被其他路由的联合类型污染。
   const navigate = useNavigate({ from: '/agents/$agentId' });
   const search = useSearch({ from: '/_shell/agents/$agentId' });
@@ -969,6 +1072,20 @@ export function AgentEditor({
   const permissionModeField = useController({ control, name: 'permissionMode' }).field;
   const uiFormatField = useController({ control, name: 'uiFormat' }).field;
   const enabledField = useController({ control, name: 'enabled' }).field;
+  const runtimeEnvironmentField = useController({ control, name: 'runtimeEnvironmentId' }).field;
+  const defaultEnvironment = runtimeEnvironments.data?.find((environment) => environment.isDefault);
+  // null 与真实默认环境的 ID 都显示为同一项；保存时保留原始绑定，不把显式 ID 静默改成 null。
+  const runtimeEnvironmentValue =
+    runtimeEnvironmentField.value === null ||
+    runtimeEnvironmentField.value === defaultEnvironment?.id
+      ? 'default'
+      : runtimeEnvironmentField.value;
+  const runtimeEnvironmentOptions = [
+    { value: 'default', label: defaultEnvironment?.name ?? '平台默认环境' },
+    ...(runtimeEnvironments.data ?? [])
+      .filter((environment) => !environment.isDefault)
+      .map((environment) => ({ value: environment.id, label: environment.name })),
+  ];
   // 只有工具文本参与派生状态；其余输入走非受控 register 或各自控件，不再整表订阅。
   const allowedToolsDraft = useWatch({ control, name: 'allowedTools' });
   const disallowedToolsDraft = useWatch({ control, name: 'disallowedTools' });
@@ -1227,7 +1344,7 @@ export function AgentEditor({
     disallowedTools: disallowedToolsDraft,
   };
   const hasSubAgents = toolDraft.subAgentIds.length > 0;
-  /** 实际生效的内置工具状态：默认禁用 + 显式禁用，allowedTools 显式放行。 */
+  /** 实际生效的内置工具状态：默认状态由 DEFAULT_DISALLOWED_TOOLS 决定，显式禁用优先，allowedTools 显式放行。 */
   const builtinEnabled = (
     draft: Pick<AgentDraft, 'subAgentIds' | 'allowedTools' | 'disallowedTools'>,
     tool: string,
@@ -2267,7 +2384,9 @@ export function AgentEditor({
                   <Section id="permissions" title="权限">
                     <div className="flex flex-col gap-2 rounded-item bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
                       <p>
-                        内置工具：放行会扩大攻击面，Bash、文件写入和网络访问都绕过沙盒的只读约定。
+                        内置工具在会话容器内运行；原生文件工具受细粒度边界限制，Bash
+                        默认启用、可执行任意命令，但同样无法越过 Docker 挂载边界写入只读目录（如
+                        /workspace）。启用内置工具会扩大攻击面。
                       </p>
                       <p>
                         平台将绑定连接器的全部工具加入 SDK allowedTools 预批准；工具若设置
@@ -2387,6 +2506,48 @@ export function AgentEditor({
                 {activeSection === 'limits' ? (
                   <Section id="limits" title="运行限制">
                     <FieldGroup className="gap-5">
+                      {agent.parentId === null ? (
+                        <Field data-disabled={pending} orientation="horizontal" className="gap-3">
+                          <FieldContent>
+                            <FieldLabel htmlFor="agent-runtime-environment">运行环境</FieldLabel>
+                            {runtimeEnvironments.isError ? (
+                              <FieldError id="agent-runtime-environment-error">
+                                运行环境列表没有加载出来。
+                              </FieldError>
+                            ) : null}
+                          </FieldContent>
+                          <Select
+                            disabled={pending || runtimeEnvironments.isPending}
+                            value={runtimeEnvironmentValue}
+                            items={runtimeEnvironmentOptions}
+                            onValueChange={(next) => {
+                              if (next === null || next === runtimeEnvironmentValue) return;
+                              runtimeEnvironmentField.onChange(next === 'default' ? null : next);
+                            }}
+                          >
+                            <SelectTrigger
+                              id="agent-runtime-environment"
+                              className="w-64"
+                              aria-describedby={
+                                runtimeEnvironments.isError
+                                  ? 'agent-runtime-environment-error'
+                                  : undefined
+                              }
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {runtimeEnvironmentOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      ) : null}
                       <Field
                         data-disabled={pending}
                         orientation="horizontal"

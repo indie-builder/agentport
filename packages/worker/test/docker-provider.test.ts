@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 interface Reply {
   exitCode: number;
+  stdout?: string;
   stderr?: string;
   /** 不自动结束：用例自己 close，模拟慢 pull/create。 */
   holdOpen?: boolean;
@@ -72,6 +73,7 @@ vi.mock('node:child_process', async (importOriginal) => {
       const reply = state.reply(args);
       if (reply.holdOpen === true) return child;
       queueMicrotask(() => {
+        if (reply.stdout !== undefined) child.stdout.write(reply.stdout);
         if (reply.stderr !== undefined) child.stderr.write(reply.stderr);
         child.emit('close', reply.exitCode, null);
       });
@@ -205,6 +207,47 @@ describe('docker sandbox provider', () => {
     ]);
   });
 
+  it('refuses to pull a missing immutable image id instead of silently switching images', async () => {
+    const provider = await makeProvider();
+    const id = `sha256:${'a'.repeat(64)}`;
+    state.reply = (args) =>
+      args[0] === 'image'
+        ? { exitCode: 1, stderr: `Error response from daemon: No such image: ${id}` }
+        : { exitCode: 0 };
+
+    await expect(
+      provider.create({ ...createOptions({ name: 'pace-run' }), image: id }),
+    ).rejects.toThrow(/immutable image id/);
+    expect(state.commands.some((command) => command[1] === 'pull')).toBe(false);
+    expect(state.commands.some((command) => command[1] === 'create')).toBe(false);
+  });
+
+  it('always runs as uid 1000 from /app', async () => {
+    const { args } = await create({ name: 'pace-run' });
+    expect(args.join(' ')).toContain('--user 1000:1000');
+    expect(args.join(' ')).toContain('--workdir /app');
+  });
+
+  it('reads the actual local image id for default environment registration', async () => {
+    const { resolveLocalImageId } = await import('../src/sandbox/docker.js');
+    const id = `sha256:${'b'.repeat(64)}`;
+    state.reply = (args) =>
+      args[0] === 'image' ? { exitCode: 0, stdout: `${id}\n` } : { exitCode: 0 };
+
+    await expect(resolveLocalImageId('sandbox:test')).resolves.toBe(id);
+    expect(state.commands).toContainEqual([
+      'docker',
+      'image',
+      'inspect',
+      '--format',
+      '{{.Id}}',
+      'sandbox:test',
+    ]);
+
+    state.reply = () => ({ exitCode: 1, stderr: 'Error response from daemon: No such image' });
+    await expect(resolveLocalImageId('sandbox:test')).resolves.toBeNull();
+  });
+
   it('cancels a pull that is still running after the old one-second window and never creates', async () => {
     const provider = await makeProvider();
     state.reply = (args) =>
@@ -286,6 +329,73 @@ describe('docker sandbox provider', () => {
     state.commands = [];
     await provider.destroyAll();
     expect(state.commands).toEqual([]);
+  });
+
+  it('waits for an in-flight --rm auto removal instead of failing or faking success', async () => {
+    const { provider, sandbox } = await create({ name: 'pace-race' });
+    state.commands = [];
+    let inspections = 0;
+    state.reply = (args) => {
+      if (args[0] === 'stop') return { exitCode: 1, stderr: 'daemon busy' };
+      if (args[0] === 'rm') {
+        return {
+          exitCode: 1,
+          stderr:
+            'Error response from daemon: removal of container pace-race is already in progress',
+        };
+      }
+      if (args[0] === 'container') {
+        inspections += 1;
+        // 自动删除还在进行：inspect 仍能看到容器，必须继续等，不能提前当成已删除。
+        return inspections < 3
+          ? { exitCode: 0, stdout: 'pace-race\n' }
+          : { exitCode: 1, stderr: 'Error response from daemon: No such container: pace-race' };
+      }
+      return { exitCode: 0 };
+    };
+
+    await expect(provider.destroy(sandbox)).resolves.toBeUndefined();
+    expect(inspections).toBe(3);
+
+    // 确认删除完成才移出跟踪。
+    state.commands = [];
+    await provider.destroyAll();
+    expect(state.commands).toEqual([]);
+  });
+
+  it('keeps the container tracked when an in-progress removal never completes', async () => {
+    const { provider, sandbox } = await create({ name: 'pace-stuck' });
+    state.commands = [];
+    state.reply = (args) => {
+      if (args[0] === 'stop') return { exitCode: 1, stderr: 'daemon busy' };
+      if (args[0] === 'rm') {
+        return {
+          exitCode: 1,
+          stderr:
+            'Error response from daemon: removal of container pace-stuck is already in progress',
+        };
+      }
+      if (args[0] === 'container') return { exitCode: 0, stdout: 'pace-stuck\n' };
+      return { exitCode: 0 };
+    };
+    // 有限超时：第一次取 deadline，第二次进入轮询，之后时间越界退出。
+    const start = Date.now();
+    let clockCalls = 0;
+    const clock = vi
+      .spyOn(Date, 'now')
+      .mockImplementation(() => (clockCalls++ < 2 ? start : start + 20_000));
+
+    try {
+      await expect(provider.destroy(sandbox)).rejects.toThrow(/still in progress/);
+    } finally {
+      clock.mockRestore();
+    }
+
+    // 删除未确认：保留跟踪，shutdown 还能再试。
+    state.reply = () => ({ exitCode: 0 });
+    state.commands = [];
+    await provider.destroyAll();
+    expect(state.commands.map(([, command]) => command)).toEqual(['stop', 'rm']);
   });
 
   it('stops the container with a five second grace period, then removes it', async () => {

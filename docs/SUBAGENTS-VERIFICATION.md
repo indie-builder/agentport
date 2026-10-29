@@ -113,7 +113,7 @@ SDK 侧确认：`initializationResult().agents` 在沙盒里能看到 `subverify
 | `packages/api/test/sse-subscribers.test.ts` | 新增并发发布去重用例 |
 | `docs/ARCHITECTURE.md`、`docs/IMPL-CONTRACTS.md` | 更新工作区文件语义 |
 
-**部署提醒**：修改 `packages/sandbox/src` 后必须重建镜像。`pnpm run up` 只在镜像不存在时构建，已存在的机器要 `pnpm run up --rebuild`。镜像的 Dockerfile 会复制 `dist/` 与 `shared/`（`@agentport/shared` 的编译产物），所以直接 `docker build -t agentport/sandbox:dev packages/sandbox` 会报 `COPY shared/: not found`；手动构建需先 `pnpm --filter @agentport/sandbox build && pnpm --filter @agentport/shared build && cp -R packages/shared/dist packages/sandbox/shared`（详见 OPERATIONS「2.2.1 手动构建沙盒镜像」）。
+**部署提醒**：修改 `packages/sandbox/src` 后必须重建镜像。`pnpm run up` 只在镜像不存在时构建，已存在的机器要 `pnpm run up --rebuild`。手动构建从仓库根执行 `docker build --target sandbox -t agentport/sandbox:dev .`，依赖安装、`pnpm -r build` 与 shared 打包都在镜像内完成（详见 OPERATIONS「2.2.1 手动构建沙盒镜像」）。
 
 ## 遗留问题与下一步
 

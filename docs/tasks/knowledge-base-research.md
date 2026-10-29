@@ -88,9 +88,9 @@ Postgres 只有一个内置 parser，中文整句会被当成单个 token。可�
 
 `model-proxy.ts` 只放行 `/v1/messages`、`/v1/messages/count_tokens`、`/v1/models`（`model-proxy.ts:19`）。embedding 需要新增路由或直连上游。
 
-**⑦ 沙盒无 Python、每 run 冷启动**
+**⑦ 沙盒无 Python、按会话短期复用**
 
-镜像基于 `node:24-alpine`（`packages/sandbox/Dockerfile:3`）。PDF/Office 解析必须放在 api/worker 侧或独立服务，不能塞进沙盒。
+镜像基于 `node:24-alpine`（根 `Dockerfile` 的 `sandbox` target）。容器按对话短期复用，不是每 run 冷启动。PDF/Office 解析必须放在 api/worker 侧或独立服务，不能塞进沙盒。
 
 ### 3. 推荐路径：三阶段，按需加服务
 

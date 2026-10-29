@@ -67,7 +67,7 @@ MCP 传输已核实为 stdio：`openwiki mcp --host claude`。默认工具集合
 | [专家包限制](../../packages/shared/src/agent-package.ts:15)、[导入解析](../../packages/api/src/features/agent-package.ts:680) | ZIP ≤1 MiB，解压总量 ≤4 MiB，≤6,000 条目，每 skill ≤50 资源；只认声明的官方文件路径，根 `openwiki/` 会拒绝。50 文件是专家包往返限制，不能误称资源 CRUD 的同一硬上限 |
 | [技能单文件导入](../../packages/api/src/features/skills/routes.ts:20) | `skillMd` 入口只导入 SKILL.md，≤131,072 字符；支持资源要走各自 CRUD/专家包，不能把整仓库 ZIP 交给这个入口 |
 | [HTTP 创建校验](../../packages/api/src/features/servers/routes.ts:119)、[worker URL 改写](../../packages/worker/src/index.ts:111) | http server 创建同样走 SSRF；只有 generated URL 被自动改写成沙盒可达平台地址。普通 http 不会自动变成 `${SANDBOX_API_URL}`，内网服务接入必须单独验证可达/准入/认证 |
-| [沙盒镜像](../../packages/sandbox/Dockerfile:3) | Node 24 已有；未显式安装 OpenWiki 或 git。stdio 需要镜像预装和数据挂载；不能假设 worker 宿主的 CLI 可供 SDK 执行 |
+| [沙盒镜像](../../Dockerfile:35) | Node 24 已有；git 已安装（官方 CLI 克隆市场/插件仓库需要）；未显式安装 OpenWiki。stdio 需要镜像预装和数据挂载；不能假设 worker 宿主的 CLI 可供 SDK 执行 |
 
 原版检索每次先用 `git rev-parse --show-toplevel` 解析根目录，页面预期在该仓库 `openwiki/`。因此它**不是任意 `references/` 或个人 `~/.openwiki/wiki` 的现成搜索服务**。[根目录验证](https://github.com/langchain-ai/openwiki/blob/305599f8e44203f9ca6b74bb6b38eebaf0b0405e/src/integrations/core/repository-root.ts#L20-L33)／[retrieval 输入](https://github.com/langchain-ai/openwiki/blob/305599f8e44203f9ca6b74bb6b38eebaf0b0405e/src/integrations/core/retrieval-tools.ts)
 

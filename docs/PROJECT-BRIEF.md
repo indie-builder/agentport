@@ -230,7 +230,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
    ├─ web/        @agentport/web         # L3 React SPA
    ├─ api/        @agentport/api         # L3 Fastify 主进程
    ├─ worker/     @agentport/worker      # L3 BullMQ 消费者 + 沙盒生命周期
-   └─ sandbox/    @agentport/sandbox     # L3 沙盒镜像构建上下文 + 容器内 runner
+   └─ sandbox/    @agentport/sandbox     # L3 沙盒 runner/supervisor（镜像由根 Dockerfile 的 sandbox target 产出）
 ```
 
 **依赖方向（强制）**：
@@ -353,7 +353,7 @@ agents(
   model text,
   system_prompt_md text,     -- 渲染为 CLAUDE.md
   tools_allow jsonb,         -- 例如 ["mcp__crm-api__*"]
-  tools_deny jsonb,          -- 默认包含 Bash/Read/Write/Edit/WebFetch…
+  tools_deny jsonb,          -- 显式拒绝的工具名，默认空；平台默认在代码中
   max_turns int,
   max_budget_usd numeric,
   timeout_ms int,
@@ -448,7 +448,7 @@ workspaces/<agent-slug>/
 
 渲染流程：DB 是编辑来源 → 每次运行前由 `packages/core/src/workspace.ts` 渲染 → 文件是交给 Agent SDK 加载的唯一运行投影。
 
-以下为早期受限运行示例，不代表当前全部能力；当前工具路径、原生记忆、成果与澄清接入以 `packages/sandbox/src/runner.ts`、`docs/ARCHITECTURE.md` §3 为准。新建智能体默认 `default`，显式 `dontAsk` 保留其拒绝交互语义。
+以下为早期受限运行示例，不代表当前全部能力；其中内置工具禁用尤其不代表当前默认，Bash 默认启用。当前工具路径、原生记忆、成果与澄清接入以 `packages/sandbox/src/runner.ts`、`docs/ARCHITECTURE.md` §3 为准。新建智能体默认 `default`，显式 `dontAsk` 保留其拒绝交互语义。
 
 调用方式：
 
@@ -485,14 +485,15 @@ query({
 1. Agent SDK 的 `options.sandbox` **只隔离 shell 命令**，MCP server、文件工具、hook 都在沙箱外运行。对「用户可配置任意 stdio server」的平台来说，这个边界不够。
 2. 若只把 shell 放进沙盒而 SDK 在宿主，那么 MCP server 仍在宿主拥有完整权限，等于没有隔离。
 
-### 6.3 镜像策略：一个镜像，定义动态挂载
+### 6.3 镜像策略：基座镜像 + 命名环境，定义动态挂载
 
 **镜像只包含运行时，不包含任何智能体定义。**
 
-镜像内容（`packages/sandbox/Dockerfile`）：
+镜像内容（根 `Dockerfile` 的 `sandbox` target）：
 
-- Node 24 基础镜像（`node:24-alpine` 或 debian slim，取决于原生模块）
+- 固定为 `node:24-alpine`（构建时锁定 digest；没有 debian slim 分支）
 - `runner` 构建产物（含 `@anthropic-ai/claude-agent-sdk` 及其平台原生 binary、MCP client）
+- `git`（官方插件市场安装）、`poppler-utils`（长 PDF 分页读取）与 `bash`（官方 CLI 执行 Bash 工具所需的真实 shell）
 - 固定的非 root 用户（uid 1000）
 
 **不**包含：任何 `.mcp.json`、`CLAUDE.md`、`.claude/agents/*.md`、任何 API key。
@@ -506,9 +507,11 @@ query({
 | 多机部署 | **暂不支持，也不做抽象** |
 | 对象存储 | 不引入 |
 
-> **每次运行都重新渲染并挂载**，因此「改配置 → 下次对话生效」成立，不需要重建镜像。多个智能体共用同一个镜像，各自挂各自的目录。
+> **每次运行都重新渲染并挂载**，因此「改配置 → 下次对话生效」成立，不需要重建镜像。智能体默认共用基座镜像，需要额外依赖时绑定各自的命名运行环境；定义仍各自挂各自的目录。
 >
 > 单机意味着 workspace 目录与 worker 必须同机。这是当前明确的取舍：少一层存储抽象，代码更少。将来要多机时，把 `SandboxProvider.create()` 的 `workspaceDir` 参数换成「准备一个工作区」的异步函数即可，改动集中在一个方法内。
+
+**按命名运行环境定制，不把镜像写进智能体。** `SANDBOX_IMAGE` 是平台基座：worker 首次启动时若本地缺失会先拉取，再用真实本地 image ID 登记「默认环境」的首个线上版本（`base_image_id` 也是该 image ID），并作为之后所有环境构建的基座；默认环境已存在时不再 inspect/pull，也不会随环境变量变化自动发布。需要额外依赖时新建命名运行环境、编辑 Dockerfile、构建并发布版本；智能体绑定环境、不绑定版本，只有新建容器时才解析该环境当时的线上版本，存活容器继续用创建时的旧镜像。环境是平台基础设施，不写入官方 `.claude/` 定义；专家包只在 sidecar 记录环境名称。
 
 ### 6.4 沙盒选型评估
 
@@ -551,7 +554,7 @@ interface SandboxProvider {
 
 - 沙盒访问 API：用 `SANDBOX_API_URL`，默认 `http://host.docker.internal:3000`，由 worker 的 `--add-host` 解析；其他网络模式改用宿主可达地址。
 - **不要把 model API key 写进挂载文件。** 默认由 worker 的模型凭证代理（D-17）持有真实凭证：配置 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN` 后，沙盒只注入代理地址与按 run 签发的短期 `ANTHROPIC_AUTH_TOKEN`，容器内进程看不到明文密钥；未配置凭证时代理不启动，保留直接注入配置值的回退路径并打印警告。
-- 出站默认拒绝，按需放行：模型 API 域名 + 用户配置的 MCP HTTP server 域名 + 平台自身域名。
+- 出站由 `SANDBOX_EGRESS` 控制：默认 `open`，容器走 bridge 直连，**不隔离出站**；`proxy` 为 bridge + 容器内 `HTTPS_PROXY`（未配置代理时启动失败，不降级为 open）；`none` 才使用 `--network none`。
 - 挂载一律只读；需要写的工作区单独给一个可写子目录。
 
 ---
@@ -597,7 +600,7 @@ interface SandboxProvider {
 | HTTP server URL = SSRF | 仅允许 http/https；禁止重定向；默认拒绝私有网段与 link-local |
 | 密钥泄露 | AES-256-GCM 加密入库（主密钥 `APP_SECRET_KEY`）；接口返回脱敏为 `••••`；日志 `redact` |
 | 工具输出注入 | 不放任文本直接进 system prompt；限制 `MAX_MCP_OUTPUT_TOKENS`；出站 allowlist |
-| Agent 越权 | 禁内置工具；`maxTurns` / `maxBudgetUsd` / 自建超时；沙盒只读挂载 |
+| Agent 越权 | 内置工具默认禁用（Bash 例外）；Bash 在容器内运行且受只读挂载约束；`maxTurns` / `maxBudgetUsd` / 自建超时；沙盒只读挂载 |
 | 沙盒逃逸 | Docker 起步；需要更强隔离时切换 microsandbox |
 | 依赖供应链 | pnpm lockfile + CI 内 `pnpm audit`；镜像固定 digest |
 
@@ -705,7 +708,7 @@ interface SandboxProvider {
    - **展示名**：AgentPort。
 2. **登录方式**：当前为单管理员 + Better Auth（会话落库，httpOnly cookie `agentport_token`）。是否需要多用户 / RBAC？
 3. **HTTP→MCP 的输入方式**：当前先做手动建工具，表结构按可导入 OpenAPI 设计。是否要 OpenAPI 导入？
-4. **智能体是否允许非 MCP 工具**：当前默认禁止。
+4. **智能体是否允许非 MCP 工具**：Bash 默认启用；原生 Read/Write/Edit 仅限记忆、产出、附件与技能参考；其余内置工具默认禁止。
 5. ~~**Redis 镜像标签**~~ 已确认 `redis:8-alpine` 可用（§15.2）；当前配置为 Redis 8.10.3（`redis:8.10.3-alpine`）。
 6. **沙盒默认后端**：Docker（起步）→ microsandbox（升级）。是否接受先 Docker？
 7. ~~**多机部署**~~ 已决定：**只做单机，暂不做多机设计**。见 §6.3。
@@ -828,6 +831,8 @@ pnpm dev
 | conversation | `conv` | `conv_01m5ag6528eh7bw80fjkysa3vp` |
 | message | `msg` | — |
 | run | `run` | `run_01m5ag7sq6eh7bw81dxdrhkvec` |
+| runtime environment | `rte` | — |
+| runtime environment version | `rtev` | — |
 | audit | `aud` | — |
 | knowledge base | `kb` | `kb_01m6k4s2n8x7…` |
 | knowledge folder | `kfd` | — |

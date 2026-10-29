@@ -1,9 +1,19 @@
 import { useBlocker } from '@tanstack/react-router';
 import type { z } from 'zod';
 
-export function useFormBlocker(dirty: boolean, pending: boolean) {
+export function useFormBlocker(
+  dirty: boolean,
+  pending: boolean,
+  options?: { ignoreSamePath?: boolean },
+) {
   const blocker = useBlocker({
-    shouldBlockFn: () => dirty || pending,
+    shouldBlockFn: (args) => {
+      // 只改同页 search（筛选、展开日志）不算离开，不能因此丢掉草稿。
+      if (options?.ignoreSamePath && args && args.current.pathname === args.next.pathname) {
+        return false;
+      }
+      return dirty || pending;
+    },
     withResolver: true,
     enableBeforeUnload: dirty || pending,
   });

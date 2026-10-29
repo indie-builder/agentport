@@ -256,6 +256,9 @@ const hasPluginAgents = task.plugins.some((plugin) => plugin.hasAgents);
 // allow 规则只支持 `mcp__<server>__` 之后通配；`mcp__*` 不匹配任何工具。
 // server 名来自挂载的 .mcp.json，逐个生成精确规则。
 const allowedTools = [
+  // Bash 在 Docker 沙箱内执行；dontAsk 下未预批准的工具会被拒绝，所以必须显式放行。
+  // 智能体显式 deny 的 Bash 仍由 disallowedTools 拒绝。
+  'Bash',
   `Read(/${memoryDirectory}/**)`,
   // 技能参考文件只读：.claude/skills/<slug>/references/**；写入仍仅限原生记忆目录。
   'Read(//workspace/.claude/skills/*/references/**)',
@@ -284,7 +287,6 @@ const allowedByConfig = new Set(task.extraAllowedTools);
 // 子智能体继承会话权限，server 级 deny 会把它们自己的工具一起移除。
 // 父级误调用这些 server 由 sub-agent-permissions 的 PreToolUse hook 拒绝。
 const baseDisallowed = [
-  'Bash',
   'Glob',
   'Grep',
   'NotebookEdit',

@@ -1,4 +1,5 @@
-import type { Agent } from '@agentport/shared';
+import { newId } from '@agentport/db';
+import { DEFAULT_RUNTIME_DOCKERFILE, type Agent } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -55,6 +56,29 @@ describe.skipIf(!ready)('agents', () => {
   let cookie: string;
   const createdAgents: string[] = [];
   const createdServers: string[] = [];
+  const createdEnvironments: string[] = [];
+
+  const createEnvironment = async (): Promise<{ id: string; name: string }> => {
+    const id = newId('runtimeEnvironment');
+    const name = unique('env');
+    const versionId = newId('runtimeEnvironmentVersion');
+    createdEnvironments.push(id);
+    await app.pool.query(
+      'insert into runtime_environments (id, name, dockerfile) values ($1, $2, $3)',
+      [id, name, DEFAULT_RUNTIME_DOCKERFILE],
+    );
+    await app.pool.query(
+      `insert into runtime_environment_versions
+         (id, environment_id, dockerfile, base_image_id, status, image_tag, image_id, finished_at)
+       values ($1, $2, $3, $4, 'ready', $4, $5, now())`,
+      [versionId, id, DEFAULT_RUNTIME_DOCKERFILE, name, `sha256:${'a'.repeat(64)}`],
+    );
+    await app.pool.query('update runtime_environments set online_version_id = $2 where id = $1', [
+      id,
+      versionId,
+    ]);
+    return { id, name };
+  };
 
   beforeAll(async () => {
     app = await startApp();
@@ -63,6 +87,16 @@ describe.skipIf(!ready)('agents', () => {
 
   afterAll(async () => {
     await cleanup(app, { agentSlugs: createdAgents, serverNames: createdServers });
+    for (const id of createdEnvironments) {
+      // 先断开线上指针，复合外键才允许删除版本。
+      await app.pool.query('update runtime_environments set online_version_id = null where id = $1', [
+        id,
+      ]);
+      await app.pool.query('delete from runtime_environment_versions where environment_id = $1', [
+        id,
+      ]);
+      await app.pool.query('delete from runtime_environments where id = $1', [id]);
+    }
     await app.close();
   });
 
@@ -192,6 +226,94 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(rolledBack.statusCode, rolledBack.body).toBe(200);
     expect(rolledBack.json<Agent>()).toMatchObject({ name: agent.name, role: '数据分析师' });
+  });
+
+  it('restores the runtime environment recorded in a snapshot', async () => {
+    const environment = await createEnvironment();
+    const slug = unique('rollback-env');
+    createdAgents.push(slug);
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: auth(),
+      payload: {
+        slug,
+        name: 'Rollback environment',
+        systemPrompt: 'prompt',
+        runtimeEnvironmentId: environment.id,
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const agent = created.json<Agent>();
+    expect(agent.runtimeEnvironmentId).toBe(environment.id);
+
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { runtimeEnvironmentId: null },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(patched.json<Agent>().runtimeEnvironmentId).toBeNull();
+
+    const rolledBack = await inject(app, {
+      method: 'POST',
+      url: `/api/agents/${agent.id}/rollback`,
+      headers: auth(),
+      payload: { version: 1 },
+    });
+    expect(rolledBack.statusCode, rolledBack.body).toBe(200);
+    expect(rolledBack.json<Agent>().runtimeEnvironmentId).toBe(environment.id);
+  });
+
+  it('refuses to roll back to a snapshot whose runtime environment was deleted', async () => {
+    const environment = await createEnvironment();
+    const slug = unique('rollback-missing-env');
+    createdAgents.push(slug);
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: auth(),
+      payload: {
+        slug,
+        name: 'Rollback missing environment',
+        systemPrompt: 'prompt',
+        runtimeEnvironmentId: environment.id,
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const agent = created.json<Agent>();
+
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { runtimeEnvironmentId: null },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+    await app.pool.query('update runtime_environments set online_version_id = null where id = $1', [
+      environment.id,
+    ]);
+    await app.pool.query('delete from runtime_environment_versions where environment_id = $1', [
+      environment.id,
+    ]);
+    await app.pool.query('delete from runtime_environments where id = $1', [environment.id]);
+
+    const rolledBack = await inject(app, {
+      method: 'POST',
+      url: `/api/agents/${agent.id}/rollback`,
+      headers: auth(),
+      payload: { version: 1 },
+    });
+    expect(expectProblem(rolledBack, 'INVALID_INPUT').message).toContain('运行环境');
+
+    // 不能悄悄回落默认环境：拒绝后当前绑定保持不变。
+    const detail = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+    });
+    expect(detail.json<Agent>().runtimeEnvironmentId).toBeNull();
   });
 
   it('preserves a legacy freeform role on get, list and name-only PATCH', async () => {
@@ -507,7 +629,48 @@ describe.skipIf(!ready)('agents', () => {
     expect(body.claudeMd).toContain(`mcp__${server.name}__`);
     expect(body.agentMd).toContain(`name: "${agent.slug}"`);
     expect(body.agentMd).toContain(`"mcp__${server.name}__*"`);
-    expect(body.agentMd).toContain('disallowedTools: ["Bash"');
+    expect(body.agentMd).toContain('tools: ["Bash"');
+    expect(body.agentMd).not.toMatch(/disallowedTools: \[[^\]]*"Bash"/);
+  });
+
+  it('accepts Bash and Bash(...) in allowedTools and keeps an explicit deny', async () => {
+    const slug = unique('bash');
+    createdAgents.push(slug);
+    const created = await inject(app, {
+      method: 'POST',
+      url: '/api/agents',
+      headers: auth(),
+      payload: {
+        slug,
+        name: 'Bash agent',
+        allowedTools: ['Bash', 'Bash(git:*)'],
+        disallowedTools: ['Bash(rm:*)'],
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const agent = created.json<Agent>();
+    expect(agent.allowedTools).toEqual(['Bash', 'Bash(git:*)']);
+    expect(agent.disallowedTools).toEqual(['Bash(rm:*)']);
+
+    const patched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { allowedTools: ['Bash(npm:*)'], disallowedTools: ['Bash'] },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(patched.json<Agent>()).toMatchObject({
+      allowedTools: ['Bash(npm:*)'],
+      disallowedTools: ['Bash'],
+    });
+
+    const files = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${agent.id}/files`,
+      headers: auth(),
+    });
+    expect(files.statusCode, files.body).toBe(200);
+    expect(files.json<WorkspaceFiles>().agentMd).toMatch(/disallowedTools: \[[^\]]*"Bash"/);
   });
 
   it('renders the OpenUI tool catalog from the currently bound servers only', async () => {

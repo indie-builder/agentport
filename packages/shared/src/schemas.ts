@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { runTriggerSchema } from './ops.js';
 import { publicRunQuestionSchema } from './questions.js';
+import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
 
 /**
  * 前端真正解析的响应形状。路由声明 `response` 后，Fastify 会按 schema 序列化：
@@ -65,6 +66,8 @@ export const runDetailSchema = z.object({
     conversationId: z.string(),
     sessionId: z.string().nullable(),
     sandboxId: z.string().nullable(),
+    /** 容器实际使用的身份；尚未创建容器（queued）时为 null。 */
+    runtimeEnvironment: resolvedRuntimeEnvironmentSchema.nullable(),
     // optional：db 的 runColumns 尚未取该列，缺失时响应序列化不能失败。
     errorKind: runErrorKindSchema.nullable().optional(),
   }),

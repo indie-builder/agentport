@@ -3,7 +3,13 @@ import { AppError, fail } from '@agentport/core';
 import { type Database, newId, schema } from '@agentport/db';
 import type { ServerRow } from '@agentport/db/repo/servers.js';
 import * as serverRepo from '@agentport/db/repo/servers.js';
-import type { ApiTool, ApiToolInput, Server, ServerInput } from '@agentport/shared';
+import {
+  type ApiTool,
+  type ApiToolInput,
+  type ResolvedRuntimeEnvironment,
+  type Server,
+  type ServerInput,
+} from '@agentport/shared';
 import { inArray } from 'drizzle-orm';
 import { decryptSecrets, encryptSecrets, maskServer, SECRET_MASK } from './secrets.js';
 
@@ -18,19 +24,21 @@ export function strArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
-/** 记录一次测试连接结果（连接健康度），供列表持久展示。 */
+/** 记录一次测试连接结果（连接健康度 + 本次实际环境身份），供列表持久展示。 */
 export async function recordTestResult(
   db: Db,
   id: string,
   ok: boolean,
   toolCount: number | null,
+  runtimeEnvironment: ResolvedRuntimeEnvironment | null,
 ): Promise<void> {
-  await serverRepo.recordTestResult(db, id, ok, toolCount);
+  await serverRepo.recordTestResult(db, id, ok, toolCount, runtimeEnvironment);
 }
 
 /** DB 行 + 解密后的 env/headers → 共享 Server 形状（仍含明文 secret）。 */
 export function toApiServer(row: ServerRow, keyB64url: string): Server {
   const secrets = row.secretsEncrypted ? decryptSecrets(row.secretsEncrypted, keyB64url) : {};
+  const config = row.config;
   const base = {
     id: row.id,
     name: row.name,
@@ -40,8 +48,8 @@ export function toApiServer(row: ServerRow, keyB64url: string): Server {
     lastTestedAt: row.lastTestedAt ? row.lastTestedAt.toISOString() : null,
     lastTestOk: row.lastTestOk,
     lastToolCount: row.lastToolCount,
+    lastTestRuntimeEnvironment: row.lastTestRuntimeEnvironment,
   };
-  const config = row.config;
   if (row.kind === 'knowledge') {
     return {
       ...base,

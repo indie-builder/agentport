@@ -35,8 +35,11 @@ RUN pnpm --filter @agentport/api deploy --prod /out/api \
 FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS sandbox
 
 # git：原生插件安装由官方 CLI 克隆市场仓库；poppler-utils：官方长 PDF 分页读取依赖
-# （pdftoppm/pdfinfo）。不装其余工具。
-RUN apk add --no-cache git poppler-utils \
+# （pdftoppm/pdfinfo）；bash：官方 CLI 只认 PATH 上的 bash/zsh，缺失即报
+# "No suitable shell found"，Bash 工具无法开箱使用。不装其余工具。
+RUN apk add --no-cache git poppler-utils bash \
+ && command -v bash \
+ && bash --version | grep -q 'GNU bash' \
  && command -v pdftoppm \
  && command -v pdfinfo
 
@@ -57,8 +60,9 @@ USER node
 ENTRYPOINT ["node", "dist/runner.js"]
 
 FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
-# worker 通过宿主 docker.sock 启沙盒，需要 docker CLI（不含 daemon）。
-RUN apk add --no-cache docker-cli
+# worker 通过宿主 docker.sock 启沙盒，需要 docker CLI（不含 daemon）；
+# 运行环境构建另需 buildx 插件，只在 runtime target 安装。
+RUN apk add --no-cache docker-cli docker-cli-buildx
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /out/api ./api

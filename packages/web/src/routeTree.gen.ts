@@ -28,6 +28,8 @@ import { Route as ShellPluginsIndexRouteImport } from './routes/_shell/plugins.i
 import { Route as ShellPluginsPluginIdRouteImport } from './routes/_shell/plugins.$pluginId'
 import { Route as ShellRunsIndexRouteImport } from './routes/_shell/runs.index'
 import { Route as ShellRunsRunIdRouteImport } from './routes/_shell/runs.$runId'
+import { Route as ShellRuntimeEnvironmentsIndexRouteImport } from './routes/_shell/runtime-environments.index'
+import { Route as ShellRuntimeEnvironmentsEnvironmentIdRouteImport } from './routes/_shell/runtime-environments.$environmentId'
 
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
@@ -123,6 +125,18 @@ const ShellRunsRunIdRoute = ShellRunsRunIdRouteImport.update({
   path: '/runs/$runId',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellRuntimeEnvironmentsIndexRoute =
+  ShellRuntimeEnvironmentsIndexRouteImport.update({
+    id: '/runtime-environments/',
+    path: '/runtime-environments/',
+    getParentRoute: () => ShellRoute,
+  } as any)
+const ShellRuntimeEnvironmentsEnvironmentIdRoute =
+  ShellRuntimeEnvironmentsEnvironmentIdRouteImport.update({
+    id: '/runtime-environments/$environmentId',
+    path: '/runtime-environments/$environmentId',
+    getParentRoute: () => ShellRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
@@ -139,10 +153,12 @@ export interface FileRoutesByFullPath {
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
+  '/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/agents/': typeof ShellAgentsIndexRoute
   '/knowledge/': typeof ShellKnowledgeIndexRoute
   '/plugins/': typeof ShellPluginsIndexRoute
   '/runs/': typeof ShellRunsIndexRoute
+  '/runtime-environments/': typeof ShellRuntimeEnvironmentsIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -159,10 +175,12 @@ export interface FileRoutesByTo {
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
+  '/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/agents': typeof ShellAgentsIndexRoute
   '/knowledge': typeof ShellKnowledgeIndexRoute
   '/plugins': typeof ShellPluginsIndexRoute
   '/runs': typeof ShellRunsIndexRoute
+  '/runtime-environments': typeof ShellRuntimeEnvironmentsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -181,10 +199,12 @@ export interface FileRoutesById {
   '/_shell/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/_shell/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/_shell/runs/$runId': typeof ShellRunsRunIdRoute
+  '/_shell/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/_shell/agents/': typeof ShellAgentsIndexRoute
   '/_shell/knowledge/': typeof ShellKnowledgeIndexRoute
   '/_shell/plugins/': typeof ShellPluginsIndexRoute
   '/_shell/runs/': typeof ShellRunsIndexRoute
+  '/_shell/runtime-environments/': typeof ShellRuntimeEnvironmentsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -203,10 +223,12 @@ export interface FileRouteTypes {
     | '/knowledge/$baseId'
     | '/plugins/$pluginId'
     | '/runs/$runId'
+    | '/runtime-environments/$environmentId'
     | '/agents/'
     | '/knowledge/'
     | '/plugins/'
     | '/runs/'
+    | '/runtime-environments/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -223,10 +245,12 @@ export interface FileRouteTypes {
     | '/knowledge/$baseId'
     | '/plugins/$pluginId'
     | '/runs/$runId'
+    | '/runtime-environments/$environmentId'
     | '/agents'
     | '/knowledge'
     | '/plugins'
     | '/runs'
+    | '/runtime-environments'
   id:
     | '__root__'
     | '/_shell'
@@ -244,10 +268,12 @@ export interface FileRouteTypes {
     | '/_shell/knowledge/$baseId'
     | '/_shell/plugins/$pluginId'
     | '/_shell/runs/$runId'
+    | '/_shell/runtime-environments/$environmentId'
     | '/_shell/agents/'
     | '/_shell/knowledge/'
     | '/_shell/plugins/'
     | '/_shell/runs/'
+    | '/_shell/runtime-environments/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -390,6 +416,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellRunsRunIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/runtime-environments/': {
+      id: '/_shell/runtime-environments/'
+      path: '/runtime-environments'
+      fullPath: '/runtime-environments/'
+      preLoaderRoute: typeof ShellRuntimeEnvironmentsIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/runtime-environments/$environmentId': {
+      id: '/_shell/runtime-environments/$environmentId'
+      path: '/runtime-environments/$environmentId'
+      fullPath: '/runtime-environments/$environmentId'
+      preLoaderRoute: typeof ShellRuntimeEnvironmentsEnvironmentIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
   }
 }
 
@@ -407,10 +447,12 @@ interface ShellRouteChildren {
   ShellKnowledgeBaseIdRoute: typeof ShellKnowledgeBaseIdRoute
   ShellPluginsPluginIdRoute: typeof ShellPluginsPluginIdRoute
   ShellRunsRunIdRoute: typeof ShellRunsRunIdRoute
+  ShellRuntimeEnvironmentsEnvironmentIdRoute: typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   ShellAgentsIndexRoute: typeof ShellAgentsIndexRoute
   ShellKnowledgeIndexRoute: typeof ShellKnowledgeIndexRoute
   ShellPluginsIndexRoute: typeof ShellPluginsIndexRoute
   ShellRunsIndexRoute: typeof ShellRunsIndexRoute
+  ShellRuntimeEnvironmentsIndexRoute: typeof ShellRuntimeEnvironmentsIndexRoute
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
@@ -427,10 +469,13 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellKnowledgeBaseIdRoute: ShellKnowledgeBaseIdRoute,
   ShellPluginsPluginIdRoute: ShellPluginsPluginIdRoute,
   ShellRunsRunIdRoute: ShellRunsRunIdRoute,
+  ShellRuntimeEnvironmentsEnvironmentIdRoute:
+    ShellRuntimeEnvironmentsEnvironmentIdRoute,
   ShellAgentsIndexRoute: ShellAgentsIndexRoute,
   ShellKnowledgeIndexRoute: ShellKnowledgeIndexRoute,
   ShellPluginsIndexRoute: ShellPluginsIndexRoute,
   ShellRunsIndexRoute: ShellRunsIndexRoute,
+  ShellRuntimeEnvironmentsIndexRoute: ShellRuntimeEnvironmentsIndexRoute,
 }
 
 const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)

@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import type { PublicRunQuestion } from '@agentport/shared';
+import type { PublicRunQuestion, ResolvedRuntimeEnvironment } from '@agentport/shared';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -45,6 +45,8 @@ export interface RunDetailRow extends RunListItem {
   conversationId: string;
   sessionId: string | null;
   sandboxId: string | null;
+  /** 容器实际使用的身份；queued 尚未创建容器时为 null。 */
+  runtimeEnvironment: ResolvedRuntimeEnvironment | null;
 }
 
 export type RunStep =
@@ -465,6 +467,10 @@ export async function getRunDetail(db: Database, runId: string): Promise<RunDeta
       conversationId: agentRuns.conversationId,
       sessionId: agentRuns.sessionId,
       sandboxId: agentRuns.sandboxId,
+      runtimeEnvironmentId: agentRuns.runtimeEnvironmentId,
+      runtimeEnvironmentName: agentRuns.runtimeEnvironmentName,
+      runtimeEnvironmentVersionId: agentRuns.runtimeEnvironmentVersionId,
+      runtimeEnvironmentImageId: agentRuns.runtimeEnvironmentImageId,
       conversationAgentId: conversations.agentId,
       conversationTitle: conversations.title,
     })
@@ -476,7 +482,28 @@ export async function getRunDetail(db: Database, runId: string): Promise<RunDeta
 
   if (!row) return null;
 
-  const { conversationAgentId, conversationTitle, ...run } = row;
+  const {
+    conversationAgentId,
+    conversationTitle,
+    runtimeEnvironmentId,
+    runtimeEnvironmentName,
+    runtimeEnvironmentVersionId,
+    runtimeEnvironmentImageId,
+    ...run
+  } = row;
+  // worker 一次写入四列；任一缺失时容器尚未创建，不拼出半套身份。
+  const runtimeEnvironment: ResolvedRuntimeEnvironment | null =
+    runtimeEnvironmentId === null ||
+    runtimeEnvironmentName === null ||
+    runtimeEnvironmentVersionId === null ||
+    runtimeEnvironmentImageId === null
+      ? null
+      : {
+          environmentId: runtimeEnvironmentId,
+          environmentName: runtimeEnvironmentName,
+          versionId: runtimeEnvironmentVersionId,
+          imageId: runtimeEnvironmentImageId,
+        };
   const rows = await db
     .select({
       role: messages.role,
@@ -490,7 +517,7 @@ export async function getRunDetail(db: Database, runId: string): Promise<RunDeta
   const steps = mergeToolSteps(rows.map(toStep).filter((step): step is RunStep => step !== null));
 
   return {
-    run,
+    run: { ...run, runtimeEnvironment },
     steps,
     conversation: {
       id: run.conversationId,

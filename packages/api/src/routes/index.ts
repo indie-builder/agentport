@@ -17,6 +17,7 @@ import { registerOpsRoutes } from '../features/ops/routes.js';
 import { registerOverviewRoutes } from '../features/overview/routes.js';
 import { registerPluginRoutes } from '../features/plugins/routes.js';
 import { registerRunRoutes } from '../features/runs/routes.js';
+import { registerRuntimeEnvironmentRoutes } from '../features/runtime-environments/routes.js';
 import { createInvoker } from '../features/servers/agent-invoker.js';
 import { registerAgentToolsEndpoint } from '../features/servers/agent-tools-endpoint.js';
 import { registerMcpEndpoint } from '../features/servers/mcp-endpoint.js';
@@ -33,6 +34,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerMcpEndpoint(app);
   registerAgentToolsEndpoint(app, createInvoker(app));
   await registerAgentRoutes(app);
+  await registerRuntimeEnvironmentRoutes(app);
   await registerSkillRoutes(app);
   registerMarketRoutes(app);
   registerExportRoutes(app);

@@ -13,6 +13,7 @@ import { Worker } from 'bullmq';
 import pino, { type Logger } from 'pino';
 import type { Config } from './config.js';
 import { redactSecrets } from './redact.js';
+import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from './sandbox/provider.js';
 
@@ -28,7 +29,8 @@ const CONTAINER_CACHE_DIR = '/mnt/plugin-cache';
 
 export interface NativePluginsDeps {
   provider: SandboxProvider;
-  image: string;
+  /** 插件市场动作固定用平台默认环境（null）；只在真实创建容器时解析线上版本。 */
+  resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
   /** 容器侧路径；与 hostWorkspacesDir 指向同一目录。 */
   workspacesDir: string;
   /** 宿主视角目录：docker -v 的源路径由宿主 daemon 解析。 */
@@ -94,9 +96,18 @@ export async function runNativePluginAction(
     return { ok: false, error: `安装缓存不可用：${redactSecrets(errorText(err))}` };
   }
 
+  let runtimeEnvironmentImageId: string;
+  try {
+    // 插件市场动作固定使用默认环境线上版本；只有真实创建容器才解析。
+    runtimeEnvironmentImageId = (await deps.resolveRuntimeEnvironment(null)).imageId;
+  } catch (err) {
+    deps.logger.warn({ err, action: action.action }, 'native plugin environment failed');
+    return { ok: false, error: `无法解析运行环境：${redactSecrets(errorText(err))}` };
+  }
+
   const workspaceDir = join(deps.hostWorkspacesDir, ACTION_WORKSPACE);
   const createOptions: SandboxCreateOptions = {
-    image: deps.image,
+    image: runtimeEnvironmentImageId,
     workspaceDir,
     // 安装不调用模型：环境里只有 HOME/TMPDIR，任何平台密钥都不进容器。
     env: { HOME: '/tmp', TMPDIR: '/tmp' },
@@ -253,10 +264,13 @@ export async function runNativePluginAction(
 }
 
 /**
- * 独立队列消费者。契约：`registerNativePlugins(config)`，由 worker/index.ts 启动时
- * 调用、关停时 `close()`；安装缓存与官方目录写入串行，并发固定 1。
+ * 独立队列消费者。契约：`registerNativePlugins(config, resolveRuntimeEnvironment)`，
+ * 由 worker/index.ts 启动时调用、关停时 `close()`；安装缓存与官方目录写入串行，并发固定 1。
  */
-export async function registerNativePlugins(config: Config): Promise<{ close(): Promise<void> }> {
+export async function registerNativePlugins(
+  config: Config,
+  resolveRuntimeEnvironment: RuntimeEnvironmentResolver,
+): Promise<{ close(): Promise<void> }> {
   const closing = new AbortController();
   const provider = new DockerSandboxProvider({
     memory: config.SANDBOX_MEMORY,
@@ -267,7 +281,7 @@ export async function registerNativePlugins(config: Config): Promise<{ close(): 
   });
   const deps: NativePluginsDeps = {
     provider,
-    image: config.SANDBOX_IMAGE,
+    resolveRuntimeEnvironment,
     workspacesDir: config.WORKSPACES_DIR,
     hostWorkspacesDir: config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR,
     logger: pino({ level: config.LOG_LEVEL }),

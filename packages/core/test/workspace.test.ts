@@ -129,3 +129,115 @@ describe('delivered outputs section', () => {
     expect(files.subAgents[0]?.content).not.toContain('/mnt/outputs/');
   });
 });
+
+describe('Bash availability', () => {
+  it('describes Bash in the sandbox when no MCP servers are bound', () => {
+    const { claudeMd } = renderWorkspace({ agent, servers: [] });
+
+    expect(claudeMd).toContain('`Bash`');
+    expect(claudeMd).toContain('沙箱容器');
+    expect(claudeMd).not.toContain('内置 shell 与网络工具已禁用');
+  });
+
+  it('does not reduce non-MCP capabilities to skills and memory', () => {
+    const { claudeMd } = renderWorkspace({
+      agent,
+      servers: [],
+      skills: [{ slug: 'deploy', name: 'Deploy', description: 'd', body: 'b' }],
+    });
+
+    expect(claudeMd).toContain('`Bash`');
+    expect(claudeMd).toContain('沙箱容器');
+    expect(claudeMd).toContain('可用能力只有下方列出的技能');
+  });
+
+  it('does not promise Bash when it is explicitly denied', () => {
+    const { claudeMd } = renderWorkspace({ agent, servers: [], toolsDeny: ['Bash'] });
+
+    expect(claudeMd).toContain('`Bash` 已被显式禁用');
+    expect(claudeMd).not.toMatch(/仍可使用 `Bash`|沙箱容器内的 `Bash`/);
+  });
+
+  it('keeps the non-MCP capability list accurate when Bash is denied', () => {
+    const { claudeMd } = renderWorkspace({
+      agent,
+      servers: [],
+      toolsDeny: ['Bash'],
+      skills: [{ slug: 'deploy', name: 'Deploy', description: 'd', body: 'b' }],
+    });
+
+    expect(claudeMd).toContain('可用能力只有下方列出的技能、原生记忆。');
+  });
+
+  it('keeps Bash available under a command-level deny but says it is constrained', () => {
+    const { claudeMd } = renderWorkspace({ agent, servers: [], toolsDeny: ['Bash(rm:*)'] });
+
+    expect(claudeMd).toContain('`Bash`（默认启用，受命令级禁用规则约束）');
+    expect(claudeMd).not.toContain('`Bash` 已被显式禁用');
+  });
+});
+
+describe('native file access wording', () => {
+  it('separates other-path file tools from sub-agent file access', () => {
+    const { claudeMd } = renderWorkspace({ agent, servers: [] });
+
+    expect(claudeMd).toContain(
+      '其他路径的原生文件工具请求，以及子智能体的原生文件工具请求均被拒绝',
+    );
+  });
+});
+
+describe('parent agent md tool whitelist', () => {
+  it('lists Bash by default', () => {
+    const { agentMd } = renderWorkspace({ agent, servers: [] });
+
+    expect(agentMd).toContain('tools: ["Bash"]');
+  });
+
+  it('keeps Bash alongside a custom allowedTools list', () => {
+    const { agentMd } = renderWorkspace({
+      agent,
+      servers: [],
+      toolsAllow: ['mcp__custom__*'],
+    });
+
+    expect(agentMd).toContain('tools: ["Bash", "mcp__custom__*"]');
+  });
+
+  it('keeps an explicit Bash deny in the rendered frontmatter', () => {
+    const { agentMd } = renderWorkspace({ agent, servers: [], toolsDeny: ['Bash'] });
+
+    expect(agentMd).toMatch(/disallowedTools: \[[^\]]*"Bash"/);
+  });
+
+  it('lets sub-agents inherit Bash instead of denying it', () => {
+    const files = renderWorkspace({
+      agent,
+      servers: [],
+      subAgents: [{ slug: 'child', name: 'Child', model: 'm', systemPrompt: 'p', maxTurns: 3 }],
+    });
+
+    const content = files.subAgents[0]?.content ?? '';
+    expect(content).not.toContain('tools: [');
+    expect(content).not.toContain('"Bash"');
+  });
+
+  it('keeps a sub-agent explicit Bash deny in its own frontmatter', () => {
+    const files = renderWorkspace({
+      agent,
+      servers: [],
+      subAgents: [
+        {
+          slug: 'child',
+          name: 'Child',
+          model: 'm',
+          systemPrompt: 'p',
+          maxTurns: 3,
+          disallowedTools: ['Bash'],
+        },
+      ],
+    });
+
+    expect(files.subAgents[0]?.content).toMatch(/disallowedTools: \[[^\]]*"Bash"/);
+  });
+});

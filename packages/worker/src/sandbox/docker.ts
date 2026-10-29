@@ -29,6 +29,8 @@ const CONFIG_DIR = '/home/node/.claude';
 /** 给容器留 5s 自行退出；容器内 runner 已收到 SIGTERM。 */
 const STOP_GRACE_SECONDS = '5';
 const CLEANUP_TIMEOUT_MS = 10_000;
+/** 等待 --rm 自动删除完成时的 inspect 轮询间隔。 */
+const REMOVAL_POLL_MS = 100;
 
 function abortError(): Error {
   const error = new Error('sandbox create aborted');
@@ -39,6 +41,84 @@ function abortError(): Error {
 function errorDetail(stderr: string): string {
   const line = stderr.trim().split('\n').at(-1);
   return line === undefined || line === '' ? '' : `: ${line}`;
+}
+
+/**
+ * 镜像 ID（含可选的 sha256: 前缀）是不可变引用：本地缺失时不能隐式 pull，
+ * 否则同一 run 可能悄悄换成一个内容不同的镜像。
+ */
+function isImageId(image: string): boolean {
+  return /^(sha256:)?[a-f0-9]{64}$/i.test(image);
+}
+
+interface CommandResult {
+  ok: boolean;
+  missing: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+function runDockerCommand(args: string[], timeoutMs?: number): Promise<CommandResult> {
+  return new Promise<CommandResult>((resolveCommand, reject) => {
+    const proc = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout?.setEncoding('utf8');
+    proc.stdout?.on('data', (chunk: string) => {
+      stdout = (stdout + chunk).slice(-4_000);
+    });
+    proc.stderr?.setEncoding('utf8');
+    proc.stderr?.on('data', (chunk: string) => {
+      stderr = (stderr + chunk).slice(-4_000);
+    });
+    const timer =
+      timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            proc.kill('SIGKILL');
+            reject(new Error(`docker ${args[0] ?? 'command'} timed out after ${timeoutMs}ms`));
+          }, timeoutMs);
+    const clear = (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+    };
+    proc.once('error', (err) => {
+      clear();
+      reject(err);
+    });
+    proc.once('close', (code) => {
+      clear();
+      const ok = code === 0;
+      // Docker CLI 对不存在的容器/对象/镜像固定报 "No such ..."；其他非 0 不能当成已清理。
+      resolveCommand({
+        ok,
+        missing: !ok && /no such (container|object|image)/i.test(stderr),
+        stdout,
+        stderr,
+      });
+    });
+  });
+}
+
+/**
+ * `docker rm -f` 与容器自身 `--rm` 自动删除并发时，daemon 返回
+ * "removal ... is already in progress"；它不是成功也不是失败，要另行确认结果。
+ */
+function removalInProgress(stderr: string): boolean {
+  return /removal of container .* is already in progress/i.test(stderr);
+}
+
+/** 读取本地镜像的实际 ID；镜像不存在返回 null，daemon 错误照常抛出。 */
+export async function resolveLocalImageId(image: string): Promise<string | null> {
+  const inspected = await runDockerCommand(
+    ['image', 'inspect', '--format', '{{.Id}}', image],
+    CLEANUP_TIMEOUT_MS,
+  );
+  if (inspected.ok) {
+    const id = inspected.stdout.trim();
+    return id === '' ? null : id;
+  }
+  if (inspected.missing) return null;
+  throw new Error(`docker image inspect ${image} failed${errorDetail(inspected.stderr)}`);
 }
 
 /**
@@ -125,6 +205,11 @@ export class DockerSandboxProvider implements SandboxProvider {
       String(this.options.cpus),
       '--pids-limit',
       String(this.options.pids),
+      // 自定义运行环境镜像也必须以非 root 运行，并从固定工作目录启动。
+      '--user',
+      '1000:1000',
+      '--workdir',
+      '/app',
       ...readOnlyArgs(options.extraMounts),
       ...(options.init === true ? ['--init'] : []),
       '-v',
@@ -142,16 +227,17 @@ export class DockerSandboxProvider implements SandboxProvider {
     ];
     // create 已交给 daemon，不能再按客户端超时杀掉 CLI：那样 daemon 晚到的
     // 创建会无人跟踪。创建预算由上层 signal 决定，这里只等真实结果。
-    const created = await this.runDocker(args);
+    const created = await runDockerCommand(args);
     if (!created.ok) throw new Error(`docker create ${name} failed${errorDetail(created.stderr)}`);
     this.running.add(name);
 
     if (signal.aborted) {
       // 请求已交给 daemon：等它创建完成后直接删，绝不 start；不杀客户端冒充清理。
-      const removed = await this.runDocker(['rm', '-f', name], CLEANUP_TIMEOUT_MS);
-      if (!removed.ok && !removed.missing) {
+      try {
+        await this.removeContainer(name);
+      } catch (err) {
         // 清理失败时保留跟踪，交给 shutdown 重试；不能假装已经取消干净。
-        throw new Error(`docker rm -f ${name} failed after create abort`);
+        throw new Error(`docker rm -f ${name} failed after create abort`, { cause: err });
       }
       this.running.delete(name);
       throw abortError();
@@ -204,12 +290,21 @@ export class DockerSandboxProvider implements SandboxProvider {
     }
   }
 
-  private async ensureImage(image: string, signal: AbortSignal): Promise<void> {
-    const inspected = await this.runDocker(['image', 'inspect', image], CLEANUP_TIMEOUT_MS);
+  /**
+   * 确保镜像本地存在；缺失且不是不可变 ID 时拉取。
+   * 创建容器前与首次启动登记默认环境共用这一条路径，不另造拉取逻辑。
+   */
+  async ensureImage(image: string, signal: AbortSignal): Promise<void> {
+    const inspected = await runDockerCommand(['image', 'inspect', image], CLEANUP_TIMEOUT_MS);
     if (inspected.ok) return;
     // 明确不存在才拉；daemon 不可达等其他错误直接抛出，不伪装成拉取失败。
     if (!inspected.missing) {
       throw new Error(`docker image inspect ${image} failed${errorDetail(inspected.stderr)}`);
+    }
+    if (isImageId(image)) {
+      throw new Error(
+        `sandbox image ${image} is not present locally; refusing to pull an immutable image id`,
+      );
     }
     await this.pullImage(image, signal);
   }
@@ -242,54 +337,39 @@ export class DockerSandboxProvider implements SandboxProvider {
     });
   }
 
-  private async stopAndRemove(id: string): Promise<void> {
-    // stop 只做优雅尝试；它退出 0 也不代表 created 容器被 --rm 删除，清理以 rm 为准。
-    await this.runDocker(['stop', '--time', STOP_GRACE_SECONDS, id], CLEANUP_TIMEOUT_MS).catch(
-      () => {},
-    );
-    const removed = await this.runDocker(['rm', '-f', id], CLEANUP_TIMEOUT_MS);
+  /**
+   * 删除容器并确认真实结果：`--rm` 自动删除与 `rm -f` 并发时，daemon 会拒绝
+   * "removal ... already in progress"；此时用 inspect 有界轮询等它删完，
+   * 既不当成成功吞掉，也不提前当成 missing 或失败。
+   */
+  private async removeContainer(id: string): Promise<void> {
+    const removed = await runDockerCommand(['rm', '-f', id], CLEANUP_TIMEOUT_MS);
     if (removed.ok || removed.missing) return;
-    // 非 0 且 stderr 不能确认容器已不存在：不能把清理失败吞成成功。
-    throw new Error(`docker rm -f ${id} failed${errorDetail(removed.stderr)}`);
+    if (!removalInProgress(removed.stderr)) {
+      throw new Error(`docker rm -f ${id} failed${errorDetail(removed.stderr)}`);
+    }
+    const deadline = Date.now() + CLEANUP_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const inspected = await runDockerCommand(
+        ['container', 'inspect', '--format', '{{.Id}}', id],
+        CLEANUP_TIMEOUT_MS,
+      );
+      if (inspected.missing) return;
+      if (!inspected.ok) {
+        throw new Error(`docker inspect ${id} failed${errorDetail(inspected.stderr)}`);
+      }
+      await new Promise((resolveWait) => setTimeout(resolveWait, REMOVAL_POLL_MS));
+    }
+    throw new Error(
+      `docker rm -f ${id} still in progress after ${CLEANUP_TIMEOUT_MS}ms${errorDetail(removed.stderr)}`,
+    );
   }
 
-  private runDocker(
-    args: string[],
-    timeoutMs?: number,
-  ): Promise<{ ok: boolean; missing: boolean; stderr: string }> {
-    return new Promise<{ ok: boolean; missing: boolean; stderr: string }>(
-      (resolveCommand, reject) => {
-        const proc = spawn('docker', args, { stdio: ['ignore', 'ignore', 'pipe'] });
-        let stderr = '';
-        proc.stderr?.setEncoding('utf8');
-        proc.stderr?.on('data', (chunk: string) => {
-          stderr = (stderr + chunk).slice(-4_000);
-        });
-        const timer =
-          timeoutMs === undefined
-            ? undefined
-            : setTimeout(() => {
-                proc.kill('SIGKILL');
-                reject(new Error(`docker ${args[0] ?? 'command'} timed out after ${timeoutMs}ms`));
-              }, timeoutMs);
-        const clear = (): void => {
-          if (timer !== undefined) clearTimeout(timer);
-        };
-        proc.once('error', (err) => {
-          clear();
-          reject(err);
-        });
-        proc.once('close', (code) => {
-          clear();
-          const ok = code === 0;
-          // Docker CLI 对不存在的容器/对象/镜像固定报 "No such ..."；其他非 0 不能当成已清理。
-          resolveCommand({
-            ok,
-            missing: !ok && /no such (container|object|image)/i.test(stderr),
-            stderr,
-          });
-        });
-      },
+  private async stopAndRemove(id: string): Promise<void> {
+    // stop 只做优雅尝试；它退出 0 也不代表 created 容器被 --rm 删除，清理以 rm 为准。
+    await runDockerCommand(['stop', '--time', STOP_GRACE_SECONDS, id], CLEANUP_TIMEOUT_MS).catch(
+      () => {},
     );
+    await this.removeContainer(id);
   }
 }

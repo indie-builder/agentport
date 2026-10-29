@@ -436,6 +436,13 @@ export function RunDetailPage() {
             value={detail.agentVersion != null ? `v${detail.agentVersion}` : '—'}
             mono
           />
+          <ContextRow label="运行环境" value={detail.runtimeEnvironment?.environmentName ?? '—'} />
+          <ContextRow
+            label="环境版本"
+            value={detail.runtimeEnvironment?.versionId ?? '—'}
+            mono
+            copy={detail.runtimeEnvironment !== null}
+          />
           <ContextRow label="开始" value={formatDateTime(detail.startedAt)} mono />
           <ContextRow label="结束" value={formatDateTime(detail.endedAt)} mono />
           <ContextRow label="Sandbox" value={detail.sandboxId ?? '—'} mono copy />

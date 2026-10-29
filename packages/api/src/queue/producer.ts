@@ -1,4 +1,9 @@
-import type { AgentRunJob, ChatEvent, EvalRunJob } from '@agentport/shared';
+import type {
+  AgentRunJob,
+  ChatEvent,
+  EvalRunJob,
+  RuntimeEnvironmentBuildJob,
+} from '@agentport/shared';
 import {
   chatEventSchema,
   EVAL_RUNS_QUEUE,
@@ -8,6 +13,7 @@ import {
   RUN_CANCEL_PAYLOAD,
   RUN_STREAM_MAXLEN,
   RUNS_QUEUE,
+  RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
   runCancelKey,
   runEventsConnectionName,
   runStreamKey,
@@ -117,6 +123,7 @@ function logRedisError(err: Error): void {
 let queue: Queue<AgentRunJob> | undefined;
 let evalQueue: Queue<EvalRunJob> | undefined;
 let knowledgeQueue: Queue<{ jobId: string }> | undefined;
+let runtimeEnvironmentBuildQueue: Queue<RuntimeEnvironmentBuildJob> | undefined;
 let client: Redis | undefined;
 
 export function getQueue(): Queue<AgentRunJob> {
@@ -144,6 +151,18 @@ export function getKnowledgeQueue(): Queue<{ jobId: string }> {
     knowledgeQueue.on('error', logRedisError);
   }
   return knowledgeQueue;
+}
+
+/** 构建任务独立队列：与聊天 run 分开消费，不占运行并发；jobId = versionId。 */
+export function getRuntimeEnvironmentBuildQueue(): Queue<RuntimeEnvironmentBuildJob> {
+  if (!runtimeEnvironmentBuildQueue) {
+    runtimeEnvironmentBuildQueue = new Queue<RuntimeEnvironmentBuildJob>(
+      RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
+      { connection: { url: REDIS_URL } },
+    );
+    runtimeEnvironmentBuildQueue.on('error', logRedisError);
+  }
+  return runtimeEnvironmentBuildQueue;
 }
 
 function getClient(): Redis {
@@ -340,16 +359,18 @@ export async function subscribeRun(
 }
 
 export async function closeProducer(): Promise<void> {
-  const closing = [queue, evalQueue, knowledgeQueue, client] as const;
+  const closing = [queue, evalQueue, knowledgeQueue, runtimeEnvironmentBuildQueue, client] as const;
   queue = undefined;
   evalQueue = undefined;
   knowledgeQueue = undefined;
+  runtimeEnvironmentBuildQueue = undefined;
   client = undefined;
   await Promise.allSettled([
     closing[0]?.close(),
     closing[1]?.close(),
     closing[2]?.close(),
-    closing[3]?.quit(),
+    closing[3]?.close(),
+    closing[4]?.quit(),
     ...[...subscriptions.values()].map((close) => close()),
   ]);
   subscriptions.clear();
