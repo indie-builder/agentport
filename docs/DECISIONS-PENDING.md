@@ -86,7 +86,7 @@
 
 智能体执行继续统一使用 Claude Agent SDK；知识接入定义通过官方 `.mcp.json`、技能及支持资源表达，知识语料与索引作为平台内容独立管理，不自创智能体定义格式。复用现有专家/聊天/认证/队列，组件选型、外部系统凭证和部署验证随具体阶段完成。
 
-**实施状态**：原知识库主体已有实现和本地验证，后续[能力审查](tasks/knowledge-parity-review.md)确认部分正确性与深度缺口，不能视作整体完成。用户授权的[多模态适配](tasks/knowledge-multimodal-delivery.md)已完成代码与本地流程验证，最后定点评审结论见交付记录；真实视觉/Cohere/Docling服务质量未验收。GitHub 来源尚未实现。**本轮正在提交 PR 并合并，未部署主栈**。Feeds按RSS/Atom/JSON订阅摄取，与FAQ分开。知识库作为与专家/技能/连接器/插件并列的资源页签；腾讯Memory暂缓、原生记忆保留。
+**实施状态**：原知识库主体已有实现和本地验证，后续[能力审查](tasks/knowledge-parity-review.md)确认部分正确性与深度缺口，不能视作整体完成。用户授权的[多模态适配](tasks/knowledge-multimodal-delivery.md)已完成代码与本地流程验证，最后定点评审结论见交付记录；真实视觉/Cohere/Docling服务质量未验收。GitHub 来源代码与本地 fixture 已实现，真实 GitHub 授权、限流与私有仓库尚未验收。**本轮正在提交 PR 并合并，未部署主栈**。Feeds按RSS/Atom/JSON订阅摄取，与FAQ分开。知识库作为与专家/技能/连接器/插件并列的资源页签；腾讯Memory暂缓、原生记忆保留。
 
 关键实现决策（依 [实现契约](tasks/knowledge-implementation-contract.md)）：
 - 知识库连接器使用独立 `servers.kind='knowledge'`，只接受 run 短期 token；不出现在普通连接器列表，不能经 `/api/servers` 修改或删除。

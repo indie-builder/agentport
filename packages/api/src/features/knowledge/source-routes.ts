@@ -1,7 +1,7 @@
 import { decryptSecrets, encryptSecrets } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import { knowledgeSourceInputSchema, knowledgeSourceRangeInputSchema } from '@agentport/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { isPgCode, reject } from '../../plugins/errors.js';
@@ -84,6 +84,28 @@ function toRun(row: SyncRunRow) {
   };
 }
 
+const GITHUB_OWNER = /^[A-Za-z0-9-]+$/;
+const GITHUB_REPO = /^[A-Za-z0-9._-]+$/;
+
+/** 仓库范围必须是 owner/repo；. 与 .. 不是合法仓库名。 */
+function githubRepoIssue(externalId: string): string | null {
+  const [owner, repo, ...rest] = externalId.split('/');
+  if (
+    rest.length > 0 ||
+    !owner ||
+    !repo ||
+    !GITHUB_OWNER.test(owner) ||
+    !GITHUB_REPO.test(repo) ||
+    repo === '.' ||
+    repo === '..'
+  ) {
+    return `范围 ${externalId} 需为 owner/repo（owner 仅字母、数字、连字符，repo 不能是 . 或 ..）`;
+  }
+  return null;
+}
+
+type ConfigIssueRange = Pick<RangeRow, 'kind' | 'externalId' | 'enabled'>;
+
 /**
  * 只校验配置形状与凭证存在性，不发外网请求；真实连通性由 sync run 结果体现。
  * 创建/PATCH/test 共用同一规则，避免三处漂移。
@@ -92,7 +114,7 @@ function configIssues(
   type: SourceRow['type'],
   config: Record<string, unknown>,
   secrets: Record<string, string> | null,
-  ranges: RangeRow[],
+  ranges: ConfigIssueRange[],
 ): string[] {
   const issues: string[] = [];
   const text = (key: string): string =>
@@ -119,6 +141,21 @@ function configIssues(
     if (!text('projectId')) issues.push('缺少 config.projectId');
     if (!text('ref')) issues.push('缺少 config.ref');
     if (!secrets?.token) issues.push('缺少凭证 token');
+  }
+  if (type === 'github') {
+    if (text('baseUrl') && !validUrl('baseUrl')) issues.push('config.baseUrl 不是合法 URL');
+    if (!text('projectId')) issues.push('缺少 config.projectId');
+    // ref 可空：worker 回落到仓库 default_branch。
+    if (!secrets?.token) issues.push('缺少凭证 token');
+    for (const range of ranges) {
+      if (!range.enabled) continue;
+      if (range.kind !== 'github_repo') {
+        issues.push(`范围 ${range.externalId} 的类型必须是仓库（github_repo）`);
+        continue;
+      }
+      const issue = githubRepoIssue(range.externalId);
+      if (issue) issues.push(issue);
+    }
   }
   return issues;
 }
@@ -178,6 +215,8 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
       if (!base) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
       const input = request.body;
       // ranges 已由 shared schema 的 min(1) 保证非空。
+      const issues = configIssues(input.type, input.config, input.secrets, input.ranges);
+      if (issues.length > 0) return reject(reply, 'INVALID_INPUT', issues.join('；'));
       const source = await repo.knowledge.createSource(app.db, {
         baseId: base.id,
         type: input.type,
@@ -207,7 +246,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
       const { source, ranges } = found;
       const body = request.body;
 
-      if (body.config !== undefined || body.secrets !== undefined) {
+      if (body.config !== undefined || body.secrets !== undefined || body.ranges !== undefined) {
         const stored = source.secretsEncrypted
           ? (() => {
               try {
@@ -221,7 +260,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
           source.type,
           body.config ?? source.config,
           body.secrets ?? stored,
-          ranges,
+          body.ranges ?? ranges,
         );
         if (issues.length > 0) return reject(reply, 'INVALID_INPUT', issues.join('；'));
       }
@@ -327,6 +366,21 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const source = await repo.knowledge.getSource(app.db, request.params.sourceId);
       if (!source) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
+      if (source.status !== 'active') {
+        return reject(reply, 'CONFLICT', '来源未启用，无法同步');
+      }
+      // shortcut: 非事务检查，与定时触发并发时仍可能各建一条；要严格串行再复用 scheduler 的 advisory lock。
+      const [activeJob] = await app.db
+        .select({ id: schema.knowledgeJobs.id })
+        .from(schema.knowledgeJobs)
+        .where(
+          and(
+            eq(schema.knowledgeJobs.sourceId, source.id),
+            inArray(schema.knowledgeJobs.status, ['queued', 'running']),
+          ),
+        )
+        .limit(1);
+      if (activeJob) return reject(reply, 'CONFLICT', '该来源已有同步任务在进行中');
       // 先落 run 再落 job：worker 认领时 run 必须已存在，检查点才有行可写。
       const [run] = await app.db
         .insert(schema.knowledgeSyncRuns)

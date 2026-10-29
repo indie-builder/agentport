@@ -18,7 +18,7 @@ test('multimodal hit renders the authenticated blob image and its quote', {
   skip: skipUnlessMultimodalRuntime,
 }, async ({ app, screen, browser }) => {
   await app.open('/knowledge');
-  await screen.getByRole('button', SEEDED_BASE_NAME, { exact: true }).tap();
+  await screen.getByRole('link', `查看知识库 ${SEEDED_BASE_NAME}`, { exact: true }).tap();
   await expect(screen.getByRole('heading', { level: 1, name: SEEDED_BASE_NAME })).toBeVisible();
   await expect(screen.getByRole('heading', { level: 1 })).toHaveCount(1);
 

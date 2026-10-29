@@ -406,7 +406,7 @@ export interface KnowledgeSearchResponse {
 
 export interface KnowledgeSourceRange {
   id: string;
-  kind: 'wiki_space' | 'wiki_node' | 'drive_folder' | 'gitlab_project' | 'feed';
+  kind: 'wiki_space' | 'wiki_node' | 'drive_folder' | 'gitlab_project' | 'github_repo' | 'feed';
   externalId: string;
   ref: string | null;
   paths: string[];
@@ -416,7 +416,7 @@ export interface KnowledgeSourceRange {
 export interface KnowledgeSource {
   id: string;
   baseId: string;
-  type: 'feishu_wiki' | 'feishu_drive' | 'gitlab' | 'feed';
+  type: 'feishu_wiki' | 'feishu_drive' | 'gitlab' | 'github' | 'feed';
   name: string;
   config: Record<string, unknown>;
   hasSecret: boolean;

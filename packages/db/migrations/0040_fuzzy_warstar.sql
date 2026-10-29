@@ -1,0 +1,6 @@
+ALTER TABLE "knowledge_documents" DROP CONSTRAINT "knowledge_documents_source_type_check";--> statement-breakpoint
+ALTER TABLE "knowledge_source_ranges" DROP CONSTRAINT "knowledge_source_ranges_kind_check";--> statement-breakpoint
+ALTER TABLE "knowledge_sources" DROP CONSTRAINT "knowledge_sources_type_check";--> statement-breakpoint
+ALTER TABLE "knowledge_documents" ADD CONSTRAINT "knowledge_documents_source_type_check" CHECK ("knowledge_documents"."source_type" in ('upload', 'url', 'feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed', 'manual'));--> statement-breakpoint
+ALTER TABLE "knowledge_source_ranges" ADD CONSTRAINT "knowledge_source_ranges_kind_check" CHECK ("knowledge_source_ranges"."kind" in ('wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'github_repo', 'feed'));--> statement-breakpoint
+ALTER TABLE "knowledge_sources" ADD CONSTRAINT "knowledge_sources_type_check" CHECK ("knowledge_sources"."type" in ('feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed'));

@@ -112,26 +112,24 @@ function KnowledgeCard({
 }) {
   return (
     <li className="min-w-0">
-      <Card className="h-full">
+      <Card className="relative h-full transition-shadow hover:ring-foreground/25">
+        {/* 覆盖整卡的可点击入口；操作菜单用 z-10 保持在它之上。 */}
+        <Link
+          to="/knowledge/$baseId"
+          params={{ baseId: base.id }}
+          aria-label={`查看知识库 ${base.name}`}
+          className="absolute inset-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        />
         <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
           <span className="row-span-2 flex size-10 shrink-0 items-center justify-center self-center rounded-item bg-muted text-muted-foreground">
             <LibraryBig aria-hidden="true" />
           </span>
           <CardTitle className="col-start-2 min-w-0">
-            <h2 className="min-w-0">
-              <Button
-                variant="ghost"
-                className="h-auto w-full min-w-0 justify-start p-0 text-base leading-snug font-medium"
-                nativeButton={false}
-                render={<Link to="/knowledge/$baseId" params={{ baseId: base.id }} />}
-              >
-                <span className="truncate" title={base.name}>
-                  {base.name}
-                </span>
-              </Button>
+            <h2 className="truncate text-base leading-snug font-medium" title={base.name}>
+              {base.name}
             </h2>
           </CardTitle>
-          <CardAction className="col-start-3 row-span-2 row-start-1">
+          <CardAction className="relative z-10 col-start-3 row-span-2 row-start-1">
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={

@@ -278,6 +278,15 @@ function button(text: string, scope: ParentNode = document): HTMLButtonElement {
   return element;
 }
 
+/** 来源类型行按钮同时包含名称与能力说明，按包含匹配。 */
+function sourceChoice(label: string, scope: ParentNode = document): HTMLButtonElement {
+  const element = [...scope.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
+    item.textContent?.includes(label),
+  );
+  if (!element) throw new Error(`Missing source choice: ${label}`);
+  return element;
+}
+
 async function openMenu(label: string) {
   const trigger = button(label);
   // Base UI 用 mousedown 打开菜单，jsdom 的 click() 不会触发。
@@ -441,8 +450,13 @@ describe('knowledge library list', () => {
       ),
     );
     await mount('/knowledge');
-    const link = document.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]');
-    expect(link?.textContent).toContain('产品手册');
+    const card = document.querySelector<HTMLElement>('[data-slot="card"]');
+    const links = card?.querySelectorAll<HTMLAnchorElement>('a[href="/knowledge/kb_1"]') ?? [];
+    expect(links).toHaveLength(1);
+    const link = links[0];
+    expect(link.getAttribute('aria-label')).toContain('产品手册');
+    expect(card?.textContent).toContain('产品手册');
+    expect(card?.textContent).toContain('内部知识');
     expect(document.body.textContent).toContain('启用');
     expect(document.body.textContent).toContain('共 1 个知识库');
     expect(document.querySelectorAll('h1')).toHaveLength(1);
@@ -454,6 +468,23 @@ describe('knowledge library list', () => {
           item.path.includes('limit=200'),
       ),
     ).toBe(false);
+  });
+
+  it('covers the whole card with the detail link while keeping the action menu separate', async () => {
+    baseHandlers();
+    const router = await mount('/knowledge');
+    const card = document.querySelector<HTMLElement>('[data-slot="card"]');
+    const link = card?.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]');
+    // 覆盖整卡：入口是 Card 的直接子节点并铺满整卡，描述与页脚也在点击范围内，
+    // 而不是只有标题可点。
+    expect(link?.parentElement).toBe(card);
+    expect(link?.className).toContain('absolute');
+    expect(link?.className).toContain('inset-0');
+    expect(card?.querySelectorAll('a')).toHaveLength(1);
+
+    await openMenu('操作 产品手册');
+    expect(document.querySelector('[role="menuitem"]')).not.toBeNull();
+    expect(router.state.location.pathname).toBe('/knowledge');
   });
 
   it('pulls the remaining base pages so the count covers the whole library', async () => {
@@ -995,6 +1026,76 @@ describe('knowledge source editing', () => {
     });
   });
 
+  it('keeps an auth_error status when no new credential is entered', async () => {
+    baseHandlers();
+    const broken = { ...source, status: 'auth_error' };
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/sources', () =>
+        HttpResponse.json({ items: [broken], nextCursor: null }),
+      ),
+      http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(broken)),
+    );
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('编辑来源 产品仓库'));
+    await click(button('保存', dialog('编辑来源')));
+    expect(patchBody('/api/knowledge/sources/ksrc_1')).not.toHaveProperty('status');
+  });
+
+  it('reactivates an auth_error source when a new credential is entered', async () => {
+    baseHandlers();
+    const broken = { ...source, status: 'auth_error' };
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/sources', () =>
+        HttpResponse.json({ items: [broken], nextCursor: null }),
+      ),
+      http.patch('/api/knowledge/sources/ksrc_1', () =>
+        HttpResponse.json({ ...broken, status: 'active' }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('编辑来源 产品仓库'));
+    await fill('knowledge-source-secret', 'glpat-new');
+    await click(button('保存', dialog('编辑来源')));
+    expect(patchBody('/api/knowledge/sources/ksrc_1')).toMatchObject({
+      status: 'active',
+      secrets: { token: 'glpat-new' },
+    });
+  });
+
+  it('disables manual sync for a non-active source and explains why', async () => {
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/sources', () =>
+        HttpResponse.json({ items: [{ ...source, status: 'paused' }], nextCursor: null }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    const syncButton = button('立即同步');
+    expect(syncButton.disabled).toBe(true);
+    expect(syncButton.title).toBe('来源未启用，无法同步');
+  });
+
+  it('disables manual sync while the submission is in flight', async () => {
+    baseHandlers();
+    const response = deferred<void>();
+    server.use(
+      http.post('/api/knowledge/sources/ksrc_1/sync', async () => {
+        await response.promise;
+        return HttpResponse.json({ jobId: 'kjob_1', syncRunId: 'ksyn_1' }, { status: 202 });
+      }),
+      http.get('/api/knowledge/sources/ksrc_1/runs', () =>
+        HttpResponse.json({ items: [], nextCursor: null }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('立即同步'));
+    const syncButton = button('立即同步');
+    expect(syncButton.disabled).toBe(true);
+    expect(syncButton.title).toBe('正在提交同步任务');
+    await act(async () => response.resolve());
+    await flush();
+  });
+
   it('sends the edited range instead of echoing the stored one back', async () => {
     baseHandlers();
     server.use(http.patch('/api/knowledge/sources/ksrc_1', () => HttpResponse.json(source)));
@@ -1130,11 +1231,12 @@ describe('knowledge source editing', () => {
     );
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('新建来源'));
+    await click(sourceChoice('飞书知识库', dialog('新建来源')));
     const creator = dialog('新建来源');
     await fill('source-name', '研发空间');
     await fill('source-range-0-external', 'spc_9');
     await fill('source-app-id', 'cli_x');
-    await fill('source-app-secret', 'secret');
+    await fill('knowledge-source-secret', 'secret');
     await click(button('创建', creator));
     expect(
       calls.find(
@@ -1144,6 +1246,250 @@ describe('knowledge source editing', () => {
       type: 'feishu_wiki',
       ranges: [{ kind: 'wiki_space', externalId: 'spc_9', enabled: true }],
     });
+  });
+
+  it('starts a new source with five provider choices and shows only that provider fields', async () => {
+    baseHandlers();
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('新建来源'));
+    const creator = dialog('新建来源');
+    // 连接 + 范围 + 计划三块并排时 560px 太挤，与定时任务弹窗同宽。
+    expect(creator.classList.contains('max-w-[760px]')).toBe(true);
+    for (const label of ['GitHub', 'GitLab', '飞书知识库', '飞书云盘', 'RSS']) {
+      expect(creator.textContent).toContain(label);
+    }
+    // 选择前不显示任何配置字段。
+    expect(creator.querySelector('#source-name')).toBeNull();
+
+    await click(sourceChoice('GitHub', creator));
+    expect(creator.textContent).toContain('API 地址');
+    expect((creator.querySelector('#source-github-api') as HTMLInputElement).placeholder).toBe(
+      'https://api.github.com',
+    );
+    expect(creator.textContent).toContain('Access Token');
+    expect(creator.textContent).toContain('仓库');
+    expect(creator.textContent).toContain('仅同步文本文件');
+    expect(creator.textContent).toContain('留空读取整个仓库');
+    expect(creator.textContent).not.toContain('整个项目');
+    expect(creator.textContent).toContain('Contents 只读权限');
+    expect(creator.querySelector('#source-app-id')).toBeNull();
+
+    await click(button('更换来源', creator));
+    await click(sourceChoice('GitLab', creator));
+    expect(creator.textContent).toContain('实例 URL');
+    expect(creator.textContent).not.toContain('API 地址');
+    expect(creator.textContent).toContain('仅同步文本文件');
+    expect(creator.textContent).toContain('留空读取整个项目');
+    expect(creator.textContent).not.toContain('整个仓库');
+    expect(creator.textContent).not.toContain('Contents 只读权限');
+    expect(creator.querySelector('#source-app-id')).toBeNull();
+
+    await click(button('更换来源', creator));
+    await click(sourceChoice('飞书知识库', creator));
+    expect(creator.querySelector('#source-app-id')).toBeTruthy();
+    expect(creator.querySelector('#knowledge-source-secret')).toBeTruthy();
+    expect(creator.textContent).toContain('知识空间');
+    expect(creator.textContent).not.toContain('Access Token');
+  });
+
+  it('clears the previous provider credentials and connection fields when switching', async () => {
+    baseHandlers();
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('新建来源'));
+    const creator = dialog('新建来源');
+    await click(sourceChoice('GitHub', creator));
+    await fill('source-name', '仓库');
+    await fill('source-github-api', 'https://ghe.example.com/api/v3');
+    await fill('source-range-0-external', 'acme/docs');
+    await fill('knowledge-source-secret', 'ghp_secret');
+
+    await click(button('更换来源', creator));
+    await click(sourceChoice('GitLab', creator));
+    // GitHub PAT / Enterprise 地址不能带进 GitLab。
+    expect((document.getElementById('knowledge-source-secret') as HTMLInputElement).value).toBe('');
+    expect((document.getElementById('source-gitlab-url') as HTMLInputElement).value).toBe('');
+    // 名称与已选类型保留，步进仍在配置页。
+    expect((document.getElementById('source-name') as HTMLInputElement).value).toBe('仓库');
+    expect(document.getElementById('source-range-0-external')).toBeTruthy();
+
+    await click(button('更换来源', creator));
+    await click(sourceChoice('飞书知识库', creator));
+    expect((document.getElementById('source-app-id') as HTMLInputElement).value).toBe('');
+    expect((document.getElementById('knowledge-source-secret') as HTMLInputElement).value).toBe('');
+  });
+
+  it('opens the stored configuration directly when editing an existing source', async () => {
+    baseHandlers();
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('编辑来源 产品仓库'));
+    const editor = dialog('编辑来源');
+    expect((editor.querySelector('#source-name') as HTMLInputElement).value).toBe('产品仓库');
+    expect((editor.querySelector('#source-gitlab-url') as HTMLInputElement).value).toBe(
+      'https://gitlab.example.com',
+    );
+    // 编辑不经过类型选择，避免把已有来源改成另一种类型。
+    expect(
+      [...editor.querySelectorAll('button')].some((item) => item.textContent?.includes('飞书云盘')),
+    ).toBe(false);
+  });
+
+  it('creates a GitHub source with repo, per-range ref and Enterprise API root', async () => {
+    baseHandlers();
+    server.use(
+      http.post('/api/knowledge/bases/kb_1/sources', () =>
+        HttpResponse.json({ ...source, id: 'ksrc_gh', type: 'github' }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('新建来源'));
+    await click(sourceChoice('GitHub', dialog('新建来源')));
+    const creator = dialog('新建来源');
+    await fill('source-name', '仓库文档');
+    await fill('source-github-api', 'https://ghe.example.com/api/v3');
+    await fill('source-range-0-external', 'acme/docs');
+    await fill('source-range-0-ref', 'release');
+    await fill('source-range-0-paths', 'docs, README.md');
+    await fill('knowledge-source-secret', 'ghp_x');
+    await click(button('创建', creator));
+    const body = calls.find(
+      (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/sources',
+    )?.body as Record<string, unknown> | undefined;
+    expect(body).toMatchObject({
+      type: 'github',
+      name: '仓库文档',
+      syncCron: null,
+      ranges: [
+        {
+          kind: 'github_repo',
+          externalId: 'acme/docs',
+          ref: 'release',
+          paths: ['docs', 'README.md'],
+          enabled: true,
+        },
+      ],
+      config: {
+        baseUrl: 'https://ghe.example.com/api/v3',
+        projectId: 'acme/docs',
+        syncDeletions: false,
+      },
+      secrets: { token: 'ghp_x' },
+    });
+    // GitHub 的 ref 属于每个 range，多仓库时不能把第一条写进公共 config。
+    expect(body?.config).not.toHaveProperty('ref');
+  });
+
+  it('keeps a GitHub range ref out of config when editing', async () => {
+    baseHandlers();
+    const githubSource = {
+      ...source,
+      id: 'ksrc_gh',
+      type: 'github',
+      config: {
+        baseUrl: 'https://api.github.com',
+        projectId: 'acme/docs',
+        ref: 'main',
+        syncDeletions: true,
+      },
+      ranges: [
+        {
+          id: 'krng_gh',
+          kind: 'github_repo',
+          externalId: 'acme/docs',
+          ref: 'main',
+          paths: ['docs'],
+          enabled: true,
+        },
+      ],
+    };
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/sources', () =>
+        HttpResponse.json({ items: [githubSource], nextCursor: null }),
+      ),
+      http.patch('/api/knowledge/sources/ksrc_gh', () => HttpResponse.json(githubSource)),
+    );
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('编辑来源 产品仓库'));
+    const editor = dialog('编辑来源');
+    await fill('source-range-0-ref', 'release');
+    await click(button('保存', editor));
+    const patch = patchBody('/api/knowledge/sources/ksrc_gh') as {
+      config: Record<string, unknown>;
+      ranges: Array<Record<string, unknown>>;
+    };
+    expect(patch.ranges[0]).toMatchObject({ ref: 'release' });
+    expect(patch.config).not.toHaveProperty('ref');
+  });
+
+  it('creates a GitLab source with instance URL, project and ref', async () => {
+    baseHandlers();
+    server.use(http.post('/api/knowledge/bases/kb_1/sources', () => HttpResponse.json(source)));
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('新建来源'));
+    await click(sourceChoice('GitLab', dialog('新建来源')));
+    const creator = dialog('新建来源');
+    await fill('source-name', '研发仓库');
+    await fill('source-gitlab-url', 'https://gitlab.example.com');
+    await fill('source-range-0-external', 'group/docs');
+    await fill('source-range-0-ref', 'main');
+    await fill('knowledge-source-secret', 'glpat_x');
+    await click(button('创建', creator));
+    expect(
+      calls.find(
+        (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/sources',
+      )?.body,
+    ).toMatchObject({
+      type: 'gitlab',
+      ranges: [{ kind: 'gitlab_project', externalId: 'group/docs', ref: 'main', enabled: true }],
+      config: {
+        baseUrl: 'https://gitlab.example.com',
+        projectId: 'group/docs',
+        ref: 'main',
+        syncDeletions: false,
+      },
+      secrets: { token: 'glpat_x' },
+    });
+  });
+
+  it('shows provider, target summary, cron and last sync status on each source row', async () => {
+    baseHandlers();
+    const synced = {
+      ...source,
+      syncCron: '0 3 * * *',
+      lastSyncAt: '2026-01-02T00:00:00Z',
+      lastSyncStatus: 'succeeded',
+    };
+    const githubSource = {
+      ...source,
+      id: 'ksrc_gh',
+      type: 'github',
+      name: '文档仓库',
+      config: { baseUrl: 'https://api.github.com' },
+      ranges: [
+        {
+          id: 'krng_gh',
+          kind: 'github_repo',
+          externalId: 'acme/docs',
+          ref: 'main',
+          paths: ['docs'],
+          enabled: true,
+        },
+      ],
+    };
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/sources', () =>
+        HttpResponse.json({ items: [synced, githubSource], nextCursor: null }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    const rows = [...document.querySelectorAll('li')];
+    const gitlabRow = rows.find((item) => item.textContent?.includes('产品仓库'));
+    expect(gitlabRow?.textContent).toContain('GitLab');
+    expect(gitlabRow?.textContent).toContain('12@main');
+    expect(gitlabRow?.textContent).toContain('cron 0 3 * * *');
+    expect(gitlabRow?.textContent).toContain('上次同步 成功');
+    const githubRow = rows.find((item) => item.textContent?.includes('文档仓库'));
+    expect(githubRow?.textContent).toContain('GitHub');
+    expect(githubRow?.textContent).toContain('acme/docs@main');
   });
 });
 
@@ -1347,7 +1693,7 @@ describe('knowledge manual and url import', () => {
       ),
     );
     await mount('/knowledge/kb_1');
-    await click(button('导入文档'));
+    await click(button('导入'));
     await chooseMenuItem('手写文档');
     const editor = dialog('手写文档');
     await fill('knowledge-manual-title', '发布检查');
@@ -1378,7 +1724,7 @@ describe('knowledge manual and url import', () => {
       ),
     );
     await mount('/knowledge/kb_1');
-    await click(button('导入文档'));
+    await click(button('导入'));
     await chooseMenuItem('导入网址');
     const editor = dialog('导入网址');
     await fill('knowledge-url', 'https://example.com/docs');
@@ -1459,7 +1805,9 @@ describe('knowledge source configuration check', () => {
       ),
     );
     await mount('/knowledge/kb_1', { panel: 'sources' });
-    await click(button('检查配置'));
+    const check = button('检查配置');
+    expect(check.title).toContain('仅校验本地配置');
+    await click(check);
     expect(
       calls.some(
         (item) => item.method === 'POST' && item.path === '/api/knowledge/sources/ksrc_1/test',
@@ -1944,6 +2292,17 @@ describe('knowledge document upload', () => {
     );
   }
 
+  it('opens the file picker directly from the toolbar, not through the import menu', async () => {
+    uploadHandlers();
+    await mount('/knowledge/kb_1');
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="选择要上传的文件"]');
+    if (!input) throw new Error('Missing upload input');
+    const open = vi.spyOn(input, 'click').mockImplementation(() => {});
+    await click(button('上传文件'));
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[role="menuitem"]')).toBeNull();
+  });
+
   it('uploads every selected file, reports failed ones and keeps going', async () => {
     uploadHandlers();
     server.use(
@@ -1959,8 +2318,7 @@ describe('knowledge document upload', () => {
       }),
     );
     await mount('/knowledge/kb_1');
-    await click(button('导入文档'));
-    await chooseMenuItem('上传文件');
+    await click(button('上传文件'));
     const good = new File(['a'], 'good.txt', { type: 'text/plain' });
     const bad = new File(['b'], 'bad.pdf', { type: 'application/pdf' });
     await act(async () => {
@@ -1995,7 +2353,7 @@ describe('knowledge document upload', () => {
       ),
     );
     await mount('/knowledge/kb_1');
-    await click(button('导入文档'));
+    await click(button('导入'));
     await chooseMenuItem('上传文件夹');
     const nested = new File(['a'], 'spec.txt', { type: 'text/plain' });
     Object.defineProperty(nested, 'webkitRelativePath', { value: 'docs/spec.txt' });

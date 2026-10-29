@@ -10,14 +10,18 @@ import {
   ArrowLeft,
   BookOpen,
   ChevronDown,
+  Cloud,
+  Code,
   FileText,
   Folder,
   FolderOpen,
+  GitFork,
   MoreHorizontal,
   PanelLeftDashed,
   Pencil,
   Plus,
   RefreshCw,
+  Rss,
   Search,
   Tags,
   Trash2,
@@ -192,12 +196,46 @@ const sourceStatusLabel = {
   disabled: '已停用',
 } as const;
 
-const sourceTypeLabel = {
-  feishu_wiki: '飞书知识库',
-  feishu_drive: '飞书云盘',
-  gitlab: 'GitLab',
-  feed: 'RSS',
-} as const;
+/** 来源类型以 shared 的输入契约为准，与 api.ts 的 wire 类型保持一致。 */
+type SourceType = KnowledgeSourceInput['type'];
+
+const sourceProviders: Array<{
+  type: SourceType;
+  label: string;
+  description: string;
+  icon: typeof Code;
+}> = [
+  {
+    type: 'github',
+    label: 'GitHub',
+    description: '读取仓库指定分支与路径下的文本文件',
+    icon: Code,
+  },
+  {
+    type: 'gitlab',
+    label: 'GitLab',
+    description: '读取项目指定分支与路径下的文本文件',
+    icon: GitFork,
+  },
+  {
+    type: 'feishu_wiki',
+    label: '飞书知识库',
+    description: '同步知识空间或知识节点下的文档',
+    icon: BookOpen,
+  },
+  {
+    type: 'feishu_drive',
+    label: '飞书云盘',
+    description: '同步云盘目录中的文件',
+    icon: Cloud,
+  },
+  { type: 'feed', label: 'RSS', description: '抓取 Feed 最近窗口内的条目', icon: Rss },
+];
+
+function sourceProvider(type: SourceType): (typeof sourceProviders)[number] {
+  const fallback = sourceProviders[0] as (typeof sourceProviders)[number];
+  return sourceProviders.find((provider) => provider.type === type) ?? fallback;
+}
 
 const pageStatusLabel = {
   draft: '草稿',
@@ -525,22 +563,14 @@ function DocumentsTab({
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <Button
-                    variant="outline"
-                    disabled={uploading !== null}
-                    aria-busy={uploading !== null}
-                  >
-                    <Upload data-icon="inline-start" aria-hidden="true" />
-                    {uploading ? `上传中 ${uploading.done}/${uploading.total}` : '导入文档'}
+                  <Button variant="outline" disabled={uploading !== null}>
+                    导入
                     <ChevronDown data-icon="inline-end" aria-hidden="true" />
                   </Button>
                 }
               />
               <DropdownMenuContent align="end" sideOffset={4} className="w-44">
                 <DropdownMenuGroup>
-                  <DropdownMenuItem onClick={() => uploadInput.current?.click()}>
-                    <Upload /> 上传文件
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => folderInput.current?.click()}>
                     <FolderOpen /> 上传文件夹
                   </DropdownMenuItem>
@@ -553,6 +583,14 @@ function DocumentsTab({
                 </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
+            <Button
+              disabled={uploading !== null}
+              aria-busy={uploading !== null}
+              onClick={() => uploadInput.current?.click()}
+            >
+              <Upload data-icon="inline-start" aria-hidden="true" />
+              {uploading ? `上传中 ${uploading.done}/${uploading.total}` : '上传文件'}
+            </Button>
             <input
               ref={uploadInput}
               type="file"
@@ -2781,105 +2819,125 @@ function SourcesTab({ baseId }: { baseId: string }) {
       ) : null}
       {sources.data && sources.data.length > 0 ? (
         <ul className="flex flex-col">
-          {sources.data.map((source) => (
-            <li key={source.id} className="border-b py-3 last:border-b-0">
-              <Collapsible open={selected === source.id} className="flex min-w-0 flex-col gap-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    className="min-w-0 truncate text-sm font-medium text-fg hover:underline"
-                    onClick={() => setSelected(selected === source.id ? null : source.id)}
-                    aria-expanded={selected === source.id}
-                  >
-                    {source.name}
-                  </button>
-                  <StatusBadge tone="outline">{sourceTypeLabel[source.type]}</StatusBadge>
-                  <StatusBadge
-                    tone={
-                      source.status === 'active'
-                        ? 'success'
-                        : source.status === 'auth_error'
-                          ? 'danger'
-                          : 'outline'
-                    }
-                  >
-                    {sourceStatusLabel[source.status]}
-                  </StatusBadge>
-                  <span className="text-2xs text-muted-foreground">
-                    上次同步 {formatRelative(source.lastSyncAt)}
-                  </span>
-                  <div className="ml-auto flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={test.isPending}
-                      onClick={() =>
-                        test.mutate(source.id, {
-                          onSuccess: (result) =>
-                            result.ok
-                              ? toastSuccess('本地配置与已存凭证检查通过')
-                              : toast.error(result.issues.join('；'), { duration: Infinity }),
-                          onError: toastError,
-                        })
+          {sources.data.map((source) => {
+            const provider = sourceProvider(source.type);
+            const ProviderIcon = provider.icon;
+            const syncable = source.status === 'active';
+            const lastSyncStatus = source.lastSyncStatus
+              ? (jobStatusLabel[source.lastSyncStatus as keyof typeof jobStatusLabel] ??
+                source.lastSyncStatus)
+              : null;
+            return (
+              <li key={source.id} className="border-b py-3 last:border-b-0">
+                <Collapsible open={selected === source.id} className="flex min-w-0 flex-col gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-3">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-item border border-line text-muted-foreground">
+                      <ProviderIcon className="size-3.5" aria-hidden="true" />
+                    </span>
+                    <button
+                      type="button"
+                      className="min-w-0 truncate text-sm font-medium text-fg hover:underline"
+                      onClick={() => setSelected(selected === source.id ? null : source.id)}
+                      aria-expanded={selected === source.id}
+                    >
+                      {source.name}
+                    </button>
+                    <StatusBadge tone="outline">{provider.label}</StatusBadge>
+                    <StatusBadge
+                      tone={
+                        source.status === 'active'
+                          ? 'success'
+                          : source.status === 'auth_error'
+                            ? 'danger'
+                            : 'outline'
                       }
                     >
-                      检查配置
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={sync.isPending}
-                      onClick={() =>
-                        sync.mutate(source.id, {
-                          onSuccess: () => {
-                            setSelected(source.id);
-                            toastSuccess('已提交同步任务');
-                          },
-                          onError: toastError,
-                        })
-                      }
-                    >
-                      同步
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`编辑来源 ${source.name}`}
-                      onClick={() => setEditing(source)}
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`删除来源 ${source.name}`}
-                      onClick={() => {
-                        setDeleteDocuments(false);
-                        setDeleting(source);
-                      }}
-                    >
-                      <Trash2 />
-                    </Button>
+                      {sourceStatusLabel[source.status]}
+                    </StatusBadge>
+                    <span className="text-2xs text-muted-foreground">
+                      上次同步 {lastSyncStatus ? `${lastSyncStatus} · ` : ''}
+                      {formatRelative(source.lastSyncAt)}
+                    </span>
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={test.isPending}
+                        title="仅校验本地配置与已存凭证，不访问远端"
+                        onClick={() =>
+                          test.mutate(source.id, {
+                            onSuccess: (result) =>
+                              result.ok
+                                ? toastSuccess('本地配置与已存凭证检查通过')
+                                : toast.error(result.issues.join('；'), { duration: Infinity }),
+                            onError: toastError,
+                          })
+                        }
+                      >
+                        检查配置
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={sync.isPending || !syncable}
+                        title={
+                          !syncable
+                            ? '来源未启用，无法同步'
+                            : sync.isPending
+                              ? '正在提交同步任务'
+                              : '立即提交一次同步任务'
+                        }
+                        onClick={() =>
+                          sync.mutate(source.id, {
+                            onSuccess: () => {
+                              setSelected(source.id);
+                              toastSuccess('已提交同步任务');
+                            },
+                            onError: toastError,
+                          })
+                        }
+                      >
+                        立即同步
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`编辑来源 ${source.name}`}
+                        onClick={() => setEditing(source)}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`删除来源 ${source.name}`}
+                        onClick={() => {
+                          setDeleteDocuments(false);
+                          setDeleting(source);
+                        }}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-                <span className="truncate text-2xs text-muted-foreground">
-                  {source.ranges.map((range) => range.externalId).join(' · ')}
-                  {source.syncCron ? ` · cron ${source.syncCron}` : ''}
-                </span>
-                {source.lastError ? (
-                  <span className="text-2xs text-danger">{source.lastError}</span>
-                ) : null}
-                <CollapsibleContent animated>
-                  <SourceRuns sourceId={source.id} />
-                </CollapsibleContent>
-              </Collapsible>
-            </li>
-          ))}
+                  <span className="truncate text-2xs text-muted-foreground">
+                    {sourceTargetSummary(source)}
+                  </span>
+                  {source.lastError ? (
+                    <span className="text-2xs text-danger">{source.lastError}</span>
+                  ) : null}
+                  <CollapsibleContent animated>
+                    <SourceRuns sourceId={source.id} />
+                  </CollapsibleContent>
+                </Collapsible>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
-      {creating ? <CreateSourceDialog baseId={baseId} onClose={() => setCreating(false)} /> : null}
+      {creating ? <SourceDialog baseId={baseId} onClose={() => setCreating(false)} /> : null}
       {editing ? (
-        <EditSourceDialog baseId={baseId} source={editing} onClose={() => setEditing(null)} />
+        <SourceDialog baseId={baseId} source={editing} onClose={() => setEditing(null)} />
       ) : null}
       {deleting ? (
         <ConfirmDialog
@@ -2917,47 +2975,56 @@ function SourcesTab({ baseId }: { baseId: string }) {
 }
 
 /** 凭证只写不读：留空提交不发 secrets，避免把已存密钥覆盖成空串。 */
-function secretField(type: KnowledgeSource['type']): { key: 'token' | 'appSecret'; label: string } {
-  return type === 'gitlab'
-    ? { key: 'token', label: 'Access Token' }
-    : { key: 'appSecret', label: 'App Secret' };
+function credentialField(type: SourceType): { key: 'token' | 'appSecret'; label: string } | null {
+  if (type === 'github' || type === 'gitlab') return { key: 'token', label: 'Access Token' };
+  if (type === 'feishu_wiki' || type === 'feishu_drive') {
+    return { key: 'appSecret', label: 'App Secret' };
+  }
+  return null;
 }
 
 /** clientId 只用于列表 key；已有范围沿用服务端 id，保证 key 稳定、删行不串焦点。 */
-type RangeDraft = Omit<KnowledgeSource['ranges'][number], 'id'> & { clientId: string };
+type RangeKind = KnowledgeSourceInput['ranges'][number]['kind'];
+type RangeDraft = Omit<KnowledgeSourceInput['ranges'][number], 'kind'> & {
+  clientId: string;
+  kind: RangeKind;
+};
 
 /** 提交前去掉 clientId，不把本地 key 混进来源 config。 */
 function toRangeInput({ clientId: _clientId, ...range }: RangeDraft) {
   return { ...range, externalId: range.externalId.trim() };
 }
 
-const rangeKinds: Record<KnowledgeSource['type'], Array<RangeDraft['kind']>> = {
+const rangeKinds: Record<SourceType, RangeKind[]> = {
+  github: ['github_repo'],
   feishu_wiki: ['wiki_space', 'wiki_node'],
   feishu_drive: ['drive_folder'],
   gitlab: ['gitlab_project'],
   feed: ['feed'],
 };
 
-const rangeKindLabel: Record<RangeDraft['kind'], string> = {
+const rangeKindLabel: Record<RangeKind, string> = {
   wiki_space: '知识空间',
   wiki_node: '知识节点',
   drive_folder: '云盘目录',
   gitlab_project: 'GitLab 项目',
+  github_repo: '仓库',
   feed: 'Feed',
 };
 
-function rangeExternalLabel(kind: RangeDraft['kind']): string {
+function rangeExternalLabel(kind: RangeKind): string {
   return {
     wiki_space: '空间 ID',
     wiki_node: '节点 Token',
     drive_folder: '目录 Token',
     gitlab_project: 'Project ID',
+    github_repo: '仓库',
     feed: 'Feed 地址',
   }[kind];
 }
 
 /** 空范围行；clientId 在创建时生成一次，后续 render 不变。 */
-function newRangeDraft(kind: RangeDraft['kind']): RangeDraft {
+function newRangeDraft(kind: RangeKind): RangeDraft {
   return {
     clientId: crypto.randomUUID(),
     kind,
@@ -2969,15 +3036,37 @@ function newRangeDraft(kind: RangeDraft['kind']): RangeDraft {
 }
 
 /** 至少一个范围，且至少一个启用；空行也算缺 ID。 */
-function rangeIssue(type: KnowledgeSource['type'], ranges: RangeDraft[]): string | null {
+function rangeIssue(type: SourceType, ranges: RangeDraft[]): string | null {
   if (ranges.length === 0) return '至少需要一个范围';
   if (ranges.some((range) => range.externalId.trim() === '')) return '每个范围都需要外部 ID';
-  // 空 ref 会回落到来源级 config.ref，编辑时看不到它，等于静默改分支。
+  // GitLab 的来源级 config.ref 由范围回填；空 ref 会静默改到默认分支。
   if (type === 'gitlab' && ranges.some((range) => !range.ref?.trim())) {
     return '每个 GitLab 范围都需要 Ref';
   }
   if (!ranges.some((range) => range.enabled)) return '至少需要一个启用的范围';
   return null;
+}
+
+/** 列表行的目标摘要：仓库@ref / 飞书范围 / Feed，并带上 cron。 */
+function sourceTargetSummary(source: KnowledgeSource): string {
+  const summary = source.ranges
+    .map((range) => {
+      const kind = range.kind as RangeKind;
+      if (kind === 'github_repo') return `${range.externalId}@${range.ref ?? '默认分支'}`;
+      if (kind === 'gitlab_project') {
+        return range.ref ? `${range.externalId}@${range.ref}` : range.externalId;
+      }
+      if (kind === 'feed') return range.externalId;
+      return `${rangeKindLabel[kind]} ${range.externalId}`;
+    })
+    .join(' · ');
+  return source.syncCron ? `${summary} · cron ${source.syncCron}` : summary;
+}
+
+/** 已有来源的 config 只读展示：缺省或非字符串一律按空值处理。 */
+function configString(source: KnowledgeSource | undefined, key: string): string {
+  const value = source?.config[key];
+  return typeof value === 'string' ? value : '';
 }
 
 function RangeRows({
@@ -2986,7 +3075,7 @@ function RangeRows({
   disabled,
   onChange,
 }: {
-  type: KnowledgeSource['type'];
+  type: SourceType;
   ranges: RangeDraft[];
   disabled: boolean;
   onChange: (ranges: RangeDraft[]) => void;
@@ -3035,7 +3124,7 @@ function RangeRows({
                   value={range.kind}
                   disabled={disabled}
                   onValueChange={(next) => {
-                    if (next !== null) patch(index, { kind: next as RangeDraft['kind'] });
+                    if (next !== null) patch(index, { kind: next as RangeKind });
                   }}
                   items={kinds.map((kind) => ({ value: kind, label: rangeKindLabel[kind] }))}
                 >
@@ -3063,19 +3152,22 @@ function RangeRows({
                 value={range.externalId}
                 disabled={disabled}
                 onChange={(event) => patch(index, { externalId: event.target.value })}
+                placeholder={range.kind === 'github_repo' ? 'owner/repo' : undefined}
                 className="font-mono"
               />
             </Field>
-            {type === 'gitlab' ? (
+            {type === 'github' || type === 'gitlab' ? (
               <>
                 <Field className="gap-1.5">
-                  <FieldLabel htmlFor={`source-range-${index}-ref`}>Ref</FieldLabel>
+                  <FieldLabel htmlFor={`source-range-${index}-ref`}>
+                    Ref {type === 'gitlab' ? <RequiredMark /> : null}
+                  </FieldLabel>
                   <Input
                     id={`source-range-${index}-ref`}
                     value={range.ref ?? ''}
                     disabled={disabled}
                     onChange={(event) => patch(index, { ref: event.target.value.trim() || null })}
-                    placeholder="例如 main"
+                    placeholder={type === 'github' ? '留空使用默认分支' : '例如 main'}
                     className="font-mono"
                   />
                 </Field>
@@ -3093,9 +3185,17 @@ function RangeRows({
                           .filter((path) => path !== ''),
                       })
                     }
-                    placeholder="用逗号分隔，留空表示项目全部路径"
+                    placeholder={
+                      type === 'github'
+                        ? '用逗号分隔，留空表示仓库全部路径'
+                        : '用逗号分隔，留空表示项目全部路径'
+                    }
                     className="font-mono"
                   />
+                  <FieldDescription>
+                    目录或文件前缀；留空读取{type === 'gitlab' ? '整个项目' : '整个仓库'}
+                    ；仅同步文本文件。
+                  </FieldDescription>
                 </Field>
               </>
             ) : null}
@@ -3108,7 +3208,7 @@ function RangeRows({
           variant="outline"
           size="sm"
           disabled={disabled}
-          onClick={() => onChange([...ranges, newRangeDraft(kinds[0] as RangeDraft['kind'])])}
+          onClick={() => onChange([...ranges, newRangeDraft(kinds[0] as RangeKind)])}
         >
           <Plus data-icon="inline-start" aria-hidden="true" /> 添加范围
         </Button>
@@ -3117,30 +3217,174 @@ function RangeRows({
   );
 }
 
-function EditSourceDialog({
+function SourceDialog({
   baseId,
   source,
   onClose,
 }: {
   baseId: string;
-  source: KnowledgeSource;
+  source?: KnowledgeSource;
   onClose: () => void;
 }) {
+  const editing = source !== undefined;
+  const create = useCreateKnowledgeSource(baseId);
   const update = useUpdateKnowledgeSource(baseId);
-  const [name, setName] = useState(source.name);
+  const pending = create.isPending || update.isPending;
+  const [step, setStep] = useState<'choose' | 'configure'>(editing ? 'configure' : 'choose');
+  const [type, setType] = useState<SourceType>(source ? source.type : 'feishu_wiki');
+  const [name, setName] = useState(source?.name ?? '');
   const [secret, setSecret] = useState('');
-  const [cron, setCron] = useState(source.syncCron ?? '');
-  const [syncDeletions, setSyncDeletions] = useState(source.config.syncDeletions === true);
+  const [appId, setAppId] = useState(() => configString(source, 'appId'));
+  const [baseUrl, setBaseUrl] = useState(() => configString(source, 'baseUrl'));
+  const [cron, setCron] = useState(source?.syncCron ?? '');
+  const [syncDeletions, setSyncDeletions] = useState(source?.config.syncDeletions === true);
   // auth_error 不在可写枚举里：保持原值，只有用户主动改状态才提交。
-  const [status, setStatus] = useState<KnowledgeSource['status']>(source.status);
-  const [ranges, setRanges] = useState<RangeDraft[]>(
-    source.ranges.map(({ id, ...range }) => ({ ...range, clientId: id })),
+  const [status, setStatus] = useState<KnowledgeSource['status']>(source?.status ?? 'active');
+  const [ranges, setRanges] = useState<RangeDraft[]>(() =>
+    source
+      ? source.ranges.map(({ id, ...range }) => ({ ...range, clientId: id }))
+      : [newRangeDraft(rangeKinds.feishu_wiki[0] as RangeKind)],
   );
-  const pending = update.isPending;
-  const credential = secretField(source.type);
-  const feed = source.type === 'feed';
-  const config = { ...source.config, syncDeletions };
-  const issue = rangeIssue(source.type, ranges);
+  const provider = sourceProvider(type);
+  const ProviderIcon = provider.icon;
+  const credential = credentialField(type);
+  const secretRequired = credential !== null && !(editing && source.hasSecret);
+  const issue = rangeIssue(type, ranges);
+  const connectionReady =
+    type === 'feishu_wiki' || type === 'feishu_drive'
+      ? appId.trim() !== ''
+      : type === 'gitlab'
+        ? baseUrl.trim() !== ''
+        : true;
+  const ready =
+    name.trim() !== '' &&
+    issue === null &&
+    connectionReady &&
+    (credential === null || secret !== '' || (editing && source.hasSecret));
+  const normalized = ranges.map(toRangeInput);
+  const syncCron = cron.trim() === '' ? null : cron.trim();
+
+  // 各类型的范围 kind 与外键含义不同，切换类型时整套重建，不能把旧行带过去；
+  // 凭证与连接地址也只属于原类型，必须清空。
+  const chooseType = (next: SourceType): void => {
+    setType(next);
+    setSecret('');
+    setBaseUrl('');
+    setAppId('');
+    setRanges([newRangeDraft(rangeKinds[next][0] as RangeKind)]);
+    setStep('configure');
+  };
+
+  const buildConfig = (): Record<string, unknown> => {
+    if (type === 'feishu_wiki' || type === 'feishu_drive') {
+      return {
+        appId: appId.trim(),
+        ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+        syncDeletions,
+      };
+    }
+    if (type === 'github') {
+      // ref 属于每个 range，多仓库时不能把第一条写进公共 config。
+      return {
+        ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+        projectId: normalized[0]?.externalId ?? '',
+        syncDeletions,
+      };
+    }
+    if (type === 'gitlab') {
+      return {
+        ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+        projectId: normalized[0]?.externalId ?? '',
+        ref: ranges.find((range) => range.ref)?.ref?.trim() ?? '',
+        syncDeletions,
+      };
+    }
+    return {};
+  };
+
+  const buildInput = (): KnowledgeSourceInput => {
+    const common = { name: name.trim(), syncCron, ranges: normalized };
+    if (type === 'feishu_wiki' || type === 'feishu_drive') {
+      return {
+        ...common,
+        type,
+        config: {
+          appId: appId.trim(),
+          ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+          syncDeletions,
+        },
+        secrets: { appSecret: secret },
+      };
+    }
+    if (type === 'github') {
+      return {
+        ...common,
+        type,
+        config: {
+          ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+          projectId: normalized[0]?.externalId ?? '',
+          syncDeletions,
+        },
+        secrets: { token: secret },
+      };
+    }
+    if (type === 'gitlab') {
+      return {
+        ...common,
+        type,
+        config: {
+          baseUrl: baseUrl.trim(),
+          projectId: normalized[0]?.externalId ?? '',
+          ref: ranges.find((range) => range.ref)?.ref?.trim() ?? '',
+          syncDeletions,
+        },
+        secrets: { token: secret },
+      };
+    }
+    return { ...common, type: 'feed', config: { syncDeletions: false }, secrets: {} };
+  };
+
+  const buildPatch = (target: KnowledgeSource) => {
+    // 填了新凭证说明已修复 auth_error：自动恢复启用；留空则保留原状态。
+    const patchStatus =
+      status === 'auth_error'
+        ? secret !== ''
+          ? 'active'
+          : undefined
+        : status === target.status
+          ? undefined
+          : status;
+    return {
+      name: name.trim(),
+      ...(patchStatus === undefined ? {} : { status: patchStatus }),
+      syncCron,
+      ranges: normalized,
+      ...(type === 'feed' ? {} : { config: buildConfig() }),
+      // 空值不提交，服务端保留原凭证；填了才是轮换。
+      ...(credential && secret !== '' ? { secrets: { [credential.key]: secret } } : {}),
+    };
+  };
+
+  const secretInput =
+    credential === null ? null : (
+      <Field className="gap-1.5">
+        <FieldLabel htmlFor="knowledge-source-secret">
+          {credential.label} {secretRequired ? <RequiredMark /> : null}
+        </FieldLabel>
+        <Input
+          id="knowledge-source-secret"
+          type="password"
+          value={secret}
+          autoComplete="off"
+          disabled={pending}
+          onChange={(event) => setSecret(event.target.value)}
+          placeholder={editing ? (source.hasSecret ? '留空保持原凭证' : '填写凭证') : '填写凭据'}
+        />
+        {type === 'github' ? (
+          <FieldDescription>需要 Contents 只读权限；私有仓库还需 Metadata 只读。</FieldDescription>
+        ) : null}
+      </Field>
+    );
 
   return (
     <Dialog
@@ -3153,136 +3397,245 @@ function EditSourceDialog({
         if (!next) onClose();
       }}
     >
-      <DialogShell title="编辑来源" closeDisabled={pending}>
+      <DialogShell
+        title={editing ? '编辑来源' : '新建来源'}
+        closeDisabled={pending}
+        className="max-w-[760px] sm:max-w-[760px]"
+      >
         <form
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            update.mutate(
-              {
-                sourceId: source.id,
-                patch: {
-                  name: name.trim(),
-                  ...(status === source.status || status === 'auth_error' ? {} : { status }),
-                  syncCron: cron.trim() === '' ? null : cron.trim(),
-                  ranges: ranges.map(toRangeInput),
-                  ...(feed ? {} : { config }),
-                  // 空值不提交，服务端保留原凭证；填了才是轮换。
-                  ...(feed || secret === '' ? {} : { secrets: { [credential.key]: secret } }),
+            if (!ready) return;
+            if (source) {
+              update.mutate(
+                { sourceId: source.id, patch: buildPatch(source) },
+                {
+                  onSuccess: () => {
+                    toastSuccess('来源已更新');
+                    onClose();
+                  },
+                  onError: toastError,
                 },
+              );
+              return;
+            }
+            create.mutate(buildInput(), {
+              onSuccess: () => {
+                toastSuccess('来源已创建');
+                onClose();
               },
-              {
-                onSuccess: () => {
-                  toastSuccess('来源已更新');
-                  onClose();
-                },
-                onError: toastError,
-              },
-            );
+              onError: toastError,
+            });
           }}
         >
-          <FieldGroup className="grid gap-3 sm:grid-cols-2">
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="knowledge-source-name">
-                名称 <RequiredMark />
-              </FieldLabel>
-              <Input
-                id="knowledge-source-name"
-                value={name}
-                maxLength={120}
-                disabled={pending}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </Field>
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="knowledge-source-status">状态</FieldLabel>
-              <Select
-                value={status === 'auth_error' ? 'auth_error' : status}
-                disabled={pending}
-                onValueChange={(next) => {
-                  if (next === 'active' || next === 'paused' || next === 'disabled')
-                    setStatus(next);
-                }}
-                items={[
-                  ...(status === 'auth_error' ? [{ value: 'auth_error', label: '凭证失效' }] : []),
-                  { value: 'active', label: '启用' },
-                  { value: 'paused', label: '暂停' },
-                  { value: 'disabled', label: '停用' },
-                ]}
-              >
-                <SelectTrigger id="knowledge-source-status" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {status === 'auth_error' ? (
-                      <SelectItem value="auth_error">凭证失效</SelectItem>
-                    ) : null}
-                    <SelectItem value="active">启用</SelectItem>
-                    <SelectItem value="paused">暂停</SelectItem>
-                    <SelectItem value="disabled">停用</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-            {feed ? null : (
-              <Field className="gap-1.5 sm:col-span-2">
-                <FieldLabel htmlFor="knowledge-source-secret">{credential.label}</FieldLabel>
-                <Input
-                  id="knowledge-source-secret"
-                  type="password"
-                  value={secret}
-                  autoComplete="off"
-                  disabled={pending}
-                  onChange={(event) => setSecret(event.target.value)}
-                  placeholder={source.hasSecret ? '留空保持原凭证' : '填写凭证'}
-                />
-              </Field>
-            )}
-            <Field className="gap-1.5 sm:col-span-2">
-              <FieldLabel htmlFor="knowledge-source-cron">同步 cron（UTC）</FieldLabel>
-              <Input
-                id="knowledge-source-cron"
-                value={cron}
-                disabled={pending}
-                onChange={(event) => setCron(event.target.value)}
-                placeholder="留空不自动同步"
-                className="font-mono"
-              />
-            </Field>
-          </FieldGroup>
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-fg">同步范围</span>
-            <RangeRows type={source.type} ranges={ranges} disabled={pending} onChange={setRanges} />
-            {issue ? <FieldError>{issue}</FieldError> : null}
-          </div>
-          {feed ? (
-            <FieldDescription>
-              Feed 只暴露最近窗口，不会把条目滚出窗口当作删除；因此不提供删除传播开关。
-            </FieldDescription>
+          {step === 'choose' ? (
+            <div className="flex flex-col">
+              {sourceProviders.map((option) => {
+                const OptionIcon = option.icon;
+                return (
+                  <button
+                    key={option.type}
+                    type="button"
+                    disabled={pending}
+                    onClick={() => chooseType(option.type)}
+                    className="flex items-center gap-3 border-b border-line px-2 py-3 text-left transition-colors last:border-b-0 hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-item border border-line text-muted-foreground">
+                      <OptionIcon className="size-4" aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium text-fg">{option.label}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {option.description}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           ) : (
-            <Field orientation="horizontal" className="items-center gap-2">
-              <Switch
-                id="knowledge-source-sync-deletions"
-                checked={syncDeletions}
-                disabled={pending}
-                onCheckedChange={(checked) => setSyncDeletions(checked)}
-              />
-              <FieldLabel htmlFor="knowledge-source-sync-deletions">远端删除时停用文档</FieldLabel>
-            </Field>
+            <>
+              <div className="flex items-center gap-2">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-item border border-line text-muted-foreground">
+                  <ProviderIcon className="size-3.5" aria-hidden="true" />
+                </span>
+                <span className="text-xs font-medium text-fg">{provider.label}</span>
+                {editing ? null : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="ml-auto"
+                    onClick={() => setStep('choose')}
+                  >
+                    更换来源
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium text-fg">连接</span>
+                <FieldGroup className="grid gap-3 sm:grid-cols-2">
+                  <Field className={cn('gap-1.5', !editing && 'sm:col-span-2')}>
+                    <FieldLabel htmlFor="source-name">
+                      名称 <RequiredMark />
+                    </FieldLabel>
+                    <Input
+                      id="source-name"
+                      value={name}
+                      maxLength={120}
+                      disabled={pending}
+                      onChange={(event) => setName(event.target.value)}
+                    />
+                  </Field>
+                  {editing ? (
+                    <Field className="gap-1.5">
+                      <FieldLabel htmlFor="knowledge-source-status">状态</FieldLabel>
+                      <Select
+                        value={status === 'auth_error' ? 'auth_error' : status}
+                        disabled={pending}
+                        onValueChange={(next) => {
+                          if (next === 'active' || next === 'paused' || next === 'disabled') {
+                            setStatus(next);
+                          }
+                        }}
+                        items={[
+                          ...(status === 'auth_error'
+                            ? [{ value: 'auth_error', label: '凭证失效' }]
+                            : []),
+                          { value: 'active', label: '启用' },
+                          { value: 'paused', label: '暂停' },
+                          { value: 'disabled', label: '停用' },
+                        ]}
+                      >
+                        <SelectTrigger id="knowledge-source-status" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {status === 'auth_error' ? (
+                              <SelectItem value="auth_error">凭证失效</SelectItem>
+                            ) : null}
+                            <SelectItem value="active">启用</SelectItem>
+                            <SelectItem value="paused">暂停</SelectItem>
+                            <SelectItem value="disabled">停用</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  ) : null}
+                  {type === 'feishu_wiki' || type === 'feishu_drive' ? (
+                    <>
+                      <Field className="gap-1.5">
+                        <FieldLabel htmlFor="source-app-id">
+                          App ID <RequiredMark />
+                        </FieldLabel>
+                        <Input
+                          id="source-app-id"
+                          value={appId}
+                          disabled={pending}
+                          onChange={(event) => setAppId(event.target.value)}
+                          className="font-mono"
+                        />
+                      </Field>
+                      {secretInput}
+                      <Field className="gap-1.5 sm:col-span-2">
+                        <FieldLabel htmlFor="source-base-url">Base URL</FieldLabel>
+                        <Input
+                          id="source-base-url"
+                          value={baseUrl}
+                          disabled={pending}
+                          onChange={(event) => setBaseUrl(event.target.value)}
+                          placeholder="留空使用官方地址"
+                          className="font-mono"
+                        />
+                      </Field>
+                    </>
+                  ) : type === 'github' ? (
+                    <>
+                      <Field className="gap-1.5">
+                        <FieldLabel htmlFor="source-github-api">API 地址</FieldLabel>
+                        <Input
+                          id="source-github-api"
+                          value={baseUrl}
+                          disabled={pending}
+                          onChange={(event) => setBaseUrl(event.target.value)}
+                          placeholder="https://api.github.com"
+                          className="font-mono"
+                        />
+                      </Field>
+                      {secretInput}
+                    </>
+                  ) : type === 'gitlab' ? (
+                    <>
+                      <Field className="gap-1.5">
+                        <FieldLabel htmlFor="source-gitlab-url">
+                          实例 URL <RequiredMark />
+                        </FieldLabel>
+                        <Input
+                          id="source-gitlab-url"
+                          value={baseUrl}
+                          disabled={pending}
+                          onChange={(event) => setBaseUrl(event.target.value)}
+                          placeholder="https://gitlab.example.com"
+                          className="font-mono"
+                        />
+                      </Field>
+                      {secretInput}
+                    </>
+                  ) : null}
+                </FieldGroup>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium text-fg">同步范围</span>
+                <RangeRows type={type} ranges={ranges} disabled={pending} onChange={setRanges} />
+                {issue ? <FieldError>{issue}</FieldError> : null}
+                <Field className="gap-1.5">
+                  <FieldLabel htmlFor="knowledge-source-cron">同步 cron（UTC）</FieldLabel>
+                  <Input
+                    id="knowledge-source-cron"
+                    value={cron}
+                    disabled={pending}
+                    onChange={(event) => setCron(event.target.value)}
+                    placeholder="留空不自动同步"
+                    className="font-mono"
+                  />
+                </Field>
+                {type === 'feed' ? (
+                  <FieldDescription>
+                    Feed 只暴露最近窗口，不会把条目滚出窗口当作删除；因此不提供删除传播开关。
+                  </FieldDescription>
+                ) : (
+                  <Field orientation="horizontal" className="items-center gap-2">
+                    <Switch
+                      id="knowledge-source-sync-deletions"
+                      checked={syncDeletions}
+                      disabled={pending}
+                      onCheckedChange={(checked) => setSyncDeletions(checked)}
+                    />
+                    <FieldLabel htmlFor="knowledge-source-sync-deletions">
+                      远端删除时停用文档
+                    </FieldLabel>
+                  </Field>
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={onClose} disabled={pending}>
+                  取消
+                </Button>
+                <Button type="submit" disabled={pending || !ready} aria-busy={pending}>
+                  {pending ? (editing ? '保存中…' : '创建中…') : editing ? '保存' : '创建'}
+                </Button>
+              </div>
+            </>
           )}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
-              取消
-            </Button>
-            <Button
-              type="submit"
-              disabled={pending || name.trim() === '' || issue !== null}
-              aria-busy={pending}
-            >
-              {pending ? '保存中…' : '保存'}
-            </Button>
-          </div>
+          {step === 'choose' ? (
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={onClose} disabled={pending}>
+                取消
+              </Button>
+            </div>
+          ) : null}
         </form>
       </DialogShell>
     </Dialog>
@@ -3323,228 +3676,6 @@ function SourceRuns({ sourceId }: { sourceId: string }) {
         </ul>
       ) : null}
     </div>
-  );
-}
-
-const sourceTypeOptions = (Object.keys(sourceTypeLabel) as Array<keyof typeof sourceTypeLabel>).map(
-  (value) => ({ value, label: sourceTypeLabel[value] }),
-);
-
-function CreateSourceDialog({ baseId, onClose }: { baseId: string; onClose: () => void }) {
-  const create = useCreateKnowledgeSource(baseId);
-  const [type, setType] = useState<KnowledgeSourceInput['type']>('feishu_wiki');
-  const [name, setName] = useState('');
-  const [ranges, setRanges] = useState<RangeDraft[]>([
-    newRangeDraft(rangeKinds.feishu_wiki[0] as RangeDraft['kind']),
-  ]);
-  const [appId, setAppId] = useState('');
-  const [appSecret, setAppSecret] = useState('');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [token, setToken] = useState('');
-  const pending = create.isPending;
-  // 切换类型时范围行整套重建：各类型的 kind 与外键含义不同，不能把旧行带过去。
-  const changeType = (next: KnowledgeSourceInput['type']) => {
-    setType(next);
-    setRanges([newRangeDraft(rangeKinds[next][0] as RangeDraft['kind'])]);
-  };
-  // 共享 schema 仍要求来源级 projectId/ref；worker 以每个范围自己的值为准。
-  const issue = rangeIssue(type, ranges);
-  const ready =
-    name.trim() !== '' &&
-    issue === null &&
-    (type === 'feishu_wiki' || type === 'feishu_drive'
-      ? appId.trim() !== '' && appSecret !== ''
-      : type === 'gitlab'
-        ? baseUrl.trim() !== '' && token !== ''
-        : true);
-
-  const buildInput = (): KnowledgeSourceInput => {
-    const normalized = ranges.map(toRangeInput);
-    const syncCron = null;
-    if (type === 'feishu_wiki' || type === 'feishu_drive') {
-      return {
-        type,
-        name: name.trim(),
-        syncCron,
-        ranges: normalized,
-        config: {
-          appId: appId.trim(),
-          ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
-          syncDeletions: false,
-        },
-        secrets: { appSecret },
-      };
-    }
-    if (type === 'gitlab') {
-      return {
-        type,
-        name: name.trim(),
-        syncCron,
-        ranges: normalized,
-        config: {
-          baseUrl: baseUrl.trim(),
-          projectId: normalized[0]?.externalId ?? '',
-          ref: ranges.find((range) => range.ref)?.ref?.trim() ?? '',
-          syncDeletions: false,
-        },
-        secrets: { token },
-      };
-    }
-    return {
-      type: 'feed',
-      name: name.trim(),
-      syncCron,
-      ranges: normalized,
-      config: { syncDeletions: false },
-      secrets: {},
-    };
-  };
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) onClose();
-      }}
-    >
-      <DialogShell title="新建来源" closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            create.mutate(buildInput(), {
-              onSuccess: () => {
-                toastSuccess('来源已创建');
-                onClose();
-              },
-              onError: toastError,
-            });
-          }}
-        >
-          <FieldGroup>
-            <FieldGroup className="grid gap-3 sm:grid-cols-2">
-              <Field className="gap-1.5">
-                <FieldLabel htmlFor="source-type">类型</FieldLabel>
-                <Select
-                  value={type}
-                  disabled={pending}
-                  onValueChange={(next) => {
-                    if (next !== null) changeType(next as KnowledgeSourceInput['type']);
-                  }}
-                  items={sourceTypeOptions}
-                >
-                  <SelectTrigger id="source-type" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {sourceTypeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field className="gap-1.5">
-                <FieldLabel htmlFor="source-name">
-                  名称 <RequiredMark />
-                </FieldLabel>
-                <Input
-                  id="source-name"
-                  value={name}
-                  disabled={pending}
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </Field>
-            </FieldGroup>
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-medium text-fg">同步范围</span>
-              <RangeRows type={type} ranges={ranges} disabled={pending} onChange={setRanges} />
-              {issue ? <FieldError>{issue}</FieldError> : null}
-            </div>
-            {type === 'feishu_wiki' || type === 'feishu_drive' ? (
-              <FieldGroup className="grid gap-3 sm:grid-cols-2">
-                <Field className="gap-1.5">
-                  <FieldLabel htmlFor="source-app-id">
-                    App ID <RequiredMark />
-                  </FieldLabel>
-                  <Input
-                    id="source-app-id"
-                    value={appId}
-                    disabled={pending}
-                    onChange={(event) => setAppId(event.target.value)}
-                    className="font-mono"
-                  />
-                </Field>
-                <Field className="gap-1.5">
-                  <FieldLabel htmlFor="source-app-secret">
-                    App Secret <RequiredMark />
-                  </FieldLabel>
-                  <Input
-                    id="source-app-secret"
-                    type="password"
-                    value={appSecret}
-                    disabled={pending}
-                    onChange={(event) => setAppSecret(event.target.value)}
-                  />
-                </Field>
-                <Field className="gap-1.5 sm:col-span-2">
-                  <FieldLabel htmlFor="source-base-url">Base URL</FieldLabel>
-                  <Input
-                    id="source-base-url"
-                    value={baseUrl}
-                    disabled={pending}
-                    onChange={(event) => setBaseUrl(event.target.value)}
-                    placeholder="留空使用官方地址"
-                  />
-                </Field>
-              </FieldGroup>
-            ) : null}
-            {type === 'gitlab' ? (
-              <FieldGroup className="grid gap-3 sm:grid-cols-2">
-                <Field className="gap-1.5">
-                  <FieldLabel htmlFor="source-gitlab-url">
-                    Base URL <RequiredMark />
-                  </FieldLabel>
-                  <Input
-                    id="source-gitlab-url"
-                    value={baseUrl}
-                    disabled={pending}
-                    onChange={(event) => setBaseUrl(event.target.value)}
-                  />
-                </Field>
-                <Field className="gap-1.5">
-                  <FieldLabel htmlFor="source-token">
-                    Access Token <RequiredMark />
-                  </FieldLabel>
-                  <Input
-                    id="source-token"
-                    type="password"
-                    value={token}
-                    disabled={pending}
-                    onChange={(event) => setToken(event.target.value)}
-                  />
-                </Field>
-              </FieldGroup>
-            ) : null}
-          </FieldGroup>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={pending || !ready} aria-busy={pending}>
-              {pending ? '创建中…' : '创建'}
-            </Button>
-          </div>
-        </form>
-      </DialogShell>
-    </Dialog>
   );
 }
 

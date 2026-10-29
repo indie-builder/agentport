@@ -281,6 +281,13 @@
       "when": 1793186311852,
       "tag": "0039_adorable_sebastian_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793230600906,
+      "tag": "0040_fuzzy_warstar",
+      "breakpoints": true
     }
   ]
 }

@@ -869,7 +869,7 @@ export const knowledgeDocuments = pgTable(
     }),
     title: text('title').notNull(),
     sourceType: text('source_type', {
-      enum: ['upload', 'url', 'feishu_wiki', 'feishu_drive', 'gitlab', 'feed', 'manual'],
+      enum: ['upload', 'url', 'feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed', 'manual'],
     }).notNull(),
     /** 外部稳定 ID（飞书 token / `project:ref:path` / `feedURL:itemId`）；upload/manual 为 null。 */
     sourceId: text('source_id'),
@@ -899,7 +899,7 @@ export const knowledgeDocuments = pgTable(
       .where(isNotNull(t.sourceId)),
     check(
       'knowledge_documents_source_type_check',
-      sql`${t.sourceType} in ('upload', 'url', 'feishu_wiki', 'feishu_drive', 'gitlab', 'feed', 'manual')`,
+      sql`${t.sourceType} in ('upload', 'url', 'feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed', 'manual')`,
     ),
     check(
       'knowledge_documents_status_check',
@@ -1003,7 +1003,9 @@ export const knowledgeSources = pgTable(
     baseId: text('base_id')
       .notNull()
       .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
-    type: text('type', { enum: ['feishu_wiki', 'feishu_drive', 'gitlab', 'feed'] }).notNull(),
+    type: text('type', {
+      enum: ['feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed'],
+    }).notNull(),
     name: text('name').notNull(),
     config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
     /** AES-256-GCM，复用 core 的 encryptSecrets。 */
@@ -1026,7 +1028,7 @@ export const knowledgeSources = pgTable(
     index('knowledge_sources_base_idx').on(t.baseId),
     check(
       'knowledge_sources_type_check',
-      sql`${t.type} in ('feishu_wiki', 'feishu_drive', 'gitlab', 'feed')`,
+      sql`${t.type} in ('feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed')`,
     ),
     check(
       'knowledge_sources_status_check',
@@ -1043,7 +1045,7 @@ export const knowledgeSourceRanges = pgTable(
       .notNull()
       .references(() => knowledgeSources.id, { onDelete: 'cascade' }),
     kind: text('kind', {
-      enum: ['wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'feed'],
+      enum: ['wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'github_repo', 'feed'],
     }).notNull(),
     externalId: text('external_id').notNull(),
     ref: text('ref'),
@@ -1060,7 +1062,7 @@ export const knowledgeSourceRanges = pgTable(
     ),
     check(
       'knowledge_source_ranges_kind_check',
-      sql`${t.kind} in ('wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'feed')`,
+      sql`${t.kind} in ('wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'github_repo', 'feed')`,
     ),
   ],
 );

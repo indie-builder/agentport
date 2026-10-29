@@ -355,19 +355,23 @@ OCR 与 caption 分别形成 `kind:image` 的文字块，`metadata.imageRole` �
 
 ### 6.3 外部来源
 
-首批只做 RSS/Atom/JSON Feed、飞书 Wiki/Drive、GitLab 仓库文件（项目/ref/path）。范围（`knowledge_source_ranges`）必须非空，空数组在入口就 400，**不解释成「全企业」**。一个来源可以保存多条范围，每条范围有独立游标：飞书按空间/节点/云盘目录，Feed 按订阅地址，GitLab 按项目/ref/paths；GitLab 的范围填了 `externalId` 就以范围为准，未填时回落到 `config` 的 `projectId`/`ref`。`listRanges` 只用于展示与连接检查，同步只读已保存的范围。API 支持整体替换范围；前端新建来源时只提交一条范围，编辑对话框保留原有范围但暂不提供增删改。飞书的 `appId` 存在 `config`，`appSecret` 只存加密列；GitLab 的 token 与模型 apiKey 同理。
+首批只做 RSS/Atom/JSON Feed、飞书 Wiki/Drive、GitLab 仓库文件（项目/ref/path）与 GitHub 仓库文本文件。范围（`knowledge_source_ranges`）必须非空，空数组在入口就 400，**不解释成「全企业」**。一个来源可以保存多条范围，每条范围有独立游标：飞书按空间/节点/云盘目录，Feed 按订阅地址，GitLab/GitHub 按项目或仓库 + 可选 ref + paths；GitLab 读取时优先使用范围的 `externalId`/`ref`，缺失时回落到 `config` 的 `projectId`/`ref`，GitHub 则每条范围必须是 `owner/repo`，读取时使用范围的 `ref`，为空时使用该仓库的 `default_branch`，不回退 `config.ref`。来源创建与 PATCH（包括仅修改 ranges）统一调用 `configIssues` 校验，GitHub 的范围 `kind` 必须为 `github_repo`、`externalId` 必须为合法 `owner/repo`，在入口就拒绝；`paths` 是否为仓库相对路径仍由 worker 校验。`listRanges` 只用于展示与连接检查，同步只读已保存的范围。API 支持整体替换范围；前端创建与编辑共用同一套分区表单，支持多条范围的增删与启停，创建时即可配置 cron 与 `syncDeletions`。飞书的 `appId` 存在 `config`，`appSecret` 只存加密列；GitLab/GitHub 的 token 与模型 apiKey 同理。来源级 `appId`/`baseUrl`/`config` 可编辑，凭证只写不读，响应只返回 `hasSecret`。
 
 文档身份只按 `(base_id, source_type, source_id)` 匹配外部条目，绝不用标题；`upload`/`manual` 的 `source_id` 为空。外部 `source_id` 形如 `<来源连接 ID>:<源端条目 ID>`（源端 ID 是飞书 token / GitLab `project:ref:path` / `feedURL:itemId`），加上连接前缀后，同一条目出现在两个来源里也不会互相覆盖。来源归属另记在 `metadata.knowledgeSourceId`，因为文档表没有指向来源的外键。
 
 - Feed 是滚动窗口：条目自然滚出窗口不删除，连接器永远返回「不完整枚举」。
 - 飞书只同步 `docx` 类型的 Wiki 节点与云盘的 docx/文本文件；其他类型或不支持的内容明确报错，不静默跳过。
 - GitLab 只读取文本类扩展名（md/txt/html/csv/json/xml/yaml/rst/adoc 等）的 blob；PDF/Office 等二进制文件不在当前同步范围内。先完整遍历仓库树，任何分页失败都抛出，不推导删除。
-- 飞书 Wiki/Drive 与 GitLab 只有在连接器明确声明「枚举完整」且本轮无失败时，`syncDeletions: true` 才允许把未再出现的条目置为 `disabled`（不物理删除、不参与检索）。
+- GitHub 使用 PAT（`secrets.token`），`config.baseUrl` 可选，缺省 `https://api.github.com`；GitHub Enterprise 填 API 根（如 `https://ghe.example.com/api/v3`）。范围是 `owner/repo` + 可选 `ref`（缺省回落到仓库默认分支）+ `paths`，同样只同步文本扩展名文件；空文件写入占位正文以覆盖旧内容。外部条目 ID 为 `github:<apiBase>:<repoId>:<ref>:<path>`；`sourceUrl` 的 ref 与 path 按路径分段编码（保留 `/` 层级，编码 `#`、`?`、空格等段内字符）。递归树读取失败或 `truncated` 直接失败，不把部分枚举当成完整枚举，因此只有完整枚举且本轮无失败时才允许按 `syncDeletions` 推导远端删除。
+- GitHub 的 401 与明确无权限的 403 抛 `SourceAuthError`；限流可能是 403（带 `x-ratelimit-remaining: 0` 或 `retry-after`）或 429，这类限流不标记 `auth_error`，来源保持 active、可继续重试。
+- 飞书 Wiki/Drive、GitLab 与 GitHub 只有在连接器明确声明「枚举完整」且本轮无失败时，`syncDeletions: true` 才允许把未再出现的条目置为 `disabled`（不物理删除、不参与检索）。
 - 上传入口不做格式预筛，PDF/Office/OCR 交给 `DOCLING_URL`；未配置时该格式以任务失败明确报出，不静默降级。来源同步走各自的读取路径，不经过 Docling。
 - 来源的「测试」只校验本地配置与凭证是否齐全，不发外网请求；真实连通性以同步 run 的结果为准。
-- 私网出站：`KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 只做精确 `host` / `host:port` / origin 匹配，默认空。它当前作用于两处：worker 的来源连接器抓取（飞书/GitLab/Feed，逐跳校验，使用独立的 `validateSourceUrl`）与 API 侧模型 profile 的创建/修改/测试。名单外的地址分别走各自的私网校验；名单只对知识出站生效，不会让普通 MCP server 把任意 URL 变成可信。
+- 来源 UI 分「选择 provider → 配置」两步；手动同步要求来源为 `active`，已有 queued/running 同步任务时返回 409。该检查是非事务检查，与定时触发并发时仍可能各建一条；要严格串行需复用 scheduler 的 advisory lock。
+- 私网出站：`KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 只做精确 `host` / `host:port` / origin 匹配，默认空。它当前作用于两处：worker 的来源连接器抓取（飞书/GitLab/GitHub/Feed，逐跳校验，使用独立的 `validateSourceUrl`）与 API 侧模型 profile 的创建/修改/测试。名单外的地址分别走各自的私网校验；名单只对知识出站生效，不会让普通 MCP server 把任意 URL 变成可信。
 - 目前**没有**接入该名单的知识出站还有三处，部署时应知悉：URL 导入只经 `assertSafeUrl`；worker 调 Docling 与 embedding/rerank 直接用已保存端点，不再逐次复核；这些端点的可信性依赖部署配置与 API 入口校验，公网部署仍需网络层出站限制兜底 DNS 重绑定。
-- 凭证（飞书 appSecret、GitLab token、模型 apiKey）沿用 `encryptSecrets` 加密入库，API 只回 `hasSecret`。
+- 凭证（飞书 appSecret、GitLab/GitHub token、模型 apiKey）沿用 `encryptSecrets` 加密入库，API 只回 `hasSecret`。
+- GitHub 连接器目前只在本地 fixture 验证；真实 GitHub 授权、限流与私有仓库内容尚未验收。
 
 知识库是单管理员部署下的共享资源：所有 REST 路由挂 `requireAuth`，不新增多租户或 RBAC。专家在编辑器里选中某个知识库、写入 `agent_servers` 后才获得该连接；没有「按用户授权」的中间层。
 

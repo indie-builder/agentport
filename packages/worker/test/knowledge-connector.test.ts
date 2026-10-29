@@ -115,6 +115,53 @@ beforeAll(async () => {
       response.end('# doc');
       return;
     }
+    if (path === '/api/v3/repos/octo/proj') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({ id: 77, default_branch: 'main', html_url: `${fixtureUrl}/octo/proj` }),
+      );
+      return;
+    }
+    if (path === '/api/v3/repos/octo/proj/git/trees/main') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          tree: [
+            { path: 'docs/a.md', type: 'blob', sha: 'shaA' },
+            { path: 'src/a.md', type: 'blob', sha: 'shaA' },
+          ],
+          truncated: false,
+        }),
+      );
+      return;
+    }
+    if (path === '/api/v3/repos/octo/other') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({ id: 78, default_branch: 'dev', html_url: `${fixtureUrl}/octo/other` }),
+      );
+      return;
+    }
+    if (path === '/api/v3/repos/octo/other/git/trees/dev') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          tree: [{ path: 'docs/x.md', type: 'blob', sha: 'shaX' }],
+          truncated: false,
+        }),
+      );
+      return;
+    }
+    if (path === '/api/v3/repos/octo/other/git/blobs/shaX') {
+      response.writeHead(200, { 'content-type': 'application/vnd.github.raw' });
+      response.end('# other doc');
+      return;
+    }
+    if (path === '/api/v3/repos/octo/proj/git/blobs/shaA') {
+      response.writeHead(200, { 'content-type': 'application/vnd.github.raw' });
+      response.end('# doc');
+      return;
+    }
     response.writeHead(404).end('missing');
   });
   fixtureUrl = fixture.url;
@@ -267,15 +314,56 @@ describe('knowledgeConnectors range mapping', () => {
       { token: 'glpat-test' },
     );
     expect(gitlab.items.map((item) => item.sourceId)).toEqual([
-      withConnection('gitlab:' + fixtureUrl + ':42:main:docs/a.md'),
+      withConnection(`gitlab:${fixtureUrl}:42:main:docs/a.md`),
+    ]);
+
+    const github = await run(
+      'github',
+      { baseUrl: `${fixtureUrl}/api/v3` },
+      [{ kind: 'github_repo', externalId: 'octo/proj', ref: null, paths: ['docs'] }],
+      {},
+      network,
+      { token: 'ghp_example' },
+    );
+    expect(github.items.map((item) => item.sourceId)).toEqual([
+      withConnection(`github:${fixtureUrl}/api/v3:77:main:docs/a.md`),
+    ]);
+    // paths 是 github 范围键的一部分，缩小范围不会复用旧游标。
+    expect(Object.keys(github.checkpoints.at(-1)?.cursor ?? {})).toEqual([
+      'github|github_repo|octo/proj||docs',
     ]);
 
     expect(Object.keys(knowledgeConnectors).sort()).toEqual([
       'feed',
       'feishu_drive',
       'feishu_wiki',
+      'github',
       'gitlab',
     ]);
+  });
+
+  it('never inherits one GitHub range ref into another repository', async () => {
+    state.requests = [];
+    const result = await run(
+      'github',
+      // 旧版本会把第一条 range 的 ref 落到 config.ref，导致第二个仓库读错分支。
+      { baseUrl: `${fixtureUrl}/api/v3`, ref: 'legacy' },
+      [
+        { kind: 'github_repo', externalId: 'octo/proj', ref: null, paths: ['docs'] },
+        { kind: 'github_repo', externalId: 'octo/other', ref: null, paths: ['docs'] },
+      ],
+      {},
+      network,
+      { token: 'ghp_example' },
+    );
+    expect(result.items.map((item) => item.sourceId)).toEqual([
+      withConnection(`github:${fixtureUrl}/api/v3:77:main:docs/a.md`),
+      withConnection(`github:${fixtureUrl}/api/v3:78:dev:docs/x.md`),
+    ]);
+    const paths = state.requests.map((request) => request.path);
+    expect(paths).toContain('/api/v3/repos/octo/proj/git/trees/main');
+    expect(paths).toContain('/api/v3/repos/octo/other/git/trees/dev');
+    expect(paths.some((path) => path.includes('legacy'))).toBe(false);
   });
 
   it('lets only the deployment trusted hosts, never user config, allow private hosts', async () => {
