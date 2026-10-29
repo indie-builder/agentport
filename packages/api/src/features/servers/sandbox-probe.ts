@@ -1,6 +1,7 @@
 import {
   SANDBOX_PROBE_WAIT_TIMEOUT_MS,
   SANDBOX_PROBES_QUEUE,
+  type SandboxProbeJob,
   type ServerTestResult,
 } from '@agentport/shared';
 import { Queue, QueueEvents } from 'bullmq';
@@ -15,8 +16,14 @@ export interface ProbeLogger {
 
 const TIMEOUT = Symbol('timeout');
 
+export interface StdioProbeOptions {
+  /** 缺省/null 用平台默认环境；只影响这次试连实际使用的容器镜像。 */
+  runtimeEnvironmentId?: string | null;
+  timeoutMs?: number;
+}
+
 /**
- * stdio 试连在 worker 的沙盒镜像里执行：API 只投递 serverId 并等结果。
+ * stdio 试连在 worker 的沙盒镜像里执行：API 只投递 serverId 与可选运行环境并等结果。
  * worker 侧把连接失败收敛成结果对象（不 reject），这里只兜底队列与等待超时。
  *
  * 连接按次建立、按次关闭：试连有速率限制，不值得为它常驻两条 Redis 连接，
@@ -25,11 +32,18 @@ const TIMEOUT = Symbol('timeout');
 export async function testStdioInSandbox(
   serverId: string,
   logger: ProbeLogger,
-  timeoutMs: number = SANDBOX_PROBE_WAIT_TIMEOUT_MS,
+  options: StdioProbeOptions = {},
 ): Promise<ServerTestResult> {
+  const timeoutMs = options.timeoutMs ?? SANDBOX_PROBE_WAIT_TIMEOUT_MS;
   const startedAt = Date.now();
   const connection = { url: REDIS_URL };
-  const queue = new Queue<{ serverId: string }>(SANDBOX_PROBES_QUEUE, { connection });
+  const job: SandboxProbeJob = {
+    serverId,
+    ...(options.runtimeEnvironmentId === undefined || options.runtimeEnvironmentId === null
+      ? {}
+      : { runtimeEnvironmentId: options.runtimeEnvironmentId }),
+  };
+  const queue = new Queue<SandboxProbeJob>(SANDBOX_PROBES_QUEUE, { connection });
   const events = new QueueEvents(SANDBOX_PROBES_QUEUE, { connection });
   events.on('error', (error) => logger.warn({ err: error }, 'sandbox probe queue error'));
 
@@ -40,13 +54,13 @@ export async function testStdioInSandbox(
   try {
     const result = await Promise.race([
       (async () => {
-        const job = await queue.add(
+        const queued = await queue.add(
           'probe',
-          { serverId },
+          job,
           // 结果即返回值；试连不自动重试。
           { attempts: 1, removeOnComplete: 50, removeOnFail: 50 },
         );
-        return (await job.waitUntilFinished(events, timeoutMs)) as ServerTestResult;
+        return (await queued.waitUntilFinished(events, timeoutMs)) as ServerTestResult;
       })(),
       idle,
     ]);

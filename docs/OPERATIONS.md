@@ -54,7 +54,7 @@
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
-| `SANDBOX_IMAGE` | 否 | `agentport/sandbox:dev` | worker | 会话沙盒使用的镜像；同一会话短期复用容器，不是每轮新建 |
+| `SANDBOX_IMAGE` | 否 | `agentport/sandbox:dev` | worker、api | 平台沙盒基座：worker 首次启动时本地缺失会先拉取，再用真实本地 image ID 登记默认环境的首个线上版本，并作为之后所有环境构建的基座；默认环境已存在时不再 inspect/pull。api 入队构建时记录该值。它不自动推进线上指针，也不是每次创建容器的直接来源（容器用环境线上版本的 image ID） |
 | `WORKSPACES_DIR` | 否 | `./data/workspaces` | worker | 工作区根目录。compose 下为 `/workspaces`，必须与 api 同路径 |
 | `HOST_WORKSPACES_DIR` | 否 | 同 `WORKSPACES_DIR` | worker | 宿主视角的工作区路径，`docker -v` 的源路径；compose 默认 `/var/lib/docker/volumes/agentport_workspaces/_data` |
 | `SANDBOX_API_URL` | 否 | `http://host.docker.internal:3000` | worker、api（预览） | 沙盒视角的平台地址，写入 generated server 的 `.mcp.json` |
@@ -68,7 +68,7 @@
 #### 会话沙盒生命周期
 
 - 一个平台会话最多一个沙盒容器；同一会话的连续 run 短期复用，不同会话各自独立，不跨会话共享。
-- 正常完成与成功取消后保留容器；只有无法确认本轮进程已停稳（清理失败、状态不明或超时）时才销毁，避免复用仍在写入的容器。
+- 只有正常完成或成功取消、且本轮进程已确认停稳时保留容器。运行失败（failed/error）、超时或异常导致无法确认停稳、清理失败、运行结束前 release、镜像或挂载发生变化时都会销毁容器，避免复用仍在写入或状态不可信的容器。
 - 销毁失败仍保留跟踪并阻止复用；后续获取该会话时先重试清理，确认旧容器删除后才重建，无需重启 worker；仍失败该请求失败。
 - worker 现有沙盒模块负责空闲回收：没有执行任务且未在等待用户回答超过 `SANDBOX_IDLE_TIMEOUT_MS`（默认 5 分钟）后回收容器。该阈值是正整数，不支持 `0`/`-1` 保活，可用短值实测。
 - 回收只删除容器，不删除宿主上的持久数据（`agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/`、`conversation-inputs/<conversationId>/`）；后续 run 新建容器时从 `sdk-sessions` 与 `agent-memory` 恢复同一 SDK 会话与记忆。
@@ -193,10 +193,55 @@ docker build --target sandbox -t agentport/sandbox:dev .
 pnpm --filter @agentport/sandbox image
 ```
 
-- 镜像构建期验证 `dist/runner.js` 存在、Agent SDK 原生 CLI 可执行；`deploy` 输出已包含生产依赖与 workspace 包（含 `@agentport/shared` 的 `dist`）。
+- 镜像构建期验证 `dist/runner.js` 存在、Agent SDK 原生 CLI 可执行，并确认 `bash` 是 GNU bash、`pdftoppm`/`pdfinfo` 可用；`deploy` 输出已包含生产依赖与 workspace 包（含 `@agentport/shared` 的 `dist`）。
+- `runtime` target 额外安装 `docker-cli` 与 `docker-cli-buildx`，只服务 worker 的宿主 Docker 调用和运行环境构建，不进入 `sandbox` 基座。
 - 不再有 `package.shared.json` / `package.docker.json` 或 `packages/sandbox/.dockerignore`；旧版 `packages/sandbox/shared` 暂存目录也已删除。
 - 根 `.dockerignore` 排除 `.git`、docs、data、`node_modules`、`dist` 等；镜像内重新安装和编译，`packages/sandbox/shared` 即使残留也不会进入构建上下文。
 - 反向代理之后部署时，设置 `TRUST_PROXY=1`（否则限流按代理 IP 计数），并把 `CORS_ORIGINS` 改成浏览器实际访问的 Origin。
+
+#### 2.2.2 运行环境构建、发布与回退
+
+命名运行环境在「运行环境」页维护 Dockerfile、提交构建并设置线上版本；对应 API：
+
+- `POST /api/runtime-environments` 新建环境；`POST /api/runtime-environments/:id/versions` 用当前 Dockerfile 快照入队构建（202），`GET /api/runtime-environments/:id/versions/:versionId` 查看状态与日志。
+- `PUT /api/runtime-environments/:id/online-version` 发布或回退；构建成功不会自动发布，失败构建不改线上指针。
+- 构建由 worker 的独立队列消费，并发 1，失败不自动重试。上下文只含冻结 Dockerfile；基座解析为本地 image ID 后经 `ARG RUNTIME_BASE_IMAGE` 传入，默认复用 BuildKit 层缓存。
+- 构建日志按 1 秒或 16 KiB 窗口流式写库，只保留 64 KiB 尾部并置 `log_truncated`；日志落库失败时版本收敛为 `failed`，不会标成 `ready`。
+- 构建成功前在真实容器约束下校验：拒绝镜像声明的任何卷，实际启动四个入口到各自协议边界，执行 SDK 原生 CLI `--version`，并确认 PATH 上有 Bash。
+- 只有新建容器才解析智能体所属环境的线上版本；存活容器跨发布保持旧镜像，消亡后重建才用当前线上版本。没有线上版本或本地缺失对应镜像时明确失败，不隐式 pull、不回落其他环境。
+- worker 容器必须能执行 `docker buildx build`。旧 worker 镜像没有 buildx 插件时构建失败，需按当前根 Dockerfile 重建 worker；不重启正在使用的服务。
+
+本地验证先构建依赖，不跑固定全量：
+
+```bash
+pnpm --filter @agentport/shared --filter @agentport/core --filter @agentport/db build
+
+pnpm exec vitest run --project backend \
+  packages/shared/test/runtime-environment.test.ts \
+  packages/db/test/runtime-environments.test.ts \
+  packages/worker/test/runtime-environment-build.test.ts \
+  packages/worker/test/runtime-environment-reconcile.test.ts \
+  packages/worker/test/runtime-environments-resolve.test.ts \
+  packages/api/test/runtime-environments.test.ts \
+  packages/api/test/agent-package-runtime-environment.test.ts
+
+pnpm exec vitest run --project web packages/web/test/runtime-environments.test.ts
+```
+
+需要宿主 Docker 的真实构建/校验用例按当次环境单独执行；缺少本地基座镜像或 Docker 时整组跳过，跳过不等于通过：
+
+```bash
+# 真实构建缓存、镜像卷/入口/Bash/SDK CLI 校验
+pnpm exec vitest run --project backend \
+  packages/worker/test/runtime-environment-build-docker.test.ts \
+  packages/worker/test/runtime-environment-verify-docker.test.ts
+
+# 线上指针 + 存活容器跨发布/回退 + 重建的真实 lifecycle 证据
+# 需本地基座 agentport/sandbox:runtime-env-bash-20261029（可用 RUNTIME_ENV_LIFECYCLE_BASE 覆盖）与可用 Docker
+pnpm exec vitest run --project backend packages/worker/test/runtime-environment-lifecycle-docker.test.ts
+```
+
+backend 套件由 globalSetup 在随机 PostgreSQL 库和临时 Redis 上运行，不触碰开发库登录态；是否通过以当次命令输出为准，不能据此声称全部通过或已上线。
 
 #### Docker socket 风险
 
@@ -254,7 +299,7 @@ pnpm install
 pnpm run up --rebuild
 ```
 
-`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run（容器随 `docker rm -f` 清理）；建议在空闲时操作。
+`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。
 
 **关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 先禁止新的沙盒创建并取消镜像拉取，等待已发出的创建请求收尾后清理容器；单项清理失败仍继续关闭其余资源，记录错误并以非零状态退出。执行已经完成后的清理失败不改写业务结果或触发模型重试。reconciler 会收敛仍为 running 的 run。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
 
@@ -409,6 +454,10 @@ pnpm --filter @agentport/worker maintenance
 | `docker compose ps` 中 redis 一直 `health: starting`，api/worker 不启动 | 宿主导出了与 `.env` 不同的 `REDIS_PASSWORD`，compose 用它重建了 redis，而 `.env` 的 `REDIS_URL` 仍是旧密码 | `unset REDIS_PASSWORD` 后 `docker compose up -d --force-recreate redis api worker`；或让 `.env` 的 `REDIS_PASSWORD`/`REDIS_URL` 与导出的值一致；确认用 `docker compose exec redis redis-cli -a "$REDIS_PASSWORD" ping` |
 | 日志报 `Could not find a working container runtime strategy` 或 `Cannot connect to the Docker daemon` | worker 无法访问宿主 Docker socket | 在 worker 容器内 `docker ps`；检查 `/var/run/docker.sock` 挂载与 `DOCKER_GID`（`ls -l /var/run/docker.sock`，`getent group docker`） |
 | run 失败，错误含 `no such image` / `pull access denied` | 沙盒镜像未构建或名字不对 | `docker images agentport/sandbox`；`pnpm run up --rebuild`（或按「2.2.1 手动构建沙盒镜像」）；核对 `SANDBOX_IMAGE` |
+| 新建会话报「运行环境 ... 没有可用的线上版本」 | 智能体绑定的环境尚未发布版本，或默认环境登记失败 | 在「运行环境」构建并设为线上；默认环境首次登记时本地缺失会先拉取 `SANDBOX_IMAGE`，已有默认环境不会因环境变量变化自动拉取或推进指针；不要手工改线上指针 |
+| 运行环境构建报 `unknown command: buildx` | worker 镜像的 `runtime` target 未带 buildx 插件 | 用当前根 Dockerfile 重建 worker 镜像；旧镜像不会自动获得该插件 |
+| 运行环境构建报基座镜像不存在或不可用 | `SANDBOX_IMAGE` 指向的本地基座缺失 | 按 §2.2.1 构建基座；构建不会隐式 pull，也不会改用其他镜像 |
+| 发布/回退后运行中的会话仍用旧镜像 | 设计如此：线上指针只在新建容器时解析 | 需要新镜像时等容器空闲回收或被销毁后重建，不要期待发布替换存活容器 |
 | 构建沙盒镜像报 `COPY package.json: not found` 或 `SDK native CLI is not executable` | 仍在用 `packages/sandbox` 作为构建上下文；或 `pnpm deploy` 未带入平台对应的 optional 原生依赖 | 从仓库根执行 `docker build --target sandbox ... .`；确认基础镜像平台与 SDK optional 依赖匹配，删掉旧构建缓存后重试 |
 | 模型调用 401 / 403 | 凭证缺失、失效，或 `ANTHROPIC_BASE_URL` 在容器内不可达 | `docker compose logs worker` 看容器 stderr；确认 `.env` 只填了 `ANTHROPIC_API_KEY` 与 `ANTHROPIC_AUTH_TOKEN` 之一；`ANTHROPIC_BASE_URL` 不要写 `127.0.0.1`（worker 会改写为 `host.docker.internal`，Linux 需 Docker 支持该别名） |
 | MCP 工具未出现在智能体上下文 | 未绑定 server、工具被禁用、绑定关系未保存，或 server 连接失败 | 「MCP Servers」页点「测试」看 `listTools()`；检查 generated server 的工具是否 `enabled`；「智能体 → 文件预览」确认 `.mcp.json` 含该 server；运行详情看拒绝原因（`permissionMode=dontAsk` 下未预批准会直接拒绝） |

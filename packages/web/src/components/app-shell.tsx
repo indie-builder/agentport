@@ -4,6 +4,7 @@ import {
   Activity,
   Cable,
   CalendarClock,
+  Container,
   FlaskConical,
   HeartPulse,
   LayoutDashboard,
@@ -61,6 +62,7 @@ const nav = [
   {
     label: '系统',
     items: [
+      { to: '/runtime-environments', label: '运行环境', icon: Container },
       { to: '/status', label: '健康', icon: HeartPulse },
       { to: '/audit', label: '审计', icon: ScrollText },
     ],
@@ -98,6 +100,8 @@ const navRoutes: Record<string, string> = {
   '/_shell/knowledge/': '/agents',
   '/_shell/knowledge/$baseId': '/agents',
   '/_shell/eval': '/eval',
+  '/_shell/runtime-environments/': '/runtime-environments',
+  '/_shell/runtime-environments/$environmentId': '/runtime-environments',
   '/_shell/status': '/status',
   '/_shell/audit': '/audit',
 };

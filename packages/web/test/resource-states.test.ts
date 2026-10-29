@@ -1,4 +1,10 @@
-import { type Agent, type ApiTool, agentInputSchema, type Server } from '@agentport/shared';
+import {
+  type Agent,
+  type ApiTool,
+  agentInputSchema,
+  type RuntimeEnvironment,
+  type Server,
+} from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -11,6 +17,7 @@ import { Select } from '../src/components/ui/select.js';
 import { Switch } from '../src/components/ui/switch.js';
 import { Textarea } from '../src/components/ui/textarea.js';
 import { Toggle } from '../src/components/ui/toggle.js';
+import { api } from '../src/lib/api.js';
 import { AgentEditor, AgentsPage } from '../src/pages/agents.js';
 import { ServersPage } from '../src/pages/servers.js';
 
@@ -59,6 +66,35 @@ const server: Server = {
   kind: 'generated',
   baseUrl: 'https://example.com',
   headers: {},
+  createdAt: '2026-01-01',
+  updatedAt: '2026-01-01',
+};
+const stdioServer: Server = {
+  id: 'server-stdio',
+  name: 'stdio-connector',
+  description: '',
+  kind: 'stdio',
+  command: 'node',
+  args: [],
+  env: {},
+  createdAt: '2026-01-01',
+  updatedAt: '2026-01-01',
+};
+const defaultEnvironment: RuntimeEnvironment = {
+  id: 'rte_default',
+  name: '默认环境',
+  dockerfile: 'FROM base',
+  isDefault: true,
+  onlineVersionId: 'rtev_default',
+  createdAt: '2026-01-01',
+  updatedAt: '2026-01-01',
+};
+const namedEnvironment: RuntimeEnvironment = {
+  id: 'rte_named',
+  name: '数据分析',
+  dockerfile: 'FROM base',
+  isDefault: false,
+  onlineVersionId: null,
   createdAt: '2026-01-01',
   updatedAt: '2026-01-01',
 };
@@ -187,6 +223,7 @@ describe('resource async state regressions', () => {
     (empty) => {
       const queryClient = client();
       if (empty) queryClient.setQueryData(['agents'], []);
+      vi.spyOn(api, 'importAgent').mockReturnValue(new Promise(() => {}));
       inspect(queryClient, AgentsPage, (tree, pass) => {
         if (pass === 0) {
           const upload = required(
@@ -199,7 +236,18 @@ describe('resource async state regressions', () => {
               value: '',
             },
           });
-          return;
+          return true;
+        }
+        if (pass === 1) {
+          // ZIP 先确认目标环境；确认后才进入导入中状态。
+          const confirm = required(
+            tree,
+            (node) =>
+              (node.type as { name?: string }).name === 'ImportAgentDialog' &&
+              typeof node.props.onImport === 'function',
+          );
+          (confirm.props.onImport as (id?: string) => void)(undefined);
+          return true;
         }
         const entries = tree.filter(
           (node) =>
@@ -335,6 +383,56 @@ describe('resource async state regressions', () => {
       }
     },
   );
+
+  it('tests stdio connectors in the chosen runtime environment', async () => {
+    const queryClient = client();
+    queryClient.setQueryData(['servers'], [stdioServer]);
+    queryClient.setQueryData(['runtime-environments'], [defaultEnvironment, namedEnvironment]);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({
+        ok: true,
+        tools: [],
+        durationMs: 1,
+        runtimeEnvironment: {
+          environmentId: namedEnvironment.id,
+          environmentName: namedEnvironment.name,
+          versionId: 'rtev_named',
+          imageId: 'sha256:named',
+        },
+      }),
+    );
+    let confirmed = false;
+    inspect(queryClient, ServersPage, (tree, pass) => {
+      if (pass === 0) {
+        (
+          required(tree, (node) => (node.props.server as Server | undefined)?.id === stdioServer.id)
+            .props.onTest as (trigger: HTMLElement) => void
+        )(document.createElement('button'));
+        return;
+      }
+      if (confirmed) return;
+      const dialog = required(
+        tree,
+        (node) =>
+          (node.props.server as Server | undefined)?.id === stdioServer.id &&
+          typeof node.props.onConfirm === 'function',
+      );
+      expect(
+        (dialog.props.environments as RuntimeEnvironment[]).map((environment) => environment.name),
+      ).toEqual(['默认环境', '数据分析']);
+      confirmed = true;
+      (dialog.props.onConfirm as (environmentId: string) => void)(namedEnvironment.id);
+    });
+    await vi.waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/servers/server-stdio/test',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ runtimeEnvironmentId: namedEnvironment.id }),
+        }),
+      ),
+    );
+  });
 
   it('locks only the approval checkbox whose tool is being edited', () => {
     const queryClient = client();

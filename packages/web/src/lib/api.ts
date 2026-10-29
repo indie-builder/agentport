@@ -37,7 +37,13 @@ import type {
   Problem,
   PublicQuestionResponse,
   PublicRunQuestion,
+  ResolvedRuntimeEnvironment,
   Rule,
+  RuntimeEnvironment,
+  RuntimeEnvironmentInput,
+  RuntimeEnvironmentPatch,
+  RuntimeEnvironmentVersion,
+  RuntimeEnvironmentVersionSummary,
   Schedule,
   ScheduleInput,
   SchedulePatch,
@@ -178,6 +184,8 @@ export interface RunDetail {
     conversationId: string;
     sessionId: string | null;
     sandboxId: string | null;
+    /** 容器实际使用的身份；尚未创建容器时为 null。 */
+    runtimeEnvironment: ResolvedRuntimeEnvironment | null;
   };
   steps: RunStep[];
   conversation: { id: string; agentId: string; title: string };
@@ -692,7 +700,34 @@ export const api = {
       ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
     }),
   deleteServer: (id: string): Promise<void> => request(`/servers/${id}`, 'DELETE'),
-  testServer: (id: string): Promise<ServerTestResult> => request(`/servers/${id}/test`, 'POST'),
+  testServer: (id: string, runtimeEnvironmentId?: string | null): Promise<ServerTestResult> =>
+    request(
+      `/servers/${id}/test`,
+      'POST',
+      runtimeEnvironmentId === undefined || runtimeEnvironmentId === null
+        ? undefined
+        : { runtimeEnvironmentId },
+    ),
+
+  runtimeEnvironments: (): Promise<RuntimeEnvironment[]> => request('/runtime-environments'),
+  runtimeEnvironment: (id: string): Promise<RuntimeEnvironment> =>
+    request(`/runtime-environments/${id}`),
+  createRuntimeEnvironment: (input: RuntimeEnvironmentInput): Promise<RuntimeEnvironment> =>
+    request('/runtime-environments', 'POST', input),
+  updateRuntimeEnvironment: (
+    id: string,
+    patch: RuntimeEnvironmentPatch,
+  ): Promise<RuntimeEnvironment> => request(`/runtime-environments/${id}`, 'PATCH', patch),
+  deleteRuntimeEnvironment: (id: string): Promise<void> =>
+    request(`/runtime-environments/${id}`, 'DELETE'),
+  runtimeEnvironmentVersions: (id: string): Promise<RuntimeEnvironmentVersionSummary[]> =>
+    request(`/runtime-environments/${id}/versions`),
+  runtimeEnvironmentVersion: (id: string, versionId: string): Promise<RuntimeEnvironmentVersion> =>
+    request(`/runtime-environments/${id}/versions/${versionId}`),
+  buildRuntimeEnvironment: (id: string): Promise<RuntimeEnvironmentVersion> =>
+    request(`/runtime-environments/${id}/versions`, 'POST', {}),
+  publishRuntimeEnvironment: (id: string, versionId: string): Promise<RuntimeEnvironment> =>
+    request(`/runtime-environments/${id}/online-version`, 'PUT', { versionId }),
   importMcpFile: (content: string): Promise<McpImportResult> =>
     request('/servers/import-file', 'POST', { mcpJson: content }),
   /**
@@ -788,8 +823,22 @@ export const api = {
         // 头部损坏不影响下载本身，忽略即可。
       }
     }),
-  importAgent: (file: Blob, signal?: AbortSignal): Promise<AgentImportResult> =>
-    request('/import/agents', 'POST', file, signal),
+  /** 显式传环境 id 时覆盖包内名称映射；省略则按包中名称匹配。 */
+  importAgent: (
+    file: Blob,
+    signal?: AbortSignal,
+    runtimeEnvironmentId?: string,
+  ): Promise<AgentImportResult> =>
+    request(
+      `/import/agents${
+        runtimeEnvironmentId === undefined
+          ? ''
+          : `?runtimeEnvironmentId=${encodeURIComponent(runtimeEnvironmentId)}`
+      }`,
+      'POST',
+      file,
+      signal,
+    ),
   importAgentFile: (agentMd: string): Promise<Pick<AgentImportResult, 'agent' | 'warnings'>> =>
     request('/agents/import-file', 'POST', { agentMd }),
 

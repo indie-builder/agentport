@@ -90,6 +90,18 @@ const importFileSchema = z
 
 const IMPORT_WARNINGS = ['仅导入连接配置；未测试连接或执行命令，请检查后再使用。'];
 
+/**
+ * 试连只对 stdio 有意义：http/generated 从平台侧直连，不经过运行环境。
+ * 可选项保持可选，老调用方不带 body 时仍使用平台默认环境。
+ */
+const serverTestBodySchema = z
+  .object({
+    /** null/缺省表示平台默认环境；只影响这次 stdio 试连使用的容器镜像。 */
+    runtimeEnvironmentId: z.string().min(1).nullable().optional(),
+  })
+  .strict()
+  .nullish();
+
 /** server 名有唯一索引（23505）→ 409。 */
 function rethrowConflict(err: unknown): never {
   if (isPgCode(err, '23505')) fail('CONFLICT', '该名称已被其他 MCP Server 占用，请换一个');
@@ -282,15 +294,26 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/servers/:id/test',
-    { ...auth, ...serverTestRateLimit, schema: { params: idParams } },
+    { ...auth, ...serverTestRateLimit, schema: { params: idParams, body: serverTestBodySchema } },
     async (request, reply) => {
       const server = await getServerWithSecrets(app.db, request.params.id, key());
       if (!server) return notFound(reply, 'server');
+      const runtimeEnvironmentId = request.body?.runtimeEnvironmentId;
+      // 运行环境是沙盒概念：http/generated 由平台侧直连，不能假装在某个环境里测试。
+      if (runtimeEnvironmentId != null && server.kind !== 'stdio') {
+        return reject(
+          reply,
+          'INVALID_INPUT',
+          '从平台侧发起的连接不使用运行环境；运行环境仅用于 stdio 连接测试',
+        );
+      }
       // stdio 命令由用户提供：只在 worker 的沙盒镜像里执行；http/generated 仍在 API 内直连。
       // worker 结果带脱敏 stderr，序列化时由 serverTestResultSchema 剥掉。
       const result: ServerTestResult & { stderr?: string } =
         server.kind === 'stdio'
-          ? await testStdioInSandbox(server.id, request.log)
+          ? await testStdioInSandbox(server.id, request.log, {
+              ...(runtimeEnvironmentId == null ? {} : { runtimeEnvironmentId }),
+            })
           : await testConnection(
               server,
               app.config.NODE_ENV,
@@ -327,6 +350,8 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
         server.id,
         result.ok,
         result.ok ? result.tools.length : null,
+        // 成功只对本次实际环境成立；http/generated 没有环境身份，记 null。
+        result.runtimeEnvironment ?? null,
       );
       // http 工具目录落到 servers.config：worker 渲染生成式 UI 提示词时无法连 MCP，
       // 与执行桥共用这份快照。stdio 用不到（不进 UI 目录），失败也不覆盖旧目录。

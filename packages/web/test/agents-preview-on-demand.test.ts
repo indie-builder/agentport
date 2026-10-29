@@ -45,6 +45,7 @@ vi.mock('../src/lib/queries.js', () => ({
   useAgents: () => ({ data: state.agents }),
   useServers: () => ({ data: [], isPending: false, isError: false }),
   useKnowledgeBases: () => ({ data: [], isPending: false, isError: false }),
+  useRuntimeEnvironments: () => ({ data: [], isPending: false, isError: false, refetch: vi.fn() }),
   usePlugins: () => ({ data: [], isPending: false, isError: false, status: 'success' }),
   useSkills: () => ({
     data: state.skills,

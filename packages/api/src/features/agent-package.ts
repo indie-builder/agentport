@@ -497,6 +497,15 @@ export async function buildAgentPackage(
     else toolsByServerId.set(tool.serverId, [tool]);
   }
 
+  // 包里只放环境名称：目标实例按本机同名环境映射，不携带镜像/版本历史。
+  const runtimeEnvironment =
+    row.runtimeEnvironmentId === null
+      ? null
+      : await repo.runtimeEnvironments.getRuntimeEnvironment(db, row.runtimeEnvironmentId);
+  if (row.runtimeEnvironmentId !== null && runtimeEnvironment === null) {
+    fail('CONFLICT', '该专家绑定的运行环境已不存在，无法导出；请重新选择运行环境');
+  }
+
   const sidecar = {
     version: AGENT_PACKAGE_SIDECAR_VERSION,
     agent: {
@@ -517,6 +526,7 @@ export async function buildAgentPackage(
       disallowedTools: row.disallowedTools,
       serverNames: rootServers.map((server) => server.name),
       skillSlugs: rootSkills.map((skill) => skill.slug),
+      ...(runtimeEnvironment === null ? {} : { runtimeEnvironmentName: runtimeEnvironment.name }),
     },
     servers: allServers.map((server) =>
       toExportedServer(
@@ -577,10 +587,12 @@ interface ParsedPackage {
   skills: PackageSkillInput[];
   rules: PackageRuleInput[];
   styles: PackageStyleInput[];
+  /** 侧车里的环境名称引用；导入时映射到本机环境，缺失时为默认环境。 */
+  runtimeEnvironmentName?: string;
 }
 
 interface PackageInput {
-  input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds'>;
+  input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds' | 'runtimeEnvironmentId'>;
   serverNames: string[];
   skillSlugs: string[];
 }
@@ -939,6 +951,9 @@ export function parseAgentPackage(
     skills: skillList,
     rules,
     styles,
+    ...(sidecar.agent.runtimeEnvironmentName === undefined
+      ? {}
+      : { runtimeEnvironmentName: sidecar.agent.runtimeEnvironmentName }),
   };
 }
 
@@ -1020,7 +1035,10 @@ function toServerInput(entry: PackageServer): ServerInput {
   }
 }
 
-function toAgentValues(input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds'>) {
+function toAgentValues(
+  input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds' | 'runtimeEnvironmentId'>,
+  runtimeEnvironmentId: string | null = null,
+) {
   return {
     name: input.name,
     role: input.role,
@@ -1037,6 +1055,7 @@ function toAgentValues(input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAg
     maxTurns: input.maxTurns,
     maxBudgetUsd: String(input.maxBudgetUsd),
     timeoutMs: input.timeoutMs,
+    runtimeEnvironmentId,
   };
 }
 
@@ -1074,12 +1093,52 @@ async function insertAgentFiles(
   }
 }
 
+/**
+ * 专家包只携带环境名称。导入时显式选择的目标环境优先，否则按名称匹配本机环境；
+ * 都没有表示平台默认环境。名称匹配不到时明确失败，不静默回落到默认环境。
+ */
+async function resolveRuntimeEnvironmentId(
+  db: Database,
+  explicitId: string | undefined,
+  packageName: string | undefined,
+): Promise<string | null> {
+  const environment =
+    explicitId !== undefined
+      ? await repo.runtimeEnvironments.getRuntimeEnvironment(db, explicitId)
+      : packageName === undefined
+        ? null
+        : await repo.runtimeEnvironments.getRuntimeEnvironmentByName(db, packageName);
+  if (explicitId === undefined && packageName === undefined) return null;
+  if (environment === null) {
+    fail(
+      'INVALID_REFERENCE',
+      explicitId !== undefined
+        ? '导入时选择的运行环境不存在，请刷新后重新选择'
+        : `导入包绑定的运行环境「${packageName}」在本机不存在；请先创建同名环境，或选择目标环境后重试`,
+    );
+  }
+  if (
+    (await repo.runtimeEnvironments.resolveOnlineRuntimeEnvironment(db, environment.id)) === null
+  ) {
+    fail(
+      'INVALID_REFERENCE',
+      `运行环境「${environment.name}」还没有可用的线上版本；请先完成构建并发布后再导入`,
+    );
+  }
+  return environment.id;
+}
+
 /** 导入包：整个流程一个事务，任何一步失败都不留下半套定义。 */
 export async function importAgentPackage(
   db: Database,
   parsed: ParsedPackage,
-  options: { nodeEnv: string; selfUrl: string },
+  options: { nodeEnv: string; selfUrl: string; runtimeEnvironmentId?: string | undefined },
 ): Promise<AgentPackageImportResult & { counts: ImportCounts }> {
+  const runtimeEnvironmentId = await resolveRuntimeEnvironmentId(
+    db,
+    options.runtimeEnvironmentId,
+    parsed.runtimeEnvironmentName,
+  );
   const serverEntries = parsed.servers.map((entry) => ({
     input: toServerInput(entry),
     tools: entry.kind === 'generated' ? entry.tools : undefined,
@@ -1274,7 +1333,11 @@ export async function importAgentPackage(
       const skillIds = resolve(parsed.agent.skillSlugs, skillIdsBySlug);
       const [row] = await tx
         .insert(agents)
-        .values({ id: newId('agent'), slug, ...toAgentValues(parsed.agent.input) })
+        .values({
+          id: newId('agent'),
+          slug,
+          ...toAgentValues(parsed.agent.input, runtimeEnvironmentId),
+        })
         .returning();
       if (!row) throw new Error('agent insert returned no row');
       if (serverIds.length > 0) {

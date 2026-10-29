@@ -288,6 +288,13 @@
       "when": 1793230600906,
       "tag": "0040_fuzzy_warstar",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793238917970,
+      "tag": "0041_careful_pretty_boy",
+      "breakpoints": true
     }
   ]
 }

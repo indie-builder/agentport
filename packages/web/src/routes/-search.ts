@@ -73,6 +73,18 @@ export const evalSearchSchema = z.object({
 
 export const knowledgeSearchSchema = resourceSearchSchema;
 
+const buildStatuses = ['queued', 'building', 'ready', 'failed'] as const;
+
+export const runtimeEnvironmentsSearchSchema = z.object({
+  q: z.string().optional().catch(undefined),
+});
+
+/** 运行环境详情：状态筛选与选中的构建版本进 URL，刷新与分享后回到同一视图。 */
+export const runtimeEnvironmentDetailSearchSchema = z.object({
+  status: z.enum(buildStatuses).optional().catch(undefined),
+  version: z.string().min(1).optional().catch(undefined),
+});
+
 const knowledgeTabs = ['documents', 'search', 'wiki', 'sources', 'jobs'] as const;
 
 /** 知识库详情：分区、Wiki 页面与文件夹都进 URL，刷新与分享后回到同一视图。 */

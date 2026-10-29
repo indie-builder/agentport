@@ -6,11 +6,13 @@ import { typed } from '../../types.js';
 import { importAgentPackage, parseAgentPackage } from '../agent-package.js';
 import { decodePackage } from '../agent-package-zip.js';
 
-/** 不带 sidecar 的官方目录用请求参数补 slug/name。 */
+/** 不带 sidecar 的官方目录用请求参数补 slug/name；显式目标环境按 id 映射。 */
 const importQuerySchema = z
   .object({
     slug: slugSchema.optional(),
     name: z.string().min(1).max(128).optional(),
+    /** 显式映射到本机运行环境；缺省按包内名称匹配，包内无引用则为默认环境。 */
+    runtimeEnvironmentId: z.string().min(1).optional(),
   })
   .strict();
 
@@ -51,6 +53,9 @@ export function registerImportRoutes(rawApp: FastifyInstance): void {
       const result = await importAgentPackage(app.db, parsed, {
         nodeEnv: app.config.NODE_ENV,
         selfUrl: app.config.SELF_URL,
+        ...(request.query.runtimeEnvironmentId === undefined
+          ? {}
+          : { runtimeEnvironmentId: request.query.runtimeEnvironmentId }),
       });
       await writeAudit(app.db, request.log, {
         actor: 'admin',

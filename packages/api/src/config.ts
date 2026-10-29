@@ -26,6 +26,8 @@ const envSchema = z
     AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
     /** 未批准的工具调用挂起多久（D-18）；超时按拒绝处理。0 表示立即拒绝。 */
     APPROVAL_WAIT_MS: z.coerce.number().int().nonnegative().default(300_000),
+    /** 用户运行环境构建时冻结的基座 tag；worker 构建时解析成不可变 image ID。 */
+    SANDBOX_IMAGE: z.string().min(1).default('agentport/sandbox:dev'),
     /** 与 worker 同机共享的工作区根目录；记忆文件就落在这里的 <slug>/agent-memory/。 */
     WORKSPACES_DIR: z.string().min(1).default('./data/workspaces'),
     /** 知识库原件与解析产物根目录；与 worker 共享同一持久卷。 */

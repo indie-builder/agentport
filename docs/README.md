@@ -22,6 +22,10 @@
 | [tasks/knowledge-review-findings.md](tasks/knowledge-review-findings.md) | 知识实现独立审查发现与整改范围 |
 | [tasks/knowledge-implementation.md](tasks/knowledge-implementation.md) | 知识实施进度、测试与部署配置记录 |
 | [tasks/knowledge-implementation-contract.md](tasks/knowledge-implementation-contract.md) | 知识实现契约：表、接口、模块与执行包 |
+| [tasks/runtime-environment-config.md](tasks/runtime-environment-config.md) | 运行环境能力：命名环境、构建版本、线上指针与专家绑定 |
+| [tasks/runtime-environment-contract.md](tasks/runtime-environment-contract.md) | 运行环境 DB/shared 共享契约与方法签名 |
+| [tasks/runtime-environment-probe-contract.md](tasks/runtime-environment-probe-contract.md) | stdio 试连的环境身份、jsonb 字段与读写行为 |
+| [tasks/enable-agent-bash.md](tasks/enable-agent-bash.md) | 恢复智能体 Bash 能力的调查、权限契约与验收 |
 | [OPENUI-UPGRADE.md](OPENUI-UPGRADE.md) | OpenUI 组件契约、官方 spec 生成与升级行为回归 |
 | [OPENUI-UI-ADAPTATION.md](OPENUI-UI-ADAPTATION.md) | 官方 shadcn UI 来源、Base UI 适配边界与项目令牌映射 |
 | `tasks/<slug>.md` | 单个任务的执行记录（按 `DEV-WORKFLOW.md` 模板创建） |

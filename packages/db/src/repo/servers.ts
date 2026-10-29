@@ -1,4 +1,5 @@
 import { AppError } from '@agentport/core';
+import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -47,16 +48,26 @@ export async function listServers(db: Database): Promise<ServerRow[]> {
   return db.select().from(servers).orderBy(asc(servers.createdAt), asc(servers.id));
 }
 
-/** 记录一次「测试连接」结果，供列表展示连接健康度；不影响配置本身。 */
+/**
+ * 记录一次「测试连接」结果，供列表展示连接健康度；不影响配置本身。
+ * 单条 UPDATE 只写 last-test 四列，不与并发 PATCH 的读改写互相覆盖；
+ * 不推进 updatedAt（试连不是配置修改）。
+ */
 export async function recordTestResult(
   db: Database,
   id: string,
   ok: boolean,
   toolCount: number | null,
+  runtimeEnvironment: ResolvedRuntimeEnvironment | null,
 ): Promise<void> {
   await db
     .update(servers)
-    .set({ lastTestedAt: new Date(), lastTestOk: ok, lastToolCount: toolCount })
+    .set({
+      lastTestedAt: new Date(),
+      lastTestOk: ok,
+      lastToolCount: toolCount,
+      lastTestRuntimeEnvironment: runtimeEnvironment,
+    })
     .where(eq(servers.id, id));
 }
 

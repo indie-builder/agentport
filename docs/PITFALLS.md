@@ -141,11 +141,11 @@
 - **原因**：把上次的 space id / page 标签 / `ref` 当成长期有效；locator 语法写成 Playwright 的写法。
 - **规避**：①同一个目标只用一个 TaskSpace，用**固定名字**复用（`taskSpace('chat-layout')`），名字才是长期句柄；数字 `spaceId` 只在当轮输出里可读，不要当成跨轮常量存下来；②`task.page(label)` 只查已存在的页，缺页用 `await task.newPage()`（不传参数）且用先前输出里的 `p1`/`p2` 标签；③`ref` 只在当前快照有效，页面变化后重新 `snapshot()` 再点；④role 定位写成 `loc=role:button[name="新建专家"]`，名字是子串匹配用 `[name*="…"]`，`loc=role:dialog` 这种缺名字的写法会报 `Invalid locator`。需要观测条件时用 `waitForSelector`/`waitForFunction`，不用固定 sleep。
 
-## 数据库：迁移账本与 schema 漂移时不要手改迁移记录
+## 数据库：迁移账本漂移或共享库已有列时不要手改账本
 
-- **现象**：`pnpm db:migrate` 报列已存在（如 `agents.role`），或 `__drizzle_migrations` 里的时间戳在 journal 中找不到。
-- **原因**：dev 库曾被另一条迁移历史建过，或旧 worktree 用旧 journal 迁移过同一库；journal 与库内账本不一致。
-- **规避**：先按 `journal` 与实际 `__drizzle_migrations` 逐条比对确认差异，再决定；个人项目不留历史数据，直接 `pnpm run down --clean && pnpm run up` 重建最干净。不要手写/删除迁移账本行来「对齐」。
+- **现象**：`pnpm db:migrate` 报列已存在（如 `agents.role`），或 `__drizzle_migrations` 里的时间戳在 journal 中找不到；共享库还可能停在上一号，后续迁移一条都没跑。
+- **原因**：dev/共享库曾被另一条迁移历史建过，或列被手工 DDL、另一分支加过；journal 与库内账本不一致，列定义也可能与本分支 schema 不同（例如 `not null default ''` vs 可空）。
+- **规避**：先按 `journal`、实际 `__drizzle_migrations` 与 `\d <table>` 逐条比对确认差异；个人项目不留历史数据，直接 `pnpm run down --clean && pnpm run up` 重建最干净，或确认无数据后按本分支 schema 重建。不要手写/删除迁移账本行来「对齐」，也不要把 `ADD COLUMN` 改成 `IF NOT EXISTS`，否则新库与旧库定义会分叉。
 
 ## 流程：用 main 的提交顺序覆盖了用户更晚的决定
 
@@ -207,6 +207,18 @@
 - **原因**：Drizzle `.desc()` 生成 `DESC NULLS LAST`，查询默认 `DESC NULLS FIRST`，规划器没有采用该排序路径。
 - **规避**：当前非空分页列使用升序复合索引，由 PostgreSQL 反向扫描满足倒序；生成迁移后用实际 SQL 的 `EXPLAIN (ANALYZE, BUFFERS)` 验证，不能只看索引列名一致。
 
+## 数据库：复合外键的引用目标必须是 UNIQUE 约束，不能是 uniqueIndex
+
+- **现象**：迁移在 `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` 时报 42830（`there is no unique constraint matching given keys`）。
+- **原因**：Drizzle `uniqueIndex()` 只生成独立的 `CREATE UNIQUE INDEX`，drizzle-kit 把它排在 `ADD CONSTRAINT` 之后；PostgreSQL 复合外键要求引用列上有 UNIQUE/PRIMARY KEY **约束**。
+- **规避**：引用目标用表级 `unique('...').on(...)`；生成迁移后确认 `ADD CONSTRAINT` 先于引用它的外键。
+
+## 数据库：partial index 的 eq 参数会被 drizzle-kit 序列化成 $1
+
+- **现象**：生成的迁移里出现 `WHERE "is_default" = $1`，执行时报 `there is no parameter $1` 或索引条件错误。
+- **原因**：drizzle-kit 把 `eq(t.isDefault, true)` 当参数化表达式，不会内联布尔字面量。
+- **规避**：partial index 条件改用 `` sql`${t.isDefault} = true` ``，生成后确认 SQL 是字面量而不是 `$1`。
+
 ## 导入：ZIP 库的定长输出长度不等于真实解压大小
 
 - **现象**：归档低报 deflate 原始大小时，fflate 返回被截断的文本，后验长度比较仍通过。
@@ -237,12 +249,6 @@
 - **原因**：Docling JSON 的表格是紧凑序列化，与官方 Markdown 中带对齐空格的表格文本不同，整文 `indexOf` 找不到表格；短 OCR 串也会落到任意相同数字里。CRLF 原文还会让偏移与返回文本位置不一致。
 - **规避**：复用 `markdownBlocks` 已算出的原文 offset 与 fingerprint，按同类匹配并维护已认领区间，不随意 substring。真实解析验收要看 `adapter.chunkMarkdown` 产出的 `pageFrom`，不能只看 JSON blocks 的 locator；CRLF 必须返回原文 offset。
 
-## 数据库：共享库已有列会让 Drizzle 迁移整批中止
-
-- **现象**：`pnpm db:migrate` 报 `column ... already exists`，`drizzle.__drizzle_migrations` 仍停在上一号，后续迁移一条都没跑。
-- **原因**：多个 worktree 共用同一个本地库；列可能被手工 DDL 或另一分支加过，账本没记录，列定义也可能与本分支 schema 不同（例如 `not null default ''` vs 可空）。
-- **规避**：迁移前先 `\d <table>` 对照 schema；差异列确认无数据后按本分支 schema 重建，再跑迁移。不要手改账本，也不要把 `ADD COLUMN` 改成 `IF NOT EXISTS`，否则新库与旧库定义会分叉。
-
 ## 测试：组件覆盖的「豁免清单」会冒充已覆盖
 
 - **现象**：`pnpm openui:check` 11 项全绿、组件覆盖测试 38 项全绿，实际仍有日期早存一天、复选默认项不进载荷、表格流式补行后仍 0 行、日期弹层点击打不开。
@@ -261,8 +267,14 @@
 - **原因**：`close` 要等子进程退出且所有 stdio 管道关闭；后代继承了 stdout/stderr 时管道仍打开，`close` 被拖后。若顺序是「先 await close，再清理后代」，而后代又阻塞在管道上，就互等。EOF 收尾只设 `exitCode` 而留着 pipe handles 时同样不会收敛。
 - **规避**：按 `exit` 事件启动后代清理，再排空/结束输出管道并确认已 settled；测试覆盖 stdio inherit 与 detached；EOF 收尾显式结束管道，不只设 `exitCode`。
 
+## 镜像：官方 CLI 的 Bash 工具需要真正的 bash/zsh，busybox sh 不够
+
+- **现象**：镜像里有 `sh` 且能执行命令，但智能体调用 Bash 报 `No suitable shell found`。
+- **原因**：Claude Code 原生 CLI 按 PATH 查找 bash/zsh 来执行 shell 工具，不把 busybox ash 当兼容 shell；自制 sh 兼容壳只能骗过部分测试，不是开箱能力。
+- **规避**：sandbox 基座安装 `bash`，构建期用 `bash --version` 确认是 GNU bash；运行环境 verify 再确认 PATH 上存在 bash。
+
 ## 测试：真实容器测试可能加载旧 dist，产物存在不等于来自当前源码
 
-- **现象**：真实 Docker / SDK 测试全绿，实际行为却对应旧代码；镜像或挂载里是旧的 `shared`/`sandbox` 构建。
-- **原因**：测试只检测 `dist` 是否存在，或复用镜像中旧的 `shared` 产物，没有确认产物来自本轮源码；根 `vitest` 入口只跑测试，不等于执行构建。
-- **规避**：每轮为 `shared`/`sandbox` 编译独占临时产物或显式构建最新版本，并记录产物来源；验收跑真实 Docker 与 SDK fake API；不要把根 `vitest` 入口当作构建步骤。
+- **现象**：真实 Docker / SDK 测试全绿，实际行为却对应旧代码；镜像或挂载里是旧的 `shared`/`sandbox` 构建。新建 worktree 首次跑 Vitest 还可能在业务用例前报 `TypeError: code.charCodeAt is not a function`。
+- **原因**：测试只检测 `dist` 是否存在，或复用镜像中旧的 `shared` 产物，没有确认产物来自本轮源码；根 `vitest` 入口只跑测试，不等于执行构建。新 worktree 不带 workspace `dist` 时，Vite 会把模块解析/构建异常重写成 `charCodeAt` 堆栈，看起来像业务代码报错（本次实测缺 `packages/db/dist`）。
+- **规避**：每轮为 `shared`/`sandbox` 编译独占临时产物或显式构建最新版本，并记录产物来源；验收跑真实 Docker 与 SDK fake API；不要把根 `vitest` 入口当作构建步骤。新树先 `pnpm --filter @agentport/shared --filter @agentport/core --filter @agentport/db build` 再跑 backend 测试；遇到 `charCodeAt` 先查缺哪个 workspace `dist`，不要改业务代码。后端测试由 globalSetup 在随机 PostgreSQL 库和临时 Redis 上运行，不手动迁开发库、不回落共享库。

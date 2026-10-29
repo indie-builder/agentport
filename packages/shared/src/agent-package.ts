@@ -163,6 +163,8 @@ export const agentPackageSidecarSchema = z
         ...platformFields,
         serverNames: z.array(slugSchema).default([]),
         skillSlugs: z.array(slugSchema).default([]),
+        /** 只保存环境名称引用；镜像与版本历史不随包导入，导入方映射到本机同名环境。 */
+        runtimeEnvironmentName: z.string().trim().min(1).max(64).optional(),
       })
       .strict(),
     servers: z.array(packageServerSchema).max(AGENT_PACKAGE_LIMITS.servers).default([]),

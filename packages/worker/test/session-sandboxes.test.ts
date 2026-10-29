@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import type { ChatEvent, SandboxInputCommand } from '@agentport/shared';
+import type { ChatEvent, ResolvedRuntimeEnvironment, SandboxInputCommand } from '@agentport/shared';
 import pino from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../src/sandbox/provider.js';
@@ -129,13 +129,26 @@ function baseSpec() {
   return {
     agentId: 'agent_1',
     conversationId: 'conv_1',
-    image: 'sandbox:test',
+    runtimeEnvironmentId: null,
     workspaceDir: '/host/workspace',
     outputsDir: '/host/outputs',
     inputsDir: '/host/inputs',
     memoryDir: '/host/memory',
     sessionsDir: '/host/sessions',
   };
+}
+
+function runtime(versionId: string, imageId: string): ResolvedRuntimeEnvironment {
+  return {
+    environmentId: 'env_1',
+    environmentName: '默认环境',
+    versionId,
+    imageId,
+  };
+}
+
+function imageId(fill: string): string {
+  return `sha256:${fill.repeat(64)}`;
 }
 
 function task(runId: string) {
@@ -148,12 +161,18 @@ function task(runId: string) {
   };
 }
 
-async function createManager(provider: FakeProvider, idleTimeoutMs = 300_000) {
+async function createManager(
+  provider: FakeProvider,
+  idleTimeoutMs = 300_000,
+  resolve: (environmentId: string | null) => Promise<ResolvedRuntimeEnvironment> = async () =>
+    runtime('version_1', imageId('1')),
+) {
   const { SessionSandboxes } = await import('../src/sandbox/sessions.js');
   return new SessionSandboxes({
     provider,
     idleTimeoutMs,
     logger: pino({ level: 'silent' }),
+    resolveRuntimeEnvironment: resolve,
   });
 }
 
@@ -294,21 +313,95 @@ describe('session sandboxes', () => {
     await sessions.close();
   });
 
-  it('rebuilds the container when the image or a session mount changes', async () => {
+  it('rebuilds the container when the bound environment or a session mount changes', async () => {
     const provider = new FakeProvider();
     const sessions = await createManager(provider);
 
     const first = await acquire(sessions, spec());
     await first.release({ reuse: true });
-    const changed = await acquire(sessions, spec({ image: 'sandbox:next' }));
+    const changed = await acquire(sessions, spec({ runtimeEnvironmentId: 'env_2' }));
     expect(changed.sandboxId).toBe('sandbox-2');
     expect(provider.destroyed).toEqual(['sandbox-1']);
     await changed.release({ reuse: true });
 
-    const moved = await acquire(sessions, spec({ image: 'sandbox:next', memoryDir: '/host/m2' }));
+    const moved = await acquire(
+      sessions,
+      spec({ runtimeEnvironmentId: 'env_2', memoryDir: '/host/m2' }),
+    );
     expect(moved.sandboxId).toBe('sandbox-3');
     expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-2']);
     await moved.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('keeps the live container and its recorded identity across publish and rollback', async () => {
+    const provider = new FakeProvider();
+    const online = runtime('version_1', imageId('1'));
+    const calls: Array<string | null> = [];
+    const sessions = await createManager(provider, 300_000, async (environmentId) => {
+      calls.push(environmentId);
+      return { ...online };
+    });
+
+    const first = await acquire(sessions, spec());
+    expect(first.runtimeEnvironment).toEqual(runtime('version_1', imageId('1')));
+    expect(provider.creates[0]?.image).toBe(imageId('1'));
+    await first.release({ reuse: true });
+
+    // 发布新版本：存活容器不重建，lease 仍报告实际旧版本。
+    online.versionId = 'version_2';
+    online.imageId = imageId('2');
+    const second = await acquire(sessions, spec());
+    expect(provider.creates).toHaveLength(1);
+    expect(second.sandboxId).toBe('sandbox-1');
+    expect(second.runtimeEnvironment).toEqual(runtime('version_1', imageId('1')));
+    expect(calls).toEqual([null]);
+
+    // 回退到旧版本后容器消亡：下一次真实创建采用当时的线上版本。
+    online.versionId = 'version_1';
+    online.imageId = imageId('1');
+    await second.release({ reuse: false });
+    const third = await acquire(sessions, spec());
+    expect(provider.creates).toHaveLength(2);
+    expect(provider.creates[1]?.image).toBe(imageId('1'));
+    expect(third.runtimeEnvironment).toEqual(runtime('version_1', imageId('1')));
+    expect(calls).toEqual([null, null]);
+
+    await third.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('uses the current online version when a dead container is recreated', async () => {
+    const provider = new FakeProvider();
+    const online = runtime('version_1', imageId('1'));
+    const sessions = await createManager(provider, 300_000, async () => ({ ...online }));
+
+    const first = await acquire(sessions, spec());
+    await first.release({ reuse: true });
+    provider.childOf(first.sandboxId).emit('close', 1, null);
+    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
+
+    // 容器已经消亡：下一次 acquire 是真实创建，必须读当时的线上版本。
+    online.versionId = 'version_2';
+    online.imageId = imageId('2');
+    const second = await acquire(sessions, spec());
+
+    expect(second.sandboxId).toBe('sandbox-2');
+    expect(provider.creates).toHaveLength(2);
+    expect(provider.creates[1]?.image).toBe(imageId('2'));
+    expect(second.runtimeEnvironment).toEqual(runtime('version_2', imageId('2')));
+    await second.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('fails clearly when the environment has no online version and creates nothing', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider, 300_000, async () => {
+      throw new Error('平台默认运行环境还没有可用的线上版本，无法创建沙盒');
+    });
+
+    await expect(acquire(sessions, spec())).rejects.toThrow(/没有可用的线上版本/);
+    expect(provider.creates).toEqual([]);
     await sessions.close();
   });
 
@@ -672,10 +765,14 @@ describe('session sandboxes', () => {
     provider.holdReady = true;
     const sessions = await createManager(provider);
 
-    const acquiring = acquire(sessions, spec(), AbortSignal.timeout(20));
+    // 先挂断言再等容器出现：调用方 20ms 超时可能早于 waitFor 的首次检查，
+    // 延迟挂载会让已拒绝的 acquire 短暂成为 unhandled rejection。
+    const acquiring = expect(
+      acquire(sessions, spec(), AbortSignal.timeout(20)),
+    ).rejects.toMatchObject({ name: 'AbortError' });
     await vi.waitFor(() => expect(provider.sandboxes).toHaveLength(1));
 
-    await expect(acquiring).rejects.toMatchObject({ name: 'AbortError' });
+    await acquiring;
     expect(provider.destroyed).toEqual(['sandbox-1']);
     await expect(sessions.close()).resolves.toBeUndefined();
   });
@@ -824,7 +921,7 @@ describe('session sandboxes', () => {
     await lease.release({ reuse: true });
 
     provider.holdDestroy = true;
-    const changed = spec({ image: 'sandbox:next' });
+    const changed = spec({ runtimeEnvironmentId: 'env_2' });
     const replacement = acquire(sessions, changed);
     await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
 

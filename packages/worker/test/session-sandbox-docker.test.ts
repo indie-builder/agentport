@@ -154,6 +154,12 @@ async function incident(
     provider,
     idleTimeoutMs,
     logger: pino({ level: 'silent' }),
+    resolveRuntimeEnvironment: async () => ({
+      environmentId: 'env_docker',
+      environmentName: '默认环境',
+      versionId: 'ver_docker',
+      imageId: IMAGE_TAG,
+    }),
   });
   return {
     root,
@@ -162,7 +168,7 @@ async function incident(
     spec: {
       agentId: `agent-${randomUUID()}`,
       conversationId: randomUUID(),
-      image: IMAGE_TAG,
+      runtimeEnvironmentId: null,
       ...dirs,
     },
   };

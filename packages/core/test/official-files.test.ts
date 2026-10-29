@@ -50,7 +50,8 @@ describe('official workspace file parsing', () => {
       servers: [{ name: 'web', entry: { type: 'http', url: 'https://example.com', headers: {} } }],
       skills: agent.skills,
     });
-    expect(parseChildAgentMd(content, '/child')).toEqual({
+    const parsed = parseChildAgentMd(content, '/child');
+    expect(parsed).toEqual({
       slug: 'researcher',
       name: '调研员',
       description: '查资料',
@@ -59,9 +60,10 @@ describe('official workspace file parsing', () => {
       effort: 'high',
       skills: ['search'],
       mcpServers: ['web'],
-      disallowedTools: expect.arrayContaining(['Bash', 'Agent']),
+      disallowedTools: expect.arrayContaining(['Read', 'Agent']),
       systemPrompt: agent.systemPrompt,
     });
+    expect(parsed.disallowedTools).not.toContain('Bash');
   });
 
   it('rejects child files with runtime fields or an invalid model', () => {

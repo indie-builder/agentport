@@ -239,7 +239,8 @@ describe('runner task wiring', () => {
 
     expect(io.options?.skills).toEqual(['demo-skill']);
     expect(io.options?.allowedTools).not.toContain('Skill');
-    expect(io.options?.disallowedTools).toContain('Bash');
+    expect(io.options?.allowedTools).toContain('Bash');
+    expect(io.options?.disallowedTools).not.toContain('Bash');
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'assistant_text',
@@ -397,7 +398,8 @@ describe('runner task wiring', () => {
     expect(options.allowedTools).not.toContain('Edit(//mnt/inputs/**)');
     // 记忆仍只允许 Markdown（hook 逐次校验），产出目录不限类型。
     expect(options.allowedTools).toContain('Read(//mnt/agent-memory/**)');
-    expect(options.disallowedTools).toContain('Bash');
+    expect(options.allowedTools).toContain('Bash');
+    expect(options.disallowedTools).not.toContain('Bash');
     expect(options.disallowedTools).toContain('Glob');
     expect(options.disallowedTools).toContain('Grep');
     expect(options.disallowedTools).not.toContain('Write');
@@ -431,8 +433,15 @@ describe('runner task wiring', () => {
         hookSpecificOutput: { permissionDecision: 'deny' },
       });
     }
-    // 非文件工具交给权限系统：Bash 仍由 disallowedTools 拒绝。
+    // 非文件工具不在 hook 的边界内：Bash 由 allowedTools 默认放行。
     expect(await call('Bash', '/mnt/outputs/report.md')).toEqual({});
+  });
+
+  it('keeps an explicit Bash deny even though Bash is allowed by default', async () => {
+    await run({ extraDisallowedTools: ['Bash'] });
+    const options = io.options as Options;
+    expect(options.allowedTools).toContain('Bash');
+    expect(options.disallowedTools).toContain('Bash');
   });
 
   it('does not auto-approve child-only MCP servers for the parent', async () => {

@@ -62,7 +62,14 @@ import {
   publishRun,
   runInSandbox,
 } from './runner-client.js';
-import { DockerSandboxProvider } from './sandbox/docker.js';
+import { startRuntimeEnvironmentBuildWorker } from './runtime-environments/build.js';
+import {
+  ensureDefaultEnvironment,
+  startDefaultEnvironmentRetry,
+} from './runtime-environments/default.js';
+import { startRuntimeEnvironmentBuildReconciler } from './runtime-environments/reconcile.js';
+import { createRuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
+import { DockerSandboxProvider, resolveLocalImageId } from './sandbox/docker.js';
 import { SessionSandboxes, type SessionSandboxLease } from './sandbox/sessions.js';
 import { registerSandboxProbe } from './sandbox-probe.js';
 import { startScheduleScheduler } from './scheduler.js';
@@ -95,6 +102,13 @@ if (config.SANDBOX_EGRESS === 'none') {
 }
 
 const { db, pool } = createDb(config.DATABASE_URL);
+/**
+ * 惰性解析：只在真实创建容器时读线上版本。
+ * 存活容器不因发布/回退替换，也不会为它重新解析。
+ */
+const resolveRuntimeEnvironment = createRuntimeEnvironmentResolver((environmentId) =>
+  repo.runtimeEnvironments.resolveOnlineRuntimeEnvironment(db, environmentId),
+);
 /** 关停信号：abort 后 run 线不再新建容器，进行中的拉取/创建按取消语义收尾。 */
 const sandboxClosing = new AbortController();
 const provider = new DockerSandboxProvider({
@@ -108,6 +122,7 @@ const provider = new DockerSandboxProvider({
 const sessionSandboxes = new SessionSandboxes({
   provider,
   idleTimeoutMs: config.SANDBOX_IDLE_TIMEOUT_MS,
+  resolveRuntimeEnvironment,
   logger,
 });
 
@@ -345,7 +360,8 @@ let modelProxy: ModelProxy | null = null;
 function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
   const env: Record<string, string> = {
     SANDBOX_API_URL: apiUrl,
-    // 根文件系统只读；SDK 写会话缓存的目录是 tmpfs（见 docker.ts）。
+    // 会话容器把持久 sessions 目录挂到 /home/node/.claude（见 sessions.ts），
+    // 这里指定 SDK 使用同一路径；没有会话挂载的一次性容器由 docker.ts 提供 tmpfs。
     CLAUDE_CONFIG_DIR: '/home/node/.claude',
   };
   if (modelProxy) {
@@ -427,6 +443,35 @@ async function sweepStaleWorkspaces(): Promise<number> {
 }
 
 await sweepStaleWorkspaces();
+
+/**
+ * 默认环境只登记一次：不存在时先确保 SANDBOX_IMAGE 本地可用（缺失则 pull），
+ * 再用实际镜像 ID 建首个线上版本；已存在时 repo 原样返回，不随环境变量推进线上指针。
+ * 失败不阻塞 worker 起服务，但明确报错并定时重试，直到登记成功或关闭。
+ */
+const defaultEnvironmentDeps = {
+  store: {
+    getDefault: () => repo.runtimeEnvironments.getDefaultRuntimeEnvironment(db),
+    register: async (image: { imageTag: string; imageId: string }) => {
+      await repo.runtimeEnvironments.ensureDefaultRuntimeEnvironment(db, image);
+    },
+  },
+  ensureImage: (image: string, signal: AbortSignal) => provider.ensureImage(image, signal),
+  resolveImageId: resolveLocalImageId,
+  sandboxImage: config.SANDBOX_IMAGE,
+  signal: sandboxClosing.signal,
+  logger,
+};
+let stopDefaultEnvironmentRetry: (() => Promise<void>) | undefined;
+try {
+  await ensureDefaultEnvironment(defaultEnvironmentDeps);
+} catch (err) {
+  logger.error(
+    { err, image: config.SANDBOX_IMAGE },
+    'default runtime environment registration failed; sandbox creation will fail until it succeeds; retrying',
+  );
+  stopDefaultEnvironmentRetry = startDefaultEnvironmentRetry(defaultEnvironmentDeps);
+}
 
 const worker = new Worker(
   RUNS_QUEUE,
@@ -511,7 +556,7 @@ const worker = new Worker(
           spec: {
             agentId,
             conversationId,
-            image: config.SANDBOX_IMAGE,
+            runtimeEnvironmentId: agent.runtimeEnvironmentId,
             workspaceDir: toHostWorkspacePath(sessionPaths.workspaceDir),
             outputsDir: toHostWorkspacePath(sessionPaths.outputsDir),
             inputsDir: inputsMount.hostPath,
@@ -521,6 +566,19 @@ const worker = new Worker(
         });
         stableWorkspaceDir = sessionPaths.workspaceDir;
         stableOutputsDir = sessionPaths.outputsDir;
+
+        // 记录容器实际使用的身份：复用存活容器时是旧版本，不谎报当前线上。
+        // 必须落库成功才能开始任务；失败交给外层 catch 释放 lease。
+        const runtimeEnvironment = lease.runtimeEnvironment;
+        await db
+          .update(schema.agentRuns)
+          .set({
+            runtimeEnvironmentId: runtimeEnvironment.environmentId,
+            runtimeEnvironmentName: runtimeEnvironment.environmentName,
+            runtimeEnvironmentVersionId: runtimeEnvironment.versionId,
+            runtimeEnvironmentImageId: runtimeEnvironment.imageId,
+          })
+          .where(eq(schema.agentRuns.id, runId));
 
         // 消息级快照：历史渲染按这一轮落库的格式，切换开关不影响已存消息。
         runUiFormat = agent.uiFormat === 'openui' ? 'openui' : 'markdown';
@@ -1099,8 +1157,47 @@ const maintenanceWorker = await startMaintenanceWorker({
 });
 
 // stdio 试连走独立队列与独立容器入口，不影响 run 消费。
-const sandboxProbe = await registerSandboxProbe(config);
-const nativePlugins = await registerNativePlugins(config);
+const sandboxProbe = await registerSandboxProbe(config, resolveRuntimeEnvironment);
+const nativePlugins = await registerNativePlugins(config, resolveRuntimeEnvironment);
+
+// 运行环境构建：只写版本行，成功不自动发布。
+const runtimeEnvironmentBuildStore = {
+  claimBuild: async (versionId: string) => {
+    const version = await repo.runtimeEnvironments.claimRuntimeEnvironmentBuild(db, versionId);
+    return version === null
+      ? null
+      : {
+          versionId: version.id,
+          dockerfile: version.dockerfile,
+          baseImageId: version.baseImageId,
+        };
+  },
+  appendBuildLog: (versionId: string, chunk: string) =>
+    repo.runtimeEnvironments.appendRuntimeEnvironmentBuildLog(db, versionId, chunk),
+  completeBuild: async (
+    versionId: string,
+    image: { imageTag: string; imageId: string; baseImageId: string },
+  ) => {
+    await repo.runtimeEnvironments.completeRuntimeEnvironmentBuild(db, versionId, image);
+  },
+  failBuild: async (versionId: string, error: string) => {
+    await repo.runtimeEnvironments.failRuntimeEnvironmentBuild(db, versionId, error);
+  },
+};
+const runtimeEnvironmentBuilds = await startRuntimeEnvironmentBuildWorker({
+  store: runtimeEnvironmentBuildStore,
+  logger,
+  redisUrl: config.REDIS_URL,
+});
+// 崩溃恢复：终态收回卡在 queued/building 的版本，不留下假的构建中。
+const stopRuntimeEnvironmentBuildReconciler = startRuntimeEnvironmentBuildReconciler({
+  store: {
+    ...runtimeEnvironmentBuildStore,
+    listPendingBuilds: () => repo.runtimeEnvironments.listPendingRuntimeEnvironmentBuilds(db),
+  },
+  logger,
+  redisUrl: config.REDIS_URL,
+});
 
 const stopReconciler = startReconciler({
   db,
@@ -1190,6 +1287,15 @@ const shutdown = async (): Promise<void> => {
       { label: 'knowledge reconciler', close: () => stopKnowledgeReconciler() },
       { label: 'sandbox probe', close: () => sandboxProbe.close() },
       { label: 'native plugins', close: () => nativePlugins.close() },
+      {
+        label: 'default runtime environment retry',
+        close: async () => stopDefaultEnvironmentRetry?.(),
+      },
+      { label: 'runtime environment builds', close: () => runtimeEnvironmentBuilds.close() },
+      {
+        label: 'runtime environment build reconciler',
+        close: () => stopRuntimeEnvironmentBuildReconciler(),
+      },
       { label: 'schedule scheduler', close: () => scheduleScheduler.close() },
       { label: 'reconciler', close: () => stopReconciler() },
     ],

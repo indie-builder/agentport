@@ -38,6 +38,7 @@ function detail(status: RunStatus, steps: RunDetail['steps']): RunDetail {
       conversationId: 'conv-1',
       sessionId: null,
       sandboxId: null,
+      runtimeEnvironment: null,
     },
     steps,
     conversation: { id: 'conv-1', agentId: 'agent-1', title: '会话' },
@@ -184,6 +185,38 @@ describe('run detail keeps its tree across a failed refresh', () => {
     await vi.waitFor(() => expect(host.textContent).toContain('cannot load'));
     expect(host.textContent).toContain('内容没有加载出来');
     expect(host.textContent).not.toContain('刷新失败，内容仍是上次结果');
+  });
+});
+
+describe('run detail runtime environment identity', () => {
+  it('shows the stored environment name and version with the full version id available', async () => {
+    const versionId = 'rtv_01JABCDEFGHJKMNPQRSTVWXYZ';
+    const data = detail('succeeded', [userStep]);
+    data.run.runtimeEnvironment = {
+      environmentId: 'rte_01JABCDEFGHJKMNPQRSTVWXYZ',
+      environmentName: '默认环境',
+      versionId,
+      imageId: `sha256:${'a'.repeat(64)}`,
+    };
+    vi.spyOn(api, 'run').mockResolvedValue(data);
+    await mount();
+    await vi.waitFor(() => expect(host.textContent).toContain('默认环境'));
+
+    const version = [...host.querySelectorAll('span')].find(
+      (element) => element.textContent === versionId,
+    );
+    expect(version?.getAttribute('title')).toBe(versionId);
+    expect(button('复制环境版本')).not.toBeUndefined();
+  });
+
+  it('shows no identity before the run has created a container', async () => {
+    vi.spyOn(api, 'run').mockResolvedValue(detail('queued', [userStep]));
+    await mount();
+    await vi.waitFor(() => expect(host.textContent).toContain('原问题'));
+
+    expect(host.textContent).toContain('运行环境');
+    expect(host.textContent).toContain('环境版本');
+    expect(button('复制环境版本')).toBeUndefined();
   });
 });
 

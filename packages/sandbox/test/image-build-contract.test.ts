@@ -68,6 +68,21 @@ describe('build context and sandbox image', () => {
     expect(read('.github/workflows/release.yml')).not.toContain('packages/sandbox/shared');
   });
 
+  it('ships a real bash plus git and poppler in the sandbox target', () => {
+    const dockerfile = read('Dockerfile');
+    const sandboxStage = dockerfile.slice(
+      dockerfile.indexOf(' AS sandbox'),
+      dockerfile.indexOf(' AS runtime'),
+    );
+    // 官方 CLI 只认 PATH 上的 bash/zsh，缺了会 "No suitable shell found"。
+    expect(sandboxStage).toContain('apk add --no-cache git poppler-utils bash');
+    // 构建期必须确认拿到的是真实 GNU bash，而不是 busybox 包装。
+    expect(sandboxStage).toContain('command -v bash');
+    expect(sandboxStage).toContain("bash --version | grep -q 'GNU bash'");
+    expect(sandboxStage).toContain('command -v pdftoppm');
+    expect(sandboxStage).toContain('command -v pdfinfo');
+  });
+
   it('builds the sandbox target everywhere the image is produced', () => {
     expect(read('scripts/up.sh')).toContain('docker build --target sandbox');
     expect(read('.github/workflows/ci.yml')).toContain('docker build --target sandbox');

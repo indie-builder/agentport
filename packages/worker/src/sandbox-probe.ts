@@ -5,6 +5,7 @@ import { decryptSecrets } from '@agentport/core';
 import { createDb, repo } from '@agentport/db';
 import {
   limitToolCatalog,
+  type ResolvedRuntimeEnvironment,
   SANDBOX_PROBE_STARTUP_TIMEOUT_MS,
   SANDBOX_PROBE_STDERR_MAX_BYTES,
   SANDBOX_PROBES_QUEUE,
@@ -19,6 +20,7 @@ import { Worker } from 'bullmq';
 import pino, { type Logger } from 'pino';
 import type { Config } from './config.js';
 import { redactSecrets } from './redact.js';
+import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions } from './sandbox/provider.js';
 
@@ -46,7 +48,8 @@ export interface SandboxProbeDeps {
   db: ReturnType<typeof createDb>['db'];
   logger: Logger;
   provider: ProbeProvider;
-  image: string;
+  /** 只在真实创建容器时调用；缺省/null 环境由 resolver 解析默认环境。 */
+  resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
   /** 容器侧路径：试连不写工作区，只挂一个空目录满足 -v。 */
   workspacesDir: string;
   /** 宿主视角的同一目录；docker -v 的源路径由宿主 daemon 解析。 */
@@ -88,17 +91,21 @@ export async function runSandboxProbe(
   deps: SandboxProbeDeps,
   serverId: string,
   timeoutMs: number = SANDBOX_PROBE_STARTUP_TIMEOUT_MS,
+  runtimeEnvironmentId: string | null = null,
 ): Promise<ProbeOutcome> {
   const startedAt = Date.now();
   const elapsed = (): { durationMs: number } => ({ durationMs: Date.now() - startedAt });
+  let runtimeEnvironment: ResolvedRuntimeEnvironment | undefined;
   const failure = (error: string, stderr?: string): ProbeOutcome => ({
     ok: false,
     tools: [],
     error,
     ...(stderr ? { stderr } : {}),
+    ...(runtimeEnvironment === undefined ? {} : { runtimeEnvironment }),
     ...elapsed(),
   });
 
+  // 只在这次真实创建前解析；没有线上版本时明确失败，不换用其他环境。
   const row = await repo.servers.getServer(deps.db, serverId);
   if (!row) return failure('MCP Server 不存在，可能已被删除；请刷新后重试');
   if (row.kind !== 'stdio') return failure('只支持 stdio 类型的连接测试');
@@ -110,6 +117,15 @@ export async function runSandboxProbe(
     env: secrets,
   });
   if (!task.success) return failure('连接配置不完整，请检查命令后再测试');
+
+  let resolved: ResolvedRuntimeEnvironment;
+  try {
+    resolved = await deps.resolveRuntimeEnvironment(runtimeEnvironmentId);
+  } catch (err) {
+    deps.logger.warn({ err, serverId, runtimeEnvironmentId }, 'sandbox probe environment failed');
+    return failure(`无法解析运行环境：${redactSecrets(errorText(err))}`);
+  }
+  runtimeEnvironment = resolved;
 
   const workspaceDir = join(deps.hostWorkspacesDir, 'sandbox-probes');
   await mkdir(join(deps.workspacesDir, 'sandbox-probes'), { recursive: true, mode: 0o700 });
@@ -161,7 +177,7 @@ export async function runSandboxProbe(
   let timer = setTimeout(() => finish({ exited: '__startup_timeout__' }), timeoutMs);
   try {
     const creating = deps.provider.create({
-      image: deps.image,
+      image: resolved.imageId,
       workspaceDir,
       // 试连不跑模型：不给任何模型凭证，只留一个可写 HOME。
       env: { HOME: '/tmp' },
@@ -248,6 +264,7 @@ export async function runSandboxProbe(
         ok: true,
         ...(output.serverInfo ? { serverInfo: output.serverInfo } : {}),
         tools,
+        runtimeEnvironment,
         ...elapsed(),
       };
     }
@@ -280,10 +297,13 @@ export async function runSandboxProbe(
 }
 
 /**
- * 独立队列消费者。固定契约：`registerSandboxProbe(config)`，由 worker/index.ts
- * 启动时调用、关停时 `close()`；本模块自持 db 连接与 provider。
+ * 独立队列消费者。固定契约：`registerSandboxProbe(config, resolveRuntimeEnvironment)`，
+ * 由 worker/index.ts 启动时调用、关停时 `close()`；本模块自持 db 连接与 provider。
  */
-export async function registerSandboxProbe(config: Config): Promise<{ close(): Promise<void> }> {
+export async function registerSandboxProbe(
+  config: Config,
+  resolveRuntimeEnvironment: RuntimeEnvironmentResolver,
+): Promise<{ close(): Promise<void> }> {
   const handle = createDb(config.DATABASE_URL);
   const closing = new AbortController();
   const provider: ProbeProvider = new DockerSandboxProvider({
@@ -297,7 +317,7 @@ export async function registerSandboxProbe(config: Config): Promise<{ close(): P
     db: handle.db,
     logger: pino({ level: config.LOG_LEVEL }),
     provider,
-    image: config.SANDBOX_IMAGE,
+    resolveRuntimeEnvironment,
     workspacesDir: config.WORKSPACES_DIR,
     hostWorkspacesDir: config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR,
     secretKey: config.APP_SECRET_KEY,
@@ -310,7 +330,12 @@ export async function registerSandboxProbe(config: Config): Promise<{ close(): P
       const parsed = sandboxProbeJobSchema.safeParse(job.data);
       if (!parsed.success) throw new Error('invalid sandbox probe payload');
       // 结果作为 job returnvalue 回给 API；失败也走正常返回，避免 waitUntilFinished 拿到原始错误。
-      return runSandboxProbe(deps, parsed.data.serverId);
+      return runSandboxProbe(
+        deps,
+        parsed.data.serverId,
+        undefined,
+        parsed.data.runtimeEnvironmentId ?? null,
+      );
     },
     { connection: { url: config.REDIS_URL }, concurrency: config.AGENT_MAX_CONCURRENT },
   );
