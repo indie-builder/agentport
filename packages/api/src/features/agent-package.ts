@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { McpJsonEntry, WorkspaceSkill } from '@agentport/core';
 import {
+  AppError,
   decryptSecrets,
   fail,
   parseChildAgentMd,
@@ -45,17 +46,20 @@ import type {
 import {
   AGENT_PACKAGE_LIMITS,
   AGENT_PACKAGE_MAX_BYTES,
+  AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
   AGENT_PACKAGE_PATHS,
   AGENT_PACKAGE_SIDECAR,
   AGENT_PACKAGE_SIDECAR_VERSION,
   agentPackageSidecarSchema,
+  findSkillResourcePathConflict,
   knowledgeTokenEnv,
   PORTABLE_TODO_ENV,
+  skillFileInputSchema,
   slugSchema,
 } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { isPgCode } from '../plugins/errors.js';
-import { encodePackage } from './agent-package-zip.js';
+import { decodePackage, encodePackage } from './agent-package-zip.js';
 import { unsupportedAllowedTool } from './agents/validation.js';
 import { assertSafeUrl } from './servers/ssrf.js';
 
@@ -302,18 +306,25 @@ function assertDefinitionLimits(
     AGENT_PACKAGE_LIMITS.outputStyles,
     `「${owner}」的输出风格超过 ${AGENT_PACKAGE_LIMITS.outputStyles} 个，请减少后重试`,
   );
-  const slugs = new Set<string>();
-  for (const entry of [...rules, ...styles]) {
-    if (!slugSchema.safeParse(entry.slug).success || slugs.has(entry.slug)) {
-      fail('INVALID_INPUT', `${owner} 的规则和输出风格必须使用合法、唯一的 slug`, {
-        path: `${path}/${entry.slug}`,
-      });
+  // 规则在 .claude/rules/、输出风格在 .claude/output-styles/，是两个独立命名空间：
+  // 同名合法，唯一性只在各自集合内检查。
+  for (const [label, entries] of [
+    ['规则', rules],
+    ['输出风格', styles],
+  ] as const) {
+    const slugs = new Set<string>();
+    for (const entry of entries) {
+      if (!slugSchema.safeParse(entry.slug).success || slugs.has(entry.slug)) {
+        fail('INVALID_INPUT', `${owner} 的${label}必须使用合法、唯一的 slug`, {
+          path: `${path}/${entry.slug}`,
+        });
+      }
+      slugs.add(entry.slug);
     }
-    slugs.add(entry.slug);
   }
 }
 
-/** 技能资源路径与导入端同一套规则：不占用 SKILL.md、不重复、不文件/目录冲突。 */
+/** 技能资源路径与导入/CRUD 共用同一套规则：单路径语法一次校验，再查整组冲突。 */
 function assertSkillResourcePaths(
   skill: string,
   files: Array<{ path: string; content: string }>,
@@ -324,23 +335,20 @@ function assertSkillResourcePaths(
     AGENT_PACKAGE_LIMITS.skillFiles,
     `技能「${skill}」的资源文件超过 ${AGENT_PACKAGE_LIMITS.skillFiles} 个，请减少后重试`,
   );
-  const seen = new Set<string>();
   for (const file of files) {
-    const folded = file.path.toLowerCase();
-    const conflict = [...seen].find(
-      (path) => folded.startsWith(`${path}/`) || path.startsWith(`${folded}/`),
-    );
-    if (
-      folded === 'skill.md' ||
-      folded.startsWith('skill.md/') ||
-      seen.has(folded) ||
-      conflict !== undefined
-    ) {
-      fail('INVALID_INPUT', `技能「${skill}」的资源路径「${file.path}」冲突或占用了 SKILL.md`, {
+    const parsed = skillFileInputSchema.shape.path.safeParse(file.path);
+    if (!parsed.success) {
+      const reason = parsed.error.issues[0]?.message ?? '路径格式不合法';
+      fail('INVALID_INPUT', `技能「${skill}」的资源路径「${file.path}」不合法：${reason}`, {
         path: `.claude/skills/${skill}/${file.path}`,
       });
     }
-    seen.add(folded);
+  }
+  const conflict = findSkillResourcePathConflict(files.map((file) => file.path));
+  if (conflict !== undefined) {
+    fail('INVALID_INPUT', `技能「${skill}」的资源路径「${conflict.path}」冲突或占用了 SKILL.md`, {
+      path: `.claude/skills/${skill}/${conflict.path}`,
+    });
   }
   return files;
 }
@@ -519,7 +527,6 @@ export async function buildAgentPackage(
       maxTurns: row.maxTurns,
       maxBudgetUsd: Number(row.maxBudgetUsd),
       timeoutMs: row.timeoutMs,
-      ...(row.maxThinkingTokens === null ? {} : { maxThinkingTokens: row.maxThinkingTokens }),
       ...(row.effort === null ? {} : { effort: row.effort }),
       enabled: row.enabled,
       allowedTools: row.allowedTools,
@@ -541,7 +548,6 @@ export async function buildAgentPackage(
       permissionMode: child.permissionMode,
       maxBudgetUsd: Number(child.maxBudgetUsd),
       timeoutMs: child.timeoutMs,
-      ...(child.maxThinkingTokens === null ? {} : { maxThinkingTokens: child.maxThinkingTokens }),
       enabled: child.enabled,
       allowedTools: child.allowedTools,
       disallowedTools: child.disallowedTools,
@@ -569,11 +575,29 @@ export async function buildAgentPackage(
   return { files, slug: row.slug, warnings };
 }
 
-/** 导出 ZIP；超过上限明确失败，不截断。 */
+/** 导出 ZIP；压缩后与解压后的上限都检查，超过上限明确失败，不截断。 */
 export function packAgentPackage(pkg: AgentPackageFiles): Buffer {
+  // 高度可压缩的正文能让 ZIP 很小而解压后超过导入上限，所以先按 UTF-8 实际字节累加。
+  const uncompressedBytes = Object.values(pkg.files).reduce(
+    (total, content) => total + Buffer.byteLength(content, 'utf8'),
+    0,
+  );
+  checkExportLimit(
+    uncompressedBytes,
+    AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
+    '专家包解压后超过 4 MiB，请减少提示词、技能或工具定义后重试',
+  );
   const body = encodePackage(pkg.files);
   if (body.byteLength > AGENT_PACKAGE_MAX_BYTES) {
     fail('CONFLICT', '专家包超过 1 MiB，请减少提示词、技能或工具定义后重试');
+  }
+  // 导入端按中央目录的 max(原始, 压缩) 累加判断上限，极小条目的压缩开销可能让
+  // 总字节恰在 4 MiB 的内容在导入时越限；用同一解码入口验证，保证导出即能导回。
+  try {
+    decodePackage(body);
+  } catch (error) {
+    if (!(error instanceof AppError)) throw error;
+    fail('CONFLICT', `专家包无法通过导入校验：${error.message}`, { cause: error });
   }
   return body;
 }
@@ -781,9 +805,6 @@ export function parseAgentPackage(
     maxBudgetUsd: sidecar.agent.maxBudgetUsd,
     timeoutMs: sidecar.agent.timeoutMs,
     ...(sidecar.agent.effort === undefined ? {} : { effort: sidecar.agent.effort }),
-    ...(sidecar.agent.maxThinkingTokens === undefined
-      ? {}
-      : { maxThinkingTokens: sidecar.agent.maxThinkingTokens }),
     enabled: sidecar.agent.enabled,
   };
 
@@ -916,9 +937,6 @@ export function parseAgentPackage(
         maxBudgetUsd: meta?.maxBudgetUsd ?? 2,
         timeoutMs: meta?.timeoutMs ?? 600_000,
         ...(parsed.effort === undefined ? {} : { effort: parsed.effort }),
-        ...(meta?.maxThinkingTokens === undefined
-          ? {}
-          : { maxThinkingTokens: meta.maxThinkingTokens }),
         enabled: meta?.enabled ?? true,
       },
       serverNames: parsed.mcpServers,
@@ -1050,7 +1068,6 @@ function toAgentValues(
     permissionMode: input.permissionMode,
     uiFormat: input.uiFormat,
     effort: input.effort ?? null,
-    maxThinkingTokens: input.maxThinkingTokens ?? null,
     enabled: input.enabled,
     maxTurns: input.maxTurns,
     maxBudgetUsd: String(input.maxBudgetUsd),

@@ -235,6 +235,16 @@ async function publishedVersions(
   return versions;
 }
 
+/** 维护删消息前读取：包含空快照的两个锚点；沿用发布版本校验，读取失败必须中止清理。 */
+export async function outputMessageAnchors(identity: ConversationIdentity): Promise<string[]> {
+  const ids = new Set<string>();
+  for (const { manifest } of await publishedVersions(identity)) {
+    ids.add(manifest.userMessageId);
+    ids.add(manifest.afterMessageId);
+  }
+  return [...ids];
+}
+
 async function latestVersion(identity: ConversationIdentity): Promise<OutputManifest | null> {
   return (await publishedVersions(identity))[0]?.manifest ?? null;
 }

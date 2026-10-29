@@ -259,6 +259,17 @@ describe('runner task wiring', () => {
     );
   });
 
+  it('passes effort without a fixed thinking budget', async () => {
+    await run({ effort: 'high' });
+    expect(io.options?.effort).toBe('high');
+    expect(io.options).not.toHaveProperty('thinking');
+  });
+
+  it('rejects a legacy fixed thinking budget before calling the SDK', async () => {
+    await expect(run({ maxThinkingTokens: 2048 })).rejects.toThrow();
+    expect(io.options).toBeUndefined();
+  });
+
   it('keeps memory tools available under dontAsk and enforces a hook on every request', async () => {
     await run({ extraAllowedTools: ['Read', 'Write', 'Edit'] });
     const options = io.options as Options;

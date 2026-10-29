@@ -1074,7 +1074,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
         systemPrompt: 'Root prompt.',
         skillSlugs: [skillSlug],
         effort: 'high' as const,
-        maxThinkingTokens: 2048,
         uiFormat: 'openui' as const,
       },
       rules: [{ slug: 'root-rule', content: 'Keep root rules.', globs: 'src/**,test/**' }],
@@ -1142,7 +1141,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const exported = sidecarOf(files);
     expect(exported.agent).toMatchObject({
       effort: 'high',
-      maxThinkingTokens: 2048,
       uiFormat: 'openui',
     });
     expect(exported.subAgents[0]).toMatchObject({
@@ -1188,7 +1186,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(roundTripSidecar.subAgents[0]?.rules).toEqual(exported.subAgents[0]?.rules);
     expect(roundTripSidecar.agent).toMatchObject({
       effort: 'high',
-      maxThinkingTokens: 2048,
       uiFormat: 'openui',
     });
   });
@@ -1494,6 +1491,12 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       { label: 'case-folded duplicate', paths: ['references/A.md', 'references/a.md'] },
       { label: 'ancestor first', paths: ['refs/A', 'refs/a/child.md'] },
       { label: 'descendant first', paths: ['refs/a/child.md', 'refs/A'] },
+      // ZIP 编码本身拒绝空段/./..：这些坏路径在编码阶段就会失败，schema 在同一入口给出相同的 INVALID_INPUT。
+      { label: 'empty segment', paths: ['a//b.md'] },
+      { label: 'dot segment', paths: ['./refs/a.md'] },
+      { label: 'parent segment', paths: ['refs/../a.md'] },
+      // 空格在 ZIP 中合法，只有单路径 schema 拒绝：导出必须与导入/CRUD 用同一套规则。
+      { label: 'non-canonical characters', paths: ['references/a b.md'] },
     ];
     for (const [index, item] of collisionCases.entries()) {
       const slug = unique(`pkg-collision-${index}`);

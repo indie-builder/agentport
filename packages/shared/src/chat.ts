@@ -243,72 +243,73 @@ export const agentRunJobSchema = z.object({
 export type AgentRunJob = z.infer<typeof agentRunJobSchema>;
 
 /** 沙盒任务：宿主 → runner 的唯一输入，runner 不再自造 schema。 */
-export const sandboxTaskSchema = z.object({
-  prompt: z.string(),
-  model: z.string(),
-  maxTurns: z.number().int().positive(),
-  maxBudgetUsd: z.number().positive(),
-  permissionMode: permissionModeSchema.optional(),
-  /** 本会话可用的 MCP server 名（父级自己绑定的）。 */
-  mcpServers: z.array(z.string()).default([]),
-  /** 主会话可用的技能 slug；子智能体技能由它自己的 frontmatter 声明。 */
-  skills: z.array(z.string()).default([]),
-  /** 父级显式放行的额外工具（allowedTools）。 */
-  extraAllowedTools: z.array(z.string()).default([]),
-  /** 父级额外禁用的工具；子级不会继承这一项。 */
-  extraDisallowedTools: z.array(z.string()).default([]),
-  effort: effortSchema.optional(),
-  maxThinkingTokens: z.number().int().positive().optional(),
-  /** 有启用的子智能体时为真：主会话放行 Agent/TaskStop。 */
-  allowSubAgents: z.boolean().default(false),
-  /**
-   * 单个文本/工具字段的字节上限，缺省 1MiB。超限只截断该块并带上 truncated 标记，
-   * 不再静默丢尾部；宿主可按沙盒资源上限收紧或放宽。
-   */
-  maxFieldBytes: z.number().int().positive().optional(),
-  /**
-   * 本次运行加载的插件根；runner 直接传给 SDK `plugins`。
-   * `skills` 是插件内的技能目录名，runner 拼成 `<runtimeName>:<技能>` 追加进 `skills`；
-   * `mcpServers` 只在绑定处授权后才出现，runner 生成 `mcp__plugin_<p>_<s>__*` 规则。
-   */
-  plugins: z
-    .array(
-      z.object({
-        /** 容器内绝对路径，如 `/workspace/.claude/plugins/<slug>`。 */
-        path: z.string().min(1),
-        runtimeName: z.string().min(1),
-        skills: z.array(z.string()).default([]),
-        mcpServers: z.array(z.string()).default([]),
-        hasAgents: z.boolean().default(false),
-      }),
-    )
-    .default([]),
-  /**
-   * 子智能体的绑定：runner 据此在 PreToolUse 里拒绝越界的 MCP 工具与技能。
-   * 官方 frontmatter 只能预加载技能、按名引用 server，运行时边界由这里补齐。
-   */
-  subAgents: z
-    .array(
-      z.object({
-        slug: z.string(),
-        servers: z.array(z.string()).default([]),
-        skills: z.array(z.string()).default([]),
-      }),
-    )
-    .default([]),
-  /**
-   * 要恢复的 SDK session。缺省表示空会话：不 resume，直接发首条消息。
-   * transcript 文件缺失时 runner 报 infra，不回退成文本历史。
-   */
-  resumeSessionId: z.string().optional(),
-  /** 本次用户消息的 SDK uuid；与页面上的消息一一对应，用于后续按点 fork。 */
-  userMessageUuid: z.uuid(),
-  /**
-   * 按历史点分支：先在该会话内 fork 到指定 SDK 消息 uuid，再从新会话继续。
-   * 与 resumeSessionId 同时出现；fork 结果写回会话行。
-   */
-  forkFromMessageUuid: z.uuid().optional(),
-});
+export const sandboxTaskSchema = z
+  .object({
+    prompt: z.string(),
+    model: z.string(),
+    maxTurns: z.number().int().positive(),
+    maxBudgetUsd: z.number().positive(),
+    permissionMode: permissionModeSchema.optional(),
+    /** 本会话可用的 MCP server 名（父级自己绑定的）。 */
+    mcpServers: z.array(z.string()).default([]),
+    /** 主会话可用的技能 slug；子智能体技能由它自己的 frontmatter 声明。 */
+    skills: z.array(z.string()).default([]),
+    /** 父级显式放行的额外工具（allowedTools）。 */
+    extraAllowedTools: z.array(z.string()).default([]),
+    /** 父级额外禁用的工具；子级不会继承这一项。 */
+    extraDisallowedTools: z.array(z.string()).default([]),
+    effort: effortSchema.optional(),
+    /** 有启用的子智能体时为真：主会话放行 Agent/TaskStop。 */
+    allowSubAgents: z.boolean().default(false),
+    /**
+     * 单个文本/工具字段的字节上限，缺省 1MiB。超限只截断该块并带上 truncated 标记，
+     * 不再静默丢尾部；宿主可按沙盒资源上限收紧或放宽。
+     */
+    maxFieldBytes: z.number().int().positive().optional(),
+    /**
+     * 本次运行加载的插件根；runner 直接传给 SDK `plugins`。
+     * `skills` 是插件内的技能目录名，runner 拼成 `<runtimeName>:<技能>` 追加进 `skills`；
+     * `mcpServers` 只在绑定处授权后才出现，runner 生成 `mcp__plugin_<p>_<s>__*` 规则。
+     */
+    plugins: z
+      .array(
+        z.object({
+          /** 容器内绝对路径，如 `/workspace/.claude/plugins/<slug>`。 */
+          path: z.string().min(1),
+          runtimeName: z.string().min(1),
+          skills: z.array(z.string()).default([]),
+          mcpServers: z.array(z.string()).default([]),
+          hasAgents: z.boolean().default(false),
+        }),
+      )
+      .default([]),
+    /**
+     * 子智能体的绑定：runner 据此在 PreToolUse 里拒绝越界的 MCP 工具与技能。
+     * 官方 frontmatter 只能预加载技能、按名引用 server，运行时边界由这里补齐。
+     */
+    subAgents: z
+      .array(
+        z.object({
+          slug: z.string(),
+          servers: z.array(z.string()).default([]),
+          skills: z.array(z.string()).default([]),
+        }),
+      )
+      .default([]),
+    /**
+     * 要恢复的 SDK session。缺省表示空会话：不 resume，直接发首条消息。
+     * transcript 文件缺失时 runner 报 infra，不回退成文本历史。
+     */
+    resumeSessionId: z.string().optional(),
+    /** 本次用户消息的 SDK uuid；与页面上的消息一一对应，用于后续按点 fork。 */
+    userMessageUuid: z.uuid(),
+    /**
+     * 按历史点分支：先在该会话内 fork 到指定 SDK 消息 uuid，再从新会话继续。
+     * 与 resumeSessionId 同时出现；fork 结果写回会话行。
+     */
+    forkFromMessageUuid: z.uuid().optional(),
+  })
+  .strict();
 
 export type SandboxTask = z.infer<typeof sandboxTaskSchema>;
 /** 宿主侧构造的形状：默认值由 runner 解析时补齐。 */

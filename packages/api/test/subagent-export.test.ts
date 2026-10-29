@@ -22,7 +22,6 @@ const ALLOWED_SIDECAR_CHILD_KEYS = [
   'disallowedTools',
   'enabled',
   'maxBudgetUsd',
-  'maxThinkingTokens',
   'outputStyles',
   'permissionMode',
   'rules',
@@ -175,7 +174,6 @@ describe.skipIf(!ready)('subagent export', () => {
     firstChild = await createAgentWith(unique('exp-child-one'), {
       systemPrompt: 'CHILD-ONE-PROMPT',
       effort: 'low',
-      maxThinkingTokens: 2048,
       serverIds: [childServer.id, sharedServer.id],
       skillIds: [childSkill.id],
     });
@@ -236,7 +234,7 @@ describe.skipIf(!ready)('subagent export', () => {
     }
     const first = sidecar.subAgents.find((entry) => entry.slug === firstChild.slug);
     const disabled = sidecar.subAgents.find((entry) => entry.slug === disabledChild.slug);
-    expect(first).toMatchObject({ enabled: true, maxThinkingTokens: 2048 });
+    expect(first).toMatchObject({ enabled: true });
     expect(disabled).toMatchObject({ enabled: false });
     // 子级 MCP 绑定只写在官方 frontmatter 的 mcpServers（名字引用根 .mcp.json）。
     const disabledMd = files.get(`.claude/agents/${disabledChild.slug}.md`) ?? '';

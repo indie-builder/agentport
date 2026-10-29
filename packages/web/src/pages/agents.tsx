@@ -219,15 +219,11 @@ function toInput(agent: Agent): AgentInput {
     // 显式保留 undefined 键：RHF 的 defaultValues 必须覆盖每个受控字段，
     // 否则 reset 后 useController 写回的 undefined 会让表单再次判定为 dirty。
     effort: agent.effort,
-    ...(agent.maxThinkingTokens === undefined
-      ? {}
-      : { maxThinkingTokens: agent.maxThinkingTokens }),
   };
 }
 
 const positiveIntMessage = '必须大于 0，请调整后再保存';
 const invalidNumberMessage = '请填写有效内容';
-const thinkingMessage = '请输入大于 0 的整数，或留空表示不设置。';
 
 /** 原生文件工具：运行时对主会话按路径放行，对子智能体一律禁用。 */
 const FILE_TOOLS = ['Read', 'Write', 'Edit'] as const;
@@ -245,38 +241,33 @@ function toolLines(text: string): string[] {
 }
 
 /**
- * 表单里保留原始文本：工具列表和思考上限在输入过程中可能还不合法，
+ * 表单里保留原始文本：工具列表在输入过程中可能还不合法，
  * 但 RHF 必须能存住这份中间草稿，提交时才解析成 AgentInput。
  */
-type AgentDraft = Omit<AgentInput, 'allowedTools' | 'maxThinkingTokens'> & {
+type AgentDraft = Omit<AgentInput, 'allowedTools'> & {
   allowedTools: string;
-  maxThinkingTokens: string;
 };
 
 function draftFromInput(input: AgentInput): AgentDraft {
   return {
     ...input,
     allowedTools: input.allowedTools.join('\n'),
-    maxThinkingTokens: input.maxThinkingTokens === undefined ? '' : String(input.maxThinkingTokens),
   };
 }
 
 function inputFromDraft(draft: AgentDraft): AgentInput {
-  const thinking = draft.maxThinkingTokens.trim();
   return {
     ...draft,
     allowedTools: toolLines(draft.allowedTools),
-    maxThinkingTokens: thinking === '' ? undefined : Number(thinking),
   };
 }
 
 const agentFormSchema = agentInputSchema
-  .omit({ allowedTools: true, maxThinkingTokens: true })
+  .omit({ allowedTools: true })
   .extend({
     name: z.string().min(1, '不能为空，请填写后再保存').max(128, '最多 128 个字符，请精简后再保存'),
     description: z.string().max(300, '最多 300 个字符，请精简后再保存').default(''),
     allowedTools: z.string().default(''),
-    maxThinkingTokens: z.string().default(''),
     maxTurns: z
       .number({ error: invalidNumberMessage })
       .int(invalidNumberMessage)
@@ -296,11 +287,6 @@ const agentFormSchema = agentInputSchema
         path: ['allowedTools'],
         message: '每行只能有一个工具名或模式，不能包含空格。',
       });
-    }
-    const thinking = value.maxThinkingTokens.trim();
-    const number = Number(thinking);
-    if (thinking !== '' && !(Number.isInteger(number) && number > 0)) {
-      ctx.addIssue({ code: 'custom', path: ['maxThinkingTokens'], message: thinkingMessage });
     }
   });
 
@@ -989,7 +975,6 @@ const errorSections: Record<string, SectionId> = {
   maxTurns: 'limits',
   maxBudgetUsd: 'limits',
   timeoutMs: 'limits',
-  maxThinkingTokens: 'limits',
 };
 
 export function AgentEditor({
@@ -1057,13 +1042,12 @@ export function AgentEditor({
   const resolvedId = resolvedEntry?.id;
   const fileGroups = [...new Set(fileEntries.map((entry) => entry.group))];
   const [exporting, setExporting] = useState(false);
-  // RHF 是唯一数据源：多行工具与思考上限保留原始文本，提交时才解析。
+  // RHF 是唯一数据源：多行工具保留原始文本，提交时才解析。
   const rhf = useZodForm(agentFormSchema, { defaultValues: draftFromInput(toInput(agent)) });
   // defaultValues 覆盖全部字段；把 schema 输入的可选类型收敛回完整草稿。
   const control = rhf.control as unknown as Control<AgentDraft, unknown, AgentDraft>;
   const errors = rhf.formState.errors;
   const allowedInvalid = Boolean(errors.allowedTools);
-  const thinkingInvalid = Boolean(errors.maxThinkingTokens);
   const roleField = useController({ control, name: 'role' }).field;
   const effortField = useController({ control, name: 'effort' }).field;
   const serverIdsField = useController({ control, name: 'serverIds' }).field;
@@ -1400,26 +1384,13 @@ export function AgentEditor({
     );
   };
 
-  // 这两项也由 zod 校验；保存被拦下时，按钮上的提示要指向所在分区。
-  const invalidField = allowedInvalid
-    ? ('permissions' as const)
-    : thinkingInvalid
-      ? ('limits' as const)
-      : null;
-  const saveHint =
-    invalidField === 'permissions'
-      ? '「权限」里的自定义工具格式无效'
-      : invalidField === 'limits'
-        ? '「运行限制」里的最大思考 tokens 无效'
-        : null;
+  // 自定义工具格式也由 zod 校验；保存被拦下时，按钮上的提示要指向所在分区。
+  const invalidField = allowedInvalid ? ('permissions' as const) : null;
+  const saveHint = invalidField === 'permissions' ? '「权限」里的自定义工具格式无效' : null;
 
   /** 错误字段所在分区可能不是当前选中项：先切过去，下一帧再聚焦真正出错的控件。 */
   const revealInvalidField = (): void => {
-    const [section, id] =
-      invalidField === 'limits'
-        ? (['limits', 'agent-thinking'] as const)
-        : (['permissions', 'agent-allowed-tools'] as const);
-    focusSection(section, id);
+    focusSection('permissions', 'agent-allowed-tools');
   };
 
   const focusFirstInvalid = (section: SectionId): void => {
@@ -1444,7 +1415,6 @@ export function AgentEditor({
           input: {
             ...input,
             effort: input.effort ?? null,
-            maxThinkingTokens: input.maxThinkingTokens ?? null,
           },
           expectedUpdatedAt: baseline.updatedAt,
         },
@@ -2685,40 +2655,6 @@ export function AgentEditor({
                           className="w-40"
                         />
                       </Field>
-                      <Field
-                        data-disabled={pending}
-                        orientation="horizontal"
-                        className="gap-3"
-                        data-invalid={thinkingInvalid}
-                      >
-                        <FieldContent>
-                          <FieldLabel htmlFor="agent-thinking">最大思考 tokens</FieldLabel>
-                          {thinkingInvalid ? (
-                            <FieldError id="agent-thinking-error">
-                              {errors.maxThinkingTokens?.message}
-                            </FieldError>
-                          ) : (
-                            <FieldDescription id="agent-thinking-hint">
-                              留空表示不设置。
-                            </FieldDescription>
-                          )}
-                        </FieldContent>
-                        <Input
-                          {...rhf.register('maxThinkingTokens')}
-                          disabled={pending}
-                          id="agent-thinking"
-                          type="number"
-                          min={1}
-                          step={1}
-                          inputMode="numeric"
-                          placeholder="不设置"
-                          aria-invalid={thinkingInvalid}
-                          aria-describedby={
-                            thinkingInvalid ? 'agent-thinking-error' : 'agent-thinking-hint'
-                          }
-                          className="w-40"
-                        />
-                      </Field>
                       <Field data-disabled={pending} orientation="horizontal" className="gap-3">
                         <FieldLabel htmlFor="agent-ui-format">回复格式</FieldLabel>
                         <Select
@@ -3334,7 +3270,6 @@ const diffFields: ReadonlyArray<readonly [keyof Agent, string]> = [
   ['timeoutMs', '超时'],
   ['runtimeEnvironmentId', '运行环境'],
   ['effort', '推理强度'],
-  ['maxThinkingTokens', '最大思考 tokens'],
   ['enabled', '启用状态'],
 ];
 

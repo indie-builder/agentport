@@ -84,7 +84,9 @@ function unsupportedPermissionMode(mode: string | undefined): string | undefined
     : undefined;
 }
 
-const createSchema = agentInputSchema.extend({ allowedTools: allowedToolsSchema.default([]) });
+const createSchema = agentInputSchema
+  .extend({ allowedTools: allowedToolsSchema.default([]) })
+  .strict();
 
 // 解析（含 frontmatter / 字段校验）放在 schema 里：handler 只拿解析结果，不再 safeParse。
 const importFileSchema = z
@@ -100,41 +102,42 @@ const importFileSchema = z
   });
 
 // 字段与 agentInputSchema 保持一致；PATCH 用显式可选字段，才能区分「没传」与「传了默认值」。
-const patchSchema = z.object({
-  slug: slugSchema.optional(),
-  name: z.string().min(1).max(128).optional(),
-  role: agentRoleSchema.removeDefault().optional(),
-  description: z.string().max(300).optional(),
-  model: z.string().min(1).optional(),
-  systemPrompt: z.string().optional(),
-  serverIds: z.array(z.string()).optional(),
-  skillIds: z.array(z.string()).optional(),
-  pluginBindings: z
-    .array(
-      z.object({
-        pluginId: z.string(),
-        allowHooks: z.boolean().default(false),
-        allowMcp: z.boolean().default(false),
-      }),
-    )
-    .optional(),
-  subAgentIds: z.array(z.string()).optional(),
-  /** null 清除绑定、回平台默认环境；undefined 保持不动。 */
-  runtimeEnvironmentId: z.string().min(1).nullable().optional(),
-  allowedTools: allowedToolsSchema.optional(),
-  disallowedTools: z.array(z.string()).optional(),
-  permissionMode: permissionModeSchema.optional(),
-  uiFormat: uiFormatSchema.optional(),
-  maxTurns: z.number().int().positive().optional(),
-  maxBudgetUsd: z.number().positive().optional(),
-  timeoutMs: z.number().int().positive().optional(),
-  // null 表示清除回「未配置」；undefined 保持不动，两者语义不同。
-  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
-  maxThinkingTokens: z.number().int().positive().nullable().optional(),
-  enabled: z.boolean().optional(),
-  /** 乐观锁：首次加载时的 updatedAt。 */
-  expectedUpdatedAt: z.coerce.date().optional(),
-});
+const patchSchema = z
+  .object({
+    slug: slugSchema.optional(),
+    name: z.string().min(1).max(128).optional(),
+    role: agentRoleSchema.removeDefault().optional(),
+    description: z.string().max(300).optional(),
+    model: z.string().min(1).optional(),
+    systemPrompt: z.string().optional(),
+    serverIds: z.array(z.string()).optional(),
+    skillIds: z.array(z.string()).optional(),
+    pluginBindings: z
+      .array(
+        z.object({
+          pluginId: z.string(),
+          allowHooks: z.boolean().default(false),
+          allowMcp: z.boolean().default(false),
+        }),
+      )
+      .optional(),
+    subAgentIds: z.array(z.string()).optional(),
+    /** null 清除绑定、回平台默认环境；undefined 保持不动。 */
+    runtimeEnvironmentId: z.string().min(1).nullable().optional(),
+    allowedTools: allowedToolsSchema.optional(),
+    disallowedTools: z.array(z.string()).optional(),
+    permissionMode: permissionModeSchema.optional(),
+    uiFormat: uiFormatSchema.optional(),
+    maxTurns: z.number().int().positive().optional(),
+    maxBudgetUsd: z.number().positive().optional(),
+    timeoutMs: z.number().int().positive().optional(),
+    // null 表示清除回「未配置」；undefined 保持不动，两者语义不同。
+    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
+    enabled: z.boolean().optional(),
+    /** 乐观锁：首次加载时的 updatedAt。 */
+    expectedUpdatedAt: z.coerce.date().optional(),
+  })
+  .strict();
 
 function invalid(reply: FastifyReply, message: string) {
   return reject(reply, 'INVALID_INPUT', message);
@@ -167,7 +170,6 @@ function toWrite(
     permissionMode: input.permissionMode,
     uiFormat: input.uiFormat,
     effort: input.effort ?? null,
-    maxThinkingTokens: input.maxThinkingTokens ?? null,
     enabled: input.enabled,
     maxTurns: input.maxTurns,
     maxBudgetUsd: String(input.maxBudgetUsd),
@@ -259,7 +261,6 @@ function snapshotToWrite(snapshot: Agent, slug: string, currentRole: string): re
     // 旧快照没有 uiFormat，回滚按默认 markdown。
     uiFormat: snapshot.uiFormat ?? 'markdown',
     effort: snapshot.effort ?? null,
-    maxThinkingTokens: snapshot.maxThinkingTokens ?? null,
     enabled: snapshot.enabled,
     maxTurns: snapshot.maxTurns,
     maxBudgetUsd: String(snapshot.maxBudgetUsd),
@@ -455,9 +456,6 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       if (input.permissionMode !== undefined) patch.permissionMode = input.permissionMode;
       if (input.uiFormat !== undefined) patch.uiFormat = input.uiFormat;
       if (input.effort !== undefined) patch.effort = input.effort;
-      if (input.maxThinkingTokens !== undefined) {
-        patch.maxThinkingTokens = input.maxThinkingTokens;
-      }
       if (input.enabled !== undefined) patch.enabled = input.enabled;
       if (input.maxTurns !== undefined) patch.maxTurns = input.maxTurns;
       if (input.maxBudgetUsd !== undefined) patch.maxBudgetUsd = String(input.maxBudgetUsd);

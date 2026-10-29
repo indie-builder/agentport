@@ -304,12 +304,26 @@ done
 for old in "$holding"/*; do
   [ -e "$old" ] || continue
   name=${old##*/}
-  if [ -d "$old" ] && [ -d "$ROOT/$name" ]; then
-    for run in "$old"/run_*; do
-      [ -e "$run" ] || continue
-      mv "$run" "$ROOT/$name/${run##*/}"
-    done
+  [ -d "$old" ] || continue
+  has_run=0
+  for run in "$old"/run_*; do
+    [ -e "$run" ] || continue
+    has_run=1
+    break
+  done
+  [ "$has_run" = 1 ] || continue
+  # 备份排除了 run_*，安全副本里也没有第二份；恢复较旧备份时当前专家目录可能不在
+  # 备份里，目标父目录不存在，必须按需重建后搬回。其余旧内容仍按 restore 语义替换。
+  # 按需新建的目录也进回滚清单，回滚时才能先把已搬入的 run_* 还回 holding，
+  # 再整体恢复原目录，而不是把 run_* 散落在新建目录里。
+  if [ ! -e "$ROOT/$name" ]; then
+    mkdir -p "$ROOT/$name"
+    printf '%s\n' "$name" >>"$staging/.swapped"
   fi
+  for run in "$old"/run_*; do
+    [ -e "$run" ] || continue
+    mv "$run" "$ROOT/$name/${run##*/}"
+  done
 done
 rm -rf "$staging" "$holding"
 ok=1

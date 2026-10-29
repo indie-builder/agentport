@@ -86,7 +86,7 @@
 - 可配置 `permissionMode`、`allowedTools`、`disallowedTools`。权限页面明确 SDK `allowedTools` 预批准与工具自身 `requiresApproval` 的服务端审批是两层约束；`default` 的宿主回调仅处理原生澄清提问，其余未预批准调用仍拒绝，不替代工具自身审批。
 - `permissionMode` 支持 `default`（新建默认）、`plan`、`dontAsk` 与 `acceptEdits`，直接透传 Agent SDK；显式 `dontAsk` 拒绝原生交互提问，不进入回调。`auto` 依赖模型分类器，平台无法审计其决定，保存时返回 400。权限模式不会解除平台固定禁用的内置工具。
 - 可配置 `maxTurns`、`maxBudgetUsd`、`timeoutMs`。
-- 可配置 `effort` 与 `maxThinkingTokens`（可选）。
+- 可配置 `effort`（可选）。
 - 内置工具默认禁用；例外是容器内默认启用的 `Bash`（可通过 `disallowedTools` 显式拒绝）、主会话受路径规则约束的 `Read`/`Write`/`Edit`，以及按运行时配置单独启用的 `TodoWrite`。原生文件工具可访问长期记忆 Markdown 与会话成果，`Read` 另可只读已挂载的附件、技能 references 与插件技能资源；子智能体的原生文件工具继续受限。Bash 不经过原生文件工具的路径 hook，读写边界由 Docker 的只读/可写挂载约束。完整边界以 `docs/ARCHITECTURE.md` §3 与沙盒约定为准。
 - 权限页的主会话 `Read`/`Write`/`Edit` 默认显示「已启用（受路径限制）」；裸工具禁用规则优先。恢复只移除该工具的裸禁用及裸允许项，不生成全局 allow、不清除已有路径规则。子智能体三个文件工具显示平台禁用且不可放行，禁用原因就近可读；关闭原生文件工具不代表关闭 Bash 的文件访问。
 

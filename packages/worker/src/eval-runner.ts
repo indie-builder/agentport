@@ -52,11 +52,15 @@ function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages
     .join('\n\n');
 }
 
-/** 发起一次普通 agent run 并等到终态，返回最终 assistant 文本。 */
+/**
+ * 发起一次普通 agent run 并等到终态，返回最终 assistant 文本。
+ * run 一旦创建就写入 context：失败路径也要留下可追踪的 runId。
+ */
 function runOneCase(
   db: Database,
   redisUrl: string,
   input: { agentId: string; prompt: string; timeoutMs: number; title: string },
+  context: { runId: string | null },
 ) {
   return Effect.gen(function* () {
     const conversation = yield* dbQuery(() =>
@@ -77,6 +81,7 @@ function runOneCase(
         ...(agentVersion === null ? {} : { agentVersion }),
       }),
     );
+    context.runId = run.id;
     yield* dbQuery(() =>
       chatRepo.appendMessage(db, {
         id: newId('message'),
@@ -131,7 +136,7 @@ function runOneCase(
     }
 
     const messages = yield* dbQuery(() => chatRepo.listMessages(db, conversation.id));
-    return { runId: run.id, output: assistantText(messages) };
+    return { output: assistantText(messages) };
   });
 }
 
@@ -180,20 +185,24 @@ export async function executeEvalRun(input: {
           if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
             return;
           let output = '';
-          let runId = '';
           let ok = false;
+          const runContext: { runId: string | null } = { runId: null };
           // Effect v4 的 result 对应 v3 的 either，保留每条成功或失败。
           const result = yield* Effect.result(
-            runOneCase(db, redisUrl, {
-              agentId: evalRun.agentId,
-              prompt: testCase.prompt,
-              timeoutMs: agent.timeoutMs,
-              title: `eval: ${testCase.name}`.slice(0, 80),
-            }).pipe(
+            runOneCase(
+              db,
+              redisUrl,
+              {
+                agentId: evalRun.agentId,
+                prompt: testCase.prompt,
+                timeoutMs: agent.timeoutMs,
+                title: `eval: ${testCase.name}`.slice(0, 80),
+              },
+              runContext,
+            ).pipe(
               Effect.flatMap((result) =>
                 Effect.try({
                   try: () => {
-                    runId = result.runId;
                     output = result.output;
                     return judge(output, testCase.expectation);
                   },
@@ -206,38 +215,30 @@ export async function executeEvalRun(input: {
             return;
           if (Result.isSuccess(result)) ok = result.success;
           else output = errorMessage(result.failure);
-          if (ok) passed += 1;
 
-          yield* Effect.gen(function* () {
-            yield* dbQuery(() =>
-              evalRepo.addResult(
-                db,
-                {
-                  id: newId('evalResult'),
-                  evalRunId,
-                  caseId: testCase.id,
-                  // 失败的 case 没有 run：外键要求 NULL 而不是空串。
-                  runId: runId === '' ? null : runId,
-                  passed: ok,
-                  output,
-                  // 用例行可能已被删除；报告要能独立于活表还原当时的问题与期望。
-                  caseSnapshot: {
-                    id: testCase.id,
-                    name: testCase.name,
-                    prompt: testCase.prompt,
-                    expectation: testCase.expectation,
-                  },
+          yield* dbQuery(() =>
+            evalRepo.addResult(
+              db,
+              {
+                id: newId('evalResult'),
+                evalRunId,
+                caseId: testCase.id,
+                runId: runContext.runId,
+                passed: ok,
+                output,
+                // 用例行可能已被删除；报告要能独立于活表还原当时的问题与期望。
+                caseSnapshot: {
+                  id: testCase.id,
+                  name: testCase.name,
+                  prompt: testCase.prompt,
+                  expectation: testCase.expectation,
                 },
-                { recordProgress: true },
-              ),
-            );
-          }).pipe(
-            Effect.catch((err) =>
-              Effect.sync(() => {
-                logger.error({ err, evalRunId, caseId: testCase.id }, 'eval result write failed');
-              }),
+              },
+              { recordProgress: true },
             ),
           );
+          // 只有真正落库成功才计 passed；写失败交给外层 crashed 收尾，避免假成功。
+          if (ok) passed += 1;
         }),
       { concurrency: 1 },
     ).pipe(

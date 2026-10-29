@@ -194,11 +194,14 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
       const queue = getScheduleQueue(app.config.REDIS_URL);
       let nextDueAt: string | null = null;
       try {
-        if (row.enabled) {
-          await upsertScheduler(queue, row);
-          nextDueAt = await schedulerNextRun(queue, row.id);
-        } else {
+        if (!row.enabled) {
           await removeScheduler(queue, row.id);
+        } else {
+          // upsert 会删掉 pending delayed job 并按当前时间重算 next；只有调度字段变化才重建。
+          if (existing.enabled === false || existing.cron !== row.cron) {
+            await upsertScheduler(queue, row);
+          }
+          nextDueAt = await schedulerNextRun(queue, row.id);
         }
       } catch (err) {
         request.log.warn({ err, scheduleId: row.id }, 'schedule sync failed');

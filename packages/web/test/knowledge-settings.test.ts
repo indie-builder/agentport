@@ -551,6 +551,55 @@ describe('knowledge model profiles', () => {
     expect(document.body.textContent).toContain('凭证被端点拒绝');
   });
 
+  it('keeps each parallel test result when they finish out of order', async () => {
+    const embedRequest = deferred<void>();
+    const rerankRequest = deferred<void>();
+    server.use(
+      http.get('/api/knowledge/model-profiles', () =>
+        HttpResponse.json([embeddingProfile, rerankProfile]),
+      ),
+      http.post('/api/knowledge/model-profiles/profile_embed/test', async () => {
+        await embedRequest.promise;
+        return HttpResponse.json(
+          { code: 'INTERNAL', message: 'embedding 测试失败' },
+          { status: 500 },
+        );
+      }),
+      http.post('/api/knowledge/model-profiles/profile_rerank/test', async () => {
+        await rerankRequest.promise;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await mountProfiles();
+    const testButtons = () =>
+      [...document.querySelectorAll<HTMLButtonElement>('button')].filter(
+        (item) => item.textContent?.trim() === '测试',
+      );
+    await click(testButtons()[0] as HTMLButtonElement);
+    await click(testButtons()[1] as HTMLButtonElement);
+    expect(testButtons()[0]?.disabled).toBe(true);
+    expect(testButtons()[1]?.disabled).toBe(true);
+
+    // 后发的 rerank 先完成，先发的 embedding 仍在途。
+    await act(async () => rerankRequest.resolve());
+    await flush();
+    expect(testButtons()[0]?.disabled).toBe(true);
+    expect(testButtons()[1]?.disabled).toBe(false);
+
+    // 先发的 embedding 随后以 HTTP 错误完成并走 catch，不能覆盖 rerank 的结果。
+    await act(async () => embedRequest.resolve());
+    await flush();
+
+    const rows = [...document.querySelectorAll<HTMLElement>('li')];
+    const embedRow = rows.find((row) => row.textContent?.includes('bge-m3'));
+    const rerankRow = rows.find((row) => row.textContent?.includes('bge-reranker'));
+    expect(rerankRow?.textContent).toContain('连接正常');
+    expect(embedRow?.textContent).toContain('服务端暂时无法完成请求');
+    expect(embedRow?.textContent).not.toContain('测试中');
+    expect(testButtons()[0]?.disabled).toBe(false);
+    expect(testButtons()[1]?.disabled).toBe(false);
+  });
+
   it('keeps the stored secret when the edit form leaves it blank', async () => {
     server.use(
       http.get('/api/knowledge/model-profiles', () => HttpResponse.json([embeddingProfile])),

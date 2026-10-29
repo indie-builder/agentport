@@ -105,7 +105,6 @@ export const agents = pgTable(
     /** 助手回复格式：markdown 或生成式 UI（OpenUI Lang 围栏）。 */
     uiFormat: text('ui_format').notNull().default('markdown'),
     effort: text('effort'),
-    maxThinkingTokens: integer('max_thinking_tokens'),
     enabled: boolean('enabled').notNull().default(true),
     maxTurns: integer('max_turns').notNull().default(20),
     maxBudgetUsd: numeric('max_budget_usd', { precision: 10, scale: 4 }).notNull().default('2'),

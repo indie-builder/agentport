@@ -904,7 +904,6 @@ export function useUpdateAgent() {
           return {
             ...next,
             effort: next.effort ?? undefined,
-            maxThinkingTokens: next.maxThinkingTokens ?? undefined,
           };
         }),
       );

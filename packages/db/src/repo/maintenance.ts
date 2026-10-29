@@ -8,6 +8,11 @@ export interface PruneRunsResult {
   messages: number;
 }
 
+export interface PruneOptions {
+  /** 已发布成果 manifest 引用的消息；detach 与 delete 都显式排除。 */
+  retainedMessageIds?: string[];
+}
+
 // 0 或负数会让截止时间落在未来，必须挡住；维护任务只在配置合法时运行。
 function positive(value: number, name: string): number {
   if (!Number.isInteger(value) || value < 1) {
@@ -39,8 +44,15 @@ export async function pruneAgentVersions(db: Database, keepPerAgent: number): Pr
 }
 
 /** 删除超过 N 天已结束的 run，以及按 run_id 关联的 messages；单语句保证原子。 */
-export async function pruneRuns(db: Database, olderThanDays: number): Promise<PruneRunsResult> {
+export async function pruneRuns(
+  db: Database,
+  olderThanDays: number,
+  options: PruneOptions = {},
+): Promise<PruneRunsResult> {
   const days = positive(olderThanDays, 'olderThanDays');
+  const retained = options.retainedMessageIds ?? [];
+  // 模板直接插入数组会展开成占位符列表；sql.param 保持单参数由 pg 序列化为 text[]。
+  const retainedMessages = sql`${messages.id} = any(${sql.param(retained)}::text[])`;
   const result = await db.execute(sql`
     with doomed as (
       select ${agentRuns.id} as id
@@ -53,15 +65,21 @@ export async function pruneRuns(db: Database, olderThanDays: number): Promise<Pr
       update ${messages}
       set run_id = null
       where ${messages.runId} in (select id from doomed)
-        and ${messages.role} = 'user'
-        and jsonb_typeof(${messages.content}->'attachments') = 'array'
-        and jsonb_array_length(${messages.content}->'attachments') > 0
+        and (
+          ${retainedMessages}
+          or (
+            ${messages.role} = 'user'
+            and jsonb_typeof(${messages.content}->'attachments') = 'array'
+            and jsonb_array_length(${messages.content}->'attachments') > 0
+          )
+        )
       returning 1
     ),
     deleted as (
       delete from ${messages}
       where ${messages.runId} in (select id from doomed)
-        -- 数据修改 CTE 共享同一快照：detached 的更新对这里不可见，必须显式排除。
+        and not ${retainedMessages}
+        -- 数据修改 CTE 共享同一快照：detached 的更新对这里不可见，必须用同一保留条件排除。
         and not (
           ${messages.role} = 'user'
           and coalesce(
@@ -92,12 +110,18 @@ export async function pruneRuns(db: Database, olderThanDays: number): Promise<Pr
  * 没有 run_id 的旧消息；分支副本归会话保留，父会话删除后仍受保护。
  * 附件是用户显式交给会话的输入，没有运行也会在历史里继续引用，永不按孤儿清理。
  */
-export async function pruneOrphanMessages(db: Database, olderThanDays: number): Promise<number> {
+export async function pruneOrphanMessages(
+  db: Database,
+  olderThanDays: number,
+  options: PruneOptions = {},
+): Promise<number> {
   const days = positive(olderThanDays, 'olderThanDays');
+  const retained = options.retainedMessageIds ?? [];
   const result = await db.execute(sql`
     delete from ${messages}
     where ${messages.runId} is null
       and ${messages.createdAt} < now() - make_interval(days => ${days})
+      and not (${messages.id} = any(${sql.param(retained)}::text[]))
       and coalesce(
         case
           when jsonb_typeof(${messages.content}->'attachments') = 'array'

@@ -14,11 +14,22 @@ fi
 
 # 只读取 DATABASE_URL，不 source 整个文件：.env 里的值可能带空格或注释。
 if [ -z "${DATABASE_URL:-}" ]; then
-  DATABASE_URL="$(sed -n 's/^DATABASE_URL=//p' "$ENV_SOURCE" | tail -n 1)"
-  DATABASE_URL="${DATABASE_URL%\"}"
-  DATABASE_URL="${DATABASE_URL#\"}"
-  DATABASE_URL="${DATABASE_URL%\'}"
-  DATABASE_URL="${DATABASE_URL#\'}"
+  RAW_URL="$(sed -n 's/^DATABASE_URL=//p' "$ENV_SOURCE" | tail -n 1)"
+  # restore.sh 的最小引导 env 用单引号 + '\'' 转义；只对这种生成格式反解，普通配置保持原读法。
+  SQ_CHAR="'"
+  case "$RAW_URL" in
+    \'*\' )
+      DATABASE_URL="${RAW_URL#\'}"
+      DATABASE_URL="${DATABASE_URL%\'}"
+      DATABASE_URL="${DATABASE_URL//\'\\\'\'/$SQ_CHAR}"
+      ;;
+    *)
+      DATABASE_URL="${RAW_URL%\"}"
+      DATABASE_URL="${DATABASE_URL#\"}"
+      DATABASE_URL="${DATABASE_URL%\'}"
+      DATABASE_URL="${DATABASE_URL#\'}"
+      ;;
+  esac
 fi
 [ -n "$DATABASE_URL" ] || die "DATABASE_URL is empty in $ENV_SOURCE"
 export DATABASE_URL

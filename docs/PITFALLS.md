@@ -141,6 +141,12 @@
 - **原因**：把上次的 space id / page 标签 / `ref` 当成长期有效；locator 语法写成 Playwright 的写法。
 - **规避**：①同一个目标只用一个 TaskSpace，用**固定名字**复用（`taskSpace('chat-layout')`），名字才是长期句柄；数字 `spaceId` 只在当轮输出里可读，不要当成跨轮常量存下来；②`task.page(label)` 只查已存在的页，缺页用 `await task.newPage()`（不传参数）且用先前输出里的 `p1`/`p2` 标签；③`ref` 只在当前快照有效，页面变化后重新 `snapshot()` 再点；④role 定位写成 `loc=role:button[name="新建专家"]`，名字是子串匹配用 `[name*="…"]`，`loc=role:dialog` 这种缺名字的写法会报 `Invalid locator`。需要观测条件时用 `waitForSelector`/`waitForFunction`，不用固定 sleep。
 
+## 数据库：Drizzle `sql` 模板里的 JS 数组会展开成多个占位符
+
+- **现象**：`sql`${ids}::text[]`` 生成 `($2, $3)::text[]`，非空数组报 `cannot cast type record to text[]`，空数组直接语法错误；看起来像 SQL 写错。
+- **原因**：Drizzle 的 `sql` 模板把数组当参数列表展开，不作为一个数组参数绑定。
+- **规避**：需要单个 PostgreSQL 数组参数时用 `sql.param(array)`，例如 `${sql.param(ids)}::text[]`；空数组与非空数组都要有测试，不能只测其中一种。
+
 ## 数据库：迁移账本漂移或共享库已有列时不要手改账本
 
 - **现象**：`pnpm db:migrate` 报列已存在（如 `agents.role`），或 `__drizzle_migrations` 里的时间戳在 journal 中找不到；共享库还可能停在上一号，后续迁移一条都没跑。
@@ -243,6 +249,18 @@
 - **原因**：测试模块在 import 时捕获 `DATABASE_URL`、擅自改 `process.env`，或把地址重写回固定历史库；复用的旧迁移账本不含后来合入的表，迁移异常又被吞成 infra 不可用。
 - **规避**：默认入口由 backend globalSetup 每轮创建随机库并迁移，经 `provide`/`inject` + `setupFiles` 在导入测试前写入 `process.env`；套件确需独立库时调用 `createIsolatedDatabase(prefix, adminUrl)`，显式使用返回的 `url`（不再隐式改 env），关闭连接后只删自己创建的库。建库/迁移失败必须抛错；只有 PG/Docker 不可用才发布不可连地址并跳过，不能回落开发库或共享 Redis。核验清理时只认本次函数返回的库名及唯一容器名/句柄：同一 worktree 可能有并行代理在跑测试，不要按 `backend_test_*` 前缀或镜像名批量删库/删容器。
 
+## 测试：依赖真实文件系统的 spawn 就绪要用明确信号，不能数 `setImmediate` 轮数
+
+- **现象**：`runtime-environment-build` 单跑或全量时，固定 20 次 `setImmediate` 后 buildx 仍可能未 spawn（`buildIndex === -1`）。
+- **原因**：`setImmediate` 只推进事件循环轮次，不保证 spawn 前的 `mkdtemp`/`writeFile` 等真实 fs（libuv 线程池）回调已完成，固定轮数可能先用完；线程池争用是可能放大因素，不是已确定的唯一原因。
+- **规避**：fake spawn 在真正就绪（含 `--iidfile` 写入）时 resolve 明确信号，测试 `await` 它，并用 `Promise.race` 让 handler 提前结束直接失败；只用于排空回放缓冲的 `setImmediate` 可保留。
+
+## 测试：读全表的接口测试要复用项目测试 config 并预置正常加密记录
+
+- **现象**：`knowledge-server-guard` 单跑 3/3 绿，全量并行时 `GET /api/servers` 返回 500（`INTERNAL_ERROR`）；库里有普通连接器才触发。
+- **原因**：测试 app 自造 config 只有 `NODE_ENV`/`SELF_URL`，缺 `APP_SECRET_KEY`；`listServers` 查全表后解密普通连接器 `env`，`Buffer.from(undefined)` 抛错。空库单跑没有这条记录，掩盖了缺口。
+- **规避**：测试 app config 直接用项目测试 helpers 的 `testConfig()`（与生产相同配置契约，但不是生产函数）；覆盖列表/全表查询时用现有 repo `createServer` 和同一 `APP_SECRET_KEY` 预置一条带加密 env 的正常记录再断言，不手造密文，也不用空库单跑绿代表集成。
+
 ## 解析：Docling pageMap 不能用整文 indexOf 反查来源
 
 - **现象**：表格 chunk 丢失来源页码；图片 OCR 的 `1` 被匹进正文数字 `1234`，页码错位。
@@ -275,9 +293,9 @@
 
 ## UI：子表单卸载不会自动结算外层 pending
 
-- **现象**：模型 profile 保存成功、编辑表单消失，外层弹窗的关闭、新增和编辑仍永久禁用。
-- **原因**：外层通过子表单 effect 接收 pending；成功回调先卸载子表单，随后子表单的 `setSaving(false)` 无法再触发回报，外层保留最后的 true。
-- **规避**：拥有弹窗生命周期的外层在成功回调中明确结算 pending/dirty，再卸载子表单；行为测试必须覆盖保存成功后关闭、继续新建和路由离开，不只断言请求完成。
+- **现象**：模型 profile 保存成功、编辑表单消失，外层弹窗的关闭、新增和编辑仍永久禁用；保存中后退/前进被拦下后关闭弹层，被拦的导航 Promise 永久挂起，确认框残留。
+- **原因**：外层通过子表单 effect 接收 pending；成功回调先卸载子表单，随后子表单的 `setSaving(false)` 无法再触发回报，外层保留最后的 true。TanStack Query 的 per-call mutation 回调随组件卸载不再执行，把结算只移到父层 `onCreated` 仍依赖这条被跳过的回调；`useBlocker` 的 resolver 也不会随卸载自动 `reset`/`proceed`。
+- **规避**：拥有弹窗/编辑子树生命周期的父层持有卸载权，在真正关闭或切换前结算 pending 与最新 blocker resolver（`reset` 表示取消被拦下的导航），不把结算挂在子表单成功回调。跨卸载仍要继续的异步收尾用 `mutateAsync` + `finally`（回填、toast 在异步延续里做），不依赖 per-call 回调。测试必须在响应仍挂起时先断言子表单/编辑节点已卸载，再释放响应并断言 pending、弹层与导航均已结算；并发多对象结果用函数式合并（`setResults(prev => ({ ...prev, [id]: next }))`），以乱序完成和一次 HTTP 异常验证互不覆盖。
 
 ## UI：详情路由的 document.title 不能只按路由模板命名
 

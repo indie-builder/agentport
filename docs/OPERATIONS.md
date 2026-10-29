@@ -23,7 +23,7 @@
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问域名（如 `https://agentport.example.com`），不要用 `*`。本机 Portless 可加通配符 `https://*.agentport.localhost`（仅 HTTPS 默认端口），一次覆盖变化的 worktree 子域名，精确的 `https://agentport.localhost` 仍保留；生产只有确实要覆盖子域名时才用通配符 |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | api、worker 均解析；worker 使用 | `agent-runs` 队列并发数（api 解析但不读）；只限制同时执行的 run，热空闲的会话容器不计入该并发 |
-| `AGENT_TIMEOUT_MS` | 否 | `600000` | api 解析但不读；worker 用于对账 | **不是执行超时**。真实执行超时取该智能体的 `timeoutMs`（默认 `600000`）；本变量只作为孤儿 run 对账的时间窗口：queued run 超过 `AGENT_TIMEOUT_MS` + 5 分钟宽限后先探测队列，job 消失或已终态才置 failed；running run 改用该智能体当前配置的 `timeout_ms` |
+| `AGENT_TIMEOUT_MS` | 否 | `600000` | api 解析但不读；worker 用于对账 | **不是执行超时**。真实执行超时取该智能体的 `timeoutMs`（默认 `600000`）；本变量只作为孤儿 run 对账的时间窗口：queued run 超过 `AGENT_TIMEOUT_MS` + 5 分钟宽限后先探测队列，job 消失或已终态才置 failed；running run 从 `startedAt` 按该智能体当前配置的 `timeout_ms` + 5 分钟宽限判定。两者每 5 分钟扫描，通常 15–20 分钟收敛，不是保证期限 |
 
 以下变量不在 schema 中，由代码直接读 `process.env` 或只由 compose 使用：
 
@@ -45,10 +45,10 @@
 | `ANTHROPIC_API_KEY` | 二选一 | — | worker | 模型 API key 的配置入口；默认只由 worker 的模型凭证代理持有，不注入容器 |
 | `ANTHROPIC_AUTH_TOKEN` | 二选一 | — | worker | 以 Bearer token 发送；与上一项二选一，同样由 worker 持有 |
 | `ANTHROPIC_BASE_URL` | 否 | — | worker | 自建网关地址，作为模型凭证代理的上游；容器内不可达的 loopback 由 worker 改写为 `host.docker.internal` |
-| `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 仅用于孤儿 run 对账：queued run 超过该值 + 5 分钟宽限且队列探测确认 job 消失/已终态才置 failed；running run 用该智能体当前配置的 `timeout_ms`。不是执行超时，执行取 `agent.timeoutMs`（默认 `600000`）；api 也解析但不读 |
+| `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 仅用于孤儿 run 对账：queued run 超过该值 + 5 分钟宽限且队列探测确认 job 消失/已终态才置 failed；running run 从 `startedAt` 按该智能体当前配置的 `timeout_ms` + 5 分钟宽限判定。两者每 5 分钟扫描，通常 15–20 分钟收敛，不是保证期限。不是执行超时，执行取 `agent.timeoutMs`（默认 `600000`）；api 也解析但不读 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 队列并发数；只限制同时执行的 run，正常完成或成功取消后的热空闲会话容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内继续占用资源 |
 
-**配置入口与容器 env 不同。** 配置任一模型凭证后，worker 在 `MODEL_PROXY_PORT`（默认 3426）启动模型凭证代理（D-17）：真实凭证只留在 worker 进程，沙盒每轮只拿到 `ANTHROPIC_BASE_URL=<代理地址>` 与短期 `ANTHROPIC_AUTH_TOKEN=run_...`（`ANTHROPIC_API_KEY` 置空），run 结束即吊销（不论容器清理是否成功）。未配置凭证时代理不启动，`sandboxEnv` 保留直接把配置值注入容器的回退路径，并打印警告。
+**配置入口与容器 env 不同。** 配置任一模型凭证后，worker 在 `MODEL_PROXY_PORT`（默认 3426）启动模型凭证代理（D-17）：真实凭证只留在 worker 进程，沙盒每轮只拿到 `ANTHROPIC_BASE_URL=<代理地址>` 与短期 `ANTHROPIC_AUTH_TOKEN=run_...`（`ANTHROPIC_API_KEY` 置空），run 结束会从代理内存集合移除该 token 并尝试清空 DB hash（不论容器清理是否成功）；内存移除不保证独立于 DB 立即失效，清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。未配置凭证时代理不启动，`sandboxEnv` 保留直接把配置值注入容器的回退路径，并打印警告。
 
 ### 1.3 沙盒（worker schema）
 
@@ -74,7 +74,7 @@
 - 回收只删除容器，不删除宿主上的持久数据（`agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/`、`conversation-inputs/<conversationId>/`）；后续 run 新建容器时从 `sdk-sessions` 与 `agent-memory` 恢复同一 SDK 会话与记忆。
 - 容器内是常驻 supervisor，每轮启动新的 runner（新 SDK query）；复用只省容器创建与启动（缓存镜像基线约 122ms/次），不算也不承诺 SDK 冷启动优化。
 - 会话级稳定目录为 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/{workspace,outputs}`：`workspace` 渲染本轮官方定义后只读挂入 `/workspace`，`outputs` 可写挂入 `/mnt/outputs`，`/mnt/inputs` 始终挂载（会话目录即使本轮无附件也预建）。整个 `session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存（`workspace` 每轮按数据库重渲染，`outputs` 停稳后复制进 `conversation-outputs`），不是不可丢失的持久交付；容器回收与关停不删除、也不 rename 该根目录，丢失后可由数据库与持久数据重建；删除会话时由 API 回收该会话目录。
-- 每轮重新渲染官方定义并刷新到 `workspace`；运行专属 MCP 与模型凭证只进当轮 runner。运行结束时不论容器清理是否成功都吊销本轮 token；终态停稳后删除 `.mcp.json`，空闲容器不保留上一轮身份，下一轮重新渲染。
+- 每轮重新渲染官方定义并刷新到 `workspace`；本轮短期 MCP/模型凭证只进当轮 runner，stdio 的 `env` 与 http 的 `headers` 还会把上游解密 secrets 写入当轮 `.mcp.json`，可能是长期凭证。运行结束（不论容器清理是否成功）都会尝试清空本轮 MCP token；DB 清空失败只记 warning，token 可能保留到过期时间；模型 token 从代理内存集合移除并尝试清空 DB hash，清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。终态停稳后删除 `.mcp.json`，删除失败时记录错误并禁止复用该容器，文件可能留到下一轮刷新时被覆盖；残留期间上游长期 secret 仍可能有效。空闲容器不保留上一轮身份，下一轮重新渲染。
 - `agent-memory/` 仍按智能体共享，不随会话隔离；只有 `sdk-sessions/<conversationId>/` 按会话隔离。
 - `sandbox-probe` 试连与 `native-plugins` 安装仍使用一次性容器，不进入会话复用。
 - 实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核；最终联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK 4 例）。真实付费模型与浏览器全链路未测。详见 [任务记录](tasks/session-sandbox-lifecycle.md)。
@@ -301,7 +301,7 @@ pnpm run up --rebuild
 
 `pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。
 
-**关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 先禁止新的沙盒创建并取消镜像拉取，等待已发出的创建请求收尾后清理容器；单项清理失败仍继续关闭其余资源，记录错误并以非零状态退出。执行已经完成后的清理失败不改写业务结果或触发模型重试。reconciler 会收敛仍为 running 的 run。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
+**关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 收到 SIGTERM 先 abort 沙盒关停信号：不再新建容器或拉取镜像，进行中的拉取/创建按取消语义收尾，活跃聊天 run 也随同一信号取消；随后并发关闭主与 eval run worker，并最多等待 10s 让已取消的任务收尾（超时不再等），再清理容器（容器 stop 本身不受这 10s 限制，必须等它完成）；其余队列与其他步骤从关停开始就并发关闭、各有界，最后按序执行收尾步骤。单项清理失败仍继续关闭其余资源，记录错误并以非零状态退出。执行已经完成后的清理失败不改写业务结果或触发模型重试。reconciler 会收敛仍为 running 的 run。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
 
 ## 3. 备份与恢复
 
@@ -356,14 +356,14 @@ docker compose start api worker
 
 1. 校验归档（格式版本 2；旧版归档需重新备份）：必须是本格式的 `tar.gz`，成员只能是 `manifest.json` / `database.dump` / `env` / `workspaces/**` / `knowledge/**`；拒绝绝对路径、`..`、控制字符、重复成员、符号链接/硬链接/设备文件、旧 `.sql.gz`，以及超出 `MAX_RESTORE_BYTES` 的包。解压后再按 manifest 校验 sha256（含工作区与知识库内容指纹）、字节数与文件数。
 2. compose 的 api/worker 仍在运行时直接拒绝（脚本不替你停共享服务）。
-3. 先写 `pre-restore-<ts>.tar.gz`（当前数据库 + 工作区 + 知识库 + 配置）和 `pre-restore-<ts>.env`；任一步失败即中止，不改动任何目标。当前知识库已配置却读不到时同样中止，不留一个缺知识库的回退点。
+3. 先写 `pre-restore-<ts>.tar.gz`（当前数据库 + 工作区 + 知识库 + 配置）；任一步失败即中止，不改动任何目标。本地配置原本不存在时仍可恢复：只要调用方显式给了 `DATABASE_URL`，安全副本只为该目标 URL 生成一份最小引导 `env`（只含该 URL 与说明，不含原本不存在的密钥），实际恢复后的配置仍取自归档内的 `env`。配置路径存在但为空/不可读/非普通文件或复制失败时，在改库前中止。当前知识库已配置却读不到时同样中止，不留一个缺知识库的回退点。安全副本原子改名发布后、改库前用与恢复相同的 `validate_archive` 复核，不通过则删除并中止。
 4. `pg_restore --clean --if-exists --single-transaction --exit-on-error`：数据库失败整体回滚，库保持原样。
-5. 恢复 `env`（可用 `RESTORE_ENV_TARGET` 改路径；`--target-workspaces` 旁路验证默认不改配置），再按“暂存 → 权限收紧 → 顶层换入”恢复工作区，保留现有 `run_*`（`session-sandboxes/` 属普通工作区内容随包换入，是可再生的会话派生缓存）；知识库用同一套换入（宿主目录在宿主执行，`knowledgedata` 卷用一次性容器），最后执行 `pnpm db:migrate`。
+5. 恢复 `env`（可用 `RESTORE_ENV_TARGET` 改路径；`--target-workspaces` 旁路验证默认不改配置）；覆盖前若目标配置已存在，另存 `pre-restore-<ts>.env`，该副本在数据库提交后、覆盖配置前复制，其失败不在“不改动任何目标”的保证内。再按“暂存 → 权限收紧 → 顶层换入”恢复工作区，保留现有 `run_*`（`session-sandboxes/` 属普通工作区内容随包换入，是可再生的会话派生缓存）；当前工作区里新增、但备份中没有的专家目录，其 `run_*` 会在按需新建目录后搬回，搬运中任一失败则先把已搬入的 `run_*` 尽力归回 holding 再恢复原目录，回搬失败时保留现场与 holding，不保证所有失败都能归位；知识库用同一套换入（宿主目录在宿主执行，`knowledgedata` 卷用一次性容器），最后执行 `pnpm db:migrate`。
 
 要点：
 
-- **数据库目标只来自调用环境**（`DATABASE_URL`，或 `BACKUP_ENV_FILE` 中的值）；归档内的 `env` 不参与任何数据库操作，仅用于恢复配置。
-- 文件恢复在数据库提交之后；若文件换入失败会明确说明「不是完整回滚」，不会谎报成功。
+- **数据库目标只来自调用环境**（`DATABASE_URL`，或 `BACKUP_ENV_FILE` 中的值）；归档内的 `env` 不参与任何数据库操作，仅用于恢复配置。没有本地 `.env` 时显式 `DATABASE_URL` 即可恢复；安全副本里的引导 `env` 只记录该目标 URL，不代表包内含原本不存在的密钥。
+- 数据库恢复使用单事务，失败整体回滚；文件交换发生在数据库提交之后，只做尽力回滚。文件换入部分失败会明确说明「不是完整回滚」并保留安全副本，不会承诺所有失败都能自动回到原状。
 - `--target-workspaces <空目录>` 可把文件恢复到旁路目录做验证，不碰当前工作区；`--target-knowledge <空目录>` 把知识库恢复到隔离目录（即使真实部署用命名卷），两者可同时使用。
 - 只给 `--target-workspaces` 时知识库不恢复，避免演练覆盖线上知识卷；要一起验就同时给 `--target-knowledge`。
 - 容器卷模式下换入会在目标卷里做「暂存 + 按顶层换入」，中断时尽力回滚；api/worker 必须先停。
@@ -392,7 +392,15 @@ docker compose start api worker
 
 ### 3.4 恢复演练记录
 
-新格式尚未做真实库/工作区卷的完整备份→恢复演练（数据库与 `workspaces` 卷仍缺实测）。演练前不要把它当作已验证的灾难恢复路径。
+新格式已有真实 PostgreSQL 数据库演练，但跨机器/真实 `workspaces` 命名卷的完整灾难恢复仍未实测；演练前不要把它当作已验证的完整灾难恢复路径。
+
+2026-10-29 在 macOS Docker Desktop 上做了真实 PostgreSQL 演练（隔离随机库 `drill_restore_*`、临时工作区与临时 `BACKUP_DIR`，未读写主 `.env`、共享工作区、共享知识卷或 `agentport` 库；证据 `.tmp/codebase-review-restore/pg-drill-evidence.log`）：
+
+- 普通 URL：真实备份 → `BACKUP_ENV_FILE` 指向不存在路径 + 显式 `DATABASE_URL` 恢复成功（无本地 env 的灾难恢复）；哨兵行与持久文件回到备份内容，恢复前活动 `run_*` 保留。
+- 安全副本回退成功：安全包的 `env` 只有说明行 + `DATABASE_URL`（206 bytes），无其他密钥；用该包把库与工作区回退到第一次恢复前状态。
+- 两次恢复都实际执行了恢复命令传入的 `--clean --if-exists --single-transaction` 与宿主 `pnpm db:migrate`；日志无 URL。
+- 含真正单引号、空格、`&`、`$(touch …)` 的 URL 只用 stub 参数做逐字节往返，并由独立 Opus `/bin/bash` 两端各 782 组合验证；没有用密码本身含特殊字符的真实账户连接。stub 结果不等于真实 PG 恢复。
+- 当前工作区新增专家的 `run_*` 保留与部分搬运失败完整归位由 stub 用例覆盖；41 个 stub 用例 + 1 个真实隔离库哨兵用例的覆盖界限保持不变。
 
 2026-10-25 在 macOS Docker Desktop 上做了**知识卷**实测（临时项目名 `agentport-kn-drill-*` 与临时命名卷，只写自造测试文件，未读主应用数据）：
 

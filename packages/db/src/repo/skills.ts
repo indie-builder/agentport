@@ -1,4 +1,5 @@
-import { AppError, type SkillProvenance } from '@agentport/core';
+import { AppError, fail, type SkillProvenance } from '@agentport/core';
+import { findSkillResourcePathConflict } from '@agentport/shared';
 import { and, asc, count, eq, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -86,6 +87,12 @@ export async function createSkillWithFiles(
   input: SkillWrite,
   files: Array<{ path: string; content: string }>,
 ): Promise<SkillRow> {
+  const conflict = findSkillResourcePathConflict(files.map((file) => file.path));
+  if (conflict) {
+    fail('INVALID_INPUT', `资源路径「${conflict.path}」与「${conflict.conflictingPath}」冲突`, {
+      path: conflict.path,
+    });
+  }
   return db.transaction(async (tx) => {
     const [row] = await tx
       .insert(skills)

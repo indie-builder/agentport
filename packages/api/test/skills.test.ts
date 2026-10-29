@@ -161,6 +161,82 @@ describe.skipIf(!ready)('skills', () => {
     expectProblem(del, 'INVALID_INPUT');
   });
 
+  it.each([
+    'SKILL.md',
+    'skill.MD',
+    'SKILL.md/child.md',
+    'a//b.md',
+    './refs/a.md',
+    'refs/./a.md',
+    'refs/',
+  ])('rejects non-projectable resource path %s without writing a file', async (path) => {
+    const skill = await createSkill(unique('invalid-resource'));
+    const res = await inject(app, {
+      method: 'PUT',
+      url: `/api/skills/${skill.id}/files/${encodeURIComponent(path)}`,
+      headers: auth(),
+      payload: { content: 'must not be written' },
+    });
+    expectProblem(res, 'INVALID_INPUT');
+    const listed = await inject(app, {
+      method: 'GET',
+      url: `/api/skills/${skill.id}/files`,
+      headers: auth(),
+    });
+    expect(listed.json()).toEqual([]);
+  });
+
+  it.each([
+    ['refs', 'refs/child.md'],
+    ['refs/child.md', 'refs'],
+    ['refs/a.md', 'REFS/A.md'],
+    ['Refs', 'refs/child.md'],
+  ])(
+    'rejects conflicting resource %s → %s and preserves the existing file',
+    async (original, conflict) => {
+      const skill = await createSkill(unique('resource-conflict'));
+      const put = (path: string, content: string) =>
+        inject(app, {
+          method: 'PUT',
+          url: `/api/skills/${skill.id}/files/${encodeURIComponent(path)}`,
+          headers: auth(),
+          payload: { content },
+        });
+      const first = await put(original, 'original');
+      expect(first.statusCode, first.body).toBe(200);
+      const rejected = await put(conflict, 'conflict');
+      expectProblem(rejected, 'INVALID_INPUT');
+      const listed = await inject(app, {
+        method: 'GET',
+        url: `/api/skills/${skill.id}/files`,
+        headers: auth(),
+      });
+      expect(listed.json()).toEqual([first.json()]);
+    },
+  );
+
+  it('keeps nested resources and updates the same path in place', async () => {
+    const skill = await createSkill(unique('nested-resource'));
+    const put = (content: string) =>
+      inject(app, {
+        method: 'PUT',
+        url: `/api/skills/${skill.id}/files/references/nested/SKILL.md`,
+        headers: auth(),
+        payload: { content },
+      });
+    const first = await put('first');
+    expect(first.statusCode, first.body).toBe(200);
+    const updated = await put('updated');
+    expect(updated.statusCode, updated.body).toBe(200);
+    expect(updated.json()).toEqual({ ...first.json(), content: 'updated' });
+    const listed = await inject(app, {
+      method: 'GET',
+      url: `/api/skills/${skill.id}/files`,
+      headers: auth(),
+    });
+    expect(listed.json()).toEqual([updated.json()]);
+  });
+
   type ImportResult = { skill: Skill; warnings: string[] };
 
   const importSkill = (skillMd: string) =>

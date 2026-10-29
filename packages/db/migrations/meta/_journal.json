@@ -295,6 +295,13 @@
       "when": 1793238917970,
       "tag": "0041_careful_pretty_boy",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793279463439,
+      "tag": "0042_curious_pet_avengers",
+      "breakpoints": true
     }
   ]
 }

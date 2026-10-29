@@ -213,7 +213,7 @@ export async function addResult(
     evalRunId: string;
     caseId: string;
     caseSnapshot?: EvalCaseSnapshot;
-    /** 失败的 case 没有对应运行，写 NULL；外键要求如此。 */
+    /** 仅在子 run 创建前失败时为 NULL（外键要求）；run 已创建则即使失败也带 runId。 */
     runId: string | null;
     passed: boolean;
     output: string;

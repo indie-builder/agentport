@@ -28,8 +28,8 @@ export interface RunsQueueLike {
 /** BullMQ Job 在本模块用到的部分：data 可在建运行前先落盘。 */
 export interface ScheduleTriggerJobLike {
   data: ScheduleTriggerJob;
-  /** 触发时刻（毫秒）；同一 schedule 只接受比上次更晚的触发。 */
-  timestamp: number;
+  /** Job Scheduler 每轮写入的计划触发时刻；job.timestamp 是创建时刻，不能当触发时刻。 */
+  opts: { prevMillis?: number };
   updateData: (data: ScheduleTriggerJob) => Promise<void>;
 }
 
@@ -91,7 +91,7 @@ async function enqueueRun(
 
 /**
  * 一次定时触发：先重读库（陈旧快照不能复活已禁用/删除项），预生成 id 落盘到 job.data，
- * 再由条件更新认领（last_run_at < job.timestamp），最后提交后入队。
+ * 再由条件更新认领（last_run_at < 本轮计划时刻 prevMillis），最后提交后入队。
  */
 export async function processScheduleTrigger(
   input: { db: Db; logger: Logger; runsQueue: RunsQueueLike },
@@ -103,6 +103,11 @@ export async function processScheduleTrigger(
     return 'skipped';
   }
   const data = parsed.data;
+  const triggerAt = job.opts.prevMillis;
+  if (triggerAt === undefined) {
+    input.logger.warn({ data }, 'skip schedule trigger: missing planned time');
+    return 'skipped';
+  }
   const schedule = await repo.ops.getSchedule(input.db, data.scheduleId);
   if (!schedule?.enabled) {
     await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
@@ -159,7 +164,7 @@ export async function processScheduleTrigger(
     runId,
     conversationId,
     messageId,
-    triggerAt: job.timestamp,
+    triggerAt,
   });
   if (claim === 'duplicate') return 'duplicate';
   if (claim === 'agent_disabled') {

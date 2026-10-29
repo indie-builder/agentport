@@ -20,6 +20,8 @@ export interface StdioProbeOptions {
   /** 缺省/null 用平台默认环境；只影响这次试连实际使用的容器镜像。 */
   runtimeEnvironmentId?: string | null;
   timeoutMs?: number;
+  /** 缺省用进程 REDIS_URL；路由不传，测试可指向隔离 Redis。 */
+  redisUrl?: string;
 }
 
 /**
@@ -36,7 +38,7 @@ export async function testStdioInSandbox(
 ): Promise<ServerTestResult> {
   const timeoutMs = options.timeoutMs ?? SANDBOX_PROBE_WAIT_TIMEOUT_MS;
   const startedAt = Date.now();
-  const connection = { url: REDIS_URL };
+  const connection = { url: options.redisUrl ?? REDIS_URL };
   const job: SandboxProbeJob = {
     serverId,
     ...(options.runtimeEnvironmentId === undefined || options.runtimeEnvironmentId === null
@@ -44,7 +46,12 @@ export async function testStdioInSandbox(
       : { runtimeEnvironmentId: options.runtimeEnvironmentId }),
   };
   const queue = new Queue<SandboxProbeJob>(SANDBOX_PROBES_QUEUE, { connection });
-  const events = new QueueEvents(SANDBOX_PROBES_QUEUE, { connection });
+  const events = new QueueEvents(SANDBOX_PROBES_QUEUE, {
+    connection,
+    // 首个 XREAD 若在 job 完成之后才开始，默认 $ 会在执行时跳过完成事件。
+    // 从流起点回放（默认保留 1 万条），waitUntilFinished 只监听本 jobId。
+    lastEventId: '0-0',
+  });
   events.on('error', (error) => logger.warn({ err: error }, 'sandbox probe queue error'));
 
   let timer: ReturnType<typeof setTimeout> | undefined;

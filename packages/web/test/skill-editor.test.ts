@@ -445,3 +445,55 @@ describe('skill support file editor', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
+
+describe('skill support file path validation', () => {
+  it.each([
+    ['SKILL.md', '资源路径不能占用 SKILL.md'],
+    ['skill.MD', '资源路径不能占用 SKILL.md'],
+    ['refs//a.md', '路径必须是相对路径，且不能包含 .、.. 或空路径段'],
+    ['./refs/a.md', '路径必须是相对路径，且不能包含 .、.. 或空路径段'],
+  ])('rejects %s before writing and exposes an accessible error', async (path, message) => {
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+    await waitFor(() => editorView('skill-file-content'));
+
+    fill('skill-file-path', path);
+    await click(button('添加文件'));
+
+    const input = document.getElementById('skill-file-path') as HTMLInputElement;
+    expect(api.writeSkillFile).not.toHaveBeenCalled();
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(input.getAttribute('aria-describedby')).toBe('skill-file-path-error');
+    const error = document.getElementById('skill-file-path-error');
+    expect(error?.getAttribute('role')).toBe('alert');
+    expect(error?.textContent).toBe(message);
+  });
+
+  it('keeps the form required message for an empty path', async () => {
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+    await waitFor(() => editorView('skill-file-content'));
+
+    await click(button('添加文件'));
+
+    expect(api.writeSkillFile).not.toHaveBeenCalled();
+    expect(document.getElementById('skill-file-path-error')?.textContent).toBe(
+      '不能为空，请填写后再保存',
+    );
+  });
+
+  it('saves a nested SKILL.md resource under a legal directory', async () => {
+    mount(createElement(SkillDialog, { skill, onClose: vi.fn() }));
+    await waitFor(() => editorView('skill-file-content'));
+
+    fill('skill-file-path', 'references/nested/SKILL.md');
+    await replaceContent('skill-file-content', 'nested body');
+    await click(button('添加文件'));
+
+    await waitFor(() => api.writeSkillFile.mock.calls.length > 0);
+    expect(api.writeSkillFile).toHaveBeenCalledWith(
+      'skill',
+      'references/nested/SKILL.md',
+      'nested body',
+    );
+    expect(document.getElementById('skill-file-path-error')).toBeNull();
+  });
+});

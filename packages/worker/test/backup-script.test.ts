@@ -3,9 +3,11 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { createDb } from '@agentport/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 // 这些用例只用临时目录 + stub 的 pg_dump/pg_restore/pnpm，不触真实数据库或工作区卷。
+// 唯一例外是配置损坏的哨兵用例：它只在本轮隔离随机库里读写一张自建表，不碰开发库。
 const run = promisify(execFile);
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 const SCRIPTS = join(ROOT, 'scripts');
@@ -594,6 +596,167 @@ describe('restore.sh', () => {
     return { dir, target, targetEnv };
   }
 
+  // 目标库哨兵只在配置中止用例里用来证明「没有发生写库」；多数脚本用例仍用 stub。
+  const realDatabaseUrl = process.env.DATABASE_URL ?? '';
+  const hasRealDatabase =
+    realDatabaseUrl !== '' && !realDatabaseUrl.includes('backend_infra_unavailable');
+
+  async function abortWithConfig(extra: Record<string, string>): Promise<string> {
+    const archive = await makeBackup();
+    const { stderr } = await restoreError([archive], extra);
+    expect(await restoreTargets()).toEqual([]);
+    return stderr;
+  }
+
+  it('recovers with an explicit DATABASE_URL when no local env exists', async () => {
+    const archive = await makeBackup();
+    const { target, targetEnv } = await makeTarget();
+
+    const { stdout, stderr } = await restore([archive, '--target-workspaces', target], {
+      DATABASE_URL: 'postgres://caller/target',
+      BACKUP_ENV_FILE: join(env.dir, 'missing.env'),
+      RESTORE_ENV_TARGET: targetEnv,
+    });
+    expect(stdout).toContain('RESTORE OK');
+    expect(stderr).not.toContain('caller/target');
+    expect(await restoreTargets()).toEqual(['postgres://caller/target']);
+
+    // 安全副本不能退回空 env：必须是只含目标 DATABASE_URL 的非空引导配置。
+    const safety = (await readdir(env.backupDir)).find(
+      (name) => name.startsWith('pre-restore-') && name.endsWith('.tar.gz'),
+    );
+    const safetyArchive = join(env.backupDir, safety ?? '');
+    const safetyEnv = (await readArchiveFile(safetyArchive, './env')).toString('utf8');
+    expect(safetyEnv).toContain('no local config existed');
+    expect(safetyEnv).toContain("DATABASE_URL='postgres://caller/target'");
+    expect(safetyEnv).not.toContain('APP_SECRET_KEY');
+
+    // 安全包本身能再作为恢复输入，且引导 env 能被脚本读回同一个目标库。
+    const safetyEnvFile = join(env.dir, 'safety.env');
+    await writeFile(safetyEnvFile, safetyEnv);
+    const second = await mkdtemp(join(env.dir, 'target-'));
+    const secondTarget = join(second, 'workspaces');
+    await mkdir(secondTarget);
+    const { stdout: again } = await restore([safetyArchive, '--target-workspaces', secondTarget], {
+      BACKUP_ENV_FILE: safetyEnvFile,
+    });
+    expect(again).toContain('RESTORE OK');
+    expect(await restoreTargets()).toEqual([
+      'postgres://caller/target',
+      'postgres://caller/target',
+    ]);
+  });
+
+  it('writes a source-safe bootstrap env when no local env exists', async () => {
+    const archive = await makeBackup();
+    const { target, targetEnv } = await makeTarget();
+    const tricky = `postgres://u:p@db:5432/t?x=1&y=$(touch ${join(env.dir, 'pwned')})`;
+
+    await restore([archive, '--target-workspaces', target], {
+      DATABASE_URL: tricky,
+      BACKUP_ENV_FILE: join(env.dir, 'missing.env'),
+      RESTORE_ENV_TARGET: targetEnv,
+    });
+
+    const safety = (await readdir(env.backupDir)).find(
+      (name) => name.startsWith('pre-restore-') && name.endsWith('.tar.gz'),
+    );
+    const bootstrap = join(env.dir, 'bootstrap.env');
+    await writeFile(bootstrap, await readArchiveFile(join(env.backupDir, safety ?? ''), './env'));
+    const { stdout } = await run('bash', [
+      '-c',
+      '. "$1"; printf "%s" "$DATABASE_URL"',
+      '_',
+      bootstrap,
+    ]);
+    expect(stdout).toBe(tricky);
+    await expect(stat(join(env.dir, 'pwned'))).rejects.toThrow();
+  });
+
+  it('restores the exact quoted DATABASE_URL from the bootstrap env it generated', async () => {
+    const archive = await makeBackup();
+    const { target, targetEnv } = await makeTarget();
+    const tricky = `postgres://u:p'ass word@db:5432/t?x=1&y=$(touch ${join(env.dir, 'pwned-restore')})`;
+
+    await restore([archive, '--target-workspaces', target], {
+      DATABASE_URL: tricky,
+      BACKUP_ENV_FILE: join(env.dir, 'missing.env'),
+      RESTORE_ENV_TARGET: targetEnv,
+    });
+
+    const safety = (await readdir(env.backupDir)).find(
+      (name) => name.startsWith('pre-restore-') && name.endsWith('.tar.gz'),
+    );
+    const bootstrap = join(env.dir, 'bootstrap-roundtrip.env');
+    await writeFile(bootstrap, await readArchiveFile(join(env.backupDir, safety ?? ''), './env'));
+
+    // 清空显式 DATABASE_URL：只让 restore 自己的读取流程从生成的引导 env 还原目标。
+    await writeFile(env.log, '');
+    const second = await mkdtemp(join(env.dir, 'target-'));
+    const secondTarget = join(second, 'workspaces');
+    await mkdir(secondTarget);
+    await restore([archive, '--target-workspaces', secondTarget], { BACKUP_ENV_FILE: bootstrap });
+    const restored = (await stubLog())
+      .filter((line) => line.startsWith('PGRESTORE ') && line.includes('--dbname='))
+      .map((line) => line.split('--dbname=')[1] ?? '');
+    expect(restored).toEqual([tricky]);
+
+    // backup.sh 用同一个引导 env 也必须读到同一字节，而不是转义后的串。
+    await writeFile(env.log, '');
+    await backup({ BACKUP_ENV_FILE: bootstrap });
+    const dumped = (await stubLog())
+      .filter((line) => line.startsWith('PGDUMP --format=custom '))
+      .map((line) => line.slice('PGDUMP --format=custom --no-owner --no-privileges '.length));
+    expect(dumped).toEqual([tricky]);
+    await expect(stat(join(env.dir, 'pwned-restore'))).rejects.toThrow();
+  });
+
+  it('aborts before the database when the env file is empty', async () => {
+    const empty = join(env.dir, 'empty.env');
+    await writeFile(empty, '');
+    const stderr = await abortWithConfig({
+      DATABASE_URL: 'postgres://caller/target',
+      BACKUP_ENV_FILE: empty,
+    });
+    expect(stderr).toContain('config is empty or unreadable');
+  });
+
+  it('aborts before the database when the env file cannot be copied', async () => {
+    const archive = await makeBackup();
+    await run('rm', ['-f', join(env.bin, 'install')]);
+    await stub('install', 'exit 1');
+    const { stderr } = await restoreError([archive], { DATABASE_URL: 'postgres://caller/target' });
+    expect(stderr).toContain('pre-restore config backup failed');
+    expect(await restoreTargets()).toEqual([]);
+  });
+
+  it.skipIf(!hasRealDatabase)(
+    'leaves a real target database sentinel intact when config is empty',
+    async () => {
+      const archive = await makeBackup();
+      const empty = join(env.dir, 'empty.env');
+      await writeFile(empty, '');
+      const { pool } = createDb(realDatabaseUrl);
+      try {
+        await pool.query('drop table if exists restore_sentinel');
+        await pool.query('create table restore_sentinel (id int primary key, note text)');
+        await pool.query("insert into restore_sentinel values (1, 'keep')");
+
+        const { stderr } = await restoreError([archive], {
+          DATABASE_URL: realDatabaseUrl,
+          BACKUP_ENV_FILE: empty,
+        });
+        expect(stderr).toContain('config is empty or unreadable');
+        // 不是只看返回值：真正的目标库仍必须保有哨兵，且没有任何 --dbname 恢复调用。
+        expect(await restoreTargets()).toEqual([]);
+        const rows = await pool.query('select note from restore_sentinel where id = 1');
+        expect(rows.rows).toEqual([{ note: 'keep' }]);
+      } finally {
+        await pool.end();
+      }
+    },
+  );
+
   it('round-trips workspace files, keeps run_* and uses the caller DATABASE_URL', async () => {
     const archive = await makeBackup();
     const { target, targetEnv } = await makeTarget();
@@ -638,6 +801,94 @@ describe('restore.sh', () => {
       await readFile(join(env.workspaces, 'demo-agent', 'agent-memory', 'MEMORY.md'), 'utf8'),
     ).toBe('# memory\n');
     // 换入过程中的临时目录不能留在工作区里。
+    expect((await readdir(env.workspaces)).filter((name) => name.startsWith('.restore-'))).toEqual(
+      [],
+    );
+  });
+
+  it('keeps run_* for an expert that exists only in the live workspaces', async () => {
+    const archive = await makeBackup();
+    const liveOnly = join(env.workspaces, 'live-only-agent');
+    await mkdir(join(liveOnly, 'sessions'), { recursive: true });
+    await mkdir(join(liveOnly, 'run_live09'), { recursive: true });
+    await writeFile(join(liveOnly, 'sessions', 'transcript.jsonl'), '{"old":1}\n');
+    await writeFile(join(liveOnly, 'run_live09', 'keep.txt'), 'live-run\n');
+
+    await restore([archive], { RESTORE_ENV_TARGET: join(env.dir, 'restored.env') });
+
+    // run_* 被备份排除，safety 里也没有第二份；恢复较旧备份时必须搬回。
+    expect(await readFile(join(liveOnly, 'run_live09', 'keep.txt'), 'utf8')).toBe('live-run\n');
+    // 其余旧内容仍按 restore 原语义被备份内容替换（备份里没有这个专家）。
+    expect(
+      await readFile(join(liveOnly, 'sessions', 'transcript.jsonl'), 'utf8').catch(() => ''),
+    ).toBe('');
+    expect((await readdir(env.workspaces)).filter((name) => name.startsWith('.restore-'))).toEqual(
+      [],
+    );
+  });
+
+  it('rolls the live-only expert back when its first run move fails', async () => {
+    const archive = await makeBackup();
+    const liveOnly = join(env.workspaces, 'live-only-agent');
+    await mkdir(join(liveOnly, 'sessions'), { recursive: true });
+    await mkdir(join(liveOnly, 'run_live09'), { recursive: true });
+    await writeFile(join(liveOnly, 'sessions', 'transcript.jsonl'), '{"old":1}\n');
+    await writeFile(join(liveOnly, 'run_live09', 'keep.txt'), 'live-run\n');
+
+    await run('rm', ['-f', join(env.bin, 'mv')]);
+    await stub(
+      'mv',
+      'if [ -n "${FAIL_MV_RUN:-}" ]; then case "$1" in */.restore-holding-*/live-only-agent/run_*) exit 1;; esac; fi\nexec /bin/mv "$@"',
+    );
+
+    const { stderr } = await restoreError([archive], {
+      RESTORE_ENV_TARGET: join(env.dir, 'restored.env'),
+      FAIL_MV_RUN: '1',
+    });
+    expect(stderr).toContain('workspace swap failed');
+
+    // 第一个 run 都没搬成功：整个旧目录必须回到原路径，holding 不残留。
+    expect(await readFile(join(liveOnly, 'run_live09', 'keep.txt'), 'utf8')).toBe('live-run\n');
+    expect(await readFile(join(liveOnly, 'sessions', 'transcript.jsonl'), 'utf8')).toBe(
+      '{"old":1}\n',
+    );
+    expect((await readdir(env.workspaces)).filter((name) => name.startsWith('.restore-'))).toEqual(
+      [],
+    );
+  });
+
+  it('rolls back every run of a live-only expert when a later run move fails', async () => {
+    const archive = await makeBackup();
+    const liveOnly = join(env.workspaces, 'live-only-agent');
+    await mkdir(join(liveOnly, 'sessions'), { recursive: true });
+    await mkdir(join(liveOnly, 'run_aaa'), { recursive: true });
+    await mkdir(join(liveOnly, 'run_bbb'), { recursive: true });
+    await writeFile(join(liveOnly, 'sessions', 'transcript.jsonl'), '{"old":1}\n');
+    await writeFile(join(liveOnly, 'run_aaa', 'a.txt'), 'first-run\n');
+    await writeFile(join(liveOnly, 'run_bbb', 'b.txt'), 'second-run\n');
+
+    await run('rm', ['-f', join(env.bin, 'mv')]);
+    await stub(
+      'mv',
+      'if [ -n "${FAIL_MV_SECOND_RUN:-}" ]; then case "$1" in */.restore-holding-*/live-only-agent/run_bbb) exit 1;; esac; fi\nexec /bin/mv "$@"',
+    );
+
+    const { stderr } = await restoreError([archive], {
+      RESTORE_ENV_TARGET: join(env.dir, 'restored.env'),
+      FAIL_MV_SECOND_RUN: '1',
+    });
+    expect(stderr).toContain('workspace swap failed');
+
+    // 第一个 run 已搬进按需新建的目录、第二个失败：两者都要完整回到线上目录。
+    expect(await readFile(join(liveOnly, 'run_aaa', 'a.txt'), 'utf8')).toBe('first-run\n');
+    expect(await readFile(join(liveOnly, 'run_bbb', 'b.txt'), 'utf8')).toBe('second-run\n');
+    // 持久目录与备份专家的 run 也按原样回滚，而不是把 run 散落在新建目录里。
+    expect(await readFile(join(liveOnly, 'sessions', 'transcript.jsonl'), 'utf8')).toBe(
+      '{"old":1}\n',
+    );
+    expect(
+      await readFile(join(env.workspaces, 'demo-agent', 'run_01abc', 'workspace.txt'), 'utf8'),
+    ).toBe('derived\n');
     expect((await readdir(env.workspaces)).filter((name) => name.startsWith('.restore-'))).toEqual(
       [],
     );

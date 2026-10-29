@@ -14,7 +14,11 @@ const SIGNATURE_LOCAL = 0x04034b50;
 const SIGNATURE_ZIP64_LOCATOR = 0x07064b50;
 const UTF8_NAME_FLAG = 0x800;
 const MAX_PATH_LENGTH = 512;
+/** version made by 的高字节：3 = Unix，只有这类条目带可信的文件 mode。 */
+const UNIX_HOST = 3;
 const UNIX_SYMLINK = 0o120000;
+const UNIX_REGULAR_FILE = 0o100644;
+const UNIX_EXECUTABLE_FILE = 0o100755;
 
 const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
 
@@ -64,6 +68,7 @@ interface CentralEntry {
   compressedSize: number;
   compression: number;
   localOffset: number;
+  executable: boolean;
 }
 
 interface CentralDirectory {
@@ -184,12 +189,20 @@ function readCentralDirectory(data: Buffer): CentralDirectory {
       invalid('只支持 store / deflate 压缩的 ZIP 条目', name);
     }
     assertPackagePath(name);
-    // version made by 高字节 3 = Unix；symlink 的文件类型位是 0o120000。
-    if (madeBy >> 8 === 3 && ((externalAttributes >>> 16) & 0o170000) === UNIX_SYMLINK) {
+    // 非 Unix 条目没有可信 mode，按不可执行处理；symlink 的文件类型位是 0o120000。
+    const unixMode = madeBy >> 8 === UNIX_HOST ? externalAttributes >>> 16 : 0;
+    if ((unixMode & 0o170000) === UNIX_SYMLINK) {
       invalid('ZIP 包不能包含符号链接', name);
     }
     if (name.endsWith('/')) continue;
-    result.push({ name, originalSize, compressedSize, compression, localOffset });
+    result.push({
+      name,
+      originalSize,
+      compressedSize,
+      compression,
+      localOffset,
+      executable: (unixMode & 0o111) !== 0,
+    });
   }
   if (cursor !== directoryEnd) invalid('ZIP 中央目录大小与条目不一致');
 
@@ -231,21 +244,46 @@ function readEntryData(data: Buffer, entry: CentralEntry, centralOffset: number)
   }
 }
 
-/** 打包：所有条目都是文本资源；路径在写包前同样校验。 */
-export function encodePackage(files: Record<string, string>): Buffer {
-  const entries: Record<string, Uint8Array> = {};
+/** 解出的单个文本条目；executable 来自 ZIP 的 Unix external attributes。 */
+export interface PackageEntry {
+  content: string;
+  executable: boolean;
+}
+
+export interface PackageFile extends PackageEntry {
+  path: string;
+}
+
+/** Unix 文件 mode 写进 external attributes 的高 16 位，并声明来源为 Unix。 */
+function unixAttributes(executable: boolean): { os: number; attrs: number } {
+  return {
+    os: UNIX_HOST,
+    attrs: ((executable ? UNIX_EXECUTABLE_FILE : UNIX_REGULAR_FILE) << 16) >>> 0,
+  };
+}
+
+/** 打包文本条目，并把可执行位写成 Unix external attributes；路径在写包前同样校验。 */
+export function encodePackageEntries(files: readonly PackageFile[]): Buffer {
+  const entries: Record<string, [Uint8Array, { os: number; attrs: number }]> = {};
   const encoder = new TextEncoder();
-  for (const [path, content] of Object.entries(files)) {
-    assertPackagePath(path);
-    entries[path] = encoder.encode(content);
+  for (const file of files) {
+    assertPackagePath(file.path);
+    entries[file.path] = [encoder.encode(file.content), unixAttributes(file.executable)];
   }
   return Buffer.from(zipSync(entries, { level: 6 }));
 }
 
+/** 打包：所有条目都是普通文本资源。 */
+export function encodePackage(files: Record<string, string>): Buffer {
+  return encodePackageEntries(
+    Object.entries(files).map(([path, content]) => ({ path, content, executable: false })),
+  );
+}
+
 /** 先按中央目录校验，再解压；内容必须能按严格 UTF-8 解码。 */
-export function decodePackage(data: Buffer): Map<string, string> {
+export function decodePackageEntries(data: Buffer): Map<string, PackageEntry> {
   const { entries, centralOffset } = readCentralDirectory(data);
-  const files = new Map<string, string>();
+  const files = new Map<string, PackageEntry>();
   let total = 0;
   for (const entry of entries) {
     const bytes = readEntryData(data, entry, centralOffset);
@@ -257,10 +295,18 @@ export function decodePackage(data: Buffer): Map<string, string> {
       invalid(`ZIP 解压后总大小超过 ${AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES} 字节`);
     }
     try {
-      files.set(entry.name, strictUtf8.decode(bytes));
+      files.set(entry.name, {
+        content: strictUtf8.decode(bytes),
+        executable: entry.executable,
+      });
     } catch {
       invalid(`「${entry.name}」不是 UTF-8 文本；包内只支持文本资源`, entry.name);
     }
   }
   return files;
+}
+
+/** 只关心正文的调用方沿用这个入口；可执行位走 decodePackageEntries。 */
+export function decodePackage(data: Buffer): Map<string, string> {
+  return new Map([...decodePackageEntries(data)].map(([path, entry]) => [path, entry.content]));
 }

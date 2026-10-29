@@ -330,9 +330,57 @@ describe.skipIf(!ready)('runIngest', () => {
       KnowledgeCancelled,
     );
     const document = await repo.knowledge.getDocument(db, documentId);
+    // 首次摄取没有可回退的版本：取消后必须落 failed，不能永久停在 processing。
+    expect(document?.status).toBe('failed');
     expect(document?.currentVersionId).toBeNull();
     const versions = await repo.knowledge.listVersions(db, documentId);
     expect(versions.items).toHaveLength(0);
+  });
+
+  it('keeps the published version ready when cancellation hits a re-ingest', async () => {
+    const fixtureBase = await makeBase();
+    const first = await makeUploadedDocument(fixtureBase);
+    const firstJob = await repo.knowledge.getJob(db, first.jobId);
+    if (!firstJob) throw new Error('job missing');
+    await runIngest(fixtureBase.deps, firstJob, new AbortController().signal);
+    const before = await repo.knowledge.getDocument(db, first.documentId);
+    const oldVersionId = before?.currentVersionId ?? '';
+    expect(oldVersionId).not.toBe('');
+
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    const data = Buffer.from('# 新标题\n\n取消发生在切版之前。', 'utf8');
+    const sha = createHash('sha256').update(data).digest('hex');
+    await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
+    await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
+    await repo.knowledge.updateDocument(db, first.documentId, { contentHash: sha });
+    const job = await repo.knowledge.createJob(db, {
+      type: 'ingest',
+      baseId: fixtureBase.baseId,
+      documentId: first.documentId,
+      sourceId: null,
+      payload: { type: 'ingest', documentId: first.documentId },
+    });
+    await repo.knowledge.claimJob(db, job.id);
+    const claimed = await repo.knowledge.getJob(db, job.id);
+    if (!claimed) throw new Error('job missing');
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(runIngest(fixtureBase.deps, claimed, controller.signal)).rejects.toBeInstanceOf(
+      KnowledgeCancelled,
+    );
+    const after = await repo.knowledge.getDocument(db, first.documentId);
+    expect(after?.status).toBe('ready');
+    expect(after?.currentVersionId).toBe(oldVersionId);
+    const versions = await repo.knowledge.listVersions(db, first.documentId);
+    expect(versions.items).toHaveLength(1);
+    const oldChunks = await repo.knowledge.listChunks(db, oldVersionId);
+    expect(oldChunks.items.map((chunk) => chunk.content)).toEqual([
+      '# 标题',
+      '第一段内容。',
+      '第二段内容。',
+    ]);
+    expect(oldChunks.items.every((chunk) => chunk.embedding !== null)).toBe(true);
   });
 
   it('does not publish a new version when aborted during chunk insertion', async () => {

@@ -12,12 +12,11 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { zipSync } from 'fflate';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
-import { decodePackage } from '../agent-package-zip.js';
+import { decodePackageEntries, encodePackageEntries } from '../agent-package-zip.js';
 import { runNativePluginAction } from './native.js';
 import { type PluginImportFile, parsePluginFiles } from './parse.js';
 
@@ -174,7 +173,7 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
       schema: {
         body: z.instanceof(Buffer).transform((buffer, ctx) => {
           try {
-            return decodePackage(buffer);
+            return decodePackageEntries(buffer);
           } catch (err) {
             const message = err instanceof Error ? err.message : '插件包无法解析';
             ctx.addIssue({ code: 'custom', path: [], message });
@@ -185,12 +184,10 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const files: PluginImportFile[] = [...request.body.entries()].map(([path, content]) => ({
+      const files: PluginImportFile[] = [...request.body.entries()].map(([path, file]) => ({
         path,
-        content,
-        // shortcut: decodePackage 丢掉了 ZIP 的可执行位，这里按脚本扩展名推断；
-        // 需要精确保留 mode 时改为从中央目录读外部属性。
-        executable: /\.(sh|bash|py|js|mjs|cjs)$/.test(path),
+        content: file.content,
+        executable: file.executable,
       }));
       const parsed = parsePluginFiles({
         files,
@@ -374,11 +371,7 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
       const row = await repo.getPlugin(app.db, request.params.id);
       if (!row) return notFound(reply);
       const files = await repo.listPluginFiles(app.db, row.id);
-      const archive = zipSync(
-        Object.fromEntries(
-          files.map((file) => [file.path, new TextEncoder().encode(file.content)]),
-        ),
-      );
+      const archive = encodePackageEntries(files);
       return reply
         .header('content-disposition', `attachment; filename="${row.slug}.zip"`)
         .header('cache-control', 'no-store')

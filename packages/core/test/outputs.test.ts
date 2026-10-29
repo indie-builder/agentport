@@ -19,6 +19,7 @@ import {
   copyConversationOutputs,
   listOutputFiles,
   outputDraftBlockedReason,
+  outputMessageAnchors,
   prepareOutputDraft,
   publishOutputSnapshot,
   readOutputFile,
@@ -99,6 +100,51 @@ async function publish(
     ...anchors,
   });
 }
+
+describe('published message anchors', () => {
+  it('returns only deduped published anchors, including an empty snapshot', async () => {
+    const identity = { root, slug, conversationId };
+    expect(await outputMessageAnchors(identity)).toEqual([]);
+    await publish(
+      'run_1',
+      { 'a.txt': 'a' },
+      { userMessageId: 'user-1', afterMessageId: 'after-1' },
+    );
+    const draft = await prepareOutputDraft({ ...identity, runId: 'run_2' });
+    await rm(join(draft, 'a.txt'));
+    await publishOutputSnapshot({
+      ...identity,
+      runId: 'run_2',
+      status: 'succeeded',
+      userMessageId: 'user-1',
+      afterMessageId: 'after-2',
+    });
+    await prepareOutputDraft({ ...identity, runId: 'run_unpublished' });
+    expect((await outputMessageAnchors(identity)).sort()).toEqual(['after-1', 'after-2', 'user-1']);
+  });
+
+  it('rejects corrupted and linked manifests instead of returning an incomplete set', async () => {
+    const identity = { root, slug, conversationId };
+    await publish('run_1', { 'a.txt': 'a' });
+    const manifest = join(
+      root,
+      slug,
+      'conversation-outputs',
+      conversationId,
+      'runs',
+      'run_1',
+      'manifest.json',
+    );
+    const original = await readFile(manifest);
+    await writeFile(manifest, '{broken');
+    await expect(outputMessageAnchors(identity)).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+    const outside = join(root, 'linked-manifest.json');
+    await writeFile(outside, original);
+    await rm(manifest);
+    await symlink(outside, manifest);
+    await expect(outputMessageAnchors(identity)).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  });
+});
 
 describe('publish, list and read', () => {
   it('publishes an immutable snapshot with hashes, sizes and media types', async () => {

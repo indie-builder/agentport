@@ -28,7 +28,7 @@
 | [tasks/enable-agent-bash.md](tasks/enable-agent-bash.md) | 恢复智能体 Bash 能力的调查、权限契约与验收 |
 | [OPENUI-UPGRADE.md](OPENUI-UPGRADE.md) | OpenUI 组件契约、官方 spec 生成与升级行为回归 |
 | [OPENUI-UI-ADAPTATION.md](OPENUI-UI-ADAPTATION.md) | 官方 shadcn UI 来源、Base UI 适配边界与项目令牌映射 |
-| `tasks/<slug>.md` | 单个任务的执行记录（按 `DEV-WORKFLOW.md` 模板创建） |
+| `tasks/<slug>.md` | 单个任务的执行记录与当轮接口契约（按 `DEV-WORKFLOW.md` 模板创建） |
 
 ## 仓库根文档
 
@@ -52,5 +52,7 @@
 | [CHANGELOG.md](CHANGELOG.md) | 转指仓库根 `../CHANGELOG.md` |
 
 ## 历史评审（只读参考，非当前契约）
+
+> 下列文档保留当时的评审与约定，不再约束当前代码；当前结构与契约以 [ARCHITECTURE.md](ARCHITECTURE.md) 和当轮 `tasks/<slug>.md` 为准。
 
 [IMPL-CONTRACTS.md](IMPL-CONTRACTS.md)、[EFFECT.md](EFFECT.md)、[BASE-FIRST.md](BASE-FIRST.md)、[BASE-UI-REVIEW.md](BASE-UI-REVIEW.md)、[STACK-COMPLIANCE-LOOP.md](STACK-COMPLIANCE-LOOP.md)、[UI-REDESIGN.md](UI-REDESIGN.md)、[UI-UX-REVIEW.md](UI-UX-REVIEW.md)、[UI-LAYOUT-REVIEW.md](UI-LAYOUT-REVIEW.md)、[SUBAGENTS-VERIFICATION.md](SUBAGENTS-VERIFICATION.md)
