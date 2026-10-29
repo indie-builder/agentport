@@ -209,7 +209,9 @@ describe('chat request ownership', () => {
     });
     // 动作不占输入框：草稿原样保留。
     expect(useChatStore.getState().input).toBe('还没发出去的草稿');
-    expect(useChatStore.getState().items).toEqual([{ kind: 'user', text: '看这个渠道' }]);
+    expect(useChatStore.getState().items).toEqual([
+      { kind: 'user', text: '看这个渠道', runId: 'run-a' },
+    ]);
     expect(useChatStore.getState().outputRef).toEqual(output);
 
     await act(async () => {
@@ -405,7 +407,7 @@ describe('disconnected runs', () => {
     expect(useChatStore.getState().items).toEqual([
       { kind: 'user', text: 'old prompt' },
       { kind: 'text', text: 'old reply' },
-      { kind: 'user', text: 'original message' },
+      { kind: 'user', text: 'original message', runId: 'run-a' },
       { kind: 'text', text: 'complete' },
     ]);
   });
@@ -478,7 +480,9 @@ describe('disconnected runs', () => {
     expect(typeof stream.retryStream).toBe('function');
     stream.retryStream();
     expect(Source.instances).toHaveLength(2);
-    expect(useChatStore.getState().items).toEqual([{ kind: 'user', text: 'original message' }]);
+    expect(useChatStore.getState().items).toEqual([
+      { kind: 'user', text: 'original message', runId: 'run-a' },
+    ]);
     expect(useChatStore.getState().run?.status).toBe('reconnecting');
   });
 
@@ -613,7 +617,7 @@ test('正常接受：保留用户气泡，开流，run_finished 后失效缓存�
   await sending;
 
   expect(onAccepted).toHaveBeenCalledWith({ runId: 'r1', conversationId: 'c1' }, 'hi');
-  expect(useChatStore.getState().items).toEqual([{ kind: 'user', text: 'hi' }]);
+  expect(useChatStore.getState().items).toEqual([{ kind: 'user', text: 'hi', runId: 'r1' }]);
   const opened = source();
   expect(opened.url).toBe('/api/chat/r1/events');
 
@@ -640,7 +644,7 @@ test('replay_truncated 只追加 muted 通知，不改写回答文本，也不�
   opened.onmessage?.(message({ type: 'text_delta', text: 'b' }));
 
   expect(useChatStore.getState().items).toEqual([
-    { kind: 'user', text: 'hi' },
+    { kind: 'user', text: 'hi', runId: 'r1' },
     { kind: 'text', text: 'a' },
     { kind: 'notice', tone: 'muted', text: TRUNCATED_NOTICE },
     { kind: 'text', text: 'b' },
@@ -716,7 +720,7 @@ test('截断后 run_finished 用真实会话消息重建尾部，不重复用户
   expect(items[0]).toEqual({ kind: 'text', text: 'old' });
   const users = items.filter((item) => item.kind === 'user');
   // 真实会话消息的用户 id 回填，不再出现运行详情的合成 id。
-  expect(users).toEqual([{ id: 'u1:0', kind: 'user', text: 'hi', messageId: 'u1' }]);
+  expect(users).toEqual([{ id: 'u1:0', kind: 'user', text: 'hi', messageId: 'u1', runId: 'r1' }]);
   expect(items.some((item) => item.kind === 'text' && item.text === 'partial answer')).toBe(false);
   expect(items.find((item) => item.kind === 'text' && item.text === 'answer')).toMatchObject({
     runId: 'r1',
@@ -873,7 +877,9 @@ test('仅保存用户消息时保留部分回答并提示输出未保存', async
   opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
   await settle();
   const { items } = useChatStore.getState();
-  expect(items.filter((item) => item.kind === 'user')).toEqual([{ kind: 'user', text: 'hi' }]);
+  expect(items.filter((item) => item.kind === 'user')).toEqual([
+    { kind: 'user', text: 'hi', runId: 'r1' },
+  ]);
   expect(items.some((item) => item.kind === 'text' && item.text === '仍有价值的部分回答')).toBe(
     true,
   );
@@ -896,7 +902,9 @@ test('已保存步骤为空时保留部分输出，不冒充完整结果', async
   await settle();
 
   const { items } = useChatStore.getState();
-  expect(items.filter((item) => item.kind === 'user')).toEqual([{ kind: 'user', text: 'hi' }]);
+  expect(items.filter((item) => item.kind === 'user')).toEqual([
+    { kind: 'user', text: 'hi', runId: 'r1' },
+  ]);
   expect(items.at(-1)).toEqual({
     kind: 'notice',
     tone: 'muted',
@@ -939,7 +947,7 @@ test('run_unavailable 结束本轮：保留部分输出并释放 run，不重连
 
   const state = useChatStore.getState();
   expect(state.items).toEqual([
-    { kind: 'user', text: 'hi' },
+    { kind: 'user', text: 'hi', runId: 'r1' },
     { kind: 'text', text: 'partial' },
     { kind: 'notice', tone: 'error', text: '运行记录已不存在，已停止接收。' },
   ]);
@@ -1177,7 +1185,7 @@ describe('run_finished 回填', () => {
     opened.onmessage?.(message({ type: 'text_delta', text: '普通回答' }));
     opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
     expect(useChatStore.getState().items).toEqual([
-      { kind: 'user', text: 'plain' },
+      { kind: 'user', text: 'plain', runId: 'r1' },
       { kind: 'text', text: '普通回答', runId: 'r1' },
     ]);
   });

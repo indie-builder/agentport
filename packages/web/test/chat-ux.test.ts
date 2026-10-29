@@ -18,6 +18,7 @@ import {
   type ApprovalRequest,
   api,
   type ChatAccepted,
+  type ConversationDetail,
   type RunDetail,
 } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
@@ -56,10 +57,20 @@ const terminal: RunDetail = {
   steps: [],
 };
 class Source {
-  onopen = null;
-  onmessage = null;
-  onerror = null;
-  close() {}
+  static instances: Source[] = [];
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  closed = false;
+  constructor(readonly url: string) {
+    Source.instances.push(this);
+  }
+  close() {
+    this.closed = true;
+  }
+  emit(event: unknown) {
+    this.onmessage?.({ data: JSON.stringify(event) });
+  }
 }
 let client: QueryClient;
 let host: HTMLDivElement;
@@ -157,6 +168,7 @@ function stubViewport(initialWidth: number) {
 }
 beforeEach(() => {
   useChatStore.getState().reset();
+  Source.instances = [];
   vi.mocked(toastError).mockClear();
   localStorage.clear();
   vi.stubGlobal('EventSource', Source);
@@ -282,7 +294,189 @@ describe('confirmed chat UX defects', () => {
     expect(host.textContent).toContain('Connector refused the request');
     expect(host.querySelector('a[href="/runs/run-old"]')).not.toBeNull();
     expect(host.textContent).not.toMatch(/0\.0s|0 tok|\$0\.000|NaNs/);
+    // 这次运行没有产出回复，但已经结束：只显示失败原因，不再冒充仍在等待。
+    expect(host.textContent).not.toContain('等待回复');
   });
+
+  it.each([
+    ['succeeded', '完成'],
+    ['cancelled', '已停止'],
+    ['timeout', '超时'],
+  ] as const)(
+    'does not show a waiting placeholder for a terminal %s run without output',
+    async (status, label) => {
+      vi.mocked(api.run).mockResolvedValue({
+        ...terminal,
+        run: { ...terminal.run, status, error: status === 'timeout' ? 'Run timed out' : null },
+      });
+      await mount('/chat?agent=agent-a&conversation=conversation-a');
+      expect(host.textContent).toContain(label);
+      expect(host.querySelector('a[href="/runs/run-old"]')).not.toBeNull();
+      expect(host.textContent).not.toContain('等待回复');
+    },
+  );
+
+  it.each([
+    ['queued', '任务已提交，正在准备'],
+    ['streaming', '等待回复'],
+  ] as const)(
+    'keeps feedback for a %s run that has not produced a reply yet',
+    async (status, feedback) => {
+      // 历史与运行详情都保持未决，让 store 里的活动运行直接驱动状态行。
+      vi.mocked(api.conversation).mockReturnValue(new Promise(() => {}));
+      vi.mocked(api.run).mockReturnValue(new Promise(() => {}));
+      await act(async () => {
+        useChatStore.setState({
+          conversationId: 'conversation-a',
+          items: [{ kind: 'user', text: 'old prompt', id: 'message-a' }],
+          run: {
+            runId: 'run-live',
+            conversationId: 'conversation-a',
+            status,
+            startedAt: Date.now(),
+          },
+        });
+      });
+      await mount('/chat?agent=agent-a&conversation=conversation-a');
+      expect(host.textContent).toContain(feedback);
+      // 状态行是运行读数，不是那条终态才该消失的占位文案。
+      expect(host.textContent).not.toContain('等待回复…');
+    },
+  );
+
+  it.each([
+    ['failed', '失败', 'First run exploded'],
+    ['timeout', '超时', 'Run timed out'],
+  ] as const)(
+    'keeps a %s run outcome with its own prompt after a later turn replies',
+    async (status, label, errorText) => {
+      vi.mocked(api.conversation).mockResolvedValue({
+        conversation: { ...terminal.conversation, createdAt: '' },
+        nextBefore: null,
+        messages: [
+          {
+            id: 'message-a',
+            conversationId: 'conversation-a',
+            role: 'user',
+            content: 'first prompt',
+            runId: 'run-a',
+            uiFormat: 'markdown',
+            uiProgram: null,
+            uiState: null,
+            createdAt: '2026-10-29T00:00:00.000Z',
+          },
+          {
+            id: 'message-b',
+            conversationId: 'conversation-a',
+            role: 'user',
+            content: 'second prompt',
+            runId: 'run-b',
+            uiFormat: 'markdown',
+            uiProgram: null,
+            uiState: null,
+            createdAt: '2026-10-29T00:01:00.000Z',
+          },
+          {
+            id: 'message-c',
+            conversationId: 'conversation-a',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'second reply' }],
+            runId: 'run-b',
+            uiFormat: 'markdown',
+            uiProgram: null,
+            uiState: null,
+            createdAt: '2026-10-29T00:01:01.000Z',
+          },
+        ],
+        // 失败/超时运行没有任何助手输出；后续轮次仍带完整读数。
+        runMetrics: [
+          {
+            runId: 'run-a',
+            status,
+            turns: null,
+            durationMs: null,
+            endedAt: null,
+            tokens: null,
+            costUsd: null,
+            error: errorText,
+          },
+          {
+            runId: 'run-b',
+            status: 'succeeded',
+            turns: 1,
+            durationMs: 2000,
+            endedAt: null,
+            tokens: 100,
+            costUsd: 0.01,
+            error: null,
+          },
+        ],
+      });
+      vi.mocked(api.run).mockResolvedValue({
+        run: {
+          id: 'run-b',
+          conversationId: 'conversation-a',
+          agentId: 'agent-a',
+          agentName: 'Expert',
+          status: 'succeeded',
+          startedAt: '2026-10-29T00:01:00.000Z',
+          endedAt: '2026-10-29T00:01:02.000Z',
+          latencyMs: 2000,
+          turns: 1,
+          inputTokens: 60,
+          outputTokens: 40,
+          costUsd: 0.01,
+          error: null,
+          sessionId: null,
+          sandboxId: null,
+          runtimeEnvironment: null,
+        },
+        conversation: { ...terminal.conversation, createdAt: '' },
+        steps: [],
+      });
+      await mount('/chat?agent=agent-a&conversation=conversation-a');
+
+      // 没有助手输出的终态运行：结果留在它自己的用户轮里，并且常驻可见。
+      const oldLink = host.querySelector('a[href="/runs/run-a"]');
+      expect(oldLink).not.toBeNull();
+      const oldTurn = oldLink?.closest('[data-message-id]');
+      expect(oldTurn?.getAttribute('data-message-id')).toBe('message-a:0');
+      expect(oldTurn?.textContent).toContain('first prompt');
+      expect(oldTurn?.textContent).toContain(label);
+      expect(oldTurn?.textContent).toContain(errorText);
+      expect(oldTurn?.textContent).not.toContain('second reply');
+      const oldWrapper = oldLink?.closest('[class*="transition-opacity"]');
+      expect(oldWrapper?.className).toContain('opacity-100');
+
+      // 后续轮次的回复与读数只属于自己：不串到旧轮，也不重复。
+      const replyTurn = host.querySelector('[data-message-id="message-c:0"]');
+      expect(replyTurn?.textContent).toContain('second reply');
+      expect(replyTurn?.textContent).not.toContain(errorText);
+      expect(host.querySelectorAll('a[href="/runs/run-a"]')).toHaveLength(1);
+      // 最新轮的读数由运行详情驱动；消息区内只出现一次（输入框上方另有本次运行入口）。
+      expect(replyTurn?.querySelectorAll('a[href="/runs/run-b"]')).toHaveLength(1);
+      expect(replyTurn?.textContent).toContain('完成');
+      // 终态运行不再显示仍在等待。
+      expect(host.textContent).not.toContain('等待回复');
+
+      // 继续对话时新用户项没有 runId：旧终态仍留在原轮，新的运行反馈照常出现。
+      await act(async () => {
+        useChatStore
+          .getState()
+          .setItems((items) => [...items, { kind: 'user', text: 'third prompt' }]);
+        useChatStore.getState().setRun({
+          runId: 'run-live',
+          conversationId: 'conversation-a',
+          status: 'streaming',
+          startedAt: Date.now(),
+        });
+      });
+      await flush();
+      expect(host.textContent).toContain(errorText);
+      expect(host.textContent).toContain('third prompt');
+      expect(host.textContent).toContain('等待回复');
+    },
+  );
 
   it('keeps rendered history when a background refresh fails', async () => {
     await mount('/chat?agent=agent-a&conversation=conversation-a');
@@ -402,6 +596,182 @@ describe('confirmed chat UX defects', () => {
       } else expect(runLink()?.getAttribute('href')).toBe('/runs/run-new');
     },
   );
+});
+
+describe('live terminal outcomes across a follow-up send', () => {
+  const conversation: ConversationDetail = {
+    conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'History' },
+    nextBefore: null,
+    runMetrics: [],
+    messages: [
+      {
+        id: 'message-a',
+        conversationId: 'conversation-a',
+        role: 'user',
+        content: 'old prompt',
+        runId: 'run-old',
+        createdAt: '',
+      },
+    ],
+  };
+
+  async function send(text: string) {
+    await type(text);
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.click();
+    });
+    await flush();
+  }
+
+  async function emit(event: unknown, index: number) {
+    await act(async () => {
+      const source = Source.instances.at(index);
+      if (!source) throw new Error('Missing event source');
+      source.emit(event);
+    });
+  }
+
+  async function mountWithStalledRefresh() {
+    vi.mocked(api.conversation).mockResolvedValue(conversation);
+    await mount('/chat?agent=agent-a&conversation=conversation-a');
+    // 背景刷新一直不返回：旧轮读数只能来自终态事件写回的会话详情缓存。
+    vi.mocked(api.conversation).mockReturnValue(new Promise(() => {}));
+  }
+
+  it.each([
+    ['failed', 'first run exploded'],
+    ['timeout', 'Run timed out'],
+  ] as const)('keeps a %s turn without output after the next send', async (status, error) => {
+    await mountWithStalledRefresh();
+    vi.spyOn(api, 'sendChat')
+      .mockResolvedValueOnce({ runId: 'run-a', conversationId: 'conversation-a' })
+      .mockResolvedValueOnce({ runId: 'run-b', conversationId: 'conversation-a' });
+
+    await send('first prompt');
+    // 用户气泡在接受时归属本轮：没有助手输出时，终态读数只能挂在它身上。
+    expect(useChatStore.getState().items.findLast((item) => item.kind === 'user')).toMatchObject({
+      text: 'first prompt',
+      runId: 'run-a',
+    });
+    await emit({ type: 'run_finished', status, error }, 0);
+    await flush();
+    expect(host.textContent).toContain(error);
+
+    await send('second prompt');
+    // 发送会清空最新读数，旧轮原因与链接必须仍从会话详情缓存读到，且不串到新轮。
+    expect(useChatStore.getState().lastRun).toBeNull();
+    expect(host.textContent).toContain(error);
+    expect(host.textContent).toContain('等待回复');
+    const oldLink = host.querySelector('a[href="/runs/run-a"]');
+    const oldTurn = oldLink?.closest('[data-message-id]');
+    expect(oldTurn?.textContent).toContain('first prompt');
+    expect(oldTurn?.textContent).not.toContain('second prompt');
+    expect(oldLink?.closest('[class*="transition-opacity"]')?.className).toContain('opacity-100');
+    expect(runLink()?.getAttribute('href')).toBe('/runs/run-b');
+
+    await emit({ type: 'text_delta', text: 'second reply', blockIndex: 0 }, 1);
+    await emit(
+      {
+        type: 'run_finished',
+        status: 'succeeded',
+        turns: 1,
+        inputTokens: 6,
+        outputTokens: 4,
+        costUsd: 0.01,
+      },
+      1,
+    );
+    await flush();
+
+    // 新轮回复与读数只属于自己；旧轮失败原因保留且唯一。
+    expect(host.textContent).toContain('second reply');
+    expect(host.textContent).not.toContain('等待回复');
+    const replyTurn = [...host.querySelectorAll('[data-message-id]')].find((element) =>
+      element.textContent?.includes('second reply'),
+    );
+    expect(replyTurn?.textContent).not.toContain(error);
+    expect(replyTurn?.querySelectorAll('a[href="/runs/run-b"]')).toHaveLength(1);
+    expect(replyTurn?.textContent).toContain('完成');
+    expect(host.querySelectorAll('a[href="/runs/run-a"]')).toHaveLength(1);
+    // 输入框上方的「查看本次运行」指向新运行，消息区里只有新轮一条读数链接。
+    expect(host.querySelectorAll('a[href="/runs/run-b"]')).toHaveLength(2);
+  });
+
+  it('keeps a cancelled turn without output after the next send', async () => {
+    await mountWithStalledRefresh();
+    vi.spyOn(api, 'sendChat')
+      .mockResolvedValueOnce({ runId: 'run-a', conversationId: 'conversation-a' })
+      .mockResolvedValueOnce({ runId: 'run-b', conversationId: 'conversation-a' });
+
+    await send('first prompt');
+    await emit({ type: 'run_finished', status: 'cancelled' }, 0);
+    await flush();
+
+    await send('second prompt');
+    const oldLink = host.querySelector('a[href="/runs/run-a"]');
+    const oldTurn = oldLink?.closest('[data-message-id]');
+    expect(oldTurn?.textContent).toContain('first prompt');
+    expect(oldTurn?.textContent).toContain('已停止');
+    expect(oldTurn?.textContent).not.toContain('second prompt');
+    // 取消没有失败原因，读数沿用既有规则默认透明，但链接仍在 DOM 与 Tab 序里。
+    expect(runLink()?.getAttribute('href')).toBe('/runs/run-b');
+  });
+
+  it('keeps a completed reply and its readout after the next send', async () => {
+    await mountWithStalledRefresh();
+    vi.spyOn(api, 'sendChat')
+      .mockResolvedValueOnce({ runId: 'run-a', conversationId: 'conversation-a' })
+      .mockResolvedValueOnce({ runId: 'run-b', conversationId: 'conversation-a' });
+
+    await send('first prompt');
+    await emit({ type: 'text_delta', text: 'first reply', blockIndex: 0 }, 0);
+    await emit(
+      {
+        type: 'run_finished',
+        status: 'succeeded',
+        turns: 1,
+        inputTokens: 3,
+        outputTokens: 2,
+        costUsd: 0.005,
+      },
+      0,
+    );
+    await flush();
+    expect(host.textContent).toContain('first reply');
+
+    await send('second prompt');
+    // 已完成回复的读数从最新读数换成缓存里的历史读数，仍只出现一次并留在原轮。
+    const oldLink = host.querySelector('a[href="/runs/run-a"]');
+    const oldTurn = oldLink?.closest('[data-message-id]');
+    expect(oldTurn?.textContent).toContain('first reply');
+    expect(oldTurn?.textContent).toContain('完成');
+    expect(oldTurn?.textContent).not.toContain('second prompt');
+
+    await emit({ type: 'text_delta', text: 'second reply', blockIndex: 0 }, 1);
+    await emit(
+      {
+        type: 'run_finished',
+        status: 'succeeded',
+        turns: 1,
+        inputTokens: 6,
+        outputTokens: 4,
+        costUsd: 0.01,
+      },
+      1,
+    );
+    await flush();
+
+    expect(host.querySelectorAll('a[href="/runs/run-a"]')).toHaveLength(1);
+    const firstTurn = [...host.querySelectorAll('[data-message-id]')].find((element) =>
+      element.textContent?.includes('first reply'),
+    );
+    expect(firstTurn?.querySelectorAll('a[href="/runs/run-a"]')).toHaveLength(1);
+    const replyTurn = [...host.querySelectorAll('[data-message-id]')].find((element) =>
+      element.textContent?.includes('second reply'),
+    );
+    expect(replyTurn?.querySelectorAll('a[href="/runs/run-b"]')).toHaveLength(1);
+    expect(replyTurn?.textContent).not.toContain('first reply');
+  });
 });
 
 describe('chat shell layout', () => {

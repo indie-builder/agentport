@@ -118,7 +118,7 @@ describe('authoritative disconnected recovery', () => {
       vi.spyOn(api, 'conversation').mockResolvedValue(history);
       await stream.reconcileRun({ ...terminal, status });
       expect(useChatStore.getState().items).toEqual([
-        { id: '1:0', kind: 'user', text: 'prompt', messageId: '1' },
+        { id: '1:0', kind: 'user', text: 'prompt', messageId: '1', runId: 'run-a' },
         { id: '2:0', kind: 'text', text: 'authoritative reply', runId: 'run-a' },
       ]);
       expect(useChatStore.getState().run).toBeNull();
