@@ -1284,7 +1284,7 @@ function HistoryPanel({
                 className={cn(
                   'h-auto w-full min-w-0 flex-col items-start gap-0 whitespace-normal px-2.5 py-2 pr-8 text-left font-normal',
                   conversation.id === conversationId
-                    ? 'bg-hover text-fg'
+                    ? 'bg-selected text-selected-foreground hover:bg-selected hover:text-selected-foreground'
                     : 'text-muted-foreground hover:bg-hover',
                 )}
               >
@@ -1896,7 +1896,7 @@ export function Composer({
             ) : (
               <InputGroupButton
                 type="submit"
-                variant="default"
+                variant="solid"
                 size="icon-sm"
                 disabled={!agent || Boolean(run) || !hasContent || !historyReady}
                 aria-label="发送消息"
@@ -2213,22 +2213,15 @@ export function MessagePane({
                   const messageId = turn.user ? userMessageId(turn.items) : undefined;
                   const latest = turnIndex === turns.length - 1;
                   // 历史轮次按消息上的 run_id 取读数；读数默认藏起来，指到这一轮才浮出。
-                  let turnRunId: string | undefined;
-                  if (!turn.user) {
-                    const produced = turn.items.find(
-                      (item) => item.kind === 'text' || item.kind === 'tool',
-                    );
-                    turnRunId =
-                      produced?.kind === 'text' || produced?.kind === 'tool'
-                        ? produced.runId
-                        : undefined;
-                  }
+                  // 没有助手输出的轮次（下一条仍是用户消息）由用户消息自己的 run_id 承载。
+                  const turnRunId = turn.items
+                    .map((item) => (item.kind === 'notice' ? undefined : item.runId))
+                    .find((runId) => runId !== undefined);
+                  const noReply = turn.user && turns[turnIndex + 1]?.user === true;
                   const historyRun =
-                    turn.user || latest
+                    latest || (turn.user && !noReply) || turnRunId === undefined
                       ? undefined
-                      : turnRunId
-                        ? historyMetrics.get(turnRunId)
-                        : undefined;
+                      : historyMetrics.get(turnRunId);
                   // 失败与超时的原因常驻；其余历史读数仍按悬停/聚焦显影。
                   const persistentRun =
                     historyRun !== undefined &&
@@ -2254,14 +2247,12 @@ export function MessagePane({
                             // Keep the user's pill surface; MessageContent supplies layout without a bubble appearance.
                             className={cn(
                               'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
-                              turn.user && 'w-fit max-w-[85%] rounded-pill bg-hover px-4 py-2',
+                              turn.user &&
+                                'w-fit max-w-[85%] rounded-pill bg-selected px-4 py-2 text-fg',
                             )}
                           >
                             <span className="sr-only">{turn.user ? '用户' : '助手'}</span>
                             <MessageGroup className="min-w-0 gap-4">
-                              {turn.items.length === 0 && !runFooter ? (
-                                <span className="text-sm text-muted-foreground">等待回复…</span>
-                              ) : null}
                               {turn.items.map((item, index) => {
                                 // 有归属的子调用由父行渲染，不在顶层重复出现。
                                 if (item.kind === 'tool') {

@@ -418,11 +418,7 @@ function SegmentedToggle<T extends string>({
       }}
     >
       {options.map((option) => (
-        <ToggleGroupItem
-          key={option.value}
-          value={option.value}
-          className="aria-pressed:bg-background aria-pressed:text-foreground"
-        >
+        <ToggleGroupItem key={option.value} value={option.value}>
           {option.label}
         </ToggleGroupItem>
       ))}

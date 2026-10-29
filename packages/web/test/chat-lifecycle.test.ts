@@ -156,6 +156,7 @@ describe('history restoration', () => {
       kind: 'user',
       text: 'prompt',
       messageId: '1',
+      runId: 'run-a',
     });
     expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'reconnecting' });
   });
@@ -190,9 +191,9 @@ describe('history restoration', () => {
       Source.instances[0]?.emit({ type: 'text_delta', text: 'complete reply' }),
     );
     expect(useChatStore.getState().items).toEqual([
-      { id: 'old-u:0', kind: 'user', text: 'old prompt', messageId: 'old-u' },
+      { id: 'old-u:0', kind: 'user', text: 'old prompt', messageId: 'old-u', runId: 'old-run' },
       { id: 'old-a:0', kind: 'text', text: 'old reply', runId: 'old-run' },
-      { id: '1:0', kind: 'user', text: 'prompt', messageId: '1' },
+      { id: '1:0', kind: 'user', text: 'prompt', messageId: '1', runId: 'run-a' },
       { kind: 'text', text: 'complete reply' },
     ]);
   });
@@ -334,7 +335,7 @@ describe('history restoration', () => {
     await act(async () => stream.retryStream());
     expect(Source.instances).toHaveLength(1);
     expect(useChatStore.getState().items).toEqual([
-      { id: '1:0', kind: 'user', text: 'prompt', messageId: '1' },
+      { id: '1:0', kind: 'user', text: 'prompt', messageId: '1', runId: 'run-a' },
     ]);
   });
 
@@ -402,6 +403,7 @@ describe('history restoration', () => {
       kind: 'user',
       text: 'prompt',
       messageId: '1',
+      runId: 'run-a',
     });
     expect(Source.instances).toHaveLength(1);
   });
@@ -476,6 +478,38 @@ describe('approval final refresh', () => {
     await flush();
     expect(useChatStore.getState().run).toBeNull();
     expect(client.getQueryData(['run-approvals', 'run-a'])).toEqual({ items: [approval] });
+  });
+
+  it('merges a recovered terminal run into the conversation detail cache', async () => {
+    useChatStore.getState().resetConversation('conversation-a');
+    await mount(ChatProbe);
+    await act(async () => {
+      useChatStore.getState().setRun((value) => value && { ...value, status: 'detached' });
+      await stream.reconcileRun({
+        ...run.run,
+        status: 'failed',
+        latencyMs: 2400,
+        turns: 2,
+        inputTokens: 5,
+        outputTokens: 7,
+        error: 'Stopped by server',
+      });
+    });
+    // 下一次发送清空 lastRun 后，恢复的旧轮仍从这份缓存读到结果与原因。
+    const detail = client.getQueryData<{ pages: ConversationDetail[] }>([
+      'conversation',
+      'conversation-a',
+    ]);
+    expect(detail?.pages[0]?.runMetrics).toContainEqual(
+      expect.objectContaining({
+        runId: 'run-a',
+        status: 'failed',
+        durationMs: 2400,
+        turns: 2,
+        tokens: 12,
+        error: 'Stopped by server',
+      }),
+    );
   });
 
   it('refreshes approvals and the expert conversation list after normal SSE completion', async () => {

@@ -3,9 +3,10 @@ import {
   type ChatEvent,
   type ChatRequest,
   type ConversationMessage,
+  type ConversationRunMetrics,
   chatEventSchema,
 } from '@agentport/shared';
-import type { UseQueryResult } from '@tanstack/react-query';
+import type { InfiniteData, QueryClient, UseQueryResult } from '@tanstack/react-query';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -85,6 +86,37 @@ async function loadRunMessages(
     before = detail.nextBefore;
   }
   throw new Error('本轮输出超出可恢复范围，请刷新后查看会话历史');
+}
+
+/**
+ * 终态读数并进会话详情缓存：下一次发送会清空 lastRun，
+ * 旧轮只能靠这份既有缓存按 runId 继续显示结果与失败原因。
+ */
+function cacheRunMetrics(
+  client: QueryClient,
+  conversationId: string,
+  metric: ConversationRunMetrics,
+): void {
+  client.setQueryData<InfiniteData<ConversationDetail>>(
+    ['conversation', conversationId],
+    (previous) => {
+      const first = previous?.pages[0];
+      if (!previous || !first) return previous;
+      return {
+        ...previous,
+        pages: [
+          {
+            ...first,
+            runMetrics: [
+              ...(first.runMetrics ?? []).filter((run) => run.runId !== metric.runId),
+              metric,
+            ],
+          },
+          ...previous.pages.slice(1),
+        ],
+      };
+    },
+  );
 }
 
 /**
@@ -355,16 +387,29 @@ export function useChatStream({
               };
             });
           });
+          const durationMs = Date.now() - startedAtRef.current;
+          const tokens =
+            event.inputTokens === undefined && event.outputTokens === undefined
+              ? null
+              : (event.inputTokens ?? 0) + (event.outputTokens ?? 0);
           store.setLastRun({
             runId: accepted.runId,
             status: event.status,
-            durationMs: Date.now() - startedAtRef.current,
+            durationMs,
             ...(event.turns === undefined ? {} : { turns: event.turns }),
-            ...(event.inputTokens === undefined && event.outputTokens === undefined
-              ? {}
-              : { tokens: (event.inputTokens ?? 0) + (event.outputTokens ?? 0) }),
+            ...(tokens === null ? {} : { tokens }),
             ...(event.costUsd === undefined ? {} : { costUsd: event.costUsd }),
             ...(event.error === undefined ? {} : { error: event.error }),
+          });
+          cacheRunMetrics(client, accepted.conversationId, {
+            runId: accepted.runId,
+            status: event.status,
+            turns: event.turns ?? null,
+            durationMs,
+            tokens,
+            costUsd: event.costUsd ?? null,
+            error: event.error ?? null,
+            endedAt: null,
           });
           void client.invalidateQueries({
             queryKey: ['conversation', accepted.conversationId],
@@ -582,29 +627,32 @@ export function useChatStream({
         store.clearDraft(conversationId, input);
       }
       store.setConversationId(accepted.conversationId);
-      if (accepted.attachments !== undefined) {
+      // base 与 store 必须共用同一个用户项：截断恢复按引用从 store 里定位本轮起点。
+      const baseIndex = baseItemsRef.current.findLastIndex((item) => item.kind === 'user');
+      const basePrompt = baseIndex < 0 ? undefined : baseItemsRef.current[baseIndex];
+      if (basePrompt?.kind === 'user') {
         // 用服务端落库的元数据替换乐观项附件，只补 id 与下载地址，不重建消息。
-        const serverAttachments = accepted.attachments.map(({ id, filename, mimeType, size }) => ({
+        const serverAttachments = accepted.attachments?.map(({ id, filename, mimeType, size }) => ({
           id,
           filename,
           mimeType,
           size,
           downloadUrl: attachmentDownloadUrl(accepted.conversationId, id),
         }));
-        // base 与 store 必须共用同一个用户项：截断恢复按引用从 store 里定位本轮起点。
-        const baseIndex = baseItemsRef.current.findLastIndex((item) => item.kind === 'user');
-        const basePrompt = baseIndex < 0 ? undefined : baseItemsRef.current[baseIndex];
-        if (basePrompt?.kind === 'user') {
-          const prompt: ChatItem = { ...basePrompt, attachments: serverAttachments };
-          const replacePrompt = (list: ChatItem[]): ChatItem[] => {
-            const index = list.findLastIndex((item) => item.kind === 'user');
-            return index < 0
-              ? list
-              : list.map((item, position) => (position === index ? prompt : item));
-          };
-          baseItemsRef.current = replacePrompt(baseItemsRef.current);
-          useChatStore.getState().setItems(replacePrompt);
-        }
+        // 用户气泡从接受起就归属本轮：没有助手输出时，终态读数由它承载。
+        const prompt: ChatItem = {
+          ...basePrompt,
+          runId: accepted.runId,
+          ...(serverAttachments === undefined ? {} : { attachments: serverAttachments }),
+        };
+        const replacePrompt = (list: ChatItem[]): ChatItem[] => {
+          const index = list.findLastIndex((item) => item.kind === 'user');
+          return index < 0
+            ? list
+            : list.map((item, position) => (position === index ? prompt : item));
+        };
+        baseItemsRef.current = replacePrompt(baseItemsRef.current);
+        useChatStore.getState().setItems(replacePrompt);
       }
       store.setLastRunId(accepted.runId);
       // 只消费本次发送的引用；等待期间重新挂的引用留给下一次，失败时也保留。
@@ -667,18 +715,31 @@ export function useChatStream({
       const finished = { type: 'run_finished', status: detail.status } as const;
       store.setItems((items) => applyEvent(items, finished));
       store.setRun(null);
+      const durationMs = detail.latencyMs ?? Date.now() - current.startedAt;
+      const tokens =
+        detail.inputTokens === null && detail.outputTokens === null
+          ? null
+          : (detail.inputTokens ?? 0) + (detail.outputTokens ?? 0);
+      const costUsd = detail.costUsd === null ? null : Number(detail.costUsd);
       store.setLastRun({
         runId: detail.id,
         status: detail.status,
-        durationMs: detail.latencyMs ?? Date.now() - current.startedAt,
+        durationMs,
         ...(detail.turns === null ? {} : { turns: detail.turns }),
-        ...(detail.inputTokens === null && detail.outputTokens === null
-          ? {}
-          : {
-              tokens: (detail.inputTokens ?? 0) + (detail.outputTokens ?? 0),
-            }),
-        ...(detail.costUsd === null ? {} : { costUsd: Number(detail.costUsd) }),
+        ...(tokens === null ? {} : { tokens }),
+        ...(costUsd === null ? {} : { costUsd }),
         ...(detail.error === null ? {} : { error: detail.error }),
+      });
+      // 恢复同样把终态读数并进缓存：下一次发送清空 lastRun 后，旧轮仍保留结果。
+      cacheRunMetrics(client, current.conversationId, {
+        runId: detail.id,
+        status: detail.status,
+        turns: detail.turns,
+        durationMs,
+        tokens,
+        costUsd,
+        error: detail.error,
+        endedAt: detail.endedAt,
       });
       void client.invalidateQueries({ queryKey: ['conversations', agentId] });
       void client.invalidateQueries({

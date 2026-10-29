@@ -13,41 +13,55 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * PACE 纸白与工具灰主题：沿用既有布局，配色呼应 Logo 的木色和钢灰。
- * 界面强调保持低饱和度，铅笔黄留在品牌插画中，状态色独立表达结果。
+ * PACE 类别标准主题：冷灰画布 + PACE 蓝交互色。
+ * 品牌蓝只用于交互与数据主线，状态色独立表达结果，插画保留原有配色。
  */
 @theme {
-  /* OpenUI 同款中性灰：画布 0.97、外壳 0.994、内层容器 0.9844，无暖色相。 */
-  --color-canvas: #f5f5f5;
-  --color-surface: #fdfdfd;
-  --color-panel: #fdfdfd;
-  --color-sunken: #f0f0f0;
-  --color-hover: rgb(15 15 15 / 0.045);
-  --color-chip: rgb(15 15 15 / 0.025);
-  --color-selected: #ebebeb;
+  /* 表面：冷灰画布、近白表面、下沉层与浅蓝选中底。 */
+  --color-canvas: #f0f2f5;
+  --color-surface: #fbfcfe;
+  --color-panel: #fbfcfe;
+  --color-sunken: #e9edf2;
+  --color-hover: #e9edf2;
+  --color-chip: #e9edf2;
+  --color-selected: #e7edf7;
 
   /* 线与文本 */
-  --color-line: rgb(15 15 15 / 0.09);
-  --color-line-strong: rgb(15 15 15 / 0.16);
+  --color-line: #d7dde5;
+  --color-line-strong: #8993a2;
   /* 外壳的 1px outline 比常规分隔线更淡 */
-  --color-shell-line: rgb(15 15 15 / 0.06);
-  --color-fg: #171717;
+  --color-shell-line: #e4e8ee;
+  --color-fg: #1e293b;
   /*
    * base-nova 把 muted 当「表面色」（bg-muted = 浅灰底），
    * 文字色走 muted-foreground。两者不能共用同一个变量。
    */
   --color-muted: var(--color-sunken);
-  --color-subtle: rgb(15 15 15 / 0.38);
+  --color-subtle: #8993a2;
+  /*
+   * 复选框/单选框的未选边界落在选中底或下沉底上，
+   * input 在这些表面只有 2.64:1；此色在四个常用表面均 ≥3:1。
+   */
+  --color-control-boundary: #7f8998;
 
-  /* 运行用石墨色，失败用独立状态色；不借用品牌黄色。 */
-  --color-chart-runs: var(--color-fg);
+  /* 运行主线用品牌蓝，失败保留独立状态色。 */
+  --color-chart-runs: var(--color-brand-solid);
   --color-chart-failed: var(--color-danger);
 
-  /* 石墨实底：主按钮与发送保持清楚、安静的视觉重量。 */
-  --color-ink: #171717;
+  /* PACE 蓝是唯一品牌主色；实底状态直接加深，不靠透明度降低对比度。 */
+  --color-brand-solid: #315fad;
+  --color-primary-hover: #284f92;
+  --color-selected-foreground: var(--color-brand-solid);
+  /* 主按钮实底比品牌蓝浅一档：大片实底更柔和，链接/导航等仍用品牌蓝。 */
+  --color-button-primary: #426fbd;
+  --color-button-primary-hover: #3b64aa;
+  --color-button-primary-active: #345997;
+
+  /* 墨色用于正文与安静的反色实底；不再兼任主按钮。 */
+  --color-ink: #1e293b;
 
   /* 状态：只用于小面积 */
-  /* 成功色需同时满足纸白、画布、选中底上的文字对比度。 */
+  /* 成功色需同时满足表面、画布、选中底上的文字对比度。 */
   --color-success: #187646;
   --color-warning: #8a5600;
   --color-warning-soft: #fbf3e4;
@@ -55,7 +69,7 @@
   --color-danger-soft: #fcebe9;
 
   /* 代码 */
-  --color-code: #f5f5f5;
+  --color-code: #e9edf2;
   --color-code-line: var(--color-line);
 
   --color-scrim: rgb(0 0 0 / 0.4);
@@ -125,18 +139,18 @@
   --color-popover-foreground: var(--color-fg);
   --color-card: var(--color-surface);
   --color-card-foreground: var(--color-fg);
-  --color-primary: var(--color-ink);
+  --color-primary: var(--color-brand-solid);
   --color-primary-foreground: #fff;
   --color-secondary: var(--color-hover);
   --color-secondary-foreground: var(--color-fg);
-  --color-accent: var(--color-hover);
-  --color-accent-foreground: var(--color-fg);
-  --color-muted-foreground: #666666;
+  --color-accent: var(--color-selected);
+  --color-accent-foreground: var(--color-primary);
+  --color-muted-foreground: #596577;
   --color-destructive: var(--color-danger);
   --color-destructive-foreground: #fff;
   --color-border: var(--color-line);
-  --color-input: var(--color-line);
-  --color-ring: #8a8a8a;
+  --color-input: var(--color-line-strong);
+  --color-ring: var(--color-primary);
   --secondary: var(--color-secondary); /* 次按钮悬停 color-mix 的原始 CSS 变量 */
   --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
 
@@ -155,21 +169,21 @@
 
 @layer base {
   /*
-   * Shiki 的 css-variables 主题在这里收口：所有 token 一律黑白灰。
-   * 背景透明，代码块表面由容器的 bg-code 决定。
+   * Shiki 的 css-variables 主题在这里收口：正文墨色，
+   * 关键字与函数用品牌蓝，注释用辅助灰。背景透明，代码块表面由容器的 bg-code 决定。
    */
   [data-streamdown] {
     --shiki-background: transparent;
     --shiki-foreground: var(--color-fg);
     --shiki-token-comment: var(--color-muted-foreground);
-    --shiki-token-string: #3d3d3d;
-    --shiki-token-string-expression: #2f2f2f;
-    --shiki-token-constant: #4a4a4a;
-    --shiki-token-keyword: #111111;
-    --shiki-token-function: #1f1f1f;
+    --shiki-token-string: var(--color-fg);
+    --shiki-token-string-expression: var(--color-fg);
+    --shiki-token-constant: var(--color-fg);
+    --shiki-token-keyword: var(--color-primary);
+    --shiki-token-function: var(--color-primary);
     --shiki-token-parameter: var(--color-muted-foreground);
     --shiki-token-punctuation: var(--color-muted-foreground);
-    --shiki-token-link: var(--color-fg);
+    --shiki-token-link: var(--color-primary);
   }
 
   /*
@@ -195,11 +209,12 @@
     font-size: 15px;
     line-height: 1.5;
     color: var(--color-fg);
+    caret-color: var(--color-primary);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
 
-  /* 钢灰焦点兜底；底座用 ring 的组件会覆盖这条 fallback。 */
+  /* 焦点兜底与 skip link 都走品牌语义令牌。 */
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
@@ -238,8 +253,8 @@
     transition: transform 150ms ease;
     padding: 0.5rem 0.75rem;
     border-radius: var(--radius-item);
-    background-color: var(--color-ink);
-    color: #fff;
+    background-color: var(--color-primary);
+    color: var(--color-primary-foreground);
     font-size: 14px;
     transform: translateY(-200%);
   }

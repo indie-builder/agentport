@@ -198,9 +198,9 @@ function SidebarLink({
         collapsed
           ? ''
           : active
-            ? 'bg-selected font-medium text-fg'
-            : 'text-muted-foreground hover:bg-hover hover:text-fg',
-        collapsed && (active ? 'text-fg' : 'text-muted-foreground'),
+            ? 'bg-selected font-medium text-selected-foreground'
+            : 'text-fg hover:bg-hover',
+        collapsed && (active ? 'text-selected-foreground' : 'text-fg'),
       )}
     >
       <span

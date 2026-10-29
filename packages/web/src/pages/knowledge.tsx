@@ -489,7 +489,7 @@ export function KnowledgePage() {
           icon={<LibraryBig className="size-5" />}
           title="还没有知识库"
           action={
-            <Button onClick={() => setCreating(true)}>
+            <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
               <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
             </Button>
           }

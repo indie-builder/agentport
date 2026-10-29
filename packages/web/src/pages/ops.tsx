@@ -152,11 +152,6 @@ export function SchedulesPage() {
         <PageNote
           icon={<CalendarClock className="size-4" aria-hidden="true" />}
           title="按 cron 自动发起运行"
-          action={
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务
-            </Button>
-          }
         />
       ) : null}
 
