@@ -57,7 +57,7 @@ body #F5F5F5
 
 ## 4. 字体
 
-- 字体：**Inter**（`Inter, "Inter Fallback", system-ui, sans-serif`）。等宽：**Geist Mono**，回退 JetBrains Mono。
+- 字体：**Inter**（`Inter, "Inter Fallback", system-ui, sans-serif`）。等宽：**JetBrains Mono Variable / JetBrains Mono**，依次回退 `ui-monospace`、Geist Mono、`monospace`。
 - **字号阶梯固定在 `styles.css` 的 `--text-*`，按语义唯一取值，不在页面里写硬编码字号。** 相邻档至少差 1px 或一个可见字重差：
 
   | Token | 尺寸 / 行高 | 唯一用途 |
