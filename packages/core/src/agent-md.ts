@@ -1,9 +1,10 @@
 import { type AgentInput, agentInputSchema } from '@agentport/shared';
 import { fail } from './errors.js';
 import { parseMarkdownFrontmatter } from './markdown-frontmatter.js';
+import { assertProjectMemory } from './official-files.js';
 
 /** 只导入角色定义；运行限制与权限由平台默认值决定。 */
-const ALLOWED_KEYS = new Set(['name', 'description', 'model', 'maxTurns', 'effort']);
+const ALLOWED_KEYS = new Set(['name', 'description', 'model', 'maxTurns', 'effort', 'memory']);
 
 const WARNING = '仅导入角色定义；平台运行限制与权限采用默认值，请检查后运行。';
 
@@ -30,6 +31,7 @@ export function parseAgentMd(content: string): { agent: AgentInput; warnings: st
       `/${unknown[0]}`,
     );
   }
+  assertProjectMemory(fields.get('memory'), '智能体文件', '/memory');
 
   const name = fields.get('name');
   const description = fields.get('description');

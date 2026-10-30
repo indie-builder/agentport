@@ -12,6 +12,13 @@ export const OUTPUTS_DIR = '/mnt/outputs';
 /** 本会话附件输入的容器内路径；worker 仅在会话输入目录存在时只读挂载。 */
 export const INPUTS_DIR = '/mnt/inputs';
 
+/** 工作区技能与插件资源根；文件工具对它们只读。 */
+export const SKILLS_DIR = '/workspace/.claude/skills';
+export const PLUGINS_DIR = '/workspace/.claude/plugins';
+
+/** 子智能体 project 记忆根：每个子只允许自己的 `<slug>/` 子目录。 */
+export const SUBAGENT_MEMORY_DIR = '/workspace/.claude/agent-memory';
+
 export const createMemoryHook = createFileBoundaryHook;
 
 /** 个人记忆由宿主只读挂载到 /mnt/user；每轮用户提交前注入，恢复会话也读最新文件。 */
@@ -75,18 +82,29 @@ function inside(local: string): boolean {
 }
 
 /**
- * 文件工具边界：主会话可写记忆目录内的普通 .md，也可在本轮产出目录内读写交付文件；
- * 只读可及本轮附件（任意普通文件）、技能参考文件（`.claude/skills/<slug>/references/`）
- * 与插件技能资源（`.claude/plugins/<slug>/skills/<name>/`）。
- * 其余文件工具请求、以及子智能体的请求一律拒绝。
+ * 文件工具边界：
+ * - 主会话可写记忆目录内的普通 .md，也可在本轮产出目录内读写交付文件；
+ *   只读可及本轮附件（任意普通文件）、技能参考文件（`.claude/skills/<slug>/references/`）
+ *   与插件技能资源（`.claude/plugins/<slug>/skills/<name>/`）。
+ * - 子智能体只可读写自己的 project 记忆目录（`.claude/agent-memory/<slug>/` 内的 .md）；
+ *   未登记的调用方、兄弟目录、父级记忆/产出/附件一律拒绝。
+ * 其余文件工具请求一律拒绝。
  */
 export function createFileBoundaryHook(
   memoryDir: string,
-  skillsDir = '/workspace/.claude/skills',
-  pluginsDir = '/workspace/.claude/plugins',
+  skillsDir = SKILLS_DIR,
+  pluginsDir = PLUGINS_DIR,
   outputsDir = OUTPUTS_DIR,
   inputsDir = INPUTS_DIR,
+  options: {
+    /** 子智能体 project 记忆根；缺省为容器内官方目录。 */
+    projectMemoryDir?: string;
+    /** 本次加载的已知子智能体 slug；未登记的子智能体不放行任何文件。 */
+    subAgentSlugs?: ReadonlySet<string>;
+  } = {},
 ): HookCallback {
+  const projectMemoryDir = options.projectMemoryDir ?? SUBAGENT_MEMORY_DIR;
+  const knownSubAgents = options.subAgentSlugs ?? new Set<string>();
   return async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};
     if (!MEMORY_TOOLS.has(input.tool_name) && !OTHER_FILE_TOOLS.has(input.tool_name)) return {};
@@ -104,7 +122,8 @@ export function createFileBoundaryHook(
       const { permissionDecisionReason: _reason, ...rest } = output;
       return { hookSpecificOutput: rest };
     };
-    if (!MEMORY_TOOLS.has(input.tool_name) || input.agent_id !== undefined) return deny;
+    // Glob/Grep/NotebookEdit 与所有非文件工具一样不在放行范围。
+    if (!MEMORY_TOOLS.has(input.tool_name)) return deny;
     const args = input.tool_input;
     if (typeof args !== 'object' || args === null || !('file_path' in args)) return deny;
     const path = args.file_path;
@@ -119,41 +138,50 @@ export function createFileBoundaryHook(
     const hasMarkdown = path.endsWith('.md');
     // 记忆目录与产出目录：主会话可读写（记忆仅 .md，产出交付文件不限类型）。
     // 本轮附件：只读，扩展名不限；技能参考与插件资源：只读 .md，且必须落在各自目录约定里。
+    // 子智能体：只读写自己的 project 记忆 Markdown，base 固定为它的 slug 目录。
     let base: string;
     let writable: boolean;
-    const inputsLocal = relative(inputsDir, path);
-    const memoryLocal = relative(memoryDir, path);
-    const outputLocal = relative(outputsDir, path);
-    if (inside(inputsLocal)) {
-      if (input.tool_name !== 'Read') return deny;
-      base = inputsDir;
-      writable = false;
-    } else if (inside(memoryLocal)) {
-      if (!hasMarkdown) return deny;
-      base = memoryDir;
+    if (input.agent_id !== undefined) {
+      const slug = input.agent_type ?? '';
+      if (!knownSubAgents.has(slug) || !hasMarkdown) return deny;
+      base = join(projectMemoryDir, slug);
       writable = true;
-    } else if (inside(outputLocal)) {
-      base = outputsDir;
-      writable = true;
+      if (!inside(relative(base, path))) return deny;
     } else {
-      // 插件技能资源：Read 打开技能正文或它的 references 时，CLI 给的是真实路径。
-      const [pluginSlug, skillsSegment, skillName] = relative(pluginsDir, path).split(sep);
-      const insidePluginSkill =
-        input.tool_name === 'Read' &&
-        hasMarkdown &&
-        /^[a-z0-9][a-z0-9_-]*$/.test(pluginSlug ?? '') &&
-        skillsSegment === 'skills' &&
-        /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(skillName ?? '');
-      const [slug, kind, ...rest] = relative(skillsDir, path).split(sep);
-      const insideSkillRefs =
-        input.tool_name === 'Read' &&
-        hasMarkdown &&
-        kind === 'references' &&
-        rest.length > 0 &&
-        /^[a-z0-9][a-z0-9_-]*$/.test(slug ?? '');
-      if (!insidePluginSkill && !insideSkillRefs) return deny;
-      base = insidePluginSkill ? pluginsDir : skillsDir;
-      writable = false;
+      const inputsLocal = relative(inputsDir, path);
+      const memoryLocal = relative(memoryDir, path);
+      const outputLocal = relative(outputsDir, path);
+      if (inside(inputsLocal)) {
+        if (input.tool_name !== 'Read') return deny;
+        base = inputsDir;
+        writable = false;
+      } else if (inside(memoryLocal)) {
+        if (!hasMarkdown) return deny;
+        base = memoryDir;
+        writable = true;
+      } else if (inside(outputLocal)) {
+        base = outputsDir;
+        writable = true;
+      } else {
+        // 插件技能资源：Read 打开技能正文或它的 references 时，CLI 给的是真实路径。
+        const [pluginSlug, skillsSegment, skillName] = relative(pluginsDir, path).split(sep);
+        const insidePluginSkill =
+          input.tool_name === 'Read' &&
+          hasMarkdown &&
+          /^[a-z0-9][a-z0-9_-]*$/.test(pluginSlug ?? '') &&
+          skillsSegment === 'skills' &&
+          /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(skillName ?? '');
+        const [slug, kind, ...rest] = relative(skillsDir, path).split(sep);
+        const insideSkillRefs =
+          input.tool_name === 'Read' &&
+          hasMarkdown &&
+          kind === 'references' &&
+          rest.length > 0 &&
+          /^[a-z0-9][a-z0-9_-]*$/.test(slug ?? '');
+        if (!insidePluginSkill && !insideSkillRefs) return deny;
+        base = insidePluginSkill ? pluginsDir : skillsDir;
+        writable = false;
+      }
     }
     const local = relative(base, path);
     if (!inside(local)) return deny;

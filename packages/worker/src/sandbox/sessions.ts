@@ -14,6 +14,7 @@ import type { Logger } from 'pino';
 import { redactSecrets } from '../redact.js';
 import type { RuntimeEnvironmentResolver } from '../runtime-environments/resolve.js';
 import type { Sandbox, SandboxProvider } from './provider.js';
+import { SandboxCleanupError } from './provider.js';
 
 /**
  * 会话沙盒：同一 platform conversation 复用同一个常驻 supervisor 容器。
@@ -33,6 +34,11 @@ export interface SessionSandboxSpec {
   sessionsDir: string;
   /** 个人记忆目录，只读挂载到 /mnt/user；未接入时省略。 */
   personalDir?: string;
+  /**
+   * 子智能体项目记忆宿主目录，按 slug 排序后逐个 rw 挂载到
+   * `/workspace/.claude/agent-memory/<slug>`；缺省表示本次没有子智能体记忆。
+   */
+  subAgentMemoryDirs?: Array<{ slug: string; memoryDir: string }>;
 }
 
 export interface SandboxExecution {
@@ -68,6 +74,8 @@ const OUTPUTS_DIR = '/mnt/outputs';
 const INPUTS_DIR = '/mnt/inputs';
 const MEMORY_DIR = '/mnt/agent-memory';
 const USER_DIR = '/mnt/user';
+/** 子智能体 project 记忆的容器内根；每个 slug 是独立 rw bind mount。 */
+const SUBAGENT_MEMORY_DIR = '/workspace/.claude/agent-memory';
 /** 取消 ACK 等待上限；超时返回 unconfirmed，由调用方 release(false) 销毁容器。 */
 const CANCEL_GRACE_MS = 5_000;
 
@@ -83,6 +91,14 @@ function errorText(err: unknown): string {
 
 function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
+}
+
+function cleanupFailure(sandboxId: string, reason: string, cause: unknown): SandboxCleanupError {
+  return new SandboxCleanupError(
+    sandboxId,
+    `session sandbox ${sandboxId} cleanup failed after ${reason}: ${errorText(cause)}`,
+    cause,
+  );
 }
 
 function unconfirmed(error: string): ExecutionSettlement {
@@ -134,6 +150,8 @@ interface SessionEntry {
   sandbox: Sandbox | null;
   /** 容器实际创建时解析出的环境身份；存活期间不随线上版本变化。 */
   runtimeEnvironment: ResolvedRuntimeEnvironment | null;
+  /** 容器当前归属的 run；空闲或销毁中为 null。cleanup 据此拒绝别的 run 的清理。 */
+  currentRunId: string | null;
   leaseHeld: boolean;
   /** 已有 acquire 占用这次 entry（销毁收口期间也保留占位），第二个请求按 busy 拒绝。 */
   acquirePending: boolean;
@@ -147,6 +165,8 @@ interface SessionEntry {
 }
 
 function specMatches(current: SessionSandboxSpec, next: SessionSandboxSpec): boolean {
+  const currentSubAgents = current.subAgentMemoryDirs ?? [];
+  const nextSubAgents = next.subAgentMemoryDirs ?? [];
   return (
     // 只比绑定身份，不比对线上解析结果：发布/回退不能替换存活容器。
     current.runtimeEnvironmentId === next.runtimeEnvironmentId &&
@@ -155,7 +175,14 @@ function specMatches(current: SessionSandboxSpec, next: SessionSandboxSpec): boo
     current.inputsDir === next.inputsDir &&
     current.memoryDir === next.memoryDir &&
     current.sessionsDir === next.sessionsDir &&
-    current.personalDir === next.personalDir
+    current.personalDir === next.personalDir &&
+    // 绑定启停或宿主目录变化都要换容器：运行中的 bind mount 不能热替换。
+    currentSubAgents.length === nextSubAgents.length &&
+    currentSubAgents.every(
+      (dir, index) =>
+        dir.slug === nextSubAgents[index]?.slug &&
+        dir.memoryDir === nextSubAgents[index]?.memoryDir,
+    )
   );
 }
 
@@ -177,8 +204,12 @@ export class SessionSandboxes {
     this.resolveRuntimeEnvironment = options.resolveRuntimeEnvironment;
   }
 
-  acquire(spec: SessionSandboxSpec, signal: AbortSignal): Promise<SessionSandboxLease> {
-    const acquiring = this.doAcquire(spec, signal);
+  acquire(
+    spec: SessionSandboxSpec,
+    signal: AbortSignal,
+    runId: string,
+  ): Promise<SessionSandboxLease> {
+    const acquiring = this.doAcquire(spec, signal, runId);
     this.pending.add(acquiring);
     void acquiring.then(
       () => this.pending.delete(acquiring),
@@ -194,9 +225,33 @@ export class SessionSandboxes {
     return this.closePromise;
   }
 
+  /**
+   * 重启/替换后的显式清理入口。release(false) 会缓存第一次失败的 Promise，不能用来重试；
+   * 同 ID 的条目复用既有 destroy 收口（并发调用合并）。同一容器被别的 run 持有时直接拒绝，
+   * 不能退化成按 ID 删除而误杀当前容器；没有条目或条目已换成新容器时才按 ID 删除旧容器。
+   */
+  async cleanup(conversationId: string, sandboxId: string, expectedRunId: string): Promise<void> {
+    const entry = this.entries.get(conversationId);
+    if (entry !== undefined && entry.sandbox?.id === sandboxId) {
+      const heldByOtherRun =
+        entry.currentRunId !== null &&
+        entry.currentRunId !== expectedRunId &&
+        (entry.leaseHeld || entry.acquirePending || entry.active !== null);
+      if (heldByOtherRun) {
+        throw new Error(
+          `session sandbox ${sandboxId} is held by run ${entry.currentRunId}, not ${expectedRunId}`,
+        );
+      }
+      await this.destroyEntry(entry);
+      return;
+    }
+    await this.provider.destroyById(sandboxId);
+  }
+
   private async doAcquire(
     spec: SessionSandboxSpec,
     signal: AbortSignal,
+    runId: string,
   ): Promise<SessionSandboxLease> {
     if (this.closed.signal.aborted || signal.aborted) throw abortError();
     const existing = this.entries.get(spec.conversationId);
@@ -214,8 +269,13 @@ export class SessionSandboxes {
         // 成功后才在同一批目录上重建。失败继续拒绝，broken 保留给 close 重试。
         existing.leaseHeld = true;
         existing.acquirePending = true;
+        existing.currentRunId = runId;
+        // 等待前记下 id：重试仍失败时必须带出可继续清理的容器。
+        const sandboxId = existing.sandbox?.id;
         try {
           await this.destroyEntry(existing);
+        } catch (err) {
+          throw sandboxId === undefined ? err : cleanupFailure(sandboxId, 'broken retry', err);
         } finally {
           existing.acquirePending = false;
         }
@@ -224,14 +284,19 @@ export class SessionSandboxes {
           this.removeEntry(existing);
           throw abortError();
         }
-        return this.createEntry(spec, signal, existing);
+        return this.createEntry(spec, signal, runId, existing);
       }
       if (existing.destroying !== null) {
         // 空闲回收已经结束到“容器被删除”时才允许重取；等 destroy 收口，
         // 不能把销毁中的短暂窗口报成 busy，也不能抢在删除前建新容器。
         existing.acquirePending = true;
+        existing.currentRunId = runId;
+        // 等待前记下 id：销毁失败时同样要带出容器，不能只报普通错误。
+        const sandboxId = existing.sandbox?.id;
         try {
           await existing.destroying;
+        } catch (err) {
+          throw sandboxId === undefined ? err : cleanupFailure(sandboxId, 'in-flight destroy', err);
         } finally {
           existing.acquirePending = false;
         }
@@ -239,7 +304,7 @@ export class SessionSandboxes {
           this.removeEntry(existing);
           throw abortError();
         }
-        return this.createEntry(spec, signal, existing);
+        return this.createEntry(spec, signal, runId, existing);
       }
       if (existing.leaseHeld) {
         throw new Error(`session sandbox busy: ${spec.conversationId}`);
@@ -248,10 +313,12 @@ export class SessionSandboxes {
       this.clearIdle(existing);
       existing.leaseHeld = true;
       existing.acquirePending = true;
+      existing.currentRunId = runId;
       try {
         if (existing.alive && specMatches(existing.spec, spec)) {
           if (this.closed.signal.aborted || signal.aborted) {
             existing.leaseHeld = false;
+            existing.currentRunId = null;
             this.scheduleIdle(existing);
             throw abortError();
           }
@@ -259,8 +326,14 @@ export class SessionSandboxes {
         }
 
         // 镜像/挂载变了就必须换容器：运行中的 bind mount 不能热替换。
-        if (existing.sandbox !== null) await this.destroyEntry(existing);
-        else this.removeEntry(existing);
+        if (existing.sandbox !== null) {
+          const sandboxId = existing.sandbox.id;
+          try {
+            await this.destroyEntry(existing);
+          } catch (err) {
+            throw cleanupFailure(sandboxId, 'replacement', err);
+          }
+        } else this.removeEntry(existing);
         if (this.closed.signal.aborted || signal.aborted) {
           this.removeEntry(existing);
           throw abortError();
@@ -268,14 +341,15 @@ export class SessionSandboxes {
       } finally {
         existing.acquirePending = false;
       }
-      return this.createEntry(spec, signal, existing);
+      return this.createEntry(spec, signal, runId, existing);
     }
-    return this.createEntry(spec, signal);
+    return this.createEntry(spec, signal, runId);
   }
 
   private async createEntry(
     spec: SessionSandboxSpec,
     signal: AbortSignal,
+    runId: string,
     replacing?: SessionEntry,
   ): Promise<SessionSandboxLease> {
     const current = this.entries.get(spec.conversationId);
@@ -289,6 +363,7 @@ export class SessionSandboxes {
       spec,
       sandbox: null,
       runtimeEnvironment: null,
+      currentRunId: runId,
       leaseHeld: true,
       acquirePending: false,
       alive: true,
@@ -332,6 +407,11 @@ export class SessionSandboxes {
           ...(spec.personalDir === undefined
             ? []
             : [{ hostPath: spec.personalDir, containerPath: USER_DIR, readonly: true }]),
+          // 子智能体 project 记忆：唯一宿主直接 rw 挂载，不回写、不经过 /workspace 只读根。
+          ...(spec.subAgentMemoryDirs ?? []).map((dir) => ({
+            hostPath: dir.memoryDir,
+            containerPath: `${SUBAGENT_MEMORY_DIR}/${dir.slug}`,
+          })),
         ],
         signal: createSignal,
       });
@@ -347,8 +427,9 @@ export class SessionSandboxes {
       // provider 可能忽略了取消并迟到返回；所有权已在这里，必须销毁。
       try {
         await this.destroyEntry(entry);
-      } catch {
-        // 清理失败保留 broken 跟踪，close 会重试并报告。
+      } catch (err) {
+        // 清理失败保留 broken 跟踪；本次创建留下残留容器，必须带出 id 交给上层继续清理。
+        throw cleanupFailure(sandbox.id, 'acquire abort', err);
       }
       throw abortError();
     }
@@ -358,8 +439,9 @@ export class SessionSandboxes {
     } catch (err) {
       try {
         await this.destroyEntry(entry);
-      } catch {
-        // 同上：保留跟踪，不在取消路径吞掉清理失败。
+      } catch (cleanupErr) {
+        // 同上：销毁失败不能吞，带出容器 id，close/reconcile 还能按 id 重试。
+        throw cleanupFailure(sandbox.id, `ready failure (${errorText(err)})`, cleanupErr);
       }
       throw err;
     }
@@ -502,6 +584,7 @@ export class SessionSandboxes {
       entry.sandbox !== null
     ) {
       entry.leaseHeld = false;
+      entry.currentRunId = null;
       this.scheduleIdle(entry);
       return;
     }

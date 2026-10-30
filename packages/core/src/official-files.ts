@@ -55,7 +55,24 @@ const CHILD_KEYS = new Set([
   'skills',
   'disallowedTools',
   'mcpServers',
+  'memory',
 ]);
+
+/**
+ * 官方子智能体 memory 只接 project：平台的挂载点与定义导出契约只覆盖
+ * `.claude/agent-memory/<slug>/`；user 与 local（含工作区内的 `agent-memory-local/`）
+ * 未纳入这套契约，导入后无法保证可用，明确拒绝而不是静默降级。
+ */
+export function assertProjectMemory(value: unknown, label: string, path: string): void {
+  if (value === undefined || value === 'project') return;
+  fail(
+    'INVALID_INPUT',
+    `${label}的 memory 仅支持 project；user 与 local 未纳入平台的挂载与导出契约`,
+    {
+      path,
+    },
+  );
+}
 
 function stringList(value: unknown, field: string, path: string): string[] {
   if (value === undefined) return [];
@@ -79,6 +96,7 @@ export function parseChildAgentMd(content: string, path: string): ParsedChildAge
       path: `${path}/${unknown[0]}`,
     });
   }
+  assertProjectMemory(fields.get('memory'), '子智能体文件', `${path}/memory`);
   const name = fields.get('name');
   if (typeof name !== 'string' || !slugSchema.safeParse(name).success) {
     fail('INVALID_INPUT', '子智能体文件的 name 必须是合法 slug', { path: `${path}/name` });

@@ -20,9 +20,7 @@ const mocks = vi.hoisted(() => {
       finishEvalRun: vi.fn(),
     },
     chat: {
-      createConversation: vi.fn(),
-      createRun: vi.fn(),
-      appendMessage: vi.fn(),
+      admitChatRun: vi.fn(),
       getRun: vi.fn(),
       listMessages: vi.fn(),
       messageText: (content: { text?: string } | null | undefined) => content?.text ?? null,
@@ -82,18 +80,12 @@ function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, st
     throw new Error('listCases must not run when a snapshot exists');
   });
   for (const [name, text] of Object.entries(outputs)) outputsByConversation.set(name, text);
-  mocks.chat.createConversation.mockImplementation(
+  mocks.chat.admitChatRun.mockImplementation(
     async (_db: Database, input: { title: string; agentId: string }) => {
-      const name = input.title.replace('eval: ', '');
-      return { id: name, agentId: input.agentId, title: input.title };
+      const conversationId = input.title.replace('eval: ', '');
+      return { run: { id: `run-${conversationId}` }, conversationId };
     },
   );
-  mocks.chat.createRun.mockImplementation(
-    async (_db: Database, input: { conversationId: string }) => ({
-      id: `run-${input.conversationId}`,
-    }),
-  );
-  mocks.chat.appendMessage.mockResolvedValue(undefined);
   mocks.chat.getRun.mockImplementation(async (_db: Database, id: string) => ({
     id,
     status: 'succeeded',
@@ -354,7 +346,7 @@ describe('executeEvalRun case snapshot', () => {
       { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
     ];
     runWith(snapshot, {});
-    mocks.chat.createConversation.mockRejectedValueOnce(new Error('db down'));
+    mocks.chat.admitChatRun.mockRejectedValueOnce(new Error('db down'));
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 

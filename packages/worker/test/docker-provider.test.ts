@@ -466,22 +466,57 @@ describe('docker sandbox provider', () => {
     expect(state.commands.map(([, command]) => command)).toEqual(['stop', 'rm']);
   });
 
-  it('keeps a created container tracked when start fails to spawn, then cleans it on shutdown', async () => {
+  it('removes a created container when start fails to spawn and rethrows the spawn error', async () => {
     state.startError = true;
     const provider = await makeProvider();
     await expect(provider.create(createOptions({ name: 'pace-start-fail' }))).rejects.toThrow(
       'spawn docker failed',
     );
 
+    // 创建成功后的失败由 create 自己收尾：普通错误不携带待清理容器。
+    expect(state.commands).toContainEqual(['docker', 'rm', '-f', 'pace-start-fail']);
     state.commands = [];
     state.reply = () => ({ exitCode: 0 });
     await expect(provider.destroyAll()).resolves.toBeUndefined();
+    expect(state.commands).toEqual([]);
+  });
 
-    // start 失败不影响所有权：shutdown 仍要 stop 0 后再 rm。
+  it('reports the container id when start failure cleanup fails, keeping it tracked', async () => {
+    state.startError = true;
+    state.reply = (args) =>
+      args[0] === 'rm' ? { exitCode: 1, stderr: 'cannot remove container' } : { exitCode: 0 };
+    const provider = await makeProvider();
+
+    await expect(provider.create(createOptions({ name: 'pace-start-fail' }))).rejects.toMatchObject(
+      {
+        name: 'SandboxCleanupError',
+        sandboxId: 'pace-start-fail',
+      },
+    );
+
+    // 清理失败仍保留跟踪：shutdown 再试 stop 0 + rm。
+    state.commands = [];
+    state.reply = () => ({ exitCode: 0 });
+    await expect(provider.destroyAll()).resolves.toBeUndefined();
     expect(state.commands).toEqual([
       ['docker', 'stop', '--time', '5', 'pace-start-fail'],
       ['docker', 'rm', '-f', 'pace-start-fail'],
     ]);
+  });
+
+  it('does not report a cleanup error when docker create itself fails', async () => {
+    const provider = await makeProvider();
+    state.reply = (args) =>
+      args[0] === 'create' ? { exitCode: 1, stderr: 'name is already in use' } : { exitCode: 0 };
+
+    await expect(provider.create(createOptions({ name: 'pace-create-fail' }))).rejects.toThrow(
+      /docker create pace-create-fail failed/,
+    );
+
+    // 没有容器被创建：不留下任何待清理项。
+    state.commands = [];
+    await expect(provider.destroyAll()).resolves.toBeUndefined();
+    expect(state.commands).toEqual([]);
   });
 
   it('keeps tracking when rm after an aborted create fails, then removes on shutdown', async () => {
@@ -497,7 +532,10 @@ describe('docker sandbox provider', () => {
     );
     await vi.waitFor(() => expect(state.children.create?.length).toBe(1));
 
-    const rejected = expect(creating).rejects.toThrow(/after create abort/);
+    const rejected = expect(creating).rejects.toMatchObject({
+      name: 'SandboxCleanupError',
+      sandboxId: 'pace-abort-rm',
+    });
     controller.abort();
     state.children.create?.[0]?.emit('close', 0, null);
     await rejected;

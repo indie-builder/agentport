@@ -4,6 +4,7 @@ import type { ChatEvent, ExecutionSettlement } from '@agentport/shared';
 import { runCancelKey } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { SandboxCleanupError } from '../src/sandbox/provider.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
 
 const redisMock = vi.hoisted(() => ({
@@ -49,6 +50,14 @@ const task = {
   maxBudgetUsd: 1,
   userMessageUuid: '11111111-2222-4333-8444-555555555555',
 };
+/** 真 provider 的清理失败类型：带 sandbox id 与原始 cause。 */
+function cleanupFailure(
+  sandboxId: string,
+  cause = new Error('docker rm failed'),
+): SandboxCleanupError {
+  return new SandboxCleanupError(sandboxId, `sandbox ${sandboxId} cleanup failed`, cause);
+}
+
 afterAll(closeRunnerClient);
 afterEach(async () => {
   vi.useRealTimers();
@@ -59,7 +68,14 @@ afterEach(async () => {
   redisMock.connections.length = 0;
 });
 
-function fixture(input: { timeout?: boolean; uncertain?: boolean; destroyFails?: boolean } = {}) {
+function fixture(
+  input: {
+    timeout?: boolean;
+    uncertain?: boolean;
+    destroyFails?: boolean;
+    releaseError?: Error;
+  } = {},
+) {
   let event: (value: ChatEvent) => void = () => undefined;
   let finish: (value: ExecutionSettlement) => void = () => undefined;
   const done = new Promise<ExecutionSettlement>((resolve) => {
@@ -79,6 +95,7 @@ function fixture(input: { timeout?: boolean; uncertain?: boolean; destroyFails?:
     return result;
   });
   const release = vi.fn(async () => {
+    if (input.releaseError !== undefined) throw input.releaseError;
     if (input.destroyFails) throw new Error('destroy failed');
   });
   const lease: SessionSandboxLease = {
@@ -394,31 +411,229 @@ describe('session acquire cancellation and budget', () => {
     memoryDir: '/m',
     sessionsDir: '/s',
   };
-  it('aborts a pending acquire when the 30 second create budget expires', async () => {
+  it('keeps waiting after the 30 second budget until the aborted create settles', async () => {
     let received: AbortSignal | undefined;
+    let rejectAcquire: (error: Error) => void = () => undefined;
     const acquire = vi.fn((_spec, signal: AbortSignal) => {
       received = signal;
-      return new Promise<SessionSandboxLease>(() => undefined);
+      return new Promise<SessionSandboxLease>((_resolve, reject) => {
+        rejectAcquire = reject;
+      });
     });
     vi.useFakeTimers();
     try {
+      const cleanup = cleanupFailure('late-container');
+      let settled = false;
       const running = acquireSessionSandbox({
         runId: 'acquire-timeout',
         spec,
         manager: { acquire },
         signal: new AbortController().signal,
         logger,
+      }).finally(() => {
+        settled = true;
       });
       const rejected = expect(running).rejects.toMatchObject({
         reason: 'infra',
         message: expect.stringContaining('timed out'),
+        // 清理失败的真实类型保留在 cause 里，调用方仍能拿到容器 id。
+        cause: cleanup,
       });
       await vi.advanceTimersByTimeAsync(30_000);
-      await rejected;
       expect(received?.aborted).toBe(true);
+      await vi.advanceTimersByTimeAsync(0);
+      // provider 仍在清理：预算到点后必须等它真正收尾，不能先返回。
+      expect(settled).toBe(false);
+      rejectAcquire(cleanup);
+      await rejected;
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('waits for a cancelled create to clean up before rejecting', async () => {
+    const closing = new AbortController();
+    let received: AbortSignal | undefined;
+    let rejectAcquire: (error: Error) => void = () => undefined;
+    const acquire = vi.fn((_spec, signal: AbortSignal) => {
+      received = signal;
+      return new Promise<SessionSandboxLease>((_resolve, reject) => {
+        rejectAcquire = reject;
+      });
+    });
+    let settled = false;
+    const running = acquireSessionSandbox({
+      runId: 'acquire-cancel-cleanup',
+      spec,
+      manager: { acquire },
+      signal: closing.signal,
+      logger,
+    }).finally(() => {
+      settled = true;
+    });
+    const rejected = expect(running).rejects.toMatchObject({ reason: 'cancelled' });
+    await vi.waitFor(() => expect(acquire).toHaveBeenCalled());
+    closing.abort();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(received?.aborted).toBe(true);
+    expect(settled).toBe(false);
+    rejectAcquire(cleanupFailure('cancelled-container'));
+    await rejected;
+  });
+
+  it('releases a lease that arrives after cancellation instead of leaking it', async () => {
+    const closing = new AbortController();
+    const release = vi.fn(async () => undefined);
+    let resolveAcquire: (lease: SessionSandboxLease) => void = () => undefined;
+    const acquire = vi.fn(
+      (_spec, _signal: AbortSignal) =>
+        new Promise<SessionSandboxLease>((resolve) => {
+          resolveAcquire = resolve;
+        }),
+    );
+    let settled = false;
+    const running = acquireSessionSandbox({
+      runId: 'late-lease',
+      spec,
+      manager: { acquire },
+      signal: closing.signal,
+      logger,
+    }).finally(() => {
+      settled = true;
+    });
+    const rejected = expect(running).rejects.toMatchObject({ reason: 'cancelled' });
+    await vi.waitFor(() => expect(acquire).toHaveBeenCalled());
+    closing.abort();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    resolveAcquire({
+      sandboxId: 'late-lease',
+      release,
+      start: vi.fn(),
+    } as unknown as SessionSandboxLease);
+    await rejected;
+    expect(release).toHaveBeenCalledWith({ reuse: false });
+  });
+
+  it('keeps the sandbox id when releasing a late cancelled lease fails with a plain error', async () => {
+    const closing = new AbortController();
+    const releaseError = new Error('docker rm failed');
+    const release = vi.fn(async () => {
+      throw releaseError;
+    });
+    let resolveAcquire: (lease: SessionSandboxLease) => void = () => undefined;
+    const acquire = vi.fn(
+      (_spec, _signal: AbortSignal) =>
+        new Promise<SessionSandboxLease>((resolve) => {
+          resolveAcquire = resolve;
+        }),
+    );
+    const running = acquireSessionSandbox({
+      runId: 'late-lease-release-fails',
+      spec,
+      manager: { acquire },
+      signal: closing.signal,
+      logger,
+    }).catch((err: unknown) => err);
+    await vi.waitFor(() => expect(acquire).toHaveBeenCalled());
+    closing.abort();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    resolveAcquire({
+      sandboxId: 'late-lease-release-fails',
+      release,
+      start: vi.fn(),
+    } as unknown as SessionSandboxLease);
+    const error = await running;
+    expect(error).toBeInstanceOf(RunFailure);
+    const failure = error as RunFailure;
+    expect(failure.reason).toBe('cancelled');
+    expect(failure.cause).toBeInstanceOf(SandboxCleanupError);
+    const cleanup = failure.cause as SandboxCleanupError;
+    expect(cleanup.sandboxId).toBe('late-lease-release-fails');
+    expect(cleanup.cause).toBe(releaseError);
+  });
+
+  it('keeps the sandbox id when releasing a late timed-out lease fails with a plain error', async () => {
+    vi.useFakeTimers();
+    try {
+      const releaseError = new Error('docker rm failed');
+      const release = vi.fn(async () => {
+        throw releaseError;
+      });
+      let resolveAcquire: (lease: SessionSandboxLease) => void = () => undefined;
+      const acquire = vi.fn(
+        (_spec, _signal: AbortSignal) =>
+          new Promise<SessionSandboxLease>((resolve) => {
+            resolveAcquire = resolve;
+          }),
+      );
+      const running = acquireSessionSandbox({
+        runId: 'late-timeout-release-fails',
+        spec,
+        manager: { acquire },
+        signal: new AbortController().signal,
+        logger,
+      }).catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(acquire).toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(30_000);
+      resolveAcquire({
+        sandboxId: 'late-timeout-release-fails',
+        release,
+        start: vi.fn(),
+      } as unknown as SessionSandboxLease);
+      const error = await running;
+      expect(error).toBeInstanceOf(RunFailure);
+      const failure = error as RunFailure;
+      expect(failure.reason).toBe('infra');
+      expect(failure.message).toContain('timed out');
+      expect(failure.cause).toBeInstanceOf(SandboxCleanupError);
+      const cleanup = failure.cause as SandboxCleanupError;
+      expect(cleanup.sandboxId).toBe('late-timeout-release-fails');
+      expect(cleanup.cause).toBe(releaseError);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('treats an ordinary acquire failure as retryable infra and keeps its cause', async () => {
+    const failure = new Error('image pull failed');
+    const acquire = vi.fn(async () => {
+      throw failure;
+    });
+    const error = await acquireSessionSandbox({
+      runId: 'ordinary-infra',
+      spec,
+      manager: { acquire },
+      signal: new AbortController().signal,
+      logger,
+    }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(RunFailure);
+    const runFailure = error as RunFailure;
+    expect(runFailure).toMatchObject({ reason: 'infra', message: 'image pull failed' });
+    expect(runFailure.cause).toBe(failure);
+    expect(
+      isRetryable({
+        status: 'failed',
+        sandboxId: '',
+        settlement: { state: 'stopped', code: 0, signal: null },
+        failure: runFailure,
+        events: [],
+      }),
+    ).toBe(true);
+  });
+
+  it('passes the run id to the acquire implementation', async () => {
+    const { lease } = fixture();
+    const acquire = vi.fn(async () => lease);
+    await acquireSessionSandbox({
+      runId: 'run-with-id',
+      spec,
+      manager: { acquire },
+      signal: new AbortController().signal,
+      logger,
+    });
+    expect(acquire).toHaveBeenCalledWith(spec, expect.any(AbortSignal), 'run-with-id');
   });
 
   it('passes shutdown cancellation to an acquire that is still pending', async () => {
@@ -573,6 +788,31 @@ describe('session runner client', () => {
     expect(outcome.events).toEqual([
       expect.objectContaining({ type: 'assistant_text', text: 'complete' }),
     ]);
+    expect(isRetryable(outcome)).toBe(false);
+  });
+
+  it('keeps a typed cleanup failure in the run failure cause chain', async () => {
+    const cleanup = cleanupFailure('session-container');
+    const { lease, release } = fixture({ releaseError: cleanup });
+    lease.start = async () => ({
+      done: Promise.resolve({ state: 'unconfirmed', error: 'runner still alive' }),
+      send() {},
+      cancel: async () => stopped,
+    });
+    const outcome = await runInSandbox({
+      runId: 'cleanup-typed',
+      task,
+      timeoutMs: 1000,
+      env: {},
+      lease,
+      logger,
+    });
+    expect(release).toHaveBeenCalledWith({ reuse: false });
+    expect(outcome.settlement.state).toBe('unconfirmed');
+    expect(outcome.cleanupError).toBe(cleanup.message);
+    // 容器 id 在 cause 链里，index 才能继续按 id 清理。
+    expect(outcome.failure?.cause).toBe(cleanup);
+    expect(outcome.failure?.cause).toMatchObject({ sandboxId: 'session-container' });
     expect(isRetryable(outcome)).toBe(false);
   });
 });

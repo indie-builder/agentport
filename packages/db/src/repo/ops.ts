@@ -11,6 +11,7 @@ import {
 } from '../schema.js';
 import { latestAgentVersion } from './agent-versions.js';
 import { notStale } from './freshness.js';
+import { lockRunResources } from './locks.js';
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
@@ -102,6 +103,15 @@ export async function claimScheduleTrigger(
   input: ScheduleTriggerWrite,
 ): Promise<'claimed' | 'duplicate' | 'agent_disabled'> {
   return db.transaction(async (tx) => {
+    // 先读归属（不加行锁），再按 绑定锁 → 记忆锁 → 行锁 的顺序准入。
+    const [owner] = await tx
+      .select({ agentId: agentSchedules.agentId })
+      .from(agentSchedules)
+      .where(eq(agentSchedules.id, input.scheduleId))
+      .limit(1);
+    if (!owner) return 'duplicate';
+    await lockRunResources(tx, owner.agentId);
+
     const claimedAt = new Date(input.triggerAt);
     const claimed = await tx
       .update(agentSchedules)

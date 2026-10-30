@@ -697,7 +697,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
   );
 
   // 长期记忆：Claude Code 原生 auto-memory（MEMORY.md + 主题文件），平台只浏览/编辑。
-  // 目录是 WORKSPACES_DIR/<slug>/agent-memory/，worker 每次运行只读挂载进容器。
+  // 目录是 WORKSPACES_DIR/<slug>/agent-memory/，worker 每次运行读写挂载进容器。
   const memorySlug = async (agentId: string): Promise<string | null> => {
     const [row] = await app.db
       .select({ slug: schema.agents.slug })

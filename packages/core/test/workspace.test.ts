@@ -178,12 +178,71 @@ describe('Bash availability', () => {
 });
 
 describe('native file access wording', () => {
-  it('separates other-path file tools from sub-agent file access', () => {
+  it('lets registered sub-agents use only their own project memory markdown', () => {
     const { claudeMd } = renderWorkspace({ agent, servers: [] });
 
-    expect(claudeMd).toContain(
+    expect(claudeMd).toContain('已登记的子智能体只允许读写自己的 project 记忆');
+    expect(claudeMd).toContain('.claude/agent-memory/<slug>/');
+    // 主会话自身边界保持原样。
+    expect(claudeMd).toContain('/mnt/agent-memory/');
+    expect(claudeMd).toContain('/mnt/outputs/');
+  });
+
+  it('does not claim every sub-agent file tool request is denied', () => {
+    const { claudeMd } = renderWorkspace({ agent, servers: [] });
+
+    expect(claudeMd).not.toContain(
       '其他路径的原生文件工具请求，以及子智能体的原生文件工具请求均被拒绝',
     );
+  });
+});
+
+describe('sub-agent native memory', () => {
+  const child = {
+    slug: 'child',
+    name: 'Child',
+    model: 'm',
+    systemPrompt: 'p',
+    maxTurns: 3,
+  };
+
+  const disallowedOf = (content: string): string[] =>
+    parseMarkdownFrontmatter(content, 'child', '/child').fields.get('disallowedTools') as string[];
+
+  it('declares project memory and drops the default file-tool denies', () => {
+    const files = renderWorkspace({ agent, servers: [], subAgents: [child] });
+    const content = files.subAgents[0]?.content ?? '';
+
+    expect(content).toContain('memory: project');
+    const disallowed = disallowedOf(content);
+    for (const tool of ['Read', 'Write', 'Edit']) expect(disallowed).not.toContain(tool);
+    // 单层委派仍由定义兜底，MCP 派生仍靠省略 tools。
+    expect(disallowed).toContain('Agent');
+    expect(disallowed).toContain('TaskStop');
+    expect(content).not.toContain('tools: [');
+  });
+
+  it('keeps a user explicit file-tool deny on the sub-definition', () => {
+    const files = renderWorkspace({
+      agent,
+      servers: [],
+      subAgents: [{ ...child, disallowedTools: ['Read'] }],
+    });
+    const disallowed = disallowedOf(files.subAgents[0]?.content ?? '');
+
+    expect(disallowed).toContain('Read');
+    expect(disallowed).not.toContain('Write');
+    expect(disallowed).not.toContain('Edit');
+  });
+
+  it('leaves the main definition unchanged', () => {
+    const { agentMd } = renderWorkspace({ agent, servers: [] });
+    const fields = parseMarkdownFrontmatter(agentMd, 'agent', '/agent').fields;
+
+    expect(fields.get('disallowedTools')).toEqual(
+      expect.arrayContaining(['Read', 'Write', 'Edit']),
+    );
+    expect(fields.has('memory')).toBe(false);
   });
 });
 

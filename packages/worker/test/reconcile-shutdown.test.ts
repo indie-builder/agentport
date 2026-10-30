@@ -24,6 +24,7 @@ vi.mock('../src/runner-client.js', () => ({ publishRun: publishRun.fn }));
 vi.mock('bullmq', () => ({
   Queue: class {
     on(): void {}
+    getJob = async (): Promise<undefined> => undefined;
     close = queueClose;
   },
 }));
@@ -50,21 +51,37 @@ describe('startReconciler shutdown', () => {
     const evalRows = new Promise<unknown[]>((resolve) => {
       releaseEval = resolve;
     });
-    // 无数据库：run 分支在 publish 边界立即失败，eval 分支停在 select 上。
+    // 稳定的 running 候选：探测后按主键重查要拿回同一行，run 分支才能走到 publish 并真实失败。
+    const runningRow = {
+      id: newId('run'),
+      conversationId: newId('conversation'),
+      status: 'running',
+      sandboxId: null,
+      pendingFinish: null,
+    };
+    // where() 既可能被直接 await，也可能在 running 重查时继续 .limit(1)。
+    const rows = (value: unknown[] | Promise<unknown[]>) =>
+      Object.assign(Promise.resolve(value), { limit: async () => value });
     const db = {
       update: () => ({
         set: () => ({
-          from: () => ({
-            where: () => ({
-              returning: async () => [{ id: newId('run'), conversationId: newId('conversation') }],
-            }),
+          where: () => ({
+            returning: async () => [{ id: runningRow.id }],
           }),
         }),
       }),
-      select: (fields: { id: unknown }) => ({
+      select: (fields: { id: unknown; status?: unknown }) => ({
         from: () => ({
           where: () =>
-            fields.id === schema.evalRuns.id ? evalRows : Promise.resolve<unknown[]>([]),
+            fields.id === schema.evalRuns.id
+              ? evalRows
+              : // RUNNING_REF 带 status/重查；RUN_REF（queued）没有。
+                fields.status !== undefined
+                ? rows([runningRow])
+                : rows([]),
+          innerJoin: () => ({
+            where: () => rows([runningRow]),
+          }),
         }),
       }),
     };
@@ -74,6 +91,7 @@ describe('startReconciler shutdown', () => {
       logger,
       agentTimeoutMs: 1_000,
       redisUrl: 'redis://unused',
+      cleanup: async () => undefined,
     });
 
     // run 分支已 reject，eval 分支仍挂着；旧的 Promise.all 此时已结束 inFlight。

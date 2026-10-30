@@ -70,7 +70,7 @@ function fakeQueue(behavior: (runId: string) => string | null | Error): {
   getJob: ReturnType<typeof vi.fn>;
 } {
   const getJob = vi.fn(async (runId: string) => {
-    if (!ownedRuns.has(runId)) return { getState: async () => 'waiting' };
+    if (!ownedRuns.has(runId)) return undefined;
     const result = behavior(runId);
     if (result instanceof Error) throw result;
     if (result === null) return undefined;
@@ -78,6 +78,10 @@ function fakeQueue(behavior: (runId: string) => string | null | Error): {
   });
   return { queue: { getJob } as unknown as Pick<Queue, 'getJob'>, getJob };
 }
+
+const cleanup = vi.fn(
+  async (_input: { runId: string; conversationId: string; sandboxId: string }) => undefined,
+);
 
 const ownedRuns = new Set<string>();
 const warns: { obj: object; msg: string }[] = [];
@@ -103,14 +107,50 @@ async function seedQueued(tx: Db, fixture: Fixture): Promise<string> {
   return runId;
 }
 
-async function seedRunning(tx: Db, fixture: Fixture, ageMs = STALE_MS): Promise<string> {
+async function seedRunning(
+  tx: Db,
+  fixture: Fixture,
+  ageMs = STALE_MS,
+  sandboxId: string | null = null,
+): Promise<string> {
   const runId = newId('run');
+  ownedRuns.add(runId);
   const startedAt = new Date(Date.now() - ageMs);
   await tx.insert(schema.agentRuns).values({
     id: runId,
     conversationId: fixture.conversationId,
     agentId: fixture.agentId,
     status: 'running',
+    sandboxId,
+    createdAt: startedAt,
+    startedAt,
+  });
+  return runId;
+}
+
+const PENDING_EVENT = {
+  type: 'run_finished',
+  status: 'cancelled',
+  costUsd: 0.5,
+  turns: 2,
+  error: 'stop unconfirmed',
+} as const;
+
+async function seedPending(
+  tx: Db,
+  fixture: Fixture,
+  options: { ageMs?: number; sandboxId?: string | null } = {},
+): Promise<string> {
+  const runId = newId('run');
+  ownedRuns.add(runId);
+  const startedAt = new Date(Date.now() - (options.ageMs ?? STALE_MS));
+  await tx.insert(schema.agentRuns).values({
+    id: runId,
+    conversationId: fixture.conversationId,
+    agentId: fixture.agentId,
+    status: 'running',
+    sandboxId: options.sandboxId === undefined ? 'sandbox-pending' : options.sandboxId,
+    pendingFinish: PENDING_EVENT,
     createdAt: startedAt,
     startedAt,
   });
@@ -137,10 +177,18 @@ async function statusOf(tx: Db, runId: string) {
       status: schema.agentRuns.status,
       error: schema.agentRuns.error,
       endedAt: schema.agentRuns.endedAt,
+      pendingFinish: schema.agentRuns.pendingFinish,
     })
     .from(schema.agentRuns)
     .where(eq(schema.agentRuns.id, runId));
   return row;
+}
+
+async function auditsOf(tx: Db, runId: string) {
+  return tx
+    .select({ action: schema.auditLog.action, status: schema.auditLog.status })
+    .from(schema.auditLog)
+    .where(eq(schema.auditLog.target, runId));
 }
 
 const runFinished = (runId: string) => [
@@ -158,6 +206,8 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
   beforeEach(() => {
     ownedRuns.clear();
     publishRun.mockClear();
+    cleanup.mockClear();
+    cleanup.mockImplementation(async () => undefined);
     warns.length = 0;
   });
 
@@ -175,7 +225,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
       for (const state of states) {
         const runId = await seedQueued(tx, fixture);
         const { queue } = fakeQueue(() => state);
-        await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue);
+        await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup);
         expect(await statusOf(tx, runId)).toMatchObject(KEPT_QUEUED);
         expect(publishRun).not.toHaveBeenCalledWith(...runFinished(runId));
       }
@@ -190,7 +240,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
         const runId = await seedQueued(tx, fixture);
         const { queue } = fakeQueue(() => state);
 
-        await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue);
+        await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup);
 
         expect(await statusOf(tx, runId)).toMatchObject(LOST);
         expect(publishRun).toHaveBeenCalledWith(...runFinished(runId));
@@ -219,7 +269,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
         },
       } as unknown as Pick<Queue, 'getJob'>;
 
-      await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue);
+      await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup);
       expect(peak).toBe(4);
     });
   });
@@ -234,7 +284,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
           : 'waiting',
       );
 
-      await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue);
+      await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup);
 
       expect(await statusOf(tx, failing)).toMatchObject(KEPT_QUEUED);
       expect(await statusOf(tx, waiting)).toMatchObject(KEPT_QUEUED);
@@ -260,7 +310,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
         return undefined;
       });
 
-      await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue);
+      await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup);
 
       expect(await statusOf(tx, runId)).toMatchObject({ status: 'running', error: null });
       expect(publishRun).not.toHaveBeenCalledWith(...runFinished(runId));
@@ -286,10 +336,12 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       try {
         let settled = false;
-        const pending = reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue).then((count) => {
-          settled = true;
-          return count;
-        });
+        const pending = reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup).then(
+          (count) => {
+            settled = true;
+            return count;
+          },
+        );
         await probing;
         await vi.advanceTimersByTimeAsync(20_001);
         expect(settled).toBe(true);
@@ -303,7 +355,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
         release?.();
         vi.useRealTimers();
       }
-      expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue)).toBe(0);
+      expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
       expect(await statusOf(tx, runId)).toMatchObject(KEPT_QUEUED);
     });
   });
@@ -314,10 +366,16 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
         const running = await seedRunning(tx, fixture);
         const queued = await seedQueued(tx, fixture);
         const { queue, getJob } = fakeQueue((runId) =>
-          runId === queued ? new Error('redis down') : 'waiting',
+          runId === queued ? new Error('redis down') : null,
         );
 
-        const reconciled = await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue);
+        const reconciled = await reconcileOrphanedRuns(
+          tx,
+          logger,
+          AGENT_TIMEOUT_MS,
+          queue,
+          cleanup,
+        );
 
         expect(reconciled).toBeGreaterThanOrEqual(1);
         expect(await statusOf(tx, running)).toMatchObject(LOST);
@@ -335,9 +393,9 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
         const shortTimeoutRun = await seedRunning(tx, fixture, BETWEEN_CUTOFFS_MS);
         const longAgent = await seedAgent(tx, LONG_TIMEOUT_MS);
         const longTimeoutRun = await seedRunning(tx, longAgent, BETWEEN_CUTOFFS_MS);
-        const { queue } = fakeQueue(() => 'waiting');
+        const { queue } = fakeQueue(() => null);
 
-        await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue);
+        await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup);
 
         expect(await statusOf(tx, shortTimeoutRun)).toMatchObject(LOST);
         expect(await statusOf(tx, longTimeoutRun)).toMatchObject({
@@ -356,14 +414,255 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
       async (tx, fixture) => {
         // 超过全局 10s + 宽限，但远未到该 agent 的 1 小时。
         const runId = await seedRunning(tx, fixture, BETWEEN_CUTOFFS_MS);
-        const { queue } = fakeQueue(() => 'waiting');
+        const { queue } = fakeQueue(() => null);
 
-        await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue);
+        await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup);
 
         expect(await statusOf(tx, runId)).toMatchObject({ status: 'running', error: null });
         expect(publishRun).not.toHaveBeenCalled();
       },
       { timeoutMs: LONG_TIMEOUT_MS },
+    );
+  });
+
+  it('keeps a stale running run while its queue job is still active', async () => {
+    await isolated(
+      async (tx, fixture) => {
+        const runId = await seedRunning(tx, fixture);
+        const { queue } = fakeQueue(() => 'active');
+
+        expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
+
+        // timeout 被改短也不能把仍在执行的 job 提前判死。
+        expect(await statusOf(tx, runId)).toMatchObject({
+          status: 'running',
+          error: null,
+          endedAt: null,
+        });
+        expect(cleanup).not.toHaveBeenCalled();
+        expect(publishRun).not.toHaveBeenCalled();
+      },
+      { timeoutMs: AGENT_TIMEOUT_MS },
+    );
+  });
+
+  it('finalizes a pending finish after cleanup and publishes the original event once', async () => {
+    await isolated(async (tx, fixture) => {
+      // pendingFinish 不等 timeout：刚写完也进入候选。
+      const runId = await seedPending(tx, fixture, { ageMs: 0 });
+      const { queue } = fakeQueue(() => 'completed');
+
+      expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(1);
+
+      expect(cleanup).toHaveBeenCalledWith({
+        runId,
+        conversationId: fixture.conversationId,
+        sandboxId: 'sandbox-pending',
+      });
+      expect(await statusOf(tx, runId)).toMatchObject({
+        status: 'cancelled',
+        pendingFinish: null,
+        endedAt: expect.any(Date),
+      });
+      expect(publishRun).toHaveBeenCalledTimes(1);
+      expect(publishRun).toHaveBeenCalledWith(runId, PENDING_EVENT, logger);
+      expect(await auditsOf(tx, runId)).toEqual([
+        { action: 'agent.run.reconciled', status: 'error' },
+      ]);
+    });
+  });
+
+  it('keeps a pending finish running and unpublished when cleanup fails', async () => {
+    await isolated(async (tx, fixture) => {
+      const runId = await seedPending(tx, fixture, { ageMs: 0 });
+      const { queue } = fakeQueue(() => null);
+      cleanup.mockRejectedValueOnce(new Error('docker rm failed'));
+
+      expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
+
+      expect(await statusOf(tx, runId)).toMatchObject({
+        status: 'running',
+        pendingFinish: PENDING_EVENT,
+        endedAt: null,
+      });
+      expect(publishRun).not.toHaveBeenCalled();
+      expect(warns).toContainEqual({
+        obj: { runId, sandboxId: 'sandbox-pending', error: 'docker rm failed' },
+        msg: 'run sandbox cleanup failed, keeping running run',
+      });
+    });
+  });
+
+  it('does not take over a pending finish while its job is active', async () => {
+    await isolated(async (tx, fixture) => {
+      const runId = await seedPending(tx, fixture, { ageMs: 0 });
+      const { queue } = fakeQueue(() => 'active');
+
+      expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
+
+      expect(await statusOf(tx, runId)).toMatchObject({
+        status: 'running',
+        pendingFinish: PENDING_EVENT,
+      });
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(publishRun).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps a plain orphan running when cleanup fails', async () => {
+    await isolated(
+      async (tx, fixture) => {
+        const runId = await seedRunning(tx, fixture, STALE_MS, 'sandbox-orphan');
+        const { queue } = fakeQueue(() => null);
+        cleanup.mockRejectedValueOnce(new Error('docker rm failed'));
+
+        expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
+
+        expect(cleanup).toHaveBeenCalledWith({
+          runId,
+          conversationId: fixture.conversationId,
+          sandboxId: 'sandbox-orphan',
+        });
+        expect(await statusOf(tx, runId)).toMatchObject({ status: 'running', error: null });
+        expect(publishRun).not.toHaveBeenCalled();
+      },
+      { timeoutMs: AGENT_TIMEOUT_MS },
+    );
+  });
+
+  it('finalizes a pending finish without a sandbox without calling cleanup', async () => {
+    await isolated(async (tx, fixture) => {
+      const runId = await seedPending(tx, fixture, { ageMs: 0, sandboxId: null });
+      const { queue } = fakeQueue(() => null);
+
+      expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(1);
+
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(await statusOf(tx, runId)).toMatchObject({
+        status: 'cancelled',
+        pendingFinish: null,
+      });
+    });
+  });
+
+  it('does not overwrite a pending finish written while a plain orphan is probed', async () => {
+    await isolated(
+      async (tx, fixture) => {
+        const runId = await seedRunning(tx, fixture);
+        const { queue, getJob } = fakeQueue(() => null);
+        getJob.mockImplementationOnce(async () => {
+          await tx
+            .update(schema.agentRuns)
+            .set({ pendingFinish: PENDING_EVENT })
+            .where(eq(schema.agentRuns.id, runId));
+          return undefined;
+        });
+
+        expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
+
+        // 条件更新只允许没有 pendingFinish 的孤儿进入 failed，接管留给下一轮。
+        expect(await statusOf(tx, runId)).toMatchObject({
+          status: 'running',
+          pendingFinish: PENDING_EVENT,
+        });
+        expect(cleanup).not.toHaveBeenCalled();
+        expect(publishRun).not.toHaveBeenCalled();
+      },
+      { timeoutMs: AGENT_TIMEOUT_MS },
+    );
+  });
+
+  it('does not clean up a container another run took over while the candidate was probed', async () => {
+    await isolated(async (tx, fixture) => {
+      // A 是探测开始时的候选；探测期间 A 正常完成，B 在同一会话复用了同一个容器。
+      const runId = await seedPending(tx, fixture, {
+        ageMs: 0,
+        sandboxId: 'sandbox-shared',
+      });
+      const { queue, getJob } = fakeQueue(() => null);
+      getJob.mockImplementationOnce(async () => {
+        await tx
+          .update(schema.agentRuns)
+          .set({ status: 'succeeded', pendingFinish: null, endedAt: new Date() })
+          .where(eq(schema.agentRuns.id, runId));
+        const nextRunId = newId('run');
+        ownedRuns.add(nextRunId);
+        const now = new Date();
+        await tx.insert(schema.agentRuns).values({
+          id: nextRunId,
+          conversationId: fixture.conversationId,
+          agentId: fixture.agentId,
+          status: 'running',
+          sandboxId: 'sandbox-shared',
+          createdAt: now,
+          startedAt: now,
+        });
+        return undefined;
+      });
+
+      expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
+
+      // 主键重读看到 A 已非 running：既不清理 B 正在用的容器，也不覆盖 A 的终态。
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(await statusOf(tx, runId)).toMatchObject({
+        status: 'succeeded',
+        pendingFinish: null,
+      });
+      expect(publishRun).not.toHaveBeenCalled();
+    });
+  });
+
+  it('leaves a candidate for the next tick when its sandbox id appears during the probe', async () => {
+    await isolated(
+      async (tx, fixture) => {
+        const runId = await seedRunning(tx, fixture, STALE_MS, null);
+        const { queue, getJob } = fakeQueue(() => null);
+        getJob.mockImplementationOnce(async () => {
+          await tx
+            .update(schema.agentRuns)
+            .set({ sandboxId: 'sandbox-late' })
+            .where(eq(schema.agentRuns.id, runId));
+          return undefined;
+        });
+
+        expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
+
+        // 候选快照没有 sandbox，当前行却有：留到下一轮重新取快照，不能按缺省清理收敛。
+        expect(cleanup).not.toHaveBeenCalled();
+        expect(await statusOf(tx, runId)).toMatchObject({
+          status: 'running',
+          endedAt: null,
+        });
+        expect(publishRun).not.toHaveBeenCalled();
+      },
+      { timeoutMs: AGENT_TIMEOUT_MS },
+    );
+  });
+
+  it('keeps a same-run candidate when its sandbox id changes during the probe', async () => {
+    await isolated(
+      async (tx, fixture) => {
+        const runId = await seedRunning(tx, fixture, STALE_MS, 'sandbox-s1');
+        const { queue, getJob } = fakeQueue(() => null);
+        getJob.mockImplementationOnce(async () => {
+          await tx
+            .update(schema.agentRuns)
+            .set({ sandboxId: 'sandbox-s2' })
+            .where(eq(schema.agentRuns.id, runId));
+          return undefined;
+        });
+
+        expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
+
+        // 同一 run 换了容器：旧快照的 sandbox 已不是当前容器，既不能清理也不能写终态。
+        expect(cleanup).not.toHaveBeenCalled();
+        expect(await statusOf(tx, runId)).toMatchObject({
+          status: 'running',
+          endedAt: null,
+        });
+        expect(publishRun).not.toHaveBeenCalled();
+      },
+      { timeoutMs: AGENT_TIMEOUT_MS },
     );
   });
 });

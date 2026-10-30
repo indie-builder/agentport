@@ -60,10 +60,26 @@ describe('official workspace file parsing', () => {
       effort: 'high',
       skills: ['search'],
       mcpServers: ['web'],
-      disallowedTools: expect.arrayContaining(['Read', 'Agent']),
+      disallowedTools: expect.arrayContaining(['Agent']),
       systemPrompt: agent.systemPrompt,
     });
+    expect(content).toContain('memory: project');
     expect(parsed.disallowedTools).not.toContain('Bash');
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      expect(parsed.disallowedTools).not.toContain(tool);
+    }
+  });
+
+  it('accepts only project memory in child files', () => {
+    const base = ['---', 'name: kid', 'description: d', 'model: m', '---', '', 'prompt'].join('\n');
+    const withMemory = (value: string) => base.replace('model: m', `model: m\nmemory: ${value}`);
+    expect(parseChildAgentMd(withMemory('project'), '/x').slug).toBe('kid');
+    for (const scope of ['user', 'local']) {
+      const error = expectInvalid(() => parseChildAgentMd(withMemory(scope), '/x'), '/x/memory');
+      expect(error.message).toContain('project');
+      // 拒绝原因是未纳入平台挂载与导出契约，而不是目录位于工作区之外。
+      expect(error.message).toContain('挂载与导出契约');
+    }
   });
 
   it('rejects child files with runtime fields or an invalid model', () => {

@@ -1,5 +1,6 @@
 import type {
   Agent,
+  ChatEvent,
   KnowledgeBaseSettings,
   MemoryContentSnapshot,
   MemoryReviewProposal,
@@ -539,6 +540,11 @@ export const agentRuns = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     error: text('error'),
+    /**
+     * stop 未确认且容器销毁失败时暂存的终态事件：运行保持 running、endedAt 为 NULL，
+     * 重启后原样重放；清理成功才写终态并清空。null 表示没有待重放的终态。
+     */
+    pendingFinish: jsonb('pending_finish').$type<Extract<ChatEvent, { type: 'run_finished' }>>(),
     /** 失败分类：决定 BullMQ 是否重试，也用于运行详情展示。 */
     errorKind: text('error_kind', {
       enum: ['cancelled', 'timeout', 'sandbox', 'agent', 'infra'],

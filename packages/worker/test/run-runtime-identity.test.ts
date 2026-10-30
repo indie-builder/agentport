@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { RunFailure } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { RUNS_QUEUE } from '@agentport/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SandboxCleanupError } from '../src/sandbox/provider.js';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
@@ -60,6 +61,7 @@ vi.mock('../src/sandbox/docker.js', () => ({
 
 vi.mock('../src/sandbox/sessions.js', () => ({
   SessionSandboxes: class {
+    async cleanup(): Promise<void> {}
     async close(): Promise<void> {}
   },
 }));
@@ -383,7 +385,8 @@ describe('run runtime environment identity persistence', () => {
     mocks.run.mockResolvedValue({
       status: 'failed',
       sandboxId: 'sandbox-sdk-empty',
-      settlement: { state: 'unconfirmed', error: 'infra down' },
+      // 容器已确认停稳，只是执行本身是基础设施失败：这才是可重试的形态。
+      settlement: { state: 'stopped', code: 0, signal: null },
       events: [],
       sessionId: 'sdk-from-failed-attempt',
       error: 'infra down',
@@ -411,8 +414,8 @@ describe('run runtime environment identity persistence', () => {
       .mockResolvedValueOnce({
         status: 'failed',
         sandboxId: 'sandbox-sdk-retry',
-        // 停稳状态未知：这是基础设施失败，BullMQ 还会重试同一 run。
-        settlement: { state: 'unconfirmed', error: 'infra down' },
+        // 容器已确认停稳：基础设施失败可以交给 BullMQ 重试同一 run。
+        settlement: { state: 'stopped', code: 0, signal: null },
         events: [],
         sessionId: 'sdk-from-failed-attempt',
         error: 'infra down',
@@ -467,5 +470,178 @@ describe('run runtime environment identity persistence', () => {
       sdkSessionId: 'sdk-after-success',
       forkFromSdkMessageUuid: null,
     });
+  });
+
+  it('retries an infra acquire failure before a lease exists instead of deferring it', async () => {
+    mocks.acquire
+      .mockRejectedValueOnce(new RunFailure('infra', 'sandbox acquire failed'))
+      .mockResolvedValueOnce(sandboxLease('sandbox-after-retry'));
+    mocks.run.mockResolvedValue({
+      status: 'succeeded',
+      sandboxId: 'sandbox-after-retry',
+      settlement: { state: 'stopped', code: 0, signal: null },
+      events: [],
+      sessionId: 'sdk-after-retry',
+    });
+
+    const fixture = await createRunFixture('prelease-retry');
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+
+    // 还没拿到 lease：没有遗留容器，infra 失败必须保持可重试，且不能写 pending。
+    await expect(
+      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
+    ).rejects.toThrow('retryable sandbox failure');
+    let [run] = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, fixture.runId))
+      .limit(1);
+    expect(run).toMatchObject({ status: 'queued', startedAt: null, pendingFinish: null });
+
+    await processor?.({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
+    [run] = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, fixture.runId))
+      .limit(1);
+    expect(run).toMatchObject({
+      status: 'succeeded',
+      pendingFinish: null,
+      endedAt: expect.any(Date),
+    });
+    expect(mocks.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('finalizes a cancellation before the lease exists without deferring it', async () => {
+    mocks.acquire.mockRejectedValue(
+      new RunFailure('cancelled', 'cancelled during sandbox acquire'),
+    );
+
+    const fixture = await createRunFixture('prelease-cancel');
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+
+    // 取消发生在容器创建前：没有需要 reconcile 确认的容器，终态应立即落库。
+    await expect(
+      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 3 } }),
+    ).resolves.toBeUndefined();
+    const [run] = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, fixture.runId))
+      .limit(1);
+    expect(run).toMatchObject({
+      status: 'cancelled',
+      endedAt: expect.any(Date),
+      pendingFinish: null,
+    });
+    expect(mocks.run).not.toHaveBeenCalled();
+    expect(mocks.release).not.toHaveBeenCalled();
+    expect(
+      mocks.publishRun.mock.calls.filter(
+        ([, event]) => (event as { type?: string }).type === 'run_finished',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('keeps the exact sandbox id when acquire reports a typed cleanup failure', async () => {
+    mocks.acquire.mockRejectedValue(
+      new RunFailure(
+        'infra',
+        'docker rm failed',
+        new SandboxCleanupError('sandbox-typed', 'docker rm failed', new Error('rm failed')),
+      ),
+    );
+
+    const fixture = await createRunFixture('typed-cleanup');
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+
+    // 容器已创建但不能确认删除：交接终态时必须保留它的 id，供 reconcile 按 id 清理。
+    await expect(
+      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 3 } }),
+    ).resolves.toBeUndefined();
+    const [run] = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, fixture.runId))
+      .limit(1);
+    expect(run).toMatchObject({
+      status: 'running',
+      endedAt: null,
+      sandboxId: 'sandbox-typed',
+      pendingFinish: {
+        type: 'run_finished',
+        status: 'failed',
+        error: expect.stringContaining('docker rm failed'),
+      },
+    });
+    expect(mocks.release).not.toHaveBeenCalled();
+    expect(
+      mocks.publishRun.mock.calls.filter(
+        ([, event]) => (event as { type?: string }).type === 'run_finished',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('defers an unconfirmed stop to reconcile instead of retrying or finalizing', async () => {
+    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-pending-unit'));
+    mocks.run.mockResolvedValue({
+      status: 'failed',
+      sandboxId: 'sandbox-pending-unit',
+      settlement: { state: 'unconfirmed', error: 'cancel not confirmed' },
+      cleanupError: 'destroy failed',
+      events: [],
+      sessionId: 'sdk-pending',
+      error: 'cancel not confirmed',
+      failure: new RunFailure('infra', 'cancel not confirmed'),
+    });
+
+    const fixture = await createRunFixture('pending');
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+
+    // 还有重试额度也不能重跑：停稳未确认时副作用可能仍在发生。
+    await processor?.({
+      ...fixture.job,
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    });
+
+    const [run] = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, fixture.runId))
+      .limit(1);
+    expect(run).toMatchObject({
+      status: 'running',
+      endedAt: null,
+      sandboxId: 'sandbox-pending-unit',
+      errorKind: 'infra',
+      sessionId: 'sdk-pending',
+    });
+    expect(run?.pendingFinish).toMatchObject({
+      type: 'run_finished',
+      status: 'failed',
+      error: expect.stringContaining('cancel not confirmed'),
+    });
+
+    // 终态只在 reconcile 确认容器销毁后发布；这里不能提前发或写 finished 审计。
+    const finished = mocks.publishRun.mock.calls.filter(
+      ([, event]) => (event as { type?: string }).type === 'run_finished',
+    );
+    expect(finished).toHaveLength(0);
+    const audits = await db
+      .select({ action: schema.auditLog.action })
+      .from(schema.auditLog)
+      .where(
+        and(
+          eq(schema.auditLog.target, fixture.runId),
+          eq(schema.auditLog.action, 'agent.run.finished'),
+        ),
+      );
+    expect(audits).toHaveLength(0);
+    expect(mocks.release).toHaveBeenCalledWith({ reuse: false });
   });
 });

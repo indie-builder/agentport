@@ -306,6 +306,149 @@ describe('run outputs boundary', () => {
   });
 });
 
+describe('subagent project memory boundary', () => {
+  let projectMemory: string;
+  let childHook: ReturnType<typeof createFileBoundaryHook>;
+
+  const call = (tool: string, file_path: string, agentType = 'child') =>
+    childHook(
+      {
+        hook_event_name: 'PreToolUse',
+        session_id: 's',
+        transcript_path: '/tmp/t',
+        cwd: memory,
+        tool_name: tool,
+        tool_input: { file_path },
+        tool_use_id: 't',
+        agent_id: 'agent-child',
+        agent_type: agentType,
+      },
+      'tool',
+      { signal: new AbortController().signal },
+    );
+
+  const callUntyped = (tool: string, file_path: string) =>
+    childHook(
+      {
+        hook_event_name: 'PreToolUse',
+        session_id: 's',
+        transcript_path: '/tmp/t',
+        cwd: memory,
+        tool_name: tool,
+        tool_input: { file_path },
+        tool_use_id: 't',
+        agent_id: 'agent-child',
+      },
+      'tool',
+      { signal: new AbortController().signal },
+    );
+
+  beforeEach(async () => {
+    projectMemory = join(dir, 'agent-memory');
+    childHook = createFileBoundaryHook(memory, undefined, undefined, undefined, undefined, {
+      projectMemoryDir: projectMemory,
+      subAgentSlugs: new Set(['child']),
+    });
+    await mkdir(join(projectMemory, 'child', 'topics'), { recursive: true });
+    await mkdir(join(projectMemory, 'sibling'));
+    await writeFile(join(projectMemory, 'child', 'MEMORY.md'), '# child');
+    await writeFile(join(projectMemory, 'child', 'topics', 'note.md'), '# note');
+    await writeFile(join(projectMemory, 'sibling', 'MEMORY.md'), '# sibling');
+  });
+
+  it('lets a known child read and write Markdown only in its own memory', async () => {
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      for (const name of ['MEMORY.md', 'topics/note.md']) {
+        expect(
+          await call(tool, join(projectMemory, 'child', name)),
+          `${tool} ${name}`,
+        ).toMatchObject(decision('allow'));
+      }
+      expect(
+        await call(tool, join(projectMemory, 'sibling', 'MEMORY.md')),
+        `${tool} sibling`,
+      ).toMatchObject(decision('deny'));
+    }
+    // 缺失的父目录允许 Write 创建，Read/Edit 仍要目标已存在。
+    expect(
+      await call('Write', join(projectMemory, 'child', 'topics', 'deep', 'new.md')),
+    ).toMatchObject(decision('allow'));
+    expect(
+      await call('Read', join(projectMemory, 'child', 'topics', 'deep', 'new.md')),
+    ).toMatchObject(decision('deny'));
+  });
+
+  it('denies parent memory, outputs, inputs, non-Markdown, and traversal for children', async () => {
+    for (const [tool, file_path] of [
+      ['Read', join(memory, 'MEMORY.md')],
+      ['Write', join(dir, 'outputs', 'report.csv')],
+      ['Read', join(dir, 'inputs', 'brief.pdf')],
+      ['Write', join(projectMemory, 'child', 'notes.txt')],
+      ['Read', `${projectMemory}/child/../sibling/MEMORY.md`],
+      ['Read', projectMemory],
+      ['Read', join(projectMemory, 'child')],
+      ['Read', 'relative.md'],
+    ] as const) {
+      expect(await call(tool, file_path), `${tool} ${file_path}`).toMatchObject(decision('deny'));
+    }
+  });
+
+  it('denies unknown or unidentified children even inside a known child directory', async () => {
+    expect(await call('Read', join(projectMemory, 'child', 'MEMORY.md'), 'stranger')).toMatchObject(
+      decision('deny'),
+    );
+    expect(await callUntyped('Read', join(projectMemory, 'child', 'MEMORY.md'))).toMatchObject(
+      decision('deny'),
+    );
+    await mkdir(join(projectMemory, 'stranger'));
+    await writeFile(join(projectMemory, 'stranger', 'MEMORY.md'), '# stranger');
+    expect(
+      await call('Read', join(projectMemory, 'stranger', 'MEMORY.md'), 'stranger'),
+    ).toMatchObject(decision('deny'));
+  });
+
+  it('keeps the main session and non-file tools out of child memory', async () => {
+    const main = (tool: string, file_path: string) =>
+      childHook(
+        {
+          hook_event_name: 'PreToolUse',
+          session_id: 's',
+          transcript_path: '/tmp/t',
+          cwd: memory,
+          tool_name: tool,
+          tool_input: { file_path },
+          tool_use_id: 't',
+        },
+        'tool',
+        { signal: new AbortController().signal },
+      );
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      expect(await main(tool, join(projectMemory, 'child', 'MEMORY.md'))).toMatchObject(
+        decision('deny'),
+      );
+      for (const other of ['Glob', 'Grep', 'NotebookEdit']) {
+        expect(await call(other, join(projectMemory, 'child', 'MEMORY.md'))).toMatchObject(
+          decision('deny'),
+        );
+      }
+    }
+  });
+
+  it('rejects symlinked and hard-linked files inside the child memory', async () => {
+    await symlink(join(dir, 'outside.md'), join(projectMemory, 'child', 'link.md'));
+    await link(join(dir, 'outside.md'), join(projectMemory, 'child', 'hard.md'));
+    await symlink(join(projectMemory, 'sibling'), join(projectMemory, 'child', 'linked-dir'));
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      for (const name of ['link.md', 'hard.md', 'linked-dir/MEMORY.md']) {
+        expect(
+          await call(tool, join(projectMemory, 'child', name)),
+          `${tool} ${name}`,
+        ).toMatchObject(decision('deny'));
+      }
+    }
+  });
+});
+
 describe('conversation inputs read-only boundary', () => {
   let inputs: string;
   let inputsHook: ReturnType<typeof createFileBoundaryHook>;

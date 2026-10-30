@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
-import type { Sandbox, SandboxCreateOptions, SandboxProvider } from './provider.js';
+import {
+  type Sandbox,
+  SandboxCleanupError,
+  type SandboxCreateOptions,
+  type SandboxProvider,
+} from './provider.js';
 
 /** 与 worker config 对应的容器资源上限；默认值见 config.ts。 */
 export interface DockerSandboxOptions {
@@ -237,7 +242,7 @@ export class DockerSandboxProvider implements SandboxProvider {
         await this.removeContainer(name);
       } catch (err) {
         // 清理失败时保留跟踪，交给 shutdown 重试；不能假装已经取消干净。
-        throw new Error(`docker rm -f ${name} failed after create abort`, { cause: err });
+        throw new SandboxCleanupError(name, `docker rm -f ${name} failed after create abort`, err);
       }
       this.running.delete(name);
       throw abortError();
@@ -246,23 +251,42 @@ export class DockerSandboxProvider implements SandboxProvider {
     const child = spawn('docker', ['start', '-ai', name], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    await new Promise<void>((resolveReady, reject) => {
-      child.once('spawn', resolveReady);
-      child.once('error', reject);
-    });
+    try {
+      await new Promise<void>((resolveReady, reject) => {
+        child.once('spawn', resolveReady);
+        child.once('error', reject);
+      });
+    } catch (err) {
+      // 进程没起来：容器已经存在，必须在这里收尾；失败才携带 id 交给上层清理。
+      try {
+        await this.removeContainer(name);
+      } catch (cleanupErr) {
+        throw new SandboxCleanupError(
+          name,
+          `docker rm -f ${name} failed after start spawn failure`,
+          cleanupErr,
+        );
+      }
+      this.running.delete(name);
+      throw err;
+    }
     return { id: name, child };
   }
 
   async destroy(sandbox: Sandbox): Promise<void> {
     try {
-      // --rm 负责正常退出的清理；还在运行的容器先给 5s 优雅停止，失败再强删。
-      await this.stopAndRemove(sandbox.id);
-      // 确认停止/删除后才移出跟踪；失败项留给 destroyAll 重试。
-      this.running.delete(sandbox.id);
+      await this.destroyById(sandbox.id);
     } finally {
       // 容器已停，start -ai 客户端若仍未退出则直接结束，避免 worker 等它。
       sandbox.child.kill('SIGKILL');
     }
+  }
+
+  async destroyById(id: string): Promise<void> {
+    // --rm 负责正常退出的清理；还在运行的容器先给 5s 优雅停止，失败再强删。
+    await this.stopAndRemove(id);
+    // 确认停止/删除后才移出跟踪；失败项留给 destroyAll 重试。
+    this.running.delete(id);
   }
 
   /**

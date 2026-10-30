@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
@@ -60,7 +61,7 @@ async function seed(cases: CaseInput[]) {
     total: snapshot.length,
     caseSnapshot: snapshot,
   });
-  return { evalRunId, snapshot };
+  return { agentId, evalRunId, snapshot };
 }
 
 /** mock 队列的消费者：把子 run 收敛为 succeeded，并写入一条可判定的 assistant 消息。 */
@@ -162,5 +163,41 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     expect(detail?.results[0]).toMatchObject({ name: 'ok', passed: true });
     // 写失败后不再执行第三条。
     expect(mocks.queueAdd).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits for a delegated child memory lock before admitting the eval case run', async () => {
+    const { agentId, evalRunId } = await seed([
+      { name: 'locked', prompt: 'prompt-locked', expectation: 'reply:prompt-locked' },
+    ]);
+    const childId = newId('agent');
+    await db.insert(schema.agents).values({
+      id: childId,
+      slug: `eval-child-${randomUUID().slice(0, 8)}`,
+      name: 'eval-child',
+      model: 'test',
+      parentId: agentId,
+    });
+
+    const client = await dbHandle.pool.connect();
+    let settled = false;
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtext($1))', [`agent:${childId}`]);
+      const pending = executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId }).then(
+        () => {
+          settled = true;
+        },
+      );
+      await delay(200);
+      expect(settled, 'eval admission did not wait for the child memory lock').toBe(false);
+      await client.query('commit');
+      await pending;
+    } finally {
+      await client.query('rollback').catch(() => undefined);
+      client.release();
+    }
+
+    expect(mocks.queueAdd).toHaveBeenCalledTimes(1);
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun.status).toBe('succeeded');
   });
 });

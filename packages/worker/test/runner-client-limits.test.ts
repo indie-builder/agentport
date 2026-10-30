@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { RunFailure } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { ChatEvent, ExecutionSettlement } from '@agentport/shared';
 import { runStreamKey } from '@agentport/shared';
@@ -199,6 +200,35 @@ afterAll(async () => {
   }
   await pool.end();
   await closeRunnerClient();
+});
+
+describe('isRetryable', () => {
+  const infraFailure = new RunFailure('infra', 'infra down');
+  const base = {
+    status: 'failed' as const,
+    sandboxId: 'fake',
+    events: [],
+    failure: infraFailure,
+  };
+
+  it('does not retry a run whose stop is unconfirmed', () => {
+    // 容器可能仍在执行副作用；即使错误分类是 infra 也不能重跑。
+    expect(
+      isRetryable({
+        ...base,
+        settlement: { state: 'unconfirmed', error: 'cancel not confirmed' },
+      }),
+    ).toBe(false);
+  });
+
+  it('retries an infra failure after the sandbox stopped', () => {
+    expect(
+      isRetryable({
+        ...base,
+        settlement: { state: 'stopped', code: 0, signal: null },
+      }),
+    ).toBe(true);
+  });
 });
 
 describe.skipIf(!ready)('runInSandbox event budgets', () => {

@@ -1,11 +1,11 @@
 import { DbError } from '@agentport/core';
-import { type createDb, repo, schema } from '@agentport/db';
+import { type createDb, schema } from '@agentport/db';
 import { type AgentRunJob, EVAL_RUNS_QUEUE, RUNS_QUEUE } from '@agentport/shared';
 import { Queue } from 'bullmq';
-import { and, eq, lt, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { Effect, Result, Schedule } from 'effect';
 import type { Logger } from 'pino';
-import { publishRun } from './runner-client.js';
+import { finalizeRun, type RunFinishedEvent } from './run-finish.js';
 
 const RECONCILE_EVERY_MS = 5 * 60 * 1000;
 const GRACE_MS = 5 * 60 * 1000;
@@ -123,11 +123,11 @@ export async function reconcileOrphanedEvalRuns(
   return count;
 }
 
-const FINISHED_EVENT = {
+const LOST_RUN_EVENT: RunFinishedEvent = {
   type: 'run_finished',
   status: 'failed',
   error: LOST_RUN_ERROR,
-} as const;
+};
 
 /**
  * 队列里仍有工作（waiting/delayed/active/prioritized/waiting-children）就保留；
@@ -148,14 +148,138 @@ type Db = ReturnType<typeof createDb>['db'];
 type RunRef = { id: string; conversationId: string };
 const RUN_REF = { id: schema.agentRuns.id, conversationId: schema.agentRuns.conversationId };
 
-/** 探测在 Redis 上可能很慢；抽出来才能让调用方以并发 4 逐个排队。 */
+export interface ReconcileCleanupInput {
+  runId: string;
+  conversationId: string;
+  sandboxId: string;
+}
+
+/** 必传：有 sandboxId 时必须真正等到销毁结果，缺省不能被当成清理成功。 */
+export type ReconcileCleanup = (input: ReconcileCleanupInput) => Promise<void>;
+
+type RunningCandidate = RunRef & {
+  status: (typeof schema.agentRuns.$inferSelect)['status'];
+  sandboxId: string | null;
+  pendingFinish: RunFinishedEvent | null;
+};
+const RUNNING_REF = {
+  id: schema.agentRuns.id,
+  conversationId: schema.agentRuns.conversationId,
+  status: schema.agentRuns.status,
+  sandboxId: schema.agentRuns.sandboxId,
+  pendingFinish: schema.agentRuns.pendingFinish,
+};
+
+/**
+ * running 候选有两类：已暂存终态（每轮都看，不等 timeout），
+ * 或超过该 agent 自己 timeout + 宽限的普通运行。两者都还要过队列探测。
+ */
+function runningCandidates(db: Db): Promise<RunningCandidate[]> {
+  return db
+    .select(RUNNING_REF)
+    .from(schema.agentRuns)
+    .innerJoin(schema.agents, eq(schema.agentRuns.agentId, schema.agents.id))
+    .where(
+      and(
+        eq(schema.agentRuns.status, 'running'),
+        or(
+          isNotNull(schema.agentRuns.pendingFinish),
+          lt(
+            schema.agentRuns.startedAt,
+            sql`now() - (${schema.agents.timeoutMs} + ${GRACE_MS}) * interval '1 millisecond'`,
+          ),
+        ),
+      ),
+    );
+}
+
+/**
+ * running 的终态只在自己确认 job 已结束、容器已销毁后写入：
+ * - 有 pendingFinish：接管原事件，CAS 胜者发布并审计；
+ * - 无 pendingFinish：真孤儿按 LOST_RUN_ERROR 收尾。
+ * 清理失败或 job 仍在就保持 running，业务占用不释放。
+ */
+function reconcileRunning(
+  db: Db,
+  logger: Logger,
+  candidate: RunningCandidate,
+  queue: Pick<Queue, 'getJob'>,
+  cleanup: ReconcileCleanup,
+): Effect.Effect<boolean, DbError> {
+  return Effect.gen(function* () {
+    const gone = yield* probeJobGone(
+      queue,
+      candidate.id,
+      Effect.sync(() => {
+        logger.warn({ runId: candidate.id }, 'run queue probe failed, keeping running run');
+      }),
+    );
+    if (!gone) return false;
+
+    // 探测期间候选可能已完成、被重试或换了容器：按主键重读当前行再决定。
+    // 旧快照直接清理会误杀已完成 run A 之后复用同一容器的 run B。
+    const [current] = yield* withDb(() =>
+      db
+        .select(RUNNING_REF)
+        .from(schema.agentRuns)
+        .where(eq(schema.agentRuns.id, candidate.id))
+        .limit(1),
+    );
+    if (current === undefined || current.status !== 'running') return false;
+    // sandboxId 或 pendingFinish 的有无变了说明快照已过期，留到下一轮重新取快照。
+    if (
+      current.sandboxId !== candidate.sandboxId ||
+      (current.pendingFinish === null) !== (candidate.pendingFinish === null)
+    ) {
+      return false;
+    }
+
+    if (current.sandboxId !== null) {
+      const sandboxId = current.sandboxId;
+      const cleaned = yield* Effect.result(
+        Effect.tryPromise({
+          try: () =>
+            cleanup({ runId: current.id, conversationId: current.conversationId, sandboxId }),
+          catch: (err) => new Error(err instanceof Error ? err.message : String(err)),
+        }),
+      );
+      if (Result.isFailure(cleaned)) {
+        logger.warn(
+          { runId: current.id, sandboxId, error: cleaned.failure.message },
+          'run sandbox cleanup failed, keeping running run',
+        );
+        return false;
+      }
+    }
+
+    const event = current.pendingFinish ?? LOST_RUN_EVENT;
+    return yield* Effect.promise(() =>
+      finalizeRun({
+        db,
+        logger,
+        runId: current.id,
+        event,
+        pending: current.pendingFinish === null ? 'absent' : 'required',
+        ...(current.pendingFinish === null
+          ? { values: { error: LOST_RUN_ERROR, errorKind: null } }
+          : {}),
+        audit: {
+          action: 'agent.run.reconciled',
+          status: event.status === 'succeeded' ? 'ok' : 'error',
+        },
+      }),
+    );
+  });
+}
+
+/** 排队孤儿：job 消失/终态才 failed；探测期间被认领的由条件更新保住。 */
 function reconcileQueued(
   db: Db,
   logger: Logger,
   candidate: RunRef,
   cutoff: Date,
   queue: Pick<Queue, 'getJob'>,
-): Effect.Effect<RunRef[], DbError> {
+): Effect.Effect<boolean, DbError> {
   return Effect.gen(function* () {
     const gone = yield* probeJobGone(
       queue,
@@ -165,96 +289,74 @@ function reconcileQueued(
         logger.warn({ runId: candidate.id }, 'run queue probe failed, keeping queued run');
       }),
     );
-    if (!gone) return [];
-    // 条件更新：探测期间被认领或取消的 run 不能被覆盖。
-    return yield* withDb(() =>
-      db
-        .update(schema.agentRuns)
-        .set({ status: 'failed', error: LOST_RUN_ERROR, endedAt: new Date() })
-        .where(
-          and(
-            eq(schema.agentRuns.id, candidate.id),
-            eq(schema.agentRuns.status, 'queued'),
-            lt(schema.agentRuns.createdAt, cutoff),
-          ),
-        )
-        .returning(RUN_REF),
+    if (!gone) return false;
+    return yield* Effect.promise(() =>
+      finalizeRun({
+        db,
+        logger,
+        runId: candidate.id,
+        event: LOST_RUN_EVENT,
+        fromStatus: 'queued',
+        queuedBefore: cutoff,
+        values: { error: LOST_RUN_ERROR, errorKind: null },
+        audit: { action: 'agent.run.reconciled', status: 'error' },
+      }),
     );
   });
 }
 
 /**
- * worker 崩溃/重启后，DB 里会残留 running 或 queued 的 run：把已超过超时上限的收敛成 failed，
- * 并补发 run_finished，否则前端会一直转圈。
- * queued 还要问队列：积压或整体重启后 job 可能仍在 waiting，不能按时间一刀切。
- * running 用该 agent 自己的 timeout_ms 判定：当前配置即本次运行上限，不取运行时快照。
+ * worker 崩溃/重启后，DB 里会残留 running 或 queued 的 run。
+ * queued 超过全局上限后问队列；running 只在超过该 agent 自己的 timeout + 宽限、
+ * 或已有 pendingFinish 时成为候选，并且必须先探测到 job 已结束才可能收敛。
+ * 有 sandboxId 时必须等 cleanup 成功；失败或 job 未结束都保持 running，下一轮再试。
  */
 export async function reconcileOrphanedRuns(
   db: ReturnType<typeof createDb>['db'],
   logger: Logger,
   agentTimeoutMs: number,
   queue: Pick<Queue, 'getJob'>,
+  cleanup: ReconcileCleanup,
 ): Promise<number> {
   const cutoff = new Date(Date.now() - agentTimeoutMs - GRACE_MS);
-  const staleRunning = and(
-    eq(schema.agentRuns.agentId, schema.agents.id),
-    eq(schema.agentRuns.status, 'running'),
-    lt(
-      schema.agentRuns.startedAt,
-      sql`now() - (${schema.agents.timeoutMs} + ${GRACE_MS}) * interval '1 millisecond'`,
-    ),
-  );
-  // queued 从未启动：startedAt 为 NULL，用入队时间判断陈旧。
   const staleQueued = and(
     eq(schema.agentRuns.status, 'queued'),
     lt(schema.agentRuns.createdAt, cutoff),
   );
 
-  const failed = await Effect.runPromise(
-    withDb(() =>
-      db
-        .update(schema.agentRuns)
-        .set({ status: 'failed', error: LOST_RUN_ERROR, endedAt: new Date() })
-        .from(schema.agents)
-        .where(staleRunning)
-        .returning(RUN_REF),
+  const [running, queued] = await Effect.runPromise(
+    Effect.all(
+      [
+        withDb(() => runningCandidates(db)),
+        withDb(() => db.select(RUN_REF).from(schema.agentRuns).where(staleQueued)),
+      ],
+      { concurrency: 2 },
     ),
   );
 
-  const candidates = await Effect.runPromise(
-    withDb(() => db.select(RUN_REF).from(schema.agentRuns).where(staleQueued)),
-  );
-  // 探测慢不能拖住整轮：每个候选独立排队，最多 4 个并发。
-  const reconciledQueued = await Effect.runPromise(
-    Effect.forEach(
-      candidates,
-      (candidate) => reconcileQueued(db, logger, candidate, cutoff, queue),
-      { concurrency: 4 },
+  const [reconciledRunning, reconciledQueued] = await Effect.runPromise(
+    Effect.all(
+      [
+        Effect.forEach(
+          running,
+          (candidate) => reconcileRunning(db, logger, candidate, queue, cleanup),
+          {
+            concurrency: 4,
+          },
+        ),
+        Effect.forEach(
+          queued,
+          (candidate) => reconcileQueued(db, logger, candidate, cutoff, queue),
+          { concurrency: 4 },
+        ),
+      ],
+      { concurrency: 2 },
     ),
   );
 
-  const rows = [...failed, ...reconciledQueued.flat()];
-
-  // 先落库再补发事件：前端漏掉事件也能从 DB 看到终态。
-  await Effect.runPromise(
-    Effect.forEach(
-      rows,
-      (row) => Effect.promise(() => publishRun(row.id, FINISHED_EVENT, logger)),
-      { concurrency: 4, discard: true },
-    ),
-  );
-  if (rows.length > 0) {
-    for (const row of rows) {
-      await repo.audit.writeAudit(db, logger, {
-        actor: 'worker',
-        action: 'agent.run.reconciled',
-        target: row.id,
-        status: 'error',
-      });
-    }
-    logger.warn({ runs: rows.map((row) => row.id) }, 'reconciled orphaned runs');
-  }
-  return rows.length;
+  const count = reconciledRunning.filter(Boolean).length + reconciledQueued.filter(Boolean).length;
+  if (count > 0) logger.warn({ count }, 'reconciled orphaned runs');
+  return count;
 }
 
 /**
@@ -266,6 +368,7 @@ export function startReconciler(input: {
   logger: Logger;
   agentTimeoutMs: number;
   redisUrl: string;
+  cleanup: ReconcileCleanup;
 }): () => Promise<void> {
   const queue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection: { url: input.redisUrl } });
   queue.on('error', () => input.logger.warn('run queue connection failed'));
@@ -277,7 +380,7 @@ export function startReconciler(input: {
     if (busy) return;
     busy = true;
     inFlight = Promise.allSettled([
-      reconcileOrphanedRuns(input.db, input.logger, input.agentTimeoutMs, queue),
+      reconcileOrphanedRuns(input.db, input.logger, input.agentTimeoutMs, queue, input.cleanup),
       reconcileOrphanedEvalRuns(input.db, input.logger, evalQueue),
     ])
       .then((results) => {

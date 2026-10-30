@@ -110,6 +110,8 @@ describe.skipIf(!ready)('subagent file download', () => {
     expect(res.body).toContain(childPrompt);
     expect(res.body).toContain(`name: "${child.slug}"`);
     expect(res.body).toContain('"Agent"');
+    expect(res.body).toContain('memory: project');
+    for (const tool of ['"Read"', '"Write"', '"Edit"']) expect(res.body).not.toContain(tool);
     expect(res.body).not.toContain(parentPrompt);
   });
 
@@ -149,5 +151,66 @@ describe.skipIf(!ready)('subagent file download', () => {
     expectProblem(await download(disabledParent.id, disabledChild.id), 'AGENT_NOT_FOUND');
     // 父智能体本身不存在
     expectProblem(await download('agt_missing', child.id), 'AGENT_NOT_FOUND');
+  });
+
+  it('imports a single official child file with project memory and renders it back', async () => {
+    const importedSlug = unique('imported-child');
+    createdAgents.push(importedSlug);
+    const prompt = 'IMPORTED CHILD PROMPT: answer from the child.';
+    const markdown = [
+      '---',
+      `name: ${importedSlug}`,
+      'description: Imported child',
+      'model: claude-sonnet-5-5',
+      'memory: project',
+      '---',
+      '',
+      prompt,
+    ].join('\n');
+
+    const imported = await inject(app, {
+      method: 'POST',
+      url: '/api/agents/import-file',
+      headers: auth(),
+      payload: { agentMd: markdown },
+    });
+    expect(imported.statusCode, imported.body).toBe(201);
+    const importedAgent = imported.json<{ agent: Agent }>().agent;
+
+    const bound = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${parent.id}`,
+      headers: auth(),
+      payload: { subAgentIds: [child.id, importedAgent.id] },
+    });
+    expect(bound.statusCode, bound.body).toBe(200);
+
+    const res = await download(parent.id, importedAgent.id);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.body).toContain(prompt);
+    expect(res.body).toContain('memory: project');
+  });
+
+  it('rejects user/local memory scopes on single-file import', async () => {
+    for (const scope of ['user', 'local']) {
+      const res = await inject(app, {
+        method: 'POST',
+        url: '/api/agents/import-file',
+        headers: auth(),
+        payload: {
+          agentMd: [
+            '---',
+            `name: ${unique(`memory-${scope}`)}`,
+            'description: Scoped child',
+            'model: claude-sonnet-5-5',
+            `memory: ${scope}`,
+            '---',
+            '',
+            'prompt',
+          ].join('\n'),
+        },
+      });
+      expectProblem(res, 'INVALID_INPUT');
+    }
   });
 });
