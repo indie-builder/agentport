@@ -307,6 +307,14 @@ describe('runner task wiring', () => {
     expect(result).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
   });
 
+  it('registers the personal memory prompt hook on resumed sessions', async () => {
+    await run({ resumeSessionId: 'existing-session' });
+    const matchers = (io.options as Options).hooks?.UserPromptSubmit;
+    expect(matchers).toHaveLength(1);
+    expect(matchers?.[0]?.hooks).toHaveLength(1);
+    expect(matchers?.[0]?.hooks[0]).toBeTypeOf('function');
+  });
+
   it('sets the sandbox runtime env on the SDK process', async () => {
     await run({});
     expect(io.options?.env).toMatchObject({

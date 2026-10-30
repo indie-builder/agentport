@@ -1,6 +1,12 @@
 import { buildSkillDraft } from '@agentport/core';
 import { repo } from '@agentport/db';
-import { idParams, runDetailSchema, runListSchema, runStatusSchema } from '@agentport/shared';
+import {
+  idParams,
+  runDetailSchema,
+  runListSchema,
+  runStatusSchema,
+  runTriggerSchema,
+} from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
@@ -13,7 +19,7 @@ const runsRepo = repo.runs;
 const listQuery = z.object({
   agentId: z.string().min(1).optional(),
   status: runStatusSchema.optional(),
-  trigger: z.enum(['chat', 'mcp', 'schedule', 'event']).optional(),
+  trigger: runTriggerSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 

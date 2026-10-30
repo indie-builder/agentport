@@ -301,7 +301,7 @@
 
 - **现象**：两个不同专家的浏览器标签标题完全相同，插件、知识库和运行详情也只显示固定的资源名；多标签和读屏无法区分实体。
 - **原因**：shell 用匹配到的路由/固定分区生成 `document.title`，详情页实际实体名只存在于页面内 h1，没有进入标题。
-- **规避**：详情路由的基础标题仍用于加载/回退；主内容挂载后用唯一 h1 同步 `${实体名} · 控制台`，并观察主内容标题变化；pathname 变化先重置基础标题，观察器只挂 main 子树并在卸载时断开。不要用路由参数、数据库 ID 或内部路径冒充用户可见名称。
+- **规避**：列表页基础标题统一 `${页面名称} · PACE`；详情路由的基础标题仍用于加载/回退，主内容挂载后用唯一 h1 同步 `${实际 h1} · PACE`，并观察主内容标题变化；pathname 变化先重置基础标题，观察器只挂 main 子树并在卸载时断开。不要用路由参数、数据库 ID 或内部路径冒充用户可见名称。
 
 ## UI：CodeMirror 的 id 不等于可访问名称
 
@@ -314,6 +314,54 @@
 - **现象**：完整文件页签实际可用，按需加载测试却始终不请求；评估结果已改 URL 选择，旧测试仍调用不存在的 `renderExpanded`。
 - **原因**：测试将 `useSearch` 固定为空、`useNavigate` 固定为无行为函数，仍以旧的本地状态/行内展开假设断言。
 - **规避**：涉及 URL 导航、历史、blocker 时优先真实 Router 与实际 `validateSearch`；保留原用户行为断言，不能只替换成函数是否被调用，也不能删除失败断言凑绿。
+
+## 记忆：`UserPromptSubmit` 的 `additionalContext` 上限是 10,000 字符
+
+- **现象**：个人偏好正文接近上限时，注入被截断或本轮失败；把 36 KiB 文件大小当成字符上限也会误判。
+- **原因**：官方 `additionalContext` 单次上限按字符计（10,000），文件字节数是另一层护栏；Unicode 码点与 UTF-8 字节数不同。
+- **规避**：平台统一按 Unicode 码点限制 9000 字符，并另设 36 KiB 字节护栏；超限直接拒绝并说明，不静默截断。改这条链路时同时保留字符与字节两层检查。
+
+## 记忆：`MEMORY.md` 只加载前 200 行或 25KB
+
+- **现象**：详细经验写进 `MEMORY.md` 后，新会话没有加载到后半部分，看起来像记忆丢失。
+- **原因**：官方启动只读取 `MEMORY.md` 的前 200 行或 25KB；它是索引，不是完整笔记。
+- **规避**：`MEMORY.md` 只放索引与主题链接，详细内容写主题文件或规则；历史回顾采纳时对提案做 200 行 / 25KB 校验，超限拒绝而不是截断。
+
+## UI：`buttonVariants` 必须经过 `cn` 合并，不能直接拼接类名
+
+- **现象**：给按钮传 `className` 后仍被基础样式覆盖，或同一按钮在不同调用处出现两套边框/高度。
+- **原因**：按钮变体样式是一个类字符串，直接拼接时 Tailwind 冲突不会按预期解决；项目封装已用 `cn(buttonVariantStyles(props))` 合并。
+- **规避**：始终调用导出的 `buttonVariants`（已含 `cn`），不要直接调用内部样式函数或用模板字符串拼类名；需要覆盖时通过它的 `className` 参数传入。
+
+## UI：Base UI 的 `hidden="until-found"` 不能被作者 `content-visibility` 覆盖
+
+- **现象**：关闭的 keepMounted 折叠面板仍占位、内容可被找到，或打开动画异常。
+- **原因**：`hidden="until-found"` 依赖 UA 的 `content-visibility: hidden` 规则；作者内联 `content-visibility: visible` 会覆盖它。
+- **规避**：关闭面板不要设置 `content-visibility`，交给原生 `until-found`；行为测试断言 `hidden` 属性存在且内联 `content-visibility` 为空。
+
+## 分享：token 放在 URL 片段，页内锚点会把它替换掉
+
+- **现象**：分享页点正文锚点后刷新变成 404；或 token 出现在请求头/日志里。
+- **原因**：片段（`#token`）不会发给服务端，适合携带秘密；但默认的 `a[href^="#"]` 跳转会把整个片段换成目标 id。
+- **规避**：链接固定为 `/s/<shareId>#<token>`；正文点击拦截 `a[href^="#"]`，只滚动到目标、不改 URL；页面先挂 `no-referrer` 再发公开请求。不要为了省事把 token 放进查询串。
+
+## 测试：个人记忆相关套件共用同一行，必须用会话级 advisory 锁
+
+- **现象**：多个记忆测试文件并行时互相覆盖管理员个人偏好，断言随机失败。
+- **原因**：测试共享数据库，且都会删写 `user_preferences` 的同一行；普通事务隔离挡不住跨文件写。
+- **规避**：同一库内串行化这些文件，使用同一 `MEMORY_TEST_LOCK` 的 `pg_advisory_lock`；不要靠放宽断言或删除冲突用例。
+
+## 前端：`routeTree.gen.ts` 由 Vite 插件生成，不要手改
+
+- **现象**：新增路由文件后类型检查报路由未注册，或手改的生成文件被下一次 dev/build 覆盖。
+- **原因**：TanStack Router 的 Vite 插件在 dev/build 时生成 `routeTree.gen.ts`，`tsc -b` 不负责生成。
+- **规避**：新增或删除路由后跑一次 `pnpm --filter @agentport/web build`（或 dev），让生成文件更新并随改动提交；不要手工编辑生成文件。
+
+## 数据库：新增运行触发值要同步扩展 CHECK 约束
+
+- **现象**：插入 `agent_runs.trigger='review'` 时报 CHECK 约束失败，代码与 schema 看似一致。
+- **原因**：`trigger` 是 text + CHECK 约束（`chat/mcp/schedule/event/review`），不是 PostgreSQL enum；改 Drizzle schema 不会自动改已有约束。
+- **规避**：新增触发值时先 `pnpm db:generate` 生成扩展 CHECK 的迁移，再 `pnpm db:migrate`；不要假设 text 列会接受新值。
 
 ## 测试：真实容器测试可能加载旧 dist，产物存在不等于来自当前源码
 

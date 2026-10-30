@@ -138,7 +138,7 @@ export function LoginPage() {
               disabled={login.isPending}
               aria-busy={login.isPending}
             >
-              {login.isPending ? '正在进入…' : error ? '重试' : '进入工作台'}
+              {login.isPending ? '正在登录…' : error ? '重试' : '登录'}
             </Button>
           </FieldGroup>
         </form>

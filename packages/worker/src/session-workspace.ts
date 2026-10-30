@@ -13,6 +13,8 @@ export async function ensureSessionWorkspace(input: {
   inputsDir: string;
   memoryDir: string;
   sessionsDir: string;
+  /** 个人记忆宿主目录，只读挂载到沙盒 /mnt/user。 */
+  personalDir: string;
 }> {
   const agent = join(input.workspacesDir, input.slug);
   const session = join(agent, 'session-sandboxes', input.conversationId);
@@ -22,6 +24,7 @@ export async function ensureSessionWorkspace(input: {
     inputsDir: join(agent, 'conversation-inputs', input.conversationId),
     memoryDir: join(agent, 'agent-memory'),
     sessionsDir: join(agent, 'sdk-sessions', input.conversationId),
+    personalDir: join(input.workspacesDir, '_user'),
   };
   // 父目录同样拒绝链接；挂载路径不能借父目录跳出该智能体。
   for (const dir of [

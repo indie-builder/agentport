@@ -10,6 +10,7 @@ import {
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from '../src/components/confirm-dialog.js';
+import { Collapsible } from '../src/components/motion-collapsible.js';
 import { PageHeader } from '../src/components/page.js';
 import { ErrorState, LoadingState } from '../src/components/states.js';
 import { Combobox } from '../src/components/ui/combobox.js';
@@ -772,6 +773,14 @@ describe('expert editor regressions', () => {
           }),
         async (tree, pass) => {
           if (pass === 0) {
+            const advanced = tree.find((node) => node.type === Collapsible);
+            if (!advanced) throw new Error('Missing advanced settings');
+            expect(advanced.props.open).toBe(false);
+            (advanced.props.onOpenChange as (open: boolean) => void)(true);
+            return true;
+          }
+          if (pass === 1) {
+            expect(tree.find((node) => node.type === Collapsible)?.props.open).toBe(true);
             const model = tree.find((node) => node.props.id === 'new-agent-model');
             if (!model) throw new Error('Missing model input');
             expect(model.type).toBe(Input);
@@ -1194,17 +1203,14 @@ describe('expert editor regressions', () => {
     const trigger = { isConnected: true };
     const fallback = { isConnected: true };
     await inspect(AgentsPage, (tree, pass) => {
-      const root = tree[0];
-      if (!root) throw new Error('Missing page');
-      const toolbar = elements(root.props.actions as ReactNode).find(
+      const header = tree.find((node) => node.type === PageHeader);
+      const toolbar = elements(header?.props.actions as ReactNode).find(
         (node) => node.props.ref && node.type !== 'input',
       );
       if (!toolbar) throw new Error('Missing toolbar trigger');
       (toolbar.props.ref as { current: unknown }).current = fallback;
       if (pass === 0) {
-        const empty = tree.find(
-          (node) => node.props.title === '创建专家，绑定技能和连接器，即可在对话中使用。',
-        );
+        const empty = tree.find((node) => node.props.title === '还没有专家');
         const action = empty?.props.action as Element;
         (action.props.onClick as (event: unknown) => void)({ currentTarget: trigger });
         return;

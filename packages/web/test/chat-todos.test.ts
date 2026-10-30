@@ -131,6 +131,7 @@ describe('history todo snapshots', () => {
         result: 'ok',
         todos: [todo('整理资料', 'in_progress')],
         todoSeq: 1,
+        resultMessageId: 'm2',
       },
     ]);
   });

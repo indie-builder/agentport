@@ -64,6 +64,8 @@ export type ChatItem =
       name: string;
       input?: string;
       result?: string;
+      /** 落库的 tool_result 消息 id：run_id 被分支/维护清空后，成果仍靠它定位。 */
+      resultMessageId?: string;
       /** 子智能体内部的调用：父侧 Agent 的 tool_use id。 */
       parentToolUseId?: string;
       /** 前端收到的时刻，用于显示耗时；历史消息没有。 */
@@ -469,7 +471,16 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
         );
         const existing = items[index];
         if (existing?.kind === 'tool') {
-          items[index] = { ...existing, result, ...todos, ...seq, ...parent, ...snapshot };
+          items[index] = {
+            ...existing,
+            result,
+            ...todos,
+            ...seq,
+            ...parent,
+            ...snapshot,
+            // 合并会丢掉结果消息自身的 id 锚点；保留它，成果仍能落到这一轮。
+            resultMessageId: message.id,
+          };
         } else {
           // 找不到 tool_use 时也保留归属：否则子智能体卡片会被当成顶层调用。
           items.push({

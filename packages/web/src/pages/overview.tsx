@@ -464,7 +464,7 @@ export function OverviewPage() {
   return (
     <Page>
       <PageHeader
-        title="工作台"
+        title="概况"
         actions={
           <Link to="/chat" className={buttonVariants()}>
             <Plus data-icon="inline-start" aria-hidden="true" /> 新建对话

@@ -39,6 +39,37 @@ export const outputRefSchema = z
 
 export type OutputRef = z.infer<typeof outputRefSchema>;
 
+/** 公开分享：runId + path 定位一个已发布产出，内容由服务端重新校验 sha256。 */
+export const createOutputShareInputSchema = outputRefSchema;
+
+export type CreateOutputShareInput = z.infer<typeof createOutputShareInputSchema>;
+
+export const outputShareSchema = z.object({
+  id: z.string(),
+  runId: z.string(),
+  path: outputPathSchema,
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  createdAt: z.string(),
+  revokedAt: z.string().nullable(),
+  /** 对外访问路径；撤销后同一路径返回 404。 */
+  urlPath: z.string(),
+});
+
+export type OutputShare = z.infer<typeof outputShareSchema>;
+
+/** 公开页只暴露下载所需的文件元数据，不泄露会话、运行或存储路径。 */
+export const publicOutputShareSchema = z.object({
+  file: z.object({
+    name: z.string(),
+    size: z.number().int().nonnegative(),
+    mediaType: z.string(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    createdAt: z.string(),
+  }),
+});
+
+export type PublicOutputShare = z.infer<typeof publicOutputShareSchema>;
+
 export const outputFileSchema = z.object({
   runId: z.string().min(1),
   path: outputPathSchema,
@@ -48,6 +79,12 @@ export const outputFileSchema = z.object({
   /** 快照发布时刻；版本排序与游标都用它。 */
   createdAt: z.string().min(1),
   status: outputStatusSchema,
+  /**
+   * 本轮边界消息。维护与分支会清空消息上的 run_id，但 manifest 锚点始终指向
+   * 保留/重写后的消息；列表据此把成果挂回正确的用户轮或助手轮。
+   */
+  userMessageId: z.string().min(1),
+  afterMessageId: z.string().min(1),
 });
 
 export type OutputFile = z.infer<typeof outputFileSchema>;

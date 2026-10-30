@@ -1,4 +1,5 @@
 import {
+  ADMIN_USER_ID,
   authAccounts,
   authSessions,
   authUsers,
@@ -15,7 +16,6 @@ import { getTrustedOrigins } from '../../config.js';
 import { isPgCode } from '../../plugins/errors.js';
 import { AUTH_COOKIE, AUTH_MAX_AGE_SECONDS } from './types.js';
 
-const ADMIN_USER_ID = 'agentport-admin-user';
 const ADMIN_ACCOUNT_ID = 'agentport-admin-account';
 const ADMIN_EMAIL = 'admin@agentport.invalid';
 

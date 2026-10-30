@@ -10,7 +10,13 @@ import {
   sandboxTaskSchema,
 } from '@agentport/shared';
 import { forkSession, query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { createFileBoundaryHook, INPUTS_DIR, OUTPUTS_DIR } from './memory-permissions.js';
+import {
+  createFileBoundaryHook,
+  createPersonalMemoryHook,
+  INPUTS_DIR,
+  OUTPUTS_DIR,
+  PERSONAL_MEMORY_FILE,
+} from './memory-permissions.js';
 import { createQuestionChannel } from './questions.js';
 import { createSubAgentBoundaryHook } from './sub-agent-permissions.js';
 
@@ -461,6 +467,8 @@ if (session.error !== undefined) {
               ],
             },
           ],
+          // 个人记忆每轮重新读取：恢复会话也拿到宿主最新保存的内容，不依赖会话恢复缓存。
+          UserPromptSubmit: [{ hooks: [createPersonalMemoryHook(PERSONAL_MEMORY_FILE, log)] }],
         },
         // SDK 自己按名字补 Skill(name) 权限；这里不要放通配的 Skill。
         // 插件技能名带 `<plugin>:` 前缀，必须把完整名一并列出，否则会被当成未启用的技能。

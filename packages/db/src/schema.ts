@@ -1,6 +1,10 @@
 import type {
   Agent,
   KnowledgeBaseSettings,
+  MemoryContentSnapshot,
+  MemoryReviewProposal,
+  MemoryReviewSource,
+  MemoryReviewTarget,
   NativeQuestions,
   ResolvedRuntimeEnvironment,
 } from '@agentport/shared';
@@ -514,8 +518,8 @@ export const agentRuns = pgTable(
     })
       .notNull()
       .default('queued'),
-    /** 本次运行由谁发起：对话 / 外部 MCP / 定时 / 事件。 */
-    trigger: text('trigger', { enum: ['chat', 'mcp', 'schedule', 'event'] })
+    /** 本次运行由谁发起：对话 / 外部 MCP / 定时 / 事件 / 记忆审核。 */
+    trigger: text('trigger', { enum: ['chat', 'mcp', 'schedule', 'event', 'review'] })
       .notNull()
       .default('chat'),
     /** 入队时锁定的智能体版本号，让「用什么配置跑的」可追溯。 */
@@ -556,7 +560,10 @@ export const agentRuns = pgTable(
       'agent_runs_status_check',
       sql`${t.status} in ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout')`,
     ),
-    check('agent_runs_trigger_check', sql`${t.trigger} in ('chat', 'mcp', 'schedule', 'event')`),
+    check(
+      'agent_runs_trigger_check',
+      sql`${t.trigger} in ('chat', 'mcp', 'schedule', 'event', 'review')`,
+    ),
     // 任务看板按 trigger 过滤并统计各来源的运行量。
     index('agent_runs_trigger_idx').on(t.trigger),
     // 模型代理每个请求都按 hash 查一次；只索引仍持有 token 的行。
@@ -850,6 +857,103 @@ export const authVerifications = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('verification_identifier_idx').on(t.identifier)],
+);
+
+/**
+ * 交付物公开分享。token 只存哈希与密文，撤销即失效。
+ * runId 不加外键：运行/会话删除后分享行由 conversationId 级联清理，历史已发布快照另存。
+ */
+export const outputShares = pgTable(
+  'output_shares',
+  {
+    id: text('id').primaryKey(),
+    conversationId: text('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    runId: text('run_id').notNull(),
+    /** 相对运行快照根的安全路径，与 `outputPathSchema` 一致。 */
+    path: text('path').notNull(),
+    sha256: text('sha256').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    tokenEncrypted: text('token_encrypted').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('output_shares_conversation_idx').on(t.conversationId),
+    uniqueIndex('output_shares_token_hash_idx').on(t.tokenHash),
+  ],
+);
+
+/** 个人记忆：唯一一行文本，revision 做乐观并发控制；空内容时行可以不存在。 */
+export const userPreferences = pgTable('user_preferences', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => authUsers.id, { onDelete: 'cascade' }),
+  content: text('content').notNull().default(''),
+  revision: integer('revision').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * 记忆审核：一次审核对应一条运行（runId 即主键），提案由模型生成、用户决定是否采纳。
+ * userId + requestKey 唯一让重复提交幂等。
+ */
+export const memoryReviews = pgTable(
+  'memory_reviews',
+  {
+    runId: text('run_id')
+      .primaryKey()
+      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => authUsers.id, { onDelete: 'cascade' }),
+    requestKey: text('request_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    /** 执行审核的专家；运行与模型配置都取自它。 */
+    modelAgentId: text('model_agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'restrict' }),
+    target: jsonb('target').$type<MemoryReviewTarget>().notNull(),
+    sources: jsonb('sources').$type<MemoryReviewSource[]>().notNull(),
+    instruction: text('instruction').notNull().default(''),
+    before: jsonb('before').$type<MemoryContentSnapshot>().notNull(),
+    proposal: jsonb('proposal').$type<MemoryReviewProposal>(),
+    decision: text('decision', { enum: ['pending', 'applied', 'rejected'] })
+      .notNull()
+      .default('pending'),
+    appliedChangeId: text('applied_change_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('memory_reviews_user_request_idx').on(t.userId, t.requestKey)],
+);
+
+/** 记忆变更账本：采纳提案或撤销时各写一行，before/after 保留完整快照。 */
+export const memoryChanges = pgTable(
+  'memory_changes',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => authUsers.id, { onDelete: 'cascade' }),
+    /** 个人记忆为 null；专家记忆/规则记录归属的智能体。 */
+    agentId: text('agent_id').references(() => agents.id, { onDelete: 'cascade' }),
+    target: jsonb('target').$type<MemoryReviewTarget>().notNull(),
+    before: jsonb('before').$type<MemoryContentSnapshot>().notNull(),
+    after: jsonb('after').$type<MemoryContentSnapshot>().notNull(),
+    sourceReviewRunId: text('source_review_run_id').references(() => agentRuns.id, {
+      onDelete: 'set null',
+    }),
+    reversesChangeId: text('reverses_change_id'),
+    state: text('state', { enum: ['applied'] })
+      .notNull()
+      .default('applied'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('memory_changes_user_created_idx').on(t.userId, t.createdAt),
+    index('memory_changes_agent_created_idx').on(t.agentId, t.createdAt),
+  ],
 );
 
 /**
@@ -1358,6 +1462,10 @@ export const schema = {
   authSessions,
   authAccounts,
   authVerifications,
+  outputShares,
+  userPreferences,
+  memoryReviews,
+  memoryChanges,
   knowledgeModelProfiles,
   knowledgeBases,
   knowledgeFolders,

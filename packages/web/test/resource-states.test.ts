@@ -252,11 +252,28 @@ describe('resource async state regressions', () => {
         const entries = tree.filter(
           (node) =>
             node.props.children === '配置' ||
+            node.props.children === '创建第一位专家' ||
+            node.props.to === '/agents/$agentId' ||
+            node.props.to === '/chat' ||
             node.props['aria-label'] === '新建专家' ||
             (Array.isArray(node.props.children) && node.props.children.includes(' 新建专家')),
         );
         expect(entries.length).toBeGreaterThan(0);
         expect(entries.every((node) => node.props.disabled === true)).toBe(true);
+        if (!empty) {
+          const nameLink = tree.find(
+            (node) =>
+              node.props.to === '/agents/$agentId' &&
+              (node.props.params as { agentId?: string } | undefined)?.agentId === 'expert',
+          );
+          const chatLink = tree.find(
+            (node) =>
+              node.props.to === '/chat' &&
+              (node.props.search as { agent?: string } | undefined)?.agent === 'expert',
+          );
+          expect(nameLink?.props.disabled).toBe(true);
+          expect(chatLink?.props.disabled).toBe(true);
+        }
       });
     },
   );

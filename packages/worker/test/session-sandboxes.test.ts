@@ -135,6 +135,7 @@ function baseSpec() {
     inputsDir: '/host/inputs',
     memoryDir: '/host/memory',
     sessionsDir: '/host/sessions',
+    personalDir: '/host/user',
   };
 }
 
@@ -292,6 +293,7 @@ describe('session sandboxes', () => {
       { hostPath: '/host/inputs', containerPath: '/mnt/inputs', readonly: true },
       { hostPath: '/host/memory', containerPath: '/mnt/agent-memory' },
       { hostPath: '/host/sessions', containerPath: '/home/node/.claude' },
+      { hostPath: '/host/user', containerPath: '/mnt/user', readonly: true },
     ]);
 
     await lease.release({ reuse: false });
@@ -326,7 +328,11 @@ describe('session sandboxes', () => {
 
     const moved = await acquire(
       sessions,
-      spec({ runtimeEnvironmentId: 'env_2', memoryDir: '/host/m2' }),
+      spec({
+        runtimeEnvironmentId: 'env_2',
+        memoryDir: '/host/m2',
+        personalDir: '/host/user-2',
+      }),
     );
     expect(moved.sandboxId).toBe('sandbox-3');
     expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-2']);

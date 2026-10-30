@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.tanstack/
 # 旧版沙盒构建的暂存目录（见 docs/OPERATIONS.md 与 .dockerignore）；现已删除，残留也不入库。
 packages/sandbox/shared/
 data/

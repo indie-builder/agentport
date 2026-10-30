@@ -5,6 +5,7 @@ import {
   conversationRenameSchema,
   type OpenUiAction,
   type OpenUiToolResult,
+  type OutputFile,
   type OutputRef,
   type ProgressTodo,
   type PublicRunQuestion,
@@ -62,6 +63,7 @@ import { KnowledgeCitations, knowledgeHitsFromTool } from '../components/knowled
 import { AssistantText } from '../components/openui-message.js';
 import { Page, PageHeader } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
+import { RunOutputs } from '../components/run-outputs.js';
 import { RunQuestionCard } from '../components/run-question.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
@@ -132,6 +134,7 @@ import { formatBytes, formatDateTime, formatDuration, formatRelative } from '../
 import {
   useAgents,
   useConversation,
+  useConversationOutputs,
   useConversations,
   useRun,
   useRunApprovals,
@@ -154,7 +157,8 @@ export function ChatPage() {
 
   // 已打开会话时，服务端记录才是真相；URL 只是它的镜像。
   const serverAgentId = detail.data?.conversation.agentId ?? null;
-  const activeAgentId = serverAgentId ?? search.agent ?? agents.data?.[0]?.id ?? null;
+  // 裸 /chat 不替用户挑第一位专家；必须由 URL 或已有会话明确归属。
+  const activeAgentId = serverAgentId ?? search.agent ?? null;
 
   // URL 里的 agent 与会话不一致时，用会话的真实归属校正 URL（replace，不进历史）。
   useEffect(() => {
@@ -615,7 +619,9 @@ function ChatWorkspace({
   const renderHistoryPanel = (inSheet: boolean) => (
     <HistoryPanel
       history={history}
-      pending={conversations.isPending}
+      // 未选专家时 query 是 disabled，isPending 会一直是 true；这里据此显示真实空态。
+      pending={agentId !== null && conversations.isPending}
+      hasAgent={agentId !== null}
       error={conversations.isError ? conversations.error : null}
       onRetry={() => void conversations.refetch()}
       conversationId={conversationId}
@@ -696,6 +702,11 @@ function ChatWorkspace({
         composerRef.current?.focus();
       }}
       onBranchMessage={branch}
+      // 从某一轮点开成果时直接展开工作区；宽屏是旁栏，窄屏是抽屉，选择本身仍交给外层。
+      onSelectOutput={(selection) => {
+        setWorkspaceOpen(true);
+        onSelectOutput(selection);
+      }}
       branchingMessageId={
         branchMutation.isPending ? (branchMutation.variables?.fromMessageId ?? null) : null
       }
@@ -1231,6 +1242,7 @@ interface HistoryEntry {
 function HistoryPanel({
   history,
   pending,
+  hasAgent,
   error,
   onRetry,
   conversationId,
@@ -1242,6 +1254,7 @@ function HistoryPanel({
 }: {
   history: HistoryEntry[];
   pending: boolean;
+  hasAgent: boolean;
   error: unknown;
   onRetry: () => void;
   conversationId: string | null;
@@ -1270,7 +1283,7 @@ function HistoryPanel({
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
         {history.length === 0 && !pending && !error ? (
           <p className="px-2 py-5 text-xs leading-relaxed text-muted-foreground">
-            开始对话后，记录会出现在这里。
+            {hasAgent ? '开始对话后，记录会出现在这里。' : '先选择专家。'}
           </p>
         ) : null}
         <ul className="flex flex-col gap-0.5">
@@ -1384,6 +1397,7 @@ function ChatColumn({
   onCancel,
   onPickSuggestion,
   onBranchMessage,
+  onSelectOutput,
   branchingMessageId,
   onLoadOlder,
   hasOlder,
@@ -1431,6 +1445,7 @@ function ChatColumn({
   onCancel: () => void;
   onPickSuggestion: (text: string) => void;
   onBranchMessage: (conversationId: string, messageId: string) => void;
+  onSelectOutput: (selection: OutputSelection) => void;
   branchingMessageId: string | null;
   onLoadOlder: () => void;
   hasOlder: boolean;
@@ -1535,6 +1550,31 @@ function ChatColumn({
     }
     return map;
   }, [detail.data]);
+  // 成果按 run 归属；同一路径的旧版仍留在产生它的那一轮，不并到最新路径。
+  const outputs = useConversationOutputs(conversationId);
+  const outputsByRun = useMemo(() => {
+    const map = new Map<string, OutputFile[]>();
+    for (const file of outputs.data?.items ?? []) {
+      const files = map.get(file.runId);
+      if (files) files.push(file);
+      else map.set(file.runId, [file]);
+    }
+    for (const files of map.values()) files.sort((a, b) => a.path.localeCompare(b.path));
+    return map;
+  }, [outputs.data]);
+  // 维护与分支会清空消息上的 run_id；manifest 锚点仍指向保留/重写后的边界消息。
+  const outputsByAnchor = useMemo(() => {
+    const map = new Map<string, OutputFile[]>();
+    for (const file of outputs.data?.items ?? []) {
+      for (const anchor of new Set([file.userMessageId, file.afterMessageId])) {
+        const files = map.get(anchor);
+        if (files) files.push(file);
+        else map.set(anchor, [file]);
+      }
+    }
+    for (const files of map.values()) files.sort((a, b) => a.path.localeCompare(b.path));
+    return map;
+  }, [outputs.data]);
 
   return (
     <Page className="h-full min-h-0 flex-1 gap-0 overflow-hidden bg-surface">
@@ -1666,6 +1706,15 @@ function ChatColumn({
           lastRun={lastRun}
           historyMetrics={historyMetrics}
           runFooter={runFooter}
+          currentRunId={run?.runId ?? lastRunId}
+          runOutputs={{
+            byRun: outputsByRun,
+            byAnchor: outputsByAnchor,
+            hasNextPage: outputs.hasNextPage,
+            loadingMore: outputs.isFetchingNextPage,
+            onLoadMore: () => void outputs.fetchNextPage(),
+          }}
+          onSelectOutput={onSelectOutput}
           onBranchMessage={(messageId) => {
             if (conversationId) onBranchMessage(conversationId, messageId);
           }}
@@ -2100,6 +2149,9 @@ export function MessagePane({
   lastRun,
   historyMetrics,
   runFooter,
+  currentRunId,
+  runOutputs,
+  onSelectOutput,
   onBranchMessage,
   branchingMessageId,
   running,
@@ -2128,6 +2180,15 @@ export function MessagePane({
   lastRun: RunMetrics | null;
   historyMetrics: ReadonlyMap<string, RunMetrics>;
   runFooter?: ReactNode;
+  currentRunId: string | null;
+  runOutputs?: {
+    byRun: ReadonlyMap<string, OutputFile[]>;
+    byAnchor: ReadonlyMap<string, OutputFile[]>;
+    hasNextPage: boolean;
+    loadingMore: boolean;
+    onLoadMore: () => void;
+  };
+  onSelectOutput: (selection: OutputSelection) => void;
   onBranchMessage: (messageId: string) => void;
   branchingMessageId: string | null;
   running: boolean;
@@ -2218,6 +2279,23 @@ export function MessagePane({
                     .map((item) => (item.kind === 'notice' ? undefined : item.runId))
                     .find((runId) => runId !== undefined);
                   const noReply = turn.user && turns[turnIndex + 1]?.user === true;
+                  // 最新一轮可能还没有助手文本，run 由当前运行或最近一次运行补上。
+                  // 失败/取消/超时的轮可能只有用户消息：没有助手行时由这条用户消息的 run_id 承载成果。
+                  const userOnlyRunId =
+                    turn.user && (noReply || turnIndex === turns.length - 1)
+                      ? turnRunId
+                      : undefined;
+                  const outputRunId = turn.user
+                    ? userOnlyRunId
+                    : (turnRunId ?? (latest ? (currentRunId ?? undefined) : undefined));
+                  // run_id 被维护清空或分支重写后，退回本轮边界消息的锚点；用户轮只在
+                  // 没有助手回复时就地显示，避免与助手轮重复。
+                  const anchorVisible = !turn.user || noReply || turnIndex === turns.length - 1;
+                  const runFiles = outputRunId
+                    ? (runOutputs?.byRun.get(outputRunId) ?? [])
+                    : anchorVisible
+                      ? anchoredOutputs(turn.items, runOutputs?.byAnchor)
+                      : [];
                   const historyRun =
                     latest || (turn.user && !noReply) || turnRunId === undefined
                       ? undefined
@@ -2338,6 +2416,22 @@ export function MessagePane({
                                 ? { title: `完成于 ${formatDateTime(historyRun.endedAt)}` }
                                 : {})}
                             />
+                          </div>
+                        ) : null}
+                        {runFiles.length > 0 ? (
+                          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+                            <RunOutputs files={runFiles} onSelect={onSelectOutput} />
+                            {latest && runOutputs?.hasNextPage ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={runOutputs.loadingMore}
+                                onClick={runOutputs.onLoadMore}
+                                className="h-7 px-1.5 text-xs text-muted-foreground"
+                              >
+                                {runOutputs.loadingMore ? '正在加载…' : '加载更多成果'}
+                              </Button>
+                            ) : null}
                           </div>
                         ) : null}
                         {messageId ? (
@@ -2508,6 +2602,40 @@ function userMessageId(items: ChatItem[]): string | undefined {
     if (item.kind === 'user' && item.messageId) return item.messageId;
   }
   return undefined;
+}
+
+/** 历史项 id 形如 `<messageId>:<blockIndex>`；运行详情重建的合成 id 不会命中真实锚点。 */
+function itemMessageId(item: ChatItem): string | undefined {
+  if (item.kind === 'notice') return undefined;
+  if (item.kind !== 'tool' && item.messageId !== undefined) return item.messageId;
+  return item.id?.split(':')[0];
+}
+
+/** 本轮边界消息命中 manifest 锚点时返回成果；同一 run 的同一路径只出现一次。 */
+function anchoredOutputs(
+  items: ChatItem[],
+  byAnchor: ReadonlyMap<string, OutputFile[]> | undefined,
+): OutputFile[] {
+  if (byAnchor === undefined) return [];
+  const seen = new Set<string>();
+  const files: OutputFile[] = [];
+  for (const item of items) {
+    // 工具轮的结果消息与调用 id 都可能是 manifest 锚点：run_id 被清空后只能靠它们定位。
+    const ids =
+      item.kind === 'tool'
+        ? [itemMessageId(item), item.toolUseId, item.resultMessageId]
+        : [itemMessageId(item)];
+    for (const id of ids) {
+      if (id === undefined) continue;
+      for (const file of byAnchor.get(id) ?? []) {
+        const key = `${file.runId}:${file.path}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        files.push(file);
+      }
+    }
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 function messageTurns(items: ChatItem[], hasFooter: boolean) {

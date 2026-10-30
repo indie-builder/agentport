@@ -10,9 +10,13 @@ const MEMORY_DIR_MODE = 0o700;
 const MAX_MEMORY_BYTES = 200_000;
 export const memoryFileNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.md$/;
 
-export function memoryDir(workspacesDir: string, slug: string): string {
+function workspaceSubdir(workspacesDir: string, slug: string, leaf: string): string {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(slug)) fail('INVALID_INPUT', '智能体目录名非法');
-  return resolve(workspacesDir, slug, 'agent-memory');
+  return resolve(workspacesDir, slug, leaf);
+}
+
+export function memoryDir(workspacesDir: string, slug: string): string {
+  return workspaceSubdir(workspacesDir, slug, 'agent-memory');
 }
 
 function safeName(name: string): string {
@@ -41,9 +45,10 @@ async function directoryPath(handle: FileHandle): Promise<string> {
 async function checkedDir(
   workspacesDir: string,
   slug: string,
+  leaf: string,
   create = false,
 ): Promise<FileHandle> {
-  const dir = memoryDir(workspacesDir, slug);
+  const dir = workspaceSubdir(workspacesDir, slug, leaf);
   const root = parse(dir).root;
   let handle = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try {
@@ -75,18 +80,38 @@ async function checkedDir(
   }
 }
 
+async function withSubdir<T>(
+  root: string,
+  slug: string,
+  leaf: string,
+  create: boolean,
+  operation: (dir: string) => Promise<T>,
+): Promise<T> {
+  const handle = await checkedDir(root, slug, leaf, create);
+  try {
+    return await operation(await directoryPath(handle));
+  } finally {
+    await handle.close();
+  }
+}
+
 async function withMemoryDir<T>(
   root: string,
   slug: string,
   create: boolean,
   operation: (dir: string) => Promise<T>,
 ): Promise<T> {
-  const handle = await checkedDir(root, slug, create);
-  try {
-    return await operation(await directoryPath(handle));
-  } finally {
-    await handle.close();
-  }
+  return withSubdir(root, slug, 'agent-memory', create, operation);
+}
+
+/** 专家工作区控制目录：与记忆目录一样逐层拒绝链接，只接受固定目录名。 */
+export function withMemoryJournalDir<T>(
+  root: string,
+  slug: string,
+  create: boolean,
+  operation: (dir: string) => Promise<T>,
+): Promise<T> {
+  return withSubdir(root, slug, '.memory-journal', create, operation);
 }
 
 async function regularFile(target: string) {
@@ -124,11 +149,11 @@ export async function listMemoryFiles(
   }
 }
 
-export async function readMemoryFile(
+async function readMemoryFileData(
   workspacesDir: string,
   slug: string,
   name: string,
-): Promise<MemoryFileContent | null> {
+): Promise<{ data: Buffer; updatedAt: string } | null> {
   safeName(name);
   try {
     return await withMemoryDir(workspacesDir, slug, false, async (dir) => {
@@ -150,11 +175,7 @@ export async function readMemoryFile(
           size += bytesRead;
         }
         if (size > MAX_MEMORY_BYTES) fail('PAYLOAD_TOO_LARGE', '记忆文件不能超过 200000 字节');
-        return {
-          name,
-          content: buffer.toString('utf8', 0, size),
-          updatedAt: info.mtime.toISOString(),
-        };
+        return { data: buffer.subarray(0, size), updatedAt: info.mtime.toISOString() };
       } finally {
         await handle.close();
       }
@@ -166,14 +187,34 @@ export async function readMemoryFile(
   }
 }
 
-export async function writeMemoryFile(
+export async function readMemoryFile(
   workspacesDir: string,
   slug: string,
   name: string,
-  content: string,
-): Promise<MemoryFileContent> {
+): Promise<MemoryFileContent | null> {
+  const file = await readMemoryFileData(workspacesDir, slug, name);
+  return file === null
+    ? null
+    : { name, content: file.data.toString('utf8'), updatedAt: file.updatedAt };
+}
+
+/** 恢复原文件用：避免 UTF-8 解码改变原始字节。 */
+export async function readMemoryFileBytes(
+  workspacesDir: string,
+  slug: string,
+  name: string,
+): Promise<Buffer | null> {
+  return (await readMemoryFileData(workspacesDir, slug, name))?.data ?? null;
+}
+
+async function writeMemoryFileData(
+  workspacesDir: string,
+  slug: string,
+  name: string,
+  data: string | Uint8Array,
+): Promise<string> {
   safeName(name);
-  if (Buffer.byteLength(content, 'utf8') > MAX_MEMORY_BYTES)
+  if (Buffer.byteLength(data) > MAX_MEMORY_BYTES)
     fail('PAYLOAD_TOO_LARGE', '记忆文件不能超过 200000 字节');
   return withMemoryDir(workspacesDir, slug, true, async (dir) => {
     const target = join(dir, name);
@@ -187,14 +228,14 @@ export async function writeMemoryFile(
     try {
       let updatedAt: string;
       try {
-        await handle.writeFile(content, 'utf8');
+        await handle.writeFile(data);
         updatedAt = (await handle.stat()).mtime.toISOString();
       } finally {
         await handle.close();
       }
       await regularFile(target);
       await rename(temporary, target);
-      return { name, content, updatedAt };
+      return updatedAt;
     } catch (error) {
       try {
         await unlink(temporary);
@@ -206,6 +247,26 @@ export async function writeMemoryFile(
       throw error;
     }
   });
+}
+
+export async function writeMemoryFile(
+  workspacesDir: string,
+  slug: string,
+  name: string,
+  content: string,
+): Promise<MemoryFileContent> {
+  const updatedAt = await writeMemoryFileData(workspacesDir, slug, name, content);
+  return { name, content, updatedAt };
+}
+
+/** 原样写回之前读到的字节（写入失败时的恢复路径）。 */
+export async function restoreMemoryFile(
+  workspacesDir: string,
+  slug: string,
+  name: string,
+  data: Buffer,
+): Promise<void> {
+  await writeMemoryFileData(workspacesDir, slug, name, data);
 }
 
 export async function deleteMemoryFile(

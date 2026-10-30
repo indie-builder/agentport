@@ -211,7 +211,7 @@ describe('skills toolbar', () => {
 });
 
 describe('resource navigation', () => {
-  it.each(['agents', 'skills', 'servers', 'plugins', 'knowledge'] as const)(
+  it.each(['skills', 'servers', 'plugins', 'knowledge'] as const)(
     'renders %s as real navigation links instead of tabs',
     async (section) => {
       await inspect(
@@ -235,7 +235,6 @@ describe('resource navigation', () => {
             (node) => node.type === 'a',
           );
           expect(links.map((node) => [node.props.to, node.props['aria-current']])).toEqual([
-            ['/agents', section === 'agents' ? 'page' : undefined],
             ['/skills', section === 'skills' ? 'page' : undefined],
             ['/servers', section === 'servers' ? 'page' : undefined],
             ['/plugins', section === 'plugins' ? 'page' : undefined],

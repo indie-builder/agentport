@@ -1,5 +1,5 @@
 import type { Stats } from 'node:fs';
-import { lstat, realpath } from 'node:fs/promises';
+import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import type { HookCallback, PreToolUseHookSpecificOutput } from '@anthropic-ai/claude-agent-sdk';
 
@@ -13,6 +13,61 @@ export const OUTPUTS_DIR = '/mnt/outputs';
 export const INPUTS_DIR = '/mnt/inputs';
 
 export const createMemoryHook = createFileBoundaryHook;
+
+/** 个人记忆由宿主只读挂载到 /mnt/user；每轮用户提交前注入，恢复会话也读最新文件。 */
+export const PERSONAL_MEMORY_FILE = '/mnt/user/CLAUDE.md';
+
+export const PERSONAL_MEMORY_MAX_CHARS = 9000;
+
+/** 异常内容护栏：9000 个字符最坏约 36 KB，超过说明文件异常，本轮不读。 */
+export const PERSONAL_MEMORY_MAX_BYTES = 36 * 1024;
+
+const PERSONAL_MEMORY_LIMIT_MESSAGE = '个人偏好最多 9000 个字符，本轮未启动';
+
+/**
+ * UserPromptSubmit hook：读取个人记忆文件并作为 additionalContext 注入本轮。
+ * 缺失或空白返回空；符号链接、非普通文件、超过 9000 字符或 36 KiB 时拒绝本轮并报告原因。
+ * 个人记忆不是官方用户级 CLAUDE.md 自动发现：宿主只读挂载到 /mnt/user，由本 hook 每轮注入；
+ * 只读固定挂载路径，不读取宿主 .claude，也不加载开发者设置。
+ */
+export function createPersonalMemoryHook(
+  file = PERSONAL_MEMORY_FILE,
+  onError: (message: string) => void = () => {},
+): HookCallback {
+  return async (input) => {
+    if (input.hook_event_name !== 'UserPromptSubmit') return {};
+    const fail = (message: string) => {
+      onError(message);
+      return { decision: 'block' as const, reason: message };
+    };
+    let info: Stats;
+    try {
+      info = await lstat(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+      return fail(`个人记忆读取失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (info.isSymbolicLink() || !info.isFile()) {
+      return fail(`个人记忆必须是普通文件：${file}`);
+    }
+    if (info.size > PERSONAL_MEMORY_MAX_BYTES) {
+      return fail(PERSONAL_MEMORY_LIMIT_MESSAGE);
+    }
+    let content: string;
+    try {
+      content = await readFile(file, 'utf8');
+    } catch (error) {
+      return fail(`个人记忆读取失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if ([...content].length > PERSONAL_MEMORY_MAX_CHARS) {
+      return fail(PERSONAL_MEMORY_LIMIT_MESSAGE);
+    }
+    if (content.trim().length === 0) return {};
+    return {
+      hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: content },
+    };
+  };
+}
 
 /** 是否位于 base 之内且不是 base 本身。 */
 function inside(local: string): boolean {

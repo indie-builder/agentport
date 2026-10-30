@@ -16,10 +16,13 @@ import { Route as ShellSplatRouteImport } from './routes/_shell/$'
 import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
 import { Route as ShellChatRouteImport } from './routes/_shell/chat'
 import { Route as ShellEvalRouteImport } from './routes/_shell/eval'
+import { Route as ShellMemoryRouteImport } from './routes/_shell/memory'
+import { Route as ShellOperationsRouteImport } from './routes/_shell/operations'
 import { Route as ShellSchedulesRouteImport } from './routes/_shell/schedules'
 import { Route as ShellServersRouteImport } from './routes/_shell/servers'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
 import { Route as ShellStatusRouteImport } from './routes/_shell/status'
+import { Route as SShareIdRouteImport } from './routes/s.$shareId'
 import { Route as ShellAgentsIndexRouteImport } from './routes/_shell/agents.index'
 import { Route as ShellAgentsAgentIdRouteImport } from './routes/_shell/agents.$agentId'
 import { Route as ShellKnowledgeIndexRouteImport } from './routes/_shell/knowledge.index'
@@ -65,6 +68,16 @@ const ShellEvalRoute = ShellEvalRouteImport.update({
   path: '/eval',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellMemoryRoute = ShellMemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellOperationsRoute = ShellOperationsRouteImport.update({
+  id: '/operations',
+  path: '/operations',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellSchedulesRoute = ShellSchedulesRouteImport.update({
   id: '/schedules',
   path: '/schedules',
@@ -84,6 +97,11 @@ const ShellStatusRoute = ShellStatusRouteImport.update({
   id: '/status',
   path: '/status',
   getParentRoute: () => ShellRoute,
+} as any)
+const SShareIdRoute = SShareIdRouteImport.update({
+  id: '/s/$shareId',
+  path: '/s/$shareId',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ShellAgentsIndexRoute = ShellAgentsIndexRouteImport.update({
   id: '/agents/',
@@ -145,10 +163,13 @@ export interface FileRoutesByFullPath {
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
+  '/memory': typeof ShellMemoryRoute
+  '/operations': typeof ShellOperationsRoute
   '/schedules': typeof ShellSchedulesRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
   '/status': typeof ShellStatusRoute
+  '/s/$shareId': typeof SShareIdRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
@@ -166,10 +187,13 @@ export interface FileRoutesByTo {
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
+  '/memory': typeof ShellMemoryRoute
+  '/operations': typeof ShellOperationsRoute
   '/schedules': typeof ShellSchedulesRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
   '/status': typeof ShellStatusRoute
+  '/s/$shareId': typeof SShareIdRoute
   '/': typeof ShellIndexRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
@@ -190,10 +214,13 @@ export interface FileRoutesById {
   '/_shell/audit': typeof ShellAuditRoute
   '/_shell/chat': typeof ShellChatRoute
   '/_shell/eval': typeof ShellEvalRoute
+  '/_shell/memory': typeof ShellMemoryRoute
+  '/_shell/operations': typeof ShellOperationsRoute
   '/_shell/schedules': typeof ShellSchedulesRoute
   '/_shell/servers': typeof ShellServersRoute
   '/_shell/skills': typeof ShellSkillsRoute
   '/_shell/status': typeof ShellStatusRoute
+  '/s/$shareId': typeof SShareIdRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/_shell/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
@@ -215,10 +242,13 @@ export interface FileRouteTypes {
     | '/audit'
     | '/chat'
     | '/eval'
+    | '/memory'
+    | '/operations'
     | '/schedules'
     | '/servers'
     | '/skills'
     | '/status'
+    | '/s/$shareId'
     | '/agents/$agentId'
     | '/knowledge/$baseId'
     | '/plugins/$pluginId'
@@ -236,10 +266,13 @@ export interface FileRouteTypes {
     | '/audit'
     | '/chat'
     | '/eval'
+    | '/memory'
+    | '/operations'
     | '/schedules'
     | '/servers'
     | '/skills'
     | '/status'
+    | '/s/$shareId'
     | '/'
     | '/agents/$agentId'
     | '/knowledge/$baseId'
@@ -259,10 +292,13 @@ export interface FileRouteTypes {
     | '/_shell/audit'
     | '/_shell/chat'
     | '/_shell/eval'
+    | '/_shell/memory'
+    | '/_shell/operations'
     | '/_shell/schedules'
     | '/_shell/servers'
     | '/_shell/skills'
     | '/_shell/status'
+    | '/s/$shareId'
     | '/_shell/'
     | '/_shell/agents/$agentId'
     | '/_shell/knowledge/$baseId'
@@ -279,6 +315,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   ShellRoute: typeof ShellRouteWithChildren
   LoginRoute: typeof LoginRoute
+  SShareIdRoute: typeof SShareIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -332,6 +369,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellEvalRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/memory': {
+      id: '/_shell/memory'
+      path: '/memory'
+      fullPath: '/memory'
+      preLoaderRoute: typeof ShellMemoryRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/operations': {
+      id: '/_shell/operations'
+      path: '/operations'
+      fullPath: '/operations'
+      preLoaderRoute: typeof ShellOperationsRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/schedules': {
       id: '/_shell/schedules'
       path: '/schedules'
@@ -359,6 +410,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/status'
       preLoaderRoute: typeof ShellStatusRouteImport
       parentRoute: typeof ShellRoute
+    }
+    '/s/$shareId': {
+      id: '/s/$shareId'
+      path: '/s/$shareId'
+      fullPath: '/s/$shareId'
+      preLoaderRoute: typeof SShareIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_shell/agents/': {
       id: '/_shell/agents/'
@@ -438,6 +496,8 @@ interface ShellRouteChildren {
   ShellAuditRoute: typeof ShellAuditRoute
   ShellChatRoute: typeof ShellChatRoute
   ShellEvalRoute: typeof ShellEvalRoute
+  ShellMemoryRoute: typeof ShellMemoryRoute
+  ShellOperationsRoute: typeof ShellOperationsRoute
   ShellSchedulesRoute: typeof ShellSchedulesRoute
   ShellServersRoute: typeof ShellServersRoute
   ShellSkillsRoute: typeof ShellSkillsRoute
@@ -460,6 +520,8 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellAuditRoute: ShellAuditRoute,
   ShellChatRoute: ShellChatRoute,
   ShellEvalRoute: ShellEvalRoute,
+  ShellMemoryRoute: ShellMemoryRoute,
+  ShellOperationsRoute: ShellOperationsRoute,
   ShellSchedulesRoute: ShellSchedulesRoute,
   ShellServersRoute: ShellServersRoute,
   ShellSkillsRoute: ShellSkillsRoute,
@@ -483,6 +545,7 @@ const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   ShellRoute: ShellRouteWithChildren,
   LoginRoute: LoginRoute,
+  SShareIdRoute: SShareIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

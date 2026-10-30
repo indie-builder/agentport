@@ -71,6 +71,8 @@ const history: ConversationDetail = {
 
 function output(overrides: Partial<OutputFile> & Pick<OutputFile, 'runId' | 'path'>): OutputFile {
   return {
+    userMessageId: `user-${overrides.runId}`,
+    afterMessageId: `after-${overrides.runId}`,
     size: 10,
     sha256: sha,
     mediaType: 'text/markdown',
@@ -830,6 +832,700 @@ describe('feedback with an output version', () => {
     await act(async () => cancel.click());
     expect(useChatStore.getState().outputRef).toBeNull();
     expect(message().value).toBe('keep this draft');
+  });
+});
+
+function turnWithText(text: string) {
+  const turn = [...host.querySelectorAll<HTMLElement>('[data-message-id]')].find((element) =>
+    element.textContent?.includes(text),
+  );
+  if (!turn) throw new Error(`Missing turn: ${text}`);
+  return turn;
+}
+
+function runOutputButton(turn: HTMLElement, path: string) {
+  const group = turn.querySelector<HTMLElement>('[aria-label="本轮成果"]');
+  const button = [...(group?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((item) =>
+    item.textContent?.includes(path),
+  );
+  if (!button) throw new Error(`Missing run output: ${path}`);
+  return button;
+}
+
+function multiTurnHistory(): ConversationDetail {
+  return {
+    conversation: { ...history.conversation, createdAt: '' },
+    nextBefore: null,
+    runMetrics: ['run-1', 'run-2'].map((runId) => ({
+      runId,
+      status: 'succeeded' as const,
+      turns: 1,
+      durationMs: 1000,
+      endedAt: null,
+      tokens: 10,
+      costUsd: 0.001,
+      error: null,
+    })),
+    messages: [
+      {
+        id: 'user-run-1',
+        conversationId: 'conversation-a',
+        role: 'user',
+        content: 'first prompt',
+        runId: 'run-1',
+        createdAt: '',
+      },
+      {
+        id: 'reply-run-1',
+        conversationId: 'conversation-a',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'first reply' }],
+        runId: 'run-1',
+        createdAt: '',
+      },
+      {
+        id: 'user-run-2',
+        conversationId: 'conversation-a',
+        role: 'user',
+        content: 'second prompt',
+        runId: 'run-2',
+        createdAt: '',
+      },
+      {
+        id: 'reply-run-2',
+        conversationId: 'conversation-a',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'second reply' }],
+        runId: 'run-2',
+        createdAt: '',
+      },
+    ],
+  };
+}
+
+describe('published outputs on message turns', () => {
+  it('attaches each run to its own turn and opens the exact published version', async () => {
+    vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
+    await mount();
+    const first = turnWithText('first reply');
+    const second = turnWithText('second reply');
+    expect(first.querySelector('[aria-label="本轮成果"]')?.textContent).toContain('report.md');
+    expect(second.querySelector('[aria-label="本轮成果"]')?.textContent).toContain('report.md');
+
+    await act(async () => runOutputButton(first, 'report.md').click());
+    await flush();
+    expect(router.state.location.search).toMatchObject({
+      outputRun: 'run-1',
+      outputPath: 'report.md',
+      outputMode: 'read',
+    });
+    expect(api.outputContent).toHaveBeenCalledWith(
+      'conversation-a',
+      'run-1',
+      'report.md',
+      expect.any(AbortSignal),
+    );
+
+    await act(async () => runOutputButton(second, 'report.md').click());
+    await flush();
+    expect(router.state.location.search).toMatchObject({
+      outputRun: 'run-2',
+      outputPath: 'report.md',
+      outputMode: 'read',
+    });
+    expect(api.outputContent).toHaveBeenLastCalledWith(
+      'conversation-a',
+      'run-2',
+      'report.md',
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('keeps non-succeeded files with their real status instead of claiming delivery', async () => {
+    vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
+    vi.mocked(api.outputs).mockResolvedValue({
+      items: [
+        reportLatest,
+        output({ runId: 'run-2', path: 'failed.md', status: 'failed' }),
+        output({ runId: 'run-2', path: 'cancelled.md', status: 'cancelled' }),
+        output({ runId: 'run-2', path: 'timeout.md', status: 'timeout' }),
+      ],
+      nextBefore: null,
+    });
+    await mount();
+    const group = turnWithText('second reply').querySelector('[aria-label="本轮成果"]');
+    expect(group).not.toBeNull();
+    expect(group?.textContent).toContain('failed.md');
+    expect(group?.textContent).toContain('失败');
+    expect(group?.textContent).toContain('cancelled.md');
+    expect(group?.textContent).toContain('已停止');
+    expect(group?.textContent).toContain('timeout.md');
+    expect(group?.textContent).toContain('超时');
+    expect(group?.textContent).not.toContain('成功');
+  });
+
+  it('does not invent output entries for runs without published files', async () => {
+    vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
+    vi.mocked(api.outputs).mockResolvedValue({ items: [reportLatest], nextBefore: null });
+    await mount();
+    expect(turnWithText('first reply').querySelector('[aria-label="本轮成果"]')).toBeNull();
+    expect(
+      turnWithText('second reply').querySelector('[aria-label="本轮成果"]')?.textContent,
+    ).toContain('report.md');
+  });
+
+  it('keeps published outputs on their turns after maintenance cleared message run ids', async () => {
+    const cleared = multiTurnHistory();
+    vi.mocked(api.conversation).mockResolvedValue({
+      ...cleared,
+      messages: cleared.messages.map((message) => ({ ...message, runId: null })),
+    });
+    vi.mocked(api.outputs).mockResolvedValue({
+      items: [
+        output({
+          runId: 'run-2',
+          path: 'report.md',
+          userMessageId: 'user-run-2',
+          afterMessageId: 'reply-run-2',
+          createdAt: '2026-10-28T10:00:00.000Z',
+        }),
+        output({
+          runId: 'run-1',
+          path: 'report.md',
+          userMessageId: 'user-run-1',
+          afterMessageId: 'reply-run-1',
+          createdAt: '2026-10-28T09:00:00.000Z',
+        }),
+      ],
+      nextBefore: null,
+    });
+    await mount();
+
+    for (const text of ['first reply', 'second reply']) {
+      expect(turnWithText(text).querySelector('[aria-label="本轮成果"]')?.textContent).toContain(
+        'report.md',
+      );
+    }
+    expect(turnWithText('first prompt').querySelector('[aria-label="本轮成果"]')).toBeNull();
+    expect(turnWithText('second prompt').querySelector('[aria-label="本轮成果"]')).toBeNull();
+
+    await act(async () => runOutputButton(turnWithText('first reply'), 'report.md').click());
+    await flush();
+    expect(router.state.location.search).toMatchObject({
+      outputRun: 'run-1',
+      outputPath: 'report.md',
+      outputMode: 'read',
+    });
+  });
+
+  it('shows an orphan failed user turn by its output anchor after run ids were cleared', async () => {
+    const cleared = multiTurnHistory();
+    vi.mocked(api.conversation).mockResolvedValue({
+      ...cleared,
+      runMetrics: [
+        {
+          runId: 'run-1',
+          status: 'failed',
+          turns: 1,
+          durationMs: 1000,
+          endedAt: null,
+          tokens: 10,
+          costUsd: 0.001,
+          error: 'agent crashed',
+        },
+        ...(cleared.runMetrics ?? []).filter((metric) => metric.runId !== 'run-1'),
+      ],
+      messages: cleared.messages
+        .filter((message) => message.id !== 'reply-run-1')
+        .map((message) => ({ ...message, runId: null })),
+    });
+    vi.mocked(api.outputs).mockResolvedValue({
+      items: [
+        output({
+          runId: 'run-2',
+          path: 'report.md',
+          userMessageId: 'user-run-2',
+          afterMessageId: 'reply-run-2',
+        }),
+        output({
+          runId: 'run-1',
+          path: 'failed.md',
+          status: 'failed',
+          userMessageId: 'user-run-1',
+          afterMessageId: 'user-run-1',
+        }),
+      ],
+      nextBefore: null,
+    });
+    await mount();
+
+    const failed = turnWithText('first prompt').querySelector('[aria-label="本轮成果"]');
+    expect(failed?.textContent).toContain('failed.md');
+    expect(failed?.textContent).toContain('失败');
+    // 用户轮已就地显示成果，后续没有助手回复的那一轮不能重复出现。
+    expect(turnWithText('second prompt').querySelector('[aria-label="本轮成果"]')).toBeNull();
+    expect(
+      turnWithText('second reply').querySelector('[aria-label="本轮成果"]')?.textContent,
+    ).toContain('report.md');
+  });
+
+  it('maps branch message ids through manifest anchors after fork', async () => {
+    vi.mocked(api.conversation).mockResolvedValue({
+      conversation: { ...history.conversation, createdAt: '' },
+      nextBefore: null,
+      runMetrics: [],
+      messages: [
+        {
+          id: 'branch-user-1',
+          conversationId: 'conversation-a',
+          role: 'user',
+          content: 'first prompt',
+          runId: null,
+          createdAt: '',
+        },
+        {
+          id: 'branch-reply-1',
+          conversationId: 'conversation-a',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'first reply' }],
+          runId: null,
+          createdAt: '',
+        },
+      ],
+    });
+    vi.mocked(api.outputs).mockResolvedValue({
+      items: [
+        output({
+          runId: 'run-1',
+          path: 'report.md',
+          userMessageId: 'branch-user-1',
+          afterMessageId: 'branch-reply-1',
+        }),
+      ],
+      nextBefore: null,
+    });
+    await mount();
+
+    const reply = turnWithText('first reply');
+    expect(reply.querySelector('[aria-label="本轮成果"]')?.textContent).toContain('report.md');
+    expect(turnWithText('first prompt').querySelector('[aria-label="本轮成果"]')).toBeNull();
+    await act(async () => runOutputButton(reply, 'report.md').click());
+    await flush();
+    expect(router.state.location.search).toMatchObject({
+      outputRun: 'run-1',
+      outputPath: 'report.md',
+    });
+  });
+
+  it('keeps a result-anchored output reachable on a tool turn after fork', async () => {
+    vi.mocked(api.conversation).mockResolvedValue({
+      conversation: { ...history.conversation, createdAt: '' },
+      nextBefore: null,
+      runMetrics: [],
+      messages: [
+        {
+          id: 'branch-user',
+          conversationId: 'conversation-a',
+          role: 'user',
+          content: 'write a report',
+          runId: null,
+          createdAt: '',
+        },
+        {
+          id: 'branch-use',
+          conversationId: 'conversation-a',
+          role: 'tool',
+          content: { type: 'tool_use', id: 'toolu-1', name: 'Write', input: {} },
+          runId: null,
+          createdAt: '',
+        },
+        {
+          id: 'branch-result',
+          conversationId: 'conversation-a',
+          role: 'tool',
+          content: { type: 'tool_result', toolUseId: 'toolu-1', name: 'Write', content: 'written' },
+          runId: null,
+          createdAt: '',
+        },
+      ],
+    });
+    vi.mocked(api.outputs).mockResolvedValue({
+      items: [
+        output({
+          runId: 'run-1',
+          path: 'report.md',
+          userMessageId: 'branch-user',
+          afterMessageId: 'branch-result',
+        }),
+      ],
+      nextBefore: null,
+    });
+    await mount();
+
+    // 用户轮后面还有工具轮，成果只能落在工具轮；结果消息锚点必须能命中，且只出现一次。
+    const groups = host.querySelectorAll('[aria-label="本轮成果"]');
+    expect(groups).toHaveLength(1);
+    const toolTurn = host.querySelector<HTMLElement>('[data-message-id="branch-use:0"]');
+    if (!toolTurn) throw new Error('Missing tool turn');
+    expect(toolTurn.querySelector('[aria-label="本轮成果"]')).toBe(groups[0]);
+
+    await act(async () => runOutputButton(toolTurn, 'report.md').click());
+    await flush();
+    expect(router.state.location.search).toMatchObject({
+      outputRun: 'run-1',
+      outputPath: 'report.md',
+      outputMode: 'read',
+    });
+    expect(api.outputContent).toHaveBeenCalledWith(
+      'conversation-a',
+      'run-1',
+      'report.md',
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('keeps run id priority and shows a result-anchored output once', async () => {
+    const messages = [
+      {
+        id: 'use-run-1',
+        conversationId: 'conversation-a',
+        role: 'tool',
+        content: { type: 'tool_use', id: 'toolu-1', name: 'Write', input: {} },
+        runId: 'run-1',
+        createdAt: '',
+      },
+      {
+        id: 'result-run-1',
+        conversationId: 'conversation-a',
+        role: 'tool',
+        content: { type: 'tool_result', toolUseId: 'toolu-1', name: 'Write', content: 'written' },
+        runId: 'run-1',
+        createdAt: '',
+      },
+    ];
+    vi.mocked(api.conversation).mockResolvedValue({
+      conversation: { ...history.conversation, createdAt: '' },
+      nextBefore: null,
+      runMetrics: [],
+      messages: [
+        {
+          id: 'user-run-1',
+          conversationId: 'conversation-a',
+          role: 'user',
+          content: 'write a report',
+          runId: 'run-1',
+          createdAt: '',
+        },
+        ...messages,
+      ],
+    });
+    vi.mocked(api.outputs).mockResolvedValue({
+      items: [
+        output({
+          runId: 'run-1',
+          path: 'report.md',
+          userMessageId: 'use-run-1',
+          afterMessageId: 'result-run-1',
+        }),
+      ],
+      nextBefore: null,
+    });
+    await mount();
+
+    // run_id 可用时按 run 归属，结果锚点不会再把同一份文件加一遍。
+    expect(host.querySelectorAll('[aria-label="本轮成果"]')).toHaveLength(1);
+    const toolTurn = host.querySelector<HTMLElement>('[data-message-id="use-run-1:0"]');
+    if (!toolTurn) throw new Error('Missing tool turn');
+    const rows = [...toolTurn.querySelectorAll('button')].filter((button) =>
+      button.textContent?.includes('report.md'),
+    );
+    expect(rows).toHaveLength(1);
+
+    await act(async () => runOutputButton(toolTurn, 'report.md').click());
+    await flush();
+    expect(router.state.location.search).toMatchObject({
+      outputRun: 'run-1',
+      outputPath: 'report.md',
+    });
+  });
+
+  it('does not duplicate a turn output when run ids and anchors both match', async () => {
+    vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
+    vi.mocked(api.outputs).mockResolvedValue({
+      items: [
+        output({
+          runId: 'run-2',
+          path: 'report.md',
+          userMessageId: 'user-run-2',
+          afterMessageId: 'reply-run-2',
+        }),
+        output({
+          runId: 'run-1',
+          path: 'report.md',
+          userMessageId: 'user-run-1',
+          afterMessageId: 'reply-run-1',
+        }),
+      ],
+      nextBefore: null,
+    });
+    await mount();
+
+    // 两个助手轮各一组，用户轮不重复显示同一份成果。
+    expect(host.querySelectorAll('[aria-label="本轮成果"]')).toHaveLength(2);
+    for (const text of ['first prompt', 'second prompt']) {
+      expect(turnWithText(text).querySelector('[aria-label="本轮成果"]')).toBeNull();
+    }
+  });
+
+  it('pages older published outputs only through the explicit load-more action', async () => {
+    vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
+    vi.mocked(api.outputs)
+      .mockResolvedValueOnce({ items: [reportLatest], nextBefore: 'cursor-1' })
+      .mockResolvedValueOnce({ items: [reportOlder], nextBefore: null });
+    await mount();
+    expect(api.outputs).toHaveBeenCalledTimes(1);
+    expect(turnWithText('first reply').querySelector('[aria-label="本轮成果"]')).toBeNull();
+
+    const more = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === '加载更多成果',
+    );
+    if (!more) throw new Error('Missing load-more outputs action');
+    await act(async () => more.click());
+    await flush();
+
+    expect(vi.mocked(api.outputs)).toHaveBeenLastCalledWith(
+      'conversation-a',
+      { limit: 50, before: 'cursor-1' },
+      expect.any(AbortSignal),
+    );
+    expect(api.outputs).toHaveBeenCalledTimes(2);
+    expect(
+      turnWithText('first reply').querySelector('[aria-label="本轮成果"]')?.textContent,
+    ).toContain('report.md');
+  });
+
+  it.each([1440, 1152])(
+    'opens the workspace when a turn output is selected at %ipx',
+    async (width) => {
+      viewportWidth = width;
+      vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
+      await mount();
+      // 收起状态下不预取正文：只有用户真的选中成果才请求。
+      expect(host.querySelector('button[aria-label="打开会话成果"]')).not.toBeNull();
+      expect(api.outputContent).not.toHaveBeenCalled();
+
+      await act(async () => runOutputButton(turnWithText('first reply'), 'report.md').click());
+      await flush();
+
+      expect(host.querySelector('button[aria-label="隐藏会话成果"]')).not.toBeNull();
+      expect(document.querySelector('[role="dialog"]') !== null).toBe(width < 1280);
+      // 宽屏内联面板展开后不再 inert，正文对键盘与读屏都可见。
+      expect(workspace().closest('[inert]')).toBeNull();
+      expect(workspace().textContent).toContain('Older report');
+    },
+  );
+
+  it('shows a failed run outputs on the user turn that never got an assistant reply', async () => {
+    const historyWithUnansweredRun = multiTurnHistory();
+    vi.mocked(api.conversation).mockResolvedValue({
+      ...historyWithUnansweredRun,
+      runMetrics: [
+        {
+          runId: 'run-1',
+          status: 'failed',
+          turns: 1,
+          durationMs: 1000,
+          endedAt: null,
+          tokens: 10,
+          costUsd: 0.001,
+          error: 'agent crashed',
+        },
+        ...(historyWithUnansweredRun.runMetrics ?? []).filter((metric) => metric.runId !== 'run-1'),
+      ],
+      messages: [
+        {
+          id: 'user-run-1',
+          conversationId: 'conversation-a',
+          role: 'user',
+          content: 'first prompt',
+          runId: 'run-1',
+          createdAt: '',
+        },
+        {
+          id: 'user-run-2',
+          conversationId: 'conversation-a',
+          role: 'user',
+          content: 'second prompt',
+          runId: 'run-2',
+          createdAt: '',
+        },
+        {
+          id: 'reply-run-2',
+          conversationId: 'conversation-a',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'second reply' }],
+          runId: 'run-2',
+          createdAt: '',
+        },
+      ],
+    });
+    vi.mocked(api.outputs).mockResolvedValue({
+      items: [output({ runId: 'run-1', path: 'failed.md', status: 'failed' }), reportLatest],
+      nextBefore: null,
+    });
+    await mount();
+
+    const firstTurn = turnWithText('first prompt');
+    const failed = firstTurn.querySelector('[aria-label="本轮成果"]');
+    expect(failed?.textContent).toContain('failed.md');
+    expect(failed?.textContent).toContain('失败');
+    // 只在没有助手行的那一轮补成果，避免同一份文件在相邻轮重复出现。
+    expect(turnWithText('second prompt').querySelector('[aria-label="本轮成果"]')).toBeNull();
+    expect(
+      turnWithText('second reply').querySelector('[aria-label="本轮成果"]')?.textContent,
+    ).toContain('report.md');
+  });
+
+  it('does not show an orphan load-more action when the latest turn has no outputs', async () => {
+    vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
+    vi.mocked(api.outputs).mockResolvedValue({ items: [], nextBefore: 'cursor-1' });
+    await mount();
+    expect(host.querySelector('[aria-label="本轮成果"]')).toBeNull();
+    expect(
+      [...host.querySelectorAll<HTMLButtonElement>('button')].some(
+        (button) => button.textContent?.trim() === '加载更多成果',
+      ),
+    ).toBe(false);
+  });
+
+  it('shows the current run outputs on the live turn once the run finishes', async () => {
+    vi.spyOn(api, 'sendChat').mockResolvedValue({
+      runId: 'run-3',
+      conversationId: 'conversation-a',
+    });
+    await mount();
+    await type('finish it');
+    const submit = host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]');
+    if (!submit) throw new Error('Missing send button');
+    await act(async () => submit.click());
+    await flush();
+
+    const stream = Source.instances.at(-1);
+    if (!stream) throw new Error('Missing event stream');
+    vi.mocked(api.outputs).mockResolvedValue({
+      items: [output({ runId: 'run-3', path: 'final.md', createdAt: '2026-10-28T12:00:00.000Z' })],
+      nextBefore: null,
+    });
+    await act(async () => {
+      stream.emit({ type: 'text_delta', text: 'finished reply' });
+      stream.emit({ type: 'run_finished', status: 'succeeded' });
+    });
+    await flush();
+    await flush();
+
+    const turn = turnWithText('finished reply');
+    expect(turn.querySelector('[aria-label="本轮成果"]')?.textContent).toContain('final.md');
+    await act(async () => runOutputButton(turn, 'final.md').click());
+    await flush();
+    expect(router.state.location.search).toMatchObject({
+      outputRun: 'run-3',
+      outputPath: 'final.md',
+      outputMode: 'read',
+    });
+  });
+
+  it('keeps a failed outputs query retryable without faking an empty result', async () => {
+    vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
+    vi.mocked(api.outputs).mockRejectedValue(new Error('outputs unavailable'));
+    await mount();
+    expect(host.querySelector('[aria-label="本轮成果"]')).toBeNull();
+    await openWorkspace();
+    expect(workspace().textContent).toContain('outputs unavailable');
+    expect(
+      [...workspace().querySelectorAll<HTMLButtonElement>('button')].some(
+        (button) => button.textContent?.trim() === '重试',
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('default expert selection', () => {
+  const other = { ...agent, id: 'agent-b', slug: 'other', name: 'Other Expert' };
+
+  function useTwoAgents() {
+    client.setQueryData(['agents'], [agent, other]);
+    vi.mocked(api.agents).mockResolvedValue([agent, other]);
+  }
+
+  it('shows a real history empty state on bare /chat instead of a permanent skeleton', async () => {
+    await mount('/chat');
+    const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
+    if (!toggle) throw new Error('Missing history toggle');
+    await act(async () => toggle.click());
+    await flush();
+
+    const panel = host.querySelector<HTMLElement>('aside[aria-label="会话历史"]');
+    if (!panel) throw new Error('Missing history panel');
+    expect(panel.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(panel.textContent).toContain('先选择专家');
+    expect(api.conversations).not.toHaveBeenCalled();
+
+    const picker = panel.querySelector<HTMLButtonElement>('button[aria-label="选择专家"]');
+    if (!picker) throw new Error('Missing history expert picker');
+    await act(async () => picker.click());
+    await flush();
+    const choice = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) =>
+      entry.textContent?.includes(agent.name),
+    );
+    if (!choice) throw new Error('Missing expert option');
+    await act(async () => choice.click());
+    await flush();
+
+    expect(api.conversations).toHaveBeenCalledWith(agent.id, expect.any(AbortSignal));
+    expect(panel.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
+  it('waits for an explicit expert on bare /chat instead of selecting the first one', async () => {
+    useTwoAgents();
+    await mount('/chat');
+    expect(router.state.location.search).toEqual({});
+    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="选择专家"]');
+    expect(picker?.textContent).toContain('选择专家');
+    expect(picker?.textContent).not.toContain(agent.name);
+    expect(message().disabled).toBe(true);
+
+    await act(async () => picker?.click());
+    await flush();
+    const choice = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) =>
+      entry.textContent?.includes(other.name),
+    );
+    if (!choice) throw new Error('Missing expert option');
+    await act(async () => choice.click());
+    await flush();
+    expect(router.state.location.search).toEqual({ agent: 'agent-b' });
+    expect(message().disabled).toBe(false);
+  });
+
+  it('keeps the expert named in the URL when no conversation is open', async () => {
+    useTwoAgents();
+    await mount('/chat?agent=agent-b');
+    expect(
+      host.querySelector<HTMLButtonElement>('button[aria-label="选择专家：Other Expert"]'),
+    ).not.toBeNull();
+    expect(router.state.location.search).toEqual({ agent: 'agent-b' });
+  });
+
+  it('keeps an existing conversation owned by its server-side expert', async () => {
+    useTwoAgents();
+    await mount('/chat?agent=agent-b&conversation=conversation-a');
+    await flush();
+    expect(router.state.location.search).toMatchObject({
+      agent: 'agent-a',
+      conversation: 'conversation-a',
+    });
+    expect(
+      host.querySelector<HTMLButtonElement>('button[aria-label="选择专家：Expert"]'),
+    ).not.toBeNull();
   });
 });
 

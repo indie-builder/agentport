@@ -1,16 +1,9 @@
-import {
-  type AgentStats,
-  recentUtcDays,
-  type Schedule,
-  type ScheduleInput,
-  scheduleInputSchema,
-} from '@agentport/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentport/shared';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CalendarClock, CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
-import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -19,12 +12,6 @@ import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
-import {
-  type ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from '../components/ui/chart.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   Field,
@@ -47,15 +34,8 @@ import { Textarea } from '../components/ui/textarea.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
-import {
-  formatCost,
-  formatDateTime,
-  formatDuration,
-  formatPercent,
-  formatRelative,
-  formatTokens,
-} from '../lib/format.js';
-import { agentStatsQuery, useAgents, useAttention, useSchedules } from '../lib/queries.js';
+import { formatDateTime, formatRelative } from '../lib/format.js';
+import { useAgents, useAttention, useSchedules } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
@@ -741,127 +721,5 @@ export function AttentionPanel({ hideTitle = false }: { hideTitle?: boolean } = 
         </ul>
       ) : null}
     </PageSection>
-  );
-}
-
-type DailyRun = AgentStats['daily'][number];
-
-const dailyChartConfig = {
-  runs: { label: '运行次数', color: 'var(--color-chart-runs)' },
-} satisfies ChartConfig;
-
-/** 后端只返回有运行的天；用共享 UTC 窗口补齐 0，与 API 的 since 保持同一口径。 */
-export function fillDailyRuns(daily: DailyRun[], days = 30, now = new Date()): DailyRun[] {
-  const known = new Map(daily.map((entry) => [entry.day, entry]));
-  return recentUtcDays(days, now).map((day) => known.get(day) ?? { day, runs: 0, cost: 0 });
-}
-
-/** 单个智能体的运行统计与活跃度热力图（对标 QoderWake 的概览/工作日志）。 */
-export function AgentStatsPanel({ agentId }: { agentId: string }) {
-  const stats = useQuery(agentStatsQuery(agentId, 30));
-
-  if (stats.isPending) return <LoadingState rows={3} />;
-  if (stats.isError) {
-    return <ErrorState error={stats.error} onRetry={() => void stats.refetch()} />;
-  }
-  const s = stats.data;
-  const cells = [
-    { label: '运行次数', value: String(s.runCount) },
-    { label: '成功率', value: formatPercent(s.runCount > 0 ? s.succeeded / s.runCount : 0) },
-    { label: '失败率', value: formatPercent(s.errorRate) },
-    { label: '累计成本', value: formatCost(s.totalCost) },
-    { label: 'Token', value: formatTokens(s.totalTokens) },
-    { label: 'P50 延迟', value: formatDuration(s.latencyP50) },
-    { label: 'P99 延迟', value: formatDuration(s.latencyP99) },
-    { label: '最近运行', value: formatRelative(s.lastRunStartTime) },
-  ];
-  const hasRuns = s.daily.length > 0;
-  const daily = fillDailyRuns(s.daily);
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        {cells.map((c) => (
-          <div key={c.label} className="rounded-card bg-surface px-4 py-3 ring-1 ring-line">
-            <div className="text-xs text-muted-foreground">{c.label}</div>
-            <div className="mt-1 text-3xl font-medium tabular-nums text-fg">{c.value}</div>
-          </div>
-        ))}
-      </div>
-      <div className="rounded-card bg-surface px-4 py-4 ring-1 ring-line">
-        <div className="mb-3 text-xs text-muted-foreground">近 30 天活跃度</div>
-        {hasRuns ? (
-          <>
-            {/* 柱图仅视觉展示（含鼠标提示），读屏改走下方表格。 */}
-            <div aria-hidden="true">
-              <ChartContainer config={dailyChartConfig} className="aspect-auto h-40 w-full">
-                {/* Recharts 3 默认开启 accessibilityLayer，会生成无名称的可聚焦 application。 */}
-                <BarChart
-                  accessibilityLayer={false}
-                  data={daily}
-                  margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
-                >
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="day"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    minTickGap={24}
-                    tickFormatter={(value: string) => value.slice(5)}
-                  />
-                  <ChartTooltip
-                    cursor={false}
-                    content={
-                      <ChartTooltipContent
-                        formatter={(value, _name, item) => {
-                          const point = item.payload as DailyRun;
-                          return (
-                            <span className="flex items-center gap-2 tabular-nums">
-                              <span className="font-medium text-foreground">{value} 次</span>
-                              <span className="text-muted-foreground">
-                                {formatCost(point.cost)}
-                              </span>
-                            </span>
-                          );
-                        }}
-                      />
-                    }
-                  />
-                  <Bar
-                    dataKey="runs"
-                    fill="var(--color-runs)"
-                    radius={[2, 2, 0, 0]}
-                    maxBarSize={24}
-                    isAnimationActive={false}
-                  />
-                </BarChart>
-              </ChartContainer>
-            </div>
-            <table className="sr-only">
-              <caption>近 30 天每日运行次数与成本</caption>
-              <thead>
-                <tr>
-                  <th scope="col">日期</th>
-                  <th scope="col">运行次数</th>
-                  <th scope="col">成本</th>
-                </tr>
-              </thead>
-              <tbody>
-                {daily.map((entry) => (
-                  <tr key={entry.day}>
-                    <th scope="row">{entry.day}</th>
-                    <td>{entry.runs}</td>
-                    <td>{formatCost(entry.cost)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">近 30 天没有运行记录。</p>
-        )}
-      </div>
-    </div>
   );
 }

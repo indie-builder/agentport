@@ -3,6 +3,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodeBlock, LARGE_CONTENT_CHARS } from '../src/components/code-block.js';
 import { type DataColumn, DataTable } from '../src/components/data-table.js';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../src/components/motion-collapsible.js';
 
 /**
  * jsdom 没有过渡：报告 150ms height 过渡并让动画永不结束，模拟浏览器收起阶段
@@ -115,5 +120,42 @@ describe('collapsible content motion', () => {
     await click(toggle());
     expect(host.textContent).toContain('DETAIL-MARKER');
     restore();
+  });
+
+  it('leaves a closed keepMounted panel to native until-found hiding', async () => {
+    // jsdom 不渲染，无法直接断言「内容不可见」；这里钉住浏览器可见性的根因：
+    // 作者内联 content-visibility: visible 会覆盖 until-found 的 UA 隐藏规则。
+    const host = mount(
+      createElement(
+        Collapsible,
+        null,
+        createElement(CollapsibleTrigger, null, '高级设置'),
+        createElement(
+          CollapsibleContent,
+          { keepMounted: true },
+          createElement('div', { className: 'flex flex-col' }, '模型与标识'),
+        ),
+      ),
+    );
+    const trigger = () => {
+      const button = host.querySelector('button');
+      if (!button) throw new Error('Missing collapsible trigger');
+      return button;
+    };
+    const panel = () => {
+      const element = host.querySelector<HTMLElement>('[data-slot="collapsible-content"]');
+      if (!element) throw new Error('Missing collapsible panel');
+      return element;
+    };
+
+    await click(trigger());
+    expect(trigger().getAttribute('aria-expanded')).toBe('true');
+    expect(panel().hasAttribute('hidden')).toBe(false);
+
+    await click(trigger());
+    expect(trigger().getAttribute('aria-expanded')).toBe('false');
+    expect(panel().getAttribute('hidden')).toBe('until-found');
+    expect(panel().style.getPropertyValue('content-visibility')).toBe('');
+    expect(panel().hasAttribute('inert')).toBe(true);
   });
 });

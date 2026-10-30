@@ -174,6 +174,8 @@ function fileOf(manifest: OutputManifest, file: OutputManifest['files'][number])
     mediaType: file.mediaType,
     createdAt: manifest.createdAt,
     status: manifest.status,
+    userMessageId: manifest.userMessageId,
+    afterMessageId: manifest.afterMessageId,
   };
 }
 
