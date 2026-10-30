@@ -16,6 +16,9 @@ import {
   INPUTS_DIR,
   OUTPUTS_DIR,
   PERSONAL_MEMORY_FILE,
+  PLUGINS_DIR,
+  SKILLS_DIR,
+  SUBAGENT_MEMORY_DIR,
 } from './memory-permissions.js';
 import { createQuestionChannel } from './questions.js';
 import { createSubAgentBoundaryHook } from './sub-agent-permissions.js';
@@ -272,6 +275,12 @@ const allowedTools = [
   ...(task.plugins.length === 0 ? [] : ['Read(//workspace/.claude/plugins/*/skills/*/**)']),
   // Edit(path) also authorizes Write; Write(path) is not a file permission rule.
   `Edit(/${memoryDirectory}/**)`,
+  // 子智能体 project 记忆：宿主按 slug 逐个 rw 挂载，dontAsk 下为文件工具预批准该根；
+  // 具体到每个子的身份再由 PreToolUse hook 按 agent_id/agent_type 收窄。
+  // 同一容器里的 Bash 也能看到这些挂载；这里约束的是原生文件工具，不声称进程隔离。
+  ...(task.subAgents.length === 0
+    ? []
+    : [`Read(/${SUBAGENT_MEMORY_DIR}/**)`, `Edit(/${SUBAGENT_MEMORY_DIR}/**)`]),
   // 本轮产出草稿：独立 rw 挂载，交付文件用原生 Read/Write/Edit 直接写这里。
   `Read(/${OUTPUTS_DIR}/**)`,
   `Edit(/${OUTPUTS_DIR}/**)`,
@@ -450,7 +459,16 @@ if (session.error !== undefined) {
           PreToolUse: [
             {
               hooks: [
-                createFileBoundaryHook(memoryDirectory),
+                createFileBoundaryHook(
+                  memoryDirectory,
+                  SKILLS_DIR,
+                  PLUGINS_DIR,
+                  OUTPUTS_DIR,
+                  INPUTS_DIR,
+                  {
+                    subAgentSlugs: new Set(task.subAgents.map((sub) => sub.slug)),
+                  },
+                ),
                 createSubAgentBoundaryHook({
                   // 插件 MCP 的 scoped 名（plugin_<plugin>_<server>）与普通 server 同名空间，
                   // 主会话放行自己绑定的插件 server，子智能体保持一律拒绝。

@@ -43,7 +43,7 @@
 
 ### 记忆架构（2026-10-30）
 
-- **专家记忆**：原生 auto-memory，模型在运行中自动写入 `agent-memory/MEMORY.md` 与主题文件，不逐条确认；主会话文件工具受路径 hook 限制，子智能体文件工具仍被拒绝。`MEMORY.md` 是索引，官方启动只加载前 200 行 / 25KB。
+- **专家记忆**：原生 auto-memory，模型在运行中自动写入 `agent-memory/MEMORY.md` 与主题文件，不逐条确认；主会话文件工具受路径 hook 限制，子智能体原生文件工具默认启用但仅限自身记忆 Markdown（兄弟、父级与未知子智能体拒绝，显式 deny 保留）。`MEMORY.md` 是索引，官方启动只加载前 200 行 / 25KB。
 - **个人偏好**：`user_preferences` 为权威（`revision` 乐观锁），`memory_changes` 记账；投影到 `WORKSPACES_DIR/_user/CLAUDE.md`（0700/0600、原子 rename），只读挂到 `/mnt/user`，由 `UserPromptSubmit` hook 每轮以 `additionalContext` 注入，上限 9000 字符 / 36 KiB。**不是** SDK 自动发现的用户级 `CLAUDE.md`，`settingSources` 仍为 `['project']`。
 - **历史回顾**：用户触发的 `agent_runs.trigger='review'` 运行；`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，结构化输出提案；证据必须是会话原文的连续子串；沿用专家预算、超时、取消与 worker 关停；不建沙盒、不追加消息、不写成果。
 - **确认制**：提案写入个人偏好、专家 `MEMORY.md` 或专家规则，采用后才落账；不是自动进化。
@@ -110,7 +110,7 @@
 - [x] 按实现更新 `docs/ARCHITECTURE.md`、`docs/DECISIONS-PENDING.md`、`docs/REMAINING-TODOS.md`、`docs/PITFALLS.md` 与本记录。
 - [x] 运行 `git diff --check`（结果见「验证」）。
 - [x] 提交当前分支为 `8696a56`，整合 main `646217c`，补修提交 `8ba7c90`（当前 HEAD）。
-- [ ] 补齐真实付费模型跨 run 召回、续聊刷新、子智能体记忆与有效分享页真实文件浏览器验收。
+- [ ] 补齐真实付费模型跨 run 召回、续聊刷新与有效分享页真实文件浏览器验收；子智能体记忆源码评审与最终夹具复验均已通过（整体 `a9f539537d2542d89`、`sessions` format `a8c52733b5e29b393`），SDK 最新接口 16/16 与浏览器全部 PASS，运行整合 13 文件 195/195 PASS，最终状态见任务记录。
 - [x] 两项独立 review 的已报告 mustfix 已由 Opus 定点复核通过：回顾 pending 导航 reset；成果 runId-null 与 fork tool_result 合并锚点（87 条定向用例复测）。
 - [ ] 合入 `main` 尚未执行（授权不变）；改进循环暂停在 `paused_until_user_start`，待用户重启后明确要求再创建 cron 并启动。
 
@@ -150,7 +150,7 @@
 ## 未完成与已知限制
 
 - 真实付费模型跨 run 召回与续聊刷新尚未验收（测试均使用 fake 模型）。
-- 子智能体独立记忆未实现。
+- 子智能体独立记忆未实现（截至 2026-10-30 的结论）。2026-10-31 后续状态：子智能体独立记忆源码评审与最终夹具复验均已通过（整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS），SDK 最新接口 16/16 PASS、浏览器全部 PASS、stable 25 文件 376、web 72、outputs 31、migration 隔离库通过；运行整合 13 文件 195/195 PASS，整体未提交未合并，状态见 [subagent-memory-20261030.md](subagent-memory-20261030.md)。
 - 有效分享页的真实文件浏览器验收未完成（仅完成无效分享页与路由/服务/UI 测试）。
 - 真实付费模型生成回顾提案并采纳的完整浏览器链路未验收；回顾 pending 成功态与聊天锚点补修已完成并通过 Opus 定向复核，但整项验收未全量宣称通过。
 - 合入 `main` 尚未执行；不把 `8696a56` / `8ba7c90` 或当前分支写成已合入。
@@ -162,7 +162,7 @@
 
 ## 下一步
 
-- 补真实付费模型跨 run 召回、续聊刷新、子智能体记忆与有效分享页真实文件浏览器验收。
+- 补真实付费模型跨 run 召回、续聊刷新与有效分享页真实文件浏览器验收；子智能体记忆源码评审与最终夹具复验通过的状态见 [subagent-memory-20261030.md](subagent-memory-20261030.md)。
 - 补真实付费模型回顾提案 → 采纳 → 版本/回滚的端到端浏览器验收。
 - 补知识库 e2e seed 后重跑知识库套件。
 - 已报告 review mustfix 已定点通过；合入 `main` 尚未执行（授权不变）；改进循环暂停在 `paused_until_user_start`，用户重启后明确要求再启动（cron 尚未创建）。

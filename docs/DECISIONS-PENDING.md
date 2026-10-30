@@ -375,6 +375,8 @@
 
 **边界**：判据是收口时的当前专家配置；运行中调低超时可能提前收口，调高只会延后，worker沙盒仍持认领时本地超时。数据库与worker时钟偏差会移动边界；真实短/长超时PG测试与全量471通过，独立SQL复审无阻塞，未做真实模型长任务执行。
 
+**后续更新（2026-10-31，源码评审与最终夹具复验通过，未提交）**：上述「运行中调低超时可能提前收口」已被新的 running 收口契约收紧：超过超时上限的 running 仍先探测队列，`active`/`waiting`/`delayed` 等有效 job 或 Redis 探测失败时保持 running，只有 job 消失或已终态才 failed；普通 timeout 编辑继续允许，但不再终止仍有效的 job。与之配套，stop 未确认且销毁失败不再按终态释放：运行保持 running、`endedAt` 为 NULL，完整 `run_finished` 暂存 `agent_runs.pending_finish`；每 5 分钟 reconciler 扫描 pending，job 消失/终态后按保存的 sandbox id 清理，成功才 CAS 终态、清 pending，并只发布一次终态与写一次审计。复用现有 6 个运行状态、5 分钟 reconciler 与 `sandbox_id`，只新增 1 个可空字段，不新增表、服务或队列；Docker 暂不可用时保持占用，恢复后下一轮清理。第三轮两项已修：reconcile probe 后重读 status，`cleanup(conversationId, sandboxId, expectedRunId)` 拒绝其他 run 持有，provider 保留残留 ID，runner 取消超时保 cause，index 区分 stopped 与 pending。源码整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS；运行整合 13 文件 195/195 PASS（`/tmp/subagent-memory-runtime-final-green.json`），不写成整体通过。
+
 ## D-44 ✅ 审计目标筛选与有界导出（2026-10-22）
 
 **采用**：审计列表与导出共用现有脱敏列，新增目标精确筛选；导出最多1000条，多取一条判断超限，超过返回409且不截断。附件名为audit.json，禁缓存与嗅探；页面目标筛选写入URL，导出失败留页，不导航到错误JSON。
@@ -569,7 +571,7 @@
 
 **决定**：新建 `memory_reviews` 与 `memory_changes`。回顾是 `agent_runs.trigger='review'`，复用官方 `query()`：`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema`；沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停，不建沙盒、不追加消息、不写成果。证据必须是来源消息原文的连续子串。提案目标为个人偏好、专家 `MEMORY.md` 或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用后才写目标并落账。专家记忆先写 `.memory-journal/`、原子 rename、再提交账本，失败按原字节恢复或保留日志。`MEMORY.md` 采纳限制 200 行 / 25KB。
 
-**边界**：这是用户触发、逐次确认的回顾，不是自动进化。真实模型生成提案并采纳的完整链路尚未做浏览器验收；子智能体记忆未实现。
+**边界**：这是用户触发、逐次确认的回顾，不是自动进化。真实模型生成提案并采纳的完整链路尚未做浏览器验收；子智能体记忆未实现（2026-10-30 当时结论）。2026-10-31 后续状态：子智能体独立记忆源码评审已通过（整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS），SDK 最新接口 16/16、浏览器全部 PASS、stable 25 文件 376、web 72、outputs 31、migration 隔离库通过；运行整合 13 文件 195/195 PASS，整体未提交、未合并，状态见 [tasks/subagent-memory-20261030.md](tasks/subagent-memory-20261030.md)。
 
 ## D-73 不引入外部记忆服务，先用官方文件与 PostgreSQL（2026-10-30）
 

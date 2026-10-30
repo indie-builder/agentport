@@ -32,6 +32,8 @@ import {
 const IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const MODEL = 'claude-sonnet-5-5';
 const SDK_VERSION = '0.3.311';
+/** 官方子智能体 project 记忆根；每个 slug 是独立 rw bind mount。 */
+const SUBAGENT_MEMORY_ROOT = '/workspace/.claude/agent-memory';
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const SOURCE_EVIDENCE_FILE = '/tmp/session-sdk-current-source.json';
 /** 本次运行独占的当前源码编译产物；beforeAll 赋值，afterAll 清理。 */
@@ -645,6 +647,10 @@ function toolCalls(events: ChatEvent[]): ToolCall[] {
 /** 工具权限拒绝的文案随 SDK/规则来源变化，只判定共同语义，不锁死某一版措辞。 */
 const DENIED_RESULT = /denied|not allowed|not permitted|unavailable|no such tool|permission/i;
 
+/** PreToolUse 文件边界 hook 的固定拒绝原因，与 sandbox/memory-permissions.ts 一致。 */
+const FILE_BOUNDARY_REASON =
+  'File tools are limited to native memory, this run’s outputs, and skill reference Markdown.';
+
 function readIfExists(path: string): string | undefined {
   try {
     return readFileSync(path, 'utf8');
@@ -664,7 +670,41 @@ interface TestSpecs {
   bashCommandDeny: SessionSandboxSpec;
   bashChild: SessionSandboxSpec;
   bashChildDeny: SessionSandboxSpec;
+  memory: SessionSandboxSpec;
+  boundary: SessionSandboxSpec;
+  denyRead: SessionSandboxSpec;
+  denyWrite: SessionSandboxSpec;
+  denyEdit: SessionSandboxSpec;
+  unknown: SessionSandboxSpec;
 }
+
+/**
+ * `memory: project` 会自动启用 Read/Write/Edit；这里逐个裸 deny 验证显式禁用仍优先。
+ * Read 用例用主题文件：MEMORY.md 本来就会被自动加载，不能当作显式 Read 的证据。
+ */
+const DENY_CASES = [
+  {
+    name: 'deny-read',
+    specKey: 'denyRead',
+    tool: 'Read',
+    slug: 'mem-deny-read',
+    initial: 'SENTINEL-TOPIC-READ\n',
+  },
+  {
+    name: 'deny-write',
+    specKey: 'denyWrite',
+    tool: 'Write',
+    slug: 'mem-deny-write',
+    initial: 'ORIGINAL-WRITE\n',
+  },
+  {
+    name: 'deny-edit',
+    specKey: 'denyEdit',
+    tool: 'Edit',
+    slug: 'mem-deny-edit',
+    initial: 'ORIGINAL-EDIT\n',
+  },
+] as const;
 
 describeDocker('session sandbox with the real SDK native CLI', () => {
   let fake: FakeAnthropic;
@@ -774,14 +814,52 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     }
   }
 
-  function childAgent(slug: string, disallowedTools?: string[]): WorkspaceAgent {
+  function childAgent(slug: string, disallowedTools?: string[], maxTurns = 8): WorkspaceAgent {
     return {
       slug,
       name: slug,
       model: MODEL,
       systemPrompt: '执行父智能体交给你的命令并返回结果。',
-      maxTurns: 8,
+      maxTurns,
       ...(disallowedTools === undefined ? {} : { disallowedTools }),
+    };
+  }
+
+  /** 与生产 ensureSessionWorkspace 同形：宿主目录 rw 挂到项目记忆根下的 slug 目录。 */
+  async function mountSubAgentMemory(
+    name: string,
+    spec: SessionSandboxSpec,
+    slugs: string[],
+  ): Promise<void> {
+    const dirs: NonNullable<SessionSandboxSpec['subAgentMemoryDirs']> = [];
+    for (const slug of [...slugs].sort()) {
+      const memoryDir = subAgentHost(name, slug);
+      await mkdir(memoryDir, { recursive: true, mode: 0o700 });
+      await mkdir(join(spec.workspaceDir, '.claude', 'agent-memory', slug), {
+        recursive: true,
+        mode: 0o700,
+      });
+      dirs.push({ slug, memoryDir });
+    }
+    spec.subAgentMemoryDirs = dirs;
+  }
+
+  function subAgentHost(name: string, slug: string): string {
+    return join(logDir, 'state', name, 'agent-memory', slug);
+  }
+
+  /** 子请求 body.system 既可能是字符串也可能是块数组；两种都按文本检查。 */
+  function systemText(body: unknown): string {
+    if (typeof body !== 'object' || body === null) return '';
+    const system = (body as { system?: unknown }).system;
+    return typeof system === 'string' ? system : JSON.stringify(system ?? '');
+  }
+
+  function memoryTask(slugs: string[]): Partial<SandboxTaskInput> {
+    return {
+      allowSubAgents: true,
+      subAgents: slugs.map((slug) => ({ slug })),
+      maxTurns: 20,
     };
   }
 
@@ -795,7 +873,11 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     const provider = createProvider();
     const sessions = sessionsFor(provider);
     try {
-      const lease = await sessions.acquire(spec, new AbortController().signal);
+      const lease = await sessions.acquire(
+        spec,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
       const run = await startRun(lease, prompt, undefined, overrides);
       const settlement = await withTimeout(run.execution.done, timeoutMs, 'bash behavior run');
       return { settlement, events: run.events, stderr: run.stderr };
@@ -904,7 +986,34 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
       bashCommandDeny: await sandboxSpec('bash-command-deny'),
       bashChild: await sandboxSpec('bash-child'),
       bashChildDeny: await sandboxSpec('bash-child-deny'),
+      memory: await sandboxSpec('memory'),
+      boundary: await sandboxSpec('boundary'),
+      denyRead: await sandboxSpec('deny-read'),
+      denyWrite: await sandboxSpec('deny-write'),
+      denyEdit: await sandboxSpec('deny-edit'),
+      unknown: await sandboxSpec('unknown'),
     };
+
+    await mountSubAgentMemory('memory', specs.memory, ['mem-child']);
+    await mountSubAgentMemory('boundary', specs.boundary, ['mem-child', 'mem-sibling']);
+    for (const item of DENY_CASES) {
+      await mountSubAgentMemory(item.name, specs[item.specKey], [item.slug]);
+      const host = subAgentHost(item.name, item.slug);
+      // 自动加载证据放 MEMORY.md，显式 Read 证据放主题文件，两者不混淆。
+      await mkdir(join(host, 'topics'), { recursive: true, mode: 0o700 });
+      await writeFile(join(host, 'MEMORY.md'), `# Memory\n\nAUTO-${item.name.toUpperCase()}\n`, {
+        mode: 0o600,
+      });
+      await writeFile(join(host, 'topics', 'deny.md'), item.initial, { mode: 0o600 });
+    }
+    // 兄弟记忆里放一个哨兵：子智能体若越界读到，结果会泄漏这个值。
+    await writeFile(
+      join(subAgentHost('boundary', 'mem-sibling'), 'MEMORY.md'),
+      'SIBLING-SECRET\n',
+      {
+        mode: 0o600,
+      },
+    );
 
     await Promise.all([
       writeWorkspaceFixture(specs.bashDefault),
@@ -917,6 +1026,26 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
       writeWorkspaceFixture(specs.bashChildDeny, {
         subAgents: [childAgent('bash-child-denied', ['Bash'])],
       }),
+      writeWorkspaceFixture(specs.memory, {
+        subAgents: [childAgent('mem-child', undefined, 12)],
+      }),
+      writeWorkspaceFixture(specs.boundary, {
+        subAgents: [
+          childAgent('mem-child', undefined, 12),
+          childAgent('mem-sibling', undefined, 12),
+        ],
+      }),
+      writeWorkspaceFixture(specs.denyRead, {
+        subAgents: [childAgent('mem-deny-read', ['Read'])],
+      }),
+      writeWorkspaceFixture(specs.denyWrite, {
+        subAgents: [childAgent('mem-deny-write', ['Write'])],
+      }),
+      writeWorkspaceFixture(specs.denyEdit, {
+        subAgents: [childAgent('mem-deny-edit', ['Edit'])],
+      }),
+      // 未知调用方：工作区不声明任何子定义，委派目标用 SDK 内置 general-purpose。
+      writeWorkspaceFixture(specs.unknown),
     ]);
 
     // 沙盒固定以 uid 1000 运行；只调整本测试自己的 /tmp 目录。
@@ -963,7 +1092,11 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     const provider = createProvider();
     const sessions = sessionsFor(provider);
     try {
-      const lease = await sessions.acquire(specs.single, new AbortController().signal);
+      const lease = await sessions.acquire(
+        specs.single,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
       const run = await startRun(lease, '单轮：请回复 SPIKE-ONE');
       const settlement = await withTimeout(run.execution.done, 30_000, 'single run');
       expect(settlement.state).toBe('stopped');
@@ -996,7 +1129,11 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     const provider = createProvider();
     const sessions = sessionsFor(provider);
     try {
-      const firstLease = await sessions.acquire(specs.reuse, new AbortController().signal);
+      const firstLease = await sessions.acquire(
+        specs.reuse,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
       const firstSandboxId = firstLease.sandboxId;
       const first = await startRun(firstLease, '第一轮：请记住暗号 ORANGE-731');
       const firstSettlement = await withTimeout(first.execution.done, 30_000, 'reuse run 1');
@@ -1008,7 +1145,11 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
       if (sessionId === undefined) throw new Error('first run did not report a session id');
       await firstLease.release({ reuse: true });
 
-      const secondLease = await sessions.acquire(specs.reuse, new AbortController().signal);
+      const secondLease = await sessions.acquire(
+        specs.reuse,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
       expect(secondLease.sandboxId).toBe(firstSandboxId);
       const second = await startRun(secondLease, '第二轮：暗号是什么？', sessionId);
       const secondSettlement = await withTimeout(second.execution.done, 30_000, 'reuse run 2');
@@ -1039,7 +1180,11 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     // 短阈值让真实回收可被观察；生产默认值仍由 worker 配置控制。
     const sessions = sessionsFor(provider, 1_200);
     try {
-      const firstLease = await sessions.acquire(specs.idle, new AbortController().signal);
+      const firstLease = await sessions.acquire(
+        specs.idle,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
       const firstSandboxId = firstLease.sandboxId;
       const first = await startRun(firstLease, '回收前：请记住暗号 BLUE-442');
       expect((await withTimeout(first.execution.done, 30_000, 'idle run 1')).state).toBe('stopped');
@@ -1053,7 +1198,11 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
         `idle sandbox ${firstSandboxId} to be removed`,
       );
 
-      const secondLease = await sessions.acquire(specs.idle, new AbortController().signal);
+      const secondLease = await sessions.acquire(
+        specs.idle,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
       expect(secondLease.sandboxId).not.toBe(firstSandboxId);
       const second = await startRun(secondLease, '回收后：继续', sessionId);
       expect((await withTimeout(second.execution.done, 30_000, 'idle run 2')).state).toBe(
@@ -1079,7 +1228,11 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     const provider = createProvider();
     const sessions = sessionsFor(provider);
     try {
-      const firstLease = await sessions.acquire(specs.cancel, new AbortController().signal);
+      const firstLease = await sessions.acquire(
+        specs.cancel,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
       const sandboxId = firstLease.sandboxId;
       const first = await startRun(firstLease, '取消前：请记住暗号 GREEN-913');
       expect((await withTimeout(first.execution.done, 30_000, 'cancel run 1')).state).toBe(
@@ -1108,7 +1261,11 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
       expect(hung.closed).toBe(true);
 
       await firstLease.release({ reuse: true });
-      const resumedLease = await sessions.acquire(specs.cancel, new AbortController().signal);
+      const resumedLease = await sessions.acquire(
+        specs.cancel,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
       expect(resumedLease.sandboxId).toBe(sandboxId);
       const resumed = await startRun(resumedLease, '取消后：继续 GREEN-913', sessionId);
       expect((await withTimeout(resumed.execution.done, 30_000, 'cancel run 3')).state).toBe(
@@ -1374,5 +1531,452 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     expect(childBash?.parentToolUseId).toBe(agent?.id);
     expect(childBash?.result).toMatch(DENIED_RESULT);
     expect(readIfExists(childFile)).toBeUndefined();
+  }, 120_000);
+
+  it('persists subagent project memory across runs and containers', async () => {
+    // 子挂载集合增删/换目录而重建容器已由 session-sandboxes.test.ts 的
+    // 「bindings start, stop, or move」覆盖；这里只验证真实挂载生命周期，避免重复起容器。
+    const spec = specs.memory;
+    const hostDir = subAgentHost('memory', 'mem-child');
+    const memoryPath = `${SUBAGENT_MEMORY_ROOT}/mem-child/MEMORY.md`;
+    const topicPath = `${SUBAGENT_MEMORY_ROOT}/mem-child/topics/one.md`;
+    const firstMemory = '# Memory\n\n- SENTINEL-MEM-1\n- [Topic one](topics/one.md)\n';
+    const firstTopic = '# Topic one\n\nSENTINEL-TOPIC-1\n';
+    const editedMemory = `${firstMemory}- SENTINEL-MEM-1-EDITED\n`;
+
+    const provider = createProvider();
+    const sessions = sessionsFor(provider);
+    let provider2: DockerSandboxProvider | undefined;
+    let sessions2: SessionSandboxes | undefined;
+    try {
+      toolScenarios = [
+        {
+          marker: 'MEM-PARENT-1',
+          steps: [
+            {
+              name: 'Agent',
+              input: {
+                subagent_type: 'mem-child',
+                description: 'write memory',
+                prompt: 'MEM-CHILD-1 写入你的项目记忆',
+              },
+            },
+          ],
+          finalText: 'DONE:MEM-PARENT-1',
+        },
+        {
+          marker: 'MEM-CHILD-1',
+          steps: [
+            { name: 'Write', input: { file_path: memoryPath, content: firstMemory } },
+            { name: 'Write', input: { file_path: topicPath, content: firstTopic } },
+            {
+              name: 'Edit',
+              input: {
+                file_path: memoryPath,
+                old_string: '- [Topic one](topics/one.md)\n',
+                new_string: '- [Topic one](topics/one.md)\n- SENTINEL-MEM-1-EDITED\n',
+              },
+            },
+          ],
+          finalText: 'DONE:MEM-CHILD-1',
+        },
+      ];
+
+      const lease1 = await sessions.acquire(
+        spec,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
+      const firstSandboxId = lease1.sandboxId;
+      const run1 = await startRun(
+        lease1,
+        'MEM-PARENT-1 委派子智能体写入项目记忆',
+        undefined,
+        memoryTask(['mem-child']),
+      );
+      expect((await withTimeout(run1.execution.done, 60_000, 'memory run 1')).state).toBe(
+        'stopped',
+      );
+      expect(finishedEvent(run1.events)?.status).toBe('succeeded');
+
+      // 第一轮就落盘到宿主子智能体记忆目录，Edit 后的字节与宿主文件一致。
+      expect(readFileSync(join(hostDir, 'MEMORY.md'), 'utf8')).toBe(editedMemory);
+      expect(readFileSync(join(hostDir, 'topics', 'one.md'), 'utf8')).toBe(firstTopic);
+      const firstAgent = toolCalls(run1.events).find((call) => call.name === 'Agent');
+      const firstChildTools = toolCalls(run1.events).filter(
+        (call) => call.parentToolUseId !== undefined,
+      );
+      expect(firstChildTools.map((call) => call.name)).toEqual(['Write', 'Write', 'Edit']);
+      expect(firstChildTools.every((call) => call.parentToolUseId === firstAgent?.id)).toBe(true);
+      expect(firstChildTools.every((call) => !DENIED_RESULT.test(call.result ?? ''))).toBe(true);
+
+      await lease1.release({ reuse: true });
+      fake.requests.length = 0;
+      toolScenarios = [
+        {
+          marker: 'MEM-PARENT-2',
+          steps: [
+            {
+              name: 'Agent',
+              input: {
+                subagent_type: 'mem-child',
+                description: 'read memory',
+                prompt: 'MEM-CHILD-2 读取你的项目记忆',
+              },
+            },
+          ],
+          finalText: 'DONE:MEM-PARENT-2',
+        },
+        {
+          marker: 'MEM-CHILD-2',
+          steps: [
+            { name: 'Read', input: { file_path: memoryPath } },
+            { name: 'Read', input: { file_path: topicPath } },
+          ],
+          finalText: 'DONE:MEM-CHILD-2',
+        },
+      ];
+
+      // 同一容器、同一宿主挂载，第二轮必须能读到第一轮写下的内容。
+      const lease2 = await sessions.acquire(
+        spec,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
+      expect(lease2.sandboxId).toBe(firstSandboxId);
+      const run2 = await startRun(
+        lease2,
+        'MEM-PARENT-2 再委派子智能体读取项目记忆',
+        undefined,
+        memoryTask(['mem-child']),
+      );
+      expect((await withTimeout(run2.execution.done, 60_000, 'memory run 2')).state).toBe(
+        'stopped',
+      );
+      expect(finishedEvent(run2.events)?.status).toBe('succeeded');
+      const secondChildRequest = fake
+        .messageRequests()
+        .find((request) => lastUserText(request.body).includes('MEM-CHILD-2'));
+      expect(secondChildRequest).toBeDefined();
+      const secondSystem = systemText(secondChildRequest?.body);
+      // MEMORY.md 由官方 SDK 自动注入子智能体 system，而不是只有显式 Read 才可见。
+      expect(secondSystem).toContain('SENTINEL-MEM-1');
+      expect(secondSystem).toContain(`${SUBAGENT_MEMORY_ROOT}/mem-child`);
+      const secondChildReads = toolCalls(run2.events).filter(
+        (call) => call.parentToolUseId !== undefined && call.name === 'Read',
+      );
+      expect(secondChildReads).toHaveLength(2);
+      expect(secondChildReads[0]?.result).toContain('SENTINEL-MEM-1');
+      expect(secondChildReads[1]?.result).toContain('SENTINEL-TOPIC-1');
+
+      await lease2.release({ reuse: true });
+      await sessions.close();
+      await provider.destroyAll().catch(() => undefined);
+      fake.requests.length = 0;
+      toolScenarios = [
+        {
+          marker: 'MEM-PARENT-3',
+          steps: [
+            {
+              name: 'Agent',
+              input: {
+                subagent_type: 'mem-child',
+                description: 'read memory after restart',
+                prompt: 'MEM-CHILD-3 新会话读取你的项目记忆',
+              },
+            },
+          ],
+          finalText: 'DONE:MEM-PARENT-3',
+        },
+        {
+          marker: 'MEM-CHILD-3',
+          steps: [{ name: 'Read', input: { file_path: memoryPath } }],
+          finalText: 'DONE:MEM-CHILD-3',
+        },
+      ];
+
+      // 整个容器销毁后，新 session 重新挂载同一宿主目录仍加载同一份记忆。
+      provider2 = createProvider();
+      sessions2 = sessionsFor(provider2);
+      const lease3 = await sessions2.acquire(
+        spec,
+        new AbortController().signal,
+        `run-${randomUUID()}`,
+      );
+      expect(lease3.sandboxId).not.toBe(firstSandboxId);
+      const run3 = await startRun(
+        lease3,
+        'MEM-PARENT-3 新容器再委派子智能体',
+        undefined,
+        memoryTask(['mem-child']),
+      );
+      expect((await withTimeout(run3.execution.done, 60_000, 'memory run 3')).state).toBe(
+        'stopped',
+      );
+      expect(finishedEvent(run3.events)?.status).toBe('succeeded');
+      const thirdChildRequest = fake
+        .messageRequests()
+        .find((request) => lastUserText(request.body).includes('MEM-CHILD-3'));
+      expect(thirdChildRequest).toBeDefined();
+      expect(systemText(thirdChildRequest?.body)).toContain('SENTINEL-MEM-1');
+      const thirdChildRead = toolCalls(run3.events).find(
+        (call) => call.parentToolUseId !== undefined && call.name === 'Read',
+      );
+      expect(thirdChildRead?.result).toContain('SENTINEL-MEM-1');
+      await lease3.release({ reuse: true });
+    } finally {
+      await sessions.close().catch(() => undefined);
+      await sessions2?.close().catch(() => undefined);
+      await provider.destroyAll().catch(() => undefined);
+      await provider2?.destroyAll().catch(() => undefined);
+    }
+  }, 240_000);
+
+  it('enforces child project-memory boundaries while parent memory keeps working', async () => {
+    const spec = specs.boundary;
+    const childHost = subAgentHost('boundary', 'mem-child');
+    const siblingHost = subAgentHost('boundary', 'mem-sibling');
+    const parentMemoryPath = join(spec.memoryDir, 'MEMORY.md');
+    const ownMemoryPath = `${SUBAGENT_MEMORY_ROOT}/mem-child/MEMORY.md`;
+    const siblingMemoryPath = `${SUBAGENT_MEMORY_ROOT}/mem-sibling/MEMORY.md`;
+    const ownContent = '# Child Memory\n\nSENTINEL-CHILD-OWN\n';
+    const parentContent = '# Parent Memory\n\nSENTINEL-PARENT-OWN\n';
+    const parentMarker = 'MEM-BOUNDARY-PARENT';
+    const childMarker = 'MEM-BOUNDARY-CHILD';
+
+    toolScenarios = [
+      {
+        marker: parentMarker,
+        steps: [
+          {
+            name: 'Write',
+            input: { file_path: '/mnt/agent-memory/MEMORY.md', content: parentContent },
+          },
+          { name: 'Read', input: { file_path: '/mnt/agent-memory/MEMORY.md' } },
+          {
+            name: 'Agent',
+            input: {
+              subagent_type: 'mem-child',
+              description: 'memory boundary check',
+              prompt: `${childMarker} 检查文件工具边界`,
+            },
+          },
+          { name: 'Read', input: { file_path: ownMemoryPath } },
+          { name: 'Read', input: { file_path: '/mnt/agent-memory/MEMORY.md' } },
+        ],
+        finalText: `DONE:${parentMarker}`,
+      },
+      {
+        marker: childMarker,
+        steps: [
+          { name: 'Write', input: { file_path: ownMemoryPath, content: ownContent } },
+          { name: 'Read', input: { file_path: ownMemoryPath } },
+          { name: 'Read', input: { file_path: siblingMemoryPath } },
+          {
+            name: 'Write',
+            input: {
+              file_path: `${SUBAGENT_MEMORY_ROOT}/mem-sibling/INTRUDER.md`,
+              content: 'SIBLING-INTRUDER',
+            },
+          },
+          { name: 'Read', input: { file_path: '/mnt/agent-memory/MEMORY.md' } },
+          {
+            name: 'Write',
+            input: { file_path: '/mnt/agent-memory/CHILD-WROTE-PARENT.md', content: 'CHILD-WROTE' },
+          },
+          { name: 'Read', input: { file_path: `${SUBAGENT_MEMORY_ROOT}/ghost/MEMORY.md` } },
+        ],
+        finalText: `DONE:${childMarker}`,
+      },
+    ];
+
+    const result = await execute(
+      spec,
+      `${parentMarker} 检查父与子的记忆边界`,
+      memoryTask(['mem-child', 'mem-sibling']),
+      180_000,
+    );
+    expect(finishedEvent(result.events)?.status).toBe('succeeded');
+    const calls = toolCalls(result.events);
+    const parentCalls = calls.filter((call) => call.parentToolUseId === undefined);
+    const childCalls = calls.filter((call) => call.parentToolUseId !== undefined);
+
+    // 父自身记忆：写入与读取都放行，子智能体结束后仍继续可用。
+    const parentWrites = parentCalls.filter((call) => call.name === 'Write');
+    expect(parentWrites).toHaveLength(1);
+    expect(parentWrites[0]?.result).not.toMatch(DENIED_RESULT);
+    const parentOwnReads = parentCalls.filter(
+      (call) => call.name === 'Read' && call.input?.includes('/mnt/agent-memory/MEMORY.md'),
+    );
+    expect(parentOwnReads).toHaveLength(2);
+    expect(parentOwnReads[0]?.result).toContain('SENTINEL-PARENT-OWN');
+    // 第二次同文件读取可能被 SDK 去重为 "Wasted call"；关键是仍被放行，不是 deny。
+    expect(parentOwnReads[1]?.result).not.toMatch(DENIED_RESULT);
+
+    // 父读子记忆：越界，拒绝且不泄漏内容。
+    const parentReadsChild = parentCalls.find(
+      (call) => call.name === 'Read' && call.input?.includes(ownMemoryPath),
+    );
+    expect(parentReadsChild?.result).toContain(FILE_BOUNDARY_REASON);
+    expect(parentReadsChild?.result).not.toContain('SENTINEL-CHILD-OWN');
+
+    // 子自己的记忆：显式 Write / Read 都生效。
+    const childOwnWrite = childCalls.find(
+      (call) => call.name === 'Write' && call.input?.includes(ownMemoryPath),
+    );
+    expect(childOwnWrite?.result).not.toMatch(DENIED_RESULT);
+    const childOwnRead = childCalls.find(
+      (call) => call.name === 'Read' && call.input?.includes(ownMemoryPath),
+    );
+    expect(childOwnRead?.result).toContain('SENTINEL-CHILD-OWN');
+
+    // 兄弟记忆、父记忆、未登记目录：显式 Read / Write 都必须被拒绝。
+    const siblingRead = childCalls.find(
+      (call) => call.name === 'Read' && call.input?.includes(siblingMemoryPath),
+    );
+    expect(siblingRead?.result).toContain(FILE_BOUNDARY_REASON);
+    expect(siblingRead?.result).not.toContain('SIBLING-SECRET');
+    const siblingWrite = childCalls.find(
+      (call) => call.name === 'Write' && call.input?.includes('INTRUDER.md'),
+    );
+    expect(siblingWrite?.result).toContain(FILE_BOUNDARY_REASON);
+    const parentMemoryRead = childCalls.find(
+      (call) => call.name === 'Read' && call.input?.includes('/mnt/agent-memory/MEMORY.md'),
+    );
+    expect(parentMemoryRead?.result).toContain(FILE_BOUNDARY_REASON);
+    expect(parentMemoryRead?.result).not.toContain('SENTINEL-PARENT-OWN');
+    const parentMemoryWrite = childCalls.find(
+      (call) => call.name === 'Write' && call.input?.includes('CHILD-WROTE-PARENT.md'),
+    );
+    expect(parentMemoryWrite?.result).toContain(FILE_BOUNDARY_REASON);
+    const ghostRead = childCalls.find(
+      (call) => call.name === 'Read' && call.input?.includes('/ghost/'),
+    );
+    expect(ghostRead?.result).toContain(FILE_BOUNDARY_REASON);
+
+    // 宿主字节证明允许的写入真正落盘，越界写入没有产生文件。
+    expect(readIfExists(join(childHost, 'MEMORY.md'))).toBe(ownContent);
+    expect(readIfExists(join(siblingHost, 'MEMORY.md'))).toBe('SIBLING-SECRET\n');
+    expect(readIfExists(join(siblingHost, 'INTRUDER.md'))).toBeUndefined();
+    expect(readIfExists(parentMemoryPath)).toBe(parentContent);
+    expect(readIfExists(join(spec.memoryDir, 'CHILD-WROTE-PARENT.md'))).toBeUndefined();
+  }, 240_000);
+
+  it.each(DENY_CASES)(
+    'keeps an explicit bare $tool deny for a memory:project subagent',
+    async ({ name, specKey, tool, slug, initial }) => {
+      const containerPath = `${SUBAGENT_MEMORY_ROOT}/${slug}/topics/deny.md`;
+      const hostPath = join(subAgentHost(name, slug), 'topics', 'deny.md');
+      const parentMarker = `DENY-PARENT-${tool.toUpperCase()}`;
+      const childMarker = `DENY-CHILD-${tool.toUpperCase()}`;
+      const step: ToolStep =
+        tool === 'Read'
+          ? { name: 'Read', input: { file_path: containerPath } }
+          : tool === 'Write'
+            ? {
+                name: 'Write',
+                input: { file_path: containerPath, content: 'OVERWRITTEN-BY-CHILD\n' },
+              }
+            : {
+                name: 'Edit',
+                input: {
+                  file_path: containerPath,
+                  old_string: initial.trim(),
+                  new_string: 'CHANGED-BY-CHILD',
+                },
+              };
+      toolScenarios = [
+        {
+          marker: parentMarker,
+          steps: [
+            {
+              name: 'Agent',
+              input: {
+                subagent_type: slug,
+                description: `deny ${tool.toLowerCase()}`,
+                prompt: `${childMarker} 尝试调用 ${tool}`,
+              },
+            },
+          ],
+          finalText: `DONE:${parentMarker}`,
+        },
+        { marker: childMarker, steps: [step], finalText: `DONE:${childMarker}` },
+      ];
+
+      const result = await execute(
+        specs[specKey],
+        `${parentMarker} 委派拒绝 ${tool} 的子智能体`,
+        memoryTask([slug]),
+        120_000,
+      );
+
+      expect(finishedEvent(result.events)?.status).toBe('succeeded');
+      const calls = toolCalls(result.events);
+      const agent = calls.find((call) => call.name === 'Agent');
+      const child = calls.find((call) => call.name === tool && call.parentToolUseId !== undefined);
+      // 子调用必须挂在父侧实际发起的 Agent tool_use 上，不能靠事件顺序猜测。
+      expect(agent).toBeDefined();
+      expect(child?.parentToolUseId).toBe(agent?.id);
+      expect(child?.result).toContain(`No such tool available: ${tool}`);
+
+      if (tool === 'Read') {
+        // 主题文件只可能由显式 Read 读到；MEMORY.md 的自动加载另行核对。
+        expect(child?.result).not.toContain(initial.trim());
+        const childRequest = fake
+          .messageRequests()
+          .find((request) => systemText(request.body).includes(`${SUBAGENT_MEMORY_ROOT}/${slug}`));
+        expect(childRequest).toBeDefined();
+        expect(systemText(childRequest?.body)).toContain(`AUTO-${name.toUpperCase()}`);
+        expect(systemText(childRequest?.body)).not.toContain(initial.trim());
+      } else {
+        // deny 生效时宿主文件必须原样保留。
+        expect(readFileSync(hostPath, 'utf8')).toBe(initial);
+      }
+    },
+    120_000,
+  );
+
+  it('denies file tools to the undeclared built-in general-purpose subagent', async () => {
+    const parentMarker = 'UNKNOWN-PARENT';
+    const childMarker = 'UNKNOWN-CHILD';
+    toolScenarios = [
+      {
+        marker: parentMarker,
+        steps: [
+          {
+            name: 'Agent',
+            input: {
+              subagent_type: 'general-purpose',
+              description: 'unknown agent file check',
+              prompt: `${childMarker} 尝试读取本轮附件`,
+            },
+          },
+        ],
+        finalText: `DONE:${parentMarker}`,
+      },
+      {
+        marker: childMarker,
+        steps: [{ name: 'Read', input: { file_path: '/mnt/inputs/note.txt' } }],
+        finalText: `DONE:${childMarker}`,
+      },
+    ];
+
+    const result = await execute(
+      specs.unknown,
+      `${parentMarker} 委派内置 general-purpose 读取附件`,
+      { allowSubAgents: true, maxTurns: 12 },
+      120_000,
+    );
+
+    expect(finishedEvent(result.events)?.status).toBe('succeeded');
+    const calls = toolCalls(result.events);
+    const agent = calls.find((call) => call.name === 'Agent');
+    expect(agent).toBeDefined();
+    const childRead = calls.find(
+      (call) => call.name === 'Read' && call.parentToolUseId !== undefined,
+    );
+    expect(childRead?.parentToolUseId).toBe(agent?.id);
+    expect(childRead?.result).toContain(FILE_BOUNDARY_REASON);
+    expect(childRead?.result).not.toContain('session sandbox fixture');
   }, 120_000);
 });

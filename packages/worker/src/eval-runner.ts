@@ -63,34 +63,20 @@ function runOneCase(
   context: { runId: string | null },
 ) {
   return Effect.gen(function* () {
-    const conversation = yield* dbQuery(() =>
-      chatRepo.createConversation(db, {
-        id: newId('conversation'),
-        agentId: input.agentId,
-        title: input.title,
-      }),
-    );
     const agentVersion = yield* dbQuery(() =>
       repo.agentVersions.latestAgentVersion(db, input.agentId),
     );
-    const run = yield* dbQuery(() =>
-      chatRepo.createRun(db, {
-        id: newId('run'),
-        conversationId: conversation.id,
+    // 评估用例与聊天共用准入：同一事务取绑定锁、锁「发起专家 + enabled 子级」的记忆。
+    const admitted = yield* dbQuery(() =>
+      chatRepo.admitChatRun(db, {
         agentId: input.agentId,
+        message: input.prompt,
+        title: input.title,
         ...(agentVersion === null ? {} : { agentVersion }),
       }),
     );
+    const run = admitted.run;
     context.runId = run.id;
-    yield* dbQuery(() =>
-      chatRepo.appendMessage(db, {
-        id: newId('message'),
-        conversationId: conversation.id,
-        role: 'user',
-        content: { type: 'text', text: input.prompt },
-        runId: run.id,
-      }),
-    );
     const queueEvents = getRunQueueEvents(redisUrl);
     yield* Effect.tryPromise({
       try: () => queueEvents.waitUntilReady(),
@@ -103,7 +89,7 @@ function runOneCase(
           {
             runId: run.id,
             agentId: input.agentId,
-            conversationId: conversation.id,
+            conversationId: admitted.conversationId,
             prompt: input.prompt,
           },
           runEnqueueOptions(run.id),
@@ -135,7 +121,7 @@ function runOneCase(
       return yield* Effect.fail(new Error(`run ended with ${current.status}`));
     }
 
-    const messages = yield* dbQuery(() => chatRepo.listMessages(db, conversation.id));
+    const messages = yield* dbQuery(() => chatRepo.listMessages(db, admitted.conversationId));
     return { output: assistantText(messages) };
   });
 }

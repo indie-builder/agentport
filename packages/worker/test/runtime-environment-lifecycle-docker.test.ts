@@ -335,13 +335,13 @@ describe.skipIf(!dockerReady || !baseImageReady || !dbReady)(
       const spec = specFor(conversationId, environmentRoot);
 
       // 1. 线上 A 时新建容器：lease、docker 镜像 ID、实际标记三者一致。
-      const first = await sessions.acquire(spec, signal);
+      const first = await sessions.acquire(spec, signal, `run-${randomUUID()}`);
       const firstEvidence = observe('create-with-A', conversationId, first, versionA);
       await first.release({ reuse: true });
 
       // 2. 发布 B 后同一会话复用存活容器：仍是 A 的容器/镜像/标记，不读新线上。
       await publish(versionB);
-      const reused = await sessions.acquire(spec, signal);
+      const reused = await sessions.acquire(spec, signal, `run-${randomUUID()}`);
       const reusedEvidence = observe('reuse-after-publish-B', conversationId, reused, versionA);
       expect(reused.sandboxId).toBe(first.sandboxId);
       expect(reusedEvidence.containerId).toBe(firstEvidence.containerId);
@@ -350,7 +350,7 @@ describe.skipIf(!dockerReady || !baseImageReady || !dbReady)(
       // 3. 新会话在 B 线上创建：必须换容器并用 B。
       const otherConversationId = randomUUID();
       const otherSpec = specFor(otherConversationId, environmentRoot);
-      const second = await sessions.acquire(otherSpec, signal);
+      const second = await sessions.acquire(otherSpec, signal, `run-${randomUUID()}`);
       const secondEvidence = observe(
         'new-conversation-with-B',
         otherConversationId,
@@ -365,7 +365,7 @@ describe.skipIf(!dockerReady || !baseImageReady || !dbReady)(
       // 4. 原会话空闲被真实回收后重建：此时线上仍是 B，新容器必须是 B。
       await waitForGone(first.sandboxId, IDLE_TIMEOUT_MS + 20_000);
       expect(containerExists(first.sandboxId)).toBe(false);
-      const rebuilt = await sessions.acquire(spec, signal);
+      const rebuilt = await sessions.acquire(spec, signal, `run-${randomUUID()}`);
       const rebuiltEvidence = observe('idle-rebuild-with-B', conversationId, rebuilt, versionB);
       expect(rebuilt.sandboxId).not.toBe(first.sandboxId);
       expect(rebuiltEvidence.containerId).not.toBe(firstEvidence.containerId);
@@ -373,7 +373,7 @@ describe.skipIf(!dockerReady || !baseImageReady || !dbReady)(
 
       // 5. 回退 A 不替换存活的 B 容器；再新建会话才用 A。
       await publish(versionA);
-      const kept = await sessions.acquire(spec, signal);
+      const kept = await sessions.acquire(spec, signal, `run-${randomUUID()}`);
       const keptEvidence = observe('survives-rollback-to-A', conversationId, kept, versionB);
       expect(kept.sandboxId).toBe(rebuilt.sandboxId);
       expect(keptEvidence.containerId).toBe(rebuiltEvidence.containerId);
@@ -381,7 +381,7 @@ describe.skipIf(!dockerReady || !baseImageReady || !dbReady)(
 
       const thirdConversationId = randomUUID();
       const thirdSpec = specFor(thirdConversationId, environmentRoot);
-      const third = await sessions.acquire(thirdSpec, signal);
+      const third = await sessions.acquire(thirdSpec, signal, `run-${randomUUID()}`);
       const thirdEvidence = observe(
         'new-conversation-after-rollback-A',
         thirdConversationId,

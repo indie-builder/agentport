@@ -258,6 +258,81 @@ describe.skipIf(!ready)('chat admission', () => {
     }
   });
 
+  it('rejects an admission that passed the enabled precheck when the agent is disabled while it waits', async () => {
+    const agent = await newAgent();
+    const locker = await app.pool.connect();
+    const postNewConversation = (message: string) =>
+      inject(app, {
+        method: 'POST',
+        url: '/api/chat',
+        headers: { cookie },
+        payload: { agentId: agent.id, message },
+      });
+    let pendingPost: ReturnType<typeof postNewConversation> | undefined;
+    let pendingAdmission: Promise<unknown> | undefined;
+    try {
+      const own = await locker.query<{ pid: number }>('select pg_backend_pid() as pid');
+      const lockerPid = own.rows[0]?.pid;
+      await locker.query('begin');
+      // 真实停用路径也先拿这把绑定锁；持锁不提交，两条准入会先通过各自的 enabled 预检再停在锁上。
+      await locker.query('select pg_advisory_xact_lock(hashtext($1))', [
+        'agentport.subagent-bindings',
+      ]);
+      await locker.query('update agents set enabled = false where id = $1', [agent.id]);
+
+      pendingPost = postNewConversation('disabled while waiting');
+      // 共享准入的直接入口没有外层预检，用它证明检查发生在准入锁内。
+      pendingAdmission = repo.chat
+        .admitChatRun(app.db, { agentId: agent.id, message: 'disabled while waiting (repo)' })
+        .then(
+          (value) => value,
+          (error: unknown) => error,
+        );
+
+      const blocked = await waitFor(async () => {
+        const res = await app.pool.query<{ count: string }>(
+          `select count(*) as count from pg_stat_activity
+            where wait_event_type = 'Lock'
+              and query ilike '%pg_advisory_xact_lock%'
+              and $1 = any(pg_blocking_pids(pid))`,
+          [lockerPid],
+        );
+        return Number(res.rows[0]?.count) >= 2;
+      });
+      expect(blocked, 'both admissions must wait on the binding lock').toBe(true);
+
+      await locker.query('commit');
+
+      const problem = expectProblem(await pendingPost, 'AGENT_DISABLED');
+      expect(problem.message).toBe('该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
+      expect(await pendingAdmission).toMatchObject({
+        code: 'AGENT_DISABLED',
+        message: '该智能体已停用，无法发起新对话；请到智能体页面启用后再试',
+      });
+
+      const counts = await app.pool.query<{
+        conversations: string;
+        runs: string;
+        messages: string;
+      }>(
+        `select
+           (select count(*) from conversations where agent_id = $1) as conversations,
+           (select count(*) from agent_runs where agent_id = $1) as runs,
+           (select count(*) from messages m
+              join conversations c on c.id = m.conversation_id
+             where c.agent_id = $1) as messages`,
+        [agent.id],
+      );
+      expect(counts.rows[0]).toEqual({ conversations: '0', runs: '0', messages: '0' });
+    } finally {
+      await locker.query('rollback').catch(() => undefined);
+      locker.release();
+      // 失败路径下准入可能仍在排队；等它落地再让 cleanup 删 agent。
+      await pendingPost;
+      await pendingAdmission;
+    }
+  });
+
   it('checks the agent before taking the conversation lock, so a concurrent delete cannot deadlock', async () => {
     const agent = await newAgent();
     const conversationId = await newConversation(agent.id);

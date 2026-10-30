@@ -16,6 +16,7 @@ import { Deferred, Effect, Exit, type Scope } from 'effect';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { publicRunQuestion, redactChatEvent, redactSecrets } from './redact.js';
+import { SandboxCleanupError } from './sandbox/provider.js';
 import type {
   SandboxExecution,
   SessionSandboxes,
@@ -56,9 +57,13 @@ export interface SandboxRunInput {
   questions?: SandboxQuestionCallbacks;
 }
 
-/** 可重试 = 基础设施瞬时故障；业务失败不重试。分类来自 RunFailure，不再匹配错误文本。 */
+/**
+ * 可重试 = 停稳已确认 + 基础设施瞬时故障；业务失败不重试。
+ * 停稳未确认时容器可能还在执行副作用，重跑会重复计费与写文件。
+ */
 export function isRetryable(outcome: SandboxRunOutcome): boolean {
   return (
+    outcome.settlement.state === 'stopped' &&
     outcome.cleanupError === undefined &&
     outcome.failure !== undefined &&
     isRetryableFailure(outcome.failure)
@@ -69,7 +74,7 @@ export interface SandboxRunOutcome {
   status: RunStatus;
   sandboxId: string;
   settlement: ExecutionSettlement;
-  /** 异常执行已在返回前销毁，调用方不再释放该 lease。 */
+  /** release 已被调用（结果已缓存）；不代表销毁成功，是否停稳只看 settlement。 */
   leaseReleased?: true;
   costUsd?: number;
   turns?: number;
@@ -421,6 +426,9 @@ function toError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** acquire 的总预算；超时后仍要等 provider 清理完，不能先返回留下未知容器。 */
+const ACQUIRE_BUDGET_MS = 30_000;
+
 /** 订阅先于 acquire，拉取镜像与 supervisor ready 同样可取消且有界。 */
 export async function acquireSessionSandbox(input: {
   runId: string;
@@ -433,41 +441,109 @@ export async function acquireSessionSandbox(input: {
     Effect.scoped(
       Effect.gen(function* () {
         const cancelled = yield* Deferred.make<void>();
-        return yield* Effect.raceAllFirst([
-          Effect.gen(function* () {
-            yield* subscribeCancel(
-              input.runId,
-              input.logger,
-              () => Deferred.doneUnsafe(cancelled, Exit.succeed(undefined)),
-              input.signal,
-            );
-            if (Deferred.isDoneUnsafe(cancelled) || input.signal.aborted)
-              return yield* Effect.fail(
-                new RunFailure('cancelled', 'cancelled during sandbox acquire'),
-              );
-            return yield* Effect.tryPromise({
-              try: (signal) =>
-                input.manager.acquire(input.spec, AbortSignal.any([signal, input.signal])),
-              catch: (err) =>
-                err instanceof RunFailure
-                  ? err
-                  : new RunFailure(input.signal.aborted ? 'cancelled' : 'infra', toError(err)),
-            });
-          }),
-          Deferred.await(cancelled).pipe(
-            Effect.flatMap(() =>
-              Effect.fail(new RunFailure('cancelled', 'cancelled during sandbox acquire')),
-            ),
-          ),
-          Effect.sleep(30_000).pipe(
-            Effect.flatMap(() =>
-              Effect.fail(new RunFailure('infra', 'sandbox acquire timed out after 30000ms')),
-            ),
-          ),
-        ]);
+        const aborter = new AbortController();
+        const onCancel = (): void => {
+          Deferred.doneUnsafe(cancelled, Exit.succeed(undefined));
+          aborter.abort();
+        };
+        // 订阅与创建共用一个预算，避免准备阶段把 30s 翻倍。
+        const deadline = Date.now() + ACQUIRE_BUDGET_MS;
+        const prepared = yield* Effect.result(
+          Effect.raceAllFirst([
+            Effect.gen(function* () {
+              yield* subscribeCancel(input.runId, input.logger, onCancel, input.signal);
+              return Deferred.isDoneUnsafe(cancelled) || input.signal.aborted
+                ? ({ kind: 'cancelled' } as const)
+                : ({ kind: 'prepared' } as const);
+            }),
+            Deferred.await(cancelled).pipe(Effect.map(() => ({ kind: 'cancelled' }) as const)),
+            Effect.sleep(ACQUIRE_BUDGET_MS).pipe(Effect.map(() => ({ kind: 'timeout' }) as const)),
+          ]),
+        );
+        if (prepared._tag === 'Failure') return yield* Effect.fail(prepared.failure);
+        if (prepared.success.kind === 'cancelled')
+          return yield* Effect.fail(
+            new RunFailure('cancelled', 'cancelled during sandbox acquire'),
+          );
+        if (prepared.success.kind === 'timeout')
+          return yield* Effect.fail(
+            new RunFailure('infra', `sandbox acquire timed out after ${ACQUIRE_BUDGET_MS}ms`),
+          );
+        return yield* Effect.tryPromise({
+          try: () =>
+            acquireLease({
+              manager: input.manager,
+              spec: input.spec,
+              runId: input.runId,
+              aborter,
+              cancelled: () => Deferred.isDoneUnsafe(cancelled) || input.signal.aborted,
+              remainingMs: Math.max(0, deadline - Date.now()),
+            }),
+          catch: (err) =>
+            err instanceof RunFailure ? err : new RunFailure('infra', toError(err), err),
+        });
       }),
     ),
   );
+}
+
+/**
+ * 取消/超时只负责 abort；provider 契约要求它清理完容器再 reject。
+ * 这里必须等到真正收尾：提前返回会让调用方以为没有遗留容器。
+ */
+async function acquireLease(input: {
+  manager: Pick<SessionSandboxes, 'acquire'>;
+  spec: SessionSandboxSpec;
+  runId: string;
+  aborter: AbortController;
+  cancelled: () => boolean;
+  remainingMs: number;
+}): Promise<SessionSandboxLease> {
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    input.aborter.abort();
+  }, input.remainingMs);
+  try {
+    let lease: SessionSandboxLease;
+    try {
+      lease = await input.manager.acquire(input.spec, input.aborter.signal, input.runId);
+    } catch (err) {
+      const cancelled = input.cancelled();
+      // 原始错误（含 provider 的 SandboxCleanupError）保留在 cause 链里，index 才能按 id 继续清理。
+      if (err instanceof RunFailure && !timedOut && !cancelled) throw err;
+      throw new RunFailure(
+        !timedOut && cancelled ? 'cancelled' : 'infra',
+        timedOut
+          ? `sandbox acquire timed out after ${ACQUIRE_BUDGET_MS}ms`
+          : cancelled
+            ? 'cancelled during sandbox acquire'
+            : toError(err),
+        err,
+      );
+    }
+    if (!timedOut && !input.cancelled()) return lease;
+    // provider 忽略了取消仍迟到返回：所有权已经在这里，必须释放（销毁）后再报告。
+    const reason = timedOut ? 'infra' : 'cancelled';
+    const message = timedOut
+      ? `sandbox acquire timed out after ${ACQUIRE_BUDGET_MS}ms`
+      : 'cancelled during sandbox acquire';
+    try {
+      await lease.release({ reuse: false });
+    } catch (cleanupError) {
+      // 释放失败必须带容器 id，index 才能按 id 继续清理；普通错误没有 id，用 lease 自身的补上。
+      throw new RunFailure(
+        reason,
+        message,
+        cleanupError instanceof SandboxCleanupError
+          ? cleanupError
+          : new SandboxCleanupError(lease.sandboxId, message, cleanupError),
+      );
+    }
+    throw new RunFailure(reason, message);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOutcome> {
@@ -523,6 +599,10 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
         leaseReleased: true,
         settlement: { state: 'unconfirmed', error },
         cleanupError: error,
+        // provider 的 SandboxCleanupError 带容器 id；保留在 cause 链里，index 才能按 id 继续清理。
+        ...(outcome.failure === undefined
+          ? {}
+          : { failure: new RunFailure(outcome.failure.reason, outcome.failure.message, err) }),
       };
     }
   }

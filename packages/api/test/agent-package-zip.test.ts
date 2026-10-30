@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { Agent, Server, Skill } from '@agentport/shared';
 import { AGENT_PACKAGE_MAX_BYTES, AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
@@ -13,6 +15,7 @@ import {
   injectZip,
   loginCookie,
   startApp,
+  testConfig,
   unique,
 } from './helpers.js';
 import {
@@ -1128,7 +1131,19 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(source.statusCode, source.body).toBe(201);
     const sourceResult = source.json<AgentImportResult>();
 
+    // 学习内容属于运行期产物；包只携带定义，不复制记忆正文。
+    const memoryDir = join(testConfig().WORKSPACES_DIR, childSlug, 'agent-memory');
+    await mkdir(memoryDir, { recursive: true });
+    await writeFile(join(memoryDir, 'MEMORY.md'), 'LEARNED-SECRET-CONTENT');
+
     const files = await exportFiles(sourceResult.agent.id);
+    const exportedChildMd = files.get(`.claude/agents/${childSlug}.md`) ?? '';
+    expect(exportedChildMd).toContain('CHILD-PROMPT');
+    expect(exportedChildMd).toContain('memory: project');
+    expect([...files.keys()].some((path) => path.includes('agent-memory'))).toBe(false);
+    expect([...files.values()].join('\n')).not.toContain('LEARNED-SECRET-CONTENT');
+    await rm(join(testConfig().WORKSPACES_DIR, childSlug), { recursive: true, force: true });
+
     expect(files.get('.claude/rules/root-rule.md')).toContain('Keep root rules.');
     expect(files.get('.claude/output-styles/brief.md')).toContain('Be brief.');
     expect(JSON.parse(files.get('.claude/settings.json') ?? '{}')).toEqual({
@@ -1173,6 +1188,10 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(result.createdSkills).toEqual([]);
 
     const roundTrip = await exportFiles(result.agent.id);
+    const roundTripChildMd = roundTrip.get(`.claude/agents/${childSlug}-2.md`) ?? '';
+    expect(roundTripChildMd).toContain('CHILD-PROMPT');
+    expect(roundTripChildMd).toContain('memory: project');
+    expect([...roundTrip.values()].join('\n')).not.toContain('LEARNED-SECRET-CONTENT');
     expect(roundTrip.get('.claude/rules/root-rule.md')).toBe(
       files.get('.claude/rules/root-rule.md'),
     );
@@ -1188,6 +1207,24 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       effort: 'high',
       uiFormat: 'openui',
     });
+  });
+
+  it('rejects user/local memory scopes in package child definitions', async () => {
+    for (const scope of ['user', 'local']) {
+      const slug = unique(`pkg-memory-${scope}`);
+      const childSlug = unique(`pkg-memory-child-${scope}`);
+      const files = packageFiles({
+        agent: { slug, name: slug },
+        subAgents: [{ slug: childSlug }],
+      });
+      const childPath = `.claude/agents/${childSlug}.md`;
+      files[childPath] = (files[childPath] ?? '').replace('memory: project', `memory: ${scope}`);
+
+      const res = await importZip(
+        rawZip(Object.entries(files).map(([name, content]) => ({ name, content }))),
+      );
+      expectProblem(res, 'INVALID_INPUT');
+    }
   });
 
   it('round-trips OpenUI packages without polluting the prompt or duplicating the section', async () => {

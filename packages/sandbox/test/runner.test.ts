@@ -389,7 +389,7 @@ describe('runner task wiring', () => {
     expect(io.closed).toBe(true);
   });
 
-  it('keeps file tools denied in generated child frontmatter', () => {
+  it('renders child project memory without the platform file-tool deny', () => {
     const child = { slug: 'child', name: 'Child', model: 'm', systemPrompt: 'p', maxTurns: 5 };
     const files = renderWorkspace({
       agent: { ...child, slug: 'parent' },
@@ -397,9 +397,17 @@ describe('runner task wiring', () => {
       subAgents: [child],
     });
     const content = files.subAgents[0]?.content ?? '';
+    expect(content).toContain('memory: project');
     for (const tool of ['Read', 'Write', 'Edit']) {
-      expect(content).toMatch(new RegExp(`disallowedTools: \\[[^\\]]*"${tool}"`));
+      expect(content).not.toMatch(new RegExp(`disallowedTools: \\[[^\\]]*"${tool}"`));
     }
+    // 用户显式 deny 仍要出现在子定义里。
+    const denied = renderWorkspace({
+      agent: { ...child, slug: 'parent' },
+      servers: [],
+      subAgents: [{ ...child, disallowedTools: ['Write'] }],
+    });
+    expect(denied.subAgents[0]?.content).toMatch(/disallowedTools: \[[^\]]*"Write"/);
   });
 
   it('allows native file tools on the rw outputs mount without SDK additionalDirectories', async () => {
@@ -422,6 +430,21 @@ describe('runner task wiring', () => {
     expect(options.disallowedTools).toContain('Glob');
     expect(options.disallowedTools).toContain('Grep');
     expect(options.disallowedTools).not.toContain('Write');
+  });
+
+  it('preapproves child project memory for file tools while an explicit deny still wins', async () => {
+    await run({
+      subAgents: [{ slug: 'child', servers: [], skills: [] }],
+      extraDisallowedTools: ['Read'],
+    });
+    const options = io.options as Options;
+    expect(options.allowedTools).toContain('Read(//workspace/.claude/agent-memory/**)');
+    expect(options.allowedTools).toContain('Edit(//workspace/.claude/agent-memory/**)');
+    // 显式 deny 由 SDK 先于 hook 生效；预批准路径不放宽用户自己的拒绝。
+    expect(options.disallowedTools).toContain('Read');
+
+    await run({});
+    expect(io.options?.allowedTools).not.toContain('Read(//workspace/.claude/agent-memory/**)');
   });
 
   it('keeps the file boundary hook off non-file tools and sub-agents', async () => {

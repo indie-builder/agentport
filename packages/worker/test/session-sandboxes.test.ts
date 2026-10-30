@@ -3,7 +3,12 @@ import { PassThrough } from 'node:stream';
 import type { ChatEvent, ResolvedRuntimeEnvironment, SandboxInputCommand } from '@agentport/shared';
 import pino from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../src/sandbox/provider.js';
+import {
+  type Sandbox,
+  SandboxCleanupError,
+  type SandboxCreateOptions,
+  type SandboxProvider,
+} from '../src/sandbox/provider.js';
 
 function abortError(): Error {
   const error = new Error('aborted');
@@ -60,7 +65,7 @@ class FakeProvider implements SandboxProvider {
   holdReady = false;
   ignoreAbort = false;
   held: HeldCreate[] = [];
-  destroyWaiters: Array<() => void> = [];
+  destroyWaiters: Array<{ resolve(): void; reject(error: Error): void }> = [];
   private count = 0;
 
   async create(options: SandboxCreateOptions): Promise<Sandbox> {
@@ -98,12 +103,18 @@ class FakeProvider implements SandboxProvider {
   }
 
   async destroy(sandbox: Sandbox): Promise<void> {
-    this.destroyed.push(sandbox.id);
-    if (this.failing.has(sandbox.id)) throw new Error(`cleanup failed for ${sandbox.id}`);
-    if (this.holdDestroy) {
-      await new Promise<void>((resolve) => this.destroyWaiters.push(resolve));
-    }
+    await this.destroyById(sandbox.id);
     (sandbox as FakeSandbox).child.emit('close', 0, 'SIGTERM');
+  }
+
+  async destroyById(id: string): Promise<void> {
+    this.destroyed.push(id);
+    if (this.failing.has(id)) throw new Error(`cleanup failed for ${id}`);
+    if (this.holdDestroy) {
+      await new Promise<void>((resolve, reject) => {
+        this.destroyWaiters.push({ resolve, reject });
+      });
+    }
   }
 
   releaseCreate(): void {
@@ -111,7 +122,11 @@ class FakeProvider implements SandboxProvider {
   }
 
   releaseDestroy(): void {
-    this.destroyWaiters.shift()?.();
+    this.destroyWaiters.shift()?.resolve();
+  }
+
+  rejectDestroy(error: Error): void {
+    this.destroyWaiters.shift()?.reject(error);
   }
 
   childOf(sandboxId: string): FakeChild {
@@ -181,8 +196,9 @@ async function acquire(
   sessions: Awaited<ReturnType<typeof createManager>>,
   target: ReturnType<typeof spec>,
   signal?: AbortSignal,
+  runId = 'run_1',
 ) {
-  return sessions.acquire(target, signal ?? new AbortController().signal);
+  return sessions.acquire(target, signal ?? new AbortController().signal, runId);
 }
 
 async function startRun(
@@ -297,6 +313,60 @@ describe('session sandboxes', () => {
     ]);
 
     await lease.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('mounts every child memory directory rw under the project memory root', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const target = spec({
+      subAgentMemoryDirs: [
+        { slug: 'alpha', memoryDir: '/host/memory-alpha' },
+        { slug: 'beta', memoryDir: '/host/memory-beta' },
+      ],
+    });
+
+    const lease = await acquire(sessions, target);
+    expect(provider.creates[0]?.extraMounts).toEqual(
+      expect.arrayContaining([
+        { hostPath: '/host/memory-alpha', containerPath: '/workspace/.claude/agent-memory/alpha' },
+        { hostPath: '/host/memory-beta', containerPath: '/workspace/.claude/agent-memory/beta' },
+      ]),
+    );
+
+    await lease.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('rebuilds when child memory bindings start, stop, or move', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const withChild = (memoryDir: string) =>
+      spec({ subAgentMemoryDirs: [{ slug: 'child', memoryDir }] });
+
+    const first = await acquire(sessions, spec());
+    await first.release({ reuse: true });
+
+    const started = await acquire(sessions, withChild('/host/child'));
+    expect(started.sandboxId).toBe('sandbox-2');
+    expect(provider.destroyed).toEqual(['sandbox-1']);
+    await started.release({ reuse: true });
+
+    // 绑定不变时空闲容器按原规格复用。
+    const reused = await acquire(sessions, withChild('/host/child'));
+    expect(reused.sandboxId).toBe('sandbox-2');
+    expect(provider.creates).toHaveLength(2);
+    await reused.release({ reuse: true });
+
+    const moved = await acquire(sessions, withChild('/host/child-2'));
+    expect(moved.sandboxId).toBe('sandbox-3');
+    expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-2']);
+    await moved.release({ reuse: true });
+
+    const stopped = await acquire(sessions, spec());
+    expect(stopped.sandboxId).toBe('sandbox-4');
+    expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-2', 'sandbox-3']);
+    await stopped.release({ reuse: false });
     await sessions.close();
   });
 
@@ -851,6 +921,219 @@ describe('session sandboxes', () => {
     expect(provider.creates).toHaveLength(2);
     expect(next.sandboxId).toBe('sandbox-2');
     await next.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('retries a broken destroy through cleanup and coalesces concurrent recovery', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const lease = await acquire(sessions, spec());
+    const sandboxId = lease.sandboxId;
+
+    provider.failing.add(sandboxId);
+    await expect(lease.release({ reuse: false })).rejects.toThrow(
+      `cleanup failed for ${sandboxId}`,
+    );
+    // release 缓存了第一次失败的 Promise，重复调用不会重新尝试。
+    await expect(lease.release({ reuse: false })).rejects.toThrow(
+      `cleanup failed for ${sandboxId}`,
+    );
+    expect(provider.destroyed).toEqual([sandboxId]);
+
+    provider.failing.delete(sandboxId);
+    provider.holdDestroy = true;
+    const first = sessions.cleanup('conv_1', sandboxId, 'run_1');
+    const second = sessions.cleanup('conv_1', sandboxId, 'run_1');
+    await vi.waitFor(() => expect(provider.destroyed).toEqual([sandboxId, sandboxId]));
+    provider.releaseDestroy();
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+    // 两次并发 cleanup 共用同一轮销毁，没有重复删除。
+    expect(provider.destroyed).toEqual([sandboxId, sandboxId]);
+
+    provider.holdDestroy = false;
+    const next = await acquire(sessions, spec());
+    expect(next.sandboxId).toBe('sandbox-2');
+    expect(provider.destroyed).toEqual([sandboxId, sandboxId]);
+    await next.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('cleans up by container id when the manager has no entry for it', async () => {
+    const provider = new FakeProvider();
+    const oldManager = await createManager(provider);
+    const lease = await acquire(oldManager, spec());
+    const sandboxId = lease.sandboxId;
+
+    // 模拟 worker 重启：新 manager 没有该会话条目，只能按容器名删除。
+    const restarted = await createManager(provider);
+    await expect(restarted.cleanup('conv_1', sandboxId, 'run_1')).resolves.toBeUndefined();
+    expect(provider.destroyed).toEqual([sandboxId]);
+
+    // 没有条目也不能把删除失败当成已清理。
+    provider.failing.add(sandboxId);
+    await expect(restarted.cleanup('conv_1', sandboxId, 'run_1')).rejects.toThrow(
+      `cleanup failed for ${sandboxId}`,
+    );
+    provider.failing.delete(sandboxId);
+
+    await lease.release({ reuse: false });
+    expect(provider.destroyed).toEqual([sandboxId, sandboxId, sandboxId]);
+    await restarted.close();
+    await oldManager.close();
+  });
+
+  it('rejects cleanup for the old run while a new lease holds the container before start', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+
+    const first = await acquire(sessions, spec(), undefined, 'run_1');
+    const sandboxId = first.sandboxId;
+    await first.release({ reuse: true });
+
+    const second = await acquire(sessions, spec(), undefined, 'run_2');
+    expect(second.sandboxId).toBe(sandboxId);
+    // 新 lease 已独占容器但还没 start：旧 run 的清理不得销毁它。
+    await expect(sessions.cleanup('conv_1', sandboxId, 'run_1')).rejects.toThrow(/run_2/);
+    expect(provider.destroyed).toEqual([]);
+
+    await second.release({ reuse: false });
+    expect(provider.destroyed).toEqual([sandboxId]);
+    await sessions.close();
+  });
+
+  it('reports the sandbox id when a late-created container cannot be destroyed', async () => {
+    const provider = new FakeProvider();
+    provider.holdCreate = true;
+    provider.ignoreAbort = true;
+    const sessions = await createManager(provider);
+    const controller = new AbortController();
+
+    const acquiring = acquire(sessions, spec(), controller.signal);
+    await vi.waitFor(() => expect(provider.held).toHaveLength(1));
+    provider.failing.add('sandbox-1');
+    controller.abort();
+    provider.releaseCreate();
+
+    await expect(acquiring).rejects.toMatchObject({
+      name: 'SandboxCleanupError',
+      sandboxId: 'sandbox-1',
+    });
+    provider.failing.delete('sandbox-1');
+    await expect(sessions.close()).resolves.toBeUndefined();
+  });
+
+  it('reports the sandbox id when a failed ready wait cannot destroy the container', async () => {
+    const provider = new FakeProvider();
+    provider.holdReady = true;
+    const sessions = await createManager(provider);
+    const controller = new AbortController();
+
+    const acquiring = acquire(sessions, spec(), controller.signal);
+    await vi.waitFor(() => expect(provider.sandboxes).toHaveLength(1));
+    provider.failing.add('sandbox-1');
+    controller.abort();
+
+    await expect(acquiring).rejects.toMatchObject({
+      name: 'SandboxCleanupError',
+      sandboxId: 'sandbox-1',
+    });
+    expect(provider.destroyed).toEqual(['sandbox-1']);
+    provider.failing.delete('sandbox-1');
+    await expect(sessions.close()).resolves.toBeUndefined();
+  });
+
+  it('reports the sandbox id when replacing the container cannot destroy the old one', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const lease = await acquire(sessions, spec());
+    const sandboxId = lease.sandboxId;
+    await lease.release({ reuse: true });
+
+    provider.failing.add(sandboxId);
+    await expect(
+      acquire(sessions, spec({ runtimeEnvironmentId: 'env_2' }), undefined, 'run_2'),
+    ).rejects.toMatchObject({ name: 'SandboxCleanupError', sandboxId });
+    expect(provider.creates).toHaveLength(1);
+
+    provider.failing.delete(sandboxId);
+    await expect(sessions.close()).resolves.toBeUndefined();
+  });
+
+  it('reports the sandbox id when a broken retry fails to destroy the container again', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const lease = await acquire(sessions, spec());
+    provider.failing.add(lease.sandboxId);
+    await expect(lease.release({ reuse: false })).rejects.toThrow(/cleanup failed for sandbox-1/);
+
+    const failure = await acquire(sessions, spec(), undefined, 'run_2').then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(SandboxCleanupError);
+    expect((failure as SandboxCleanupError).sandboxId).toBe('sandbox-1');
+    // 二次失败仍保留 provider 的原始错误，上层可按 id 继续清理。
+    expect(((failure as SandboxCleanupError).cause as Error).message).toBe(
+      'cleanup failed for sandbox-1',
+    );
+    expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']);
+    expect(provider.creates).toHaveLength(1);
+
+    provider.failing.delete(lease.sandboxId);
+    await expect(sessions.close()).resolves.toBeUndefined();
+    expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1', 'sandbox-1']);
+  });
+
+  it('reports the sandbox id when a concurrent destroy fails while acquiring', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider, 10);
+    const lease = await acquire(sessions, spec());
+    provider.holdDestroy = true;
+    await lease.release({ reuse: true });
+    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
+
+    const acquiring = acquire(sessions, spec(), undefined, 'run_2');
+    // 等待中的 acquire 占住 entry，第三个请求仍按 busy 拒绝，不带别的 run 的错误 id。
+    await expect(acquire(sessions, spec(), undefined, 'run_3')).rejects.toThrow(/busy/i);
+
+    provider.rejectDestroy(new Error('destroy failed while held'));
+
+    const failure = await acquiring.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(SandboxCleanupError);
+    expect((failure as SandboxCleanupError).sandboxId).toBe('sandbox-1');
+    expect(((failure as SandboxCleanupError).cause as Error).message).toBe(
+      'destroy failed while held',
+    );
+
+    provider.holdDestroy = false;
+    await expect(sessions.close()).resolves.toBeUndefined();
+    expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']);
+  });
+
+  it('cleans an older container by id without destroying the current one', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const first = await acquire(sessions, spec());
+    const oldId = first.sandboxId;
+    await first.release({ reuse: false });
+
+    const current = await acquire(sessions, spec());
+    const currentId = current.sandboxId;
+    expect(currentId).not.toBe(oldId);
+
+    await sessions.cleanup('conv_1', oldId, 'run_1');
+    expect(provider.destroyed).toEqual([oldId, oldId]);
+
+    // 当前条目仍被跟踪：释放后复用的还是新容器，没有被旧 id 的清理误杀。
+    await current.release({ reuse: true });
+    const reused = await acquire(sessions, spec());
+    expect(reused.sandboxId).toBe(currentId);
+    expect(provider.creates).toHaveLength(2);
+    await reused.release({ reuse: false });
     await sessions.close();
   });
 

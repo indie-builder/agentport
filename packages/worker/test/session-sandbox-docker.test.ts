@@ -55,6 +55,33 @@ class RecordingProvider implements SandboxProvider {
   destroy(sandbox: Sandbox): Promise<void> {
     return this.inner.destroy(sandbox);
   }
+
+  destroyById(id: string): Promise<void> {
+    return this.inner.destroyById(id);
+  }
+}
+
+/** 第一次 destroy 拒绝且不触碰真实容器，用来验证 cleanup 的重试路径。 */
+class RejectFirstDestroyProvider implements SandboxProvider {
+  private rejected = false;
+
+  constructor(private readonly inner: SandboxProvider) {}
+
+  create(options: SandboxCreateOptions): Promise<Sandbox> {
+    return this.inner.create(options);
+  }
+
+  destroy(sandbox: Sandbox): Promise<void> {
+    if (!this.rejected) {
+      this.rejected = true;
+      return Promise.reject(new Error(`injected destroy failure for ${sandbox.id}`));
+    }
+    return this.inner.destroy(sandbox);
+  }
+
+  destroyById(id: string): Promise<void> {
+    return this.inner.destroyById(id);
+  }
 }
 
 function dockerProvider(): DockerSandboxProvider {
@@ -186,11 +213,11 @@ function taskInput(prompt: string) {
 
 type Lease = Awaited<ReturnType<SessionSandboxes['acquire']>>;
 
-async function startRun(lease: Lease, prompt: string) {
+async function startRun(lease: Lease, prompt: string, runId = `run-${randomUUID()}`) {
   const events: RecordedEvent[] = [];
   const stderr: string[] = [];
   const execution = await lease.start({
-    runId: `run-${randomUUID()}`,
+    runId,
     task: taskInput(prompt),
     env: {},
     onEvent: (event: RecordedEvent) => {
@@ -410,14 +437,22 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       const firstPrompt = `first-${randomUUID()}`;
       const secondPrompt = `second-${randomUUID()}`;
 
-      const firstLease = await current.sessions.acquire(current.spec, signal);
+      const firstLease = await current.sessions.acquire(
+        current.spec,
+        signal,
+        `run-${randomUUID()}`,
+      );
       current.ids.push(firstLease.sandboxId);
       const first = await startRun(firstLease, firstPrompt);
       expect(await first.execution.done).toMatchObject({ state: 'stopped' });
       expect(succeeded(first.events, firstPrompt)).toBe(true);
       await firstLease.release({ reuse: true });
 
-      const secondLease = await current.sessions.acquire(current.spec, signal);
+      const secondLease = await current.sessions.acquire(
+        current.spec,
+        signal,
+        `run-${randomUUID()}`,
+      );
       current.ids.push(secondLease.sandboxId);
       expect(secondLease.sandboxId).toBe(firstLease.sandboxId);
       const second = await startRun(secondLease, secondPrompt);
@@ -447,8 +482,8 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       const signal = new AbortController().signal;
       const leftPrompt = `left-${randomUUID()}`;
       const rightPrompt = `right-${randomUUID()}`;
-      const leftLease = await left.sessions.acquire(left.spec, signal);
-      const rightLease = await right.sessions.acquire(right.spec, signal);
+      const leftLease = await left.sessions.acquire(left.spec, signal, `run-${randomUUID()}`);
+      const rightLease = await right.sessions.acquire(right.spec, signal, `run-${randomUUID()}`);
       left.ids.push(leftLease.sandboxId);
       right.ids.push(rightLease.sandboxId);
       expect(leftLease.sandboxId).not.toBe(rightLease.sandboxId);
@@ -491,7 +526,7 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       const longPrompt = `fixture:long-${randomUUID()}`;
       const thirdPrompt = `third-${randomUUID()}`;
 
-      const lease = await current.sessions.acquire(current.spec, signal);
+      const lease = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
       current.ids.push(lease.sandboxId);
       const run = await startRun(lease, longPrompt);
 
@@ -515,7 +550,7 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       expect(containerRunning(lease.sandboxId)).toBe(true);
       await lease.release({ reuse: true });
 
-      const again = await current.sessions.acquire(current.spec, signal);
+      const again = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
       current.ids.push(again.sandboxId);
       expect(again.sandboxId).toBe(lease.sandboxId);
       const third = await startRun(again, thirdPrompt);
@@ -539,7 +574,7 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       const signal = new AbortController().signal;
       const firstPrompt = `persist-${randomUUID()}`;
 
-      const lease = await current.sessions.acquire(current.spec, signal);
+      const lease = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
       current.ids.push(lease.sandboxId);
       const first = await startRun(lease, firstPrompt);
       expect(await first.execution.done).toMatchObject({ state: 'stopped' });
@@ -556,7 +591,7 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
 
       // 容器删除完成即视为回收完成：下一轮必须能直接 acquire，不能靠重试掩盖
       // destroy 尚未收口时抛 busy 的竞态。
-      const fresh = await current.sessions.acquire(current.spec, signal);
+      const fresh = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
       current.ids.push(fresh.sandboxId);
       expect(fresh.sandboxId).not.toBe(lease.sandboxId);
       // 新容器仍挂到同一会话目录：上一轮的持久文件还在，runner 无需重建状态。
@@ -581,7 +616,7 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       const signal = new AbortController().signal;
       const longPrompt = `fixture:long-${randomUUID()}`;
 
-      const lease = await current.sessions.acquire(current.spec, signal);
+      const lease = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
       current.ids.push(lease.sandboxId);
       const run = await startRun(lease, longPrompt);
       let settled = false;
@@ -611,8 +646,8 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
     const right = await incident();
     try {
       const signal = new AbortController().signal;
-      const leftLease = await left.sessions.acquire(left.spec, signal);
-      const rightLease = await right.sessions.acquire(right.spec, signal);
+      const leftLease = await left.sessions.acquire(left.spec, signal, `run-${randomUUID()}`);
+      const rightLease = await right.sessions.acquire(right.spec, signal, `run-${randomUUID()}`);
       left.ids.push(leftLease.sandboxId);
       right.ids.push(rightLease.sandboxId);
       const [leftRun, rightRun] = await Promise.all([
@@ -646,7 +681,7 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       const signal = new AbortController().signal;
       const prompt = `fixture:orphan-${randomUUID()}`;
 
-      const lease = await current.sessions.acquire(current.spec, signal);
+      const lease = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
       current.ids.push(lease.sandboxId);
       const run = await startRun(lease, prompt);
 
@@ -680,7 +715,7 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       expect(inContainer(lease.sandboxId, ['cat', GROUP_PROGRESS])).toBe(groupAtSettle);
 
       await lease.release({ reuse: true });
-      const again = await current.sessions.acquire(current.spec, signal);
+      const again = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
       current.ids.push(again.sandboxId);
       expect(again.sandboxId).toBe(lease.sandboxId);
       const nextPrompt = `after-orphan-${randomUUID()}`;
@@ -718,7 +753,7 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       const busyFile = join(current.spec.outputsDir, BUSY_OUTPUT);
       const prompt = `fixture:busy-${randomUUID()}`;
 
-      const lease = await current.sessions.acquire(current.spec, signal);
+      const lease = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
       current.ids.push(lease.sandboxId);
       const run = await startRun(lease, prompt);
 
@@ -764,6 +799,69 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       for (const id of current?.ids ?? []) {
         expect(containerExists(id)).toBe(false);
       }
+    }
+  });
+
+  it('retries a failed destroy from cleanup and confirms the container and host writes stop', {
+    timeout: 60_000,
+  }, async () => {
+    let current: Incident | null = null;
+    const recording = new RejectFirstDestroyProvider(dockerProvider());
+    try {
+      current = await incident(60_000, recording);
+      const signal = new AbortController().signal;
+      const busyFile = join(current.spec.outputsDir, BUSY_OUTPUT);
+      const prompt = `fixture:busy-cleanup-${randomUUID()}`;
+
+      const runId = `run-${randomUUID()}`;
+      const lease = await current.sessions.acquire(current.spec, signal, runId);
+      current.ids.push(lease.sandboxId);
+      const run = await startRun(lease, prompt, runId);
+
+      const readTick = async (): Promise<number | null> => {
+        if (!existsSync(busyFile)) return null;
+        return Number(JSON.parse(await readFile(busyFile, 'utf8')).tick);
+      };
+      await waitFor(async () => {
+        const tick = await readTick();
+        return tick !== null && tick >= 2 ? tick : null;
+      }, 'busy output to advance');
+
+      // 第一次 destroy 被包装器拒绝：清理不能当成成功，容器必须继续存活并写共享宿主目录。
+      await expect(lease.release({ reuse: false })).rejects.toThrow(/injected destroy failure/);
+      expect(containerRunning(lease.sandboxId)).toBe(true);
+      const tickAfterFailure = await readTick();
+      expect(tickAfterFailure).not.toBeNull();
+      await delay(200);
+      const tickStillWriting = await readTick();
+      expect(tickStillWriting).toBeGreaterThan(tickAfterFailure ?? 0);
+
+      // 显式 cleanup 走真实 destroy 重试：容器被删除后宿主文件必须停止变化。
+      await current.sessions.cleanup(current.spec.conversationId, lease.sandboxId, runId);
+      await waitFor(
+        () => !containerExists(lease.sandboxId),
+        'failed container to be removed after cleanup',
+        20_000,
+      );
+      const settlement = await run.execution.done;
+      const frozen = await readFile(busyFile, 'utf8');
+      await delay(300);
+      expect(await readFile(busyFile, 'utf8')).toBe(frozen);
+
+      cleanupEvidence.push({
+        test: 'failed-destroy-cleanup-retry',
+        settlement,
+        sandboxId: lease.sandboxId,
+        firstDestroyRejected: true,
+        cleanupResolved: true,
+        containerRemoved: true,
+        outputFrozen: true,
+        tickAfterFailure,
+        tickStillWriting,
+        tickAfterCleanup: JSON.parse(frozen).tick,
+      });
+    } finally {
+      await dispose(current);
     }
   });
 });

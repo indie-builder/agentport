@@ -15,7 +15,7 @@ import {
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentRuns, agents, conversations, messages } from '../schema.js';
-import { agentMemoryLockKey, lockMemoryKey } from './locks.js';
+import { lockRunResources } from './locks.js';
 import { inheritApprovals } from './runs.js';
 
 /** 事务句柄：准入逻辑在事务内复用同一批写函数。 */
@@ -777,16 +777,21 @@ export async function admitChatRun(
   userMessageUuid: string;
 }> {
   return db.transaction(async (tx) => {
-    // 与记忆写入共用同一把专家锁：检查无运行与写记忆互斥，新 run 不会在写入中途入队。
-    await lockMemoryKey(tx as unknown as Database, agentMemoryLockKey(input.agentId));
+    // 与记忆写入共用「发起专家 + enabled 子级」的记忆锁：集合在运行期间固定，
+    // 入队前先锁住整个集合，新 run 不会在写入中途落地。
+    await lockRunResources(tx, input.agentId);
     // 锁序：先 agents 再 conversations；反向会和 agent_runs 的外键检查形成删除死锁。
     const [owner] = await tx
-      .select({ id: agents.id })
+      .select({ id: agents.id, enabled: agents.enabled })
       .from(agents)
       .where(eq(agents.id, input.agentId))
       .limit(1)
       .for('key share');
     if (!owner) fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
+    // 入口的 enabled 预检在锁外；停用若在等锁期间提交，只有锁内重读才能拦住这次入队。
+    if (!owner.enabled) {
+      fail('AGENT_DISABLED', '该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
+    }
 
     let conversationId: string;
     if (input.conversationId === undefined) {

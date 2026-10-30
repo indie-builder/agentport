@@ -55,6 +55,7 @@ import {
 } from './outputs.js';
 import { projectPersonalMemory } from './personal-memory.js';
 import { startReconciler } from './reconcile.js';
+import { finalizeRun, handOffPendingFinish, type RunFinishedEvent } from './run-finish.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
   acquireSessionSandbox,
@@ -72,6 +73,7 @@ import {
 import { startRuntimeEnvironmentBuildReconciler } from './runtime-environments/reconcile.js';
 import { createRuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider, resolveLocalImageId } from './sandbox/docker.js';
+import { SandboxCleanupError } from './sandbox/provider.js';
 import { SessionSandboxes, type SessionSandboxLease } from './sandbox/sessions.js';
 import { registerSandboxProbe } from './sandbox-probe.js';
 import { startScheduleScheduler } from './scheduler.js';
@@ -475,6 +477,18 @@ try {
   stopDefaultEnvironmentRetry = startDefaultEnvironmentRetry(defaultEnvironmentDeps);
 }
 
+/**
+ * acquire 阶段已创建但无法确认删除的容器：runner 把 provider 的
+ * SandboxCleanupError 放进 RunFailure.cause。普通 acquire 拒绝没有这个 id，说明没有遗留。
+ */
+function cleanupSandboxIdOf(err: unknown): string | undefined {
+  if (err instanceof SandboxCleanupError) return err.sandboxId;
+  if (err instanceof RunFailure && err.cause instanceof SandboxCleanupError) {
+    return err.cause.sandboxId;
+  }
+  return undefined;
+}
+
 const worker = new Worker(
   RUNS_QUEUE,
   async (job) => {
@@ -564,12 +578,21 @@ const worker = new Worker(
           .limit(1);
         if (!agent) throw new Error(`agent ${agentId} not found`);
         agentSlugForRun = agent.slug;
+        // 单层委派：只取直接子智能体。容器取得前查一次并沿用到结束；A 保证准入到结束集合稳定。
+        const subAgentRows: SubAgentRow[] = await db
+          .select()
+          .from(schema.agents)
+          .where(eq(schema.agents.parentId, agentId))
+          .orderBy(asc(schema.agents.id));
+        const enabledChildren = subAgentRows.filter((row) => row.enabled);
+        const subAgentSlugs = enabledChildren.map((row) => row.slug).sort();
         // 个人记忆先按 DB 重写再挂载，崩溃后不会把旧投影带进本轮。
         await projectPersonalMemory(db, pool, workspacesDir);
         const sessionPaths = await ensureSessionWorkspace({
           workspacesDir,
           slug: agent.slug,
           conversationId,
+          subAgentSlugs,
         });
         const inputsMount = await conversationInputsMount({
           workspacesDir,
@@ -593,17 +616,23 @@ const worker = new Worker(
             memoryDir: toHostWorkspacePath(sessionPaths.memoryDir),
             sessionsDir: toHostWorkspacePath(sessionPaths.sessionsDir),
             personalDir: toHostWorkspacePath(sessionPaths.personalDir),
+            subAgentMemoryDirs: sessionPaths.subAgentMemoryDirs.map((dir) => ({
+              slug: dir.slug,
+              memoryDir: toHostWorkspacePath(dir.memoryDir),
+            })),
           },
         });
         stableWorkspaceDir = sessionPaths.workspaceDir;
         stableOutputsDir = sessionPaths.outputsDir;
 
         // 记录容器实际使用的身份：复用存活容器时是旧版本，不谎报当前线上。
+        // sandboxId 也在 start 前落库：进程若在运行中崩溃，reconcile 仍知道该销毁哪个容器。
         // 必须落库成功才能开始任务；失败交给外层 catch 释放 lease。
         const runtimeEnvironment = lease.runtimeEnvironment;
         await db
           .update(schema.agentRuns)
           .set({
+            sandboxId: lease.sandboxId,
             runtimeEnvironmentId: runtimeEnvironment.environmentId,
             runtimeEnvironmentName: runtimeEnvironment.environmentName,
             runtimeEnvironmentVersionId: runtimeEnvironment.versionId,
@@ -684,14 +713,6 @@ const worker = new Worker(
           modelProxy ? hashMcpToken(runId) : null,
         );
 
-        // 单层委派：只取直接子智能体；enabled 过滤在 toWorkspaceInput 里统一做。
-        const subAgentRows: SubAgentRow[] = await db
-          .select()
-          .from(schema.agents)
-          .where(eq(schema.agents.parentId, agentId))
-          .orderBy(asc(schema.agents.id));
-        const enabledChildren = subAgentRows.filter((row) => row.enabled);
-
         // 工作区 .mcp.json 是父 + 启用子级的并集：子级按名字引用根条目，
         // 在非交互会话里无需信任目录即可加载；父级看不到子级工具由渲染与 hook 共同限制。
         const { serverNamesByAgent, serverRows } = await loadRunServerBindings(
@@ -767,7 +788,9 @@ const worker = new Worker(
           selectedOutputStyle,
           runPlugins,
         );
-        await refreshSessionDirectory(workspaceDir, stableWorkspaceDir);
+        await refreshSessionDirectory(workspaceDir, stableWorkspaceDir, {
+          preserveMemoryMount: true,
+        });
         logger.info({ runId, agentId, workspaceDir }, 'agent run started');
 
         sessionsDirForRun = sessionPaths.sessionsDir;
@@ -857,11 +880,18 @@ const worker = new Worker(
       } catch (err) {
         const error = err instanceof RunFailure || err instanceof Error ? err.message : String(err);
         logger.error({ err, runId }, 'agent run crashed');
+        // 只有确认容器仍可能存活时才记 unconfirmed：准备阶段和普通 acquire 失败没有遗留，
+        // 误判会禁掉 infra 重试与延迟取消。typed 清理失败由 cause 携带 sandbox id。
+        const cleanupSandboxId = cleanupSandboxIdOf(err);
         outcome = {
           status: err instanceof RunFailure && err.reason === 'cancelled' ? 'cancelled' : 'failed',
           ...(err instanceof RunFailure ? { failure: err } : {}),
-          sandboxId: lease?.sandboxId ?? '',
-          settlement: { state: 'unconfirmed', error },
+          sandboxId: cleanupSandboxId ?? lease?.sandboxId ?? '',
+          settlement:
+            cleanupSandboxId === undefined
+              ? { state: 'stopped', code: null, signal: null }
+              : { state: 'unconfirmed', error },
+          ...(cleanupSandboxId === undefined ? {} : { cleanupError: error }),
           error,
           events: [],
         };
@@ -1049,23 +1079,57 @@ const worker = new Worker(
         }
       }
 
-      const finished = await db
-        .update(schema.agentRuns)
-        .set({
-          status: outcome.status,
-          latencyMs: runLatencyMs ?? null,
-          ...(outcome.sandboxId ? { sandboxId: outcome.sandboxId } : {}),
-          endedAt: new Date(),
-          costUsd: outcome.costUsd === undefined ? null : String(outcome.costUsd),
-          turns: outcome.turns ?? null,
-          sessionId: outcome.sessionId ?? null,
-          inputTokens: outcome.inputTokens ?? null,
-          outputTokens: outcome.outputTokens ?? null,
-          error: outcome.error ?? null,
-          errorKind: outcome.failure?.reason ?? null,
-        })
-        .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')));
-      if (finished.rowCount === 0) {
+      const finishedEvent = (): RunFinishedEvent => ({
+        type: 'run_finished',
+        status: outcome.status,
+        ...(persistedMessages.length === 0 ? {} : { messageIds: persistedMessages }),
+        ...(outcome.costUsd === undefined ? {} : { costUsd: outcome.costUsd }),
+        ...(outcome.turns === undefined ? {} : { turns: outcome.turns }),
+        ...(outcome.error === undefined ? {} : { error: outcome.error }),
+        ...(outcome.failure ? { failureKind: wireFailureKind(outcome.failure.reason) } : {}),
+      });
+      const finishValues = {
+        ...(outcome.sandboxId ? { sandboxId: outcome.sandboxId } : {}),
+        latencyMs: runLatencyMs ?? null,
+        costUsd: outcome.costUsd === undefined ? null : String(outcome.costUsd),
+        turns: outcome.turns ?? null,
+        sessionId: outcome.sessionId ?? null,
+        inputTokens: outcome.inputTokens ?? null,
+        outputTokens: outcome.outputTokens ?? null,
+        error: outcome.error ?? null,
+        errorKind: outcome.failure?.reason ?? null,
+      };
+      // 停稳未确认（stop 无 ACK 且销毁失败）：先只交接终态，状态保持 running，
+      // 业务占用与 memory 准入不释放；由 reconcile 确认容器销毁后再落终态、发布原事件。
+      if (outcome.settlement.state === 'unconfirmed') {
+        await handOffPendingFinish({
+          db,
+          logger,
+          runId,
+          event: finishedEvent(),
+          values: finishValues,
+        });
+        logger.warn(
+          { runId, sandboxId: outcome.sandboxId },
+          'run stop unconfirmed; terminal state deferred to reconcile',
+        );
+        return;
+      }
+
+      const won = await finalizeRun({
+        db,
+        logger,
+        runId,
+        event: finishedEvent(),
+        values: finishValues,
+        audit: {
+          action: 'agent.run.finished',
+          status: outcome.status === 'succeeded' ? 'ok' : 'error',
+          dedupeKey: `aud_${runId.slice(4)}`,
+          ...(runLatencyMs === null ? {} : { durationMs: runLatencyMs }),
+        },
+      });
+      if (!won) {
         const current = await repo.chat.getRun(db, runId);
         if (!current || current.status === 'queued' || current.status === 'running') {
           logger.warn(
@@ -1086,38 +1150,23 @@ const worker = new Worker(
             ? {}
             : { failure: new RunFailure(current.errorKind, current.error ?? current.status) }),
         };
+        await publishRun(runId, finishedEvent(), logger);
+        await repo.audit.writeAudit(db, logger, {
+          actor: 'worker',
+          action: 'agent.run.finished',
+          target: runId,
+          status: outcome.status === 'succeeded' ? 'ok' : 'error',
+          dedupeKey: `aud_${runId.slice(4)}`,
+          ...(runLatencyMs === null ? {} : { durationMs: runLatencyMs }),
+        });
       }
-
-      await publishRun(
-        runId,
-        {
-          type: 'run_finished',
-          status: outcome.status,
-          ...(persistedMessages.length === 0 ? {} : { messageIds: persistedMessages }),
-          ...(outcome.costUsd === undefined ? {} : { costUsd: outcome.costUsd }),
-          ...(outcome.turns === undefined ? {} : { turns: outcome.turns }),
-          ...(outcome.error === undefined ? {} : { error: outcome.error }),
-          ...(outcome.failure ? { failureKind: wireFailureKind(outcome.failure.reason) } : {}),
-        },
-        logger,
-      );
-      // 运行结果进审计表：日志会滚动，审计长期保留。
-      // 幂等：基础设施重试会重跑同一次运行，不能为一次运行写多条审计。
-      await repo.audit.writeAudit(db, logger, {
-        actor: 'worker',
-        action: 'agent.run.finished',
-        target: runId,
-        status: outcome.status === 'succeeded' ? 'ok' : 'error',
-        dedupeKey: `aud_${runId.slice(4)}`,
-        ...(runLatencyMs === null ? {} : { durationMs: runLatencyMs }),
-      });
 
       logger.info(
         { runId, status: outcome.status, costUsd: outcome.costUsd, latencyMs: runLatencyMs },
         'agent run finished',
       );
 
-      if (retryable && finished.rowCount !== 0) {
+      if (retryable && won) {
         throw new Error(`retryable sandbox failure: ${outcome.error ?? 'unknown'}`);
       }
     } finally {
@@ -1236,6 +1285,10 @@ const stopReconciler = startReconciler({
   logger,
   agentTimeoutMs: config.AGENT_TIMEOUT_MS,
   redisUrl: config.REDIS_URL,
+  // 必传：reconcile 只有在确认容器销毁后才允许收敛，不能把缺少清理当成成功。
+  // expectedRunId 防止旧一轮 candidate 的清理误杀复用同一容器的后一个 run。
+  cleanup: ({ conversationId, sandboxId, runId }) =>
+    sessionSandboxes.cleanup(conversationId, sandboxId, runId),
 });
 
 installProcessGuards(logger);

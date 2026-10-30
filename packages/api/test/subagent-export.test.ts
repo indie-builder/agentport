@@ -180,6 +180,7 @@ describe.skipIf(!ready)('subagent export', () => {
     disabledChild = await createAgentWith(unique('exp-child-two'), {
       systemPrompt: 'CHILD-TWO-PROMPT',
       enabled: false,
+      disallowedTools: ['Read'],
       serverIds: [sharedServer.id, disabledServer.id],
       skillIds: [disabledChildSkill.id, sharedSkill.id],
     });
@@ -225,6 +226,10 @@ describe.skipIf(!ready)('subagent export', () => {
     expect(firstMd).toContain('CHILD-ONE-PROMPT');
     expect(firstMd).toContain(childSkill.slug);
     expect(firstMd).toContain('effort: "low"');
+    // 子定义用官方 project 记忆；SDK 需要的文件工具不能再被平台默认禁用。
+    expect(firstMd).toContain('memory: project');
+    for (const tool of ['"Read"', '"Write"', '"Edit"']) expect(firstMd).not.toContain(tool);
+    expect(firstMd).toContain('"Agent"');
 
     expect(sidecar.subAgents).toHaveLength(2);
     for (const child of sidecar.subAgents) {
@@ -238,6 +243,11 @@ describe.skipIf(!ready)('subagent export', () => {
     expect(disabled).toMatchObject({ enabled: false });
     // 子级 MCP 绑定只写在官方 frontmatter 的 mcpServers（名字引用根 .mcp.json）。
     const disabledMd = files.get(`.claude/agents/${disabledChild.slug}.md`) ?? '';
+    expect(disabledMd).toContain('memory: project');
+    // 用户显式 deny 永远保留；平台默认的文件工具禁用只对主定义生效。
+    expect(disabledMd).toMatch(/disallowedTools: \[[^\]]*"Read"/);
+    expect(disabledMd).not.toContain('"Write"');
+    expect(disabledMd).not.toContain('"Edit"');
     const mcpList = /mcpServers:\n((?: {2}- .*\n)*)/.exec(disabledMd)?.[1] ?? '';
     expect(mcpList).toContain(sharedServer.name);
     expect(mcpList).toContain(disabledServer.name);
@@ -336,6 +346,7 @@ describe.skipIf(!ready)('subagent export', () => {
     const childFile = workspace.subAgents[0];
     expect(childFile?.content).toContain(childSkill.slug);
     expect(childFile?.content).toContain('CHILD-ONE-PROMPT');
+    expect(childFile?.content).toContain('memory: project');
     expect(childFile?.content).not.toContain('ROOT-PROMPT');
     // 子定义按名字引用根 .mcp.json 里自己的条目。
     const childMcp = /mcpServers:\n((?: {2}- .*\n)*)/.exec(childFile?.content ?? '')?.[1] ?? '';

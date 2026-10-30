@@ -109,6 +109,7 @@ describe.skipIf(!ready)('session acquire cancellation', () => {
       started = resolve;
     });
     let received: AbortSignal | undefined;
+    let cleanedUp = false;
     const running = acquireSessionSandbox({
       runId,
       logger: quietLogger,
@@ -127,7 +128,17 @@ describe.skipIf(!ready)('session acquire cancellation', () => {
         acquire: (_spec, signal) => {
           received = signal;
           started();
-          return new Promise<SessionSandboxLease>(() => undefined);
+          return new Promise<SessionSandboxLease>((_resolve, reject) => {
+            const abort = (): void => {
+              // provider 契约：abort 后先清理完容器再 reject，调用方要等收尾才返回 cancelled。
+              cleanedUp = true;
+              const err = new Error('acquire aborted');
+              err.name = 'AbortError';
+              reject(err);
+            };
+            if (signal.aborted) abort();
+            else signal.addEventListener('abort', abort, { once: true });
+          });
         },
       },
     });
@@ -136,6 +147,7 @@ describe.skipIf(!ready)('session acquire cancellation', () => {
     await requestCancel(runId);
     await rejected;
     expect(received?.aborted).toBe(true);
+    expect(cleanedUp).toBe(true);
   });
 });
 

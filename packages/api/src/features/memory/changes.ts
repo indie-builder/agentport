@@ -8,7 +8,7 @@ import {
   memoryReviewTargetSchema,
   slugSchema,
 } from '@agentport/shared';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { typed } from '../../types.js';
@@ -57,19 +57,32 @@ async function agentSlug(db: Database, agentId: string): Promise<string> {
   return row.slug;
 }
 
-/** 采纳/回滚会覆盖工作区文件或规则，目标专家不能还有在跑的运行。 */
+/**
+ * 采纳/回滚会覆盖工作区文件或规则，目标专家不能还有在跑的运行。
+ * 一次 parent 运行也占用其 enabled 直接子级的记忆；审核 run 不挂可写目录，不算占用。
+ */
 export async function assertNoActiveRun(db: Database, agentId: string): Promise<void> {
+  const [target] = await db
+    .select({ enabled: schema.agents.enabled, parentId: schema.agents.parentId })
+    .from(schema.agents)
+    .where(eq(schema.agents.id, agentId))
+    .limit(1);
+  const occupied = [agentId];
+  if (target?.enabled && target.parentId !== null) occupied.push(target.parentId);
   const [active] = await db
     .select({ id: schema.agentRuns.id })
     .from(schema.agentRuns)
     .where(
       and(
-        eq(schema.agentRuns.agentId, agentId),
+        inArray(schema.agentRuns.agentId, occupied),
         inArray(schema.agentRuns.status, ['queued', 'running']),
+        ne(schema.agentRuns.trigger, 'review'),
       ),
     )
     .limit(1);
-  if (active) fail('CONFLICT', '该专家仍有运行未结束，请等待完成或取消后再修改记忆');
+  if (active) {
+    fail('CONFLICT', '该专家或其发起中的父专家仍有运行未结束，请等待完成或取消后再修改记忆');
+  }
 }
 
 export interface MemoryTargetState {

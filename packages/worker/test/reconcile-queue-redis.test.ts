@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { createDb, newId, schema } from '@agentport/db';
 import type { AgentRunJob } from '@agentport/shared';
-import { Queue } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import { eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
@@ -71,6 +71,9 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
   } as unknown as Logger;
   let waitingJob: Awaited<ReturnType<typeof queue.add>>;
   let delayedJob: Awaited<ReturnType<typeof queue.add>>;
+  const cleanup = vi.fn(
+    async (_input: { runId: string; conversationId: string; sandboxId: string }) => undefined,
+  );
 
   beforeAll(async () => {
     dbHandle = createDb(isolated?.url ?? '');
@@ -111,6 +114,8 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
 
   beforeEach(() => {
     publishRun.mockClear();
+    cleanup.mockClear();
+    cleanup.mockImplementation(async () => undefined);
   });
 
   afterAll(async () => {
@@ -126,7 +131,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
   });
 
   it('fails only the stale queued run whose job is gone', async () => {
-    const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue);
+    const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue, cleanup);
     // 随机库内只有本用例的三条 run，收敛数必须是 1，不能被别的套件/进程影响。
     expect(reconciled).toBe(1);
 
@@ -181,7 +186,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     const started = Date.now();
     try {
       // 随机库内没有其他陈旧行：Redis 不可用时一条都不该收敛。
-      expect(await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, offline)).toBe(0);
+      expect(await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, offline, cleanup)).toBe(0);
       expect(Date.now() - started).toBeGreaterThanOrEqual(19_000);
       expect(Date.now() - started).toBeLessThan(27_000);
       const rows = await db
@@ -216,13 +221,19 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       conversationId,
       agentId: agentRunning,
       status: 'running',
+      sandboxId: 'sandbox-orphan-running',
       createdAt: new Date(Date.now() - STALE_MS),
       startedAt: new Date(Date.now() - STALE_MS),
     });
 
     try {
-      const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue);
+      const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue, cleanup);
       expect(reconciled).toBe(1);
+      expect(cleanup).toHaveBeenCalledWith({
+        runId: runRunning,
+        conversationId,
+        sandboxId: 'sandbox-orphan-running',
+      });
 
       const [row] = await db
         .select({ status: schema.agentRuns.status, error: schema.agentRuns.error })
@@ -276,7 +287,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     );
 
     try {
-      const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue);
+      const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue, cleanup);
       expect(reconciled).toBe(1);
 
       const rows = await db
@@ -302,4 +313,84 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       await db.delete(schema.agents).where(inArray(schema.agents.id, [shortAgent, longAgent]));
     }
   }, 10_000);
+
+  it('keeps a stale running run while its job is active', async () => {
+    const runActive = newId('run');
+    const agentActive = newId('agent');
+    await db.insert(schema.agents).values({
+      id: agentActive,
+      slug: `reconcile-${agentActive.slice(4, 12)}`,
+      name: 'reconcile-active',
+      model: 'test',
+      timeoutMs: AGENT_TIMEOUT_MS,
+    });
+    await db.insert(schema.agentRuns).values({
+      id: runActive,
+      conversationId,
+      agentId: agentActive,
+      status: 'running',
+      sandboxId: 'sandbox-still-active',
+      createdAt: new Date(Date.now() - STALE_MS),
+      startedAt: new Date(Date.now() - STALE_MS),
+    });
+
+    const activeQueue = new Queue<AgentRunJob>(`reconcile-active-${randomUUID()}`, {
+      connection: { url: process.env.REDIS_URL, maxRetriesPerRequest: null },
+    });
+    let active!: () => void;
+    const reachedActive = new Promise<void>((resolve) => {
+      active = resolve;
+    });
+    let release!: () => void;
+    const blocking = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const worker = new Worker(
+      activeQueue.name,
+      async () => {
+        active();
+        await blocking;
+      },
+      { connection: { url: process.env.REDIS_URL, maxRetriesPerRequest: null } },
+    );
+    worker.on('error', () => undefined);
+    const job = await activeQueue.add(
+      'run',
+      { runId: runActive, agentId: agentActive, conversationId, prompt: 'active' },
+      { jobId: runActive },
+    );
+    // 前面用例的 queued 行也在这个库里：给它们同样的 job 身份，避免被本用例的对账误判为孤儿。
+    const mirrorWaiting = await activeQueue.add(
+      'run',
+      { runId: runWaiting, agentId, conversationId, prompt: 'mirror' },
+      { jobId: runWaiting },
+    );
+    const mirrorDelayed = await activeQueue.add(
+      'run',
+      { runId: runDelayed, agentId, conversationId, prompt: 'mirror' },
+      { jobId: runDelayed, delay: 60_000 },
+    );
+
+    try {
+      await reachedActive;
+      // timeout 被改短也不影响仍在 active 的 job：必须先看到终态才收敛。
+      expect(await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, activeQueue, cleanup)).toBe(
+        0,
+      );
+      const [row] = await db
+        .select({ status: schema.agentRuns.status, error: schema.agentRuns.error })
+        .from(schema.agentRuns)
+        .where(eq(schema.agentRuns.id, runActive));
+      expect(row).toMatchObject({ status: 'running', error: null });
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(publishRun).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await worker.close();
+      await Promise.allSettled([job.remove(), mirrorWaiting.remove(), mirrorDelayed.remove()]);
+      await activeQueue.close();
+      await db.delete(schema.agentRuns).where(eq(schema.agentRuns.id, runActive));
+      await db.delete(schema.agents).where(eq(schema.agents.id, agentActive));
+    }
+  }, 20_000);
 });

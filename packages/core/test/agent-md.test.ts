@@ -198,15 +198,26 @@ describe('parseAgentMd', () => {
       'permissionMode: acceptEdits',
       'skills: [release]',
       'hooks: {}',
-      'memory: user',
       '---',
       '',
       'x',
     ].join('\n');
 
     const error = invalidWith(content);
-    for (const key of ['tools', 'disallowedTools', 'permissionMode', 'skills', 'hooks', 'memory']) {
+    for (const key of ['tools', 'disallowedTools', 'permissionMode', 'skills', 'hooks']) {
       expect(error.message).toContain(key);
+    }
+  });
+
+  it('accepts project memory and rejects the user/local scopes', () => {
+    const withMemory = (value: string) =>
+      ['---', 'name: scoped', 'description: d', `memory: ${value}`, '---', '', 'x'].join('\n');
+
+    expect(parseAgentMd(withMemory('project')).agent.slug).toBe('scoped');
+    for (const scope of ['user', 'local']) {
+      const error = invalidWith(withMemory(scope));
+      expect(error.path).toBe('/memory');
+      expect(error.message).toContain('project');
     }
   });
 

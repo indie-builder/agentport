@@ -216,7 +216,7 @@ function toInput(agent: Agent): AgentInput {
 const positiveIntMessage = '必须大于 0，请调整后再保存';
 const invalidNumberMessage = '请填写有效内容';
 
-/** 原生文件工具：运行时对主会话按路径放行，对子智能体一律禁用。 */
+/** 原生文件工具：父按平台路径范围使用，子仅能访问自身记忆目录；两者都可显式关闭。 */
 const FILE_TOOLS = ['Read', 'Write', 'Edit'] as const;
 
 function isFileTool(tool: string): tool is (typeof FILE_TOOLS)[number] {
@@ -1354,11 +1354,10 @@ export function AgentEditor({
   };
 
   /**
-   * 主会话的原生文件工具默认按路径放行：关闭只加裸 deny，恢复只删裸 allow/deny，
-   * 回到平台默认范围；路径规则和其它工具的规则一律保留。
+   * 原生文件工具默认启用：关闭只加裸 deny，恢复只删裸 allow/deny，回到平台默认范围；
+   * 父子和路径规则共用同一逻辑，其它工具的规则一律保留。
    */
   const toggleFileTool = (tool: string): void => {
-    if (agent.parentId !== null) return;
     const current = rhf.getValues() as AgentDraft;
     const enabled = !current.disallowedTools.includes(tool);
     set(
@@ -2477,17 +2476,26 @@ export function AgentEditor({
                       <p className="mb-2 max-w-[70ch] text-xs leading-relaxed text-muted-foreground">
                         {agent.parentId === null
                           ? '主会话可用原生文件工具读写记忆 Markdown 与本轮成果，并只读附件与技能参考；关闭某个工具不等于 Bash 无法读写文件，Bash 仍受 Docker 挂载边界约束。恢复保留已有规则；文件工具的自定义允许项不扩大平台范围，路径禁用规则由 SDK 判断；平台文件边界始终保留。'
-                          : '子智能体的原生文件工具由平台禁用。'}
+                          : '子智能体默认读写自身记忆目录内的 Markdown；关闭工具不会关闭 MEMORY.md 自动加载。自定义允许项不扩大文件范围，其他禁用规则仍生效；Bash 可访问同一容器的可写挂载。子级禁用规则带路径时也会禁用整个工具。'}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {BUILTIN_TOOLS.map((tool) => {
                           const fileTool = isFileTool(tool);
                           const childFileTool = fileTool && agent.parentId !== null;
-                          const enabled = childFileTool
-                            ? false
-                            : fileTool
-                              ? !toolDraft.disallowedTools.includes(tool)
-                              : builtinEnabled(toolDraft, tool);
+                          const fileToolLabels = childFileTool
+                            ? {
+                                on: '默认启用（仅自身记忆）',
+                                off: '已显式禁用',
+                                restore: '默认记忆范围',
+                              }
+                            : {
+                                on: '已启用（受路径限制）',
+                                off: '已禁用',
+                                restore: '默认文件范围',
+                              };
+                          const enabled = fileTool
+                            ? !toolDraft.disallowedTools.includes(tool)
+                            : builtinEnabled(toolDraft, tool);
                           const fixed = tool === 'Agent' || tool === 'TaskStop';
                           return (
                             <Toggle
@@ -2498,33 +2506,30 @@ export function AgentEditor({
                               onPressedChange={() =>
                                 fileTool ? toggleFileTool(tool) : toggleBuiltin(tool)
                               }
-                              disabled={fixed || childFileTool || pending}
+                              disabled={fixed || pending}
                               title={
-                                childFileTool
-                                  ? '子智能体的原生文件工具由平台禁用'
-                                  : fixed
-                                    ? enabled
-                                      ? '由子智能体绑定放行；解绑子智能体后自动禁用'
-                                      : '绑定子智能体后自动放行'
-                                    : fileTool
-                                      ? enabled
-                                        ? '已启用（受路径限制）：点击禁用'
-                                        : '已禁用：点击恢复默认文件范围'
-                                      : enabled
-                                        ? '已放行：点击禁用'
-                                        : '已禁用：点击放行'
+                                fixed
+                                  ? enabled
+                                    ? '由子智能体绑定放行；解绑子智能体后自动禁用'
+                                    : '绑定子智能体后自动放行'
+                                  : fileTool
+                                    ? `${enabled ? fileToolLabels.on : fileToolLabels.off}：点击${
+                                        enabled ? '禁用' : `恢复${fileToolLabels.restore}`
+                                      }`
+                                    : enabled
+                                      ? '已放行：点击禁用'
+                                      : '已禁用：点击放行'
                               }
                               className="font-mono"
                             >
                               {tool}
                               <span className="sr-only">
-                                {enabled
-                                  ? fileTool
-                                    ? '：已启用（受路径限制）'
-                                    : '：已启用'
-                                  : '：已禁用'}
+                                {fileTool
+                                  ? `：${enabled ? fileToolLabels.on : fileToolLabels.off}`
+                                  : enabled
+                                    ? '：已启用'
+                                    : '：已禁用'}
                                 {fixed ? '，由子智能体绑定决定' : ''}
-                                {childFileTool ? '，子智能体的原生文件工具由平台禁用' : ''}
                               </span>
                             </Toggle>
                           );

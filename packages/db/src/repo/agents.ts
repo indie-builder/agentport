@@ -7,6 +7,7 @@ import {
   agentOutputStyles,
   agentPlugins,
   agentRules,
+  agentRuns,
   agentServers,
   agentSkills,
   agents,
@@ -15,6 +16,7 @@ import {
 } from '../schema.js';
 import { insertAgentVersion, retryOnVersionConflict, type Tx } from './agent-versions.js';
 import { notStale } from './freshness.js';
+import { lockAgentBindings } from './locks.js';
 
 export type AgentRow = typeof agents.$inferSelect;
 
@@ -86,15 +88,6 @@ export async function getAgent(db: Database | Tx, id: string): Promise<AgentRow 
 }
 
 /**
- * 委派与插件绑定共用的锁。凡是会拿 agent 行锁的写事务，都必须在第一次拿行锁之前
- * 调它：两个方向交叉持锁（先行锁后 advisory / 先 advisory 后行锁）会真死锁。
- * 同事务内重复获取 PG 可重入，不会自阻塞。
- */
-async function lockAgentBindings(tx: Tx): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport.subagent-bindings'))`);
-}
-
-/**
  * 绑定变更串行化：路由里的预检是快路径，并发下两个请求可能都通过，
  * 所以写事务再拿同一把 advisory 锁并复查。只保护绑定，不阻塞普通字段更新。
  * 调用方若会顺带拿行锁，必须先调 lockAgentBindings。
@@ -159,6 +152,34 @@ async function lockSubAgentBindings(
   }
 }
 
+/**
+ * 改变委派活动集合前，确认真实活动 run 已结束。审核 run 不挂可写目录、也不占委派资源，
+ * 因此不算活动运行；queued 取消会直接进入终态，running 取消等 worker 收尾后才解除保护。
+ */
+async function assertAgentsIdle(db: Database | Tx, agentIds: string[]): Promise<void> {
+  if (agentIds.length === 0) return;
+  const [active] = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(
+      and(
+        inArray(agentRuns.agentId, agentIds),
+        inArray(agentRuns.status, ['queued', 'running']),
+        ne(agentRuns.trigger, 'review'),
+      ),
+    )
+    .limit(1);
+  if (active) {
+    throw new AppError('CONFLICT', '智能体或其委派关系中仍有运行未结束，请等待完成或取消后再修改');
+  }
+}
+
+function sameIdSet(left: string[], right: string[]): boolean {
+  const a = [...new Set(left)].sort();
+  const b = [...new Set(right)].sort();
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
 export async function createAgent(
   db: Database,
   input: AgentWrite,
@@ -172,7 +193,10 @@ export async function createAgent(
     db.transaction(async (tx) => {
       // 先拿 advisory 再碰 agents 的行和唯一索引，与 update/duplicate 的先后顺序一致。
       if (pluginBindings.length > 0) await lockAgentBindings(tx);
-      if (subAgentIds.length > 0) await lockSubAgentBindings(tx, id, subAgentIds);
+      if (subAgentIds.length > 0) {
+        await lockSubAgentBindings(tx, id, subAgentIds);
+        await assertAgentsIdle(tx, subAgentIds);
+      }
       const inserted = await tx
         .insert(agents)
         .values({ id, ...input })
@@ -352,10 +376,26 @@ export async function updateAgent(
     db.transaction(async (tx) => {
       // 锁和复查必须在 UPDATE 之前：拿到锁后再读，读到的才是最终状态。
       // 会拿行锁的写事务一律先拿 advisory，否则与委派事务交叉持锁（二者都改 agents 行）。
-      if (subAgentIds !== undefined || (pluginBindings?.length ?? 0) > 0) {
+      const changesSet = subAgentIds !== undefined || patch.enabled !== undefined;
+      if (changesSet || (pluginBindings?.length ?? 0) > 0) {
         await lockAgentBindings(tx);
       }
       if (subAgentIds !== undefined) await lockSubAgentBindings(tx, id, subAgentIds);
+      if (changesSet) {
+        const current = await getAgent(tx, id);
+        if (current) {
+          if (subAgentIds !== undefined) {
+            const previousChildren = await getAgentSubAgentIds(tx, id);
+            if (!sameIdSet(previousChildren, subAgentIds)) {
+              await assertAgentsIdle(tx, [id, ...previousChildren, ...subAgentIds]);
+            }
+          }
+          // 启停会改变父专家运行时的活动集合：只查目标与它当前的父专家。
+          if (patch.enabled !== undefined && patch.enabled !== current.enabled) {
+            await assertAgentsIdle(tx, current.parentId === null ? [id] : [id, current.parentId]);
+          }
+        }
+      }
       const where =
         expectedUpdatedAt === undefined
           ? eq(agents.id, id)
@@ -481,9 +521,20 @@ async function writeAgentPluginBindings(
   );
 }
 
+/** 删除会断开子智能体的 parent_id；活动集合变化前必须先确认没有真实运行。 */
 export async function deleteAgent(db: Database, id: string): Promise<boolean> {
-  const rows = await db.delete(agents).where(eq(agents.id, id)).returning({ id: agents.id });
-  return rows.length > 0;
+  return db.transaction(async (tx) => {
+    await lockAgentBindings(tx);
+    const self = await getAgent(tx, id);
+    if (!self) return false;
+    const children = await getAgentSubAgentIds(tx, id);
+    const affected = [id, ...children];
+    // 删除一个 enabled 子级也会改变父专家的活动集合。
+    if (self.enabled && self.parentId !== null) affected.push(self.parentId);
+    await assertAgentsIdle(tx, affected);
+    const rows = await tx.delete(agents).where(eq(agents.id, id)).returning({ id: agents.id });
+    return rows.length > 0;
+  });
 }
 
 export async function getAgentServerIds(db: Database | Tx, agentId: string): Promise<string[]> {

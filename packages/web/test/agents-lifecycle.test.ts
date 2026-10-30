@@ -838,22 +838,42 @@ describe('expert file tool permissions', () => {
     expect(button('已保存').disabled).toBe(true);
   });
 
-  it('lets a bare deny override a legacy allow without claiming unrestricted access', async () => {
-    const restricted = { ...agent, allowedTools: ['Read'], disallowedTools: ['Read'] };
-    client.setQueryData(['agents'], [restricted]);
-    vi.mocked(api.agents).mockResolvedValue([restricted]);
-    await mount();
-    const section = await openPermissions();
-    expect(toolToggle('Read').getAttribute('aria-pressed')).toBe('false');
-    expect(toolToggle('Read').textContent).toContain('已禁用');
-    expect(toolToggle('Write').getAttribute('aria-pressed')).toBe('true');
-    expect(section.textContent).toContain('受路径限制');
-    expect(button('已保存').disabled).toBe(true);
-  });
+  it.each([
+    ['parent', null],
+    ['child', 'parent'],
+  ] as const)(
+    'lets a bare deny override a legacy allow on a %s without claiming unrestricted access',
+    async (scope, parentId) => {
+      const restricted = {
+        ...agent,
+        parentId,
+        allowedTools: ['Read'],
+        disallowedTools: ['Read'],
+      };
+      client.setQueryData(['agents'], [restricted]);
+      vi.mocked(api.agents).mockResolvedValue([restricted]);
+      await mount();
+      const section = await openPermissions();
+      expect(toolToggle('Read').getAttribute('aria-pressed')).toBe('false');
+      expect(toolToggle('Read').textContent).toContain(scope === 'child' ? '已显式禁用' : '已禁用');
+      expect(toolToggle('Write').getAttribute('aria-pressed')).toBe('true');
+      expect(section.textContent).toContain(
+        scope === 'child' ? '默认启用（仅自身记忆）' : '受路径限制',
+      );
+      expect(button('已保存').disabled).toBe(true);
+    },
+  );
 
-  it.each(['Read', 'Write', 'Edit'] as const)(
-    'persists %s disable and restore across a reload without rewriting path rules',
-    async (tool) => {
+  it.each([
+    ['parent', 'Read', null],
+    ['parent', 'Write', null],
+    ['parent', 'Edit', null],
+    ['child', 'Read', 'parent'],
+    ['child', 'Write', 'parent'],
+    ['child', 'Edit', 'parent'],
+  ] as const)(
+    'persists %s file tool %s disable and restore across a reload without rewriting path rules',
+    async (scope, tool, parentId) => {
       const originalRules = [
         ...new Set([
           `${tool}(/target/**)`,
@@ -868,6 +888,7 @@ describe('expert file tool permissions', () => {
       const store = {
         current: {
           ...agent,
+          parentId,
           allowedTools: [tool, 'Bash', ...allowPathRules],
           disallowedTools: originalRules,
         },
@@ -900,7 +921,12 @@ describe('expert file tool permissions', () => {
       const section = await openPermissions();
       // Edit(path) 对 Write 的覆盖与 Write(path) 的语义都不由平台判断，只原样保留。
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('true');
-      expect(section.textContent).toContain('文件工具的自定义允许项不扩大平台范围');
+      expect(section.textContent).toContain(
+        scope === 'child' ? '自定义允许项不扩大文件范围' : '文件工具的自定义允许项不扩大平台范围',
+      );
+      if (scope === 'child') {
+        expect(section.textContent).toContain('子级禁用规则带路径时也会禁用整个工具');
+      }
       expect(section.textContent).not.toContain('额外路径限制');
 
       await click(toolToggle(tool));
@@ -915,7 +941,7 @@ describe('expert file tool permissions', () => {
       await remount();
       let reopened = await openPermissions();
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('false');
-      expect(reopened.textContent).toContain('已禁用');
+      expect(reopened.textContent).toContain(scope === 'child' ? '已显式禁用' : '已禁用');
       expect(button('已保存').disabled).toBe(true);
 
       await click(toolToggle(tool));
@@ -929,12 +955,14 @@ describe('expert file tool permissions', () => {
       await remount();
       reopened = await openPermissions();
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('true');
-      expect(reopened.textContent).toContain('已启用（受路径限制）');
+      expect(reopened.textContent).toContain(
+        scope === 'child' ? '默认启用（仅自身记忆）' : '已启用（受路径限制）',
+      );
       expect(button('已保存').disabled).toBe(true);
     },
   );
 
-  it('keeps sub-agent file tools fixed off and ignores legacy allows', async () => {
+  it('enables child file tools by default within its own memory scope', async () => {
     const child = {
       ...agent,
       parentId: 'parent',
@@ -948,12 +976,17 @@ describe('expert file tool permissions', () => {
     const section = await openPermissions();
     for (const tool of ['Read', 'Write', 'Edit']) {
       const toggle = toolToggle(tool);
-      expect(toggle.getAttribute('aria-pressed')).toBe('false');
-      expect(toggle.disabled).toBe(true);
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      expect(toggle.disabled).toBe(false);
+      expect(toggle.textContent).toContain('默认启用（仅自身记忆）');
     }
-    expect(section.textContent).toContain('子智能体的原生文件工具由平台禁用');
+    expect(section.textContent).toContain('子智能体默认读写自身记忆目录内的 Markdown');
+    expect(section.textContent).toContain('关闭工具不会关闭 MEMORY.md 自动加载');
+    expect(section.textContent).toContain('Bash 可访问同一容器的可写挂载');
+    expect(section.textContent).not.toContain('子智能体的原生文件工具由平台禁用');
     await click(toolToggle('Read'));
-    expect(button('已保存').disabled).toBe(true);
+    expect(toolToggle('Read').getAttribute('aria-pressed')).toBe('false');
+    expect(toolToggle('Read').textContent).toContain('已显式禁用');
     expect(update).not.toHaveBeenCalled();
   });
 });
