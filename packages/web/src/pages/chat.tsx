@@ -652,8 +652,56 @@ function ChatWorkspace({
 
   const title = conversationId && detail.data ? titleFromDetail(detail.data) : '未命名会话';
 
+  // 唯一的 56px 头部随消息列渲染，历史／消息／成果三栏从工作区顶部并排开始。
+  // 专家选择随历史开合在头部与历史头部之间切换；展开时搜索只在历史面板保留一处。
+  const header = (
+    <ChatTopBar
+      title={title}
+      conversationId={conversationId}
+      deleting={deleteMutation.isPending}
+      agent={agent}
+      agentOptions={agentOptions}
+      showAgentPicker={desktop ? historyCollapsed : !historyOpen}
+      onSwitchAgent={switchAgent}
+      historyVisible={desktop ? !historyCollapsed : historyOpen}
+      historyPanelId="chat-history"
+      onToggleHistory={() => {
+        if (desktop) {
+          if (historyCollapsed) historyPanelRef.current?.resize(lastHistorySize.current);
+          else historyPanelRef.current?.collapse();
+          setHistoryCollapsed(!historyCollapsed);
+        } else {
+          setHistoryOpen(!historyOpen);
+        }
+      }}
+      onOpenSearch={(trigger) => setSearch({ trigger, inSheet: false })}
+      workspaceOpen={workspaceOpen}
+      workspacePanelId="chat-workspace"
+      onToggleWorkspace={() => {
+        if (workspaceOpen) workspaceToggleRef.current?.focus();
+        setWorkspaceOpen(!workspaceOpen);
+      }}
+      workspaceToggleRef={workspaceToggleRef}
+      onRename={(trigger) => {
+        if (conversationId)
+          setRenaming({
+            entry: { id: conversationId, title, updatedAt: '' },
+            trigger,
+            draft: title,
+          });
+      }}
+      onFork={() => {
+        if (conversationId) branch(conversationId);
+      }}
+      onDelete={(trigger) => {
+        if (conversationId) setDeleteTarget({ id: conversationId, title, trigger });
+      }}
+    />
+  );
+
   const column = (
     <ChatColumn
+      header={header}
       agent={agent}
       conversationId={conversationId}
       detail={detail}
@@ -775,199 +823,160 @@ function ChatWorkspace({
   }
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
-      {/* 唯一顶栏固定在整个分栏上方：开合任一抽屉都不移动这些控件。 */}
-      <ChatTopBar
-        title={title}
-        conversationId={conversationId}
-        deleting={deleteMutation.isPending}
-        agent={agent}
-        agentOptions={agentOptions}
-        showAgentPicker={desktop || !historyOpen}
-        onSwitchAgent={switchAgent}
-        historyVisible={desktop ? !historyCollapsed : historyOpen}
-        historyPanelId="chat-history"
-        onToggleHistory={() => {
-          if (desktop) {
-            if (historyCollapsed) historyPanelRef.current?.resize(lastHistorySize.current);
-            else historyPanelRef.current?.collapse();
-            setHistoryCollapsed(!historyCollapsed);
-          } else {
-            setHistoryOpen(!historyOpen);
-          }
-        }}
-        onOpenSearch={(trigger) => setSearch({ trigger, inSheet: false })}
-        workspaceOpen={workspaceOpen}
-        workspacePanelId="chat-workspace"
-        onToggleWorkspace={() => {
-          if (workspaceOpen) workspaceToggleRef.current?.focus();
-          setWorkspaceOpen(!workspaceOpen);
-        }}
-        workspaceToggleRef={workspaceToggleRef}
-        onRename={(trigger) => {
-          if (conversationId)
-            setRenaming({
-              entry: { id: conversationId, title, updatedAt: '' },
-              trigger,
-              draft: title,
-            });
-        }}
-        onFork={() => {
-          if (conversationId) branch(conversationId);
-        }}
-        onDelete={(trigger) => {
-          if (conversationId) setDeleteTarget({ id: conversationId, title, trigger });
-        }}
-      />
-      <div className="flex min-h-0 min-w-0 flex-1">
-        {/* 窄屏抽屉由 Base UI 管理焦点、Escape 与滚动锁。 */}
-        <Sheet open={historyOpen && !desktop} onOpenChange={setHistoryOpen}>
-          <SheetContent
-            side="left"
-            showCloseButton={false}
-            aria-describedby={undefined}
-            className="w-[294px]! max-w-full! gap-5 p-0"
-          >
-            <SheetTitle className="sr-only">会话历史</SheetTitle>
-            <HistoryHeader
-              onNew={newConversation}
-              onClose={() => setHistoryOpen(false)}
-              agent={agent}
-              agentId={agentId}
-              agentOptions={agentOptions}
-              onSwitchAgent={switchAgent}
-            />
-            {renderHistoryPanel(true)}
-            {/* 必须挂在抽屉的 React 子树里：否则抽屉会把重命名对话框的 portal 当成外部节点隐藏。 */}
-            {desktop ? null : renameDialog}
-            {search?.inSheet ? searchDialog : null}
-          </SheetContent>
-        </Sheet>
-
-        {/* 右工作区：宽屏内联旁栏，窄屏走抽屉；与历史互不影响。 */}
-        <Sheet
-          open={workspaceOpen && !wide}
-          onOpenChange={(open) => {
-            workspaceFeedbackRef.current = false;
-            // 关闭时立刻把焦点交回开关，不等退场动画（finalFocus 在动画后才生效）。
-            if (!open) workspaceToggleRef.current?.focus();
-            setWorkspaceOpen(open);
-          }}
+    <div className="flex h-full min-h-0 min-w-0">
+      {/* 窄屏抽屉由 Base UI 管理焦点、Escape 与滚动锁。 */}
+      <Sheet open={historyOpen && !desktop} onOpenChange={setHistoryOpen}>
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          aria-describedby={undefined}
+          className="w-[294px]! max-w-full! gap-5 p-0"
         >
-          <SheetContent
-            side="right"
-            aria-describedby={undefined}
-            finalFocus={() =>
-              workspaceFeedbackRef.current ? composerRef.current : workspaceToggleRef.current
-            }
-            className="w-[400px]! max-w-full! gap-0 p-0"
-          >
-            <SheetTitle className="sr-only">会话成果</SheetTitle>
-            <ConversationOutputs
-              conversationId={conversationId}
-              selection={output}
-              onSelect={onSelectOutput}
-              onFeedback={(ref) => {
-                useChatStore.getState().setOutputRef(ref);
-                workspaceFeedbackRef.current = true;
-                setWorkspaceOpen(false);
-              }}
-            />
-          </SheetContent>
-        </Sheet>
+          <SheetTitle className="sr-only">会话历史</SheetTitle>
+          <HistoryHeader
+            onNew={newConversation}
+            onClose={() => setHistoryOpen(false)}
+            agent={agent}
+            agentId={agentId}
+            agentOptions={agentOptions}
+            onSwitchAgent={switchAgent}
+          />
+          {renderHistoryPanel(true)}
+          {/* 必须挂在抽屉的 React 子树里：否则抽屉会把重命名对话框的 portal 当成外部节点隐藏。 */}
+          {desktop ? null : renameDialog}
+          {search?.inSheet ? searchDialog : null}
+        </SheetContent>
+      </Sheet>
 
-        {desktop ? (
-          <div className="flex min-h-0 w-full">
-            <Group
-              orientation="horizontal"
-              defaultLayout={{ ...historyLayout.defaultLayout, history: 0, chat: 100 }}
-              // 折叠/展开是程序化改尺寸，写回存储只会把宽度记成 0；只持久化用户拖拽的结果。
-              onLayoutChanged={(layout, meta) => {
-                if (meta.isUserInteraction) historyLayout.onLayoutChanged(layout, meta);
+      {/* 右工作区：宽屏内联旁栏，窄屏走抽屉；与历史互不影响。 */}
+      <Sheet
+        open={workspaceOpen && !wide}
+        onOpenChange={(open) => {
+          workspaceFeedbackRef.current = false;
+          // 关闭时立刻把焦点交回开关，不等退场动画（finalFocus 在动画后才生效）。
+          if (!open) workspaceToggleRef.current?.focus();
+          setWorkspaceOpen(open);
+        }}
+      >
+        <SheetContent
+          side="right"
+          aria-describedby={undefined}
+          finalFocus={() =>
+            workspaceFeedbackRef.current ? composerRef.current : workspaceToggleRef.current
+          }
+          className="w-[400px]! max-w-full! gap-0 p-0"
+        >
+          <SheetTitle className="sr-only">会话成果</SheetTitle>
+          <ConversationOutputs
+            conversationId={conversationId}
+            selection={output}
+            onSelect={onSelectOutput}
+            onFeedback={(ref) => {
+              useChatStore.getState().setOutputRef(ref);
+              workspaceFeedbackRef.current = true;
+              setWorkspaceOpen(false);
+            }}
+          />
+        </SheetContent>
+      </Sheet>
+
+      {desktop ? (
+        <div className="flex min-h-0 w-full">
+          <Group
+            orientation="horizontal"
+            defaultLayout={{ ...historyLayout.defaultLayout, history: 0, chat: 100 }}
+            // 折叠/展开是程序化改尺寸，写回存储只会把宽度记成 0；只持久化用户拖拽的结果。
+            onLayoutChanged={(layout, meta) => {
+              if (meta.isUserInteraction) historyLayout.onLayoutChanged(layout, meta);
+            }}
+          >
+            <Panel
+              id="history"
+              defaultSize={0}
+              minSize={200}
+              maxSize={360}
+              collapsible
+              collapsedSize={0}
+              panelRef={historyPanelRef}
+              onResize={(size) => {
+                if (size.asPercentage > 0 && !historyCollapsed) {
+                  lastHistorySize.current = `${size.asPercentage}%`;
+                }
+                setHistoryCollapsed(size.inPixels === 0);
               }}
             >
-              <Panel
-                id="history"
-                defaultSize={0}
-                minSize={200}
-                maxSize={360}
-                collapsible
-                collapsedSize={0}
-                panelRef={historyPanelRef}
-                onResize={(size) => {
-                  if (size.asPercentage > 0 && !historyCollapsed) {
-                    lastHistorySize.current = `${size.asPercentage}%`;
-                  }
-                  setHistoryCollapsed(size.inPixels === 0);
-                }}
-              >
-                {/* 隐藏时整块不渲染：零宽面板不该留下可聚焦内容，也避免出现第二个 h1。 */}
-                {historyCollapsed ? null : (
-                  <aside
-                    id="chat-history"
-                    // 与对话内容同属一个工作区：纸白底，只用分隔线区分，不做成独立面板。
-                    className="flex h-full min-w-0 flex-col gap-3 overflow-hidden bg-surface"
-                    aria-label="会话历史"
+              {/* 隐藏时整块不渲染：零宽面板不该留下可聚焦内容，也避免出现第二个 h1。 */}
+              {historyCollapsed ? null : (
+                <aside
+                  id="chat-history"
+                  // 与对话内容同属一个工作区：纸白底，只用分隔线区分，不做成独立面板。
+                  className="flex h-full min-w-0 flex-col gap-3 overflow-hidden bg-surface"
+                  aria-label="会话历史"
+                >
+                  <HistoryHeader
+                    onNew={newConversation}
+                    agent={agent}
+                    agentId={agentId}
+                    agentOptions={agentOptions}
+                    onSwitchAgent={switchAgent}
+                  />
+                  {renderHistoryPanel(false)}
+                </aside>
+              )}
+            </Panel>
+            <Separator
+              disabled={historyCollapsed}
+              className={historyCollapsed ? 'hidden' : 'w-px border-r'}
+              aria-label="调整会话列表宽度"
+            />
+            {/* 成果打开时消息列至少 400，给内联成果留出 400：历史再拖也不能挤掉正文。 */}
+            <Panel id="chat" minSize={wide && workspaceOpen ? 800 : 400}>
+              <div className="flex h-full min-h-0">
+                <div className="relative min-w-0 flex-1">{column}</div>
+                {wide ? (
+                  // 宽度开合保留成果子树：收起后仍不可聚焦，也不会丢输入或流式上下文。
+                  <motion.div
+                    initial={false}
+                    animate={{ width: workspaceOpen ? 400 : 0 }}
+                    transition={reduce ? STILL : WORKSPACE}
+                    inert={!workspaceOpen}
+                    aria-hidden={!workspaceOpen}
+                    className="h-full shrink-0 overflow-hidden"
                   >
-                    <HistoryHeader onNew={newConversation} />
-                    {renderHistoryPanel(false)}
-                  </aside>
-                )}
-              </Panel>
-              <Separator
-                disabled={historyCollapsed}
-                className={historyCollapsed ? 'hidden' : 'w-px border-r'}
-                aria-label="调整会话列表宽度"
-              />
-              {/* 成果打开时消息列至少 400，给内联成果留出 400：历史再拖也不能挤掉正文。 */}
-              <Panel id="chat" minSize={wide && workspaceOpen ? 800 : 400}>
-                <div className="flex h-full min-h-0">
-                  <div className="relative min-w-0 flex-1">{column}</div>
-                  {wide ? (
-                    // 宽度开合保留成果子树：收起后仍不可聚焦，也不会丢输入或流式上下文。
-                    <motion.div
-                      initial={false}
-                      animate={{ width: workspaceOpen ? 400 : 0 }}
-                      transition={reduce ? STILL : WORKSPACE}
-                      inert={!workspaceOpen}
-                      aria-hidden={!workspaceOpen}
-                      className="h-full shrink-0 overflow-hidden"
-                    >
-                      <ConversationOutputs
-                        inline
-                        conversationId={conversationId}
-                        selection={output}
-                        onSelect={onSelectOutput}
-                        onFeedback={attachOutputRef}
-                      />
-                    </motion.div>
-                  ) : null}
-                </div>
-              </Panel>
-            </Group>
-            {renameDialog}
-            {deleteDialog}
-            {deleteLeaveDialog}
-          </div>
-        ) : (
-          // 窄屏没有分栏：顶栏由 ChatWorkspace 统一承担。
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {column}
-            {/* 抽屉打开时重命名由抽屉子树渲染，避免门户被遮挡；这里补上头部触发的对话框。 */}
-            {historyOpen ? null : renameDialog}
-            {deleteDialog}
-            {deleteLeaveDialog}
-          </div>
-        )}
-        {search && !search.inSheet ? searchDialog : null}
-      </div>
+                    <ConversationOutputs
+                      inline
+                      conversationId={conversationId}
+                      selection={output}
+                      onSelect={onSelectOutput}
+                      onFeedback={attachOutputRef}
+                    />
+                  </motion.div>
+                ) : null}
+              </div>
+            </Panel>
+          </Group>
+          {renameDialog}
+          {deleteDialog}
+          {deleteLeaveDialog}
+        </div>
+      ) : (
+        // 窄屏没有分栏：头部仍在消息列内，历史与成果由抽屉承担。
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {column}
+          {/* 抽屉打开时重命名由抽屉子树渲染，避免门户被遮挡；这里补上头部触发的对话框。 */}
+          {historyOpen ? null : renameDialog}
+          {deleteDialog}
+          {deleteLeaveDialog}
+        </div>
+      )}
+      {search && !search.inSheet ? searchDialog : null}
     </div>
   );
 }
 
 /**
- * 唯一 56px 顶栏：位于整个聊天分栏上方。历史与成果只切换各自面板，
- * 不复制、不移动这里的开关、搜索与专家选择。
+ * 唯一 56px 消息列头部：历史／消息／成果三栏从工作区顶部并排。
+ * 历史展开时搜索与专家选择交给历史面板，收起后回到这里；成果只切换自己的面板。
  */
 function ChatTopBar({
   title,
@@ -994,7 +1003,7 @@ function ChatTopBar({
   deleting: boolean;
   agent: AgentView | null;
   agentOptions: Array<{ value: string; label: string; agent?: AgentView }>;
-  /** 窄屏抽屉打开时模态接管操作，专家选择临时只在抽屉头部。 */
+  /** 桌面历史展开或窄屏抽屉打开时，专家选择交给历史头部。 */
   showAgentPicker: boolean;
   onSwitchAgent: (id: string) => void;
   historyVisible: boolean;
@@ -1025,16 +1034,19 @@ function ChatTopBar({
       >
         <PanelLeftDashed />
       </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="搜索会话"
-        title="搜索会话"
-        onClick={(event) => onOpenSearch(event.currentTarget)}
-        className="shrink-0 text-muted-foreground hover:text-fg"
-      >
-        <Search />
-      </Button>
+      {/* 历史展开时搜索入口只在历史面板里，头部不再保留第二个触发器。 */}
+      {historyVisible ? null : (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="搜索会话"
+          title="搜索会话"
+          onClick={(event) => onOpenSearch(event.currentTarget)}
+          className="shrink-0 text-muted-foreground hover:text-fg"
+        >
+          <Search />
+        </Button>
+      )}
       {showAgentPicker ? (
         <div className="min-w-0 shrink basis-[11rem]">
           <AgentPicker
@@ -1048,7 +1060,7 @@ function ChatTopBar({
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <h1
           title={title}
-          className="min-w-0 max-w-[8em] truncate text-lg font-medium tracking-[-0.01em] text-fg"
+          className="min-w-0 max-w-[8em] truncate text-base font-medium tracking-[-0.01em] text-fg"
         >
           {title}
         </h1>
@@ -1520,6 +1532,7 @@ function HistoryPanel({
 }
 
 function ChatColumn({
+  header,
   agent,
   conversationId,
   detail,
@@ -1553,6 +1566,8 @@ function ChatColumn({
   send,
   composerRef,
 }: {
+  /** 消息列专属头部，在消息页内、消息流之前渲染。 */
+  header: ReactNode;
   agent: AgentView | null;
   conversationId: string | null;
   detail: ReturnType<typeof useConversation>;
@@ -1697,6 +1712,7 @@ function ChatColumn({
   return (
     <Page className="h-full min-h-0 flex-1 gap-0 overflow-hidden bg-surface">
       <div className="flex min-h-0 flex-1 flex-col">
+        {header}
         <MessagePane
           items={items}
           loading={detail.isPending && conversationId !== null && !run}
@@ -1853,7 +1869,7 @@ export function Composer({
       }}
     >
       <div className="w-full">
-        <InputGroup className="h-auto rounded-card">
+        <InputGroup className="h-auto rounded-card has-[[data-slot=input-group-control]:focus-visible]:border-composer-focus">
           {outputRef ? (
             <div className="flex min-w-0 items-center gap-2 px-4 pt-3">
               <Badge variant="outline" className="min-w-0 max-w-full">
@@ -1915,7 +1931,7 @@ export function Composer({
             disabled={!agent || !historyReady}
             value={input}
             className={cn(
-              'max-h-40 min-w-0 px-4 pb-2 pt-4 text-mobile-input md:text-md',
+              'max-h-40 min-w-0 px-4 pb-2 pt-4 text-base md:text-base',
               welcome ? 'min-h-20' : 'min-h-14',
             )}
             onChange={(event) => setInput(event.target.value)}
@@ -2332,8 +2348,8 @@ export function MessagePane({
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
                       {/* 一轮一组：只靠拉开间距划出轮次边界，不加横线。 */}
                       <div className={cn('group/turn', turnIndex > 0 && 'pt-5')}>
-                        {/* Keep 15px conversation text instead of the base message's text-sm. */}
-                        <Message align={turn.user ? 'end' : 'start'} className="text-md">
+                        {/* Keep 14px conversation text instead of the base message's text-sm. */}
+                        <Message align={turn.user ? 'end' : 'start'} className="text-base">
                           <MessageContent
                             // Keep the user's pill surface; MessageContent supplies layout without a bubble appearance.
                             className={cn(
@@ -2859,7 +2875,7 @@ function WelcomeState() {
           height={637}
           className="h-auto w-20 shrink-0 object-contain sm:w-24"
         />
-        <h2 className="min-w-0 flex-1 text-2xl font-medium tracking-[-0.02em] text-fg sm:text-3xl">
+        <h2 className="min-w-0 flex-1 text-2xl font-medium tracking-[-0.02em] text-fg">
           今天想完成什么？
         </h2>
       </div>
@@ -2895,7 +2911,7 @@ const MessagePart = memo(function MessagePart({
       : openUi;
   switch (item.kind) {
     case 'user':
-      // 不覆盖行高：气泡与助手正文共用 md 的阅读行高。附图消息可以没有正文。
+      // 不覆盖行高：气泡与助手正文共用 base 14/22。附图消息可以没有正文。
       return (
         <div className="flex min-w-0 flex-col gap-2">
           {item.text ? <p className="whitespace-pre-wrap break-words">{item.text}</p> : null}
@@ -3005,7 +3021,7 @@ function renderAssistantText(
       <CollapsibleText
         text={text}
         // Keep readable message typography when large text is forwarded to the unstyled Collapsible.
-        className="whitespace-pre-wrap break-words text-md text-fg"
+        className="whitespace-pre-wrap break-words text-base text-fg"
       />
     );
   }
@@ -3147,7 +3163,7 @@ const TodoProgress = memo(function TodoProgress({ todos }: { todos: ProgressTodo
             <li
               // biome-ignore lint/suspicious/noArrayIndexKey: 清单没有稳定 id，位置即身份
               key={index}
-              className="flex items-start gap-1.5 text-md"
+              className="flex items-start gap-1.5 text-base"
             >
               {todo.status === 'completed' ? (
                 <CircleCheck className="mt-1 size-4 shrink-0 text-success" aria-hidden="true" />

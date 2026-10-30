@@ -773,7 +773,7 @@ function CreateMemoryReviewDialog({
             ) : null}
 
             <div
-              className="max-h-52 overflow-y-auto overscroll-contain rounded-lg border border-input"
+              className="max-h-52 overflow-y-auto overscroll-contain rounded-lg border border-line"
               aria-invalid={fieldErrors.sources ? true : undefined}
               aria-describedby={fieldErrors.sources ? 'memory-review-sources-error' : undefined}
               tabIndex={fieldErrors.sources ? -1 : undefined}

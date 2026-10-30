@@ -111,7 +111,7 @@ export function ConversationSearch({
           itemToStringValue={(item: ConversationSearchItem) => item.id}
         >
           <div className="shrink-0 p-2 pb-0">
-            <InputGroup>
+            <InputGroup className="rounded-none border-0 border-b border-line">
               <InputGroupAddon>
                 <Search aria-hidden="true" />
               </InputGroupAddon>

@@ -109,9 +109,9 @@ const SHIKI_THEMES: [ThemeInput, ThemeInput] = [
 ];
 const PLUGINS = { code };
 
-// H3–H6 固定 15px 在大字号容器（TextContent large 的 16px 正文）里会倒挂。
-// 1em 下限跟随父级字号；默认 15px 正文下仍是原档位。
-const SUBHEADING_STYLE: CSSProperties = { fontSize: 'max(1em, var(--text-md))' };
+// H3–H6 固定 14px 在大字号容器（TextContent large 的 16px 正文）里会倒挂。
+// 1em 下限跟随父级字号；默认 14px 正文下仍是原档位。
+const SUBHEADING_STYLE: CSSProperties = { fontSize: 'max(1em, var(--text-base))' };
 
 const heading = (
   tag: 'h2' | 'h3' | 'h4' | 'h5' | 'h6',
@@ -129,15 +129,15 @@ const heading = (
 /** 外链新开页并补齐 noopener；Streamdown 默认只给 noreferrer。 */
 const components: Components = {
   // 消息内标题整体下移一级：页面本身已有 h1，不能再出现第二个 h1。
-  // 正文只有一级（md 15px），任何标题都不小于它：H1 18、H2 16 靠字号递进，
-  // H3–H6 收成一级 15/600，靠字重区分。小于正文的标题会比它概括的内容还弱。
+  // 正文只有一级（base 14px），任何标题都不小于它：H1 18、H2 16 靠字号递进，
+  // H3–H6 收成一级 14/600，靠字重区分。小于正文的标题会比它概括的内容还弱。
   // 标题不写 text-fg：颜色跟随所在容器，Callout 与 TextContent 的语义色才能生效。
   h1: heading('h2', 'mt-5 mb-2 text-xl font-semibold'),
   h2: heading('h3', 'mt-4 mb-2 text-lg font-semibold'),
-  h3: heading('h4', 'mt-3.5 mb-1.5 text-md font-semibold', SUBHEADING_STYLE),
-  h4: heading('h5', 'mt-3 mb-1 text-md font-semibold', SUBHEADING_STYLE),
-  h5: heading('h6', 'mt-3 mb-1 text-md font-semibold', SUBHEADING_STYLE),
-  h6: heading('h6', 'mt-3 mb-1 text-md font-semibold', SUBHEADING_STYLE),
+  h3: heading('h4', 'mt-3.5 mb-1.5 text-base font-semibold', SUBHEADING_STYLE),
+  h4: heading('h5', 'mt-3 mb-1 text-base font-semibold', SUBHEADING_STYLE),
+  h5: heading('h6', 'mt-3 mb-1 text-base font-semibold', SUBHEADING_STYLE),
+  h6: heading('h6', 'mt-3 mb-1 text-base font-semibold', SUBHEADING_STYLE),
   a: ({ href, children, node: _node, ...props }: ComponentProps<'a'> & { node?: unknown }) => {
     // 流式中的未闭合链接由 remend 标成哨兵值，不能变成可点击的相对地址。
     if (href === 'streamdown:incomplete-link') {
@@ -166,7 +166,7 @@ const CODE_BLOCK_CLASS =
   '[&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-line [&_[data-streamdown=code-block]]:bg-code [&_[data-streamdown=code-block-body]]:bg-transparent';
 // 单换行保留：模型常按行生成纯文本，折叠成空格会改变原意（与旧的纯文本路径一致）。
 const PARAGRAPH_CLASS = '[&_p]:whitespace-pre-wrap';
-const BODY_CLASS = `min-w-0 text-md text-fg ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;
+const BODY_CLASS = `min-w-0 text-base text-fg ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;
 // 父级决定字号与颜色：OpenUI 的 TextContent/Callout 等容器自己带排版。
 const INHERIT_CLASS = `min-w-0 ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;
 
@@ -365,7 +365,7 @@ export interface MarkdownProps {
   /** 真实流式状态：开 remend 补齐半截语法，并禁用代码/表格的复制按钮。 */
   streaming?: boolean;
   className?: string;
-  /** `body`（默认）承载 15/26 阅读正文；`inherit` 完全沿用父级字号与颜色。 */
+  /** `body`（默认）承载 14/22 阅读正文；`inherit` 完全沿用父级字号与颜色。 */
   presentation?: 'body' | 'inherit';
   /** 只读文件正文：静态解析、HTML 字面量、链接不落到不存在的应用路由。 */
   staticContent?: boolean;

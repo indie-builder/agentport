@@ -43,7 +43,7 @@ describe('OpenUI Markdown components', () => {
     await render(['root = Card([t])', 't = TextContent("小字说明", "small")'].join('\n'));
     const markdownRoot = host.querySelector<HTMLElement>('[class*="whitespace-normal"]');
     expect(markdownRoot).toBeTruthy();
-    expect(markdownRoot?.className).not.toContain('text-md text-fg');
+    expect(markdownRoot?.className).not.toContain('text-base text-fg');
     expect(markdownRoot?.closest('.text-muted-foreground')).toBeTruthy();
     expect(host.textContent).toContain('小字说明');
   });
@@ -86,6 +86,6 @@ describe('OpenUI Markdown components', () => {
     await render(['root = Card([t])', 't = TextContent("### 小节标题", "large")'].join('\n'));
     const heading = host.querySelector('h4');
     expect(heading?.closest('.text-lg')).toBeTruthy();
-    expect(heading?.style.fontSize).toBe('max(1em, var(--text-md))');
+    expect(heading?.style.fontSize).toBe('max(1em, var(--text-base))');
   });
 });

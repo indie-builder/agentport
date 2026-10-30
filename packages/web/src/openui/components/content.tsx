@@ -6,10 +6,10 @@ import { Skeleton } from '../../components/ui/skeleton.js';
 import { cn } from '../../lib/cn.js';
 import { type RenderProps, ValueText } from './shared.js';
 
-/** `TextContent.size` 只调字号与字重，行高沿用正文。 */
+/** TextContent 的字号与行高：small 13/20、default 14/22、large 16/24。 */
 const CONTENT_SIZES = {
   small: 'text-sm text-muted-foreground',
-  default: 'text-md text-fg',
+  default: 'text-base text-fg',
   large: 'text-lg text-fg',
   'small-heavy': 'text-sm font-medium text-fg',
   'large-heavy': 'text-lg font-semibold text-fg',
@@ -37,7 +37,7 @@ export function MarkDownRenderer({
 }: RenderProps<{ textMarkdown: string; variant?: keyof typeof MD_VARIANTS }>) {
   const streaming = useIsStreaming();
   return (
-    <div className={cn('min-w-0 text-md text-fg', MD_VARIANTS[props.variant ?? 'clear'])}>
+    <div className={cn('min-w-0 text-base text-fg', MD_VARIANTS[props.variant ?? 'clear'])}>
       <Markdown
         text={String(props.textMarkdown ?? '')}
         streaming={streaming}
@@ -68,8 +68,8 @@ export function Callout({
   const tone = CALLOUT_TONES[props.variant ?? 'neutral'];
   return (
     <div className={cn('flex min-w-0 flex-col gap-1 border-l pl-3', tone.line)}>
-      <span className={cn('text-md font-medium', tone.title)}>{props.title}</span>
-      <div className="min-w-0 text-md text-fg">
+      <span className={cn('text-base font-medium', tone.title)}>{props.title}</span>
+      <div className="min-w-0 text-base text-fg">
         <Markdown
           text={String(props.description ?? '')}
           streaming={streaming}
@@ -98,7 +98,7 @@ export function TextCallout({
   return (
     <div
       className={cn(
-        'flex min-w-0 flex-wrap items-baseline gap-2 rounded-card bg-chip px-3 py-2 text-md',
+        'flex min-w-0 flex-wrap items-baseline gap-2 rounded-card bg-chip px-3 py-2 text-base',
         TEXT_CALLOUT_TONES[props.variant ?? 'neutral'],
       )}
     >

@@ -379,7 +379,7 @@ export function StepsRenderer({ props, renderNode }: RenderProps<{ items: unknow
               {String(childProps(item)?.title ?? '')}
             </span>
             {childProps(item)?.details ? (
-              <div className="min-w-0 text-md text-muted-foreground">
+              <div className="min-w-0 text-base text-muted-foreground">
                 {renderNode(childProps(item)?.details)}
               </div>
             ) : null}
