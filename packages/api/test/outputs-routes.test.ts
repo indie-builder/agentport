@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prepareOutputDraft, publishOutputSnapshot } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
-import { problemSchema } from '@agentport/shared';
+import { type OutputFile, problemSchema } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getQueue } from '../src/queue/producer.js';
@@ -110,6 +111,10 @@ describe.skipIf(!ready)('conversation outputs', () => {
 
     expectProblem(await get(`/api/conversations/${id}/outputs`, {}), 'UNAUTHORIZED');
     expectProblem(
+      await get(`/api/conversations/${id}/outputs/run_x?path=a.md`, {}),
+      'UNAUTHORIZED',
+    );
+    expectProblem(
       await get(`/api/conversations/${id}/outputs/run_x/content?path=a.md`, {}),
       'UNAUTHORIZED',
     );
@@ -118,6 +123,10 @@ describe.skipIf(!ready)('conversation outputs', () => {
       'UNAUTHORIZED',
     );
     expectProblem(await get('/api/conversations/conv_missing/outputs'), 'CONVERSATION_NOT_FOUND');
+    expectProblem(
+      await get('/api/conversations/conv_missing/outputs/run_x?path=a.md'),
+      'CONVERSATION_NOT_FOUND',
+    );
     expectProblem(
       await get('/api/conversations/conv_missing/outputs/run_x/content?path=a.md'),
       'CONVERSATION_NOT_FOUND',
@@ -159,6 +168,81 @@ describe.skipIf(!ready)('conversation outputs', () => {
     expectProblem(
       await get(`/api/conversations/${id}/outputs?before=${encodeURIComponent('not-a-cursor')}`),
       'INVALID_INPUT',
+    );
+  });
+
+  it('returns exact version metadata without content, even outside the list page', async () => {
+    const agent = await newAgent();
+    const id = await newConversation(agent.id);
+    const first = {
+      userMessageId: newId('message'),
+      afterMessageId: newId('message'),
+    };
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]);
+    await publish(agent.slug, id, 'run_meta_1', { 'report.md': '# v1\n', 'chart.png': png }, first);
+    await publish(agent.slug, id, 'run_meta_2', { 'report.md': '# v2\n' });
+    await publish(agent.slug, id, 'run_meta_3', { 'report.md': '# v3\n' });
+
+    const page = await get(`/api/conversations/${id}/outputs?limit=1`);
+    expect(page.statusCode, page.body).toBe(200);
+    expect(page.json<{ items: Array<{ runId: string }> }>().items[0]?.runId).toBe('run_meta_3');
+
+    const exact = await get(`/api/conversations/${id}/outputs/run_meta_1?path=report.md`);
+    expect(exact.statusCode, exact.body).toBe(200);
+    const body = exact.json<{ file: OutputFile; content?: string }>();
+    expect(Object.keys(body)).toEqual(['file']);
+    expect(body.file).toEqual({
+      runId: 'run_meta_1',
+      path: 'report.md',
+      size: Buffer.byteLength('# v1\n'),
+      sha256: createHash('sha256').update('# v1\n').digest('hex'),
+      mediaType: 'text/markdown',
+      createdAt: expect.any(String),
+      status: 'succeeded',
+      userMessageId: first.userMessageId,
+      afterMessageId: first.afterMessageId,
+    });
+    expect(body).not.toHaveProperty('content');
+
+    const image = await get(`/api/conversations/${id}/outputs/run_meta_1?path=chart.png`);
+    expect(image.statusCode, image.body).toBe(200);
+    expect(image.json<{ file: OutputFile }>().file).toMatchObject({
+      runId: 'run_meta_1',
+      path: 'chart.png',
+      mediaType: 'image/png',
+      size: png.length,
+      sha256: createHash('sha256').update(png).digest('hex'),
+    });
+  });
+
+  it('scopes metadata to the conversation and rejects unknown versions or members', async () => {
+    const agent = await newAgent();
+    const id = await newConversation(agent.id);
+    const otherId = await newConversation(agent.id);
+    await publish(agent.slug, id, 'run_scope', { 'report.md': '# scope\n' });
+    await publish(agent.slug, otherId, 'run_elsewhere', { 'report.md': '# elsewhere\n' });
+
+    expectProblem(
+      await get(`/api/conversations/${id}/outputs/run_elsewhere?path=report.md`),
+      'INVALID_INPUT',
+    );
+    expectProblem(
+      await get(`/api/conversations/${id}/outputs/run_missing?path=report.md`),
+      'INVALID_INPUT',
+    );
+    expectProblem(
+      await get(`/api/conversations/${id}/outputs/run_scope?path=missing.md`),
+      'INVALID_INPUT',
+    );
+    expectProblem(
+      await get(
+        `/api/conversations/${id}/outputs/run_scope?path=${encodeURIComponent('../escape.md')}`,
+      ),
+      'INVALID_INPUT',
+    );
+    expectProblem(
+      await get('/api/conversations/conv_missing/outputs/run_scope?path=report.md'),
+      'CONVERSATION_NOT_FOUND',
     );
   });
 

@@ -184,6 +184,32 @@ export function registerOutputRoutes(rawApp: FastifyInstance): void {
     },
   );
 
+  // 列表只返回每版变化的文件；按版本精确读取元数据，供分页外的图片等预览使用。
+  app.get(
+    '/api/conversations/:id/outputs/:runId',
+    { ...auth, schema: { params: fileParams, querystring: fileQuery } },
+    async (request, reply) => {
+      const conversation = await repo.chat.getConversation(app.db, request.params.id);
+      if (!conversation) return conversationNotFound(reply);
+      const slug = await agentSlug(app, conversation.agentId);
+      if (slug === null) return reject(reply, 'NOT_FOUND', '成果文件不存在，可能已被清理');
+      try {
+        const { file } = await readOutputFile({
+          root: app.config.WORKSPACES_DIR,
+          slug,
+          conversationId: conversation.id,
+          runId: request.params.runId,
+          path: request.query.path,
+        });
+        return { file };
+      } catch (err) {
+        const problem = selectionProblem(err);
+        if (problem !== null) return reject(reply, problem.code, problem.message);
+        throw err;
+      }
+    },
+  );
+
   app.get(
     '/api/conversations/:id/outputs/:runId/content',
     { ...auth, schema: { params: fileParams, querystring: fileQuery } },

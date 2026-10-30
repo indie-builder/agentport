@@ -20,6 +20,7 @@ import type {
   NativePluginImportInput,
   NativePluginInstallInput,
   OutputContent,
+  OutputFile,
   OutputStyle,
   PersonalMemory,
   Plugin,
@@ -556,6 +557,36 @@ export function useOutputContent(
     queryFn: ({ signal }) =>
       api.outputContent(conversationId ?? '', runId ?? '', path ?? '', signal),
     enabled: conversationId !== null && runId !== null && path !== null,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** 列表里没有该版本时用它拿真实 mediaType；只有缺列表元信息才启用。 */
+export function useOutputFile(
+  conversationId: string | null,
+  runId: string | null,
+  path: string | null,
+  enabled: boolean,
+) {
+  return useQuery<{ file: OutputFile }>({
+    queryKey: ['conversation-output-file', conversationId, runId, path],
+    queryFn: ({ signal }) => api.outputFile(conversationId ?? '', runId ?? '', path ?? '', signal),
+    enabled: conversationId !== null && runId !== null && path !== null && enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** 图片字节走鉴权下载端点；key 与选中三元组一致，切换选择即换请求。 */
+export function useOutputBlob(
+  conversationId: string | null,
+  runId: string | null,
+  path: string | null,
+  enabled: boolean,
+) {
+  return useQuery<Blob>({
+    queryKey: ['conversation-output-blob', conversationId, runId, path],
+    queryFn: ({ signal }) => api.outputBlob(conversationId ?? '', runId ?? '', path ?? '', signal),
+    enabled: conversationId !== null && runId !== null && path !== null && enabled,
     staleTime: 5 * 60_000,
   });
 }

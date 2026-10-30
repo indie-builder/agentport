@@ -232,9 +232,41 @@ describe('public share page', () => {
     const image = host.querySelector('section img');
     expect(image?.getAttribute('src')).toBe('blob:image');
     expect(image?.getAttribute('alt')).toBe('photo.png');
+    // decode 之前是占位；只有真正触发 load 才算预览成功。
+    expect(image?.className).toContain('hidden');
+    await act(async () => image?.dispatchEvent(new Event('load')));
+    expect(host.querySelector('section img')?.className).not.toContain('hidden');
+    expect(host.querySelector('section [aria-busy="true"]')).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/download'))).toBe(true);
     expect(calls.some((call) => call.url.endsWith('/content'))).toBe(false);
     const downloadCall = calls.find((call) => call.url.endsWith('/download'));
     expect(downloadCall?.init?.headers).toMatchObject({ authorization: 'Bearer token-a' });
+    expect(downloadCall?.init?.credentials).toBe('omit');
+  });
+
+  it('shows a decode failure with the bearer download still available', async () => {
+    const shared = file({ name: 'photo.png', mediaType: 'image/png' });
+    const calls = installFetch((url) =>
+      url.endsWith('/download')
+        ? new Response(new Blob(['broken'], { type: 'image/png' }))
+        : json({ file: shared }),
+    );
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:broken'), revokeObjectURL: vi.fn() });
+
+    await mount('share-a', readShareToken());
+    const image = host.querySelector('section img');
+    if (!image) throw new Error('Missing image preview');
+    await act(async () => image.dispatchEvent(new Event('error')));
+
+    expect(host.textContent).toContain('图片无法解码，请下载原件查看。');
+    expect(calls.some((call) => call.url.endsWith('/download'))).toBe(true);
+    const download = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (item) => item.textContent?.trim() === '下载',
+    );
+    if (!download) throw new Error('Missing download action');
+    await act(async () => download.click());
+    await flush();
+    const downloadCalls = calls.filter((call) => call.url.endsWith('/download'));
+    expect(downloadCalls.at(-1)?.init?.headers).toMatchObject({ authorization: 'Bearer token-a' });
   });
 });

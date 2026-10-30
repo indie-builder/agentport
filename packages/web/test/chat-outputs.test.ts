@@ -3,6 +3,7 @@ import {
   type OutputContent,
   type OutputFile,
   type OutputList,
+  type OutputShare,
 } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
@@ -212,13 +213,40 @@ async function selectFile(path: string) {
   await flush();
 }
 
+let objectUrlSeed = 0;
+
+/** 每个 blob 一个稳定地址；测试据此证明面板显示的是哪一次请求的字节。 */
+function stubObjectUrls() {
+  const urls = new Map<Blob, string>();
+  const create = vi.fn((blob: Blob) => {
+    const url = `blob:${++objectUrlSeed}`;
+    urls.set(blob, url);
+    return url;
+  });
+  const revoke = vi.fn();
+  Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke });
+  return { create, revoke, urls };
+}
+
+function previewImage(): HTMLImageElement {
+  const image = workspace().querySelector<HTMLImageElement>('img');
+  if (!image) throw new Error('Missing image preview');
+  return image;
+}
+
+async function decodeImage(image: HTMLImageElement) {
+  await act(async () => {
+    image.dispatchEvent(new Event('load'));
+  });
+}
+
 async function pickVersion(createdAt: string) {
   const trigger = workspace().querySelector<HTMLButtonElement>('button[aria-label="选择版本"]');
   if (!trigger) throw new Error('Missing version trigger');
   await act(async () => trigger.click());
   await flush();
   const label = formatDateTime(createdAt);
-  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((entry) =>
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((entry) =>
     entry.textContent?.includes(label),
   );
   if (!item) throw new Error(`Missing version item: ${label}`);
@@ -254,6 +282,7 @@ beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(['agents'], [agent]);
+  objectUrlSeed = 0;
   vi.spyOn(api, 'agents').mockResolvedValue([agent]);
   vi.spyOn(api, 'conversations').mockResolvedValue([]);
   vi.spyOn(api, 'conversation').mockResolvedValue(history);
@@ -268,6 +297,14 @@ beforeEach(() => {
       return { file, content: contents[`${runId}:${path}`] ?? '' };
     },
   );
+  vi.spyOn(api, 'outputFile').mockImplementation(
+    async (_conversationId: string, runId: string, path: string) => ({
+      file:
+        list.items.find((item) => item.runId === runId && item.path === path) ??
+        output({ runId, path }),
+    }),
+  );
+  vi.spyOn(api, 'outputBlob').mockResolvedValue(new Blob(['image'], { type: 'image/png' }));
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -279,6 +316,8 @@ afterEach(async () => {
   host.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  Reflect.deleteProperty(URL, 'createObjectURL');
+  Reflect.deleteProperty(URL, 'revokeObjectURL');
 });
 
 describe('conversation outputs list', () => {
@@ -329,6 +368,8 @@ describe('output preview and versions', () => {
       '/chat?agent=agent-a&conversation=conversation-a&outputRun=run-1&outputPath=report.md&outputMode=source',
     );
     await openWorkspace();
+    // 正文类型来自列表元信息：列表就绪后才会发起正文请求。
+    await flush();
     expect(api.outputContent).toHaveBeenCalledWith(
       'conversation-a',
       'run-1',
@@ -450,6 +491,40 @@ describe('output preview and versions', () => {
     expect(router.state.location.search).toMatchObject({ outputRun: 'run-2' });
   });
 
+  it('keeps existing version labels when paging in an older version of the same path', async () => {
+    const oldest = output({
+      runId: 'run-0',
+      path: 'report.md',
+      createdAt: '2026-10-27T10:00:00.000Z',
+    });
+    vi.mocked(api.outputs)
+      .mockResolvedValueOnce({ items: list.items, nextBefore: 'cursor-1' })
+      .mockResolvedValueOnce({ items: [oldest], nextBefore: null });
+    await mount();
+    await openWorkspace();
+    await selectFile('report.md');
+    const more = [...workspace().querySelectorAll<HTMLButtonElement>('button')].find(
+      (item) => item.textContent?.trim() === '加载更多版本',
+    );
+    if (!more) throw new Error('Missing older versions action');
+    await act(async () => more.click());
+    await flush();
+
+    const trigger = workspace().querySelector<HTMLButtonElement>('button[aria-label="选择版本"]');
+    if (!trigger) throw new Error('Missing version trigger');
+    await act(async () => trigger.click());
+    await flush();
+    const labels = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].map(
+      (item) => item.textContent?.trim(),
+    );
+    // 追加更旧版本只应改变新出现项的位置名，已有两项仍是「最新」「上一版」。
+    expect(labels).toEqual([
+      `最新 · ${formatDateTime(reportLatest.createdAt)}`,
+      `上一版 · ${formatDateTime(reportOlder.createdAt)}`,
+      `前 2 版 · ${formatDateTime(oldest.createdAt)}`,
+    ]);
+  });
+
   it('switches a Markdown file between reading and source modes through the URL', async () => {
     await mount();
     await openWorkspace();
@@ -545,7 +620,6 @@ describe('output preview and versions', () => {
     'application/json-seq',
     'image/svg+xml-invalid',
     'application/pdf',
-    'image/png',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ])('offers download without requesting unsupported %s content', async (mediaType) => {
     const file = output({ runId: 'run-download', path: 'files/original file', mediaType });
@@ -604,6 +678,389 @@ describe('output preview and versions', () => {
     await openWorkspace();
     await selectFile('report.md');
     expect(workspace().textContent).not.toMatch(/\/workspace|manifest\.json|conversation-outputs/);
+  });
+});
+
+describe('image outputs', () => {
+  const photo = (overrides: Partial<OutputFile> & Pick<OutputFile, 'runId' | 'path'>) =>
+    output({ mediaType: 'image/png', ...overrides });
+
+  it('previews a private image only after the blob decodes, without requesting text content', async () => {
+    const file = photo({ runId: 'run-photo', path: 'photo.png' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    const blob = new Blob(['png'], { type: 'image/png' });
+    vi.mocked(api.outputBlob).mockResolvedValue(blob);
+    const { urls } = stubObjectUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('photo.png');
+
+    expect(api.outputContent).not.toHaveBeenCalled();
+    expect(api.outputFile).not.toHaveBeenCalled();
+    expect(api.outputBlob).toHaveBeenCalledWith(
+      'conversation-a',
+      'run-photo',
+      'photo.png',
+      expect.any(AbortSignal),
+    );
+    const image = previewImage();
+    expect(image.getAttribute('src')).toBe(urls.get(blob));
+    expect(image.getAttribute('alt')).toBe('photo.png');
+    // decode 之前只是占位，不能把 DOM 里存在 img 当成图片已可用。
+    expect(image.className).toContain('hidden');
+    await decodeImage(image);
+    const shown = previewImage();
+    expect(shown.className).not.toContain('hidden');
+    expect(workspace().querySelector<HTMLAnchorElement>('a[aria-label="下载 photo.png"]')).not.toBe(
+      null,
+    );
+    expect(workspace().textContent).toContain('基于此版本修改');
+  });
+
+  it('ties the displayed blob URL to the selected version while switching', async () => {
+    const latest = photo({
+      runId: 'run-latest',
+      path: 'photo.png',
+      createdAt: '2026-10-28T11:00:00.000Z',
+    });
+    const older = photo({
+      runId: 'run-older',
+      path: 'photo.png',
+      createdAt: '2026-10-28T10:00:00.000Z',
+    });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [latest, older], nextBefore: null });
+    const latestBlob = new Blob(['latest'], { type: 'image/png' });
+    const olderBlob = new Blob(['older'], { type: 'image/png' });
+    let resolveOlder!: (blob: Blob) => void;
+    vi.mocked(api.outputBlob).mockImplementation((_conversationId, runId) =>
+      runId === 'run-older'
+        ? new Promise<Blob>((resolve) => {
+            resolveOlder = resolve;
+          })
+        : Promise.resolve(latestBlob),
+    );
+    const { urls } = stubObjectUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('photo.png');
+    const first = previewImage();
+    await decodeImage(first);
+    expect(first.getAttribute('src')).toBe(urls.get(latestBlob));
+
+    await pickVersion(older.createdAt);
+    // 旧版字节还没回来：不能继续显示上一版的图片。
+    expect(workspace().querySelector('img')).toBeNull();
+    expect(api.outputBlob).toHaveBeenLastCalledWith(
+      'conversation-a',
+      'run-older',
+      'photo.png',
+      expect.any(AbortSignal),
+    );
+
+    await act(async () => resolveOlder(olderBlob));
+    await flush();
+    const second = previewImage();
+    await decodeImage(second);
+    expect(second.getAttribute('src')).toBe(urls.get(olderBlob));
+    expect(router.state.location.search).toMatchObject({
+      outputRun: 'run-older',
+      outputPath: 'photo.png',
+    });
+  });
+
+  it('labels versions by position and binds the old version to every file action', async () => {
+    const latest = photo({
+      runId: 'run-image-2',
+      path: 'photo.png',
+      createdAt: '2026-10-28T10:00:00.030Z',
+    });
+    const older = photo({
+      runId: 'run-image-1',
+      path: 'photo.png',
+      createdAt: '2026-10-28T10:00:00.000Z',
+    });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [latest, older], nextBefore: null });
+    const latestBlob = new Blob(['latest'], { type: 'image/png' });
+    const olderBlob = new Blob(['older'], { type: 'image/png' });
+    vi.mocked(api.outputBlob).mockImplementation((_conversationId, runId) =>
+      Promise.resolve(runId === older.runId ? olderBlob : latestBlob),
+    );
+    const share: OutputShare = {
+      id: 'share-older',
+      runId: older.runId,
+      path: older.path,
+      sha256: older.sha256,
+      createdAt: '2026-10-28T10:01:00.000Z',
+      revokedAt: null,
+      urlPath: '/s/share-older#token',
+    };
+    vi.spyOn(api, 'outputShares').mockResolvedValue({ items: [] });
+    const createShare = vi.spyOn(api, 'createOutputShare').mockResolvedValue(share);
+    const { urls } = stubObjectUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('photo.png');
+    await decodeImage(previewImage());
+    expect(previewImage().getAttribute('src')).toBe(urls.get(latestBlob));
+
+    const trigger = workspace().querySelector<HTMLButtonElement>('button[aria-label="选择版本"]');
+    if (!trigger) throw new Error('Missing version trigger');
+    expect(trigger.textContent?.trim()).toBe(`最新 · ${formatDateTime(latest.createdAt)}`);
+    await act(async () => trigger.click());
+    await flush();
+
+    // 两版同一秒相隔 30ms，时间文本相同；位置标签必须让可访问名唯一可区分。
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+    const labels = items.map((item) => item.textContent?.trim());
+    expect(labels).toEqual([
+      `最新 · ${formatDateTime(latest.createdAt)}`,
+      `上一版 · ${formatDateTime(older.createdAt)}`,
+    ]);
+    expect(new Set(labels).size).toBe(2);
+    const checked = items.filter((item) => item.getAttribute('aria-checked') === 'true');
+    expect(checked).toHaveLength(1);
+    expect(checked[0]?.textContent?.trim()).toBe(labels[0]);
+
+    // menuitemradio 的可访问名来自内容；按「上一版」选择，不依赖列表下标。
+    const olderItem = items.find((item) => item.textContent?.trim().startsWith('上一版'));
+    if (!olderItem) throw new Error('Missing older version item');
+    await act(async () => olderItem.click());
+    await flush();
+
+    expect(router.state.location.search).toMatchObject({
+      outputRun: older.runId,
+      outputPath: 'photo.png',
+    });
+    expect(trigger.textContent?.trim()).toBe(`上一版 · ${formatDateTime(older.createdAt)}`);
+    expect(api.outputBlob).toHaveBeenLastCalledWith(
+      'conversation-a',
+      older.runId,
+      'photo.png',
+      expect.any(AbortSignal),
+    );
+    await decodeImage(previewImage());
+    expect(previewImage().getAttribute('src')).toBe(urls.get(olderBlob));
+    expect(
+      workspace()
+        .querySelector<HTMLAnchorElement>('a[aria-label="下载 photo.png"]')
+        ?.getAttribute('href'),
+    ).toBe('/api/conversations/conversation-a/outputs/run-image-1/download?path=photo.png');
+
+    const feedback = [...workspace().querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === '基于此版本修改',
+    );
+    if (!feedback) throw new Error('Missing feedback action');
+    await act(async () => feedback.click());
+    expect(useChatStore.getState().outputRef).toEqual({ runId: older.runId, path: 'photo.png' });
+
+    const shareTrigger = [...workspace().querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === '分享',
+    );
+    if (!shareTrigger) throw new Error('Missing share trigger');
+    await act(async () => shareTrigger.click());
+    await flush();
+    const create = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (button) => button.textContent?.trim() === '创建分享链接',
+    );
+    if (!create) throw new Error('Missing share create action');
+    await act(async () => create.click());
+    await flush();
+    expect(createShare).toHaveBeenCalledWith('conversation-a', {
+      runId: older.runId,
+      path: 'photo.png',
+    });
+  });
+
+  it('fetches metadata before the blob when an older version is not in the list page', async () => {
+    const unrelated = output({ runId: 'run-other', path: 'other.md' });
+    const archived = photo({ runId: 'run-archived', path: 'photo.png' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextBefore: null });
+    vi.mocked(api.outputFile).mockResolvedValue({ file: archived });
+    const blob = new Blob(['archived'], { type: 'image/png' });
+    vi.mocked(api.outputBlob).mockResolvedValue(blob);
+    stubObjectUrls();
+
+    await mount(
+      '/chat?agent=agent-a&conversation=conversation-a&outputRun=run-archived&outputPath=photo.png&outputMode=source',
+    );
+    await openWorkspace();
+    await flush();
+
+    expect(api.outputFile).toHaveBeenCalledWith(
+      'conversation-a',
+      'run-archived',
+      'photo.png',
+      expect.any(AbortSignal),
+    );
+    // 没有列表元信息时先拿真实类型，绝不先猜成文本去请求正文。
+    expect(api.outputContent).not.toHaveBeenCalled();
+    expect(vi.mocked(api.outputFile).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.outputBlob).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+    await decodeImage(previewImage());
+    expect(workspace().textContent).toContain('photo.png');
+  });
+
+  it('loads text content only after metadata resolves for an older version', async () => {
+    const unrelated = output({ runId: 'run-other', path: 'other.md' });
+    const archived = output({ runId: 'run-archived', path: 'notes.txt', mediaType: 'text/plain' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextBefore: null });
+    vi.mocked(api.outputFile).mockResolvedValue({ file: archived });
+    vi.mocked(api.outputContent).mockResolvedValue({ file: archived, content: 'archived notes' });
+
+    await mount(
+      '/chat?agent=agent-a&conversation=conversation-a&outputRun=run-archived&outputPath=notes.txt&outputMode=source',
+    );
+    await openWorkspace();
+    await flush();
+
+    expect(api.outputContent).toHaveBeenCalledWith(
+      'conversation-a',
+      'run-archived',
+      'notes.txt',
+      expect.any(AbortSignal),
+    );
+    expect(vi.mocked(api.outputFile).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.outputContent).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+    expect(workspace().querySelector('pre')?.textContent).toBe('archived notes');
+  });
+
+  it('retries metadata before showing an older image', async () => {
+    const unrelated = output({ runId: 'run-other', path: 'other.md' });
+    const archived = photo({ runId: 'run-archived', path: 'photo.png' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextBefore: null });
+    vi.mocked(api.outputFile)
+      .mockRejectedValueOnce(new Error('元信息没有加载出来'))
+      .mockResolvedValue({ file: archived });
+    vi.mocked(api.outputBlob).mockResolvedValue(new Blob(['archived'], { type: 'image/png' }));
+    stubObjectUrls();
+
+    await mount(
+      '/chat?agent=agent-a&conversation=conversation-a&outputRun=run-archived&outputPath=photo.png&outputMode=source',
+    );
+    await openWorkspace();
+    await flush();
+    expect(workspace().textContent).toContain('元信息没有加载出来');
+    expect(api.outputBlob).not.toHaveBeenCalled();
+
+    const retry = [...workspace().querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === '重试',
+    );
+    if (!retry) throw new Error('Missing metadata retry action');
+    await act(async () => retry.click());
+    await flush();
+    expect(api.outputFile).toHaveBeenCalledTimes(2);
+    await flush();
+    await decodeImage(previewImage());
+  });
+
+  it('retries a failed image download and keeps the file actions', async () => {
+    const file = photo({ runId: 'run-photo', path: 'photo.png' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputBlob)
+      .mockRejectedValueOnce(new Error('图片下载失败'))
+      .mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+    stubObjectUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('photo.png');
+    expect(workspace().textContent).toContain('图片下载失败');
+    expect(workspace().querySelector('a[aria-label="下载 photo.png"]')).not.toBeNull();
+
+    const retry = [...workspace().querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.trim() === '重试',
+    );
+    if (!retry) throw new Error('Missing image retry action');
+    await act(async () => retry.click());
+    await flush();
+    expect(api.outputBlob).toHaveBeenCalledTimes(2);
+    await decodeImage(previewImage());
+  });
+
+  it('reports a decode failure as real text and keeps the original download', async () => {
+    const file = photo({ runId: 'run-photo', path: 'photo.png' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputBlob).mockResolvedValue(new Blob(['broken'], { type: 'image/png' }));
+    stubObjectUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('photo.png');
+    const image = previewImage();
+    await act(async () => {
+      image.dispatchEvent(new Event('error'));
+    });
+
+    expect(workspace().textContent).toContain('图片无法解码，请下载原件查看。');
+    expect(workspace().querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(workspace().querySelector<HTMLImageElement>('img')?.className).toContain('hidden');
+    expect(workspace().querySelector('a[aria-label="下载 photo.png"]')).not.toBeNull();
+  });
+
+  it('shows only the last selection when image blobs resolve out of order', async () => {
+    const first = photo({
+      runId: 'run-a',
+      path: 'a.png',
+      createdAt: '2026-10-28T11:00:00.000Z',
+    });
+    const second = photo({
+      runId: 'run-b',
+      path: 'b.png',
+      createdAt: '2026-10-28T10:00:00.000Z',
+    });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [first, second], nextBefore: null });
+    const firstBlob = new Blob(['a'], { type: 'image/png' });
+    const secondBlob = new Blob(['b'], { type: 'image/png' });
+    let resolveFirst!: (blob: Blob) => void;
+    let resolveSecond!: (blob: Blob) => void;
+    vi.mocked(api.outputBlob).mockImplementation((_conversationId, _runId, path) =>
+      path === 'a.png'
+        ? new Promise<Blob>((resolve) => {
+            resolveFirst = resolve;
+          })
+        : new Promise<Blob>((resolve) => {
+            resolveSecond = resolve;
+          }),
+    );
+    const { urls } = stubObjectUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('a.png');
+    await selectFile('b.png');
+    await act(async () => resolveSecond(secondBlob));
+    await flush();
+    await decodeImage(previewImage());
+
+    await act(async () => resolveFirst(firstBlob));
+    await flush();
+    const image = previewImage();
+    expect(image.getAttribute('src')).toBe(urls.get(secondBlob));
+    expect(image.getAttribute('alt')).toBe('b.png');
+  });
+
+  it('revokes the object URL when the image unmounts', async () => {
+    const file = photo({ runId: 'run-photo', path: 'photo.png' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    const blob = new Blob(['png'], { type: 'image/png' });
+    vi.mocked(api.outputBlob).mockResolvedValue(blob);
+    const { revoke, urls } = stubObjectUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('photo.png');
+    await decodeImage(previewImage());
+    const url = urls.get(blob);
+    if (url === undefined) throw new Error('Missing object URL');
+
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    expect(revoke).toHaveBeenCalledWith(url);
   });
 });
 
