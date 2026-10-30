@@ -159,13 +159,15 @@
 
 ### 3.2 会话成果的生成、版本与查看
 
-成果是运行数据，不是智能体定义；不新增成果表，也不把 `.claude/` 文件当成果。用户消息可携带 `output: { runId, path }`，API 校验该版本属于当前会话后随用户消息落库；worker 读取它准备下一轮草稿。每轮发布后，`GET /api/conversations/:id/outputs` 按版本返回有变化的文件，`.../outputs/:runId/content` 返回完整 UTF-8 文本，`.../download` 返回原件。前端右侧成果面板按路径分组、可选版本、阅读/源码切换和下载；“基于此版本修改”只挂引用，不自动发送，用户可继续编辑或取消。Fork 只复制历史边界内且两个消息锚点都能映射的版本，并把锚点重写为分支消息 ID；删除会话或专家回收成果，run 保留期清理不删除成果。
+成果是运行数据，不是智能体定义；不新增成果表，也不把 `.claude/` 文件当成果。用户消息可携带 `output: { runId, path }`，API 校验该版本属于当前会话后随用户消息落库；worker 读取它准备下一轮草稿。每轮发布后，`GET /api/conversations/:id/outputs` 按版本返回有变化的文件，认证的 `GET /api/conversations/:id/outputs/:runId?path=` 返回该版 `{ file }` 元数据（大小、类型、sha256、创建时刻、状态与消息锚点，含列表分页外的旧版），`.../outputs/:runId/content` 返回完整 UTF-8 文本，`.../download` 返回原件。前端右侧成果面板按路径分组、可选版本、阅读/源码切换和下载；图片仅 PNG/JPEG/GIF/WebP，经鉴权下载取 Blob 且浏览器解码成功后才显示，解码失败保留下载；“基于此版本修改”只挂引用，不自动发送，用户可继续编辑或取消。Fork 只复制历史边界内且两个消息锚点都能映射的版本，并把锚点重写为分支消息 ID；删除会话或专家回收成果，run 保留期清理不删除成果。
 
-固定版本公开分享单独建 `output_shares`：`POST /api/conversations/:id/output-shares` 锚定 `runId + path` 的真实字节并复用同三元组的有效分享，`GET /api/public/output-shares/:id[/content|/download]` 在未登录下凭 Bearer token 访问，`DELETE /api/output-shares/:id` 幂等撤销。公开元数据只含文件名、大小、类型、哈希与创建时刻；无效、撤销或来源删除统一 404。
+固定版本公开分享单独建 `output_shares`：`POST /api/conversations/:id/output-shares` 锚定 `runId + path` 的真实字节并复用同三元组的有效分享，`GET /api/public/output-shares/:id[/content|/download]` 在未登录下凭 Bearer token 访问，`DELETE /api/output-shares/:id` 幂等撤销。公开元数据只含文件名、大小、类型、哈希与创建时刻；无效、撤销或来源删除统一 404。公开页图片仅 PNG/JPEG/GIF/WebP，经 Bearer 下载且解码成功后才显示；PDF 沿用既有 iframe 预览、本轮未重新验收；其余格式沿用既有行为。
 
-边界：当前模型没有删除工具，多文件中的单文件删除不作为支持路径；二进制只下载，Office 无预览；HTML/SVG 只按源码展示；正文超过 1MiB 只下载。成果正文是交付内容，不套用聊天的密钥脱敏；路径逃逸、符号/硬链接和跨会话读取在存储与 API 边界拒绝。
+边界：当前模型没有删除工具，多文件中的单文件删除不作为支持路径；二进制除 PNG/JPEG/GIF/WebP 图片外只下载，Office 无预览；HTML/SVG 只按源码展示；正文超过 1MiB 只下载。成果正文是交付内容，不套用聊天的密钥脱敏；路径逃逸、符号/硬链接和跨会话读取在存储与 API 边界拒绝。
 
 实现状态（2026-10-28）：真实两轮12/12、分支8/8、停止后保留2/2、浏览器预览/下载与反馈挂引用通过；串行后端1824/1824、Web905/905、API9/9、typecheck/build通过，独立评审通过。Office/PDF不预览、无删除工具、成果内容不做聊天脱敏；详见 [任务记录](tasks/agent-output-viewing.md) 与 D-67。成果查看不代表成果质量自动通过。
+
+后续更新（2026-10-30）：新增认证 `outputs/:runId?path=` 元数据接口（响应只含 `{ file }`，handler 仍整份读取所选文件校验 manifest 成员，不回正文）与 PNG/JPEG/GIF/WebP 图片预览；会话成果面板与公开分享页共用 `BlobImage`，解码成功才显示，损坏字节保留原件下载；公开页只替换 image 为共享组件，PDF 既有 iframe 行为未改。三轮 Opus review 与最终浏览器验收通过；源码已提交 `e4d414d` 并推送分支，未合并 `main`。详见 [任务记录](tasks/image-output-preview-20261030.md)。
 
 ### 3.3 原生澄清提问（已接通）
 
@@ -246,7 +248,7 @@ data/workspaces/<agent-slug>/
 - 会话 workspace 以只读方式挂载到容器 `/workspace`；agent 不能修改自己的定义。稳定的 `session-sandboxes/<conversationId>/outputs` 以 rw 挂到 `/mnt/outputs`，主会话用原生 Read/Write/Edit 交付文件；不使用 SDK `additionalDirectories`，避免可写目录被当作配置来源加载。原生 Read/Write/Edit/Glob/Grep/NotebookEdit 另有 PreToolUse 边界 hook 逐次校验路径；Bash 不在该 hook 内，文件边界由只读/可写挂载决定，无法写入只读挂载。容器另准确挂载 `sdk-sessions/<conversationId>`、`agent-memory` 与预建的 `conversation-inputs`，不挂整个 agent 目录。
 - 每轮 `.mcp.json` 与 runner 进程环境携带本轮短期 MCP/模型凭证；stdio 的 `env` 与 http 的 `headers` 还会写入对应的上游解密 secrets，可能是长期凭证，generated 只给按 run 的短期 token。运行结束（不论容器是否停稳）都会尝试清空本轮 MCP/模型 token：模型 token 结束时从代理内存集合移除并尝试清空 DB hash；内存移除不保证独立于 DB 立即失效（集合里还有活跃 run 时，代理会拒绝不在集合中的 token），清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。MCP token 的 DB 清空失败只记 warning，token 可能保留到过期时间（该 agent 超时 + 5 分钟）。终态停稳后从会话工作区移除 `.mcp.json`；移除失败时 worker 记录错误、禁止复用该会话容器，并在仍持有 lease 时销毁容器，但持久工作区里的文件可能留到下一轮刷新时被覆盖。本轮 token 撤销不影响上游 secrets，文件残留期间长期 secret 仍可能有效。目录 0700、文件 0600。空闲容器不保留上一轮身份，下一轮重新渲染。
 - 运行结束后 worker 等本轮 runner 停稳（`settled`），由 core 的 `captureOutputDraft` 从 stable outputs 复制出本轮草稿，再以当前最新完整快照为基线发布不可变快照；stable outputs 根只读复制，不发布也不删除。用户选定旧版时只把所选文件覆盖到草稿，其他最新文件保持原样。正在重试、消息保存失败、容器未停稳或销毁失败时不发布并保留草稿；空基线清空后发布空快照。
-- API 鉴权读取成果列表、完整 UTF-8 文本（≤1MiB）与原件下载；读取只接受 manifest 成员，HTML/SVG 仅按源码返回，不执行。二进制提供下载，不在服务端伪造文本预览。
+- API 鉴权读取成果列表、按 `runId + path` 的 `{ file }` 元数据、完整 UTF-8 文本（≤1MiB）与原件下载；读取只接受 manifest 成员，HTML/SVG 仅按源码返回，不执行。二进制提供下载，不在服务端伪造文本预览；PNG/JPEG/GIF/WebP 图片由前端经鉴权下载取 Blob 并在解码成功后显示。
 - 内置工具默认禁用；例外是 Bash（默认启用，用户可在 `disallowedTools` 中显式拒绝）、主会话受路径规则约束的原生 Read/Write/Edit，以及显式启用的 `TodoWrite`（§3.1，只用于展示进度）。`allowedTools` 只负责自动批准。MCP 工具的允许规则按 server name 逐个生成 `mcp__<name>__*`，`mcp__*` 通配无效。
 - 父级绑定技能slug从worker传给SDK的`skills`选项；无绑定明确传`[]`，仅控制自动批准的Skill(name)清单，不代表CLI发现清单隐藏其他技能。CLAUDE.md仅列父绑定技能。启用子智能体的绑定技能经批量查询合并到工作区文件，其子定义独立写`skills`预加载字段，不扩展父级SDK许可。真实CLI已发现子定义和技能文件；初始化接口不暴露预加载状态，子级正文加载及实际模型调用仍未验证，支持资源目录另行验收。
 - 有子智能体时才放行 `Agent` / `TaskStop`；子智能体自身不再获得委派能力。
