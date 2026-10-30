@@ -10,7 +10,7 @@ import { cn } from '../lib/cn.js';
 
 /**
  * Shiki 的 css-variables 主题：颜色全部落在 styles.css 的 --shiki-* 变量上，
- * 高亮配色（含品牌蓝关键字）只由主题令牌决定。
+ * 高亮配色（含中性主色关键字）只由主题令牌决定。
  */
 function grayscaleTheme(name: string): ThemeInput {
   const token = (key: string) => `var(--shiki-${key})`;

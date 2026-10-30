@@ -254,6 +254,112 @@ describe('resource navigation', () => {
   );
 });
 
+describe('resource toolbar reading order', () => {
+  it('keeps navigation, actions, search, filters, sort and count in reading order', async () => {
+    const onQueryChange = vi.fn();
+    const onAction = vi.fn();
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          createElement(ResourcePage, {
+            section: 'skills',
+            query: '',
+            onQueryChange,
+            sort: 'newest',
+            onSortChange() {},
+            count: 2,
+            status: 'success',
+            leadingFilters: createElement('button', { type: 'button' }, '来源'),
+            filters: createElement('button', { type: 'button' }, '使用情况'),
+            actions: createElement('button', { type: 'button', onClick: onAction }, '新建'),
+            // biome-ignore lint/correctness/noChildrenProp: Required by the component's props type in createElement.
+            children: null,
+          }),
+        );
+      });
+
+      const nav = container.querySelector('nav[aria-label="资源类型"]');
+      const search = container.querySelector('input[aria-label="搜索技能"]');
+      const buttons = [...container.querySelectorAll('button')];
+      const source = buttons.find((button) => button.textContent === '来源');
+      const usage = buttons.find((button) => button.textContent === '使用情况');
+      const sort = container.querySelector('button[aria-label="资源排序"]');
+      const action = buttons.find((button) => button.textContent === '新建');
+      const count = container.querySelector('[role="status"]');
+      const requiredNode = <T extends Element>(node: T | null, name: string): T => {
+        if (!node) throw new Error(`Missing ${name} control`);
+        return node;
+      };
+      const navNode = requiredNode(nav, 'nav');
+      const searchNode = requiredNode(search, 'search');
+      const sourceNode = requiredNode(source, 'source');
+      const usageNode = requiredNode(usage, 'usage');
+      const sortNode = requiredNode(sort, 'sort');
+      const actionNode = requiredNode(action, 'action');
+      const countNode = requiredNode(count, 'count');
+      const order = (first: Element, second: Element): boolean =>
+        Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+      // 阅读与 Tab 顺序：类型导航 → 管理动作 → 来源 → 搜索 → 筛选 → 排序 → 数量。
+      expect(order(navNode, actionNode)).toBe(true);
+      expect(order(actionNode, sourceNode)).toBe(true);
+      expect(order(sourceNode, searchNode)).toBe(true);
+      expect(order(searchNode, usageNode)).toBe(true);
+      expect(order(usageNode, sortNode)).toBe(true);
+      expect(order(sortNode, countNode)).toBe(true);
+      expect(container.querySelectorAll('h1')).toHaveLength(1);
+
+      const input = searchNode as HTMLInputElement;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+          input,
+          'react',
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(onQueryChange).toHaveBeenCalledWith('react');
+
+      await act(async () => (actionNode as HTMLButtonElement).click());
+      expect(onAction).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it('renders the market toolbar without a sort control', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          createElement(ResourcePage, {
+            section: 'skills',
+            query: '',
+            onQueryChange() {},
+            sort: 'newest',
+            onSortChange() {},
+            count: 0,
+            status: 'success',
+            hideSort: true,
+            // biome-ignore lint/correctness/noChildrenProp: Required by the component's props type in createElement.
+            children: null,
+          }),
+        );
+      });
+      expect(container.querySelector('button[aria-label="资源排序"]')).toBeNull();
+      expect(container.querySelector('input[aria-label="搜索技能"]')).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+});
+
 describe('resource draft navigation', () => {
   it.each(['skill', 'server', 'tool'] as const)(
     'guards dirty and pending %s forms on navigation and unload',

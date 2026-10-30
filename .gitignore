@@ -11,6 +11,10 @@ data/
 coverage/
 *.tsbuildinfo
 .impeccable/
+# 仅保留 web 应用的设计系统快照，其余 .impeccable 临时评审产物不入库
+!packages/web/.impeccable/
+packages/web/.impeccable/*
+!packages/web/.impeccable/design.json
 
 backups/
 test-results/

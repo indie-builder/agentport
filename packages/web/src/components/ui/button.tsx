@@ -9,7 +9,7 @@ const buttonVariantStyles = cva(
       variant: {
         plain: 'cursor-pointer bg-transparent',
         default:
-          'border-primary bg-background text-primary hover:bg-selected active:bg-selected active:border-primary-hover active:text-primary-hover focus-visible:border-transparent',
+          'border-transparent bg-button-primary text-primary-foreground hover:bg-button-primary-hover active:bg-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         solid:
           'bg-button-primary text-primary-foreground hover:bg-button-primary-hover active:bg-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         outline:
@@ -44,7 +44,7 @@ const buttonVariantStyles = cva(
 );
 
 // Link 等场景把 helper 直接当 className 用，不经过 Button 的 cn；这里先合并，
-// 否则 base 的 border-transparent 与 default 的 border-primary 并存时透明色胜出。
+// 保证调用方追加的 className 也按 Tailwind 冲突规则覆盖基础样式与变体。
 const buttonVariants = (props?: Parameters<typeof buttonVariantStyles>[0]) =>
   cn(buttonVariantStyles(props));
 

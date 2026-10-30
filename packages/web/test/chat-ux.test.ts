@@ -938,7 +938,7 @@ describe('chat shell layout', () => {
     expect(options.some((item) => item.textContent?.includes('Expert'))).toBe(false);
   });
 
-  it('hides history by default on desktop and toggles it from the header', async () => {
+  it('hides history by default on desktop and toggles it without moving the header controls', async () => {
     vi.stubGlobal('matchMedia', () => ({
       matches: true,
       addEventListener() {},
@@ -948,8 +948,12 @@ describe('chat shell layout', () => {
     }));
     await mount('/chat?agent=agent-a');
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
-    // 历史收起时，欢迎态自己提供当前专家。
-    expect(host.querySelector('[aria-label^="选择专家"]')).not.toBeNull();
+    const picker = host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
+    if (!picker) throw new Error('Missing expert picker');
+    const search = host.querySelector<HTMLButtonElement>('button[aria-label="搜索会话"]');
+    if (!search) throw new Error('Missing search trigger');
+    // 顶栏固定在整个分栏上方：专家与搜索都不属于历史 aside。
+    expect(picker.closest('aside[aria-label="会话历史"]')).toBeNull();
     const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
     if (!toggle) throw new Error('Missing history toggle');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -957,14 +961,15 @@ describe('chat shell layout', () => {
     await act(async () => toggle.click());
     const history = host.querySelector('aside[aria-label="会话历史"]');
     expect(history).not.toBeNull();
-    // 专家选择随历史面板出现，且只保留这一处。
-    const picker = history?.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
-    expect(picker).not.toBeNull();
-    // 触发器同时显示头像、名称与 ComboboxTrigger 默认的下箭头。
-    expect(picker?.querySelector('img')).not.toBeNull();
-    expect(picker?.textContent).toContain('Expert');
-    expect(picker?.querySelectorAll('svg.lucide-chevron-down')).toHaveLength(1);
+    // 展开历史不复制、不移动、不卸载顶栏控件。
+    expect(host.querySelector('[aria-label^="选择专家"]')).toBe(picker);
+    expect(host.querySelector('button[aria-label="搜索会话"]')).toBe(search);
+    expect(history?.querySelector('[aria-label^="选择专家"]')).toBeNull();
     expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    // 触发器同时显示头像、名称与 ComboboxTrigger 默认的下箭头。
+    expect(picker.querySelector('img')).not.toBeNull();
+    expect(picker.textContent).toContain('Expert');
+    expect(picker.querySelectorAll('svg.lucide-chevron-down')).toHaveLength(1);
     expect(
       host.querySelector('button[aria-label="隐藏会话历史"]')?.getAttribute('aria-expanded'),
     ).toBe('true');
@@ -976,6 +981,7 @@ describe('chat shell layout', () => {
       host.querySelector<HTMLButtonElement>('button[aria-label="隐藏会话历史"]')?.click(),
     );
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
+    expect(host.querySelector('[aria-label^="选择专家"]')).toBe(picker);
   });
 
   it('keeps the expert picker reachable when resize crosses the desktop breakpoint', async () => {
@@ -1012,14 +1018,12 @@ describe('chat shell layout', () => {
     const resize = stubViewport(1024);
     await mount('/chat?agent=agent-a');
 
-    // 桌面展开历史：选择器只在历史面板里。
+    // 桌面展开历史：专家选择仍留在固定顶栏，历史面板内不再复制一份。
     await act(async () =>
       host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]')?.click(),
     );
     await flush();
-    expect(
-      host.querySelector('aside[aria-label="会话历史"] [aria-label^="选择专家"]'),
-    ).not.toBeNull();
+    expect(host.querySelector('aside[aria-label="会话历史"] [aria-label^="选择专家"]')).toBeNull();
     expect(host.querySelector('[aria-label^="选择专家"]')).not.toBeNull();
 
     // 缩窄到 lg 以下且 historyOpen=false：没有抽屉，欢迎态必须给出选择器。
@@ -1309,7 +1313,7 @@ describe('chat focus handoff and history detail reachability', () => {
     expect(oldest.getAttribute('href')).toBe('/runs/run-1');
   });
 
-  it('moves focus to the conversation composer after the first Enter send', async () => {
+  it('keeps the same composer textarea and its focus after the first Enter send', async () => {
     vi.spyOn(api, 'sendChat').mockResolvedValue({
       runId: 'run-new',
       conversationId: 'conversation-a',
@@ -1324,9 +1328,10 @@ describe('chat focus handoff and history detail reachability', () => {
     });
     await flush();
 
+    // 欢迎态与会话态共用同一个输入节点：不重建、不丢焦点。
     const conversationInput = message();
-    expect(conversationInput).not.toBe(welcomeInput);
-    expect(welcomeInput.isConnected).toBe(false);
+    expect(conversationInput).toBe(welcomeInput);
+    expect(welcomeInput.isConnected).toBe(true);
     expect(document.activeElement).toBe(conversationInput);
     await type('follow-up draft');
     expect(conversationInput.value).toBe('follow-up draft');
@@ -1352,33 +1357,29 @@ describe('chat focus handoff and history detail reachability', () => {
     expect(document.activeElement).not.toBe(message());
   });
 
-  it('does not inherit an empty-Enter handoff when another control submits', async () => {
+  it('does not take focus back when the send button submits while another control has it', async () => {
     vi.spyOn(api, 'sendChat').mockResolvedValue({
       runId: 'run-new',
       conversationId: 'conversation-a',
     });
     vi.mocked(api.conversation).mockResolvedValue(threeTurnHistory());
     await mount('/chat?agent=agent-a');
-    message().focus();
-    const welcomeInput = message();
-    await act(async () => {
-      welcomeInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
-    expect(vi.mocked(api.sendChat)).not.toHaveBeenCalled();
-
     await type('actual body');
     const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
     if (!toggle) throw new Error('Missing history toggle');
     toggle.focus();
+    const input = message();
     await act(async () =>
       host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.click(),
     );
     await flush();
 
     expect(vi.mocked(api.sendChat)).toHaveBeenCalledTimes(1);
-    expect(welcomeInput.isConnected).toBe(false);
+    // 输入节点保持挂载，但焦点留在用户最后操作的控制上。
+    expect(message()).toBe(input);
+    expect(input.isConnected).toBe(true);
     expect(document.activeElement).toBe(toggle);
-    expect(document.activeElement).not.toBe(message());
+    expect(document.activeElement).not.toBe(input);
   });
 });
 

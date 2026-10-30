@@ -59,6 +59,7 @@ const editorTheme = EditorView.theme({
   },
   '.cm-cursor': { borderLeftColor: 'var(--color-fg)' },
   // 内置搜索面板与括号/匹配高亮默认带彩色，这里统一收回到中性令牌。
+  '.cm-panels': { backgroundColor: 'var(--color-surface)', color: 'var(--color-fg)' },
   '.cm-panel.cm-search': {
     backgroundColor: 'var(--color-surface)',
     borderTop: '1px solid var(--color-line)',
@@ -70,10 +71,14 @@ const editorTheme = EditorView.theme({
     fontSize: 'inherit',
     color: 'var(--color-fg)',
     backgroundColor: 'transparent',
-    border: '1px solid var(--color-line)',
     borderRadius: 'var(--radius-md)',
   },
-  '.cm-panel.cm-search input': { padding: '0.125rem 0.375rem' },
+  '.cm-panel.cm-search input': {
+    padding: '0.125rem 0.375rem',
+    // 真实可编辑输入需要可访问边界；按钮仍用分隔线，不冒充输入。
+    border: '1px solid var(--color-input)',
+  },
+  '.cm-panel.cm-search button': { border: '1px solid var(--color-line)' },
   '.cm-searchMatch, .cm-searchMatch.cm-searchMatch-selected': {
     backgroundColor: 'var(--color-selected)',
   },

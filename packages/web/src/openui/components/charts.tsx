@@ -71,9 +71,9 @@ import { asArray, childProps, type RenderProps } from './shared.js';
 
 const DEFAULT_CHART_HEIGHT = 256;
 
-/** 首系列映射品牌主色，其余 4 档沿用既有中性灰阶；第 2 条系列起每条叠加独立虚线与纹理。 */
+/** 首系列映射数据主线 chart-runs，其余 4 档沿用既有中性灰阶；第 2 条系列起每条叠加独立虚线与纹理。 */
 const SERIES_TONES = [
-  'var(--color-primary)',
+  'var(--color-chart-runs)',
   'color-mix(in srgb, var(--color-fg) 80%, var(--color-surface))',
   'var(--color-muted-foreground)',
   'color-mix(in srgb, var(--color-fg) 62%, var(--color-surface))',

@@ -23,7 +23,7 @@
 
 0. **官方最佳实践优先。** 项目引用的每个技术栈（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Fastify、Vitest…）如果官方文档给出了做法，**以官方为准**。用户的口头偏好、我的判断、项目历史习惯，都不高于官方文档。用户明确说过「我可能说的也不对」——遇到分歧先去查官方文档，再决定。
 1. **并行优先。** 任何可拆的工作都必须并行；串行只在存在真实依赖时允许，并且必须说明依赖是什么。
-2. **UI 基准优先。** 视觉一律以 https://www.openui.com/chat?form_factor=desktop 与 `docs/DESIGN-SYSTEM.md` 为准；任何技术选型、库默认样式、动效偏好都不得改动这套视觉数值。
+2. **UI 基准优先。** 视觉外观（配色、控件外观与状态）以 Qoder CN 桌面浅色界面为准；布局几何以 `docs/DESIGN-SYSTEM.md` 当前规范为准（含 2026-10-30 用户批准的布局契约），OpenUI 桌面基准仅保留为历史参考；任何技术选型、库默认样式、动效偏好都不得改动这套视觉数值。
 3. **技术栈优先。** 功能实现必须走项目已选定的库（shadcn/ui、lucide、Motion、react-resizable-panels、dnd-kit、Zustand、TanStack Query/Router、Base UI），不允许手写等价实现。
 4. **零死代码。** 无人引用的组件、导出、样式、依赖、注释掉的代码块一律删除；不保留「以后可能用」的占位实现。删之前用 grep 确认引用，删之后跑 typecheck / 构建确认没断。注释只解释「代码看不出来的原因」，不写复述代码的废话。
 5. 其余按本文件后续条款执行。
@@ -73,7 +73,7 @@
 ## 前端
 
 - **仅面向桌面端，避免过度设计。** 前端采用桌面布局与控件规格，不做移动端适配，不为手机增加断点、触摸尺寸或替代导航；保留桌面窗口缩放、容器伸缩与无障碍行为。
-- **一切视觉以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 为准**，设计基准是 https://www.openui.com/chat?form_factor=desktop。界面唯一品牌色为 PACE 蓝 `#315FAD`（链接、当前导航与选中、焦点环、主按钮描边与文字、用户消息、徽章、运行系列），普通主操作为 1px 品牌蓝描边与蓝字，只有发送与登录使用 `#426FBD` 实底（悬停 `#3B64AA`、按下 `#345997`）配白字，界面为冷灰画布 `#F0F2F5`、清白表面 `#FBFCFE` 与冷灰中性层；品牌 Logo 与插画保留原配色；普通图标继承所属文字，危险用 `danger` 红；1px 线与留白、lucide 图标 `strokeWidth={1.75}` 16px、焦点/边框统一（§9）、信息表达「让布局解释结构」（§10，做 UI 前后逐条过）。
+- **一切视觉以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 为准**：配色与控件外观以 Qoder CN 桌面浅色界面为权威（来源是实际截图采样，不是其源码 token），布局几何以 `docs/DESIGN-SYSTEM.md` 当前规范为准（含用户批准的布局契约），OpenUI Chat 桌面基准仅保留为历史参考。应用外壳的外部根容器使用静态暖黄到蓝灰渐变（`shell-start #ECEBC9` → `shell-mid #DDE3D4` → `shell-end #D1DAE3`），内容壳、页面、卡片与浮层为纯白 `#FFFFFF`；动作为中性深色 `#0D0D0D`（悬停 `#262626`、按下 `#404040`）配白字，普通主操作与发送/登录共用同一实底三态，次操作为白底细边或中性浅底；中性层 `#F6F6F6` / `#EFEFEF`，正文 `#141414`，辅助文字 `#5F5F5F`，分隔线 `#E6E6E6`，可编辑边界 `#767676`（可访问适配，非 Qoder 采样），焦点环 `#0D0D0D`；`#315FAD` 只作为 `chart-runs` 数据系列，不用于导航、按钮或状态。实现产物作为设计系统快照记录在 [packages/web/DESIGN.md](packages/web/DESIGN.md)。品牌 Logo 与插画保留原配色；普通图标继承所属文字，危险用 `danger` 红；1px 线与留白、lucide 图标 `strokeWidth={1.75}` 16px、焦点/边框统一（§9）、信息表达「让布局解释结构」（§10，做 UI 前后逐条过）。
 - **布局优先。** "Cut taglines, helper text and secondary labels. If a screen needs them to make sense, fix the layout." 删掉标语、用于解释结构的辅助文案和重复的次级标签；若界面要靠这些文字才看得懂，先改分组/对齐/间距/层级，而不是加字。表单字段标签、约束提示、错误、风险与无障碍说明仍按 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) §10 保留。
 - **组件库只用 shadcn/ui**（`components.json` 已配；`pnpm dlx shadcn@latest add <name>` 后可改源码 token）；交互原语只用 Base UI（`@base-ui/react`），Radix 已移除不再引入；样式只用 Tailwind 4，颜色/间距/字体/圆角只从 `styles.css` 的 `@theme` token 取，禁止硬编码 hex。先看 `components/ui/` 有无可复用再新增。
 - 页面骨架统一用 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`），每个渲染状态恰好一个 `h1`；不写页面级 `mt-*`/`mb-*`。
