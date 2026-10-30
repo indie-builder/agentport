@@ -440,7 +440,7 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 - Sheet 保留各 side 的定位与尺寸，仅淡入淡出，不做位移；Switch、加载/运行状态等控件必要状态保留其原有位移或颜色过渡，不属于装饰动效。
 - 骨架屏保持静态，不做呼吸；消息滚动按钮只做可见性淡入淡出，不位移、不缩放。
 - 无页面入场动画、无装饰位移、无呼吸点；不改尺寸、色值、布局与业务行为。
-- `prefers-reduced-motion` 下全局把过渡/动画时长与延迟归零；JS Motion 仍由各调用方读取 `useReducedMotion` 自行收敛。
+- `prefers-reduced-motion` 下全局把过渡/动画时长设为 `0.01ms`、延迟 `0ms`（`styles.css` 现状），JS Motion 仍由各调用方读取 `useReducedMotion` 自行收敛。
 
 ## 12. 实现技术栈（硬性）
 
@@ -450,7 +450,7 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 |---|---|---|
 | 控件、表单、浮层 | shadcn/ui（`base-nova`）+ Base UI | 先复用或安装官方组件，共享视觉由 `@theme` 语义令牌控制 |
 | 图标 | lucide | `LucideProvider` 在 `App.tsx` 统一设 `strokeWidth={1.75}`、`size={16}`，组件里不要再逐个传 |
-| 动效 | Motion（`motion/react`）+ Base UI 状态过渡 | 局部交互与状态反馈用 CSS transition（90–160ms、`--ease-out-soft`；浮层用 `data-starting-style` / `data-ending-style`）。需要布局开合时用 Motion：`duration` 0.15–0.2、`easeOut`，并读 `useReducedMotion` |
+| 动效 | Motion（`motion/react`）+ Base UI 状态过渡 | 局部交互与状态反馈用 CSS transition（90–160ms、`--ease-out-soft`；浮层用 `data-starting-style` / `data-ending-style`）。需要布局开合时用 Motion：`duration` 沿用 §11 与现有实现的固定值（折叠/浮层 0.15、侧栏 0.16、品牌切图 0.3），缓动 `--ease-out-soft` 或 `easeOut`，并读 `useReducedMotion`；不扩大到 0.2 |
 | 可拖拽分栏 | react-resizable-panels v4 | `Group` / `Panel` / `Separator`；用 `useDefaultLayout` 持久化；分隔条就是 1px `border-line`，不加把手 |
 | 拖拽排序 | dnd-kit | 必须带 `KeyboardSensor`，拖拽手柄有可访问名称 |
 | 客户端状态 | Zustand | 只放**跨组件、非服务端**的状态；服务端数据一律 TanStack Query |

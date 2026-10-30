@@ -75,7 +75,7 @@
 - [x] API 新增 CSP 与私有/公开 PDF 下载/鉴权/原字节/headers 回归，一审通过（3 文件 26 用例）。
 - [x] Web 一审 readerror mustfix 修复（header 读取失败独立提示、不建 iframe/URL），3 文件 97 用例通过；二审通过、无 mustfix。
 - [x] 生产隔离浏览器验收通过（独立 PG/Redis、production CSP、私有/公开实屏、伪 PDF、清理 0）。
-- [x] 三轮 Opus review 通过（末轮 `a18c436ffd11f7505`，无 mustfix，4 文件 110 用例）；主线程最终复验通过；实现已提交 `ca5cb28`，未 push、未 merge。
+- [x] 三轮 Opus review 通过（末轮 `a18c436ffd11f7505`，无 mustfix，4 文件 110 用例）；主线程最终复验通过；实现 `ca5cb28` 与文档 `9caf2fa` 已由 PR #123 合入 `main` `b683903`。
 
 ## 改动文件
 
@@ -96,7 +96,7 @@
 
 ## 下一步
 
-实现、三轮 Opus review、主线程最终复验与生产隔离浏览器验收均已完成；实现已提交 `ca5cb28`，未 push、未 merge。文档已同步 DESIGN-SYSTEM §9、ARCHITECTURE、USER-STORIES 与 REMAINING-TODOS。剩余限制：非 Chromium 未测、加密/坏结构 PDF 的原生查看器兜底未逐一实测、大 PDF 未压测。
+实现、三轮 Opus review、主线程最终复验与生产隔离浏览器验收均已完成；实现 `ca5cb28` 与文档 `9caf2fa` 已由 PR #123 合入 `main` `b683903`，合入后 `main` 干净。文档已同步 DESIGN-SYSTEM §9、ARCHITECTURE、USER-STORIES 与 REMAINING-TODOS。剩余限制：非 Chromium 未测、加密/坏结构 PDF 的原生查看器兜底未逐一实测、大 PDF 未压测。
 
 ## 验证
 
@@ -129,7 +129,7 @@
 - 第三轮 Opus review `a18c436ffd11f7505` 通过、无 mustfix：4 文件 110 用例通过；独立核对 production 截图 `ONE`/`TWO` 与下载 sha/CSP。
 - 作者 full web 在 readerror 与 loading 测试修复后为 119 文件 / 1412 用例通过；此前 1411 是修复前数字。`run-history-visibility.test.ts` 的 loading 用例曾在全量中单独失败、单文件 13 用例通过；最小修复只固定网络 pending 窗口、保留原断言，单文件连续 5 次通过，仅测试改动、无产品源码变化；单测 mock 为固定 pending，不放宽。主线程最终复验 full web 119 文件 1412 用例 39.50s 全部通过，api/web typecheck/build 完整通过，backend 3 文件 26 用例 2.62s 通过。
 - 生产隔离浏览器验收 `a46306ac16227d1ce` 通过：独立随机 PostgreSQL + 独立 Redis、端口 63465、production 静态产物；真实 CSP header 为 `frame-src 'self' blob:`，`object-src 'none'` 与 `script-src 'self'` 保持；`navigator.pdfViewerEnabled=true`；私有旧/新版截图实际文字 `ONE`/`TWO`，切版与刷新保持；下载 sha 与旧/新版本一致；公开页在登录退出、无管理 cookie 下仍为 `ONE`/`TWO`，Bearer 下载 hash 一致；伪 PDF 不创建 iframe 并显示「文件不是可预览的 PDF，请下载原件查看。」；引用不发送模型；临时进程/PG/Redis/workspace 清理 0。证据：`/Users/xbjt/.claude/jobs/642ddc7d/tmp/pdf-preview-production/{private-old.png,private-new.png,public-old.png,evidence.json}`。
-- 限制：只测 Chromium 原生 PDF viewer；加密或结构损坏 PDF 由原生 viewer 兜底、未逐一实测；大 PDF 未压测；三轮 review 与最终复验已完成，实现已提交 `ca5cb28`，未 push、未 merge。
+- 限制：只测 Chromium 原生 PDF viewer；加密或结构损坏 PDF 由原生 viewer 兜底、未逐一实测；大 PDF 未压测；三轮 review 与最终复验已完成，实现 `ca5cb28` 与文档 `9caf2fa` 已由 PR #123 合入 `main` `b683903`。
 
 并发说明：
 

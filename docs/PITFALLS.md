@@ -368,3 +368,9 @@
 - **现象**：真实 Docker / SDK 测试全绿，实际行为却对应旧代码；镜像或挂载里是旧的 `shared`/`sandbox` 构建。新建 worktree 首次跑 Vitest 还可能在业务用例前报 `TypeError: code.charCodeAt is not a function`。
 - **原因**：测试只检测 `dist` 是否存在，或复用镜像中旧的 `shared` 产物，没有确认产物来自本轮源码；根 `vitest` 入口只跑测试，不等于执行构建。新 worktree 不带 workspace `dist` 时，Vite 会把模块解析/构建异常重写成 `charCodeAt` 堆栈，看起来像业务代码报错（本次实测缺 `packages/db/dist`）。
 - **规避**：每轮为 `shared`/`sandbox` 编译独占临时产物或显式构建最新版本，并记录产物来源；验收跑真实 Docker 与 SDK fake API；不要把根 `vitest` 入口当作构建步骤。新树先 `pnpm --filter @agentport/shared --filter @agentport/core --filter @agentport/db build` 再跑 backend 测试；遇到 `charCodeAt` 先查缺哪个 workspace `dist`，不要改业务代码。后端测试由 globalSetup 在随机 PostgreSQL 库和临时 Redis 上运行，不手动迁开发库、不回落共享库。
+
+## 实现：被工作区与产出共用的目录刷新不能无条件保留记忆挂载根
+
+- **现象**：接入子智能体记忆后，产出目录里合法的 `.claude/agent-memory` 首次复制就丢文件、红测试报 `ENOENT`；切换草稿版本时目标还留着上一版内容。
+- **原因**：`refreshSessionDirectory`（`packages/worker/src/session-workspace.ts`）同时服务定义工作区与产出目录，却无条件跳过 `.claude/agent-memory` 以保住工作区的挂载根 inode；产出目录没有挂载根，同名目录只是普通用户文件，被当挂载根跳过就不再复制或删除。
+- **规避**：保留挂载根改为显式选项 `preserveMemoryMount`，只在定义工作区调用时传 `true`（`packages/worker/src/index.ts`），产出保持整棵替换；新增刷新调用前先确认目标是否真有挂载根，不按目录名猜语义。

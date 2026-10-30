@@ -134,14 +134,14 @@
 
 1. `POST /api/chat` 校验 agent 是否存在，创建或复用 conversation，写 user 消息，创建 `agent_runs` 行（`queued`），投递 `agent-runs` 队列（`jobId = runId`；载荷只有 `runId`、`agentId`、`conversationId` 与本轮 `prompt`，不携带历史文本；`attempts: 2`，指数退避 5s；仅当排队数 ≤ 100 时才入队，否则 503），写审计，返回 202。续聊/分支状态由 worker 从 DB 读取。
 2. `GET /api/chat/:runId/events` 先订阅 Redis Stream，从 `0` 开始回放，因此 POST 与建连之间的事件不会丢；已结束的 run 直接补发终态。
-3. worker 消费 job：若 run 已被取消则跳过；条件认领 `queued → running` 后发布 `run_started`。发布失败时把仍为 `running` 的行条件回退 `queued` 并清 `startedAt`，再抛出原错误，使 BullMQ 重试能重新认领；不把行留在 `running`。若这次已是最后一次尝试（回退后停在 `queued`），或回退自身失败（停在 `running`），由现有 reconciler 收敛：`queued` 用 worker 的 `AGENT_TIMEOUT_MS`（默认 10 分钟）从 `createdAt` 起算，且队列探测确认 job 已消失或已终态才置 failed；`running` 用该 agent 当前 `timeoutMs` 从 `startedAt` 起算。两者都加 5 分钟宽限、每 5 分钟扫描，因此通常从各自起算点 15–20 分钟内以通用 `LOST_RUN_ERROR` 收敛；这是常态时延，不是发布失败后的保证期限，也不额外加锁或补偿。
+3. worker 消费 job：若 run 已被取消则跳过；条件认领 `queued → running` 后发布 `run_started`。发布失败时把仍为 `running` 的行条件回退 `queued` 并清 `startedAt`，再抛出原错误，使 BullMQ 重试能重新认领；不把行留在 `running`。若这次已是最后一次尝试（回退后停在 `queued`），或回退自身失败（停在 `running`），由现有 reconciler 收敛：`queued` 用 worker 的 `AGENT_TIMEOUT_MS`（默认 10 分钟）从 `createdAt` 起算，`running` 用该 agent 当前 `timeoutMs` 从 `startedAt` 起算。两者都加 5 分钟宽限并先探测队列：只有 job 已消失或已到终态才条件置 failed；`running` 即使已超过超时上限，job 仍处于 `active`/`waiting`/`delayed` 等有效状态或 Redis 探测失败时保持 running，因此调低专家 timeout 不会终止仍在执行的有效 job。每 5 分钟扫描，通常从各自起算点 15–20 分钟内以通用 `LOST_RUN_ERROR` 收敛；这是常态时延，不是发布失败后的保证期限，也不额外加锁或补偿。
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 把官方定义刷新写入 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/workspace/`；该会话目录只读挂载，每轮覆盖定义内容，根目录不按 run 重命名或删除。
-5. worker 通过会话沙盒管理器 `SessionSandboxes.acquire(conversationId)` 取得该会话的容器：首次创建时按智能体绑定环境（`null` 为平台默认环境）解析当时线上版本，用版本记录的本地不可变 image ID 创建并启动常驻 supervisor，之后复用空闲容器；已存活容器保持创建时的旧版本，发布/回退只影响之后新建的容器。线上版本缺失或本地镜像不存在时明确失败，不隐式 pull、不回落其他环境。supervisor 轻量驻留，每轮由 worker 经 stdin 投递任务，并在容器内启动新的 runner query，不复用上一轮的 query 或进程环境。会话容器与试连、native plugin 的一次性容器共用同一个 `DockerSandboxProvider.create/destroy` 底层接口；一次性容器不走会话复用。create 请求已经发出后取消会等待创建结果并删除，绝不继续启动。
+5. worker 通过会话沙盒管理器 `SessionSandboxes.acquire(conversationId)` 取得该会话的容器：首次创建时按智能体绑定环境（`null` 为平台默认环境）解析当时线上版本，用版本记录的本地不可变 image ID 创建并启动常驻 supervisor，之后复用空闲容器；已存活容器保持创建时的旧版本，发布/回退只影响之后新建的容器。线上版本缺失或本地镜像不存在时明确失败，不隐式 pull、不回落其他环境。取得容器后先把 sandbox id（容器名）写入运行行，再启动本轮 runner，供 worker 重启后按 id 清理。supervisor 轻量驻留，每轮由 worker 经 stdin 投递任务，并在容器内启动新的 runner query，不复用上一轮的 query 或进程环境。会话容器与试连、native plugin 的一次性容器共用同一个 `DockerSandboxProvider.create/destroy` 底层接口；一次性容器不走会话复用。create 请求已经发出后取消会等待创建结果并删除，绝不继续启动。
 6. 会话容器准确挂载 `sdk-sessions/<conversationId>`（→ `/home/node/.claude`）、`agent-memory`、`conversation-inputs`（首轮无附件也预建并挂载）与只读 `/workspace`；`/mnt/outputs` 指向稳定的 session outputs 目录，读写。每轮凭证只经新 runner 的进程环境与当轮 `.mcp.json` 注入。容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`（可选带 `todos` 快照，见 §3.1）、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
 7. worker 逐行解析并按事件写入 Redis Stream（每次 `XADD` 与 TTL 续期合并为一次 pipeline）；supervisor 的业务事件保持原 `ChatEvent` 契约，`ready`/`started`/`settled`/`rejected` 等 control 事件只用于宿主握手，不写 SSE。工具调用经 `.mcp.json` 中的地址访问 api。
 8. 取消：api 写 `run:<runId>:cancel` 键并 publish；worker 通知 supervisor 停止本轮。supervisor 发出 `settled` 并确认所有 run 进程停稳后，正常完成或成功取消可 `release(reuse=true)` 进入空闲；超时、异常或无法确认停稳则销毁容器。创建阶段的取消信号中止拉取，已发出的 create 则等待返回后删除、不启动。试连与 native plugin 也走同一 provider，但每次一次性 `create/destroy`，不进入会话复用。
 9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。事件展示额度与落库额度分开：`text_delta`、块边界等瞬时事件超出展示上限只停止展示，完整 `assistant_text` 与工具事件另有落库上限，不会被增量挤出。真正超过落库上限时保留已收集结果，将成功改为带明确原因的不可重试失败，避免缺失尾部仍报告成功。若本次 attempt 还会被 BullMQ 重试，失败轮次的 `outcome.sessionId` 与 fork `uuidMap` 不落库，保留会话已有的 `sdkSessionId`/fork 锚点；成功或最终失败才提交本轮 SDK 状态。
-10. 只有业务执行本身的基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会触发 BullMQ 重试；业务失败不重试。清理失败不作为基础设施失败重跑；已确定的终态与取消收尾的 `sessionId`、费用 metadata 保留。销毁失败会阻止发布成果并保留草稿，避免把未停稳的一轮当成已交付。
+10. 只有业务执行本身的基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会触发 BullMQ 重试；业务失败不重试。清理失败不作为基础设施失败重跑；已确定的终态与取消收尾的 `sessionId`、费用 metadata 保留。停稳未确认且容器销毁失败时不写终态、不发布 `run_finished`、不触发 BullMQ 重试：运行保持 `running`、`endedAt` 为 NULL，完整终态事件暂存到 `agent_runs.pending_finish`（可空 JSONB）。下一轮 reconciler 在队列 job 仍有效时继续等待，job 已消失或已终态才按运行行保存的 sandbox id 清理；probe 后重读 run status，并用 `expectedRunId` 拒绝清理仍被其他 run 持有的容器。清理失败继续占用，成功后条件更新终态、清空 `pending_finish` 并只发布一次终态与写一次审计。跨 worker 重启仍按 id 清理，Docker 暂不可用时保持占用、恢复后下一轮再清理。销毁失败期间不发布成果并保留草稿，避免把未停稳的一轮当成已交付。
 
 会话串行与范围：同一会话的 run 通过 lease 串行执行，lease 持续到消息与本轮成果发布完成；不同会话相互独立。首版仍是现有单 worker 的进程内管理，不包含多 worker 路由、容器池、快照或新 provider；空闲容器计入资源占用，但不计入 `AGENT_MAX_CONCURRENT` 的同时执行数。容器复用只省创建/启动（缓存镜像基线约 122ms/次），不跳过每轮 SDK query 启动，不算也不承诺 SDK 冷启动优化。实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核。最终联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK + 本地假 Anthropic SSE 4 例，均从当前源码独立临时编译）；真实付费模型与浏览器全链路未测，不据此声称生产可用或多 worker 支持。
 
@@ -169,7 +169,7 @@
 
 后续更新（2026-10-30）：新增认证 `outputs/:runId?path=` 元数据接口（响应只含 `{ file }`，handler 仍整份读取所选文件校验 manifest 成员，不回正文）与 PNG/JPEG/GIF/WebP 图片预览；会话成果面板与公开分享页共用 `BlobImage`，解码成功才显示，损坏字节保留原件下载；公开页只替换 image 为共享组件，PDF 行为随后续 PDF 任务改为共享 `BlobPdf`。三轮 Opus review 与最终浏览器验收通过；源码 `e4d414d` 已由 PR #121 合入 `main` `70e28e2`。详见 [任务记录](tasks/image-output-preview-20261030.md)。
 
-后续更新（2026-10-30，PDF）：私有成果精确命中 `application/pdf` 后经鉴权下载取 Blob，公开分享页移除旧对象 URL/iframe 分支，两处共用 `BlobPdf`；先判断 `navigator.pdfViewerEnabled === true`，只把前 5 字节为 `%PDF-` 的文件交给原生查看器（仅 header 门槛），以固定 `application/pdf` 建 Blob URL；不支持、header 不符、读取失败分别提示并保留下载，iframe 的 load/error 不作为解码成功判据，对象 URL 随换版与卸载释放；CSP 仅新增 `frame-src 'self' blob:`，`object-src 'none'` 与 `script-src 'self'` 保持，无新依赖/API/DB/模型费用。API 一审 26 用例、Web 一审补修 97 用例、二审无 mustfix、第三轮 `a18c436ffd11f7505` 无 mustfix（4 文件 110 用例）；生产隔离浏览器验收通过（Chromium 原生查看器，私有/公开旧新版、切版刷新、下载 sha、公开无管理 cookie、伪 PDF 无 iframe、引用不发模型、临时资源清理 0）。该更新覆盖上一条 2026-10-28 的「Office/PDF 不预览」：PDF 已可原生预览，Office 仍只下载。限制：加密/坏结构 PDF 由原生 viewer 兜底未逐一实测，大 PDF 未压测，非 Chromium 未测；实现已提交 `ca5cb28`，未 push、未 merge。详见 [任务记录](tasks/pdf-output-preview-20261030.md)。
+后续更新（2026-10-30，PDF）：私有成果精确命中 `application/pdf` 后经鉴权下载取 Blob，公开分享页移除旧对象 URL/iframe 分支，两处共用 `BlobPdf`；先判断 `navigator.pdfViewerEnabled === true`，只把前 5 字节为 `%PDF-` 的文件交给原生查看器（仅 header 门槛），以固定 `application/pdf` 建 Blob URL；不支持、header 不符、读取失败分别提示并保留下载，iframe 的 load/error 不作为解码成功判据，对象 URL 随换版与卸载释放；CSP 仅新增 `frame-src 'self' blob:`，`object-src 'none'` 与 `script-src 'self'` 保持，无新依赖/API/DB/模型费用。API 一审 26 用例、Web 一审补修 97 用例、二审无 mustfix、第三轮 `a18c436ffd11f7505` 无 mustfix（4 文件 110 用例）；生产隔离浏览器验收通过（Chromium 原生查看器，私有/公开旧新版、切版刷新、下载 sha、公开无管理 cookie、伪 PDF 无 iframe、引用不发模型、临时资源清理 0）。该更新覆盖上一条 2026-10-28 的「Office/PDF 不预览」：PDF 已可原生预览，Office 仍只下载。限制：加密/坏结构 PDF 由原生 viewer 兜底未逐一实测，大 PDF 未压测，非 Chromium 未测；实现 `ca5cb28` 与文档 `9caf2fa` 已由 PR #123 合入 `main` `b683903`。详见 [任务记录](tasks/pdf-output-preview-20261030.md)。
 
 ### 3.3 原生澄清提问（已接通）
 
@@ -237,11 +237,13 @@ data/workspaces/<agent-slug>/
 
 工作区按会话稳定复用，每轮只刷新定义内容；根目录不按 run 重命名或删除。目录 0700、文件 0600。持久数据只有 `agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/`；`session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存：`workspace` 每轮由数据库重渲染，`outputs` 在停稳后复制进 `conversation-outputs`，容器回收或关停不删除它，但它不是不可丢失的持久交付。run 保留期清理不删除会话成果；删除会话时 API 回收 `sdk-sessions/<conversationId>/`、`session-sandboxes/<conversationId>/`、成果与附件目录；删除专家只回收 `sdk-sessions/`、成果与附件目录，当前不清理 `session-sandboxes/`。
 
+子智能体各自的工作区同样包含 `agent-memory/`。运行时按 slug 把该目录 rw 挂到父会话 workspace 的 `/workspace/.claude/agent-memory/<slug>/`，不复制、不回写；会话刷新保留这棵挂载子树的 inode，挂载集合变化时重建容器。源码评审已通过（整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS）；SDK 最新接口 16/16 PASS（`/tmp/subagent-memory-sdk-final-interface-unique.json`，含跨 run、容器内自动 system 加载与显式 Read/Write/Edit deny）；浏览器全部 PASS、0 残留。运行整合 13 文件 195/195 PASS（`/tmp/subagent-memory-runtime-final-green.json`）；未提交、未合并，不能记为已交付或整体通过。
+
 | 文件 | 内容来源 | 说明 |
 |---|---|---|
 | `.mcp.json` | `agent_servers` + `servers` | `mcpServers` 映射；stdio 写 command/args/env，http 写 url/headers（env/headers 含解密后的上游 secrets），generated 写 `${SANDBOX_API_URL}/mcp/<id>` + 按 run 的短期 Bearer token 与 `x-agentport-run-id` |
 | `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 技能 + 子智能体清单（含超时）+ 多步骤任务用原生 `TodoWrite` 维护清单的约束；前台执行与单层委派由运行时环境变量强制，不再逐次写在提示里 |
-| `.claude/agents/<child-slug>.md` | 子智能体配置 | YAML frontmatter：`name`、`description`、`model`、`mcpServers`（按名引用根 `.mcp.json`）、`disallowedTools`、`maxTurns` 及子级绑定的 `skills`；**不写 `tools`**，否则 SDK 派生时按名字解析 MCP 工具会得到空集并拒绝启动。父级不写 server 级 `disallowedTools`：子级继承会话权限，server 级 deny 会把子级工具一起移除，父级越权改由 PreToolUse 边界 hook 拒绝。主智能体自己的 md 只用于预览（`GET /api/agents/:id/files`），不落盘，避免被当成可委派子智能体 |
+| `.claude/agents/<child-slug>.md` | 子智能体配置 | YAML frontmatter：`name`、`description`、`model`、`mcpServers`（按名引用根 `.mcp.json`）、`disallowedTools`、`maxTurns`、`memory` 及子级绑定的 `skills`；`memory` 仅接受官方 `project`，`user` / `local` 拒绝。**不写 `tools`**，否则 SDK 派生时按名字解析 MCP 工具会得到空集并拒绝启动。父级不写 server 级 `disallowedTools`：子级继承会话权限，server 级 deny 会把子级工具一起移除，父级越权改由 PreToolUse 边界 hook 拒绝。主智能体自己的 md 只用于预览（`GET /api/agents/:id/files`），不落盘，避免被当成可委派子智能体 |
 | `.claude/skills/<slug>/SKILL.md` | `skills` 表 | frontmatter：`name`、`description`，正文为技能步骤 |
 
 运行时约定：
@@ -251,7 +253,7 @@ data/workspaces/<agent-slug>/
 - 每轮 `.mcp.json` 与 runner 进程环境携带本轮短期 MCP/模型凭证；stdio 的 `env` 与 http 的 `headers` 还会写入对应的上游解密 secrets，可能是长期凭证，generated 只给按 run 的短期 token。运行结束（不论容器是否停稳）都会尝试清空本轮 MCP/模型 token：模型 token 结束时从代理内存集合移除并尝试清空 DB hash；内存移除不保证独立于 DB 立即失效（集合里还有活跃 run 时，代理会拒绝不在集合中的 token），清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。MCP token 的 DB 清空失败只记 warning，token 可能保留到过期时间（该 agent 超时 + 5 分钟）。终态停稳后从会话工作区移除 `.mcp.json`；移除失败时 worker 记录错误、禁止复用该会话容器，并在仍持有 lease 时销毁容器，但持久工作区里的文件可能留到下一轮刷新时被覆盖。本轮 token 撤销不影响上游 secrets，文件残留期间长期 secret 仍可能有效。目录 0700、文件 0600。空闲容器不保留上一轮身份，下一轮重新渲染。
 - 运行结束后 worker 等本轮 runner 停稳（`settled`），由 core 的 `captureOutputDraft` 从 stable outputs 复制出本轮草稿，再以当前最新完整快照为基线发布不可变快照；stable outputs 根只读复制，不发布也不删除。用户选定旧版时只把所选文件覆盖到草稿，其他最新文件保持原样。正在重试、消息保存失败、容器未停稳或销毁失败时不发布并保留草稿；空基线清空后发布空快照。
 - API 鉴权读取成果列表、按 `runId + path` 的 `{ file }` 元数据、完整 UTF-8 文本（≤1MiB）与原件下载；读取只接受 manifest 成员，HTML/SVG 仅按源码返回，不执行。二进制提供下载，不在服务端伪造文本预览；PNG/JPEG/GIF/WebP 图片由前端经鉴权下载取 Blob 并在解码成功后显示。
-- 内置工具默认禁用；例外是 Bash（默认启用，用户可在 `disallowedTools` 中显式拒绝）、主会话受路径规则约束的原生 Read/Write/Edit，以及显式启用的 `TodoWrite`（§3.1，只用于展示进度）。`allowedTools` 只负责自动批准。MCP 工具的允许规则按 server name 逐个生成 `mcp__<name>__*`，`mcp__*` 通配无效。
+- 内置工具默认禁用；例外是 Bash（默认启用，用户可在 `disallowedTools` 中显式拒绝）、主会话受路径规则约束的原生 Read/Write/Edit、显式启用的 `TodoWrite`（§3.1，只用于展示进度），以及子智能体仅限自身记忆 Markdown 的原生 Read/Write/Edit（§5）。`allowedTools` 只负责自动批准。MCP 工具的允许规则按 server name 逐个生成 `mcp__<name>__*`，`mcp__*` 通配无效。
 - 父级绑定技能slug从worker传给SDK的`skills`选项；无绑定明确传`[]`，仅控制自动批准的Skill(name)清单，不代表CLI发现清单隐藏其他技能。CLAUDE.md仅列父绑定技能。启用子智能体的绑定技能经批量查询合并到工作区文件，其子定义独立写`skills`预加载字段，不扩展父级SDK许可。真实CLI已发现子定义和技能文件；初始化接口不暴露预加载状态，子级正文加载及实际模型调用仍未验证，支持资源目录另行验收。
 - 有子智能体时才放行 `Agent` / `TaskStop`；子智能体自身不再获得委派能力。
 - 会话间消息工具（`ListAgents`、`SendMessage`、`SendUserMessage`、`EndConversation`、`Monitor`）默认禁用：
@@ -306,13 +308,13 @@ data/workspaces/<agent-slug>/
 | `.claude/settings.json` | cwd 下 project settings；权限、环境、Hooks 等按该键允许的作用域生效 | 已生成选中输出风格的 outputStyle；其余主要通过 query options，尚未完整文件往返。**原生 auto-memory 已配置**：runner 通过 `settings.autoMemoryEnabled/autoMemoryDirectory` 指向挂载目录，文件工具权限及验收状态见下方记忆行 |
 | `.claude/settings.local.json`、根 `CLAUDE.local.md` | local source；本地覆盖，不作为共享包默认内容 | 当前只启用 project，不默认加载 |
 | `.mcp.json`（工作区根） | project source；连接与工具权限需实际验证 | 已生成运行时配置；受限HTTP/stdio文件可事务导入且凭证加密，不执行命令/测试连接；不支持字段与模板明确拒绝，导出不含密钥 |
-| `.claude/skills/<name>/SKILL.md` 与其支持资源 | project source 发现；技能启用、可用工具由 SDK 配置控制 | 单文件生成、下载、受限导入及支持资源增删改查已实现；目录包携带父子绑定技能的支持资源。父子绑定技能均落盘，父会话可用 `Read` 只读打开 `.claude/skills/<slug>/references/**/*.md`（原生文件工具写入仍仅限记忆与本轮产出目录）；真实CLI正负发现通过，绑定slug原生许可已接入；实际模型按需读取 references 仍未实测 |
-| `.claude/agents/*.md` | 文件子智能体定义；程序式同名定义优先 | 已生成子定义与子级 skills 字段，父编辑器可下载已保存且启用定义，预览与运行共用渲染器。**子智能体 MCP 绑定已接通**：子定义写官方 `mcpServers` 名称引用根 `.mcp.json`，运行时用 PreToolUse 边界 hook 保证子级只用自己的 server/技能、父级不隐式获得子级工具；CLI 发现通过，子级实际加载仍以真实模型调试验收（单层约束由 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` 强制）；主定义预览不下载为子文件 |
+| `.claude/skills/<name>/SKILL.md` 与其支持资源 | project source 发现；技能启用、可用工具由 SDK 配置控制 | 单文件生成、下载、受限导入及支持资源增删改查已实现；目录包携带父子绑定技能的支持资源。父子绑定技能均落盘，父会话可用 `Read` 只读打开 `.claude/skills/<slug>/references/**/*.md`（主会话原生文件工具写入仍仅限记忆与本轮产出目录）；真实CLI正负发现通过，绑定slug原生许可已接入；实际模型按需读取 references 仍未实测 |
+| `.claude/agents/*.md` | 文件子智能体定义；程序式同名定义优先 | 已生成子定义与子级 skills 字段，父编辑器可下载已保存且启用定义，预览与运行共用渲染器。**子智能体 MCP 绑定已接通**：子定义写官方 `mcpServers` 名称引用根 `.mcp.json`，运行时用 PreToolUse 边界 hook 保证子级只用自己的 server/技能、父级不隐式获得子级工具；CLI 发现通过，子级实际加载仍以真实模型调试验收（单层约束由 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` 强制）；主定义预览不下载为子文件。**子智能体自身记忆已接通（源码评审与最终夹具复验通过）**：子定义可写官方 `memory: project`（`user` / `local` 拒绝），运行时把其既有 `agent-memory/` 直接挂成 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立；子智能体的原生 Read/Write/Edit 默认启用但仅限自身记忆 Markdown，兄弟、父级与未知子智能体拒绝，显式 deny 保留且可恢复。源码评审整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS；真实 SDK 最新接口 16/16 PASS（含跨 run、容器内自动 system 加载及边界与显式 Read/Write/Edit deny），浏览器全部 PASS、0 残留；运行整合 13 文件 195/195 PASS（`/tmp/subagent-memory-runtime-final-green.json`），未提交、未合并。 |
 | `.claude/commands/*.md` | 官方保留的旧式命令文件；新能力优先 skills | 尚未接入，不另造命令引擎 |
 | `.claude/output-styles/*.md` | project source，并按 settings 选择输出风格 | 已有输出风格管理、文件预览与根级运行落盘；选中者写入 settings.json 的 outputStyle，runner 通过 `settingSources: ['project']` 原生加载，不再手工解析后 inline 覆盖 |
 | Hooks | 由 settings.json 的 hooks 配置或 SDK callbacks 注册；脚本目录本身不是自动发现入口 | 平台层回调与工作区文件Hooks需分别核对，不能仅创建hooks目录声称生效 |
 | 插件根中的 `.claude-plugin/plugin.json`、skills/agents/hooks/.mcp.json | SDK `plugins: [{type:'local', path}]` 指定本地插件根；不是默认扫描项目 `.claude/plugins/` | 插件库文件在 DB 保存一次，多个专家引用，每次运行复制到独立 `.claude/plugins/<slug>/`。支持 ZIP 导入，以及 worker 独立安装沙盒调用 Claude Code CLI 从市场安装、读取平台已下载缓存后纳入插件库；来源记录 `name@marketplace` 去重，缓存不挂载给专家。hooks/MCP 默认关闭，仍按各专家绑定裁剪。平台子智能体不绑定插件；插件自带子智能体可原生委派。已有技能、references、子智能体及 hooks/MCP 开关真实沙盒证据。无升级/版本选择入口，专家 ZIP 不带插件并提示；不支持的组件、二进制和运行依赖明确拒绝，不静默漏文件 |
-| `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 原生 auto-memory 使用 `WORKSPACES_DIR/<slug>/agent-memory/`（uid 1000、0700），API/worker 共卷，沙盒 rw 挂载到 `/mnt/agent-memory` 并设置 `autoMemoryEnabled=true`、`autoMemoryDirectory`。主会话仅预批准该目录的 Read/Edit 路径规则（Edit 含 Write），SDK PreToolUse 每次拒绝越界、链接和非普通 Markdown 文件；该 hook 只覆盖原生文件工具，子智能体的这些工具仍被拒绝，Bash 可写同一可写挂载。**主会话与子智能体分开**：auto-memory 与文件工具权限只作用于主会话；平台不给孩子智能体单独的记忆目录或加载方式，子智能体的记忆需求尚未实现。保留官方 `MEMORY.md` 与主题文件；权限/挂载测试通过，真实模型跨 run 记忆验收尚未验证。Workflows 仍不接入 |
+| `.claude/workflows/*.js`、`.claude/agent-memory/<name>/` | Claude Code 官方目录能力，受版本、工具与会话权限约束 | 原生 auto-memory 使用 `WORKSPACES_DIR/<slug>/agent-memory/`（uid 1000、0700），API/worker 共卷，沙盒 rw 挂载到 `/mnt/agent-memory` 并设置 `autoMemoryEnabled=true`、`autoMemoryDirectory`。主会话仅预批准该目录的 Read/Edit 路径规则（Edit 含 Write），SDK PreToolUse 每次拒绝越界、链接和非普通 Markdown 文件；该 hook 只覆盖原生文件工具，子智能体只放行自身记忆 Markdown（默认启用、可显式关闭），Bash 可写同一可写挂载。**主会话与子智能体分开**：主会话继续使用上述 `agent-memory/` 与 `/mnt/agent-memory`；子智能体源码评审与最终夹具复验均已通过：子定义写官方 `memory: project`，运行时把该子智能体既有的 `WORKSPACES_DIR/<slug>/agent-memory` 直接 rw 挂到 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立，不新增记忆表、run 快照或第二套记忆。保留官方 `MEMORY.md` 与主题文件；SDK 最新接口 16/16 PASS（含跨 run、容器内自动 system 加载及边界与显式 Read/Write/Edit deny），浏览器全部 PASS、0 残留；运行整合 13 文件 195/195 PASS，未提交、未合并。Workflows 仍不接入 |
 
 详情接口返回插件库实际保存的完整文件。前端 `/plugins/$pluginId` 是只读详情页：紧凑身份头（名称、版本、简介、导出）下用页内「简介 / 内容」两个 Tabs 切换，不使用抽屉、Sheet 或弹层，页面恰好一个 `h1`。简介页签只展示根 README；无 README 时给简洁空态并指向内容页签，不编写介绍、不拿首个技能冒充说明。内容页签在页内展示真实完整目录树与当前正文：桌面左右可拖动分栏，窄屏目录在同一页内折叠；默认文件为 README → 技能 `SKILL.md` → 首个真实文件。目录树用真实文件/目录名，目录优先、可折叠，只有当前文件铺选中底色，技能目录内 `SKILL.md` 优先，manifest、hooks、MCP、支持文件、空文件全部可达。URL 用 `tab=intro|content`、`file`、`mode=read|source`，默认 `intro` 且无 `file`；切换页签、选择文件与模式进入历史，刷新和前后退可恢复，切到简介保留 `file`/`mode`，切回内容恢复上次选择与滚动位置，失效文件给说明并回退。点击 README 或正文内真实文件链接切到内容页签并定位对应文件。正文显示实际路径 breadcrumb 与 frontmatter 语义名称，Markdown 默认阅读并可切源码，其余文件直接源码并可复制。展示解析只读取 frontmatter 的名称、描述和正文，不改变保存内容或运行定义；Markdown 静态渲染，HTML 作为文本，只有插件内真实存在的相对文件链接可点击。内容区按真实文件路径展示，不另建能力索引；多来源文件在目录树中各自可达。详情是插件库快照，专家运行时仍独立复制并按授权裁剪。
 
@@ -332,12 +334,13 @@ data/workspaces/<agent-slug>/
 
 ### 5.1 记忆、历史回顾与固定版本分享（2026-10-30）
 
-记忆分三类，权威、加载方式与版本能力各不相同：
+记忆按对象分类，权威、加载方式与版本能力各不相同（子智能体记忆源码评审与最终夹具复验通过）：
 
 | 对象 | 权威 | 沙盒加载 | 版本与回滚 |
 |---|---|---|---|
 | 个人偏好 | `user_preferences` 单行（`revision` 乐观锁） | DB 投影到 `WORKSPACES_DIR/_user/CLAUDE.md`（0700/0600，temp + rename），只读挂到 `/mnt/user`；runner 的 `UserPromptSubmit` hook 每轮读取并以 `additionalContext` 注入，上限 9000 字符 / 36 KiB，超限拒绝本轮 | `memory_changes` 账本 |
-| 专家记忆 | `agent-memory/` 官方文件（`MEMORY.md` + 主题文件） | runner 开启原生 auto-memory（`autoMemoryEnabled` + `autoMemoryDirectory`），模型按官方机制自动写，不逐条确认；主会话文件工具受 PreToolUse 路径 hook 限制，子智能体的文件工具仍被拒绝 | 仅 `MEMORY.md` 的采纳、回滚与手工写入进 `memory_changes` |
+| 专家记忆 | `agent-memory/` 官方文件（`MEMORY.md` + 主题文件） | runner 开启原生 auto-memory（`autoMemoryEnabled` + `autoMemoryDirectory`），模型按官方机制自动写，不逐条确认；主会话文件工具受 PreToolUse 路径 hook 限制；子智能体的原生 Read/Write/Edit 默认启用但仅可读写自身记忆 Markdown，兄弟、父级与未知子智能体拒绝 | 仅 `MEMORY.md` 的采纳、回滚与手工写入进 `memory_changes` |
+| 子智能体记忆（源码评审与最终夹具复验通过） | 各子智能体自身 `agent-memory/` 官方文件 | 子定义写官方 `memory: project`；worker 把该子智能体既有的 `WORKSPACES_DIR/<slug>/agent-memory` 直接 rw 挂到 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立，主记忆与兄弟记忆不合并 | 与专家记忆一致：仅 `MEMORY.md` 的采纳、回滚与手工写入进 `memory_changes`，SDK 自主学习直接写 Markdown 不自动记账；源码整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS；SDK 最新接口 16/16 PASS（含跨 run、容器内自动 system 加载及边界与显式 Read/Write/Edit deny）；浏览器全部 PASS、0 残留；运行整合 13 文件 195/195 PASS；未提交 |
 | 专家规则 | `agent_rules`（DB） | 渲染为 `.claude/rules/<slug>.md`，每次运行自动生效 | `memory_changes` 完整快照 |
 
 - **个人偏好不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_user/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。DB 写入成功即成功，文件投影失败只记日志；下一次保存会重新投影，当前没有 worker 启动前自动重建。
@@ -345,6 +348,8 @@ data/workspaces/<agent-slug>/
 - **确认制，不是自动进化**：提案写入个人偏好、专家 `MEMORY.md` 或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用才写目标并落账。没有无人值守的自动提取与发布。
 - **`MEMORY.md` 是索引**：采纳时限制 200 行 / 25KB（官方启动只加载这个范围）；详细内容放主题文件或规则。
 - **专家记忆写入可恢复**：先写 `.memory-journal/` 日志，再原子 rename，再提交账本；账本失败按原字节恢复，恢复不了就保留日志供下次显式恢复，不根据内容等于提案来补记。
+- **子智能体记忆的准入与并发（源码评审与最终夹具复验通过）**：chat / schedule / eval 只使用稳定启用的直接子智能体集合；执行活动期间资源变化返回 409，普通字段与无关专家仍可编辑。锁顺序固定为绑定锁 → 排序后的 agent 记忆锁 → 行锁；目标自身有执行型活动 run，或目标是启用子专家且其直接父专家有执行型活动 run，就拒绝记忆写入并返回 409；审核 run 与其他无合法归属关系的 run 不占用。会话工作区刷新保留官方记忆子树 inode，挂载集合变化时重建容器。已知子智能体的原生 Read/Write/Edit 默认启用但只允许自己的 Markdown，兄弟、父级与未知子智能体拒绝，既有显式 deny 保留且恢复只移除裸 deny/allow、不清除路径规则；Bash 共享可见，不声称隔离。分层验证：stable 25 文件 376 用例、web 72、outputs 31、migration `generate` + `migrate` 隔离库通过；SDK 最新接口 16/16 PASS（含跨 run、容器内自动 system 加载及边界与显式 Read/Write/Edit deny）；浏览器全部 PASS、0 残留。源码整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS；运行整合 13 文件 195/195 PASS（`/tmp/subagent-memory-runtime-final-green.json`），未提交、未合并。
+- **定义包边界**：子定义 `memory: project` 可导入导出；`user` / `local` 明确拒绝；专家包只携带定义，不携带学习到的记忆正文。
 - **完整快照比较**：`memory_changes` 保存 before/after 完整内容（规则含 `globs`）；个人偏好与规则的冲突判断按完整快照，不用局部 diff。
 - **固定版本公开分享**：`output_shares` 锚定 `conversationId + runId + path` 与真实字节 sha256；token 只存哈希与密文，链接为 `/s/<shareId>#<token>`。公开接口校验 token、未撤销、实际字节哈希三重条件，无效统一 404；撤销幂等，已发出的链接不随同一路径的新版本变化。
 
@@ -432,7 +437,7 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 
 ### 6.6 与原生记忆的边界
 
-知识语料、个人偏好与 SDK 原生 auto-memory 是三类对象：知识库承载有来源的企业文档、版本与引用；`agent-memory/` 承载专家自己的跨会话笔记；个人偏好是跨专家共享、DB 权威的偏好文本，经 hook 注入。三者不共用表、不互相写入；知识不会被挂载进沙盒，记忆也不会进入检索引擎。历史回顾只读已落库的会话快照，不读知识库。
+知识语料、个人偏好与 SDK 原生 auto-memory（主会话与子智能体各自的 `agent-memory/`）是三类对象：知识库承载有来源的企业文档、版本与引用；`agent-memory/` 承载专家自己的跨会话笔记；个人偏好是跨专家共享、DB 权威的偏好文本，经 hook 注入。三者不共用表、不互相写入；知识不会被挂载进沙盒，记忆也不会进入检索引擎。历史回顾只读已落库的会话快照，不读知识库。
 
 ### 6.7 导出与备份
 
