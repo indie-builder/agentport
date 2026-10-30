@@ -159,15 +159,17 @@
 
 ### 3.2 会话成果的生成、版本与查看
 
-成果是运行数据，不是智能体定义；不新增成果表，也不把 `.claude/` 文件当成果。用户消息可携带 `output: { runId, path }`，API 校验该版本属于当前会话后随用户消息落库；worker 读取它准备下一轮草稿。每轮发布后，`GET /api/conversations/:id/outputs` 按版本返回有变化的文件，认证的 `GET /api/conversations/:id/outputs/:runId?path=` 返回该版 `{ file }` 元数据（大小、类型、sha256、创建时刻、状态与消息锚点，含列表分页外的旧版），`.../outputs/:runId/content` 返回完整 UTF-8 文本，`.../download` 返回原件。前端右侧成果面板按路径分组、可选版本、阅读/源码切换和下载；图片仅 PNG/JPEG/GIF/WebP，经鉴权下载取 Blob 且浏览器解码成功后才显示，解码失败保留下载；“基于此版本修改”只挂引用，不自动发送，用户可继续编辑或取消。Fork 只复制历史边界内且两个消息锚点都能映射的版本，并把锚点重写为分支消息 ID；删除会话或专家回收成果，run 保留期清理不删除成果。
+成果是运行数据，不是智能体定义；不新增成果表，也不把 `.claude/` 文件当成果。用户消息可携带 `output: { runId, path }`，API 校验该版本属于当前会话后随用户消息落库；worker 读取它准备下一轮草稿。每轮发布后，`GET /api/conversations/:id/outputs` 按版本返回有变化的文件，认证的 `GET /api/conversations/:id/outputs/:runId?path=` 返回该版 `{ file }` 元数据（大小、类型、sha256、创建时刻、状态与消息锚点，含列表分页外的旧版），`.../outputs/:runId/content` 返回完整 UTF-8 文本，`.../download` 返回原件。前端右侧成果面板按路径分组、可选版本、阅读/源码切换和下载；图片仅 PNG/JPEG/GIF/WebP，经鉴权下载取 Blob 且浏览器解码成功后才显示，解码失败保留下载；PDF 经同一鉴权下载取 Blob 交给浏览器原生查看器，`navigator.pdfViewerEnabled` 与 `%PDF-` 前 5 字节 header 门槛不满足时只提示并保留下载；“基于此版本修改”只挂引用，不自动发送，用户可继续编辑或取消。Fork 只复制历史边界内且两个消息锚点都能映射的版本，并把锚点重写为分支消息 ID；删除会话或专家回收成果，run 保留期清理不删除成果。
 
-固定版本公开分享单独建 `output_shares`：`POST /api/conversations/:id/output-shares` 锚定 `runId + path` 的真实字节并复用同三元组的有效分享，`GET /api/public/output-shares/:id[/content|/download]` 在未登录下凭 Bearer token 访问，`DELETE /api/output-shares/:id` 幂等撤销。公开元数据只含文件名、大小、类型、哈希与创建时刻；无效、撤销或来源删除统一 404。公开页图片仅 PNG/JPEG/GIF/WebP，经 Bearer 下载且解码成功后才显示；PDF 沿用既有 iframe 预览、本轮未重新验收；其余格式沿用既有行为。
+固定版本公开分享单独建 `output_shares`：`POST /api/conversations/:id/output-shares` 锚定 `runId + path` 的真实字节并复用同三元组的有效分享，`GET /api/public/output-shares/:id[/content|/download]` 在未登录下凭 Bearer token 访问，`DELETE /api/output-shares/:id` 幂等撤销。公开元数据只含文件名、大小、类型、哈希与创建时刻；无效、撤销或来源删除统一 404。公开页图片仅 PNG/JPEG/GIF/WebP，经 Bearer 下载且解码成功后才显示；PDF 与会话成果共用 `BlobPdf`（Bearer 下载 + 同一支持/header 门槛），旧的对象 URL/iframe 分支已移除；其余格式沿用既有行为。
 
-边界：当前模型没有删除工具，多文件中的单文件删除不作为支持路径；二进制除 PNG/JPEG/GIF/WebP 图片外只下载，Office 无预览；HTML/SVG 只按源码展示；正文超过 1MiB 只下载。成果正文是交付内容，不套用聊天的密钥脱敏；路径逃逸、符号/硬链接和跨会话读取在存储与 API 边界拒绝。
+边界：当前模型没有删除工具，多文件中的单文件删除不作为支持路径；二进制仅 PNG/JPEG/GIF/WebP 图片与 PDF 有预览（PDF 为浏览器原生查看器 + header 门槛，不是结构或安全完整验证），Office 无预览；HTML/SVG 只按源码展示；正文超过 1MiB 只下载。成果正文是交付内容，不套用聊天的密钥脱敏；路径逃逸、符号/硬链接和跨会话读取在存储与 API 边界拒绝。
 
 实现状态（2026-10-28）：真实两轮12/12、分支8/8、停止后保留2/2、浏览器预览/下载与反馈挂引用通过；串行后端1824/1824、Web905/905、API9/9、typecheck/build通过，独立评审通过。Office/PDF不预览、无删除工具、成果内容不做聊天脱敏；详见 [任务记录](tasks/agent-output-viewing.md) 与 D-67。成果查看不代表成果质量自动通过。
 
-后续更新（2026-10-30）：新增认证 `outputs/:runId?path=` 元数据接口（响应只含 `{ file }`，handler 仍整份读取所选文件校验 manifest 成员，不回正文）与 PNG/JPEG/GIF/WebP 图片预览；会话成果面板与公开分享页共用 `BlobImage`，解码成功才显示，损坏字节保留原件下载；公开页只替换 image 为共享组件，PDF 既有 iframe 行为未改。三轮 Opus review 与最终浏览器验收通过；源码已提交 `e4d414d` 并推送分支，未合并 `main`。详见 [任务记录](tasks/image-output-preview-20261030.md)。
+后续更新（2026-10-30）：新增认证 `outputs/:runId?path=` 元数据接口（响应只含 `{ file }`，handler 仍整份读取所选文件校验 manifest 成员，不回正文）与 PNG/JPEG/GIF/WebP 图片预览；会话成果面板与公开分享页共用 `BlobImage`，解码成功才显示，损坏字节保留原件下载；公开页只替换 image 为共享组件，PDF 行为随后续 PDF 任务改为共享 `BlobPdf`。三轮 Opus review 与最终浏览器验收通过；源码 `e4d414d` 已由 PR #121 合入 `main` `70e28e2`。详见 [任务记录](tasks/image-output-preview-20261030.md)。
+
+后续更新（2026-10-30，PDF）：私有成果精确命中 `application/pdf` 后经鉴权下载取 Blob，公开分享页移除旧对象 URL/iframe 分支，两处共用 `BlobPdf`；先判断 `navigator.pdfViewerEnabled === true`，只把前 5 字节为 `%PDF-` 的文件交给原生查看器（仅 header 门槛），以固定 `application/pdf` 建 Blob URL；不支持、header 不符、读取失败分别提示并保留下载，iframe 的 load/error 不作为解码成功判据，对象 URL 随换版与卸载释放；CSP 仅新增 `frame-src 'self' blob:`，`object-src 'none'` 与 `script-src 'self'` 保持，无新依赖/API/DB/模型费用。API 一审 26 用例、Web 一审补修 97 用例、二审无 mustfix、第三轮 `a18c436ffd11f7505` 无 mustfix（4 文件 110 用例）；生产隔离浏览器验收通过（Chromium 原生查看器，私有/公开旧新版、切版刷新、下载 sha、公开无管理 cookie、伪 PDF 无 iframe、引用不发模型、临时资源清理 0）。该更新覆盖上一条 2026-10-28 的「Office/PDF 不预览」：PDF 已可原生预览，Office 仍只下载。限制：加密/坏结构 PDF 由原生 viewer 兜底未逐一实测，大 PDF 未压测，非 Chromium 未测；实现已提交 `ca5cb28`，未 push、未 merge。详见 [任务记录](tasks/pdf-output-preview-20261030.md)。
 
 ### 3.3 原生澄清提问（已接通）
 
