@@ -77,7 +77,8 @@
 - 2026-10-30：固定版本公开分享、个人偏好、历史回顾已实现；自动进化仍未做。历史回顾是用户触发、逐次确认的运行，不冒充自动进化。
 - 2026-10-30：不引入外部记忆服务；只有实测文件检索不足才做可重建索引。
 - 运行环境 in-place，不建 worktree（例外来源见「基线与范围」）。
-- 2026-10-30 用户明确授权「提交并启动」：提交当前分支并合入 `main`，启动动效 10 分钟、能力 30 分钟改进循环；能力任务完成后提交、推送、合并。循环契约见 [platform-improvement-loop.md](platform-improvement-loop.md)。仍不伪造验证或结论。
+- 2026-10-30 用户明确授权「提交并启动」：提交当前分支并合入 `main`，启动动效 10 分钟、能力 30 分钟改进循环；能力任务完成后提交、推送、合并。循环契约见 [platform-improvement-loop.md](platform-improvement-loop.md)。仍不伪造验证或结论。当前功能提交已落 `8696a56` 并整合 main `646217c`，补修提交 `8ba7c90`（当前 HEAD）；两项独立 review 已报告的 mustfix 均已由 Opus 定点复核通过（回顾 pending 导航 reset、成果 runId-null 与 fork tool_result 合并锚点），合入 `main` 尚未执行。
+- 2026-10-30 用户最新明确决定（覆盖立即启动）：两个定时任务先不启动，重启电脑后再由用户明确要求启动；当前记为 `paused_until_user_start`。本会话不创建 cron、不自动恢复，循环状态 `enabled:false`、两车道 `phase:'paused_by_user'`、`nextDue:null`，本会话 owner 锁已释放，`CronList` 无 jobs；提交与合并授权不变。
 
 ## 已替代项及原因
 
@@ -97,12 +98,6 @@
 - 本记录旧步骤「只允许写五个文档」被扩展为当前八个文档 + 本记录。原因：任务要求同步架构、决策、待办与踩坑，避免实现已变而文档仍写缺口。
 - 本记录旧表述「未获 commit / push / merge 授权」被「2026-10-30 用户授权提交并合 `main`、启动改进循环」替代。原因：用户本轮明确授权。
 
-## Rebase 与迁移（2026-10-30）
-
-- 分支 `be1a3bc` rebase 到 `origin/main`（`646217c`）：迁移历史以 main 的 `0042_curious_pet_avengers` 为准（删除 `agents.max_thinking_tokens` + 清理版本 snapshot 中的 `maxThinkingTokens`），本分支未发布的 `0042_cultured_mole_man`、`0043_first_zeigeist`、`0044_lame_speed_demon`、`0045_lush_ogun` 及其 snapshot 已删除。
-- 由 main 的 0042 快照与最终 schema 重新 `pnpm db:generate`，得到唯一一条 `0043_nappy_queen_noir.sql`：直接创建 `memory_changes`（`state` 默认 `applied`）、`memory_reviews`（`model_agent_id` NOT NULL、FK `restrict`）、`output_shares`、`user_preferences` 四表，并把 `agent_runs.trigger` CHECK 扩到含 `review`；没有 prepared 中间态或手写 journal。
-- 共享开发库此前跑过旧的 0042–0045 链，与当前迁移账本不再一致，不能直接再跑新链；本次未迁移、未删除其中任何数据，验证全部在 backend globalSetup 的随机隔离库上完成。需要重置时按 `docs/PITFALLS.md`「迁移账本漂移」重建，不手改账本。
-
 ## 步骤
 
 - [x] 读 `CLAUDE.md`、`docs/DEV-WORKFLOW.md`、`docs/PITFALLS.md` 与相关文档；记录 HEAD 与干净基线。
@@ -114,8 +109,10 @@
 - [x] 分享、个人偏好、历史回顾实现并接入导航与页面。
 - [x] 按实现更新 `docs/ARCHITECTURE.md`、`docs/DECISIONS-PENDING.md`、`docs/REMAINING-TODOS.md`、`docs/PITFALLS.md` 与本记录。
 - [x] 运行 `git diff --check`（结果见「验证」）。
-- [ ] 补齐真实模型跨 run 召回、续聊刷新、子智能体记忆与有效分享页真实文件浏览器验收。
-- [ ] 已获 2026-10-30 授权，执行 commit / push / merge 并合入 `main`。
+- [x] 提交当前分支为 `8696a56`，整合 main `646217c`，补修提交 `8ba7c90`（当前 HEAD）。
+- [ ] 补齐真实付费模型跨 run 召回、续聊刷新、子智能体记忆与有效分享页真实文件浏览器验收。
+- [x] 两项独立 review 的已报告 mustfix 已由 Opus 定点复核通过：回顾 pending 导航 reset；成果 runId-null 与 fork tool_result 合并锚点（87 条定向用例复测）。
+- [ ] 合入 `main` 尚未执行（授权不变）；改进循环暂停在 `paused_until_user_start`，待用户重启后明确要求再创建 cron 并启动。
 
 ## 改动文件
 
@@ -131,41 +128,50 @@
 - `docs/PITFALLS.md`
 - 实现侧改动较多，不逐一抄 diff；范围见「基线与范围」的实现文件域。
 
-## 已完成与证据（2026-10-30）
+## 已完成与证据（2026-10-30，最终）
 
-以下为本轮已知证据，按真实结果记录；未通过或未覆盖项保持原状态，不以部分证据宣称主任务全部完成。
+以下为本轮最终验证结果；早期中间数字与环境性失败已被最终结果替代，不再作为当前状态。
 
-- **Web 测试**：113 个测试文件、1353 条用例通过（修复 UI 后）。
-- **后端全量**：2304 条通过、10 条跳过；唯一失败套件是真实 SDK 沙盒测试，因本地 sandbox 镜像缺 GNU bash，属环境问题；agent-md 基线已修。
-- **记忆相关**：7 个测试文件、109 条通过。
-- **全仓 typecheck**：通过。
+- **全仓 typecheck**：`pnpm -r typecheck` 完整通过。
+- **全仓 build**：`pnpm -r build` 与最终 web build 完整通过。
+- **Lint**：focus / contract 检查通过。
+- **前端测试**：最终 118 个测试文件、1384 条用例全部通过，38.90s。
+- **后端全量（锚点变更后）**：`SANDBOX_IMAGE=agentport/sandbox:redesign-validation-642ddc7d pnpm exec vitest run --project backend` 247 个测试文件、2422 条用例全部通过，0 skip，91.12s。该全量在输出锚点变更后运行；此后只有 web 工具结果字段改动，未再改后端。
+- **定向复测**：成果 runId-null 与 fork tool_result 合并锚点 87 条用例复测通过；回顾 pending 导航 reset 定向复核通过。
+- **补修事实**：成果 manifest 条目补 `userMessageId`/`afterMessageId` 锚点，清理或分支清空消息 `run_id` 后仍把成果挂回正确轮次（`packages/shared/src/outputs.ts`、`packages/core/src/outputs.ts`、`packages/web/src/pages/chat.tsx`，`chat-outputs.test.ts` 覆盖）；聊天历史合并 `tool_result` 时保留结果消息 `resultMessageId`，成果按该锚点回落；成果查询与旧分页逻辑未扩大。回顾提交成功先 reset 最新 blocker 再关闭，避免地址栏与路由不一致（`packages/web/src/components/memory-review.tsx`，browser history 测试覆盖）。
+- **独立 sandbox 镜像**：`agentport/sandbox:redesign-validation-642ddc7d` 内 GNU bash 5.3.9、Claude Agent SDK 0.3.311，使用 fake 模型，无付费请求；真实 SDK 套件在该镜像上实际执行通过。共享开发镜像 `agentport/sandbox:dev` 仍缺 GNU bash，但本轮验收未使用它，真实 SDK 覆盖已由独立镜像解决，不再列为阻塞。
+- **迁移**：本轮验证全部在 backend globalSetup 的随机隔离库完成，迁移隔离真实通过。
 - **e2e**：regression + auth 共 10 条通过。
 - **真实浏览器**：1512 / 1280 / 1440 三个宽度无横向溢出；记忆保存、版本、回滚可用；无效分享页显示正确；专家卡与搜索空态可用。
 - **Impeccable detector**：0 findings。
-- **Web build**：通过。
+- **Review**：两项独立 review 已报告的 mustfix 均已由 Opus 定点复核通过——回顾 pending 导航 reset；成果在 `run_id` 清空后按 manifest 锚点与 fork 合并后的 `tool_result` 结果消息 id 回挂（87 条定向用例复测）。未宣称整项验收全量通过；合入 `main` 尚未执行。
 - **文档冲突修正**：`PRODUCT.md`、`docs/ARCHITECTURE.md`、`docs/USER-STORIES.md`、`docs/PROJECT-BRIEF.md` 中「个人记忆/公开分享未实现」已改为已实现，验收状态另列；`docs/ARCHITECTURE.md` 补个人偏好注入、回顾运行、锁/日志/快照与分享契约；`docs/DESIGN-SYSTEM.md` 导航补「记忆」并补记忆页/分享页规格；`docs/DECISIONS-PENDING.md` 补 D-70～D-73；`docs/REMAINING-TODOS.md` 更新能力状态与缺口；`docs/PITFALLS.md` 补本轮八条。
 
 ## 未完成与已知限制
 
-- 真实模型跨 run 召回与续聊刷新尚未验证。
+- 真实付费模型跨 run 召回与续聊刷新尚未验收（测试均使用 fake 模型）。
 - 子智能体独立记忆未实现。
 - 有效分享页的真实文件浏览器验收未完成（仅完成无效分享页与路由/服务/UI 测试）。
-- 真实模型生成回顾提案并采纳的完整浏览器链路未验收。
+- 真实付费模型生成回顾提案并采纳的完整浏览器链路未验收；回顾 pending 成功态与聊天锚点补修已完成并通过 Opus 定向复核，但整项验收未全量宣称通过。
+- 合入 `main` 尚未执行；不把 `8696a56` / `8ba7c90` 或当前分支写成已合入。
+- 共享开发库旧迁移历史未重置；本轮验证均在隔离测试库完成。
+- 改进循环暂停：用户 2026-10-30 决定重启电脑后再手动启动（`paused_until_user_start`）；本会话不创建 cron、不自动恢复。
 - 知识库 e2e 缺 seed。
-- sandbox 镜像缺 GNU bash，真实 SDK 套件失败（环境）。
+- 共享开发镜像 `agentport/sandbox:dev` 仍缺 GNU bash；本轮真实 SDK 验收已改用独立镜像，不构成阻塞。
 - 自动进化未做；历史回顾是用户触发、确认制，不是自动进化。
 
 ## 下一步
 
-- 补真实模型跨 run 召回、续聊刷新、子智能体记忆与有效分享页真实文件浏览器验收。
-- 补真实模型回顾提案 → 采纳 → 版本/回滚的端到端浏览器验收。
-- 修复 sandbox 镜像 GNU bash 与知识库 e2e seed 后，重跑真实 SDK 与知识库套件。
+- 补真实付费模型跨 run 召回、续聊刷新、子智能体记忆与有效分享页真实文件浏览器验收。
+- 补真实付费模型回顾提案 → 采纳 → 版本/回滚的端到端浏览器验收。
+- 补知识库 e2e seed 后重跑知识库套件。
+- 已报告 review mustfix 已定点通过；合入 `main` 尚未执行（授权不变）；改进循环暂停在 `paused_until_user_start`，用户重启后明确要求再启动（cron 尚未创建）。
 - 自动进化仍为已确认缺口，需用户确认方案后再进入范围。
-- 提交、推送、合并与循环启动按已授权流程执行；循环契约见 [platform-improvement-loop.md](platform-improvement-loop.md)。
+- 循环契约见 [platform-improvement-loop.md](platform-improvement-loop.md)。
 
 ## 验证
 
 - 本步为文档同步：未改源码、配置或脚本；不宣称主任务实现验收全部完成。
 - `git diff --check`：通过（exit 0，无空白错误）。
-- 上述测试、e2e、浏览器、detector 与 build 结果来自本轮已知验证；本步没有重跑，只按已知结果记录，不把未验证项写成通过。
-- 文档事实核对来源：`packages/api/src/features/{memory,memory-reviews,output-shares}/`、`packages/worker/src/{memory-review.ts,index.ts,session-workspace.ts}`、`packages/sandbox/src/{runner.ts,memory-permissions.ts}`、`packages/db/src/schema.ts`、`packages/web/src/components/app-shell.tsx`、`packages/web/src/pages/{memory.tsx,memory-panel.tsx,agents.tsx}`、`packages/web/src/components/{memory-review,share-dialog}.tsx`、`packages/web/src/routes/s.$shareId.tsx`。
+- 上述测试、build、浏览器、detector 与 review 结果来自本轮最终验证；未通过或未覆盖项（真实付费模型、有效分享浏览器、合入 `main`）保持原状态，不写成通过。已报告的 review mustfix 已定点通过，不据此宣称整项验收完成。
+- 文档事实核对来源：`packages/api/src/features/{memory,memory-reviews,output-shares}/`、`packages/worker/src/{memory-review.ts,index.ts,session-workspace.ts}`、`packages/sandbox/src/{runner.ts,memory-permissions.ts}`、`packages/shared/src/outputs.ts`、`packages/core/src/outputs.ts`、`packages/db/src/schema.ts`、`packages/web/src/components/app-shell.tsx`、`packages/web/src/pages/{memory.tsx,memory-panel.tsx,agents.tsx,chat.tsx}`、`packages/web/src/components/{memory-review,share-dialog}.tsx`、`packages/web/src/routes/s.$shareId.tsx`。
