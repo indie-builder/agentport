@@ -11,7 +11,7 @@
 |---|---|---|
 | 要建什么、为谁 | `PRODUCT.md` + `docs/PROJECT-BRIEF.md` + `docs/USER-STORIES.md` | 需求澄清时 |
 | 技术栈、目录、数据流 | `docs/ARCHITECTURE.md` | 设计时 |
-| 颜色、字体、组件、氛围 | `docs/DESIGN-SYSTEM.md` | 做 UI 时 |
+| 颜色、字体、组件、氛围 | `docs/DESIGN-SYSTEM.md`；实现产物快照 `packages/web/DESIGN.md` | 做 UI 时 |
 | 编码规则与 AI 禁止事项 | `CLAUDE.md` | 每会话自动加载 |
 | 项目级待办 | `docs/REMAINING-TODOS.md` | 规划时 |
 | 变更历史 | `CHANGELOG.md` | 追溯时 |
@@ -40,7 +40,7 @@
 
 4. **实现（子代理并行）**
    主会话和执行子代理动手前先读 `docs/PITFALLS.md`，将与当前任务相关的规避方式落实到方案、操作和验证中；任务范围变化时重新核对相关条目。不能只在报错后查阅，或只追加记录而不使用。
-   涉及参考 UI 时，实现前实际操作目标控件，确认区域、数据与状态并写进记录；无法操作时标为缺口，不凭截图或记忆猜测。
+   涉及参考 UI 时，实现前实际操作目标控件，确认区域、数据与状态并写进记录；无法操作时标为缺口，不凭截图或记忆猜测。参考维度分开：配色与控件外观以 Qoder CN 桌面浅色界面为准（来自实际截图采样，不是其源码 token），布局、尺寸与结构以 `docs/DESIGN-SYSTEM.md` 当前规范为准（含用户批准的布局契约），OpenUI 桌面基准仅保留为历史参考；任一维度不扩到另一维度。
    按 `CLAUDE.md` 协作方式：Opus 定契约，Sonnet 子代理并行落地，主会话只编排。所有产出只写进 worktree。
    工程纪律按 `ub-mode`：First Make it Work → Then Make it Right → Follow Practice（先实现目标功能 → 再完善设计与实现 → 遵循工作纪律）。第一阶段就要求正确、可验证并有测试，不把正确性与测试推后。
    模块设计按 `codebase-design`：Interface 写清不变量、调用顺序、失败模式与配置，调用方不重复承担同一事实；模块按 leverage / locality 取舍深度，不按文件长度拆；只在已有真实变化处放 Seam，不为单个 Adapter 预造抽象；调用方与测试经过同一 Seam，通过同一 Interface 验证行为。

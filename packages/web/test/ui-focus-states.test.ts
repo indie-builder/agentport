@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -18,35 +19,17 @@ import { Toggle } from '../src/components/ui/toggle.js';
 // 避免只检查 class 名或源码顺序。
 
 const require = createRequire(import.meta.url);
+// 直接编译生产主题，避免测试复制一份会过期的色值表；dark 变体与生产一致绑定 .dark。
+const productionCss = await readFile(
+  join(dirname(fileURLToPath(import.meta.url)), '../src/styles.css'),
+  'utf8',
+);
+const productionTheme = [...productionCss.matchAll(/@theme\b[^{]*\{[\s\S]*?\n\}/g)]
+  .map(([block]) => block)
+  .join('\n');
 const THEME = `@import "tailwindcss";
-@theme {
-  --color-canvas: #f0f2f5;
-  --color-surface: #fbfcfe;
-  --color-background: #fbfcfe;
-  --color-foreground: #1e293b;
-  --color-fg: #1e293b;
-  --color-primary: #315fad;
-  --color-primary-foreground: #fff;
-  --color-primary-hover: #284f92;
-  --color-primary-active: #21437d;
-  --color-button-primary: #426fbd;
-  --color-button-primary-hover: #3b64aa;
-  --color-button-primary-active: #345997;
-  --color-secondary: #e9edf2;
-  --color-secondary-foreground: #1e293b;
-  --color-selected: #e7edf7;
-  --color-selected-foreground: #315fad;
-  --color-muted: #e9edf2;
-  --color-control-boundary: #7f8998;
-  --color-destructive: #b42318;
-  --color-border: #d7dde5;
-  --color-input: #8993a2;
-  --color-ring: #315fad;
-  --radius-md: 7px;
-  --radius-lg: 9px;
-  --radius-4xl: 6px;
-  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
-}`;
+@custom-variant dark (&:where(.dark, .dark *));
+${productionTheme}`;
 
 type Rule = {
   selector: string;
@@ -279,7 +262,7 @@ describe('error and focus states share one border/ring signal', () => {
     }
   });
 
-  it('shows one visible focus ring on every button variant and keeps the outline border neutral', () => {
+  it('shows one visible focus ring on every button variant and keeps the default on a solid fill', () => {
     for (const name of ['button-default', 'button-outline', 'button-ghost', 'button-solid']) {
       const classNames = probeClasses(name);
       // 未聚焦不画环。
@@ -288,41 +271,44 @@ describe('error and focus states share one border/ring signal', () => {
       expect(ringVisible(rules, classNames, {}, true)).toBe(true);
       expect(winning(rules, classNames, {}, true, '--tw-ring-color')).toBe('var(--color-ring)');
     }
-    // default 是主色描边按钮：平时靠边框分层，聚焦时边框让位给环，避免同色边框与环叠成双层。
-    const primaryOutline = probeClasses('button-default');
-    expect(winning(rules, primaryOutline, {}, false, 'border-color')).toBe('var(--color-primary)');
-    expect(winning(rules, primaryOutline, {}, true, 'border-color')).toBe('transparent');
-    expect(winning(rules, primaryOutline, {}, true, '--tw-ring-offset-width')).toBeUndefined();
-    // solid 保留实底主操作，聚焦时用背景色间隔把环推到填充之外。
-    const solid = probeClasses('button-solid');
-    expect(winning(rules, solid, {}, false, 'background-color')).toBe(
-      'var(--color-button-primary)',
-    );
-    expect(winning(rules, solid, {}, true, '--tw-ring-offset-width')).toBe('2px');
-    expect(winning(rules, solid, {}, true, '--tw-ring-offset-color')).toBe(
-      'var(--color-background)',
-    );
-    // outline 的边框保持中性色，不参与焦点表达；本测试不模拟暗色媒体查询，dark:border-input 恒命中。
-    expect(['var(--color-border)', 'var(--color-input)']).toContain(
-      winning(rules, probeClasses('button-outline'), {}, true, 'border-color'),
+    // default 与 solid 都是深色实底：透明 1px 边框只占位，聚焦时用背景色间隔把环推到填充之外。
+    for (const name of ['button-default', 'button-solid']) {
+      const classNames = probeClasses(name);
+      expect(winning(rules, classNames, {}, false, 'background-color')).toBe(
+        'var(--color-button-primary)',
+      );
+      expect(winning(rules, classNames, {}, false, 'border-color')).toBe('transparent');
+      expect(winning(rules, classNames, {}, true, 'border-color')).toBe('transparent');
+      expect(winning(rules, classNames, {}, true, '--tw-ring-offset-width')).toBe('2px');
+      expect(winning(rules, classNames, {}, true, '--tw-ring-offset-color')).toBe(
+        'var(--color-background)',
+      );
+    }
+    // outline 的边框保持中性色，不参与焦点表达；dark 绑定 .dark 后不会在亮色下生效。
+    expect(winning(rules, probeClasses('button-outline'), {}, true, 'border-color')).toBe(
+      'var(--color-border)',
     );
   });
 
-  it('merges the shared helper so Links keep the primary border', () => {
-    // helper 直接输出 cva 时会同时含 border-transparent 与 border-primary，
-    // Tailwind 按输出顺序让透明色胜出；导出的 class 必须是合并后的单一边框色。
+  it('merges the shared helper so Links match the solid default', () => {
+    // helper 直接输出 cva 时，调用方追加的 className 仍要按 Tailwind 冲突规则覆盖。
     const primary = probeClasses('button-helper-default');
-    expect(winning(rules, primary, {}, false, 'border-color')).toBe('var(--color-primary)');
-    expect(primary).not.toContain('border-transparent');
-    // 聚焦仍让位给环：边框透明 + 可见环，与 Button 组件一致。
+    expect(winning(rules, primary, {}, false, 'background-color')).toBe(
+      'var(--color-button-primary)',
+    );
+    expect(winning(rules, primary, {}, false, 'border-color')).toBe('transparent');
     expect(winning(rules, primary, {}, true, 'border-color')).toBe('transparent');
     expect(ringVisible(rules, primary, {}, true)).toBe(true);
+    expect(winning(rules, primary, {}, true, '--tw-ring-offset-width')).toBe('2px');
+    expect(winning(rules, primary, {}, true, '--tw-ring-offset-color')).toBe(
+      'var(--color-background)',
+    );
 
     for (const variant of ['outline', 'ghost', 'solid'] as const) {
       expect(ringVisible(rules, probeClasses(`button-helper-${variant}`), {}, true)).toBe(true);
     }
-    expect(['var(--color-border)', 'var(--color-input)']).toContain(
-      winning(rules, probeClasses('button-helper-outline'), {}, false, 'border-color'),
+    expect(winning(rules, probeClasses('button-helper-outline'), {}, false, 'border-color')).toBe(
+      'var(--color-border)',
     );
     expect(winning(rules, probeClasses('button-helper-ghost'), {}, false, 'border-color')).toBe(
       'transparent',

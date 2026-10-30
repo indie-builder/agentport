@@ -276,8 +276,8 @@ function UserMenu({ username }: { username: string }) {
         </div>
         <DropdownMenuGroup>
           <DropdownMenuItem
-            // Keep the smaller muted label and opaque hover/focus surface instead of the base accent.
-            className="mt-1 flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sunken hover:text-fg focus:bg-sunken"
+            // Keep the smaller compact label; hover/focus inherit the shared accent surface.
+            className="mt-1 flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-fg transition-colors hover:bg-accent hover:text-accent-foreground"
             onClick={() => void logout()}
           >
             <LogOut className="size-3.5" />
@@ -349,7 +349,7 @@ export function AppShell() {
   if (me.isPending) {
     return (
       <div
-        className="flex min-h-screen bg-canvas"
+        className="flex min-h-screen bg-shell"
         aria-busy="true"
         role="status"
         aria-label="加载中"
@@ -374,7 +374,7 @@ export function AppShell() {
 
   if (me.isError || !me.data?.authenticated) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-canvas text-sm text-muted-foreground">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-shell text-sm text-muted-foreground">
         <PageHeader title={pageTitle} className="sr-only" />
         {me.isError ? (
           <>
@@ -479,7 +479,7 @@ export function AppShell() {
        * 实测结构：侧栏在外、白壳在内。壳的下/右留 4px，左侧紧贴侧栏。
        * 壳用 1px outline（.04）而不是 border，避免内边距被边框吃掉。
        */}
-      <div className="flex h-dvh bg-canvas text-fg">
+      <div className="flex h-dvh bg-shell text-fg">
         <a href="#main-content" className="skip-link">
           跳到主要内容
         </a>
@@ -545,8 +545,8 @@ export function AppShell() {
                 <Outlet />
               </div>
             ) : (
-              // 实测：内容区距白壳边缘 12px。顶部内边距由 PageHeader 承担。
-              <div className="w-full px-3 pb-10">
+              // 内容区左右 24px、底部 24px；顶部内边距由 PageHeader 自己负责。
+              <div className="w-full px-6 pb-6">
                 <div className="w-full min-w-0">
                   <Outlet />
                 </div>

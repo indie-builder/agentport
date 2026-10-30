@@ -8,7 +8,7 @@ import { Badge } from './ui/badge.js';
 const statusBadgeVariants = cva('rounded-tag px-1.5', {
   variants: {
     tone: {
-      default: 'border-line bg-sunken text-muted-foreground',
+      default: 'border-line bg-sunken text-fg',
       success: 'border-line bg-surface text-success',
       warn: 'border-line bg-warning-soft text-warning',
       danger: 'border-line bg-danger-soft text-danger',

@@ -18,14 +18,21 @@ export function App() {
           toastOptions={{
             duration: 4000,
             classNames: {
-              toast: 'border border-line bg-surface text-fg',
-              description: 'text-muted-foreground',
-              // Sonner 的 [data-button] 规则特异性高于 Tailwind，important 仅用于这条 toast 操作按钮覆盖
+              // Sonner 自带的 [data-sonner-toast][data-styled] 规则特异性更高，只保留中性外观所需的覆盖。
+              // shadow-overlay! 会覆盖 Sonner 的 :focus-visible 阴影，焦点改由单层中性 outline 表达。
+              toast:
+                'border-line! bg-surface! text-fg! shadow-overlay! focus-visible:outline-2! focus-visible:outline-ring! focus-visible:outline-offset-2!',
+              description: 'text-muted-foreground!',
+              // Sonner 的 [data-button] 规则特异性高于 Tailwind，important 仅用于让操作按钮保持中性 outline。
               actionButton: buttonVariants({
+                variant: 'outline',
                 className:
-                  'bg-background! text-primary! border! border-solid! border-primary! hover:bg-selected! active:bg-selected! active:border-primary-hover! active:text-primary-hover! focus-visible:border-transparent!',
+                  // 按钮基类的 outline-none 会把 --tw-outline-style 置为 none，outline-solid! 才能让焦点轮廓真正可见；
+                  // ring-0!/shadow-none! 同时压掉基类 ring-2 与 Sonner 的 focus box-shadow，焦点只留单层 outline。
+                  'border! border-solid! border-line! bg-surface! text-fg! hover:bg-hover! active:bg-hover! focus-visible:outline-2! focus-visible:outline-solid! focus-visible:outline-ring! focus-visible:outline-offset-2! focus-visible:ring-0! focus-visible:shadow-none!',
               }),
-              closeButton: 'bg-surface border-line text-muted-foreground hover:text-fg',
+              closeButton:
+                'bg-surface border-line text-muted-foreground hover:text-fg focus-visible:outline-2! focus-visible:outline-ring! focus-visible:outline-offset-2! focus-visible:shadow-none!',
             },
           }}
         />

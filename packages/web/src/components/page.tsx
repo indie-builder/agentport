@@ -3,7 +3,7 @@ import { cn } from '../lib/cn.js';
 
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div data-slot="page" className={cn('flex min-w-0 flex-col gap-5', className)}>
+    <div data-slot="page" className={cn('flex min-w-0 flex-col gap-6', className)}>
       {children}
     </div>
   );
@@ -28,7 +28,7 @@ export function PageHeader({
   return (
     <div
       data-slot="page-header"
-      className={cn('flex min-h-11 flex-wrap items-center gap-4 pt-3', className)}
+      className={cn('flex min-h-14 flex-wrap items-center gap-4', className)}
     >
       {leading ? <div className="shrink-0">{leading}</div> : null}
       <div className="flex min-w-0 flex-wrap items-center gap-2">

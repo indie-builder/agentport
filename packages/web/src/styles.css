@@ -13,52 +13,54 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * PACE 类别标准主题：冷灰画布 + PACE 蓝交互色。
- * 品牌蓝只用于交互与数据主线，状态色独立表达结果，插画保留原有配色。
+ * Qoder 视觉契约：暖黄到蓝灰的静态外壳渐变、纯白内容面与中性交互色。
+ * 数据蓝只属于图表系列，状态色独立表达结果，插画保留原有配色。
  */
 @theme {
-  /* 表面：冷灰画布、近白表面、下沉层与浅蓝选中底。 */
-  --color-canvas: #f0f2f5;
-  --color-surface: #fbfcfe;
-  --color-panel: #fbfcfe;
-  --color-sunken: #e9edf2;
-  --color-hover: #e9edf2;
-  --color-chip: #e9edf2;
-  --color-selected: #e7edf7;
+  /* 外壳静态渐变三停点，只由 bg-shell 消费，不进入画布纯色。 */
+  --color-shell-start: #ecebc9;
+  --color-shell-mid: #dde3d4;
+  --color-shell-end: #d1dae3;
 
-  /* 线与文本 */
-  --color-line: #d7dde5;
-  --color-line-strong: #8993a2;
-  /* 外壳的 1px outline 比常规分隔线更淡 */
-  --color-shell-line: #e4e8ee;
-  --color-fg: #1e293b;
+  /* 表面：内容、卡片、浮层一律纯白；画布同时作为渐变的纯色兜底。 */
+  --color-canvas: #ffffff;
+  --color-surface: #ffffff;
+  --color-panel: #ffffff;
+  --color-sunken: #f6f6f6;
+  --color-hover: #f6f6f6;
+  --color-chip: #f6f6f6;
+  --color-selected: #efefef;
+
+  /* 线与文本：分隔线只做分组，可编辑边界走更深的 input。 */
+  --color-line: #e6e6e6;
+  --color-line-strong: #767676;
+  --color-shell-line: #e6e6e6;
+  --color-fg: #141414;
   /*
    * base-nova 把 muted 当「表面色」（bg-muted = 浅灰底），
    * 文字色走 muted-foreground。两者不能共用同一个变量。
    */
   --color-muted: var(--color-sunken);
-  --color-subtle: #8993a2;
+  --color-subtle: #828282;
   /*
-   * 复选框/单选框的未选边界落在选中底或下沉底上，
-   * input 在这些表面只有 2.64:1；此色在四个常用表面均 ≥3:1。
+   * 复选框/单选框的未选边界与输入边框会落在白、选中底与渐变最暗端上，
+   * 该色在这三种背景均 ≥3:1；subtle 在渐变下端不足，不能用于边界。
    */
-  --color-control-boundary: #7f8998;
+  --color-control-boundary: #767676;
 
-  /* 运行主线用品牌蓝，失败保留独立状态色。 */
-  --color-chart-runs: var(--color-brand-solid);
+  /* 数据主线保留独立蓝，不参与导航与按钮；失败保留结果状态色。 */
+  --color-chart-runs: #315fad;
   --color-chart-failed: var(--color-danger);
 
-  /* PACE 蓝是唯一品牌主色；实底状态直接加深，不靠透明度降低对比度。 */
-  --color-brand-solid: #315fad;
-  --color-primary-hover: #284f92;
-  --color-selected-foreground: var(--color-brand-solid);
-  /* 主按钮实底比品牌蓝浅一档：大片实底更柔和，链接/导航等仍用品牌蓝。 */
-  --color-button-primary: #426fbd;
-  --color-button-primary-hover: #3b64aa;
-  --color-button-primary-active: #345997;
+  /* 中性动作色三态：主按钮实底逐档加深，焦点环与勾选态共用 primary。 */
+  --color-primary-hover: #262626;
+  --color-selected-foreground: var(--color-fg);
+  --color-button-primary: #0d0d0d;
+  --color-button-primary-hover: #262626;
+  --color-button-primary-active: #404040;
 
-  /* 墨色用于正文与安静的反色实底；不再兼任主按钮。 */
-  --color-ink: #1e293b;
+  /* 墨色与正文同值，不再兼任主按钮。 */
+  --color-ink: var(--color-fg);
 
   /* 状态：只用于小面积 */
   /* 成功色需同时满足表面、画布、选中底上的文字对比度。 */
@@ -68,8 +70,8 @@
   --color-danger: #b42318;
   --color-danger-soft: #fcebe9;
 
-  /* 代码 */
-  --color-code: #e9edf2;
+  /* 代码：中性浅底与分隔线 */
+  --color-code: #f6f6f6;
   --color-code-line: var(--color-line);
 
   --color-scrim: rgb(0 0 0 / 0.4);
@@ -95,11 +97,11 @@
   /* 底座 Badge 用 rounded-4xl；项目里它是最小的标签圆角，不是最大。 */
   --radius-4xl: var(--radius-tag); /* Badge 小标签 */
 
-  /* 侧栏：实测 272 展开 / 68 收起，过渡 160ms */
-  --sidebar-width: 272px;
-  --sidebar-collapsed: 68px;
+  /* 侧栏：224 展开 / 64 收起，过渡 160ms */
+  --sidebar-width: 224px;
+  --sidebar-collapsed: 64px;
   --sidebar-pad: 16px 12px;
-  --sidebar-pad-collapsed: 16px 18px;
+  --sidebar-pad-collapsed: 16px 16px;
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 
   --font-sans: "Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif;
@@ -130,7 +132,7 @@
   --text-3xl--line-height: 2rem;
 
   /*
-   * shadcn 原语映射到统一的低饱和度语义令牌。
+   * shadcn 原语映射到统一的语义令牌。
    * 组件保持库的原始类名，外观仍由这里决定——不要在组件里改色值。
    */
   --color-background: var(--color-surface);
@@ -139,15 +141,15 @@
   --color-popover-foreground: var(--color-fg);
   --color-card: var(--color-surface);
   --color-card-foreground: var(--color-fg);
-  --color-primary: var(--color-brand-solid);
-  --color-primary-foreground: #fff;
+  --color-primary: #0d0d0d;
+  --color-primary-foreground: #ffffff;
   --color-secondary: var(--color-hover);
   --color-secondary-foreground: var(--color-fg);
   --color-accent: var(--color-selected);
-  --color-accent-foreground: var(--color-primary);
-  --color-muted-foreground: #596577;
+  --color-accent-foreground: var(--color-fg);
+  --color-muted-foreground: #5f5f5f;
   --color-destructive: var(--color-danger);
-  --color-destructive-foreground: #fff;
+  --color-destructive-foreground: #ffffff;
   --color-border: var(--color-line);
   --color-input: var(--color-line-strong);
   --color-ring: var(--color-primary);
@@ -155,9 +157,9 @@
   --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
 
 
-  /* 输入框胶囊保留独立阴影，浮层共享 overlay 阴影。 */
-  --shadow-composer: 0 0 0 0.5px rgb(3 3 3 / 0.08), 0 4px 16px 0 rgb(0 0 0 / 0.06);
-  --shadow-overlay: 0 8px 24px -8px rgb(0 0 0 / 0.16);
+  /* 输入框胶囊保留独立阴影，浮层共享 overlay 阴影；都不加彩色光晕。 */
+  --shadow-composer: 0 1px 4px 0 rgb(0 0 0 / 0.04);
+  --shadow-overlay: 0 8px 24px -8px rgb(0 0 0 / 0.12);
 
   /*
    * 底座浮层用 shadow-md / shadow-lg。项目只有一种浮层阴影语言，
@@ -167,10 +169,24 @@
   --shadow-lg: var(--shadow-overlay);
 }
 
+/*
+ * 外部外壳的静态三色渐变；纯色画布兜底，无渐变或渐变不可用时仍是白底。
+ * 只服务 AppShell 的外部根与透明导航透出，画布和内容面保持纯色。
+ */
+@utility bg-shell {
+  background-color: var(--color-canvas);
+  background-image: linear-gradient(
+    180deg in srgb,
+    var(--color-shell-start) 0%,
+    var(--color-shell-mid) 50%,
+    var(--color-shell-end) 100%
+  );
+}
+
 @layer base {
   /*
    * Shiki 的 css-variables 主题在这里收口：正文墨色，
-   * 关键字与函数用品牌蓝，注释用辅助灰。背景透明，代码块表面由容器的 bg-code 决定。
+   * 关键字/函数/链接用中性主色，注释用辅助灰。背景透明，代码块表面由容器的 bg-code 决定。
    */
   [data-streamdown] {
     --shiki-background: transparent;
@@ -214,7 +230,7 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* 焦点兜底与 skip link 都走品牌语义令牌。 */
+  /* 焦点兜底与 skip link 都走中性语义令牌。 */
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;

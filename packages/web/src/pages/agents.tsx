@@ -77,14 +77,7 @@ import { SearchInput } from '../components/search-input.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
-import {
-  Card,
-  CardAction,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card.js';
+import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '../components/ui/card.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import {
   Combobox,
@@ -450,7 +443,7 @@ export function AgentsPage() {
           }
           className="min-w-40 flex-1 sm:w-56 sm:flex-none"
         />
-        <div className="ml-auto flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
+        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
           <FilterSelect
             value={status}
             onValueChange={(next) => {
@@ -569,7 +562,7 @@ export function AgentsPage() {
             const agentRole = agent.role?.trim() || '通用助手';
             return (
               <li key={agent.id} className="min-w-0">
-                <Card className="h-full">
+                <Card>
                   <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
                     <AgentAvatar agent={agent} className="row-span-2 self-center" />
                     <CardTitle className="col-start-2 min-w-0">
@@ -624,36 +617,38 @@ export function AgentsPage() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </CardAction>
-                    <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10 break-words">
-                      {agent.description}
-                    </CardDescription>
+                    <div className="col-start-2 row-start-2 flex min-w-0 flex-col gap-2">
+                      <CardDescription className="line-clamp-2 break-words">
+                        {agent.description}
+                      </CardDescription>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {agent.enabled ? (
+                          <Link
+                            to="/chat"
+                            search={{ agent: agent.id }}
+                            disabled={importing}
+                            aria-label={`与 ${agent.name} 开始对话`}
+                            className={buttonVariants({ size: 'sm' })}
+                          >
+                            开始对话
+                          </Link>
+                        ) : (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled
+                              aria-label={`与 ${agent.name} 开始对话`}
+                              title="专家已停用，启用后才能开始对话"
+                            >
+                              开始对话
+                            </Button>
+                            <StatusBadge>已停用</StatusBadge>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </CardHeader>
-                  <CardFooter className="mt-auto justify-between">
-                    {agent.enabled ? (
-                      <Link
-                        to="/chat"
-                        search={{ agent: agent.id }}
-                        disabled={importing}
-                        aria-label={`与 ${agent.name} 开始对话`}
-                        className={buttonVariants({ size: 'sm' })}
-                      >
-                        开始对话
-                      </Link>
-                    ) : (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled
-                          aria-label={`与 ${agent.name} 开始对话`}
-                          title="专家已停用，启用后才能开始对话"
-                        >
-                          开始对话
-                        </Button>
-                        <StatusBadge>已停用</StatusBadge>
-                      </>
-                    )}
-                  </CardFooter>
                 </Card>
               </li>
             );
