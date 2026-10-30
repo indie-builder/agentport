@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 // 直接读生产 styles.css，校验冻结契约的可访问约束；
 // 只解析 @theme 里的 --color-* 声明与 var() 别名，不复制第二份颜色表。
+// 输入默认/聚焦边线按 Qoder 参考取浅中性，对白低于 3:1 是已记录的已知限制；
+// 强边界、文本与动作用色仍按原可访问阈值检查。
 
 const css = await readFile(
   join(dirname(fileURLToPath(import.meta.url)), '../src/styles.css'),
@@ -106,7 +108,7 @@ describe('theme tokens match the frozen Qoder visual contract', () => {
     expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('keeps solid actions and editable boundaries accessible', () => {
+  it('keeps solid actions and strong boundaries accessible', () => {
     for (const action of [
       '--color-button-primary',
       '--color-button-primary-hover',
@@ -117,16 +119,38 @@ describe('theme tokens match the frozen Qoder visual contract', () => {
         action,
       ).toBeGreaterThanOrEqual(4.5);
     }
-    for (const background of [
-      '--color-surface',
-      '--color-selected',
-      '--color-shell-end',
-    ] as const) {
-      expect(
-        contrast(rgb('--color-input'), rgb(background)),
-        `input on ${background}`,
-      ).toBeGreaterThanOrEqual(3);
+    for (const boundary of ['--color-line-strong', '--color-control-boundary'] as const) {
+      for (const background of [
+        '--color-surface',
+        '--color-selected',
+        '--color-shell-end',
+      ] as const) {
+        expect(
+          contrast(rgb(boundary), rgb(background)),
+          `${boundary} on ${background}`,
+        ).toBeGreaterThanOrEqual(3);
+      }
     }
     expect(contrast(rgb('--color-ring'), rgb('--color-selected'))).toBeGreaterThanOrEqual(3);
+  });
+
+  it('records the accepted low-contrast input boundary mapping', () => {
+    // 输入默认边线等同分隔线；普通与 composer 聚焦是 PACE 适配，不是 Qoder 源码 token。
+    expect(rgb('--color-input')).toEqual(rgb('--color-line'));
+    expect(rgb('--color-input-focus')).toEqual([0xbd, 0xbd, 0xbd]);
+    expect(rgb('--color-composer-focus')).toEqual([0xdd, 0xdd, 0xdd]);
+    expect(declarations.has('--color-input-hover')).toBe(false);
+
+    // 对白实算低于 3:1：明确记录限制，不能把这些值冒充为 WCAG AA。
+    expect(contrast(rgb('--color-input'), white)).toBeCloseTo(1.248, 3);
+    expect(contrast(rgb('--color-input-focus'), white)).toBeCloseTo(1.879, 3);
+    expect(contrast(rgb('--color-composer-focus'), white)).toBeCloseTo(1.358, 3);
+    for (const name of [
+      '--color-input',
+      '--color-input-focus',
+      '--color-composer-focus',
+    ] as const) {
+      expect(contrast(rgb(name), white), name).toBeLessThan(3);
+    }
   });
 });

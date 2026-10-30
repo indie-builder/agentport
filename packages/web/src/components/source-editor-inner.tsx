@@ -73,10 +73,15 @@ const editorTheme = EditorView.theme({
     backgroundColor: 'transparent',
     borderRadius: 'var(--radius-md)',
   },
-  '.cm-panel.cm-search input': {
+  '.cm-panel.cm-search .cm-textfield': {
     padding: '0.125rem 0.375rem',
-    // 真实可编辑输入需要可访问边界；按钮仍用分隔线，不冒充输入。
+    // 输入家族默认浅线；按钮与复选框仍用各自原生焦点。
     border: '1px solid var(--color-input)',
+  },
+  '.cm-panel.cm-search .cm-textfield:focus-visible': {
+    borderColor: 'var(--color-input-focus)',
+    // 与输入家族一致：焦点只由浅线加深表达，不叠加全局 2px 轮廓。
+    outline: 'none',
   },
   '.cm-panel.cm-search button': { border: '1px solid var(--color-line)' },
   '.cm-searchMatch, .cm-searchMatch.cm-searchMatch-selected': {

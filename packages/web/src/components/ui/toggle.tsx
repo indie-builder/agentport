@@ -3,14 +3,12 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from 'cn';
 
 const toggleVariants = cva(
-  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 aria-invalid:border aria-invalid:border-destructive aria-invalid:focus-visible:ring-0 aria-pressed:bg-selected aria-pressed:text-selected-foreground data-[state=on]:bg-selected data-[state=on]:text-selected-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 aria-invalid:border aria-invalid:border-destructive aria-pressed:bg-selected aria-pressed:text-selected-foreground data-[state=on]:bg-selected data-[state=on]:text-selected-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default: 'bg-transparent',
-        // §9：outline 变体以边框表达焦点，环设为透明避免边框 + 光环两层。
-        outline:
-          'border border-input bg-transparent hover:bg-muted focus-visible:border-ring focus-visible:ring-transparent',
+        outline: 'border border-border bg-transparent hover:bg-muted',
       },
       size: {
         default:

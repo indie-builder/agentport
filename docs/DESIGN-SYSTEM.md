@@ -19,7 +19,9 @@ colors:
   muted: "#F6F6F6"
   line: "#E6E6E6"
   shell-line: "#E6E6E6"
-  input: "#767676"
+  input: "#E6E6E6"
+  input-focus: "#BDBDBD"
+  composer-focus: "#DDDDDD"
   control-boundary: "#767676"
   fg: "#141414"
   muted-foreground: "#5F5F5F"
@@ -35,9 +37,9 @@ typography:
     fontFamily: "JetBrains Mono Variable, JetBrains Mono, ui-monospace, monospace"
   body:
     fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
-    fontSize: "15px"
+    fontSize: "14px"
     fontWeight: 400
-    lineHeight: "26px"
+    lineHeight: "22px"
   ui:
     fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
     fontSize: "13px"
@@ -69,7 +71,7 @@ spacing:
 
 > 配色与控件外观以 Qoder CN 桌面浅色界面为准（2026-10-30 用户授权；来自真实截图的像素采样，不是 Qoder 源码 token）。布局、尺寸与结构以本文当前值为准：2026-10-30 用户批准的布局契约替代 OpenUI 早期几何基准，OpenUI 仅保留为历史参考。
 > 实现产物快照见 [packages/web/DESIGN.md](../packages/web/DESIGN.md)（sidecar `packages/web/.impeccable/design.json`）。
-> 信息架构于 2026-10-29 按「工作 / 构建 / 运维」重排。布局数值已同步；浏览器验收已在覆盖的桌面范围内完成，未覆盖项见 [本任务记录](tasks/qoder-visual-redesign.md)。
+> 信息架构于 2026-10-29 按「工作 / 构建 / 运维」重排。布局数值已同步；此前的浏览器验收覆盖旧外顶栏结构；2026-10-31 已实页验收恢复后的三栏顶部对齐、历史开合、成果与窄桌面抽屉，见 [本任务记录](tasks/chat-history-agent-picker.md)。
 
 ---
 
@@ -81,21 +83,22 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 └─ 外壳：下/右 4px 外边距，圆角 16px，表面 #FFFFFF，1px outline #E6E6E6
    └─ 主区
       ├─ 普通页面：内容左右 24px、底部 24px，顶部 56px 页头
-      └─ 聊天：56px 顶栏（左右 24px）在上，历史/消息分栏在下
-         ├─ 历史：默认收起 0，首次展开 240px（可 200–360px）
-         └─ 消息区：832px 阅读轴线（含左右 24px 的外容器 880px），Composer 固定在同一底部位置
+      └─ 聊天：历史／消息列／成果三栏从工作区顶部并排开始
+         ├─ 历史：默认收起 0，首次展开 240px（可 200–360px）；展开头部 56px（专家选择 + 新建），下方搜索与列表
+         ├─ 消息列：56px 头部（左右 24px）在列内，消息与 Composer 在下；832px 阅读轴线（含左右 24px 的外容器 880px）
+         └─ 成果：宽 400px，从工作区顶部开始
 ```
 
 **硬性规则**
 
 1. **侧栏在外壳之外**：壳只占主区，下、右各留 4px，左侧紧贴侧栏。壳用 1px `outline var(--color-shell-line)`（`#E6E6E6`），没有 border 与阴影。
 2. 侧栏背景透明，透出外壳外部根容器的 `bg-shell` 渐变，不与主区分隔线——靠留白分开。
-3. **聊天顶栏固定在分栏上方。** 唯一 56px 顶栏位于 ChatWorkspace 正常流、整个历史/消息分栏之上，左右 24px；依次容纳历史开关、稳定搜索入口、唯一专家选择、当前会话 h1 与操作菜单、右侧成果开关。展开或收起历史与成果都不改变这些控件的 DOM 节点或 x/y；窄桌面历史 Sheet 的既有例外保留：Sheet 打开时专家选择可临时出现在其 HistoryHeader，关闭后回到同一顶栏位置。历史默认收起（0），首次展开 240px，可在 200–360px 间拖动并记忆；桌面 HistoryHeader 只保留新建会话等历史动作，不再放专家选择。历史与消息区同用 `bg-surface`（纯白），外部主导航透明并透出 `bg-shell` 渐变；登录页与公开分享页保持纯白基底。消息区左侧历史按钮使用虚线面板图标 `PanelLeftDashed`，右侧会话成果按钮使用镜像的 `PanelRightDashed`；桌面端（`lg` 起）同时显示「会话成果」文字，窄屏保留图标与无障碍名。两者均为常规 32px ghost 按钮，图形比导航的实线折叠图标更轻。右侧会话成果与专家定义文件不同，不展示 `.claude` 配置树；仅展示服务端真实发布的成果，同路径可选择版本，提供静态阅读/源码与下载、基于此版本修改与固定版本分享。成果属于产生它的对话轮次；分享从对应版本的成果面板发起，链接形如 `/s/<shareId>#<token>`，token 只放 URL 片段。无成果显示真实空态，不从回复猜测文件或伪造卡片。该链路已交付，运行验收证据见 `docs/tasks/agent-output-viewing.md`。窗口收窄时历史面板仍可收起；面板切换不得清空输入、变更专家或重建消息流。始终仅一个 h1。
+3. **聊天三栏顶端平齐，消息列自带 56px 头部。** 历史、消息列与成果栏都从 ChatWorkspace 顶部开始并排，没有横跨三栏的外顶栏；ChatTopBar 位于消息列内的 ChatColumn 头部，高 56px、左右 24px。历史收起时头部依次容纳历史开关、搜索、唯一专家选择、当前会话 h1 与操作菜单、右侧成果开关；历史展开时头部只保留历史开关、会话标题与操作、成果开关，搜索与专家选择移入历史栏：历史头部为专家选择 + 新建，其下是既有「搜索全部会话」与列表。窄桌面历史 Sheet 打开时消息头部隐藏搜索与专家选择，Sheet 的 `HistoryHeader` 显示专家选择、新建与关闭，搜索仍在其下；Sheet 关闭后恢复消息头部。专家选择同一时刻只有一处，允许随历史开合切换 DOM 挂载点，不要求前后同一节点或相同 x/y；头部始终位于消息列顶部且高度不变；消息列随分栏开合移动并伸缩，其它子项沿现有 flex 自然排布，不保留空占位。历史默认收起（0），首次展开 240px，可在 200–360px 间拖动并记忆。历史与消息区同用 `bg-surface`（纯白），外部主导航透明并透出 `bg-shell` 渐变；登录页与公开分享页保持纯白基底。消息区左侧历史按钮使用虚线面板图标 `PanelLeftDashed`，右侧会话成果按钮使用镜像的 `PanelRightDashed`；桌面端（`lg` 起）同时显示「会话成果」文字，窄屏保留图标与无障碍名。两者均为常规 32px ghost 按钮，图形比导航的实线折叠图标更轻。右侧会话成果与专家定义文件不同，不展示 `.claude` 配置树；仅展示服务端真实发布的成果，同路径可选择版本，提供静态阅读/源码与下载、基于此版本修改与固定版本分享。成果属于产生它的对话轮次；分享从对应版本的成果面板发起，链接形如 `/s/<shareId>#<token>`，token 只放 URL 片段。无成果显示真实空态，不从回复猜测文件或伪造卡片。该链路已交付，运行验收证据见 `docs/tasks/agent-output-viewing.md`。窗口收窄时历史面板仍可收起；面板切换不得清空输入、变更专家或重建消息流。始终仅一个 h1。
 4. 对话、欢迎态与 Composer 共用同一条 832px 阅读轴线；含左右各 24px 内边距的外容器最大 880px。Composer 在 ChatColumn 内正常流、始终同一位置、距底 24px，不用 `position: fixed` 覆盖消息。
 
 ## 2. 色彩
 
-配色与控件外观以 Qoder CN 桌面浅色界面为准；布局、结构与几何按本文 §1、§6–§9 当前规范。颜色来自 Qoder 真实截图（2640×1600）的像素采样，**不是 Qoder 源码 token，也不是从其源码恢复的 CSS**。渐变方向与停点、hover/active 深色阶、辅助文字、输入边界、焦点色、圆角与阴影属于 PACE 可访问适配，不声称采自 Qoder。
+配色与控件外观以 Qoder CN 桌面浅色界面为准；布局、结构与几何按本文 §1、§6–§9 当前规范。颜色来自 Qoder 真实截图（2640×1600）的像素采样，**不是 Qoder 源码 token，也不是从其源码恢复的 CSS**。渐变方向与停点、hover/active 深色阶、辅助文字、输入默认与聚焦边线、composer 聚焦、checkbox/radio 强边界、焦点色、圆角与阴影属于 PACE 近似或可辨适配，不声称采自 Qoder；输入三种浅边线对白低于 3:1 的限制见 §2.4。
 
 应用外壳的外部根容器透出静态暖黄到蓝灰渐变（`shell-start #ECEBC9` → `shell-mid #DDE3D4` → `shell-end #D1DAE3`，`linear-gradient(180deg in srgb, …)`），导航透明；内容壳、页面、会话历史、详情阅读区、卡片与浮层的基底统一为纯白 `#FFFFFF`。中性层为中性灰 `#F6F6F6` / `#EFEFEF`，动作色为中性深色 `#0D0D0D`，界面不再使用品牌蓝强调。`#315FAD` 只保留为 `chart-runs` 数据系列，仅用于数据，不表示导航、按钮、焦点或结果状态。状态色独立表达结果。
 
@@ -106,7 +109,7 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 | 外壳 | `shell-start` / `shell-mid` / `shell-end` | `#ECEBC9` / `#DDE3D4` / `#D1DAE3` | 仅应用外壳三个外部根容器的 `bg-shell` 静态渐变；不进入内容区 |
 | 表面 | `canvas` / `surface`、`panel` / `sunken`、`chip`、`code` | `#FFFFFF` / `#F6F6F6` | 页面、外壳、卡片、浮层 / 下沉容器、徽章底、代码块 |
 | 文本 | `fg`、`ink`、`foreground` / `muted-foreground` / `subtle` | `#141414` / `#5F5F5F` / `#828282` | 正文、标题与选中前景 / 辅助信息、占位符、元信息、注释 / 仅装饰与禁用例外，不承载可读文字 |
-| 边线 | `line`、`border`、`shell-line`、`code-line` / `input`、`line-strong`、`control-boundary` | `#E6E6E6` / `#767676` | 分隔线与外壳 outline / 输入框、Select 触发器、未选中 checkbox/radio 与强边线 |
+| 边线 | `line`、`border`、`shell-line`、`code-line` / `input` / `line-strong`、`control-boundary` | `#E6E6E6` / `#E6E6E6` / `#767676` | 分隔线与外壳 outline / 输入家族默认边线 / checkbox、radio 与需要 ≥3:1 的强边线 |
 | 交互 | `hover`、`sunken` / `selected`、`accent` | `#F6F6F6` / `#EFEFEF` | 悬停与中性浅层 / 当前导航、页签、列表选中、菜单高亮、用户消息气泡 |
 | 状态 | `success` / `warning` / `danger` | `#187646` / `#8A5600` / `#B42318` | 仅小面积表达结果，不借用动作色或数据蓝 |
 
@@ -120,6 +123,7 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 | 选中前景 | `selected-foreground` / `accent-foreground` | `#141414` | 选中项与菜单高亮上的文字及继承文字色的图标 |
 | 状态浅底 | `warning-soft` / `danger-soft` | `#FBF3E4` / `#FCEBE9` | 警告与危险的小面积浅底 |
 | 数据系列 | `chart-runs` / `chart-failed` | `#315FAD` / `danger` | 运行系列 / 失败系列；数据蓝只用于图表数据 |
+| 输入焦点 | `input-focus` / `composer-focus` | `#BDBDBD` / `#DDDDDD` | 普通输入聚焦的 PACE 中性近似 / 仅 composer 文本控制器聚焦的实测映射；均不满足 3:1，见 §2.4 |
 | 遮罩 | `scrim` | `rgb(0 0 0 / 0.4)` | 弹层遮罩 |
 
 旧 `brand-solid` 已删除；不为图表需要蓝色而保留品牌蓝别名或「唯一蓝」注释。
@@ -131,18 +135,18 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 - **动作只有中性深色与浅中性两档。** 普通主操作 `default` 使用深色实底 `button-primary` + 白字，hover/active 对应两档；保留现有透明 1px 边框占位、全部尺寸和图标。发送、登录等显式 `solid` 动作使用同一三态实底，不再有单独的蓝色实底。次操作 `outline`（白底细 `line` 边线、深色字）、`secondary`（中性浅填充）、`ghost`（透明，hover/展开中性浅底）与 `plain` 保持各自职责；取消、过滤器、菜单触发器不因主色更改变为深色实底。链接用 `primary` 中性深色，保留现有下划线、hover 与可访问名，不靠蓝色表明可点击。
 - **分段与 line 页签。** 分段控件容器 `hover`；当前 tab 用 `selected` + `fg`，现有 1px 边框换 `line`，去掉当前 tab 的小阴影；inactive 文字 `muted-foreground`，hover `fg`。line 页签与二级导航继续透明、不铺底，现有 2px 指示线改为 `primary` 深色，文字 `fg`，位置与宽度不变，focus 独立可见。
 - **卡片、表格与列表。** 基底纯白，卡片与表格边线用 `line`；行 hover `hover`、行选中 `selected`，文字 `fg` / `muted-foreground`。Skeleton 用 `sunken`；Progress 活跃主线用 `primary` 深色，终态仍走原结果语义；空态与加载态结构不变。
-- **可编辑边界单独可访问。** 输入框、Textarea、InputGroup、Select 可编辑触发器与 SourceEditor 使用白底 + 1px `input`（`#767676`）边框；hover 不降低对比，placeholder 用 `muted-foreground`，focus 只把现有边框换成 `ring`，不叠光环；invalid 用 `danger` 优先。未选中的 checkbox/radio 用 `control-boundary`（同值 `#767676`），checked/on 用深色 `primary` 配白色勾/点/thumb，off switch 用 `input` 与白 thumb。`subtle #828282` 与 `line #E6E6E6` 都不承担可编辑边界：前者只作装饰，后者只作分隔。错误、禁用、焦点优先级与形状、尺寸、状态属性不变。
+- **可编辑边界单独可访问。** 输入框、Textarea、InputGroup、Select 可编辑触发器与 SourceEditor 使用白底 + 1px `input`（`#E6E6E6`，等同 `line`）边框；不新增 hover 加深。普通输入聚焦把边线换成 `input-focus`（`#BDBDBD`，PACE 中性近似，非 Qoder 精准 token），composer 文本聚焦由 InputGroup 外框换成 `composer-focus`（`#DDDDDD`），均不叠光环；Select 未取得的关闭键盘态采用同一 `input-focus` 适配。invalid 保留 `danger` 边框，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补足焦点，错误边框不能代替焦点。未选中的 checkbox/radio 用 `control-boundary`（`#767676`），checked/on 用深色 `primary` 配白色勾/点/thumb，off switch 用 `control-boundary` 与白 thumb。`subtle #828282` 不承担可编辑边界；输入三种浅边线对白均低于 3:1，是已接受并公开记录的视觉限制。错误、禁用、焦点优先级与形状、尺寸、状态属性不变。
 - **消息。** 用户消息由浅蓝底改为 `selected` 中性浅底 + `fg`，保留现有胶囊形状、对齐与宽度；附件用中性 `outline`。助手正文仍在白底上无气泡。
 - **浮层与菜单。** 白表面、`line` 边线、统一 overlay 阴影；菜单项 hover/键盘高亮用 `accent` + `accent-foreground`，危险项用 `danger` 且不被普通 hover 覆盖；菜单内搜索等可编辑边界用 `input`。Dialog、AlertDialog、Sheet、Popover、Tooltip、Toast 共用同一表面与阴影，遮罩用 `scrim`；tooltip 若既有反色则保留深底白字。确认框的 default 为深色主操作、取消用 `outline`，危险确认保持 `destructive`。Toast 操作按钮用显式 `outline` 中性次操作；Sonner 自带规则特异性更高，允许 toast 根与操作按钮用中性语义令牌做必要的 `!important` 覆盖，不保留旧的蓝色专用覆盖；关闭按钮白底、中性 hover，保留时长、位置、关闭与屏幕阅读器提示。
 - **状态与数据不借用动作色。** 成功、警告、失败继续用独立状态色；运行图表首系列用 `chart-runs` 数据蓝，失败用 `chart-failed`（即 `danger`）。OpenUI 图表只把首系列映射数据蓝，其余系列保留既有中性层级与纹理，不扩展分类色板；数据蓝不能蔓延回导航、按钮或焦点。
-- **代码。** 块表面用 `code` `#F6F6F6`；正文 `fg`，关键字/函数/链接用中性 `primary`，注释与标点用 `muted-foreground`。CodeMirror 原生主题走相同令牌，selection/searchMatch 用 `selected`，gutter `muted-foreground`，搜索面板白底，真实可编辑搜索 input 的边框由 `line` 改 `input`。
+- **代码。** 块表面用 `code` `#F6F6F6`；正文 `fg`，关键字/函数/链接用中性 `primary`，注释与标点用 `muted-foreground`。CodeMirror 原生主题走相同令牌，selection/searchMatch 用 `selected`，gutter `muted-foreground`，搜索面板白底，真实可编辑搜索 input 用 `input` 默认边线与 `input-focus` 聚焦边线。
 - **徽章。** default 与 secondary 都是浅中性底、`fg` 字，不再整枚深色填充；outline 仍白底 `line`；危险/成功/警告继续各自语义，链接 badge 保留焦点。文本不借用 `subtle`。
-- 所有控件只引用语义令牌（`primary`、`primary-hover`、`button-primary` 三态、`ring`、`selected`、`selected-foreground`、`accent`、`accent-foreground`、`muted-foreground`、`input`、`control-boundary`、`chart-runs` 等），不逐页写色值。字体、尺寸、布局与品牌素材不随配色调整改变。
+- 所有控件只引用语义令牌（`primary`、`primary-hover`、`button-primary` 三态、`ring`、`selected`、`selected-foreground`、`accent`、`accent-foreground`、`muted-foreground`、`input`、`input-focus`、`composer-focus`、`control-boundary`、`chart-runs` 等），不逐页写色值。字体、尺寸、布局与品牌素材不随配色调整改变。
 - 保留 hover、active、expanded、checked、selected、invalid、disabled、focus-visible 的真实状态；不能用页面级 CSS 把所有 `bg-primary` 强制改白。状态不只依赖颜色，沿用既有文字、勾选、图标与 ARIA。
 
 ### 2.4 对比度
 
-以下按 §2.1–2.2 的声明值用 WCAG sRGB 相对亮度计算（普通文字 ≥ 4.5:1，非文字可编辑边界 ≥ 3:1），是声明值而不是浏览器实测；渐变取 sRGB 分段插值，最差背景为下端：
+以下按 §2.1–2.2 的声明值用 WCAG sRGB 相对亮度计算（普通文字 ≥ 4.5:1，强边界 ≥ 3:1）；输入三种浅边线按用户已接受的 Qoder 视觉记录实际值并标明低于 3:1。数值是声明值而不是浏览器实测；渐变取 sRGB 分段插值，最差背景为下端：
 
 | 前景 / 背景 | 实算 |
 |---|---:|
@@ -153,7 +157,10 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 | `muted-foreground` / shell 上端、中点、下端 | 5.26 / 4.87 / 4.52:1 |
 | 白 / solid normal、hover、active | 19.44 / 15.13 / 10.37:1 |
 | `ring #0D0D0D` / selected | 16.90:1 |
-| `input`、`control-boundary #767676` / 白、selected、shell 下端 | 4.54 / 3.95 / 3.21:1 |
+| `line-strong`、`control-boundary #767676` / 白、selected、shell 下端 | 4.54 / 3.95 / 3.21:1 |
+| 输入默认 `input #E6E6E6` / 白 | 1.25:1（已知限制，低于 3:1） |
+| 普通输入聚焦 `input-focus #BDBDBD` / 白 | 1.88:1（已知限制，低于 3:1） |
+| composer 聚焦 `composer-focus #DDDDDD` / 白 | 1.36:1（已知限制，低于 3:1） |
 | success / selected | 4.91:1 |
 | warning / selected | 5.35:1 |
 | danger / selected | 5.72:1 |
@@ -161,7 +168,7 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 | `muted-foreground` / code `#F6F6F6` | 5.91:1 |
 | danger / danger-soft | 5.70:1 |
 
-普通 `line #E6E6E6` 只作分组分隔，不声称满足可编辑边界阈值；候选 `#828282` 在 shell 下端只有 2.72:1，故只保留给无阅读职责的 `subtle`，不用于 input。实现后仍须在真实浏览器复测透明度、嵌套底色、焦点与禁用例外，本节不宣称已由浏览器验证。
+`line #E6E6E6` 只作分组分隔；输入家族默认边线与普通/composer 聚焦按 Qoder 参考取浅中性，三者对白分别约 1.25 / 1.88 / 1.36:1，均低于非文字 3:1，是用户已明确接受的视觉限制，不得宣称输入边界、焦点或整页 WCAG AA 达标。checkbox/radio 强边界 `#767676` 仍保持 ≥3:1。输入/聚焦/错误态与几何已在 PACE 实页复测（含搜索、筛选、表单、composer、chips、CodeMirror 查找与搜索弹窗，见 [本任务记录](tasks/qoder-controls-refinement.md)）；源码再变时须重跑对应页，本节不宣称整页 WCAG AA 达标。
 
 ## 3. 圆角（实测值）
 
@@ -184,6 +191,7 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 ## 4. 字体
 
 - 字体：**Inter**（`Inter, "Inter Fallback", system-ui, sans-serif`）。等宽：**JetBrains Mono Variable / JetBrains Mono**，依次回退 `ui-monospace`、Geist Mono、`monospace`。
+- 2026-10-31 用户批准的对话字号收紧是 PACE 适配，未对 Qoder 字体做采样：会话标题、默认对话/Markdown/OpenUI 正文与输入使用 `base` 14/22，欢迎标题使用 `2xl` 20/28；全局 `md` 15/26 令牌保留给运行详情等原有用途。
 - **字号阶梯固定在 `styles.css` 的 `--text-*`，按语义唯一取值，不在页面里写硬编码字号。** 相邻档至少差 1px 或一个可见字重差：
 
   | Token | 尺寸 / 行高 | 唯一用途 |
@@ -191,18 +199,19 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
   | `2xs` | 11 / 16 | 密集只读数据的次要行列：trace 时间戳、ID、分组小标签；**不用于可点击控件或正文** |
   | `xs` | 12 / 16 | 常规元信息：时间、ID、表格副信息；所有徽章 |
   | `sm` | 13 / 20 | 界面默认：导航、控件、表格单元格、说明 |
-  | `base` | 14 / 22 | 列表与卡片标题 |
-  | `md` | 15 / 26 | 阅读正文：对话、Markdown、气泡、运行步骤 |
-  | `lg` | 16 / 24 | 页面标题（h1）与对话标题 |
+  | `base` | 14 / 22 | 列表与卡片标题、会话标题、对话/Markdown/OpenUI 默认正文、对话输入 |
+  | `md` | 15 / 26 | 运行详情、评估、记忆与插件详情等页面保留的原有正文/标题用途 |
+  | `lg` | 16 / 24 | 普通页面标题（h1） |
   | `xl` | 18 / 26 | Markdown 一级标题 |
-  | `3xl` | 24 / 32 | 欢迎标题、主统计数字 |
+  | `2xl` | 20 / 28 | 对话欢迎标题 |
+  | `3xl` | 24 / 32 | 主统计数字 |
 
 - `2xs` 只出现在高密度只读视图（运行 trace、连接器表格、版本历史）；同一类信息在常规页面上用 `xs`。判断标准是「这一屏是否需要在同样高度里塞下多列数值」，不是信息本身的性质。
 
-- **Markdown 标题不小于正文**：H1 `xl` 18/600、H2 `lg` 16/600、H3–H6 `md` 15/600。正文只有一级（`md`），没有更多字号可用，所以 H3 以下靠 600 字重与间距区分，不再往下缩字号——小于正文的标题会比它概括的内容还弱。
-- 阅读正文（`md`）使用 26px 行高；用户气泡与助手正文共用同一个行高，不再各自覆盖 `leading-*`。
-- **对话欢迎区仅一行标题「今天想完成什么？」**：标题 `3xl`，500 字重，左侧配小幅木工插画。
-- 对话输入框 15px；建议入口使用共享 sm outline 按钮，不另做大卡片。
+- **Markdown 标题不小于正文**：H1 `xl` 18/600、H2 `lg` 16/600、H3–H6 `base` 14/600，并以外层字号为下限（`max(1em, var(--text-base))`），在显式 `large` 16px 正文中不缩到正文以下。默认正文只有一级（`base` 14/22），H3 以下靠 600 字重与间距区分，不再往下缩字号——小于正文的标题会比它概括的内容还弱。
+- 对话默认正文（`base`）使用 22px 行高；用户气泡与助手正文共用同一个行高，不再各自覆盖 `leading-*`。运行详情等保留 `md` 15/26。
+- **对话欢迎区仅一行标题「今天想完成什么？」**：标题 `2xl`（20/28），500 字重，左侧配小幅木工插画。
+- 对话输入框 14px（`base` 14/22）；建议入口使用共享 sm outline 按钮，不另做大卡片。
 - 侧栏条目 13px；分组标题 12px。
 - 说明文字 13px，弱色。
 
@@ -221,11 +230,11 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 ### 空态
 
 ```
-聊天顶栏 56px： [历史] [搜索] [选择专家 ▾] [会话标题/操作] [成果]
+三栏从工作区顶部并排：
+历史（默认收起 0，可 200–360px；展开头部：[选择专家 ▾] [新建]，下方「搜索全部会话」与列表）│ 消息列 56px 头部（历史收起：[历史] [搜索] [选择专家 ▾] [会话标题/操作] [成果]；历史展开：[历史] [会话标题/操作] [成果]）│ 成果 400px
 ──────────────────────────────────────────────────────────────
-历史（默认收起 0，可 200–360px） │ 消息区（832px 阅读轴线）
-会话标题                        │ [小幅木工小狗] 今天想完成什么？
-会话标题                        │
+会话列表                        │ [小幅木工小狗] 今天想完成什么？
+                                │
                                 │ [梳理思路] [制定计划] [整理内容] [分析问题]
                                 │ ┌────────────────────────────────┐
                                 │ │ 描述你想完成的事…               │
@@ -236,7 +245,7 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 
 - 欢迎区、消息与 Composer 共用 832px 阅读轴线；含左右 24px 内边距的外容器最大 880px。Composer 始终在 MessagePane 之后的 `shrink-0` 正常流、距底 24px，只渲染一次；MessagePane 独立滚动，欢迎内容不再纵向居中包裹输入。窗口收窄时自然换行与滚动。
 - 木工 SVG（`public/brand/pace-chat-woodworker.svg`）宽 96px，保持原比例；嘴和舌头黑白，工具配色保留。仅空白对话欢迎态显示，开始对话后隐藏，不添加新动效。
-- 输入区由 InputGroup + InputGroupTextarea + 底部 InputGroupAddon 组成，16px 圆角，一层 `input` 边框（`#767676`），无叠加焦点光环。欢迎态文本区最小 80px，对话态最小 56px，均可随内容增高至 160px 后在文本区内部滚动。
+- 输入区由 InputGroup + InputGroupTextarea + 底部 InputGroupAddon 组成，16px 圆角，一层 `input` 边框（`#E6E6E6`）；文本控制器真实聚焦时外框换 `composer-focus`（`#DDDDDD`），指针在内部但文本失焦仍保持 `input`，不叠加焦点光环。欢迎态文本区最小 80px，对话态最小 56px，均可随内容增高至 160px 后在文本区内部滚动。
 - 发送按钮显式使用 `solid` 实底变体（`button-primary` 三态 `#0D0D0D` / `#262626` / `#404040`，32px），与普通主操作同为中性深色实底；空输入仅禁用发送按钮，不能把仍可编辑的整组控件变淡。只有输入控件本身禁用时，InputGroup 才显示禁用背景和透明度。
 - 快捷键提示放在输入区左下角，发送放右下角。运行详情链接保留在操作行。
 - 四个短任务入口使用 sm outline 按钮，单行排列，位于 Composer 上方 8px；只有欢迎态且已选专家时显示。点击只填写通用提示词并把焦点交还输入框，不自动发送，不宣称专家拥有未经配置的数据或工具能力。
@@ -248,18 +257,18 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 - 运行读数（完成 · 轮次 · 耗时 · token · 成本 · 查看详情）是该轮的自然收尾：最新一轮常驻显示，更早的轮次常驻占位、默认透明，指到或键盘聚焦该轮时显影（`opacity` 150ms）；完整完成时刻放在 `title` 里。读数来自会话详情按 `run_id` 批量带回的指标，不逐条查。
 - 运行中的状态沿用同一条读数行的位置与字号：脉冲圆点 +「等待回复／正在调用 X」+ 等宽计时，中断时追加重连。它跟在最后一轮回复下方，**不做成横跨整列的工具栏**；停止入口放在输入框发送位（运行中发送位换成停止），用户不必到消息流里找。
 - 用户消息：右对齐，**`bg-selected` 中性浅底胶囊配 `fg` 正文**（radius 9999 / 20px），附件使用普通 `outline` Badge 与 `muted-foreground` 小字；助手消息不套用实底。
-- 助手消息：左对齐，无气泡，15–16px 正文；可含标题、列表、卡片。
+- 助手消息：左对齐，无气泡，`base` 14px 正文；可含标题、列表、卡片。
 - 生成式 UI（智能体 `uiFormat=openui`）：围栏内程序使用项目组件与令牌，块间距16px；围栏外散文照常走Markdown，按出现顺序排列。`@ToAssistant` 才发新用户消息，原生变量/查询/修改由OpenUI运行时执行，不覆盖输入草稿。每段的查询错误、重试、保存失败与待批入口就近显示，不能把会话级OpenUI审批指到运行审批页。批准工具时明确显示工具名、8小时会话范围；运行级审批仍沿用原语义。补丁输出期间保留上轮完整界面，不把半个root合并成新界面。
 - 生成式内容采用OpenUI官方shadcn示例的组件组合，官方chat库补足示例未覆盖的指标卡等。底层仍是Base UI与本项目令牌，不引入Radix或第二主题；组件契约不为视觉调整而改名/改字段。
 - CardBlock随消息容器宽度响应：480px以下单列，更宽两列；奇数末卡跨满。主图与复合卡内图分别按256px/192px默认空间表达主次，显式height优先。Carousel 复用 shadcn 轨道；`responsive=false` 时按官方固定卡宽 small 280 / medium 320 / Overview 240（容器 ≤30rem 时 200），不做视口推断。数字列右对齐且不折断，长描述列允许换行，横滚仅在表格内部。
-- TextContent字号由外层语义贯穿Markdown，普通Text常规字重、BoldText加强。Markdown 与 OpenUI 共用真实 `streaming` 状态：流式中允许调度器跳过中间渲染，终态直接渲染完整文本；只有外层渲染树稳定，Streamdown 在模式切换时会重挂内部代码块等节点。表单用官方 Field/FieldGroup 组合，invalid 经 Base UI `Field.Root` 传到真实控件。普通图片保留3:2占位并用 contain 完整容纳，ImageBlock 保原图比例，不统一固定高度裁切。
+- TextContent 的字号与行高由外层 `size` 档决定：显式 `small` 13/20、`large` 16/24 保留，默认跟随对话正文 `base` 14/22；Markdown 继承容器字号，普通Text常规字重、BoldText加强。Markdown 与 OpenUI 共用真实 `streaming` 状态：流式中允许调度器跳过中间渲染，终态直接渲染完整文本；只有外层渲染树稳定，Streamdown 在模式切换时会重挂内部代码块等节点。表单用官方 Field/FieldGroup 组合，invalid 经 Base UI `Field.Root` 传到真实控件。普通图片保留3:2占位并用 contain 完整容纳，ImageBlock 保原图比例，不统一固定高度裁切。
 - 工具调用按轮分层：每轮的正常工具调用集中到该轮一个可折叠的「执行过程」区，使用按官方 shadcn `Trace` 源码落地的 `TraceCollapsible` / `TraceLine` / `TraceIcon` / `TraceTitle` / `TraceDescription`，不另写自绘折叠行；折叠头保留单行摘要，展开项沿用单行「图标 + 名称 + 状态 + 耗时」，点击展开参数/结果，不用厚边框。官方 registry 没有独立 Thinking 组件，reasoning 也归 `Trace`；只有事件流实际提供 thinking 数据时才渲染，不伪造。顶层正文的内容与顺序不变，不把正文并入折叠区。审批、原生澄清提问、失败工具、缺失结果与 `error` 始终在折叠区外可见且只出现一次，不从折叠区重复渲染；失败与超时原因常驻显示，不依赖展开。
-- 任务清单：当本轮有模型确认的步骤清单时，在助手正文与工具项之后、该轮运行读数之前追加一块紧凑清单，独立于执行过程折叠、不随折叠隐藏，也不复用工具行的展开结构，不做成卡片。标题行只有 16px `ListChecks` 图标与等宽 `xs` 的 `已完成/总数` 计数（常规元信息档），可见计数只出现这一次（屏幕阅读器可另读完整句子），不再另起一行写共 N 项；下面按原顺序列步骤，行距 `gap-1`，步骤文字用 `md` 正文档。每步固定 16px 图标 + 文字：已完成用 `CircleCheck` 与成功色、进行中用 `LoaderCircle`（沿用既有旋转）、待处理用 `Circle` 与 `subtle`；完成与待处理文字用 `muted-foreground`，进行中文字用 `fg` 并显示 `activeForm`。状态靠图标形状、文字色与屏幕阅读器的状态前缀共同表达，不只靠颜色。本轮没有确认清单或清单已被清空时不渲染，保留原运行/工具状态行，不出现空态或占位。清单只陈述模型报告的进度，不使用「已完成任务」「全部完成」等质量结论，也不因运行结束改写步骤状态；失败或超时原因仍在该轮常驻显示，不以清单状态掩盖；不新增字号、色值、圆角或间距令牌。
+- 任务清单：当本轮有模型确认的步骤清单时，在助手正文与工具项之后、该轮运行读数之前追加一块紧凑清单，独立于执行过程折叠、不随折叠隐藏，也不复用工具行的展开结构，不做成卡片。标题行只有 16px `ListChecks` 图标与等宽 `xs` 的 `已完成/总数` 计数（常规元信息档），可见计数只出现这一次（屏幕阅读器可另读完整句子），不再另起一行写共 N 项；下面按原顺序列步骤，行距 `gap-1`，步骤文字用 `base` 正文档（14/22）。每步固定 16px 图标 + 文字：已完成用 `CircleCheck` 与成功色、进行中用 `LoaderCircle`（沿用既有旋转）、待处理用 `Circle` 与 `subtle`；完成与待处理文字用 `muted-foreground`，进行中文字用 `fg` 并显示 `activeForm`。状态靠图标形状、文字色与屏幕阅读器的状态前缀共同表达，不只靠颜色。本轮没有确认清单或清单已被清空时不渲染，保留原运行/工具状态行，不出现空态或占位。清单只陈述模型报告的进度，不使用「已完成任务」「全部完成」等质量结论，也不因运行结束改写步骤状态；失败或超时原因仍在该轮常驻显示，不以清单状态掩盖；不新增字号、色值、圆角或间距令牌。
 - Composer 在 ChatColumn 内常驻同一位置，沿用分层输入与底部操作布局，保持原有流式跟随、分支、停止和历史恢复逻辑；它位于 MessagePane 之后、距底 24px，不用固定定位覆盖消息。发送是明确动作：新的一轮用户消息出现时视图直接回到最新，即使此前已向上翻看历史；阅读历史期间的流式增量不会抢滚动。
 - 输入区提供“添加资料”常规 ghost 图标按钮与多选文件框，已选文件在输入框上方显示名称、大小和移除；类型/数量/合计超限时在输入区内用 `role="alert"` 明确说明，不弹独立面板。正文与附件至少一项即可发送。用户消息把附件显示为紧凑标签（名称、大小，有服务端 id 时整枚可下载）；附件读取/上传失败保留本次选择。不要另做资料云盘、PDF 预览器或拖放/粘贴入口。
-- 会话头部参考用户截图：标题只占约 8 个中文字符宽度（`max-w-[8em] truncate`），完整标题保留在 `title` 与可访问文本中，紧随一个常规 32px「会话操作」更多菜单；不把标题拉满整行、不把菜单推到右边。菜单复用重命名、Fork，删除需确认且排队/运行中的会话不可删；未保存的新会话禁用菜单。消息区与会话历史头部都不画底部横线，靠一致的对齐与留白形成整体。历史头部不再显示「对话」等重复标签，也不放专家选择；只保留新建会话等历史动作与抽屉关闭，搜索与列表紧随其下。专家选择只在固定顶栏。
+- 会话头部参考用户截图：标题只占约 8 个中文字符宽度（`max-w-[8em] truncate`），完整标题保留在 `title` 与可访问文本中，紧随一个常规 32px「会话操作」更多菜单；不把标题拉满整行、不把菜单推到右边。菜单复用重命名、Fork，删除需确认且排队/运行中的会话不可删；未保存的新会话禁用菜单。消息区与会话历史头部都不画底部横线，靠一致的对齐与留白形成整体。历史头部不再显示「对话」等重复标签；桌面展开时左侧为唯一专家选择、右侧为新建会话等历史动作，窄桌面抽屉另有关闭按钮，搜索与列表紧随其下；此时消息列头部只保留历史开关、会话标题与操作、成果开关。专家选择同一时刻仅一处，桌面收起或 Sheet 关闭时回到消息列头部；聊天没有横跨三栏的外顶栏。
 - 历史搜索使用居中浮层，跨全部专家检索会话标题、会话 ID 与消息正文；每条结果同时给出专家、标题、时间与命中的正文摘要，定位信息不另起一行重复。上下方向键移动选中项、Enter 打开，输入法组合期间的 Enter 不触发；Esc、关闭按钮与外部点击走同一关闭路径并把焦点还给触发器。关闭浮层或发起新查询时取消上一轮未完成请求；结果分页使用游标。打开结果后进入目标专家的目标会话并保留当前未发送草稿；只定位到会话，不承诺跳转或高亮正文中的具体命中消息。
-- 专家选择在欢迎态与已有消息/历史会话中仍可用，唯一入口在固定顶栏；历史开合不复制或移动该控件。未发送输入按会话隔离保存到当前标签页的 sessionStorage，刷新可恢复；切换会话不串草稿，新建会话不继承旧会话；切换到另一位专家表示进入该专家的新对话：历史列表按新专家刷新，清空当前视图的旧消息、运行与审批上下文，URL 去掉旧 conversation，回到欢迎态；原会话保留在原专家历史中，未发送输入带过去并继续保留。再次选择同一位专家不清空会话。切换只解除旧事件流订阅，不自动取消后台运行。
+- 专家选择在欢迎态与已有消息/历史会话中仍可用，同一时刻唯一：桌面历史收起或窄桌面 Sheet 关闭时在消息列 56px 头部内，桌面历史展开时在 HistoryHeader 左侧、与「新建会话」同排；历史开合只切换归属，不复制控件。未发送输入按会话隔离保存到当前标签页的 sessionStorage，刷新可恢复；切换会话不串草稿，新建会话不继承旧会话；切换到另一位专家表示进入该专家的新对话：历史列表按新专家刷新，清空当前视图的旧消息、运行与审批上下文，URL 去掉旧 conversation，回到欢迎态；原会话保留在原专家历史中，未发送输入带过去并继续保留。再次选择同一位专家不清空会话。切换只解除旧事件流订阅，不自动取消后台运行。
 - 桌面会话列表默认收起 0；首次展开 240px，之后可在 200–360px 间调整；使用 react-resizable-panels 的 `collapsible`、`panelRef.collapse/expand` 和现有 `useDefaultLayout` 记住布局，收起为 0px，不另建宽度存储。历史与内容使用同一 `bg-surface`，只有 1px 竖向分隔；隐藏时分隔不再占位、历史控件不可聚焦，展开与收起按钮正确交接焦点。标题只在当前可见位置出现，始终一个 h1。
 
 ## 7. 侧栏
@@ -299,9 +308,9 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 
 | 场景 | 统一约定 |
 |---|---|
-| Input / Textarea / Select / Combobox / 搜索 | 单行高 32px，圆角 9px；多行与多选可随内容增高。默认 1px `input` 边框（`#767676`，强于 `line`），无投影；字段布局通过 Field / FieldGroup 表达 |
-| 焦点与边框（统一规则） | 每个控件**只允许一层焦点信号**，全站同一套：① **有既有边框的输入类**（Input / Textarea / Select 触发器 / Combobox / InputGroup 搜索）→ 聚焦时把那条 1px 边框换成实色 `ring` 令牌（`#0D0D0D`），**不再加 2px 光环**；错误态同样只把这条边框换成危险色。② **无边框或边框透明的按钮类**（Button / TabsTrigger / Toggle / Switch / Checkbox / Badge / 折叠触发 / 拖拽手柄等）→ 用单层 `focus-visible:ring-2 ring-ring`，并且必须带 `focus-visible:outline-none`（避免叠加全局 `:focus-visible` 的 2px outline）。③ 全局 `:focus-visible` 只作兜底。**例外：已选中的填充控件**（如选中的 radio）填充本身已是深色 `primary`，换边框无法表达焦点，改用单层 `data-checked:focus-visible:outline-2 outline-ring outline-offset-2`（2px 背景色间隔的外轮廓，仍算一层焦点信号）；未选中时照常换边框。同类填充控件出现时沿用此例外，不得改用 `ring` 叠层。错误边框与焦点外轮廓可同时存在（各表达一种语义，不算叠层）。原则：**边框与光环二者取其一**，任何控件不得同时出现「边框 + 光环」两层。实底主按钮（`default` 与 `solid`）聚焦时用单层 `focus-visible:ring-2 ring-ring`，并留 `ring-offset-2` + `ring-offset-background` 的 2px 背景色间隔，避免焦点环与实底粘连。InputGroup / Combobox 由外框承担焦点，内部输入不重复画框。自动校验：`pnpm lint:focus`（已接入 CI，检查输入类原语无 `ring-2`、`focus-visible:ring-2` 必配 `outline-none`）。 |
-| 错误 / 禁用 | 错误使用危险色边框与字段提示（输入类不叠 ring），Field 的 data-invalid 与控件 aria-invalid 同步；禁用同步 data-disabled 与 disabled，保持可读，提交中关闭按钮与取消均不可丢弃请求 |
+| Input / Textarea / Select / Combobox / 搜索 | 单行高 32px，圆角 9px；多行与多选可随内容增高。默认 1px `input` 边框（`#E6E6E6`，等同 `line`），无 hover 加深、无投影；字段布局通过 Field / FieldGroup 表达 |
+| 焦点与边框（统一规则） | 每个控件只允许一层常驻焦点信号，错误态可另加独立 outline：① **有既有边框的输入类**（Input / Textarea / Select 触发器 / Combobox / InputGroup 搜索）→ 普通聚焦把那条 1px 边框换成 `input-focus`（`#BDBDBD`，PACE 中性近似）；composer 文本控制器聚焦由 InputGroup 外框换 `composer-focus`（`#DDDDDD`）；**不再加 2px 光环**，Select 关闭键盘态也用 `input-focus`。错误态保留危险边框，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补焦点（错误边框不等于焦点）。② **无边框或边框透明的按钮类**（Button / TabsTrigger / Toggle / Switch / Checkbox / Badge / 折叠触发 / 拖拽手柄等）→ 用单层 `focus-visible:ring-2 ring-ring`，并且必须带 `focus-visible:outline-none`（避免叠加全局 `:focus-visible` 的 2px outline）；invalid 时危险边框与焦点环共存，不吞焦点。③ 全局 `:focus-visible` 只作兜底。**例外：已选中的填充控件**（如选中的 radio）填充本身已是深色 `primary`，换边框无法表达焦点，改用单层 `data-checked:focus-visible:outline-2 outline-ring outline-offset-2`（2px 背景色间隔的外轮廓，仍算一层焦点信号）；未选中时照常换边框。同类填充控件出现时沿用此例外，不得改用 `ring` 叠层。错误边框与焦点外轮廓可同时存在（各表达一种语义，不算叠层）。原则：**边框与光环二者取其一**；唯一例外是错误态用 outline 补焦点。实底主按钮（`default` 与 `solid`）聚焦时用单层 `focus-visible:ring-2 ring-ring`，并留 `ring-offset-2` + `ring-offset-background` 的 2px 背景色间隔，invalid 时该 offset 不消失。InputGroup / Combobox 由外框承担焦点，内部输入不重复画框。自动校验：`pnpm lint:focus`（已接入 CI，检查输入类原语无 `ring-2`、`focus-visible:ring-2` 必配 `outline-none`）。 |
+| 错误 / 禁用 | 错误使用危险色边框与字段提示；输入类错误态保留危险边框并用 2px `ring` outline 补焦点，不叠 ring；Field 的 data-invalid 与控件 aria-invalid 同步；禁用同步 data-disabled 与 disabled，保持可读，提交中关闭按钮与取消均不可丢弃请求 |
 | 按钮 | 常规操作 32px / 9px 圆角；紧凑操作 28px / 7px；普通主操作为中性深色实底 `default` 按钮（保留透明 1px 边框占位），工具栏创建使用常规主按钮，资源卡配置/编辑使用紧凑 outline，专家卡使用名称链接与「开始对话」主操作，取消与次操作使用中性 outline，删除与放弃使用 destructive；发送与登录等明确动作显式使用同一中性实底 `solid` 三态。沿用现有 default/solid 调用语义，不逐页批量改 variant；次操作已有显式 variant 必须保留，导出的 `buttonVariants` 与 Button 本体保持一致 |
 | 卡片 | 技能、连接器、插件、知识库四类资源的卡片视图共用 40px 头部图标、标题与描述的横向头部；描述最多两行；能力/标识放内容区，辅助信息与配置/编辑动作放页脚；标题与显式操作可打开同一编辑入口，删除统一放操作菜单；技能、连接器、插件与知识库使用中性图标 |
 | 专家卡 | 卡片内部 16px padding、40px 圆形插画头像、名称、角色标签与最多两行描述；名称为进入配置页的链接。开始对话紧接描述后 8px、与信息列同一左边线，使用常规主操作并直接选中该专家进入 `/chat`；不使用独立 CardFooter、底带、`mt-auto` 或固定卡片高度，空描述不占固定占位。停用专家显示停用状态且不提供可执行的「开始对话」；卡片不显示连接器/技能计数与 slug，技术信息只留在配置页。角色标签用 `bg-chip` 弱色胶囊；删除统一放操作菜单，不新增独立数字分身卡或专家创建卡。网格 gap 16 与现有列数逻辑不变 |

@@ -336,4 +336,20 @@ describe('conversation search overlay', () => {
     expect(searchInput().value).toBe('');
     expect(search).toHaveBeenLastCalledWith({ limit: 20 }, expect.anything());
   });
+
+  it('keeps the search field focused when the overlay opens and after clearing', async () => {
+    vi.spyOn(api, 'searchConversations').mockResolvedValue(response([]));
+    await mount();
+
+    const input = searchInput();
+    expect(document.activeElement).toBe(input);
+
+    await setInput(input, '进度');
+    await waitForDebounce();
+    const clear = document.querySelector<HTMLButtonElement>('button[aria-label="清除搜索"]');
+    if (!clear) throw new Error('Missing clear button');
+    await act(async () => clear.click());
+
+    expect(document.activeElement).toBe(input);
+  });
 });

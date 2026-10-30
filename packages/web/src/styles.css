@@ -31,7 +31,10 @@
   --color-chip: #f6f6f6;
   --color-selected: #efefef;
 
-  /* 线与文本：分隔线只做分组，可编辑边界走更深的 input。 */
+  /*
+   * 线与文本：分隔线只做分组；输入家族默认边线等同分隔线，聚焦另有浅中性角色。
+   * 三种浅边线对白均低于 3:1，是用户已接受的 Qoder 视觉限制（见 DESIGN-SYSTEM §2.4）。
+   */
   --color-line: #e6e6e6;
   --color-line-strong: #767676;
   --color-shell-line: #e6e6e6;
@@ -119,9 +122,9 @@
   --text-mobile-input: 1rem;
   --text-mobile-input--line-height: 1.5rem;
   --text-md: 0.9375rem;
-  /* 26px ≈ 1.73：阅读正文需要比控件更松的行高，气泡与助手正文共用同一个值。 */
+  /* 26px ≈ 1.73：运行详情等阅读正文需要比控件更松的行高。 */
   --text-md--line-height: 1.625rem;
-  /* 16px：页面标题与对话标题共用同一档。 */
+  /* 16px：普通页面 h1 与 Markdown H2 共用同一档。 */
   --text-lg: 1rem;
   --text-lg--line-height: 1.5rem;
   --text-xl: 1.125rem;
@@ -151,7 +154,14 @@
   --color-destructive: var(--color-danger);
   --color-destructive-foreground: #ffffff;
   --color-border: var(--color-line);
-  --color-input: var(--color-line-strong);
+  /*
+   * 输入家族：默认边线等同 line；普通聚焦是 PACE 中性近似映射（非 Qoder 源码 token），
+   * composer 聚焦来自 Qoder 焦点分离实测。三者对白 1.25 / 1.88 / 1.36:1，均不达 3:1。
+   * 不新增 input hover；错误态保留 danger 边线并用 2px ring 色 outline 补焦点。
+   */
+  --color-input: var(--color-line);
+  --color-input-focus: #bdbdbd;
+  --color-composer-focus: #dddddd;
   --color-ring: var(--color-primary);
   --secondary: var(--color-secondary); /* 次按钮悬停 color-mix 的原始 CSS 变量 */
   --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */

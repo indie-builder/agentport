@@ -69,8 +69,18 @@
       },
       "input": {
         "role": "neutral",
-        "displayName": "可编辑边界",
-        "canonical": "#767676"
+        "displayName": "输入默认边线",
+        "canonical": "#E6E6E6"
+      },
+      "input-focus": {
+        "role": "neutral",
+        "displayName": "输入聚焦",
+        "canonical": "#BDBDBD"
+      },
+      "composer-focus": {
+        "role": "neutral",
+        "displayName": "Composer 聚焦",
+        "canonical": "#DDDDDD"
       },
       "chart-runs": {
         "role": "tertiary",
@@ -153,15 +163,15 @@
       },
       "title": {
         "displayName": "Title",
-        "purpose": "页面 h1、对话标题与无效分享页标题。"
+        "purpose": "普通页面 h1 与无效分享页标题。"
       },
       "subheading": {
         "displayName": "Subheading",
-        "purpose": "列表、卡片与对话内区块标题。"
+        "purpose": "列表、卡片、对话标题与对话内区块标题。"
       },
       "body": {
         "displayName": "Body",
-        "purpose": "对话、Markdown 与助手正文；用户气泡共用。"
+        "purpose": "对话、Markdown、OpenUI 默认正文与对话输入；用户气泡共用。"
       },
       "label": {
         "displayName": "Label",
@@ -247,8 +257,13 @@
     "focus": [
       {
         "name": "input-border-swap",
-        "value": "border-color: var(--color-ring, #0D0D0D)",
-        "purpose": "有既有边框的输入类只换边框，不加光环。"
+        "value": "border-color: var(--color-input-focus, #BDBDBD)",
+        "purpose": "输入类默认浅边线；普通聚焦换输入焦点色，不叠光环；错误态保留危险边框并用 2px ring outline 补焦点。"
+      },
+      {
+        "name": "composer-focus",
+        "value": "border-color: var(--color-composer-focus, #DDDDDD)",
+        "purpose": "仅 composer 文本控制器真实聚焦时由 InputGroup 外框使用；指针在内但文本失焦不加深。"
       },
       {
         "name": "button-ring",
@@ -291,9 +306,9 @@
       "name": "Text Input",
       "kind": "input",
       "refersTo": "input",
-      "description": "白底 1px 可编辑边界；focus 只把边框换成 ring，不叠光环；placeholder 用辅助灰。",
+      "description": "白底 1px 输入默认边线；普通聚焦换 input-focus，不叠光环；invalid 保留 danger 边框并用 2px outline 补焦点；placeholder 用辅助灰。",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"搜索专家...\" aria-label=\"搜索专家\" />",
-      "css": ".ds-input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--color-input, #767676); border-radius: var(--radius-lg, 9px); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #141414); font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; transition: border-color 150ms ease; } .ds-input::placeholder { color: var(--color-muted-foreground, #5F5F5F); } .ds-input:focus-visible { outline: none; border-color: var(--color-ring, #0D0D0D); } .ds-input[aria-invalid=true] { border-color: var(--color-destructive, #B42318); } .ds-input:disabled { opacity: 0.5; cursor: not-allowed; }"
+      "css": ".ds-input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--color-input, #E6E6E6); border-radius: var(--radius-lg, 9px); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #141414); font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; transition: border-color 150ms ease; } .ds-input::placeholder { color: var(--color-muted-foreground, #5F5F5F); } .ds-input:focus-visible { outline: none; border-color: var(--color-input-focus, #BDBDBD); } .ds-input[aria-invalid=true] { border-color: var(--color-destructive, #B42318); } .ds-input[aria-invalid=true]:focus-visible { border-color: var(--color-destructive, #B42318); outline: 2px solid var(--color-ring, #0D0D0D); outline-offset: 2px; } .ds-input:disabled { opacity: 0.5; cursor: not-allowed; }"
     },
     {
       "name": "Segmented Tabs",
@@ -339,21 +354,21 @@
       "name": "User Message",
       "kind": "custom",
       "refersTo": "user-message",
-      "description": "右对齐胶囊、选中灰底、正文墨与 15/26 阅读档；助手正文在纯白上无气泡。",
+      "description": "右对齐胶囊、选中灰底、正文墨与 14/22 阅读档；助手正文在纯白上无气泡。",
       "html": "<div class=\"ds-message-user\">把这周的运行失败原因整理成一份清单。</div>",
-      "css": ".ds-message-user { max-width: 85%; margin-left: auto; padding: 8px 16px; border-radius: 9999px; background: var(--color-selected, #EFEFEF); color: var(--color-fg, #141414); font-family: Inter, system-ui, sans-serif; font-size: 15px; font-weight: 400; line-height: 26px; overflow-wrap: anywhere; }"
+      "css": ".ds-message-user { max-width: 85%; margin-left: auto; padding: 8px 16px; border-radius: 9999px; background: var(--color-selected, #EFEFEF); color: var(--color-fg, #141414); font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 400; line-height: 22px; overflow-wrap: anywhere; }"
     }
   ],
   "narrative": {
     "northStar": "The Quiet Workbench",
-    "overview": "PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖黄到蓝灰环境光，工作区本身是纯白纸面；工具、标题与正文都是墨色，状态只在需要时以小块浅灰或语义色出现。没有品牌色在页面上争抢注意力，彩色只留给真正是数据的地方。\n\n这套系统把「可点击」从颜色职责里拿掉：普通主操作与发送、登录共用中性深色实底，链接、焦点环与选中态也落在同一墨色系；唯一的蓝色是运行图表首系列的数据蓝。这样层级由留白、分组、字重与实底/浅底关系表达，而不是由强调色表达。\n\n主题阶段是换肤记录：颜色、边线、阴影与外壳呈现来自 Qoder CN 桌面浅色界面的真实截图，焦点方案、输入边界与对比度是 PACE 的可访问适配，不声称来自 Qoder。2026-10-30 用户批准的布局阶段在此之上更新了侧栏、页面内容边、聊天顶栏/输入/成果宽度、专家卡与资源工具行的几何；字号、圆角、图标、动效与配色/焦点成果不变。本快照按当前规范记录，真实浏览器几何验收仍待完成。",
+    "overview": "PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖黄到蓝灰环境光，工作区本身是纯白纸面；工具、标题与正文都是墨色，状态只在需要时以小块浅灰或语义色出现。没有品牌色在页面上争抢注意力，彩色只留给真正是数据的地方。\n\n这套系统把「可点击」从颜色职责里拿掉：普通主操作与发送、登录共用中性深色实底，链接、按钮/全局焦点环与选中态也落在同一墨色系（输入聚焦另用浅中性 input-focus / composer-focus）；唯一的蓝色是运行图表首系列的数据蓝。这样层级由留白、分组、字重与实底/浅底关系表达，而不是由强调色表达。\n\n主题阶段是换肤记录：颜色、边线、阴影与外壳呈现来自 Qoder CN 桌面浅色界面的真实截图，输入默认/聚焦边线、composer 聚焦与焦点方案是 PACE 近似或可辨适配，不声称来自 Qoder；三种输入浅边线对白低于 3:1 的已接受限制见 DESIGN.md 的 Known Gaps。2026-10-30 用户批准的布局阶段在此之上更新了侧栏、页面内容边、聊天顶栏/输入/成果宽度、专家卡与资源工具行的几何；圆角、图标、动效与配色/焦点成果不变。2026-10-31 用户批准的字体收紧是 PACE 适配，未采样 Qoder 字体：会话标题、默认正文与输入用 14/22，欢迎标题 20/28；全局 15/26 令牌保留给运行详情等原有用途。本快照按当前规范记录；输入/聚焦/错误态与几何已在覆盖的 PACE 实页复测，未覆盖项与限制见 DESIGN.md 的 Known Gaps 与任务记录。",
     "keyCharacteristics": [
       "纯白内容面，渐变只存在于应用外壳的三个外部根容器。",
       "中性深色动作三态：#0D0D0D / #262626 / #404040，白字。",
       "浅中性状态层：hover #F6F6F6，selected / accent #EFEFEF。",
-      "可编辑边界独立于分隔线：#767676 对 #E6E6E6。",
+      "输入默认边线 #E6E6E6；普通聚焦 #BDBDBD、composer 聚焦 #DDDDDD（PACE 近似，低于 3:1）；checkbox/radio 强边界仍 #767676。",
       "数据蓝 #315FAD 只用于图表首系列，不参与任何 UI 动作。",
-      "Inter 的 13/20 界面档与 15/26 阅读档保持；动效不变，几何按 DESIGN.md 的 Layout 当前值。"
+      "Inter 的 13/20 界面档与 14/22 对话阅读档；显式 OpenUI small 13/20、large 16/24 与全局 15/26 令牌保留；动效不变，几何按 DESIGN.md 的 Layout 当前值。"
     ],
     "rules": [
       {
@@ -363,7 +378,7 @@
       },
       {
         "name": "The Neutral-Action Rule",
-        "body": "UI 动作不使用品牌色。default 与显式 solid 共用 #0D0D0D → #262626 → #404040 的实底三态与白字；链接与焦点同为 #0D0D0D。蓝色不是动作色。",
+        "body": "UI 动作不使用品牌色。default 与显式 solid 共用 #0D0D0D → #262626 → #404040 的实底三态与白字；链接与按钮/全局焦点环同为 #0D0D0D，输入聚焦另用浅中性 input-focus / composer-focus。蓝色不是动作色。",
         "section": "colors"
       },
       {
@@ -373,7 +388,7 @@
       },
       {
         "name": "The One Reading Size Rule",
-        "body": "Markdown 阅读正文只有 15/26 一档：h1 18/26、h2 16/24、h3–h6 15/26 加 600 字重，任何标题都不小于正文。不要再引入第二个正文尺寸。",
+        "body": "Markdown 阅读正文只有 14/22 一档：h1 18/26、h2 16/24、h3–h6 14/22 加 600 字重（以外层字号为下限），任何标题都不小于正文。不要再引入第二个正文尺寸。",
         "section": "typography"
       },
       {
@@ -390,10 +405,10 @@
     "dos": [
       "Do 把三停点渐变只交给 AppShell 外部根容器的 bg-shell，内容表面保持纯白。",
       "Do 用 button-primary 三态（#0D0D0D / #262626 / #404040）承载 default 与 solid，配白字。",
-      "Do 用 input #767676 画可编辑边界，用 line #E6E6E6 只做分组与分隔。",
+      "Do 用 input #E6E6E6 画输入默认边线，用 line #E6E6E6 只做分组与分隔；checkbox/radio 强边界仍用 #767676。",
       "Do 用 selected / accent #EFEFEF 表示当前导航、选中页签、菜单高亮与用户消息。",
-      "Do 每个控件只留一层焦点信号：输入类换边框，普通按钮类用 2px ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔。",
-      "Do 保持 13/20 界面档与 15/26 阅读档、16px 图标 / 1.75 线宽与动效；几何按 DESIGN.md 的 Layout 当前值。",
+      "Do 每个控件只留一层常驻焦点信号：输入类换 input-focus / composer-focus 边线，按钮类用 2px ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔。错误态可另用 2px outline 补焦点。",
+      "Do 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与动效；全局 15/26 令牌保留给运行详情等原用途，几何按 DESIGN.md 的 Layout 当前值。",
       "Do 把 chart-runs #315FAD 只用于图表首系列；失败用 danger。",
       "Do 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。"
     ],
@@ -401,8 +416,8 @@
       "Don't 把 #315FAD 或任何蓝色用于导航、按钮、焦点、徽章或状态。",
       "Don't 把外壳渐变铺到内容、卡片、弹层或登录页后面，也不要让它随时间、滚动或鼠标运动。",
       "Don't 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 fg 字。",
-      "Don't 用 subtle #828282 承载可读文字，或用 line #E6E6E6 冒充可编辑边界。",
-      "Don't 给已经有边框的输入再叠光环，或同时保留边框与 2px ring 两层焦点。",
+      "Don't 用 subtle #828282 承载可读文字，或用非 control-boundary 的浅色承担 checkbox/radio 强边界。",
+      "Don't 给已经换边线的输入再叠 ring；唯一例外是错误态用 2px outline 补焦点（边框表达错误，outline 表达焦点）。",
       "Don't 为浮层引入第二种阴影、彩色光晕，或给外壳、卡片、表格加投影。",
       "Don't 重新引入深色主题、第二套主题提供器、品牌蓝别名或页面级硬编码色值。",
       "Don't 让 Markdown 标题小于正文，或新增第二个阅读正文字号。",

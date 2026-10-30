@@ -242,6 +242,8 @@ A/B/C 可并行，因为写入文件不重叠；主题与组件真实计算样�
 
 ### 冻结布局参数与共享契约
 
+> **局部替代（2026-10-31，第二次纠正）**：下表「chat顶栏」「chat历史」及后续实施/验收条目中的聊天顶部结构已失效。不再有横跨历史/消息/成果三栏的外顶栏；三栏从工作区顶部并排，ChatTopBar 位于消息列内部，历史收起时头部含历史开关/搜索/专家/标题操作/成果，历史展开时头部只留历史开关/标题操作/成果，专家与新建在历史头部、搜索在其下，成果从顶部开始。因此“唯一 56px 顶栏在分栏上方”“桌面历史开合前后顶栏控件同一 DOM 且 x/y 不变”“展开历史时顶栏仍有搜索/专家”均不适用。后加的 56px/24px、浅线配色、历史 200–360px、成果 400px、832px 阅读轴线、单实例 Composer 及业务/焦点行为保留；Composer/草稿/成果验收继续有效。本轮实现、实页测量与独立评审均已完成，不沿用下列旧证据。详见 [chat-history-agent-picker.md](chat-history-agent-picker.md)。
+
 | 区域 | 参数与唯一落点 |
 |---|---|
 | 主导航 | `styles.css` 现有 `--sidebar-width: 224px`、`--sidebar-collapsed: 64px`；展开 padding 仍 `16px 12px`，收起改 `16px 16px`，32px 图标块居中。沿用160ms侧栏动效、标签淡出、悬停展开、localStorage与全部业务/运维/账号入口。不改 lg 断点，不新增 compact/mobile 规则。 |
@@ -252,15 +254,15 @@ A/B/C 可并行，因为写入文件不重叠；主题与组件真实计算样�
 | PageToolbar | 保持现有 flex-wrap/gap-3，不再加padding或高度，不做sticky；搜索、筛选、排序和列表共享wrapper的24px起止边。控件内部gap8、分组gap12，区块gap24。 |
 | 资源页面 | ResourcePage继续统一技能/市场、连接器、插件、知识库四类页面。第一行56px：资源类型导航居左、管理actions居右；隐藏h1继续保持一个。第二行PageToolbar按DOM顺序为leadingFilters → 搜索（224px，允许收缩）→ filters → 排序 → 数量（右侧）；工具组8px、组间12px，普通桌面同排、实在放不下自然wrap，不横向溢出、不隐藏控件。去掉当前搜索位于首行和filters独占`w-full`的结构，不改各页面传入插槽、URL、hideSort或市场榜单条件。导航ul移除多余3px外层padding以对齐列表边。 |
 | 专家卡 | 仅 AgentsPage 的卡片组合调整，不改共享ui/card。卡片内部16pxpadding，头像40px，名称/角色/描述结构保持，描述最多两行但移除空内容`min-h-10`；开始对话操作放在描述后8px、与信息列同一左边线。移除独立CardFooter、`mt-auto`和底带；保留CardHeader/CardAction及现有CardContent组合、全部名称链接/菜单/停用/导入禁用语义。不固定卡片高度、不为齐底新增占位，网格gap16和现有列数逻辑保留。 |
-| chat顶栏 | 唯一56px顶栏放在整个聊天分栏上方、位于ChatWorkspace内正常流，横padding24px；包含历史开关、稳定的搜索入口、唯一专家选择、现会话h1/操作菜单、右侧成果开关。展开任意面板都不改变这些控件的DOM节点或x/y。必须把顶栏从ChatColumn移到分栏上方；只取消historyVisible条件不足以固定位置。 |
-| chat历史 | 复用现有Group/Panel/Separator/useDefaultLayout/panelRef，默认收起0，首次展开240px，min200/max360，用户拖拽记忆照旧。桌面HistoryHeader只保留新建会话等历史动作，不再放专家选择；专家选择只在固定顶栏。历史拖宽时仍受当前可用宽度约束。 |
+| chat顶栏（已失效，见上） | 唯一56px顶栏放在整个聊天分栏上方、位于ChatWorkspace内正常流，横padding24px；包含历史开关、稳定的搜索入口、唯一专家选择、现会话h1/操作菜单、右侧成果开关。展开任意面板都不改变这些控件的DOM节点或x/y。必须把顶栏从ChatColumn移到分栏上方；只取消historyVisible条件不足以固定位置。 |
+| chat历史（专家选择与头部结构部分已失效，见上） | 复用现有Group/Panel/Separator/useDefaultLayout/panelRef，默认收起0，首次展开240px，min200/max360，用户拖拽记忆照旧。桌面HistoryHeader只保留新建会话等历史动作，不再放专家选择；专家选择只在固定顶栏。历史拖宽时仍受当前可用宽度约束。 |
 | chat成果 | 选定400px，属于此前360–480px建议范围内的确定值；本轮不新增右侧拖拽/宽度持久化。保留现有Motion宽度开合、WORKSPACE参数、inert、aria-hidden、成果子树保留和深链自动打开；inline宽400、收起0，去掉会把400压成更小值的`max-w-[40%]`。现有chat Panel在wide且成果打开时minSize由400变800（主消息最少400 + 成果400），其余仍400，由已装分栏库约束历史宽度；这样1280桌面不因历史拖宽把消息列挤没。既有WIDE/desktop断点与Sheet分支保留，不新增断点。窄桌面成果Sheet采用400px及既有max-w-full。 |
 | chat输入与阅读轴线 | 实际输入框/正文最大宽832px，两侧各24px；含padding的外容器max880px，使用既有Tailwind间距尺度，页面宽度不足则自然收缩。MessageScrollerContent、加载更早消息、WelcomeState和Composer全部对齐同一832px轴线，删除旧760/728双限宽残留。 |
 | chat欢迎/输入 | Composer在ChatColumn里始终同一位置、只渲染一次，位于MessagePane之后的shrink-0正常流，距底24px，不用position:fixed覆盖消息。MessagePane独立滚动，欢迎插画/标题保留在上方阅读区；建议入口移到composer上方8px，只有欢迎且已选专家才显示，点击仅填草稿并focus，不自动发送。欢迎区不再嵌入Composer，不再整块含输入纵向居中。保留现有80/56px textarea最小高度与160px上限。 |
 
 布局实质影响：所有AppShell内普通列表/详情/运维页面继承24px内容边与56px PageHeader；专家列表额外改卡片，四类资源额外改工具行，chat改独立顶栏、输入和成果宽度。登录虽使用Page，已有gap覆盖与sr-only标题保证其原几何；公开分享不经过AppShell；Dialog/Sheet/Popover由门户与现有组件控制，不加全局CSS选择器影响这些场景。
 
-保留窄桌面既有Sheet行为：历史Sheet打开时主顶栏因模态而不可操作，唯一专家选择可按现有条件临时出现在Sheet的HistoryHeader里；关闭后回到同一主顶栏位置。此为保留现有行为，不增加移动端适配。桌面inline历史无论开合都不能复制、移动或卸载顶栏专家选择。
+**已失效（2026-10-31，第二次纠正）：** 不再有跨三栏顶栏，专家选择归属与三栏顶部对齐见上；以下为旧行为记录。保留窄桌面既有Sheet行为：历史Sheet打开时主顶栏因模态而不可操作，唯一专家选择可按现有条件临时出现在Sheet的HistoryHeader里；关闭后回到同一主顶栏位置。此为保留现有行为，不增加移动端适配。桌面inline历史无论开合都不能复制、移动或卸载顶栏专家选择。
 
 发现的现有局部几何：knowledge-detail与run-detail把返回按钮放在PageHeader外的`items-end`行；本阶段不重组这些详情页。56px页头可能让外置按钮落在底边，浏览器验收必须确认入口未被裁切；不能借此重写所有详情页。
 
@@ -280,7 +282,7 @@ A/B/C 可并行，因为写入文件不重叠；主题与组件真实计算样�
 
 唯一源码写入：`packages/web/src/pages/chat.tsx`、`packages/web/src/components/conversation-outputs.tsx`（仅为适配面板布局确有需要的类，不改成果数据/选择/预览/分享逻辑；不需要则不动）。唯一测试写入：`packages/web/test/chat-ux.test.ts`、`packages/web/test/chat-interactions.test.ts`、`packages/web/test/chat-outputs.test.ts`。不改store、stream、queries、ui原语、全局styles/Page/AppShell、其他chat测试或任何文档。
 
-实施顺序：先红测顶栏专家选择在desktop历史开关前后是同一DOM节点且不属于历史aside，欢迎首发前后textarea仍是同一DOM节点且保留焦点；再把顶栏从ChatColumn提升到ChatWorkspace、清理无用props、稳定渲染Composer、搬建议入口、更新阅读宽度与成果约束。现有`focusHandoff`及其effect/prop只为欢迎切换卸载服务，稳定渲染后删除这条死逻辑，先grep全部调用；`welcome`若仍用于textarea高度则保留，不能机械删除全部相关参数。
+实施顺序（**已失效，第二次纠正**）：以下“同一DOM节点”和“把顶栏从ChatColumn提升到ChatWorkspace”不再适用；稳定渲染Composer、建议入口、阅读宽度与成果约束继续有效。先红测顶栏专家选择在desktop历史开关前后是同一DOM节点且不属于历史aside，欢迎首发前后textarea仍是同一DOM节点且保留焦点；再把顶栏从ChatColumn提升到ChatWorkspace、清理无用props、稳定渲染Composer、搬建议入口、更新阅读宽度与成果约束。现有`focusHandoff`及其effect/prop只为欢迎切换卸载服务，稳定渲染后删除这条死逻辑，先grep全部调用；`welcome`若仍用于textarea高度则保留，不能机械删除全部相关参数。
 
 修改旧测试中“专家跟随历史移动”“首发textarea必须重建”的断言，替换为新契约而保留其用户目的：专家可搜索/切换、URL与草稿正确、单一h1、首发焦点不丢、不抢其他控件焦点。窄桌面既有Sheet切换/焦点用例保留。成果收起仍inert、aria-hidden，输入草稿/附件/引用不丢。已有chat-scroll、drafts、attachments、questions、history-pages、branch和outputs回归覆盖不能删除。
 
@@ -301,7 +303,7 @@ A/B/C 可并行，因为写入文件不重叠；主题与组件真实计算样�
 1. 三包结束后统一跑 `pnpm --filter @agentport/web typecheck`、`pnpm --filter @agentport/web build`、`pnpm lint:focus`、`pnpm lint:contract`，并对本阶段新增源码范围跑 `pnpm exec biome check <实际改动文件>`、`git diff --check`。不是固定全套测试或CI门禁。
 2. 固定同一浏览器viewport 1440×900，对实施前后均记录页面与可见数据、nav状态、URL；另在1280×800检查桌面可用空间。ego-browser负责实际操作/读`getBoundingClientRect()`与computed style，不凭class判完成，不新增Playwright/截图测试依赖。只在5190操作，不修改用户原5173。
 3. 专家、四类资源/市场、记忆/运维各取至少一页：aside展开224/收起64，白壳外边距4；可见首行56，内容左右24（轮到自然滚动条边时说明测量基准）；导航、搜索、过滤和列表起止边一致，无页面级横向溢出。空描述/长名称专家卡验证操作紧邻信息、未被裁切，停用不能发起对话。
-4. chat欢迎/已有历史同viewport对照：主顶栏56、左右24；开/关历史与成果时专家触发器矩形x/y不变；两者均开时所有开关、会话操作可达。成果实际400，历史首次240且可200–360内拖动，但受消息最小400约束；1280时允许分栏库缩小历史到可用宽度，不强求不可能的三栏固定宽之和。拖拽与Motion结束后再测，不把动画中间态判失败。
+4. **已失效（第二次纠正）：** 旧“主顶栏56、专家触发器x/y不变”不再适用；改验三栏顶部平齐、消息列头部56/24、专家同一时刻唯一。chat欢迎/已有历史同viewport对照：开/关历史与成果时所有开关、会话操作可达。成果实际400，历史首次240且可200–360内拖动，但受消息最小400约束；1280时允许分栏库缩小历史到可用宽度，不强求不可能的三栏固定宽之和。拖拽与Motion结束后再测，不把动画中间态判失败。
 5. 输入框、消息与欢迎文本最大832，左右边线一致；欢迎切换首发前后textarea同节点/焦点保留，建议入口距composer8、点击仅填充。用现有长历史真实滚动验证顶栏和输入框不被卷走，消息区域不被输入覆盖；在现有可用数据内验证附件、引用、停止、审批、重命名、Fork、删除确认和深链成果入口。没有可用数据/worker的部分明确标未验，不造业务数据。
 6. 登录仅检查外观，不提交登录；公开分享有可用真实链接时测，否则标缺口；Dialog/Sheet/菜单打开时检查无额外24px套层。保持原sm/lg/WIDE行为，不把320px手机测试或新移动适配加入本阶段。
 7. Opus独立review固定基线为“布局前已完成Qoder主题 + 此节指定文件的新增布局patch”，不能把原主题差异当作待删除的布局范围；复核单一h1、模态焦点、节点稳定性、草稿/附件、隐藏面板不可聚焦、页面padding作用域及零死代码。未通过不提交，当前也没有提交授权。
@@ -338,7 +340,7 @@ A/B/C 可并行，因为写入文件不重叠；主题与组件真实计算样�
 - 定向：L1 88 项、L3 108 项、L2 196 项通过；主会话统一 19 files / 392 tests 全通过；`typecheck`、`build`、`lint:focus`、`lint:contract`、8 文件 Biome 与 `git diff --check` 通过。
 - 独立 review：L1/L3 经 Opus 通过；chat 代码通过；`docs/DESIGN-SYSTEM.md` PageSection 间距修正已由 Opus 点验通过，本轮代码与规范 review 整体通过、无剩余 finding。
 - 1440×900 普通页：sidebar 224、main x=224/y=4、页头 56、内容左 24；出现纵向滚动条时右 24 加 10px gutter；专家卡空描述高 94、无 footer；四类资源、记忆与运维页单一 h1、无横向溢出；1280 资源页 searchGroup 224 且单行。
-- 1440×900 chat：顶栏 56；专家触发器 x=328/y=16/176×32，历史与成果开关开合两态同一 DOM、同一 x/y；textarea 同一 DOM；输入 group 832、外 form 880、距底 24；成果 400，收起时 Motion 外层 0、`inert=true`、`aria-hidden=true`；历史 239.8（比例舍入），可拖至 319.3，键盘 ArrowLeft 为 258.8；1280 双开历史 208.1、成果 400、无横向溢出；建议点击只填草稿并聚焦，gap 8，未发送，清空。
+- **已失效（第二次纠正，仅顶栏/专家几何部分）：** 1440×900 chat：顶栏 56；专家触发器 x=328/y=16/176×32，历史与成果开关开合两态同一 DOM、同一 x/y；textarea 同一 DOM；输入 group 832、外 form 880、距底 24；成果 400，收起时 Motion 外层 0、`inert=true`、`aria-hidden=true`；历史 239.8（比例舍入），可拖至 319.3，键盘 ArrowLeft 为 258.8；1280 双开历史 208.1、成果 400、无横向溢出；建议点击只填草稿并聚焦，gap 8，未发送，清空。
 - 主会话实测真实滚动（仅此一例）：已有报告会话展开 Write，1280×800 下消息 region 高 598 / scrollHeight 730 / scrollTop 132，向上滚到 0 后 expertY 16 / inputY 671 不变。不声称覆盖所有长历史。
 - 视觉 finish reviewer 仅依据 5 张 desktop 截图（未读源码），结论为 ship、无 material fixes。预览已 handOff：73 欢迎页、draft 为空；撤销仿真真实 1480×840。
 - 运行详情返回按钮完整；新建专家 Dialog 宽 560，Esc 返回新建按钮，未创建数据。

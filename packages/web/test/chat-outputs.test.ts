@@ -2114,10 +2114,10 @@ describe('default expert selection', () => {
     expect(panel.textContent).toContain('先选择专家');
     expect(api.conversations).not.toHaveBeenCalled();
 
-    // 专家选择固定在顶栏，历史面板只显示空态。
-    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="选择专家"]');
-    if (!picker) throw new Error('Missing header expert picker');
-    expect(picker.closest('aside[aria-label="会话历史"]')).toBeNull();
+    // 专家选择随历史展开进入面板头部；历史仍显示真实空态。
+    const picker = panel.querySelector<HTMLButtonElement>('button[aria-label="选择专家"]');
+    if (!picker) throw new Error('Missing history header expert picker');
+    expect(host.querySelectorAll('button[aria-label="选择专家"]')).toHaveLength(1);
     await act(async () => picker.click());
     await flush();
     const choice = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) =>

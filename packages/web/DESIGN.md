@@ -18,7 +18,9 @@ colors:
   secondary-foreground: "#141414"
   line: "#E6E6E6"
   line-strong: "#767676"
-  input: "#767676"
+  input: "#E6E6E6"
+  input-focus: "#BDBDBD"
+  composer-focus: "#DDDDDD"
   fg: "#141414"
   muted-foreground: "#5F5F5F"
   subtle: "#828282"
@@ -40,9 +42,9 @@ colors:
 typography:
   display:
     fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
-    fontSize: "24px"
+    fontSize: "20px"
     fontWeight: 500
-    lineHeight: "32px"
+    lineHeight: "28px"
     letterSpacing: "-0.02em"
   title:
     fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
@@ -58,9 +60,9 @@ typography:
     letterSpacing: "0em"
   body:
     fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
-    fontSize: "15px"
+    fontSize: "14px"
     fontWeight: 400
-    lineHeight: "26px"
+    lineHeight: "22px"
     letterSpacing: "0em"
   label:
     fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
@@ -200,17 +202,17 @@ components:
 
 PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖黄到蓝灰环境光，工作区本身是纯白纸面；工具、标题与正文都是墨色，状态只在需要时以小块浅灰或语义色出现。没有品牌色在页面上争抢注意力，彩色只留给真正是数据的地方。
 
-这套系统把「可点击」从颜色职责里拿掉：普通主操作与发送、登录共用中性深色实底，链接、焦点环与选中态也落在同一墨色系；唯一的蓝色是运行图表首系列的数据蓝。这样层级由留白、分组、字重与实底/浅底关系表达，而不是由强调色表达。
+这套系统把「可点击」从颜色职责里拿掉：普通主操作与发送、登录共用中性深色实底，链接、按钮/全局焦点环与选中态也落在同一墨色系（输入聚焦另用浅中性 `input-focus` / `composer-focus`）；唯一的蓝色是运行图表首系列的数据蓝。这样层级由留白、分组、字重与实底/浅底关系表达，而不是由强调色表达。
 
-主题阶段是换肤记录：颜色、边线、阴影与外壳呈现来自 Qoder CN 桌面浅色界面的真实截图，焦点方案、输入边界与对比度是 PACE 的可访问适配，不声称来自 Qoder。2026-10-30 用户批准的布局阶段在此之上更新了侧栏、页面内容边、聊天顶栏/输入/成果宽度、专家卡与资源工具行的几何；字号、圆角、图标、动效与配色/焦点成果不变。本文按当前规范记录；浏览器几何验收已在覆盖的桌面范围内完成，未覆盖项见 [本任务记录](../../docs/tasks/qoder-visual-redesign.md)。
+主题阶段是换肤记录：颜色、边线、阴影与外壳呈现来自 Qoder CN 桌面浅色界面的真实截图，输入默认/聚焦边线、composer 聚焦与焦点方案是 PACE 近似或可辨适配，不声称来自 Qoder；三种输入浅边线对白低于 3:1 的已接受限制见 Known Gaps。2026-10-30 用户批准的布局阶段在此之上更新了侧栏、页面内容边、聊天顶栏/输入/成果宽度、专家卡与资源工具行的几何；圆角、图标、动效与配色/焦点成果不变。2026-10-31 用户批准的字体收紧是 PACE 适配，未采样 Qoder 字体：会话标题、默认正文与输入用 14/22，欢迎标题 20/28；全局 15/26 令牌保留给运行详情等原有用途。本文按当前规范记录；此前的浏览器几何验收覆盖旧外顶栏结构；2026-10-31 已实页验收恢复后的三栏顶部对齐、历史开合、成果与窄桌面抽屉，见 [本任务记录](../../docs/tasks/chat-history-agent-picker.md)。
 
 **Key Characteristics:**
 - 纯白内容面，渐变只存在于应用外壳的三个外部根容器。
 - 中性深色动作三态：`#0D0D0D` / `#262626` / `#404040`，白字。
 - 浅中性状态层：hover `#F6F6F6`，selected / accent `#EFEFEF`。
-- 可编辑边界独立于分隔线：`#767676` 对 `#E6E6E6`。
+- 输入默认边线 `#E6E6E6`，普通聚焦 `#BDBDBD`、composer 聚焦 `#DDDDDD`（PACE 近似映射，低于 3:1 见 Known Gaps）；checkbox/radio 强边线仍 `#767676`。
 - 数据蓝 `#315FAD` 只用于图表首系列，不参与任何 UI 动作。
-- Inter 的 13/20 界面档与 15/26 阅读档保持；动效不变，几何按本页 Layout 当前值。
+- Inter 的 13/20 界面档与 14/22 对话阅读档；显式 OpenUI small 13/20、large 16/24 与全局 15/26 令牌保留；动效不变，几何按本页 Layout 当前值。
 
 ## Colors
 
@@ -218,7 +220,7 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 ### Primary
 
-- **墨色动作（Ink Action）** (#0D0D0D)：`default` 与显式 `solid` 主操作的实底、链接文字、焦点环、checked/on 控件与 line 页签指示线。它是动作与当前位置的唯一强信号，不用于正文。
+- **墨色动作（Ink Action）** (#0D0D0D)：`default` 与显式 `solid` 主操作的实底、链接文字、按钮/全局焦点环、checked/on 控件与 line 页签指示线；输入聚焦另用 `input-focus` / `composer-focus`。它是动作与当前位置的唯一强信号，不用于正文。
 
 ### Secondary
 
@@ -232,8 +234,11 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 ### Neutral
 
 - **纸白（Paper White）** (#FFFFFF)：`canvas`、`surface`、`panel`、卡片、弹层与输入基底。内容区不得染灰或铺渐变。
-- **分隔线（Hairline）** (#E6E6E6)：卡片与弹层的 1px ring、表格与分组分隔、页签当前项边框、外壳 outline。只做分组，不做可编辑边界。
-- **可编辑边界（Editable Boundary）** (#767676)：Input、Textarea、Select 触发器、Combobox、InputGroup、CodeMirror 搜索输入与未选中 checkbox/radio、off 开关。它在白、选中灰与渐变最暗端都保持至少 3:1。
+- **分隔线（Hairline）** (#E6E6E6)：卡片与弹层的 1px ring、表格与分组分隔、页签当前项边框、外壳 outline。只做分组；输入默认边线借用同值 `input`，但分隔本身不表达可编辑。
+- **输入默认边线（Input Boundary）** (#E6E6E6)：Input、Textarea、Select 触发器、Combobox、InputGroup、CodeMirror 搜索输入的默认 1px 边线，等同 `line`；不新增 hover 加深。对白约 1.25:1，是已接受的已知限制。
+- **输入聚焦（Input Focus）** (#BDBDBD)：普通输入真实 `:focus-visible` 时替换默认边线，是 PACE 中性近似映射，不是 Qoder 源码 token；对白约 1.88:1，低于 3:1。
+- **Composer 聚焦（Composer Focus）** (#DDDDDD)：仅对话 composer 文本控制器聚焦时由 InputGroup 外框使用，来自 Qoder 焦点分离实测；对白约 1.36:1，低于 3:1。
+- **强边界（Strong Boundary）** (#767676)：未选中 checkbox/radio 与 off 开关轨道、需要可辨边界的场景；它在白、选中灰与渐变最暗端都保持至少 3:1。
 - **正文墨（Text Ink）** (#141414)：正文、标题、选中项前景与普通图标。
 - **辅助灰（Helper Gray）** (#5F5F5F)：placeholder、描述、元信息、注释、表头次要信息；承载可读文字。
 - **装饰灰（Decorative Gray）** (#828282)：只用于装饰图标与禁用例外，不承载需要阅读的信息。
@@ -244,7 +249,7 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 **The White-Inside Rule.** 所有内容表面（canvas、surface、panel、card、popover）都是纯白。三停点外壳渐变只通过 `bg-shell` 存在于 AppShell 的外部根容器；不得铺到内容、卡片或弹层后面，也不得随鼠标、滚动或时间运动。
 
-**The Neutral-Action Rule.** UI 动作不使用品牌色。`default` 与显式 `solid` 共用 `#0D0D0D` → `#262626` → `#404040` 的实底三态与白字；链接与焦点同为 `#0D0D0D`。蓝色不是动作色。
+**The Neutral-Action Rule.** UI 动作不使用品牌色。`default` 与显式 `solid` 共用 `#0D0D0D` → `#262626` → `#404040` 的实底三态与白字；链接与按钮/全局焦点环同为 `#0D0D0D`，输入聚焦另用浅中性 `input-focus` / `composer-focus`。蓝色不是动作色。
 
 **The Data-Blue Exception Rule.** `#315FAD` 是系统中唯一的蓝色，只允许出现在 `chart-runs` 数据系列；失败用 `danger`。它不得蔓延到导航、按钮、焦点、徽章或状态。
 
@@ -258,17 +263,19 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 ### Hierarchy
 
-- **Display** (500, 24px/32px, -0.02em)：只用于对话欢迎区标题「今天想完成什么？」。
-- **Title** (500, 16px/24px, -0.01em)：页面 h1、对话标题与无效分享页标题。
-- **Subheading** (500, 14px/22px)：列表标题、卡片标题与对话内的区块标题。
-- **Body** (400, 15px/26px)：对话、Markdown 与助手正文；用户气泡共用同一档与行高。
+- **Display** (500, 20px/28px, -0.02em)：只用于对话欢迎区标题「今天想完成什么？」。
+- **Title** (500, 16px/24px, -0.01em)：普通页面 h1 与无效分享页标题。
+- **Subheading** (500, 14px/22px)：列表标题、卡片标题、对话标题与对话内的区块标题。
+- **Body** (400, 14px/22px)：对话、Markdown、OpenUI 默认正文与对话输入；用户气泡共用同一档与行高。
 - **Label** (400/500, 13px/20px)：导航、按钮、输入、表格单元格与说明文字。这是界面默认档。
 - **Meta** (400, 12px/16px)：徽章、时间戳、ID、表头与密集只读元信息。
 - **Mono** (400, 12px/20px)：代码块、行内代码、标识与数值读数。
 
+全局 `md` 15/26 令牌保留给运行详情、评估、记忆与插件详情等原有正文/标题用途；OpenUI TextContent 显式 `small` 13/20 与 `large` 16/24 保留，默认跟随 14/22。
+
 ### Named Rules
 
-**The One Reading Size Rule.** Markdown 阅读正文只有 15/26 一档：h1 18/26、h2 16/24、h3–h6 15/26 加 600 字重，任何标题都不小于正文。不要再引入第二个正文尺寸。
+**The One Reading Size Rule.** Markdown 阅读正文只有 14/22 一档：h1 18/26、h2 16/24、h3–h6 14/22 加 600 字重（以外层字号为下限），任何标题都不小于正文。不要再引入第二个正文尺寸。
 
 **The 13/20 UI Rule.** 可操作控件与界面文字默认 13/20；11px 只留给高密度只读数据，12px 只给元信息与徽章，不用小字去弥补层级不足。
 
@@ -276,7 +283,7 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 桌面端布局，不做移动端适配，也不为触摸新增尺寸。应用外壳由三部分组成：透明的侧栏（展开 224px / 收起 64px）、纯白主壳、以及主壳外只露出 4px 的外壳边距。主壳有 16px 圆角与 1px `shell-line` outline，没有 border 与阴影；侧栏在外，透出 `bg-shell` 渐变。
 
-主区普通页面水平内边距 24px、底部 24px，页面使用 `Page` / `PageHeader` / `PageToolbar` / `PageSection` 骨架：Page 默认区块间距 24px，页头单行最小高 56px、不另加顶部或横向 padding，区块内部间距 16px。对话阅读轴线 832px，含左右 24px 的外容器最大 880px；56px 顶栏在整个历史/消息分栏上方，Composer 在消息区之后距底 24px、始终同一位置。会话历史默认收起 0，首次展开 240px，可在 200–360px 间调整并记忆；成果面板 400px。资源中心工具区固定两行：首行类型导航与管理操作，次行来源/搜索/筛选/排序/数量；专家卡无独立页脚底带。窗口收窄时允许换行、内部滚动与容器伸缩，但表格只在自身容器内横向滚动，页面不出现横向溢出。
+主区普通页面水平内边距 24px、底部 24px，页面使用 `Page` / `PageHeader` / `PageToolbar` / `PageSection` 骨架：Page 默认区块间距 24px，页头单行最小高 56px、不另加顶部或横向 padding，区块内部间距 16px。对话阅读轴线 832px，含左右 24px 的外容器最大 880px；聊天没有横跨三栏的外顶栏，历史、消息列与成果栏从工作区顶部并排开始。消息列自带 56px 头部（左右 24px）：历史收起时显示历史开关、搜索、唯一专家选择、标题操作与成果开关；历史展开时只留历史开关、标题操作与成果开关，专家选择与新建移入历史头部，搜索在其下。窄桌面 Sheet 同理，Sheet 关闭后回到消息头部。成果面板 400px 从顶部开始；Composer 在消息列之后距底 24px、始终同一位置。会话历史默认收起 0，首次展开 240px，可在 200–360px 间调整并记忆。资源中心工具区固定两行：首行类型导航与管理操作，次行来源/搜索/筛选/排序/数量；专家卡无独立页脚底带。窗口收窄时允许换行、内部滚动与容器伸缩，但表格只在自身容器内横向滚动，页面不出现横向溢出。
 
 间距节奏取 4 / 8 / 12 / 16 / 20 / 24px。所有尺寸、宽高、图标 16px / `strokeWidth 1.75`、边框 1px、页签指示线与焦点 2px 以当前实现值为准；几何调整只按已批准布局契约进入，不通过新增 border 或页面级 padding 临时改变。
 
@@ -311,7 +318,7 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 - **Solid:** 发送、登录等显式动作与 `default` 共用同一三态实底；不存在单独的蓝色实底。
 - **Outline / Secondary / Ghost / Plain:** outline 白底、1px `line` 边线、`fg` 字，hover 与展开 `#F6F6F6`；secondary 用 `#F6F6F6` 底；ghost 透明，hover 与展开 `#F6F6F6`；plain 保持透明且不加 hover 底。取消、筛选与菜单触发器不因主色改成深色实底。
 - **Link:** `#0D0D0D` 文字，保留下划线 hover 与可访问名，不靠蓝色表明可点击。
-- **Focus:** 实底按钮用单层 2px `ring`，并在实底外留 2px 背景色间隔；error 态危险边框优先。不要同时出现边框与光环两层焦点信号。
+- **Focus:** 实底按钮用单层 2px `ring`，并在实底外留 2px 背景色间隔；invalid 时危险边框与焦点环共存，实底 offset 不消失。不要同时出现边框与光环两层普通态焦点信号。
 
 ### Tabs
 
@@ -321,9 +328,9 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 ### Inputs / Fields
 
-- **Style:** 白底、1px `input` `#767676` 边框、9px 圆角、高 32px、13/20；placeholder `#5F5F5F`。Input、Textarea、Select 可编辑触发器、Combobox、InputGroup 与 CodeMirror 搜索输入共用同一可访问边界。
-- **Focus:** 只把既有 1px 边框换成 `ring` `#0D0D0D`，不叠加光环；InputGroup 由外框承担焦点，内部输入不再画第二层。
-- **Invalid / Disabled:** invalid 用 `danger` 边框优先并保留可读错误文字；只有真实禁用的输入才使用禁用背景与透明度，空内容只禁用发送按钮。未选中 checkbox/radio 用 `control-boundary`，checked/on 用 `primary` + 白色勾/点/thumb；off 开关用 `input` 与白 thumb；Toggle 选中态是 `selected` + `fg`，不是深色实底。
+- **Style:** 白底、1px `input` `#E6E6E6` 边框、9px 圆角、高 32px、13/20；placeholder `#5F5F5F`。Input、Textarea、Select 可编辑触发器、Combobox、InputGroup 与 CodeMirror 搜索输入共用同一默认边线与尺寸；不新增 hover 加深。共享 Input / Textarea 保持 13/20；对话 composer 文本区例外使用 14/22（`base`）。
+- **Focus:** 普通输入把既有 1px 边框换成 `input-focus` `#BDBDBD`（PACE 中性近似，不是 Qoder 源码 token），composer 文本控制器聚焦时外框换 `composer-focus` `#DDDDDD`，均不叠加光环；InputGroup 由外框承担焦点，内部输入不再画第二层。Select 关闭键盘态同样使用 `input-focus`。
+- **Invalid / Disabled:** invalid 用 `danger` 边框优先，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补焦点；错误边框不能代替焦点。只有真实禁用的输入才使用独立于输入边线的禁用背景与透明度（`control-boundary/50`），空内容只禁用发送按钮。未选中 checkbox/radio 用 `control-boundary`，checked/on 用 `primary` + 白色勾/点/thumb；off 开关轨道用 `control-boundary` 与白 thumb；Toggle 选中态是 `selected` + `fg`，不是深色实底。
 
 ### Menus / Popovers / Overlays
 
@@ -340,9 +347,9 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 ### Messages / Code / Charts
 
-- **User message:** 右对齐 `9999` 胶囊、`selected` `#EFEFEF` 底、`fg` 文字、15/26、内边距 8px 16px、最大宽 85%；附件用中性 outline 徽章。助手正文在纯白上无气泡。
+- **User message:** 右对齐 `9999` 胶囊、`selected` `#EFEFEF` 底、`fg` 文字、14/22、内边距 8px 16px、最大宽 85%；附件用中性 outline 徽章。助手正文在纯白上无气泡。
 - **Code / Shiki:** 代码块表面 `code` `#F6F6F6`、16px 圆角、1px `line` 边线、12/20 等宽；Shiki 背景透明，正文 `fg`，关键字/函数/链接 `primary`，注释/标点 `muted-foreground`。
-- **CodeMirror:** selection 与 searchMatch 用 `selected`，gutter `muted-foreground`，搜索面板白底 `fg`，真实可编辑搜索输入 1px `input` 边框，按钮仍用 `line`。
+- **CodeMirror:** selection 与 searchMatch 用 `selected`，gutter `muted-foreground`，搜索面板白底 `fg`，真实可编辑搜索输入使用 `input` 默认边线与 `input-focus` 聚焦边线，按钮仍用 `line`。
 - **Charts:** 白底、网格 `line`、坐标与 tooltip 用 `muted-foreground` / `fg`；首系列 `chart-runs` `#315FAD`，其余系列用中性灰阶并叠加虚线/纹理，失败系列 `chart-failed`（即 `danger`）。图表不播放动画。
 
 ### Navigation
@@ -356,10 +363,10 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 - **Do** 把三停点渐变只交给 AppShell 外部根容器的 `bg-shell`，内容表面保持纯白。
 - **Do** 用 `button-primary` 三态（`#0D0D0D` / `#262626` / `#404040`）承载 `default` 与 `solid`，配白字。
-- **Do** 用 `input` `#767676` 画可编辑边界，用 `line` `#E6E6E6` 只做分组与分隔。
+- **Do** 用 `input` `#E6E6E6` 画输入默认边线，用 `line` `#E6E6E6` 只做分组与分隔；checkbox/radio 强边界仍用 `#767676`。
 - **Do** 用 `selected` / `accent` `#EFEFEF` 表示当前导航、选中页签、菜单高亮与用户消息。
-- **Do** 每个控件只留一层焦点信号：输入类换边框，普通按钮类用 2px ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔。
-- **Do** 保持 13/20 界面档与 15/26 阅读档、16px 图标 / 1.75 线宽与动效；几何按本页 Layout 当前值。
+- **Do** 每个控件只留一层常驻焦点信号：输入类换 `input-focus` / `composer-focus` 边线，按钮类用 2px ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔。错误态可另用 2px outline 补焦点。
+- **Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。
 - **Do** 把 `chart-runs` `#315FAD` 只用于图表首系列；失败用 `danger`。
 - **Do** 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。
 
@@ -368,9 +375,15 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 - **Don't** 把 `#315FAD` 或任何蓝色用于导航、按钮、焦点、徽章或状态。
 - **Don't** 把外壳渐变铺到内容、卡片、弹层或登录页后面，也不要让它随时间、滚动或鼠标运动。
 - **Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。
-- **Don't** 用 `subtle` `#828282` 承载可读文字，或用 `line` `#E6E6E6` 冒充可编辑边界。
-- **Don't** 给已经有边框的输入再叠光环，或同时保留边框与 2px ring 两层焦点。
+- **Don't** 用 `subtle` `#828282` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。
+- **Don't** 给已经换边线的输入再叠 ring；唯一例外是错误态用 2px outline 补焦点（边框表达错误，outline 表达焦点）。
 - **Don't** 为浮层引入第二种阴影、彩色光晕，或给外壳、卡片、表格加投影。
 - **Don't** 重新引入深色主题、第二套主题提供器、品牌蓝别名或页面级硬编码色值。
 - **Don't** 让 Markdown 标题小于正文，或新增第二个阅读正文字号。
 - **Don't** 在已批准布局契约之外临时改变宽高、内边距或断点；几何调整先更新规范与契约，配色、字体、焦点与动效仍按本页主题成果。
+
+## Known Gaps
+
+- 输入默认边线 `#E6E6E6` 对白约 1.25:1、普通聚焦 `#BDBDBD` 约 1.88:1、composer 聚焦 `#DDDDDD` 约 1.36:1，均低于 WCAG 2.2 非文字 3:1。用户已明确 Qoder 视觉优先，这些是接受并公开记录的限制；不得宣称输入边界、焦点或整页 WCAG AA 达标。
+- 普通输入聚焦 `#BDBDBD` 是 PACE 中性近似映射，不是 Qoder 源码 token；Select 关闭键盘态未独立取证，采用同一 `input-focus` 适配。
+- Qoder 输入 hover、invalid、disabled 与 Select 关闭键盘焦点未取得完整参考；本轮只修实际焦点缺陷，保留现有错误与禁用语义。
