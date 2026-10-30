@@ -576,7 +576,7 @@ export function useOutputFile(
   });
 }
 
-/** 图片字节走鉴权下载端点；key 与选中三元组一致，切换选择即换请求。 */
+/** 图片与 PDF 字节走鉴权下载端点；key 与选中三元组一致，切换选择即换请求。 */
 export function useOutputBlob(
   conversationId: string | null,
   runId: string | null,

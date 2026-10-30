@@ -619,7 +619,6 @@ describe('output preview and versions', () => {
     'application/javascript',
     'application/json-seq',
     'image/svg+xml-invalid',
-    'application/pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ])('offers download without requesting unsupported %s content', async (mediaType) => {
     const file = output({ runId: 'run-download', path: 'files/original file', mediaType });
@@ -1061,6 +1060,194 @@ describe('image outputs', () => {
     await act(async () => root.unmount());
     root = createRoot(host);
     expect(revoke).toHaveBeenCalledWith(url);
+  });
+});
+
+describe('pdf outputs', () => {
+  const pdfFile = (overrides: Partial<OutputFile> & Pick<OutputFile, 'runId' | 'path'>) =>
+    output({ mediaType: 'application/pdf', ...overrides });
+
+  function stubPdfUrls() {
+    let seed = 0;
+    const create = vi.fn((_blob: Blob) => `blob:pdf-${++seed}`);
+    const revoke = vi.fn();
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke });
+    return { create, revoke };
+  }
+
+  function pdfPreview(): HTMLIFrameElement {
+    const frame = workspace().querySelector<HTMLIFrameElement>('iframe');
+    if (!frame) throw new Error('Missing PDF preview');
+    return frame;
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: true });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'pdfViewerEnabled');
+  });
+
+  it('previews a private PDF through the exact authenticated download entry', async () => {
+    const file = pdfFile({ runId: 'run-pdf', path: 'report.pdf' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    const blob = new Blob(['%PDF-1.7\nbody'], { type: 'application/pdf' });
+    vi.mocked(api.outputBlob).mockResolvedValue(blob);
+    const { create } = stubPdfUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('report.pdf');
+
+    expect(api.outputContent).not.toHaveBeenCalled();
+    expect(api.outputFile).not.toHaveBeenCalled();
+    expect(api.outputBlob).toHaveBeenCalledWith(
+      'conversation-a',
+      'run-pdf',
+      'report.pdf',
+      expect.any(AbortSignal),
+    );
+    const frame = pdfPreview();
+    expect(frame.getAttribute('src')).toBe('blob:pdf-1');
+    expect(frame.getAttribute('title')).toBe('report.pdf');
+    expect(frame.className).toContain('h-[50vh]');
+    expect(create.mock.calls[0]?.[0]?.type).toBe('application/pdf');
+    expect(
+      workspace()
+        .querySelector<HTMLAnchorElement>('a[aria-label="下载 report.pdf"]')
+        ?.getAttribute('href'),
+    ).toBe('/api/conversations/conversation-a/outputs/run-pdf/download?path=report.pdf');
+  });
+
+  it('keeps the download and skips the iframe when the browser has no PDF viewer', async () => {
+    Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: false });
+    const file = pdfFile({ runId: 'run-pdf', path: 'report.pdf' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputBlob).mockResolvedValue(
+      new Blob(['%PDF-1.7\nbody'], { type: 'application/pdf' }),
+    );
+    const { create } = stubPdfUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('report.pdf');
+
+    expect(workspace().textContent).toContain('当前浏览器不支持 PDF 预览，请下载原件查看。');
+    expect(workspace().querySelector('iframe')).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(
+      workspace().querySelector<HTMLAnchorElement>('a[aria-label="下载 report.pdf"]'),
+    ).not.toBeNull();
+  });
+
+  it('refuses bytes without the PDF header and keeps the download', async () => {
+    const file = pdfFile({ runId: 'run-pdf', path: 'report.pdf' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputBlob).mockResolvedValue(
+      new Blob(['not really a pdf'], { type: 'application/pdf' }),
+    );
+    const { create } = stubPdfUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('report.pdf');
+
+    expect(workspace().textContent).toContain('文件不是可预览的 PDF，请下载原件查看。');
+    expect(workspace().querySelector('iframe')).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(
+      workspace().querySelector<HTMLAnchorElement>('a[aria-label="下载 report.pdf"]'),
+    ).not.toBeNull();
+  });
+
+  it('switches to an older PDF version without showing the previous document', async () => {
+    const latest = pdfFile({
+      runId: 'run-pdf-2',
+      path: 'report.pdf',
+      createdAt: '2026-10-28T11:00:00.000Z',
+    });
+    const older = pdfFile({
+      runId: 'run-pdf-1',
+      path: 'report.pdf',
+      createdAt: '2026-10-28T10:00:00.000Z',
+    });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [latest, older], nextBefore: null });
+    const latestBlob = new Blob(['%PDF-1.4 latest'], { type: 'application/pdf' });
+    const olderBlob = new Blob(['%PDF-1.4 older'], { type: 'application/pdf' });
+    let resolveOlder!: (blob: Blob) => void;
+    vi.mocked(api.outputBlob).mockImplementation((_conversationId, runId) =>
+      runId === older.runId
+        ? new Promise<Blob>((resolve) => {
+            resolveOlder = resolve;
+          })
+        : Promise.resolve(latestBlob),
+    );
+    const { create, revoke } = stubPdfUrls();
+
+    await mount();
+    await openWorkspace();
+    await selectFile('report.pdf');
+    expect(pdfPreview().getAttribute('src')).toBe('blob:pdf-1');
+
+    await pickVersion(older.createdAt);
+    expect(workspace().querySelector('iframe')).toBeNull();
+    expect(revoke).toHaveBeenCalledWith('blob:pdf-1');
+    expect(api.outputBlob).toHaveBeenLastCalledWith(
+      'conversation-a',
+      'run-pdf-1',
+      'report.pdf',
+      expect.any(AbortSignal),
+    );
+    expect(create).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveOlder(olderBlob));
+    await flush();
+    expect(pdfPreview().getAttribute('src')).toBe('blob:pdf-2');
+    expect(router.state.location.search).toMatchObject({
+      outputRun: 'run-pdf-1',
+      outputPath: 'report.pdf',
+    });
+    expect(
+      workspace()
+        .querySelector<HTMLAnchorElement>('a[aria-label="下载 report.pdf"]')
+        ?.getAttribute('href'),
+    ).toBe('/api/conversations/conversation-a/outputs/run-pdf-1/download?path=report.pdf');
+  });
+
+  it('resolves metadata before fetching bytes for an older PDF outside the list page', async () => {
+    const unrelated = output({ runId: 'run-other', path: 'other.md' });
+    const archived = pdfFile({ runId: 'run-archived', path: 'report.pdf' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextBefore: null });
+    vi.mocked(api.outputFile).mockResolvedValue({ file: archived });
+    vi.mocked(api.outputBlob).mockResolvedValue(
+      new Blob(['%PDF-1.4 archived'], { type: 'application/pdf' }),
+    );
+    stubPdfUrls();
+
+    await mount(
+      '/chat?agent=agent-a&conversation=conversation-a&outputRun=run-archived&outputPath=report.pdf&outputMode=source',
+    );
+    await openWorkspace();
+    await flush();
+
+    expect(api.outputFile).toHaveBeenCalledWith(
+      'conversation-a',
+      'run-archived',
+      'report.pdf',
+      expect.any(AbortSignal),
+    );
+    expect(api.outputContent).not.toHaveBeenCalled();
+    expect(vi.mocked(api.outputFile).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.outputBlob).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+    expect(api.outputBlob).toHaveBeenCalledWith(
+      'conversation-a',
+      'run-archived',
+      'report.pdf',
+      expect.any(AbortSignal),
+    );
+    expect(pdfPreview().getAttribute('title')).toBe('report.pdf');
   });
 });
 

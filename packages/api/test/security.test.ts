@@ -24,6 +24,12 @@ describe.skipIf(!ready)('security headers', () => {
       expect(csp, url).toContain("style-src 'self' 'unsafe-inline'");
       // UI 把鉴权拉取的图片转成 blob URL 渲染；缺 blob: 会被 CSP 拦掉。
       expect(csp, url).toContain("img-src 'self' data: blob:");
+      // 原生 PDF 预览把下载字节转成 Blob URL 放进 iframe；缺 blob: 会被 CSP 拦掉。
+      expect(csp, url).toContain("frame-src 'self' blob:");
+      // 其余保持收紧：不许 object、data: 或远程 frame，也不放开内联脚本。
+      expect(csp, url).toContain("object-src 'none'");
+      expect(csp, url).not.toMatch(/frame-src\b[^;]*(?:\*|data:|https?:)/);
+      expect(csp, url).not.toContain("script-src 'self' 'unsafe-inline'");
     }
   });
 

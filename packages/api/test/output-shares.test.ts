@@ -245,6 +245,31 @@ describe.skipIf(!ready)('output shares', () => {
     expect(download.headers['cache-control']).toBe('no-store');
   });
 
+  it('serves published PDF bytes to a bearer token and keeps public 404s', async () => {
+    const agent = await newAgent();
+    const id = await newConversation(agent.id);
+    const pdf = Buffer.from(
+      '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n',
+    );
+    await publish(agent.slug, id, 'run_pdf', { 'report.pdf': pdf });
+    const share = parseShare(await createShare(id, 'run_pdf', 'report.pdf'));
+    const token = tokenOf(share);
+    const url = `/api/public/output-shares/${idOf(share)}/download`;
+
+    expectProblem(await publicGet(url), 'NOT_FOUND');
+
+    const download = await publicGet(url, token);
+    expect(download.statusCode, download.body).toBe(200);
+    expect(download.rawPayload.equals(pdf)).toBe(true);
+    expect(download.headers['content-type']).toBe('application/pdf');
+    expect(String(download.headers['content-disposition'])).toMatch(/^attachment;/);
+    expect(download.headers['cache-control']).toBe('no-store');
+    expect(download.headers['x-content-type-options']).toBe('nosniff');
+
+    expect((await revoke(idOf(share))).statusCode).toBe(204);
+    expectProblem(await publicGet(url, token), 'NOT_FOUND');
+  });
+
   it('treats bad tokens, sibling files and deleted conversations as plain 404s', async () => {
     const agent = await newAgent();
     const id = await newConversation(agent.id);
