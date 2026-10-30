@@ -135,7 +135,8 @@
 - 当前调度：jobID `b399e273`、`*/10 * * * *`，session-only、7 天自动过期、关闭会话即停止；只有这一个 scheduler，不新增第二个 cron。两车道 `nextDue` 由主线程按各自任务完成时刻 + 周期计算，本记录不预置。
 - 首轮两车道于 2026-10-30T01:41:28Z 并行启动：动效只读 Opus 子代理 `aba90cd64ba20f363`（专家/登录）、能力只读 Opus 子代理 `a4629c08d7aefb880`；首轮结果已回，见下条与运行记录。
 - 2026-10-30 首轮动效车道完成实现、验证与合并：`CreateAgentDialog` 高级设置折叠补 150ms height+opacity 共享过渡（仅加 `animated`，测试草稿保持）；主线程 2 文件 102 用例 9.50s 通过；独立 Opus review `af6e2975d28243568` 通过、无 mustfix（3 文件 105 用例 + web typecheck/focus/diffcheck）；已由 PR #120 合入 `main` `5546502`。
-- 能力车道任务 10「会话内图片成果预览」（PNG/JPEG/GIF/WebP，复用鉴权下载，公开/私有共享 BlobImage）已实现并通过三轮 Opus review（末轮 `a9c2e499b17d5672d`，86 条定向用例）；主线程 full web 118 文件 1396 用例 39.32s、API/Web typecheck/build、backend 18 通过；最终浏览器验收 `a7090b402c75b1cb1` 通过；源码已提交 `e4d414d` 并推送到 `origin/loop-capability-image-preview-01`，未合并 `main`，不记为已交付。
+- 能力车道任务 10「会话内图片成果预览」（PNG/JPEG/GIF/WebP，复用鉴权下载，公开/私有共享 BlobImage）已实现并通过三轮 Opus review（末轮 `a9c2e499b17d5672d`，86 条定向用例）；主线程 full web 118 文件 1396 用例 39.32s、API/Web typecheck/build、backend 18 通过；最终浏览器验收 `a7090b402c75b1cb1` 通过；源码 `e4d414d` 已由 PR #121 合入 `main` `70e28e2`，图片成果实际交付。
+- 2026-10-30T03:10:43Z 动效第二轮 `/chat` 为 no-op（Opus 只读 `a5ad9d9ba376153d2`）：实屏覆盖欢迎、搜索最近筛选空结果、两条历史、Trace 执行、历史 239.8px、成果侧栏空态与 320 开合、菜单、不存在会话错误；已有 Trace 折叠 150ms、成果侧 160ms、共享 overlay 150ms，拒绝给消息流、搜索、骨架、欢迎装饰加动效；新增源码 0，未跑测试/build；reduce 模拟 `matchMedia` 仍 false，未通过实屏 reduce；分享 Dialog 等 pending 异常仅代码，不记为实测。`coveredPages` 加 `/chat`，`nextCursor` 为 `/memory`；`animation.nextDue` 2026-10-30T03:20:43Z、`capability.nextDue` 2026-10-30T03:30:34Z（时间均为 runtime 快照）。
 - 循环 scheduler 仍为唯一 job `b399e273`，共用锁由本 job 持有；能力任务交付后的 `nextDue` 由主线程按完成时刻 + 周期计算，本记录不预置。
 - 能力车道每个任务完成后按授权提交、推送并合并；三轮独立 Opus review 与共用互斥锁契约不变。
 - 单一 cron，按真实时间分车道，不按 tick 数；不启 CI、不开启 PR 监控或冷却等待。
@@ -164,8 +165,9 @@
 - [x] 用户明确启动后创建唯一 cron：jobID `b399e273`、`*/10 * * * *`，实际下次 2026-10-30 09:54 本地（运行时快照），session-only、7 天自动过期。
 - [x] 首轮两车道于 2026-10-30T01:41:28Z 并行启动：动效只读 Opus `aba90cd64ba20f363`（专家/登录）、能力只读 Opus `a4629c08d7aefb880`。
 - [x] 首轮动效任务完成实现、验证与独立 review，并由 PR #120 合入 `main` `5546502`。
-- [x] 能力 task 10 完成实现、三轮 Opus review、主线程回归与最终浏览器验收 `a7090b402c75b1cb1`；源码已提交 `e4d414d` 并推送分支，未合并 `main`。
-- [ ] 能力 task 10 合并到 `main`，并由主线程按实际合并完成时刻计算 `nextDue`；源码已提交 `e4d414d` 并推送分支，当前未合并，不记为已交付。
+- [x] 能力 task 10 完成实现、三轮 Opus review、主线程回归与最终浏览器验收 `a7090b402c75b1cb1`；源码 `e4d414d` 已由 PR #121 合入 `main` `70e28e2`。
+- [x] 动效第二轮检查 `/chat` 并记录 no-op；`coveredPages` 增加 `/chat`，`nextCursor` 为 `/memory`。
+- [x] 能力 task 10 已由 PR #121 合入 `main` `70e28e2`，图片成果实际交付；`nextDue` 按合并完成时刻计算。
 - [ ] 每轮按契约检查两车道；动效轮转页面，能力任务三轮独立 review。
 - [ ] 停止时用 cron 工具取消；关闭会话即自动停止。
 
@@ -185,7 +187,9 @@
 
 2026-10-30 / 动效车道首轮 / `CreateAgentDialog` 高级设置折叠补 150ms height+opacity 共享过渡（仅加 `animated`，测试草稿保持） / 实现 agent `a62f9d919db87caa3`；主线程 `agents-ui`+`agents-lifecycle` 2 文件 102 用例 9.50s 通过；独立 Opus `af6e2975d28243568` review 通过、无 mustfix（3 文件 105 用例 + web typecheck/focus/diffcheck）；浏览器证据沿用作者本 checkout `http://localhost:5173`（`agentport.localhost` 指向旧 worktree），未重测帧率，截图在 `/tmp/agentport-animation-20261030/`；`review-animations` 工具本环境被禁用，未执行其流程 / 已由 PR #120 合入 `main` `5546502`
 
-2026-10-30 / 能力车道 task 10 / 会话内图片成果预览（PNG/JPEG/GIF/WebP，复用鉴权下载，公开/私有共享 BlobImage） / 实现完成；三轮 Opus review 通过（末轮 `a9c2e499b17d5672d`，无 mustfix，86 条定向用例）；主线程 full web 118 文件 1396 用例 39.32s、API/Web typecheck/build、backend 18 通过；最终浏览器验收 `a7090b402c75b1cb1` 通过（同秒 62ms 两图可区分、唯一 checked、旧版 URL/图/下载 hash、分享旧版、引用精确且不发模型、关闭回焦、快速切版 0 不一致、临时数据清零、公开清理 404） / 源码提交 `e4d414d` 并推送分支，未合并 `main`；`nextDue` 合并后由主线程计算
+2026-10-30 / 能力车道 task 10 / 会话内图片成果预览（PNG/JPEG/GIF/WebP，复用鉴权下载，公开/私有共享 BlobImage） / 实现完成；三轮 Opus review 通过（末轮 `a9c2e499b17d5672d`，无 mustfix，86 条定向用例）；主线程 full web 118 文件 1396 用例 39.32s、API/Web typecheck/build、backend 18 通过；最终浏览器验收 `a7090b402c75b1cb1` 通过（同秒 62ms 两图可区分、唯一 checked、旧版 URL/图/下载 hash、分享旧版、引用精确且不发模型、关闭回焦、快速切版 0 不一致、临时数据清零、公开清理 404） / 源码提交 `e4d414d`，已由 PR #121 合入 `main` `70e28e2`
+
+2026-10-30T03:10:43Z / 动效车道第二轮 / `/chat` 检查为 no-op（Opus 只读 `a5ad9d9ba376153d2`） / 实屏：欢迎、搜索最近筛选空结果、两条历史、Trace 执行、历史 239.8px、成果侧栏空态与 320 开合、菜单、不存在会话错误；codeRoot 为当前 checkout `packages/web`、`http://localhost:5173`，非旧 domain；已有 Trace 折叠 150ms、成果侧 160ms、共享 overlay 150ms，拒绝给消息流、搜索、骨架、欢迎装饰加动效；新增源码 0，未跑测试/build；reduce 模拟 `matchMedia` 仍 false，本轮未通过实屏 reduce；分享 Dialog 等 pending 异常仅代码，不记为实测；`coveredPages` 加 `/chat`，`nextCursor` `/memory`，`animation.nextDue` 2026-10-30T03:20:43Z、`capability.nextDue` 2026-10-30T03:30:34Z（runtime 快照） / 无 commit
 
 启动后每完成一个车道任务追加一行：时间 / 车道 / 任务 / 结果 / commit 或 PR。
 
@@ -193,9 +197,9 @@
 
 - 基线已由 PR #119 合入 `main` `aa8142c`；首轮动效任务已由 PR #120 合入 `main` `5546502`。
 - 循环唯一 scheduler 仍为 `b399e273`，共用锁由本 job 持有；不新增第二个 cron，不抢锁。
-- 能力 task 10（会话内图片成果预览）已实现并通过三轮 review、主线程回归与最终浏览器验收；源码已提交 `e4d414d` 并推送分支，未合并 `main`，当前不记为已交付。
-- 能力 task 10 的 `nextDue` 在主线程实际合并后按完成时刻 + 30 分钟计算；本记录不预置，不创建 cron/state，不改源码。
-- 首轮动效任务已合并；动效车道后续按页面覆盖游标继续轮转。
+- 能力 task 10（会话内图片成果预览）已由 PR #121 合入 `main` `70e28e2`，交付完成。
+- 动效车道下一轮游标 `/memory`；本轮 `/chat` 为 no-op，未加动效。
+- 两车道 `nextDue` 分别为动效 2026-10-30T03:20:43Z、能力 2026-10-30T03:30:34Z（runtime 快照），不预置后续值，不创建 cron/state，不改源码。
 
 ## 验证
 
@@ -211,6 +215,7 @@
   - 补修：manifest 成果条目补 `userMessageId`/`afterMessageId` 锚点，清理/分支后仍挂回正确轮次；聊天历史合并 `tool_result` 时保留结果消息 `resultMessageId`，成果分页未扩大；回顾提交成功先 reset 最新 blocker 再关闭，browser history 测试证明地址栏与路由一致。
   - 独立 sandbox 镜像：GNU bash 5.3.9、Claude Agent SDK 0.3.311，fake 模型无付费请求；共享开发镜像 `agentport/sandbox:dev` 仍缺 GNU bash，但未用于本轮验收，真实 SDK 覆盖已由独立镜像解决。
 - 真实付费模型与有效分享页浏览器验收仍未完成（历史验收项）；合入 `main` 已由 PR #119 完成（`aa8142c`）。以上未完成项均不写成通过。
-- 上述数字来自基线合入前的最终验证；首轮动效任务已由 PR #120 合入 `main` `5546502`；能力 task 10 已实现并通过三轮 review、主线程回归与最终浏览器验收，源码已提交 `e4d414d` 并推送分支，未合并 `main`。两项独立 review 的已报告 mustfix 已定点通过，不据此宣称整轮循环完成。
+- 上述数字来自基线合入前的最终验证；首轮动效任务已由 PR #120 合入 `main` `5546502`；能力 task 10 已实现并通过三轮 review、主线程回归与最终浏览器验收，源码 `e4d414d` 已由 PR #121 合入 `main` `70e28e2`。两项独立 review 的已报告 mustfix 已定点通过，不据此宣称整轮循环完成。
 - 首轮动效复测：主线程 `agents-ui`+`agents-lifecycle` 2 文件 102 条用例 9.50s 通过；独立 Opus review 3 文件 105 条用例 + web typecheck + `lint:focus` + `git diff --check` 通过、无 mustfix；浏览器证据来自作者本 checkout `http://localhost:5173`，未重测帧率；`review-animations` 工具被禁用，未执行其流程。已由 PR #120 合入 `main` `5546502`。
-- 能力 task 10（会话内图片成果预览）：三轮 Opus review 通过（末轮 `a9c2e499b17d5672d`，无 mustfix，86 条定向用例）；主线程 full web 118 文件 1396 用例 39.32s、API/Web typecheck/build、backend 18 通过；最终浏览器验收 `a7090b402c75b1cb1` 通过；源码已提交 `e4d414d` 并推送分支，未合并 `main`。限制：元数据接口仍整份读取文件字节；坏图、大图与 HTML 在真实浏览器中的表现未测，大图内存未单独测量；分页外旧版由单测覆盖。
+- 能力 task 10（会话内图片成果预览）：三轮 Opus review 通过（末轮 `a9c2e499b17d5672d`，无 mustfix，86 条定向用例）；主线程 full web 118 文件 1396 用例 39.32s、API/Web typecheck/build、backend 18 通过；最终浏览器验收 `a7090b402c75b1cb1` 通过；源码 `e4d414d` 已由 PR #121 合入 `main` `70e28e2`。限制：元数据接口仍整份读取文件字节；坏图、大图与 HTML 在真实浏览器中的表现未测，大图内存未单独测量；分页外旧版由单测覆盖。
+- 动效第二轮 `/chat`：仅记录本文件，新增源码 0，未跑测试/build；reduce 模拟 `matchMedia` 仍 false，本轮未通过实屏 reduce，不写成通过；`git diff --check` 通过。
