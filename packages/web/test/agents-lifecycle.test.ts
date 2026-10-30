@@ -383,6 +383,30 @@ describe('expert creation lifecycle', () => {
     expect(document.getElementById('new-agent-slug-error')?.textContent).toBeTruthy();
   });
 
+  it('keeps the advanced draft while the folded panel animates closed', async () => {
+    await mount();
+    await click(button('新建专家'));
+    const setup = dialog('新建专家');
+    await click(button('高级设置', setup));
+    await editInput('new-agent-model', 'gateway/custom-model');
+    await editInput('new-agent-slug', 'draft');
+    const advanced = setup.querySelector<HTMLElement>('[data-slot="collapsible-content"]');
+    if (!advanced) throw new Error('Missing advanced settings');
+    expect(advanced.hasAttribute('inert')).toBe(false);
+
+    await click(button('高级设置', setup));
+    expect(advanced.getAttribute('hidden')).toBe('until-found');
+    expect(advanced.hasAttribute('inert')).toBe(true);
+    expect(setup.querySelector<HTMLInputElement>('#new-agent-model')?.value).toBe(
+      'gateway/custom-model',
+    );
+
+    await click(button('高级设置', setup));
+    expect(advanced.hasAttribute('hidden')).toBe(false);
+    expect(advanced.hasAttribute('inert')).toBe(false);
+    expect(setup.querySelector<HTMLInputElement>('#new-agent-slug')?.value).toBe('draft');
+  });
+
   it.each([
     ['  Support Expert!  ', 'support-expert'],
     ['---QA__Expert---', 'qa__expert'],
