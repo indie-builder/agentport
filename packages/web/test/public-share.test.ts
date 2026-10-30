@@ -74,6 +74,7 @@ afterEach(async () => {
   document.querySelector('meta[name="referrer"]')?.remove();
   Reflect.deleteProperty(URL, 'createObjectURL');
   Reflect.deleteProperty(URL, 'revokeObjectURL');
+  Reflect.deleteProperty(navigator, 'pdfViewerEnabled');
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -268,5 +269,74 @@ describe('public share page', () => {
     await flush();
     const downloadCalls = calls.filter((call) => call.url.endsWith('/download'));
     expect(downloadCalls.at(-1)?.init?.headers).toMatchObject({ authorization: 'Bearer token-a' });
+  });
+
+  it('previews a PDF through the bearer download and keeps the download available', async () => {
+    const shared = file({ name: 'report.pdf', mediaType: 'application/pdf' });
+    const calls = installFetch((url) =>
+      url.endsWith('/download') ? new Response('%PDF-1.7\nbody') : json({ file: shared }),
+    );
+    Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: true });
+    const createObjectURL = vi.fn(() => 'blob:pdf');
+    Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
+
+    await mount('share-a', readShareToken());
+    await flush();
+
+    const frame = host.querySelector('section iframe');
+    expect(frame?.getAttribute('src')).toBe('blob:pdf');
+    expect(frame?.getAttribute('title')).toBe('report.pdf');
+    expect(frame?.className).toContain('h-[70vh]');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(calls.some((call) => call.url.endsWith('/content'))).toBe(false);
+    const downloadCall = calls.find((call) => call.url.endsWith('/download'));
+    expect(downloadCall?.init?.headers).toMatchObject({ authorization: 'Bearer token-a' });
+    expect(downloadCall?.init?.credentials).toBe('omit');
+    expect(host.querySelector('section [role="alert"]')).toBeNull();
+    const download = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (item) => item.textContent?.trim() === '下载',
+    );
+    expect(download).toBeDefined();
+  });
+
+  it('refuses bytes without the PDF header and does not mount an iframe', async () => {
+    const shared = file({ name: 'report.pdf', mediaType: 'application/pdf' });
+    installFetch((url) =>
+      url.endsWith('/download') ? new Response('not really a pdf') : json({ file: shared }),
+    );
+    Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: true });
+    const createObjectURL = vi.fn(() => 'blob:pdf');
+    Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
+
+    await mount('share-a', readShareToken());
+
+    expect(host.textContent).toContain('文件不是可预览的 PDF，请下载原件查看。');
+    expect(host.querySelector('section iframe')).toBeNull();
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(
+      [...host.querySelectorAll<HTMLButtonElement>('button')].some(
+        (item) => item.textContent?.trim() === '下载',
+      ),
+    ).toBe(true);
+  });
+
+  it('renders SVG as source code without mounting a preview', async () => {
+    const shared = file({ name: 'diagram.svg', mediaType: 'image/svg+xml' });
+    installFetch((url) =>
+      url.endsWith('/content')
+        ? json({
+            file: shared,
+            content: '<svg onload="alert(1)"><script>alert(1)</script></svg>',
+          })
+        : json({ file: shared }),
+    );
+
+    await mount('share-a', readShareToken());
+
+    expect(h1()).toBe('diagram.svg');
+    expect(host.querySelector('section iframe')).toBeNull();
+    expect(host.querySelector('section img')).toBeNull();
+    expect(host.querySelector('svg:not(.lucide)')).toBeNull();
+    expect(host.querySelector('pre')?.textContent).toContain('<svg');
   });
 });

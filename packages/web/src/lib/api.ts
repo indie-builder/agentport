@@ -1039,7 +1039,7 @@ export const api = {
       undefined,
       signal,
     ),
-  /** 图片预览复用下载端点，保留统一 cookie 会话、401 跳转与 Problem 错误。 */
+  /** 图片与 PDF 预览复用下载端点，保留统一 cookie 会话、401 跳转与 Problem 错误。 */
   outputBlob: (
     conversationId: string,
     runId: string,

@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Download } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { BlobImage } from '../components/blob-image.js';
+import { BlobPdf } from '../components/blob-pdf.js';
 import { BrandMark } from '../components/brand.js';
 import { CodeBlock } from '../components/code-block.js';
 import { Markdown } from '../components/markdown.js';
@@ -211,8 +212,7 @@ function SharedFile({ shareId, token, file }: { shareId: string; token: string; 
 type PreviewState =
   | { status: 'loading' }
   | { status: 'text'; content: string }
-  | { status: 'blob'; url: string }
-  | { status: 'image'; blob: Blob }
+  | { status: 'blob'; blob: Blob }
   | { status: 'error'; error: unknown };
 
 function SharePreview({
@@ -232,22 +232,16 @@ function SharePreview({
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt 只用于手动重试时重跑请求。
   useEffect(() => {
     let cancelled = false;
-    let objectUrl: string | null = null;
     setState({ status: 'loading' });
     const request =
-      kind === 'image'
+      kind === 'image' || kind === 'pdf'
         ? api
             .publicOutputShareDownload(shareId, token)
-            .then((blob) => ({ status: 'image' as const, blob }))
-        : kind === 'pdf'
-          ? api.publicOutputShareDownload(shareId, token).then((blob) => {
-              objectUrl = URL.createObjectURL(blob);
-              return { status: 'blob' as const, url: objectUrl };
-            })
-          : api.publicOutputShareContent(shareId, token).then((data) => ({
-              status: 'text' as const,
-              content: data.content,
-            }));
+            .then((blob) => ({ status: 'blob' as const, blob }))
+        : api.publicOutputShareContent(shareId, token).then((data) => ({
+            status: 'text' as const,
+            content: data.content,
+          }));
     request.then(
       (next) => {
         if (!cancelled) setState(next);
@@ -258,7 +252,6 @@ function SharePreview({
     );
     return () => {
       cancelled = true;
-      if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
     };
   }, [shareId, token, kind, attempt]);
 
@@ -274,7 +267,7 @@ function SharePreview({
   }
 
   if (kind === 'image') {
-    return state.status === 'image' ? (
+    return state.status === 'blob' ? (
       <BlobImage
         blob={state.blob}
         alt={file.name}
@@ -285,7 +278,11 @@ function SharePreview({
 
   if (kind === 'pdf') {
     return state.status === 'blob' ? (
-      <iframe title={file.name} src={state.url} className="h-[70vh] w-full rounded-item border" />
+      <BlobPdf
+        blob={state.blob}
+        title={file.name}
+        className="h-[70vh] w-full rounded-item border"
+      />
     ) : null;
   }
 

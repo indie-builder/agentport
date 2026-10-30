@@ -11,6 +11,7 @@ import {
   useOutputFile,
 } from '../lib/queries.js';
 import { BlobImage } from './blob-image.js';
+import { BlobPdf } from './blob-pdf.js';
 import { CodeBlock } from './code-block.js';
 import { Markdown } from './markdown.js';
 import { ReaderToolbar } from './reader-toolbar.js';
@@ -31,17 +32,18 @@ export interface OutputSelection {
   mode: 'read' | 'source';
 }
 
-/** Markdown 可切换阅读/源码；图片单独预览；其余文本一律源码，二进制不伪造预览。 */
-type PreviewKind = 'markdown' | 'text' | 'image' | 'binary';
+/** Markdown 可切换阅读/源码；图片与 PDF 单独预览；其余文本一律源码，二进制不伪造预览。 */
+type PreviewKind = 'markdown' | 'text' | 'image' | 'pdf' | 'binary';
 
 const TEXT_MEDIA = /^(text\/|application\/json$|image\/svg\+xml$)/;
 const IMAGE_MEDIA = /^image\/(png|jpeg|gif|webp)$/;
 
-/** 与预览接口同一判定：文本走源码/静态阅读，图片走鉴权下载，其余只下载。 */
+/** 与预览接口同一判定：文本走源码/静态阅读，图片与 PDF 走鉴权下载，其余只下载。 */
 function previewKind(file: Pick<OutputFile, 'mediaType'>): PreviewKind {
   const mediaType = file.mediaType.split(';')[0]?.trim().toLowerCase() ?? '';
   if (mediaType === 'text/markdown') return 'markdown';
   if (IMAGE_MEDIA.test(mediaType)) return 'image';
+  if (mediaType === 'application/pdf') return 'pdf';
   return TEXT_MEDIA.test(mediaType) ? 'text' : 'binary';
 }
 
@@ -103,9 +105,9 @@ export function ConversationOutputs({
   );
   const blob = useOutputBlob(
     conversationId,
-    selection && kind === 'image' ? selection.runId : null,
-    selection && kind === 'image' ? selection.path : null,
-    kind === 'image',
+    selection && (kind === 'image' || kind === 'pdf') ? selection.runId : null,
+    selection && (kind === 'image' || kind === 'pdf') ? selection.path : null,
+    kind === 'image' || kind === 'pdf',
   );
   const shown = content.data?.file ?? file;
   const shownKind = shown ? previewKind(shown) : kind;
@@ -292,7 +294,7 @@ export function ConversationOutputs({
                   <p className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-xs leading-relaxed text-muted-foreground">
                     二进制文件，请下载后查看。
                   </p>
-                ) : shownKind === 'image' ? (
+                ) : shownKind === 'image' || shownKind === 'pdf' ? (
                   blob.isError ? (
                     <ErrorState
                       error={blob.error}
@@ -302,11 +304,19 @@ export function ConversationOutputs({
                   ) : blob.isPending ? (
                     <LoadingState rows={3} />
                   ) : blob.data ? (
-                    <BlobImage
-                      blob={blob.data}
-                      alt={selection.path}
-                      className="max-h-[50vh] w-full rounded-card border border-line object-contain"
-                    />
+                    shownKind === 'image' ? (
+                      <BlobImage
+                        blob={blob.data}
+                        alt={selection.path}
+                        className="max-h-[50vh] w-full rounded-card border border-line object-contain"
+                      />
+                    ) : (
+                      <BlobPdf
+                        blob={blob.data}
+                        title={selection.path}
+                        className="h-[50vh] w-full rounded-card border border-line"
+                      />
+                    )
                   ) : null
                 ) : content.isPending ? (
                   <LoadingState rows={3} />

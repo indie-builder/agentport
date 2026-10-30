@@ -32,6 +32,8 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
         styleSrc: ["'self'", "'unsafe-inline'"],
         // UI 通过鉴权 fetch 取图后转 blob URL 渲染。
         imgSrc: ["'self'", 'data:', 'blob:'],
+        // 原生 PDF 预览把下载字节转成 Blob URL 放进 iframe；只放同源与 blob。
+        frameSrc: ["'self'", 'blob:'],
       },
     },
   });

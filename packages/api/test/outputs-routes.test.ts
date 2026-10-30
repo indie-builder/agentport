@@ -342,6 +342,34 @@ describe.skipIf(!ready)('conversation outputs', () => {
     );
   });
 
+  it('serves a published PDF byte-for-byte only in its own authenticated conversation', async () => {
+    const agent = await newAgent();
+    const id = await newConversation(agent.id);
+    const otherId = await newConversation(agent.id);
+    const pdf = Buffer.from(
+      '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n',
+    );
+    await publish(agent.slug, id, 'run_pdf', { 'report.pdf': pdf });
+
+    expectProblem(
+      await get(`/api/conversations/${id}/outputs/run_pdf/download?path=report.pdf`, {}),
+      'UNAUTHORIZED',
+    );
+    // 另一会话的同名版本不存在：跨会话读取不能命中这次发布的字节。
+    expectProblem(
+      await get(`/api/conversations/${otherId}/outputs/run_pdf/download?path=report.pdf`),
+      'NOT_FOUND',
+    );
+
+    const download = await get(`/api/conversations/${id}/outputs/run_pdf/download?path=report.pdf`);
+    expect(download.statusCode, download.body).toBe(200);
+    expect(download.rawPayload.equals(pdf)).toBe(true);
+    expect(download.headers['content-type']).toBe('application/pdf');
+    expect(String(download.headers['content-disposition'])).toMatch(/^attachment;/);
+    expect(download.headers['cache-control']).toBe('no-store');
+    expect(download.headers['x-content-type-options']).toBe('nosniff');
+  });
+
   it('persists the selected output on the user message without changing OpenUI fields', async () => {
     const agent = await newAgent();
     const id = await newConversation(agent.id);

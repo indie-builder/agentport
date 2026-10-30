@@ -153,6 +153,9 @@ describe('overview retained run history', () => {
   });
 
   it('reports loading without declaring an empty platform', async () => {
+    // overviewQuery 在模块加载时已捕获 api.overview，spyOn(api, 'overview') 拦不住；
+    // 从网络边界固定为永不响应，保证断言时查询仍在 pending。
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => {}));
     client.removeQueries({ queryKey: ['overview'] });
     await mount();
     expect(host.textContent).not.toContain('开始配置');
