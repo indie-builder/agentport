@@ -132,10 +132,11 @@
 
 - 2026-10-30 用户明确指令「好，现在给我开始启动这两个loop」，覆盖此前的重启后暂停：两车道已启动，唯一 scheduler 承担动效 10 分钟与能力 30 分钟；启动前置由用户明确启动控制。
 - 基线已由 PR #119 合入 `main` `aa8142c`，`baselinePending:false`、`initialMergeCommit:'aa8142c'`，不再有待合并前置。
-- 当前调度：jobID `b399e273`、`*/10 * * * *`，实际下次 2026-10-30 09:54 本地（运行时快照）；session-only、7 天自动过期、关闭会话即停止；只有这一个 scheduler，不新增第二个 cron。
+- 当前调度：jobID `b399e273`、`*/10 * * * *`，session-only、7 天自动过期、关闭会话即停止；只有这一个 scheduler，不新增第二个 cron。两车道 `nextDue` 由主线程按各自任务完成时刻 + 周期计算，本记录不预置。
 - 首轮两车道于 2026-10-30T01:41:28Z 并行启动：动效只读 Opus 子代理 `aba90cd64ba20f363`（专家/登录）、能力只读 Opus 子代理 `a4629c08d7aefb880`；首轮结果已回，见下条与运行记录。
-- 2026-10-30 首轮动效车道完成实现与验证：`CreateAgentDialog` 高级设置加 `animated`，主线程 2 文件 102 用例 9.50s 通过；独立 Opus review `af6e2975d28243568` 通过、无 mustfix（3 文件 105 用例 + web typecheck/focus/diffcheck），待提交合并。
-- 能力车道任务 10「会话内图片成果预览」（PNG/JPEG/GIF/WebP，复用鉴权下载，公开/私有共享 BlobImage）契约已定，因动效车道持有写锁排队等待，未实现；不记为已交付。
+- 2026-10-30 首轮动效车道完成实现、验证与合并：`CreateAgentDialog` 高级设置折叠补 150ms height+opacity 共享过渡（仅加 `animated`，测试草稿保持）；主线程 2 文件 102 用例 9.50s 通过；独立 Opus review `af6e2975d28243568` 通过、无 mustfix（3 文件 105 用例 + web typecheck/focus/diffcheck）；已由 PR #120 合入 `main` `5546502`。
+- 能力车道任务 10「会话内图片成果预览」（PNG/JPEG/GIF/WebP，复用鉴权下载，公开/私有共享 BlobImage）已实现并通过三轮 Opus review（末轮 `a9c2e499b17d5672d`，86 条定向用例）；主线程 full web 118 文件 1396 用例 39.32s、API/Web typecheck/build、backend 18 通过；最终浏览器验收 `a7090b402c75b1cb1` 通过；源码已提交 `e4d414d` 并推送到 `origin/loop-capability-image-preview-01`，未合并 `main`，不记为已交付。
+- 循环 scheduler 仍为唯一 job `b399e273`，共用锁由本 job 持有；能力任务交付后的 `nextDue` 由主线程按完成时刻 + 周期计算，本记录不预置。
 - 能力车道每个任务完成后按授权提交、推送并合并；三轮独立 Opus review 与共用互斥锁契约不变。
 - 单一 cron，按真实时间分车道，不按 tick 数；不启 CI、不开启 PR 监控或冷却等待。
 - 主会话只编排/读/验证/提交；Opus 设计与判断；Sonnet 执行；不用 Workflow。
@@ -162,9 +163,10 @@
 - [x] 基线已由 PR #119 合入 `main` `aa8142c`；此前「尚未合入」记录已纠正。
 - [x] 用户明确启动后创建唯一 cron：jobID `b399e273`、`*/10 * * * *`，实际下次 2026-10-30 09:54 本地（运行时快照），session-only、7 天自动过期。
 - [x] 首轮两车道于 2026-10-30T01:41:28Z 并行启动：动效只读 Opus `aba90cd64ba20f363`（专家/登录）、能力只读 Opus `a4629c08d7aefb880`。
-- [x] 首轮结果已回：动效任务实现/验证/评审完成、待提交合并；能力 task 10 设计完成、排队等待写锁。`nextDue` 待实际合并后由主线程按完成时刻 + 周期计算，本记录不预填时间。
+- [x] 首轮动效任务完成实现、验证与独立 review，并由 PR #120 合入 `main` `5546502`。
+- [x] 能力 task 10 完成实现、三轮 Opus review、主线程回归与最终浏览器验收 `a7090b402c75b1cb1`；源码已提交 `e4d414d` 并推送分支，未合并 `main`。
+- [ ] 能力 task 10 合并到 `main`，并由主线程按实际合并完成时刻计算 `nextDue`；源码已提交 `e4d414d` 并推送分支，当前未合并，不记为已交付。
 - [ ] 每轮按契约检查两车道；动效轮转页面，能力任务三轮独立 review。
-- [ ] 能力任务完成后提交、推送、合并，并更新本记录与待办。
 - [ ] 停止时用 cron 工具取消；关闭会话即自动停止。
 
 ## 改动文件
@@ -179,21 +181,21 @@
 
 2026-10-30 / 启动 / 用户明确「好，现在给我开始启动这两个loop」 / 唯一 cron `b399e273` 已创建（`*/10 * * * *`，实际下次 2026-10-30 09:54 本地，运行时快照，session-only/7 天）；状态 `enabled:true`、`baselinePending:false`、`initialMergeCommit:'aa8142c'`；共用锁 owner 为本 job `startup` / 无 commit
 
-2026-10-30T01:41:28Z / 首轮 / 动效只读 Opus `aba90cd64ba20f363`（专家/登录）与能力只读 Opus `a4629c08d7aefb880` 并行 / 进行中，结果未回，不写结论 / 无 commit
+2026-10-30T01:41:28Z / 首轮 / 动效只读 Opus `aba90cd64ba20f363`（专家/登录）与能力只读 Opus `a4629c08d7aefb880` 并行 / 启动时结果未回，不写结论；后续结果见下两行 / 无 commit
 
-2026-10-30 / 动效车道首轮 / `CreateAgentDialog` 高级设置折叠补 150ms height+opacity 共享过渡（仅加 `animated`，测试草稿保持） / 实现 agent `a62f9d919db87caa3`；主线程 `agents-ui`+`agents-lifecycle` 2 文件 102 用例 9.50s 通过；独立 Opus `af6e2975d28243568` review 通过、无 mustfix（3 文件 105 用例 + web typecheck/focus/diffcheck）；浏览器证据沿用作者本 checkout `http://localhost:5173`（`agentport.localhost` 指向旧 worktree），未重测帧率，截图在 `/tmp/agentport-animation-20261030/`；`review-animations` 工具本环境被禁用，未执行其流程 / 待提交合并，`nextDue` 由主线程实际合并后计算
+2026-10-30 / 动效车道首轮 / `CreateAgentDialog` 高级设置折叠补 150ms height+opacity 共享过渡（仅加 `animated`，测试草稿保持） / 实现 agent `a62f9d919db87caa3`；主线程 `agents-ui`+`agents-lifecycle` 2 文件 102 用例 9.50s 通过；独立 Opus `af6e2975d28243568` review 通过、无 mustfix（3 文件 105 用例 + web typecheck/focus/diffcheck）；浏览器证据沿用作者本 checkout `http://localhost:5173`（`agentport.localhost` 指向旧 worktree），未重测帧率，截图在 `/tmp/agentport-animation-20261030/`；`review-animations` 工具本环境被禁用，未执行其流程 / 已由 PR #120 合入 `main` `5546502`
 
-2026-10-30 / 能力车道 task 10 / 会话内图片成果预览（PNG/JPEG/GIF/WebP，复用鉴权下载，公开/私有共享 BlobImage） / 设计完成，因动效车道持有写锁排队等待，未实现、未提交 / 无 commit
+2026-10-30 / 能力车道 task 10 / 会话内图片成果预览（PNG/JPEG/GIF/WebP，复用鉴权下载，公开/私有共享 BlobImage） / 实现完成；三轮 Opus review 通过（末轮 `a9c2e499b17d5672d`，无 mustfix，86 条定向用例）；主线程 full web 118 文件 1396 用例 39.32s、API/Web typecheck/build、backend 18 通过；最终浏览器验收 `a7090b402c75b1cb1` 通过（同秒 62ms 两图可区分、唯一 checked、旧版 URL/图/下载 hash、分享旧版、引用精确且不发模型、关闭回焦、快速切版 0 不一致、临时数据清零、公开清理 404） / 源码提交 `e4d414d` 并推送分支，未合并 `main`；`nextDue` 合并后由主线程计算
 
 启动后每完成一个车道任务追加一行：时间 / 车道 / 任务 / 结果 / commit 或 PR。
 
 ## 下一步
 
-- 基线已由 PR #119 合入 `main` `aa8142c`，不再有待合并前置；已报告 review mustfix 已定点通过。
-- 循环已由用户明确启动：唯一 scheduler `b399e273` 同时承担动效 10 分钟/能力 30 分钟。
-- 首轮动效任务已实现、验证、评审通过，源码与测试为未提交差异，待主线程提交与合并；`nextDue` 在合并后按完成时刻 + 10 分钟计算，本记录不预填。
-- 能力 task 10（会话内图片成果预览）设计完成，等待动效车道释放写锁后实现；完成前不记为已交付。
-- 共用锁与状态继续由 scheduler 维护；首轮未合并前不宣称已完成。
+- 基线已由 PR #119 合入 `main` `aa8142c`；首轮动效任务已由 PR #120 合入 `main` `5546502`。
+- 循环唯一 scheduler 仍为 `b399e273`，共用锁由本 job 持有；不新增第二个 cron，不抢锁。
+- 能力 task 10（会话内图片成果预览）已实现并通过三轮 review、主线程回归与最终浏览器验收；源码已提交 `e4d414d` 并推送分支，未合并 `main`，当前不记为已交付。
+- 能力 task 10 的 `nextDue` 在主线程实际合并后按完成时刻 + 30 分钟计算；本记录不预置，不创建 cron/state，不改源码。
+- 首轮动效任务已合并；动效车道后续按页面覆盖游标继续轮转。
 
 ## 验证
 
@@ -209,6 +211,6 @@
   - 补修：manifest 成果条目补 `userMessageId`/`afterMessageId` 锚点，清理/分支后仍挂回正确轮次；聊天历史合并 `tool_result` 时保留结果消息 `resultMessageId`，成果分页未扩大；回顾提交成功先 reset 最新 blocker 再关闭，browser history 测试证明地址栏与路由一致。
   - 独立 sandbox 镜像：GNU bash 5.3.9、Claude Agent SDK 0.3.311，fake 模型无付费请求；共享开发镜像 `agentport/sandbox:dev` 仍缺 GNU bash，但未用于本轮验收，真实 SDK 覆盖已由独立镜像解决。
 - 真实付费模型与有效分享页浏览器验收仍未完成（历史验收项）；合入 `main` 已由 PR #119 完成（`aa8142c`）。以上未完成项均不写成通过。
-- 上述数字来自基线合入前的最终验证；循环已启动，首轮动效任务实现/验证/评审通过、待提交合并，能力 task 10 仅设计完成排队。两项独立 review 的已报告 mustfix 已定点通过，不据此宣称整轮循环完成。
-- 首轮动效复测：主线程 `agents-ui`+`agents-lifecycle` 2 文件 102 条用例 9.50s 通过；独立 Opus review 3 文件 105 条用例 + web typecheck + `lint:focus` + `git diff --check` 通过、无 mustfix；浏览器证据来自作者本 checkout `http://localhost:5173`，未重测帧率；`review-animations` 工具被禁用，未执行其流程。
-- 首轮能力 task 10 仅完成契约设计，未改源码、未验证、未提交，不写成已实现。
+- 上述数字来自基线合入前的最终验证；首轮动效任务已由 PR #120 合入 `main` `5546502`；能力 task 10 已实现并通过三轮 review、主线程回归与最终浏览器验收，源码已提交 `e4d414d` 并推送分支，未合并 `main`。两项独立 review 的已报告 mustfix 已定点通过，不据此宣称整轮循环完成。
+- 首轮动效复测：主线程 `agents-ui`+`agents-lifecycle` 2 文件 102 条用例 9.50s 通过；独立 Opus review 3 文件 105 条用例 + web typecheck + `lint:focus` + `git diff --check` 通过、无 mustfix；浏览器证据来自作者本 checkout `http://localhost:5173`，未重测帧率；`review-animations` 工具被禁用，未执行其流程。已由 PR #120 合入 `main` `5546502`。
+- 能力 task 10（会话内图片成果预览）：三轮 Opus review 通过（末轮 `a9c2e499b17d5672d`，无 mustfix，86 条定向用例）；主线程 full web 118 文件 1396 用例 39.32s、API/Web typecheck/build、backend 18 通过；最终浏览器验收 `a7090b402c75b1cb1` 通过；源码已提交 `e4d414d` 并推送分支，未合并 `main`。限制：元数据接口仍整份读取文件字节；坏图、大图与 HTML 在真实浏览器中的表现未测，大图内存未单独测量；分页外旧版由单测覆盖。

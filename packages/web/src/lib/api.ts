@@ -30,6 +30,7 @@ import type {
   NativePluginInstallInput,
   OpenUiToolResult,
   OutputContent,
+  OutputFile,
   OutputList,
   OutputShare,
   OutputStyle,
@@ -1024,6 +1025,33 @@ export const api = {
       'GET',
       undefined,
       signal,
+    ),
+  /** 列表未覆盖的旧版先取真实元信息，再决定按文本还是图片预览，不猜类型。 */
+  outputFile: (
+    conversationId: string,
+    runId: string,
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<{ file: OutputFile }> =>
+    request(
+      `/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}?path=${encodeURIComponent(path)}`,
+      'GET',
+      undefined,
+      signal,
+    ),
+  /** 图片预览复用下载端点，保留统一 cookie 会话、401 跳转与 Problem 错误。 */
+  outputBlob: (
+    conversationId: string,
+    runId: string,
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<Blob> =>
+    request(
+      `/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}/download?path=${encodeURIComponent(path)}`,
+      'GET',
+      undefined,
+      signal,
+      'blob',
     ),
   outputDownloadUrl: (conversationId: string, runId: string, path: string): string =>
     `/api/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}/download?path=${encodeURIComponent(path)}`,

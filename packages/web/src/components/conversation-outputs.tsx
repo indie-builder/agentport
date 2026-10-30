@@ -4,7 +4,13 @@ import { useMemo } from 'react';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { formatBytes, formatDateTime, formatRelative } from '../lib/format.js';
-import { useConversationOutputs, useOutputContent } from '../lib/queries.js';
+import {
+  useConversationOutputs,
+  useOutputBlob,
+  useOutputContent,
+  useOutputFile,
+} from '../lib/queries.js';
+import { BlobImage } from './blob-image.js';
 import { CodeBlock } from './code-block.js';
 import { Markdown } from './markdown.js';
 import { ReaderToolbar } from './reader-toolbar.js';
@@ -14,8 +20,8 @@ import { Button } from './ui/button.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu.js';
 
@@ -25,15 +31,18 @@ export interface OutputSelection {
   mode: 'read' | 'source';
 }
 
-/** Markdown 可切换阅读/源码；其余文本一律源码，二进制不伪造预览。 */
-type PreviewKind = 'markdown' | 'text' | 'binary';
+/** Markdown 可切换阅读/源码；图片单独预览；其余文本一律源码，二进制不伪造预览。 */
+type PreviewKind = 'markdown' | 'text' | 'image' | 'binary';
 
 const TEXT_MEDIA = /^(text\/|application\/json$|image\/svg\+xml$)/;
+const IMAGE_MEDIA = /^image\/(png|jpeg|gif|webp)$/;
 
-/** 与预览接口同一判定：文本走源码/静态阅读，其余只下载。 */
+/** 与预览接口同一判定：文本走源码/静态阅读，图片走鉴权下载，其余只下载。 */
 function previewKind(file: Pick<OutputFile, 'mediaType'>): PreviewKind {
-  if (file.mediaType === 'text/markdown') return 'markdown';
-  return TEXT_MEDIA.test(file.mediaType) ? 'text' : 'binary';
+  const mediaType = file.mediaType.split(';')[0]?.trim().toLowerCase() ?? '';
+  if (mediaType === 'text/markdown') return 'markdown';
+  if (IMAGE_MEDIA.test(mediaType)) return 'image';
+  return TEXT_MEDIA.test(mediaType) ? 'text' : 'binary';
 }
 
 /** 列表按发布版本倒序返回；同一路径只展示最新一版，旧版在预览里可选。 */
@@ -50,6 +59,12 @@ function versionsOf(list: OutputList, path: string): OutputFile[] {
   return list.items
     .filter((file) => file.path === path)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** 按倒序位置命名；分页只追加更旧版本，已有标签不因分页改变。 */
+function versionLabel(index: number, createdAt: string): string {
+  const position = index === 0 ? '最新' : index === 1 ? '上一版' : `前 ${index} 版`;
+  return `${position} · ${formatDateTime(createdAt)}`;
 }
 
 /** 右侧工作区：会话成果的版本列表与预览。 */
@@ -71,15 +86,37 @@ export function ConversationOutputs({
   const files = useMemo(() => (list ? latestByPath(list) : []), [list]);
   const versions = list && selection ? versionsOf(list, selection.path) : [];
   const meta = versions.find((file) => file.runId === selection?.runId) ?? null;
-  // URL 指向本页之外的旧版时只能先按路径猜；正文响应带回真实元信息后以它为准。
-  const kind = selection ? (meta ? previewKind(meta) : 'text') : null;
+  // 列表没覆盖的旧版先问真实元信息；拿到类型前既不猜文本，也不预取正文。
+  const fileQuery = useOutputFile(
+    conversationId,
+    selection?.runId ?? null,
+    selection?.path ?? null,
+    selection !== null && !outputs.isPending && meta === null,
+  );
+  const file = meta ?? fileQuery.data?.file ?? null;
+  const kind = file ? previewKind(file) : null;
+  const textPreview = kind === 'markdown' || kind === 'text';
   const content = useOutputContent(
     conversationId,
-    selection && kind !== 'binary' ? selection.runId : null,
-    selection && kind !== 'binary' ? selection.path : null,
+    selection && textPreview ? selection.runId : null,
+    selection && textPreview ? selection.path : null,
   );
-  const shownKind = kind === 'text' && content.data ? previewKind(content.data.file) : kind;
-  const shown = content.data?.file ?? meta;
+  const blob = useOutputBlob(
+    conversationId,
+    selection && kind === 'image' ? selection.runId : null,
+    selection && kind === 'image' ? selection.path : null,
+    kind === 'image',
+  );
+  const shown = content.data?.file ?? file;
+  const shownKind = shown ? previewKind(shown) : kind;
+  // 选中版本在已加载列表里才给位置标签；分页外的旧版只显示真实时间，不编造位置。
+  const currentVersion = selection
+    ? versions.findIndex((item) => item.runId === selection.runId)
+    : -1;
+  const versionTriggerLabel =
+    currentVersion >= 0
+      ? versionLabel(currentVersion, versions[currentVersion]?.createdAt ?? '')
+      : formatDateTime(shown?.createdAt);
 
   return (
     <aside
@@ -197,19 +234,23 @@ export function ConversationOutputs({
                             }
                           >
                             <History />
-                            {formatDateTime(shown?.createdAt)}
+                            {versionTriggerLabel}
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start" className="w-44">
-                            <DropdownMenuGroup>
-                              {versions.map((file) => (
-                                <DropdownMenuItem
+                            <DropdownMenuRadioGroup
+                              value={selection.runId}
+                              onValueChange={(runId: string) => onSelect({ ...selection, runId })}
+                            >
+                              {versions.map((file, index) => (
+                                <DropdownMenuRadioItem
                                   key={file.runId}
-                                  onClick={() => onSelect({ ...selection, runId: file.runId })}
+                                  value={file.runId}
+                                  closeOnClick
                                 >
-                                  {formatDateTime(file.createdAt)}
-                                </DropdownMenuItem>
+                                  {versionLabel(index, file.createdAt)}
+                                </DropdownMenuRadioItem>
                               ))}
-                            </DropdownMenuGroup>
+                            </DropdownMenuRadioGroup>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       ) : (
@@ -237,10 +278,36 @@ export function ConversationOutputs({
                   }
                 />
 
-                {shownKind === 'binary' ? (
+                {shownKind === null ? (
+                  fileQuery.isError ? (
+                    <ErrorState
+                      error={fileQuery.error}
+                      title="这个文件无法在面板内预览"
+                      onRetry={() => void fileQuery.refetch()}
+                    />
+                  ) : (
+                    <LoadingState rows={3} />
+                  )
+                ) : shownKind === 'binary' ? (
                   <p className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-xs leading-relaxed text-muted-foreground">
                     二进制文件，请下载后查看。
                   </p>
+                ) : shownKind === 'image' ? (
+                  blob.isError ? (
+                    <ErrorState
+                      error={blob.error}
+                      title="这个文件无法在面板内预览"
+                      onRetry={() => void blob.refetch()}
+                    />
+                  ) : blob.isPending ? (
+                    <LoadingState rows={3} />
+                  ) : blob.data ? (
+                    <BlobImage
+                      blob={blob.data}
+                      alt={selection.path}
+                      className="max-h-[50vh] w-full rounded-card border border-line object-contain"
+                    />
+                  ) : null
                 ) : content.isPending ? (
                   <LoadingState rows={3} />
                 ) : content.isError ? (

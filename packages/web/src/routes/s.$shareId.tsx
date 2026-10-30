@@ -2,6 +2,7 @@ import type { PublicOutputShare } from '@agentport/shared';
 import { createFileRoute } from '@tanstack/react-router';
 import { Download } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { BlobImage } from '../components/blob-image.js';
 import { BrandMark } from '../components/brand.js';
 import { CodeBlock } from '../components/code-block.js';
 import { Markdown } from '../components/markdown.js';
@@ -211,6 +212,7 @@ type PreviewState =
   | { status: 'loading' }
   | { status: 'text'; content: string }
   | { status: 'blob'; url: string }
+  | { status: 'image'; blob: Blob }
   | { status: 'error'; error: unknown };
 
 function SharePreview({
@@ -233,15 +235,19 @@ function SharePreview({
     let objectUrl: string | null = null;
     setState({ status: 'loading' });
     const request =
-      kind === 'image' || kind === 'pdf'
-        ? api.publicOutputShareDownload(shareId, token).then((blob) => {
-            objectUrl = URL.createObjectURL(blob);
-            return { status: 'blob' as const, url: objectUrl };
-          })
-        : api.publicOutputShareContent(shareId, token).then((data) => ({
-            status: 'text' as const,
-            content: data.content,
-          }));
+      kind === 'image'
+        ? api
+            .publicOutputShareDownload(shareId, token)
+            .then((blob) => ({ status: 'image' as const, blob }))
+        : kind === 'pdf'
+          ? api.publicOutputShareDownload(shareId, token).then((blob) => {
+              objectUrl = URL.createObjectURL(blob);
+              return { status: 'blob' as const, url: objectUrl };
+            })
+          : api.publicOutputShareContent(shareId, token).then((data) => ({
+              status: 'text' as const,
+              content: data.content,
+            }));
     request.then(
       (next) => {
         if (!cancelled) setState(next);
@@ -268,9 +274,9 @@ function SharePreview({
   }
 
   if (kind === 'image') {
-    return state.status === 'blob' ? (
-      <img
-        src={state.url}
+    return state.status === 'image' ? (
+      <BlobImage
+        blob={state.blob}
         alt={file.name}
         className="mx-auto max-h-[70vh] max-w-full rounded-item object-contain"
       />
