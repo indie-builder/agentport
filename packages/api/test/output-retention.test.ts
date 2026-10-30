@@ -166,6 +166,18 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       );
       expect(anchors.rows).toHaveLength(2);
       expect(anchors.rows.every((row) => row.run_id === null)).toBe(true);
+      // 消息 run_id 被清空后，成果列表仍用 manifest 锚点指回这两条边界消息。
+      const sourceList = await inject(app, {
+        method: 'GET',
+        url: `/api/conversations/${source.conversationId}/outputs`,
+        headers: { cookie },
+      });
+      expect(sourceList.statusCode, sourceList.body).toBe(200);
+      expect(sourceList.json<{ items: Array<Record<string, unknown>> }>().items[0]).toMatchObject({
+        runId: source.runId,
+        userMessageId: source.userMessageId,
+        afterMessageId: source.afterMessageId,
+      });
       const fork = await inject(app, {
         method: 'POST',
         url: `/api/conversations/${source.conversationId}/branch`,
@@ -205,6 +217,21 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
         ['旧消息 0', '旧消息 1'].includes((message.content as { text: string }).text),
       );
       expect(retained).toHaveLength(2);
+      const branchList = await inject(app, {
+        method: 'GET',
+        url: `/api/conversations/${branchId}/outputs`,
+        headers: { cookie },
+      });
+      expect(branchList.statusCode, branchList.body).toBe(200);
+      expect(branchList.json<{ items: Array<Record<string, unknown>> }>().items[0]).toMatchObject({
+        runId: source.runId,
+        userMessageId: retained.find(
+          (message) => (message.content as { text: string }).text === '旧消息 0',
+        )?.id,
+        afterMessageId: retained.find(
+          (message) => (message.content as { text: string }).text === '旧消息 1',
+        )?.id,
+      });
     },
   );
 

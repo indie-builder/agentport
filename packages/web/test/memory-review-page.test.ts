@@ -656,6 +656,42 @@ describe('历史回顾', () => {
     await flush();
   });
 
+  it('提交成功时取消被拦下的返回导航，地址栏与路由保持一致', async () => {
+    let resolve!: (value: { runId: string }) => void;
+    vi.mocked(api.createMemoryReview).mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    const router = await mount('/memory?tab=reviews', { browser: true, stack: ['/memory'] });
+    await click(button('新建回顾'));
+    await vi.waitFor(() =>
+      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
+    );
+    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
+    if (!checkbox) throw new Error('Missing conversation checkbox');
+    await click(checkbox);
+    const createDialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await click(button('开始回顾', createDialog));
+    await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
+
+    await browserBack();
+    await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
+    expect(window.location.search).toBe('');
+
+    // 不操作放弃确认而请求成功时，关闭表单不能把地址栏留在被拦下的 /memory。
+    await act(async () => resolve({ runId: 'run-new' }));
+    await vi.waitFor(() => expect(discardDialog()).toBeNull());
+    await vi.waitFor(() => expect(window.location.search).toBe('?tab=reviews'));
+    expect(router.state.location.pathname).toBe('/memory');
+    expect(router.state.location.search).toEqual({ tab: 'reviews' });
+    expect(window.location.pathname + window.location.search).toBe(
+      `${router.state.location.pathname}?tab=reviews`,
+    );
+    expect(host.textContent).toContain('让模型整理值得保存的记忆');
+    expect(host.textContent).not.toContain('个人偏好内容（Markdown）');
+  });
+
   it('新建回顾提交中禁止关闭', async () => {
     let resolve!: (value: { runId: string }) => void;
     vi.mocked(api.createMemoryReview).mockReturnValue(

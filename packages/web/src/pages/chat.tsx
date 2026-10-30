@@ -1562,6 +1562,19 @@ function ChatColumn({
     for (const files of map.values()) files.sort((a, b) => a.path.localeCompare(b.path));
     return map;
   }, [outputs.data]);
+  // 维护与分支会清空消息上的 run_id；manifest 锚点仍指向保留/重写后的边界消息。
+  const outputsByAnchor = useMemo(() => {
+    const map = new Map<string, OutputFile[]>();
+    for (const file of outputs.data?.items ?? []) {
+      for (const anchor of new Set([file.userMessageId, file.afterMessageId])) {
+        const files = map.get(anchor);
+        if (files) files.push(file);
+        else map.set(anchor, [file]);
+      }
+    }
+    for (const files of map.values()) files.sort((a, b) => a.path.localeCompare(b.path));
+    return map;
+  }, [outputs.data]);
 
   return (
     <Page className="h-full min-h-0 flex-1 gap-0 overflow-hidden bg-surface">
@@ -1696,6 +1709,7 @@ function ChatColumn({
           currentRunId={run?.runId ?? lastRunId}
           runOutputs={{
             byRun: outputsByRun,
+            byAnchor: outputsByAnchor,
             hasNextPage: outputs.hasNextPage,
             loadingMore: outputs.isFetchingNextPage,
             onLoadMore: () => void outputs.fetchNextPage(),
@@ -2169,6 +2183,7 @@ export function MessagePane({
   currentRunId: string | null;
   runOutputs?: {
     byRun: ReadonlyMap<string, OutputFile[]>;
+    byAnchor: ReadonlyMap<string, OutputFile[]>;
     hasNextPage: boolean;
     loadingMore: boolean;
     onLoadMore: () => void;
@@ -2273,7 +2288,14 @@ export function MessagePane({
                   const outputRunId = turn.user
                     ? userOnlyRunId
                     : (turnRunId ?? (latest ? (currentRunId ?? undefined) : undefined));
-                  const runFiles = outputRunId ? (runOutputs?.byRun.get(outputRunId) ?? []) : [];
+                  // run_id 被维护清空或分支重写后，退回本轮边界消息的锚点；用户轮只在
+                  // 没有助手回复时就地显示，避免与助手轮重复。
+                  const anchorVisible = !turn.user || noReply || turnIndex === turns.length - 1;
+                  const runFiles = outputRunId
+                    ? (runOutputs?.byRun.get(outputRunId) ?? [])
+                    : anchorVisible
+                      ? anchoredOutputs(turn.items, runOutputs?.byAnchor)
+                      : [];
                   const historyRun =
                     latest || (turn.user && !noReply) || turnRunId === undefined
                       ? undefined
@@ -2580,6 +2602,40 @@ function userMessageId(items: ChatItem[]): string | undefined {
     if (item.kind === 'user' && item.messageId) return item.messageId;
   }
   return undefined;
+}
+
+/** 历史项 id 形如 `<messageId>:<blockIndex>`；运行详情重建的合成 id 不会命中真实锚点。 */
+function itemMessageId(item: ChatItem): string | undefined {
+  if (item.kind === 'notice') return undefined;
+  if (item.kind !== 'tool' && item.messageId !== undefined) return item.messageId;
+  return item.id?.split(':')[0];
+}
+
+/** 本轮边界消息命中 manifest 锚点时返回成果；同一 run 的同一路径只出现一次。 */
+function anchoredOutputs(
+  items: ChatItem[],
+  byAnchor: ReadonlyMap<string, OutputFile[]> | undefined,
+): OutputFile[] {
+  if (byAnchor === undefined) return [];
+  const seen = new Set<string>();
+  const files: OutputFile[] = [];
+  for (const item of items) {
+    // 工具轮的结果消息与调用 id 都可能是 manifest 锚点：run_id 被清空后只能靠它们定位。
+    const ids =
+      item.kind === 'tool'
+        ? [itemMessageId(item), item.toolUseId, item.resultMessageId]
+        : [itemMessageId(item)];
+    for (const id of ids) {
+      if (id === undefined) continue;
+      for (const file of byAnchor.get(id) ?? []) {
+        const key = `${file.runId}:${file.path}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        files.push(file);
+      }
+    }
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 function messageTurns(items: ChatItem[], hasFooter: boolean) {

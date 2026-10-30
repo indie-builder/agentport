@@ -29,8 +29,34 @@ test('跨页的工具调用与结果合并成一行，历史 id 稳定且不受�
     { id: 'm3:0', kind: 'tool', toolUseId: 'tu1', name: '未知工具', result: 'ok' },
   ]);
   expect(historyToItems([...older, ...newer])).toEqual([
-    { id: 'm1:0', kind: 'tool', toolUseId: 'tu1', name: 'search', input: '{}', result: 'ok' },
+    {
+      id: 'm1:0',
+      kind: 'tool',
+      toolUseId: 'tu1',
+      name: 'search',
+      input: '{}',
+      result: 'ok',
+      resultMessageId: 'm3',
+    },
     { id: 'm2:0', kind: 'user', text: '继续', messageId: 'm2' },
+  ]);
+});
+
+test('合并工具结果时保留结果消息锚点，成果才能按消息 id 定位', () => {
+  const items = historyToItems([
+    message('m1', 'assistant', [{ type: 'tool_use', id: 'tu1', name: 'search' }]),
+    message('m2', 'assistant', [{ type: 'tool_result', toolUseId: 'tu1', content: 'ok' }]),
+  ]);
+  expect(items).toEqual([
+    {
+      id: 'm1:0',
+      kind: 'tool',
+      toolUseId: 'tu1',
+      name: 'search',
+      input: '{}',
+      result: 'ok',
+      resultMessageId: 'm2',
+    },
   ]);
 });
 
@@ -49,7 +75,15 @@ test('补入工具调用时即使渲染项数量不变也替换未知工具并�
     [...loaded, ...tail],
   );
   expect(merged?.items).toEqual([
-    { id: 'm1:0', kind: 'tool', toolUseId: 'tu1', name: 'search', input: '{}', result: 'ok' },
+    {
+      id: 'm1:0',
+      kind: 'tool',
+      toolUseId: 'tu1',
+      name: 'search',
+      input: '{}',
+      result: 'ok',
+      resultMessageId: 'm2',
+    },
     ...tail,
   ]);
 });

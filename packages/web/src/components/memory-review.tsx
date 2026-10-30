@@ -430,6 +430,9 @@ function CreateMemoryReviewDialog({
       : fieldErrors.instruction;
   // 关闭表单和路由离开共用同一份放弃确认；pending 时 proceed 会被 useFormBlocker 拦下。
   const blocker = useFormBlocker(dirty, create.isPending);
+  // 提交成功的回调可能是旧的闭包，用 ref 拿最新的 blocker 才能取消已被拦下的导航。
+  const latestBlocker = useRef(blocker);
+  latestBlocker.current = blocker;
   const leaving = blocker.status === 'blocked';
 
   const requestClose = (): void => {
@@ -517,6 +520,8 @@ function CreateMemoryReviewDialog({
       {
         onSuccess: () => {
           toastSuccess('已发起记忆回顾');
+          // 关闭会卸载 blocker，先取消被拦下的返回导航，避免地址栏与路由停在不同的地址。
+          if (latestBlocker.current.status === 'blocked') latestBlocker.current.reset?.();
           onClose();
         },
         onError: (error) =>

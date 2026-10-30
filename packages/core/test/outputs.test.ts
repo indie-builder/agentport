@@ -175,7 +175,13 @@ describe('publish, list and read', () => {
       'application/octet-stream',
       'text/markdown',
     ]);
-    expect(items[0]).toMatchObject({ runId: 'run_1', size: binary.length, status: 'succeeded' });
+    expect(items[0]).toMatchObject({
+      runId: 'run_1',
+      size: binary.length,
+      status: 'succeeded',
+      userMessageId: 'msg-run_1',
+      afterMessageId: 'msg-after-run_1',
+    });
     expect(items[0]?.sha256).toBe(sha256(binary));
     expect(items[3]?.sha256).toBe(sha256('# 报告\n'));
 
@@ -190,6 +196,8 @@ describe('publish, list and read', () => {
       runId: 'run_1',
       path: 'report.md',
       mediaType: 'text/markdown',
+      userMessageId: 'msg-run_1',
+      afterMessageId: 'msg-after-run_1',
     });
     expect(text.data.equals(Buffer.from('# 报告\n'))).toBe(true);
 
@@ -848,6 +856,10 @@ describe('fork copy and removal', () => {
       limit: 50,
     });
     expect(copied.items.map((item) => `${item.runId}:${item.path}`)).toEqual(['run_1:a.md']);
+    expect(copied.items[0]).toMatchObject({
+      userMessageId: 'msg-u1-new',
+      afterMessageId: 'msg-a1-new',
+    });
 
     const manifest = JSON.parse(
       await readFile(

@@ -18,6 +18,8 @@ const file = {
   mediaType: 'text/markdown',
   createdAt: '2026-10-28T00:00:00.000Z',
   status: 'failed',
+  userMessageId: 'msg_u',
+  afterMessageId: 'msg_a',
 } as const;
 
 const manifest = {
