@@ -4,7 +4,7 @@
 
 用户已在 2026-10-30 明确授权「提交并启动」：先把 `redesign-agent-experience` 的成果提交并合入 `main`，再启动每 10 分钟唤醒的动效车道与每 30 分钟到期的能力车道，持续改进 Agentport / PACE。
 
-同日用户后续明确决定：两个定时任务先不急启动，要重启电脑，重启后再由用户明确要求启动。因此当前记录为 `paused_until_user_start`：提交与合并授权不变，本会话不创建 cron、不自动恢复，循环启动必须等用户重启后再次明确要求。
+同日用户曾要求重启电脑后再启动，记录为 `paused_until_user_start`；该暂停已由用户 2026-10-30 明确指令「好，现在给我开始启动这两个loop」替代。基线已由 PR #119 合入 `main`（`aa8142c`），唯一 scheduler 已创建并运行，两车道首轮任务已并行启动。
 
 验收：
 
@@ -19,8 +19,8 @@
 
 ### 调度
 
-- 主线程在本轮基线合入 `main` 后，且用户重启电脑后再次明确要求启动时，才用 `CronCreate` 创建**唯一** cron，每 10 分钟唤醒；创建前与每轮开始时用 `CronList` 确认没有同类任务，避免重复。本会话不创建 cron；`CronList` 已确认无 jobs，`ScheduleWakeup` 已停止且无 pending。
-- 暂停契约：用户启动前状态保持 `enabled:false`、两车道 `phase:'paused_by_user'`、`nextDue:null`；不唤醒、不产生车道任务、不在下一次会话自动恢复。
+- 唯一 cron 已按用户 2026-10-30 的明确启动指令创建：jobID `b399e273`，`*/10 * * * *`，工具返回的实际下次运行是 2026-10-30 09:54 本地时间（运行时快照，后续以 cron 工具实际返回为准）；仅此一个 scheduler 同时承担动效 10 分钟与能力 30 分钟两车道，不另建第二个 cron。每轮开始时用 `CronList` 确认没有同类任务，避免重复。启动前置由用户明确启动控制；历史暂停期间「本会话不创建 cron」的表述已被这次启动替代，不是当前规则。
+- 历史暂停契约（已替代）：启动前状态曾为 `enabled:false`、两车道 `phase:'paused_by_user'`、`nextDue:null`；用户明确启动后已切换为运行态，不再适用。
 - 唤醒只是检查点。每轮按真实时间读取状态，判断各车道 `nextDue`：动效车道周期 10 分钟，能力车道周期 30 分钟。
 - cron 仅当前会话有效：关闭会话即停止，7 天自动过期。不创建独立定时 job、状态脚本、配置文件或永久 harness hook。
 - 车道有进行中的任务时，到点只继续该任务，不重开、不新建；不补做 missed tick，不积压到期次数。任务完成后的 `nextDue = 完成时刻 + 周期`。
@@ -71,11 +71,12 @@
 }
 ```
 
-- 暂停态：`enabled:false`、`pausedDecision:'paused_until_user_start'`、两车道 `phase:'paused_by_user'` 与 `nextDue:null`、`schedulerJobId:null`；`baselinePending` 如实表示分支是否仍待合并。
+- 历史暂停态（已替代）：曾为 `enabled:false`、`pausedDecision:'paused_until_user_start'`、两车道 `phase:'paused_by_user'` 与 `nextDue:null`、`schedulerJobId:null`。
+- 当前运行态：`enabled:true`、`baselinePending:false`、`initialMergeCommit:'aa8142c'`、`schedulerJobId:'b399e273'`；两车道 `nextDue` 首轮为当前到期，后续为完成任务时刻 + 周期；共用锁由本 job `startup` 持有至首轮任务收尾。
 
 ### 每轮流程
 
-每轮仅在用户重启后明确要求启动且状态 `enabled:true` 时执行；暂停期间不唤醒、不写车道。
+用户已于 2026-10-30 明确启动，状态 `enabled:true`；每轮按状态与真实时间执行。启动前置始终由用户明确启动控制，暂停期间不唤醒、不写车道。
 
 1. 读 `CLAUDE.md`、`docs/DEV-WORKFLOW.md`、`docs/PITFALLS.md`、`docs/REMAINING-TODOS.md` 与本文件。
 2. `CronList` 确认唯一 cron。
@@ -90,7 +91,7 @@
 - 写代码前确认工作区干净并 `git fetch origin main`；从最新 `origin/main` 建独立分支再写。
 - 发现未知的他人差异：不 `stash`、不 `restore`、不提交；暂停写入并报告。
 - 不覆盖其他 session/worktree 的活跃任务；无法确认归属时按未知差异处理。
-- 启动门槛：当前基线（`redesign-agent-experience` 合入 `main`）完成前，不做任何新增。
+- 启动门槛已满足：基线（`redesign-agent-experience`）已由 PR #119 合入 `main` `aa8142c`，不再有未合并前置。
 
 ### 角色与并行
 
@@ -121,17 +122,21 @@
 
 ## 基线与范围
 
-- 项目目录 `/Users/xbjt/Documents/myself/agentport`；当前分支 `redesign-agent-experience` 提交 `8696a56` + 补修 `8ba7c90`（当前 HEAD），已整合 main `646217c`，尚未合入 `main`。两项独立 review 已报告的 mustfix 均由 Opus 定点复核通过（回顾 pending 导航 reset；成果 runId-null 与 fork tool_result 合并锚点，87 条定向用例复测）。前端 118 个文件 1384 条用例通过（38.90s）；输出锚点变更后后端全量 247 个文件 2422 条用例通过、0 skip（91.12s），此后仅改 web 工具结果字段；全仓 typecheck、全仓 build 与最终 web build 通过，lint focus/contract 通过，迁移隔离真实通过。聊天历史合并 `tool_result` 时保留 `resultMessageId`，成果分页未扩大。
-- 循环协调锁 `pace-improvement-loop.lock` 与状态 `pace-improvement-loop-state.json` 曾在 git common dir 创建；本会话 owner 锁（`job642ddc7d` / `initial-submit`）已释放，状态保留并记录 `enabled:false`、两车道 `phase:'paused_by_user'`、`nextDue:null`；cron 从未创建（`CronList` 已确认无 jobs，`ScheduleWakeup` 无 pending），循环暂停，待用户重启后手动启动。
+- 项目目录 `/Users/xbjt/Documents/myself/agentport`；基线分支 `redesign-agent-experience` 的 `8696a56` + 补修 `8ba7c90` 已整合 main `646217c`，并已由 PR #119 合入 `main` `aa8142c`（原「尚未合入 main」已纠正）。两项独立 review 已报告的 mustfix 均由 Opus 定点复核通过（回顾 pending 导航 reset；成果 runId-null 与 fork tool_result 合并锚点，87 条定向用例复测）。前端 118 个文件 1384 条用例通过（38.90s）；输出锚点变更后后端全量 247 个文件 2422 条用例通过、0 skip（91.12s），此后仅改 web 工具结果字段；全仓 typecheck、全仓 build 与最终 web build 通过，lint focus/contract 通过，迁移隔离真实通过。聊天历史合并 `tool_result` 时保留 `resultMessageId`，成果分页未扩大。
+- 循环协调锁 `pace-improvement-loop.lock` 与状态 `pace-improvement-loop-state.json` 位于 git common dir；历史暂停时 owner 锁曾释放，当前锁 owner 为本 job `startup`，持有至首轮任务收尾，其他会话、worktree 或车道不得抢锁。状态当前为 `enabled:true`、`baselinePending:false`、`initialMergeCommit:'aa8142c'`、`schedulerJobId:'b399e273'`；cron 已在用户明确启动后创建，session-only、7 天自动过期，关闭会话即停止。
 - 任务记录进仓库；锁与状态放 git common dir，不提交。
 - 允许改动：能力/动效任务对应的源码、测试、配置、脚本与文档，按各任务契约限定；循环本身不新增定时 job、状态脚本或 harness hook。
 - 不改变：品牌数值与设计基准、已选技术栈、官方文件系统第一性原则、Claude Agent SDK 单底座、运维不占业务主入口。
 
 ## 当前有效决定
 
-- 2026-10-30 用户明确授权「提交并启动」：当前分支提交并合 `main`；启动 10 分钟动效与 30 分钟能力循环；能力车道每个任务完成时提交、推送并合并。
-- 2026-10-30 用户最新明确决定（覆盖本会话立即启动）：两个定时任务先不启动，重启电脑后再由用户明确要求启动；记录 `paused_until_user_start`，本会话不创建 cron、不自动恢复。提交与合并授权不变，两车道周期、三轮独立 review 与共用互斥锁契约保留。
-- 当前执行状态：提交已落 `8696a56`，补修提交 `8ba7c90`（当前 HEAD），已整合 main `646217c`；两项独立 review 的已报告 mustfix 均由 Opus 定点复核通过（回顾 pending 导航 reset；成果 runId-null 与 fork tool_result 合并锚点，87 条定向用例复测），合入 `main` 尚未执行，`baselinePending` 为真实待合并。前端 118 文件 1384 用例（38.90s）、后端全量 247/2422（91.12s，0 skip）、全仓 typecheck/build、最终 web build、lint focus/contract、迁移隔离均通过。本会话锁已释放，状态 `enabled:false`、两车道 `phase:'paused_by_user'`、`nextDue:null`；`CronList` 无 jobs，cron 从未创建。
+- 2026-10-30 用户明确指令「好，现在给我开始启动这两个loop」，覆盖此前的重启后暂停：两车道已启动，唯一 scheduler 承担动效 10 分钟与能力 30 分钟；启动前置由用户明确启动控制。
+- 基线已由 PR #119 合入 `main` `aa8142c`，`baselinePending:false`、`initialMergeCommit:'aa8142c'`，不再有待合并前置。
+- 当前调度：jobID `b399e273`、`*/10 * * * *`，实际下次 2026-10-30 09:54 本地（运行时快照）；session-only、7 天自动过期、关闭会话即停止；只有这一个 scheduler，不新增第二个 cron。
+- 首轮两车道于 2026-10-30T01:41:28Z 并行启动：动效只读 Opus 子代理 `aba90cd64ba20f363`（专家/登录）、能力只读 Opus 子代理 `a4629c08d7aefb880`；首轮结果已回，见下条与运行记录。
+- 2026-10-30 首轮动效车道完成实现与验证：`CreateAgentDialog` 高级设置加 `animated`，主线程 2 文件 102 用例 9.50s 通过；独立 Opus review `af6e2975d28243568` 通过、无 mustfix（3 文件 105 用例 + web typecheck/focus/diffcheck），待提交合并。
+- 能力车道任务 10「会话内图片成果预览」（PNG/JPEG/GIF/WebP，复用鉴权下载，公开/私有共享 BlobImage）契约已定，因动效车道持有写锁排队等待，未实现；不记为已交付。
+- 能力车道每个任务完成后按授权提交、推送并合并；三轮独立 Opus review 与共用互斥锁契约不变。
 - 单一 cron，按真实时间分车道，不按 tick 数；不启 CI、不开启 PR 监控或冷却等待。
 - 主会话只编排/读/验证/提交；Opus 设计与判断；Sonnet 执行；不用 Workflow。
 - in-place 优先；干净仓库从最新 `origin/main` 建独立分支；未知差异暂停并报告。
@@ -140,7 +145,9 @@
 ## 已替代项及原因
 
 - 旧的「未授权 commit / push / merge」被用户 2026-10-30 的明确授权替代。
-- 「本轮基线合入后立即启动循环」被用户 2026-10-30 的最新决定替代：两个定时任务先不启动，重启电脑后由用户明确要求再启动（`paused_until_user_start`）；提交与合并授权以及循环契约不变。
+- 「本轮基线合入后立即启动循环」曾被用户 2026-10-30 的重启后暂停决定替代（`paused_until_user_start`）；该暂停又已被用户同日「好，现在给我开始启动这两个loop」替代，当前为运行态。提交与合并授权以及循环契约不变。
+- 「本会话绝不创建 cron / 重启后再由用户明确要求启动」作为暂停期规则已替代：用户在 2026-10-30 明确启动，唯一 cron `b399e273` 已创建；启动前置仍由用户明确启动控制，不改写为自动恢复。
+- 「基线尚未合入 main / baselinePending 待合并」已被 PR #119 合入 `main` `aa8142c` 替代。
 - 多 cron 或多车道各自计时被单一 cron + 真实时间判断替代；避免重复任务与 tick 漂移。
 - 用 Workflow 编排被主会话 + Opus/Sonnet 子代理替代；本项目要求主会话只编排，且已有并行子代理机制。
 - 默认建 worktree 被当前会话 in-place 要求替代；例外来源为本轮任务指令，不推广。
@@ -149,35 +156,48 @@
 ## 步骤
 
 - [x] 创建本记录；更新 `docs/tasks/agent-experience-redesign.md` 授权段与收尾证据。
-- [x] 提交当前分支为 `8696a56`，整合 main `646217c`，补修提交 `8ba7c90`（当前 HEAD）。
-- [x] 2026-10-30 按用户最新决定暂停启动：记录 `paused_until_user_start`，状态置 `enabled:false`、两车道 `phase:'paused_by_user'`、`nextDue:null`，释放本会话 owner 锁（`job642ddc7d` / `initial-submit`）。
+- [x] 提交当前分支为 `8696a56`，整合 main `646217c`，补修提交 `8ba7c90`。
+- [x] 2026-10-30 曾按用户当时决定暂停启动（`paused_until_user_start`）；该暂停已被同日「好，现在给我开始启动这两个loop」替代。
 - [x] 两项独立 review 的已报告 mustfix 由 Opus 定点复核通过（回顾 pending 导航 reset；成果 runId-null 与 fork tool_result 合并锚点，87 条定向用例复测）。
-- [ ] 合入 `main` 尚未执行；确认工作区干净后按授权处理。
-- [ ] 用户重启电脑并再次明确要求启动后，`CronList` 确认无同类 cron，再用 `CronCreate` 创建唯一 10 分钟 cron（本会话不创建）。
+- [x] 基线已由 PR #119 合入 `main` `aa8142c`；此前「尚未合入」记录已纠正。
+- [x] 用户明确启动后创建唯一 cron：jobID `b399e273`、`*/10 * * * *`，实际下次 2026-10-30 09:54 本地（运行时快照），session-only、7 天自动过期。
+- [x] 首轮两车道于 2026-10-30T01:41:28Z 并行启动：动效只读 Opus `aba90cd64ba20f363`（专家/登录）、能力只读 Opus `a4629c08d7aefb880`。
+- [x] 首轮结果已回：动效任务实现/验证/评审完成、待提交合并；能力 task 10 设计完成、排队等待写锁。`nextDue` 待实际合并后由主线程按完成时刻 + 周期计算，本记录不预填时间。
 - [ ] 每轮按契约检查两车道；动效轮转页面，能力任务三轮独立 review。
 - [ ] 能力任务完成后提交、推送、合并，并更新本记录与待办。
 - [ ] 停止时用 cron 工具取消；关闭会话即自动停止。
 
 ## 改动文件
 
-- `docs/tasks/platform-improvement-loop.md`
-- `docs/tasks/agent-experience-redesign.md`
+- `docs/tasks/platform-improvement-loop.md`（本启动记录）
+- `docs/tasks/animation-advanced-settings-20261030.md`（首轮动效任务记录，本轮新增）
+- `docs/tasks/agent-experience-redesign.md`（此前基线任务已更新，本轮未改）
 
 ## 运行记录
 
-2026-10-30 / 暂停 / 用户决定重启电脑后再手动启动 / 记录 `paused_until_user_start`；状态 `enabled:false`、两车道 `phase:'paused_by_user'`、`nextDue:null`；`CronList` 无 jobs、`ScheduleWakeup` 无 pending；本会话 owner 锁已释放 / 无 commit
+2026-10-30 / 暂停（已替代） / 用户当时决定重启电脑后再手动启动 / 记录 `paused_until_user_start`；状态曾为 `enabled:false`、两车道 `phase:'paused_by_user'`、`nextDue:null`；`CronList` 无 jobs、`ScheduleWakeup` 无 pending；本会话 owner 锁已释放 / 无 commit
+
+2026-10-30 / 启动 / 用户明确「好，现在给我开始启动这两个loop」 / 唯一 cron `b399e273` 已创建（`*/10 * * * *`，实际下次 2026-10-30 09:54 本地，运行时快照，session-only/7 天）；状态 `enabled:true`、`baselinePending:false`、`initialMergeCommit:'aa8142c'`；共用锁 owner 为本 job `startup` / 无 commit
+
+2026-10-30T01:41:28Z / 首轮 / 动效只读 Opus `aba90cd64ba20f363`（专家/登录）与能力只读 Opus `a4629c08d7aefb880` 并行 / 进行中，结果未回，不写结论 / 无 commit
+
+2026-10-30 / 动效车道首轮 / `CreateAgentDialog` 高级设置折叠补 150ms height+opacity 共享过渡（仅加 `animated`，测试草稿保持） / 实现 agent `a62f9d919db87caa3`；主线程 `agents-ui`+`agents-lifecycle` 2 文件 102 用例 9.50s 通过；独立 Opus `af6e2975d28243568` review 通过、无 mustfix（3 文件 105 用例 + web typecheck/focus/diffcheck）；浏览器证据沿用作者本 checkout `http://localhost:5173`（`agentport.localhost` 指向旧 worktree），未重测帧率，截图在 `/tmp/agentport-animation-20261030/`；`review-animations` 工具本环境被禁用，未执行其流程 / 待提交合并，`nextDue` 由主线程实际合并后计算
+
+2026-10-30 / 能力车道 task 10 / 会话内图片成果预览（PNG/JPEG/GIF/WebP，复用鉴权下载，公开/私有共享 BlobImage） / 设计完成，因动效车道持有写锁排队等待，未实现、未提交 / 无 commit
 
 启动后每完成一个车道任务追加一行：时间 / 车道 / 任务 / 结果 / commit 或 PR。
 
 ## 下一步
 
-- 当前分支提交 `8696a56` + 补修 `8ba7c90` 已完成、已整合 main `646217c`；已报告 review mustfix 已定点通过，合入 `main` 尚未执行（授权不变）。
-- 循环保持暂停：用户重启电脑并再次明确要求启动前，不创建 cron、不执行车道任务、不自动恢复。
-- 启动后首轮动效从尚未覆盖的页面开始；首轮能力从 `docs/REMAINING-TODOS.md` 与两类用户主路径中选取最小完整功能，契约由 Opus 固定。
+- 基线已由 PR #119 合入 `main` `aa8142c`，不再有待合并前置；已报告 review mustfix 已定点通过。
+- 循环已由用户明确启动：唯一 scheduler `b399e273` 同时承担动效 10 分钟/能力 30 分钟。
+- 首轮动效任务已实现、验证、评审通过，源码与测试为未提交差异，待主线程提交与合并；`nextDue` 在合并后按完成时刻 + 10 分钟计算，本记录不预填。
+- 能力 task 10（会话内图片成果预览）设计完成，等待动效车道释放写锁后实现；完成前不记为已交付。
+- 共用锁与状态继续由 scheduler 维护；首轮未合并前不宣称已完成。
 
 ## 验证
 
-- `git diff --check`：通过（exit 0，无空白错误）。
+- `git diff --check`：通过（本启动记录改动后 exit 0，无空白错误）。
 - 本轮收尾验证（2026-10-30 最终结果，按真实结果记录）：
   - 全仓 typecheck：`pnpm -r typecheck` 完整通过。
   - 全仓 build：`pnpm -r build` 与最终 web build 完整通过。
@@ -188,5 +208,7 @@
   - 迁移：本轮验证全部在 backend globalSetup 的随机隔离库完成，迁移隔离真实通过。
   - 补修：manifest 成果条目补 `userMessageId`/`afterMessageId` 锚点，清理/分支后仍挂回正确轮次；聊天历史合并 `tool_result` 时保留结果消息 `resultMessageId`，成果分页未扩大；回顾提交成功先 reset 最新 blocker 再关闭，browser history 测试证明地址栏与路由一致。
   - 独立 sandbox 镜像：GNU bash 5.3.9、Claude Agent SDK 0.3.311，fake 模型无付费请求；共享开发镜像 `agentport/sandbox:dev` 仍缺 GNU bash，但未用于本轮验收，真实 SDK 覆盖已由独立镜像解决。
-- 真实付费模型与有效分享页浏览器验收仍未完成；合入 `main` 尚未执行。以上均不写成通过。
-- 上述数字来自本轮最终验证；循环尚未启动，本文件未重跑车道任务。两项独立 review 的已报告 mustfix 已定点通过，不据此宣称整项验收或合并完成。
+- 真实付费模型与有效分享页浏览器验收仍未完成（历史验收项）；合入 `main` 已由 PR #119 完成（`aa8142c`）。以上未完成项均不写成通过。
+- 上述数字来自基线合入前的最终验证；循环已启动，首轮动效任务实现/验证/评审通过、待提交合并，能力 task 10 仅设计完成排队。两项独立 review 的已报告 mustfix 已定点通过，不据此宣称整轮循环完成。
+- 首轮动效复测：主线程 `agents-ui`+`agents-lifecycle` 2 文件 102 条用例 9.50s 通过；独立 Opus review 3 文件 105 条用例 + web typecheck + `lint:focus` + `git diff --check` 通过、无 mustfix；浏览器证据来自作者本 checkout `http://localhost:5173`，未重测帧率；`review-animations` 工具被禁用，未执行其流程。
+- 首轮能力 task 10 仅完成契约设计，未改源码、未验证、未提交，不写成已实现。

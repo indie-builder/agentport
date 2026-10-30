@@ -3657,7 +3657,7 @@ export function CreateAgentDialog({
               />
               高级设置
             </CollapsibleTrigger>
-            <CollapsibleContent keepMounted>
+            <CollapsibleContent keepMounted animated>
               <div className="flex flex-col gap-3 border-t p-3">
                 <Field data-disabled={create.isPending} className="gap-1.5">
                   <FieldLabel htmlFor="new-agent-model">模型</FieldLabel>
