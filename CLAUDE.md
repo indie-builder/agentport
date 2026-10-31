@@ -59,8 +59,8 @@
 - **代码写完后先经 Opus 子代理 code review 再提交**；review 未过不提交。
 - 能拆成互不依赖的子任务就并行，不要串行做完一个再下一个；每个子代理要有明确产出边界（改哪些文件、不改哪些文件）与验收方式。
 - **上述模型分工高于个人 `pstack-models.md` 的 per-role 配置与技能默认值。** 设计、规划、方案、探索判断、评审、审计不适用其中的 ordinary prose 用 Sonnet 或 exceptionally complex 用 Fable 等例外，无论复杂度一律用 Opus；派发时显式指定模型，不为并行而降低判断质量。
-- **完整研发流程（含建树、配置与启动规则）、review 轮次做法、验证与撤销规则统一见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**；开工前读 [docs/PITFALLS.md](docs/PITFALLS.md)，踩坑记入该文件不散落。产出只落在 worktree，主 checkout 保持干净。
-- **已提交并合并的 worktree 任务收尾即删**：分支改动全部提交且已合并到 main 后，对应 worktree 不再有存在价值，`git worktree remove` 删掉（分支与远程保留）；未提交内容一律不删，先报告。判据与做法见 docs/DEV-WORKFLOW.md §2-7。
+- **完整研发流程（含建树、配置与启动规则）、review 轮次做法、验证与撤销规则统一见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**；每个任务首次写入前、续做同一未完成任务恢复时必读 §2，流程细节不在此复制；开工前读 [docs/PITFALLS.md](docs/PITFALLS.md)，踩坑记入该文件不散落。产出只落在 worktree，主 checkout 保持干净。
+- **「收尾工作区」按 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) §2-7 执行**：清理本任务已交付的 worktree、退出回主 checkout 并快进更新 main；清理判据与例外都在 §2-7，此处不复制。
 
 ## 智能体运行底座
 
