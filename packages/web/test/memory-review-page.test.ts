@@ -52,11 +52,11 @@ function makeReview(overrides: Partial<MemoryReview> & Pick<MemoryReview, 'runId
     status: 'succeeded',
     decision: 'pending',
     sources: [{ conversationId: 'conv-1', title: '会话一', messageCount: 4 }],
-    before: { content: '旧内容', globs: null },
+    before: { content: '旧内容', globs: null, index: null },
     proposal: {
       summary: '补充长期偏好',
       proposedContent: '新内容',
-      evidence: [{ messageId: 'msg-1', quote: '以后都用中文回答' }],
+      evidence: [{ messageId: 'msg-1', quote: '以后都用中文回答', kind: 'user_fact' }],
     },
     appliedChangeId: null,
     costUsd: '0.1200',
@@ -68,8 +68,8 @@ function makeReview(overrides: Partial<MemoryReview> & Pick<MemoryReview, 'runId
 const change: MemoryChange = {
   id: 'chg_1',
   target: { kind: 'personal' },
-  before: { content: '旧内容', globs: null },
-  after: { content: '新内容', globs: null },
+  before: { content: '旧内容', globs: null, index: null },
+  after: { content: '新内容', globs: null, index: null },
   sourceReviewRunId: 'run-apply',
   reversesChangeId: null,
   state: 'applied',
@@ -209,6 +209,18 @@ async function fill(id: string, value: string) {
   });
 }
 
+async function chooseOption(selectLabel: string, optionLabel: string, scope: ParentNode) {
+  await click(button(selectLabel, scope));
+  const option = await vi.waitFor(() => {
+    const element = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (item) => item.textContent?.trim() === optionLabel,
+    );
+    expect(element).toBeTruthy();
+    return element as HTMLElement;
+  });
+  await click(option);
+}
+
 beforeEach(() => {
   vi.spyOn(api, 'me').mockResolvedValue(allAccessMe);
   vi.spyOn(api, 'agents').mockResolvedValue([agentA, agentB]);
@@ -229,6 +241,13 @@ beforeEach(() => {
     },
   ]);
   vi.spyOn(api, 'agentRules').mockResolvedValue([]);
+  vi.spyOn(api, 'agentMemory').mockResolvedValue({
+    files: [
+      { name: 'MEMORY.md', size: 10, updatedAt: '2026-10-01T00:00:00.000Z' },
+      { name: 'topic.md', size: 20, updatedAt: '2026-10-01T00:00:00.000Z' },
+    ],
+    initialized: true,
+  });
   vi.spyOn(api, 'agentMemoryVersions').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'agentRuleVersions').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'memoryReviews').mockResolvedValue({ items: [] });
@@ -270,7 +289,7 @@ describe('历史回顾', () => {
         makeReview({
           runId: 'run-r',
           status: 'running',
-          target: { kind: 'agent_memory', agentId: 'agent-b' },
+          target: { kind: 'agent_memory', agentId: 'agent-b', name: 'topic.md' },
         }),
         makeReview({
           runId: 'run-rule',
@@ -785,8 +804,8 @@ describe('历史回顾', () => {
               ...change,
               id: 'chg-reverse',
               reversesChangeId: 'chg_1',
-              before: { content: '新内容', globs: null },
-              after: { content: '旧内容', globs: null },
+              before: { content: '新内容', globs: null, index: null },
+              after: { content: '旧内容', globs: null, index: null },
             },
           ]
         : [],
@@ -797,8 +816,8 @@ describe('历史回顾', () => {
         ...change,
         id: 'chg-reverse',
         reversesChangeId: 'chg_1',
-        before: { content: '新内容', globs: null },
-        after: { content: '旧内容', globs: null },
+        before: { content: '新内容', globs: null, index: null },
+        after: { content: '旧内容', globs: null, index: null },
       };
     });
     await mount();
@@ -841,8 +860,8 @@ describe('历史回顾', () => {
           ...change,
           id: 'chg-reverse',
           reversesChangeId: 'chg-rolled',
-          before: { content: 'x', globs: null },
-          after: { content: 'y', globs: null },
+          before: { content: 'x', globs: null, index: null },
+          after: { content: 'y', globs: null, index: null },
         },
       ],
     });
@@ -936,5 +955,262 @@ describe('历史回顾', () => {
     if (!close) throw new Error('Missing dialog close');
     await click(close);
     await vi.waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it('专家记忆可选 MEMORY.md、已有主题或新主题，并把文件名提交为 target.name', async () => {
+    await mount();
+    await click(button('新建回顾'));
+    await vi.waitFor(() =>
+      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
+    );
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await chooseOption('目标', '专家记忆', dialog);
+    await chooseOption('记忆文件', 'topic.md', dialog);
+    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
+    if (!checkbox) throw new Error('Missing conversation checkbox');
+    await click(checkbox);
+    await click(button('开始回顾', dialog));
+
+    await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createMemoryReview).mock.calls[0]?.[0].target).toEqual({
+      kind: 'agent_memory',
+      agentId: 'agent-a',
+      name: 'topic.md',
+    });
+  });
+
+  it('新主题文件名复用 shared 校验并自动补 .md', async () => {
+    await mount();
+    await click(button('新建回顾'));
+    await vi.waitFor(() =>
+      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
+    );
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await chooseOption('目标', '专家记忆', dialog);
+    await chooseOption('记忆文件', '新主题…', dialog);
+
+    await fill('memory-review-new-file', 'Bad Name');
+    await click(button('开始回顾', dialog));
+    await vi.waitFor(() => expect(dialog.textContent).toContain('记忆文件名非法'));
+    expect(document.getElementById('memory-review-new-file')?.getAttribute('aria-invalid')).toBe(
+      'true',
+    );
+    expect(api.createMemoryReview).not.toHaveBeenCalled();
+
+    await fill('memory-review-new-file', 'deploy-notes');
+    expect(dialog.textContent).not.toContain('记忆文件名非法');
+    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
+    if (!checkbox) throw new Error('Missing conversation checkbox');
+    await click(checkbox);
+    await click(button('开始回顾', dialog));
+    await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createMemoryReview).mock.calls[0]?.[0].target).toEqual({
+      kind: 'agent_memory',
+      agentId: 'agent-a',
+      name: 'deploy-notes.md',
+    });
+  });
+
+  it('切换目标专家会清空不再有效的文件名和来源', async () => {
+    await mount();
+    await click(button('新建回顾'));
+    await vi.waitFor(() =>
+      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
+    );
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await chooseOption('目标', '专家记忆', dialog);
+    await chooseOption('记忆文件', 'topic.md', dialog);
+    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
+    if (!checkbox) throw new Error('Missing conversation checkbox');
+    await click(checkbox);
+    await vi.waitFor(() =>
+      expect(dialog.querySelector('[aria-label="已选来源会话"]')).toBeTruthy(),
+    );
+
+    await chooseOption('目标专家', '专家乙', dialog);
+    await vi.waitFor(() =>
+      expect(document.getElementById('memory-review-memory-file')?.textContent).toContain(
+        'MEMORY.md',
+      ),
+    );
+    expect(dialog.querySelector('[aria-label="已选来源会话"]')).toBeNull();
+  });
+
+  it('重新生成保留原目标文件名', async () => {
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [
+        makeReview({
+          runId: 'run-theme',
+          target: { kind: 'agent_memory', agentId: 'agent-b', name: 'topic.md' },
+        }),
+      ],
+    });
+    await mount();
+    const detail = await openFirstDetail();
+    await click(dialogButton('重新生成'));
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain('新建记忆回顾'),
+    );
+    const createDialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await vi.waitFor(() =>
+      expect(document.getElementById('memory-review-memory-file')?.textContent).toContain(
+        'topic.md',
+      ),
+    );
+    await vi.waitFor(() => expect(createDialog.textContent).toContain('会话一'));
+    await click(button('开始回顾', createDialog));
+    await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createMemoryReview).mock.calls[0]?.[0].target).toEqual({
+      kind: 'agent_memory',
+      agentId: 'agent-b',
+      name: 'topic.md',
+    });
+    expect(detail).toBeTruthy();
+  });
+
+  it('主题详情显示正文与索引前后对比、来源会话链接和证据归因', async () => {
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [
+        makeReview({
+          runId: 'run-index',
+          target: { kind: 'agent_memory', agentId: 'agent-a', name: 'topic.md' },
+          before: { content: '旧正文', globs: null, index: { content: '# 索引\n' } },
+          proposal: {
+            summary: '补充主题经验',
+            proposedContent: '新正文',
+            evidence: [
+              { messageId: 'msg-1', quote: '以后都用中文回答', kind: 'confirmed_decision' },
+              { messageId: 'msg-2', quote: '可以试试分主题整理', kind: 'assistant_suggestion' },
+            ],
+          },
+        }),
+      ],
+    });
+    await mount();
+    const dialog = await openFirstDetail();
+    expect(dialog.textContent).toContain('旧正文');
+    expect(dialog.textContent).toContain('新正文');
+    expect(dialog.textContent).toContain('索引');
+    expect(dialog.textContent).toContain('- [topic.md](topic.md)');
+    expect(dialog.textContent).toContain('已确认决定');
+    expect(dialog.textContent).toContain('助手建议');
+    expect(dialog.querySelector('a[href="/chat?conversation=conv-1"]')).toBeTruthy();
+  });
+
+  it('内容与索引都无变化时显示无需变更且不提供采用或拒绝', async () => {
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [
+        makeReview({
+          runId: 'run-nochange',
+          target: { kind: 'agent_memory', agentId: 'agent-a', name: 'topic.md' },
+          before: {
+            content: '同正文',
+            globs: null,
+            index: { content: '- [topic.md](topic.md)\n' },
+          },
+          proposal: { summary: '无需修改', proposedContent: '同正文', evidence: [] },
+        }),
+      ],
+    });
+    await mount();
+    await vi.waitFor(() => expect(host.textContent).toContain('无需变更'));
+    const dialog = await openFirstDetail();
+    expect(dialog.textContent).toContain('无需变更');
+    expect(buttonOrNull('采用', dialog)).toBeUndefined();
+    expect(buttonOrNull('不采用', dialog)).toBeUndefined();
+    expect(buttonOrNull('重新生成', dialog)).toBeTruthy();
+  });
+
+  it('采纳后主题与索引正文缓存一起失效', async () => {
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [
+        makeReview({
+          runId: 'run-cache',
+          target: { kind: 'agent_memory', agentId: 'agent-a', name: 'topic.md' },
+        }),
+      ],
+    });
+    await mount();
+    client.setQueryData(['agent-memory-file', 'agent-a', 'topic.md'], {
+      name: 'topic.md',
+      content: '旧正文',
+      updatedAt: null,
+    });
+    client.setQueryData(['agent-memory-file', 'agent-a', 'MEMORY.md'], {
+      name: 'MEMORY.md',
+      content: '# 索引',
+      updatedAt: null,
+    });
+    await openFirstDetail();
+    await click(dialogButton('采用'));
+    await vi.waitFor(() => expect(api.applyMemoryReview).toHaveBeenCalledWith('run-cache'));
+    await vi.waitFor(() => {
+      expect(
+        client.getQueryState(['agent-memory-file', 'agent-a', 'topic.md'])?.isInvalidated,
+      ).toBe(true);
+      expect(
+        client.getQueryState(['agent-memory-file', 'agent-a', 'MEMORY.md'])?.isInvalidated,
+      ).toBe(true);
+    });
+  });
+
+  it('采纳在途时阻止来源链接与浏览器后退，结算后恢复导航', async () => {
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [makeReview({ runId: 'run-hang' })],
+    });
+    let resolve!: (value: MemoryChange) => void;
+    vi.mocked(api.applyMemoryReview).mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    await mount('/memory?tab=reviews', { browser: true, stack: ['/memory'] });
+    const dialog = await openFirstDetail();
+    const source = dialog.querySelector<HTMLAnchorElement>('a[href^="/chat?"]');
+    if (!source) throw new Error('Missing source link');
+    await click(dialogButton('采用'));
+
+    expect(source.getAttribute('aria-disabled')).toBe('true');
+    const sourceClick = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    await act(async () => source.dispatchEvent(sourceClick));
+    expect(sourceClick.defaultPrevented).toBe(true);
+    expect(window.location.search).toBe('?tab=reviews');
+
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    await browserBack();
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+
+    await act(async () => resolve(change));
+    await flush();
+    await vi.waitFor(() => expect(window.location.search).toBe('?tab=reviews'));
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(source.getAttribute('aria-disabled')).toBeNull();
+  });
+
+  it('记忆文件列表加载失败时显示可重试错误，不伪装成没有主题', async () => {
+    vi.mocked(api.agentMemory)
+      .mockRejectedValueOnce(new Error('记忆文件加载失败'))
+      .mockResolvedValue({
+        files: [
+          { name: 'MEMORY.md', size: 10, updatedAt: '2026-10-01T00:00:00.000Z' },
+          { name: 'topic.md', size: 20, updatedAt: '2026-10-01T00:00:00.000Z' },
+        ],
+        initialized: true,
+      });
+    await mount();
+    await click(button('新建回顾'));
+    await vi.waitFor(() =>
+      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
+    );
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await chooseOption('目标', '专家记忆', dialog);
+    await vi.waitFor(() => expect(dialog.textContent).toContain('记忆文件加载失败'));
+
+    await click(button('重试', dialog));
+    await vi.waitFor(() => expect(dialog.textContent).not.toContain('记忆文件加载失败'));
+    await chooseOption('记忆文件', 'topic.md', dialog);
   });
 });

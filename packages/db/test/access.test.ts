@@ -189,14 +189,14 @@ async function createConversationWithRun(businessId: string, agentId: string) {
     modelAgentId: agentId,
     target: { kind: 'personal' },
     sources: [{ conversationId }],
-    before: { content: null, globs: null },
+    before: { content: null, globs: null, index: null },
   });
   await db.insert(memoryChanges).values({
     id: newId('memoryChange'),
     businessId,
     target: { kind: 'personal' },
-    before: { content: null, globs: null },
-    after: { content: 'remember', globs: null },
+    before: { content: null, globs: null, index: null },
+    after: { content: 'remember', globs: null, index: null },
   });
   return { conversationId, runId };
 }

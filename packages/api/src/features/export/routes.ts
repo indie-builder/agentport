@@ -22,7 +22,8 @@ export function registerExportRoutes(rawApp: FastifyInstance): void {
       const row = await agentRepo.getAgent(app.db, request.params.id);
       if (!row) return reject(reply, 'AGENT_NOT_FOUND', AGENT_MISSING);
 
-      // 导出包含配置、规则、样式、记忆与完整文件；缺任一读取叶都拒绝，不能静默裁剪后发出。
+      // 导出配置、规则、样式与完整定义文件；运行时 agent-memory 目录不在专家包内，
+      // 原生记忆由 GET /api/agents/:id/memory/download 单独交付。缺任一读取叶都拒绝，不能静默裁剪后发出。
       const resource = { agentId: row.id };
       for (const permissionId of [
         'agents.export',

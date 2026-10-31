@@ -93,11 +93,15 @@
 
 ### 原生记忆存储（native memory storage）
 
-`WORKSPACES_DIR/<slug>/agent-memory/` 是原生 `MEMORY.md` 与主题 Markdown 的持久存储，独立于 `run_*` 工作区，run 结束与过期清理均保留。Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 和 worker；两者镜像及沙盒均使用 node（uid 1000），命名卷 init 保持 1000:1000。worker 创建目录为 0700 并收紧已有目录权限；创建目录或 chmod 失败会使 run 明确失败，不再吞错或改为 0777。
+`WORKSPACES_DIR/<slug>/agent-memory/` 是原生 `MEMORY.md` 与主题 Markdown 的持久存储，独立于 `run_*` 工作区，run 结束与过期清理均保留。它是专家共享记忆：同一专家的所有使用者看到同一份内容，不是用户私有数据。个人偏好另存于 `user_preferences` 与按 `businessId` 隔离的投影文件，worker 在每轮挂载前按 DB 重建投影，不写入本目录。Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 和 worker；两者镜像及沙盒均使用 node（uid 1000），命名卷 init 保持 1000:1000。worker 创建目录为 0700 并收紧已有目录权限；创建目录或 chmod 失败会使 run 明确失败，不再吞错或改为 0777。
 
 沙盒及 API/worker 都以 uid 1000 运行时，才能对 0700 记忆目录读写一致：请用 Compose 启动 API/worker。本地 `pnpm dev` 以宿主 uid 运行时仍可正常跑智能体，但原生记忆跨宿主 uid 与容器内 uid 1000 的 0700 目录可能不可写，记忆功能不保证；需要持久记忆时用 Compose。不要递归 chown 未核对的宿主目录，也不要以 0777 绕过错误。已有外部数据卷应先备份并确认属主后再启用。
 
-runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`autoMemoryDirectory`，通过 Read/Edit 的绝对路径许可与 SDK PreToolUse 双重约束，仅主会话可读写目录内普通 `.md` 文件。子智能体、软链接、硬链接、非普通文件、相对路径及越界请求均在检查时点拒绝。API 与沙盒访问同一存储；请把该目录单独纳入文件备份。专项测试不调用付费模型，真实跨 run 的自动写入、主题读取仍需模型验收。
+runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`autoMemoryDirectory`。主会话的 `Read`/`Write`/`Edit` 通过绝对路径许可与 SDK PreToolUse 双重约束，只放行目录内普通 `.md` 文件；子智能体使用官方 `memory: project`，宿主按 slug 把它自己的 `.claude/agent-memory/<slug>/` 挂进工作区，已登记子智能体只允许读写自己的子目录，兄弟、父级与未登记调用方拒绝。这是原生文件工具边界，不是 OS 级秘密隔离：Bash 不经过该路径 hook，同一容器内的 Bash 仍可按挂载权限访问这些目录；软链接、硬链接、非普通文件、相对路径及工具越界请求在检查时点拒绝。API 与沙盒访问同一存储；请把该目录单独纳入文件备份。
+
+官方启动只自动加载 `MEMORY.md` 的前 200 行或 25KB（先到者为准），主题文件不预载，由模型按需用标准文件工具读取。平台只在自己控制的写入口拒绝超限：手工保存 `PUT /api/agents/:id/memory/:name`、回顾采纳与版本回滚会对 `MEMORY.md` 执行 200 行 / 25KB 校验，主题单文件沿用 200000 UTF-8 字节上限。平台入口的校验与补链已实现，shared/web/worker 与 API、跨端独立 review 均 PASS；验证及独立评审通过，随本任务 PR 交付。SDK 原生文件工具直接写 `MEMORY.md` 不受平台拦截，超限内容仍会写成功并提示模型精简，下次启动仍只加载前 200 行 / 25KB；这些原生写入也不进入 `memory_changes`，不能宣称覆盖全部记忆历史。专项测试不调用付费模型，真实跨 run 的自动写入、主题读取仍需模型验收。
+
+本工作树已实现（本任务 PR 交付，合并状态以 GitHub 为准）：主题文件的手工创建/保存/删除纳入同一变更账本，记忆面板可按所选文件查看版本并回滚；`GET /api/agents/:id/memory/download` 提供原生记忆目录 ZIP。shared/worker/web 与 API、跨端独立 review 均 PASS，完整浏览器主路径（受控提案采用、双文件回滚、ZIP 下载、公开 PUT 回导正文一致、无需变更）已通过；验证及独立评审通过，不能宣称已上线。ZIP 根只含实际 `MEMORY.md` 与平铺主题 `.md`，不含专家 ID JSON、版本账本、回顾来源、journal、个人偏好或其它专家内容，可解压到任意官方 `autoMemoryDirectory`，也可经现有 `PUT /api/agents/:id/memory/:name` 写回；因此这份独立记忆 ZIP 确实包含已沉淀的记忆与主题学习正文，可作为记忆备份或迁移。专家定义包只携带定义文件、不携带运行期记忆内容，不能把定义包宣称成包含学习内容的包。
 
 ### 会话成果存储
 

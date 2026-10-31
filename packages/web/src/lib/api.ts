@@ -77,7 +77,8 @@ import type {
   SkillWithAgentCount,
   WorkspaceFiles,
   WritePersonalMemoryInput,
-} from '@agentport/shared';import { loginPath } from './auth-redirect.js';
+} from '@agentport/shared';
+import { loginPath } from './auth-redirect.js';
 
 export type AgentFiles = WorkspaceFiles;
 
@@ -852,17 +853,10 @@ export const api = {
   updateAccount: (
     businessId: string,
     input: { username?: string; name?: string },
-  ): Promise<Account> =>
-    request(`/accounts/${encodeURIComponent(businessId)}`, 'PATCH', input),
-  setAccountStatus: (
-    businessId: string,
-    status: Account['status'],
-  ): Promise<Account> =>
+  ): Promise<Account> => request(`/accounts/${encodeURIComponent(businessId)}`, 'PATCH', input),
+  setAccountStatus: (businessId: string, status: Account['status']): Promise<Account> =>
     request(`/accounts/${encodeURIComponent(businessId)}/status`, 'PATCH', { status }),
-  resetAccountPassword: (
-    businessId: string,
-    password: string,
-  ): Promise<{ ok: true }> =>
+  resetAccountPassword: (businessId: string, password: string): Promise<{ ok: true }> =>
     request(`/accounts/${encodeURIComponent(businessId)}/password`, 'POST', {
       password,
     }),
@@ -871,8 +865,7 @@ export const api = {
   setAccountRoles: (businessId: string, roleIds: string[]): Promise<{ ok: true }> =>
     request(`/accounts/${encodeURIComponent(businessId)}/roles`, 'PUT', { roleIds }),
 
-  roles: (signal?: AbortSignal): Promise<RoleMatrix> =>
-    request('/roles', 'GET', undefined, signal),
+  roles: (signal?: AbortSignal): Promise<RoleMatrix> => request('/roles', 'GET', undefined, signal),
   permissions: (signal?: AbortSignal): Promise<PermissionCatalog> =>
     request('/permissions', 'GET', undefined, signal),
   saveRoles: (input: RoleMatrixInput): Promise<RoleMatrix> => request('/roles', 'PUT', input),
@@ -995,8 +988,14 @@ export const api = {
   agentFiles: (id: string): Promise<AgentFiles> => request(`/agents/${id}/files`),
   agentVersions: (id: string): Promise<AgentVersionSummary[]> => request(`/agents/${id}/versions`),
   agentMemory: (id: string): Promise<MemoryFileList> => request(`/agents/${id}/memory`),
-  agentMemoryVersions: (id: string, signal?: AbortSignal): Promise<MemoryChangeList> =>
-    request(`/agents/${id}/memory/MEMORY.md/versions`, 'GET', undefined, signal),
+  /** 原生记忆目录 ZIP；只含 MEMORY.md 与主题 Markdown。 */
+  agentMemoryDownloadUrl: (id: string): string => `/api/agents/${id}/memory/download`,
+  agentMemoryVersions: (
+    id: string,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<MemoryChangeList> =>
+    request(`/agents/${id}/memory/${encodeURIComponent(name)}/versions`, 'GET', undefined, signal),
   agentRuleVersions: (id: string, slug: string, signal?: AbortSignal): Promise<MemoryChangeList> =>
     request(`/agents/${id}/rules/${encodeURIComponent(slug)}/versions`, 'GET', undefined, signal),
   agentRules: (id: string): Promise<Rule[]> => request(`/agents/${id}/rules`),

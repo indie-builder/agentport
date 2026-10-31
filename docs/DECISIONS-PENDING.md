@@ -489,7 +489,7 @@
 
 **采用**：不新建记忆表、不定义私有记忆格式。启用 SDK 原生 auto-memory（`settings.autoMemoryEnabled` + `autoMemoryDirectory`），目录是官方 `MEMORY.md` + 主题文件；宿主落到 `WORKSPACES_DIR/<slug>/agent-memory/`（跨 run 持久；后续由 D-71 收紧为 uid 1000、0700），每次运行以 rw 挂到容器 `/mnt/agent-memory`，runner 指向该目录。平台只做浏览/编辑（`/api/agents/:id/memory[/:name]`，PUT/DELETE，文件名白名单防穿越）。移除旧的 `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`。
 
-**边界**：记忆是机器本地、按 agent 的目录，不跨机同步；不得把项目级 `autoMemoryDirectory` 放进仓库 settings（受官方安全限制）。已用真实 dev 栈验证写/读/列表/删除与浏览器记忆页；未跑真实模型长会话以观察自动“保存记忆”。
+**边界**：记忆是机器本地、按 agent 的目录，不跨机同步。2026-10-31 校准：官方当前文档允许 `autoMemoryDirectory` 从任意 settings 作用域读取（user、project、local、policy、`--settings`）；写在项目 `.claude/settings.json` 或 `.claude/settings.local.json` 时受工作区信任规则约束，开启 `permissions.blockReadsOutsideWorkingDirectories` 后不会从不信任目录加载或保存。本地 `0.3.311` 的 SDK 类型注释仍写“projectSettings 中设置会被忽略”，与官方文档不一致；当前 runner 通过 inline `settings` 传入 `autoMemoryEnabled` / `autoMemoryDirectory`，不依赖项目 settings，因此不受该差异影响。官方来源：https://code.claude.com/docs/en/memory#storage-location 。已用真实 dev 栈验证写/读/列表/删除与浏览器记忆页；未跑真实模型长会话以观察自动“保存记忆”。
 
 ## D-62 ✅ 定时任务与任务看板走平台运营层，不进 `.claude/`（2026-10-23）
 
@@ -569,7 +569,7 @@
 
 **决定**：`user_preferences` 按 `businessId` 各一行保存正文与 `revision`，是唯一权威；`memory_changes` 记录 before/after 与回滚。写入在目标 advisory lock 内做条件更新，DB 与账本同事务，成功后原子投影到 `WORKSPACES_DIR/_users/<sha256(businessId)>/CLAUDE.md`（0700/0600、拒绝链接、temp + rename）。沙盒只读挂载该目录到 `/mnt/user`，runner 的 `UserPromptSubmit` hook 每轮按主体读取并以 `additionalContext` 注入；正文上限 9000 个 Unicode 字符、36 KiB，超限拒绝本轮，不静默截断。
 
-**边界**：这不是 SDK 自动发现的用户级 `CLAUDE.md`，`settingSources` 仍为 `['project']`；不读取宿主 `~/.claude`。DB 写入成功即成功，文件投影失败只记日志；下一次保存会重新投影，当前没有 worker 启动前自动重建；不跨机同步。保存、版本、回滚、注入与权限测试已通过；真实模型中跨专家、跨 run 的实际遵循效果尚未审计。
+**边界**：这不是 SDK 自动发现的用户级 `CLAUDE.md`，`settingSources` 仍为 `['project']`；不读取宿主 `~/.claude`。DB 写入成功即成功，文件投影失败只记日志；worker 在每轮用户运行、挂载工作区前按 DB 重建投影（服务主体不重建也不挂个人记忆），所以崩溃遗留的旧投影不会带入下一轮；不跨机同步。保存、版本、回滚、注入与权限测试已通过；真实模型中跨专家、跨 run 的实际遵循效果尚未审计。
 
 ## D-72 ✅ 历史回顾：用户触发的 `review` 运行，确认后才写入（2026-10-30）
 
@@ -577,7 +577,7 @@
 
 **决定**：新建 `memory_reviews` 与 `memory_changes`。回顾是 `agent_runs.trigger='review'`，复用官方 `query()`：`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema`；沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停，不建沙盒、不追加消息、不写成果。证据必须是来源消息原文的连续子串。提案目标为个人偏好、专家 `MEMORY.md` 或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用后才写目标并落账。专家记忆先写 `.memory-journal/`、原子 rename、再提交账本，失败按原字节恢复或保留日志。`MEMORY.md` 采纳限制 200 行 / 25KB。
 
-**边界**：这是用户触发、逐次确认的回顾，不是自动进化。真实模型生成提案并采纳的完整链路尚未做浏览器验收；子智能体记忆未实现（2026-10-30 当时结论）。2026-10-31 后续状态：子智能体独立记忆源码评审已通过（整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS），SDK 最新接口 16/16、浏览器全部 PASS、stable 25 文件 376、web 72、outputs 31、migration 隔离库通过；运行整合 13 文件 195/195 PASS，整体未提交、未合并，状态见 [tasks/subagent-memory-20261030.md](tasks/subagent-memory-20261030.md)。
+**边界**：这是用户触发、逐次确认的回顾，不是自动进化。受控提案的浏览器主路径已通过（主题回顾、双文件采纳/回滚、ZIP 下载与回导，详见 D-75 与[任务记录](tasks/memory-upgrade.md)）；真实模型生成提案并采纳的完整链路仍未做浏览器验收。子智能体记忆未实现（2026-10-30 当时结论）。2026-10-31 后续状态：子智能体独立记忆源码评审已通过（整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS），SDK 最新接口 16/16、浏览器全部 PASS、stable 25 文件 376、web 72、outputs 31、migration 隔离库通过；运行整合 13 文件 195/195 PASS，整体未提交、未合并，状态见 [tasks/subagent-memory-20261030.md](tasks/subagent-memory-20261030.md)。
 
 ## D-73 不引入外部记忆服务，先用官方文件与 PostgreSQL（2026-10-30）
 
@@ -592,6 +592,16 @@
 **范围外**：第三方登录、飞书/钉钉等身份源同步、用量/套餐额度/计费、组织多租户、权限 DSL 或空适配框架；不改动 SDK 具体选项。
 
 **状态**：本工作树已实现，未合入 main，已通过最终 review、准备发布；技术字段/表结构/接口以配套契约文件为准。迁移新增 NOT NULL 字段且不回填，只在全新空库验证，不声称旧库可无损升级；部署到既有库需用户明确决定重建数据，不能自动清库。验收边界与真实结果见 [USER-STORIES.md](USER-STORIES.md) EPIC 8 与 [account-rbac.md](tasks/account-rbac.md)。
+
+## D-75 ✅ 记忆主题升级采用官方主题文件与短索引（2026-10-31 验证及独立评审通过，本任务 PR 交付，合并状态以 GitHub 为准）
+
+**用户故事**：US-7.3。把历史会话中的可复用经验按主题整理，经用户确认后写入，可查看影响、来源与版本并回滚。
+
+**决定**：在既有官方 auto-memory 上补齐主题经验闭环，不新增私有 L1/L2/L3 存储、独立记忆服务或后台提取/整理 LLM。回顾目标必须带 `name`，可指向 `MEMORY.md`、已有主题或用户命名的新主题；提案仍是目标整篇正文的完整替换，平台确定性地为缺少链接的主题补相对 Markdown 链接，`MEMORY.md` 其余正文逐字保留。回顾快照增加固定伴随 `index`（仅主题目标携带），主题与所需索引作为一次逻辑变更采纳、记账、补偿、恢复与回滚，最多两个文件，不提供任意文件写入计划。证据增加 `kind` 归因（用户事实 / 已确认决定 / 助手建议），纯助手建议不能成为可采纳正文的唯一依据。手工主题 CRUD 进入同一版本账本，记忆面板可查看/回滚版本；另提供独立记忆 ZIP 下载，ZIP 只含实际 `MEMORY.md` 与主题文件，可通过现有公开 PUT 导入新专家。沿用专家锁、`assertNoActiveRun`、原子 rename、journal 与既有 `memory_changes` / `memory_reviews` jsonb，不新增表、列、服务、依赖或部署步骤；回顾仍由用户触发，一次受限 query。
+
+**边界与未覆盖**：本工作树已实现，shared/worker/web 独立 review 已 PASS，完整浏览器主路径（受控提案的来源归因、主题/索引双对比、采用、索引版本、ZIP 下载与公开 PUT 回导、整次回滚、无需变更）已通过；API 与跨端最终独立评审均 PASS，验证及独立评审通过；本任务 PR 交付，合并状态以 GitHub 为准，不宣称已上线。以下真实缺口仍存在：运行时原生文件工具允许嵌套主题文件，但 API/UI 列表与 CRUD 仅支持平铺，自动学习出的嵌套文件无法在界面管理；SDK 原生直接写入不进入 DB 账本，不能声称覆盖全量记忆历史；专家文件与规则的手工编辑缺少旧稿基线冲突保护；父会话产生的子智能体材料不能直接回顾到子专家；运行保留期清理会影响回顾来源证据的长期可核对性。真实容器 + 官方 SDK + 本地假模型仅证明加载与边界管线，付费真实模型的归纳质量、跨 run 召回与应用效果未审计；最终回归数字与证据以任务记录为准。D-61 的官方 `autoMemoryDirectory` 条件已由另一代理修正，本文不覆盖。
+
+**相关记录**：[任务记录](tasks/memory-upgrade.md)、[执行契约](tasks/memory-upgrade-contract.md)、[研究](tasks/memory-upgrade-research.md)。
 
 ## 决策记录格式
 

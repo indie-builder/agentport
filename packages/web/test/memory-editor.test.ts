@@ -1,4 +1,10 @@
-import type { MemoryFileContent, MemoryFileList, OutputStyle, Rule } from '@agentport/shared';
+import type {
+  MemoryChange,
+  MemoryFileContent,
+  MemoryFileList,
+  OutputStyle,
+  Rule,
+} from '@agentport/shared';
 import { EditorView } from '@codemirror/view';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactElement } from 'react';
@@ -38,6 +44,30 @@ const style: OutputStyle = {
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
 };
+const memoryChange: MemoryChange = {
+  id: 'chg_1',
+  target: { kind: 'agent_memory', agentId: 'expert', name: 'MEMORY.md' },
+  before: { content: '', globs: null, index: null },
+  after: { content: '# 记忆', globs: null, index: null },
+  sourceReviewRunId: null,
+  reversesChangeId: null,
+  state: 'applied',
+  createdAt: '2026-10-01T00:00:00.000Z',
+};
+const topicCreation: MemoryChange = {
+  id: 'chg_topic',
+  target: { kind: 'agent_memory', agentId: 'expert', name: 'topic.md' },
+  before: { content: null, globs: null, index: { content: '# 记忆\n' } },
+  after: {
+    content: '# 新主题正文',
+    globs: null,
+    index: { content: '# 记忆\n- [topic.md](topic.md)\n' },
+  },
+  sourceReviewRunId: 'run-topic',
+  reversesChangeId: null,
+  state: 'applied',
+  createdAt: '2026-10-02T00:00:00.000Z',
+};
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -67,12 +97,15 @@ async function click(element: HTMLElement) {
   await act(async () => element.click());
   await flush();
 }
-function button(text: string): HTMLButtonElement {
-  const element = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-    (item) => item.textContent?.trim() === text,
-  );
+function button(text: string, scope: ParentNode = document): HTMLButtonElement {
+  const element = buttonOrNull(text, scope);
   if (!element) throw new Error(`Missing button: ${text}`);
   return element;
+}
+function buttonOrNull(text: string, scope: ParentNode = document): HTMLButtonElement | undefined {
+  return [...scope.querySelectorAll<HTMLButtonElement>('button')].find(
+    (item) => item.textContent?.trim() === text || item.getAttribute('aria-label') === text,
+  );
 }
 function editorView(id: string): EditorView {
   const element = document.getElementById(id);
@@ -110,6 +143,7 @@ function mount(element: ReactElement) {
 beforeEach(() => {
   vi.spyOn(api, 'agentMemory').mockResolvedValue(memoryList);
   vi.spyOn(api, 'agentMemoryFile').mockResolvedValue(memoryFile);
+  vi.spyOn(api, 'agentMemoryVersions').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'agentRules').mockResolvedValue([rule]);
   vi.spyOn(api, 'agentOutputStyles').mockResolvedValue([style]);
 });
@@ -159,6 +193,142 @@ describe('memory file editor', () => {
     saved.resolve({ ...memoryFile, content: '# 新记忆' });
     await flush();
     expect(document.getElementById('memory-content')?.getAttribute('contenteditable')).toBe('true');
+  });
+
+  it('提供原生记忆下载，无写权限时不显示任何写动作', async () => {
+    mount(createElement(MemoryPanel, { agentId: 'expert', canWrite: false }));
+
+    await waitFor(() => editorView('memory-content'));
+    const download = host.querySelector<HTMLAnchorElement>('a[download]');
+    expect(download?.getAttribute('href')).toBe('/api/agents/expert/memory/download');
+    expect(buttonOrNull('记忆保存')).toBeUndefined();
+    expect(buttonOrNull('新建记忆文件')).toBeUndefined();
+    expect(buttonOrNull('删除 MEMORY.md')).toBeUndefined();
+    expect(buttonOrNull('回滚')).toBeUndefined();
+  });
+
+  it('无写权限且记忆未初始化时不显示初始化动作', async () => {
+    vi.mocked(api.agentMemory).mockResolvedValue({ files: [], initialized: false });
+    mount(createElement(MemoryPanel, { agentId: 'expert', canWrite: false }));
+
+    await waitFor(() => host.textContent?.includes('初始化记忆'));
+    expect(buttonOrNull('初始化 MEMORY.md')).toBeUndefined();
+  });
+
+  it('按所选文件加载版本，可查看内容并回滚', async () => {
+    vi.mocked(api.agentMemoryVersions).mockResolvedValue({ items: [memoryChange] });
+    const rollback = vi
+      .spyOn(api, 'rollbackMemoryChange')
+      .mockResolvedValue({ ...memoryChange, id: 'chg_2', reversesChangeId: 'chg_1' });
+    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+
+    await waitFor(() => buttonOrNull('查看'));
+    expect(api.agentMemoryVersions).toHaveBeenCalledWith(
+      'expert',
+      'MEMORY.md',
+      expect.any(AbortSignal),
+    );
+
+    await click(button('查看'));
+    const view = await waitFor(() => document.querySelector<HTMLElement>('[role="dialog"]'));
+    expect(view?.textContent).toContain('# 记忆');
+    await click(button('关闭', view as HTMLElement));
+    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+
+    await click(button('回滚'));
+    const confirm = await waitFor(() => document.querySelector<HTMLElement>('[role="dialog"]'));
+    await click(button('回滚', confirm as HTMLElement));
+    await waitFor(() => expect(rollback).toHaveBeenCalledWith('chg_1'));
+  });
+
+  it('切换主题后按该文件名请求版本', async () => {
+    vi.mocked(api.agentMemory).mockResolvedValue({
+      files: [
+        { name: 'MEMORY.md', size: 4, updatedAt: '2026-01-01T00:00:00Z' },
+        { name: 'topic.md', size: 8, updatedAt: '2026-01-01T00:00:00Z' },
+      ],
+      initialized: true,
+    });
+    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+
+    await waitFor(() => buttonOrNull('topic.md'));
+    await click(button('topic.md'));
+    await waitFor(() =>
+      expect(api.agentMemoryVersions).toHaveBeenCalledWith(
+        'expert',
+        'topic.md',
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it('保存成功后清掉已提交草稿，外部刷新显示服务端正文', async () => {
+    vi.spyOn(api, 'writeAgentMemoryFile').mockResolvedValue({
+      ...memoryFile,
+      content: '# 新记忆',
+    });
+    vi.mocked(api.agentMemoryFile)
+      .mockResolvedValueOnce(memoryFile)
+      .mockResolvedValue({ ...memoryFile, content: '# 外部更新' });
+    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+
+    await waitFor(() => editorView('memory-content'));
+    await replaceContent('memory-content', '# 新记忆');
+    await click(button('记忆保存'));
+
+    await waitFor(() =>
+      expect(editorView('memory-content').state.doc.toString()).toBe('# 外部更新'),
+    );
+    expect(button('记忆保存').disabled).toBe(true);
+  });
+
+  it('外部刷新不覆盖未保存的真实草稿', async () => {
+    vi.mocked(api.agentMemoryFile)
+      .mockResolvedValueOnce(memoryFile)
+      .mockResolvedValue({ ...memoryFile, content: '# 外部更新' });
+    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+
+    await waitFor(() => editorView('memory-content'));
+    await replaceContent('memory-content', '# 未保存草稿');
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: ['agent-memory-file', 'expert', 'MEMORY.md'],
+      });
+    });
+    await flush();
+
+    expect(editorView('memory-content').state.doc.toString()).toBe('# 未保存草稿');
+    expect(button('记忆保存').disabled).toBe(false);
+  });
+
+  it('MEMORY.md 版本包含主题新建，摘要与查看取伴随索引并说明回滚删除主题', async () => {
+    vi.mocked(api.agentMemory).mockResolvedValue({
+      files: [
+        { name: 'MEMORY.md', size: 4, updatedAt: '2026-01-01T00:00:00Z' },
+        { name: 'topic.md', size: 8, updatedAt: '2026-01-01T00:00:00Z' },
+      ],
+      initialized: true,
+    });
+    vi.mocked(api.agentMemoryVersions).mockResolvedValue({ items: [topicCreation] });
+    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+
+    await waitFor(() => buttonOrNull('查看'));
+    expect(host.textContent).toContain('- [topic.md](topic.md)');
+    expect(host.querySelector('ul.divide-y')?.textContent).not.toContain('# 新主题正文');
+
+    await click(button('查看'));
+    const view = await waitFor(() => document.querySelector<HTMLElement>('[role="dialog"]'));
+    expect(view?.textContent).toContain('主题「topic.md」正文');
+    expect(view?.textContent).toContain('# 新主题正文');
+    expect(view?.textContent).toContain('MEMORY.md 索引');
+    expect(view?.textContent).toContain('- [topic.md](topic.md)');
+    await click(button('关闭', view as HTMLElement));
+    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+
+    await click(button('回滚'));
+    const confirm = await waitFor(() => document.querySelector<HTMLElement>('[role="dialog"]'));
+    expect(confirm?.textContent).toContain('删除新建的主题「topic.md」');
+    expect(confirm?.textContent).toContain('MEMORY.md');
   });
 });
 

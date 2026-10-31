@@ -5,6 +5,9 @@ import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db'
 import * as repo from '@agentport/db/repo/agents.js';
 import type { AccessScope, Agent, AgentInput, PermissionId, Principal } from '@agentport/shared';
 import {
+  AGENT_PACKAGE_MAX_BYTES,
+  AGENT_PACKAGE_MAX_ENTRIES,
+  AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
   AGENT_ROLES,
   agentDuplicateInputSchema,
   agentInputSchema,
@@ -16,6 +19,7 @@ import {
   businessIdSchema,
   grantDependencies,
   idParams,
+  memoryFileNameSchema,
   outputStyleInputSchema,
   permissionModeSchema,
   slugSchema,
@@ -27,18 +31,13 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { AppError, isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { encodePackage } from '../agent-package-zip.js';
 import {
-  assertNoActiveRun,
+  readMemoryTarget,
   withMemoryTargetLock,
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
-import {
-  deleteMemoryFile,
-  listMemoryFiles,
-  memoryFileNamePattern,
-  readMemoryFile,
-  writeMemoryFile,
-} from './memory-files.js';
+import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import { allowedToolsSchema, unsupportedAllowedTool } from './validation.js';
 import { renderAgentWorkspace } from './workspace.js';
 
@@ -54,7 +53,7 @@ const subAgentFileParams = z.object({
 const memoryParams = z.object({ id: z.string().min(1) });
 const memoryFileParams = z.object({
   id: z.string().min(1),
-  name: z.string().regex(memoryFileNamePattern, '记忆文件名非法：只允许 <name>.md'),
+  name: memoryFileNameSchema,
 });
 const memoryWriteBody = z.object({ content: z.string() });
 const ruleParams = z.object({ id: z.string().min(1), slug: slugSchema });
@@ -534,52 +533,53 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     '/api/agents/options',
     { config: authenticated, schema: { response: { 200: agentOptionsSchema } } },
     async (request) => {
-    const principal = principalOf(request);
-    if (!principal.grants.some((grant) => grant.permissionId === 'agents.bindings.manage')) {
-      throw new AppError('FORBIDDEN', '没有管理专家资源绑定的权限');
-    }
-    const [servers, skills, plugins, environments] = await Promise.all([
-      app.db
-        .select({ id: schema.servers.id, name: schema.servers.name, kind: schema.servers.kind })
-        .from(schema.servers)
-        .orderBy(schema.servers.name),
-      app.db
-        .select({
-          id: schema.skills.id,
-          slug: schema.skills.slug,
-          name: schema.skills.name,
-          description: schema.skills.description,
-        })
-        .from(schema.skills)
-        .orderBy(schema.skills.name),
-      app.db
-        .select({
-          id: pluginsTable.id,
-          slug: pluginsTable.slug,
-          name: pluginsTable.name,
-        })
-        .from(pluginsTable)
-        .orderBy(pluginsTable.name),
-      app.db
-        .select({
-          id: schema.runtimeEnvironments.id,
-          name: schema.runtimeEnvironments.name,
-          onlineVersionId: schema.runtimeEnvironments.onlineVersionId,
-        })
-        .from(schema.runtimeEnvironments)
-        .orderBy(schema.runtimeEnvironments.name),
-    ]);
-    return {
-      servers,
-      skills,
-      plugins,
-      runtimeEnvironments: environments.map((row) => ({
-        id: row.id,
-        name: row.name,
-        hasOnlineVersion: row.onlineVersionId !== null,
-      })),
-    };
-  });
+      const principal = principalOf(request);
+      if (!principal.grants.some((grant) => grant.permissionId === 'agents.bindings.manage')) {
+        throw new AppError('FORBIDDEN', '没有管理专家资源绑定的权限');
+      }
+      const [servers, skills, plugins, environments] = await Promise.all([
+        app.db
+          .select({ id: schema.servers.id, name: schema.servers.name, kind: schema.servers.kind })
+          .from(schema.servers)
+          .orderBy(schema.servers.name),
+        app.db
+          .select({
+            id: schema.skills.id,
+            slug: schema.skills.slug,
+            name: schema.skills.name,
+            description: schema.skills.description,
+          })
+          .from(schema.skills)
+          .orderBy(schema.skills.name),
+        app.db
+          .select({
+            id: pluginsTable.id,
+            slug: pluginsTable.slug,
+            name: pluginsTable.name,
+          })
+          .from(pluginsTable)
+          .orderBy(pluginsTable.name),
+        app.db
+          .select({
+            id: schema.runtimeEnvironments.id,
+            name: schema.runtimeEnvironments.name,
+            onlineVersionId: schema.runtimeEnvironments.onlineVersionId,
+          })
+          .from(schema.runtimeEnvironments)
+          .orderBy(schema.runtimeEnvironments.name),
+      ]);
+      return {
+        servers,
+        skills,
+        plugins,
+        runtimeEnvironments: environments.map((row) => ({
+          id: row.id,
+          name: row.name,
+          hasOnlineVersion: row.onlineVersionId !== null,
+        })),
+      };
+    },
+  );
 
   // 完整配置只对 agents.config.read 开放；普通使用者只能看到列表摘要。
   app.get(
@@ -952,6 +952,55 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     },
   );
 
+  // 原生记忆目录下载：ZIP 只含 agent-memory 下的 .md 文件，解压即可作为官方 auto-memory 目录使用。
+  app.get(
+    '/api/agents/:id/memory/download',
+    { config: access('agents.memory.read'), schema: { params: memoryParams } },
+    async (request, reply) => {
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.memory.read');
+      if (!row) return reply;
+      const body = await withMemoryTargetLock(
+        app.pool,
+        { kind: 'agent_memory', agentId: row.id, name: 'MEMORY.md' },
+        principalOf(request).businessId,
+        async () => {
+          const listed = await listMemoryFiles(app.config.WORKSPACES_DIR, row.slug);
+          if (listed.files.length === 0) {
+            fail('NOT_FOUND', '该专家还没有可下载的记忆文件');
+          }
+          if (listed.files.length > AGENT_PACKAGE_MAX_ENTRIES) {
+            fail('CONFLICT', `记忆文件数超过 ${AGENT_PACKAGE_MAX_ENTRIES} 个，无法打包下载`);
+          }
+          const files: Record<string, string> = {};
+          let total = 0;
+          for (const file of listed.files) {
+            const content = await readMemoryFile(app.config.WORKSPACES_DIR, row.slug, file.name);
+            if (!content) fail('NOT_FOUND', '记忆文件在下载过程中被删除');
+            total += Buffer.byteLength(content.content, 'utf8');
+            if (total > AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES) {
+              fail(
+                'CONFLICT',
+                `记忆目录解压后超过 ${AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES} 字节，无法打包下载`,
+              );
+            }
+            files[file.name] = content.content;
+          }
+          const archive = encodePackage(files);
+          if (archive.byteLength > AGENT_PACKAGE_MAX_BYTES) {
+            fail('CONFLICT', `记忆目录压缩后超过 ${AGENT_PACKAGE_MAX_BYTES} 字节，无法打包下载`);
+          }
+          return archive;
+        },
+      );
+      return reply
+        .header('content-disposition', `attachment; filename="${row.slug}-memory.zip"`)
+        .header('cache-control', 'no-store')
+        .header('x-content-type-options', 'nosniff')
+        .type('application/zip')
+        .send(body);
+    },
+  );
+
   app.get(
     '/api/agents/:id/memory/:name',
     { config: access('agents.memory.read'), schema: { params: memoryFileParams } },
@@ -975,22 +1024,18 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       const row = await authorizedAgent(request, reply, request.params.id, 'agents.memory.write');
       if (!row) return reply;
       const slug = row.slug;
-      const target = { kind: 'agent_memory', agentId: row.id } as const;
+      const target = {
+        kind: 'agent_memory',
+        agentId: row.id,
+        name: request.params.name,
+      } as const;
       const file = await withMemoryTargetLock(app.pool, target, principal.businessId, async () => {
-        if (request.params.name !== 'MEMORY.md') {
-          await assertNoActiveRun(app.db, row.id);
-          return writeMemoryFile(
-            app.config.WORKSPACES_DIR,
-            slug,
-            request.params.name,
-            request.body.content,
-          );
-        }
+        // 正文意图交给写入口，在日志恢复并重读当前索引后计算 after，避免沿用恢复前的旧索引。
         await writeMemoryTargetLocked(app.db, {
           workspacesDir: app.config.WORKSPACES_DIR,
           businessId: principal.businessId,
           target,
-          after: { content: request.body.content, globs: null },
+          manualContent: request.body.content,
           logger: request.log,
         });
         const written = await readMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
@@ -1016,28 +1061,29 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       const principal = principalOf(request);
       const row = await authorizedAgent(request, reply, request.params.id, 'agents.memory.write');
       if (!row) return reply;
-      const slug = row.slug;
-      const target = { kind: 'agent_memory', agentId: row.id } as const;
+      const target = {
+        kind: 'agent_memory',
+        agentId: row.id,
+        name: request.params.name,
+      } as const;
       const removed = await withMemoryTargetLock(
         app.pool,
         target,
         principal.businessId,
         async () => {
-          if (request.params.name !== 'MEMORY.md') {
-            await assertNoActiveRun(app.db, row.id);
-            return deleteMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
-          }
-          const current = await readMemoryFile(
+          const current = await readMemoryTarget(
+            app.db,
             app.config.WORKSPACES_DIR,
-            slug,
-            request.params.name,
+            target,
+            principal.businessId,
           );
-          if (!current) return false;
+          if (current.content === null) return false;
+          // 删除主题不改索引：账本里 index before/after 相同，便于按实际改动回滚。
           await writeMemoryTargetLocked(app.db, {
             workspacesDir: app.config.WORKSPACES_DIR,
             businessId: principal.businessId,
             target,
-            after: { content: null, globs: null },
+            manualContent: null,
             logger: request.log,
           });
           return true;
@@ -1093,7 +1139,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           workspacesDir: app.config.WORKSPACES_DIR,
           businessId: principal.businessId,
           target,
-          after: { content: request.body.content, globs: request.body.globs },
+          after: { content: request.body.content, globs: request.body.globs, index: null },
           logger: request.log,
         });
         const [rule] = await app.db
@@ -1161,7 +1207,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
             workspacesDir: app.config.WORKSPACES_DIR,
             businessId: principal.businessId,
             target,
-            after: { content: null, globs: '' },
+            after: { content: null, globs: '', index: null },
             logger: request.log,
           });
           return true;
