@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { RUN_STREAM_MAXLEN, runStreamKey } from '@agentport/shared';
+import { runStreamKey } from '@agentport/shared';
 import { Redis } from 'ioredis';
 import { afterAll, describe, expect, it } from 'vitest';
 import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
@@ -49,42 +49,35 @@ describe.skipIf(!ready)('run subscribers', () => {
     sub.close();
   });
 
-  it('announces retention before replaying a trimmed stream', async () => {
+  it('replays a long stream from its first event without trimming', async () => {
     const runId = unique('sse-run');
     const redis = new Redis(testConfig().REDIS_URL);
+    const total = 1_600;
     let sub: Awaited<ReturnType<typeof subscribeRun>> | undefined;
     try {
       const pipeline = redis.pipeline();
-      for (let i = 0; i < RUN_STREAM_MAXLEN + 500; i += 1) {
+      for (let i = 0; i < total; i += 1) {
         pipeline.xadd(
           runStreamKey(runId),
-          'MAXLEN',
-          '~',
-          RUN_STREAM_MAXLEN,
           '*',
           'payload',
           JSON.stringify({ type: 'text_delta', text: `e${i}` }),
         );
       }
       await pipeline.exec();
-      const info = (await redis.xinfo('STREAM', runStreamKey(runId))) as unknown[];
-      const entriesAdded = Number(info[info.indexOf('entries-added') + 1]);
-      const length = Number(info[info.indexOf('length') + 1]);
-      expect(entriesAdded).toBeGreaterThan(length);
+      expect(await redis.xlen(runStreamKey(runId))).toBe(total);
 
-      const reasons: string[] = [];
       const types: string[] = [];
       const texts: string[] = [];
       sub = await subscribeRun(runId, (event) => {
         types.push(event.type);
-        if (event.type === 'replay_truncated') reasons.push(event.reason);
         if (event.type === 'text_delta') texts.push(event.text);
       });
 
-      expect(types[0]).toBe('replay_truncated');
-      expect(reasons).toEqual(['retention']);
-      expect(types.filter((type) => type === 'replay_truncated')).toHaveLength(1);
-      expect(texts.at(-1)).toBe(`e${RUN_STREAM_MAXLEN + 499}`);
+      expect(types.filter((type) => type === 'replay_truncated')).toHaveLength(0);
+      expect(texts[0]).toBe('e0');
+      expect(texts.at(-1)).toBe(`e${total - 1}`);
+      expect(texts).toHaveLength(total);
     } finally {
       sub?.close();
       await redis.del(runStreamKey(runId)).catch(() => undefined);
@@ -92,12 +85,12 @@ describe.skipIf(!ready)('run subscribers', () => {
     }
   });
 
-  it('announces byte truncation without a text marker', async () => {
+  it('replays events beyond the old 8MiB cap instead of dropping the older ones', async () => {
     const runId = unique('sse-run');
     const redis = new Redis(testConfig().REDIS_URL);
     let sub: Awaited<ReturnType<typeof subscribeRun>> | undefined;
     try {
-      // 三条 3MiB：从新往旧只能装下两条，第三条越过 8MiB 回放上限。
+      // 三条 3MiB，合计 9MiB：旧实现从新往旧只能装下两条并补 bytes 标记。
       const big = 'x'.repeat(3 * 1024 * 1024);
       for (let i = 0; i < 3; i += 1) {
         await redis.xadd(
@@ -109,15 +102,11 @@ describe.skipIf(!ready)('run subscribers', () => {
       }
 
       const types: string[] = [];
-      const reasons: string[] = [];
       sub = await subscribeRun(runId, (event) => {
         types.push(event.type);
-        if (event.type === 'replay_truncated') reasons.push(event.reason);
       });
 
-      expect(reasons).toEqual(['bytes']);
-      expect(types).toEqual(['replay_truncated', 'text_delta', 'text_delta']);
-      expect(types.filter((type) => type === 'text_delta')).toHaveLength(2);
+      expect(types).toEqual(['text_delta', 'text_delta', 'text_delta']);
     } finally {
       sub?.close();
       await redis.del(runStreamKey(runId)).catch(() => undefined);

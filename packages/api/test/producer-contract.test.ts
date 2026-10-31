@@ -1,9 +1,4 @@
-import {
-  RUN_STREAM_MAXLEN,
-  runCancelKey,
-  runEventsConnectionName,
-  runStreamKey,
-} from '@agentport/shared';
+import { runCancelKey, runEventsConnectionName, runStreamKey } from '@agentport/shared';
 import { Redis } from 'ioredis';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -45,9 +40,7 @@ vi.mock('ioredis', () => {
     publish = vi.fn().mockResolvedValue(1);
     set = vi.fn().mockResolvedValue('OK');
     subscribe = vi.fn().mockResolvedValue(1);
-    xrevrange = vi.fn().mockResolvedValue([]);
-    xinfo = vi.fn().mockResolvedValue(['length', 1, 'entries-added', 1]);
-    // BLOCK 0 且没有新事件：订阅停在阻塞读取上，直到 close() 打断连接。
+    xrange = vi.fn().mockResolvedValue([]);
     xread = vi.fn(() => new Promise<never>(() => undefined));
     disconnect = vi.fn();
     quit = vi.fn().mockResolvedValue('OK');
@@ -61,7 +54,10 @@ vi.mock('@agentport/shared', async (importOriginal) => {
   const shared = await importOriginal<typeof import('@agentport/shared')>();
   return {
     ...shared,
-    RUN_STREAM_MAXLEN: 17,
+    RUN_TRANSIENT_MAX_EVENTS: 7,
+    RUN_TRANSIENT_MAX_BYTES: 8,
+    RUN_PERSISTED_MAX_EVENTS: 9,
+    RUN_PERSISTED_MAX_BYTES: 10,
     runStreamKey: (id: string) => `contract:${id}:events`,
     runCancelKey: (id: string) => `contract:${id}:cancel`,
   };
@@ -80,9 +76,6 @@ describe('producer shared stream contract', () => {
     const pipe = mockState.pipelines.at(-1);
     expect(pipe?.xadd).toHaveBeenCalledWith(
       runStreamKey('run-1'),
-      'MAXLEN',
-      '~',
-      RUN_STREAM_MAXLEN,
       '*',
       'payload',
       JSON.stringify({ type: 'text_delta', text: 'hello' }),
@@ -107,7 +100,7 @@ describe('producer shared stream contract', () => {
     const publisher = vi.mocked(Redis).mock.instances.at(-1);
     expect(publisher).toBeDefined();
     // 回放读到一条真实事件后，跟读必须从它的 ID 继续，而不是 `$`（会丢掉阻塞前到达的事件）。
-    vi.mocked(Redis).mock.instances[0]?.xrevrange.mockResolvedValueOnce([
+    vi.mocked(Redis).mock.instances[0]?.xrange.mockResolvedValueOnce([
       ['42-0', ['payload', JSON.stringify({ type: 'text_delta', text: 'hello' })]],
     ]);
     const subscription = await subscribeRun('run-1', () => undefined, undefined);
@@ -116,11 +109,11 @@ describe('producer shared stream contract', () => {
       .mock.calls.map((call, index) => ({ call, instance: vi.mocked(Redis).mock.instances[index] }))
       .find(({ call }) => call[1]?.connectionName === runEventsConnectionName('run-1'))?.instance;
     expect(subscriber).toBeDefined();
-    // 初始回放走共享普通连接（不在订阅连接上执行 XRANGE）。
-    expect(publisher.xrevrange).toHaveBeenCalledWith(
+    // 初始回放从流头正序读（不在订阅连接上执行），第一条后剩 0 条即结束回放。
+    expect(publisher.xrange).toHaveBeenCalledWith(
       runStreamKey('run-1'),
+      '0-0',
       '+',
-      '-',
       'COUNT',
       expect.any(Number),
     );
@@ -152,10 +145,15 @@ describe('producer shared stream contract', () => {
     expect(pipe?.xadd).not.toHaveBeenCalled();
   });
 
-  it('keeps the existing Redis wire format byte-identical', async () => {
+  it('keeps the Redis wire format and exports the worker budgets', async () => {
     const shared = await vi.importActual<typeof import('@agentport/shared')>('@agentport/shared');
     expect(shared.runStreamKey('run-1')).toBe('run:run-1:events');
     expect(shared.runCancelKey('run-1')).toBe('run:run-1:cancel');
-    expect(shared.RUN_STREAM_MAXLEN).toBe(1000);
+    // 删除按 1000 条裁剪流头的上限，改由 worker 的事件预算约束写入量。
+    expect('RUN_STREAM_MAXLEN' in shared).toBe(false);
+    expect(shared.RUN_TRANSIENT_MAX_EVENTS).toBe(2_000);
+    expect(shared.RUN_TRANSIENT_MAX_BYTES).toBe(32 * 1024 * 1024);
+    expect(shared.RUN_PERSISTED_MAX_EVENTS).toBe(2_000);
+    expect(shared.RUN_PERSISTED_MAX_BYTES).toBe(32 * 1024 * 1024);
   });
 });

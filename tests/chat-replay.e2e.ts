@@ -5,11 +5,13 @@ import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { createDb, newId } from '../packages/db/dist/index.js';
 import { RUNS_QUEUE } from '../packages/shared/dist/chat.js';
-import {
-  RUN_STREAM_MAXLEN,
-  runCancelKey,
-  runStreamKey,
-} from '../packages/shared/dist/run-stream.js';
+import { runCancelKey, runStreamKey } from '../packages/shared/dist/run-stream.js';
+
+/**
+ * fixture 专用的裁剪上限，只用来模拟旧版本或异常情况下已经被裁掉流头的日志。
+ * 它不是生产策略：生产保留 worker 事件预算内的完整日志，并分批完整回放。
+ */
+const FIXTURE_TRIM_MAXLEN = 1000;
 
 /**
  * 回放截断的真实链路：真实页面、真实 POST /api/chat、真实 BullMQ job、真实 Redis Stream、
@@ -239,7 +241,10 @@ async function removeOwnJob(runId: string): Promise<void> {
   await job.remove();
 }
 
-/** 1500 条前缀事件 + MAXLEN ~ 1000：流头被裁掉，订阅端会收到 replay_truncated。 */
+/**
+ * 人为构造 1500 条前缀事件 + MAXLEN ~ FIXTURE_TRIM_MAXLEN：只模拟旧版本或异常情况下已被裁掉流头的日志。
+ * 生产回放不再按保留窗口推断截断，所以“已截断”标记由 fixture 在终态前主动补发。
+ */
 async function seedStream(runId: string): Promise<void> {
   const client = redis();
   const key = runStreamKey(runId);
@@ -252,7 +257,7 @@ async function seedStream(runId: string): Promise<void> {
         key,
         'MAXLEN',
         '~',
-        String(RUN_STREAM_MAXLEN),
+        String(FIXTURE_TRIM_MAXLEN),
         '*',
         'payload',
         JSON.stringify({ type: 'text_delta', text: `p${index} ` }),
@@ -265,7 +270,7 @@ async function seedStream(runId: string): Promise<void> {
       key,
       'MAXLEN',
       '~',
-      String(RUN_STREAM_MAXLEN),
+      String(FIXTURE_TRIM_MAXLEN),
       '*',
       'payload',
       JSON.stringify({ type: 'text_delta', text: 'partial-tail ' }),
@@ -299,7 +304,7 @@ async function finishRun(runId: string, saved: string): Promise<void> {
     runStreamKey(runId),
     'MAXLEN',
     '~',
-    String(RUN_STREAM_MAXLEN),
+    String(FIXTURE_TRIM_MAXLEN),
     '*',
     'payload',
     JSON.stringify({ type: 'run_finished', status: 'succeeded', turns: 1 }),
@@ -314,7 +319,7 @@ async function seedPartialStream(runId: string, text: string): Promise<void> {
     runStreamKey(runId),
     'MAXLEN',
     '~',
-    String(RUN_STREAM_MAXLEN),
+    String(FIXTURE_TRIM_MAXLEN),
     '*',
     'payload',
     JSON.stringify({ type: 'text_delta', text }),
@@ -511,6 +516,7 @@ test('a vanished run row ends the stream with a fixed notice and frees the compo
   }
 });
 
+// 本条 fixture 人为构造已裁剪的历史日志，只验证旧日志损坏时的落库兜底；生产回放不应发生裁剪。
 test('truncated SSE replay restores the persisted answer without duplicating the prompt', {
   session: 'admin',
   timeout: 120_000,
@@ -550,6 +556,13 @@ test('truncated SSE replay restores the persisted answer without duplicating the
 
     await removeOwnJob(runId);
     await seedStream(runId);
+    // 裁剪完成后、终态前补标记：此时后面只剩 run_finished，不会被后续写入的 MAXLEN 裁掉。
+    await redis().xadd(
+      runStreamKey(runId),
+      '*',
+      'payload',
+      JSON.stringify({ type: 'replay_truncated', reason: 'retention' }),
+    );
     await finishRun(runId, saved);
 
     // 真实 EventSource 与恢复用的真实 GET 都在 release 之后发生。

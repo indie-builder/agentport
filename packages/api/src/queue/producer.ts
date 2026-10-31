@@ -11,7 +11,6 @@ import {
   KNOWLEDGE_JOBS_QUEUE,
   knowledgeCancelKey,
   RUN_CANCEL_PAYLOAD,
-  RUN_STREAM_MAXLEN,
   RUNS_QUEUE,
   RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
   runCancelKey,
@@ -26,17 +25,14 @@ const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 /**
  * 事件通道用 Redis Stream 而不是 pub/sub：
  * pub/sub 在订阅建立前发出的事件会永久丢失（客户端从 POST 到建连之间常见）。
- * Stream 允许从 0 回放，且由 TTL 清理，不需要额外维护。
+ * Stream 允许从 0 回放；每次发布刷新 TTL，超过 1 小时没有任何新事件时整条流过期。
  */
 const STREAM_TTL_SECONDS = 3600;
 
-/** 首次回放只补发最近的 8MiB，晚加入的观众不会把整条流拉进内存。 */
-const REPLAY_MAX_BYTES = 8 * 1024 * 1024;
 /**
- * 每次 XREVRANGE/XREAD 的条数上限。批量摊薄往返：40 条约 21 次而不是 41 次。
- * runner 转发的单条事件受 worker 的 8MiB NDJSON 行预算：单页最多 2 × 8MiB = 16MiB，
- * 叠加累计回放的 8MiB，慢观众峰值约 24MiB（仅此路径，且不含 JSON.parse 副本等，非绝对 RSS）。
- * worker/API 自行合成的事件（如 run_finished 的 uiProgram）不走行预算，不受上述上界约束。
+ * 每次 XRANGE/XREAD 的条数上限。首次回放从流头逐页读完，COUNT 2 只限制单页驻留，
+ * 不限制整条流；单条事件本身可能超过 8MiB（run_finished 的 canonical），
+ * 所以这里不给整轮回放设累计字节或内存上界。
  */
 const READ_PAGE_SIZE = 2;
 
@@ -45,75 +41,6 @@ type StreamEntry = [string, string[]];
 function payloadOf(fields: string[]): string | undefined {
   const index = fields.indexOf('payload');
   return index >= 0 ? fields[index + 1] : undefined;
-}
-
-/**
- * 从最新一条往前分页读，直到 8MiB 或流头；返回按时间正序的事件。
- * 触发上限时 truncated 为真，由调用方补一条截断标记。
- */
-async function readLatest(
-  redis: Redis,
-  key: string,
-): Promise<{ entries: StreamEntry[]; newestId: string | undefined; truncated: boolean }> {
-  const newestFirst: StreamEntry[] = [];
-  let newestId: string | undefined;
-  let cursor = '+';
-  let bytes = 0;
-  let truncated = false;
-  for (;;) {
-    const page = (await redis.xrevrange(
-      key,
-      cursor,
-      '-',
-      'COUNT',
-      READ_PAGE_SIZE,
-    )) as StreamEntry[];
-    newestId ??= page[0]?.[0];
-    for (const entry of page) {
-      bytes += Buffer.byteLength(payloadOf(entry[1]) ?? '');
-      if (bytes > REPLAY_MAX_BYTES) {
-        truncated = true;
-        break;
-      }
-      newestFirst.push(entry);
-    }
-    if (truncated || page.length < READ_PAGE_SIZE) break;
-    const oldest = page.at(-1)?.[0];
-    if (oldest === undefined) break;
-    cursor = `(${oldest}`;
-  }
-  return { entries: newestFirst.reverse(), newestId, truncated };
-}
-
-/**
- * XINFO STREAM 返回交替的字段/值数组；只取本模块需要的两个数值。
- * entries-added 是累计写入数，length 是当前条数，前者更大说明流头已被裁掉。
- */
-function infoNumber(info: unknown[], field: string): number {
-  const index = info.indexOf(field);
-  return Number(index >= 0 ? info[index + 1] : 0);
-}
-
-/** 流在读取与查询之间过期属于正常竞态；其他 Redis 错误照常抛出。 */
-function isMissingStream(err: unknown): boolean {
-  return err instanceof Error && /no such key/i.test(err.message);
-}
-
-async function trimmedBeforeReplay(
-  redis: Redis,
-  key: string,
-  entries: StreamEntry[],
-): Promise<boolean> {
-  // 空流没有可回放的内容，也就不用为可能不存在的 key 付一次 XINFO。
-  if (entries.length === 0) return false;
-  let info: unknown[];
-  try {
-    info = (await redis.xinfo('STREAM', key)) as unknown[];
-  } catch (err) {
-    if (isMissingStream(err)) return false;
-    throw err;
-  }
-  return infoNumber(info, 'entries-added') > infoNumber(info, 'length');
 }
 
 function logRedisError(err: Error): void {
@@ -211,7 +138,7 @@ export async function publishRun(runId: string, event: ChatEvent): Promise<void>
   throwOnCommandError(
     await redis
       .pipeline()
-      .xadd(key, 'MAXLEN', '~', RUN_STREAM_MAXLEN, '*', 'payload', JSON.stringify(event))
+      .xadd(key, '*', 'payload', JSON.stringify(event))
       .expire(key, STREAM_TTL_SECONDS)
       .exec(),
   );
@@ -250,14 +177,12 @@ export interface RunSubscription {
 const subscriptions = new Map<Redis, () => void>();
 
 /**
- * 从流头回放并持续跟进。首次只回放最近 8MiB（超出时补一条截断标记），
+ * 从流头回放并持续跟进：首次回放从 0-0 正序逐页读完（COUNT 2 限制单页驻留），
  * 随后用阻塞 XREAD 从最后一条真实 ID 继续：不用消费组（多观众各自回放），
  * 也不用 `$`（会跳过阻塞前到达的事件）。
+ * 回放完成后 subscribeRun 才 resolve，调用方在拿到订阅后补发终态不会截断回放。
  * 回调可以返回 Promise：写端背压时循环会停下等待，而不是在内存里堆事件。
  * 客户端断开时只需 close()（或 abort signal），不删除流（其他客户端还能回放）。
- *
- * shortcut: 回调慢到未读期间写入超过 MAXLEN 时，被裁掉的事件会静默丢失且不再补
- * replay_truncated；需要强一致时改为在每次 await cb() 后探测流头并按 id 补提示。
  */
 export async function subscribeRun(
   runId: string,
@@ -298,24 +223,33 @@ export async function subscribeRun(
   });
 
   try {
-    const { entries, newestId, truncated } = await readLatest(getClient(), key);
-    if (newestId !== undefined) lastId = newestId;
-    // 两种截断只报一条：保留上限裁掉流头比 8MiB 回放上限更值得先告诉观众。
-    const reason = (await trimmedBeforeReplay(getClient(), key, entries))
-      ? 'retention'
-      : truncated
-        ? 'bytes'
-        : undefined;
-    if (reason && !closed) await cb({ type: 'replay_truncated', reason });
-    for (const [, fields] of entries) {
+    let cursor = '0-0';
+    for (;;) {
       if (closed) break;
-      const event = parseEvent(payloadOf(fields) ?? '');
-      if (event) await cb(event);
+      const page = (await getClient().xrange(
+        key,
+        cursor,
+        '+',
+        'COUNT',
+        READ_PAGE_SIZE,
+      )) as StreamEntry[];
+      for (const [id, fields] of page) {
+        if (closed) break;
+        lastId = id;
+        const event = parseEvent(payloadOf(fields) ?? '');
+        if (event) await cb(event);
+      }
+      if (closed || page.length < READ_PAGE_SIZE) break;
+      const newest = page.at(-1)?.[0];
+      if (newest === undefined) break;
+      cursor = `(${newest}`;
     }
   } catch (err) {
     release();
     throw err;
   }
+
+  if (closed) return { close: release };
 
   // 回放完成后调用方不再等这个函数；跟读阶段的错误只能记录并释放，不能抛出。
   // 终端错误（握手/鉴权失败等）向观众发一条 error，让 SSE 正常收尾而不是静默卡住；

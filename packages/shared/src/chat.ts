@@ -91,7 +91,7 @@ export const chatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('run_started'), runId: z.string(), conversationId: z.string() }),
   z.object({
     type: z.literal('replay_truncated'),
-    reason: z.enum(['retention', 'bytes', 'terminal_missing']),
+    reason: z.enum(['retention', 'bytes', 'budget', 'terminal_missing']),
   }),
   /**
    * 助手消息内的内容块边界：一个 SDK assistant 消息可以有多块文本/工具，
