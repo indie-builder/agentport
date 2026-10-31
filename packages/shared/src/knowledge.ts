@@ -45,8 +45,6 @@ export const knowledgeImageChunkMetadataSchema = z.object({
   imageRole: z.enum(['ocr', 'caption', 'vector']),
 });
 
-export type KnowledgeImageChunkMetadata = z.infer<typeof knowledgeImageChunkMetadataSchema>;
-
 const imageProcessingDefaults = {
   enabled: false,
   model: null,
@@ -248,8 +246,6 @@ export const knowledgeAudioSegmentSchema = z
     path: ['timeToMs'],
   });
 
-export type KnowledgeAudioSegment = z.infer<typeof knowledgeAudioSegmentSchema>;
-
 export const knowledgeAudioMetadataSchema = z.object({
   protocol: z.literal('openai_transcriptions'),
   /** 执行时快照，不是外键，不含 endpoint/key。 */
@@ -360,8 +356,6 @@ export const knowledgeFaqImportCountsSchema = z.object({
   added: z.number().int().nonnegative(),
   merged: z.number().int().nonnegative(),
 });
-
-export type KnowledgeFaqImportCounts = z.infer<typeof knowledgeFaqImportCountsSchema>;
 
 export const knowledgeFaqImportResponseSchema = z.object({
   dryRun: z.boolean(),
@@ -818,15 +812,11 @@ export const knowledgeWikiPageSchema = z.object({
   updatedAt: z.string(),
 });
 
-export type KnowledgeWikiPage = z.infer<typeof knowledgeWikiPageSchema>;
-
 export const knowledgeWikiLinkSchema = z.object({
   /** null 表示目标页不存在：管理端据此标记坏链接，不伪造页面 ID。 */
   targetPageId: z.string().nullable(),
   anchor: z.string().nullable(),
 });
-
-export type KnowledgeWikiLink = z.infer<typeof knowledgeWikiLinkSchema>;
 
 export const knowledgeWikiLinksResultSchema = z.object({
   outgoing: z.array(knowledgeWikiLinkSchema),

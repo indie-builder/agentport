@@ -13,11 +13,3 @@ export const allAccessMe = {
     scope: permission.scopes[0]!,
   })),
 };
-
-export function meQueryStub() {
-  return {
-    queryKey: ['me'],
-    queryFn: async () => allAccessMe,
-    staleTime: 0,
-  };
-}

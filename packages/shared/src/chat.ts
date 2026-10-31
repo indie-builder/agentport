@@ -357,8 +357,6 @@ export const publicConversationSchema = z.object({
   createdAt: z.string(),
 });
 
-export type PublicConversation = z.infer<typeof publicConversationSchema>;
-
 /** 分支响应只额外公开来源关系；fork 状态与 SDK session 仍是内部列。 */
 export const conversationBranchSchema = publicConversationSchema.extend({
   parentId: z.string().nullable(),
