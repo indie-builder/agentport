@@ -1,4 +1,10 @@
-import type { AuthMe, PermissionDefinition } from '@agentport/shared';
+import type {
+  AuthMe,
+  PermissionDefinition,
+  Role,
+  RoleMatrix,
+  RoleMatrixInput,
+} from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
@@ -16,6 +22,7 @@ import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { AccountsPage } from '../src/pages/accounts.js';
 import { AgentDetailPage } from '../src/pages/agents.js';
 import { RolesPage } from '../src/pages/roles.js';
+import { rolesSearchSchema } from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
@@ -35,6 +42,13 @@ const CATALOG: PermissionDefinition[] = [
   {
     id: 'agents.config.read',
     label: '查看配置',
+    treePath: ['专家', '配置'],
+    scopes: ['maintained_agents', 'owned_agents', 'platform'],
+  },
+  {
+    // 真实共享依赖：保存时要求同时授权 agents.config.read。
+    id: 'agents.config.update',
+    label: '修改配置',
     treePath: ['专家', '配置'],
     scopes: ['maintained_agents', 'owned_agents', 'platform'],
   },
@@ -189,20 +203,30 @@ function menuItem(text: string): HTMLElement {
   if (!element) throw new Error(`Missing menu item: ${text}`);
   return element;
 }
-function dialog(titlePrefix: string): HTMLElement {
-  const element = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((item) =>
-    item.querySelector('h2')?.textContent?.startsWith(titlePrefix),
+function maybeDialog(titlePrefix: string): HTMLElement | null {
+  return (
+    [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((item) =>
+      item.querySelector('h2')?.textContent?.startsWith(titlePrefix),
+    ) ?? null
   );
+}
+function dialog(titlePrefix: string): HTMLElement {
+  const element = maybeDialog(titlePrefix);
   if (!element) throw new Error(`Missing dialog: ${titlePrefix}`);
   return element;
 }
 
-async function mount(path: string, component: () => React.ReactNode): Promise<void> {
+async function mount(
+  path: string,
+  component: () => React.ReactNode,
+  searchSchema?: unknown,
+): Promise<void> {
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const page = createRoute({
     getParentRoute: () => shell,
     path: path.replace(/\$[^/]+/g, (_match) => '$agentId') as never,
+    ...(searchSchema === undefined ? {} : { validateSearch: searchSchema as never }),
     component,
   });
   const away = createRoute({
@@ -534,15 +558,15 @@ describe('专家配置权限拆分', () => {
   });
 });
 
-describe('角色矩阵', () => {
-  const matrix = {
+describe('角色权限矩阵', () => {
+  const matrix: RoleMatrix = {
     revision: 3,
     roles: [
       {
         id: 'role_admin',
         name: '管理员',
-        systemKey: 'admin' as const,
-        grants: [{ permissionId: 'agents.read', scope: 'platform' as const }],
+        systemKey: 'admin',
+        grants: [{ permissionId: 'agents.read', scope: 'platform' }],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:00Z',
       },
@@ -556,18 +580,63 @@ describe('角色矩阵', () => {
       },
     ],
   };
-  let current = matrix;
+  let current: RoleMatrix = matrix;
 
   beforeEach(() => {
     current = structuredClone(matrix);
     route('GET', /^\/api\/roles$/, () => json(current));
   });
 
-  async function openRoles(): Promise<void> {
-    await mount('/roles', RolesPage);
-    await waitFor(() => document.querySelector('table[aria-label="角色权限矩阵"]'));
+  // 服务端回包带真实 id/systemKey；保存载荷本身不含 systemKey，不能直接回显 request body。
+  function persistSave(call: Call): Response {
+    const payload = call.body as RoleMatrixInput;
+    const roles: Role[] = payload.roles.map((role, index) => {
+      const existing = current.roles.find((item) => item.id === role.id);
+      return {
+        id: role.id ?? `role_new_${index + 1}`,
+        name: role.name,
+        systemKey: existing?.systemKey ?? null,
+        grants: role.grants,
+        createdAt: existing?.createdAt ?? '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      };
+    });
+    current = { revision: current.revision + 1, roles };
+    return json(current);
   }
 
+  function matrixTable(): HTMLTableElement {
+    const element = document.querySelector<HTMLTableElement>('table[aria-label="角色权限矩阵"]');
+    if (!element) throw new Error('Missing role permission matrix');
+    return element;
+  }
+  function cell(role: string, label: string): HTMLElement {
+    return checkbox(`${role}：${label}`);
+  }
+  function maybeCell(role: string, label: string): HTMLElement | null {
+    return document.querySelector<HTMLElement>(`[role="checkbox"][aria-label="${role}：${label}"]`);
+  }
+  function scopeToggle(role: string, leaf: string, scopeLabel: string): HTMLElement {
+    const group = document.querySelector<HTMLElement>(`[aria-label="${role}：${leaf} 授权范围"]`);
+    if (!group) throw new Error(`Missing scope group: ${role}：${leaf}`);
+    const item = group.querySelector<HTMLElement>(`[aria-label="${scopeLabel}范围"]`);
+    if (!item) throw new Error(`Missing scope: ${role} ${leaf} ${scopeLabel}`);
+    return item;
+  }
+  function roleNameInput(scope: ParentNode = document): HTMLInputElement {
+    const inputs = scope.querySelectorAll<HTMLInputElement>('input[aria-label="角色名称"]');
+    if (inputs.length !== 1) throw new Error(`Expected one role name input, got ${inputs.length}`);
+    return inputs[0] as HTMLInputElement;
+  }
+  async function openSettings(role: string): Promise<HTMLElement> {
+    await click(button(`设置角色 ${role}`));
+    return (await waitFor(() => maybeDialog(`角色设置：${role}`))) as HTMLElement;
+  }
+  function searchInput(): HTMLInputElement {
+    const element = document.querySelector<HTMLInputElement>('input[aria-label="搜索权限"]');
+    if (!element) throw new Error('Missing role search');
+    return element;
+  }
   function isDisabled(element: HTMLElement): boolean {
     return (
       element.hasAttribute('disabled') ||
@@ -575,134 +644,363 @@ describe('角色矩阵', () => {
       element.getAttribute('aria-disabled') === 'true'
     );
   }
+  async function openRoles(): Promise<void> {
+    await mount('/roles', RolesPage, rolesSearchSchema);
+    await waitFor(() => matrixTable());
+  }
 
-  it('行角色列、父级半选与整棵子树勾选使用同一份草稿', async () => {
+  it('顶部按角色分列、行头为功能，数据单元格只含勾选框', async () => {
     await openRoles();
-    expect(document.querySelector('input[aria-label="角色名称：管理员"]')).toBeTruthy();
-    expect(document.querySelector('input[aria-label="角色名称：成员"]')).toBeTruthy();
+    const table = matrixTable();
 
-    await click(checkbox('成员：专家'));
-    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
-    expect(checkbox('成员：使用专家').getAttribute('aria-checked')).toBe('true');
-    expect(checkbox('成员：查看配置').getAttribute('aria-checked')).toBe('true');
+    const headCells = [...table.querySelectorAll<HTMLTableCellElement>('thead th')];
+    expect(headCells.length).toBeGreaterThanOrEqual(2);
+    expect(headCells.every((item) => item.getAttribute('scope') === 'col')).toBe(true);
+    expect(
+      headCells
+        .map((item) =>
+          item.querySelector('button[aria-label^="设置角色 "]')?.getAttribute('aria-label'),
+        )
+        .filter((label): label is string => label !== undefined),
+    ).toEqual(['设置角色 管理员', '设置角色 成员']);
 
-    await click(checkbox('成员：使用专家'));
-    expect(checkbox('成员：专家').getAttribute('aria-checked')).toBe('mixed');
+    const rows = [...table.querySelectorAll<HTMLTableRowElement>('tbody tr')];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const [head, ...cells] = [...row.children];
+      expect(head?.tagName).toBe('TH');
+      expect(head?.getAttribute('scope')).toBe('row');
+      expect(cells).toHaveLength(2);
+      for (const item of cells) {
+        expect(item.tagName).toBe('TD');
+        expect(item.querySelectorAll('[role="checkbox"]')).toHaveLength(1);
+        expect(
+          item.querySelectorAll(
+            'button:not([role="checkbox"]), a, select, textarea, [role="combobox"], [role="group"]',
+          ),
+        ).toHaveLength(0);
+        expect(item.textContent?.trim()).toBe('');
+      }
+    }
+
+    expect(document.querySelectorAll('input[aria-label="角色名称"]')).toHaveLength(0);
+    expect(cell('管理员', '查看专家').getAttribute('aria-checked')).toBe('true');
+    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('父级半选与整棵子树勾选使用同一份矩阵草稿', async () => {
+    await openRoles();
+    const settings = await openSettings('成员');
+    expect(roleNameInput(settings).value).toBe('成员');
+    await click(button('完成', settings));
+
+    await click(cell('成员', '专家'));
+    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
+    expect(cell('成员', '使用专家').getAttribute('aria-checked')).toBe('true');
+    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
+
+    await click(cell('成员', '使用专家'));
+    expect(cell('成员', '专家').getAttribute('aria-checked')).toBe('mixed');
+    // 其他角色列的授权不受影响。
+    expect(cell('管理员', '查看专家').getAttribute('aria-checked')).toBe('true');
   });
 
   it('搜索与折叠不会丢掉已勾选的权限', async () => {
     await openRoles();
-    await click(checkbox('成员：查看专家'));
-    const search = document.querySelector<HTMLInputElement>('input[aria-label="搜索权限"]');
-    if (!search) throw new Error('Missing role search');
-    await type(search, '使用专家');
-    expect(document.querySelector('[data-permission="agents.read"]')).toBeNull();
-    expect(checkbox('成员：使用专家').getAttribute('aria-checked')).toBe('false');
+    await click(cell('成员', '查看专家'));
 
-    await type(search, '');
-    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
+    await click(button('收起 专家'));
+    expect(maybeCell('成员', '查看专家')).toBeNull();
+
+    await type(searchInput(), '使用专家');
+    expect(maybeCell('成员', '查看专家')).toBeNull();
+    expect(cell('成员', '使用专家').getAttribute('aria-checked')).toBe('false');
+
+    await type(searchInput(), '');
+    expect(maybeCell('成员', '查看专家')).toBeNull();
+    await click(button('展开 专家'));
+    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('角色设置只列已授权叶的范围，完成不提交，范围随页头保存提交', async () => {
+    route('PUT', /^\/api\/roles$/, persistSave);
+    await openRoles();
+    await click(cell('成员', '查看配置'));
+    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
+
+    const settings = await openSettings('成员');
+    expect(document.querySelectorAll('input[aria-label="角色名称"]')).toHaveLength(1);
+    expect(roleNameInput(settings).value).toBe('成员');
+    expect(settings.querySelector('[aria-label="成员：查看配置 授权范围"]')).not.toBeNull();
+    expect(settings.querySelector('[aria-label="成员：查看专家 授权范围"]')).toBeNull();
+    expect(scopeToggle('成员', '查看配置', '全平台').getAttribute('aria-pressed')).toBe('false');
+
+    await click(scopeToggle('成员', '查看配置', '全平台'));
+    expect(scopeToggle('成员', '查看配置', '全平台').getAttribute('aria-pressed')).toBe('true');
+    await click(button('完成', settings));
+
+    expect(maybeDialog('角色设置：成员')).toBeNull();
+    expect(calls.some((call) => call.method === 'PUT')).toBe(false);
+    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
+    expect(button('保存更改').disabled).toBe(false);
+
+    await click(button('保存更改'));
+    const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
+    expect(body.roles.find((role) => role.id === 'role_member')?.grants).toEqual([
+      { permissionId: 'agents.config.read', scope: 'maintained_agents' },
+      { permissionId: 'agents.config.read', scope: 'platform' },
+    ]);
+  });
+
+  it('同名父节点按层级区分，折叠父级隐藏整个同名子树', async () => {
+    const nested: PermissionDefinition[] = [
+      {
+        id: 'agents.read',
+        label: '查看专家',
+        treePath: ['专家', '发现'],
+        scopes: ['platform'],
+      },
+      {
+        id: 'agents.config.read',
+        label: '查看配置',
+        treePath: ['专家', '配置'],
+        scopes: ['platform'],
+      },
+      {
+        id: 'agents.config.update',
+        label: '修改配置',
+        treePath: ['专家', '配置', '配置'],
+        scopes: ['platform'],
+      },
+    ] as PermissionDefinition[];
+    handlers = handlers.filter(
+      (item) => !(item.method === 'GET' && item.match.test('/api/permissions')),
+    );
+    route('GET', /^\/api\/permissions$/, () =>
+      json({ permissions: nested, scopes: [{ id: 'platform', label: '全平台' }] }),
+    );
+    await openRoles();
+
+    const namedConfig = () =>
+      [...matrixTable().querySelectorAll<HTMLTableRowElement>('tbody tr')].filter(
+        (row) => row.children[0]?.textContent?.trim() === '配置',
+      );
+    expect(namedConfig()).toHaveLength(2);
+
+    await click(button('收起 配置', namedConfig()[0] as HTMLElement));
+    expect(namedConfig()).toHaveLength(1);
+    expect(maybeCell('管理员', '查看配置')).toBeNull();
+    expect(maybeCell('管理员', '修改配置')).toBeNull();
   });
 
   it('保存提交 expectedRevision 与完整草稿', async () => {
-    route('PUT', /^\/api\/roles$/, (call) => json({ ...current, ...(call.body as object) }));
+    route('PUT', /^\/api\/roles$/, persistSave);
     await openRoles();
-    await click(checkbox('成员：查看专家'));
+    await click(cell('成员', '查看专家'));
     await click(button('保存更改'));
 
-    const body = bodyOf('/api/roles', 'PUT') as {
-      expectedRevision: number;
-      roles: Array<{ id?: string; name: string; grants: unknown[] }>;
-    };
+    const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
     expect(body.expectedRevision).toBe(3);
     expect(body.roles.find((role) => role.id === 'role_member')?.grants).toEqual([
       { permissionId: 'agents.read', scope: 'authorized_agents' },
     ]);
     expect(toastSuccess).toHaveBeenCalledWith('角色矩阵已保存');
+
+    // 服务端回包保留 systemKey，保存后管理员角色仍是只读的。
+    const settings = await openSettings('管理员');
+    expect(maybeButton('删除角色 管理员', settings)).toBeNull();
+    await click(button('完成', settings));
+    expect(isDisabled(cell('管理员', '查看专家'))).toBe(true);
+  });
+
+  it('删除中间角色后其余角色的名称、授权与保存载荷不串列', async () => {
+    current.roles = [
+      current.roles[0] as Role,
+      {
+        ...(current.roles[1] as Role),
+        grants: [{ permissionId: 'agents.use', scope: 'platform' }],
+      },
+      {
+        id: 'role_auditor',
+        name: '审计员',
+        systemKey: null,
+        grants: [{ permissionId: 'accounts.read', scope: 'platform' }],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ];
+    route('PUT', /^\/api\/roles$/, persistSave);
+    await openRoles();
+    expect(cell('审计员', '查看账户').getAttribute('aria-checked')).toBe('true');
+    expect(cell('审计员', '使用专家').getAttribute('aria-checked')).toBe('false');
+
+    const settings = await openSettings('成员');
+    await click(button('删除角色 成员', settings));
+    const confirmation = await waitFor(() => maybeDialog('删除这个角色？'));
+    await click(button('删除', confirmation as HTMLElement));
+    await waitFor(() => !maybeButton('设置角色 成员'));
+
+    // 删掉前一个角色后，审计员的列与设置仍按自己的字段取值。
+    expect(cell('审计员', '查看账户').getAttribute('aria-checked')).toBe('true');
+    expect(cell('审计员', '使用专家').getAttribute('aria-checked')).toBe('false');
+    expect(cell('管理员', '查看专家').getAttribute('aria-checked')).toBe('true');
+    const auditor = await openSettings('审计员');
+    expect(roleNameInput(auditor).value).toBe('审计员');
+    await click(button('完成', auditor));
+
+    await click(button('保存更改'));
+    const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
+    expect(body.roles.map((role) => role.name)).toEqual(['管理员', '审计员']);
+    expect(body.roles[0]?.grants).toEqual([{ permissionId: 'agents.read', scope: 'platform' }]);
+    expect(body.roles[1]?.id).toBe('role_auditor');
+    expect(body.roles[1]?.grants).toEqual([{ permissionId: 'accounts.read', scope: 'platform' }]);
+  });
+
+  it('删除前一角色后撤销授权，工具栏与格子仍按角色自身基线反馈', async () => {
+    current.roles.push({
+      ...(current.roles[1] as Role),
+      id: 'role_auditor',
+      name: '审计员',
+      grants: [{ permissionId: 'accounts.read', scope: 'platform' }],
+    });
+    await openRoles();
+    const settings = await openSettings('成员');
+    await click(button('删除角色 成员', settings));
+    await click(button('删除', dialog('删除这个角色？')));
+    await waitFor(() => !maybeButton('设置角色 成员'));
+
+    await click(cell('审计员', '查看账户'));
+
+    expect(cell('审计员', '查看账户').getAttribute('aria-checked')).toBe('false');
+    expect(cell('审计员', '查看账户').closest('td')?.getAttribute('data-changed')).toBe('true');
+    expect(document.querySelector('[aria-label="未保存权限变更"]')?.textContent).toBe(
+      '1 项权限未保存',
+    );
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('审计员：查看账户 撤销');
+  });
+
+  it('保存成功重置基线后，范围弹层与未保存标记按新基线计算', async () => {
+    route('PUT', /^\/api\/roles$/, persistSave);
+    await openRoles();
+    await click(cell('成员', '查看配置'));
+    const changed = () => cell('成员', '查看配置').closest('td')?.getAttribute('data-changed');
+    expect(changed()).toBe('true');
+
+    await click(button('保存更改'));
+    await waitFor(() => button('保存更改').disabled);
+    expect(changed()).toBe('false');
+    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
+
+    // reset 后的基线仍能打开已授权叶的范围，并重新把范围改动标成未保存。
+    const settings = await openSettings('成员');
+    expect(settings.querySelector('[aria-label="成员：查看配置 授权范围"]')).not.toBeNull();
+    await click(scopeToggle('成员', '查看配置', '全平台'));
+    await click(button('完成', settings));
+    expect(changed()).toBe('true');
+    expect(button('保存更改').disabled).toBe(false);
+
+    await click(button('保存更改'));
+    const saved = calls.filter((call) => call.method === 'PUT' && call.path === '/api/roles').at(-1)
+      ?.body as RoleMatrixInput;
+    expect(saved.roles.find((role) => role.id === 'role_member')?.grants).toEqual([
+      { permissionId: 'agents.config.read', scope: 'maintained_agents' },
+      { permissionId: 'agents.config.read', scope: 'platform' },
+    ]);
+  });
+
+  it('缺少读取依赖时保存前拒绝 PUT 并显示可修正的错误', async () => {
+    route('PUT', /^\/api\/roles$/, persistSave);
+    await openRoles();
+    await click(cell('成员', '修改配置'));
+    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('false');
+
+    await click(button('保存更改'));
+
+    expect(document.body.textContent).toContain(
+      'agents.config.update 需要同时授权 agents.config.read',
+    );
+    expect(calls.some((call) => call.method === 'PUT')).toBe(false);
+
+    // 补齐依赖后同一份草稿可以保存。
+    await click(cell('成员', '查看配置'));
+    await click(button('保存更改'));
+    const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
+    expect(body.roles.find((role) => role.id === 'role_member')?.grants).toEqual([
+      { permissionId: 'agents.config.read', scope: 'maintained_agents' },
+      { permissionId: 'agents.config.update', scope: 'maintained_agents' },
+    ]);
   });
 
   it('409 冲突保留草稿并给出重新加载入口', async () => {
     route('PUT', /^\/api\/roles$/, () => problem(409, '矩阵已被其他操作修改', 'CONFLICT'));
     await openRoles();
-    await click(checkbox('成员：查看专家'));
+    await click(cell('成员', '查看专家'));
     await click(button('保存更改'));
 
     expect(document.body.textContent).toContain('矩阵已被其他操作修改');
     expect(maybeButton('重新加载')).toBeTruthy();
-    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
+    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
   });
 
-  it('搜索时父级批量禁用，叶与 scope 仍可编辑，清空后恢复整棵子树', async () => {
+  it('搜索时父级批量禁用，授权叶范围仍可编辑，清空后恢复整棵子树', async () => {
     // 使用专家在搜索“查看专家”时被隐藏，用非默认 scope 验证批量不会改写隐藏叶。
     const member = current.roles[1];
     if (!member) throw new Error('Missing member role');
     member.grants = [{ permissionId: 'agents.use', scope: 'platform' }];
     await openRoles();
-    const search = document.querySelector<HTMLInputElement>('input[aria-label="搜索权限"]');
-    if (!search) throw new Error('Missing role search');
-    await type(search, '查看专家');
+    await type(searchInput(), '查看专家');
 
-    expect(isDisabled(checkbox('成员：专家'))).toBe(true);
-    expect(isDisabled(checkbox('成员：发现'))).toBe(true);
-    expect(document.querySelector('[data-permission="agents.use"]')).toBeNull();
-    expect(document.querySelector('[data-permission="agents.config.read"]')).toBeNull();
+    expect(isDisabled(cell('成员', '专家'))).toBe(true);
+    expect(isDisabled(cell('成员', '发现'))).toBe(true);
+    expect(maybeCell('成员', '使用专家')).toBeNull();
+    expect(maybeCell('成员', '查看配置')).toBeNull();
 
     // 点击禁用的父级不会改动任何叶，包括当前被隐藏的叶。
-    await click(checkbox('成员：专家'));
-    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('false');
+    await click(cell('成员', '专家'));
+    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('false');
 
-    // 可见叶和 scope 在搜索期间仍可编辑。
-    await click(checkbox('成员：查看专家'));
-    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
-    const scopeGroup = document.querySelector<HTMLElement>(
-      '[aria-label="成员：查看专家 授权范围"]',
-    );
-    if (!scopeGroup) throw new Error('Missing member scope group');
-    const platformScope = scopeGroup.querySelector<HTMLElement>('[aria-label="全平台范围"]');
-    if (!platformScope) throw new Error('Missing platform scope');
+    // 可见叶在搜索期间仍可勾选，已授权叶的范围可在设置里编辑。
+    await click(cell('成员', '查看专家'));
+    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
+    const settings = await openSettings('成员');
+    const platformScope = scopeToggle('成员', '查看专家', '全平台');
     expect(isDisabled(platformScope)).toBe(false);
     await click(platformScope);
     expect(platformScope.getAttribute('aria-pressed')).toBe('true');
+    await click(button('完成', settings));
 
-    await type(search, '');
+    await type(searchInput(), '');
 
     // 隐藏叶的授权与 scope 保持不动，父级三态按整棵子树重算。
-    expect(checkbox('成员：使用专家').getAttribute('aria-checked')).toBe('true');
-    expect(
-      document
-        .querySelector('[aria-label="成员：使用专家 授权范围"]')
-        ?.querySelector('[aria-label="全平台范围"]')
-        ?.getAttribute('aria-pressed'),
-    ).toBe('true');
-    expect(checkbox('成员：查看配置').getAttribute('aria-checked')).toBe('false');
-    expect(checkbox('成员：专家').getAttribute('aria-checked')).toBe('mixed');
+    expect(cell('成员', '使用专家').getAttribute('aria-checked')).toBe('true');
+    const hidden = await openSettings('成员');
+    expect(scopeToggle('成员', '使用专家', '全平台').getAttribute('aria-pressed')).toBe('true');
+    await click(button('完成', hidden));
+    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('false');
+    expect(cell('成员', '专家').getAttribute('aria-checked')).toBe('mixed');
 
     // 重新启用的父级恢复整棵子树批量勾选，已有 scope 不被默认值覆盖。
-    expect(isDisabled(checkbox('成员：专家'))).toBe(false);
-    await click(checkbox('成员：专家'));
-    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
-    expect(checkbox('成员：使用专家').getAttribute('aria-checked')).toBe('true');
-    expect(checkbox('成员：查看配置').getAttribute('aria-checked')).toBe('true');
-    expect(
-      document
-        .querySelector('[aria-label="成员：使用专家 授权范围"]')
-        ?.querySelector('[aria-label="全平台范围"]')
-        ?.getAttribute('aria-pressed'),
-    ).toBe('true');
+    expect(isDisabled(cell('成员', '专家'))).toBe(false);
+    await click(cell('成员', '专家'));
+    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
+    expect(cell('成员', '使用专家').getAttribute('aria-checked')).toBe('true');
+    expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
+    const verified = await openSettings('成员');
+    expect(scopeToggle('成员', '使用专家', '全平台').getAttribute('aria-pressed')).toBe('true');
+    await click(button('完成', verified));
   });
 
   it('父级全选保留已有授权的范围，不回落到默认 scope', async () => {
     const member = current.roles[1];
     if (!member) throw new Error('Missing member role');
     member.grants = [{ permissionId: 'agents.use', scope: 'platform' }];
-    route('PUT', /^\/api\/roles$/, (call) => json({ ...current, ...(call.body as object) }));
+    route('PUT', /^\/api\/roles$/, persistSave);
     await openRoles();
 
-    await click(checkbox('成员：专家'));
+    await click(cell('成员', '专家'));
     await click(button('保存更改'));
 
-    const body = bodyOf('/api/roles', 'PUT') as {
-      roles: Array<{ id?: string; grants: Array<{ permissionId: string; scope: string }> }>;
-    };
+    const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
     expect(body.roles.find((role) => role.id === 'role_member')?.grants).toContainEqual({
       permissionId: 'agents.use',
       scope: 'platform',
@@ -712,7 +1010,7 @@ describe('角色矩阵', () => {
   it('点击重新加载并确认后，用服务端最新矩阵替换草稿', async () => {
     route('PUT', /^\/api\/roles$/, () => problem(409, '矩阵已被其他操作修改', 'CONFLICT'));
     await openRoles();
-    await click(checkbox('成员：查看专家'));
+    await click(cell('成员', '查看专家'));
     await click(button('保存更改'));
     expect(document.body.textContent).toContain('矩阵已被其他操作修改');
 
@@ -722,25 +1020,72 @@ describe('角色矩阵', () => {
     await click(button('重新加载', confirmation));
     await waitFor(() => !document.body.textContent?.includes('矩阵已被其他操作修改'));
 
-    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('false');
+    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('确认重载遇到 503 且保留旧缓存时，草稿、冲突与反馈不变并显示错误', async () => {
+    route('PUT', /^\/api\/roles$/, () => problem(409, '矩阵已被其他操作修改', 'CONFLICT'));
+    await openRoles();
+    await click(cell('成员', '查看专家'));
+    await click(button('保存更改'));
+    const feedback = document.querySelector('[role="status"]')?.textContent;
+    const count = document.querySelector('[aria-label="未保存权限变更"]')?.textContent;
+    const cached = client.getQueryData(['role-matrix']);
+    expect(cached).toEqual(current);
+    handlers = handlers.filter((item) => !(item.method === 'GET' && item.match.test('/api/roles')));
+    route('GET', /^\/api\/roles$/, () => problem(503, '角色矩阵暂时不可用', 'UNAVAILABLE'));
+
+    await click(button('重新加载'));
+    await click(button('重新加载', dialog('放弃当前草稿并重新加载？')));
+
+    expect(client.getQueryState(['role-matrix'])?.status).toBe('error');
+    expect(client.getQueryData(['role-matrix'])).toBe(cached);
+    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
+    expect(cell('成员', '查看专家').closest('td')?.getAttribute('data-changed')).toBe('true');
+    expect(button('保存更改').disabled).toBe(false);
+    expect(document.body.textContent).toContain('有未保存的更改');
+    expect(document.body.textContent).toContain('矩阵已被其他操作修改');
+    expect(document.querySelector('[role="status"]')?.textContent).toBe(feedback);
+    expect(document.querySelector('[aria-label="未保存权限变更"]')?.textContent).toBe(count);
+    expect(dialog('放弃当前草稿并重新加载？')).toBeTruthy();
+    expect(toastError).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 503, message: '角色矩阵暂时不可用' }),
+    );
+    await click(button('取消', dialog('放弃当前草稿并重新加载？')));
+    await act(async () => {
+      await history.push('/away');
+    });
+    await flush();
+    expect(dialog('放弃未保存的角色矩阵？')).toBeTruthy();
   });
 
   it('后台刷新到新版本时不覆盖未保存草稿', async () => {
     await openRoles();
-    await click(checkbox('成员：查看专家'));
+    await click(cell('成员', '查看专家'));
     current = { ...structuredClone(matrix), revision: 4 };
     await act(async () => {
       await client.invalidateQueries({ queryKey: ['role-matrix'] });
     });
     await flush();
 
-    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
+    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
     expect(document.body.textContent).toContain('当前草稿已保留');
   });
 
-  it('有草稿离开页面时先确认', async () => {
+  it('设置弹层与搜索保留草稿，离开页面时先确认', async () => {
     await openRoles();
-    await click(checkbox('成员：查看专家'));
+    await click(cell('成员', '查看专家'));
+
+    // 打开/关闭角色设置与权限搜索只改本地草稿，不算离开页面。
+    const settings = await openSettings('成员');
+    await type(roleNameInput(settings), '审计员');
+    await click(button('完成', settings));
+    await type(searchInput(), '查看');
+    expect(maybeDialog('放弃未保存的角色矩阵？')).toBeNull();
+
+    await type(searchInput(), '');
+    expect(cell('审计员', '查看专家').getAttribute('aria-checked')).toBe('true');
+
     await act(async () => {
       await history.push('/away');
     });

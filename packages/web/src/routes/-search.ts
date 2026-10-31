@@ -50,6 +50,12 @@ export const chatSearchSchema = z.object({
   outputMode: z.enum(['read', 'source']).optional().catch(undefined),
 });
 
+/** 角色页：设置弹层目标角色与权限搜索进 URL，刷新和分享回到同一视图。 */
+export const rolesSearchSchema = z.object({
+  role: z.string().optional().catch(undefined),
+  q: z.string().optional().catch(undefined),
+});
+
 export const auditSearchSchema = z.object({
   action: z.string().optional().catch(undefined),
   status: z.enum(['ok', 'error', 'denied']).optional().catch(undefined),
