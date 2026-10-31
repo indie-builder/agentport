@@ -4,7 +4,7 @@
 >
 > 对本仓库的所有回复、总结、提交说明都用中文；代码、命令、标识符、路径保持原样。
 >
-> 文档入口见 [docs/README.md](docs/README.md)；研发流程规范见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)；跨任务踩坑见 [docs/PITFALLS.md](docs/PITFALLS.md)，开工前或报错时先读。
+> 文档入口见 [docs/README.md](docs/README.md)；研发流程规范见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)；跨任务踩坑见 [docs/PITFALLS.md](docs/PITFALLS.md)，开工前或报错时先读。各包专属规则见「模块规则」。
 
 ## 0. 第一性原则：文件系统即智能体定义（最高约束）
 
@@ -21,10 +21,10 @@
 
 ## 优先级（冲突时自上而下裁决）
 
-0. **官方最佳实践优先。** 项目引用的每个技术栈（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Fastify、Vitest…）如果官方文档给出了做法，**以官方为准**。用户的口头偏好、我的判断、项目历史习惯，都不高于官方文档。用户明确说过「我可能说的也不对」——遇到分歧先去查官方文档，再决定。
+0. **官方最佳实践优先。** 项目引用的每个技术栈（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Fastify、Vitest…）如果官方文档给出了做法，**以官方为准**。用户的口头偏好、我的判断、项目历史习惯，都不高于官方文档。用户明确说过「我可能说的也不对」——遇到分歧先去查官方文档，再决定；涉及 Claude Agent SDK / Claude Code 时同时核对已安装的 `sdk.d.ts`（见「智能体运行底座」）。
 1. **并行优先。** 任何可拆的工作都必须并行；串行只在存在真实依赖时允许，并且必须说明依赖是什么。
-2. **UI 基准优先。** 视觉外观（配色、控件外观与状态）以 Qoder CN 桌面浅色界面为准；布局几何以 `docs/DESIGN-SYSTEM.md` 当前规范为准（含 2026-10-30 用户批准的布局契约），OpenUI 桌面基准仅保留为历史参考；任何技术选型、库默认样式、动效偏好都不得改动这套视觉数值。
-3. **技术栈优先。** 功能实现必须走项目已选定的库（shadcn/ui、lucide、Motion、react-resizable-panels、dnd-kit、Zustand、TanStack Query/Router、Base UI），不允许手写等价实现。
+2. **UI 基准优先。** 视觉外观（配色、控件外观与状态）以 Qoder CN 桌面浅色界面为准；布局几何、颜色数值与信息表达以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 当前规范为准（含 2026-10-30 用户批准的布局契约），OpenUI 桌面基准仅保留为历史参考；任何技术选型、库默认样式、动效偏好都不得改动这套视觉数值。前端实现细节见 [packages/web/CLAUDE.md](packages/web/CLAUDE.md)。
+3. **技术栈优先。** 功能实现必须走项目已选定的库与官方原生能力（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Fastify、Vitest 等），不允许手写等价实现；具体栈、包职责与用法见各模块规则与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 4. **零死代码。** 无人引用的组件、导出、样式、依赖、注释掉的代码块一律删除；不保留「以后可能用」的占位实现。删之前用 grep 确认引用，删之后跑 typecheck / 构建确认没断。注释只解释「代码看不出来的原因」，不写复述代码的废话。
 5. 其余按本文件后续条款执行。
 
@@ -33,7 +33,7 @@
 - **三赢：UX / DX / AX 同时提升。** 任何设计或技术决策，都要选能同时提升**用户体验（UX）、开发者体验（DX）、智能体体验（AX）**且不牺牲其一换另一个的最优解，并且**不破坏任何现有功能**（"Make the best decision that will elevate all three: the user experience (UX), developer experience (DX), and agent experience (AX) always, without breaking anything."）。逐条问「这对 UX / DX / AX 各是加分还是减分」，若某方案提升一个却伤害另一个，继续找更优解。
 - **个人项目不考虑向后兼容。** 永远按当前最佳实践设计，不为旧数据、旧格式、旧接口保留兼容层、迁移分支或双写路径；字段、表结构、接口可以直接改到最干净的样子，旧数据不迁移、不做兜底。需要重置时直接重建库或用脚本一次性重灌。判断「要不要兼容」的答案默认是否。
 - **不为理论风险加防护。** 加代码防假设性的竞态条件或安全边界之前，先用「10 岁小孩能听懂」的话说明三件事并**等用户明确同意**：① 到底会出什么问题；② 这有多大概率发生；③ 多加的代码带来多少复杂度。不得悄悄扩大范围去防只存在于理论中的问题（"Before adding complexity for a speculative or vanishingly unlikely race or security edge case, explain the concrete failure mode, likelihood, and complexity cost to the user and get their buy-in. Do not silently expand scope for theoretical robustness."）。真实可发生的边界（信任边界校验、防数据丢失、安全、无障碍）不在其列，照常做。
-- **入口校验一次。** 外部数据在入口信任边界完成校验，内部使用校验后确定的类型，不逐层重复校验或判断。后端入口沿用下文 Fastify schema 规则。
+- **入口校验一次。** 外部数据在入口信任边界完成校验，内部使用校验后确定的类型，不逐层重复校验或判断。后端入口按 [packages/api/CLAUDE.md](packages/api/CLAUDE.md) 的 Fastify schema 规则执行。
 - **单次逻辑就地写。** 仅使用一次的逻辑直接写在使用处；只有会复用或封装真正复杂逻辑时才提取抽象。
 - **保持直接控制流。** 能用一个清晰函数完成就不拆分；仅在需要恢复、清理或转换错误时使用 `try/catch`，其余错误交由现有统一机制处理。保留必要错误处理，不吞错。
 
@@ -41,7 +41,7 @@
 
 新增或改进任何能力前，先说明要解决的实际问题与缺口；没有真实问题不加能力、不换栈。调研顺序：
 
-0. **先看现有项目有没有。** 先 grep / 读代码确认本仓库是否已有该功能或近似能力。有 → 优先复用或整合；即使不整合，也要**针对现有这块功能按最佳实践改造**，而不是并排再造一份。
+0. **先看现有项目有没有，先找同类入口。** 新增能力前先 grep / 读代码，定位本仓库已有的同类入口、组件、服务或封装；有 → 优先复用、整合或在其上扩展；即使不整合，也要**针对现有这块功能按最佳实践改造**，而不是并排再造一份。只有确认不存在时才新增。
 1. **再看平台原生能力与已装依赖。** Claude Agent SDK / Claude Code、已选技术栈或其他已装依赖官方是否已提供？满足诉求时一律用原生，以**最小代价**实现，不自造平台侧等价实现、不引入第二套。
 2. **原生不适配，才找主流开源方案。** 选持续维护、近期有实质稳定发布、生态采用度足够、与现有栈兼容且许可合规的实现，记录查证日期、证据与取舍理由；不单凭 star / 下载量 / 旧版本号判断，也不为追新换栈。
 3. **只有以上都不行，才自研**，并在 PR/文档说明为什么现有、原生、开源都不适用。
@@ -49,6 +49,31 @@
 选型还要过成本与替换检查：默认只用进程内库或开发依赖，不新增独立部署服务、容器、托管 SaaS 或外部账号，既有业务基础设施不受影响；综合直接与传递依赖、生产 bundle、内存、启动、构建与升级维护开销，总收益必须大于成本。引入即替代，删除无人使用的旧实现，同一职责只留一处，并保留原有行为、权限、错误处理与无障碍。性能候选先做有代表性的基准再决定；不新增理论防护（按「决策标准」执行）。
 
 > 依据：用户明确要求——功能探索时先看现有项目有没有、有就整合或按最佳实践改造；没有再看原生能力、以最小代价实现；最后才考虑引入开源或自研。
+
+## 复用与职责边界
+
+- **通用机制归库/封装。** 表单、缓存、数据访问、SDK 循环等通用机制由库或共享封装承担；业务模块只保留字段约束、权限、状态转换与冲突规则。
+- **不因业务差异重造机制。** 业务差异用配置、数据或模块内规则表达，不另造一套 form / cache / SDK 循环；单个简单字段不引入框架或抽象。
+
+## 模块规则
+
+根规则始终加载；下列包规则在进入对应包、读取/编辑其文件时按需加载。跨包改动先读所有相关模块规则。
+
+| 模块 | 规则文件 | 进入条件 |
+|---|---|---|
+| 根（始终加载） | `CLAUDE.md` | 所有任务 |
+| `web` | [packages/web/CLAUDE.md](packages/web/CLAUDE.md) | 页面、组件、样式、路由、前端状态与 DESIGN-SYSTEM 实现 |
+| `api` | [packages/api/CLAUDE.md](packages/api/CLAUDE.md) | 路由、校验、鉴权、错误、SSE、队列生产 |
+| `worker` | [packages/worker/CLAUDE.md](packages/worker/CLAUDE.md) | 队列消费、会话工作区渲染、沙盒生命周期、事件回传 |
+| `core` | [packages/core/CLAUDE.md](packages/core/CLAUDE.md) | 工作区渲染、密钥加解密、MCP 条目、领域纯函数 |
+| `db` | [packages/db/CLAUDE.md](packages/db/CLAUDE.md) | Drizzle schema、repo、迁移、TypeID 生成 |
+| `shared` | [packages/shared/CLAUDE.md](packages/shared/CLAUDE.md) | zod 契约、共享类型、事件与任务 payload |
+| `sandbox` | [packages/sandbox/CLAUDE.md](packages/sandbox/CLAUDE.md) | 容器内 supervisor、runner、沙盒镜像边界 |
+
+- Claude Code 启动时加载根与祖先目录规则；进入子目录读取、写入或编辑文件时才按需加载该目录 `CLAUDE.md`。多份规则顺序拼接、不互相覆盖；子规则不重述或覆盖根约束。
+- 根用普通链接指向模块规则，不加 `@import`，避免每次会话把所有包规则整体载入；每个规则文件目标少于 200 行。
+- 改根目录 `scripts/`、`tests/`、`Dockerfile`、compose、根 `package.json` 等文件，先读它所服务模块的规则。
+- 派子代理时在任务里写明目标模块规则路径；review 检查改动是否遵循对应模块规则，规则放错层时先调整归属再改代码。
 
 ## 协作方式
 
@@ -70,28 +95,15 @@
 - AI Harness 只保留 Claude Agent SDK 一套；Dify、LangGraph、n8n 等用于产品能力对标，不引入第二套智能体执行循环或编排底座。测试工具的模型适配器不作为产品运行底座，也不扩散到业务代码。
 - 有价值的功能可以引入额外技术栈：先核对现有依赖，按能力选择一种实现；更换同类技术时完成调用方迁移与旧依赖清理，避免长期并存多套等价实现。
 
-## 前端
-
-- **仅面向桌面端，避免过度设计。** 前端采用桌面布局与控件规格，不做移动端适配，不为手机增加断点、触摸尺寸或替代导航；保留桌面窗口缩放、容器伸缩与无障碍行为。
-- **一切视觉以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 为准**：配色与控件外观以 Qoder CN 桌面浅色界面为权威（来源是实际截图采样，不是其源码 token），布局几何以 `docs/DESIGN-SYSTEM.md` 当前规范为准（含用户批准的布局契约），OpenUI Chat 桌面基准仅保留为历史参考。应用外壳的外部根容器使用静态暖黄到蓝灰渐变（`shell-start #ECEBC9` → `shell-mid #DDE3D4` → `shell-end #D1DAE3`），内容壳、页面、卡片与浮层为纯白 `#FFFFFF`；动作为中性深色 `#0D0D0D`（悬停 `#262626`、按下 `#404040`）配白字，普通主操作与发送/登录共用同一实底三态，次操作为白底细边或中性浅底；中性层 `#F6F6F6` / `#EFEFEF`，正文 `#141414`，辅助文字 `#5F5F5F`，分隔线 `#E6E6E6`，输入默认边线 `#E6E6E6`、普通聚焦 `#BDBDBD`、composer 聚焦 `#DDDDDD`（PACE 近似映射，对白低于 3:1），checkbox/radio 强边界仍 `#767676`，焦点环 `#0D0D0D`；`#315FAD` 只作为 `chart-runs` 数据系列，不用于导航、按钮或状态。实现产物作为设计系统快照记录在 [packages/web/DESIGN.md](packages/web/DESIGN.md)。品牌 Logo 与插画保留原配色；普通图标继承所属文字，危险用 `danger` 红；1px 线与留白、lucide 图标 `strokeWidth={1.75}` 16px、焦点/边框统一（§9）、信息表达「让布局解释结构」（§10，做 UI 前后逐条过）。
-- **布局优先。** "Cut taglines, helper text and secondary labels. If a screen needs them to make sense, fix the layout." 删掉标语、用于解释结构的辅助文案和重复的次级标签；若界面要靠这些文字才看得懂，先改分组/对齐/间距/层级，而不是加字。表单字段标签、约束提示、错误、风险与无障碍说明仍按 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) §10 保留。
-- **组件库只用 shadcn/ui**（`components.json` 已配；`pnpm dlx shadcn@latest add <name>` 后可改源码 token）；交互原语只用 Base UI（`@base-ui/react`），Radix 已移除不再引入；样式只用 Tailwind 4，颜色/间距/字体/圆角只从 `styles.css` 的 `@theme` token 取，禁止硬编码 hex。先看 `components/ui/` 有无可复用再新增。
-- 页面骨架统一用 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`），每个渲染状态恰好一个 `h1`；不写页面级 `mt-*`/`mb-*`。
-- 机械检查命令与门禁策略见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) §5（不装钩子、不阻塞）。
-
 ## 后端
 
-- **Fastify × Zod：schema 即校验。** 每个路由用 `schema: { body, params, querystring }` 声明，
-  handler 直接使用 `request.body` 等（类型由 zod 推导）；**禁止在 handler 里写 `safeParse`**。
-  路由文件开头用 `const app = typed(rawApp)` 获得类型化实例。
-- 校验失败由 `plugins/errors.ts` 统一返回 `{ code:'INVALID_INPUT', message, requestId, path? }`；
-  业务规则冲突（409/404）仍在 handler 内显式返回。详见 `docs/VALIDATION.md`。
-- 所有 `/api/*` 路由除明确公开项外必须挂 `requireAuth`。
-- schema 变更后必须 `pnpm db:generate` + `pnpm db:migrate`，并同步 `docs/` 中的相关说明。
-- **业务实体 ID：** 常规业务实体主键统一通过 `@agentport/db` 的 `newId(entity)` 在应用层生成 TypeID；UI 实体列表复用实体主键作为行标识，关联表、认证、幂等派生标识、外部资源及其他 UI 行标识按 [ID 约定](docs/PROJECT-BRIEF.md#162-id-约定) 处理。
+- **路由与入口规则见模块。** Fastify × Zod schema 校验、`requireAuth`、typed app、错误返回形状见 [packages/api/CLAUDE.md](packages/api/CLAUDE.md) 与 [docs/VALIDATION.md](docs/VALIDATION.md)。
+- **数据库变更见模块。** Drizzle schema、`pnpm db:generate` + `pnpm db:migrate` 与同步 `docs/` 的要求见 [packages/db/CLAUDE.md](packages/db/CLAUDE.md)。
+- **业务实体 ID：** 常规业务实体主键统一使用 TypeID；生成入口与命名空间规则见 [packages/db/CLAUDE.md](packages/db/CLAUDE.md)，完整约定见 [ID 约定](docs/PROJECT-BRIEF.md#162-id-约定)。其他包按该规范使用，不各自实现 ID 生成。
 
 ## 测试
 
+- 机械检查命令与门禁策略见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) §5（不装钩子、不阻塞）。
 - E2E 统一使用 `e2e`（`e2e` + `@e2e-dev/web`）。Playwright 已退役，不再新增其用例。
 - 登录等共享前置用 `test.setup` + session，不要在每条用例里重复登录。
 - 单元/集成测试用 Vitest；backend 项目由 globalSetup 每轮创建已迁移的随机 PostgreSQL database 和独享临时 Redis 容器，并在测试模块导入前注入连接串，默认不需要停开发 worker。Docker/PostgreSQL 不可用时依赖对应基础设施的套件跳过，不回落共享库；watch 会话内复用本轮资源并在退出时清理，热重跑不重建（见 `docs/OPERATIONS.md`）。

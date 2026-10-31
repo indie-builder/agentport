@@ -44,7 +44,15 @@ app.post('/api/servers', {
 zod 校验失败由 `plugins/errors.ts` 统一映射：
 
 ```json
-{ "code": "INVALID_INPUT", "message": "<zod issue message>", "requestId": "req-1", "path": "name" }
+{
+  "code": "INVALID_INPUT",
+  "message": "<zod issue message>",
+  "status": 400,
+  "requestId": "req-1",
+  "retryable": false,
+  "path": "/name",
+  "errors": [{ "path": "/name", "message": "<zod issue message>" }]
+}
 ```
 
 这条规则是**唯一**的校验失败出口，handler 里不再出现手工 400（业务规则冲突仍用 4xx，但那是业务错误，不是格式错误）。
