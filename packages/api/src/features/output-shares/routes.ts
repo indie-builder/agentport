@@ -1,5 +1,5 @@
-import { createHash, randomBytes } from 'node:crypto';
-import { decryptSecrets, encryptSecrets, readOutputFile } from '@agentport/core';
+import { randomBytes } from 'node:crypto';
+import { decryptSecrets, encryptSecrets, readOutputFile, sha256Hex } from '@agentport/core';
 import { repo } from '@agentport/db';
 import {
   type OutputFile,
@@ -30,10 +30,6 @@ const ownerParams = z.object({ id: outputOwnerIdSchema });
 const shareParams = z.object({ id: z.string().min(1).max(200) });
 const tripleQuery = z.object({ runId: outputOwnerIdSchema, path: outputPathSchema });
 const createBody = z.object({ runId: outputOwnerIdSchema, path: outputPathSchema });
-
-function sha256Hex(value: string | Buffer): string {
-  return createHash('sha256').update(value).digest('hex');
-}
 
 function conversationNotFound(reply: FastifyReply) {
   return reject(reply, 'CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请从会话列表重新打开');

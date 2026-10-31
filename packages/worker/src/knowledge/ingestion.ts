@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
@@ -7,6 +6,7 @@ import {
   embedTexts,
   KnowledgeModelError,
   segmentForSearch,
+  sha256Hex,
 } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type {
@@ -212,10 +212,6 @@ export function describeKnowledgeError(err: unknown): string {
   return `${kind}${message}`.slice(0, 500);
 }
 
-function sha256(data: Buffer | string): string {
-  return createHash('sha256').update(data).digest('hex');
-}
-
 export class KnowledgeCancelled extends Error {
   constructor() {
     super('cancelled');
@@ -259,7 +255,7 @@ function versionDir(knowledgeDir: string, documentId: string, versionId: string)
 
 /** 先写临时文件再原子 rename；同内容复用同一 blob。 */
 async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
-  const sha = sha256(data);
+  const sha = sha256Hex(data);
   const target = blobPath(knowledgeDir, sha);
   const existing = await stat(target).catch(() => null);
   if (existing) return sha;
@@ -876,7 +872,7 @@ async function ingestContent(
   const version = await repo.knowledge.createVersion(deps.db, {
     documentId: document.id,
     blobSha256: blobSha,
-    markdownSha256: sha256(parsed.markdown),
+    markdownSha256: sha256Hex(parsed.markdown),
     originalFilename: input.filename,
     mimeType: input.mimeType,
     sizeBytes: input.data.length,
@@ -893,7 +889,7 @@ async function ingestContent(
     pageMap: parsed.pageMap,
     images: parsed.images.map((image) => ({
       name: image.name,
-      sha256: sha256(Buffer.from(image.data)),
+      sha256: sha256Hex(Buffer.from(image.data)),
       mimeType: image.mimeType,
       page: image.page,
       warnings: imageWarnings.get(image.name) ?? [],
@@ -1354,7 +1350,7 @@ async function upsertSourceItem(
   const data = Buffer.isBuffer(item.content)
     ? item.content
     : Buffer.from(item.content.markdown, 'utf8');
-  const contentHash = sha256(data);
+  const contentHash = sha256Hex(data);
   const existing =
     (
       await deps.db
