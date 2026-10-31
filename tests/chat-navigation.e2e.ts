@@ -8,11 +8,14 @@ const database = createDb(databaseUrl);
 const agentId = newId('agent');
 
 test.beforeAll(async () => {
+  // RBAC NOT NULL：夹具归属首次初始化的 bootstrap 管理员业务身份。
   await database.db.insert(agents).values({
     id: agentId,
     slug: `navigation-${agentId}`,
     name: 'Navigation fixture',
     model: 'test-model',
+    createdBy: 'bootstrap-admin',
+    ownerBusinessId: 'bootstrap-admin',
   });
 });
 
@@ -28,7 +31,7 @@ test('unknown agent link has no composer and can start a new conversation', {
   session: 'admin',
 }, async ({ app, screen, browser }) => {
   await app.open('/chat?agent=agt_missing_navigation_check');
-  await expect(screen.getByText('找不到这个智能体', { exact: true })).toBeVisible();
+  await expect(screen.getByText('找不到这位专家', { exact: true })).toBeVisible();
   await expect(browser.locator('textarea[aria-label="消息"]')).toHaveCount(0);
   await screen.getByRole('button', '开始新对话', { exact: true }).tap();
   await expect(browser).toHaveURL(/\/chat$/);

@@ -1,7 +1,7 @@
 # Agentport · 智能体平台 · 项目简报
 
 > 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [HANDOFF.md](HANDOFF.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
-> 最后更新：2026-10-28 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本；其余结论保持原样。
+> 最后更新：2026-10-31 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本（Node 24 LTS 24.22.2、pnpm 12.16.1 等）；其余结论保持原样。
 > 项目名：**Agentport**（仓库与包名保持 `agentport`；对外展示名 **PACE**，见 [USER-STORIES.md](USER-STORIES.md)）
 > 包前缀：`@agentport/*`
 > 本文是该项目的唯一需求基线。项目改名后，本文继续有效；改名只影响仓库名与包名，不影响任何结论。
@@ -104,16 +104,16 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 ## 3. 技术栈
 
-所有版本均在 2026-10-28 通过 npm registry / docker manifest 实际核对，只取 stable 标签；以根 `package.json`、各包 `package.json`、`pnpm-workspace.yaml` 的 catalog 与 `pnpm-lock.yaml` 的实际解析结果为准。
+包版本于 2026-10-31 通过 npm registry 核对，只取 stable / LTS 标签；镜像 tag/digest 以 `Dockerfile`、`docker-compose.yml` 与 CI 的实际引用为准。以根 `package.json`、各包 `package.json`、`pnpm-workspace.yaml` 的 catalog 与 `pnpm-lock.yaml` 的实际解析结果为准。
 
 ### 3.1 语言与工程
 
 | 用途 | 选型 | 版本 | 备注 |
 |---|---|---|---|
 | 语言 | TypeScript | 7.0.2 | 当前 stable |
-| 运行时 | Node.js | 24 LTS | 要求 Node 24 的最新补丁版本；`engines` 为 `>=24`，容器镜像用 `node:24-alpine` |
-| 包管理 | pnpm workspace | 12.15.0 | `packageManager` 字段与本地版本一致 |
-| Lint + 格式化 | Biome | 2.6.3 | 替代 ESLint + Prettier |
+| 运行时 | Node.js | 24 LTS | 要求 24 的最新补丁版本（当前 24.22.2）；`engines` 为 `>=24.22.2 <25`，容器镜像用 `node:24-alpine` |
+| 包管理 | pnpm workspace | 12.16.1 | `packageManager` 字段与本地版本一致 |
+| Lint + 格式化 | Biome | 2.6.4 | 替代 ESLint + Prettier |
 | 开发运行 | tsx | 4.23.15 | watch 模式 |
 | 生产构建 | tsc | 7.0.2 | Node 直接运行 `dist`，不引入打包器 |
 
@@ -130,16 +130,16 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 路由 | TanStack Router（`@tanstack/router-plugin` 生成路由） | 1.170.46 / 1.168.48 |
 | 服务端状态 | TanStack Query | 5.105.0 |
 | 数据表格 | TanStack Table + dnd-kit（`@dnd-kit/core`/`sortable`/`utilities`） | 9.3.1 / 6.3.1 / 10.0.0 / 3.2.2 |
-| 表单 | react-hook-form + `@hookform/resolvers` | 7.91.0 / 6.0.1 |
+| 表单 | react-hook-form + `@hookform/resolvers` | 7.91.0 / 6.0.2 |
 | 校验 | zod（与后端共享） | 4.6.7 |
 | 客户端状态 | Zustand | 5.0.16 |
-| 动效 | Motion | 14.7.1 |
+| 动效 | Motion | 14.9.0 |
 | 图表 | Recharts | 3.10.1 |
 | 源码编辑 | CodeMirror 6（按需加载） | 6.43.15（`@codemirror/view`）等子包 |
 | 智能体输出渲染 | Streamdown（含 `@streamdown/code`） | 2.7.1 / 2.0.0 |
 | 生成式 UI | OpenUI：`@openuidev/lang-core`（后端）、`@openuidev/react-lang`（前端）、`@openuidev/cli`（生成 spec） | 1.0.2 / 1.0.2 / 0.6.1；`@openuidev/react-ui` 0.18.1 仅作开发期契约对照（测试用） |
 | 提示 | sonner | 2.0.8 |
-| 图标 | lucide-react | 1.62.0 |
+| 图标 | lucide-react | 1.66.0 |
 | 流式 | 原生 `EventSource` | 无需额外库 |
 | 本地访问 | Portless（开发期 `pnpm dev` 分配域名） | 0.15.12 |
 
@@ -164,15 +164,15 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 压缩 | @fastify/compress | 9.3.0 |
 | 静态托管 | @fastify/static | 10.1.8 |
 | 鉴权 | Better Auth（`better-auth` + Drizzle adapter，会话存库，httpOnly cookie） | 1.7.14 |
-| API 文档 | @fastify/swagger + `@scalar/fastify-api-reference`（已接入，需登录访问） | 9.9.2 / 1.76.0 |
+| API 文档 | @fastify/swagger + `@scalar/fastify-api-reference`（已接入，需登录访问） | 9.9.2 / 1.76.4 |
 | 过载保护 | 未接入（无 `@fastify/under-pressure` 依赖；`/health/live`、`/health/ready` 由 `routes/health.ts` 自行实现） | — |
 | Redis 客户端 | ioredis | 6.0.0 |
-| 队列 | BullMQ | 6.5.0 |
+| 队列 | BullMQ | 6.5.3 |
 | 队列面板 | 不接（见 D-15） | — |
 | 队列遥测 | 不接 | — |
 | 并发控制 | p-limit | 7.3.3 |
 | ID | typeid-js | 1.2.0 |
-| 副作用运行时 | effect | 4.0.6 |
+| 副作用运行时 | effect | 4.1.1 |
 
 **为什么从 SQLite 改为 PostgreSQL**：上一轮建议 SQLite 是按「单机学习项目」判断的。引入 BullMQ worker 后，API 进程与 worker 进程会并发写同一份数据，SQLite 的单写者限制会成为真实瓶颈，而且队列本身又要求 Redis，基础设施复杂度已经上去了。PostgreSQL 18 与 Redis 8 都通过 compose 起，运维成本相当。Drizzle 的 schema 写法在两者间基本一致，但迁移文件不通用，越早切换成本越低。
 
@@ -182,7 +182,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.311 |
+| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.316 |
 | MCP Server 实现 | @modelcontextprotocol/server | 2.4.0 |
 | MCP Node 适配 | @modelcontextprotocol/node | 2.1.2 |
 | MCP Client | @modelcontextprotocol/client | 2.4.0 |
@@ -204,7 +204,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 |---|---|---|
 | 单元/集成测试 | Vitest | 5.0.5 |
 | 覆盖率 | 未配置（无 `@vitest/coverage-v8` 直接依赖与 coverage 配置） | — |
-| E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.21.3 / 0.15.3 |
+| E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.22.0 / 0.15.4 |
 | 集成测试 | 本地/CI service containers（未用 testcontainers） | — |
 | 容器化 | Dockerfile（多阶段）+ docker-compose.yml | — |
 | CI | GitHub Actions | — |
@@ -491,7 +491,7 @@ query({
 
 镜像内容（根 `Dockerfile` 的 `sandbox` target）：
 
-- 固定为 `node:24-alpine`（构建时锁定 digest；没有 debian slim 分支）
+- 固定为 `node:24-alpine`（Dockerfile 中锁定 digest；没有 debian slim 分支）
 - `runner` 构建产物（含 `@anthropic-ai/claude-agent-sdk` 及其平台原生 binary、MCP client）
 - `git`（官方插件市场安装）、`poppler-utils`（长 PDF 分页读取）与 `bash`（官方 CLI 执行 Bash 工具所需的真实 shell）
 - 固定的非 root 用户（uid 1000）
@@ -781,11 +781,11 @@ cd ~/Documents/myself/agentport
 | PostgreSQL 18 镜像的数据目录 | 挂载 `/var/lib/postgresql/data` 会导致容器无限重启；18+ 要求挂载 `/var/lib/postgresql` | compose 已改为后者 |
 | `redis:8-alpine` | 实际可用（`docker pull` 成功，容器 healthy）；此前 `docker manifest inspect` 因网络超时误判 | 当时维持该标签；当前配置为 8.10.3（见 §10.1） |
 | npm 官方源 | 本机经代理访问 registry.npmjs.org 极慢（15s+），导致 `pnpm install` 长时间无输出 | 根目录 `.npmrc` 固定 `registry=https://registry.npmmirror.com` |
-| pnpm 12 的 build script 审批 | `ignoredBuiltDependencies` 不会放行，必须 `onlyBuiltDependencies` 或 `pnpm approve-builds --all` | 已用 `approve-builds --all`，配置写入 workspace yaml（当前键名 `allowBuilds`，见 OPERATIONS §2.1） |
+| pnpm 12 的 build script 审批 | pnpm 11 起移除 `onlyBuiltDependencies`、`ignoredBuiltDependencies` 等旧键，统一由 `allowBuilds` 的 `true`/`false` 决定（https://pnpm.io/settings/build#allowbuilds） | 已用 `pnpm approve-builds --all`，配置写入 `pnpm-workspace.yaml` 的 `allowBuilds`（见 OPERATIONS §2.1） |
 | BullMQ 6 在 ESM 下 | 不自动加载 ioredis，报 "could not load the optional 'ioredis' package" | worker 包显式依赖 `ioredis@6.0.0` |
 | TypeScript `-b --noEmit` | 与 project references 冲突（TS6310） | 各包 typecheck 统一为 `tsc -b`，无 `--noEmit` |
 | tsx 与 env | `--env-file-if-exists` 在 tsx 下不生效 | 该参数交给 tsx 传参即可；migrate 脚本用 Node 原生 `--env-file-if-exists` |
-| Biome 2.5（历史记录） | `linter.rules.recommended` 已废弃 | 改用 `preset: "recommended"`（已 `biome migrate`），当前版本 2.6.3 |
+| Biome 2.5（历史记录） | `linter.rules.recommended` 已废弃 | 改用 `preset: "recommended"`（已 `biome migrate`），当前版本 2.6.4 |
 
 ### 15.3 起步命令
 

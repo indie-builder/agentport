@@ -248,7 +248,7 @@ README.md
   - `servers.test.ts`：CRUD + 脱敏 + 非法输入 400
   - `auth.test.ts`：未登录 401、登录成功、登出
 - 需要 `DATABASE_URL` 和 `REDIS_URL`；在测试里用 `describe.skipIf(!process.env.DATABASE_URL)`。
-- CI：`pnpm install --frozen-lockfile` → `pnpm -r typecheck` → `pnpm -r build` → `biome ci` → `pnpm test`；service containers: postgres:18-alpine、`redis:8.10.3-alpine@sha256:896f241f…`（精确 tag/digest 以 `.github/workflows/ci.yml` 与 `packages/worker/test/global-setup.ts` 为唯一来源）。
+- CI：`pnpm install --frozen-lockfile` → `pnpm -r typecheck` → `pnpm -r build` → `biome ci` → `pnpm test`；service containers: postgres:18-alpine、`redis:8.10.3-alpine@sha256:21090af…`（精确 tag/digest 以 `.github/workflows/ci.yml` 与 `packages/worker/test/global-setup.ts` 为唯一来源）。
 - `README.md`：项目简介、架构图、启动步骤、环境变量表、里程碑状态。
 
 ## 9. 通用硬性要求

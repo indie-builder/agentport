@@ -111,6 +111,6 @@ BullMQ 仍然负责任务分发与重试；Effect 负责单个任务内部。
 
 ## 版本事实
 
-- 记录时（2026-10-20）为 `effect@4.0.5`；当前 `pnpm-workspace.yaml` catalog 固定为 `4.0.6`。本文不据此宣称最新生态版本。
+- 记录时（2026-10-20）为 `effect@4.0.5`；当前 `pnpm-workspace.yaml` catalog 固定为 `4.1.1`。本文不据此宣称最新生态版本。
 - 记录时官方 SQL/平台集成适配的是 effect 3.22，项目按「只用核心包」的方式使用 v4。
 - 当前实际使用集中在 `Effect`、`Scope`、`Schedule` 与测试工具（`Fiber`、`Option`、`Result` 等），不依赖 Effect 的 SQL/HTTP 生态，也没有使用 `Layer` / `Clock` 服务层。

@@ -31,7 +31,7 @@ describe.skipIf(!ready)('conversations', () => {
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
-    // 删除路由在事务内等待 worker 关闭确认；测试进程注册真实信道处理器。
+    // 删除路由在事务外等待 worker 关闭确认（仍持会话锁）；测试进程注册真实信道处理器。
     sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
   });
 
