@@ -37,9 +37,8 @@ import {
   requiredPermissions,
   WORK_MENU,
 } from '../lib/access.js';
-import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { clearSessionQueries, meQuery, useChangePassword } from '../lib/queries.js';
+import { clearSessionQueries, logoutAccount, meQuery, useChangePassword } from '../lib/queries.js';
 import { toastSuccess } from '../lib/toast.js';
 import { animateBrand, Brand, BrandMark } from './brand.js';
 import { DialogShell } from './dialog-shell.js';
@@ -277,8 +276,7 @@ function UserMenu({ me, onChangePassword }: { me: AuthenticatedMe; onChangePassw
   const label = me.user.name || me.user.username;
 
   const logout = async (): Promise<void> => {
-    await api.logout().catch(() => undefined);
-    clearSessionQueries();
+    await logoutAccount();
     await navigate({ to: '/login' });
   };
 
@@ -552,8 +550,7 @@ export function AppShell() {
   const locationHref = useRouterState({ select: (state) => state.location.href });
 
   const logout = async (): Promise<void> => {
-    await api.logout().catch(() => undefined);
-    clearSessionQueries();
+    await logoutAccount();
     await navigate({ to: '/login' });
   };
 

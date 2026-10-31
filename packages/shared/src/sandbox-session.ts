@@ -58,6 +58,43 @@ export const supervisorOutputSchema = z.discriminatedUnion('type', [
 
 export type SupervisorOutput = z.infer<typeof supervisorOutputSchema>;
 
+/**
+ * API → worker 的会话容器关闭信道。请求只含会话与已持久化的容器身份，
+ * 不带凭据、宿主路径或任意 Docker 命令；响应按 requestId 单独回一条 ACK。
+ */
+export const SESSION_CLEANUP_REQUEST_CHANNEL = 'session-cleanup:requests';
+export const SESSION_CLEANUP_ACK_PREFIX = 'session-cleanup:ack:';
+/** 删除事务内等待关闭确认的上限；超过后回滚 DB 删除，保留目录可重试。 */
+export const SESSION_CLEANUP_TIMEOUT_MS = 10_000;
+
+export function sessionCleanupAckChannel(requestId: string): string {
+  return `${SESSION_CLEANUP_ACK_PREFIX}${requestId}`;
+}
+
+export const sessionCleanupTargetSchema = z.object({
+  conversationId: z.string().min(1),
+  /** 该会话所有运行落库过的容器名；重启后 worker 没有条目时按它清理。 */
+  sandboxIds: z.array(z.string().min(1)),
+});
+
+export type SessionCleanupTarget = z.infer<typeof sessionCleanupTargetSchema>;
+
+export const sessionCleanupRequestSchema = z.object({
+  requestId: z.string().min(1),
+  /** epoch 毫秒；worker 在开始前和每个目标前都检查，过期请求不再关闭新容器。 */
+  deadline: z.number().int().positive(),
+  targets: z.array(sessionCleanupTargetSchema).min(1),
+});
+
+export type SessionCleanupRequest = z.infer<typeof sessionCleanupRequestSchema>;
+
+export const sessionCleanupAckSchema = z.discriminatedUnion('ok', [
+  z.object({ requestId: z.string().min(1), ok: z.literal(true) }),
+  z.object({ requestId: z.string().min(1), ok: z.literal(false), error: z.string() }),
+]);
+
+export type SessionCleanupAck = z.infer<typeof sessionCleanupAckSchema>;
+
 /** supervisor 对一轮结束的停稳判定；代码与信号来自被等待的 runner 进程。 */
 export type ExecutionSettlement =
   | { state: 'stopped'; code: number | null; signal: string | null }

@@ -18,6 +18,8 @@ export const runStatusSchema = z.enum([
   'timeout',
 ]);
 
+export type RunStatus = z.infer<typeof runStatusSchema>;
+
 /** /api/runs 列表项；costUsd 是 numeric，pg 驱动返回字符串。 */
 export const runListItemSchema = z.object({
   id: z.string(),
@@ -41,6 +43,8 @@ export type RunListItem = z.infer<typeof runListItemSchema>;
 
 export const runListSchema = z.object({ items: z.array(runListItemSchema) });
 
+export type RunList = z.infer<typeof runListSchema>;
+
 export const runStepSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('user'), at: z.string(), text: z.string() }),
   z.object({ kind: z.literal('assistant'), at: z.string(), text: z.string() }),
@@ -57,6 +61,8 @@ export const runStepSchema = z.discriminatedUnion('kind', [
     question: publicRunQuestionSchema.optional(),
   }),
 ]);
+
+export type RunStep = z.infer<typeof runStepSchema>;
 
 /** 失败分类：infra=平台/沙箱基础设施，agent=模型或工具，sandbox=容器异常退出。 */
 export const runErrorKindSchema = z.enum(['cancelled', 'timeout', 'sandbox', 'agent', 'infra']);
@@ -75,6 +81,8 @@ export const runDetailSchema = z.object({
   conversation: z.object({ id: z.string(), agentId: z.string(), title: z.string() }),
 });
 
+export type RunDetail = z.infer<typeof runDetailSchema>;
+
 /** /api/overview 的 recent：没有 tokens 两列。 */
 export const recentRunSchema = z.object({
   id: z.string(),
@@ -88,6 +96,8 @@ export const recentRunSchema = z.object({
   latencyMs: z.number().nullable(),
   error: z.string().nullable(),
 });
+
+export type RecentRun = z.infer<typeof recentRunSchema>;
 
 export const overviewSchema = z.object({
   window: z.object({ days: z.number(), since: z.string() }),
@@ -119,6 +129,10 @@ export const overviewSchema = z.object({
   ),
   recent: z.array(recentRunSchema),
 });
+
+export type Overview = z.infer<typeof overviewSchema>;
+
+export type OverviewAgentRow = z.infer<typeof overviewSchema>['agents'][number];
 
 /** /api/overview/timeseries：按天分桶，空白天由 SQL 补 0；date 为 YYYY-MM-DD。 */
 export const overviewTimeseriesSchema = z.array(

@@ -223,6 +223,31 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
     expect((await rowOf(missing)).status).toBe('queued');
   });
 
+  it('re-enqueues a queued sync pair left behind by an enqueue failure', async () => {
+    const sourceId = newId('knowledgeSource');
+    await db.insert(schema.knowledgeSources).values({
+      id: sourceId,
+      baseId,
+      type: 'feed',
+      name: `feed-${sourceId.slice(-6)}`,
+      config: {},
+      secretsEncrypted: null,
+      syncCron: null,
+    });
+    const created = await repo.knowledge.createSyncJob(db, sourceId);
+    if (created.status !== 'created') throw new Error(`pair not created: ${created.status}`);
+
+    const result = await reconcileKnowledgeJobs(db, logger, liveQueue());
+    expect(result.requeued).toBeGreaterThanOrEqual(1);
+    expect(await (await queue.getJob(created.job.id))?.getState()).toBe('waiting');
+    expect((await rowOf(created.job.id)).status).toBe('queued');
+    expect((await repo.knowledge.listSyncRuns(db, sourceId)).items[0]?.status).toBe('queued');
+
+    await queue.remove(created.job.id);
+    await db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.sourceId, sourceId));
+    await db.delete(schema.knowledgeSources).where(eq(schema.knowledgeSources.id, sourceId));
+  });
+
   it('fails a running job past twice its type timeout even if a job still exists', async () => {
     const timedOutAt = new Date(Date.now() - 2 * KNOWLEDGE_TIMEOUT_MS.ingest - 60_000);
     const id = await insertJob({ status: 'running', startedAt: timedOutAt });
@@ -268,6 +293,12 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
       error: KNOWLEDGE_LOST_ERROR,
     });
     expect((await rowOf(id)).status).toBe('failed');
+    const source = await repo.knowledge.getSource(db, sourceId);
+    expect(source).toMatchObject({
+      cursor: {},
+      lastSyncStatus: 'failed',
+      lastError: KNOWLEDGE_LOST_ERROR,
+    });
 
     await db.delete(schema.knowledgeSyncRuns).where(eq(schema.knowledgeSyncRuns.id, syncRunId));
     await db.delete(schema.knowledgeSources).where(eq(schema.knowledgeSources.id, sourceId));

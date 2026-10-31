@@ -1,8 +1,9 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
+import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { schema } from './schema.js';
 
-export type Database = ReturnType<typeof createDb>['db'];
+/** pool 与 checked-out client 上的 Drizzle 实例共用同一查询类型，事务类型也随之统一。 */
+export type Database = NodePgDatabase<typeof schema>;
 export type DbPool = Pool;
 
 export function createDb(connectionString: string) {

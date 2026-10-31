@@ -15,11 +15,16 @@ import {
   attachmentExtension,
   type ChatEvent,
   chatRequestSchema,
+  conversationBranchSchema,
+  conversationDetailSchema,
   conversationRenameSchema,
   conversationSearchQuerySchema,
+  conversationSearchResponseSchema,
+  conversationSummarySchema,
   idParams,
   type MessageAttachment,
   type PermissionId,
+  publicConversationSchema,
   RUN_QUEUE_MAX_WAITING,
   runEnqueueOptions,
   wireFailureKind,
@@ -33,6 +38,7 @@ import { chatRateLimit } from '../../plugins/security.js';
 import { closeProducer, getQueue, subscribeRun } from '../../queue/producer.js';
 import { typed } from '../../types.js';
 import { accessFilter, actorOf, authorizeObject, userPrincipal } from '../access.js';
+import { deleteConversationWithSandboxes } from '../runtime-deletion.js';
 import { registerAttachmentRoutes } from './attachments.js';
 import { cancelAgentRun } from './cancel-run.js';
 import {
@@ -111,6 +117,19 @@ async function loadConversation(app: FastifyInstance, request: FastifyRequest, i
   return conversation;
 }
 
+/** 创建失败补偿只允许当前请求刚生成的会话，主体限定为本次创建者的 own_data。 */
+function deleteCreatedConversation(
+  app: FastifyInstance,
+  conversationId: string,
+  businessId: string,
+): Promise<unknown> {
+  return deleteConversationWithSandboxes({
+    pool: app.pool,
+    redisUrl: app.config.REDIS_URL,
+    deletion: { id: conversationId, access: { businessId, scopes: ['own_data'] } },
+  });
+}
+
 /** 平台范围在本请求内不会因对象归属改变；跨用户读取的审计由 authorize 负责。 */
 function hasPlatformScope(request: FastifyRequest, permissionId: PermissionId): boolean {
   const principal = request.principal;
@@ -178,7 +197,10 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/chat',
     {
       ...chatRateLimit,
-      config: { ...chatRateLimit.config, access: { kind: 'permission', permissionId: 'conversations.create' } },
+      config: {
+        ...chatRateLimit.config,
+        access: { kind: 'permission', permissionId: 'conversations.create' },
+      },
       bodyLimit: CHAT_BODY_LIMIT,
       schema: { body: chatRequestSchema },
     },
@@ -312,7 +334,9 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
           .limit(1);
         if (!agent) {
           if (createdConversationId !== undefined) {
-            await chatRepo.deleteConversation(app.db, createdConversationId).catch(() => undefined);
+            await deleteCreatedConversation(app, createdConversationId, principal.businessId).catch(
+              () => undefined,
+            );
           }
           return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
         }
@@ -327,7 +351,9 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         } catch (err) {
           // 文件没写成就没有可回滚的消息；新建的会话行也要一起清掉。
           if (createdConversationId !== undefined) {
-            await chatRepo.deleteConversation(app.db, createdConversationId).catch(() => undefined);
+            await deleteCreatedConversation(app, createdConversationId, principal.businessId).catch(
+              () => undefined,
+            );
           }
           throw err;
         }
@@ -386,7 +412,9 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
           });
         }
         if (createdConversationId !== undefined) {
-          await chatRepo.deleteConversation(app.db, createdConversationId).catch(() => undefined);
+          await deleteCreatedConversation(app, createdConversationId, principal.businessId).catch(
+            () => undefined,
+          );
         }
         throw err;
       }
@@ -656,7 +684,10 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/conversations/search',
     {
       config: { access: { kind: 'permission', permissionId: 'conversations.read' } },
-      schema: { querystring: conversationSearchQuerySchema },
+      schema: {
+        querystring: conversationSearchQuerySchema,
+        response: { 200: conversationSearchResponseSchema },
+      },
     },
     async (request) => {
       const result = await chatRepo.searchConversations(app.db, {
@@ -677,7 +708,11 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/conversations/:id',
     {
       config: { access: { kind: 'permission', permissionId: 'conversations.read' } },
-      schema: { params: idParams, querystring: historyQuery },
+      schema: {
+        params: idParams,
+        querystring: historyQuery,
+        response: { 200: conversationDetailSchema },
+      },
     },
     async (request, reply) => {
       const conversation = await loadConversation(app, request, request.params.id);
@@ -715,13 +750,29 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         endedAt: run.endedAt?.toISOString() ?? null,
       }));
       return {
-        conversation,
-        // 只回前端契约里的字段：SDK uuid 是内部续聊状态，不上 wire。
+        // 响应 schema 固定公开边界：conversation 只回四字段，SDK session/fork 状态与归属列不出现。
+        conversation: {
+          id: conversation.id,
+          agentId: conversation.agentId,
+          title: conversation.title,
+          createdAt: conversation.createdAt.toISOString(),
+        },
         // ui_format / ui_program / ui_state 是消息级渲染快照，必须原样带出，
-        // 否则刷新后只能按当前智能体的开关猜格式。
-        messages: messages.map(({ sdkMessageUuid: _sdk, ...message }) => message),
+        // 否则刷新后只能按当前智能体的开关猜格式。content 保持任意 JSON。
+        messages: messages.map((message) => ({
+          id: message.id,
+          conversationId: message.conversationId,
+          role: message.role,
+          content: message.content,
+          runId: message.runId,
+          createdAt: message.createdAt.toISOString(),
+          // messages_ui_format_check 约束保证只有这两种值。
+          uiFormat: message.uiFormat as 'markdown' | 'openui',
+          uiProgram: message.uiProgram,
+          uiState: message.uiState,
+        })),
         runMetrics,
-        nextBefore: hasMore ? messages[0]?.id : null,
+        nextBefore: hasMore ? (messages[0]?.id ?? null) : null,
       };
     },
   );
@@ -730,7 +781,11 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/conversations/:id',
     {
       config: { access: { kind: 'permission', permissionId: 'conversations.update' } },
-      schema: { params: idParams, body: conversationRenameSchema },
+      schema: {
+        params: idParams,
+        body: conversationRenameSchema,
+        response: { 200: publicConversationSchema },
+      },
     },
     async (request, reply) => {
       await loadConversation(app, request, request.params.id);
@@ -755,7 +810,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         id: conversation.id,
         agentId: conversation.agentId,
         title: conversation.title,
-        createdAt: conversation.createdAt,
+        createdAt: conversation.createdAt.toISOString(),
       };
     },
   );
@@ -768,58 +823,52 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     },
     async (request, reply) => {
       // 删除会级联清掉消息与运行；transcript 目录不归 DB 管，成功后单独清理。
-      const conversation = await loadConversation(app, request, request.params.id);
-      const ok = await chatRepo.deleteConversation(app.db, request.params.id);
-      if (!ok) {
+      await loadConversation(app, request, request.params.id);
+      // tx A/B 内用 conversations.delete 范围重核；read 叶仍由 loadConversation 保留。
+      const deleted = await deleteConversationWithSandboxes({
+        pool: app.pool,
+        redisUrl: app.config.REDIS_URL,
+        deletion: {
+          id: request.params.id,
+          access: accessFilter(request, 'conversations.delete'),
+        },
+      });
+      if (deleted === null) {
         return reject(reply, 'CONVERSATION_NOT_FOUND', CONVERSATION_MISSING);
       }
-      if (conversation) {
-        const [agent] = await app.db
-          .select({ slug: schema.agents.slug })
-          .from(schema.agents)
-          .where(eq(schema.agents.id, conversation.agentId))
-          .limit(1);
-        if (agent) {
-          await Promise.all([
-            rm(join(app.config.WORKSPACES_DIR, agent.slug, 'sdk-sessions', conversation.id), {
-              recursive: true,
-              force: true,
-            }).catch((err: unknown) => {
-              // DB 已删，目录残留只是占空间；记日志不改变响应。
-              request.log.warn(
-                { err, conversationId: conversation.id },
-                'sdk session cleanup failed',
-              );
-            }),
-            // 会话沙盒目录按会话派生，含定义草稿与成果；DB 删掉后不再有入口。
-            rm(join(app.config.WORKSPACES_DIR, agent.slug, 'session-sandboxes', conversation.id), {
-              recursive: true,
-              force: true,
-            }).catch((err: unknown) => {
-              request.log.warn(
-                { err, conversationId: conversation.id },
-                'session sandbox cleanup failed',
-              );
-            }),
-            // 成果按会话独立保存：DB 删掉后目录不再有任何索引，必须一起清理。
-            removeConversationOutputs({
-              root: app.config.WORKSPACES_DIR,
-              slug: agent.slug,
-              conversationId: conversation.id,
-            }).catch((err: unknown) => {
-              request.log.warn({ err, conversationId: conversation.id }, 'output cleanup failed');
-            }),
-            // 附件是随会话产生的运行数据；消息行删除后下载入口已不可达，文件一并回收。
-            removeConversationInputs({
-              root: app.config.WORKSPACES_DIR,
-              slug: agent.slug,
-              conversationId: conversation.id,
-            }).catch((err: unknown) => {
-              request.log.warn({ err, conversationId: conversation.id }, 'input cleanup failed');
-            }),
-          ]);
-        }
-      }
+      const agent = { slug: deleted.agentSlug };
+      await Promise.all([
+        rm(join(app.config.WORKSPACES_DIR, agent.slug, 'sdk-sessions', deleted.id), {
+          recursive: true,
+          force: true,
+        }).catch((err: unknown) => {
+          // DB 已删，目录残留只是占空间；记日志不改变响应。
+          request.log.warn({ err, conversationId: deleted.id }, 'sdk session cleanup failed');
+        }),
+        // 会话沙盒目录按会话派生，含定义草稿与成果；DB 删掉后不再有入口。
+        rm(join(app.config.WORKSPACES_DIR, agent.slug, 'session-sandboxes', deleted.id), {
+          recursive: true,
+          force: true,
+        }).catch((err: unknown) => {
+          request.log.warn({ err, conversationId: deleted.id }, 'session sandbox cleanup failed');
+        }),
+        // 成果按会话独立保存：DB 删掉后目录不再有任何索引，必须一起清理。
+        removeConversationOutputs({
+          root: app.config.WORKSPACES_DIR,
+          slug: agent.slug,
+          conversationId: deleted.id,
+        }).catch((err: unknown) => {
+          request.log.warn({ err, conversationId: deleted.id }, 'output cleanup failed');
+        }),
+        // 附件是随会话产生的运行数据；消息行删除后下载入口已不可达，文件一并回收。
+        removeConversationInputs({
+          root: app.config.WORKSPACES_DIR,
+          slug: agent.slug,
+          conversationId: deleted.id,
+        }).catch((err: unknown) => {
+          request.log.warn({ err, conversationId: deleted.id }, 'input cleanup failed');
+        }),
+      ]);
       await writeAudit(app.db, request.log, {
         actor: actorOf(request),
         action: 'conversation.deleted',
@@ -870,7 +919,11 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/conversations/:id/branch',
     {
       config: { access: { kind: 'permission', permissionId: 'conversations.create' } },
-      schema: { params: idParams, body: branchBodySchema },
+      schema: {
+        params: idParams,
+        body: branchBodySchema,
+        response: { 201: conversationBranchSchema },
+      },
     },
     async (request, reply) => {
       // 分支点是原会话里一条已落库的消息；复制与 SDK 分叉状态在同一次写入里建立。
@@ -909,7 +962,20 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       // 分支必须能独立继续：缺 transcript 或历史边界内的成果时删除分支，不留半份状态。
       const rollback = async (reason: string, err: unknown): Promise<void> => {
         request.log.warn({ err, conversationId: result.conversation.id }, reason);
-        await chatRepo.deleteConversation(app.db, result.conversation.id).catch(() => undefined);
+        // 只有编排确认删掉分支行后才能清文件；关闭 ACK 失败或活动运行冲突时行仍在，
+        // 删文件会留下无法恢复的半份状态，此时保留目录并记录补偿失败。
+        const compensated = await deleteCreatedConversation(
+          app,
+          result.conversation.id,
+          principal.businessId,
+        ).catch((compensationErr: unknown) => {
+          request.log.warn(
+            { err: compensationErr, conversationId: result.conversation.id },
+            'branch rollback deletion failed; keeping runtime files',
+          );
+          return null;
+        });
+        if (compensated === null) return;
         if (targetDir !== null) {
           await rm(targetDir, { recursive: true, force: true }).catch(() => undefined);
         }
@@ -984,7 +1050,15 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         status: 'ok',
         requestId: request.id,
       });
-      return reply.status(201).send(result.conversation);
+      return reply.status(201).send({
+        id: result.conversation.id,
+        agentId: result.conversation.agentId,
+        title: result.conversation.title,
+        createdAt: result.conversation.createdAt.toISOString(),
+        // 分支关系是用户可见契约；SDK session/fork 状态与归属列仍只在库内。
+        parentId: result.conversation.parentId,
+        branchOfMessageId: result.conversation.branchOfMessageId,
+      });
     },
   );
 
@@ -992,7 +1066,10 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
     '/api/conversations',
     {
       config: { access: { kind: 'permission', permissionId: 'conversations.read' } },
-      schema: { querystring: listQuery },
+      schema: {
+        querystring: listQuery,
+        response: { 200: z.array(conversationSummarySchema) },
+      },
     },
     async (request) => {
       const { agentId, limit } = request.query;

@@ -91,6 +91,7 @@ import {
   type RunList,
   type RunQuery,
 } from './api.js';
+import { bindChatIdentity, useChatStore } from './chat-store.js';
 import { toastError, toastSuccess } from './toast.js';
 import { useDebouncedValue } from './use-debounced-value.js';
 
@@ -102,13 +103,25 @@ export const queryClient = new QueryClient({
 
 export const meQuery = queryOptions<AuthMe>({
   queryKey: ['me'],
-  queryFn: api.me,
+  // 身份确认后再把聊天状态交给受保护页面；同一个人重复 /me 不会清草稿。
+  queryFn: async () => {
+    const identity = await api.me();
+    if (identity.authenticated) bindChatIdentity(identity.user.businessId);
+    return identity;
+  },
   staleTime: 30_000,
 });
 
-/** 登录、登出、账户切换后必须清空所有用户私有数据，不能复用前一个人的列表与正文。 */
+/** 只清查询缓存；登录、改密等拿不准身份的时机用它，不能顺手删草稿。 */
 export function clearSessionQueries(client = queryClient): void {
   client.clear();
+}
+
+/** 用户主动退出登录：清查询缓存与聊天状态；401 等隐式过期不走这里。 */
+export async function logoutAccount(): Promise<void> {
+  await api.logout().catch(() => undefined);
+  clearSessionQueries();
+  useChatStore.getState().reset();
 }
 
 export const serversQuery = queryOptions<Server[]>({
@@ -747,12 +760,13 @@ export const runQuery = (runId: string) =>
     staleTime: 5_000,
   });
 
-export function useRun(runId: string) {
+export function useRun(runId: string, poll = true) {
   return useQuery({
     ...runQuery(runId),
-    // 运行中要能看到新落库的步骤。
+    // 运行中要能看到新落库的步骤；会话里事件流健康时可临时关掉周期请求。
     refetchInterval: (query) =>
-      query.state.data?.run.status === 'running' || query.state.data?.run.status === 'queued'
+      poll &&
+      (query.state.data?.run.status === 'running' || query.state.data?.run.status === 'queued')
         ? 2_000
         : false,
   });

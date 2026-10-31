@@ -11,6 +11,7 @@ import type {
   Attention,
   AuthMe,
   ConnectorCatalogItem,
+  ConversationBranch,
   ConversationSearchResponse,
   ConversationSummary,
   CreateMemoryReviewInput,
@@ -40,6 +41,8 @@ import type {
   OutputList,
   OutputShare,
   OutputStyle,
+  Overview,
+  OverviewAgentRow,
   OverviewTimeseriesPoint,
   PermissionDefinition,
   PermissionGrant,
@@ -51,11 +54,16 @@ import type {
   PublicOutputShare,
   PublicQuestionResponse,
   PublicRunQuestion,
-  ResolvedRuntimeEnvironment,
+  RecentRun,
   Role,
   RoleMatrix,
   RoleMatrixInput,
   Rule,
+  RunDetail,
+  RunList,
+  RunListItem,
+  RunStatus,
+  RunStep,
   RuntimeEnvironment,
   RuntimeEnvironmentInput,
   RuntimeEnvironmentPatch,
@@ -197,11 +205,20 @@ export type {
   Account,
   AgentAccess,
   AgentMember,
+  ConversationBranch,
+  Overview,
+  OverviewAgentRow,
   PermissionDefinition,
   PermissionGrant,
+  RecentRun,
   Role,
   RoleMatrix,
   RoleMatrixInput,
+  RunDetail,
+  RunList,
+  RunListItem,
+  RunStatus,
+  RunStep,
 };
 
 /** 个人偏好保存结果：多返回本次写入的变更 id，供页面提示。 */
@@ -250,56 +267,6 @@ export interface AgentVersionDetail {
   createdAt: string;
 }
 
-export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timeout';
-
-export interface RecentRun {
-  id: string;
-  agentId: string;
-  agentName: string | null;
-  status: RunStatus;
-  startedAt: string | null;
-  endedAt: string | null;
-  costUsd: string | null;
-  turns: number | null;
-  latencyMs: number | null;
-  error: string | null;
-}
-
-export interface RunListItem extends RecentRun {
-  inputTokens: number | null;
-  outputTokens: number | null;
-  /** 入队时锁定的智能体配置版本号；未知/旧数据为 null。 */
-  agentVersion?: number | null;
-}
-
-export type RunStep =
-  | { kind: 'user'; at: string; text: string }
-  | { kind: 'assistant'; at: string; text: string }
-  | {
-      kind: 'tool';
-      at: string;
-      name: string | null;
-      toolUseId: string | null;
-      content: unknown;
-      /** 调用结果；与 content（参数）分开。 */
-      result?: unknown;
-      parentToolUseId: string | null;
-      /** 原生提问的最终展示快照；只有提问工具行才带。 */
-      question?: PublicRunQuestion;
-    };
-
-export interface RunDetail {
-  run: RunListItem & {
-    conversationId: string;
-    sessionId: string | null;
-    sandboxId: string | null;
-    /** 容器实际使用的身份；尚未创建容器时为 null。 */
-    runtimeEnvironment: ResolvedRuntimeEnvironment | null;
-  };
-  steps: RunStep[];
-  conversation: { id: string; agentId: string; title: string };
-}
-
 /** 结构化审批请求；approvedAt 非空表示已批准，waiting 由服务端计算。 */
 export interface ApprovalRequest {
   id: string;
@@ -316,45 +283,10 @@ export interface ApprovalRequestList {
   items: ApprovalRequest[];
 }
 
-export interface RunList {
-  items: RunListItem[];
-}
-
 export interface RunQuery {
   agentId?: string;
   status?: RunStatus;
   limit?: number;
-}
-
-export interface OverviewAgentRow {
-  agentId: string;
-  name: string;
-  slug: string;
-  createdAt: string;
-  enabled: boolean;
-  lastRunStartTime: string | null;
-  runCount: number;
-  totalCost: number;
-  errorRate: number;
-  latencyP50: number | null;
-  latencyP99: number | null;
-  totalTokens: number;
-}
-
-export interface Overview {
-  window: { days: number; since: string };
-  counts: {
-    servers: number;
-    agents: number;
-    runs: number;
-    running: number;
-    failed: number;
-    tokens: number;
-    costUsd: number;
-    avgLatencyMs: number | null;
-  };
-  agents: OverviewAgentRow[];
-  recent: RecentRun[];
 }
 
 export type AuditStatus = 'ok' | 'error' | 'denied';
@@ -1230,7 +1162,7 @@ export const api = {
     publicShareRequest(id, token, '/content', 'json'),
   publicOutputShareDownload: (id: string, token: string): Promise<Blob> =>
     publicShareRequest(id, token, '/download', 'blob'),
-  branchConversation: (id: string, fromMessageId?: string): Promise<{ id: string }> =>
+  branchConversation: (id: string, fromMessageId?: string): Promise<ConversationBranch> =>
     request(`/conversations/${id}/branch`, 'POST', {
       ...(fromMessageId === undefined ? {} : { fromMessageId }),
     }),

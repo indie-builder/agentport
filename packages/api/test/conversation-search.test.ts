@@ -1,8 +1,13 @@
 import { newId, repo } from '@agentport/db';
-import type { Agent, ConversationSearchResponse } from '@agentport/shared';
+import {
+  type Agent,
+  type ConversationSearchResponse,
+  conversationSearchResponseSchema,
+} from '@agentport/shared';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -11,7 +16,7 @@ import {
   loginCookie,
   startApp,
   unique,
-  ADMIN_BUSINESS_ID,} from './helpers.js';
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -105,6 +110,7 @@ describe.skipIf(!ready)('conversation search', () => {
     await addMessage(newest, 'assistant', { type: 'text', text: 'c' }, new Date(base + 2_000));
 
     const body = (await search({ agentId: agent.id, q: '   ' })).json<ConversationSearchResponse>();
+    expect(conversationSearchResponseSchema.parse(body)).toEqual(body);
     expect(body.items.map((entry) => entry.id)).toEqual([newest, middle, oldest]);
     expect(body.items[0]).toMatchObject({
       agentId: agent.id,

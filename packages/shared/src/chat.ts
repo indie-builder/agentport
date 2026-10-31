@@ -349,6 +349,24 @@ export const conversationSummarySchema = z.object({
 
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
 
+/** 会话对外公开的四字段：SDK 续聊状态、归属与分支内部列都不上 wire。 */
+export const publicConversationSchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  title: z.string(),
+  createdAt: z.string(),
+});
+
+export type PublicConversation = z.infer<typeof publicConversationSchema>;
+
+/** 分支响应只额外公开来源关系；fork 状态与 SDK session 仍是内部列。 */
+export const conversationBranchSchema = publicConversationSchema.extend({
+  parentId: z.string().nullable(),
+  branchOfMessageId: z.string().nullable(),
+});
+
+export type ConversationBranch = z.infer<typeof conversationBranchSchema>;
+
 /** 会话详情中的单条消息。 */
 export const conversationMessageSchema = z.object({
   id: z.string(),
@@ -386,12 +404,7 @@ export const conversationRunMetricsSchema = z.object({
 export type ConversationRunMetrics = z.infer<typeof conversationRunMetricsSchema>;
 
 export const conversationDetailSchema = z.object({
-  conversation: z.object({
-    id: z.string(),
-    agentId: z.string(),
-    title: z.string(),
-    createdAt: z.string(),
-  }),
+  conversation: publicConversationSchema,
   messages: z.array(conversationMessageSchema),
   /** 本页消息涉及的 run 读数，按 runId 索引；前端用它给每条历史回复补上读数行。 */
   runMetrics: z.array(conversationRunMetricsSchema).default([]),

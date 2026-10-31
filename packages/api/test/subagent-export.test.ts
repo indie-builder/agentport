@@ -332,8 +332,11 @@ describe.skipIf(!ready)('subagent export', () => {
     const mcpServers = JSON.parse(workspace.mcpJson).mcpServers as Record<string, unknown>;
     expect(Object.keys(mcpServers)).toEqual(byIdOrder([childServer, rootServer, sharedServer]));
     expect(mcpServers).not.toHaveProperty(disabledServer.name);
-    // CLAUDE.md 列出工作区里所有可用条目；子级条目只归子级，父级在 agentMd 里显式禁用。
-    expect(workspace.claudeMd).toContain(childServer.name);
+    // R1：根 CLAUDE.md 只列根绑定；子级专用 server 只在自己的子定义中声明。
+    // 并集仍完整包含它（上面的 .mcp.json 断言），父级在 agentMd 里显式拒绝。
+    expect(workspace.claudeMd).toContain(rootServer.name);
+    expect(workspace.claudeMd).toContain(sharedServer.name);
+    expect(workspace.claudeMd).not.toContain(childServer.name);
     expect(workspace.claudeMd).not.toContain(disabledServer.name);
     expect(workspace.claudeMd).toContain(rootSkill.slug);
     expect(workspace.claudeMd).toContain(sharedSkill.slug);

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
       addResult: vi.fn(),
       updateProgress: vi.fn(),
       finishEvalRun: vi.fn(),
+      failEvalRun: vi.fn(),
     },
     chat: {
       admitChatRun: vi.fn(),
@@ -63,9 +64,13 @@ vi.mock('bullmq', () => ({
     close = vi.fn(async () => undefined);
     waitUntilReady = mocks.waitUntilReady;
   },
+  UnrecoverableError: class UnrecoverableError extends Error {},
 }));
 
-import { executeEvalRun } from '../src/eval-runner.js';
+import { handleEvalJobFailed, runEvalJob } from '../src/eval-job.js';
+import { EVAL_FAILURE_PUBLIC_MESSAGE, executeEvalRun } from '../src/eval-runner.js';
+
+const { UnrecoverableError } = await import('bullmq');
 
 type SnapshotCase = { id: string; name: string; prompt: string; expectation: string };
 
@@ -117,6 +122,7 @@ function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, st
   mocks.queueAdd.mockResolvedValue({ waitUntilFinished: mocks.waitUntilFinished });
   mocks.evalRepo.addResult.mockResolvedValue(undefined);
   mocks.evalRepo.finishEvalRun.mockResolvedValue(undefined);
+  mocks.evalRepo.failEvalRun.mockResolvedValue(true);
   mocks.auditWrite.mockResolvedValue(undefined);
 }
 
@@ -408,7 +414,7 @@ describe('executeEvalRun case snapshot', () => {
         caseId: 'evalCase-a',
         runId: null,
         passed: false,
-        output: 'db down',
+        output: EVAL_FAILURE_PUBLIC_MESSAGE,
       }),
       { recordProgress: true },
     );
@@ -442,22 +448,136 @@ describe('executeEvalRun case snapshot', () => {
     expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
       status: 'failed',
       passed: 1,
-      error: 'result write failed',
+      error: EVAL_FAILURE_PUBLIC_MESSAGE,
     });
   });
 
-  it('skips a duplicate delivery without running cases', async () => {
+  it('skips a duplicate delivery of an already finished batch', async () => {
     const snapshot: SnapshotCase[] = [
       { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
     ];
     runWith(snapshot, { alpha: 'answer alpha-ok' });
     mocks.evalRepo.claimEvalRun.mockResolvedValueOnce(false);
+    mocks.evalRepo.getEvalRun
+      .mockResolvedValueOnce({
+        status: 'running',
+        agentId,
+        createdBy: evalBusinessId,
+        caseSnapshot: snapshot,
+      })
+      .mockResolvedValueOnce({
+        status: 'cancelled',
+        agentId,
+        createdBy: evalBusinessId,
+        caseSnapshot: snapshot,
+        claimedAt: new Date(),
+      });
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
     expect(mocks.queueAdd).not.toHaveBeenCalled();
     expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
     expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects a redelivery of an already claimed batch so it is not rerun', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+    ];
+    runWith(snapshot, { alpha: 'answer alpha-ok' });
+    mocks.evalRepo.claimEvalRun.mockResolvedValueOnce(false);
+    mocks.evalRepo.getEvalRun
+      .mockResolvedValueOnce({
+        status: 'running',
+        agentId,
+        createdBy: evalBusinessId,
+        caseSnapshot: snapshot,
+      })
+      .mockResolvedValueOnce({
+        status: 'running',
+        agentId,
+        createdBy: evalBusinessId,
+        caseSnapshot: snapshot,
+        claimedAt: new Date(),
+      });
+
+    await expect(
+      executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId }),
+    ).rejects.toThrow('execution was interrupted');
+
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
+  });
+
+  it('does not touch a batch that was already terminal when the job arrived', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+    ];
+    runWith(snapshot, { alpha: 'answer alpha-ok' });
+    mocks.evalRepo.getEvalRun.mockResolvedValueOnce({
+      status: 'succeeded',
+      agentId,
+      createdBy: evalBusinessId,
+      caseSnapshot: snapshot,
+    });
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.evalRepo.claimEvalRun).not.toHaveBeenCalled();
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
+  });
+
+  it('propagates a final finish failure instead of logging it away', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+    ];
+    runWith(snapshot, { alpha: 'answer alpha-ok' });
+    mocks.evalRepo.finishEvalRun.mockRejectedValueOnce(new Error('finish failed'));
+
+    await expect(
+      executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId }),
+    ).rejects.toThrow('finish failed');
+  });
+
+  it('settles the batch through the production handler before rethrowing', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+    ];
+    runWith(snapshot, { alpha: 'answer alpha-ok' });
+    mocks.evalRepo.finishEvalRun.mockRejectedValueOnce(new Error('finish failed'));
+
+    await expect(
+      runEvalJob({ db, logger, redisUrl: 'redis://unused', job: { data: { evalRunId } } }),
+    ).rejects.toThrow('finish failed');
+
+    expect(mocks.evalRepo.failEvalRun).toHaveBeenCalledWith(
+      db,
+      evalRunId,
+      EVAL_FAILURE_PUBLIC_MESSAGE,
+    );
+  });
+
+  it('settles a batch from the failed event when the processor never ran', async () => {
+    await handleEvalJobFailed({
+      db,
+      logger,
+      job: { data: { evalRunId } },
+      error: new UnrecoverableError('job stalled more than allowable limit'),
+    });
+
+    expect(mocks.evalRepo.failEvalRun).toHaveBeenCalledWith(
+      db,
+      evalRunId,
+      'job stalled more than allowable limit',
+    );
+  });
+
+  it('ignores a failed event whose payload cannot name a batch', async () => {
+    await handleEvalJobFailed({ db, logger, job: { data: {} }, error: new Error('boom') });
+
+    expect(mocks.evalRepo.failEvalRun).not.toHaveBeenCalled();
   });
 
   it('fails the batch without running cases when the executor lost access', async () => {

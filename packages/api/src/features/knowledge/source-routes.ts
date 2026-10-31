@@ -1,12 +1,13 @@
 import { decryptSecrets, encryptSecrets } from '@agentport/core';
-import { newId, repo, schema } from '@agentport/db';
-import { knowledgeSourceInputSchema, knowledgeSourceRangeInputSchema } from '@agentport/shared';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { repo, schema } from '@agentport/db';
+import { cronSchema, knowledgeSourceInputSchema, knowledgeSourceRangeInputSchema } from '@agentport/shared';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
-import { createJob, enqueueKnowledgeJob } from './service.js';
+import { enqueueKnowledgeJob } from './service.js';
 
 const baseParams = z.object({ id: z.string().min(1) });
 const sourceParams = z.object({ sourceId: z.string().min(1) });
@@ -23,14 +24,21 @@ const sourcePatchSchema = z.object({
   config: z.record(z.string(), z.unknown()).optional(),
   secrets: z.record(z.string(), z.string()).optional(),
   status: z.enum(['active', 'paused', 'disabled']).optional(),
-  syncCron: z
-    .string()
-    .regex(/^\S+ \S+ \S+ \S+ \S+$/, '需为 5 段 cron（分 时 日 月 周），UTC')
-    .nullable()
-    .optional(),
+  syncCron: cronSchema.nullable().optional(),
   // 空数组绝不解释成「全量范围」，与创建一致直接 400。
   ranges: z.array(knowledgeSourceRangeInputSchema).min(1).optional(),
 });
+
+const sourcePatchBodySchema = sourcePatchSchema.refine(
+  (value) =>
+    value.syncCron === undefined || value.syncCron === null || isSchedulableCron(value.syncCron),
+  { message: INVALID_CRON_MESSAGE, path: ['syncCron'] },
+);
+
+const sourceBodySchema = knowledgeSourceInputSchema.refine(
+  (value) => value.syncCron === null || isSchedulableCron(value.syncCron),
+  { message: INVALID_CRON_MESSAGE, path: ['syncCron'] },
+);
 
 type SourceRow = typeof schema.knowledgeSources.$inferSelect;
 type RangeRow = typeof schema.knowledgeSourceRanges.$inferSelect;
@@ -208,7 +216,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/sources',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: baseParams, body: knowledgeSourceInputSchema } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: baseParams, body: sourceBodySchema } },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
@@ -238,7 +246,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/sources/:sourceId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: sourceParams, body: sourcePatchSchema } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: sourceParams, body: sourcePatchBodySchema } },
     async (request, reply) => {
       const found = await loadSource(request.params.sourceId);
       if (!found) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
@@ -363,42 +371,19 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
     '/api/knowledge/sources/:sourceId/sync',
     { config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } }, schema: { params: sourceParams } },
     async (request, reply) => {
-      const source = await repo.knowledge.getSource(app.db, request.params.sourceId);
-      if (!source) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
-      if (source.status !== 'active') {
+      const created = await repo.knowledge.createSyncJob(app.db, request.params.sourceId);
+      if (created.status === 'not_found') {
+        return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
+      }
+      if (created.status === 'not_active') {
         return reject(reply, 'CONFLICT', '来源未启用，无法同步');
       }
-      // shortcut: 非事务检查，与定时触发并发时仍可能各建一条；要严格串行再复用 scheduler 的 advisory lock。
-      const [activeJob] = await app.db
-        .select({ id: schema.knowledgeJobs.id })
-        .from(schema.knowledgeJobs)
-        .where(
-          and(
-            eq(schema.knowledgeJobs.sourceId, source.id),
-            inArray(schema.knowledgeJobs.status, ['queued', 'running']),
-          ),
-        )
-        .limit(1);
-      if (activeJob) return reject(reply, 'CONFLICT', '该来源已有同步任务在进行中');
-      // 先落 run 再落 job：worker 认领时 run 必须已存在，检查点才有行可写。
-      const [run] = await app.db
-        .insert(schema.knowledgeSyncRuns)
-        .values({
-          id: newId('knowledgeSyncRun'),
-          sourceId: source.id,
-          status: 'queued',
-          cursorBefore: source.cursor,
-        })
-        .returning();
-      if (!run) throw new Error('knowledge sync run insert returned no row');
-      const job = await createJob(app.db, {
-        baseId: source.baseId,
-        documentId: null,
-        sourceId: source.id,
-        payload: { type: 'sync', sourceId: source.id, syncRunId: run.id },
-      });
-      await enqueueKnowledgeJob(job);
-      return reply.status(202).send({ jobId: job.id, syncRunId: run.id });
+      if (created.status === 'in_progress') {
+        return reject(reply, 'CONFLICT', '该来源已有同步任务在进行中');
+      }
+      // 入队失败时 queued pair 已完整落库，由既有 knowledge reconciler 补投。
+      await enqueueKnowledgeJob(created.job);
+      return reply.status(202).send({ jobId: created.job.id, syncRunId: created.run.id });
     },
   );
 

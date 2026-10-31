@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cronSchema } from './ops.js';
 import { slugSchema } from './params.js';
 
 /** 知识库任务队列；jobId 即 knowledge_jobs.id，重复投递由 BullMQ 去重。 */
@@ -250,10 +251,6 @@ export const knowledgeJobSchema = z.object({
 
 export type KnowledgeJob = z.infer<typeof knowledgeJobSchema>;
 
-const cron5Schema = z
-  .string()
-  .regex(/^\S+ \S+ \S+ \S+ \S+$/, '需为 5 段 cron（分 时 日 月 周），UTC');
-
 export const knowledgeSourceRangeInputSchema = z.object({
   kind: z.enum([
     'wiki_space',
@@ -271,7 +268,7 @@ export const knowledgeSourceRangeInputSchema = z.object({
 
 const sourceBase = {
   name: z.string().trim().min(1).max(120),
-  syncCron: cron5Schema.nullable().default(null),
+  syncCron: cronSchema.nullable().default(null),
   ranges: z.array(knowledgeSourceRangeInputSchema).min(1),
 };
 

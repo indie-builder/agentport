@@ -202,8 +202,11 @@ describe.skipIf(!(ready && isolated))('platform MCP over real HTTP: cancellation
       // HTTP 断开 → toNodeHandler 中止 fetch → ctx.mcpReq.signal 中止。
       expect(await withTimeout(settled, 5_000, '断开后结算')).toBe('rejected');
       expect(await waitFor(() => call.signal.aborted, 5_000)).toBe(true);
-      expect(await waitFor(async () => (await runStatus(call.runId)) === 'cancelled')).toBe(true);
-      expect(await getQueue().getJob(call.runId)).toBeUndefined();
+      // 取消先把 DB 落成 cancelled，再清 job；DB 终态可见不代表 remove 已完成。
+      expect(
+        await waitFor(async () => (await getQueue().getJob(call.runId)) === undefined, 5_000),
+      ).toBe(true);
+      expect(await runStatus(call.runId)).toBe('cancelled');
     } finally {
       await withTimeout(client.close(), 5_000, 'client.close 兜底').catch(() => undefined);
     }

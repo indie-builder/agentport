@@ -2132,7 +2132,8 @@ function RunReconciliation({
   run: RunState;
   reconcileRun: ReturnType<typeof useChatStream>['reconcileRun'];
 }) {
-  const runQuery = useRun(run.runId);
+  // 健康事件流会自己补终态；只在连接未开/断开时靠详情回读，恢复后自动停。
+  const runQuery = useRun(run.runId, run.status !== 'streaming');
   useEffect(() => {
     if (runQuery.data && (run.status !== 'streaming' || runQuery.data.run.status === 'cancelled')) {
       reconcileRun(runQuery.data.run);

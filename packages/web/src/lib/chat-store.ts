@@ -7,7 +7,12 @@ export type RunOutcome = 'succeeded' | 'failed' | 'cancelled' | 'timeout';
 export interface RunState {
   runId: string;
   conversationId: string;
-  /** queued：已提交、还没拿到 runId；此时没有可停止的对象。 */
+  /**
+   * queued：已提交、还没拿到 runId；此时没有可停止的对象。
+   * reconnecting：已拿到 runId，但事件流尚未打开或中断后正在重试，仍需轮询回读。
+   * streaming：EventSource 已 onopen 且没有已知协议错误；只表示连接当前健康。
+   * detached：服务端明确报错或重试耗尽，保留 runId 供停止/重连，继续轮询回读终态。
+   */
   status: 'queued' | 'streaming' | 'reconnecting' | 'detached';
   startedAt: number;
 }
@@ -26,7 +31,29 @@ export interface RunMetrics {
 
 /** 未发送草稿按会话分槽；新会话用空字符串当键。 */
 const DRAFTS_KEY = 'pace.chat.drafts';
+/** 草稿归属的业务人员；只在身份确认后写入，用于阻止换账户后串稿。 */
+const OWNER_KEY = `${DRAFTS_KEY}.owner`;
 const draftKey = (conversationId: string | null): string => conversationId ?? '';
+
+// sessionStorage 不可用时仍能在本次页面生命周期内判断草稿归属。
+let memoryOwner: string | null = null;
+
+function readOwner(): string | null {
+  try {
+    return sessionStorage.getItem(OWNER_KEY) ?? memoryOwner;
+  } catch {
+    return memoryOwner;
+  }
+}
+
+function writeOwner(businessId: string): void {
+  memoryOwner = businessId;
+  try {
+    sessionStorage.setItem(OWNER_KEY, businessId);
+  } catch {
+    // 存储不可写时保留进程内归属，刷新后不猜测属于谁。
+  }
+}
 
 function readDrafts(): Record<string, string> {
   try {
@@ -72,6 +99,11 @@ interface ChatWorkspaceState {
   /** 待发送资料；只在内存里，随本次发送消费，切会话/专家不串带。 */
   pendingAttachments: File[];
   historyOpen: boolean;
+  /**
+   * 账户级 reset 的同步信号。聊天页在身份切换/显式退出时可能仍挂载，
+   * 事件流据此立即关闭旧 EventSource 与重试计时器。
+   */
+  accountEpoch: number;
   setConversationId: (conversationId: string | null) => void;
   setItems: (items: ChatItem[] | ((previous: ChatItem[]) => ChatItem[])) => void;
   setInput: (input: string, persist?: boolean) => void;
@@ -107,6 +139,7 @@ const initial = {
 
 export const useChatStore = create<ChatWorkspaceState>()((set) => ({
   ...initial,
+  accountEpoch: 0,
   // 新会话的草稿在模块初始化时恢复；已有会话由 resetConversation 按 URL 载入。
   input: readDraft(null),
   setConversationId: (conversationId) =>
@@ -166,11 +199,23 @@ export const useChatStore = create<ChatWorkspaceState>()((set) => ({
       };
     }),
   reset: () => {
+    memoryOwner = null;
     try {
       sessionStorage.removeItem(DRAFTS_KEY);
+      sessionStorage.removeItem(OWNER_KEY);
     } catch {
       // 存储不可写时没有草稿需要清理。
     }
-    set({ ...initial, input: '' });
+    set((state) => ({ ...initial, input: '', accountEpoch: state.accountEpoch + 1 }));
   },
 }));
+
+/**
+ * 把聊天状态绑定到刚确认的业务身份。同一个人重复确认不清稿；
+ * 换人或身份缺失时先清掉内存与草稿，再记录新归属。
+ */
+export function bindChatIdentity(businessId: string): void {
+  if (readOwner() === businessId) return;
+  useChatStore.getState().reset();
+  writeOwner(businessId);
+}

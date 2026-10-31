@@ -890,55 +890,141 @@ export async function listJobs(db: Database, filter: ListJobsFilter = {}) {
 
 export type KnowledgeJobSummary = Awaited<ReturnType<typeof listJobs>>['items'][number];
 
+/** 同步任务的 payload 关联；缺失或与行上的 sourceId 不一致都是跨行数据错误。 */
+function syncRefOf(job: KnowledgeJobRow): { syncRunId: string; sourceId: string } {
+  const payload = job.payload;
+  if (
+    payload.type !== 'sync' ||
+    typeof payload.syncRunId !== 'string' ||
+    payload.syncRunId === ''
+  ) {
+    throw new Error(`knowledge sync job ${job.id} has no syncRunId`);
+  }
+  if (
+    job.sourceId === null ||
+    (payload.sourceId !== undefined && payload.sourceId !== job.sourceId)
+  ) {
+    throw new Error(`knowledge sync job ${job.id} has an invalid sourceId`);
+  }
+  return { syncRunId: payload.syncRunId, sourceId: job.sourceId };
+}
+
 /** 条件更新认领：BullMQ 重复投递时只有一个 worker 能把 queued 改成 running。 */
 export async function claimJob(db: Database, id: string): Promise<KnowledgeJobRow | null> {
-  const [row] = await db
-    .update(knowledgeJobs)
-    .set({
-      status: 'running',
-      startedAt: new Date(),
-      attempts: sql`${knowledgeJobs.attempts} + 1`,
-    })
-    .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, 'queued')))
-    .returning();
-  return row ?? null;
+  return db.transaction(async (tx) => {
+    const startedAt = new Date();
+    const [row] = await tx
+      .update(knowledgeJobs)
+      .set({
+        status: 'running',
+        startedAt,
+        attempts: sql`${knowledgeJobs.attempts} + 1`,
+      })
+      .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, 'queued')))
+      .returning();
+    if (!row) return null;
+    if (row.type === 'sync') {
+      const { syncRunId, sourceId } = syncRefOf(row);
+      // 只有 queued run 需要进入 running；内部重试保持已写入的 startedAt 与检查点。
+      const [run] = await tx
+        .update(knowledgeSyncRuns)
+        .set({
+          status: 'running',
+          startedAt: sql`coalesce(${knowledgeSyncRuns.startedAt}, ${startedAt})`,
+        })
+        .where(
+          and(
+            eq(knowledgeSyncRuns.id, syncRunId),
+            eq(knowledgeSyncRuns.sourceId, sourceId),
+            inArray(knowledgeSyncRuns.status, ['queued', 'running']),
+          ),
+        )
+        .returning({ id: knowledgeSyncRuns.id });
+      if (!run) throw new Error(`sync run ${syncRunId} is not active for job ${row.id}`);
+    }
+    return row;
+  });
+}
+
+export interface SyncRunResult {
+  cursorAfter: Record<string, unknown>;
+  stats: KnowledgeSyncRunRow['stats'];
 }
 
 export interface FinishJobInput {
+  /** 允许转换的唯一前态；排队取消与调度入队失败传 queued。 */
+  fromStatus?: Extract<KnowledgeJobRow['status'], 'queued' | 'running'>;
   status: Extract<KnowledgeJobRow['status'], 'succeeded' | 'failed' | 'cancelled'>;
   error?: string | null;
   step?: string | null;
   progress?: number;
+  /** 仅成功的 sync 任务必须携带；同一事务写入 run 与 source 游标。 */
+  result?: SyncRunResult;
 }
 
-/** 终态只写一次：非 running 的行不会被覆盖。 */
+/**
+ * 一个 job 的原子终态提交：job CAS、sync run 终态、source 摘要与成功游标一次提交。
+ * 任何后续写入失败都回滚 job，让重投/对账仍能看到活动行。
+ */
 export async function finishJob(
   db: Database,
   id: string,
   input: FinishJobInput,
 ): Promise<KnowledgeJobRow | null> {
-  const [row] = await db
-    .update(knowledgeJobs)
-    .set({
-      status: input.status,
-      error: input.error ?? null,
-      step: input.step ?? null,
-      progress: input.progress ?? 100,
-      endedAt: new Date(),
-    })
-    .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, 'running')))
-    .returning();
-  return row ?? null;
-}
+  const fromStatus = input.fromStatus ?? 'running';
+  return db.transaction(async (tx) => {
+    const endedAt = new Date();
+    const [row] = await tx
+      .update(knowledgeJobs)
+      .set({
+        status: input.status,
+        error: input.error ?? null,
+        step: input.step ?? null,
+        progress: input.progress ?? 100,
+        endedAt,
+      })
+      .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, fromStatus)))
+      .returning();
+    if (!row || row.type !== 'sync') return row ?? null;
 
-/** 只取消仍未开始的 job；运行中的取消由 worker 侧 cancel key + AbortController 完成。 */
-export async function requestCancel(db: Database, id: string): Promise<KnowledgeJobRow | null> {
-  const [row] = await db
-    .update(knowledgeJobs)
-    .set({ status: 'cancelled', endedAt: new Date() })
-    .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, 'queued')))
-    .returning();
-  return row ?? null;
+    const { syncRunId, sourceId } = syncRefOf(row);
+    if (input.status === 'succeeded' && input.result === undefined) {
+      throw new Error(`sync job ${row.id} succeeded without cursorAfter`);
+    }
+    const [run] = await tx
+      .update(knowledgeSyncRuns)
+      .set({
+        status: input.status,
+        endedAt,
+        error: input.error ?? null,
+        ...(input.status === 'succeeded' && input.result
+          ? { cursorAfter: input.result.cursorAfter, stats: input.result.stats }
+          : {}),
+      })
+      .where(
+        and(
+          eq(knowledgeSyncRuns.id, syncRunId),
+          eq(knowledgeSyncRuns.sourceId, sourceId),
+          inArray(knowledgeSyncRuns.status, ['queued', 'running']),
+        ),
+      )
+      .returning({ id: knowledgeSyncRuns.id });
+    if (!run) throw new Error(`sync run ${syncRunId} is not active for job ${row.id}`);
+
+    await tx
+      .update(knowledgeSources)
+      .set({
+        lastSyncAt: endedAt,
+        lastSyncStatus: input.status,
+        lastError: input.error ?? null,
+        updatedAt: endedAt,
+        ...(input.status === 'succeeded' && input.result
+          ? { cursor: input.result.cursorAfter }
+          : {}),
+      })
+      .where(eq(knowledgeSources.id, sourceId));
+    return row;
+  });
 }
 // ---------------------------------------------------------------------------
 // 外部来源 / 同步
@@ -1067,49 +1153,64 @@ export async function listRanges(
     .orderBy(asc(knowledgeSourceRanges.id));
 }
 
-export async function createSyncRun(
-  db: Database,
-  sourceId: string,
-  cursorBefore: Record<string, unknown> | null,
-): Promise<KnowledgeSyncRunRow> {
-  const [row] = await db
-    .insert(knowledgeSyncRuns)
-    .values({
-      id: newId('knowledgeSyncRun'),
-      sourceId,
-      status: 'running',
-      startedAt: new Date(),
-      cursorBefore,
-    })
-    .returning();
-  if (!row) throw new Error('knowledge sync run insert returned no row');
-  return row;
-}
+export type CreateSyncJobResult =
+  | { status: 'created'; job: KnowledgeJobRow; run: KnowledgeSyncRunRow }
+  | { status: 'not_found' }
+  | { status: 'not_active' }
+  | { status: 'in_progress' };
 
-export interface FinishSyncRunInput {
-  status: Extract<KnowledgeSyncRunRow['status'], 'succeeded' | 'failed' | 'cancelled'>;
-  cursorAfter?: Record<string, unknown> | null;
-  stats?: KnowledgeSyncRunRow['stats'];
-  error?: string | null;
-}
+/**
+ * 手动、重试与定时触发共用的一次创建事务：来源级 advisory lock + 在途检查后，
+ * queued sync run 与 queued job 全有或全无；Redis add 必须等本事务提交后再做。
+ */
+export async function createSyncJob(db: Database, sourceId: string): Promise<CreateSyncJobResult> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${sourceId}))`);
+    const [source] = await tx
+      .select()
+      .from(knowledgeSources)
+      .where(eq(knowledgeSources.id, sourceId))
+      .limit(1);
+    if (!source) return { status: 'not_found' } as const;
+    if (source.status !== 'active') return { status: 'not_active' } as const;
+    const [active] = await tx
+      .select({ id: knowledgeJobs.id })
+      .from(knowledgeJobs)
+      .where(
+        and(
+          eq(knowledgeJobs.sourceId, sourceId),
+          inArray(knowledgeJobs.status, ['queued', 'running']),
+        ),
+      )
+      .limit(1);
+    if (active) return { status: 'in_progress' } as const;
 
-export async function finishSyncRun(
-  db: Database,
-  id: string,
-  input: FinishSyncRunInput,
-): Promise<KnowledgeSyncRunRow | null> {
-  const [row] = await db
-    .update(knowledgeSyncRuns)
-    .set({
-      status: input.status,
-      endedAt: new Date(),
-      cursorAfter: input.cursorAfter ?? null,
-      ...(input.stats ? { stats: input.stats } : {}),
-      error: input.error ?? null,
-    })
-    .where(eq(knowledgeSyncRuns.id, id))
-    .returning();
-  return row ?? null;
+    const runId = newId('knowledgeSyncRun');
+    const jobId = newId('knowledgeJob');
+    const [run] = await tx
+      .insert(knowledgeSyncRuns)
+      .values({
+        id: runId,
+        sourceId,
+        status: 'queued',
+        cursorBefore: source.cursor,
+      })
+      .returning();
+    const [job] = await tx
+      .insert(knowledgeJobs)
+      .values({
+        id: jobId,
+        type: 'sync',
+        baseId: source.baseId,
+        documentId: null,
+        sourceId,
+        status: 'queued',
+        payload: { type: 'sync', sourceId, syncRunId: runId },
+      })
+      .returning();
+    if (!run || !job) throw new Error('knowledge sync pair insert returned no row');
+    return { status: 'created', job, run } as const;
+  });
 }
 
 export async function listSyncRuns(

@@ -982,18 +982,25 @@ async function disableStaleDocuments(
 /** 非 active 来源（paused/disabled/auth_error）不同步：只把 run 记成 cancelled，不动游标与文档。 */
 const SYNCABLE = new Set(['active']);
 
+/** 同步执行的最终结果；终态由队列通过 finishJob 原子提交。 */
+export interface SyncRunResult {
+  cursorAfter: Record<string, unknown>;
+  stats: {
+    listed: number;
+    created: number;
+    updated: number;
+    disabled: number;
+    failed: number;
+  };
+}
+
 export async function runSync(
   deps: KnowledgeDeps,
   job: KnowledgeJobRow,
   signal: AbortSignal,
-): Promise<void> {
+): Promise<SyncRunResult> {
   const payload = requirePayload(job);
   if (payload.type !== 'sync') throw new Error('job 类型不是 sync');
-  // BullMQ 重试复用同一个 syncRunId：上一次尝试可能已留下终态，恢复为 running 再跑。
-  await deps.db
-    .update(schema.knowledgeSyncRuns)
-    .set({ status: 'running', endedAt: null, error: null })
-    .where(eq(schema.knowledgeSyncRuns.id, payload.syncRunId));
   const source = await repo.knowledge.getSource(deps.db, payload.sourceId);
   if (!source) throw new Error('来源不存在，可能已被删除');
   if (!SYNCABLE.has(source.status)) {
@@ -1124,17 +1131,7 @@ export async function runSync(
     stats.disabled += await disableStaleDocuments(deps, source, seen, signal);
   }
 
-  await repo.knowledge.finishSyncRun(deps.db, payload.syncRunId, {
-    status: 'succeeded',
-    cursorAfter,
-    stats,
-  });
-  await repo.knowledge.updateSource(deps.db, source.id, {
-    cursor: cursorAfter,
-    lastSyncAt: new Date(),
-    lastSyncStatus: 'succeeded',
-    lastError: null,
-  });
+  return { cursorAfter, stats };
 }
 
 // ---------------------------------------------------------------------------
@@ -1185,7 +1182,7 @@ export async function runKnowledgeJob(
   deps: KnowledgeDeps,
   job: KnowledgeJobRow,
   signal: AbortSignal,
-): Promise<void> {
+): Promise<SyncRunResult | void> {
   switch (job.type) {
     case 'ingest':
       return runIngest(deps, job, signal);

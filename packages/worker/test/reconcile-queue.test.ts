@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { agentOwnership, conversationSubject, runSubjectFields } from './fixtures/access.js';
+import { createIsolatedDatabase } from './isolated-db.js';
 
 const { publishRun } = vi.hoisted(() => ({
   publishRun: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
@@ -22,17 +23,25 @@ const STALE_MS = 20 * 60_000;
 const BETWEEN_CUTOFFS_MS = AGENT_TIMEOUT_MS + GRACE_MS + 60_000;
 const LONG_TIMEOUT_MS = 60 * 60_000;
 
-const dbHandle = createDb(process.env.DATABASE_URL ?? '');
+// 对账函数扫描整张运行表：独享随机库，避免扫到同轮其他套件提交的记录。
+const isolatedDb = await createIsolatedDatabase('worker_reconcile_queue_probe');
+const dbHandle = createDb(isolatedDb?.url ?? '');
 const { db } = dbHandle;
 type Db = typeof db;
-const ready = await dbHandle.pool.query('select 1').then(
-  () => true,
-  () => false,
-);
+const ready =
+  isolatedDb !== null &&
+  (await dbHandle.pool.query('select 1').then(
+    () => true,
+    () => false,
+  ));
+if (!ready) {
+  await dbHandle.pool.end();
+  await isolatedDb?.close();
+}
 
 /**
- * 每个用例在自己的事务里跑并回滚：其他测试文件会并发对同一张表断言全局计数，
- * 提交这些陈旧行会污染它们；回滚后无需清理夹具。
+ * 每个用例在自己的事务里跑并回滚：对账会扫描整张运行表，
+ * 留下夹具会让后续用例把上一轮的记录也算进收敛数。
  */
 class Rollback extends Error {}
 async function isolated(
@@ -211,7 +220,10 @@ const LOST = { status: 'failed', error: LOST_RUN_ERROR, endedAt: expect.any(Date
 const KEPT_QUEUED = { status: 'queued', error: null };
 
 describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
-  afterAll(() => dbHandle.pool.end());
+  afterAll(async () => {
+    await dbHandle.pool.end();
+    await isolatedDb?.close();
+  });
 
   beforeEach(() => {
     ownedRuns.clear();

@@ -19,13 +19,13 @@ import {
   agentRunJobSchema,
   EVAL_RUNS_QUEUE,
   effortSchema,
-  evalRunJobSchema,
   knowledgeMcpEntry,
   messageAttachments,
   permissionModeSchema,
   previewMcpEntry,
   RUNS_QUEUE,
   type SandboxTaskInput,
+  SESSION_CLEANUP_TIMEOUT_MS,
   serverInputSchema,
   wireFailureKind,
 } from '@agentport/shared';
@@ -34,7 +34,8 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import pino, { type Logger } from 'pino';
 import { conversationInputsMount, promptWithAttachments } from './attachments.js';
 import { loadConfig } from './config.js';
-import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
+import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
+import { closeEvalRunQueue, evalFailureDiagnostics } from './eval-runner.js';
 import { readForkUuidMap } from './fork-uuids.js';
 import { startKnowledgeWorker } from './knowledge/queue.js';
 import { startKnowledgeReconciler } from './knowledge/reconcile.js';
@@ -75,6 +76,7 @@ import { startRuntimeEnvironmentBuildReconciler } from './runtime-environments/r
 import { createRuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider, resolveLocalImageId } from './sandbox/docker.js';
 import { SandboxCleanupError } from './sandbox/provider.js';
+import { closeSessionRuntime, startSessionCleanupChannel } from './sandbox/session-cleanup.js';
 import { SessionSandboxes, type SessionSandboxLease } from './sandbox/sessions.js';
 import { registerSandboxProbe } from './sandbox-probe.js';
 import { startScheduleScheduler } from './scheduler.js';
@@ -130,6 +132,13 @@ const sessionSandboxes = new SessionSandboxes({
   idleTimeoutMs: config.SANDBOX_IDLE_TIMEOUT_MS,
   resolveRuntimeEnvironment,
   logger,
+});
+
+// 删除 API 在事务内经该信道确认空闲容器已关闭；启动时等待订阅成功，避免请求无监听静默超时。
+const sessionCleanup = await startSessionCleanupChannel({
+  redisUrl: config.REDIS_URL,
+  logger,
+  sessions: sessionSandboxes,
 });
 
 type ServerRow = typeof schema.servers.$inferSelect;
@@ -1274,23 +1283,20 @@ worker.on('failed', async (job, err) => {
 // 评估本身串行：并发固定 1。
 const evalWorker = new Worker(
   EVAL_RUNS_QUEUE,
-  async (job) => {
-    const parsed = evalRunJobSchema.safeParse(job.data);
-    if (!parsed.success) {
-      throw new Error(`invalid eval job payload: ${parsed.error.message}`);
-    }
-    await executeEvalRun({
-      db,
-      logger,
-      redisUrl: config.REDIS_URL,
-      evalRunId: parsed.data.evalRunId,
-    });
-  },
+  (job) => runEvalJob({ db, logger, redisUrl: config.REDIS_URL, job }),
   { connection: { url: config.REDIS_URL }, concurrency: 1 },
 );
 
 evalWorker.on('failed', (job, err) => {
-  logger.error({ jobId: job?.id, err }, 'eval job failed');
+  // DB 错误原文可能含 SQL 参数；只记错误类型与 PG code。
+  logger.error({ jobId: job?.id, ...evalFailureDiagnostics(err) }, 'eval job failed');
+  // processor 前就终止的 deferred stalled failure 也在这里条件收口；事件回调不能留 unhandled rejection。
+  handleEvalJobFailed({ db, logger, job, error: err }).catch((settleError: unknown) => {
+    logger.error(
+      { jobId: job?.id, ...evalFailureDiagnostics(settleError) },
+      'eval job failure settlement failed',
+    );
+  });
 });
 
 const maintenanceWorker = await startMaintenanceWorker({
@@ -1425,13 +1431,13 @@ const shutdown = async (): Promise<void> => {
     ],
     provider: {
       label: 'sandbox provider',
-      close: async () => {
-        try {
-          await sessionSandboxes.close();
-        } finally {
-          await provider.destroyAll();
-        }
-      },
+      close: () =>
+        closeSessionRuntime({
+          channel: sessionCleanup,
+          sessions: sessionSandboxes,
+          provider,
+          timeoutMs: SESSION_CLEANUP_TIMEOUT_MS,
+        }),
     },
     steps: [
       { label: 'maintenance worker', close: () => maintenanceWorker.close() },

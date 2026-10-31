@@ -10,7 +10,7 @@ import {
   rerankDocuments,
   segmentForSearch,
 } from '@agentport/core';
-import { newId, repo, schema } from '@agentport/db';
+import { repo, schema } from '@agentport/db';
 import type { KnowledgeBaseSettings } from '@agentport/shared';
 import {
   httpUrlSchema,
@@ -1150,23 +1150,19 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       }
       const payload = knowledgeJobPayloadSchema.parse(row.payload);
       // 同步重试是一次新同步：新建 run 才能保留旧 run 的历史，不能覆写。
-      let retryPayload = payload;
       if (payload.type === 'sync') {
-        const source = await repo.knowledge.getSource(app.db, payload.sourceId);
-        if (!source) return notFound(reply, '来源');
-        const [run] = await app.db
-          .insert(schema.knowledgeSyncRuns)
-          .values({
-            id: newId('knowledgeSyncRun'),
-            sourceId: source.id,
-            status: 'queued',
-            cursorBefore: source.cursor,
-          })
-          .returning();
-        if (!run) throw new Error('knowledge sync run insert returned no row');
-        retryPayload = { ...payload, syncRunId: run.id };
+        const created = await repo.knowledge.createSyncJob(app.db, payload.sourceId);
+        if (created.status === 'not_found') return notFound(reply, '来源');
+        if (created.status === 'not_active') {
+          return reject(reply, 'CONFLICT', '来源未启用，无法同步');
+        }
+        if (created.status === 'in_progress') {
+          return reject(reply, 'CONFLICT', '该来源已有同步任务在进行中');
+        }
+        await enqueueKnowledgeJob(created.job);
+        return reply.status(202).send({ jobId: created.job.id });
       }
-      const job = await enqueue(retryPayload, {
+      const job = await enqueue(payload, {
         baseId: row.baseId,
         documentId: row.documentId,
         sourceId: row.sourceId,
@@ -1186,23 +1182,13 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       const row = await repo.knowledge.getJob(app.db, request.params.jobId);
       if (!row) return notFound(reply, '任务');
       if (row.status === 'queued') {
-        const cancelled = await repo.knowledge.requestCancel(app.db, row.id);
-        if (cancelled) {
-          // 排队中取消不会再经过 worker，sync run 必须同一次收尾，否则永久显示进行中。
-          const payload = knowledgeJobPayloadSchema.safeParse(cancelled.payload);
-          if (payload.success && payload.data.type === 'sync') {
-            await repo.knowledge.finishSyncRun(app.db, payload.data.syncRunId, {
-              status: 'cancelled',
-              error: 'cancelled',
-            });
-            await repo.knowledge.updateSource(app.db, payload.data.sourceId, {
-              lastSyncAt: new Date(),
-              lastSyncStatus: 'cancelled',
-              lastError: 'cancelled',
-            });
-          }
-          return toJob(cancelled);
-        }
+        // 排队中取消不会再经过 worker：job/run/source 摘要必须一次原子提交。
+        const cancelled = await repo.knowledge.finishJob(app.db, row.id, {
+          fromStatus: 'queued',
+          status: 'cancelled',
+          error: 'cancelled',
+        });
+        if (cancelled) return toJob(cancelled);
         // worker 抢在取消前认领：按运行中处理，别把这次取消当成失败。
         const claimed = await repo.knowledge.getJob(app.db, row.id);
         if (!claimed || claimed.status !== 'running') {

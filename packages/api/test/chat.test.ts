@@ -251,17 +251,23 @@ describe.skipIf(!ready)('chat', () => {
       payload: { fromMessageId: userMessage?.id },
     });
     expect(res.statusCode).toBe(201);
-    const branch = res.json<{
-      id: string;
-      parentId: string | null;
-      branchOfMessageId: string | null;
-    }>();
+    const branch = res.json<Record<string, unknown>>();
+    expect(Object.keys(branch).sort()).toEqual(
+      ['agentId', 'branchOfMessageId', 'createdAt', 'id', 'parentId', 'title'].sort(),
+    );
+    expect(branch.createdAt).toEqual(expect.any(String));
+    expect(branch).not.toHaveProperty('sdkSessionId');
+    expect(branch).not.toHaveProperty('forkFromSdkMessageUuid');
+    expect(branch).not.toHaveProperty('createdBy');
+    expect(branch).not.toHaveProperty('serviceId');
+    expect(branch).not.toHaveProperty('lastMessageAt');
     expect(branch.parentId).toBe(conversationId);
     expect(branch.branchOfMessageId).toBe(userMessage?.id);
+    expect(branch.id).not.toBe(conversationId);
 
     const branchDetail = await inject(app, {
       method: 'GET',
-      url: `/api/conversations/${branch.id}`,
+      url: `/api/conversations/${branch.id as string}`,
       headers: auth(),
     });
     const copied = branchDetail.json<{ messages: Array<{ role: string }> }>().messages;

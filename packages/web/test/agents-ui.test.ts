@@ -818,6 +818,98 @@ describe('expert editor regressions', () => {
     );
   });
 
+  it('labels timeout for independent runs and explains delegation only for sub-agents', async () => {
+    await inspect(editor, (tree, pass) => {
+      if (pass === 0) {
+        selectSection(tree, '运行限制');
+        return true;
+      }
+      const label = tree.find((node) => node.props.htmlFor === 'agent-timeout');
+      expect(flatText(label?.props.children as ReactNode)).toBe('独立运行超时 (毫秒)');
+      expect(tree.find((node) => node.props.id === 'agent-timeout-hint')).toBeUndefined();
+    });
+
+    await inspect(
+      () =>
+        AgentEditor({
+          agent: { ...parent, parentId: 'parent', timeoutMs: 120_000 },
+          permissions: TEST_PERMISSIONS,
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
+      (tree, pass) => {
+        if (pass === 0) {
+          selectSection(tree, '运行限制');
+          return true;
+        }
+        const label = tree.find((node) => node.props.htmlFor === 'agent-timeout');
+        expect(flatText(label?.props.children as ReactNode)).toBe('独立运行超时 (毫秒)');
+        const hint = tree.find((node) => node.props.id === 'agent-timeout-hint');
+        expect(flatText(hint?.props.children as ReactNode)).toBe('被委派时使用主运行总超时。');
+        const input = tree.find((node) => node.props.id === 'agent-timeout');
+        expect(input?.props['aria-describedby']).toBe('agent-timeout-hint');
+      },
+    );
+  });
+
+  it('keeps the edited independent-run timeout when unbinding a child', async () => {
+    const configured = { ...parent, timeoutMs: 600_000 };
+    let saved: Agent | undefined;
+    state.mutate.mockReset();
+    state.mutate.mockImplementationOnce((vars, callbacks) => {
+      saved = { ...configured, ...vars.input, updatedAt: '2026-03-01' };
+      callbacks?.onSuccess?.(saved);
+    });
+    await inspect(
+      () =>
+        AgentEditor({
+          agent: configured,
+          permissions: TEST_PERMISSIONS,
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
+      async (tree, pass) => {
+        if (pass === 0) {
+          selectSection(tree, '运行限制');
+          return true;
+        }
+        if (pass === 1) {
+          changeNumberField(tree, 'agent-timeout', 90_000);
+          selectSection(tree, '能力');
+          return true;
+        }
+        if (pass === 2) {
+          const picker = tree.find(
+            (node) =>
+              node.type === Combobox &&
+              (node.props.items as Array<{ id: string }>).some((item) => item.id === 'free'),
+          );
+          if (!picker) throw new Error('Missing delegate picker');
+          expect((picker.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
+            'child',
+          ]);
+          (picker.props.onValueChange as (items: unknown[]) => void)([]);
+          return true;
+        }
+        if (pass === 3) {
+          const form = tree.find((node) => node.type === 'form');
+          if (!form) throw new Error('Missing editor form');
+          await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+            preventDefault() {},
+          });
+          expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+            input: { timeoutMs: 90_000, subAgentIds: [] },
+          });
+          return true;
+        }
+        expect(saved?.timeoutMs).toBe(90_000);
+        expect(saved?.subAgentIds).toEqual([]);
+      },
+    );
+  });
+
   it('shows loading and retry for delegate options without changing bound drafts', async () => {
     state.agentsPending = true;
     let saved: Agent | undefined;

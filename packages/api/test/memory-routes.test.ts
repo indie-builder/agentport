@@ -59,9 +59,18 @@ beforeEach(async () => {
   });
   const tx = { execute: async () => undefined, select, insert };
   app.decorate('db', { select, transaction: async (fn: (value: typeof tx) => unknown) => fn(tx) });
-  app.decorate('pool', {
-    connect: async () => ({ query: async () => undefined, release: () => undefined }),
-  });
+  // withAdvisoryLock 仍是真实 helper：给出它需要的会话形状，锁只影响单次请求。
+  const lockClient = {
+    on: () => undefined,
+    removeListener: () => undefined,
+    release: () => undefined,
+    query: async (text: string) => {
+      if (text.includes('current_setting')) return { rows: [{ value: '0' }] };
+      if (text.includes('pg_advisory_unlock')) return { rows: [{ unlocked: true }] };
+      return { rows: [] };
+    },
+  };
+  app.decorate('pool', { connect: async () => lockClient });
   registerErrorHandler(app);
   registerAgentRoutes(app);
   await app.ready();
