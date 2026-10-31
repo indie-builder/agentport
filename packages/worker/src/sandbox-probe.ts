@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { decryptSecrets } from '@agentport/core';
 import { createDb, repo } from '@agentport/db';
 import {
+  errorText,
   limitToolCatalog,
   type ResolvedRuntimeEnvironment,
   redactSecrets,
@@ -62,10 +63,6 @@ export interface SandboxProbeDeps {
 /** 试连结果回给 API：stderr 只进审计与日志，`serverTestResultSchema` 会把它剥掉。 */
 export interface ProbeOutcome extends ServerTestResult {
   stderr?: string;
-}
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /** 只取容器 stdout 的第一条合法结果；其余行属于上游噪音。 */
