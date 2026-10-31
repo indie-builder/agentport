@@ -1,6 +1,12 @@
 import type { Agent } from '@agentport/shared';
 import backendEngineer from '../assets/agents/backend-engineer.png';
 import contentOps from '../assets/agents/content-ops.png';
+import createBackend from '../assets/agents/create-backend.png';
+import createData from '../assets/agents/create-data.png';
+import createDevops from '../assets/agents/create-devops.png';
+import createFrontend from '../assets/agents/create-frontend.png';
+import createQa from '../assets/agents/create-qa.png';
+import createUi from '../assets/agents/create-ui.png';
 import dataAnalyst from '../assets/agents/data-analyst.jpg';
 import devopsEngineer from '../assets/agents/devops-engineer.jpg';
 import digitalTwin from '../assets/agents/digital-twin.png';
@@ -43,6 +49,16 @@ const roleAvatars: ReadonlyArray<readonly [RegExp, string]> = [
   [/devops|运维|ops|部署/i, devopsEngineer],
   [/项目|管理|admin|manager/i, projectAdmin],
   [/客服|答疑|support|助手|助理/i, supportBot],
+];
+
+/** 「新建」卡展开用的六张插画，顺序决定叠放的左右次序。 */
+export const createShowcaseAvatars: readonly string[] = [
+  createFrontend,
+  createQa,
+  createUi,
+  createData,
+  createDevops,
+  createBackend,
 ];
 
 function hash(value: string): number {

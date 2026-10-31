@@ -64,7 +64,7 @@ import { type Control, type Path, type PathValue, useController, useWatch } from
 import { toast } from 'sonner';
 import { z } from 'zod';
 import digitalTwinPortrait from '../assets/agents/digital-twin.png';
-import { AgentAvatar } from '../components/agent-avatar.js';
+import { AgentAvatar, createShowcaseAvatars } from '../components/agent-avatar.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -80,7 +80,14 @@ import { SearchInput } from '../components/search-input.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
-import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '../components/ui/card.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import {
   Combobox,
@@ -337,6 +344,7 @@ export function AgentsPage() {
   const status = search.status ?? 'enabled';
   const role = search.role ?? '';
   const [creating, setCreating] = useState(false);
+  const [createRole, setCreateRole] = useState<AgentInput['role'] | null>(null);
   const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
   const [importing, setImporting] = useState(false);
   const [pendingImport, setPendingImport] = useState<File | null>(null);
@@ -445,6 +453,7 @@ export function AgentsPage() {
               className={canCreate ? undefined : 'hidden'}
               onClick={(event) => {
                 editorTriggerRef.current = event.currentTarget;
+                setCreateRole(role || '通用助手');
                 setCreating(true);
               }}
             >
@@ -535,24 +544,11 @@ export function AgentsPage() {
           <LoadingState rows={4} layout="cards" />
         ) : me.isError ? (
           <ErrorState error={me.error} onRetry={() => void me.refetch()} />
-        ) : (
+        ) : canCreate ? null : (
           <PageNote
             icon={<Bot />}
-            title={canCreate ? '还没有专家' : '暂无可用专家'}
-            description={canCreate ? undefined : '当前账户尚未分配可用专家，请联系管理员。'}
-            action={
-              canCreate ? (
-                <Button
-                  disabled={importing}
-                  onClick={(event) => {
-                    editorTriggerRef.current = event.currentTarget;
-                    setCreating(true);
-                  }}
-                >
-                  创建第一位专家
-                </Button>
-              ) : undefined
-            }
+            title="暂无可用专家"
+            description="当前账户尚未分配可用专家，请联系管理员。"
           />
         )
       ) : null}
@@ -566,6 +562,7 @@ export function AgentsPage() {
                   disabled={importing}
                   onClick={(event) => {
                     editorTriggerRef.current = event.currentTarget;
+                    setCreateRole(role || '通用助手');
                     setCreating(true);
                   }}
                 >
@@ -590,11 +587,62 @@ export function AgentsPage() {
         />
       ) : null}
 
-      {filtered.length > 0 ? (
+      {agents.data && (canCreate || filtered.length > 0) ? (
         <ul
           aria-label="专家列表"
           className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
         >
+          {canCreate ? (
+            <>
+              <li className="min-w-0">
+                <button
+                  type="button"
+                  aria-label="新建专家"
+                  disabled={importing}
+                  onClick={(event) => {
+                    editorTriggerRef.current = event.currentTarget as HTMLButtonElement;
+                    setCreateRole('通用助手');
+                    setCreating(true);
+                  }}
+                  className="agent-create-fan h-full min-h-52 w-full disabled:pointer-events-none disabled:opacity-60"
+                >
+                  <span className="agent-create-fan__art" aria-hidden="true">
+                    {createShowcaseAvatars.map((src) => (
+                      <span key={src} className="agent-create-fan__chip">
+                        <img src={src} alt="" />
+                      </span>
+                    ))}
+                  </span>
+                  <span className="agent-create-fan__label">
+                    <Plus aria-hidden="true" />
+                    <span>新建专家</span>
+                  </span>
+                </button>
+              </li>
+              <li className="min-w-0">
+                <Card className="h-full">
+                  <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
+                    <img
+                      src={digitalTwinPortrait}
+                      alt=""
+                      className="size-20 rounded-full object-cover"
+                    />
+                    <Button
+                      variant="outline"
+                      disabled={importing}
+                      onClick={(event) => {
+                        editorTriggerRef.current = event.currentTarget;
+                        setCreateRole('数字分身');
+                        setCreating(true);
+                      }}
+                    >
+                      <Plus data-icon="inline-start" /> 创建数字分身
+                    </Button>
+                  </CardContent>
+                </Card>
+              </li>
+            </>
+          ) : null}
           {filtered.map((agent) => {
             const agentRole = agent.role?.trim() || '通用助手';
             const canDelete =
@@ -720,13 +768,16 @@ export function AgentsPage() {
 
       {creating ? (
         <CreateAgentDialog
-          initialRole={role || '通用助手'}
+          initialRole={createRole ?? '通用助手'}
           finalFocus={() =>
             editorTriggerRef.current?.isConnected
               ? editorTriggerRef.current
               : createButtonRef.current
           }
-          onClose={() => setCreating(false)}
+          onClose={() => {
+            setCreating(false);
+            setCreateRole(null);
+          }}
           onCreated={(agent) => {
             setCreating(false);
             openAgent(agent.id);

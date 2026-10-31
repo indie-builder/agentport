@@ -2,8 +2,8 @@ import {
   type Agent,
   type ApiTool,
   agentInputSchema,
-  type PermissionId,
   PERMISSIONS,
+  type PermissionId,
   type RuntimeEnvironment,
   type Server,
 } from '@agentport/shared';
@@ -49,9 +49,9 @@ vi.mock('../src/lib/queries.js', async (original) => {
   return {
     ...queries,
     meQuery: {
-    queryKey: ['me'],
-    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
-  },
+      queryKey: ['me'],
+      queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+    },
     useUpdateAgent: () => ({ ...queries.useUpdateAgent(), isPending: state.saving }),
   };
 });
@@ -266,7 +266,8 @@ describe('resource async state regressions', () => {
             node.props.to === '/agents/$agentId' ||
             node.props.to === '/chat' ||
             node.props['aria-label'] === '新建专家' ||
-            (Array.isArray(node.props.children) && node.props.children.includes(' 新建专家')),
+            (Array.isArray(node.props.children) && node.props.children.includes(' 新建专家')) ||
+            (Array.isArray(node.props.children) && node.props.children.includes(' 创建数字分身')),
         );
         expect(entries.length).toBeGreaterThan(0);
         expect(entries.every((node) => node.props.disabled === true)).toBe(true);
