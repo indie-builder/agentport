@@ -21,6 +21,7 @@ import type {
   KnowledgeBaseSettings,
   KnowledgeDocument,
   KnowledgeJob,
+  KnowledgeModelProfileSelection,
   KnowledgeSearchHit,
   KnowledgeSourceInput,
   MarketInstallInput,
@@ -77,7 +78,8 @@ import type {
   SkillWithAgentCount,
   WorkspaceFiles,
   WritePersonalMemoryInput,
-} from '@agentport/shared';import { loginPath } from './auth-redirect.js';
+} from '@agentport/shared';
+import { loginPath } from './auth-redirect.js';
 
 export type AgentFiles = WorkspaceFiles;
 
@@ -1536,8 +1538,17 @@ export const api = {
     );
   },
 
-  knowledgeJobs: (baseId: string): Promise<KnowledgePage<KnowledgeJob>> =>
-    request(`/knowledge/jobs?baseId=${encodeURIComponent(baseId)}`),
+  knowledgeJobs: (
+    baseId: string,
+    options: { documentId?: string; cursor?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<KnowledgePage<KnowledgeJob>> => {
+    const params = new URLSearchParams({ baseId });
+    if (options.documentId) params.set('documentId', options.documentId);
+    if (options.cursor) params.set('cursor', options.cursor);
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    return request(`/knowledge/jobs?${params.toString()}`, 'GET', undefined, signal);
+  },
   knowledgeJob: (jobId: string): Promise<KnowledgeJob> => request(`/knowledge/jobs/${jobId}`),
   retryKnowledgeJob: (jobId: string): Promise<{ jobId: string }> =>
     request(`/knowledge/jobs/${jobId}/retry`, 'POST'),
@@ -1621,6 +1632,8 @@ export const api = {
 
   knowledgeModelProfiles: (): Promise<KnowledgeModelProfile[]> =>
     request('/knowledge/model-profiles'),
+  knowledgeModelProfileSelections: (): Promise<KnowledgeModelProfileSelection[]> =>
+    request('/knowledge/model-profiles?view=selection'),
   updateKnowledgeModelProfile: (
     id: string,
     patch: {

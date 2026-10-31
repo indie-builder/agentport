@@ -117,6 +117,17 @@ export const knowledgeBaseSchema = knowledgeBaseInputSchema.extend({
 export type KnowledgeBase = z.infer<typeof knowledgeBaseSchema>;
 export type KnowledgeBaseSettings = z.infer<typeof knowledgeBaseSettingsSchema>;
 
+/** 无管理权限的创建/设置页只需选择项：不含端点、模型与任何密钥线索。 */
+export const knowledgeModelProfileSelectionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.enum(['embedding', 'rerank']),
+  enabled: z.boolean(),
+  supportsImageVectors: z.boolean(),
+});
+
+export type KnowledgeModelProfileSelection = z.infer<typeof knowledgeModelProfileSelectionSchema>;
+
 export const knowledgeSourceTypeSchema = z.enum([
   'upload',
   'url',
@@ -227,6 +238,11 @@ export const knowledgeJobSchema = z.object({
   progress: z.number().int(),
   attempts: z.number().int(),
   error: z.string().nullable(),
+  /** 归属对象；列表左连名字，单任务读取不带名字时为 null。 */
+  documentId: z.string().nullable(),
+  sourceId: z.string().nullable(),
+  documentTitle: z.string().nullable(),
+  sourceName: z.string().nullable(),
   createdAt: z.string(),
   startedAt: z.string().nullable(),
   endedAt: z.string().nullable(),

@@ -842,10 +842,11 @@ export async function getJob(db: Database, id: string): Promise<KnowledgeJobRow 
 
 export interface ListJobsFilter extends PageOptions {
   baseId?: string;
+  documentId?: string;
   status?: KnowledgeJobRow['status'];
 }
 
-/** 列表只需展示字段：payload 与归属外键留给 getJob/worker，避免列表读出整块任务载荷。 */
+/** 列表只需展示字段：payload 与来源 config 留给 getJob/worker，避免读出整块任务载荷。 */
 const jobSummaryColumns = {
   id: knowledgeJobs.id,
   type: knowledgeJobs.type,
@@ -854,20 +855,18 @@ const jobSummaryColumns = {
   progress: knowledgeJobs.progress,
   attempts: knowledgeJobs.attempts,
   error: knowledgeJobs.error,
+  documentId: knowledgeJobs.documentId,
+  sourceId: knowledgeJobs.sourceId,
   createdAt: knowledgeJobs.createdAt,
   startedAt: knowledgeJobs.startedAt,
   endedAt: knowledgeJobs.endedAt,
 };
 
-export type KnowledgeJobSummary = Pick<KnowledgeJobRow, keyof typeof jobSummaryColumns>;
-
-export async function listJobs(
-  db: Database,
-  filter: ListJobsFilter = {},
-): Promise<Page<KnowledgeJobSummary>> {
+export async function listJobs(db: Database, filter: ListJobsFilter = {}) {
   const limit = pageLimit(filter);
   const filters: SQL[] = [];
   if (filter.baseId) filters.push(eq(knowledgeJobs.baseId, filter.baseId));
+  if (filter.documentId) filters.push(eq(knowledgeJobs.documentId, filter.documentId));
   if (filter.status) filters.push(eq(knowledgeJobs.status, filter.status));
   if (filter.cursor) {
     filters.push(sql`(${knowledgeJobs.createdAt}, ${knowledgeJobs.id}) < (
@@ -875,13 +874,21 @@ export async function listJobs(
     )`);
   }
   const rows = await db
-    .select(jobSummaryColumns)
+    .select({
+      ...jobSummaryColumns,
+      documentTitle: knowledgeDocuments.title,
+      sourceName: knowledgeSources.name,
+    })
     .from(knowledgeJobs)
+    .leftJoin(knowledgeDocuments, eq(knowledgeJobs.documentId, knowledgeDocuments.id))
+    .leftJoin(knowledgeSources, eq(knowledgeJobs.sourceId, knowledgeSources.id))
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(desc(knowledgeJobs.createdAt), desc(knowledgeJobs.id))
     .limit(limit + 1);
   return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
 }
+
+export type KnowledgeJobSummary = Awaited<ReturnType<typeof listJobs>>['items'][number];
 
 /** 条件更新认领：BullMQ 重复投递时只有一个 worker 能把 queued 改成 running。 */
 export async function claimJob(db: Database, id: string): Promise<KnowledgeJobRow | null> {

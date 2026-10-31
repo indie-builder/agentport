@@ -19,6 +19,7 @@ import {
   knowledgeChunkKindSchema,
   knowledgeImageChunkMetadataSchema,
   knowledgeJobPayloadSchema,
+  knowledgeModelProfileSelectionSchema,
 } from '@agentport/shared';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -48,6 +49,7 @@ const chunkParams = z.object({ chunkId: z.string().min(1) });
 const versionParams = z.object({ versionId: z.string().min(1) });
 const jobParams = z.object({ jobId: z.string().min(1) });
 const profileParams = z.object({ profileId: z.string().min(1) });
+const profileListQuery = z.object({ view: z.literal('selection').optional() });
 
 const pageQuery = z.object({
   cursor: z.string().optional(),
@@ -168,20 +170,8 @@ const profilePatchSchema = z.object({
 
 const jobQuery = pageQuery.extend({
   baseId: z.string().optional(),
+  documentId: z.string().optional(),
   status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']).optional(),
-});
-
-const jobSchema = z.object({
-  id: z.string(),
-  type: z.enum(['ingest', 'reindex', 'sync', 'wiki_generate', 'cleanup']),
-  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']),
-  step: z.string().nullable(),
-  progress: z.number().int(),
-  attempts: z.number().int(),
-  error: z.string().nullable(),
-  createdAt: z.string(),
-  startedAt: z.string().nullable(),
-  endedAt: z.string().nullable(),
 });
 
 const chunkSchema = z.object({
@@ -233,6 +223,7 @@ const profileSchema = z.object({
 type DocumentRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getDocument>>>;
 type ChunkRow = Awaited<ReturnType<typeof repo.knowledge.listChunkSummaries>>['items'][number];
 type JobRow = Awaited<ReturnType<typeof repo.knowledge.listJobs>>['items'][number];
+type RawJobRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getJob>>>;
 type FolderRow = Awaited<ReturnType<typeof repo.knowledge.listFolders>>['items'][number];
 type TagRow = Awaited<ReturnType<typeof repo.knowledge.listTags>>[number];
 type ProfileRow = Awaited<ReturnType<typeof repo.knowledge.listModelProfiles>>[number];
@@ -290,7 +281,8 @@ function toChunk(row: ChunkRow) {
   };
 }
 
-function toJob(row: JobRow) {
+/** 列表带关联名字；单任务读取不额外查名字，保持 null。 */
+function toJob(row: JobRow | RawJobRow) {
   return {
     id: row.id,
     type: row.type,
@@ -299,6 +291,10 @@ function toJob(row: JobRow) {
     progress: row.progress,
     attempts: row.attempts,
     error: row.error,
+    documentId: row.documentId,
+    sourceId: row.sourceId,
+    documentTitle: 'documentTitle' in row ? row.documentTitle : null,
+    sourceName: 'sourceName' in row ? row.sourceName : null,
     createdAt: row.createdAt.toISOString(),
     startedAt: row.startedAt?.toISOString() ?? null,
     endedAt: row.endedAt?.toISOString() ?? null,
@@ -1122,10 +1118,11 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
     '/api/knowledge/jobs',
     { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { querystring: jobQuery } },
     async (request) => {
-      const { baseId, status, ...rest } = request.query;
+      const { baseId, documentId, status, ...rest } = request.query;
       const page = await repo.knowledge.listJobs(app.db, {
         ...pageOptions(rest),
         ...(baseId === undefined ? {} : { baseId }),
+        ...(documentId === undefined ? {} : { documentId }),
         ...(status === undefined ? {} : { status }),
       });
       return { items: page.items.map(toJob), nextCursor: page.nextCursor };
@@ -1222,12 +1219,41 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   // ---- 模型 profile -------------------------------------------------------
 
+  /**
+   * 同一个 URL 两种形状：管理列表要 manage，选择投影只要 read。
+   * 权限在 preHandler 里按已校验的 view 选择，不能给 read 暴露管理端点。
+   */
   app.get(
     '/api/knowledge/model-profiles',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } }, schema: { response: { 200: z.array(profileSchema) } } },
-    async () => {
+    {
+      config: { access: { kind: 'authenticated' } },
+      schema: {
+        querystring: profileListQuery,
+        response: {
+          200: z.union([
+            z.array(profileSchema),
+            z.array(knowledgeModelProfileSelectionSchema),
+          ]),
+        },
+      },
+      preHandler: async (request, reply) => {
+        const { view } = request.query as { view?: 'selection' | undefined };
+        await app
+          .requirePermission(view === 'selection' ? 'knowledge.read' : 'knowledge.models.manage')
+          .call(app, request, reply, () => undefined);
+      },
+    },
+    async (request) => {
       const rows = await repo.knowledge.listModelProfiles(app.db);
-      return rows.map(toProfile);
+      if (request.query.view !== 'selection') return rows.map(toProfile);
+      // 显式挑 5 个字段：端点、模型、协议、密钥与时间戳都不属于选择投影。
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        kind: row.kind,
+        enabled: row.enabled,
+        supportsImageVectors: row.kind === 'embedding' && supportsImageVectors(row),
+      }));
     },
   );
 

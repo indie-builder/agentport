@@ -6,6 +6,7 @@ import type {
   ApiTool,
   ApiToolInput,
   Attention,
+  AuthMe,
   ChatRequest,
   ConnectorCatalogItem,
   CreateMemoryReviewInput,
@@ -56,7 +57,6 @@ import {
   type AccountPage,
   type AgentAccess,
   type AgentFiles,
-  type AgentMember,
   type AgentMemberList,
   type AgentSummary,
   type AgentVersionDetail,
@@ -85,14 +85,12 @@ import {
   type Overview,
   type OverviewTimeseriesPoint,
   type PermissionCatalog,
-  type Role,
   type RoleMatrix,
   type RoleMatrixInput,
   type RunDetail,
   type RunList,
   type RunQuery,
 } from './api.js';
-import type { AuthMe } from '@agentport/shared';
 import { toastError, toastSuccess } from './toast.js';
 import { useDebouncedValue } from './use-debounced-value.js';
 
@@ -1667,6 +1665,7 @@ export const knowledgeKeys = {
   wikiPages: (baseId: string) => ['knowledge', 'wiki-pages', baseId] as const,
   wikiPage: (pageId: string) => ['knowledge', 'wiki-page', pageId] as const,
   profiles: ['knowledge', 'model-profiles'] as const,
+  profileSelections: ['knowledge', 'model-profiles', 'selection'] as const,
 };
 
 export function useKnowledgeBases(enabled = true) {
@@ -1974,12 +1973,28 @@ export function useKnowledgeSearch(baseId: string, q: string, limit = 10) {
   });
 }
 
-export function useKnowledgeJobs(baseId: string) {
-  return useQuery({
-    queryKey: knowledgeKeys.jobs(baseId),
-    queryFn: () => api.knowledgeJobs(baseId),
-    select: (page) => page.items,
-    refetchInterval: (query) => (knowledgeShouldPoll(query.state.data?.items) ? 2_000 : false),
+/**
+ * 任务按游标翻页；select 仍返回扁平数组，旧的 data?.find 调用不变。
+ * queryKey 保留 knowledgeKeys.jobs(baseId) 前缀，重试/取消/同步的前缀失效覆盖所有过滤。
+ */
+export function useKnowledgeJobs(baseId: string, filters: { documentId?: string } = {}) {
+  return useInfiniteQuery({
+    queryKey: [...knowledgeKeys.jobs(baseId), filters],
+    queryFn: ({ pageParam, signal }) =>
+      api.knowledgeJobs(
+        baseId,
+        {
+          ...(filters.documentId ? { documentId: filters.documentId } : {}),
+          ...(pageParam === null ? {} : { cursor: pageParam }),
+        },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    select: (data) => data.pages.flatMap((page) => page.items),
+    // 轮询只看已加载的页，过时窗口规则不变。
+    refetchInterval: (query) =>
+      knowledgeShouldPoll(query.state.data?.pages.flatMap((page) => page.items)) ? 2_000 : false,
   });
 }
 
@@ -1987,7 +2002,11 @@ export function useRetryKnowledgeJob(baseId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (jobId: string) => api.retryKnowledgeJob(jobId),
-    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+      // 失败文档重试后状态会回到排队，列表轮询要立刻重新接上。
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+    },
   });
 }
 
@@ -2164,6 +2183,15 @@ export function useKnowledgeModelProfiles() {
   return useQuery({
     queryKey: knowledgeKeys.profiles,
     queryFn: () => api.knowledgeModelProfiles(),
+    staleTime: 60_000,
+  });
+}
+
+/** 创建/设置页只需要选择项；这个视图对 knowledge.read 开放，不要求管理权限。 */
+export function useKnowledgeModelProfileSelections() {
+  return useQuery({
+    queryKey: knowledgeKeys.profileSelections,
+    queryFn: () => api.knowledgeModelProfileSelections(),
     staleTime: 60_000,
   });
 }
