@@ -119,10 +119,18 @@ describe.skipIf(!ready)('agents', () => {
     const summary = list
       .json<Array<Record<string, unknown>>>()
       .find((item) => item.id === agent.id);
-    expect(summary).toMatchObject({ id: agent.id, name: 'Role agent', enabled: true });
-    for (const hidden of ['role', 'slug', 'model', 'systemPrompt']) {
-      expect(summary).not.toHaveProperty(hidden);
-    }
+    expect(summary).toMatchObject({
+      id: agent.id,
+      name: 'Role agent',
+      enabled: true,
+      slug,
+      role: '前端工程师',
+      model: 'claude-sonnet-5-5',
+      uiFormat: 'markdown',
+      parentId: null,
+    });
+    expect(new Date(String(summary.createdAt)).toISOString()).toBe(summary.createdAt);
+    expect(summary).not.toHaveProperty('systemPrompt');
 
     const changed = await inject(app, {
       method: 'PATCH',
@@ -323,10 +331,9 @@ describe.skipIf(!ready)('agents', () => {
 
     const list = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(list.statusCode, list.body).toBe(200);
-    // 摘要不包含岗位文本；详情仍保留历史值。
+    // 摘要与详情都带岗位文本；历史值原样保留。
     const summary = list.json<Array<Record<string, unknown>>>().find((item) => item.id === id);
-    expect(summary).toMatchObject({ id, name: 'Legacy role agent' });
-    expect(summary).not.toHaveProperty('role');
+    expect(summary).toMatchObject({ id, name: 'Legacy role agent', role, parentId: null });
 
     const renamed = await inject(app, {
       method: 'PATCH',
@@ -757,6 +764,14 @@ describe.skipIf(!ready)('agents', () => {
     const parentSlug = unique('parent');
     const childSlug = unique('child');
     const child = (await newAgent(childSlug)).json<Agent>();
+    const listSummary = async (): Promise<Array<Record<string, unknown>>> => {
+      const list = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
+      expect(list.statusCode, list.body).toBe(200);
+      return list.json<Array<Record<string, unknown>>>();
+    };
+    expect((await listSummary()).find((entry) => entry.id === child.id)).toMatchObject({
+      parentId: null,
+    });
     const res = await inject(app, {
       method: 'POST',
       url: '/api/agents',
@@ -779,6 +794,12 @@ describe.skipIf(!ready)('agents', () => {
       headers: auth(),
     });
     expect(childGet.json<Agent>().parentId).toBe(parent.id);
+
+    const summaries = await listSummary();
+    expect(summaries.find((entry) => entry.id === parent.id)).toMatchObject({ parentId: null });
+    expect(summaries.find((entry) => entry.id === child.id)).toMatchObject({
+      parentId: parent.id,
+    });
 
     const files = await inject(app, {
       method: 'GET',
