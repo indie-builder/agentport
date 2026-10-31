@@ -1,20 +1,10 @@
 import { evalDatasetSchema } from '@agentport/shared';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import {
-  CircleStop,
-  ClipboardCheck,
-  Download,
-  FlaskConical,
-  GitCompare,
-  Pencil,
-  Play,
-  Plus,
-  Trash2,
-  Upload,
-} from 'lucide-react';
+import { CircleStop, Download, GitCompare, Pencil, Play, Plus, Trash2, Upload } from 'lucide-react';
 import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { z } from 'zod';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
@@ -474,6 +464,7 @@ export function EvalPage() {
           ) : null}
           {agents.isSuccess && !missingAgent && !effectiveAgentId ? (
             <PageNote
+              icon={<BusinessIllustration name="agents" size="compact" />}
               title="还没有专家"
               action={
                 <Link to="/agents" className="text-sm text-fg underline underline-offset-4">
@@ -488,7 +479,7 @@ export function EvalPage() {
           ) : null}
           {effectiveAgentId && cases.isSuccess && cases.data.length === 0 ? (
             <PageNote
-              icon={<FlaskConical className="size-4" aria-hidden="true" />}
+              icon={<BusinessIllustration name="review" size="compact" />}
               title="还没有用例"
               action={
                 canManageEval ? (
@@ -591,7 +582,7 @@ export function EvalPage() {
           {runs.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
           {effectiveAgentId && runs.isSuccess && runItems.length === 0 ? (
             <PageNote
-              icon={<ClipboardCheck className="size-4" aria-hidden="true" />}
+              icon={<BusinessIllustration name="runs" size="compact" />}
               title="还没有评估运行"
               description="点「运行评估」开始。"
             />

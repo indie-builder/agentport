@@ -15,6 +15,7 @@ import {
 } from '../lib/queries.js';
 import { BlobImage } from './blob-image.js';
 import { BlobPdf } from './blob-pdf.js';
+import { BusinessIllustration } from './business-illustration.js';
 import { CodeBlock } from './code-block.js';
 import { Markdown } from './markdown.js';
 import { ReaderToolbar } from './reader-toolbar.js';
@@ -139,13 +140,20 @@ export function ConversationOutputs({
       </div>
       <div className="@container min-h-0 flex-1 overflow-y-auto p-3">
         {conversationId === null ? (
-          <EmptyState title="开始对话或打开已有会话后查看成果" />
+          <EmptyState
+            illustration={<BusinessIllustration name="outputs" size="compact" />}
+            title="开始对话或打开已有会话后查看成果"
+          />
         ) : outputs.isPending ? (
           <LoadingState rows={4} />
         ) : outputs.isError ? (
           <ErrorState error={outputs.error} onRetry={() => void outputs.refetch()} />
         ) : files.length === 0 ? (
-          <EmptyState title="当前会话没有成果文件" description="此处用于查看报告等会话成果。" />
+          <EmptyState
+            illustration={<BusinessIllustration name="outputs" size="compact" />}
+            title="当前会话没有成果文件"
+            description="此处用于查看报告等会话成果。"
+          />
         ) : (
           <div
             className={cn(
