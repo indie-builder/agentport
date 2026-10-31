@@ -151,6 +151,7 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useChatStream } from '../lib/use-chat-stream.js';
+import { useMediaQuery } from '../lib/use-media-query.js';
 import type {
   OpenUiApprovalInput,
   OpenUiStateSaveInput,
@@ -332,17 +333,6 @@ const WORKSPACE = {
 const DESKTOP = '(min-width: 64rem)';
 /** 与 Tailwind 的 xl 断点一致：更窄时右侧工作区改走抽屉，不挤压对话。 */
 const WIDE = '(min-width: 80rem)';
-
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    const onChange = (): void => setMatches(media.matches);
-    media.addEventListener('change', onChange);
-    return () => media.removeEventListener('change', onChange);
-  }, [query]);
-  return matches;
-}
 
 function ChatWorkspace({
   agents,

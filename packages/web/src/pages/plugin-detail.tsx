@@ -32,23 +32,13 @@ import { Button, buttonVariants } from '../components/ui/button.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { ApiError } from '../lib/api.js';
 import { usePlugin } from '../lib/queries.js';
+import { useMediaQuery } from '../lib/use-media-query.js';
 
 type Mode = 'read' | 'source';
 type Tab = 'intro' | 'content';
 
 /** 与 Tailwind 的 lg 断点一致：宽屏分栏，窄屏堆叠。 */
 const WIDE = '(min-width: 64rem)';
-
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    const onChange = (): void => setMatches(media.matches);
-    media.addEventListener('change', onChange);
-    return () => media.removeEventListener('change', onChange);
-  }, [query]);
-  return matches;
-}
 
 function rootReadme(files: PluginFileInput[]): PluginFileInput | undefined {
   return files.find((file) => /^readme\.md$/i.test(file.path));
