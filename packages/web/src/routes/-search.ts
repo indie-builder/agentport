@@ -103,6 +103,8 @@ const knowledgeTabs = ['documents', 'search', 'wiki', 'sources', 'jobs'] as cons
 /** 知识库详情：分区、Wiki 页面与文件夹都进 URL，刷新与分享后回到同一视图。 */
 export const knowledgeDetailSearchSchema = z.object({
   panel: z.enum(knowledgeTabs).optional().catch(undefined),
+  /** 处理记录按文档过滤；API 参数名为 documentId，URL 用面向用户的 document。 */
+  document: z.string().min(1).optional().catch(undefined),
   page: z.string().optional().catch(undefined),
   folder: z.string().optional().catch(undefined),
 });

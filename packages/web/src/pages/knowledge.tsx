@@ -2,6 +2,7 @@ import type { KnowledgeBase } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
+  ChevronRight,
   CirclePause,
   CirclePlay,
   Download,
@@ -21,6 +22,11 @@ import {
   KnowledgeProfilesDialog,
   KnowledgeSettingsDialog,
 } from '../components/knowledge-settings.js';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../components/motion-collapsible.js';
 import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
@@ -64,6 +70,7 @@ import {
 import { Textarea } from '../components/ui/textarea.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
+import { cn } from '../lib/cn.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatRelative } from '../lib/format.js';
 import {
@@ -75,18 +82,22 @@ import {
   useExportKnowledgeBase,
   useImportKnowledgeBase,
   useKnowledgeBases,
-  useKnowledgeModelProfiles,
+  useKnowledgeModelProfileSelections,
   useUpdateKnowledgeBase,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
 const baseFormSchema = z.object({
+  // 留空表示按名称自动生成；显式填写时仍沿用原有格式约束。
   slug: z
     .string()
-    .min(1, '不能为空，请填写后再保存')
+    .trim()
     .max(64, '最多 64 个字符，请精简后再保存')
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _'),
+    .refine(
+      (value) => value === '' || /^[a-z0-9][a-z0-9-_]*$/.test(value),
+      '仅允许小写字母、数字、- 和 _',
+    ),
   name: z.string().trim().min(1, '不能为空，请填写后再保存').max(120, '最多 120 个字符'),
   description: z.string().max(500, '最多 500 个字符'),
   embeddingProfileId: z.string().min(1, '请选择 embedding profile'),
@@ -297,8 +308,15 @@ export function KnowledgePage() {
     documents: number;
     wikiPages: number;
   } | null>(null);
-  const [created, setCreated] = useState<{ id: string; name: string } | null>(null);
+  // 创建成功的弹层卸载、blocker 注销后才导航：同一 tick 内跳转仍会被旧的 dirty/pending 拦下。
+  const [createdBaseId, setCreatedBaseId] = useState<string | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (creating || createdBaseId === null) return;
+    setCreatedBaseId(null);
+    void navigate({ to: '/knowledge/$baseId', params: { baseId: createdBaseId } });
+  }, [creating, createdBaseId, navigate]);
 
   const boundAgents = deleting
     ? (agents.data?.filter((agent) => (agent.serverIds ?? []).includes(deleting.serverId)) ?? [])
@@ -325,7 +343,6 @@ export function KnowledgePage() {
   const onImportFile = (file: File): void => {
     setFailedImport(null);
     setImported(null);
-    setCreated(null);
     importer.mutate(file, {
       onSuccess: (result) => {
         setImported({
@@ -480,26 +497,6 @@ export function KnowledgePage() {
           }
         />
       ) : null}
-      {created ? (
-        <PageNote
-          title={`已创建「${created.name}」`}
-          action={
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link to="/knowledge/$baseId" params={{ baseId: created.id }} />}
-              >
-                打开知识库
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setCreated(null)}>
-                关闭
-              </Button>
-            </div>
-          }
-        />
-      ) : null}
       {initialPending ? <LoadingState rows={4} layout="cards" /> : null}
       {initialError ? (
         <ErrorState error={bases.error} onRetry={() => void bases.refetch()} />
@@ -596,11 +593,13 @@ export function KnowledgePage() {
       ) : null}
       {creating ? (
         <CreateBaseDialog
+          canManageModels={canManageModels}
           finalFocus={() => (createButtonRef.current?.isConnected ? createButtonRef.current : null)}
           onClose={() => setCreating(false)}
           onCreated={(base) => {
             setImported(null);
-            setCreated({ id: base.id, name: base.name });
+            setCreating(false);
+            setCreatedBaseId(base.id);
           }}
         />
       ) : null}
@@ -727,16 +726,18 @@ function RenameBaseDialog({
 }
 
 function CreateBaseDialog({
+  canManageModels,
   onClose,
   finalFocus,
   onCreated,
 }: {
+  canManageModels: boolean;
   onClose: () => void;
   finalFocus: () => HTMLElement | null;
   onCreated: (base: { id: string; name: string }) => void;
 }) {
   const create = useCreateKnowledgeBase();
-  const profiles = useKnowledgeModelProfiles();
+  const profiles = useKnowledgeModelProfileSelections();
   const embedding = (profiles.data ?? []).filter(
     (profile) => profile.kind === 'embedding' && profile.enabled,
   );
@@ -758,11 +759,51 @@ function CreateBaseDialog({
   const errors = form.formState.errors;
   const [profileDirty, setProfileDirty] = useState(false);
   const [profilePending, setProfilePending] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const pending = create.isPending || profilePending;
   const dirty = form.formState.isDirty || profileDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
   // 加载失败时不能把「没拿到」当成「没有 profile」。
   const missingProfiles = profiles.isSuccess && embedding.length === 0;
+  const onlyEmbedding = embedding.length === 1 ? embedding[0] : undefined;
+
+  // 唯一可用时自动选中；已有值（用户选的或先前写入的）一律不覆盖。
+  useEffect(() => {
+    if (!onlyEmbedding || form.getValues('embeddingProfileId') !== '') return;
+    form.setValue('embeddingProfileId', onlyEmbedding.id, { shouldValidate: true });
+  }, [onlyEmbedding, form]);
+
+  // 高级字段挂载在折叠面板里：校验失败先展开，再聚焦到第一个出错字段。
+  useEffect(() => {
+    if (!errors.slug && !errors.embeddingProfileId && !errors.chunkTokens && !errors.chunkOverlap)
+      return;
+    setAdvancedOpen(true);
+  }, [errors.slug, errors.embeddingProfileId, errors.chunkTokens, errors.chunkOverlap]);
+
+  // 没有可用模型时创建按钮不可用，必须把原因和补建入口露出来。
+  useEffect(() => {
+    if (missingProfiles || profiles.isError) setAdvancedOpen(true);
+  }, [missingProfiles, profiles.isError]);
+
+  useEffect(() => {
+    if (!advancedOpen) return;
+    const first = errors.slug
+      ? 'knowledge-slug'
+      : errors.embeddingProfileId
+        ? 'knowledge-embedding'
+        : errors.chunkTokens
+          ? 'knowledge-chunk-tokens'
+          : errors.chunkOverlap
+            ? 'knowledge-chunk-overlap'
+            : null;
+    if (first) document.getElementById(first)?.focus();
+  }, [
+    advancedOpen,
+    errors.slug,
+    errors.embeddingProfileId,
+    errors.chunkTokens,
+    errors.chunkOverlap,
+  ]);
 
   const submit = form.handleSubmit((values) => {
     const chunkTokens = Number(values.chunkTokens);
@@ -775,9 +816,16 @@ function CreateBaseDialog({
       form.setError('chunkOverlap', { message: '需为 0–1000 的整数' });
       return;
     }
+    // 与专家创建同一条规则：显式 slug 优先，否则按名称规范化；纯中文规范化为空时用随机后缀。
+    const generatedSlug = values.name
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^[-_]+|[-_]+$/g, '')
+      .slice(0, 64);
+    const slug = values.slug || generatedSlug || `kb-${crypto.randomUUID().slice(0, 8)}`;
     create.mutate(
       {
-        slug: values.slug,
+        slug,
         name: values.name,
         description: values.description,
         embeddingProfileId: values.embeddingProfileId,
@@ -815,7 +863,7 @@ function CreateBaseDialog({
           className="flex flex-col gap-4"
           noValidate
         >
-          <FieldGroup className="grid gap-3 sm:grid-cols-2">
+          <FieldGroup className="gap-3">
             <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
               <FieldLabel htmlFor="knowledge-name">
                 名称 <RequiredMark />
@@ -830,168 +878,219 @@ function CreateBaseDialog({
               />
               <FieldError id="knowledge-name-error">{errors.name?.message}</FieldError>
             </Field>
-            <Field className="gap-1.5" data-invalid={Boolean(errors.slug)}>
-              <FieldLabel htmlFor="knowledge-slug">
-                Slug <RequiredMark />
-              </FieldLabel>
-              <Input
-                {...form.register('slug')}
-                id="knowledge-slug"
+            <Field className="gap-1.5" data-invalid={Boolean(errors.description)}>
+              <FieldLabel htmlFor="knowledge-description">描述</FieldLabel>
+              <Textarea
+                {...form.register('description')}
+                id="knowledge-description"
                 disabled={pending}
-                aria-required="true"
-                aria-invalid={Boolean(errors.slug)}
-                aria-describedby={errors.slug ? 'knowledge-slug-error' : undefined}
-                className="font-mono"
+                rows={2}
+                aria-invalid={Boolean(errors.description)}
+                aria-describedby={errors.description ? 'knowledge-description-error' : undefined}
               />
-              <FieldError id="knowledge-slug-error">{errors.slug?.message}</FieldError>
-            </Field>
-          </FieldGroup>
-          <Field className="gap-1.5" data-invalid={Boolean(errors.description)}>
-            <FieldLabel htmlFor="knowledge-description">描述</FieldLabel>
-            <Textarea
-              {...form.register('description')}
-              id="knowledge-description"
-              disabled={pending}
-              rows={2}
-              aria-invalid={Boolean(errors.description)}
-              aria-describedby={errors.description ? 'knowledge-description-error' : undefined}
-            />
-            <FieldError id="knowledge-description-error">{errors.description?.message}</FieldError>
-          </Field>
-          {profiles.isError ? (
-            <div className="flex items-center gap-2">
-              <FieldError>模型 profile 没有加载出来</FieldError>
-              <Button variant="link" size="xs" onClick={() => void profiles.refetch()}>
-                重试
-              </Button>
-            </div>
-          ) : null}
-          {missingProfiles ? (
-            <FieldDescription>
-              还没有启用的 embedding profile；先创建一个再回填到上方。
-            </FieldDescription>
-          ) : null}
-          {missingProfiles ? (
-            <NewEmbeddingProfile
-              onCreated={(profile) => {
-                // 列表刷新会先卸载子表单，它再也回报不了 pending/dirty，外层在这里结算。
-                setProfilePending(false);
-                setProfileDirty(false);
-                form.setValue('embeddingProfileId', profile.id, { shouldValidate: true });
-              }}
-              onDirtyChange={setProfileDirty}
-              onPendingChange={setProfilePending}
-            />
-          ) : null}
-          <FieldGroup className="grid gap-3 sm:grid-cols-2">
-            <Field className="gap-1.5" data-invalid={Boolean(errors.embeddingProfileId)}>
-              <FieldLabel htmlFor="knowledge-embedding">
-                Embedding <RequiredMark />
-              </FieldLabel>
-              <Select
-                value={form.watch('embeddingProfileId')}
-                disabled={pending || embedding.length === 0}
-                onValueChange={(next) => {
-                  if (next !== null)
-                    form.setValue('embeddingProfileId', next, {
-                      shouldDirty: true,
-                      shouldValidate: true,
-                    });
-                }}
-                items={embedding.map((profile) => ({ value: profile.id, label: profile.name }))}
-              >
-                <SelectTrigger
-                  id="knowledge-embedding"
-                  className="w-full"
-                  aria-invalid={Boolean(errors.embeddingProfileId)}
-                  aria-describedby={
-                    errors.embeddingProfileId ? 'knowledge-embedding-error' : undefined
-                  }
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {embedding.map((profile) => (
-                      <SelectItem key={profile.id} value={profile.id}>
-                        {profile.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <FieldError id="knowledge-embedding-error">
-                {errors.embeddingProfileId?.message}
-              </FieldError>
-            </Field>
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="knowledge-rerank">重排</FieldLabel>
-              <Select
-                value={form.watch('rerankProfileId')}
-                disabled={pending}
-                onValueChange={(next) => {
-                  if (next !== null) form.setValue('rerankProfileId', next, { shouldDirty: true });
-                }}
-                items={[
-                  { value: 'none', label: '不启用' },
-                  ...rerank.map((profile) => ({ value: profile.id, label: profile.name })),
-                ]}
-              >
-                <SelectTrigger id="knowledge-rerank" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="none">不启用</SelectItem>
-                    {rerank.map((profile) => (
-                      <SelectItem key={profile.id} value={profile.id}>
-                        {profile.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field className="gap-1.5" data-invalid={Boolean(errors.chunkTokens)}>
-              <FieldLabel htmlFor="knowledge-chunk-tokens">分块长度（字符）</FieldLabel>
-              <Input
-                {...form.register('chunkTokens')}
-                id="knowledge-chunk-tokens"
-                inputMode="numeric"
-                disabled={pending}
-                aria-invalid={Boolean(errors.chunkTokens)}
-                aria-describedby={errors.chunkTokens ? 'knowledge-chunk-tokens-error' : undefined}
-              />
-              <FieldError id="knowledge-chunk-tokens-error">
-                {errors.chunkTokens?.message}
-              </FieldError>
-            </Field>
-            <Field className="gap-1.5" data-invalid={Boolean(errors.chunkOverlap)}>
-              <FieldLabel htmlFor="knowledge-chunk-overlap">分块重叠（字符）</FieldLabel>
-              <Input
-                {...form.register('chunkOverlap')}
-                id="knowledge-chunk-overlap"
-                inputMode="numeric"
-                disabled={pending}
-                aria-invalid={Boolean(errors.chunkOverlap)}
-                aria-describedby={errors.chunkOverlap ? 'knowledge-chunk-overlap-error' : undefined}
-              />
-              <FieldError id="knowledge-chunk-overlap-error">
-                {errors.chunkOverlap?.message}
+              <FieldError id="knowledge-description-error">
+                {errors.description?.message}
               </FieldError>
             </Field>
           </FieldGroup>
-          <Field orientation="horizontal" className="items-center gap-2">
-            <Checkbox
-              id="knowledge-wiki-auto"
-              checked={form.watch('wikiAutoUpdate')}
-              disabled={pending}
-              onCheckedChange={(checked) =>
-                form.setValue('wikiAutoUpdate', checked, { shouldDirty: true })
-              }
-            />
-            <FieldLabel htmlFor="knowledge-wiki-auto">文档更新后自动刷新 Wiki</FieldLabel>
-          </Field>
+          <Collapsible
+            open={advancedOpen}
+            onOpenChange={setAdvancedOpen}
+            className="rounded-item border border-line"
+          >
+            <CollapsibleTrigger
+              type="button"
+              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ChevronRight
+                className={cn(
+                  'size-3.5 shrink-0 transition-transform duration-150',
+                  advancedOpen && 'rotate-90',
+                )}
+                aria-hidden="true"
+              />
+              高级设置
+            </CollapsibleTrigger>
+            <CollapsibleContent keepMounted animated>
+              <div className="flex flex-col gap-3 border-t border-line p-3">
+                <Field className="gap-1.5" data-invalid={Boolean(errors.slug)}>
+                  <FieldLabel htmlFor="knowledge-slug">Slug</FieldLabel>
+                  <Input
+                    {...form.register('slug')}
+                    id="knowledge-slug"
+                    disabled={pending}
+                    aria-invalid={Boolean(errors.slug)}
+                    aria-describedby={
+                      errors.slug
+                        ? 'knowledge-slug-hint knowledge-slug-error'
+                        : 'knowledge-slug-hint'
+                    }
+                    className="font-mono"
+                  />
+                  <FieldDescription id="knowledge-slug-hint">留空时按名称生成</FieldDescription>
+                  <FieldError id="knowledge-slug-error">{errors.slug?.message}</FieldError>
+                </Field>
+                {profiles.isError ? (
+                  <div className="flex items-center gap-2">
+                    <FieldError>模型 profile 没有加载出来</FieldError>
+                    <Button variant="link" size="xs" onClick={() => void profiles.refetch()}>
+                      重试
+                    </Button>
+                  </div>
+                ) : null}
+                {missingProfiles ? (
+                  canManageModels ? (
+                    <FieldDescription>
+                      还没有启用的 embedding profile；先创建一个再回填到上方。
+                    </FieldDescription>
+                  ) : (
+                    <FieldDescription>
+                      还没有可用的 embedding
+                      模型。创建知识库前，需要由有「管理模型端点」权限的成员先添加一个。
+                    </FieldDescription>
+                  )
+                ) : null}
+                {missingProfiles && canManageModels ? (
+                  <NewEmbeddingProfile
+                    onCreated={(profile) => {
+                      // 列表刷新会先卸载子表单，它再也回报不了 pending/dirty，外层在这里结算。
+                      setProfilePending(false);
+                      setProfileDirty(false);
+                      form.setValue('embeddingProfileId', profile.id, { shouldValidate: true });
+                    }}
+                    onDirtyChange={setProfileDirty}
+                    onPendingChange={setProfilePending}
+                  />
+                ) : null}
+                {embedding.length > 1 ? (
+                  <Field className="gap-1.5" data-invalid={Boolean(errors.embeddingProfileId)}>
+                    <FieldLabel htmlFor="knowledge-embedding">
+                      Embedding <RequiredMark />
+                    </FieldLabel>
+                    <Select
+                      value={form.watch('embeddingProfileId')}
+                      disabled={pending}
+                      onValueChange={(next) => {
+                        if (next !== null)
+                          form.setValue('embeddingProfileId', next, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
+                      }}
+                      items={embedding.map((profile) => ({
+                        value: profile.id,
+                        label: profile.name,
+                      }))}
+                    >
+                      <SelectTrigger
+                        id="knowledge-embedding"
+                        className="w-full"
+                        aria-invalid={Boolean(errors.embeddingProfileId)}
+                        aria-describedby={
+                          errors.embeddingProfileId ? 'knowledge-embedding-error' : undefined
+                        }
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {embedding.map((profile) => (
+                            <SelectItem key={profile.id} value={profile.id}>
+                              {profile.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FieldError id="knowledge-embedding-error">
+                      {errors.embeddingProfileId?.message}
+                    </FieldError>
+                  </Field>
+                ) : onlyEmbedding ? (
+                  <Field className="gap-1.5">
+                    <span className="text-sm font-medium">Embedding</span>
+                    <div className="flex h-8 items-center rounded-lg border border-line bg-muted px-2.5 text-sm text-muted-foreground">
+                      {onlyEmbedding.name}
+                    </div>
+                  </Field>
+                ) : null}
+                <FieldGroup className="grid gap-3 sm:grid-cols-2">
+                  <Field className="gap-1.5">
+                    <FieldLabel htmlFor="knowledge-rerank">重排</FieldLabel>
+                    <Select
+                      value={form.watch('rerankProfileId')}
+                      disabled={pending}
+                      onValueChange={(next) => {
+                        if (next !== null)
+                          form.setValue('rerankProfileId', next, { shouldDirty: true });
+                      }}
+                      items={[
+                        { value: 'none', label: '不启用' },
+                        ...rerank.map((profile) => ({ value: profile.id, label: profile.name })),
+                      ]}
+                    >
+                      <SelectTrigger id="knowledge-rerank" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="none">不启用</SelectItem>
+                          {rerank.map((profile) => (
+                            <SelectItem key={profile.id} value={profile.id}>
+                              {profile.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field className="gap-1.5" data-invalid={Boolean(errors.chunkTokens)}>
+                    <FieldLabel htmlFor="knowledge-chunk-tokens">分块长度（字符）</FieldLabel>
+                    <Input
+                      {...form.register('chunkTokens')}
+                      id="knowledge-chunk-tokens"
+                      inputMode="numeric"
+                      disabled={pending}
+                      aria-invalid={Boolean(errors.chunkTokens)}
+                      aria-describedby={
+                        errors.chunkTokens ? 'knowledge-chunk-tokens-error' : undefined
+                      }
+                    />
+                    <FieldError id="knowledge-chunk-tokens-error">
+                      {errors.chunkTokens?.message}
+                    </FieldError>
+                  </Field>
+                  <Field className="gap-1.5" data-invalid={Boolean(errors.chunkOverlap)}>
+                    <FieldLabel htmlFor="knowledge-chunk-overlap">分块重叠（字符）</FieldLabel>
+                    <Input
+                      {...form.register('chunkOverlap')}
+                      id="knowledge-chunk-overlap"
+                      inputMode="numeric"
+                      disabled={pending}
+                      aria-invalid={Boolean(errors.chunkOverlap)}
+                      aria-describedby={
+                        errors.chunkOverlap ? 'knowledge-chunk-overlap-error' : undefined
+                      }
+                    />
+                    <FieldError id="knowledge-chunk-overlap-error">
+                      {errors.chunkOverlap?.message}
+                    </FieldError>
+                  </Field>
+                  <Field orientation="horizontal" className="items-center gap-2 sm:col-span-2">
+                    <Checkbox
+                      id="knowledge-wiki-auto"
+                      checked={form.watch('wikiAutoUpdate')}
+                      disabled={pending}
+                      onCheckedChange={(checked) =>
+                        form.setValue('wikiAutoUpdate', checked, { shouldDirty: true })
+                      }
+                    />
+                    <FieldLabel htmlFor="knowledge-wiki-auto">文档更新后自动刷新 Wiki</FieldLabel>
+                  </Field>
+                </FieldGroup>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消

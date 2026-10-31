@@ -409,14 +409,14 @@ knowledge_bases      (id, slug unique, name, description, status, server_id uniq
 knowledge_folders    (id, base_id fk, parent_id fk, name, path)          -- 物化路径 /a/b
 knowledge_tags / knowledge_document_tags                                 -- 文档标签
 knowledge_documents  (id, base_id, folder_id, title,
-                      source_type check in (upload,url,feishu_wiki,feishu_drive,gitlab,feed,manual),
+                      source_type check in (upload,url,feishu_wiki,feishu_drive,gitlab,github,feed,manual),
                       source_id, source_url, mime_type, status, current_version_id, content_hash, metadata)
 knowledge_document_versions (id, document_id, version, blob_sha256, markdown_sha256,
                       source_revision, parse_status, page_map, images, embedding_profile_id)
 knowledge_chunks     (id, base_id, document_id, version_id, folder_id, ordinal, kind, heading,
                       content, search_text, search_vector generated, embedding vector(1024),
                       enabled, edited_by_user, page_from, page_to)
-knowledge_sources    (id, base_id, type check in (feishu_wiki,feishu_drive,gitlab,feed),
+knowledge_sources    (id, base_id, type check in (feishu_wiki,feishu_drive,gitlab,github,feed),
                       name, config, secrets_encrypted, status, sync_cron, cursor)
 knowledge_source_ranges (id, source_id, kind, external_id, ref, paths, enabled)
 knowledge_sync_runs  (id, source_id, status, cursor_before, cursor_after, stats)

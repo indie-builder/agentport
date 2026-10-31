@@ -22,7 +22,7 @@ test('multimodal hit renders the authenticated blob image and its quote', {
   await expect(screen.getByRole('heading', { level: 1, name: SEEDED_BASE_NAME })).toBeVisible();
   await expect(screen.getByRole('heading', { level: 1 })).toHaveCount(1);
 
-  await screen.getByRole('tab', '检索', { exact: true }).tap();
+  await screen.getByRole('tab', '检索测试', { exact: true }).tap();
   await screen.getByRole('searchbox', '检索知识库').fill(SEARCH_TERM);
   await screen.getByRole('button', '检索', { exact: true }).tap();
   // 同一张图会有 OCR 与描述两条命中，取第一条带引用的即可。

@@ -1,10 +1,11 @@
 import type {
+  KnowledgeBase,
   KnowledgeDocument,
   KnowledgeJob,
   KnowledgeSearchHit,
   KnowledgeSourceInput,
 } from '@agentport/shared';
-import { type Query, useQueries, useQueryClient } from '@tanstack/react-query';
+import { type Query, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
@@ -34,6 +35,7 @@ import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { KnowledgeImage, stripImageReferences } from '../components/knowledge-citations.js';
+import { KnowledgeSettingsDialog } from '../components/knowledge-settings.js';
 import { Markdown } from '../components/markdown.js';
 import { Collapsible, CollapsibleContent } from '../components/motion-collapsible.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
@@ -61,6 +63,7 @@ import {
   FieldLabel,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover.js';
 import {
   Select,
   SelectContent,
@@ -80,6 +83,7 @@ import {
 } from '../components/ui/table.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { can } from '../lib/access.js';
 import {
   ApiError,
   api,
@@ -96,8 +100,12 @@ import { useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
 import { knowledgeJobErrorText } from '../lib/knowledge-errors.js';
 import {
+  agentAccessQuery,
+  agentDetailQuery,
+  agentsQuery,
   knowledgeKeys,
   knowledgeShouldPoll,
+  meQuery,
   useCancelKnowledgeJob,
   useCreateKnowledgeFolder,
   useCreateKnowledgeManualDocument,
@@ -143,13 +151,22 @@ import { useDebouncedValue } from '../lib/use-debounced-value.js';
 
 const tabs = [
   { id: 'documents', label: '文档' },
-  { id: 'search', label: '检索' },
-  { id: 'wiki', label: 'Wiki' },
   { id: 'sources', label: '来源' },
-  { id: 'jobs', label: '任务' },
+  { id: 'search', label: '检索测试' },
+  { id: 'wiki', label: 'Wiki' },
+  { id: 'jobs', label: '处理记录' },
 ] as const;
 
 type TabId = (typeof tabs)[number]['id'];
+
+/** 按叶权限控制每个主操作、行菜单与子编辑器；展示与否只由这里决定。 */
+type KnowledgeCaps = {
+  content: boolean;
+  sources: boolean;
+  execute: boolean;
+  publish: boolean;
+  update: boolean;
+};
 
 const documentStatusLabel = {
   pending: '排队',
@@ -317,10 +334,29 @@ export function KnowledgeDetailPage() {
   const search = useSearch({ from: '/_shell/knowledge/$baseId' });
   const navigate = useNavigate();
   const base = useKnowledgeBase(baseId);
+  const me = useQuery(meQuery);
   const tab: TabId = search.panel ?? 'documents';
+  const caps: KnowledgeCaps = {
+    content: can(me.data, 'knowledge.content.manage'),
+    sources: can(me.data, 'knowledge.sources.manage'),
+    execute: can(me.data, 'knowledge.execute'),
+    publish: can(me.data, 'knowledge.publish'),
+    update: can(me.data, 'knowledge.update'),
+  };
+  const canReadAgents = can(me.data, 'agents.read');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTrigger, setSettingsTrigger] = useState<HTMLElement | null>(null);
+  const [expertsOpen, setExpertsOpen] = useState(false);
 
+  // folder / page / document 同属当前视图；离开处理记录时清掉文档过滤，避免下次进入残留。
   const go = (patch: Record<string, string | undefined>, replace = false): void => {
-    const next = { folder: search.folder, page: search.page, panel: search.panel, ...patch };
+    const next = {
+      folder: search.folder,
+      page: search.page,
+      panel: search.panel,
+      document: search.document,
+      ...patch,
+    };
     void navigate({
       to: '/knowledge/$baseId',
       params: { baseId },
@@ -331,18 +367,53 @@ export function KnowledgeDetailPage() {
 
   return (
     <Page>
-      <div className="flex min-w-0 items-end gap-3">
-        <Button
-          variant="outline"
-          size="icon"
-          nativeButton={false}
-          render={<Link to="/knowledge" />}
-          aria-label="返回知识库列表"
-        >
-          <ArrowLeft />
-        </Button>
-        <PageHeader title={base.data?.name ?? '知识库'} className="min-w-0 flex-1" />
-      </div>
+      <PageHeader
+        title={base.data?.name ?? '知识库'}
+        leading={
+          <Button
+            variant="outline"
+            size="icon"
+            nativeButton={false}
+            render={<Link to="/knowledge" />}
+            aria-label="返回知识库列表"
+          >
+            <ArrowLeft />
+          </Button>
+        }
+        eyebrow={
+          base.data ? (
+            <StatusBadge tone={base.data.status === 'active' ? 'success' : 'outline'}>
+              {base.data.status === 'active' ? '启用' : '已停用'}
+            </StatusBadge>
+          ) : undefined
+        }
+        actions={
+          <>
+            {base.data && canReadAgents ? (
+              <Popover open={expertsOpen} onOpenChange={setExpertsOpen}>
+                <PopoverTrigger render={<Button variant="outline" />}>
+                  使用此库的专家
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80" aria-label="使用此库的专家">
+                  <ExpertUsage base={base.data} enabled={expertsOpen} />
+                </PopoverContent>
+              </Popover>
+            ) : null}
+            {base.data && caps.update ? (
+              <Button
+                variant="outline"
+                onClick={(event) => {
+                  setSettingsTrigger(event.currentTarget);
+                  setSettingsOpen(true);
+                }}
+              >
+                设置
+              </Button>
+            ) : null}
+          </>
+        }
+        className="min-w-0"
+      />
       {base.isPending ? <LoadingState rows={2} /> : null}
       {base.isError && base.data === undefined ? (
         <ErrorState error={base.error} onRetry={() => void base.refetch()} />
@@ -358,10 +429,18 @@ export function KnowledgeDetailPage() {
           ) : null}
           <Tabs
             value={tab}
-            onValueChange={(next) => go({ panel: next === 'documents' ? undefined : next }, true)}
+            onValueChange={(next) =>
+              go(
+                {
+                  panel: next === 'documents' ? undefined : next,
+                  ...(next === 'jobs' ? {} : { document: undefined }),
+                },
+                true,
+              )
+            }
             className="flex-col gap-5"
           >
-            <TabsList variant="line" aria-label="知识库任务" className="gap-4 border-b pb-3">
+            <TabsList variant="line" aria-label="知识库分区" className="gap-4 border-b pb-3">
               {tabs.map((item) => (
                 <TabsTrigger key={item.id} value={item.id}>
                   {item.label}
@@ -371,26 +450,145 @@ export function KnowledgeDetailPage() {
             <TabsContent value="documents">
               <DocumentsTab
                 baseId={baseId}
+                caps={caps}
                 folderId={search.folder}
                 onFolderChange={(folderId) => go({ folder: folderId }, true)}
+                onViewJobs={(documentId) => go({ panel: 'jobs', document: documentId })}
               />
             </TabsContent>
             <TabsContent value="search">
-              <SearchTab baseId={baseId} />
+              <SearchTab baseId={baseId} canExecute={caps.execute} />
             </TabsContent>
             <TabsContent value="wiki">
-              <WikiTab baseId={baseId} pageId={search.page} onSelect={(page) => go({ page })} />
+              <WikiTab
+                baseId={baseId}
+                caps={caps}
+                pageId={search.page}
+                onSelect={(page) => go({ page })}
+              />
             </TabsContent>
             <TabsContent value="sources">
-              <SourcesTab baseId={baseId} />
+              <SourcesTab baseId={baseId} caps={caps} />
             </TabsContent>
             <TabsContent value="jobs">
-              <JobsTab baseId={baseId} />
+              <JobsTab
+                baseId={baseId}
+                canExecute={caps.execute}
+                canUpload={caps.content}
+                documentId={search.document}
+                onClearDocument={() => go({ document: undefined }, true)}
+                onGoDocuments={() => go({ panel: undefined, document: undefined })}
+              />
             </TabsContent>
           </Tabs>
         </>
       ) : null}
+      {base.data && settingsOpen ? (
+        <KnowledgeSettingsDialog
+          base={base.data}
+          finalFocus={() => (settingsTrigger?.isConnected ? settingsTrigger : null)}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
     </Page>
+  );
+}
+
+/**
+ * 关系只在弹层打开时查询。/api/agents 摘要没有绑定信息，必须逐个读 access，
+ * 再只为拥有 agents.config.read 的专家取详情；读不到的专家标为无法确认，不当作未使用。
+ */
+function ExpertUsage({ base, enabled }: { base: KnowledgeBase; enabled: boolean }) {
+  const agents = useQuery({ ...agentsQuery, enabled });
+  const agentIds = agents.data?.map((agent) => agent.id) ?? [];
+  const accessQueries = useQueries({
+    queries: agentIds.map((id) => ({ ...agentAccessQuery(id), enabled })),
+  });
+  const readableIds = agentIds.filter((_id, index) =>
+    accessQueries[index]?.data?.permissionIds.includes('agents.config.read'),
+  );
+  const detailQueries = useQueries({
+    queries: readableIds.map((id) => ({ ...agentDetailQuery(id), enabled })),
+  });
+  const detailById = new Map(readableIds.map((id, index) => [id, detailQueries[index]]));
+  const pending =
+    agents.isPending ||
+    accessQueries.some((query) => query.isPending) ||
+    detailQueries.some((query) => query.isPending);
+  const failed = [
+    ...accessQueries.filter((query) => query.isError),
+    ...detailQueries.filter((query) => query.isError),
+  ];
+  const used: Array<{ id: string; name: string }> = [];
+  let unknown = failed.length;
+  (agents.data ?? []).forEach((agent, index) => {
+    const access = accessQueries[index];
+    if (access?.isError) return;
+    if (!access?.data?.permissionIds.includes('agents.config.read')) {
+      unknown += access?.isSuccess ? 1 : 0;
+      return;
+    }
+    const detail = detailById.get(agent.id);
+    if (detail?.isError) return;
+    if (!detail?.data) return;
+    if ((detail.data.serverIds ?? []).includes(base.serverId)) {
+      used.push({ id: agent.id, name: agent.name });
+    }
+  });
+
+  const retry = (): void => {
+    for (const query of [...accessQueries, ...detailQueries]) {
+      if (query.isError) void query.refetch();
+    }
+  };
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <span className="text-sm font-medium text-fg">使用此库的专家</span>
+      {agents.isPending || (pending && used.length === 0) ? <LoadingState rows={2} /> : null}
+      {agents.isError ? (
+        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+      ) : null}
+      {failed.length > 0 ? (
+        <Button variant="link" size="xs" className="self-start" onClick={retry}>
+          部分关系没有加载出来，重试
+        </Button>
+      ) : null}
+      {used.length > 0 ? (
+        <ul className="flex flex-col gap-1">
+          {used.map((agent) => (
+            <li key={agent.id} className="flex min-w-0 items-center justify-between gap-2">
+              <Link
+                to="/agents/$agentId"
+                params={{ agentId: agent.id }}
+                search={{ tab: 'config', section: 'capability' }}
+                className="min-w-0 truncate text-sm text-fg underline underline-offset-2"
+              >
+                {agent.name}
+              </Link>
+              <span className="shrink-0 text-2xs text-muted-foreground">配置 · 能力</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {used.length > 0 ? (
+        <Link to="/agents" className="self-start text-xs text-fg underline underline-offset-2">
+          选择其他专家
+        </Link>
+      ) : null}
+      {agents.isSuccess && used.length === 0 && unknown === 0 && !pending ? (
+        <div className="flex flex-col gap-1">
+          <InlineEmpty>没有被任何专家使用</InlineEmpty>
+          <span className="text-xs text-muted-foreground">在专家的能力配置中绑定此知识库。</span>
+          <Link to="/agents" className="self-start text-xs text-fg underline underline-offset-2">
+            选择专家
+          </Link>
+        </div>
+      ) : null}
+      {unknown > 0 ? (
+        <span className="text-xs text-muted-foreground">部分专家的使用关系无法确认</span>
+      ) : null}
+    </div>
   );
 }
 
@@ -398,12 +596,16 @@ export function KnowledgeDetailPage() {
 
 function DocumentsTab({
   baseId,
+  caps,
   folderId,
   onFolderChange,
+  onViewJobs,
 }: {
   baseId: string;
+  caps: KnowledgeCaps;
   folderId: string | undefined;
   onFolderChange: (folderId: string | undefined) => void;
+  onViewJobs: (documentId: string) => void;
 }) {
   const [query, setQuery] = useState('');
   // 每个字符都换无限查询键会把列表打爆：输入即时回显，停 300ms 再订阅。
@@ -529,7 +731,7 @@ function DocumentsTab({
       <div className="flex min-w-0 flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-medium text-fg">文件夹</h2>
-          <div className="flex items-center gap-0.5">
+          {caps.content ? (
             <Button
               variant="ghost"
               size="icon-sm"
@@ -539,16 +741,7 @@ function DocumentsTab({
             >
               <Plus />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="管理标签"
-              title="管理标签"
-              onClick={() => setManagingTags(true)}
-            >
-              <Tags />
-            </Button>
-          </div>
+          ) : null}
         </div>
         {folders.isPending ? <LoadingState rows={3} /> : null}
         {folders.isError ? (
@@ -584,7 +777,7 @@ function DocumentsTab({
                   )}
                   <span className="truncate">{folder.label}</span>
                 </button>
-                {entry ? (
+                {entry && caps.content ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       render={
@@ -656,6 +849,14 @@ function DocumentsTab({
                 标签没有加载出来，重试
               </Button>
             ) : null}
+            {caps.content ? (
+              <Button variant="ghost" size="sm" onClick={() => setManagingTags(true)}>
+                <Tags data-icon="inline-start" aria-hidden="true" /> 管理标签
+              </Button>
+            ) : null}
+            <span role="status" className="text-xs text-muted-foreground">
+              {documents.isPending ? '加载中…' : `已加载 ${documentItems.length} 个文档`}
+            </span>
           </div>
           <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
             <SearchInput
@@ -665,65 +866,69 @@ function DocumentsTab({
               onChange={setQuery}
               className="min-w-40 flex-1 sm:w-56 sm:flex-none"
             />
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button variant="outline" disabled={uploading !== null}>
-                    导入
-                    <ChevronDown data-icon="inline-end" aria-hidden="true" />
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="end" sideOffset={4} className="w-44">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onClick={() => folderInput.current?.click()}>
-                    <FolderOpen /> 上传文件夹
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setManualOpen(true)}>
-                    <FileText /> 手写文档
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setUrlOpen(true)}>
-                    <Search /> 导入网址
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button
-              disabled={uploading !== null}
-              aria-busy={uploading !== null}
-              onClick={() => uploadInput.current?.click()}
-            >
-              <Upload data-icon="inline-start" aria-hidden="true" />
-              {uploading ? `上传中 ${uploading.done}/${uploading.total}` : '上传文件'}
-            </Button>
-            <input
-              ref={uploadInput}
-              type="file"
-              multiple
-              className="hidden"
-              aria-label="选择要上传的文件"
-              onChange={(event) => {
-                const files = [...(event.target.files ?? [])];
-                event.target.value = '';
-                void onFiles(files);
-              }}
-            />
-            <input
-              ref={folderInput}
-              type="file"
-              multiple
-              // React 的类型里还没有这个非标准属性；浏览器原生支持目录选择。
-              {...({ webkitdirectory: '' } as Record<string, string>)}
-              // 后端只有一个 folderId，不会按相对路径自动建目录树；
-              // 这里把相对路径作为文件名保留，便于在列表里看出原目录。
-              className="hidden"
-              aria-label="选择要上传的文件夹"
-              onChange={(event) => {
-                const files = [...(event.target.files ?? [])];
-                event.target.value = '';
-                void onFiles(files);
-              }}
-            />
+            {caps.content ? (
+              <>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button variant="outline" disabled={uploading !== null}>
+                        导入
+                        <ChevronDown data-icon="inline-end" aria-hidden="true" />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem onClick={() => folderInput.current?.click()}>
+                        <FolderOpen /> 上传文件夹
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setManualOpen(true)}>
+                        <FileText /> 手写文档
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setUrlOpen(true)}>
+                        <Search /> 导入网址
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button
+                  disabled={uploading !== null}
+                  aria-busy={uploading !== null}
+                  onClick={() => uploadInput.current?.click()}
+                >
+                  <Upload data-icon="inline-start" aria-hidden="true" />
+                  {uploading ? `上传中 ${uploading.done}/${uploading.total}` : '上传文件'}
+                </Button>
+                <input
+                  ref={uploadInput}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  aria-label="选择要上传的文件"
+                  onChange={(event) => {
+                    const files = [...(event.target.files ?? [])];
+                    event.target.value = '';
+                    void onFiles(files);
+                  }}
+                />
+                <input
+                  ref={folderInput}
+                  type="file"
+                  multiple
+                  // React 的类型里还没有这个非标准属性；浏览器原生支持目录选择。
+                  {...({ webkitdirectory: '' } as Record<string, string>)}
+                  // 后端只有一个 folderId，不会按相对路径自动建目录树；
+                  // 这里把相对路径作为文件名保留，便于在列表里看出原目录。
+                  className="hidden"
+                  aria-label="选择要上传的文件夹"
+                  onChange={(event) => {
+                    const files = [...(event.target.files ?? [])];
+                    event.target.value = '';
+                    void onFiles(files);
+                  }}
+                />
+              </>
+            ) : null}
           </div>
         </PageToolbar>
 
@@ -752,11 +957,11 @@ function DocumentsTab({
                 <Button variant="outline" size="sm" onClick={clearFilters}>
                   清除筛选
                 </Button>
-              ) : (
+              ) : caps.content ? (
                 <Button variant="outline" size="sm" onClick={() => uploadInput.current?.click()}>
                   <Upload data-icon="inline-start" aria-hidden="true" /> 上传文件
                 </Button>
-              )
+              ) : undefined
             }
           />
         ) : null}
@@ -805,36 +1010,51 @@ function DocumentsTab({
                     {formatRelative(document.updatedAt)}
                   </TableCell>
                   <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`操作 ${document.title}`}
-                            onClick={(event) => setActionTrigger(event.currentTarget)}
-                          >
-                            <MoreHorizontal />
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem onClick={() => setEditing(document)}>
-                            <FolderOpen /> 移动 / 标注
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setConfirmReprocess(document)}>
-                            <RefreshCw /> 重新解析
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={() => setDeleting(document)}
-                          >
-                            <Trash2 /> 删除
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {caps.content ||
+                    (caps.execute && document.currentVersionId !== null) ||
+                    (document.status === 'failed' && document.currentVersionId === null) ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`操作 ${document.title}`}
+                              onClick={(event) => setActionTrigger(event.currentTarget)}
+                            >
+                              <MoreHorizontal />
+                            </Button>
+                          }
+                        />
+                        <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                          <DropdownMenuGroup>
+                            {caps.content ? (
+                              <DropdownMenuItem onClick={() => setEditing(document)}>
+                                <FolderOpen /> 移动 / 标注
+                              </DropdownMenuItem>
+                            ) : null}
+                            {caps.execute && document.currentVersionId !== null ? (
+                              <DropdownMenuItem onClick={() => setConfirmReprocess(document)}>
+                                <RefreshCw /> 重新解析
+                              </DropdownMenuItem>
+                            ) : null}
+                            {document.status === 'failed' && document.currentVersionId === null ? (
+                              <DropdownMenuItem onClick={() => onViewJobs(document.id)}>
+                                <FileText /> 查看处理记录
+                              </DropdownMenuItem>
+                            ) : null}
+                            {caps.content ? (
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onClick={() => setDeleting(document)}
+                              >
+                                <Trash2 /> 删除
+                              </DropdownMenuItem>
+                            ) : null}
+                          </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ))}
@@ -902,6 +1122,7 @@ function DocumentsTab({
           <DocumentViewer
             document={viewingDocument}
             documents={viewerDocuments}
+            canManage={caps.content}
             onSelect={(document) => setViewing({ id: document.id, snapshot: document })}
             onClose={() => setViewing(null)}
             onEdit={() => {
@@ -1413,12 +1634,14 @@ function VersionImage({ versionId, image }: { versionId: string; image: Knowledg
 function DocumentViewer({
   document,
   documents,
+  canManage,
   onSelect,
   onClose,
   onEdit,
 }: {
   document: KnowledgeDocument;
   documents: KnowledgeDocument[];
+  canManage: boolean;
   onSelect: (document: KnowledgeDocument) => void;
   onClose: () => void;
   onEdit: () => void;
@@ -1529,9 +1752,11 @@ function DocumentViewer({
                         }
                       : {})}
                     actions={
-                      <Button variant="outline" size="sm" onClick={onEdit}>
-                        编辑属性
-                      </Button>
+                      canManage ? (
+                        <Button variant="outline" size="sm" onClick={onEdit}>
+                          编辑属性
+                        </Button>
+                      ) : undefined
                     }
                   />
                 </div>
@@ -1630,43 +1855,45 @@ function DocumentViewer({
                             {chunk.content}
                           </p>
                         </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            aria-label={`${chunk.enabled ? '停用' : '启用'}分块 ${index + 1}`}
-                            disabled={toggle.isPending}
-                            onClick={() =>
-                              toggle.mutate(
-                                { chunkId: chunk.id, patch: { enabled: !chunk.enabled } },
-                                {
-                                  onSuccess: () =>
-                                    toastSuccess(chunk.enabled ? '分块已停用' : '分块已启用'),
-                                  onError: toastError,
-                                },
-                              )
-                            }
-                          >
-                            {chunk.enabled ? '停用' : '启用'}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`编辑分块 ${index + 1}`}
-                            onClick={() => setEditing(chunk)}
-                          >
-                            <Pencil />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`删除分块 ${index + 1}`}
-                            disabled={remove.isPending}
-                            onClick={() => setDeleting(chunk)}
-                          >
-                            <Trash2 />
-                          </Button>
-                        </div>
+                        {canManage ? (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`${chunk.enabled ? '停用' : '启用'}分块 ${index + 1}`}
+                              disabled={toggle.isPending}
+                              onClick={() =>
+                                toggle.mutate(
+                                  { chunkId: chunk.id, patch: { enabled: !chunk.enabled } },
+                                  {
+                                    onSuccess: () =>
+                                      toastSuccess(chunk.enabled ? '分块已停用' : '分块已启用'),
+                                    onError: toastError,
+                                  },
+                                )
+                              }
+                            >
+                              {chunk.enabled ? '停用' : '启用'}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`编辑分块 ${index + 1}`}
+                              onClick={() => setEditing(chunk)}
+                            >
+                              <Pencil />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`删除分块 ${index + 1}`}
+                              disabled={remove.isPending}
+                              onClick={() => setDeleting(chunk)}
+                            >
+                              <Trash2 />
+                            </Button>
+                          </div>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -2243,11 +2470,20 @@ function UrlImportDialog({
 
 // ---- 检索 -----------------------------------------------------------------
 
-function SearchTab({ baseId }: { baseId: string }) {
+function SearchTab({ baseId, canExecute }: { baseId: string; canExecute: boolean }) {
   const [draft, setDraft] = useState('');
   const [term, setTerm] = useState('');
   const [cited, setCited] = useState<KnowledgeSearchHit | null>(null);
-  const results = useKnowledgeSearch(baseId, term);
+  const results = useKnowledgeSearch(baseId, canExecute ? term : '');
+
+  if (!canExecute) {
+    return (
+      <PageNote
+        title="没有检索权限"
+        description="可以查看知识库内容，但检索与处理需要「执行检索与处理」权限。"
+      />
+    );
+  }
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -2357,10 +2593,12 @@ function useDrainPages(query: {
 
 function WikiTab({
   baseId,
+  caps,
   pageId,
   onSelect,
 }: {
   baseId: string;
+  caps: KnowledgeCaps;
   pageId: string | undefined;
   onSelect: (pageId: string) => void;
 }) {
@@ -2380,14 +2618,16 @@ function WikiTab({
       <div className="flex min-w-0 flex-col gap-2">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-fg">页面</h2>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="新建 Wiki 页面"
-            onClick={() => setCreating(true)}
-          >
-            <Plus />
-          </Button>
+          {caps.content ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="新建 Wiki 页面"
+              onClick={() => setCreating(true)}
+            >
+              <Plus />
+            </Button>
+          ) : null}
         </div>
         {pages.isPending ? <LoadingState rows={3} /> : null}
         {pages.isError ? (
@@ -2424,15 +2664,17 @@ function WikiTab({
       </div>
       <div className="flex min-w-0 flex-col gap-4">
         {pageId ? (
-          <WikiPageEditor key={pageId} baseId={baseId} pageId={pageId} />
+          <WikiPageEditor key={pageId} baseId={baseId} caps={caps} pageId={pageId} />
         ) : (
           <EmptyState
             icon={<BookOpen className="size-5" />}
             title="选择一个页面开始编辑"
             action={
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                新建页面
-              </Button>
+              caps.content ? (
+                <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                  新建页面
+                </Button>
+              ) : undefined
             }
           />
         )}
@@ -2451,7 +2693,15 @@ function WikiTab({
   );
 }
 
-function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) {
+function WikiPageEditor({
+  baseId,
+  caps,
+  pageId,
+}: {
+  baseId: string;
+  caps: KnowledgeCaps;
+  pageId: string;
+}) {
   const detail = useKnowledgeWikiPage(pageId);
   const generate = useGenerateKnowledgeWikiPage();
   const rollback = useRollbackKnowledgeWikiPage(baseId);
@@ -2466,13 +2716,19 @@ function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) 
   const [rollbackTarget, setRollbackTarget] = useState<string | null>(null);
   const [publishTarget, setPublishTarget] = useState<KnowledgeWikiVersion | null>(null);
   const [previewing, setPreviewing] = useState<KnowledgeWikiVersion | null>(null);
-  const [editing, setEditing] = useState<KnowledgeWikiVersion | null>(null);
+  const [editing, setEditing] = useState<{
+    versionId: string | null;
+    markdown: string;
+  } | null>(null);
   const [olderVersions, setOlderVersions] = useState<KnowledgeWikiVersion[]>([]);
   const [olderCursor, setOlderCursor] = useState<string | null | undefined>(undefined);
   const pending = generate.isPending || rollback.isPending || publish.isPending;
   const page = detail.data;
   const versions = [...(page?.versions ?? []), ...olderVersions];
-  const current = versions.find((version) => version.id === page?.currentVersionId);
+  const currentVersionId = page?.currentVersionId ?? null;
+  const current = versions.find((version) => version.id === currentVersionId);
+  // 有 currentVersionId 但版本不在已加载分页里：不能把空正文当成首次发布。
+  const currentLoaded = currentVersionId === null || current !== undefined;
   // 首屏游标只在还没请求过更早版本时用；之后由 olderVersions 自己的游标接管。
   const nextCursor = olderCursor === undefined ? page?.nextCursor : olderCursor;
   // 只跟本次提交返回的任务，其他页面的生成任务不会显示在这里。
@@ -2539,35 +2795,47 @@ function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) 
         {...(current ? { copy: { value: current.markdown, label: `复制 ${page.title}` } } : {})}
         actions={
           <>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={pending || current === undefined}
-              onClick={() => setEditing(current ?? null)}
-            >
-              编辑正文
-            </Button>
-            <Button
-              size="sm"
-              disabled={pending}
-              aria-busy={generate.isPending}
-              onClick={() =>
-                generate.mutate(
-                  { pageId, ...(instruction.trim() ? { instruction: instruction.trim() } : {}) },
-                  {
-                    onSuccess: (result) => {
-                      setGenerateJobId(result.jobId);
-                      // Pick up the new job once so its polling starts; terminal handling comes from the job status.
-                      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
-                      toastSuccess('已提交生成任务');
+            {caps.publish ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending || !currentLoaded}
+                title={currentLoaded ? undefined : '当前发布版本还没有加载出来'}
+                onClick={() => {
+                  if (!currentLoaded) return;
+                  setEditing(
+                    current
+                      ? { versionId: current.id, markdown: current.markdown }
+                      : { versionId: null, markdown: '' },
+                  );
+                }}
+              >
+                编辑正文
+              </Button>
+            ) : null}
+            {caps.execute ? (
+              <Button
+                size="sm"
+                disabled={pending}
+                aria-busy={generate.isPending}
+                onClick={() =>
+                  generate.mutate(
+                    { pageId, ...(instruction.trim() ? { instruction: instruction.trim() } : {}) },
+                    {
+                      onSuccess: (result) => {
+                        setGenerateJobId(result.jobId);
+                        // Pick up the new job once so its polling starts; terminal handling comes from the job status.
+                        void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+                        toastSuccess('已提交生成任务');
+                      },
+                      onError: toastError,
                     },
-                    onError: toastError,
-                  },
-                )
-              }
-            >
-              重新生成
-            </Button>
+                  )
+                }
+              >
+                {page.currentVersionId === null ? '生成草稿' : '重新生成'}
+              </Button>
+            ) : null}
           </>
         }
       />
@@ -2593,6 +2861,8 @@ function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) 
         ) : (
           <CodeBlock code={current.markdown} lineNumbers maxHeight="60vh" copyable={false} />
         )
+      ) : currentVersionId !== null ? (
+        <InlineEmpty>当前发布版本还没有加载出来；加载更早版本后显示。</InlineEmpty>
       ) : (
         <InlineEmpty>还没有正文</InlineEmpty>
       )}
@@ -2616,22 +2886,26 @@ function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) 
                   <Button variant="ghost" size="sm" onClick={() => setPreviewing(version)}>
                     预览
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => setPublishTarget(version)}
-                  >
-                    发布此版本
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => setRollbackTarget(version.id)}
-                  >
-                    回退到此版本
-                  </Button>
+                  {caps.publish ? (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={pending}
+                        onClick={() => setPublishTarget(version)}
+                      >
+                        发布此版本
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={pending}
+                        onClick={() => setRollbackTarget(version.id)}
+                      >
+                        回退到此版本
+                      </Button>
+                    </>
+                  ) : null}
                 </div>
               )}
             </li>
@@ -2706,7 +2980,7 @@ function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) 
         <WikiMarkdownDialog
           baseId={baseId}
           pageId={pageId}
-          versionId={editing.id}
+          versionId={editing.versionId}
           markdown={editing.markdown}
           onClose={() => setEditing(null)}
           onReload={async () => {
@@ -2730,8 +3004,8 @@ function WikiMarkdownDialog({
 }: {
   baseId: string;
   pageId: string;
-  /** 打开编辑器时锁定的 currentVersionId：保存期间不受后台刷新影响。 */
-  versionId: string;
+  /** 打开编辑器时锁定的 currentVersionId；空白页为 null，表示首次发布。 */
+  versionId: string | null;
   markdown: string;
   onClose: () => void;
   onReload: () => Promise<void>;
@@ -2805,7 +3079,9 @@ function WikiMarkdownDialog({
               </Button>
               <Button
                 type="submit"
-                disabled={pending || value.trim() === '' || value === markdown}
+                disabled={
+                  pending || value.trim() === '' || (versionId !== null && value === markdown)
+                }
                 aria-busy={pending}
               >
                 {pending ? '保存中…' : '保存'}
@@ -2926,7 +3202,7 @@ function CreateWikiPageDialog({
 
 // ---- 来源 -----------------------------------------------------------------
 
-function SourcesTab({ baseId }: { baseId: string }) {
+function SourcesTab({ baseId, caps }: { baseId: string; caps: KnowledgeCaps }) {
   const sources = useKnowledgeSources(baseId);
   useDrainPages(sources);
   const remove = useDeleteKnowledgeSource(baseId);
@@ -3019,9 +3295,11 @@ function SourcesTab({ baseId }: { baseId: string }) {
               : // 分页已自动取完，这里的数量就是全部来源。
                 `${sources.data?.length ?? 0} 个来源`}
         </span>
-        <Button className="ml-auto" onClick={() => setCreating(true)}>
-          <Plus data-icon="inline-start" aria-hidden="true" /> 新建来源
-        </Button>
+        {caps.sources ? (
+          <Button className="ml-auto" onClick={() => setCreating(true)}>
+            <Plus data-icon="inline-start" aria-hidden="true" /> 新建来源
+          </Button>
+        ) : null}
       </PageToolbar>
       {sources.isPending ? <LoadingState rows={3} /> : null}
       {sources.isError ? (
@@ -3041,9 +3319,11 @@ function SourcesTab({ baseId }: { baseId: string }) {
         <EmptyState
           title="还没有外部来源"
           action={
-            <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-              新建来源
-            </Button>
+            caps.sources ? (
+              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                新建来源
+              </Button>
+            ) : undefined
           }
         />
       ) : null}
@@ -3089,69 +3369,77 @@ function SourcesTab({ baseId }: { baseId: string }) {
                       {formatRelative(source.lastSyncAt)}
                     </span>
                     <div className="ml-auto flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={test.isPending}
-                        title="仅校验本地配置与已存凭证，不访问远端"
-                        onClick={() =>
-                          test.mutate(source.id, {
-                            onSuccess: (result) =>
-                              result.ok
-                                ? toastSuccess('本地配置与已存凭证检查通过')
-                                : toast.error(result.issues.join('；'), { duration: Infinity }),
-                            onError: toastError,
-                          })
-                        }
-                      >
-                        检查配置
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={sync.isPending || !syncable}
-                        title={
-                          !syncable
-                            ? '来源未启用，无法同步'
-                            : sync.isPending
-                              ? '正在提交同步任务'
-                              : '立即提交一次同步任务'
-                        }
-                        onClick={() =>
-                          sync.mutate(source.id, {
-                            onSuccess: (result) => {
-                              setSelected(source.id);
-                              setSyncJobs((previous) => [
-                                ...previous,
-                                { id: result.jobId, sourceId: source.id },
-                              ]);
-                              toastSuccess('已提交同步任务');
-                            },
-                            onError: toastError,
-                          })
-                        }
-                      >
-                        立即同步
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`编辑来源 ${source.name}`}
-                        onClick={() => setEditing(source)}
-                      >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`删除来源 ${source.name}`}
-                        onClick={() => {
-                          setDeleteDocuments(false);
-                          setDeleting(source);
-                        }}
-                      >
-                        <Trash2 />
-                      </Button>
+                      {caps.sources ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={test.isPending}
+                          title="仅校验本地配置与已存凭证，不访问远端"
+                          onClick={() =>
+                            test.mutate(source.id, {
+                              onSuccess: (result) =>
+                                result.ok
+                                  ? toastSuccess('本地配置与已存凭证检查通过')
+                                  : toast.error(result.issues.join('；'), { duration: Infinity }),
+                              onError: toastError,
+                            })
+                          }
+                        >
+                          检查配置
+                        </Button>
+                      ) : null}
+                      {caps.execute ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={sync.isPending || !syncable}
+                          title={
+                            !syncable
+                              ? '来源未启用，无法同步'
+                              : sync.isPending
+                                ? '正在提交同步任务'
+                                : '立即提交一次同步任务'
+                          }
+                          onClick={() =>
+                            sync.mutate(source.id, {
+                              onSuccess: (result) => {
+                                setSelected(source.id);
+                                setSyncJobs((previous) => [
+                                  ...previous,
+                                  { id: result.jobId, sourceId: source.id },
+                                ]);
+                                toastSuccess('已提交同步任务');
+                              },
+                              onError: toastError,
+                            })
+                          }
+                        >
+                          立即同步
+                        </Button>
+                      ) : null}
+                      {caps.sources ? (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`编辑来源 ${source.name}`}
+                            onClick={() => setEditing(source)}
+                          >
+                            <Pencil />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`删除来源 ${source.name}`}
+                            onClick={() => {
+                              setDeleteDocuments(false);
+                              setDeleting(source);
+                            }}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                   <span className="truncate text-2xs text-muted-foreground">
@@ -4070,22 +4358,50 @@ function SourceRuns({ sourceId }: { sourceId: string }) {
   );
 }
 
-// ---- 任务 -----------------------------------------------------------------
+// ---- 处理记录 -------------------------------------------------------------
 
-function JobsTab({ baseId }: { baseId: string }) {
-  const jobs = useKnowledgeJobs(baseId);
+/** 文档名优先，其次来源名，再退到 ID；两列都为空的是整库任务。 */
+function jobTargetLabel(job: KnowledgeJob): string {
+  return job.documentTitle ?? job.sourceName ?? job.documentId ?? job.sourceId ?? '整库';
+}
+
+function JobsTab({
+  baseId,
+  canExecute,
+  canUpload,
+  documentId,
+  onClearDocument,
+  onGoDocuments,
+}: {
+  baseId: string;
+  canExecute: boolean;
+  canUpload: boolean;
+  documentId: string | undefined;
+  onClearDocument: () => void;
+  onGoDocuments: () => void;
+}) {
+  const jobs = useKnowledgeJobs(baseId, documentId === undefined ? {} : { documentId });
   const retry = useRetryKnowledgeJob(baseId);
   const cancel = useCancelKnowledgeJob(baseId);
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {documentId ? (
+        <PageNote
+          title="只显示该文档的处理记录"
+          action={
+            <Button variant="outline" size="sm" onClick={onClearDocument}>
+              查看全部处理记录
+            </Button>
+          }
+        />
+      ) : null}
       <span role="status" className="text-xs text-muted-foreground">
         {jobs.isPending
           ? '加载中…'
-          : jobs.isError
+          : jobs.isError && jobs.data === undefined
             ? '数量不可用'
-            : // 任务接口同样分页；文本只说当前这一页。
-              `${jobs.data?.length ?? 0} 个任务`}
+            : `已加载 ${jobs.data?.length ?? 0} 条处理记录`}
       </span>
       {jobs.data?.some((job) => job.status === 'queued' || job.status === 'running') &&
       !knowledgeShouldPoll(jobs.data) ? (
@@ -4100,17 +4416,41 @@ function JobsTab({ baseId }: { baseId: string }) {
         />
       ) : null}
       {jobs.isPending ? <LoadingState rows={4} /> : null}
-      {jobs.isError ? <ErrorState error={jobs.error} onRetry={() => void jobs.refetch()} /> : null}
+      {jobs.isError && jobs.data === undefined ? (
+        <ErrorState error={jobs.error} onRetry={() => void jobs.refetch()} />
+      ) : null}
       {jobs.data && jobs.data.length === 0 ? (
-        <EmptyState title="还没有任务" description="上传文档或同步来源后，任务会出现在这里。" />
+        <EmptyState
+          title={documentId ? '该文档还没有处理记录' : '还没有任务'}
+          description={
+            documentId
+              ? '它可能尚未上传成功，或任务已被清理。重新上传文档后会生成新的处理记录。'
+              : '上传文档或同步来源后，任务会出现在这里。'
+          }
+          action={
+            documentId ? (
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button variant="outline" size="sm" onClick={onClearDocument}>
+                  清除筛选
+                </Button>
+                {canUpload ? (
+                  <Button variant="outline" size="sm" onClick={onGoDocuments}>
+                    重新上传文档
+                  </Button>
+                ) : null}
+              </div>
+            ) : undefined
+          }
+        />
       ) : null}
       {jobs.data && jobs.data.length > 0 ? (
-        <Table aria-label="知识库任务">
+        <Table aria-label="知识库任务" className="min-w-5xl">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-32">类型</TableHead>
+              <TableHead className="min-w-56">对象</TableHead>
               <TableHead className="w-24">状态</TableHead>
-              <TableHead>步骤</TableHead>
+              <TableHead className="min-w-60">步骤</TableHead>
               <TableHead className="w-16 text-right">进度</TableHead>
               <TableHead className="w-32">创建</TableHead>
               <TableHead className="w-32">已运行</TableHead>
@@ -4124,6 +4464,7 @@ function JobsTab({ baseId }: { baseId: string }) {
               <JobRow
                 key={job.id}
                 job={job}
+                canExecute={canExecute}
                 busy={retry.isPending || cancel.isPending}
                 onRetry={() =>
                   retry.mutate(job.id, {
@@ -4142,17 +4483,38 @@ function JobsTab({ baseId }: { baseId: string }) {
           </TableBody>
         </Table>
       ) : null}
+      {jobs.hasNextPage ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start"
+          disabled={jobs.isFetchingNextPage}
+          aria-busy={jobs.isFetchingNextPage}
+          onClick={() => void jobs.fetchNextPage()}
+        >
+          {jobs.isFetchingNextPage ? '加载中…' : '加载更多处理记录'}
+        </Button>
+      ) : null}
+      {jobs.isFetchNextPageError ? (
+        <ErrorState
+          error={jobs.error}
+          title="更多处理记录没有加载出来"
+          onRetry={() => void jobs.fetchNextPage()}
+        />
+      ) : null}
     </div>
   );
 }
 
 function JobRow({
   job,
+  canExecute,
   busy,
   onRetry,
   onCancel,
 }: {
   job: KnowledgeJob;
+  canExecute: boolean;
   busy: boolean;
   onRetry: () => void;
   onCancel: () => void;
@@ -4163,12 +4525,20 @@ function JobRow({
   return (
     <TableRow>
       <TableCell className="text-xs">{jobTypeLabel[job.type]}</TableCell>
+      <TableCell className="whitespace-normal">
+        <span
+          className="block break-words text-xs text-fg"
+          title={job.documentId ?? job.sourceId ?? undefined}
+        >
+          {jobTargetLabel(job)}
+        </span>
+      </TableCell>
       <TableCell>
         <StatusBadge tone={jobStatusTone[job.status]}>{jobStatusLabel[job.status]}</StatusBadge>
       </TableCell>
-      <TableCell className="max-w-0">
+      <TableCell className="whitespace-normal">
         <span
-          className="block truncate text-xs text-muted-foreground"
+          className="block break-words text-xs text-muted-foreground"
           title={job.error ?? job.step ?? ''}
         >
           {reason ?? job.step ?? '—'}
@@ -4182,7 +4552,7 @@ function JobRow({
         {active && runningMs !== null ? `已运行 ${formatDuration(runningMs)}` : '—'}
       </TableCell>
       <TableCell>
-        {active ? (
+        {!canExecute ? null : active ? (
           <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
             取消
           </Button>

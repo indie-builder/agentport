@@ -14,9 +14,15 @@ import {
   KnowledgeSettingsDialog,
 } from '../src/components/knowledge-settings.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
+import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
+
+const withoutExecuteMe = {
+  ...allAccessMe,
+  grants: allAccessMe.grants.filter((grant) => grant.permissionId !== 'knowledge.execute'),
+};
 
 const base = {
   id: 'kb_1',
@@ -83,6 +89,29 @@ const cohereBase = {
   },
 };
 
+const cohereVectorBase = {
+  ...cohereBase,
+  settings: {
+    ...cohereBase.settings,
+    imageProcessing: {
+      ...cohereBase.settings.imageProcessing,
+      imageVectorEnabled: true,
+    },
+  },
+};
+
+const imageEnabledBase = {
+  ...base,
+  settings: {
+    ...base.settings,
+    imageProcessing: {
+      ...base.settings.imageProcessing,
+      enabled: true,
+      model: 'claude-vision',
+    },
+  },
+};
+
 const rerankProfile = {
   id: 'profile_rerank',
   kind: 'rerank' as const,
@@ -101,12 +130,48 @@ const rerankProfile = {
 const msw = createMsw();
 const { server, calls } = msw;
 
+type ProfileFixture = typeof embeddingProfile | typeof cohereProfile | typeof rerankProfile;
+
+/** 选择投影与后端同一规则：停用、非 Cohere v2、非 embed-v4.0 或未开图片输入都不支持图片向量。 */
+function selectionOf(profile: ProfileFixture) {
+  return {
+    id: profile.id,
+    name: profile.name,
+    kind: profile.kind,
+    enabled: profile.enabled,
+    supportsImageVectors:
+      profile.kind === 'embedding' &&
+      profile.enabled &&
+      profile.embeddingProtocol === 'cohere_v2' &&
+      profile.model === 'embed-v4.0' &&
+      profile.imageInputEnabled,
+  };
+}
+
+/** 管理列表与选择投影是同一 URL 的两个形状；测试严格按 view 区分，避免用超集掩盖选择请求。 */
+function profilesHandler(profiles: ProfileFixture[]) {
+  return http.get('/api/knowledge/model-profiles', ({ request }) => {
+    const view = new URL(request.url).searchParams.get('view');
+    if (view === 'selection') return HttpResponse.json(profiles.map(selectionOf));
+    if (view !== null) {
+      return HttpResponse.json({ code: 'INVALID_INPUT', message: '未知的视图' }, { status: 400 });
+    }
+    return HttpResponse.json(profiles);
+  });
+}
+
+function profileCalls() {
+  return calls.filter((item) => item.path.startsWith('/api/knowledge/model-profiles'));
+}
+
 beforeAll(() => msw.listen());
 
 afterAll(() => msw.close());
 
 beforeEach(() => {
   msw.reset();
+  // 设置弹层内部读取 me 决定是否显示重建入口；默认给全量权限身份。
+  server.use(http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)));
   vi.mocked(toastError).mockClear();
   vi.mocked(toastSuccess).mockClear();
   vi.stubGlobal(
@@ -265,15 +330,19 @@ describe('msw cleanup', () => {
 describe('knowledge base settings', () => {
   it('saves chunk settings and the rerank profile through the base patch', async () => {
     server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([embeddingProfile, rerankProfile]),
-      ),
+      profilesHandler([embeddingProfile, rerankProfile]),
       http.patch('/api/knowledge/bases/kb_1', () =>
         HttpResponse.json({ ...base, rerankProfileId: null }),
       ),
     );
     await mountSettings();
     expect(document.body.textContent).toContain('知识库设置');
+    expect(profileCalls().map((item) => item.path)).toContain(
+      '/api/knowledge/model-profiles?view=selection',
+    );
+    expect(profileCalls().some((item) => item.path === '/api/knowledge/model-profiles')).toBe(
+      false,
+    );
     await fill('knowledge-settings-chunk-tokens', '1000');
     await fill('knowledge-settings-chunk-overlap', '150');
     await click(button('保存设置'));
@@ -292,11 +361,91 @@ describe('knowledge base settings', () => {
     expect(toastSuccess).toHaveBeenCalled();
   });
 
+  it('saves settings for a read+update role without requesting the management list', async () => {
+    server.use(
+      http.get('/api/auth/me', () =>
+        HttpResponse.json({
+          ...allAccessMe,
+          grants: allAccessMe.grants.filter(
+            (grant) =>
+              grant.permissionId !== 'knowledge.models.manage' &&
+              grant.permissionId !== 'knowledge.create',
+          ),
+        }),
+      ),
+      profilesHandler([embeddingProfile, rerankProfile]),
+      http.patch('/api/knowledge/bases/kb_1', () => HttpResponse.json(base)),
+    );
+    await mountSettings();
+    expect(profileCalls().map((item) => item.path)).toContain(
+      '/api/knowledge/model-profiles?view=selection',
+    );
+    expect(profileCalls().some((item) => item.path === '/api/knowledge/model-profiles')).toBe(
+      false,
+    );
+    await fill('knowledge-settings-chunk-tokens', '1000');
+    await click(button('保存设置'));
+    expect(
+      calls.find((item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1')
+        ?.body,
+    ).toMatchObject({ settings: { chunkTokens: 1000 } });
+  });
+
+  it('saves a newly selected embedding profile in the same patch', async () => {
+    server.use(
+      profilesHandler([embeddingProfile, cohereProfile, rerankProfile]),
+      http.patch('/api/knowledge/bases/kb_1', () => HttpResponse.json(cohereBase)),
+    );
+    await mountSettings(imageEnabledBase);
+    expect(
+      (document.getElementById('knowledge-settings-image-vector') as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await selectOption('knowledge-settings-embedding', 'embed-v4.0');
+    expect(document.body.textContent).toContain('保存后立即切换检索模型');
+    expect(document.body.textContent).toContain('已有文档需重建后恢复向量检索');
+    // 图片向量能力按新选择的 profile 判定，而不是旧绑定。
+    expect(
+      (document.getElementById('knowledge-settings-image-vector') as HTMLButtonElement).disabled,
+    ).toBe(false);
+    await click(button('保存设置'));
+    expect(
+      calls.find((item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1')
+        ?.body,
+    ).toMatchObject({ embeddingProfileId: 'profile_cohere' });
+    expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it('blocks image vectors when switching to a profile that cannot embed images', async () => {
+    server.use(
+      profilesHandler([embeddingProfile, cohereProfile, rerankProfile]),
+      http.patch('/api/knowledge/bases/kb_1', () => HttpResponse.json(base)),
+    );
+    await mountSettings(cohereVectorBase);
+    await selectOption('knowledge-settings-embedding', 'bge-m3');
+    // 已勾选的开关不能因能力不足被禁用，否则用户无法关闭它。
+    const vector = document.getElementById('knowledge-settings-image-vector') as HTMLButtonElement;
+    expect(vector.disabled).toBe(false);
+    await click(button('保存设置'));
+    expect(document.body.textContent).toContain('请关闭「图片向量」');
+    expect(
+      calls.some((item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1'),
+    ).toBe(false);
+
+    await toggle('knowledge-settings-image-vector');
+    await click(button('保存设置'));
+    const body = calls.find(
+      (item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1',
+    )?.body as {
+      embeddingProfileId?: string;
+      settings: { imageProcessing: Record<string, unknown> };
+    };
+    expect(body?.embeddingProfileId).toBe('profile_embed');
+    expect(body?.settings.imageProcessing.imageVectorEnabled).toBe(false);
+  });
+
   it('saves the image processing group with the gateway vision model id', async () => {
     server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([cohereProfile, rerankProfile]),
-      ),
+      profilesHandler([cohereProfile, rerankProfile]),
       http.patch('/api/knowledge/bases/kb_1', () => HttpResponse.json(cohereBase)),
     );
     await mountSettings(cohereBase);
@@ -319,11 +468,7 @@ describe('knowledge base settings', () => {
   });
 
   it('refuses to enable image processing without a model or any action', async () => {
-    server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([cohereProfile, rerankProfile]),
-      ),
-    );
+    server.use(profilesHandler([cohereProfile, rerankProfile]));
     await mountSettings();
     await toggle('knowledge-settings-image-enabled');
     await click(button('保存设置'));
@@ -334,11 +479,7 @@ describe('knowledge base settings', () => {
   });
 
   it('only offers image vectors when the bound profile is Cohere embed-v4.0 with images', async () => {
-    server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([embeddingProfile, rerankProfile]),
-      ),
-    );
+    server.use(profilesHandler([embeddingProfile, rerankProfile]));
     await mountSettings({ ...cohereBase, embeddingProfileId: 'profile_embed' });
     const vector = document.getElementById('knowledge-settings-image-vector') as HTMLButtonElement;
     expect(vector.disabled).toBe(true);
@@ -347,9 +488,7 @@ describe('knowledge base settings', () => {
 
   it('enables image vectors and the score floor on a capable profile', async () => {
     server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([cohereProfile, rerankProfile]),
-      ),
+      profilesHandler([cohereProfile, rerankProfile]),
       http.patch('/api/knowledge/bases/kb_1', () => HttpResponse.json(cohereBase)),
     );
     await mountSettings(cohereBase);
@@ -367,9 +506,7 @@ describe('knowledge base settings', () => {
 
   it('shows the API conflict when image vectors are rejected', async () => {
     server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([cohereProfile, rerankProfile]),
-      ),
+      profilesHandler([cohereProfile, rerankProfile]),
       http.patch('/api/knowledge/bases/kb_1', () =>
         HttpResponse.json(
           { code: 'CONFLICT', message: '图片向量需要 Cohere embed-v4.0 且 profile 已开启图片输入' },
@@ -384,16 +521,24 @@ describe('knowledge base settings', () => {
     });
   });
 
-  it('asks before a whole rebuild because it overwrites manual chunk edits', async () => {
+  it('asks before a whole rebuild because manual chunk edits are not carried over', async () => {
     server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([embeddingProfile, rerankProfile]),
-      ),
+      profilesHandler([embeddingProfile, rerankProfile]),
       http.post('/api/knowledge/bases/kb_1/rebuild', () => HttpResponse.json({ jobId: 'kjob_9' })),
     );
     await mountSettings();
+    // 常态说明与确认框描述同一后果：逐文档切换新版本，手改内容不进新版本，失败文档保留原版本、已成功的不回滚。
+    const rebuildDialog = dialog('知识库设置');
+    expect(rebuildDialog.textContent).toContain('逐文档从原件生成并切换新版本');
+    expect(rebuildDialog.textContent).toContain('人工分块修改不会带入');
+    expect(rebuildDialog.textContent).toContain('失败文档保留原版本');
+    expect(rebuildDialog.textContent).toContain('已成功的文档不会回滚');
     await click(button('重建全部索引'));
-    expect(document.body.textContent).toContain('手动改过的文案会丢失');
+    const confirm = dialog('重建全部索引');
+    expect(confirm.textContent).toContain('逐文档从原件生成并切换新版本');
+    expect(confirm.textContent).toContain('人工分块修改不会带入');
+    expect(confirm.textContent).toContain('失败文档保留原版本');
+    expect(confirm.textContent).toContain('已成功的文档不会回滚');
     await click(button('确认重建'));
     expect(
       calls.find(
@@ -402,15 +547,46 @@ describe('knowledge base settings', () => {
     ).toEqual({ chunksOnly: false });
     expect(toastSuccess).toHaveBeenCalled();
   });
+
+  it('hides the rebuild entry without knowledge.execute but still allows saving settings', async () => {
+    server.use(
+      http.get('/api/auth/me', () => HttpResponse.json(withoutExecuteMe)),
+      profilesHandler([embeddingProfile, rerankProfile]),
+    );
+    await mountSettings();
+    // knowledge.update 只允许保存设置，不隐含执行权。
+    expect(document.body.textContent).not.toContain('重建全部索引');
+    expect(button('保存设置')).toBeDefined();
+  });
+
+  it('disables rebuild while settings are unsaved so it cannot run with the old bindings', async () => {
+    server.use(profilesHandler([embeddingProfile, rerankProfile]));
+    await mountSettings();
+    expect(button('重建全部索引').disabled).toBe(false);
+    await fill('knowledge-settings-chunk-tokens', '1000');
+    expect(button('重建全部索引').disabled).toBe(true);
+    expect(document.body.textContent).toContain('保存后才能重建');
+  });
+
+  it('keeps the bound embedding profile selectable when it has been disabled', async () => {
+    const disabledEmbedding = { ...embeddingProfile, name: '旧 embedding', enabled: false };
+    server.use(profilesHandler([disabledEmbedding, cohereProfile, rerankProfile]));
+    await mountSettings();
+    // 当前绑定项停用也必须回显，不能显示空值误导用户。
+    expect(document.getElementById('knowledge-settings-embedding')?.textContent).toContain(
+      '旧 embedding',
+    );
+    await selectOption('knowledge-settings-embedding', 'embed-v4.0');
+    await selectOption('knowledge-settings-embedding', '旧 embedding');
+    expect(document.getElementById('knowledge-settings-embedding')?.textContent).toContain(
+      '旧 embedding',
+    );
+  });
 });
 
 describe('knowledge settings draft protection', () => {
   it('asks before discarding edited chunk settings', async () => {
-    server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([embeddingProfile, rerankProfile]),
-      ),
-    );
+    server.use(profilesHandler([embeddingProfile, rerankProfile]));
     const onClose = vi.fn();
     await mountSettings(base, onClose);
     await fill('knowledge-settings-chunk-tokens', '1000');
@@ -425,12 +601,18 @@ describe('knowledge settings draft protection', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('guards an embedding-only change before closing', async () => {
+    server.use(profilesHandler([embeddingProfile, cohereProfile, rerankProfile]));
+    const onClose = vi.fn();
+    await mountSettings(base, onClose);
+    await selectOption('knowledge-settings-embedding', 'embed-v4.0');
+    await click(button('取消'));
+    await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('associates chunk validation errors with the field and blocks the request', async () => {
-    server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([embeddingProfile, rerankProfile]),
-      ),
-    );
+    server.use(profilesHandler([embeddingProfile, rerankProfile]));
     await mountSettings();
     await fill('knowledge-settings-chunk-tokens', '100');
     await fill('knowledge-settings-chunk-overlap', '150');
@@ -448,12 +630,11 @@ describe('knowledge settings draft protection', () => {
 
 describe('knowledge model profile draft protection', () => {
   it('asks before discarding a dirty profile edit on cancel or switch', async () => {
-    server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([embeddingProfile, rerankProfile]),
-      ),
-    );
+    server.use(profilesHandler([embeddingProfile, rerankProfile]));
     await mountProfiles();
+    // 管理弹层仍用原管理请求，不能消费选择投影而丢失编辑字段。
+    expect(profileCalls().map((item) => item.path)).toContain('/api/knowledge/model-profiles');
+    expect(profileCalls().some((item) => item.path.includes('view=selection'))).toBe(false);
     await click(button('编辑'));
     await fill('knowledge-profile-model', 'changed-model');
     await click(button('取消'));
@@ -477,9 +658,7 @@ describe('knowledge model profile draft protection', () => {
   it('blocks closing and switching profiles while a profile save is in flight', async () => {
     const request = deferred<void>();
     server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([embeddingProfile, rerankProfile]),
-      ),
+      profilesHandler([embeddingProfile, rerankProfile]),
       http.patch('/api/knowledge/model-profiles/profile_embed', async () => {
         await request.promise;
         return HttpResponse.json(embeddingProfile);
@@ -555,9 +734,7 @@ describe('knowledge model profiles', () => {
     const embedRequest = deferred<void>();
     const rerankRequest = deferred<void>();
     server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([embeddingProfile, rerankProfile]),
-      ),
+      profilesHandler([embeddingProfile, rerankProfile]),
       http.post('/api/knowledge/model-profiles/profile_embed/test', async () => {
         await embedRequest.promise;
         return HttpResponse.json(

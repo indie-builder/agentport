@@ -134,7 +134,7 @@ test('knowledge tab, document inspector and search highlight read the seeded bas
   await expect(viewer).not.toBeVisible();
 
   // 检索 → 查看原文：命中片段在引用弹窗里高亮，并可下载原件。
-  await screen.getByRole('tab', '检索', { exact: true }).tap();
+  await screen.getByRole('tab', '检索测试', { exact: true }).tap();
   await screen.getByRole('searchbox', '检索知识库').fill('混合检索');
   await screen.getByRole('button', '检索', { exact: true }).tap();
   await browser
@@ -164,14 +164,16 @@ knowledgeTest(
     await app.open('/knowledge');
     await screen.getByRole('button', '新建知识库').first().tap();
     await browser.locator('#knowledge-name').fill(name);
+    // slug 与模型选择都在高级设置里；折叠时字段不可操作，先展开再填。
+    await screen.getByRole('button', '高级设置', { exact: true }).tap();
     await browser.locator('#knowledge-slug').fill(slug);
-    // 库必须绑定一个启用的 embedding profile；用联调实例里现成的那个。
-    await screen.getByRole('combobox', /^Embedding/).tap();
-    await screen.getByRole('option', workspace.profile.name, { exact: true }).tap();
+    // 库必须绑定一个启用的 embedding profile；只有一个时是只读展示，多个才是 Select。
+    if ((await browser.locator('#knowledge-embedding').count()) > 0) {
+      await screen.getByRole('combobox', /^Embedding/).tap();
+      await screen.getByRole('option', workspace.profile.name, { exact: true }).tap();
+    }
     await screen.getByRole('button', '创建', { exact: true }).tap();
-    await expect(screen.getByText(`已创建「${name}」`)).toBeVisible();
-
-    await screen.getByRole('link', `查看知识库 ${name}`, { exact: true }).tap();
+    // 创建成功后直接进入详情，不再停在列表成功卡。
     await expect(browser).toHaveURL(/\/knowledge\/kb_/);
     await expect(screen.getByRole('heading', { level: 1, name })).toBeVisible();
     const baseId = (await browser.url()).split('/').pop() ?? '';
@@ -201,7 +203,7 @@ knowledgeTest(
 
     await app.open(`/knowledge/${baseId}`);
     await expect(screen.getByRole('button', documentTitle, { exact: true })).toBeVisible();
-    await screen.getByRole('tab', '任务', { exact: true }).tap();
+    await screen.getByRole('tab', '处理记录', { exact: true }).tap();
     await expect(screen.getByRole('table', '知识库任务')).toContainText('文档摄取');
   },
 );

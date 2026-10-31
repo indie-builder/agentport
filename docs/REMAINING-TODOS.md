@@ -32,6 +32,8 @@
    - 未覆盖：真实读屏/iOS/原生 200% 缩放；`index.html` favicon 仍为 brand.gif 待另换。
 ## P1
 
+- **知识 Wiki 的专家消费链路（2026-10-31 审查确认）**：Wiki 发布与版本维护已有实现，但知识检索 SQL 和专家 MCP 的搜索、读取、列文档仍只覆盖 `knowledge_documents` / `knowledge_chunks`；发布 Wiki 不会使专家可检索该正文。需按既有知识接入契约确定发布 Wiki 的可检索表达与来源引用，再实现并单独验收；本轮知识库 UX 调整只补空白页写作与入口，不新增索引管道。证据见 [任务记录](tasks/knowledge-ux-review.md)。
+
 4. ✅ **真实部署验证安全项 + 收敛沙盒出站（2026-10-24 完成）**
    - 出站：`SANDBOX_EGRESS` 默认改 `open`（不隔离出站，明确写入文档）；`proxy` 未配 `HTTPS_PROXY`/`HTTP_PROXY` 时 `loadConfig` 直接抛错，worker 启动退出（fail-closed），删除原先静默降级 `open`。`none` 含义与启动警告不变。未实现出站代理本身。
    - 自动化：`packages/worker/test/config.test.ts`（默认值 / proxy 缺代理抛错 / proxy 带代理通过）；`security.test.ts` 增加 `/` 与 `/health/live` 的 CSP、`/mcp/*` 无 CSP；`auth.test.ts` 已有 logout 后旧 cookie 401。

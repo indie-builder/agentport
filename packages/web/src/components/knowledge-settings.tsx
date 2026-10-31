@@ -1,11 +1,14 @@
 import type { KnowledgeBase, KnowledgeBaseSettings } from '@agentport/shared';
 import { knowledgeImageProcessingSchema } from '@agentport/shared';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
+import { can } from '../lib/access.js';
 import { api, errorMessage, type KnowledgeModelProfile } from '../lib/api.js';
 import { useFormBlocker } from '../lib/form.js';
 import {
+  meQuery,
   useCreateKnowledgeModelProfile,
+  useKnowledgeModelProfileSelections,
   useKnowledgeModelProfiles,
   useUpdateKnowledgeBase,
 } from '../lib/queries.js';
@@ -38,18 +41,6 @@ const FAILURE_TEXT: Record<string, string> = {
   unavailable: '连不上端点，请检查地址与网络',
   bad_response: '端点响应不符合 embedding/rerank 格式',
 };
-
-/** 图片向量只接受与文本查询同空间的 Cohere v2 embed-v4.0。 */
-function supportsImageVectors(profile: KnowledgeModelProfile | undefined): boolean {
-  return (
-    profile !== undefined &&
-    profile.kind === 'embedding' &&
-    profile.enabled &&
-    profile.embeddingProtocol === 'cohere_v2' &&
-    profile.model === 'embed-v4.0' &&
-    profile.imageInputEnabled
-  );
-}
 
 /** 弹层草稿保护：dirty 关闭先确认，pending 期间禁止关闭与路由离开。 */
 function useDraftGuard(dirty: boolean, pending: boolean, onClose: () => void) {
@@ -119,13 +110,17 @@ export function KnowledgeSettingsDialog({
   finalFocus: () => HTMLElement | null;
 }) {
   const update = useUpdateKnowledgeBase();
-  const profiles = useKnowledgeModelProfiles();
+  const profiles = useKnowledgeModelProfileSelections();
+  const me = useQuery(meQuery);
+  // 保存设置只需要 knowledge.update；重建会调用模型处理，单独要求 knowledge.execute。
+  const canExecute = can(me.data, 'knowledge.execute');
   const client = useQueryClient();
   // 历史库的 wire 可能还没有图片设置；按共享 schema 的默认值补齐，避免读写 undefined。
   const [settings, setSettings] = useState<KnowledgeBaseSettings>(() => ({
     ...base.settings,
     imageProcessing: base.settings.imageProcessing ?? knowledgeImageProcessingSchema.parse({}),
   }));
+  const [embeddingProfileId, setEmbeddingProfileId] = useState(base.embeddingProfileId);
   const [rerankProfileId, setRerankProfileId] = useState(base.rerankProfileId ?? 'none');
   const [chunkTokens, setChunkTokens] = useState(String(base.settings.chunkTokens));
   const [chunkOverlap, setChunkOverlap] = useState(String(base.settings.chunkOverlap));
@@ -141,20 +136,25 @@ export function KnowledgeSettingsDialog({
   const [rebuilding, setRebuilding] = useState(false);
   const pending = update.isPending || rebuilding;
   const initialSignature = useRef(
-    JSON.stringify({ settings, rerankProfileId, chunkTokens, chunkOverlap }),
+    JSON.stringify({ settings, embeddingProfileId, rerankProfileId, chunkTokens, chunkOverlap }),
   );
   const dirty =
-    JSON.stringify({ settings, rerankProfileId, chunkTokens, chunkOverlap }) !==
+    JSON.stringify({ settings, embeddingProfileId, rerankProfileId, chunkTokens, chunkOverlap }) !==
     initialSignature.current;
   const guard = useDraftGuard(dirty, pending, onClose);
+  const embedding = (profiles.data ?? []).filter(
+    (profile) =>
+      profile.kind === 'embedding' && (profile.enabled || profile.id === base.embeddingProfileId),
+  );
   const rerank = (profiles.data ?? []).filter(
     (profile) =>
       profile.kind === 'rerank' && (profile.enabled || profile.id === base.rerankProfileId),
   );
-  const embedding = (profiles.data ?? []).find(
-    (profile) => profile.kind === 'embedding' && profile.id === base.embeddingProfileId,
+  // 图片向量能力跟随当前所选 profile；历史库绑定的停用 profile 仍可能出现在列表里。
+  const selectedEmbedding = (profiles.data ?? []).find(
+    (profile) => profile.kind === 'embedding' && profile.id === embeddingProfileId,
   );
-  const imageVectorsAvailable = supportsImageVectors(embedding);
+  const imageVectorsAvailable = selectedEmbedding?.supportsImageVectors === true;
   // profile 列表拿到之前不下结论，避免把「未加载」当成「不支持」而误拦保存。
   const imageVectorsBlocked = profiles.isSuccess && !imageVectorsAvailable;
   const image = settings.imageProcessing;
@@ -184,7 +184,10 @@ export function KnowledgeSettingsDialog({
       nextErrors.imageAction = 'OCR 与图片描述至少开启一个';
     }
     if (image.imageVectorEnabled && (!image.enabled || imageVectorsBlocked)) {
-      nextErrors.imageVector = '图片向量需要 Cohere embed-v4.0，并在 profile 里开启图片输入';
+      nextErrors.imageVector =
+        image.enabled && imageVectorsBlocked
+          ? '所选 embedding profile 不支持图片向量，请关闭「图片向量」后再保存'
+          : '图片向量需要 Cohere embed-v4.0，并在 profile 里开启图片输入';
     }
     if (
       image.imageVectorEnabled &&
@@ -200,6 +203,8 @@ export function KnowledgeSettingsDialog({
       {
         baseId: base.id,
         patch: {
+          // 只发送真正换绑的 profile；未换绑时保留后端当前的绑定不变。
+          ...(embeddingProfileId === base.embeddingProfileId ? {} : { embeddingProfileId }),
           rerankProfileId: rerankProfileId === 'none' ? null : rerankProfileId,
           settings: {
             ...settings,
@@ -239,6 +244,65 @@ export function KnowledgeSettingsDialog({
         <DialogShell title="知识库设置" closeDisabled={pending} finalFocus={finalFocus}>
           <form className="flex flex-col gap-4" noValidate onSubmit={save}>
             <FieldGroup className="grid gap-3 sm:grid-cols-2">
+              <Field className="gap-1.5 sm:col-span-2">
+                <FieldLabel htmlFor="knowledge-settings-embedding">
+                  Embedding <RequiredMark />
+                </FieldLabel>
+                <Select
+                  value={embeddingProfileId}
+                  disabled={pending || profiles.isPending || embedding.length === 0}
+                  onValueChange={(next) => {
+                    if (next !== null) setEmbeddingProfileId(next);
+                  }}
+                  items={embedding.map((profile) => ({ value: profile.id, label: profile.name }))}
+                >
+                  <SelectTrigger id="knowledge-settings-embedding" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {embedding.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                {embeddingProfileId === base.embeddingProfileId ? null : (
+                  <FieldDescription>
+                    保存后立即切换检索模型；已有文档需重建后恢复向量检索。
+                  </FieldDescription>
+                )}
+              </Field>
+              <Field className="gap-1.5 sm:col-span-2">
+                <FieldLabel htmlFor="knowledge-settings-rerank">重排</FieldLabel>
+                <Select
+                  value={rerankProfileId}
+                  disabled={pending || profiles.isPending}
+                  onValueChange={(next) => {
+                    if (next !== null) setRerankProfileId(next);
+                  }}
+                  items={[
+                    { value: 'none', label: '不启用' },
+                    ...rerank.map((profile) => ({ value: profile.id, label: profile.name })),
+                  ]}
+                >
+                  <SelectTrigger id="knowledge-settings-rerank" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="none">不启用</SelectItem>
+                      {rerank.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
               <Field className="gap-1.5" data-invalid={Boolean(errors.chunkTokens)}>
                 <FieldLabel htmlFor="knowledge-settings-chunk-tokens">
                   分块长度（字符） <RequiredMark />
@@ -276,34 +340,6 @@ export function KnowledgeSettingsDialog({
                 <FieldError id="knowledge-settings-chunk-overlap-error">
                   {errors.chunkOverlap}
                 </FieldError>
-              </Field>
-              <Field className="gap-1.5 sm:col-span-2">
-                <FieldLabel htmlFor="knowledge-settings-rerank">重排</FieldLabel>
-                <Select
-                  value={rerankProfileId}
-                  disabled={pending || profiles.isPending}
-                  onValueChange={(next) => {
-                    if (next !== null) setRerankProfileId(next);
-                  }}
-                  items={[
-                    { value: 'none', label: '不启用' },
-                    ...rerank.map((profile) => ({ value: profile.id, label: profile.name })),
-                  ]}
-                >
-                  <SelectTrigger id="knowledge-settings-rerank" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="none">不启用</SelectItem>
-                      {rerank.map((profile) => (
-                        <SelectItem key={profile.id} value={profile.id}>
-                          {profile.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
               </Field>
               {profiles.isError ? (
                 <div className="flex items-center gap-2 sm:col-span-2">
@@ -435,7 +471,7 @@ export function KnowledgeSettingsDialog({
                       <Switch
                         id="knowledge-settings-image-vector"
                         checked={image.imageVectorEnabled}
-                        disabled={pending || imageVectorsBlocked}
+                        disabled={pending || (imageVectorsBlocked && !image.imageVectorEnabled)}
                         aria-label="图片向量"
                         aria-invalid={Boolean(errors.imageVector)}
                         aria-describedby={
@@ -453,7 +489,7 @@ export function KnowledgeSettingsDialog({
                         id="knowledge-settings-image-min-score"
                         inputMode="decimal"
                         value={String(image.imageVectorMinScore)}
-                        disabled={pending || imageVectorsBlocked}
+                        disabled={pending || (imageVectorsBlocked && !image.imageVectorEnabled)}
                         aria-invalid={Boolean(errors.imageVectorMinScore)}
                         aria-describedby={
                           errors.imageVectorMinScore
@@ -476,7 +512,8 @@ export function KnowledgeSettingsDialog({
                     </FieldError>
                     {imageVectorsBlocked ? (
                       <FieldDescription className="sm:col-span-2">
-                        图片向量需要 Cohere embed-v4.0，并在模型 profile 里开启图片输入。
+                        所选 embedding profile 不支持图片向量；需要 Cohere embed-v4.0，并在模型
+                        profile 里开启图片输入。
                       </FieldDescription>
                     ) : null}
                   </FieldGroup>
@@ -484,7 +521,7 @@ export function KnowledgeSettingsDialog({
               </Collapsible>
             </div>
             <FieldDescription>
-              分块参数只影响之后重新解析的文档；改完需要重建索引才会作用到已有内容。
+              分块参数只影响之后重新解析的文档；已有内容需要重建索引后才会改用新设置。
             </FieldDescription>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={guard.close} disabled={pending}>
@@ -495,23 +532,26 @@ export function KnowledgeSettingsDialog({
               </Button>
             </div>
           </form>
-          <div className="mt-5 flex flex-col gap-2 border-t border-line pt-4">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium">重建全部索引</span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pending}
-                aria-busy={rebuilding}
-                onClick={() => setConfirming(true)}
-              >
-                {rebuilding ? '重建中…' : '重建全部索引'}
-              </Button>
+          {canExecute ? (
+            <div className="mt-5 flex flex-col gap-2 border-t border-line pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">重建全部索引</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending || dirty}
+                  aria-busy={rebuilding}
+                  onClick={() => setConfirming(true)}
+                >
+                  {rebuilding ? '重建中…' : '重建全部索引'}
+                </Button>
+              </div>
+              <FieldDescription>
+                逐文档从原件生成并切换新版本，人工分块修改不会带入；失败文档保留原版本，已成功的文档不会回滚。
+                {dirty ? '有未保存的设置，保存后才能重建。' : null}
+              </FieldDescription>
             </div>
-            <FieldDescription>
-              重新解析并向量化全部文档；未手动改过的分块会用当前设置重新生成。
-            </FieldDescription>
-          </div>
+          ) : null}
           <DraftGuardDialogs guard={guard} draft="知识库设置草稿会丢失。" pending={pending} />
         </DialogShell>
       </Dialog>
@@ -519,7 +559,7 @@ export function KnowledgeSettingsDialog({
         <ConfirmDialog
           open
           title="重建全部索引"
-          description="重建会用原件覆盖当前分块，手动改过的文案会丢失。只有确定不需要这些手改内容时再继续。"
+          description="逐文档从原件生成并切换新版本，人工分块修改不会带入；失败文档保留原版本，已成功的文档不会回滚。"
           confirmLabel="确认重建"
           onClose={() => setConfirming(false)}
           onConfirm={async () => {
