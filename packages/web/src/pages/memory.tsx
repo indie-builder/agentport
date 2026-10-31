@@ -182,7 +182,7 @@ function PersonalMemoryPanel({
   };
 
   if (memory.isPending) return <LoadingState rows={4} />;
-  if (memory.isError) {
+  if (memory.data === undefined) {
     return <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />;
   }
 
@@ -234,6 +234,10 @@ function PersonalMemoryPanel({
             </span>
           ) : null}
         </div>
+
+        {memory.isError ? (
+          <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
+        ) : null}
 
         {conflict ? (
           <div

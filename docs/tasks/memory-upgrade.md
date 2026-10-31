@@ -101,6 +101,7 @@ Opus 确认个人偏好版本接口按用户查账本却未过滤 `target.kind=p
 - web首审3阻断+文件错误反馈已修：4条新回归先红，60/60记忆测试、typecheck/build/Biome通过；独立Opus复核PASS，另重跑编辑/回顾46/46通过，追踪了blocker reset结算。主会话已真实浏览器确认索引历史映射与整次回滚影响。全web最终回归中。
 - worker实现review PASS；新增不存在ID/窗口外引用行为26/26已通过，最终整合复核。
 - shared首审：一阻断——非链接文本 `](topic.md)` 和图片语法会误判已有链接，导致漏补发现入口；Sonnet已修，独立Opus复核PASS：19/19测试、33项补充纯函数断言与shared noEmit通过，无签名/有效变化回归。两处注释也已校正。
+- 主线整合：合入 bd62146 的冲突解决经独立 Opus review a498853c60c025e8d PASS，确认主线只读/错误/草稿缓存保护与本任务下载/版本能力全部保留；三记忆 web 套件 69/69（`.tmp/memory-merge-validation.json`）、web build/typecheck、合并代码文件 Biome 与 `git diff --check` 通过，无未解决索引项。
 
 ## 步骤
 
@@ -124,7 +125,7 @@ Opus 确认个人偏好版本接口按用户查账本却未过滤 `target.kind=p
 
 ## 下一步
 
-已交付可体验运行入口：`http://127.0.0.1:61881/`，本树`feat/memory-upgrade`，基线522182f+未提交差异，最新API源码+本树web dist。管理器49145/API49203保持运行，独立PG `memory_preview_7fc57dd1b3454d7c`与Redis `backend_test_redis_5333ec453e2d49a5`。已实测登录、主题PUT/索引补链/主题与索引版本/ZIP与个人下载均200，受控提案2条可演示采纳与无需变更；主会话再次health与memory入口200。未启worker/付费模型，生成新回顾不在本预览运行能力内。停止`kill -TERM 49145`会清理仅本次资源。产品代码及既有评审证据不变；已提交至本任务 PR，合并状态以 GitHub 为准。
+已交付可体验运行入口：`http://127.0.0.1:61881/`，本树`feat/memory-upgrade`，基线522182f，产品代码已提交 e512fa8 并合入主线 bd62146，最新API源码+本树web dist。管理器49145/API49203保持运行，独立PG `memory_preview_7fc57dd1b3454d7c`与Redis `backend_test_redis_5333ec453e2d49a5`。已实测登录、主题PUT/索引补链/主题与索引版本/ZIP与个人下载均200，受控提案2条可演示采纳与无需变更；主会话再次health与memory入口200。未启worker/付费模型，生成新回顾不在本预览运行能力内。停止`kill -TERM 49145`会清理仅本次资源。产品代码及既有评审证据不变；已提交至本任务 PR，合并状态以 GitHub 为准。
 
 ## 最终验证快照
 
@@ -142,7 +143,7 @@ Opus 确认个人偏好版本接口按用户查账本却未过滤 `target.kind=p
 - 原生运行：专属镜像真实容器+官方SDK+本地假模型16/16通过，不证明真实模型记忆归纳质量。
 - 真实浏览器：受控提案主题/索引对比、来源归因、采用、索引版本、ZIP下载、公开PUT回导3正文一致、整体回滚、无需变更无采用动作均通过；最新1492×818布局body宽1492，h1=1，0残留弹层。
 - 两份预览库已用容器内只读 `pg_database` 精确名称查询确认均不存在；两个专属Redis均已删除。默认跟踪测试报告已还原，未跟踪`.vitest/memory-*.json`移入忽略的`.tmp/`，历史过程报告路径以实际`.tmp/`为准。
-- 未执行付费真实模型测评、全后端无关套件、发布或Git提交；本次不变物理schema，无需数据库迁移。
+- 未执行付费真实模型测评与全后端无关套件；用户已明确授权 commit/push/PR/merge，最终交付与合并状态以 GitHub PR 实际结果为准；本次不变物理schema，无需数据库迁移。
 
 ## 验证过程记录
 

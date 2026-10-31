@@ -71,7 +71,7 @@ function sortedScopes(scopes: readonly AccessScope[]): AccessScope[] {
   return SCOPE_ORDER.filter((scope) => scopes.includes(scope));
 }
 
-/** 父级批量勾选按未过滤的原始子树执行：搜索只影响显示，不影响点击范围。 */
+/** 非搜索时按未过滤的原始子树执行批量勾选，保证整棵子树一起变化。 */
 function findGroup(
   groups: readonly PermissionTreeGroup[],
   key: string,
@@ -200,7 +200,8 @@ export function RolesPage() {
   };
 
   const toggleGroup = (role: DraftRole, group: PermissionTreeGroup): void => {
-    // 搜索时传入的是过滤后的分组；点击父级仍要覆盖整棵原始子树。
+    // 搜索视图只显示命中叶，父级批量会波及隐藏子树，因此搜索期间拒绝父级更新。
+    if (searching) return;
     const targetGroup = findGroup(tree, group.key) ?? group;
     const leaves = groupLeafIds(targetGroup)
       .map((id) => permissions.find((permission) => permission.id === id))
@@ -260,10 +261,7 @@ export function RolesPage() {
   const submit = (): void => {
     if (draft === null || revision === null || save.isPending) return;
     setError(null);
-    if (invalid) {
-      setError(duplicateNames.size > 0 ? '角色名称不能重复。' : '角色名称不能为空。');
-      return;
-    }
+    if (invalid) return;
     save.mutate(
       {
         expectedRevision: revision,
@@ -377,11 +375,21 @@ export function RolesPage() {
             <TableHead className="w-64">功能</TableHead>
             {sortedRoles.map((role) => {
               const admin = role.systemKey === 'admin';
+              const nameError =
+                role.name.trim().length === 0
+                  ? '角色名称不能为空。'
+                  : duplicateNames.has(role.name.trim())
+                    ? '角色名称不能重复。'
+                    : null;
               return (
                 <TableHead key={role.key} className="min-w-40 align-top">
                   <div className="flex items-center gap-1">
                     <Input
                       aria-label={`角色名称：${role.name}`}
+                      aria-invalid={nameError !== null}
+                      aria-describedby={
+                        nameError === null ? undefined : `role-name-error-${role.key}`
+                      }
                       value={role.name}
                       disabled={!canManage || save.isPending}
                       onChange={(event) =>
@@ -404,6 +412,9 @@ export function RolesPage() {
                       </Button>
                     ) : null}
                   </div>
+                  {nameError === null ? null : (
+                    <FieldError id={`role-name-error-${role.key}`}>{nameError}</FieldError>
+                  )}
                   {admin ? (
                     <span className="mt-1 block text-2xs text-muted-foreground">
                       系统管理员权限不可修改
@@ -532,7 +543,7 @@ function GroupRows({
                 aria-label={`${role.name}：${group.label}`}
                 checked={state === 'checked'}
                 indeterminate={state === 'indeterminate'}
-                disabled={!canManage || disabled || admin}
+                disabled={!canManage || disabled || admin || searching}
                 onCheckedChange={() => onToggleGroup(role, group)}
               />
             </TableCell>

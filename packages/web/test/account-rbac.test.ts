@@ -11,8 +11,8 @@ import {
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { AccessDenied } from '../src/components/app-shell.js';
+import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { AccountsPage } from '../src/pages/accounts.js';
 import { AgentDetailPage } from '../src/pages/agents.js';
 import { RolesPage } from '../src/pages/roles.js';
@@ -67,8 +67,7 @@ function me(permissionIds: readonly string[] = ALL): AuthMe {
     roles: [],
     grants: permissionIds.map((permissionId) => ({
       permissionId: permissionId as never,
-      scope: (CATALOG.find((item) => item.id === permissionId)?.scopes[0] ??
-        'platform') as never,
+      scope: (CATALOG.find((item) => item.id === permissionId)?.scopes[0] ?? 'platform') as never,
     })),
   };
 }
@@ -117,9 +116,6 @@ function json(value: unknown, status = 200): Response {
 }
 function problem(status: number, message: string, code = 'ERROR'): Response {
   return Response.json({ code, message }, { status });
-}
-function corpus(): Call[] {
-  return calls.filter((call) => call.path !== '/api/auth/me');
 }
 function bodyOf(path: string, method = 'PUT'): unknown {
   return calls.find((call) => call.method === method && call.path === path)?.body;
@@ -314,7 +310,9 @@ describe('专家详情只认完整配置', () => {
     );
 
     await mount('/agents/$agentId', AgentDetailPage);
-    await waitFor(() => maybeButton('开始对话') ?? document.querySelector('a[href*="agent=agt_1"]'));
+    await waitFor(
+      () => maybeButton('开始对话') ?? document.querySelector('a[href*="agent=agt_1"]'),
+    );
 
     expect(document.querySelector('#agent-name')).toBeNull();
     expect(maybeButton('保存更改')).toBeNull();
@@ -336,7 +334,13 @@ describe('专家详情只认完整配置', () => {
       json({ items: [{ businessId: 'bob', name: '鲍勃', accountActive: true }], total: 1 }),
     );
     route('PUT', /^\/api\/agents\/agt_1\/members\/bob$/, () =>
-      json({ businessId: 'bob', name: '鲍勃', accountActive: true, canUse: true, canMaintain: false }),
+      json({
+        businessId: 'bob',
+        name: '鲍勃',
+        accountActive: true,
+        canUse: true,
+        canMaintain: false,
+      }),
     );
     route('POST', /^\/api\/agents\/agt_1\/transfer$/, () => json(fullAgent));
 
@@ -357,7 +361,9 @@ describe('专家详情只认完整配置', () => {
     await click(button('专家管理操作'));
     await click(menuItem('转交负责人'));
     await waitFor(() => document.querySelector('[role="checkbox"]'));
-    await click(document.querySelector<HTMLElement>('[role="checkbox"]')!);
+    const transferTarget = document.querySelector<HTMLElement>('[role="checkbox"]');
+    if (!transferTarget) throw new Error('Missing transfer checkbox');
+    await click(transferTarget);
     await click(button('转交'));
     expect(bodyOf('/api/agents/agt_1/transfer', 'POST')).toEqual({ ownerBusinessId: 'bob' });
     expect(toastSuccess).toHaveBeenCalledWith('负责人已转交');
@@ -396,9 +402,7 @@ describe('专家详情只认完整配置', () => {
 describe('专家配置权限拆分', () => {
   function editorAccess(permissionIds: string[]): void {
     route('GET', /^\/api\/agents$/, () => json([summary]));
-    route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
-      json({ agentId: 'agt_1', permissionIds }),
-    );
+    route('GET', /^\/api\/agents\/agt_1\/access$/, () => json({ agentId: 'agt_1', permissionIds }));
     route('GET', /^\/api\/agents\/agt_1$/, () => json(fullAgent));
   }
 
@@ -440,9 +444,7 @@ describe('专家配置权限拆分', () => {
 
     expect(field('agent-name').disabled).toBe(true);
     await click(button('行为'));
-    expect(
-      document.querySelector<HTMLTextAreaElement>('#agent-prompt')?.disabled,
-    ).toBe(true);
+    expect(document.querySelector<HTMLTextAreaElement>('#agent-prompt')?.disabled).toBe(true);
     await click(button('权限'));
     const bash = [...document.querySelectorAll<HTMLButtonElement>('[data-slot="toggle"]')].find(
       (item) => item.textContent?.startsWith('Bash'),
@@ -566,6 +568,14 @@ describe('角色矩阵', () => {
     await waitFor(() => document.querySelector('table[aria-label="角色权限矩阵"]'));
   }
 
+  function isDisabled(element: HTMLElement): boolean {
+    return (
+      element.hasAttribute('disabled') ||
+      (element as HTMLButtonElement).disabled === true ||
+      element.getAttribute('aria-disabled') === 'true'
+    );
+  }
+
   it('行角色列、父级半选与整棵子树勾选使用同一份草稿', async () => {
     await openRoles();
     expect(document.querySelector('input[aria-label="角色名称：管理员"]')).toBeTruthy();
@@ -621,21 +631,69 @@ describe('角色矩阵', () => {
     expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
   });
 
-  it('搜索时点击父级仍勾选完整子树', async () => {
+  it('搜索时父级批量禁用，叶与 scope 仍可编辑，清空后恢复整棵子树', async () => {
+    // 使用专家在搜索“查看专家”时被隐藏，用非默认 scope 验证批量不会改写隐藏叶。
+    const member = current.roles[1];
+    if (!member) throw new Error('Missing member role');
+    member.grants = [{ permissionId: 'agents.use', scope: 'platform' }];
     await openRoles();
     const search = document.querySelector<HTMLInputElement>('input[aria-label="搜索权限"]');
     if (!search) throw new Error('Missing role search');
     await type(search, '查看专家');
+
+    expect(isDisabled(checkbox('成员：专家'))).toBe(true);
+    expect(isDisabled(checkbox('成员：发现'))).toBe(true);
+    expect(document.querySelector('[data-permission="agents.use"]')).toBeNull();
+    expect(document.querySelector('[data-permission="agents.config.read"]')).toBeNull();
+
+    // 点击禁用的父级不会改动任何叶，包括当前被隐藏的叶。
     await click(checkbox('成员：专家'));
+    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('false');
+
+    // 可见叶和 scope 在搜索期间仍可编辑。
+    await click(checkbox('成员：查看专家'));
+    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
+    const scopeGroup = document.querySelector<HTMLElement>(
+      '[aria-label="成员：查看专家 授权范围"]',
+    );
+    if (!scopeGroup) throw new Error('Missing member scope group');
+    const platformScope = scopeGroup.querySelector<HTMLElement>('[aria-label="全平台范围"]');
+    if (!platformScope) throw new Error('Missing platform scope');
+    expect(isDisabled(platformScope)).toBe(false);
+    await click(platformScope);
+    expect(platformScope.getAttribute('aria-pressed')).toBe('true');
+
     await type(search, '');
 
+    // 隐藏叶的授权与 scope 保持不动，父级三态按整棵子树重算。
+    expect(checkbox('成员：使用专家').getAttribute('aria-checked')).toBe('true');
+    expect(
+      document
+        .querySelector('[aria-label="成员：使用专家 授权范围"]')
+        ?.querySelector('[aria-label="全平台范围"]')
+        ?.getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(checkbox('成员：查看配置').getAttribute('aria-checked')).toBe('false');
+    expect(checkbox('成员：专家').getAttribute('aria-checked')).toBe('mixed');
+
+    // 重新启用的父级恢复整棵子树批量勾选，已有 scope 不被默认值覆盖。
+    expect(isDisabled(checkbox('成员：专家'))).toBe(false);
+    await click(checkbox('成员：专家'));
     expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
     expect(checkbox('成员：使用专家').getAttribute('aria-checked')).toBe('true');
     expect(checkbox('成员：查看配置').getAttribute('aria-checked')).toBe('true');
+    expect(
+      document
+        .querySelector('[aria-label="成员：使用专家 授权范围"]')
+        ?.querySelector('[aria-label="全平台范围"]')
+        ?.getAttribute('aria-pressed'),
+    ).toBe('true');
   });
 
   it('父级全选保留已有授权的范围，不回落到默认 scope', async () => {
-    current.roles[1]!.grants = [{ permissionId: 'agents.use', scope: 'platform' }];
+    const member = current.roles[1];
+    if (!member) throw new Error('Missing member role');
+    member.grants = [{ permissionId: 'agents.use', scope: 'platform' }];
     route('PUT', /^\/api\/roles$/, (call) => json({ ...current, ...(call.body as object) }));
     await openRoles();
 
@@ -729,9 +787,7 @@ describe('账户管理', () => {
 
   beforeEach(() => {
     status = 'active';
-    route('GET', /^\/api\/accounts$/, () =>
-      json({ items: [{ ...account, status }], total: 1 }),
-    );
+    route('GET', /^\/api\/accounts$/, () => json({ items: [{ ...account, status }], total: 1 }));
     route('GET', /^\/api\/roles$/, () =>
       json({ revision: 1, roles: [{ ...matrixRole, id: 'role_member', name: '成员' }] }),
     );
@@ -786,9 +842,9 @@ describe('账户管理', () => {
 
     await waitFor(() => maybeButton('启用'));
     await click(button('启用'));
-    expect(
-      calls.filter((call) => call.path === '/api/accounts/alice/status').at(-1)?.body,
-    ).toEqual({ status: 'active' });
+    expect(calls.filter((call) => call.path === '/api/accounts/alice/status').at(-1)?.body).toEqual(
+      { status: 'active' },
+    );
   });
 
   it('删除认证只发 DELETE，并说明业务授权保留', async () => {
@@ -797,9 +853,9 @@ describe('账户管理', () => {
     const confirmation = dialog('删除「爱丽丝」的登录认证');
     expect(confirmation.textContent).toContain('业务内容、角色、专家归属与个人记忆都会保留');
     await click(button('删除', confirmation));
-    expect(calls.some((call) => call.method === 'DELETE' && call.path === '/api/accounts/alice')).toBe(
-      true,
-    );
+    expect(
+      calls.some((call) => call.method === 'DELETE' && call.path === '/api/accounts/alice'),
+    ).toBe(true);
     expect(toastSuccess).toHaveBeenCalledWith('已删除登录认证，业务授权仍保留');
   });
 });

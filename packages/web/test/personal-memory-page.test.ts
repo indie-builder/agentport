@@ -426,6 +426,37 @@ describe('记忆页个人偏好', () => {
     expect(editorValue()).toBe('本地草稿');
   });
 
+  it('后台刷新失败保留草稿和保存基线，重试不清空草稿', async () => {
+    await mount();
+    await fillEditor('本地草稿');
+    expect(host.textContent).toContain('未保存');
+
+    let fail = true;
+    vi.mocked(api.personalMemory).mockImplementation(async () => {
+      if (fail) throw new Error('刷新失败');
+      return { content: '服务器新内容', revision: 5, updatedAt: '2026-10-05T00:00:00.000Z' };
+    });
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['personal-memory'], exact: true });
+    });
+    await flush();
+    expect(host.textContent).toContain('刷新失败');
+    expect(editorValue()).toBe('本地草稿');
+    expect(host.textContent).toContain('未保存');
+
+    fail = false;
+    await click(button('重试'));
+    await vi.waitFor(() => expect(host.textContent).not.toContain('刷新失败'));
+    expect(editorValue()).toBe('本地草稿');
+    expect(host.textContent).toContain('未保存');
+
+    await click(button('保存'));
+    expect(api.writePersonalMemory).toHaveBeenCalledWith({
+      content: '本地草稿',
+      expectedRevision: 2,
+    });
+  });
+
   it('浏览器返回走同一放弃确认，取消后草稿仍在', async () => {
     await mount('/memory', { browser: true });
     await fillEditor('未保存的草稿');

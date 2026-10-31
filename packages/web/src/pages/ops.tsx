@@ -38,7 +38,7 @@ import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
-import { formatDateTime, formatRelative } from '../lib/format.js';
+import { formatRelative } from '../lib/format.js';
 import { meQuery, useAgents, useAttention, useSchedules } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
@@ -62,6 +62,22 @@ const weekdayOptions = [
 ] as const;
 
 const defaultWeekdays = ['1', '2', '3', '4', '5'];
+
+// cron 与下次触发都以 UTC 为准；表格不再跟随浏览器本地时区显示。
+const utcDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'UTC',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+function formatUtcDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : utcDateTimeFormatter.format(date);
+}
 
 function parseTime(value: string): { hours: number; minutes: number } | null {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
@@ -290,7 +306,7 @@ export function SchedulesPage() {
                   scope="col"
                   className="hidden w-[120px] py-2 pr-2 text-left font-normal sm:table-cell"
                 >
-                  下次触发
+                  下次触发（UTC）
                 </th>
                 <th
                   scope="col"
@@ -318,7 +334,7 @@ export function SchedulesPage() {
                     </span>
                     {/* 窄屏收起列，用可见标签保留每项数据。 */}
                     <span className="block text-2xs text-muted-foreground sm:hidden">
-                      {schedule.cron} · 下次 {formatDateTime(schedule.nextDueAt)} · 上次{' '}
+                      {schedule.cron} · 下次 UTC {formatUtcDateTime(schedule.nextDueAt)} · 上次{' '}
                       {formatRelative(schedule.lastRunAt)}
                     </span>
                   </th>
@@ -326,7 +342,7 @@ export function SchedulesPage() {
                     <code className="font-mono text-xs text-muted-foreground">{schedule.cron}</code>
                   </td>
                   <td className="hidden py-3 pr-2 text-xs text-muted-foreground sm:table-cell">
-                    {formatDateTime(schedule.nextDueAt)}
+                    {formatUtcDateTime(schedule.nextDueAt)}
                   </td>
                   <td className="hidden py-3 pr-2 text-xs text-muted-foreground sm:table-cell">
                     {formatRelative(schedule.lastRunAt)}

@@ -16,8 +16,8 @@
 | `DATABASE_URL` | 是 | — | api、worker、db 迁移、备份 | PostgreSQL 连接串 |
 | `REDIS_URL` | 否 | `redis://localhost:6379` | api、worker | 队列、事件流、取消、限流共用；用 compose 的 Redis 时连接串需带 `REDIS_PASSWORD` |
 | `APP_SECRET_KEY` | 是 | — | api、worker | MCP 密钥加密主密钥，≥32 字符。**api 与 worker 必须一致**，否则 worker 无法解密 |
-| `ADMIN_USER` | 否 | `admin` | api | 首次初始化创建的管理员用户名；已初始化后不再代表唯一账户，也不覆盖已有账户（本工作树实现，未合入 main） |
-| `ADMIN_PASSWORD` | 是 | — | api | 首次初始化的管理员密码，默认要求 ≥12 字符且不能是 `admin-change-me` / `changeme` / `password`；密码哈希与比对由 better-auth 管理。只在 `platform_bootstrap` marker 不存在时使用，之后启动/登录都不覆盖已有密码；改密走显式账户操作（本工作树实现，未合入 main） |
+| `ADMIN_USER` | 否 | `admin` | api | 首次初始化创建的管理员用户名；已初始化后不再代表唯一账户，也不覆盖已有账户 |
+| `ADMIN_PASSWORD` | 是 | — | api | 首次初始化的管理员密码，默认要求 ≥12 字符且不能是 `admin-change-me` / `changeme` / `password`；密码哈希与比对由 better-auth 管理。只在 `platform_bootstrap` marker 不存在时使用，之后启动/登录都不覆盖已有密码；改密走显式账户操作 |
 | `ALLOW_WEAK_ADMIN_PASSWORD` | 否 | 未设置（等同 `false`） | api | 只接受字面量 `true` / `false`。默认关闭，保持上面的密码规则；个人本地开发要用 admin/admin 时显式设为 `true`，此时仅保留 1–128 字符的基础限制。生产部署不要开启 |
 | `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥（历史命名，不是 JWT），≥32 字符 |
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问域名（如 `https://agentport.example.com`），不要用 `*`。本机 Portless 可加通配符 `https://*.agentport.localhost`（仅 HTTPS 默认端口），一次覆盖变化的 worktree 子域名，精确的 `https://agentport.localhost` 仍保留；生产只有确实要覆盖子域名时才用通配符 |
@@ -38,9 +38,9 @@
 | `REDIS_PASSWORD` | `agentport-dev` | compose | redis 服务密码，同时拼进 api/worker 的 `REDIS_URL`；不是应用变量 |
 | `DOCKER_GID` | `0` | compose | worker 容器加入的组 GID，用于访问宿主 Docker socket |
 
-#### 账户与权限（本工作树已实现；未合入 main）
+#### 账户与权限（已实现并合入 main）
 
-> 以下为最终实现，尚未合入 main、已通过最终 review、准备发布；技术字段与接口以配套契约文件为准。迁移新增 NOT NULL 字段且不回填，只在全新空库验证，不声称旧库可无损升级；部署到既有库需用户明确决定重建数据，不能自动清库。
+> 以下为已实现并合入 main 的能力；技术字段与接口以配套契约文件为准。迁移新增 NOT NULL 字段且不回填，只在全新空库验证，不声称旧库可无损升级；部署到既有库需用户明确决定重建数据，不能自动清库。
 
 - **业务身份**：认证技术 ID 保持随机、只承载登录，可删除并重建；稳定 `businessId` 由管理员录入、不可修改、不可回收给其他自然人。业务创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权与个人记忆都直接记录 `businessId`。
 - **账户重建**：用同一 `businessId` 重建认证账户后，业务归属、角色、成员授权与个人记忆恢复；旧会话不恢复，重建前签发的 Cookie 失效。运维不得靠重建认证账户绕过授权或恢复旧会话。账户可停用；停用撤销全部会话，重新启用不恢复旧 Cookie。最后一名活跃管理员不能被删除、停用或降权，矩阵保存同样校验。
