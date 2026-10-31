@@ -65,8 +65,6 @@ export type NativeQuestions = z.infer<typeof nativeQuestionsSchema>;
 /** 官方工具输入的完整形状：questions 1–4，每题 2–4 个选项。 */
 export const nativeQuestionInputSchema = z.object({ questions: nativeQuestionsSchema });
 
-export type NativeQuestionInput = z.infer<typeof nativeQuestionInputSchema>;
-
 const answersSchema = z
   .record(nonBlank(QUESTION_LIMITS.question), nonBlank(QUESTION_LIMITS.answer))
   .refine((answers) => Object.keys(answers).length <= QUESTION_LIMITS.questions, {

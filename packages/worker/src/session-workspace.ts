@@ -1,7 +1,6 @@
 import { chmod, cp, lstat, mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { WORKSPACE_DIR_MODE } from '@agentport/core';
-import { personalMemoryDir } from './personal-memory.js';
+import { conversationInputsDir, personalMemoryDir, WORKSPACE_DIR_MODE } from '@agentport/core';
 
 /** 只预建目录，不改内容；刷新必须由调用方持有会话 lease。 */
 export async function ensureSessionWorkspace(input: {
@@ -32,7 +31,11 @@ export async function ensureSessionWorkspace(input: {
   const paths = {
     workspaceDir: join(session, 'workspace'),
     outputsDir: join(session, 'outputs'),
-    inputsDir: join(agent, 'conversation-inputs', input.conversationId),
+    inputsDir: conversationInputsDir({
+      root: input.workspacesDir,
+      slug: input.slug,
+      conversationId: input.conversationId,
+    }),
     memoryDir: join(agent, 'agent-memory'),
     sessionsDir: join(agent, 'sdk-sessions', input.conversationId),
     ...(personalDir === undefined ? {} : { personalDir }),

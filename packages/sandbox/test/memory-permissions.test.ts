@@ -2,27 +2,22 @@ import { execFileSync } from 'node:child_process';
 import { link, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PERSONAL_MEMORY_MAX_BYTES, PERSONAL_MEMORY_MAX_CHARS } from '@agentport/shared';
 import type {
   PreToolUseHookInput,
   UserPromptSubmitHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  createFileBoundaryHook,
-  createMemoryHook,
-  createPersonalMemoryHook,
-  PERSONAL_MEMORY_MAX_BYTES,
-  PERSONAL_MEMORY_MAX_CHARS,
-} from '../src/memory-permissions.js';
+import { createFileBoundaryHook, createPersonalMemoryHook } from '../src/memory-permissions.js';
 
 let dir: string;
 let memory: string;
-let hook: ReturnType<typeof createMemoryHook>;
+let hook: ReturnType<typeof createFileBoundaryHook>;
 
 beforeEach(async () => {
   dir = await realpath(await mkdtemp(join(tmpdir(), 'memory-permissions-')));
   memory = join(dir, 'memory');
-  hook = createMemoryHook(memory);
+  hook = createFileBoundaryHook(memory);
   await mkdir(memory);
   await writeFile(join(memory, 'MEMORY.md'), '# memory');
   await writeFile(join(dir, 'outside.md'), 'secret');

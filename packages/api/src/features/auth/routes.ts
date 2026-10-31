@@ -15,9 +15,6 @@ import { ensureBootstrap } from './bootstrap.js';
 import { requireTrustedOrigin } from './origin.js';
 import { AUTH_COOKIE } from './types.js';
 
-/** 其他业务的成员/授权写入复用同一 Origin 校验。 */
-export { requireTrustedOrigin };
-
 /** 登录是唯一未认证的写入口：用户名进审计表，所以长度有上限。 */
 const loginBody = z.object({
   username: z

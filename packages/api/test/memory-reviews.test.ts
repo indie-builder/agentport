@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { personalMemoryDir, personalMemoryPath } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { AGENT_MEMORY_MAX_BYTES, AGENT_MEMORY_MAX_LINES } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
@@ -10,7 +11,6 @@ import { buildApp } from '../src/app.js';
 import { readMemoryFile, writeMemoryFile } from '../src/features/agents/memory-files.js';
 import { registerMemoryChangeRoutes } from '../src/features/memory/changes.js';
 import { memorySha256, writeMemoryJournal } from '../src/features/memory/journal.js';
-import { personalMemoryDir, personalMemoryPath } from '../src/features/memory/personal.js';
 import {
   MEMORY_REVIEW_MAX_BYTES,
   registerMemoryReviewRoutes,

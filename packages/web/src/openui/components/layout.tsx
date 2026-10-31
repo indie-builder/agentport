@@ -1,7 +1,7 @@
 import { useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
 import type { LucideIcon } from 'lucide-react';
 import { icons } from 'lucide-react';
-import { type ComponentType, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Accordion,
   AccordionContent,
@@ -585,6 +585,3 @@ export function EntityListRenderer({
     </div>
   );
 }
-
-/** 虚拟组件：数据由父容器读取，自身不渲染。 */
-export const VirtualComponent: ComponentType = () => null;

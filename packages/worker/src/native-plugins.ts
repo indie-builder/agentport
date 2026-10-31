@@ -8,11 +8,11 @@ import {
   type NativePluginOutput,
   nativePluginActionSchema,
   nativePluginOutputSchema,
+  redactSecrets,
 } from '@agentport/shared';
 import { Worker } from 'bullmq';
 import pino, { type Logger } from 'pino';
 import type { Config } from './config.js';
-import { redactSecrets } from './redact.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from './sandbox/provider.js';

@@ -2,7 +2,6 @@ import type { ServerInput } from '@agentport/shared';
 import { describe, expect, it } from 'vitest';
 import { AppError } from '../src/errors.js';
 import { parseMcpJson } from '../src/mcp-json.js';
-import { toMcpJsonEntry } from '../src/tools.js';
 
 const doc = (servers: Record<string, unknown>) => JSON.stringify({ mcpServers: servers });
 
@@ -77,18 +76,6 @@ describe('parseMcpJson', () => {
     ).toEqual([
       { ...stdio, args: [], env: {} },
       { ...http, headers: {} },
-    ]);
-  });
-
-  it('round-trips entries produced by toMcpJsonEntry', () => {
-    const entries = {
-      files: toMcpJsonEntry(stdio, { EXTRA: 'runtime-secret' }),
-      remote: toMcpJsonEntry(http, { 'X-Token': 'runtime-secret' }),
-    };
-    const parsed = parseMcpJson(doc(entries));
-    expect(parsed).toEqual([
-      { ...stdio, env: { ...stdio.env, EXTRA: 'runtime-secret' } },
-      { ...http, headers: { ...http.headers, 'X-Token': 'runtime-secret' } },
     ]);
   });
 

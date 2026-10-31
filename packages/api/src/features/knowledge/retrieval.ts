@@ -8,7 +8,6 @@ import {
 import { type Database, repo } from '@agentport/db';
 import type {
   KnowledgeImageRef,
-  KnowledgeJobPayload,
   KnowledgeSearchHit,
   KnowledgeSearchQuery,
 } from '@agentport/shared';
@@ -306,9 +305,3 @@ export async function searchKnowledge(
   const hits = ordered.slice(0, query.limit).map(({ row, score }) => hitOf(row, score));
   return { hits, degraded };
 }
-
-export async function createJob(db: Db, input: repo.knowledge.CreateJobInput) {
-  return repo.knowledge.createJob(db, input);
-}
-
-export type { KnowledgeJobPayload };

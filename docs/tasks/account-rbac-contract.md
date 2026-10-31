@@ -163,7 +163,7 @@ prefix 只能作为种子生成辅助，生成后必须校验并保存具体 per
 
 以上人员字段不得 authUsers FK；业务实体之间原本的 FK/删除策略保持。角色/成员残留离线身份是恢复契约，不是垃圾。鉴权只接受活跃认证 user；离线身份不能登录或自动运行。DB 冲突统一 409（复用现有错误码），schema 不符统一 INVALID_INPUT；不新增错误封套。
 
-仓库从现有 `repo/index.ts` 导出 `access`、`accounts`；下列签名固定，`DbHandle=Database|现有Tx`，返回行采用 shared 类型，时间统一 API ISO 字符串。所有接受业务主体的新 repo 写入参数为必填，无 ADMIN_USER_ID 默认值。
+仓库从现有 `repo/index.ts` 导出 `access`、`accounts`；下列签名固定，`DbHandle=Database|现有Tx`，返回行采用 shared 类型，时间统一 API ISO 字符串。所有接受业务主体的新 repo 写入参数为必填，无 ADMIN_USER_ID 默认值（历史提法：现行代码已无 `ADMIN_USER_ID`；业务主体来自 `request.principal.businessId`，`ADMIN_USER` 仅用于首次 bootstrap 的用户名，不作鉴权依据）。
 
 ```ts
 // repo.access
@@ -252,7 +252,7 @@ username 沿用当前 1..128 字符与不归一化规则；name 1..128；passwor
 
 ## 8. worker、个人记忆及执行主体
 
-- HTTP 请求只能提交业务参数。聊天 run 的 initiatedBy 来源 request.principal.businessId；job 只携带现有 ID，worker 由 run/conversation DB 读主体。禁止信任 job/client 的 userId、businessId、role/admin 标记；不得默认 ADMIN_USER_ID。
+- HTTP 请求只能提交业务参数。聊天 run 的 initiatedBy 来源 request.principal.businessId；job 只携带现有 ID，worker 由 run/conversation DB 读主体。禁止信任 job/client 的 userId、businessId、role/admin 标记；不得默认 ADMIN_USER_ID（历史提法：现行代码已无该默认，worker 由 run/conversation 读 `request.principal` 落库的业务主体）。
 - schedule 的 executeAsBusinessId 创建时取当前用户；触发时重查该业务身份仍有活跃账户、对应专家 agents.use 与 schedules.manage。评估执行主体取 evalRuns.createdBy，并重查 eval.execute/agents.use。无资格明确失败/skip 并审计，不降级 system/admin；删除认证账户阻止之后新启动，但不因此删除业务记录。已启动运行按现有取消机制处理，不引入新调度恢复系统。
 - system 的维护任务、MCP 输入有显式 service 主体，不能借 service 获用户 O/P 权限。服务任务不挂任何用户个人记忆；MCP 仅既有暴露专家执行能力。
 - 个人目录为 `workspacesDir/_users/<sha256(UTF8(businessId)) 的完整小写 hex>/CLAUDE.md`；允许 Unicode 后 base64url 可能超过单目录名长度，改用 Node 原生 SHA-256 固定64字符，不增加依赖，不把原始 businessId 拼路径。主机目录变更不改沙盒内既有官方加载路径；仅把当前用户的目录作为现有 personalDir 传入。锁 key 使用同一完整 businessId，API/worker 一致。`projectPersonalMemory(db,pool,workspacesDir,businessId)` businessId 必填，移除默认管理员。

@@ -265,10 +265,6 @@ const permissionById = new Map<string, PermissionDefinition>(
   PERMISSIONS.map((permission) => [permission.id, permission]),
 );
 
-export function isPermissionId(value: string): value is PermissionId {
-  return permissionById.has(value);
-}
-
 export function scopesForPermission(permissionId: PermissionId): readonly AccessScope[] {
   return permissionById.get(permissionId)?.scopes ?? [];
 }
@@ -581,8 +577,6 @@ export const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
-
-export const identityQuerySchema = z.object({ businessId: businessIdSchema });
 
 const U_GRANTS: PermissionGrant[] = [
   { permissionId: 'overview.read', scope: 'own_data' },

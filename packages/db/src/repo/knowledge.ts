@@ -87,18 +87,6 @@ export async function getBase(db: Database, id: string): Promise<KnowledgeBaseRo
   return row ?? null;
 }
 
-export async function getBaseByServerId(
-  db: Database,
-  serverId: string,
-): Promise<KnowledgeBaseRow | null> {
-  const [row] = await db
-    .select()
-    .from(knowledgeBases)
-    .where(eq(knowledgeBases.serverId, serverId))
-    .limit(1);
-  return row ?? null;
-}
-
 export async function listBases(
   db: Database,
   options: PageOptions = {},
@@ -623,21 +611,6 @@ export async function listVersions(
   return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
 }
 
-export async function deleteVersionsExcept(
-  db: Database,
-  documentId: string,
-  keepVersionId: string,
-): Promise<void> {
-  await db
-    .delete(knowledgeDocumentVersions)
-    .where(
-      and(
-        eq(knowledgeDocumentVersions.documentId, documentId),
-        sql`${knowledgeDocumentVersions.id} <> ${keepVersionId}`,
-      ),
-    );
-}
-
 export interface NewChunk {
   ordinal: number;
   kind: KnowledgeChunkRow['kind'];
@@ -683,23 +656,6 @@ export async function insertChunks(
     );
   }
   return inserted;
-}
-
-/** 重建版本时整批替换：同事务内清空旧 chunk 再插入。 */
-export async function replaceChunks(
-  db: Database,
-  input: {
-    baseId: string;
-    documentId: string;
-    versionId: string;
-    folderId: string | null;
-    chunks: NewChunk[];
-  },
-): Promise<KnowledgeChunkRow[]> {
-  return db.transaction(async (tx) => {
-    await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.versionId, input.versionId));
-    return insertChunks(tx, input);
-  });
 }
 
 function chunkPageFilters(versionId: string, options: PageOptions): SQL[] {
@@ -887,8 +843,6 @@ export async function listJobs(db: Database, filter: ListJobsFilter = {}) {
     .limit(limit + 1);
   return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
 }
-
-export type KnowledgeJobSummary = Awaited<ReturnType<typeof listJobs>>['items'][number];
 
 /** 同步任务的 payload 关联；缺失或与行上的 sourceId 不一致都是跨行数据错误。 */
 function syncRefOf(job: KnowledgeJobRow): { syncRunId: string; sourceId: string } {

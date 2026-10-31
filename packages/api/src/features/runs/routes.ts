@@ -152,7 +152,7 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
       config: { access: { kind: 'permission', permissionId: 'runs.read' } },
       schema: { params: idParams },
     },
-    async (request, reply) => {
+    async (request) => {
       await authorizeRun(app, request, request.params.id, 'runs.read');
       const rows = await runsRepo.listApprovalRequests(app.db, request.params.id);
       // 一次取时钟，避免同一响应里的行用不同“现在”判断。

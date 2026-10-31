@@ -615,6 +615,14 @@
 
 **影响面**：`packages/core/src/tools.ts`、`packages/worker/src/index.ts`、`packages/sandbox/src/runner.ts`、`docs/SECURITY.md`；改变边界会触及原生 MCP 集成、凭据信任与功能语义。
 
+## D-77 ⏳ 技能市场安装按钮的 UX 缺口与未消费视觉令牌（2026-10-31，清理任务发现）
+
+**发现**：`packages/web/src/pages/skills.tsx` 的 `MarketSkillsPage` 接收 `canInstall` 却未消费，无权限用户仍看到可点击的安装入口，属按钮 UX 缺口；API 仍按 `market.install` 强制鉴权，不存在安全漏洞。`--shadow-composer` 在 `packages/web/src/styles.css` 与 `docs/DESIGN-SYSTEM.md` 有定义/规范，但当前组件未消费，属文档与实现未消费的冲突；按视觉规范保留，不作为死代码删除。
+
+**当前处理**：本轮代码清理不扩功能、不加门禁：不补安装按钮的禁用/隐藏与权限提示，也不删除视觉 token；API 强制权限与组件现有行为保持不变。是否补按钮反馈作为独立 UX 任务另行决定，不新建 LoopX todo。
+
+**影响面**：`packages/web/src/pages/skills.tsx`、`packages/web/src/styles.css`、`docs/DESIGN-SYSTEM.md`。
+
 ## 决策记录格式
 
 决策后请在此处标注：

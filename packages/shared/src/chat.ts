@@ -421,8 +421,6 @@ export const conversationSearchQuerySchema = z.object({
   before: z.string().min(1).optional(),
 });
 
-export type ConversationSearchQuery = z.infer<typeof conversationSearchQuerySchema>;
-
 export const conversationSearchMatchSchema = z.object({
   kind: z.enum(['id', 'title', 'message']),
   excerpt: z.string().nullable(),

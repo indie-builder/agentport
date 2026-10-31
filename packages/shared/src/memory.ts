@@ -20,6 +20,17 @@ export const AGENT_MEMORY_MAX_BYTES = 25 * 1024;
 /** 任何记忆文件的底层大小上限。 */
 export const MEMORY_FILE_MAX_BYTES = 200_000;
 
+/**
+ * 个人偏好正文上限：9000 个 Unicode 字符（按码点计，不是 UTF-8 字节）。
+ * 官方 UserPromptSubmit additionalContext 单次上限为 10,000 字符，这里留出余量。
+ * API 保存、worker 注入与 web 表单共用这一份。
+ */
+export const PERSONAL_MEMORY_MAX_CHARS = 9000;
+/** 异常内容护栏：9000 个字符最坏约 36 KB，超过说明文件异常，读写都拒绝。 */
+export const PERSONAL_MEMORY_MAX_BYTES = 36 * 1024;
+/** 个人偏好投影到宿主与沙盒只读挂载的文件名。 */
+export const PERSONAL_MEMORY_FILENAME = 'CLAUDE.md';
+
 export const memoryReviewTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('personal') }).strict(),
   z
@@ -228,8 +239,6 @@ export type MemoryReviewDecision = z.infer<typeof memoryReviewDecisionSchema>;
 
 /** 变更只会在事务提交时落账，不存在 prepared 中间态。 */
 export const memoryChangeStateSchema = z.literal('applied');
-
-export type MemoryChangeState = z.infer<typeof memoryChangeStateSchema>;
 
 /** 审核详情：status 来自它背后的运行，decision 是用户是否采纳提案。 */
 export const memoryReviewSchema = z.object({

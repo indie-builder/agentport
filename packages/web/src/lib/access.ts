@@ -3,7 +3,6 @@ import {
   type AccessScope,
   type AuthMe,
   type PermissionDefinition,
-  type PermissionGrant,
   type PermissionId,
 } from '@agentport/shared';
 
@@ -41,16 +40,8 @@ export function canAny(me: AuthMe | undefined, permissionIds: readonly Permissio
   return permissionIds.some((id) => can(me, id));
 }
 
-export function canAll(me: AuthMe | undefined, permissionIds: readonly PermissionId[]): boolean {
-  return permissionIds.every((id) => can(me, id));
-}
-
 export function hasAnyGrant(grantIds: readonly PermissionId[], permissionId: PermissionId): boolean {
   return grantIds.includes(permissionId);
-}
-
-export function hasAllGrants(grantIds: readonly PermissionId[], ids: readonly PermissionId[]): boolean {
-  return ids.every((id) => grantIds.includes(id));
 }
 
 export type MenuItem = {

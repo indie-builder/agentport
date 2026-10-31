@@ -33,8 +33,6 @@ export const pluginCapabilitiesSchema = z.object({
   mcpServers: z.array(z.string()).default([]),
 });
 
-export type PluginCapabilities = z.infer<typeof pluginCapabilitiesSchema>;
-
 export const pluginInputSchema = z.object({
   slug: slugSchema,
   /** SDK 看到的插件名；缺省与原目录名一致。 */

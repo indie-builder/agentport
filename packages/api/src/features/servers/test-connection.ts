@@ -1,5 +1,5 @@
 import type { Server, ServerTestResult } from '@agentport/shared';
-import { limitToolCatalog } from '@agentport/shared';
+import { limitToolCatalog, redactSecrets } from '@agentport/shared';
 import type { Transport } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { Cause, Effect, type Scope } from 'effect';
@@ -131,35 +131,4 @@ function describeFailure(cause: Cause.Cause<unknown>): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
   return 'connection failed';
-}
-
-/**
- * 与 packages/worker/src/redact.ts 同一套规则，但 API 不能依赖 worker 包。
- * shortcut: 两份实现需同步；要改规则就先把 helper 提到 shared。
- */
-function mask(secret: string): string {
-  return secret.length > 4 ? `${secret.slice(0, 4)}***` : '***';
-}
-
-const BEARER = /(\bBearer\s+)([A-Za-z0-9._~+/=-]{8,})/gi;
-const PROVIDER_KEY = /\b(?:sk-|ghp_)[A-Za-z0-9_-]{16,}/g;
-const ASSIGNMENT =
-  /\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|KEY)[A-Za-z0-9_]*)=("[^"\n]*"|'[^'\n]*'|[^\s,;&]+)/gi;
-const BASE64URL = /[A-Za-z0-9_-]{32,}/g;
-
-/** UUID、全小写 hash 也会命中 base64url；要求大小写与数字同时出现才当密钥。 */
-function looksRandom(token: string): boolean {
-  return /[a-z]/.test(token) && /[A-Z]/.test(token) && /\d/.test(token);
-}
-
-function redactSecrets(text: string): string {
-  return text
-    .replace(BEARER, (_match, prefix: string, token: string) => `${prefix}${mask(token)}`)
-    .replace(PROVIDER_KEY, (match) => mask(match))
-    .replace(ASSIGNMENT, (_match, key: string, value: string) => {
-      const quote = value[0] === '"' || value[0] === "'" ? value[0] : '';
-      const body = quote ? value.slice(1, -1) : value;
-      return `${key}=${quote}${mask(body)}${quote}`;
-    })
-    .replace(BASE64URL, (match) => (looksRandom(match) ? mask(match) : match));
 }

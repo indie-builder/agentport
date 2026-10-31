@@ -9,9 +9,6 @@ import { withMemoryJournalDir } from '../agents/memory-files.js';
 
 export type AgentMemoryTarget = Extract<MemoryReviewTarget, { kind: 'agent_memory' }>;
 
-/** 一次写入可能同时改主题正文与伴随索引。 */
-export type MemoryJournalOperation = 'review' | 'rollback' | 'manual';
-
 /**
  * 两条文件上限合计 200000 + 25KB，journal 还要保存恢复用的原始字节（base64 约 4/3）；
  * 保留一倍余量，合法主题不会被日志自己的限额挡住。
@@ -48,7 +45,6 @@ const journalSchema = z
   })
   .strict();
 
-export type MemoryJournalFile = z.infer<typeof journalFileSchema>;
 export type MemoryJournalEntry = z.infer<typeof journalSchema>;
 
 /** 缺失文件用 null 参与比较，与空文件区分开。 */
@@ -94,22 +90,6 @@ async function readJournalFile(dir: string, operationId: string): Promise<Memory
   const entry = journalSchema.safeParse(parsed);
   if (!entry.success || entry.data.operationId !== operationId) throw corrupt(file);
   return entry.data;
-}
-
-/** 按操作身份读取；不存在返回 null，损坏直接抛错，不静默忽略。 */
-export async function readMemoryJournal(
-  workspacesDir: string,
-  slug: string,
-  operationId: string,
-): Promise<MemoryJournalEntry | null> {
-  try {
-    return await withMemoryJournalDir(workspacesDir, slug, false, async (dir) =>
-      readJournalFile(dir, operationId),
-    );
-  } catch (error) {
-    if (hasCode(error, 'ENOENT')) return null;
-    throw error;
-  }
 }
 
 /**

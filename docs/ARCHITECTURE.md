@@ -30,7 +30,7 @@
 | 包 | 职责 | 不做什么 |
 |---|---|---|
 | `shared` | `agentInputSchema`、`serverInputSchema`、`chatEventSchema`、`agentRunJobSchema` 等 | 不 import 其他包（zod 除外） |
-| `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`toMcpJsonEntry()`、`embedTexts()` / `rerankDocuments()` / `segmentForSearch()` | 不碰数据库、不启动进程；纯函数模块不做 I/O，`outputs.ts` / `attachments.ts` 只在调用方传入的根内读写宿主文件；`knowledge-models.ts` 只发 HTTP |
+| `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`parseMcpJson()`、`embedTexts()` / `rerankDocuments()` / `segmentForSearch()`、`writePersonalMemoryProjection()` | 不碰数据库、不启动进程；纯函数模块不做 I/O，`outputs.ts` / `attachments.ts` / `personal-memory.ts` 只在调用方传入的根内读写宿主文件；`knowledge-models.ts` 只发 HTTP |
 | `db` | 表定义、repo、TypeID 生成、迁移 | 不含 HTTP 或业务编排 |
 | `api` | 路由、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不渲染每轮定义；宿主文件只经既有记忆/附件/成果入口读写投影 |
 | `worker` | 消费队列、每轮渲染定义到会话工作区、管理会话沙盒（复用/空闲回收）、回传事件、维护任务 | 不承业务 REST；唯一 HTTP 监听是模型凭证代理 |

@@ -1,10 +1,11 @@
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { personalMemoryDir } from '@agentport/core';
 import { createDb, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { personalMemoryDir, projectPersonalMemory } from '../src/personal-memory.js';
+import { projectPersonalMemory } from '../src/personal-memory.js';
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;

@@ -343,8 +343,6 @@ export const knowledgeWikiPageSchema = z.object({
   updatedAt: z.string(),
 });
 
-export type KnowledgeWikiPage = z.infer<typeof knowledgeWikiPageSchema>;
-
 export const knowledgeJobPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ingest'), documentId: z.string() }),
   z.object({
@@ -415,4 +413,3 @@ export const knowledgeMcpResultSchema = z.union([
 export type KnowledgeSearchResult = z.infer<typeof knowledgeSearchResultSchema>;
 export type KnowledgeReadResult = z.infer<typeof knowledgeReadResultSchema>;
 export type KnowledgeListResult = z.infer<typeof knowledgeListResultSchema>;
-export type KnowledgeMcpResult = z.infer<typeof knowledgeMcpResultSchema>;

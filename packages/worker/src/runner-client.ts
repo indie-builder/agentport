@@ -3,12 +3,15 @@ import {
   type ChatEvent,
   type ExecutionSettlement,
   type NativeQuestion,
+  publicRunQuestion,
   type QuestionResponse,
   RUN_PERSISTED_MAX_BYTES,
   RUN_PERSISTED_MAX_EVENTS,
   RUN_TRANSIENT_MAX_BYTES,
   RUN_TRANSIENT_MAX_EVENTS,
   type RunQuestion,
+  redactChatEvent,
+  redactSecrets,
   runCancelKey,
   runStreamKey,
   type SandboxInputCommand,
@@ -18,7 +21,6 @@ import {
 import { Deferred, Effect, Exit, type Scope } from 'effect';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { publicRunQuestion, redactChatEvent, redactSecrets } from './redact.js';
 import { SandboxCleanupError } from './sandbox/provider.js';
 import type {
   SandboxExecution,

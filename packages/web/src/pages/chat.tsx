@@ -2816,21 +2816,6 @@ function assignApprovals(
   return hosts;
 }
 
-/** 审批卡放在被拒工具的原位置；匹配不上的兜底放在末尾，不能吞掉。 */
-export function findApproval(
-  item: ToolItem,
-  approvalItems: ApprovalRequest[],
-): ApprovalRequest | undefined {
-  const exact = approvalItems.filter(
-    (approval) => approval.serverName && approvalMatchesTool(item, approval),
-  );
-  if (exact.length > 0) return exact.length === 1 ? exact[0] : undefined;
-  const candidates = approvalItems.filter(
-    (approval) => !approval.serverName && approvalMatchesTool(item, approval),
-  );
-  return candidates.length === 1 ? candidates[0] : undefined;
-}
-
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>;
 const NO_KIDS: ToolItem[] = [];
 

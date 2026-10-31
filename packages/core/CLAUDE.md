@@ -5,18 +5,19 @@
 ## 职责与边界
 
 - core 是 api/worker/web 共用的纯机制层：官方文件渲染与解析、路径/名称校验、MCP 条目、密钥加解密、知识模型 HTTP 客户端。不碰数据库，不放 HTTP 路由、队列、沙盒编排或业务状态机。
-- 纯函数模块不读写宿主文件、不启动进程。显式 I/O 只集中在 `outputs.ts`（会话产出草稿/快照）与 `attachments.ts`（会话输入附件）；它们按调用方传入的根工作，不读环境变量或 CWD 猜目录。
+- 纯函数模块不读写宿主文件、不启动进程。显式 I/O 只集中在 `outputs.ts`（会话产出草稿/快照）、`attachments.ts`（会话输入附件）与 `personal-memory.ts`（个人偏好投影）；它们按调用方传入的根工作，不读环境变量或 CWD 猜目录。
 - `knowledge-models.ts` 只发 HTTP；失败分类是 worker 重试策略的依据，不在这里写队列或 DB。
 
 ## 唯一实现
 
 - 官方文件投影只走 `renderWorkspace()` / `toWorkspaceInput()` 及现有解析器（`official-files.ts`、`agent-md.ts`、`skill-md.ts`、`skill-draft.ts`、`plugin-render.ts`、`plugin-display.ts`、`mcp-json.ts`）。API 预览与 worker 落盘共用同一份，不另写生成器或第二套目录格式。
 - 产出统一用 `prepareOutputDraft` / `captureOutputDraft` / `publishOutputSnapshot` / `listOutputFiles` / `readOutputFile`；不得在 core 外新增平行存储布局或发布规则。
+- 个人偏好投影统一用 `personalMemoryDir` / `personalMemoryPath` / `writePersonalMemoryProjection`；API 保存与 worker 每轮重建共用同一份目录规则。个人偏好上限与文件名从 `@agentport/shared` 取。
 - 密钥统一用 `encryptSecrets()` / `decryptSecrets()`（`APP_SECRET_KEY` 派生）；明文不写日志、不落盘，存储与轮换由调用方负责。
 
 ## 文件安全
 
-- `outputs.ts` / `attachments.ts` 的路径校验必须保留：只接受安全相对路径，拒绝绝对路径、`..`、符号链接逃逸、硬链接和非普通文件；校验以调用方传入的物理根为信任起点。
+- `outputs.ts` / `attachments.ts` 的路径校验必须保留：只接受安全相对路径，拒绝绝对路径、`..`、符号链接逃逸、硬链接和非普通文件；校验以调用方传入的物理根为信任起点。`personal-memory.ts` 同样拒绝符号链接目录、符号链接/硬链接/非普通文件，目录 0700、文件 0600。
 - 写入先落到临时目录再原子改名；失败时只回收自己创建的内容，不删除可能由别处创建的数据。
 
 ## Effect 运行时

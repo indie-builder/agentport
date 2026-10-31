@@ -95,8 +95,6 @@ export const attentionItemSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-export type AttentionItem = z.infer<typeof attentionItemSchema>;
-
 export const attentionSchema = z.object({
   approvals: z.array(attentionItemSchema),
   failedRuns: z.array(attentionItemSchema),
@@ -140,5 +138,3 @@ export const agentStatsSchema = z.object({
   /** 按天统计的运行量，供活跃度热力图使用。 */
   daily: z.array(z.object({ day: z.string(), runs: z.number(), cost: z.number() })),
 });
-
-export type AgentStats = z.infer<typeof agentStatsSchema>;
