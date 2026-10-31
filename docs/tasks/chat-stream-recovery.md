@@ -22,7 +22,7 @@
 - 主 checkout：`/Users/xbjt/Documents/myself/agentport`。
 - 任务 worktree：`/Users/xbjt/Documents/myself/agentport/.claude/worktrees/chat-stream-recovery`。
 - 分支：`worktree-chat-stream-recovery`。
-- 起点：fetch 后 `origin/main = 56f01663acff77383ed0cb29cac5cde0971d4238`，任务 HEAD 相同。任务基线保持 `56f0166`；远端 `main` 后续已到 `7b5f0b2`（stack 升级），如合并前同步需另行记录。
+- 起点：fetch 后 `origin/main = 56f01663acff77383ed0cb29cac5cde0971d4238`，任务 HEAD 相同。2026-10-31 已将 `origin/main` `7b5f0b2`（stack 升级）合入任务分支 `4e47d7f`；唯一冲突为 `docs/PITFALLS.md`，双方合计 5 条（本任务 2、主分支 3）全部保留。同步后基线为 `4e47d7f`。
 - 初始 `git status --short` 为空，无其他任务差异。
 - 暂定范围：对话恢复的 web/api/shared/worker/db 现有入口与相关测试、架构文档；实际改动由诊断与契约收窄。
 
@@ -61,7 +61,7 @@
 - 重跑前置：`preview.sh setup` → `preview.sh start` → `preview.sh wait` → `preview.sh seed`。
 - 建议验证顺序：打开会话 → `early` → 刷新 → 确认回放 → 关页后 `tool`/`later` → 重开补齐 → `finish`（或 `finish-db-only`）→ 确认终态、无重复文本、入库历史一致；长流与超大事件分别用 `long`、`bytes` 复验；每条路径用 `reset` 复原。
 - 清理：`./.local/chat-stream-preview/preview.sh cleanup`（只 kill 本任务 pid、删除本任务 Redis 容器与随机库；脚本保留）。
-- 当前 web/API 均在监听：API pid `97811`（3310）、web pid `97820`（5174），`/health/ready` 与 web 根均 200。端口被占用时用 `PREVIEW_API_PORT` / `PREVIEW_WEB_PORT` 在 `setup` 前覆盖。
+- 预览环境已于 2026-10-31 收尾清理（见「下一步」）；上文 pid 为历史记录，不再监听。端口被占用时用 `PREVIEW_API_PORT` / `PREVIEW_WEB_PORT` 在 `setup` 前覆盖。
 
 ## 当前有效决定
 - 用户已要求调研主流方案并在项目完成调整，按此授权推进实现。
@@ -84,10 +84,13 @@
 - [x] 固定契约与文件归属，先红后绿实现最小完整修复。
   - 前端恢复契约已落成 3 条红测并转绿；服务端改为无 MAXLEN 写入、从流头正序分批回放，worker 预算收敛到 shared 常量。代码已落地。
 - [x] 按影响范围验证，独立 Opus review 并修复发现。
-  - 最终验证：四包 typecheck、web/API build、web 8 文件 110/110、全 web 133 文件 1610/1610 全部通过；backend 定向 6 文件 51/51 与相关 3 文件 51/51（合计 9 文件 102/102，0 skip）；17 文件 biome、`lint:contract`、`git diff --check` 全部通过。完整 backend 套件仍在后台运行且无结果，未计入通过。
+  - 最终验证：四包 typecheck、web/API build、web 8 文件 110/110、全 web 133 文件 1610/1610 全部通过；backend 定向 6 文件 51/51 与相关 3 文件 51/51（合计 9 文件 102/102，0 skip）；17 文件 biome、`lint:contract`、`git diff --check` 全部通过。完整 backend 套件当时仍在后台运行且无结果，未计入通过；后续结果见「最终验证」。
   - 终审全部 PASS：服务端复核 fixture marker 通过；前端两项阻断修复通过（32/32）。
 - [x] 更新架构与任务记录，交付真实证据。
   - `docs/ARCHITECTURE.md`、`docs/PITFALLS.md` 已按当前实现更新，本记录已补入最终证据。
+- [x] 同步 `origin/main`、提交并创建 PR。
+  - `7b5f0b2` 合入任务分支 `4e47d7f`（唯一冲突 `docs/PITFALLS.md`，双方合计 5 条（本任务 2、主分支 3）全部保留）；增量 Opus 审查 PASS，PR [#142](https://github.com/indie-builder/agentport/pull/142) 状态 `CLEAN MERGEABLE`。
+  - merge 后复验：web 8 文件 110/110、backend 定向 6 文件 51/51（0 skip）、四包 typecheck 全部通过；`pnpm install --frozen-lockfile` 与 shared/core/db build 通过。
 
 ## 开源依据
 
@@ -110,12 +113,12 @@
 
 ## 下一步
 
-当前状态：实现与终审全部通过；仅待完整 backend 套件结果，以及 commit / PR / merge。
+当前状态：验证与独立终审均已完成；已提交 `91266af` 并推送，PR [#142](https://github.com/indie-builder/agentport/pull/142) 已创建、尚未合并；用户授权仍有效。
 
-1. 等待后台完整 backend 套件结果；未出结果前不声称完整 backend 通过，后续以该结果补充记录。
-2. 提交当前差异、创建 PR 并合并（用户已授权）。
-3. 分支基线仍为 `56f0166`；远端 `main` 已到 `7b5f0b2`（stack 升级）。若合并前需同步 `main`，必须记录同步后的新基线。
-4. 预览进程（API `97811`、web `97820`）与 fixture 暂保留供复验，收尾按 §清理执行。
+1. 剩余唯一待办：按授权合并 PR #142。
+2. 清理已完成：ego taskspace finish；API `97811`、web `97820` 已停止；独享 Redis `backend_test_redis_1f294914e7434bc3` 与 PG `chat_preview_1dd41eac7ffe4b17` 已删除；state/env/logs 数据已移除，脚本保留在 `.local`。
+
+完整 backend 证据（分两次验证，不能表述为单次全套绿）：首次得到 2771 pass / 16 skip / 0 assert failed，但套件初始化版本不匹配、进程 exit 1；换匹配新版镜像 `agentport/sandbox:stack-updates-20261031` 补跑该 16 项单套件，`sdk-current-result.json` 为 `success: true`、`total: 16`、`passed: 16`、`failed: 0`、`skipped: 0`。两次合计覆盖 2787/2787（2771 + 16）。旧镜像 `runtime-env-bash-20261029` 重跑失败，原因是镜像 SDK `0.3.311` 与宿主新版 `0.3.316` 不一致；此前某次 exit 0 无精确统计，不作为通过证据。
 
 写入边界：前端实现代理负责 `use-chat-stream.ts`、必要的 `chat-state.ts`/`chat.tsx` 和现有相关测试；独立测试代理只负责新增 `chat-reload-recovery.test.ts`；临时浏览器 fixture 代理仅写 `.local/chat-stream-preview/`。
 
@@ -162,10 +165,19 @@
 
 最终验证（2026-10-31，终审修复后）：
 
-- 主会话：web 8 文件 110/110；全 web 133 文件 1610/1610；backend 定向 6 文件 51/51 + 相关 3 文件 51/51，合计 9 文件 102/102、0 skip；四包 typecheck 与 build、17 文件 biome、`lint:contract`、`git diff --check` 全部通过。完整 backend 套件在后台运行且无结果，不作为通过依据。
+- 主会话：web 8 文件 110/110；全 web 133 文件 1610/1610；backend 定向 6 文件 51/51 + 相关 3 文件 51/51，合计 9 文件 102/102、0 skip；四包 typecheck 与 build、17 文件 biome、`lint:contract`、`git diff --check` 全部通过。
+- 完整 backend 分两次验证，不能表述为单次全套绿：首次得到 2771 pass / 16 skip / 0 assert failed，但套件初始化版本不匹配、进程 exit 1，不计为单次通过；换匹配新版镜像 `agentport/sandbox:stack-updates-20261031` 补跑该 16 项单套件，`sdk-current-result.json` 为 `success: true`、`total: 16`、`passed: 16`、`failed: 0`、`skipped: 0`。两次合计覆盖 2787/2787（2771 + 16）。
+- 旧镜像 `runtime-env-bash-20261029` 重跑同样失败，原因是镜像 SDK `0.3.311` 与宿主新版 `0.3.316` 不一致；此前某次 exit 0 无精确统计，不作为 SDK 16 项通过的证据。
 - 最终浏览器：`control long` 后 1608 条事件，刷新并关闭后重开，所有 marker 各 1，工具存在。
 - 最终分页浏览器：新建独立会话写入 122 条消息；首屏 50 条为 `hist037..060`，点两次「加载更早」后得到 `001..060` 共 60 对问答、每对 2 个 marker；`lastquestion`/`answer` 各 1，且「加载更早」消失。
 - 未夸大范围：主动运行中的 partial 恢复与两新轮分页只由 hook 单测覆盖，未经真实浏览器验证。
+
+merge 后验证（2026-10-31，`7b5f0b2` 合入 `4e47d7f` 后）：
+
+- web 8 文件 110/110；backend 定向 6 文件 51/51、0 skip；四包 typecheck 全部 exit 0。
+- `pnpm install --frozen-lockfile` 成功；shared/core/db build 成功。
+- 增量 Opus 审查 PASS；PR #142 `CLEAN MERGEABLE`。
+- 完整 backend 已按新版镜像 `agentport/sandbox:stack-updates-20261031` 补跑单套件 16/16（`success: true`、`skipped: 0`）；与首次 2771 pass / 16 skip 合计 2787/2787，分两次验证，不声称单次全套绿。
 
 验收矩阵（截至 2026-10-31）：
 
@@ -186,5 +198,5 @@
 | 服务端 Opus 终审 | fixture marker 复核通过 | PASS |
 | 前端 Opus 终审 | 两项阻断修复后 32/32 通过 | PASS |
 | biome 静态检查 | 17 文件全部通过 | 绿 |
-| 最终 PASS | 终审全部 PASS；完整 backend 套件结果待补 | PASS（仅 backend 完整套件待补） |
-| 收尾 | 已授权 commit/PR/merge；预览进程与 fixture 按 §清理执行 | 待执行 |
+| 最终 PASS | 终审全部 PASS；增量 Opus 审查 PASS；merge 后 web 110/110、backend 定向 51/51、四包 typecheck 通过；完整 backend 分两次验证合计覆盖 2787/2787（首次 2771 pass / 16 skip + 新版镜像补跑 16/16），不声称单次全套绿 | PASS |
+| 收尾 | 已提交 `91266af`、推送并创建 PR [#142](https://github.com/indie-builder/agentport/pull/142)，状态 `CLEAN MERGEABLE`、未合并；ego taskspace finish，API `97811`/web `97820` 已停止，独享 Redis `backend_test_redis_1f294914e7434bc3` 与 PG `chat_preview_1dd41eac7ffe4b17` 已删除，state/env/logs 已移除，脚本保留在 `.local` | 已验证、待合并 |
