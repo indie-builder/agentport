@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import {
@@ -10,6 +9,7 @@ import {
   KnowledgeModelError,
   rerankDocuments,
   segmentForSearch,
+  sha256Hex,
 } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import type { KnowledgeBaseSettings } from '@agentport/shared';
@@ -442,13 +442,9 @@ function pageOptions(query: { cursor?: string | undefined; limit?: number | unde
   };
 }
 
-function sha256(data: Buffer): string {
-  return createHash('sha256').update(data).digest('hex');
-}
-
 /** 与 worker 同一布局：`blobs/<sha 前2位>/<sha>`，先写临时文件再原子 rename。 */
 async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
-  const sha = sha256(data);
+  const sha = sha256Hex(data);
   const target = join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
   await mkdir(dirname(target), { recursive: true });
   const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
@@ -602,7 +598,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   ): repo.knowledge.EditDocumentChunksInput['preparedVersion'] => ({
     id: versionId,
     blobSha256: current.blobSha256,
-    markdownSha256: sha256(Buffer.from(markdown, 'utf8')),
+    markdownSha256: sha256Hex(Buffer.from(markdown, 'utf8')),
     originalFilename: current.originalFilename,
     mimeType: current.mimeType,
     sizeBytes: current.sizeBytes,
@@ -1892,7 +1888,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
           documentId: newDocumentId,
           version: 1,
           blobSha256: version.blobSha256,
-          markdownSha256: sha256(Buffer.from(markdown, 'utf8')),
+          markdownSha256: sha256Hex(Buffer.from(markdown, 'utf8')),
           originalFilename: version.originalFilename,
           mimeType: version.mimeType,
           sizeBytes: version.sizeBytes,

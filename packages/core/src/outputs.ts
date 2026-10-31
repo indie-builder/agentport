@@ -153,7 +153,7 @@ function hasCode(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code;
 }
 
-function sha256(data: Buffer): string {
+export function sha256Hex(data: Buffer | string): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
@@ -576,7 +576,7 @@ export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): 
   const baseFiles = new Map(base?.files.map((file) => [file.path, file]) ?? []);
   const manifestFiles = files.map((file) => {
     const previous = baseFiles.get(file.path);
-    const digest = sha256(file.data);
+    const digest = sha256Hex(file.data);
     return {
       path: file.path,
       size: file.data.length,

@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fail, isAppError } from '@agentport/core';
+import { fail, isAppError, sha256Hex } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import {
   type KnowledgeFaq,
@@ -101,10 +100,6 @@ const testSchema = z.object({
 
 type DocumentRow = typeof schema.knowledgeDocuments.$inferSelect;
 type VersionRow = typeof schema.knowledgeDocumentVersions.$inferSelect;
-
-function sha256(data: Buffer | string): string {
-  return createHash('sha256').update(data).digest('hex');
-}
 
 function faqMarkdown(faq: KnowledgeFaq): string {
   return [`# ${faq.question}`, ...faq.answers.filter((answer) => answer.trim().length > 0)].join(
@@ -317,8 +312,8 @@ async function writeFaqVersion(
   const faqJson = JSON.stringify(input.faq, null, 2);
   const originalFilename = `${input.title}.faq.json`;
   const mimeType = 'application/json';
-  const blobSha = sha256(faqJson);
-  const markdownSha256 = sha256(markdown);
+  const blobSha = sha256Hex(faqJson);
+  const markdownSha256 = sha256Hex(markdown);
   // 文件按预分配版本号先写完整；版本与它自己的索引任务同事务落库，发布守卫才能按任务输入核对。
   await writeVersionFiles(app, input.document.id, versionId, blobSha, markdown, faqJson);
   const payload: KnowledgeJobPayload = {
@@ -513,7 +508,7 @@ async function prepareImportDraft(
   const versionId = newId('knowledgeVersion');
   const markdown = faqMarkdown(input.faq);
   const faqJson = JSON.stringify(input.faq, null, 2);
-  const blobSha = sha256(faqJson);
+  const blobSha = sha256Hex(faqJson);
   await writeVersionFiles(app, input.documentId, versionId, blobSha, markdown, faqJson);
   return {
     draft: {
@@ -521,7 +516,7 @@ async function prepareImportDraft(
       version: {
         id: versionId,
         blobSha256: blobSha,
-        markdownSha256: sha256(markdown),
+        markdownSha256: sha256Hex(markdown),
         originalFilename: `${input.faq.question.slice(0, 300)}.faq.json`,
         mimeType: 'application/json',
         sizeBytes: Buffer.byteLength(faqJson, 'utf8'),

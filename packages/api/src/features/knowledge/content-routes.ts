@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
-import { fail, isAppError } from '@agentport/core';
+import { fail, isAppError, sha256Hex } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { httpUrlSchema } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
@@ -66,13 +65,9 @@ const urlSchema = z.object({
   folderId: folderIdSchema,
 });
 
-function sha256(data: Buffer): string {
-  return createHash('sha256').update(data).digest('hex');
-}
-
 /** 与 worker 同一布局：`blobs/<sha 前2位>/<sha>`，先写临时文件再原子 rename。 */
 async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
-  const sha = sha256(data);
+  const sha = sha256Hex(data);
   const target = join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
   await mkdir(dirname(target), { recursive: true });
   const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
