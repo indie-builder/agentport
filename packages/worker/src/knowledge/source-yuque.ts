@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { type FetchOptions, fetchJson, SourceAuthError, validateSourceUrl } from './source-http.js';
-import { uniquePath } from './source-paths.js';
+import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -97,19 +97,6 @@ function repoIdOf(raw: string): string {
     throw new Error(`yuque repoId is not a safe integer: ${raw}`);
   }
   return String(parsed);
-}
-
-function sanitizeSegment(value: string, fallback: string): string {
-  const cleaned = value
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: filenames must never carry control chars
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^\.+/, '')
-    .slice(0, 120)
-    .trim();
-  return cleaned === '' ? fallback : cleaned;
 }
 
 function isPublished(status: string | number | undefined): boolean {

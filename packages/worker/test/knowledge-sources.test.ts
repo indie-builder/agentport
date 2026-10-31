@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { uniquePath } from '../src/knowledge/source-paths.js';
+import { sanitizeSegment, trimSlash, uniquePath } from '../src/knowledge/source-paths.js';
 import {
   probeSource,
   readSource,
@@ -1460,5 +1460,60 @@ describe('uniquePath', () => {
     const used = new Set<string>(['release.notes/page']);
 
     expect(uniquePath('release.notes/page', used, 'tok-1')).toBe('release [tok-1].notes/page');
+  });
+});
+
+describe('sanitizeSegment', () => {
+  it('replaces path and reserved characters with a single dash run', () => {
+    expect(sanitizeSegment('a/b\\c:d*e?f"g<h>i|j', 'fallback')).toBe('a-b-c-d-e-f-g-h-i-j');
+    expect(sanitizeSegment('a//b', 'fallback')).toBe('a-b');
+  });
+
+  it('turns control characters into spaces and collapses whitespace', () => {
+    expect(sanitizeSegment('a\u0000b\u001fc\u007fd', 'fallback')).toBe('a b c d');
+    expect(sanitizeSegment('  a \t  b  ', 'fallback')).toBe('a b');
+  });
+
+  it('strips leading dots but keeps a trailing dot', () => {
+    expect(sanitizeSegment('...secret.md', 'fallback')).toBe('secret.md');
+    expect(sanitizeSegment('name.', 'fallback')).toBe('name.');
+  });
+
+  it('truncates to 120 characters', () => {
+    expect(sanitizeSegment('a'.repeat(130), 'fallback')).toBe('a'.repeat(120));
+    expect(sanitizeSegment(`${'a'.repeat(119)}.md`, 'fallback')).toHaveLength(120);
+  });
+
+  it('returns the fallback when nothing survives cleaning', () => {
+    expect(sanitizeSegment('', 'fallback')).toBe('fallback');
+    expect(sanitizeSegment('...', 'fallback')).toBe('fallback');
+    expect(sanitizeSegment('\u0000\t', 'fallback')).toBe('fallback');
+  });
+
+  it('keeps normal Chinese text and file extensions', () => {
+    expect(sanitizeSegment('知识库 指南.md', 'fallback')).toBe('知识库 指南.md');
+    expect(sanitizeSegment('知识库/指南.md', 'fallback')).toBe('知识库-指南.md');
+  });
+});
+
+describe('trimSlash', () => {
+  it('removes one or more trailing slashes', () => {
+    expect(trimSlash('https://example.test/base/')).toBe('https://example.test/base');
+    expect(trimSlash('https://example.test/base///')).toBe('https://example.test/base');
+  });
+
+  it('leaves a value without trailing slashes unchanged', () => {
+    expect(trimSlash('https://example.test/base')).toBe('https://example.test/base');
+    expect(trimSlash('')).toBe('');
+  });
+
+  it('turns a slash-only value into an empty string', () => {
+    expect(trimSlash('/')).toBe('');
+    expect(trimSlash('///')).toBe('');
+  });
+
+  it('keeps slashes that are not trailing', () => {
+    expect(trimSlash('/a/b/')).toBe('/a/b');
+    expect(trimSlash('https://example.test/')).toBe('https://example.test');
   });
 });

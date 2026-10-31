@@ -7,7 +7,7 @@ import {
   SourceAuthError,
   validateSourceUrl,
 } from './source-http.js';
-import { uniquePath } from './source-paths.js';
+import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -246,19 +246,6 @@ function mimeForName(name: string, contentType: string | null): string {
 function ensureExtension(name: string, mimeType: string): string {
   if (extensionOf(name)) return name;
   return `${name}${EXTENSION_BY_MIME[mimeType] ?? '.bin'}`;
-}
-
-function sanitizeSegment(value: string, fallback: string): string {
-  const cleaned = value
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: filenames must never carry control chars
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^\.+/, '')
-    .slice(0, 120)
-    .trim();
-  return cleaned === '' ? fallback : cleaned;
 }
 
 function compactId(id: string): string {

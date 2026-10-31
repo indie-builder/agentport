@@ -6,7 +6,7 @@ import {
   SourceAuthError,
   validateSourceUrl,
 } from './source-http.js';
-import { uniquePath } from './source-paths.js';
+import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -185,19 +185,6 @@ async function authenticate(config: SourceConfig, signal: AbortSignal | undefine
       'content-type': 'application/json; charset=utf-8',
     },
   };
-}
-
-function sanitizeSegment(value: string, fallback: string): string {
-  const cleaned = value
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: filenames must never carry control chars
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^\.+/, '')
-    .slice(0, 120)
-    .trim();
-  return cleaned === '' ? fallback : cleaned;
 }
 
 function revisionOf(node: Node): string {
