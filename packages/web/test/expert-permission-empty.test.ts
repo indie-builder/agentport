@@ -166,8 +166,11 @@ describe('agent list empty state follows agent permissions', () => {
     client.setQueryData(['me'], creatorMe);
     client.setQueryData(['runtime-environments'], []);
     await mount(AgentsPage, '/agents');
-    await waitFor(() => host.textContent?.includes('还没有专家'));
-    expect(host.textContent).toContain('创建第一位专家');
+    await waitFor(() => host.textContent?.includes('新建专家'));
+    expect(host.querySelector('button[aria-label="新建专家"]')).not.toBeNull();
+    expect(host.textContent).toContain('创建数字分身');
+    expect(host.textContent).not.toContain('还没有专家');
+    expect(host.textContent).not.toContain('创建第一位专家');
     expect(host.textContent).not.toContain('暂无可用专家');
   });
 
@@ -180,6 +183,7 @@ describe('agent list empty state follows agent permissions', () => {
     expect(host.textContent).toContain('当前账户尚未分配可用专家，请联系管理员。');
     expect(host.textContent).not.toContain('还没有专家');
     expect(host.textContent).not.toContain('创建第一位专家');
+    expect(host.textContent).not.toContain('创建数字分身');
   });
 
   it('keeps the no-results state actionable when filters return nothing', async () => {

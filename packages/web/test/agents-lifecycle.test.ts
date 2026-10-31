@@ -15,8 +15,8 @@ import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
 import { useAgent } from '../src/lib/queries.js';
-import { allAccessMe } from './me-fixture.js';
 import { AgentDetailPage, AgentsPage } from '../src/pages/agents.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('@agentport/core/workspace', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@agentport/core/workspace')>();
@@ -696,7 +696,7 @@ describe('expert discovery', () => {
     client.setQueryData(['agents'], [disabled]);
     vi.mocked(api.agents).mockResolvedValue([disabled]);
     const router = await mount();
-    expect(host.querySelector('[aria-label="专家列表"]')).toBeNull();
+    expect(host.querySelector('[aria-label="专家列表"]')?.textContent).not.toContain('Disabled');
     expect(host.textContent).toContain('没有匹配的专家');
 
     await act(async () =>
@@ -765,11 +765,16 @@ describe('expert discovery', () => {
     client.setQueryData(['agents'], []);
     vi.mocked(api.agents).mockResolvedValue([]);
     const router = await mount();
-    expect(host.textContent).toContain('创建第一位专家');
-    expect(host.textContent).not.toContain('创建数字分身');
-    await click(button('创建第一位专家'));
+    expect(host.textContent).not.toContain('创建第一位专家');
+    const list = host.querySelector('[aria-label="专家列表"]');
+    if (!list) throw new Error('Missing agent list');
+    await click(button('新建专家', list));
     expect(dialog('新建专家')).toBeDefined();
     await click(button('取消', dialog('新建专家')));
+    await flush();
+    await click(button('创建数字分身', list));
+    expect(dialog('创建数字分身')).toBeDefined();
+    await click(button('取消', dialog('创建数字分身')));
     await flush();
 
     client.setQueryData(['agents'], [agent]);
@@ -781,6 +786,48 @@ describe('expert discovery', () => {
     await click(button('清除筛选'));
     await flush();
     expect(host.querySelector('[aria-label="专家列表"]')?.textContent).toContain('Expert');
+  });
+
+  it('prefills the role filter for the empty-result creation while list cards keep their fixed roles', async () => {
+    const router = await mount();
+    await act(async () =>
+      router.navigate({ to: '/agents', search: { role: '数字分身', q: 'missing' } }),
+    );
+    await flush();
+    expect(host.textContent).toContain('没有匹配的专家');
+    const note = [...host.querySelectorAll('span')].find(
+      (item) => item.textContent?.trim() === '没有匹配的专家',
+    );
+    if (!note?.parentElement) throw new Error('Missing empty result note');
+    await click(button('新建专家', note.parentElement));
+    let setup = dialog('创建数字分身');
+    expect(setup.querySelector('#new-agent-role')?.textContent).toContain('数字分身');
+    await click(button('取消', setup));
+    await flush();
+
+    const list = host.querySelector('[aria-label="专家列表"]');
+    if (!list) throw new Error('Missing agent list');
+    await click(button('新建专家', list));
+    setup = dialog('新建专家');
+    expect(setup.querySelector('#new-agent-role')?.textContent).toContain('通用助手');
+    await click(button('取消', setup));
+    await flush();
+
+    await click(button('创建数字分身', list));
+    setup = dialog('创建数字分身');
+    expect(setup.querySelector<HTMLInputElement>('#new-agent-name')?.value).toBe('我的分身');
+  });
+
+  it('opens the digital twin creation from the list card without a role filter', async () => {
+    const router = await mount();
+    const list = host.querySelector('[aria-label="专家列表"]');
+    if (!list) throw new Error('Missing agent list');
+    await click(button('创建数字分身', list));
+    expect(dialog('创建数字分身')).toBeDefined();
+    expect(document.querySelector<HTMLInputElement>('#new-agent-name')?.value).toBe('我的分身');
+    await click(button('取消', dialog('创建数字分身')));
+    await flush();
+    expect(router.state.location.search.role).toBeUndefined();
   });
 
   it('prefills the selected role without writing the search into the working style', async () => {

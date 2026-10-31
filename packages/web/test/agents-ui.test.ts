@@ -1376,9 +1376,11 @@ describe('expert editor regressions', () => {
       if (!toolbar) throw new Error('Missing toolbar trigger');
       (toolbar.props.ref as { current: unknown }).current = fallback;
       if (pass === 0) {
-        const empty = tree.find((node) => node.props.title === '还没有专家');
-        const action = empty?.props.action as Element;
-        (action.props.onClick as (event: unknown) => void)({ currentTarget: trigger });
+        const fan = tree.find(
+          (node) => node.type === 'button' && node.props['aria-label'] === '新建专家',
+        );
+        if (!fan) throw new Error('Missing create trigger');
+        (fan.props.onClick as (event: unknown) => void)({ currentTarget: trigger });
         return;
       }
       const dialog = tree.find((node) => node.type === CreateAgentDialog);
