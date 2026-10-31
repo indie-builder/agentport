@@ -8,6 +8,7 @@ import {
   SourceAuthError,
   validateSourceUrl,
 } from './source-http.js';
+import { trimSlash } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -95,10 +96,6 @@ class ItemError extends Error {
     super(message);
     this.name = 'ItemError';
   }
-}
-
-function trimSlash(value: string): string {
-  return value.replace(/\/+$/, '');
 }
 
 function networkOptions(config: SourceConfig): Network {

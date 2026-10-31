@@ -8,7 +8,7 @@ import {
   SourceAuthError,
   validateSourceUrl,
 } from './source-http.js';
-import { uniquePath } from './source-paths.js';
+import { sanitizeSegment, trimSlash, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -211,10 +211,6 @@ function networkOptions(config: SourceConfig): Network {
     ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
     ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
   };
-}
-
-function trimSlash(value: string): string {
-  return value.replace(/\/+$/, '');
 }
 
 function requireValue(value: string | undefined, message: string): string {
@@ -440,19 +436,6 @@ function filenameOf(title: string | undefined, id: string, mime: string | undefi
   if (extensionOf(clean)) return clean;
   const extension = mime ? EXTENSION_BY_MIME[mime] : undefined;
   return extension ? `${clean}.${extension}` : clean;
-}
-
-function sanitizeSegment(value: string, fallback: string): string {
-  const cleaned = value
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: filenames must never carry control chars
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^\.+/, '')
-    .slice(0, 120)
-    .trim();
-  return cleaned === '' ? fallback : cleaned;
 }
 
 function humanUrl(webui: string | undefined, site: URL): string {

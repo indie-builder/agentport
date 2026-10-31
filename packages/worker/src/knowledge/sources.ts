@@ -10,6 +10,7 @@ import {
   fetchChecked,
   fetchJson,
   readBytesCapped,
+  readCapped,
   SourceAuthError,
   type SourceUrlOptions,
   validateSourceUrl,
@@ -17,7 +18,7 @@ import {
 import { probeIma, readIma } from './source-ima.js';
 import { probeNextcloud, readNextcloud } from './source-nextcloud.js';
 import { probeNotion, readNotion } from './source-notion.js';
-import { uniquePath } from './source-paths.js';
+import { sanitizeSegment, uniquePath } from './source-paths.js';
 import { probeSeafile, readSeafile } from './source-seafile.js';
 import { probeYuque, readYuque } from './source-yuque.js';
 
@@ -105,10 +106,6 @@ function urlOptions(config: SourceConfig): SourceUrlOptions {
 
 const MAX_FEISHU_BLOCKS = 50_000;
 
-async function readCapped(response: Response, label: string): Promise<string> {
-  return new TextDecoder().decode(await readBytesCapped(response, label));
-}
-
 async function fetchText(url: string, options: FetchOptions, label: string): Promise<string> {
   return readCapped(await fetchChecked(url, options), label);
 }
@@ -139,19 +136,6 @@ function textContentType(value: string | null): boolean {
     mime.endsWith('+json') ||
     mime.endsWith('+xml')
   );
-}
-
-function sanitizeSegment(value: string, fallback: string): string {
-  const cleaned = value
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: filenames must never carry control chars
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^\.+/, '')
-    .slice(0, 120)
-    .trim();
-  return cleaned === '' ? fallback : cleaned;
 }
 
 function contentHash(...parts: string[]): string {

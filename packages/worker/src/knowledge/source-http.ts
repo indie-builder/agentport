@@ -278,7 +278,7 @@ export async function fetchChecked(raw: string, options: FetchOptions): Promise<
   throw new Error(`too many redirects from ${sourceLabel}`);
 }
 
-async function readCapped(response: Response, label: string): Promise<string> {
+export async function readCapped(response: Response, label: string): Promise<string> {
   return new TextDecoder().decode(await readBytesCapped(response, label));
 }
 

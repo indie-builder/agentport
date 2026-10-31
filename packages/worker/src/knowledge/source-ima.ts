@@ -7,7 +7,7 @@ import {
   SourceAuthError,
   validateSourceUrl,
 } from './source-http.js';
-import { uniquePath } from './source-paths.js';
+import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -276,19 +276,6 @@ function assertListPage(response: ListResult): void {
   if (!response.is_end && !next) {
     throw new Error('ima get_knowledge_list set is_end=false without a next_cursor');
   }
-}
-
-function sanitizeSegment(value: string, fallback: string): string {
-  const cleaned = value
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: filenames must never carry control chars
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^\.+/, '')
-    .slice(0, 120)
-    .trim();
-  return cleaned === '' ? fallback : cleaned;
 }
 
 function failureOf(externalId: string, title: string, err: unknown): SourceFailure {
