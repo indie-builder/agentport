@@ -13,6 +13,7 @@ import { typed } from '../../types.js';
 import { type Auth, createAuth } from './better-auth.js';
 import { ensureBootstrap } from './bootstrap.js';
 import { requireTrustedOrigin } from './origin.js';
+import { forwardSetCookie, registerPersonalAuthRoutes } from './personal.js';
 import { AUTH_COOKIE } from './types.js';
 
 /** 登录是唯一未认证的写入口：用户名进审计表，所以长度有上限。 */
@@ -63,12 +64,6 @@ function normalizeSession(value: unknown): SessionView | null {
       disabled: user.disabled === true,
     },
   };
-}
-
-/** better-auth 一次可能下发多条 Set-Cookie；数组会被 Fastify 序列成多个同名头。 */
-function forwardSetCookie(headers: Headers, reply: FastifyReply): void {
-  const cookies = headers.getSetCookie();
-  if (cookies.length > 0) reply.header('set-cookie', cookies);
 }
 
 function issuedCookie(headers: Headers): string {
@@ -314,4 +309,6 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       return { ok: true };
     },
   );
+
+  registerPersonalAuthRoutes(app, auth, origin);
 }

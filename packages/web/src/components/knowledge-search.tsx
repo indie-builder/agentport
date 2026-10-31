@@ -219,8 +219,18 @@ function hitLocator(hit: KnowledgeSearchHit): string | null {
   return locatorLabel(hit.locator) ?? citationPageLabel(citationFromHit(hit));
 }
 
-function HitRow({ hit, onOpen }: { hit: KnowledgeSearchHit; onOpen: () => void }) {
+function HitRow({
+  hit,
+  index,
+  onOpen,
+}: {
+  hit: KnowledgeSearchHit;
+  index: number;
+  onOpen: () => void;
+}) {
   const locator = hitLocator(hit);
+  const location = [locator, hit.heading].filter(Boolean).join(' · ');
+  const quoteExcerpt = hit.quote.length > 40 ? `${hit.quote.slice(0, 40)}…` : hit.quote;
   return (
     <li className="flex flex-col gap-1 border-b py-3 last:border-b-0">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -266,7 +276,12 @@ function HitRow({ hit, onOpen }: { hit: KnowledgeSearchHit; onOpen: () => void }
       ) : null}
       <ScoreBreakdown scores={hit.scores} scoreKind={hit.scoreKind} score={hit.score} />
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="link" size="xs" onClick={onOpen}>
+        <Button
+          variant="link"
+          size="xs"
+          aria-label={`查看原文：${hit.title}${location ? `（${location}）` : ''}${quoteExcerpt ? `：${quoteExcerpt}` : ''}，命中 ${index + 1}`}
+          onClick={onOpen}
+        >
           查看原文
         </Button>
         {hit.sourceUrl ? (
@@ -403,8 +418,13 @@ export function KnowledgeSearchResults({
         <EmptyState title={emptyTitle} description="换一个关键词或扩大筛选范围。" />
       ) : (
         <ul className="flex flex-col">
-          {result.hits.map((hit) => (
-            <HitRow key={hit.chunkId} hit={hit} onOpen={() => setCited(citationFromHit(hit))} />
+          {result.hits.map((hit, index) => (
+            <HitRow
+              key={hit.chunkId}
+              hit={hit}
+              index={index}
+              onOpen={() => setCited(citationFromHit(hit))}
+            />
           ))}
         </ul>
       )}

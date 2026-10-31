@@ -80,7 +80,7 @@ spacing:
 ```
 body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 ├─ 侧栏（展开 224px / 收起 64px，透明底，透出渐变，在外壳之外）
-└─ 外壳：下/右 4px 外边距，圆角 16px，表面 #FFFFFF，1px outline #E6E6E6
+└─ 外壳：上/右/下 4px 外边距，圆角 16px，表面 #FFFFFF，1px outline #E6E6E6
    └─ 主区
       ├─ 普通页面：内容左右 24px、底部 24px，顶部 56px 页头
       └─ 聊天：历史／消息列／成果三栏从工作区顶部并排开始
@@ -91,7 +91,7 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 
 **硬性规则**
 
-1. **侧栏在外壳之外**：壳只占主区，下、右各留 4px，左侧紧贴侧栏。壳用 1px `outline var(--color-shell-line)`（`#E6E6E6`），没有 border 与阴影。
+1. **侧栏在外壳之外**：壳只占主区，上、右、下各留 4px，左侧紧贴侧栏。壳用 1px `outline var(--color-shell-line)`（`#E6E6E6`），没有 border 与阴影。顶部 4px 已在 2026-10-31 冻结布局中批准（[qoder-visual-redesign](tasks/qoder-visual-redesign.md)「保持上下右4px外边距」），当前实现 `mt-1 mr-1 mb-1` 与规范一致。
 2. 侧栏背景透明，透出外壳外部根容器的 `bg-shell` 渐变，不与主区分隔线——靠留白分开。
 3. **聊天三栏顶端平齐，消息列自带 56px 头部。** 历史、消息列与成果栏都从 ChatWorkspace 顶部开始并排，没有横跨三栏的外顶栏；ChatTopBar 位于消息列内的 ChatColumn 头部，高 56px、左右 24px。历史收起时头部依次容纳历史开关、搜索、唯一专家选择、当前会话 h1 与操作菜单、右侧成果开关；历史展开时头部只保留历史开关、会话标题与操作、成果开关，搜索与专家选择移入历史栏：历史头部为专家选择 + 新建，其下是既有「搜索全部会话」与列表。窄桌面历史 Sheet 打开时消息头部隐藏搜索与专家选择，Sheet 的 `HistoryHeader` 显示专家选择、新建与关闭，搜索仍在其下；Sheet 关闭后恢复消息头部。专家选择同一时刻只有一处，允许随历史开合切换 DOM 挂载点，不要求前后同一节点或相同 x/y；头部始终位于消息列顶部且高度不变；消息列随分栏开合移动并伸缩，其它子项沿现有 flex 自然排布，不保留空占位。历史默认收起（0），首次展开 240px，可在 200–360px 间拖动并记忆。历史与消息区同用 `bg-surface`（纯白），外部主导航透明并透出 `bg-shell` 渐变；登录页与公开分享页保持纯白基底。消息区左侧历史按钮使用虚线面板图标 `PanelLeftDashed`，右侧会话成果按钮使用镜像的 `PanelRightDashed`；桌面端（`lg` 起）同时显示「会话成果」文字，窄屏保留图标与无障碍名。两者均为常规 32px ghost 按钮，图形比导航的实线折叠图标更轻。右侧会话成果与专家定义文件不同，不展示 `.claude` 配置树；仅展示服务端真实发布的成果，同路径可选择版本，提供静态阅读/源码与下载、基于此版本修改与固定版本分享。成果属于产生它的对话轮次；分享从对应版本的成果面板发起，链接形如 `/s/<shareId>#<token>`，token 只放 URL 片段。无成果显示真实空态，不从回复猜测文件或伪造卡片。该链路已交付，运行验收证据见 `docs/tasks/agent-output-viewing.md`。窗口收窄时历史面板仍可收起；面板切换不得清空输入、变更专家或重建消息流。始终仅一个 h1。
 4. 对话、欢迎态与 Composer 共用同一条 832px 阅读轴线；含左右各 24px 内边距的外容器最大 880px。Composer 在 ChatColumn 内正常流、始终同一位置、距底 24px，不用 `position: fixed` 覆盖消息。
@@ -177,20 +177,24 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 | 外壳 / 线程容器 | **16px** |
 | 对话输入区 | **16px** |
 | 建议入口 | 沿用共享按钮圆角 |
-| 侧栏项 / 新建会话 | **9px** |
-| 图标按钮 / logo / 折叠按钮 | 7px |
-| 侧栏图标底 / 小标签 | 6px |
+| 侧栏条目（展开） | **9px** |
+| 32px 图标按钮 | **7px** |
+| 紧凑图标按钮（28/24px）/ logo / 折叠按钮 | 7px |
+| 侧栏收起态图标块 / 小标签 | 6px |
 | 头像 / 圆形按钮 / 模型选择器 | 9999px |
+
+32px 图标按钮使用 7px；共享 `Button` 的 `size="icon"` 32px / `icon-lg` 36px、紧凑图标按钮与侧栏折叠按钮实例一致。不能把所有 32px 图标按钮都写成 9px。
 
 边线宽度保持既有值（1px border/outline、2px tab indicator/focus），只换颜色，不通过新增 border 改变控件尺寸；checkbox 现有 4px 圆角不动。
 
 - **浮层阴影**：`--shadow-overlay: 0 8px 24px -8px rgb(0 0 0 / 0.12)`；`shadow-md` / `shadow-lg` 继续映射到此值，菜单、Select、Popover、Dialog、Sheet、Toast 统一消费，不新增彩色光晕。
-- **composer 阴影**：`--shadow-composer: 0 1px 4px 0 rgb(0 0 0 / 0.04)`；移除原有 0.5px spread 模拟描边，真实 input 边框仍在，不加厚边界。内容卡片默认无阴影，外壳仍无阴影。
+- **Composer**：当前无阴影；真实 input 边框仍在，不加厚边界。内容卡片默认无阴影，外壳仍无阴影。
 - 分段 tab 当前项去 `shadow-sm`，用既有透明边框换 `line` 形成浅边界；不全局修改 `shadow-sm` 影响其他组件。
 
 ## 4. 字体
 
-- 字体：**Inter**（`Inter, "Inter Fallback", system-ui, sans-serif`）。等宽：**JetBrains Mono Variable / JetBrains Mono**，依次回退 `ui-monospace`、Geist Mono、`monospace`。
+- 字体：**Inter**（`"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif`）。等宽：**JetBrains Mono Variable / JetBrains Mono**，依次回退 `ui-monospace`、`Geist Mono`、`monospace`。
+- `body` 的起点是 15px/1.5，只作未显式覆盖时的兜底；主要界面与对话分别显式使用 `sm` 13/20 与 `base` 14/22，不能把兜底当作阅读规范。
 - 2026-10-31 用户批准的对话字号收紧是 PACE 适配，未对 Qoder 字体做采样：会话标题、默认对话/Markdown/OpenUI 正文与输入使用 `base` 14/22，欢迎标题使用 `2xl` 20/28；全局 `md` 15/26 令牌保留给运行详情等原有用途。
 - **字号阶梯固定在 `styles.css` 的 `--text-*`，按语义唯一取值，不在页面里写硬编码字号。** 相邻档至少差 1px 或一个可见字重差：
 
@@ -275,31 +279,32 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 
 导航分组固定为：
 
-- **工作**：找专家（`/agents`，默认入口；`/` 重定向到这里）、对话（`/chat`）、记忆（`/memory`）、定时任务（`/schedules`）。
+- **工作**：找专家（`/agents`，工作区首个入口；`/` 按账户权限落到第一个可用入口，无业务权限时进入个人资料）、对话（`/chat`）、定时任务（`/schedules`）。
 - **构建**：资源（`/skills`，四类资源：技能 / 连接器 / 插件 / 知识库）、评估（`/eval`）。
 - **运维**：底部独立入口 `/operations`。进入后使用独立导航——概况（原 `OverviewPage`）、运行、运行环境、健康、审计，并提供「返回工作区」；运维不占业务分组。
+- **个人**：底部用户信息即入口，不占业务分组。展开显示头像与姓名，收起保留头像入口；两种状态点击都进入 `/personal/profile`，不触发登出，底部入口的可访问名为「个人资料」。`/personal` 默认转个人资料；六个分区为个人资料（`/personal/profile`）、个人记忆（`/personal/memory`）、历史回顾（`/personal/reviews`）、安全与会话（`/personal/security`）、我的分享（`/personal/shares`）与使用记录（`/personal/usage`），使用独立导航并提供「返回工作区」。我的分享表格标题为「我的会话分享」，只列本人会话下未撤销的链接。原 `/memory` 页面已删除，功能迁入个人模块。专家记忆、定时任务与平台凭据仍留原入口；权限不因整合扩大，管理员个人页也只显示本人数据。
 
 参数来源：2026-10-21 CDP 实测；展开宽度与收起内边距按 2026-10-30 用户批准布局更新，浏览器复测已在覆盖的桌面范围内完成，未覆盖项见 [本任务记录](tasks/qoder-visual-redesign.md)。
 
 - **展开 224px**，内边距 `16px 12px`，分组间距 18px；过渡 `160ms cubic-bezier(.22,1,.36,1)`，同时过渡 width / height / transform / background-color / box-shadow。
 - **收起 64px**，内边距 `16px 16px`；条目变成 32×32 图标块并居中，文字标签 `opacity 0 / width 0`（90ms 过渡），悬停/选中态落在图标块本身而不是整行。
 - 顶部：展开品牌区高 32px，显示完整艺术字组合，与右侧折叠按钮同高同中心线；收起为 32×32 木工矢量标记。收起状态保持原逻辑：悬停时标记淡出，同位置换成展开按钮（32×32，radius 7，140ms），点击展开侧栏，不触发 Logo 切图。
-- 「新建会话」高 28px，radius 9，内边距 `0 0 0 6px`，选中态沿用 §2 的 `selected` 中性浅底与 `selected-foreground` 前景。
-- 分组条目高 32px，radius 7；悬停 `hover` `#F6F6F6`，选中 `selected` `#EFEFEF`。
-- 普通导航文字用 `fg`；分组标题与账号等辅助入口用 `muted-foreground`。
+- 「新建会话」位于对话历史头部，为常规 32px ghost 图标按钮；侧栏不设新建会话入口。
+- 分组条目高 32px：展开态 radius 9（`rounded-item`）；收起态为 32×32 图标块，radius 6（`rounded-tag`）。
+- 普通导航文字用 `fg`；分组标题与账号等辅助入口用 `muted-foreground`。底部用户信息作为个人模块入口，保持现有紧凑样式，展开时头像与姓名靠左，按账号入口而非导航选中行呈现；展开与收起行为一致。
 - 侧栏**没有**分隔线，也不在外壳内部。
 - 选中态 = `selected` 中性浅底 + `selected-foreground` 深色文字与图标，**没有彩色竖条**。
 
 ## 8. 其他页面
 
-1. 同一个外壳：4px 外边距、16px 圆角、`surface` 底。
+1. 同一个外壳：上、右、下 4px 外边距、16px 圆角、`surface` 底。
 2. 普通页面顶部为 PageHeader：单行 56px（`min-h-14`，不另加顶部或横向 padding），名称在左、主操作在右；内容自然换行可增高，不用固定高度裁切。
 3. 一般列表用行：行高 56–64px，1px `line` 分隔线，悬停 `hover`。技能、连接器、插件、知识库四类资源共用资源中心：类型导航与管理操作在首行，来源、搜索、筛选、排序与数量在第二行，排列参考用户指定的 https://www.workbuddy.cn/app/experts，视觉仍使用本规范令牌。专家不再属于资源中心，改为业务入口「找专家」（`/agents`）。
-4. 资源中心沿用 `ResourcePage` 的顶层布局，类型入口使用有名称的导航与真实路由链接，当前项通过 `aria-current="page"` 表达，保留 line 页签外观；页内任务切换仍使用 Base UI Tabs。资源操作区固定两行，与列表共享 24px 内容边：首行 56px，类型导航居左、创建/导入等管理操作居右；次行 PageToolbar 按 DOM 顺序为来源切换（`leadingFilters`）→ 搜索（224px，可收缩）→ 筛选 → 排序 → 结果数量（右侧）。控件内部间距 8px、组间 12px；普通桌面同排，放不下自然换行，不横向溢出、不隐藏控件。技能「内部 / 市场」用 `sunken` 分段控件区别于资源导航；市场保留既有「总榜 / 趋势 / 新热」榜单切换，搜索时隐藏榜单切换、只展示搜索结果。内资源继续使用卡片：网格间距 16px，随可用宽度显示 1–4 列。技能市场使用轻量两列条目，窄桌面降为一列；每条只呈现名称、真实来源与真实安装数，安装使用描边按钮，不添加宣传区、推荐语或无数据支持的热度、市场与分类。专家入口（`/agents`）有 `agents.create` 权限时，专家网格始终先显示两张入口卡（扇形「新建专家」卡 + 「创建数字分身」卡），均打开同一创建 Dialog；工具栏「新建专家 / 导入」保留。专家配置使用独立路由页 `/agents/$agentId`（页头头像 + 名称/描述 + 返回/删除），不再用右侧抽屉；技能与连接器的编辑仍用弹层或抽屉，插件与知识库详情使用独立路由页并执行 §9「阅读工具栏」契约。
+4. 资源中心沿用 `ResourcePage` 的顶层布局，类型入口使用有名称的导航与真实路由链接，当前项通过 `aria-current="page"` 表达，保留 line 页签外观；页内任务切换仍使用 Base UI Tabs。资源操作区固定两行，与列表共享 24px 内容边：首行 56px，类型导航居左、创建/导入等管理操作居右；次行 PageToolbar 按 DOM 顺序为来源切换（`leadingFilters`）→ 搜索（224px，可收缩）→ 筛选 → 排序 → 结果数量（右侧）。PageToolbar 自身 `gap-3`（12px），组内 8px 由内部组合决定；普通桌面同排，放不下自然换行，不横向溢出、不隐藏控件。技能「内部 / 市场」用 `sunken` 分段控件区别于资源导航；市场保留既有「总榜 / 趋势 / 新热」榜单切换，搜索时隐藏榜单切换、只展示搜索结果。内资源继续使用卡片：网格间距 16px，随可用宽度显示 1–4 列。技能市场使用轻量两列条目，窄桌面降为一列；每条只呈现名称、真实来源与真实安装数，安装使用描边按钮，不添加宣传区、推荐语或无数据支持的热度、市场与分类。专家入口（`/agents`）有 `agents.create` 权限时，专家网格始终先显示两张入口卡（扇形「新建专家」卡 + 「创建数字分身」卡），均打开同一创建 Dialog；工具栏「新建专家 / 导入」保留。专家配置使用独立路由页 `/agents/$agentId`（页头头像 + 名称/描述 + 返回/删除），不再用右侧抽屉；技能与连接器的编辑仍用弹层或抽屉，插件与知识库详情使用独立路由页并执行 §9「阅读工具栏」契约。
 5. 表格：表头使用 `xs` 12px 弱色，常规单元格沿用共享 Table 的 `sm` 13px，数字右对齐 + 等宽；`base` 14px 用于列表与卡片标题，不覆盖表格数据字号。
 6. 主按钮：普通主操作 `default` 使用深色实底 `button-primary` `#0D0D0D` 配白字，悬停 `#262626`、按下 `#404040`，保留透明 1px 边框占位；取消与次操作使用 `outline` / `secondary` / `ghost` 中性变体。发送与登录的显式 `solid` 使用同一三态实底，不再另有蓝色分工。常规32px高、9px圆角；紧凑操作28px高、7px圆角。链接与选中用中性 `primary`，用户消息为 `selected` 中性浅底配 `fg` 正文。
-7. 账号入口采用整页 `surface` 底与无外框窄表单，最大宽 320px；Logo 居中显示高 96px，与表单间隔 32px。去掉可见「登录」标题，保留屏幕阅读器用的单一 h1「进入 PACE」，文档标题为 PACE。账号、密码和主按钮高 44px；字段组间距 20px，按钮文案为「登录」/「正在登录…」/「重试」；登录成功回到工作区（`/` 重定向 `/agents`）。不加宣传文案、额外入口或装饰性卡片，保留完整校验、错误提示与提交保护。
-8. 记忆页沿用标准 Page 与 line 页签「个人偏好 / 历史回顾」。个人偏好是左编辑右版本的单页结构，保存为常规 32px 主按钮，版本项提供回滚；历史回顾是按专家筛选的列表 + 创建 Dialog，提案正文、证据与采用/拒绝放在详情 Dialog，不另造记忆专用面板样式。
+7. 账号入口采用整页 `surface` 底与无外框窄表单，最大宽 320px；Logo 居中显示高 96px，与表单间隔 32px。去掉可见「登录」标题，保留屏幕阅读器用的单一 h1「进入 PACE」，文档标题为 PACE。账号、密码和主按钮高 44px；字段组间距 20px，按钮文案为「登录」/「正在登录…」/「重试」；登录成功回到工作区（`/` 按账户权限落到第一个可用入口，无业务权限时进入个人资料）。不加宣传文案、额外入口或装饰性卡片，保留完整校验、错误提示与提交保护。
+8. 个人模块沿用标准 Page 与 PageHeader/PageSection，默认个人资料；个人资料、个人记忆、历史回顾、安全与会话、我的分享与使用记录可直达，并提供返回工作区。个人资料只自助编辑显示姓名，username/businessId/角色只读；个人记忆承接原「个人偏好」的左编辑右版本结构，保存为常规 32px 主按钮，版本项提供回滚；历史回顾沿用按专家筛选的列表 + 创建 Dialog，提案正文、证据与采用/拒绝放在详情 Dialog；安全与会话、我的分享与使用记录沿用共享列表/表格与 Dialog，不另造个人专用面板样式。安全与会话受 Better Auth 默认鲜度限制，登录态过旧时提示重新登录但不自动登出；我的分享表格标题为「我的会话分享」，只列未撤销链接，不承诺来源文件仍存在。管理员个人页同样只显示本人数据。
 9. 公开分享页 `/s/<shareId>#<token>` 不经过应用外壳与登录态：纯白 `canvas` 底、最大宽 728px（公开分享独立阅读宽度，不是聊天 832 轴线）、顶部品牌标记，正文复用阅读/源码/图片（仅 PNG/JPEG/GIF/WebP）与 PDF（与会话成果共用 `BlobPdf` 原生 iframe，支持与 header 门槛一致）预览与下载，其余格式沿用既有行为，只有单一 h1 与「由 PACE 分享」页脚。无效或已撤销统一显示「链接无效或已撤销」，不暴露分享对象是否存在。
 
 ## 9. 组件与交互契约
@@ -309,7 +314,7 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 | 场景 | 统一约定 |
 |---|---|
 | Input / Textarea / Select / Combobox / 搜索 | 单行高 32px，圆角 9px；多行与多选可随内容增高。默认 1px `input` 边框（`#E6E6E6`，等同 `line`），无 hover 加深、无投影；字段布局通过 Field / FieldGroup 表达 |
-| 焦点与边框（统一规则） | 每个控件只允许一层常驻焦点信号，错误态可另加独立 outline：① **有既有边框的输入类**（Input / Textarea / Select 触发器 / Combobox / InputGroup 搜索）→ 普通聚焦把那条 1px 边框换成 `input-focus`（`#BDBDBD`，PACE 中性近似）；composer 文本控制器聚焦由 InputGroup 外框换 `composer-focus`（`#DDDDDD`）；**不再加 2px 光环**，Select 关闭键盘态也用 `input-focus`。错误态保留危险边框，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补焦点（错误边框不等于焦点）。② **无边框或边框透明的按钮类**（Button / TabsTrigger / Toggle / Switch / Checkbox / Badge / 折叠触发 / 拖拽手柄等）→ 用单层 `focus-visible:ring-2 ring-ring`，并且必须带 `focus-visible:outline-none`（避免叠加全局 `:focus-visible` 的 2px outline）；invalid 时危险边框与焦点环共存，不吞焦点。③ 全局 `:focus-visible` 只作兜底。**例外：已选中的填充控件**（如选中的 radio）填充本身已是深色 `primary`，换边框无法表达焦点，改用单层 `data-checked:focus-visible:outline-2 outline-ring outline-offset-2`（2px 背景色间隔的外轮廓，仍算一层焦点信号）；未选中时照常换边框。同类填充控件出现时沿用此例外，不得改用 `ring` 叠层。错误边框与焦点外轮廓可同时存在（各表达一种语义，不算叠层）。原则：**边框与光环二者取其一**；唯一例外是错误态用 outline 补焦点。实底主按钮（`default` 与 `solid`）聚焦时用单层 `focus-visible:ring-2 ring-ring`，并留 `ring-offset-2` + `ring-offset-background` 的 2px 背景色间隔，invalid 时该 offset 不消失。InputGroup / Combobox 由外框承担焦点，内部输入不重复画框。自动校验：`pnpm lint:focus`（已接入 CI，检查输入类原语无 `ring-2`、`focus-visible:ring-2` 必配 `outline-none`）。 |
+| 焦点与边框（统一规则） | 每个控件只允许一层常驻焦点信号，错误态可另加独立 outline：① **有既有边框的输入类**（Input / Textarea / Select 触发器 / Combobox / InputGroup 搜索）→ 普通聚焦把那条 1px 边框换成 `input-focus`（`#BDBDBD`，PACE 中性近似）；composer 文本控制器聚焦由 InputGroup 外框换 `composer-focus`（`#DDDDDD`）；**不再加 2px 光环**，Select 关闭键盘态也用 `input-focus`。错误态保留危险边框，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补焦点（错误边框不等于焦点）。② **无边框或边框透明的按钮类**（Button / TabsTrigger / Toggle / Switch / Checkbox / Badge / 折叠触发 / 拖拽手柄等）→ 用单层 `focus-visible:ring-2 ring-ring`，并且必须带 `focus-visible:outline-none`（避免叠加全局 `:focus-visible` 的 2px outline）；invalid 时危险边框与焦点环共存，不吞焦点。③ 全局 `:focus-visible` 只作兜底。**例外：已选中的填充控件**（选中的 checkbox / radio / switch 等）填充本身已是深色 `primary`，换边框无法表达焦点，改用单层 `data-checked:focus-visible:outline-2 outline-ring outline-offset-2`（2px 背景色间隔的外轮廓，仍算一层焦点信号）；未选中时沿用各原语既有的单层焦点表达。普通字段标签由控件自身表达焦点，卡片式字段标签统一由外层标签的单层焦点表达。同类填充控件出现时沿用此例外，不得改用 `ring` 叠层。错误边框与焦点外轮廓可同时存在（各表达一种语义，不算叠层）。原则：**边框与光环二者取其一**；唯一例外是错误态用 outline 补焦点。实底主按钮（`default` 与 `solid`）聚焦时用单层 `focus-visible:ring-2 ring-ring`，并留 `ring-offset-2` + `ring-offset-background` 的 2px 背景色间隔，invalid 时该 offset 不消失。InputGroup / Combobox 由外框承担焦点，内部输入不重复画框。自动校验：`pnpm lint:focus`（已接入 CI，检查输入类原语无 `ring-2`、`focus-visible:ring-2` 必配 `outline-none`）。 |
 | 错误 / 禁用 | 错误使用危险色边框与字段提示；输入类错误态保留危险边框并用 2px `ring` outline 补焦点，不叠 ring；Field 的 data-invalid 与控件 aria-invalid 同步；禁用同步 data-disabled 与 disabled，保持可读，提交中关闭按钮与取消均不可丢弃请求 |
 | 按钮 | 常规操作 32px / 9px 圆角；紧凑操作 28px / 7px；普通主操作为中性深色实底 `default` 按钮（保留透明 1px 边框占位），工具栏创建使用常规主按钮，资源卡配置/编辑使用紧凑 outline，专家卡使用名称链接与「开始对话」主操作，取消与次操作使用中性 outline，删除与放弃使用 destructive；发送与登录等明确动作显式使用同一中性实底 `solid` 三态。沿用现有 default/solid 调用语义，不逐页批量改 variant；次操作已有显式 variant 必须保留，导出的 `buttonVariants` 与 Button 本体保持一致 |
 | 卡片 | 技能、连接器、插件、知识库四类资源的卡片视图共用 40px 头部图标、标题与描述的横向头部；描述最多两行；能力/标识放内容区，辅助信息与配置/编辑动作放页脚；标题与显式操作可打开同一编辑入口，删除统一放操作菜单；技能、连接器、插件与知识库使用中性图标 |
@@ -331,6 +336,7 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 | 知识库处理记录 | 文档失败可进入按 `document` 定位的处理记录，记录列出真实文档/来源对象与错误，分页追加且保留已加载行；首次失败无成功版本时不提供无效的重新解析。内容管理、来源管理、执行、Wiki 发布、库设置按既有叶权限分别显示动作；设置更换模型不自动重建，未保存草稿不能执行重建，整库重建明确人工分块不会带入新版本 |
 | 知识库文档工具栏 | 「上传文件」是工具栏主操作；上传文件夹、手写文档、导入网址收进相邻的次级「导入」下拉，不与主操作并列。上传进度、单文件限制与逐项失败提示沿用现有行为 |
 | 知识库来源 | 新建来源为「选择 provider → 配置」两步，编辑直接进入配置且来源类型只读；创建与编辑共用同一表单。来源行显示 provider、目标范围、cron 与最近同步状态。配置字段分为「连接」（名称、地址、凭证）与「同步范围」（范围行、cron、删除策略） |
+| 个人模块 | 侧栏展开与收起状态点击用户信息都进入同一模块，默认个人资料，不触发登出；个人资料只自助编辑显示姓名，username、`businessId` 与角色只读；个人记忆沿用原编辑/版本/回滚结构，历史回顾沿用原列表 + Dialog；安全与会话标明当前会话并允许撤销其他会话，改密撤销全部会话，列表受 Better Auth 默认鲜度限制，鲜度不足提示重新登录但不自动登出；我的分享跨会话只列本人会话下未撤销的分享并支持撤销，表格标题为「我的会话分享」，未撤销不保证文件仍存在；使用记录按 `initiatedBy` 固定本人，管理员也只本人，成本区分「未记录」与 0，窗口按运行创建时间的 UTC 日界；专家记忆、定时任务与平台凭据不迁入，权限不因整合扩大 |
 | 定时任务创建与编辑 | `DialogShell` 最大宽 1024px，沿用现有 20px 内边距与共享控件规格；表单容器 ≥800px 时两栏：左栏自适应，与右栏之间 gap 24，右栏总宽固定 320px（含 1px 竖分隔与 24px 左内边距，不额外累加）且 `self-start` 自然高；更窄的桌面窗口顺序堆叠。左侧是开放编辑面而非分区卡：名称常态无边框（边框透明）、14/22 medium，占位「任务名称」，关联标签 sr-only；下方 16px 为可见「任务内容」标签与 Textarea；Textarea 常态透明边框、最小高 160px（约 8 行）、随内容自然增高，聚焦与错误态仍用共享边线。专家紧接正文下 12px，做成轻工具行：左侧标签「执行专家」、右侧内容宽 Select（最大 240px），不设大分区、不 `mt-auto` 贴底。右栏顶部为「执行计划」标题，频率与时间（UTC）同行；weekly 用七个 Toggle 多选星期且必须至少选中一天，custom 直接编辑五段 cron 并原样回填；启用开关在执行计划后 20px，不贴底。页脚右对齐：取消（outline）在前，创建任务 / 创建中… 或保存更改 / 保存中…（常规主操作）在后；短视口下页脚 sticky，始终可达。五段 cron 始终是后端唯一存储值，编辑复杂表达式时原样回填 custom，不擅自改写为 daily/weekly；保存中禁用关闭与提交，dirty 的取消、Esc 与外部点击沿用共享放弃确认。编辑已有任务时专家不可更换。用户仅在云端执行，不提供位置或时区选择；不添加到期、输出方式、执行授权、模型或附件等后端不支持项 |
 
 对话输入区采用 §6 的多行 InputGroup 形态；代码/标识可用等宽字体。除此之外，页面不单独覆盖同类控件的边框、焦点、圆角和高度。
@@ -461,14 +467,14 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 | 类名合并 | `cn`（`lib/cn.ts`） | 唯一实现，不引入 clsx / tailwind-merge 的第二份 |
 | 生成式 UI 渲染 | `@openuidev/react-lang` 的 `<Renderer>` | 组件实现全部映射到 shadcn/ui；官方解析、响应式、表单与Query/Mutation运行时负责交互。业务不加载 `@openuidev/react-ui` 的视觉层，该包仅作开发期契约对照。围栏外散文仍走Markdown |
 
-- 项目圆角：外壳与卡片 16 / 行与常规控件 9 / 图标按钮 7 / 标签 6。底座内部细节沿用官方结构；`--radius` 为 9px，InputGroup 的内部按钮经 `calc()` 推导为 6px。共享映射见 `styles.css`。
+- 项目圆角：外壳与卡片 16 / 行与常规控件 9 / 32px 图标按钮 7（共享 `size="icon"` 32px / `icon-lg` 36px 与紧凑、侧栏折叠实例一致）/ 紧凑图标按钮 7 / 标签 6。底座内部细节沿用官方结构；`--radius` 为 9px，InputGroup 的内部按钮经 `calc()` 推导为 6px。共享映射见 `styles.css`。
 - shadcn 原语的语义色（`bg-popover`、`text-muted-foreground`、`bg-accent` 等）已全部映射到统一语义令牌，**不要在组件里改回具体色值**。
 - shadcn 定制顺序：内置 variant → 局部布局 → 源码中的语义 variant → 有实际复用需求的应用组合。底座组件放 `components/ui/`，应用组合放 `src/components/`（如 `ConfirmDialog`）。允许改源码，但保留原语的 `aria-*`、焦点管理与键盘交互，只改外观 token；安装/更新前对比 git diff，`--overwrite` 会覆盖既有定制。
 
 ## 13. 禁止
 
 - 卡片套卡片、彩色边框、彩色左边条。
-- 外壳渐变之外的其他渐变、玻璃、阴影堆叠（外壳无阴影；输入框用 composer 阴影，浮层统一用 overlay 阴影）。
+- 外壳渐变之外的其他渐变、玻璃、阴影堆叠（外壳与 Composer 无阴影，浮层统一用 overlay 阴影）。
 - emoji 当图标。
 - 一页多个同等权重标题。
 - 把 Logo 的黄色或木色铺成高饱和度的大面积页面、按钮或选中态，也不得为各页面另造强调色；动作统一用中性深色，数据蓝只用于图表数据。

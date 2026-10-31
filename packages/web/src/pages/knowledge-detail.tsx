@@ -80,7 +80,7 @@ import { SearchInput } from '../components/search-input.js';
 import { SourceEditor } from '../components/source-editor.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
@@ -326,15 +326,13 @@ export function KnowledgeDetailPage() {
       <PageHeader
         title={base.data?.name ?? '知识库'}
         leading={
-          <Button
-            variant="outline"
-            size="icon"
-            nativeButton={false}
-            render={<Link to="/knowledge" />}
+          <Link
+            to="/knowledge"
             aria-label="返回知识库列表"
+            className={buttonVariants({ variant: 'outline', size: 'icon' })}
           >
             <ArrowLeft />
-          </Button>
+          </Link>
         }
         eyebrow={
           base.data ? (

@@ -119,8 +119,6 @@
   --text-sm--line-height: 1.25rem;
   --text-base: 0.875rem;
   --text-base--line-height: 1.375rem;
-  --text-mobile-input: 1rem;
-  --text-mobile-input--line-height: 1.5rem;
   --text-md: 0.9375rem;
   /* 26px ≈ 1.73：运行详情等阅读正文需要比控件更松的行高。 */
   --text-md--line-height: 1.625rem;
@@ -167,8 +165,7 @@
   --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
 
 
-  /* 输入框胶囊保留独立阴影，浮层共享 overlay 阴影；都不加彩色光晕。 */
-  --shadow-composer: 0 1px 4px 0 rgb(0 0 0 / 0.04);
+  /* 浮层共享 overlay 阴影；不加彩色光晕。 */
   --shadow-overlay: 0 8px 24px -8px rgb(0 0 0 / 0.12);
 
   /*

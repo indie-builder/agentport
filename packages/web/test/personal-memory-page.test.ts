@@ -15,8 +15,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from '../src/components/app-shell.js';
 import { ApiError, api } from '../src/lib/api.js';
-import { MemoryPage } from '../src/pages/memory.js';
-import { memorySearchSchema } from '../src/routes/-search.js';
+import { PersonalMemoryPage, PersonalReviewsPage } from '../src/pages/personal-memory.js';
+import { personalReviewsSearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
 
 const memory: PersonalMemory = {
@@ -48,16 +48,21 @@ async function flush() {
 }
 
 async function mount(
-  url = '/memory',
+  url = '/personal/memory',
   historyOptions: { entries?: string[]; index?: number; browser?: boolean } = {},
 ) {
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: AppShell });
   const memoryRoute = createRoute({
     getParentRoute: () => shell,
-    path: '/memory',
-    validateSearch: memorySearchSchema,
-    component: MemoryPage,
+    path: '/personal/memory',
+    component: PersonalMemoryPage,
+  });
+  const reviewsRoute = createRoute({
+    getParentRoute: () => shell,
+    path: '/personal/reviews',
+    validateSearch: personalReviewsSearchSchema,
+    component: PersonalReviewsPage,
   });
   const stubs = [
     '/',
@@ -93,7 +98,7 @@ async function mount(
     });
   }
   router = createRouter({
-    routeTree: rootRoute.addChildren([shell.addChildren([memoryRoute, ...stubs])]),
+    routeTree: rootRoute.addChildren([shell.addChildren([memoryRoute, reviewsRoute, ...stubs])]),
     history,
   });
   await act(async () => {
@@ -102,11 +107,15 @@ async function mount(
       createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
     );
   });
-  await vi.waitFor(() => expect(host.querySelector('h1')?.textContent).toBe('记忆'));
-  if (url.includes('tab=reviews')) {
+  await vi.waitFor(() =>
+    expect(host.querySelector('h1')?.textContent).toBe(
+      url.startsWith('/personal/reviews') ? '历史回顾' : '个人记忆',
+    ),
+  );
+  if (url.startsWith('/personal/reviews')) {
     await vi.waitFor(() => expect(host.textContent).toContain('新建回顾'));
   } else {
-    await vi.waitFor(() => expect(host.textContent).toContain('个人偏好内容（Markdown）'));
+    await vi.waitFor(() => expect(host.textContent).toContain('个人记忆内容（Markdown）'));
   }
   return router;
 }
@@ -211,20 +220,20 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe('记忆页个人偏好', () => {
-  it('渲染唯一 h1 并把当前导航标为记忆', async () => {
+describe('个人记忆页', () => {
+  it('渲染唯一 h1 并把底部个人入口标为当前', async () => {
     await mount();
     expect(host.querySelectorAll('h1')).toHaveLength(1);
-    expect(host.querySelector('h1')?.textContent).toBe('记忆');
-    expect(link('记忆').getAttribute('aria-current')).toBe('page');
+    expect(host.querySelector('h1')?.textContent).toBe('个人记忆');
+    expect(link('个人资料').getAttribute('aria-current')).toBe('page');
     expect(link('对话').getAttribute('aria-current')).toBeNull();
   });
 
-  it('从 URL 恢复历史回顾页签', async () => {
-    await mount('/memory?tab=reviews');
+  it('历史回顾是独立路由，不渲染个人记忆编辑器', async () => {
+    await mount('/personal/reviews');
     await vi.waitFor(() => expect(host.textContent).toContain('新建回顾'));
-    expect(host.textContent).not.toContain('个人偏好内容（Markdown）');
-    expect(host.querySelector('h1')?.textContent).toBe('记忆');
+    expect(host.textContent).not.toContain('个人记忆内容（Markdown）');
+    expect(host.querySelector('h1')?.textContent).toBe('历史回顾');
   });
 
   it('加载已有内容并用 expectedRevision 保存', async () => {
@@ -289,7 +298,7 @@ describe('记忆页个人偏好', () => {
     await mount();
     await fillEditor('冲突草稿');
     await click(button('保存'));
-    await vi.waitFor(() => expect(host.textContent).toContain('个人偏好已被其他编辑更新'));
+    await vi.waitFor(() => expect(host.textContent).toContain('个人记忆已被其他编辑更新'));
     expect(editorValue()).toBe('冲突草稿');
 
     vi.mocked(api.personalMemory).mockResolvedValue({
@@ -317,10 +326,11 @@ describe('记忆页个人偏好', () => {
     expect(button('保存').disabled).toBe(true);
   });
 
-  it('下载直接指向个人偏好文件', async () => {
+  it('下载保留原生链接语义并指向个人偏好文件', async () => {
     await mount();
     const download = link('下载');
     expect(download.getAttribute('href')).toBe('/api/me/memory/download');
+    expect(download.getAttribute('role')).toBeNull();
     expect(download.hasAttribute('download')).toBe(true);
   });
 
@@ -378,7 +388,7 @@ describe('记忆页个人偏好', () => {
     await vi.waitFor(() => expect(api.personalMemoryVersions).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(editorValue()).toBe('更早的偏好'));
     expect(api.personalMemory.mock.calls.length).toBeGreaterThan(1);
-    expect(host.querySelector('aside[aria-label="个人偏好版本"]')?.textContent).toContain(
+    expect(host.querySelector('aside[aria-label="个人记忆版本"]')?.textContent).toContain(
       '回滚记录',
     );
   });
@@ -422,7 +432,7 @@ describe('记忆页个人偏好', () => {
       content: '本地草稿',
       expectedRevision: 2,
     });
-    await vi.waitFor(() => expect(host.textContent).toContain('个人偏好已被其他编辑更新'));
+    await vi.waitFor(() => expect(host.textContent).toContain('个人记忆已被其他编辑更新'));
     expect(editorValue()).toBe('本地草稿');
   });
 
@@ -458,7 +468,7 @@ describe('记忆页个人偏好', () => {
   });
 
   it('浏览器返回走同一放弃确认，取消后草稿仍在', async () => {
-    await mount('/memory', { browser: true });
+    await mount('/personal/memory', { browser: true });
     await fillEditor('未保存的草稿');
 
     await act(async () => {
@@ -466,11 +476,11 @@ describe('记忆页个人偏好', () => {
     });
     await vi.waitFor(() =>
       expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-        '放弃未保存的个人偏好？',
+        '放弃未保存的个人记忆？',
       ),
     );
     await click(button('取消', document.querySelector('[role="dialog"]') as HTMLElement));
-    await vi.waitFor(() => expect(window.location.pathname).toBe('/memory'));
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
     expect(editorValue()).toBe('未保存的草稿');
     expect(host.textContent).toContain('未保存');
 
@@ -479,23 +489,29 @@ describe('记忆页个人偏好', () => {
     });
     await vi.waitFor(() =>
       expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-        '放弃未保存的个人偏好？',
+        '放弃未保存的个人记忆？',
       ),
     );
     await confirm('放弃并离开');
     await vi.waitFor(() => expect(host.textContent).toContain('Destination'));
   });
 
-  it('切换页签前确认放弃草稿', async () => {
+  it('切到历史回顾前确认放弃草稿', async () => {
     await mount();
     await fillEditor('未保存的草稿');
-    await click(button('历史回顾'));
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-      '放弃未保存的个人偏好？',
+    await act(async () => {
+      void router.navigate({ to: '/personal/reviews' });
+    });
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+        '放弃未保存的个人记忆？',
+      ),
     );
     await confirm('放弃并离开');
     await vi.waitFor(() => expect(host.textContent).toContain('新建回顾'));
-    await click(button('个人偏好'));
+    await act(async () => {
+      void router.navigate({ to: '/personal/memory' });
+    });
     await vi.waitFor(() => expect(editorValue()).toBe('旧偏好'));
   });
 
@@ -507,7 +523,7 @@ describe('记忆页个人偏好', () => {
     });
     await flush();
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-      '放弃未保存的个人偏好？',
+      '放弃未保存的个人记忆？',
     );
     await confirm('放弃并离开');
     await vi.waitFor(() => expect(host.textContent).toContain('Destination'));

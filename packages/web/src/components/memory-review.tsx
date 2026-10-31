@@ -12,21 +12,25 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { CircleStop, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { can } from '../lib/access.js';
 import { type AgentSummary, ApiError, errorMessage } from '../lib/api.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatCost, runStatusLabel, runStatusVariant, shortId } from '../lib/format.js';
 import {
   agentMemoryQuery,
   agentRulesQuery,
+  agentsQuery,
   memoryVersionsQuery,
-  useAgents,
+  meQuery,
   useApplyMemoryReview,
   useCancelMemoryReview,
-  useConversations,
   useCreateMemoryReview,
+  useMemoryReview,
   useMemoryReviews,
+  usePersonalConversations,
   useRejectMemoryReview,
   useRollbackMemoryChange,
 } from '../lib/queries.js';
@@ -57,7 +61,7 @@ const MAX_SOURCES = 10;
 
 type TargetKind = MemoryReviewTarget['kind'];
 
-const targetKindOptions = [
+const allTargetKindOptions = [
   { value: 'personal', label: '个人偏好' },
   { value: 'agent_memory', label: '专家记忆' },
   { value: 'agent_rule', label: '专家规则' },
@@ -130,15 +134,43 @@ interface SelectedSource {
 export function MemoryReviews({
   agentId,
   onAgentChange,
+  canReview = true,
+  canWrite = true,
+  canReadConversations = true,
+  canReadAgents = true,
+  runId,
+  onRunChange,
 }: {
   agentId: string | null;
   onAgentChange: (next: string | null) => void;
+  /** 创建、拒绝、重新生成与取消生成。 */
+  canReview?: boolean;
+  /** 采纳与回滚。 */
+  canWrite?: boolean;
+  canReadConversations?: boolean;
+  canReadAgents?: boolean;
+  runId: string | null;
+  onRunChange: (next: string | null) => void;
 }) {
-  const agents = useAgents();
+  const me = useQuery(meQuery);
+  const agents = useQuery({ ...agentsQuery, enabled: canReadAgents });
   const reviews = useMemoryReviews(agentId);
+  // 专家目标由各自的读/写叶门控；个人目标沿用页面级的个人记忆权限。
+  const canUseAgents = can(me.data, 'agents.use');
+  const canReadAgentMemory = can(me.data, 'agents.memory.read');
+  const canWriteAgentMemory = can(me.data, 'agents.memory.write');
+  const canReadAgentRules = can(me.data, 'agents.rules.read');
+  const canWriteAgentRules = can(me.data, 'agents.rules.write');
+  const targetReadable = (target: MemoryReviewTarget): boolean =>
+    target.kind === 'personal' ||
+    (target.kind === 'agent_memory' ? canReadAgentMemory : canReadAgentRules);
+  const targetWritable = (target: MemoryReviewTarget): boolean =>
+    target.kind === 'personal' ||
+    (target.kind === 'agent_memory' ? canWriteAgentMemory : canWriteAgentRules);
+  const canUseAgentMemoryTarget = canReadAgentMemory && canWriteAgentMemory;
+  const canUseAgentRuleTarget = canReadAgentRules && canWriteAgentRules;
   const [creating, setCreating] = useState(false);
   const [createSeed, setCreateSeed] = useState<MemoryReview | null>(null);
-  const [detailId, setDetailId] = useState<string | null>(null);
   const [detailPending, setDetailPending] = useState(false);
   const [detailErrors, setDetailErrors] = useState<Record<string, string | null>>({});
   // 详情操作在途时，浏览器后退/刷新不能把请求丢下；结算后取消被拦下的导航。
@@ -157,7 +189,11 @@ export function MemoryReviews({
   const createTrigger = useRef<HTMLButtonElement>(null);
   const detailTrigger = useRef<HTMLButtonElement | null>(null);
   const items = reviews.data?.items ?? [];
-  const detail = items.find((item) => item.runId === detailId) ?? null;
+  const listedDetail = items.find((item) => item.runId === runId) ?? null;
+  // 链接里的回顾不在当前页列表时，用既有详情接口按 run 取；未知 id 返回统一错误态。
+  const fetchedDetail = useMemoryReview(runId !== null && listedDetail === null ? runId : null);
+  const detail = listedDetail ?? (fetchedDetail.data?.runId === runId ? fetchedDetail.data : null);
+  const canCreate = canReview && canReadConversations && canReadAgents && canUseAgents;
   const agentOptions = [
     { value: '', label: '全部专家' },
     ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
@@ -166,12 +202,14 @@ export function MemoryReviews({
   // 采用过的提案是否已被撤销，只看目标自己的变更账本，不依赖本次会话的本地状态。
   const appliedTargets = [
     ...new Map(
-      items
+      [...items, ...(detail ? [detail] : [])]
         .filter((item) => item.decision === 'applied' && item.appliedChangeId !== null)
         .map((item) => [JSON.stringify(item.target), item.target]),
     ).values(),
   ];
-  const versionQueries = useQueries({ queries: appliedTargets.map(memoryVersionsQuery) });
+  const versionQueries = useQueries({
+    queries: appliedTargets.map((target) => memoryVersionsQuery(target, targetReadable(target))),
+  });
   const reversedChangeIds = new Set(
     versionQueries.flatMap((query) =>
       (query.data?.items ?? []).flatMap((change) =>
@@ -194,28 +232,47 @@ export function MemoryReviews({
 
   const openDetail = (review: MemoryReview, trigger: HTMLButtonElement): void => {
     detailTrigger.current = trigger;
-    setDetailId(review.runId);
+    onRunChange(review.runId);
   };
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <FilterSelect
-          value={agentId ?? ''}
-          onValueChange={(next) => onAgentChange(next || null)}
-          options={agentOptions}
-          label="按专家筛选历史回顾"
-          className="w-full sm:w-44"
-        />
-        <Button
-          ref={createTrigger}
-          className="ml-auto"
-          onClick={() => openCreate()}
-          disabled={agents.isPending || agents.isError}
-        >
-          <Plus data-icon="inline-start" aria-hidden="true" />
-          新建回顾
-        </Button>
+        {canReadAgents ? (
+          <FilterSelect
+            value={agentId ?? ''}
+            onValueChange={(next) => onAgentChange(next || null)}
+            options={agentOptions}
+            label="按专家筛选历史回顾"
+            className="w-full sm:w-44"
+          />
+        ) : null}
+        {canReview ? (
+          <Button
+            ref={createTrigger}
+            className="ml-auto"
+            onClick={() => openCreate()}
+            disabled={
+              agents.isPending ||
+              agents.isError ||
+              !canReadConversations ||
+              !canReadAgents ||
+              !canUseAgents
+            }
+            title={
+              !canReadConversations
+                ? '需要会话读取权限才能选择来源'
+                : !canReadAgents
+                  ? '需要专家目录读取权限才能选择专家'
+                  : !canUseAgents
+                    ? '需要专家使用权限才能执行回顾'
+                    : undefined
+            }
+          >
+            <Plus data-icon="inline-start" aria-hidden="true" />
+            新建回顾
+          </Button>
+        ) : null}
       </div>
 
       {agents.isError ? (
@@ -233,10 +290,12 @@ export function MemoryReviews({
             title="让模型整理值得保存的记忆"
             description="选择执行审核的专家和来源会话，生成可采纳的偏好或规则提案。"
             action={
-              <Button onClick={() => openCreate()} disabled={agents.isPending || agents.isError}>
-                <Plus data-icon="inline-start" aria-hidden="true" />
-                新建回顾
-              </Button>
+              canCreate ? (
+                <Button onClick={() => openCreate()} disabled={agents.isPending || agents.isError}>
+                  <Plus data-icon="inline-start" aria-hidden="true" />
+                  新建回顾
+                </Button>
+              ) : undefined
             }
           />
         ) : (
@@ -303,16 +362,21 @@ export function MemoryReviews({
           agents={agents.data ?? []}
           defaultAgentId={agentId}
           seed={createSeed}
+          canUseAgents={canUseAgents}
+          canUseAgentMemoryTarget={canUseAgentMemoryTarget}
+          canUseAgentRuleTarget={canUseAgentRuleTarget}
+          canReadAgentMemory={canReadAgentMemory}
+          canReadAgentRules={canReadAgentRules}
           onClose={closeCreate}
           finalFocus={() => createTrigger.current}
         />
       ) : null}
 
-      {detail ? (
+      {detail || runId !== null ? (
         <Dialog
           open
           onOpenChange={(next) => {
-            if (!next && !detailPending) setDetailId(null);
+            if (!next && !detailPending) onRunChange(null);
           }}
         >
           <DialogShell
@@ -320,23 +384,39 @@ export function MemoryReviews({
             closeDisabled={detailPending}
             finalFocus={() => (detailTrigger.current?.isConnected ? detailTrigger.current : null)}
           >
-            <MemoryReviewDetail
-              review={detail}
-              agents={agents.data}
-              rolledBack={rolledBack(detail)}
-              actionError={detailErrors[detail.runId] ?? null}
-              onActionError={(message) =>
-                setDetailErrors((previous) => ({ ...previous, [detail.runId]: message }))
-              }
-              onPendingChange={setDetailPending}
-              onRegenerate={(review) => {
-                setDetailId(null);
-                openCreate(review);
-              }}
-              onClose={() => {
-                if (!detailPending) setDetailId(null);
-              }}
-            />
+            {detail ? (
+              <MemoryReviewDetail
+                review={detail}
+                agents={agents.data}
+                rolledBack={rolledBack(detail)}
+                canReview={canReview}
+                canWrite={canWrite}
+                canUseAgents={canUseAgents}
+                canReadTarget={targetReadable(detail.target)}
+                canWriteTarget={targetWritable(detail.target)}
+                canReadConversations={canReadConversations}
+                actionError={detailErrors[detail.runId] ?? null}
+                onActionError={(message) =>
+                  setDetailErrors((previous) => ({ ...previous, [detail.runId]: message }))
+                }
+                onPendingChange={setDetailPending}
+                onRegenerate={(review) => {
+                  onRunChange(null);
+                  openCreate(review);
+                }}
+                onClose={() => {
+                  if (!detailPending) onRunChange(null);
+                }}
+              />
+            ) : fetchedDetail.isError ? (
+              <ErrorState
+                error={fetchedDetail.error}
+                onRetry={() => void fetchedDetail.refetch()}
+                title="没有找到这次回顾"
+              />
+            ) : (
+              <LoadingState rows={3} />
+            )}
           </DialogShell>
         </Dialog>
       ) : null}
@@ -426,12 +506,22 @@ function CreateMemoryReviewDialog({
   agents,
   defaultAgentId,
   seed,
+  canUseAgents,
+  canUseAgentMemoryTarget,
+  canUseAgentRuleTarget,
+  canReadAgentMemory,
+  canReadAgentRules,
   onClose,
   finalFocus,
 }: {
   agents: AgentSummary[];
   defaultAgentId: string | null;
   seed: MemoryReview | null;
+  canUseAgents: boolean;
+  canUseAgentMemoryTarget: boolean;
+  canUseAgentRuleTarget: boolean;
+  canReadAgentMemory: boolean;
+  canReadAgentRules: boolean;
   onClose: () => void;
   finalFocus: () => HTMLElement | null;
 }) {
@@ -453,15 +543,20 @@ function CreateMemoryReviewDialog({
 
   const modelAgent = agents.find((agent) => agent.id === modelAgentId);
   const conversationAgentId = targetKind === 'personal' ? sourceExpertId : targetAgentId;
-  const conversations = useConversations(conversationAgentId || null);
+  const conversations = usePersonalConversations(conversationAgentId || null);
   const rules = useQuery({
     ...agentRulesQuery(targetAgentId),
-    enabled: targetKind === 'agent_rule' && targetAgentId !== '',
+    enabled: targetKind === 'agent_rule' && targetAgentId !== '' && canReadAgentRules,
   });
   const memory = useQuery({
     ...agentMemoryQuery(targetAgentId),
-    enabled: targetKind === 'agent_memory' && targetAgentId !== '',
+    enabled: targetKind === 'agent_memory' && targetAgentId !== '' && canReadAgentMemory,
   });
+  const targetKindOptions = allTargetKindOptions.filter(
+    (option) =>
+      option.value === 'personal' ||
+      (option.value === 'agent_memory' ? canUseAgentMemoryTarget : canUseAgentRuleTarget),
+  );
   const enabled = agents.filter((agent) => agent.enabled);
   const agentOptions = enabled.map((agent) => ({ value: agent.id, label: agent.name }));
   const ruleSlug = ruleChoice === '__new__' ? newRuleSlug.trim() : ruleChoice;
@@ -568,6 +663,7 @@ function CreateMemoryReviewDialog({
   };
 
   const submit = (): void => {
+    if (!canUseAgents) return;
     const next: CreateFieldErrors = {};
     if (!modelAgentId) next.model = '选择执行审核的专家。';
     if (targetKind !== 'personal' && !targetAgentId) next.target = '选择目标专家。';
@@ -651,7 +747,7 @@ function CreateMemoryReviewDialog({
               <Select
                 value={modelAgentId}
                 items={agentOptions}
-                disabled={create.isPending}
+                disabled={create.isPending || !canUseAgents}
                 onValueChange={(next) => {
                   if (next === null) return;
                   setModelAgentId(next);
@@ -1053,7 +1149,11 @@ function CreateMemoryReviewDialog({
             >
               取消
             </Button>
-            <Button type="submit" disabled={create.isPending} aria-busy={create.isPending}>
+            <Button
+              type="submit"
+              disabled={create.isPending || !canUseAgents}
+              aria-busy={create.isPending}
+            >
               {create.isPending ? '提交中…' : '开始回顾'}
             </Button>
           </div>
@@ -1087,6 +1187,12 @@ function MemoryReviewDetail({
   review,
   agents,
   rolledBack,
+  canReview,
+  canWrite,
+  canUseAgents,
+  canReadTarget,
+  canWriteTarget,
+  canReadConversations,
   actionError,
   onActionError,
   onPendingChange,
@@ -1096,6 +1202,13 @@ function MemoryReviewDetail({
   review: MemoryReview;
   agents: AgentSummary[] | undefined;
   rolledBack: boolean;
+  canReview: boolean;
+  canWrite: boolean;
+  canUseAgents: boolean;
+  /** 当前目标专家对应的读/写叶；个人目标恒为真。 */
+  canReadTarget: boolean;
+  canWriteTarget: boolean;
+  canReadConversations: boolean;
   actionError: string | null;
   onActionError: (message: string | null) => void;
   onPendingChange: (pending: boolean) => void;
@@ -1120,6 +1233,8 @@ function MemoryReviewDetail({
     after.index.content !== review.before.index.content;
   const failed = !active && !succeeded;
   const pending = apply.isPending || reject.isPending || cancel.isPending || rollback.isPending;
+  // 专家目标的读/写叶与后端一致：采纳/拒绝需要读+写，回滚只需写。
+  const canActOnTarget = canReadTarget && canWriteTarget;
 
   useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
   useEffect(() => () => onPendingChange(false), [onPendingChange]);
@@ -1187,24 +1302,31 @@ function MemoryReviewDetail({
       {review.sources.length > 0 ? (
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-muted-foreground">
           <span>来源</span>
-          {review.sources.map((source) => (
-            <a
-              key={source.conversationId}
-              href={`/chat?conversation=${encodeURIComponent(source.conversationId)}`}
-              aria-disabled={pending || undefined}
-              onClick={(event) => {
-                // 保留链接语义；在途操作结算前只阻止离开，不伪造一次导航。
-                if (pending) event.preventDefault();
-              }}
-              className={
-                pending
-                  ? 'cursor-not-allowed text-muted-foreground underline underline-offset-4'
-                  : 'text-primary underline underline-offset-4 hover:text-primary-hover'
-              }
-            >
-              {source.title || source.conversationId}（{source.messageCount} 条消息）
-            </a>
-          ))}
+          {review.sources.map((source) =>
+            canReadConversations ? (
+              <Link
+                key={source.conversationId}
+                to="/chat"
+                search={{ conversation: source.conversationId }}
+                aria-disabled={pending || undefined}
+                onClick={(event) => {
+                  // 保留链接语义；在途操作结算前只阻止离开，不伪造一次导航。
+                  if (pending) event.preventDefault();
+                }}
+                className={
+                  pending
+                    ? 'cursor-not-allowed text-muted-foreground underline underline-offset-4'
+                    : 'text-primary underline underline-offset-4 hover:text-primary-hover'
+                }
+              >
+                {source.title || source.conversationId}（{source.messageCount} 条消息）
+              </Link>
+            ) : (
+              <span key={source.conversationId}>
+                {source.title || source.conversationId}（{source.messageCount} 条消息）
+              </span>
+            ),
+          )}
         </div>
       ) : null}
 
@@ -1317,7 +1439,7 @@ function MemoryReviewDetail({
       ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
-        {active ? (
+        {active && canReview ? (
           <Button
             variant="outline"
             disabled={pending}
@@ -1333,7 +1455,11 @@ function MemoryReviewDetail({
           </Button>
         ) : null}
 
-        {review.decision === 'applied' && review.appliedChangeId && !rolledBack ? (
+        {review.decision === 'applied' &&
+        review.appliedChangeId &&
+        !rolledBack &&
+        canWrite &&
+        canWriteTarget ? (
           <Button
             variant="outline"
             disabled={pending}
@@ -1345,7 +1471,7 @@ function MemoryReviewDetail({
           </Button>
         ) : null}
 
-        {!active && review.decision !== 'applied' ? (
+        {!active && review.decision !== 'applied' && canReview && canUseAgents && canActOnTarget ? (
           <Button variant="outline" disabled={pending} onClick={() => onRegenerate(review)}>
             重新生成
           </Button>
@@ -1353,17 +1479,21 @@ function MemoryReviewDetail({
 
         {succeeded && review.decision === 'pending' && hasChanges ? (
           <>
-            <Button
-              variant="outline"
-              disabled={pending}
-              aria-busy={reject.isPending}
-              onClick={rejectReview}
-            >
-              {reject.isPending ? '处理中…' : '不采用'}
-            </Button>
-            <Button disabled={pending} aria-busy={apply.isPending} onClick={applyReview}>
-              {apply.isPending ? '采用中…' : '采用'}
-            </Button>
+            {canReview && canActOnTarget ? (
+              <Button
+                variant="outline"
+                disabled={pending}
+                aria-busy={reject.isPending}
+                onClick={rejectReview}
+              >
+                {reject.isPending ? '处理中…' : '不采用'}
+              </Button>
+            ) : null}
+            {canWrite && canActOnTarget ? (
+              <Button disabled={pending} aria-busy={apply.isPending} onClick={applyReview}>
+                {apply.isPending ? '采用中…' : '采用'}
+              </Button>
+            ) : null}
           </>
         ) : null}
 

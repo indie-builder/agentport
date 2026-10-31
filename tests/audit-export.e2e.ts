@@ -110,6 +110,8 @@ test('target filter narrows the list and the export', { session: 'admin' }, asyn
     await expect(screen.getByText(ownAction, { exact: true }).first()).toBeVisible();
     await expect(screen.getByText(unrelatedAction, { exact: true }).first()).not.toBeVisible();
 
+    // 输入后防抖期间导出入口显示「等待筛选…」，等它恢复为可导出的动作名再点击。
+    await expect(screen.getByRole('button', '导出审计', { exact: true })).toBeEnabled();
     const download = await browser.waitForDownload(() =>
       screen.getByRole('button', '导出审计', { exact: true }).tap(),
     );

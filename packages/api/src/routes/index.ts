@@ -22,6 +22,7 @@ import { registerMemoryReviewRoutes } from '../features/memory-reviews/routes.js
 import { registerOpsRoutes } from '../features/ops/routes.js';
 import { registerOutputShareRoutes } from '../features/output-shares/routes.js';
 import { registerOverviewRoutes } from '../features/overview/routes.js';
+import { registerPersonalRoutes } from '../features/personal/routes.js';
 import { registerPluginRoutes } from '../features/plugins/routes.js';
 import { registerRunRoutes } from '../features/runs/routes.js';
 import { registerRuntimeEnvironmentRoutes } from '../features/runtime-environments/routes.js';
@@ -63,6 +64,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerAuditRoutes(app);
   await registerChatRoutes(app);
   registerOutputShareRoutes(app);
+  registerPersonalRoutes(app);
   registerPersonalMemoryRoutes(app);
   registerMemoryReviewRoutes(app);
   registerMemoryChangeRoutes(app);

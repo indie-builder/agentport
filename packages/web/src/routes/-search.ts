@@ -50,12 +50,6 @@ export const chatSearchSchema = z.object({
   outputMode: z.enum(['read', 'source']).optional().catch(undefined),
 });
 
-/** 记忆：任务页签与历史回顾的专家筛选都进 URL，深链可回到同一视图。 */
-export const memorySearchSchema = z.object({
-  tab: z.enum(['personal', 'reviews']).optional().catch(undefined),
-  agent: z.string().min(1).optional().catch(undefined),
-});
-
 export const auditSearchSchema = z.object({
   action: z.string().optional().catch(undefined),
   status: z.enum(['ok', 'error', 'denied']).optional().catch(undefined),
@@ -63,6 +57,27 @@ export const auditSearchSchema = z.object({
 });
 
 const runStatuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'] as const;
+const runTriggers = ['chat', 'mcp', 'schedule', 'event', 'review'] as const;
+
+/** 个人回顾：专家筛选与选中的回顾都进 URL，链接可直接打开详情。 */
+export const personalReviewsSearchSchema = z.object({
+  agent: z.string().min(1).optional().catch(undefined),
+  run: z.string().min(1).optional().catch(undefined),
+});
+
+/** 我的分享：游标分页进 URL，刷新和返回保持同一页。 */
+export const personalSharesSearchSchema = z.object({
+  cursor: z.string().min(1).max(200).optional().catch(undefined),
+});
+
+/** 使用记录：窗口、筛选与游标都进 URL；汇总只随窗口变化。 */
+export const personalUsageSearchSchema = z.object({
+  days: z.coerce.number().int().min(1).max(90).default(30).catch(30),
+  agent: z.string().min(1).optional().catch(undefined),
+  status: z.enum(runStatuses).optional().catch(undefined),
+  trigger: z.enum(runTriggers).optional().catch(undefined),
+  cursor: z.string().min(1).max(200).optional().catch(undefined),
+});
 
 export const runsSearchSchema = z.object({
   agent: z.string().optional().catch(undefined),

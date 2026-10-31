@@ -20,6 +20,7 @@ import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
+  createTestAccount,
   expectProblem,
   infraReady,
   inject,
@@ -410,6 +411,55 @@ describe.skipIf(!ready)('memory reviews', () => {
       options: { jobId: runId, attempts: 1 },
     });
     expect(messageId).toBeTruthy();
+  });
+
+  it('enforces own-only sources for explicit scope, including the idempotent early return', async () => {
+    const other = await createTestAccount(app, cookie, { systemKeys: ['user'] });
+    const agent = await newAgent();
+    const ownConversation = await newConversation(agent.id, '本人来源');
+    await seedMessage(ownConversation, 'user', '本人偏好');
+    const otherConversation = await repo.chat.createConversation(app.db, {
+      id: unique('review-conv'),
+      agentId: agent.id,
+      title: '他人来源',
+      subject: { kind: 'user', businessId: other.businessId },
+    });
+    await seedMessage(otherConversation.id, 'user', '别人偏好');
+    const key = randomUUID();
+    const body = reviewBody({
+      modelAgentId: agent.id,
+      target: { kind: 'personal' },
+      sources: [{ conversationId: ownConversation }, { conversationId: otherConversation.id }],
+    });
+
+    const scoped = (scope: string, payload: unknown, idempotencyKey = randomUUID()) =>
+      inject(app, {
+        method: 'POST',
+        url: `/api/memory-reviews?scope=${encodeURIComponent(scope)}`,
+        headers: { ...auth(), 'idempotency-key': idempotencyKey },
+        payload,
+      });
+
+    // 不带 scope 时保留既有平台授权语义。
+    expect((await postReview(body, key)).statusCode).toBe(202);
+
+    // 相同幂等键也不能跳过 own 校验：管理员选择他人来源一律按不存在处理。
+    expectProblem(await scoped('own', body, key), 'NOT_FOUND');
+
+    const ownBody = reviewBody({
+      modelAgentId: agent.id,
+      target: { kind: 'personal' },
+      sources: [{ conversationId: ownConversation }],
+    });
+    const ownKey = randomUUID();
+    const created = await scoped('own', ownBody, ownKey);
+    expect(created.statusCode, created.body).toBe(202);
+    const runId = created.json<{ runId: string }>().runId;
+    const repeated = await scoped('own', ownBody, ownKey);
+    expect(repeated.statusCode, repeated.body).toBe(202);
+    expect(repeated.json()).toEqual({ runId });
+
+    expectProblem(await scoped('all', ownBody), 'INVALID_INPUT');
   });
 
   it('validates snapshot boundaries, empty text, and the size limit', async () => {

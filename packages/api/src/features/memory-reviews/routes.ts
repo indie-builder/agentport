@@ -42,6 +42,9 @@ const runParams = z.object({ runId: z.string().min(1) });
 
 const createHeaders = z.object({ 'idempotency-key': z.uuid() });
 
+// 个人页显式声明「来源必须属于本人」；不带该参数时保持既有平台/运维授权语义。
+const createQuery = z.object({ scope: z.literal('own').optional() });
+
 const createResponseSchema = z.object({ runId: z.string() });
 
 const listQuery = z.object({
@@ -295,6 +298,7 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
       config: { access: { kind: 'permission', permissionId: 'personal_memory.review' } },
       schema: {
         headers: createHeaders,
+        querystring: createQuery,
         body: createMemoryReviewInputSchema,
         response: { 202: createResponseSchema },
       },
@@ -305,6 +309,17 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
       const input = request.body;
       const key = request.headers['idempotency-key'];
       const hash = requestHash(input);
+
+      // 幂等复用的提前返回也必须先满足 own 来源约束，不能借相同键跳过校验。
+      if (request.query.scope === 'own') {
+        for (const source of input.sources) {
+          const conversation = await repo.chat.getConversation(app.db, source.conversationId);
+          // 他人会话按不存在处理，管理员也一样，不泄露存在性。
+          if (!conversation || conversation.createdBy !== businessId) {
+            fail('NOT_FOUND', '会话不存在，可能已被删除');
+          }
+        }
+      }
 
       const existing = await repo.memoryReviews.findByRequest(app.db, businessId, key);
       if (existing) {

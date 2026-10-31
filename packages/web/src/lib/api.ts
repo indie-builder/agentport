@@ -62,6 +62,12 @@ import type {
   PermissionDefinition,
   PermissionGrant,
   PersonalMemory,
+  PersonalOutputShareList,
+  PersonalProfile,
+  PersonalRunList,
+  PersonalRunListQuery,
+  PersonalSessionList,
+  PersonalUsageSummary,
   Plugin,
   PluginInput,
   PluginWithAgentCount,
@@ -1391,6 +1397,50 @@ export const api = {
   deleteSchedule: (id: string): Promise<void> => request(`/schedules/${id}`, 'DELETE'),
 
   personalMemory: (): Promise<PersonalMemory> => request('/me/memory'),
+  updatePersonalProfile: (input: { name: string }): Promise<PersonalProfile> =>
+    request('/me/profile', 'PATCH', input),
+  meSessions: (signal?: AbortSignal): Promise<PersonalSessionList> =>
+    request('/me/sessions', 'GET', undefined, signal),
+  revokeMeSession: (id: string): Promise<void> =>
+    request(`/me/sessions/${encodeURIComponent(id)}`, 'DELETE'),
+  personalOutputShares: (
+    query: { cursor?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<PersonalOutputShareList> => {
+    const params = new URLSearchParams();
+    if (query.cursor) params.set('cursor', query.cursor);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/me/output-shares${search}`, 'GET', undefined, signal);
+  },
+  revokePersonalOutputShare: (id: string): Promise<void> =>
+    request(`/me/output-shares/${encodeURIComponent(id)}`, 'DELETE'),
+  personalUsage: (days: number, signal?: AbortSignal): Promise<PersonalUsageSummary> =>
+    request(`/me/usage?days=${days}`, 'GET', undefined, signal),
+  personalRuns: (
+    query: PersonalRunListQuery = { days: 30, limit: 50 },
+    signal?: AbortSignal,
+  ): Promise<PersonalRunList> => {
+    const params = new URLSearchParams();
+    if (query.days !== undefined) params.set('days', String(query.days));
+    if (query.agentId) params.set('agentId', query.agentId);
+    if (query.status) params.set('status', query.status);
+    if (query.trigger) params.set('trigger', query.trigger);
+    if (query.cursor) params.set('cursor', query.cursor);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    return request(`/me/runs?${params.toString()}`, 'GET', undefined, signal);
+  },
+  /** 回顾来源固定本人；只带专家筛选，不传全局会话列表。 */
+  personalConversations: (
+    query: { agentId?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<ConversationSummary[]> => {
+    const params = new URLSearchParams();
+    if (query.agentId) params.set('agentId', query.agentId);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/me/conversations${search}`, 'GET', undefined, signal);
+  },
   writePersonalMemory: (input: WritePersonalMemoryInput): Promise<PersonalMemoryWriteResult> =>
     request('/me/memory', 'PUT', input),
   personalMemoryDownloadUrl: '/api/me/memory/download',
@@ -1418,14 +1468,23 @@ export const api = {
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return request(`/memory-reviews${search}`, 'GET', undefined, signal);
   },
-  /** 幂等键随请求头提交；同一键重复提交返回同一个 runId。 */
+  /** 幂等键随请求头提交；同一键重复提交返回同一个 runId。scope=own 约束来源会话必须是本人。 */
   createMemoryReview: (
     input: CreateMemoryReviewInput,
     idempotencyKey: string,
+    scope?: 'own',
   ): Promise<{ runId: string }> =>
-    request('/memory-reviews', 'POST', input, undefined, 'json', undefined, {
-      'idempotency-key': idempotencyKey,
-    }),
+    request(
+      `/memory-reviews${scope === undefined ? '' : `?scope=${scope}`}`,
+      'POST',
+      input,
+      undefined,
+      'json',
+      undefined,
+      { 'idempotency-key': idempotencyKey },
+    ),
+  memoryReview: (runId: string, signal?: AbortSignal): Promise<MemoryReview> =>
+    request(`/memory-reviews/${encodeURIComponent(runId)}`, 'GET', undefined, signal),
   applyMemoryReview: (runId: string): Promise<MemoryChange> =>
     request(`/memory-reviews/${encodeURIComponent(runId)}/apply`, 'POST'),
   rejectMemoryReview: (runId: string): Promise<MemoryReview> =>

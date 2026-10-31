@@ -1,14 +1,13 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-30T15:22:07Z",
+  "generatedAt": "2026-10-31T09:49:24Z",
   "title": "Design System: PACE",
   "extensions": {
-    "tonalRampNotice": "tonalRamp 是面板预览用合成色阶，不是产品 token；实现只使用 DESIGN.md frontmatter 的 hex 值。",
+    "tonalRampNotice": "tonalRamp 是面板预览用合成色阶，不是产品 token，也不作为新主题 palette；实现只使用 DESIGN.md frontmatter 的规范值。",
     "colorMeta": {
       "primary": {
         "role": "primary",
         "displayName": "墨色动作",
-        "canonical": "#0D0D0D",
         "tonalRamp": [
           "oklch(15% 0 0)",
           "oklch(25% 0 0)",
@@ -24,27 +23,66 @@
       "fg": {
         "role": "neutral",
         "displayName": "正文墨",
-        "canonical": "#141414"
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "muted-foreground": {
         "role": "neutral",
         "displayName": "辅助灰",
-        "canonical": "#5F5F5F"
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "subtle": {
         "role": "neutral",
         "displayName": "装饰灰",
-        "canonical": "#828282"
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "surface": {
         "role": "neutral",
         "displayName": "纸白",
-        "canonical": "#FFFFFF"
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "selected": {
         "role": "secondary",
         "displayName": "选中灰",
-        "canonical": "#EFEFEF",
         "tonalRamp": [
           "oklch(15% 0 0)",
           "oklch(25% 0 0)",
@@ -60,32 +98,96 @@
       "hover": {
         "role": "secondary",
         "displayName": "浅中性层",
-        "canonical": "#F6F6F6"
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "line": {
         "role": "neutral",
         "displayName": "分隔线",
-        "canonical": "#E6E6E6"
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "input": {
         "role": "neutral",
         "displayName": "输入默认边线",
-        "canonical": "#E6E6E6"
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "input-focus": {
         "role": "neutral",
         "displayName": "输入聚焦",
-        "canonical": "#BDBDBD"
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "composer-focus": {
         "role": "neutral",
         "displayName": "Composer 聚焦",
-        "canonical": "#DDDDDD"
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "control-boundary": {
+        "role": "neutral",
+        "displayName": "强边界",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "chart-runs": {
         "role": "tertiary",
         "displayName": "数据蓝",
-        "canonical": "#315FAD",
         "tonalRamp": [
           "oklch(15% 0.070 260.3)",
           "oklch(25% 0.085 260.3)",
@@ -101,17 +203,36 @@
       "success": {
         "role": "status",
         "displayName": "成功",
-        "canonical": "#187646"
+        "tonalRamp": [
+          "oklch(15% 0.045 155)",
+          "oklch(25% 0.070 155)",
+          "oklch(40% 0.105 155)",
+          "oklch(55% 0.130 155)",
+          "oklch(70% 0.105 155)",
+          "oklch(80% 0.085 155)",
+          "oklch(90% 0.055 155)",
+          "oklch(96% 0.035 155)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "warning": {
         "role": "status",
         "displayName": "警告",
-        "canonical": "#8A5600"
+        "tonalRamp": [
+          "oklch(15% 0.040 73)",
+          "oklch(25% 0.065 73)",
+          "oklch(40% 0.095 73)",
+          "oklch(55% 0.115 73)",
+          "oklch(70% 0.095 73)",
+          "oklch(80% 0.075 73)",
+          "oklch(90% 0.050 73)",
+          "oklch(96% 0.030 73)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "danger": {
         "role": "status",
         "displayName": "危险",
-        "canonical": "#B42318",
         "tonalRamp": [
           "oklch(15% 0.090 29.5)",
           "oklch(25% 0.110 29.5)",
@@ -127,7 +248,6 @@
       "shell-start": {
         "role": "neutral",
         "displayName": "暖黄环境光",
-        "canonical": "#ECEBC9",
         "tonalRamp": [
           "oklch(15% 0.020 105.9)",
           "oklch(25% 0.030 105.9)",
@@ -143,17 +263,347 @@
       "shell-mid": {
         "role": "neutral",
         "displayName": "灰绿环境光",
-        "canonical": "#DDE3D4"
+        "tonalRamp": [
+          "oklch(15% 0.012 125)",
+          "oklch(25% 0.016 125)",
+          "oklch(40% 0.020 125)",
+          "oklch(55% 0.024 125)",
+          "oklch(70% 0.022 125)",
+          "oklch(80% 0.020 125)",
+          "oklch(90% 0.016 125)",
+          "oklch(96% 0.010 125)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "shell-end": {
         "role": "neutral",
         "displayName": "蓝灰环境光",
-        "canonical": "#D1DAE3"
+        "tonalRamp": [
+          "oklch(15% 0.012 250)",
+          "oklch(25% 0.016 250)",
+          "oklch(40% 0.022 250)",
+          "oklch(55% 0.026 250)",
+          "oklch(70% 0.024 250)",
+          "oklch(80% 0.020 250)",
+          "oklch(90% 0.016 250)",
+          "oklch(96% 0.010 250)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "scrim": {
         "role": "neutral",
         "displayName": "模态遮罩",
-        "canonical": "rgb(0 0 0 / 0.4)"
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "画布",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "面板",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "primary-foreground": {
+        "role": "neutral",
+        "displayName": "反白文字",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "primary-hover": {
+        "role": "primary",
+        "displayName": "动作悬停",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "ring": {
+        "role": "primary",
+        "displayName": "焦点环",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "button-primary": {
+        "role": "primary",
+        "displayName": "主操作实底",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "button-primary-hover": {
+        "role": "primary",
+        "displayName": "主操作悬停",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "button-primary-active": {
+        "role": "primary",
+        "displayName": "主操作按下",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "sunken": {
+        "role": "secondary",
+        "displayName": "下沉面",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "chip": {
+        "role": "secondary",
+        "displayName": "Chip 底",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "secondary": {
+        "role": "secondary",
+        "displayName": "次要底",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "code": {
+        "role": "secondary",
+        "displayName": "代码块底",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "accent": {
+        "role": "secondary",
+        "displayName": "高亮底",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "accent-foreground": {
+        "role": "neutral",
+        "displayName": "高亮底前景",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "selected-foreground": {
+        "role": "neutral",
+        "displayName": "选中项前景",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "secondary-foreground": {
+        "role": "neutral",
+        "displayName": "次要底前景",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "shell-line": {
+        "role": "neutral",
+        "displayName": "外壳 outline",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "强分隔线",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "warning-soft": {
+        "role": "status",
+        "displayName": "警告浅底",
+        "tonalRamp": [
+          "oklch(15% 0.030 73)",
+          "oklch(25% 0.045 73)",
+          "oklch(40% 0.060 73)",
+          "oklch(55% 0.070 73)",
+          "oklch(70% 0.060 73)",
+          "oklch(80% 0.050 73)",
+          "oklch(90% 0.040 73)",
+          "oklch(96% 0.025 73)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "danger-soft": {
+        "role": "status",
+        "displayName": "危险浅底",
+        "tonalRamp": [
+          "oklch(15% 0.060 29.5)",
+          "oklch(25% 0.075 29.5)",
+          "oklch(40% 0.095 29.5)",
+          "oklch(55% 0.110 29.5)",
+          "oklch(70% 0.095 29.5)",
+          "oklch(80% 0.075 29.5)",
+          "oklch(90% 0.055 29.5)",
+          "oklch(96% 0.030 29.5)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
       }
     },
     "typographyMeta": {
@@ -172,6 +622,10 @@
       "body": {
         "displayName": "Body",
         "purpose": "对话、Markdown、OpenUI 默认正文与对话输入；用户气泡共用。"
+      },
+      "md": {
+        "displayName": "Reading",
+        "purpose": "运行详情、评估、记忆与插件详情等保留的原有正文/标题用途。"
       },
       "label": {
         "displayName": "Label",
@@ -199,11 +653,6 @@
         "name": "overlay",
         "value": "0 8px 24px -8px rgb(0 0 0 / 0.12)",
         "purpose": "菜单、Select、Combobox、Popover、Dialog、AlertDialog、Sheet、Toast 共用的唯一浮层阴影。"
-      },
-      {
-        "name": "composer",
-        "value": "0 1px 4px 0 rgb(0 0 0 / 0.04)",
-        "purpose": "仅对话输入胶囊；真实 1px input 边框仍在。"
       }
     ],
     "gradients": [
@@ -217,12 +666,17 @@
       {
         "name": "ease-out-soft",
         "value": "cubic-bezier(0.22, 1, 0.36, 1)",
-        "purpose": "状态与开合过渡的统一缓动。"
+        "purpose": "状态与开合过渡的统一缓动；chat.tsx 与 agents.tsx 的少量 Motion 展开使用 easeOut，属局部例外。"
       },
       {
         "name": "fade-fast",
         "value": "90ms",
         "purpose": "侧栏收起时文字标签淡出。"
+      },
+      {
+        "name": "logo-swap",
+        "value": "140ms",
+        "purpose": "外壳收起态 Logo 与展开按钮互换。"
       },
       {
         "name": "transition-base",
@@ -252,6 +706,14 @@
       {
         "name": "lg",
         "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      },
+      {
+        "name": "2xl",
+        "value": "1536px"
       }
     ],
     "focus": [
@@ -264,6 +726,11 @@
         "name": "composer-focus",
         "value": "border-color: var(--color-composer-focus, #DDDDDD)",
         "purpose": "仅 composer 文本控制器真实聚焦时由 InputGroup 外框使用；指针在内但文本失焦不加深。"
+      },
+      {
+        "name": "checked-control-outline",
+        "value": "outline: 2px solid var(--color-primary, #0D0D0D); outline-offset: 2px",
+        "purpose": "选中 checkbox / radio / switch 的填充已是深色，选中态用单层 2px outline + 2px offset，不叠加 ring；卡片式字段标签由外层标签表达单层焦点。"
       },
       {
         "name": "button-ring",
@@ -284,7 +751,7 @@
       "refersTo": "button-primary",
       "description": "普通主操作 default 与发送、登录等显式 solid 共用同一中性深色三态；没有蓝色实底。",
       "html": "<button class=\"ds-btn-primary\" type=\"button\">新建专家</button>",
-      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-lg, 9px); background: var(--color-button-primary, #0D0D0D); color: var(--color-primary-foreground, #FFFFFF); font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease; } .ds-btn-primary:hover { background: var(--color-button-primary-hover, #262626); } .ds-btn-primary:active { background: var(--color-button-primary-active, #404040); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #0D0D0D); } .ds-btn-primary:disabled { opacity: 0.5; pointer-events: none; }"
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-lg, 9px); background: var(--color-button-primary, #0D0D0D); color: var(--color-primary-foreground, #FFFFFF); font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease; } .ds-btn-primary:hover { background: var(--color-button-primary-hover, #262626); } .ds-btn-primary:active { background: var(--color-button-primary-active, #404040); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #0D0D0D); } .ds-btn-primary:disabled { opacity: 0.5; pointer-events: none; }"
     },
     {
       "name": "Outline Button",
@@ -292,15 +759,15 @@
       "refersTo": "button-outline",
       "description": "取消、筛选与次级操作；白底 1px 分隔线，hover 用浅中性层，不变深色实底。",
       "html": "<button class=\"ds-btn-outline\" type=\"button\">取消</button>",
-      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid var(--color-border, #E6E6E6); border-radius: var(--radius-lg, 9px); background: var(--color-background, #FFFFFF); color: var(--color-foreground, #141414); font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease; } .ds-btn-outline:hover, .ds-btn-outline[aria-expanded=true] { background: var(--color-muted, #F6F6F6); } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #0D0D0D); }"
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid var(--color-border, #E6E6E6); border-radius: var(--radius-lg, 9px); background: var(--color-background, #FFFFFF); color: var(--color-foreground, #141414); font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease; } .ds-btn-outline:hover, .ds-btn-outline[aria-expanded=true] { background: var(--color-muted, #F6F6F6); } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #0D0D0D); }"
     },
     {
       "name": "Ghost Icon Button",
       "kind": "button",
       "refersTo": "button-ghost",
-      "description": "导航、折叠、账号与工具栏图标；透明底，hover 或展开才出现浅中性层。",
-      "html": "<button class=\"ds-btn-ghost\" type=\"button\" aria-label=\"收起侧栏\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m15 18-6-6 6-6\"></path></svg></button>",
-      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: var(--radius-md, 7px); background: transparent; color: var(--color-foreground, #141414); cursor: pointer; transition: background-color 150ms ease; } .ds-btn-ghost:hover, .ds-btn-ghost[aria-expanded=true] { background: var(--color-muted, #F6F6F6); } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-ring, #0D0D0D); }"
+      "description": "默认共享 ghost 图标按钮与普通工具栏动作；32px size=icon 与 icon-lg 36px 均为 7px 圆角，透明底，hover 或展开才出现浅中性层。侧栏折叠按钮实例同为 7px 圆角。",
+      "html": "<button class=\"ds-btn-ghost\" type=\"button\" aria-label=\"更多操作\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"19\" cy=\"12\" r=\"1\"></circle><circle cx=\"5\" cy=\"12\" r=\"1\"></circle></svg></button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: var(--radius-icon, 7px); background: transparent; color: var(--color-foreground, #141414); cursor: pointer; transition: background-color 150ms ease; } .ds-btn-ghost:hover, .ds-btn-ghost[aria-expanded=true] { background: var(--color-muted, #F6F6F6); } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-ring, #0D0D0D); }"
     },
     {
       "name": "Text Input",
@@ -308,7 +775,7 @@
       "refersTo": "input",
       "description": "白底 1px 输入默认边线；普通聚焦换 input-focus，不叠光环；invalid 保留 danger 边框并用 2px outline 补焦点；placeholder 用辅助灰。",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"搜索专家...\" aria-label=\"搜索专家\" />",
-      "css": ".ds-input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--color-input, #E6E6E6); border-radius: var(--radius-lg, 9px); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #141414); font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; transition: border-color 150ms ease; } .ds-input::placeholder { color: var(--color-muted-foreground, #5F5F5F); } .ds-input:focus-visible { outline: none; border-color: var(--color-input-focus, #BDBDBD); } .ds-input[aria-invalid=true] { border-color: var(--color-destructive, #B42318); } .ds-input[aria-invalid=true]:focus-visible { border-color: var(--color-destructive, #B42318); outline: 2px solid var(--color-ring, #0D0D0D); outline-offset: 2px; } .ds-input:disabled { opacity: 0.5; cursor: not-allowed; }"
+      "css": ".ds-input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--color-input, #E6E6E6); border-radius: var(--radius-lg, 9px); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #141414); font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; transition: border-color 150ms ease; } .ds-input::placeholder { color: var(--color-muted-foreground, #5F5F5F); } .ds-input:focus-visible { outline: none; border-color: var(--color-input-focus, #BDBDBD); } .ds-input[aria-invalid=true] { border-color: var(--color-destructive, #B42318); } .ds-input[aria-invalid=true]:focus-visible { border-color: var(--color-destructive, #B42318); outline: 2px solid var(--color-ring, #0D0D0D); outline-offset: 2px; } .ds-input:disabled { opacity: 0.5; cursor: not-allowed; }"
     },
     {
       "name": "Segmented Tabs",
@@ -316,7 +783,7 @@
       "refersTo": "tab-list",
       "description": "分段控件容器浅中性层；当前项选中灰 + 1px 分隔线，无小阴影；line 变体透明并保留 2px 深色指示线。",
       "html": "<div class=\"ds-tabs\" role=\"tablist\" aria-label=\"记忆视图\"><button class=\"ds-tab\" type=\"button\" role=\"tab\" aria-selected=\"false\">个人偏好</button><button class=\"ds-tab\" type=\"button\" role=\"tab\" aria-selected=\"true\">历史回顾</button></div>",
-      "css": ".ds-tabs { display: inline-flex; align-items: center; height: 32px; padding: 3px; border-radius: var(--radius-lg, 9px); background: var(--color-hover, #F6F6F6); } .ds-tab { display: inline-flex; align-items: center; justify-content: center; height: calc(100% - 1px); padding: 0 6px; border: 1px solid transparent; border-radius: var(--radius-md, 7px); background: transparent; color: var(--color-muted-foreground, #5F5F5F); font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease; } .ds-tab:hover { color: var(--color-fg, #141414); } .ds-tab[aria-selected=true] { background: var(--color-selected, #EFEFEF); border-color: var(--color-line, #E6E6E6); color: var(--color-fg, #141414); } .ds-tab:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-ring, #0D0D0D); }"
+      "css": ".ds-tabs { display: inline-flex; align-items: center; height: 32px; padding: 3px; border-radius: var(--radius-lg, 9px); background: var(--color-hover, #F6F6F6); } .ds-tab { display: inline-flex; align-items: center; justify-content: center; height: calc(100% - 1px); padding: 0 6px; border: 1px solid transparent; border-radius: var(--radius-md, 7px); background: transparent; color: var(--color-muted-foreground, #5F5F5F); font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease; } .ds-tab:hover { color: var(--color-fg, #141414); } .ds-tab[aria-selected=true] { background: var(--color-selected, #EFEFEF); border-color: var(--color-line, #E6E6E6); color: var(--color-fg, #141414); } .ds-tab:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-ring, #0D0D0D); }"
     },
     {
       "name": "Badge",
@@ -324,31 +791,23 @@
       "refersTo": "badge-default",
       "description": "默认与 secondary 徽章是浅中性底配正文墨，不整枚深色填充；危险/成功/警告保留各自语义。",
       "html": "<span class=\"ds-badge\">通用助手</span>",
-      "css": ".ds-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 20px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-4xl, 6px); background: var(--color-muted, #F6F6F6); color: var(--color-fg, #141414); font-family: Inter, system-ui, sans-serif; font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap; } .ds-badge:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #0D0D0D); }"
-    },
-    {
-      "name": "Dropdown Menu",
-      "kind": "nav",
-      "refersTo": "menu-item",
-      "description": "白浮层、1px 分隔线 ring 与唯一 overlay 阴影；hover 与键盘高亮用选中灰，危险项用 danger。",
-      "html": "<div class=\"ds-menu\" role=\"menu\" aria-label=\"账户菜单\"><button class=\"ds-menu-item\" type=\"button\" role=\"menuitem\">退出登录</button></div>",
-      "css": ".ds-menu { width: 192px; padding: 4px; border-radius: var(--radius-lg, 9px); background: var(--color-popover, #FFFFFF); box-shadow: 0 0 0 1px var(--color-line, #E6E6E6), 0 8px 24px -8px rgb(0 0 0 / 0.12); } .ds-menu-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 6px; border: 0; border-radius: var(--radius-md, 7px); background: transparent; color: var(--color-fg, #141414); font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 400; line-height: 20px; text-align: left; cursor: pointer; } .ds-menu-item:hover, .ds-menu-item:focus { background: var(--color-accent, #EFEFEF); color: var(--color-accent-foreground, #141414); outline: none; }"
+      "css": ".ds-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 20px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-4xl, 6px); background: var(--color-muted, #F6F6F6); color: var(--color-fg, #141414); font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap; } .ds-badge:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #0D0D0D); }"
     },
     {
       "name": "Card",
       "kind": "card",
       "refersTo": "card",
-      "description": "纯白内容面、16px 圆角、1px 分隔线 ring，默认无阴影；用于专家卡、资源卡与配置详情。",
-      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">专家名称</div><div class=\"ds-card-description\">一句话描述该专家能交付什么。</div></div>",
-      "css": ".ds-card { padding: 16px; border-radius: var(--radius-xl, 16px); background: var(--color-card, #FFFFFF); color: var(--color-card-foreground, #141414); box-shadow: 0 0 0 1px var(--color-line, #E6E6E6); } .ds-card-title { font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 22px; } .ds-card-description { margin-top: 4px; color: var(--color-muted-foreground, #5F5F5F); font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; }"
+      "description": "纯白内容面、16px 圆角、1px 分隔线 ring，默认无阴影；根只有纵向 16px 与块间距 16px，水平内边距由 Header/Content/Footer 承担。CardTitle 14/22，sm 卡 13/20；描述 13/20。",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-header\"><div class=\"ds-card-title\">专家名称</div><div class=\"ds-card-description\">一句话描述该专家能交付什么。</div></div><div class=\"ds-card-content\">正文内容</div></div>",
+      "css": ".ds-card { display: flex; flex-direction: column; gap: var(--card-spacing, 16px); padding: var(--card-spacing, 16px) 0; border-radius: var(--radius-xl, 16px); background: var(--color-card, #FFFFFF); color: var(--color-card-foreground, #141414); box-shadow: 0 0 0 1px var(--color-line, #E6E6E6); } .ds-card-header { display: grid; gap: 4px; padding: 0 var(--card-spacing, 16px); } .ds-card-title { font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 22px; } .ds-card-description { color: var(--color-muted-foreground, #5F5F5F); font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-card-content { padding: 0 var(--card-spacing, 16px); font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; }"
     },
     {
       "name": "Dialog",
       "kind": "custom",
       "refersTo": "dialog",
-      "description": "模态白表面、16px 圆角、1px 分隔线 ring 与 overlay 阴影；遮罩用 scrim，确认主操作为深色实底。",
+      "description": "模态白表面、16px 圆角、1px 分隔线 ring 与 overlay 阴影、16px 内边距；遮罩用 scrim，确认主操作为深色实底。",
       "html": "<div class=\"ds-dialog\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"ds-dialog-title\"><div class=\"ds-dialog-title\" id=\"ds-dialog-title\">保存配置</div><div class=\"ds-dialog-description\">确认保存当前更改。</div><div class=\"ds-dialog-actions\"><button class=\"ds-dialog-cancel\" type=\"button\">取消</button><button class=\"ds-dialog-confirm\" type=\"button\">保存</button></div></div>",
-      "css": ".ds-dialog { width: min(384px, calc(100vw - 32px)); padding: 16px; border-radius: var(--radius-xl, 16px); background: var(--color-popover, #FFFFFF); color: var(--color-popover-foreground, #141414); box-shadow: 0 0 0 1px var(--color-line, #E6E6E6), 0 8px 24px -8px rgb(0 0 0 / 0.12); } .ds-dialog-title { font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 22px; } .ds-dialog-description { margin-top: 8px; color: var(--color-muted-foreground, #5F5F5F); font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; } .ds-dialog-cancel, .ds-dialog-confirm { height: 32px; padding: 0 10px; border-radius: var(--radius-lg, 9px); font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; } .ds-dialog-cancel { border: 1px solid var(--color-border, #E6E6E6); background: var(--color-background, #FFFFFF); color: var(--color-foreground, #141414); } .ds-dialog-confirm { border: 1px solid transparent; background: var(--color-button-primary, #0D0D0D); color: var(--color-primary-foreground, #FFFFFF); }"
+      "css": ".ds-dialog { width: min(384px, calc(100vw - 32px)); padding: 16px; border-radius: var(--radius-xl, 16px); background: var(--color-popover, #FFFFFF); color: var(--color-popover-foreground, #141414); box-shadow: 0 0 0 1px var(--color-line, #E6E6E6), 0 8px 24px -8px rgb(0 0 0 / 0.12); } .ds-dialog-title { font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 21px; } .ds-dialog-description { margin-top: 8px; color: var(--color-muted-foreground, #5F5F5F); font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; } .ds-dialog-cancel, .ds-dialog-confirm { height: 32px; padding: 0 10px; border-radius: var(--radius-lg, 9px); font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; } .ds-dialog-cancel { border: 1px solid var(--color-border, #E6E6E6); background: var(--color-background, #FFFFFF); color: var(--color-foreground, #141414); } .ds-dialog-confirm { border: 1px solid transparent; background: var(--color-button-primary, #0D0D0D); color: var(--color-primary-foreground, #FFFFFF); }"
     },
     {
       "name": "User Message",
@@ -356,19 +815,27 @@
       "refersTo": "user-message",
       "description": "右对齐胶囊、选中灰底、正文墨与 14/22 阅读档；助手正文在纯白上无气泡。",
       "html": "<div class=\"ds-message-user\">把这周的运行失败原因整理成一份清单。</div>",
-      "css": ".ds-message-user { max-width: 85%; margin-left: auto; padding: 8px 16px; border-radius: 9999px; background: var(--color-selected, #EFEFEF); color: var(--color-fg, #141414); font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 400; line-height: 22px; overflow-wrap: anywhere; }"
+      "css": ".ds-message-user { max-width: 85%; margin-left: auto; padding: 8px 16px; border-radius: 9999px; background: var(--color-selected, #EFEFEF); color: var(--color-fg, #141414); font-family: \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 400; line-height: 22px; overflow-wrap: anywhere; }"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "sidebar-item",
+      "description": "透明侧栏透出外壳渐变；展开条目 32px 高、9px 圆角，当前项用选中灰，无彩色竖条。",
+      "html": "<nav class=\"ds-sidebar\" aria-label=\"主导航\"><a class=\"ds-nav-item ds-nav-item-active\" href=\"#\" aria-current=\"page\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"></path><circle cx=\"9\" cy=\"7\" r=\"4\"></circle><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"></path></svg><span>找专家</span></a><a class=\"ds-nav-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"></path></svg><span>对话</span></a></nav>",
+      "css": ".ds-sidebar { display: flex; flex-direction: column; gap: 2px; width: 224px; padding: 16px 12px; font-family: \"Inter Variable\", Inter, system-ui, sans-serif; } .ds-nav-item { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: var(--radius-item, 9px); color: var(--color-fg, #141414); font-size: 13px; line-height: 20px; text-decoration: none; transition: background-color 150ms ease; } .ds-nav-item:hover { background: var(--color-hover, #F6F6F6); } .ds-nav-item-active { background: var(--color-selected, #EFEFEF); color: var(--color-selected-foreground, #141414); font-weight: 500; } .ds-nav-item:focus-visible { outline: 2px solid var(--color-ring, #0D0D0D); outline-offset: 2px; }"
     }
   ],
   "narrative": {
-    "northStar": "The Quiet Workbench",
-    "overview": "PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖黄到蓝灰环境光，工作区本身是纯白纸面；工具、标题与正文都是墨色，状态只在需要时以小块浅灰或语义色出现。没有品牌色在页面上争抢注意力，彩色只留给真正是数据的地方。\n\n这套系统把「可点击」从颜色职责里拿掉：普通主操作与发送、登录共用中性深色实底，链接、按钮/全局焦点环与选中态也落在同一墨色系（输入聚焦另用浅中性 input-focus / composer-focus）；唯一的蓝色是运行图表首系列的数据蓝。这样层级由留白、分组、字重与实底/浅底关系表达，而不是由强调色表达。\n\n主题阶段是换肤记录：颜色、边线、阴影与外壳呈现来自 Qoder CN 桌面浅色界面的真实截图，输入默认/聚焦边线、composer 聚焦与焦点方案是 PACE 近似或可辨适配，不声称来自 Qoder；三种输入浅边线对白低于 3:1 的已接受限制见 DESIGN.md 的 Known Gaps。2026-10-30 用户批准的布局阶段在此之上更新了侧栏、页面内容边、聊天顶栏/输入/成果宽度、专家卡与资源工具行的几何；圆角、图标、动效与配色/焦点成果不变。2026-10-31 用户批准的字体收紧是 PACE 适配，未采样 Qoder 字体：会话标题、默认正文与输入用 14/22，欢迎标题 20/28；全局 15/26 令牌保留给运行详情等原有用途。本快照按当前规范记录；输入/聚焦/错误态与几何已在覆盖的 PACE 实页复测，未覆盖项与限制见 DESIGN.md 的 Known Gaps 与任务记录。",
+    "northStar": "The Quiet Workbench（静默工作台）",
+    "overview": "PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖黄到蓝灰环境光，工作区本身是纯白纸面；工具、标题与正文都是墨色，状态只在需要时以小块浅灰或语义色出现。没有品牌色在页面上争抢注意力，彩色只留给真正是数据的地方。\n\n这套系统把「可点击」从颜色职责里拿掉：普通主操作与发送、登录共用中性深色实底，链接、按钮/全局焦点环与选中态也落在同一墨色系（输入聚焦另用浅中性 input-focus / composer-focus）；唯一的蓝色是运行图表首系列的数据蓝。这样层级由留白、分组、字重与实底/浅底关系表达，而不是由强调色表达。\n\n本文是当前实现的快照，机器可读 token 以 frontmatter 为准；规范与用户已批准目标见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。配色与控件外观来自 Qoder CN 桌面浅色界面，输入默认/聚焦边线、composer 聚焦与焦点方案是 PACE 近似或可辨适配，不声称来自 Qoder。2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现；本文只记录实现值，不把未覆盖的浏览器证据写成已验收，未覆盖项与规范差异见 Known Gaps 和对应任务记录。",
     "keyCharacteristics": [
       "纯白内容面，渐变只存在于应用外壳的三个外部根容器。",
       "中性深色动作三态：#0D0D0D / #262626 / #404040，白字。",
       "浅中性状态层：hover #F6F6F6，selected / accent #EFEFEF。",
-      "输入默认边线 #E6E6E6；普通聚焦 #BDBDBD、composer 聚焦 #DDDDDD（PACE 近似，低于 3:1）；checkbox/radio 强边界仍 #767676。",
+      "输入默认边线 #E6E6E6，普通聚焦 #BDBDBD、composer 聚焦 #DDDDDD（PACE 近似映射，低于 3:1 见 Known Gaps）；checkbox/radio 强边线仍 #767676。",
       "数据蓝 #315FAD 只用于图表首系列，不参与任何 UI 动作。",
-      "Inter 的 13/20 界面档与 14/22 对话阅读档；显式 OpenUI small 13/20、large 16/24 与全局 15/26 令牌保留；动效不变，几何按 DESIGN.md 的 Layout 当前值。"
+      "Inter 的 13/20 界面档与 14/22 对话阅读档；显式 OpenUI small 13/20、large 16/24 与全局 15/26 令牌保留；动效不变，几何按本页 Layout 当前值。"
     ],
     "rules": [
       {
@@ -398,7 +865,7 @@
       },
       {
         "name": "The One-Shadow Rule",
-        "body": "浮层只有一种阴影值，内容默认无阴影。不得新增彩色光晕、第二套浮层阴影，或在外壳与卡片上叠阴影。",
+        "body": "浮层只有一种阴影值，内容默认无阴影。不得新增彩色光晕、第二套浮层阴影，或在外壳与卡片上叠阴影。Composer 当前无阴影。",
         "section": "elevation"
       }
     ],
@@ -408,7 +875,7 @@
       "Do 用 input #E6E6E6 画输入默认边线，用 line #E6E6E6 只做分组与分隔；checkbox/radio 强边界仍用 #767676。",
       "Do 用 selected / accent #EFEFEF 表示当前导航、选中页签、菜单高亮与用户消息。",
       "Do 每个控件只留一层常驻焦点信号：输入类换 input-focus / composer-focus 边线，按钮类用 2px ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔。错误态可另用 2px outline 补焦点。",
-      "Do 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与动效；全局 15/26 令牌保留给运行详情等原用途，几何按 DESIGN.md 的 Layout 当前值。",
+      "Do 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。",
       "Do 把 chart-runs #315FAD 只用于图表首系列；失败用 danger。",
       "Do 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。"
     ],
@@ -421,7 +888,7 @@
       "Don't 为浮层引入第二种阴影、彩色光晕，或给外壳、卡片、表格加投影。",
       "Don't 重新引入深色主题、第二套主题提供器、品牌蓝别名或页面级硬编码色值。",
       "Don't 让 Markdown 标题小于正文，或新增第二个阅读正文字号。",
-      "Don't 在已批准布局契约之外临时改变宽高、内边距或断点；几何调整先更新规范与契约，配色、字体、焦点与动效仍按 DESIGN.md 的主题成果。"
+      "Don't 在已批准布局契约之外临时改变宽高、内边距或断点；几何调整先更新规范与契约，配色、字体、焦点与动效仍按本页主题成果。"
     ]
   }
 }

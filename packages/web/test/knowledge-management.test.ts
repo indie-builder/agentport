@@ -2451,6 +2451,75 @@ describe('knowledge search citations', () => {
     expect(viewer.querySelector('mark')?.textContent).toBe('发布前需要产品与研发双方确认。');
   });
 
+  it('distinguishes same-title same-page hits by quote and opens each hit', async () => {
+    baseHandlers();
+    const sharedPrefix =
+      '发布前需要产品与研发双方确认。发布前需要产品与研发双方确认。发布前需要产品与研发双方确认';
+    const firstQuote = `${sharedPrefix}甲`;
+    const secondQuote = `${sharedPrefix}乙`;
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/search', () =>
+        HttpResponse.json({
+          hits: [
+            {
+              chunkId: 'kchk_1',
+              documentId: 'kdoc_1',
+              versionId: 'kdv_1',
+              title: '上线流程',
+              heading: '发布前检查',
+              quote: firstQuote,
+              pageFrom: 2,
+              pageTo: 2,
+              sourceUrl: null,
+              score: 0.82,
+            },
+            {
+              chunkId: 'kchk_2',
+              documentId: 'kdoc_1',
+              versionId: 'kdv_1',
+              title: '上线流程',
+              heading: '发布前检查',
+              quote: secondQuote,
+              pageFrom: 2,
+              pageTo: 2,
+              sourceUrl: null,
+              score: 0.81,
+            },
+          ],
+          degraded: false,
+        }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () =>
+        markdownResponse('## 发布前检查\n\n发布前需要产品与研发双方确认。'),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'search' });
+    await fill('knowledge-search', '发布');
+    await act(async () => {
+      document
+        .querySelector('form')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+
+    const triggers = [...document.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (item) => item.textContent?.trim() === '查看原文',
+    );
+    expect(triggers).toHaveLength(2);
+    const names = triggers.map((item) => item.getAttribute('aria-label') ?? '');
+    expect(new Set(names).size).toBe(2);
+    expect(names[0]).toContain('命中 1');
+    expect(names[1]).toContain('命中 2');
+
+    await click(triggers[0] as HTMLButtonElement);
+    expect(dialog('引用原文').querySelector('mark')?.textContent).toBe(firstQuote);
+    await click(button('关闭', dialog('引用原文')));
+    expect(dialogShown('引用原文')).toBe(false);
+
+    await click(triggers[1] as HTMLButtonElement);
+    expect(dialog('引用原文').querySelector('mark')?.textContent).toBe(secondQuote);
+  });
+
   it('shows the hit image with the quote as alt text and explains a failed load', async () => {
     baseHandlers();
     server.use(
