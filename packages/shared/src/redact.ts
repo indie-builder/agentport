@@ -116,5 +116,3 @@ export function publicRunQuestion(question: RunQuestion): PublicRunQuestion {
     closeReason: question.closeReason === null ? null : redactSecrets(question.closeReason),
   };
 }
-
-export { publicRunQuestion as redactQuestion };

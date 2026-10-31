@@ -49,7 +49,6 @@ export type KnowledgeSyncItemRow = typeof knowledgeSyncItems.$inferSelect;
 export type KnowledgeWikiPageRow = typeof knowledgeWikiPages.$inferSelect;
 export type KnowledgeWikiVersionRow = typeof knowledgeWikiVersions.$inferSelect;
 export type KnowledgeModelProfileRow = typeof knowledgeModelProfiles.$inferSelect;
-export type KnowledgeDocumentSourceRangeRow = typeof knowledgeDocumentSourceRanges.$inferSelect;
 export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 /** 一次成功读取看到的来源授权；凭证只保留密文，仅在内存中传递。 */
@@ -1189,21 +1188,6 @@ export async function listDocumentVersions(
   };
 }
 
-export async function deleteVersionsExcept(
-  db: Database,
-  documentId: string,
-  keepVersionId: string,
-): Promise<void> {
-  await db
-    .delete(knowledgeDocumentVersions)
-    .where(
-      and(
-        eq(knowledgeDocumentVersions.documentId, documentId),
-        sql`${knowledgeDocumentVersions.id} <> ${keepVersionId}`,
-      ),
-    );
-}
-
 export interface NewChunk {
   ordinal: number;
   parentOrdinal?: number | null | undefined;
@@ -1404,15 +1388,6 @@ export async function countEditedChunks(db: Database, versionId: string): Promis
   return changes !== null && typeof changes === 'object' && Object.keys(changes).length > 0 ? 1 : 0;
 }
 
-/** 新增分块的序号取整版最大值：分页只读首页会漏掉超出 200 条的尾部。 */
-export async function nextChunkOrdinal(db: Database, versionId: string): Promise<number> {
-  const [row] = await db
-    .select({ max: sql<number>`coalesce(max(${knowledgeChunks.ordinal}), -1)` })
-    .from(knowledgeChunks)
-    .where(eq(knowledgeChunks.versionId, versionId));
-  return (row?.max ?? -1) + 1;
-}
-
 export async function getChunk(db: Database, id: string): Promise<KnowledgeChunkRow | null> {
   const [row] = await db.select().from(knowledgeChunks).where(eq(knowledgeChunks.id, id)).limit(1);
   return row ?? null;
@@ -1438,14 +1413,6 @@ export async function patchChunk(
     .where(eq(knowledgeChunks.id, id))
     .returning();
   return row ?? null;
-}
-
-export async function deleteChunk(db: Database, id: string): Promise<boolean> {
-  const rows = await db
-    .delete(knowledgeChunks)
-    .where(eq(knowledgeChunks.id, id))
-    .returning({ id: knowledgeChunks.id });
-  return rows.length > 0;
 }
 
 export type DocumentChunkMutation =

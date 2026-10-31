@@ -215,17 +215,6 @@ export function groupLeafIds(group: PermissionTreeGroup): PermissionId[] {
   return [...group.leaves.map((leaf) => leaf.id), ...group.children.flatMap(groupLeafIds)];
 }
 
-/** 父级三态：全部叶有授权、部分有授权、全空。 */
-export function groupState(
-  group: PermissionTreeGroup,
-  hasLeaf: (id: PermissionId) => boolean,
-): 'checked' | 'indeterminate' | 'unchecked' {
-  const ids = groupLeafIds(group);
-  const granted = ids.filter(hasLeaf).length;
-  if (granted === 0) return 'unchecked';
-  return granted === ids.length ? 'checked' : 'indeterminate';
-}
-
 /** 矩阵搜索：命中叶标签或 permissionId；父链只要含命中叶就保留。 */
 export function filterPermissionTree(
   groups: readonly PermissionTreeGroup[],

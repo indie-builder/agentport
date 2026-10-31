@@ -13,8 +13,6 @@ export const updatePersonalProfileInputSchema = z
     path: ['name'],
   });
 
-export type UpdatePersonalProfileInput = z.infer<typeof updatePersonalProfileInputSchema>;
-
 export const personalProfileSchema = z.object({
   businessId: z.string(),
   username: z.string(),
@@ -98,15 +96,11 @@ export const personalShareListQuerySchema = z
   })
   .strict();
 
-export type PersonalShareListQuery = z.infer<typeof personalShareListQuerySchema>;
-
 export const personalUsageQuerySchema = z
   .object({
     days: z.coerce.number().int().min(1).max(90).default(30),
   })
   .strict();
-
-export type PersonalUsageQuery = z.infer<typeof personalUsageQuerySchema>;
 
 export const personalRunListQuerySchema = z
   .object({

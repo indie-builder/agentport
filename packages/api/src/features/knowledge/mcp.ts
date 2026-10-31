@@ -21,13 +21,6 @@ import { z } from 'zod';
 import { KnowledgeReadImageError, readKnowledgeImage } from './read-image.js';
 import { type SearchKnowledgeResult, searchKnowledge } from './retrieval.js';
 
-export const KNOWLEDGE_TOOL_NAMES = [
-  'knowledge_search',
-  'knowledge_read',
-  'knowledge_list',
-  'knowledge_read_image',
-] as const;
-
 const QUOTE_LIMIT = 1200;
 
 export interface KnowledgeServerInput {

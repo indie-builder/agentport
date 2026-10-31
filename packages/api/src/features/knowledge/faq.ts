@@ -5,8 +5,6 @@ import {
   type KnowledgeFaqImportIssue,
   type KnowledgeFaqImportResult,
   type KnowledgeFaqTransferEntry,
-  knowledgeFaqSchema,
-  knowledgeFaqTransferEntrySchema,
 } from '@agentport/shared';
 import { parse as parseCsv } from 'csv-parse/sync';
 import type { Workbook as ExcelWorkbook } from 'exceljs';
@@ -34,10 +32,6 @@ export type FaqTransferEntry = KnowledgeFaqTransferEntry;
 export type FaqImportIssue = KnowledgeFaqImportIssue;
 export type FaqImportRowStatus = KnowledgeFaqImportResult['status'];
 export type FaqImportOperation = KnowledgeFaqImportResult['operation'];
-
-/** 兼容旧调用名：单条 FAQ 的校验 schema 与 shared 保持一致。 */
-export const faqEntrySchema = knowledgeFaqSchema;
-export const faqTransferEntrySchema = knowledgeFaqTransferEntrySchema;
 
 /**
  * CRUD 入口只校验原始 JSON 类型；可清洗的空白/重复/超量数组交给 normalizeFaqEntry
@@ -133,25 +127,6 @@ export function normalizeFaqQuestion(value: string): string {
     .replace(/\s+/g, ' ')
     .replace(HAN_SPACE, '')
     .trim();
-}
-
-/** 反例只按归一化后的精确相等排除；语义相近不算。 */
-export function isNegativeFaqQuestion(query: string, negativeQuestions: string[]): boolean {
-  const normalized = normalizeFaqQuestion(query);
-  if (normalized.length === 0) return false;
-  return negativeQuestions.some((negative) => normalizeFaqQuestion(negative) === normalized);
-}
-
-/** 同一批导入内规范化标准问重复时返回重复项；调用方据此整批拒绝。 */
-export function duplicateFaqQuestions(items: KnowledgeFaq[]): string[] {
-  const seen = new Set<string>();
-  const duplicates = new Set<string>();
-  for (const item of items) {
-    const key = normalizeFaqQuestion(item.question);
-    if (seen.has(key)) duplicates.add(item.question);
-    seen.add(key);
-  }
-  return [...duplicates];
 }
 
 /**

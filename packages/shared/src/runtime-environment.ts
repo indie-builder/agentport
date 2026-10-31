@@ -90,10 +90,6 @@ export type RuntimeEnvironmentBuildJob = z.infer<typeof runtimeEnvironmentBuildJ
 export const runtimeEnvironmentOnlineVersionInputSchema = z.object({
   versionId: z.string().min(1),
 });
-export type RuntimeEnvironmentOnlineVersionInput = z.infer<
-  typeof runtimeEnvironmentOnlineVersionInputSchema
->;
-
 /** 真实创建容器时使用的环境身份；存活容器不因线上指针变化而替换。 */
 export const resolvedRuntimeEnvironmentSchema = z.object({
   environmentId: z.string(),
