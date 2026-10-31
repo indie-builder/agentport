@@ -386,3 +386,33 @@
 - **现象**：drizzle-kit 生成迁移后，新库执行报 PostgreSQL `multiple primary keys for table ... are not allowed`；在 Vitest globalSetup 里可能只看到 `TypeError: code.charCodeAt is not a function`，看不出是迁移失败。
 - **原因**：交互式生成时把改名默认当成「新增列 + 新主键」，会生成 `ADD PRIMARY KEY`，而旧主键还在；真实错误又被 Vite 的 globalSetup 包装改写成 `charCodeAt` 堆栈（另见「真实容器测试可能加载旧 dist」一条）。
 - **规避**：生成时明确把该列选为 rename，保留 `RENAME COLUMN`，并在同一迁移里删除原列上指向 auth `user` 的外键，不要接受默认的 add 方案。验证时绕过 Vite，直接用 `pnpm --filter api exec tsx` 调用 `createIsolatedDatabase` 建全新随机库并迁移，拿到真实 Pg 错误；不要在共享库上试。
+
+## 运行：`/health` 只证明连通，不证明 schema 与当前代码匹配
+
+- **现象**：API `/health` 返回 DB/Redis ok，worker 一启动就报 `agent_runs.subject_kind` / `audit_log.actor_kind` 缺列；或旧库的迁移账本停在旧编号，直到业务请求才 500。
+- **原因**：健康检查只 ping 连接，不校验迁移是否追平当前 journal、表结构是否含新列。
+- **规避**：复用旧库或新起进程前，先核对 `__drizzle_migrations` 末条与当前 journal、用 `\d <table>` 或一次真实业务查询确认列已存在；不要把健康检查当作迁移完成。数据集与测试优先使用独立库。
+
+## 运行：运行环境的 base image 由 API 入队冻结，API 与 worker 必须同 `SANDBOX_IMAGE`
+
+- **现象**：`.env` 换成专用沙盒镜像并重启 worker 后，环境版本仍从旧 `agentport/sandbox:dev` 构建，报缺 `session-supervisor.js`；或 API 与 worker 实际使用不同镜像。
+- **原因**：API 入队时把自身的 `SANDBOX_IMAGE` 冻结进运行/版本，worker 按版本的 `baseImageId` 构建；只改 worker 或只改 `.env`、不重启 API 都不生效。已有运行环境的默认 base 指针也不会随 env 更新。
+- **规避**：API 与 worker 用同一 `SANDBOX_IMAGE` 启动，改镜像后两者都重启；需要专用底座时显式指定或更新运行环境 base，并核对版本记录里的 `baseImageId`，不要假设默认指针跟随 env。
+
+## 测试：E2E session 只保存登录，不会替你打开页面
+
+- **现象**：auth setup 登录成功并保存 session，后续用例或 helper 在写请求/查 UI 前没 `app.open`，报 `APP_NOT_OPEN` 或定位不到元素。
+- **原因**：`test.setup` + `session.save` 只落登录态；页面上下文要显式打开，已有 session 不等于页面已就绪。
+- **规避**：需要 UI 的步骤先 `app.open(路径)`；helper 里先打开再读写页面。纯 API 校验可以不开页，但不能用它宣布 UI 已通过。
+
+## 测试：macOS 的 `os.tmpdir()` 是软链路径，测试工作区要先 realpath
+
+- **现象**：在 macOS 上以 `mkdtemp(join(tmpdir(), ...))` 建工作区，路径校验报越界或不是真实路径，测试随机失败。
+- **原因**：`/var/folders/...` 经 `/var -> /private/var` 软链；工作区按 realpath 做越界校验时，未解析的 tmpdir 与真实路径不一致。
+- **规避**：创建测试目录前先 `await realpath(tmpdir())` 再 `mkdtemp`（如 `packages/api/test/agents-access.test.ts`）；不要放宽路径校验或改业务代码，明确指定非软链 `TMPDIR` 只算临时绕过。
+
+## 运行：本地 CA 签发的 HTTPS 在 Node 中默认不受信任
+
+- **现象**：调度 guardian 用 Node 直接请求本地 HTTPS 地址时因证书不受信任失败，而浏览器或 curl 正常。
+- **原因**：Node 自带 CA 集合不包含本机开发 CA，需要显式使用系统 CA 或传入 CA。
+- **规避**：本地 HTTPS 联调时给 Node 加 `--use-system-ca`（或临时 `NODE_USE_SYSTEM_CA=1`）后重新验证，不要关闭 TLS 校验；固化到脚本前确认当前 Node 版本支持该参数。

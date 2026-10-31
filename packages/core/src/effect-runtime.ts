@@ -36,8 +36,8 @@ export function isRetryableFailure(failure: RunFailure): boolean {
 }
 
 /**
- * 边界：把一个 Effect program 变成 Promise。
- * 这是 Fastify/BullMQ 与 Effect 的唯一接触点。
+ * 边界：把一个 Effect program 变成 Promise 的共用入口。
+ * api/worker 也按各自语义直接使用 Effect.runPromiseExit / Effect.runPromise。
  */
 export function runProgram<A, E>(effect: Effect.Effect<A, E>, onError?: (e: E) => void) {
   return Effect.runPromise(effect.pipe(Effect.tapError((e) => Effect.sync(() => onError?.(e)))));

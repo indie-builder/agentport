@@ -1,6 +1,6 @@
 # Effect v4 集成
 
-> 2026-10-20。记录为什么引入 Effect、边界划在哪、以及不做什么。
+> 2026-10-20 记录。运行时契约以当前代码为准；2026-10-20 的迁移与实测记录只作历史。
 
 ## 决定
 
@@ -13,7 +13,7 @@
 └───────────────────┬──────────────────────────┘
 ┌───────────────────▼──────────────────────────┐
 │ Effect 层（packages/core/src/effect-runtime） │  资源、取消、超时、错误分类
-│   Clock │ Db │ Redis │ Sandbox                │
+│   RunFailure / isRetryableFailure / runProgram│
 └───────────────────┬──────────────────────────┘
 ┌───────────────────▼──────────────────────────┐
 │ 适配器：Drizzle / ioredis / docker / SDK      │  只包一层，不重写
@@ -34,28 +34,32 @@ BullMQ 仍然负责任务分发与重试；Effect 负责单个任务内部。
 | 重试 | 手写循环 | `Schedule`，是可组合值 |
 | 错误分类 | 字符串匹配 / 自定义字段 | `E` 在类型里 |
 
-实测确认（`packages/core/test/effect-runtime.test.ts`）：
+当前单测（`packages/core/test/effect-runtime.test.ts`）覆盖：
 
-- 失败、超时、中断三条路径上 finalizer 都执行且**只执行一次**。
-- 超时不会泄漏 `TimeoutError`，统一映射为 `RunFailure('timeout')`。
+- 成功、失败、超时、中断四条路径上 `acquireRelease` 的 finalizer 都执行且**只执行一次**。
+- `isRetryableFailure` 只对 `infra` 返回 true；`runProgram` 的值与错误边界。
 
 ## 边界规则
 
 1. **对外签名不变。** `runInSandbox` 等仍是 `Promise<T>`；Effect 类型不泄漏到调用方。
-2. **不在 Fastify 路由内组织 Effect**。路由只做一件事：`await program()`。
+2. **不在 Fastify 路由内组织 Effect**。路由只调用 feature 入口；请求内 Effect 的边界见 api 模块规则。
 3. **不复刻框架能力。** 不用 `effect/http` 替代 Fastify，不用 Layer 管连接池。
 4. **不替换 zod。** 校验链路（zod → Fastify schema → 前端）保持不变。
 
+边界细则以 [ARCHITECTURE §1.2](ARCHITECTURE.md#12-状态与副作用库的职责边界) 与各包规则为准（[core](../packages/core/CLAUDE.md#effect-运行时)、[api](../packages/api/CLAUDE.md#effect-边界)、[worker](../packages/worker/CLAUDE.md#effect-边界)），本文不重复。
+
 ## 运行时契约
 
-`packages/core/src/effect-runtime.ts`：
+`packages/core/src/effect-runtime.ts` 当前只保留跨进程共用的错误分类与 Promise 边界，没有服务层或超时包装：
 
-| 服务 | 用途 | 为什么需要服务化 |
-|---|---|---|
-| `Clock` | `sleep` / `now` | 测试里注入假时钟，超时与退避无需真实等待 |
-| `Db` | 包一层 Drizzle 调用 | 统一 `DbError`，避免 Drizzle 类型外泄 |
-| `Redis` | publish / xadd / get / del | 统一 `RedisError` |
-| `Sandbox` | `acquire`（Scope 内自动销毁） | 容器释放由作用域保证 |
+| 导出 | 用途 |
+|---|---|
+| `DbError` | 包装 DB 调用失败，避免 Drizzle 错误类型外泄 |
+| `RunFailure` | 运行错误分类，`reason` 决定是否可重试 |
+| `isRetryableFailure` | 只对 `reason === 'infra'` 返回 true |
+| `runProgram` | 把 Effect program 转成 Promise 的共用入口；api/worker 也可按各自语义直接使用 `Effect.runPromiseExit` / `Effect.runPromise` |
+
+资源释放在调用点直接使用 Effect 原生 `acquireRelease` / `scoped`；`Clock` / `Db` / `Redis` / `Sandbox` 服务层与 `withTimeout` 已于 2026-10-25 删除，不再恢复。
 
 错误类型 `RunFailure.reason`：
 
@@ -67,9 +71,9 @@ BullMQ 仍然负责任务分发与重试；Effect 负责单个任务内部。
 | `timeout` | 超过 `timeoutMs` | ❌ |
 | `cancelled` | 用户取消 | ❌ |
 
-`isRetryableFailure` 只对 `infra` 返回 true。保留正则兜底：`stderr` 中的 `ECONNREFUSED` 等仍判为 `infra`。
+`isRetryableFailure` 只对 `infra` 返回 true；分类只看 `reason`，不再用正则匹配错误文本。
 
-## 本次迁移的范围
+## 迁移记录（2026-10-20）
 
 | 模块 | 改动 |
 |---|---|
@@ -81,6 +85,8 @@ BullMQ 仍然负责任务分发与重试；Effect 负责单个任务内部。
 | 测试 | `effect-runtime.test.ts`、`effect-semantics.test.ts` |
 
 ## 实测记录（2026-10-20）
+
+> 以下为 2026-10-20 的当时记录，不代表当前代码或本轮验证结果。
 
 单元与集成：`pnpm vitest run` 122 项通过；`pnpm -r typecheck` 干净；`biome check .` 无 error。
 
@@ -105,6 +111,6 @@ BullMQ 仍然负责任务分发与重试；Effect 负责单个任务内部。
 
 ## 版本事实
 
-- `effect@4.0.5`（4.0.0 发布于 2026-10-01，v4 生态仍在早期）
-- 官方 SQL/平台集成适配的是 effect 3.22，项目按「只用核心包」的方式使用 v4。
-- 因此本项目的 Effect 使用限定在：`Effect`、`Scope`、`Layer`、`Schedule`、`Clock`、测试工具。不依赖 Effect 的 SQL/HTTP 生态。
+- 记录时（2026-10-20）为 `effect@4.0.5`；当前 `pnpm-workspace.yaml` catalog 固定为 `4.0.6`。本文不据此宣称最新生态版本。
+- 记录时官方 SQL/平台集成适配的是 effect 3.22，项目按「只用核心包」的方式使用 v4。
+- 当前实际使用集中在 `Effect`、`Scope`、`Schedule` 与测试工具（`Fiber`、`Option`、`Result` 等），不依赖 Effect 的 SQL/HTTP 生态，也没有使用 `Layer` / `Clock` 服务层。

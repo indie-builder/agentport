@@ -231,7 +231,7 @@ async function authorizeAgent(
   }
 }
 
-/** 列表摘要：只给成员可见的业务字段，不含提示词、绑定或任何密钥。 */
+/** 列表摘要：成员可见的身份与委派关系；不含提示词、绑定、限制或任何密钥。 */
 function toSummary(row: repo.AgentRow) {
   return {
     id: row.id,
@@ -240,6 +240,12 @@ function toSummary(row: repo.AgentRow) {
     enabled: row.enabled,
     createdBy: row.createdBy,
     ownerBusinessId: row.ownerBusinessId,
+    slug: row.slug,
+    role: row.role,
+    model: row.model,
+    uiFormat: row.uiFormat as Agent['uiFormat'],
+    parentId: row.parentId,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
